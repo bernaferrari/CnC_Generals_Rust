@@ -9,10 +9,14 @@ use gamelogic::common::ObjectStatusTypes;
 /// Original onDie observes this hit, independently of the Body's preferred
 /// damage history. This value crosses bounded callbacks, never a world registry.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct OnDieInput {
+pub struct OnDieInput {
     pub(crate) source: Option<ObjectId>,
     pub(crate) damage_type: DamageType,
     pub(crate) death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+    /// C++ DamageInfoOutput m_actualDamageDealt / m_actualDamageClipped
+    /// (ActiveBody.cpp:540-541), read by SlowDeathBehavior overkill selection.
+    pub(crate) actual_damage_dealt: f32,
+    pub(crate) actual_damage_clipped: f32,
 }
 
 /// Immediate Player mutations issued by one Body operation. These are callbacks
@@ -47,14 +51,12 @@ impl LastDamageSourceObservation {
 pub(crate) struct DamageHitContext<'a> {
     source: Option<HostDamageFxVictim>,
     status: Option<ObjectStatusTypes>,
+    /// C++ DamageInfoInput::m_sourcePlayerMask for this impact.
+    source_player_mask: u32,
     // C++ DamageInfoInput::m_kill: an input to this one body operation.
     kill: bool,
     // Object::attemptHealing bypasses attemptDamage admission, not Body math.
     healing_entry: bool,
-    // Main's receiving GameLogic performs HiveStructureBody forwarding against
-    // the admitted SpawnBehavior child identities before entering Object Body.
-    // Standalone Object callers leave this false and retain their local adapter.
-    owned_hive_body: bool,
     // Area impacts carry their computed shared DamageInfo shock force through
     // the synchronous HiveStructureBody forwarding stack.
     shock_wave_force: Option<glam::Vec3>,
@@ -70,8 +72,8 @@ impl<'a> DamageHitContext<'a> {
         Self {
             kill: false,
             healing_entry: false,
-            owned_hive_body: false,
             shock_wave_force: None,
+            source_player_mask: 0,
             neutral_player_id: None,
             incoming_history: LastDamageSourceObservation::observe(source),
             previous_history: LastDamageSourceObservation::default(),
@@ -137,25 +139,34 @@ impl<'a> DamageHitContext<'a> {
         self
     }
 
-    pub(crate) fn with_owned_hive_body(mut self) -> Self {
-        self.owned_hive_body = true;
-        self
-    }
-
     pub(crate) fn with_shock_wave_force(mut self, force: Option<glam::Vec3>) -> Self {
         self.shock_wave_force = force;
         self
+    }
+
+    pub(crate) fn with_source_player_mask(mut self, mask: u32) -> Self {
+        self.source_player_mask = mask;
+        self
+    }
+
+    pub(crate) fn source_player_mask(&self) -> u32 {
+        self.source_player_mask
     }
 
     pub(crate) fn shock_wave_force(&self) -> Option<glam::Vec3> {
         self.shock_wave_force
     }
 
-    pub(super) fn owned_hive_body(&self) -> bool {
-        self.owned_hive_body
-    }
     pub(super) fn neutral_player_id(&self) -> Option<u32> {
         self.neutral_player_id
+    }
+
+    /// Carry the fired WeaponTemplate's DamageStatusType captured at launch.
+    pub(crate) fn with_damage_status(mut self, status: Option<ObjectStatusTypes>) -> Self {
+        if status.is_some() {
+            self.status = status;
+        }
+        self
     }
 
     pub(in crate::game_logic) fn with_status(status: ObjectStatusTypes) -> Self {

@@ -220,9 +220,6 @@ impl GameLogic {
             .get(&tunnel_id)
             .map(|o| {
                 o.is_tunnel_network_style_container()
-                    || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                        &o.template_name,
-                    )
             })
             .unwrap_or(false);
         if !is_tunnel {
@@ -264,10 +261,7 @@ impl GameLogic {
                     && o.tunnel_system_key() == old_key
                     && o.is_alive()
                     && !o.status.sold
-                    && (o.is_tunnel_network_style_container()
-                        || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                            &o.template_name,
-                        ))
+                    && (o.is_tunnel_network_style_container())
             })
             .map(|(id, _)| *id)
             .collect();
@@ -658,9 +652,6 @@ impl GameLogic {
         }
         // C++ TunnelContain/CaveContain isKickOutOnCapture = false.
         if container.is_tunnel_network_style_container()
-            || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                &container.template_name,
-            )
             || container.is_cave_style_container()
         {
             return;
@@ -912,9 +903,6 @@ impl GameLogic {
             .get(&structure_id)
             .map(|o| {
                 o.is_tunnel_network_style_container()
-                    || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                        &o.template_name,
-                    )
             })
             .unwrap_or(false);
         if is_tunnel {
@@ -931,10 +919,7 @@ impl GameLogic {
                             && o.tunnel_system_key() == player_id
                             && o.id != structure_id
                             && !o.status.sold
-                            && (o.is_tunnel_network_style_container()
-                                || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                                    &o.template_name,
-                                ))
+                            && (o.is_tunnel_network_style_container())
                     })
                     .count();
                 // friend_getTunnelCount()==1 means this is the last (others already gone).

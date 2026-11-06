@@ -89,50 +89,49 @@ mod tests {
     use super::*;
 
     fn create_window(manager: &mut WindowManager) -> Option<Rc<RefCell<GameWindow>>> {
-        manager.create_window(None, 0, 0, 10, 10).ok()
+        manager.test_create_window(None, 0, 0, 10, 10).ok()
     }
 
     #[test]
     fn script_message_window_is_owned_by_its_exact_manager_even_for_same_id() {
+        crate::test_support::ensure_ambient_host();
         let mut first = WindowManager::new();
         let mut second = WindowManager::new();
 
-        let first_id = first
-            .replace_script_message_window_with(create_window)
+        let first_id =             crate::gui::game_window::WindowEventEffects::with_standalone(|effects| first.replace_script_message_window_with(create_window, effects))
             .expect("first manager creates its message window");
-        let second_id = second
-            .replace_script_message_window_with(create_window)
+        let second_id =             crate::gui::game_window::WindowEventEffects::with_standalone(|effects| second.replace_script_message_window_with(create_window, effects))
             .expect("second manager creates its message window");
         assert_eq!(first_id, second_id, "fresh managers both allocate ID one");
         assert_eq!(first.script_message_window_id_for_test(), Some(first_id));
         assert_eq!(second.script_message_window_id_for_test(), Some(second_id));
 
-        first.destroy_script_message_window();
+        first.test_destroy_script_message_window();
         assert!(first.get_window_by_id(first_id).is_none());
         assert!(second.get_window_by_id(second_id).is_some());
         assert_eq!(first.script_message_window_id_for_test(), None);
         assert_eq!(second.script_message_window_id_for_test(), Some(second_id));
 
-        second.destroy_script_message_window();
+        second.test_destroy_script_message_window();
         assert!(second.get_window_by_id(second_id).is_none());
     }
 
     #[test]
     fn external_destroy_and_reused_id_do_not_redirect_a_stale_script_pointer() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = WindowManager::new();
-        let tracked_id = manager
-            .replace_script_message_window_with(create_window)
+        let tracked_id =             crate::gui::game_window::WindowEventEffects::with_standalone(|effects| manager.replace_script_message_window_with(create_window, effects))
             .expect("create tracked window");
         let old_window = manager
             .get_window_by_id(tracked_id)
             .expect("tracked window is registered");
 
         manager.destroy_window(old_window.clone()).unwrap();
-        manager.flush_destroy_queue();
+        manager.test_flush_destroy_queue();
         let replacement = manager
-            .create_window_with_id(None, 0, 0, 10, 10, tracked_id)
+            .test_create_window_with_id(None, 0, 0, 10, 10, tracked_id)
             .expect("reuse numeric ID after external destruction");
-        manager.destroy_script_message_window();
+        manager.test_destroy_script_message_window();
 
         let still_registered = manager
             .get_window_by_id(tracked_id)
@@ -143,26 +142,26 @@ mod tests {
 
     #[test]
     fn manager_shutdown_leaves_a_stale_weak_owner_harmless() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = WindowManager::new();
-        let tracked_id = manager
-            .replace_script_message_window_with(create_window)
+        let tracked_id =             crate::gui::game_window::WindowEventEffects::with_standalone(|effects| manager.replace_script_message_window_with(create_window, effects))
             .expect("create tracked window");
         assert_eq!(
             manager.script_message_window_id_for_test(),
             Some(tracked_id)
         );
 
-        manager.destroy_all_windows();
+        manager.test_destroy_all_windows();
         assert!(manager.get_window_by_id(tracked_id).is_none());
-        manager.destroy_script_message_window();
+        manager.test_destroy_script_message_window();
         assert_eq!(manager.script_message_window_id_for_test(), None);
     }
 
     #[test]
     fn failed_replacement_destroys_and_clears_the_previous_window_first() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = WindowManager::new();
-        let previous_id = manager
-            .replace_script_message_window_with(create_window)
+        let previous_id =             crate::gui::game_window::WindowEventEffects::with_standalone(|effects| manager.replace_script_message_window_with(create_window, effects))
             .expect("create previous message window");
         assert_eq!(
             manager.script_message_window_id_for_test(),
@@ -170,7 +169,7 @@ mod tests {
         );
 
         assert_eq!(
-            manager.replace_script_message_window_with(|_| None),
+            crate::gui::game_window::WindowEventEffects::with_standalone(|effects| manager.replace_script_message_window_with(|_| None, effects)),
             None,
             "a missing replacement layout leaves no tracked message window"
         );

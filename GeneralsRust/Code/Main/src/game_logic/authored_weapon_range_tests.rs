@@ -62,10 +62,9 @@ End
 impl Drop for RestoreInputs {
     fn drop(&mut self) {
         if let Some(previous) = self.store.take() {
-            gamelogic::weapon::with_weapon_store_mut(|store| *store = previous)
-                .expect("restore prior native store");
+            let _ = gamelogic::weapon::with_weapon_store_mut(|store| *store = previous);
         } else {
-            gamelogic::weapon::shutdown_weapon_store().expect("restore absent store");
+            let _ = gamelogic::weapon::shutdown_weapon_store();
         }
     }
 }

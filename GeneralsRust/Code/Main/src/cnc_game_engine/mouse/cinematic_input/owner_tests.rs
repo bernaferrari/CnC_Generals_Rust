@@ -201,7 +201,8 @@ fn actual_authored_input_resets_receiving_native_fields_before_next_action_witho
                 terrain: None,
                 ui: Some(&mut observer),
                 view: None,
-            };
+                        pristine_bones: None,
+};
             owner.run_object_script_with_effects(
                 &interpreter(&[
                     ScriptActionType::DisableInput,
@@ -277,7 +278,8 @@ fn missing_native_input_capability_rejects_without_ambient_handler_or_owner_writ
         terrain: None,
         ui: Some(&mut observer),
         view: None,
-    };
+                pristine_bones: None,
+};
     owner.run_object_script_with_effects(
         &interpreter(&[
             ScriptActionType::DisableInput,

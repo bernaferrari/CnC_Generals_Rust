@@ -162,6 +162,7 @@ mod marker_tests {
 
     #[test]
     fn both_scheme_layers_follow_background_marker_when_bar_moves() {
+        crate::test_support::ensure_ambient_host();
         let parent = Rc::new(RefCell::new(GameWindow::new()));
         parent.borrow_mut().set_position(0, 332).unwrap();
         let background = Rc::new(RefCell::new(GameWindow::new()));
@@ -273,7 +274,9 @@ pub fn w3d_command_bar_gen_exp_draw(
     let _ = inst_data;
     // C++ W3DCommandBarGenExpDraw (W3DControlBar.cpp:468-495): every early-out
     // returns without painting — no fallback meter track.
-    let Ok(list) = ThePlayerList().read() else {
+    let __arc_bind = ThePlayerList();
+
+    let Ok(list) = __arc_bind.read() else {
         return;
     };
     let Some(player_arc) = list.get_local_player().cloned() else {

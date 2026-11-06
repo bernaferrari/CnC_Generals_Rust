@@ -21,7 +21,7 @@ fn world_with_owner() -> (GameLogic, ObjectId) {
 #[test]
 fn direct_destroy_preserves_body_and_does_not_enter_die() {
     let (mut world, id) = world_with_owner();
-    world.destroy_object(id);
+    world.destroy_object(id).unwrap();
     let object = world.host_object(id).unwrap();
     assert!(object.status.destroyed);
     assert!(
@@ -33,7 +33,7 @@ fn direct_destroy_preserves_body_and_does_not_enter_die() {
         (40.0, 50.0)
     );
     assert!(world.health_events.snapshot_damage().is_empty());
-    world.destroy_object(id);
+    world.destroy_object(id).unwrap();
     assert_eq!(
         world
             .objects_to_destroy
@@ -52,7 +52,7 @@ fn direct_destroy_clears_goal_and_path_before_physical_removal() {
     let object = world.host_object_mut(id).unwrap();
     object.set_locomotor_goal_position_on_path();
     object.movement.path = vec![Vec3::new(10.0, 0.0, 0.0)];
-    world.destroy_object(id);
+    world.destroy_object(id).unwrap();
     let object = world.host_object(id).unwrap();
     assert_eq!(object.locomotor_goal_type, LocoGoalType::None);
     assert!(object.movement.path.is_empty());
@@ -67,7 +67,7 @@ fn direct_destroy_clears_goal_and_path_before_physical_removal() {
 fn direct_destroy_final_drain_does_not_invent_death_particles() {
     let (mut world, id) = world_with_owner();
     let before = world.combat_particles.system_count();
-    world.destroy_object(id);
+    world.destroy_object(id).unwrap();
     world.process_destroy_list();
     assert_eq!(
         world.combat_particles.system_count(),
@@ -110,13 +110,13 @@ fn direct_destroy_queue_and_reset_do_not_touch_same_id_in_another_world() {
     let (mut second, other) = world_with_owner();
     assert_eq!(id, other);
     second.host_object_mut(other).unwrap().health.current = 73.0;
-    first.destroy_object(id);
+    first.destroy_object(id).unwrap();
     first.reset();
     first.process_destroy_list();
     let object = second.host_object(other).unwrap();
     assert_eq!(object.health.current, 73.0);
     assert!(!object.status.destroyed && !object.status.on_die_started);
-    second.destroy_object(other);
+    second.destroy_object(other).unwrap();
     second.process_destroy_list();
     assert!(second.host_object(other).is_none());
 }
@@ -132,8 +132,8 @@ fn snapshot_round_trips_a_pending_physical_removal_and_drains_it_once() {
             Vec3::new(8.0, 0.0, 0.0),
         )
         .unwrap();
-    world.destroy_object(id);
-    world.destroy_object(second_id);
+    world.destroy_object(id).unwrap();
+    world.destroy_object(second_id).unwrap();
     let source_order = world.objects.ordered_ids().to_vec();
     let builder = crate::save_load::snapshot::SnapshotBuilder::new();
     let snapshot = builder
@@ -235,7 +235,7 @@ fn local_open_contain_direct_delete_cascades_in_list_order_before_removal() {
         assert!(world.host_object_mut(parent).unwrap().add_occupant(id));
         world.set_fixture_object_contained_by(id, Some(parent));
     }
-    world.destroy_object(parent);
+    world.destroy_object(parent).unwrap();
     assert_eq!(
         world
             .objects_to_destroy
@@ -317,11 +317,11 @@ fn direct_tunnel_delete_remaps_then_directly_deletes_last_shared_pool() {
         .filter(|id| ![first, second, child].contains(id))
         .collect();
     unrelated.sort_by_key(|id| id.0);
-    world.destroy_object(first);
+    world.destroy_object(first).unwrap();
     assert_eq!(world.host_object(child).unwrap().contained_by, Some(second));
     assert!(!world.host_object(child).unwrap().status.destroyed);
     assert_eq!(world.tunnel_network.contain_count(key), 1);
-    world.destroy_object(second);
+    world.destroy_object(second).unwrap();
     let object = world.host_object(child).unwrap();
     assert!(object.status.destroyed && !object.status.on_die_started);
     assert_eq!(object.health.current, hp);
@@ -357,7 +357,7 @@ fn unregistered_tunnel_delete_does_not_consume_a_live_shared_pool() {
     assert!(world.tunnel_network.record_enter(key, child, tunnel));
     world.tunnel_network.network_mut(key).tunnel_ids.clear();
     let before = world.tunnel_network.tunnels_destroyed;
-    world.destroy_object(tunnel);
+    world.destroy_object(tunnel).unwrap();
     assert_eq!(world.tunnel_network.tunnels_destroyed, before);
     assert!(world.tunnel_network.is_in_network(key, child));
     assert!(!world.host_object(child).unwrap().status.destroyed);

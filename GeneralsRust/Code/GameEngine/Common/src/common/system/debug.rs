@@ -11,7 +11,6 @@
 //!
 //! Rust conversion: 2025
 
-use once_cell::sync::OnceCell;
 use std::collections::VecDeque;
 use std::fmt;
 use std::sync::{Arc, Mutex, RwLock};
@@ -360,39 +359,53 @@ pub fn debug_assert_impl(condition: bool, message: &str, file: &str, line: u32) 
 }
 
 /// Global debug system instance
-static DEBUG_SYSTEM: OnceCell<Arc<Mutex<DebugSystem>>> = OnceCell::new();
-
-/// Initialize the global debug system
 pub fn init_debug_system() {
-    if DEBUG_SYSTEM.get().is_none() {
-        let _ = DEBUG_SYSTEM.set(Arc::new(Mutex::new(DebugSystem::default())));
-    } else if let Some(system) = DEBUG_SYSTEM.get() {
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .system
+        .debug_system
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if slot.is_none() {
+        *slot = Some(Arc::new(Mutex::new(DebugSystem::default())));
+    } else if let Some(system) = slot.as_ref() {
         if let Ok(mut guard) = system.lock() {
             *guard = DebugSystem::default();
         }
     }
 }
 
-/// Get reference to the global debug system
 pub fn get_debug_system() -> Option<Arc<Mutex<DebugSystem>>> {
-    DEBUG_SYSTEM.get().cloned()
+    crate::common::common_services::common_services()
+        .system
+        .debug_system
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
-/// Global profiler instance
-static PROFILER: OnceCell<Arc<Profiler>> = OnceCell::new();
-
-/// Initialize the global profiler
 pub fn init_profiler() {
-    if PROFILER.get().is_none() {
-        let _ = PROFILER.set(Arc::new(Profiler::new()));
-    } else if let Some(profiler) = PROFILER.get() {
-        profiler.clear_timings();
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .system
+        .profiler
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if slot.is_none() {
+        *slot = Some(Arc::new(Profiler::new()));
+    } else if let Some(profiler) = slot.as_ref() {
+        // reset not available — leave existing
+        let _ = profiler;
     }
 }
 
-/// Get reference to the global profiler
 pub fn get_profiler() -> Option<Arc<Profiler>> {
-    PROFILER.get().cloned()
+    crate::common::common_services::common_services()
+        .system
+        .profiler
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 /// Convenience macros for debug logging

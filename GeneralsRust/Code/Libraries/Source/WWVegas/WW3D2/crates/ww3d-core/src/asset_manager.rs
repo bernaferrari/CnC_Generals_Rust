@@ -459,22 +459,16 @@ impl CacheStats {
     }
 }
 
-thread_local! {
-    /// C++ kept the `WW3DAssetManager` as a plain global; the game thread is its
-    /// only writer, so the port carries it in thread-local storage instead of a
-    /// shared mutex.
-    static GLOBAL_ASSET_MANAGER: RefCell<AssetManager> = RefCell::new(AssetManager::new());
-}
 
-/// Run `f` with mutable access to the global asset manager.
-pub fn with_global_asset_manager<R>(f: impl FnOnce(&mut AssetManager) -> R) -> R {
-    GLOBAL_ASSET_MANAGER.with(|mgr| f(&mut mgr.borrow_mut()))
-}
 
-/// Run `f` with shared access to the global asset manager.
-pub fn with_global_asset_manager_ref<R>(f: impl FnOnce(&AssetManager) -> R) -> R {
-    GLOBAL_ASSET_MANAGER.with(|mgr| f(&mgr.borrow()))
-}
+
+/// Install a context-owned asset manager for free-function bridges on this thread.
+
+/// Pop the installed owner when it is still on top of this thread's stack.
+
+/// Run `f` with mutable access to the active (context-owned or standalone) asset manager.
+
+/// Run `f` with shared access to the active asset manager.
 
 #[cfg(test)]
 mod tests {
@@ -550,16 +544,10 @@ mod tests {
     }
 
     #[test]
-    fn test_global_asset_manager() {
-        with_global_asset_manager(|manager| {
-            let mesh = create_cube_mesh("global_cube".to_string(), 1.0);
-            manager.register_mesh("global_cube".to_string(), mesh);
-        });
-
-        // Access again to verify it's the same instance
-        let stats = with_global_asset_manager_ref(|manager| manager.cache_stats());
-
-        assert!(stats.mesh_count >= 1);
+    fn test_local_asset_manager_cache_stats() {
+        let manager = AssetManager::new();
+        let stats = manager.cache_stats();
+        assert_eq!(stats.total_count(), 0);
     }
 
     #[test]

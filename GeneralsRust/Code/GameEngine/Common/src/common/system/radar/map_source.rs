@@ -34,14 +34,27 @@ pub fn sample_radar_map_grid(
     heights
 }
 
-static MAP_SOURCE: OnceLock<Arc<dyn RadarMapSource>> = OnceLock::new();
-
 pub fn register_radar_map_source(source: Arc<dyn RadarMapSource>) -> bool {
-    MAP_SOURCE.set(source).is_ok()
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .system
+        .radar_map_source
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if slot.is_some() {
+        return false;
+    }
+    *slot = Some(source);
+    true
 }
 
-pub fn radar_map_source() -> Option<&'static dyn RadarMapSource> {
-    MAP_SOURCE.get().map(|s| s.as_ref())
+pub fn radar_map_source() -> Option<Arc<dyn RadarMapSource>> {
+    crate::common::common_services::common_services()
+        .system
+        .radar_map_source
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 impl RadarSystem {
@@ -85,7 +98,7 @@ impl RadarSystem {
         let Some(source) = radar_map_source() else {
             return false;
         };
-        self.resample_terrain_with_source(source)
+        self.resample_terrain_with_source(source.as_ref())
     }
 
     pub fn resample_terrain_with_source(&mut self, source: &dyn RadarMapSource) -> bool {

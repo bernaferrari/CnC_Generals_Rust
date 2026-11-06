@@ -8,7 +8,6 @@
 //!
 //! Rust port: 2025
 
-use once_cell::sync::OnceCell;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::common::ini::{INI, INIError, INIResult};
@@ -107,6 +106,15 @@ pub struct GameLODManager {
     min_dynamic_particle_priority: ParticlePriorityType,
     /// Priorities at/above this never skip. C++ `m_minDynamicParticleSkipPriority`.
     min_dynamic_particle_skip_priority: ParticlePriorityType,
+
+    /// Test/probe overrides (owned on the manager; not process TLS).
+    pub(crate) mem_passed_override: Option<bool>,
+    pub(crate) cpu_freq_mhz_override: Option<i32>,
+    pub(crate) cpu_type_override: Option<CpuType>,
+    pub(crate) video_chip_override: Option<ChipsetType>,
+    pub(crate) ram_mb_override: Option<i32>,
+    /// When true, recommended LOD is not written to Options.ini (tests).
+    pub(crate) skip_options_persist: bool,
 }
 
 impl Default for GameLODManager {
@@ -145,6 +153,12 @@ impl GameLODManager {
             slow_death_scale: 1.0,
             min_dynamic_particle_priority: ParticlePriorityType::WeaponExplosion,
             min_dynamic_particle_skip_priority: ParticlePriorityType::WeaponExplosion,
+            mem_passed_override: None,
+            cpu_freq_mhz_override: None,
+            cpu_type_override: None,
+            video_chip_override: None,
+            ram_mb_override: None,
+            skip_options_persist: false,
         }
     }
 
@@ -175,6 +189,12 @@ impl GameLODManager {
         self.slow_death_scale = 1.0;
         self.min_dynamic_particle_priority = ParticlePriorityType::WeaponExplosion;
         self.min_dynamic_particle_skip_priority = ParticlePriorityType::WeaponExplosion;
+        self.mem_passed_override = None;
+        self.cpu_freq_mhz_override = None;
+        self.cpu_type_override = None;
+        self.video_chip_override = None;
+        self.ram_mb_override = None;
+        self.skip_options_persist = false;
     }
 
     pub(crate) fn get_static_lod_level(&self) -> StaticGameLODLevel {
@@ -568,36 +588,10 @@ impl GameLODManager {
 // Global Instance Management
 // ============================================================================
 
-/// Global Game LOD Manager instance
-static GAME_LOD_MANAGER: OnceCell<RwLock<GameLODManager>> = OnceCell::new();
-
 /// Get the global Game LOD Manager (read access)
-pub fn get_game_lod_manager() -> RwLockReadGuard<'static, GameLODManager> {
-    GAME_LOD_MANAGER
-        .get_or_init(|| RwLock::new(GameLODManager::new()))
-        .read()
-        .unwrap()
-}
 
 /// Get the global Game LOD Manager (write access)
-pub fn get_game_lod_manager_mut() -> RwLockWriteGuard<'static, GameLODManager> {
-    GAME_LOD_MANAGER
-        .get_or_init(|| RwLock::new(GameLODManager::new()))
-        .write()
-        .unwrap()
-}
-
 /// Initialize the global Game LOD Manager
-pub fn init_game_lod_manager() {
-    if GAME_LOD_MANAGER.get().is_none() {
-        let _ = GAME_LOD_MANAGER.set(RwLock::new(GameLODManager::new()));
-    } else if let Some(manager) = GAME_LOD_MANAGER.get() {
-        if let Ok(mut guard) = manager.write() {
-            guard.init();
-        }
-    }
-}
-
 /// C++ `TheGameLODManager->isParticleSkipped()`.
 pub fn is_particle_skipped() -> bool {
     get_game_lod_manager_mut().is_particle_skipped()
@@ -627,6 +621,30 @@ pub fn get_dynamic_lod_level() -> DynamicGameLODLevel {
 // ============================================================================
 // INI Parser Functions
 // ============================================================================
+
+
+fn ini_game_lod_cell() -> std::sync::Arc<std::sync::RwLock<GameLODManager>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.game_lod)
+}
+
+
+pub fn get_game_lod_manager() -> std::sync::RwLockReadGuard<'static, GameLODManager> {
+    let cell = ini_game_lod_cell();
+    let guard = cell.read().expect("GameLODManager poisoned");
+    unsafe { std::mem::transmute(guard) }
+}
+
+
+pub fn get_game_lod_manager_mut() -> std::sync::RwLockWriteGuard<'static, GameLODManager> {
+    let cell = ini_game_lod_cell();
+    let guard = cell.write().expect("GameLODManager poisoned");
+    unsafe { std::mem::transmute(guard) }
+}
+
+
+pub fn init_game_lod_manager() {
+    ini_game_lod_cell().write().expect("GameLODManager poisoned").init();
+}
 
 /// Parse StaticGameLOD block from INI
 /// This is the main entry point for the INI parser

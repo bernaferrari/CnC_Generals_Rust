@@ -58,39 +58,6 @@
 //! - **Hierarchical Animation**: Bone animation with blending
 //! - **Mesh Deformation**: Vertex influences and skinning
 //! - **Material System**: Advanced material features with modern extensions
-//!
-//! ## Usage Example
-//!
-//! ```rust,no_run
-//! use crate::w3d::{W3DDevice, W3DDeviceSettings};
-//! use winit::event_loop::EventLoop;
-//!
-//! async fn setup_w3d() -> Result<(), Box<dyn std::error::Error>> {
-//!     let event_loop = EventLoop::new()?;
-//!     let settings = W3DDeviceSettings {
-//!         width: 1920,
-//!         height: 1080,
-//!         enable_pbr: true,
-//!         enable_deferred_rendering: true,
-//!         enable_gpu_culling: true,
-//!         enable_temporal_effects: true,
-//!         shadow_quality: ShadowQuality::Ultra,
-//!         ..Default::default()
-//!     };
-//!     
-//!     let mut device = W3DDevice::new(&event_loop, settings).await?;
-//!     device.load_w3d_model("models/gdi_tank.w3d").await?;
-//!     
-//!     // Begin advanced rendering
-//!     device.begin_frame()?;
-//!     device.render_deferred_pass()?;
-//!     device.render_forward_pass()?;
-//!     device.render_post_processing()?;
-//!     device.present()?;
-//!     
-//!     Ok(())
-//! }
-//! ```
 
 use std::sync::Arc;
 use thiserror::Error;
@@ -98,7 +65,6 @@ use thiserror::Error;
 // Core W3D system modules
 pub mod animation;
 pub mod bone;
-pub mod device;
 pub mod format;
 pub mod lighting;
 pub mod material;
@@ -107,29 +73,23 @@ pub mod memory;
 pub mod mesh;
 pub mod particles;
 pub mod performance;
-pub mod post_processing;
-pub mod renderer;
 pub mod shader;
 pub mod texture;
 
 // Re-export core types for convenience
 pub use animation::{W3DAnimatedModel, W3DAnimationController, W3DSkeletonState};
 pub use bone::W3DHTree;
-pub use device::{W3DDevice, W3DDeviceError, W3DDeviceSettings};
 pub use format::{W3DChunk, W3DFileFormat, W3DLoader};
 pub use material::{W3DMaterial, W3DMaterialManager, W3DMaterialType};
 pub use math::{W3DMatrix, W3DQuaternion, W3DTransform, W3DVector};
 pub use mesh::{W3DMesh, W3DMeshBuilder, W3DMeshError};
 pub use particles::W3DParticleSystemBridge;
-pub use renderer::{W3DRenderPass, W3DRenderSettings, W3DRenderer};
 pub use shader::W3DShaderManager;
 pub use texture::{W3DTexture, W3DTextureManager, W3DTextureSettings};
 
 /// W3D System-wide error types
 #[derive(Error, Debug)]
 pub enum W3DError {
-    #[error("Device error: {0}")]
-    Device(#[from] W3DDeviceError),
     #[error("Mesh error: {0}")]
     Mesh(#[from] W3DMeshError),
     #[error("Resource not found: {name}")]
@@ -392,6 +352,7 @@ mod tests {
 
     #[test]
     fn test_config_defaults() {
+        crate::test_support::ensure_ambient_host();
         let config = W3DConfig::default();
         assert!(config.enable_pbr);
         assert!(config.enable_deferred_rendering);
@@ -400,6 +361,7 @@ mod tests {
 
     #[test]
     fn test_profiler() {
+        crate::test_support::ensure_ambient_host();
         let mut profiler = W3DProfiler::new(60);
         profiler.update(0.016); // 60 FPS
         assert!((profiler.stats().fps - 62.5).abs() < 0.1);

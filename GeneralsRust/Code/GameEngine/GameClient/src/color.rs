@@ -49,6 +49,7 @@ mod tests {
 
     #[test]
     fn game_darken_color_returns_original_outside_cpp_range() {
+        crate::test_support::ensure_ambient_host();
         let color = game_make_color(100, 150, 200, 255);
 
         assert_eq!(game_darken_color(color, 0), color);
@@ -59,6 +60,7 @@ mod tests {
 
     #[test]
     fn game_darken_color_uses_cpp_integer_truncation() {
+        crate::test_support::ensure_ambient_host();
         let color = game_make_color(100, 150, 200, 255);
 
         assert_eq!(

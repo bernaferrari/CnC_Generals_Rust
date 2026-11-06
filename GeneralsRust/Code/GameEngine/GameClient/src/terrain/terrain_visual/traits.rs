@@ -591,6 +591,7 @@ mod native_motion_owner_tests {
     }
     #[test]
     fn actual_native_updates_keep_receiving_water_gravity_independent() {
+        crate::test_support::ensure_ambient_host();
         let mut first = water_owner();
         let mut second = water_owner();
         let motion = |gravity| TerrainVisualMotion {

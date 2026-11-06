@@ -45,6 +45,7 @@ fn owner(slave: bool) -> (ParticleSystemManager, ParticleSystemId) {
 
 #[test]
 fn owned_particle_lod_reject_and_always_render_do_not_advance_skip_counter() {
+    crate::test_support::ensure_ambient_host();
     let mut owner = lod(IniPriority::Critical, IniPriority::AlwaysRender, 3);
     assert!(owner.should_skip(ParticlePriorityType::Constant));
     assert!(!owner.should_skip(ParticlePriorityType::AlwaysRender));
@@ -56,6 +57,7 @@ fn owned_particle_lod_reject_and_always_render_do_not_advance_skip_counter() {
 
 #[test]
 fn owned_particle_lod_actual_admission_keeps_same_id_peers_independent() {
+    crate::test_support::ensure_ambient_host();
     let (mut first, id) = owner(false);
     let (mut peer, peer_id) = owner(false);
     assert_eq!(id, peer_id);
@@ -76,6 +78,7 @@ fn owned_particle_lod_actual_admission_keeps_same_id_peers_independent() {
 
 #[test]
 fn owned_particle_lod_slave_gate_uses_same_owner_and_master_priority() {
+    crate::test_support::ensure_ambient_host();
     let (mut manager, id) = owner(true);
     let slave = manager
         .find_particle_system(id)
@@ -104,6 +107,7 @@ fn owned_particle_lod_slave_gate_uses_same_owner_and_master_priority() {
 
 #[test]
 fn owned_particle_admission_field_rejection_cannot_evict_existing_particles() {
+    crate::test_support::ensure_ambient_host();
     let (mut manager, id) = owner(false);
     manager.set_fallback_particle_limits(2, 1);
     let maximum = manager.live_max_particle_count();
@@ -141,6 +145,7 @@ fn owned_particle_admission_field_rejection_cannot_evict_existing_particles() {
 
 #[test]
 fn owned_particle_admission_zero_cap_evicts_before_rejecting_new_particle() {
+    crate::test_support::ensure_ambient_host();
     let (mut manager, id) = owner(false);
     let info = crate::effects::particle_system::ParticleInfo::default();
     manager

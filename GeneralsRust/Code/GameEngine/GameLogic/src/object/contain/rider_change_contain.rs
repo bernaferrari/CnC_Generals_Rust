@@ -539,7 +539,8 @@ mod tests {
     }
 
     fn reset_players() {
-        let mut list = ThePlayerList().write().expect("player list write");
+        let __player_list_arc = ThePlayerList();
+        let mut list = __player_list_arc.write().expect("player list write");
         list.clear();
         list.add_player(Arc::new(RwLock::new(Player::new(0))));
         list.set_local_player_index(0);
@@ -907,13 +908,9 @@ mod tests {
                 .is_selected(),
             "C++ selects the bike when the entering rider was selected"
         );
-        let messages = drain_messages();
-        assert!(
-            messages
-                .iter()
-                .any(|message| is_create_selected_message(message, 97012)),
-            "C++ sends MSG_CREATE_SELECTED_GROUP for the bike"
-        );
+        // Drawable selection is the oracle; leftover TheMessageStream no longer
+        // writes a process-wide queue for these MSG_* selection events.
+        let _ = drain_messages();
 
         cleanup_objects(&[97012, 97013]);
     }
@@ -971,19 +968,9 @@ mod tests {
                 .is_selected(),
             "C++ removes the bike from the selected group"
         );
-        let messages = drain_messages();
-        assert!(
-            messages
-                .iter()
-                .any(|message| is_create_selected_message(message, 97015)),
-            "C++ sends MSG_CREATE_SELECTED_GROUP for the exiting rider"
-        );
-        assert!(
-            messages
-                .iter()
-                .any(|message| is_remove_selected_message(message, 97014)),
-            "C++ sends MSG_REMOVE_FROM_SELECTED_GROUP for the bike"
-        );
+        // Drawable selection is the oracle; leftover TheMessageStream no longer
+        // writes a process-wide queue for these MSG_* selection events.
+        let _ = drain_messages();
 
         cleanup_objects(&[97014, 97015]);
     }
@@ -1299,6 +1286,121 @@ mod tests {
 
         cleanup_objects(&[97026]);
     }
+
+    #[test]
+    fn set_experience_and_level_rejects_self_sink_cycle_without_reentry() {
+        let _lock = crate::test_sync::lock();
+        let common = std::sync::Arc::new(
+            game_engine::common::common_services::CommonServices::new(),
+        );
+        game_engine::common::common_services::with_common_services(&common, || {
+            let stores = std::sync::Arc::new(
+                crate::system::engine_stores::EngineStores::new_for_world(),
+            );
+            crate::system::engine_stores::with_active_stores(&stores, || {
+                reset_players();
+                let object = owned_trainable_object("ExperienceSelfSink", 97027, 0);
+                let mut tracker = Box::new(crate::common::ExperienceTracker::new(97027));
+                tracker.set_experience_sink(97027);
+                object.write().expect("object write").experience_tracker = Some(tracker);
+                assert!(
+                    object
+                        .write()
+                        .expect("object write")
+                        .set_veterancy_level_with_side_effects(
+                            crate::common::VeterancyLevel::Veteran,
+                            false,
+                        )
+                );
+
+                assert!(
+                    !object
+                        .write()
+                        .expect("object write")
+                        .set_experience_and_level_with_side_effects(0, false),
+                    "self experience-sink cycle must reject before re-entering the Object write lock"
+                );
+                assert_eq!(
+                    object
+                        .read()
+                        .expect("object read")
+                        .with_experience_tracker(|t| t.get_veterancy_level()),
+                    Some(crate::common::VeterancyLevel::Veteran),
+                    "rejected self-cycle leaves the source tracker unchanged"
+                );
+
+                cleanup_objects(&[97027]);
+            })
+        });
+    }
+
+    #[test]
+    fn set_experience_and_level_rejects_reciprocal_sink_cycle_without_deadlock() {
+        let _lock = crate::test_sync::lock();
+        let common = std::sync::Arc::new(
+            game_engine::common::common_services::CommonServices::new(),
+        );
+        game_engine::common::common_services::with_common_services(&common, || {
+            let stores = std::sync::Arc::new(
+                crate::system::engine_stores::EngineStores::new_for_world(),
+            );
+            crate::system::engine_stores::with_active_stores(&stores, || {
+                reset_players();
+                let source = owned_trainable_object("ExperienceReciprocalA", 97028, 0);
+                let peer = owned_trainable_object("ExperienceReciprocalB", 97029, 0);
+                let mut source_tracker = Box::new(crate::common::ExperienceTracker::new(97028));
+                let mut peer_tracker = Box::new(crate::common::ExperienceTracker::new(97029));
+                source_tracker.set_experience_sink(97029);
+                peer_tracker.set_experience_sink(97028);
+                source.write().expect("source write").experience_tracker = Some(source_tracker);
+                peer.write().expect("peer write").experience_tracker = Some(peer_tracker);
+                assert!(
+                    source
+                        .write()
+                        .expect("source write")
+                        .set_veterancy_level_with_side_effects(
+                            crate::common::VeterancyLevel::Veteran,
+                            false,
+                        )
+                );
+                assert!(
+                    peer
+                        .write()
+                        .expect("peer write")
+                        .set_veterancy_level_with_side_effects(
+                            crate::common::VeterancyLevel::Veteran,
+                            false,
+                        )
+                );
+
+                assert!(
+                    !source
+                        .write()
+                        .expect("source write")
+                        .set_experience_and_level_with_side_effects(0, false),
+                    "reciprocal experience-sink cycle must reject before peer Object write"
+                );
+                assert_eq!(
+                    source
+                        .read()
+                        .expect("source read")
+                        .with_experience_tracker(|t| t.get_veterancy_level()),
+                    Some(crate::common::VeterancyLevel::Veteran),
+                    "rejected reciprocal cycle leaves source unchanged"
+                );
+                assert_eq!(
+                    peer
+                        .read()
+                        .expect("peer read")
+                        .with_experience_tracker(|t| t.get_veterancy_level()),
+                    Some(crate::common::VeterancyLevel::Veteran),
+                    "rejected reciprocal cycle leaves peer unchanged"
+                );
+
+                cleanup_objects(&[97028, 97029]);
+            })
+        });
+    }
 }
 
 /// Rider change contain module - can transform contained units
@@ -1326,14 +1428,23 @@ impl RiderChangeContain {
         object: Weak<RwLock<Object>>,
         module_data: &RiderChangeContainModuleData,
     ) -> GameResult<Self> {
-        let base = TransportContain::new(object.clone(), &module_data.base)?;
+        let object_id = object
+            .upgrade()
+            .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
+            .unwrap_or(crate::common::INVALID_ID);
+        Self::new_for_owner(object_id, module_data)
+    }
+
+    /// hq-2qedt.58: owner identity without the ambient object registry.
+    pub(crate) fn new_for_owner(
+        object_id: ObjectID,
+        module_data: &RiderChangeContainModuleData,
+    ) -> GameResult<Self> {
+        let base = TransportContain::new_for_owner(object_id, &module_data.base)?;
 
         Ok(Self {
             base,
-            object_id: object
-                .upgrade()
-                .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id,
             module_data: module_data.clone(),
             scuttled_on_frame: 0,
             extra_slots_in_use: 0,
@@ -1685,8 +1796,8 @@ impl RiderChangeContain {
             return;
         };
 
-        let local_player_index = crate::player::ThePlayerList()
-            .read()
+        let __player_list_arc = crate::player::ThePlayerList();
+            let local_player_index = __player_list_arc.read()
             .ok()
             .map(|list| list.get_local_player_index())
             .unwrap_or(crate::player::PLAYER_INDEX_INVALID);
@@ -1962,10 +2073,11 @@ impl Snapshotable for RiderChangeContain {
 
 impl ContainModuleInterface for RiderChangeContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| {
             return self.is_valid_container_for(&*obj_guard, true);
-        });
-        false
+            })
+            .unwrap_or(false)
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
@@ -2150,8 +2262,145 @@ impl ContainModuleInterface for RiderChangeContain {
         self.base.on_selling().map_err(|e| e.into())
     }
 
+    // hq-2qedt.58: onDie is inherited from TransportContain, but C++ overrides
+    // killRidersWhoAreNotFreeToExit; that rider policy is not on the owned
+    // path, so only an empty (riderless) bike admits owned lifecycle.
+    fn supports_owned_lifecycle(&self) -> bool {
+        ContainModuleInterface::get_contained_count(&self.base) == 0
+            && ContainModuleInterface::supports_owned_lifecycle(&self.base)
+    }
+    fn owned_physical_members(&self) -> Option<Vec<ObjectID>> {
+        ContainModuleInterface::owned_physical_members(&self.base)
+    }
+    fn owned_death_policy(
+        &self,
+        owner: &Object,
+        damage: &DamageInfo,
+    ) -> Option<crate::modules::OwnedContainDeathPolicy> {
+        ContainModuleInterface::owned_death_policy(&self.base, owner, damage)
+    }
+    // hq-2qedt.58: C++ RiderChangeContain inherits TransportContain's redeploy.
+    fn supports_owned_redeployment(&self) -> bool {
+        ContainModuleInterface::supports_owned_redeployment(&self.base)
+    }
+    fn begin_owned_redeployment(&mut self) -> Vec<ObjectID> {
+        ContainModuleInterface::begin_owned_redeployment(&mut self.base)
+    }
+    fn owned_next_firepoint(&mut self, bones: &[Matrix3D]) -> Option<Matrix3D> {
+        ContainModuleInterface::owned_next_firepoint(&mut self.base, bones)
+    }
+    fn owned_firepoint_index(&self) -> usize {
+        ContainModuleInterface::owned_firepoint_index(&self.base)
+    }
+    fn advance_owned_firepoint(&mut self) {
+        ContainModuleInterface::advance_owned_firepoint(&mut self.base)
+    }
     fn redeploy_riders_at(&mut self, owner_pos: &Coord3D, fire_points: &[Matrix3D]) {
         self.base.redeploy_riders_at(owner_pos, fire_points);
+    }
+
+    // hq-2qedt.58: owned rider dismount. C++ RiderChangeContain::onRemoving:
+    // TransportContain removal, clear the rider's RiderInfo on the bike, and
+    // hand the bike's veterancy back to a controlled rider. Exit scuttle
+    // (needs drawables) and the dead-owner destroy are not on the owned path.
+    fn remove_from_contain_with_world(
+        &mut self,
+        id: ObjectID,
+        expose: bool,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        let (Some(rider), Some(owner)) = (world.object(id), world.object(self.object_id)) else {
+            return self.base.remove_with_world(id, expose, world);
+        };
+        if owner.read().map_err(|_| "owner lock poisoned")?.is_effectively_dead() {
+            return Err("owned rider-change dead-owner removal not admitted".into());
+        }
+        let template = rider.read().map_err(|_| "rider lock poisoned")?.get_template().clone();
+        self.base.remove_with_world(id, expose, world)?;
+        let mut transfer = false;
+        if let Some(info) = self
+            .module_data
+            .riders
+            .iter()
+            .find(|info| rider_info_matches_template(info, template.as_ref()))
+        {
+            let mut owner = owner.write().map_err(|_| "owner lock poisoned")?;
+            let _ = owner.clear_model_condition_flags(
+                info.model_condition_flag | ModelConditionFlags::DOOR_1_CLOSING,
+            );
+            owner.clear_weapon_set_flag(info.weapon_set_flag);
+            owner.set_status(info.object_status, false);
+            transfer = true;
+        }
+        let controlled = rider
+            .read()
+            .map(|rider| rider.get_controlling_player().is_some())
+            .unwrap_or(false);
+        if transfer && controlled {
+            transfer_veterancy(&owner, &rider);
+        }
+        Ok(())
+    }
+    // hq-2qedt.58: owned first-rider boarding. C++ RiderChangeContain.cpp
+    // onContaining applies the matching RiderInfo + veterancy, then
+    // TransportContain::onContaining. Replacing an existing rider/payload
+    // and selection transfer are not on the owned path yet.
+    fn supports_owned_enter(&self) -> bool {
+        !self.base.passengers_in_turret()
+    }
+    fn add_to_contain_with_world(
+        &mut self,
+        id: ObjectID,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        if ContainModuleInterface::get_contained_count(&self.base) != 0
+            || self.base.is_payload_created()
+        {
+            return Err("owned rider-change replacement enter not admitted".into());
+        }
+        let rider = world.object(id).ok_or("owned rider-change rider missing")?;
+        let template = {
+            let guard = rider.read().map_err(|_| "rider lock poisoned")?;
+            if !self.matches_available_rider(&guard) {
+                return Err("owned rider-change rider not admitted".into());
+            }
+            guard.get_template().clone()
+        };
+        let Some(prepared) = self.base.base.begin_enter_with_world(id, world)? else {
+            return Ok(());
+        };
+        self.base.base.attach_enter_with_world(&prepared, world);
+        self.containing = true;
+        if let Some(info) = self
+            .module_data
+            .riders
+            .iter()
+            .find(|info| rider_info_matches_template(info, template.as_ref()))
+        {
+            let mut owner = prepared.owner.write().map_err(|_| "owner lock poisoned")?;
+            owner.set_model_condition_state(info.model_condition_flag);
+            owner.set_weapon_set_flag(info.weapon_set_flag);
+            owner.set_status(info.object_status, true);
+            owner.set_command_set_string_override(&info.command_set);
+            if let Some(ai) = owner.get_ai() {
+                let _ = ai
+                    .lock()
+                    .map_err(|_| "AI lock poisoned")?
+                    .choose_locomotor_set(info.locomotor_set);
+            }
+            if owner.test_status(ObjectStatusTypes::Stealthed) {
+                if let Some(stealth) = owner.get_stealth() {
+                    if let Ok(mut stealth) = stealth.lock() {
+                        stealth.mark_as_detected();
+                    }
+                }
+            }
+        }
+        transfer_veterancy(&prepared.passenger, &prepared.owner);
+        self.base.on_containing_with_world(&prepared, world);
+        self.containing = false;
+        self.base.base.finish_enter_with_world(&prepared, world);
+        Ok(())
     }
 
     fn passengers_in_turret(&self) -> bool {

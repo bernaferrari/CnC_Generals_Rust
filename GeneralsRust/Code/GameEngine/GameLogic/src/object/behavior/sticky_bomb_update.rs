@@ -40,6 +40,9 @@ pub struct StickyBombUpdateModuleData {
     pub attach_to_bone: AsciiString,
     pub offset_z: Real,
     pub geometry_based_damage_weapon_template: Option<Arc<WeaponTemplate>>,
+    /// Authored `GeometryBasedDamageWeapon` name, retained even when no
+    /// WeaponStore is bound at parse so the receiving world can rebind it.
+    pub geometry_based_damage_weapon_name: Option<String>,
     pub geometry_based_damage_fx: Option<FXList>,
 }
 
@@ -50,6 +53,7 @@ impl Default for StickyBombUpdateModuleData {
             attach_to_bone: AsciiString::new(),
             offset_z: 10.0,
             geometry_based_damage_weapon_template: None,
+            geometry_based_damage_weapon_name: None,
             geometry_based_damage_fx: None,
         }
     }
@@ -108,6 +112,8 @@ fn parse_geometry_based_damage_weapon(
             .ok()
             .flatten();
     data.geometry_based_damage_weapon_template = template;
+    data.geometry_based_damage_weapon_name =
+        (!token.eq_ignore_ascii_case("NONE")).then(|| token.to_string());
     Ok(())
 }
 

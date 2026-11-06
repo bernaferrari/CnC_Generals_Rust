@@ -756,6 +756,11 @@ impl CnCGameEngine {
             #[cfg(feature = "game_client")]
             {
                 crate::skirmish_config::config_from_client_skirmish_setup_with_definitions(
+                    &self
+                        .game_client
+                        .skirmish_setup()
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner()),
                     Some(map.as_str()),
                     self.game_logic.player_template_definitions.as_ref(),
                 )
@@ -997,6 +1002,33 @@ impl CnCGameEngine {
         )
     }
 
+    /// Visible InGame UI residual for the present-frame gate: ControlBar parent
+    /// or any live WindowManager roots. Zero outside gameplay.
+    pub(super) fn runtime_host_ingame_ui_window_count(&self) -> u32 {
+        if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+            return 0;
+        }
+        #[cfg(feature = "game_client")]
+        {
+            self.game_client
+                .window_manager_owner()
+                .with_manager(|wm| {
+                    if wm
+                        .find_window_by_name("ControlBar.wnd:ControlBarParent")
+                        .is_some()
+                    {
+                        (wm.window_count() as u32).max(1)
+                    } else {
+                        wm.window_count() as u32
+                    }
+                })
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            0
+        }
+    }
+
     /// Physical OS window outer frame for status.txt clicker aim.
     /// Headless always reports zeros — there is no OS window to click.
     /// Coordinates are **points** (CGEvent / Quartz), not retina backing pixels.
@@ -1156,10 +1188,11 @@ impl CnCGameEngine {
         // save/load windowed-drive verification (positions/health/selection
         // compared pre-save vs post-load). Temp probe for the SaveLoadUiHunt;
         // removed after the drive. Never writes evidence keys.
-        static SLUI_ROSTER_TICKS: std::sync::atomic::AtomicU32 =
-            std::sync::atomic::AtomicU32::new(0);
+        struct SluiRosterTicksSlot(std::sync::atomic::AtomicU32);
+        static SLUI_ROSTER_TICKS: SluiRosterTicksSlot =
+            SluiRosterTicksSlot(std::sync::atomic::AtomicU32::new(0));
         if std::env::var("GENERALS_SLUI_PROBE").as_deref() == Ok("1")
-            && SLUI_ROSTER_TICKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < u32::MAX
+            && SLUI_ROSTER_TICKS.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < u32::MAX
         {
             if let Some(frame) = self.last_presentation_frame.as_ref() {
                 let team = frame.local_team();
@@ -1313,8 +1346,31 @@ impl CnCGameEngine {
             render_alive_objects: self.render_pipeline.debug_last_alive_objects() as u32,
             render_fow_filtered: self.render_pipeline.debug_last_fow_filtered() as u32,
             render_item_count: self.render_pipeline.debug_render_item_count() as u32,
+            render_terrain_chunks: self.render_pipeline.debug_last_terrain_chunks() as u32,
+            render_models: self.render_pipeline.debug_model_item_count() as u32,
+            render_ui: {
+                let pass = self.render_pipeline.debug_ui_pass_item_count() as u32;
+                let windows = self.runtime_host_ingame_ui_window_count();
+                pass.max(windows)
+            },
+            render_selection: self.render_pipeline.debug_last_selection_indicators() as u32,
             render_model_missing: self.render_pipeline.debug_last_model_missing() as u32,
             render_frustum_culled: self.render_pipeline.debug_last_frustum_culled() as u32,
+            radar_pixels: {
+                let tex = self.game_logic.radar().get_terrain_texture();
+                let mut n = 0u32;
+                for px in tex.chunks_exact(4) {
+                    if px[0] | px[1] | px[2] != 0 {
+                        n += 1;
+                    }
+                }
+                n
+            },
+            present_ms: self.render_pipeline.debug_last_present_ms(),
+            present_collect_ms: self.render_pipeline.debug_last_collect_ms(),
+            present_terrain_ms: self.render_pipeline.debug_last_terrain_ms(),
+            present_forward_ms: self.render_pipeline.debug_last_forward_ms(),
+            render_frame_stats: self.ww3d.lock().last_frame_stats().to_string(),
             camera_pos: format!(
                 "{:.1},{:.1},{:.1}",
                 self.game_logic.session_view.camera.camera_position.x,

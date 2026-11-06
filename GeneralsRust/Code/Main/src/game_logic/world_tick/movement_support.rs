@@ -118,7 +118,8 @@ impl GameLogic {
             if let Some(waypoints) = path {
                 if waypoints.len() >= 2 {
                     obj.can_path_through_units = false;
-                    obj.movement.path = waypoints;
+                    let layers = self.pathfinding_system.found_path_layers().to_vec();
+                    obj.movement.set_path_with_layers(waypoints, layers);
                     accepted_goal = obj.movement.path.last().copied();
 
                     obj.movement.current_path_index = 1; // skip start node
@@ -142,7 +143,16 @@ impl GameLogic {
                     obj.can_path_through_units = false;
                     // A* found the goal cell (often start==goal after snap).
                     let dest = waypoints.last().copied().unwrap_or(target_position);
-                    obj.movement.path = vec![start_pos, dest];
+                    let layers = self.pathfinding_system.found_path_layers().to_vec();
+                    let path = vec![start_pos, dest];
+                    let layers = if layers.len() == path.len() {
+                        layers
+                    } else if layers.len() == 1 {
+                        vec![layers[0], layers[0]]
+                    } else {
+                        Vec::new()
+                    };
+                    obj.movement.set_path_with_layers(path, layers);
                     accepted_goal = Some(dest);
 
                     obj.movement.current_path_index = 1;
@@ -832,8 +842,7 @@ impl GameLogic {
         }
         for id in quick_miss {
             if let Some(obj) = self.objects.get_mut(&id) {
-                obj.movement.path.clear();
-                obj.movement.current_path_index = 0;
+                obj.movement.clear_path();
                 obj.movement.target_position = None;
                 obj.waiting_for_path = false;
                 obj.is_attack_path = false;
@@ -845,8 +854,7 @@ impl GameLogic {
         }
         for id in drop_paths {
             if let Some(obj) = self.objects.get_mut(&id) {
-                obj.movement.path.clear();
-                obj.movement.current_path_index = 0;
+                obj.movement.clear_path();
                 obj.movement.target_position = None;
                 obj.waiting_for_path = false;
                 obj.is_attack_path = false;
@@ -869,7 +877,8 @@ impl GameLogic {
                             }
                         }
                     }
-                    obj.movement.path = path;
+                    let layers = self.pathfinding_system.found_path_layers().to_vec();
+                    obj.movement.set_path_with_layers(path, layers);
                     obj.set_locomotor_goal_position_on_path();
                     obj.movement.current_path_index = 1;
                     obj.movement.target_position = Some(obj.movement.path[1]);
@@ -970,7 +979,7 @@ impl GameLogic {
             let Some(mut obj) = self.objects.get_mut(&id) else {
                 continue;
             };
-            obj.movement.path.clear();
+            obj.movement.clear_path();
             obj.movement.current_path_index = 0;
             obj.movement.target_position = None;
             obj.waiting_for_path = true;
@@ -1551,7 +1560,7 @@ impl GameLogic {
                                         };
                                     }
                                 } else if obj.holds_air_position_when_idle() {
-                                    obj.movement.path.clear();
+                                    obj.movement.clear_path();
                                     obj.movement.current_path_index = 0;
                                     obj.movement.target_position = None;
                                     obj.maintain_pos_valid = false;
@@ -1585,7 +1594,7 @@ impl GameLogic {
                                 } else {
                                     plant_goal = obj.movement.path.last().copied();
                                     if matches!(obj.ai_state(), AIState::AttackMoving) {
-                                        obj.movement.path.clear();
+                                        obj.movement.clear_path();
                                         obj.movement.current_path_index = 0;
                                         obj.movement.target_position = None;
                                         let crate_leg = obj.requested_victim_id.is_some_and(|id| {
@@ -2109,7 +2118,7 @@ impl GameLogic {
                                                 };
                                             }
                                         } else if obj.holds_air_position_when_idle() {
-                                            obj.movement.path.clear();
+                                            obj.movement.clear_path();
                                             obj.movement.current_path_index = 0;
                                             obj.movement.target_position = None;
                                             obj.maintain_pos_valid = false;
@@ -2150,7 +2159,7 @@ impl GameLogic {
                                         } else {
                                             plant_goal = obj.movement.path.last().copied();
                                             if matches!(obj.ai_state(), AIState::AttackMoving) {
-                                                obj.movement.path.clear();
+                                                obj.movement.clear_path();
                                                 obj.movement.current_path_index = 0;
                                                 obj.movement.target_position = None;
                                                 let crate_leg =
@@ -2827,7 +2836,7 @@ impl GameLogic {
                                     } else {
                                         plant_goal = obj.movement.path.last().copied();
                                         if matches!(obj.ai_state(), AIState::AttackMoving) {
-                                            obj.movement.path.clear();
+                                            obj.movement.clear_path();
                                             obj.movement.current_path_index = 0;
                                             obj.movement.target_position = None;
                                             let crate_leg =
@@ -3001,7 +3010,7 @@ impl GameLogic {
                                 } else {
                                     plant_goal = obj.movement.path.last().copied();
                                     if matches!(obj.ai_state(), AIState::AttackMoving) {
-                                        obj.movement.path.clear();
+                                        obj.movement.clear_path();
                                         obj.movement.current_path_index = 0;
                                         obj.movement.target_position = None;
                                         let crate_leg = obj.requested_victim_id.is_some_and(|id| {
@@ -3247,6 +3256,7 @@ impl GameLogic {
         i
     }
     /// C++ `Pathfinder::updateGoal` on path acceptance. Last node, not the click.
+    /// Prefer the installed PathNode layer (AIStates.cpp:1783 getLastNode()->getLayer).
     pub(crate) fn register_path_goal(&mut self, unit_id: ObjectId, last: Vec3) {
         let Some(unit) = self.objects.get(&unit_id) else {
             return;
@@ -3259,7 +3269,7 @@ impl GameLogic {
             self.register_path_goal_on_layer(unit_id, last, layer);
             return;
         }
-        let layer = {
+        let layer = unit.movement.last_path_layer().unwrap_or_else(|| {
             let terrain = self.world_services.terrain();
             let terrain = terrain.read().unwrap_or_else(|error| error.into_inner());
             let source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
@@ -3272,7 +3282,7 @@ impl GameLogic {
             self.pathfinding_system
                 .grid
                 .layer_for_destination(last, &source) as u8
-        };
+        });
         self.register_path_goal_on_layer(unit_id, last, layer);
     }
 

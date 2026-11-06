@@ -577,6 +577,8 @@ fn tunnel_network_oneshot_spawns_two_rpg_world_objects() {
         .players
         .insert(0, crate::game_logic::Player::new(0, Team::GLA, "GLA", true));
     let mut tunnel = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    tunnel.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     tunnel
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::Selectable)
@@ -667,6 +669,8 @@ fn stinger_site_spawns_three_soldier_world_objects() {
     let site_id = logic
         .create_object("GLAStingerSite", Team::GLA, Vec3::ZERO)
         .expect("stinger");
+
+    logic.run_first_spawn_update_for_test();
     let soldiers: Vec<_> = logic
         .objects
         .registered_values()
@@ -762,6 +766,8 @@ fn spawn_point_exit_uses_pristine_bones_and_refuses_full_slots() {
     let site_id = logic
         .create_object("GLAStingerSite", Team::GLA, Vec3::new(10.0, 2.0, 20.0))
         .expect("stinger");
+
+    logic.run_first_spawn_update_for_test();
     let mut soldiers: Vec<(ObjectId, Vec3, f32)> = logic
         .objects
         .registered_values()
@@ -887,5 +893,132 @@ fn special_power_create_expresses_shared_n_sync_ready_now() {
     assert!(
         remaining > 0.0,
         "scripted SpecialPowerCreate modules must start ReloadTime recharge"
+    );
+}
+
+#[test]
+fn spawned_require_spawner_kills_children_through_their_own_die_modules() {
+    // C++ SpawnBehavior.cpp:150-171: after clearing producers, each still-live
+    // spawn gets Object::kill() (Object.cpp:1930-1944), i.e. a normal damage
+    // request routed through the child's Body/Die modules. A SlowDeath child
+    // must therefore begin its own slow death and stay registered rather than
+    // being zeroed and force-removed.
+    let mut logic = GameLogic::new();
+    logic
+        .admit_object_ini_sources([(
+            "RequiredSpawnLib.ini".into(),
+            "Object Nest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 2\n SpawnTemplateName = Child\n SpawnedRequireSpawner = Yes\n End\nEnd\nObject Child\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SlowDeathBehavior Death\n DestructionDelay = 3000\n End\nEnd\n"
+                .into(),
+        )])
+        .expect("ini");
+    logic
+        .players
+        .insert(1, crate::game_logic::Player::new(1, Team::GLA, "Owner", true));
+    let nest = logic
+        .create_object_for_player("Nest", 1, Vec3::ZERO)
+        .expect("nest");
+    let children: Vec<_> = logic
+        .objects
+        .registered_values()
+        .filter(|o| o.producer_id == Some(nest))
+        .map(|o| o.id)
+        .collect();
+    assert_eq!(children.len(), 2);
+
+    logic.apply_host_damage(nest, 1000.0);
+
+    for id in children {
+        let child = logic
+            .host_object(id)
+            .expect("SlowDeath retains the killed child");
+        assert!(child.status.effectively_dead, "child was killed");
+        assert!(child.slow_death.is_some(), "child's own SlowDeath ran");
+        assert!(child.producer_id.is_none(), "producer cleared first");
+    }
+}
+
+#[test]
+fn authored_upgrade_die_removes_each_modules_upgrade_from_producer_like_cpp() {
+    // C++ UpgradeDie::onDie (UpgradeDie.cpp): each module removes its own
+    // authored UpgradeToRemove from the producer. No template-name inference;
+    // two UpgradeDie modules on one Object each run once.
+    let mut logic = GameLogic::new();
+    for upgrade in ["Upgrade_FixtureA", "Upgrade_FixtureB"] {
+        let mut ini = game_engine::common::ini::INI::new();
+        ini.with_inline_source(&format!("Upgrade {upgrade}\nType = OBJECT\nEnd\n"), |ini| {
+            ini.read_line()?;
+            logic.upgrade_definitions.parse_upgrade_definition(ini)
+        })
+        .expect("upgrade def");
+    }
+    logic
+        .admit_object_ini_sources([(
+            "AuthoredUpgradeDie.ini".into(),
+            "Object FixtureProducer\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\nEnd\nObject FixtureGenericChild\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = UpgradeDie DieA\n DeathTypes = ALL\n UpgradeToRemove = Upgrade_FixtureA\n End\n Behavior = UpgradeDie DieB\n DeathTypes = ALL\n UpgradeToRemove = Upgrade_FixtureB\n End\nEnd\n"
+                .into(),
+        )])
+        .expect("ini");
+    logic.players.insert(
+        1,
+        crate::game_logic::Player::new(1, Team::USA, "Owner", true),
+    );
+    let producer = logic
+        .create_object_for_player("FixtureProducer", 1, Vec3::ZERO)
+        .expect("producer");
+    logic.apply_upgrade_to_object(producer, "Upgrade_FixtureA");
+    logic.apply_upgrade_to_object(producer, "Upgrade_FixtureB");
+    let child = logic
+        .create_object_for_player("FixtureGenericChild", 1, Vec3::new(20.0, 0.0, 0.0))
+        .expect("child");
+    logic.host_object_mut(child).unwrap().producer_id = Some(producer);
+    assert!(
+        logic
+            .host_object(producer)
+            .unwrap()
+            .has_object_upgrade_complete("Upgrade_FixtureA")
+    );
+
+    logic.apply_host_damage(child, 1000.0);
+
+    let p = logic.host_object(producer).unwrap();
+    assert!(!p.has_object_upgrade_complete("Upgrade_FixtureA"), "DieA removes its upgrade");
+    assert!(!p.has_object_upgrade_complete("Upgrade_FixtureB"), "DieB removes its upgrade");
+}
+
+#[test]
+fn create_installs_upgrade_die_from_authored_module_without_template_name_sniff() {
+    // C++ ModuleFactory binds UpgradeDie from the Object's authored module
+    // data (UpgradeToRemove); the template name plays no part.
+    let mut logic = GameLogic::new();
+    logic
+        .admit_object_ini_sources([(
+            "AuthoredUpgradeDieCreate.ini".into(),
+            "Object FixtureGenericDroneChild\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = UpgradeDie DieA\n DeathTypes = ALL\n UpgradeToRemove = Upgrade_FixtureGeneric\n End\nEnd\nObject AmericaVehicleScoutDrone\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n"
+                .into(),
+        )])
+        .expect("ini");
+    logic.players.insert(
+        1,
+        crate::game_logic::Player::new(1, Team::USA, "Owner", true),
+    );
+    let generic = logic
+        .create_object_for_player("FixtureGenericDroneChild", 1, Vec3::ZERO)
+        .expect("generic");
+    assert_eq!(
+        logic
+            .host_object(generic)
+            .unwrap()
+            .upgrade_die
+            .as_ref()
+            .map(|ud| ud.upgrade_to_remove.as_str()),
+        Some("Upgrade_FixtureGeneric"),
+        "authored UpgradeToRemove binds at create"
+    );
+    let named = logic
+        .create_object_for_player("AmericaVehicleScoutDrone", 1, Vec3::new(30.0, 0.0, 0.0))
+        .expect("named");
+    assert!(
+        logic.host_object(named).unwrap().upgrade_die.is_none(),
+        "retail drone name without authored UpgradeDie installs nothing"
     );
 }

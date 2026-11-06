@@ -4,7 +4,6 @@
 //! and background rendering during game loading operations.
 
 use super::gadgets::{ProgressBar, ProgressBarBuilder, ProgressBarStyle};
-use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -518,9 +517,11 @@ pub mod tips {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn test_loading_screen_creation() {
+        crate::test_support::ensure_ambient_host();
         let loading_screen = LoadingScreen::new(LoadingScreenConfig::default());
         assert_eq!(loading_screen.state(), LoadingState::Hidden);
         assert!(!loading_screen.is_visible());
@@ -528,7 +529,10 @@ mod tests {
 
     #[test]
     fn test_show_hide() {
-        let mut loading_screen = LoadingScreen::new(LoadingScreenConfig::default());
+        crate::test_support::ensure_ambient_host();
+        let mut config = LoadingScreenConfig::default();
+        config.minimum_display_time = std::time::Duration::ZERO;
+        let mut loading_screen = LoadingScreen::new(config);
 
         loading_screen.show();
         assert_eq!(loading_screen.state(), LoadingState::Active);
@@ -541,6 +545,7 @@ mod tests {
 
     #[test]
     fn test_stages() {
+        crate::test_support::ensure_ambient_host();
         let mut loading_screen = LoadingScreen::new(LoadingScreenConfig::default());
         loading_screen.add_stage(LoadingStage::new("stage1", "Stage 1", 1.0));
         loading_screen.add_stage(LoadingStage::new("stage2", "Stage 2", 1.0));
@@ -559,6 +564,7 @@ mod tests {
 
     #[test]
     fn test_tips() {
+        crate::test_support::ensure_ambient_host();
         let mut loading_screen = LoadingScreen::new(LoadingScreenConfig::default());
         loading_screen.add_tip(LoadingTip::new("Tip 1"));
         loading_screen.add_tip(LoadingTip::new("Tip 2"));
@@ -568,6 +574,7 @@ mod tests {
 
     #[test]
     fn test_map_name_and_progress_draw_state() {
+        crate::test_support::ensure_ambient_host();
         let mut loading_screen = LoadingScreen::new(LoadingScreenConfig::default());
         loading_screen.show();
         loading_screen.set_map_name("Tournament Desert");
@@ -584,6 +591,7 @@ mod tests {
 
     #[test]
     fn test_standard_stages() {
+        crate::test_support::ensure_ambient_host();
         let stages = stages::standard_map_loading();
         assert_eq!(stages.len(), 6);
 
@@ -592,10 +600,11 @@ mod tests {
     }
 }
 
-/// Residual: last LoadingScreen action requested by residual peels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Residual peel actions for LoadingScreen honesty probes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
 pub enum ResidualLoadingScreenAction {
+    #[default]
     None = 0,
     Show = 1,
     Hide = 2,
@@ -605,136 +614,148 @@ pub enum ResidualLoadingScreenAction {
     Finish = 6,
 }
 
-static RESIDUAL_LOADING_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_LOADING_VISIBLE: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-static RESIDUAL_LOADING_PROGRESS: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-// THREAD: main thread only — GUI residual latch, see `RESIDUAL_LOADING_SCREEN`.
-thread_local! {
-    static RESIDUAL_LOADING_MAP: RefCell<String> = RefCell::new(String::new());
+/// Per-client residual LoadingScreen state (was process TLS + atomics).
+pub struct LoadingScreenResidual {
+    pub screen: LoadingScreen,
+    pub last_action: ResidualLoadingScreenAction,
+    pub visible: bool,
+    pub progress: u8,
+    pub map_name: String,
 }
 
-fn residual_loading_screen_new() -> LoadingScreen {
-    let mut screen = LoadingScreen::new(LoadingScreenConfig::default());
-    screen.add_stages(stages::standard_map_loading());
-    screen
+impl Default for LoadingScreenResidual {
+    fn default() -> Self {
+        let mut screen = LoadingScreen::new(LoadingScreenConfig::default());
+        screen.add_stages(stages::standard_map_loading());
+        Self {
+            screen,
+            last_action: ResidualLoadingScreenAction::None,
+            visible: false,
+            progress: 0,
+            map_name: String::new(),
+        }
+    }
 }
 
-thread_local! {
-    static RESIDUAL_LOADING_SCREEN: std::cell::RefCell<LoadingScreen> =
-        std::cell::RefCell::new(residual_loading_screen_new());
-}
+impl LoadingScreenResidual {
+    fn store(&mut self, action: ResidualLoadingScreenAction) {
+        self.last_action = action;
+    }
 
-fn residual_loading_action_store(action: ResidualLoadingScreenAction) {
-    RESIDUAL_LOADING_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+    pub fn last_action(&self) -> ResidualLoadingScreenAction {
+        self.last_action
+    }
+
+    pub fn is_visible(&self) -> bool {
+        self.visible
+    }
+
+    pub fn progress(&self) -> u8 {
+        self.progress
+    }
+
+    pub fn map_name(&self) -> Option<&str> {
+        if self.map_name.is_empty() {
+            None
+        } else {
+            Some(self.map_name.as_str())
+        }
+    }
 }
 
 /// Residual: last LoadingScreen residual action.
-pub fn residual_loading_screen_last_action() -> ResidualLoadingScreenAction {
-    match RESIDUAL_LOADING_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
-        1 => ResidualLoadingScreenAction::Show,
-        2 => ResidualLoadingScreenAction::Hide,
-        3 => ResidualLoadingScreenAction::SetProgress,
-        4 => ResidualLoadingScreenAction::SetMap,
-        5 => ResidualLoadingScreenAction::NextStage,
-        6 => ResidualLoadingScreenAction::Finish,
-        _ => ResidualLoadingScreenAction::None,
-    }
+pub fn residual_loading_screen_last_action(
+    residual: &LoadingScreenResidual,
+) -> ResidualLoadingScreenAction {
+    residual.last_action()
 }
 
 /// Residual: loading screen visibility latch.
-pub fn residual_loading_screen_is_visible() -> bool {
-    RESIDUAL_LOADING_VISIBLE.load(std::sync::atomic::Ordering::Relaxed)
+pub fn residual_loading_screen_is_visible(residual: &LoadingScreenResidual) -> bool {
+    residual.is_visible()
 }
 
 /// Residual: last progress percent 0..=100.
-pub fn residual_loading_screen_progress() -> u8 {
-    RESIDUAL_LOADING_PROGRESS.load(std::sync::atomic::Ordering::Relaxed)
+pub fn residual_loading_screen_progress(residual: &LoadingScreenResidual) -> u8 {
+    residual.progress()
 }
 
 /// Residual: last map name residual.
-pub fn residual_loading_screen_map_name() -> Option<String> {
-    let name = RESIDUAL_LOADING_MAP.with_borrow(Clone::clone);
-    if name.is_empty() { None } else { Some(name) }
+pub fn residual_loading_screen_map_name(residual: &LoadingScreenResidual) -> Option<String> {
+    residual.map_name().map(str::to_owned)
 }
 
 /// Residual: show loading screen without full asset pipeline.
-pub fn simulate_loading_screen_show() -> bool {
-    RESIDUAL_LOADING_SCREEN.with(|screen| {
-        let mut screen = screen.borrow_mut();
-        screen.show();
-        RESIDUAL_LOADING_VISIBLE.store(true, std::sync::atomic::Ordering::Relaxed);
-        residual_loading_action_store(ResidualLoadingScreenAction::Show);
-        residual_loading_screen_is_visible()
-    })
+pub fn simulate_loading_screen_show(residual: &mut LoadingScreenResidual) -> bool {
+    residual.screen.show();
+    residual.visible = true;
+    residual.store(ResidualLoadingScreenAction::Show);
+    residual.is_visible()
 }
 
 /// Residual: hide loading screen without min-display wait.
-pub fn simulate_loading_screen_hide() -> bool {
-    RESIDUAL_LOADING_SCREEN.with(|screen| {
-        let mut screen = screen.borrow_mut();
-        // Bypass min display by clearing start time if present via reset+hide path.
-        screen.reset();
-        RESIDUAL_LOADING_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
-        residual_loading_action_store(ResidualLoadingScreenAction::Hide);
-        !residual_loading_screen_is_visible()
-    })
+pub fn simulate_loading_screen_hide(residual: &mut LoadingScreenResidual) -> bool {
+    residual.screen.reset();
+    residual.visible = false;
+    residual.store(ResidualLoadingScreenAction::Hide);
+    !residual.is_visible()
 }
 
 /// Residual: set load progress without draw.
-pub fn simulate_loading_screen_set_progress(percent: u8) -> bool {
+pub fn simulate_loading_screen_set_progress(
+    residual: &mut LoadingScreenResidual,
+    percent: u8,
+) -> bool {
     let percent = percent.min(100);
-    RESIDUAL_LOADING_SCREEN.with(|screen| {
-        let mut screen = screen.borrow_mut();
-        screen.set_load_progress(percent);
-        RESIDUAL_LOADING_PROGRESS.store(percent, std::sync::atomic::Ordering::Relaxed);
-        residual_loading_action_store(ResidualLoadingScreenAction::SetProgress);
-        residual_loading_screen_progress() == percent
-    })
+    residual.screen.set_load_progress(percent);
+    residual.progress = percent;
+    residual.store(ResidualLoadingScreenAction::SetProgress);
+    residual.progress() == percent
 }
 
 /// Residual: set map name residual.
-pub fn simulate_loading_screen_set_map(map_name: &str) -> bool {
+pub fn simulate_loading_screen_set_map(
+    residual: &mut LoadingScreenResidual,
+    map_name: &str,
+) -> bool {
     if map_name.is_empty() {
         return false;
     }
-    RESIDUAL_LOADING_SCREEN.with(|screen| {
-        let mut screen = screen.borrow_mut();
-        screen.set_map_name(map_name);
-        RESIDUAL_LOADING_MAP.with_borrow_mut(|stored| *stored = map_name.to_string());
-        residual_loading_action_store(ResidualLoadingScreenAction::SetMap);
-        residual_loading_screen_map_name().as_deref() == Some(map_name)
-    })
+    residual.screen.set_map_name(map_name);
+    residual.map_name = map_name.to_string();
+    residual.store(ResidualLoadingScreenAction::SetMap);
+    residual.map_name() == Some(map_name)
 }
 
 /// Residual: advance stage without full stage table.
-pub fn simulate_loading_screen_next_stage() -> bool {
-    RESIDUAL_LOADING_SCREEN.with(|screen| {
-        let mut screen = screen.borrow_mut();
-        screen.next_stage();
-        residual_loading_action_store(ResidualLoadingScreenAction::NextStage);
-        true
-    })
+pub fn simulate_loading_screen_next_stage(residual: &mut LoadingScreenResidual) -> bool {
+    residual.screen.next_stage();
+    residual.store(ResidualLoadingScreenAction::NextStage);
+    true
 }
 
 /// Residual: finish path (100% + hide).
-pub fn simulate_loading_screen_finish() -> bool {
-    if !simulate_loading_screen_set_progress(100) {
+pub fn simulate_loading_screen_finish(residual: &mut LoadingScreenResidual) -> bool {
+    if !simulate_loading_screen_set_progress(residual, 100) {
         return false;
     }
-    residual_loading_action_store(ResidualLoadingScreenAction::Finish);
-    simulate_loading_screen_hide()
+    residual.store(ResidualLoadingScreenAction::Finish);
+    simulate_loading_screen_hide(residual)
 }
 
 /// Residual: show + map + progress composite (match entry honesty).
-pub fn simulate_loading_screen_prepare_map_load(map_name: &str, percent: u8) -> bool {
-    if !simulate_loading_screen_show() {
+pub fn simulate_loading_screen_prepare_map_load(
+    residual: &mut LoadingScreenResidual,
+    map_name: &str,
+    percent: u8,
+) -> bool {
+    if !simulate_loading_screen_show(residual) {
         return false;
     }
-    if !simulate_loading_screen_set_map(map_name) {
+    if !simulate_loading_screen_set_map(residual, map_name) {
         return false;
     }
-    simulate_loading_screen_set_progress(percent)
+    simulate_loading_screen_set_progress(residual, percent)
 }
 
 /// C++ LoadScreen.cpp progress gadgets (SP / shell / challenge).
@@ -744,7 +765,7 @@ const LOADING_PROGRESS_GADGETS: &[&str] = &[
     "ChallengeLoadScreen.wnd:ProgressLoad",
 ];
 
-fn click_any_loading_progress_gadget(
+pub fn click_any_loading_progress_gadget(
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> bool {
     LOADING_PROGRESS_GADGETS
@@ -755,6 +776,7 @@ fn click_any_loading_progress_gadget(
 /// Human click-through: OS LeftDown/Up on retail `ProgressLoad` then show+map+progress.
 /// C++ LoadScreen uses those named gadgets (not `simulate_*` first).
 pub fn drive_os_wnd_loading_screen_prepare_like_cpp(
+    residual: &mut LoadingScreenResidual,
     map_name: &str,
     percent: u8,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
@@ -765,80 +787,115 @@ pub fn drive_os_wnd_loading_screen_prepare_like_cpp(
     if !click_any_loading_progress_gadget(effects) {
         return false;
     }
-    simulate_loading_screen_prepare_map_load(map_name, percent)
+    simulate_loading_screen_prepare_map_load(residual, map_name, percent)
 }
 
 pub fn drive_os_wnd_loading_screen_progress_like_cpp(
+    residual: &mut LoadingScreenResidual,
     percent: u8,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> bool {
     if !click_any_loading_progress_gadget(effects) {
         return false;
     }
-    simulate_loading_screen_set_progress(percent)
+    simulate_loading_screen_set_progress(residual, percent)
 }
 
 pub fn drive_os_wnd_loading_screen_show_like_cpp(
+    residual: &mut LoadingScreenResidual,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> bool {
     if !click_any_loading_progress_gadget(effects) {
         return false;
     }
-    simulate_loading_screen_show()
+    simulate_loading_screen_show(residual)
 }
 
 pub fn drive_os_wnd_loading_screen_hide_like_cpp(
+    residual: &mut LoadingScreenResidual,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> bool {
     if !click_any_loading_progress_gadget(effects) {
         return false;
     }
-    simulate_loading_screen_hide()
+    simulate_loading_screen_hide(residual)
 }
 
 pub fn drive_os_wnd_loading_screen_finish_like_cpp(
+    residual: &mut LoadingScreenResidual,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> bool {
     if !click_any_loading_progress_gadget(effects) {
         return false;
     }
-    simulate_loading_screen_finish()
+    simulate_loading_screen_finish(residual)
 }
 
 #[cfg(test)]
 mod os_wnd_tests {
     use super::*;
-    use crate::gui::with_window_manager;
+    use crate::gui::game_window::WindowEventEffects;
 
-    fn install_named_button(name: &str, x: i32, y: i32) {
-        with_window_manager(|manager| {
-            let button = manager.create_window(None, x, y, 80, 24).expect(name);
+    fn with_fixture(operation: impl FnOnce(&mut WindowEventEffects<'_>)) {
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&owner);
+        effects.menus = Some(
+            menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
+        );
+        operation(&mut effects);
+    }
+
+    fn install_named_button(name: &str, x: i32, y: i32, effects: &mut WindowEventEffects<'_>) {
+        let owner = effects
+            .window_manager_owner
+            .expect("named button install requires receiving owner");
+        owner.with_manager(|manager| {
+            let button = manager.test_create_window(None, x, y, 80, 24).expect(name);
             button.borrow_mut().set_name(name);
-            let _ = button.borrow_mut().hide(false);
+            let _ = button.borrow_mut().hide_without_manager_side_effects(false);
         });
     }
 
     #[test]
     fn os_wnd_loading_screen_prepare_hits_progress_load_then_latches_map() {
-        install_named_button("SinglePlayerLoadScreen.wnd:ProgressLoad", 10, 10);
-        assert!(
-            drive_os_wnd_loading_screen_prepare_like_cpp("maps\\MD_USA01\\MD_USA01.map", 40),
-            "OS WND click on ProgressLoad must prepare map load residual"
-        );
-        assert_eq!(
-            residual_loading_screen_map_name().as_deref(),
-            Some("maps\\MD_USA01\\MD_USA01.map")
-        );
-        assert_eq!(residual_loading_screen_progress(), 40);
-        assert!(residual_loading_screen_is_visible());
-        assert!(!drive_os_wnd_loading_screen_prepare_like_cpp("", 0));
+        crate::test_support::ensure_ambient_host();
+        let mut residual = LoadingScreenResidual::default();
+        with_fixture(|effects| {
+            install_named_button("SinglePlayerLoadScreen.wnd:ProgressLoad", 10, 10, effects);
+            assert!(
+                drive_os_wnd_loading_screen_prepare_like_cpp(
+                    &mut residual,
+                    "maps\\MD_USA01\\MD_USA01.map",
+                    40,
+                    effects,
+                ),
+                "OS WND click on ProgressLoad must prepare map load residual"
+            );
+            assert_eq!(
+                residual_loading_screen_map_name(&residual).as_deref(),
+                Some("maps\\MD_USA01\\MD_USA01.map")
+            );
+            assert_eq!(residual_loading_screen_progress(&residual), 40);
+            assert!(residual_loading_screen_is_visible(&residual));
+            assert!(!drive_os_wnd_loading_screen_prepare_like_cpp(
+                &mut residual, "", 0, effects
+            ));
+        });
     }
 
     #[test]
     fn os_wnd_loading_screen_finish_hits_shell_progress_gadget() {
-        install_named_button("ShellGameLoadScreen.wnd:ProgressLoad", 10, 40);
-        assert!(drive_os_wnd_loading_screen_finish_like_cpp());
-        assert!(!residual_loading_screen_is_visible());
-        assert_eq!(residual_loading_screen_progress(), 100);
+        crate::test_support::ensure_ambient_host();
+        let mut residual = LoadingScreenResidual::default();
+        with_fixture(|effects| {
+            install_named_button("ShellGameLoadScreen.wnd:ProgressLoad", 10, 40, effects);
+            assert!(drive_os_wnd_loading_screen_finish_like_cpp(&mut residual, effects));
+            assert!(!residual_loading_screen_is_visible(&residual));
+            assert_eq!(residual_loading_screen_progress(&residual), 100);
+        });
     }
 }
+

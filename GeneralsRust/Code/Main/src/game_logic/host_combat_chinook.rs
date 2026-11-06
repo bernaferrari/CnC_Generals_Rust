@@ -278,6 +278,34 @@ pub fn is_combat_chinook_template(template_name: &str) -> bool {
     false
 }
 
+/// Authored AirF Combat Chinook: a Chinook hull whose TransportContain has
+/// `PassengersAllowedToFire = Yes` (retail `AirF_AmericaVehicleChinook`).
+/// Vanilla `AmericaVehicleChinook` TransportContain leaves it No. Keys on the
+/// parsed contain module, not the template name (hq-2qedt.269).
+pub fn is_authored_combat_chinook(template: &crate::game_logic::ThingTemplate) -> bool {
+    let contain = &template.contain_module;
+    is_chinook_hull_template(&template.name)
+        && contain.kind == crate::game_logic::ContainModuleKind::Transport
+        && contain.passengers_allowed_to_fire
+}
+
+/// Chinook hull family (vanilla, Combat, Superweapon): name residual for the
+/// ChinookAI install; Combat vs vanilla is split by `is_authored_combat_chinook`.
+pub fn is_chinook_hull_template(template_name: &str) -> bool {
+    template_name.to_ascii_lowercase().contains("chinook")
+}
+
+/// Test fixture: author retail Combat Chinook TransportContain on a template.
+#[cfg(test)]
+pub(crate) fn author_combat_chinook_contain(template: &mut crate::game_logic::ThingTemplate) {
+    template.contain_module.kind =
+        crate::game_logic::ContainModuleKind::Transport;
+    template.contain_module.slots = Some(COMBAT_CHINOOK_TRANSPORT_SLOTS);
+    template.contain_module.passengers_allowed_to_fire = true;
+    // Retail AllowInsideKindOf = INFANTRY VEHICLE, ForbidInsideKindOf = AIRCRAFT HUGE_VEHICLE.
+    template.contain_module.admission = crate::game_logic::ContainAdmission::InfantryOrVehicle;
+}
+
 /// Vanilla / Superweapon Chinook: ChinookAIUpdate + TransportContain, not Combat.
 pub fn is_regular_chinook_template(template_name: &str) -> bool {
     let lower = template_name.to_ascii_lowercase();
@@ -1600,6 +1628,36 @@ mod tests {
         while ai.lose_one_box() {}
         assert_eq!(ai.supply_boxes, 0);
         assert!(!ai.lose_one_box());
+    }
+
+    /// hq-2qedt.269
+    #[test]
+    fn combat_chinook_install_keys_on_authored_contain_not_template_name() {
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        for (name, authored) in [("AirF_FixtureChinook269", false), ("Fixture269Chinook", true)] {
+            let mut tpl = ThingTemplate::new(name);
+            tpl.add_kind_of(KindOf::Vehicle)
+                .add_kind_of(KindOf::Aircraft)
+                .set_health(350.0);
+            if authored {
+                author_combat_chinook_contain(&mut tpl);
+            }
+            logic.templates.insert(name.to_string(), tpl);
+        }
+        let name_only = logic
+            .create_object("AirF_FixtureChinook269", Team::USA, glam::Vec3::ZERO)
+            .expect("name-only");
+        let authored = logic
+            .create_object("Fixture269Chinook", Team::USA, glam::Vec3::new(50.0, 0.0, 0.0))
+            .expect("authored");
+        let n = logic.host_object(name_only).unwrap();
+        assert!(!n.is_combat_chinook_style_container());
+        assert!(!n.passengers_allowed_to_fire);
+        assert!(n.chinook_ai.is_some(), "still a vanilla Chinook hull");
+        let a = logic.host_object(authored).unwrap();
+        assert!(a.is_combat_chinook_style_container());
+        assert!(a.passengers_allowed_to_fire);
     }
 }
 

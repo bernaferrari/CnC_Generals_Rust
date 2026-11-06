@@ -84,6 +84,7 @@ fn repo_root() -> PathBuf {
 #[test]
 #[ignore = "requires licensed local AmericaVehicle.ini and ParticleSystem.ini; run explicitly with --ignored"]
 fn factory_admitted_microwave_draw_creates_real_attached_particle_rows() {
+    crate::test_support::ensure_ambient_host();
     if !run_as_bounded_test_child() {
         return;
     }
@@ -153,9 +154,8 @@ fn factory_admitted_microwave_draw_creates_real_attached_particle_rows() {
             "required retail particle template {name} exists"
         );
     }
-    *PARTICLE_SYSTEM_MANAGER
-        .write()
-        .expect("install child-local actual particle manager") = Some(particle_manager);
+    *get_particle_system_manager_mut().expect("install child-local actual particle manager") =
+        Some(particle_manager);
     register_particle_system_manager_bridge();
 
     let mut object_factory = gamelogic::object::object_factory::ObjectFactory::new();

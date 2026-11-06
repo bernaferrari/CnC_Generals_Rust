@@ -95,6 +95,8 @@ impl RenderPipeline {
         self.native_terrain = visual;
         self.flush_native_props();
         self.radar_terrain_colors = None;
+        self.radar_terrain_colors_generation =
+            self.radar_terrain_colors_generation.wrapping_add(1);
         self.heightmap_world_size = self
             .native_terrain
             .as_ref()
@@ -153,21 +155,30 @@ impl RenderPipeline {
         let Some(visual) = self.native_terrain.as_mut() else {
             return Ok(false);
         };
-        visual
-            .init_gpu_resources(device.clone(), queue.clone())
-            .map_err(|error| anyhow::anyhow!("Terrain GPU hydration failed: {error}"))?;
+        // init_gpu_resources drops skybox/bind groups; only run once per CPU map.
+        if !visual.debug_gpu_resources_ready() {
+            visual
+                .init_gpu_resources(device.clone(), queue.clone())
+                .map_err(|error| anyhow::anyhow!("Terrain GPU hydration failed: {error}"))?;
+        }
         if !source_tile_classes.is_empty() {
-            let source_load = if let Some(read_virtual_file) = read_virtual_file.as_deref_mut() {
-                visual.load_source_tiles_from_texture_classes_with_reader(
-                    &source_tile_classes,
-                    read_virtual_file,
-                )
-            } else {
-                visual.load_source_tiles_from_texture_classes(&source_tile_classes)
-            };
-            match source_load {
-                Ok(loaded) => debug!("Loaded {loaded} source tiles for receiving terrain"),
-                Err(error) => warn!("Terrain source tile load failed: {error}"),
+            // Disk-only hydrate must not replace real BIG-backed tiles with
+            // grey stand-ins (execute's late GPU path previously had no reader).
+            let keep_real = read_virtual_file.is_none() && visual.has_real_source_tiles();
+            if !keep_real {
+                let source_load = if let Some(read_virtual_file) = read_virtual_file.as_deref_mut()
+                {
+                    visual.load_source_tiles_from_texture_classes_with_reader(
+                        &source_tile_classes,
+                        read_virtual_file,
+                    )
+                } else {
+                    visual.load_source_tiles_from_texture_classes(&source_tile_classes)
+                };
+                match source_load {
+                    Ok(loaded) => debug!("Loaded {loaded} source tiles for receiving terrain"),
+                    Err(error) => warn!("Terrain source tile load failed: {error}"),
+                }
             }
         }
         if let Some(textures) = skybox {
@@ -196,6 +207,8 @@ impl RenderPipeline {
             );
         }
         self.radar_terrain_colors = visual.freeze_radar_terrain_colors();
+        self.radar_terrain_colors_generation =
+            self.radar_terrain_colors_generation.wrapping_add(1);
         self.heightmap_world_size = Some(visual.world_size());
         self.pending_heightmap_hint_load = false;
         Ok(true)

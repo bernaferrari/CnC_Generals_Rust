@@ -2480,7 +2480,7 @@ impl CnCGameEngine {
         let transaction = gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(
             &live.world_services,
         );
-        let mut candidate = crate::game_logic::GameLogic::new();
+        let mut candidate = crate::game_logic::GameLogic::new_unpublished();
         let preparation = (|| -> Result<_, String> {
             candidate.start_new_game_for_restore_in_campaign_session(
                 live.game_mode(),
@@ -2807,7 +2807,7 @@ impl CnCGameEngine {
         // transaction state is restored before installing the candidate.
         let runtime_stage =
             gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(live_services);
-        let mut staged = crate::game_logic::GameLogic::new();
+        let mut staged = crate::game_logic::GameLogic::new_unpublished();
         // Match the receiving application's pristine Upgrade.ini catalog before
         // GameLogic startup/reset and saved-map INI parsing. Current is reset to
         // this base, then map-owned definitions are reapplied in original order.
@@ -3403,7 +3403,9 @@ impl CnCGameEngine {
         let gla = store.find_template_index("FactionGLA").unwrap() as i32;
         drop(store);
         {
-            let mut setup = game_client::gui::get_skirmish_setup();
+            let setup_handle = self.game_client.skirmish_setup();
+
+            let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             setup.set_selected_map("Lone Eagle".into());
             let gi = setup.game_info_mut().game_info_mut();
             gi.reset();
@@ -3427,7 +3429,10 @@ impl CnCGameEngine {
             gi.set_in_game();
             assert_eq!(gi.get_local_slot_num(), 1);
         }
-        let config = crate::skirmish_config::config_from_client_skirmish_setup(None)
+        let config = crate::skirmish_config::config_from_client_skirmish_setup(
+            &self.game_client.skirmish_setup().lock().unwrap_or_else(|e| e.into_inner()),
+            None,
+        )
             .ok_or("actual two-human Client setup did not produce a native configuration")?;
         self.current_player_id = 0;
         self.host_apply_skirmish_config_authority(&config)?;

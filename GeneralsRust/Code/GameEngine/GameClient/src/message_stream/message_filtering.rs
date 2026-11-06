@@ -507,6 +507,7 @@ mod tests {
 
     #[test]
     fn test_message_filter() {
+        crate::test_support::ensure_ambient_host();
         let mut filter = MessageFilter::accept_all();
 
         let msg1 = GameMessage::with_player(GameMessageType::Invalid, 0);
@@ -523,6 +524,7 @@ mod tests {
 
     #[test]
     fn test_message_priority() {
+        crate::test_support::ensure_ambient_host();
         let filter = MessageFilter::from_priority(MessagePriority::Normal);
 
         let msg = GameMessage::new(GameMessageType::Invalid);
@@ -536,6 +538,7 @@ mod tests {
 
     #[test]
     fn test_routed_message() {
+        crate::test_support::ensure_ambient_host();
         let msg = GameMessage::new(GameMessageType::Invalid);
 
         let unicast = RoutedMessage::unicast(msg.clone(), 1);
@@ -554,6 +557,7 @@ mod tests {
 
     #[test]
     fn test_message_router() {
+        crate::test_support::ensure_ambient_host();
         let mut router = MessageRouter::new(0);
 
         // Test default acceptance
@@ -577,6 +581,7 @@ mod tests {
 
     #[test]
     fn test_broadcast_manager() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = BroadcastManager::new(0);
 
         let msg1 = GameMessage::new(GameMessageType::Invalid);
@@ -596,6 +601,7 @@ mod tests {
 
     #[test]
     fn test_incoming_filtering() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = BroadcastManager::new(0);
 
         // Add filter for specific player

@@ -44,6 +44,10 @@ pub const BATTLE_MASTER_LOGIC_FPS: f32 = 30.0;
 
 /// Retail primary weapon.
 pub const BATTLE_MASTER_TANK_GUN: &str = "BattleMasterTankGun";
+/// Retail Tank General Battlemaster primary.
+pub const TANK_BATTLE_MASTER_TANK_GUN: &str = "Tank_BattleMasterTankGun";
+/// Retail Nuke General Battlemaster primary.
+pub const NUKE_BATTLE_MASTER_TANK_GUN: &str = "Nuke_BattleMasterTankGun";
 /// Retail Upgrade_ChinaUraniumShells (WeaponBonusUpgrade → PLAYER_UPGRADE).
 pub const UPGRADE_CHINA_URANIUM_SHELLS: &str = "Upgrade_ChinaUraniumShells";
 /// Retail Upgrade_Fanaticism (Infantry General). Nested under Nationalism in C++.

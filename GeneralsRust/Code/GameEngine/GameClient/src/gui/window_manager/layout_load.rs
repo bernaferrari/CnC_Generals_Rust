@@ -133,7 +133,7 @@ impl WindowManager {
         before: LayoutRegistrationBefore,
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
-        self.rollback_failed_layout_with_effects(layout, info, before, None, effects)
+        self.rollback_failed_layout_with_effects(layout, info, before, effects)
     }
     fn rollback_failed_layout_with_effects(
         &mut self,
@@ -319,7 +319,7 @@ impl WindowManager {
             }
             if !data.header_template.is_empty() {
                 if let Some(font) =
-                    get_header_template_manager().get_font_from_template(&data.header_template)
+                    get_header_template_manager().lock().unwrap_or_else(|e| e.into_inner()).get_font_from_template(&data.header_template)
                 {
                     data.font = Some(font);
                 }

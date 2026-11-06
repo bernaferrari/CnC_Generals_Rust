@@ -404,6 +404,10 @@ impl CnCGameEngine {
             "replay" => self.runtime_host_cmd_replay(&args)?,
             "enqueue_production" | "train_unit" => self.runtime_host_cmd_enqueue_production(&args),
             "select_local_unit" => self.runtime_host_cmd_select_local_unit(&args),
+            "report_ai_activity" => self.runtime_host_cmd_report_ai_activity(&args),
+            "report_world_snapshot" | "world_snapshot" => {
+                self.runtime_host_cmd_report_world_snapshot(&args)
+            },
             "move" | "move_selected" => self.runtime_host_cmd_move(&args),
             "attack_nearest_enemy" => self.runtime_host_cmd_attack_nearest_enemy(&args),
             "stop_all" | "stop_selected" => self.runtime_host_cmd_stop_all(&args),

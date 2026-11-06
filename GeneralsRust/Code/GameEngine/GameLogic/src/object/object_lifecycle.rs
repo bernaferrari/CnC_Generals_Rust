@@ -41,7 +41,11 @@ fn release_destroy_container(owner: &mut DeleteOwner<'_>) {
     });
 }
 
-fn notify_deleted_module(module: &mut dyn engine_module::Module, owner: &mut DeleteOwner<'_>) {
+fn notify_deleted_module(
+    module: &mut dyn engine_module::Module,
+    owner: &mut DeleteOwner<'_>,
+    services: Option<&mut (dyn super::ObjectDeletionServices + '_)>,
+) {
     match super::module_upgrade_kind(module) {
         Some(super::UpgradeModuleKindMut::Radar(upgrade)) => {
             owner.with_mut(|object| upgrade.on_delete(object));
@@ -57,7 +61,7 @@ fn notify_deleted_module(module: &mut dyn engine_module::Module, owner: &mut Del
         .as_any_mut()
         .downcast_mut::<crate::object::behavior::battle_plan_update::BattlePlanUpdateModule>(
     ) {
-        owner.with_mut(|object| battle_plan.on_delete_with_owner(object));
+        owner.with_mut(|object| battle_plan.on_delete_with_owner(object, services));
     } else {
         module.on_delete();
     }
@@ -557,7 +561,7 @@ impl Object {
     /// GameLogic owns this canonical handle. Preserve C++ synchronous onDelete
     /// order while allowing each callback to borrow the still-admitted owner.
     pub(crate) fn on_destroy_from_handle(handle: &Arc<RwLock<Object>>) {
-        Self::on_destroy_from_handle_with_radar_services(handle, None);
+        Self::on_destroy_from_handle_with_radar_services(handle, None, None);
     }
 
     pub(crate) fn on_destroy_from_handle_with_radar_services(
@@ -566,6 +570,7 @@ impl Object {
             &crate::player::PlayerList,
             &mut dyn crate::player::RadarEdgeServices,
         )>,
+        mut deletion: Option<&mut (dyn super::ObjectDeletionServices + '_)>,
     ) {
         {
             let Ok(mut object) = handle.write() else {
@@ -621,7 +626,9 @@ impl Object {
                     continue;
                 }
             }
-            entry.with_module(|module| notify_deleted_module(module, &mut owner));
+            entry.with_module(|module| {
+                notify_deleted_module(module, &mut owner, deletion.as_deref_mut())
+            });
         }
         owner.with_mut(|object| object.handle_partition_cell_maintenance());
     }
@@ -661,6 +668,9 @@ impl Object {
                 if let Some(client) = crate::helpers::TheGameClient::get() {
                     client.clear_object_model_draws(object_id);
                 }
+            }
+            ObjectDestroyServiceAction::DestroyObject(child) => {
+                let _ = crate::helpers::TheGameLogic::destroy_object_by_id(child);
             }
         });
     }
@@ -749,6 +759,20 @@ impl Object {
         }
         self.group_id = None;
 
+        // C++ module destructors run here, after team/group cleanup and
+        // before the module list is released.
+        for entry in self.modules.clone() {
+            let worker = entry.with_module(|module| {
+                module
+                    .as_any_mut()
+                    .downcast_mut::<crate::object::behavior::rebuild_hole_behavior::RebuildHoleBehaviorModule>()
+                    .and_then(|hole| hole.behavior_mut().take_worker_for_destructor())
+            });
+            if let Some(worker_id) = worker {
+                service(self.id, ObjectDestroyServiceAction::DestroyObject(worker_id));
+            }
+        }
+
         // C++ deletes modules only after team/group cleanup. Release interface
         // proxies too: each refers to the same module, not an independent state.
         self.ai = None;
@@ -788,7 +812,7 @@ impl Object {
             .with_mut(|object| object.modules.clone())
             .expect("borrowed owner");
         for entry in modules {
-            entry.with_module(|module| notify_deleted_module(module, &mut owner));
+            entry.with_module(|module| notify_deleted_module(module, &mut owner, None));
         }
         // Match C++ Object::onDestroy -> handlePartitionCellMaintenance.
         // This clears partition/shroud/value/threat bookkeeping before the object is fully removed.
@@ -1009,10 +1033,8 @@ impl Object {
     ) -> crate::object::contain::open_contain::ObjectRelationship {
         use crate::common::Relationship;
         use crate::object::contain::open_contain::ObjectRelationship;
-        if self.get_id() == other.get_id() {
-            return ObjectRelationship::Self_;
-        }
-
+        // C++ Object::getRelationship has no ObjectID shortcut: an object is
+        // an ally of itself through its own team.
         let relationship = self.relationship_to(other);
 
         match relationship {
@@ -1233,7 +1255,8 @@ impl Object {
             let new_player = if let Some(players) = players {
                 new_player_id.and_then(|id| players.get_player(id as PlayerIndex).cloned())
             } else {
-                let Ok(players) = player_list().read() else {
+                let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
                     return Ok(());
                 };
                 new_player_id.and_then(|id| players.get_player(id as PlayerIndex).cloned())
@@ -1740,7 +1763,20 @@ impl Object {
 
 impl Drop for Object {
     fn drop(&mut self) {
-        if self.ambient_lifecycle_admitted {
+        if !self.ambient_lifecycle_admitted {
+            return;
+        }
+        // The destructor tail reads the bound WorldServices; with none bound
+        // there is no owner to retire into, so fail closed instead of panicking
+        // inside Drop (a double panic aborts the whole process).
+        if crate::system::engine_stores::try_active_services().is_none() {
+            return;
+        }
+        if std::thread::panicking() {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.run_destructor_tail();
+            }));
+        } else {
             self.run_destructor_tail();
         }
     }
@@ -1761,7 +1797,8 @@ mod team_membership_borrow_tests {
 
     impl RestorePlayers {
         fn replace(players: &[Arc<RwLock<Player>>]) -> Self {
-            let mut list = player_list().write().unwrap();
+            let __player_list_arc = player_list();
+        let mut list = __player_list_arc.write().unwrap();
             let previous = Self {
                 players: list.iter().cloned().collect(),
                 local_player_index: list.get_local_player_index(),
@@ -1777,8 +1814,8 @@ mod team_membership_borrow_tests {
 
     impl Drop for RestorePlayers {
         fn drop(&mut self) {
-            let mut list = player_list()
-                .write()
+            let __player_list_arc = player_list();
+                let mut list = __player_list_arc.write()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             list.clear();
             for player in self.players.drain(..) {

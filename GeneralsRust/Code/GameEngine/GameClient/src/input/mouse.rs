@@ -1202,10 +1202,34 @@ impl Default for Mouse {
 // TheMouse Singleton (matches C++ extern Mouse *TheMouse)
 // ============================================================================
 
-static THE_MOUSE: OnceLock<Arc<Mutex<Mouse>>> = OnceLock::new();
+#[cfg(test)]
+thread_local! {
+    static TEST_MOUSE: std::cell::RefCell<Option<Arc<Mutex<Mouse>>>> =
+        const { std::cell::RefCell::new(None) };
+}
 
-pub fn the_mouse() -> &'static Arc<Mutex<Mouse>> {
-    THE_MOUSE.get_or_init(|| Arc::new(Mutex::new(Mouse::new())))
+fn mouse_handle() -> Arc<Mutex<Mouse>> {
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_mouse()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_MOUSE.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| Arc::new(Mutex::new(Mouse::new())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Arc::new(Mutex::new(Mouse::new()))
+    }
+}
+
+pub fn the_mouse() -> Arc<Mutex<Mouse>> {
+    mouse_handle()
 }
 
 pub fn with_mouse<R>(f: impl FnOnce(&mut Mouse) -> R) -> R {
@@ -1253,6 +1277,7 @@ mod tests {
 
     #[test]
     fn native_mouse_visibility_matches_cpp_constructor_and_reset() {
+        crate::test_support::ensure_ambient_host();
         let mut mouse = Mouse::new();
         assert!(!mouse.get_visibility(), "C++ Mouse constructor starts hidden");
 
@@ -1270,6 +1295,7 @@ mod tests {
 
     #[test]
     fn retail_mouse_ini_settings_widen_and_shrink_tooltip_text() {
+        crate::test_support::ensure_ambient_host();
         let text = "The Battle Honors a player has received by achieving certain goals";
         let mut constructor = Mouse::new();
         constructor.set_visibility(true);
@@ -1299,6 +1325,7 @@ mod tests {
 
     #[test]
     fn test_button_state_transitions() {
+        crate::test_support::ensure_ambient_host();
         let mut state = MouseState::new();
         let now = Instant::now();
 
@@ -1335,6 +1362,7 @@ mod tests {
 
     #[test]
     fn test_mouse_movement() {
+        crate::test_support::ensure_ambient_host();
         let mut state = MouseState::new();
 
         state.update_position(10.0, 20.0);
@@ -1351,6 +1379,7 @@ mod tests {
 
     #[test]
     fn test_sensitivity() {
+        crate::test_support::ensure_ambient_host();
         let mut state = MouseState::new();
         state.set_sensitivity(2.0);
 
@@ -1364,6 +1393,7 @@ mod tests {
 
     #[test]
     fn test_dragging() {
+        crate::test_support::ensure_ambient_host();
         let mut state = MouseState::new();
         let now = Instant::now();
 
@@ -1389,6 +1419,7 @@ mod tests {
 
     #[test]
     fn test_scroll_wheel() {
+        crate::test_support::ensure_ambient_host();
         let mut state = MouseState::new();
 
         state.update_scroll(1.0, 2.0);
@@ -1403,6 +1434,7 @@ mod tests {
 
     #[test]
     fn test_mouse_creation() {
+        crate::test_support::ensure_ambient_host();
         let mouse = Mouse::new();
         assert!(mouse.is_enabled());
         assert_eq!(mouse.state().position(), (0.0, 0.0));
@@ -1410,6 +1442,7 @@ mod tests {
 
     #[test]
     fn test_mouse_enable_disable() {
+        crate::test_support::ensure_ambient_host();
         let mut mouse = Mouse::new();
 
         mouse.set_enabled(false);
@@ -1428,6 +1461,7 @@ mod tests {
 
     #[test]
     fn cursor_tooltip_accepts_negative_delay_to_restore_default_timing() {
+        crate::test_support::ensure_ambient_host();
         let mut mouse = Mouse::new();
 
         mouse.set_cursor_tooltip("Fast".to_string(), Some(0), None, None);
@@ -1439,6 +1473,7 @@ mod tests {
 
     #[test]
     fn test_button_conversion() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(MouseButton::from(WinitMouseButton::Left), MouseButton::Left);
         assert_eq!(
             MouseButton::from(WinitMouseButton::Right),

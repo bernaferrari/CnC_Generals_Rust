@@ -511,10 +511,14 @@ impl drawable_world::DrawableState {
             .collect();
         for id in &self.native_drawable_order {
             if let Some(binding) = self.presentation_direct_drawable_bindings.get(id) {
-                if !by_key.contains_key(&binding.binding_key) {
-                    return Err(GameClientError::InvalidOperation(
-                        "missing native material observation".into(),
-                    ));
+                // A semantic-lifetime binding outlives its host object (C++
+                // Drawable after the Object is gone); it has no host facts.
+                if !binding.semantic_lifetime && !by_key.contains_key(&binding.binding_key) {
+                    return Err(GameClientError::InvalidOperation(format!(
+                        "missing native material observation for {:?} ({} observed)",
+                        binding.binding_key,
+                        by_key.len()
+                    )));
                 }
             }
         }
@@ -534,15 +538,18 @@ impl drawable_world::DrawableState {
         let Some(receiver) = receiver.as_any_mut().downcast_mut::<BasicDrawable>() else {
             return Ok(());
         };
-        if let Some(binding) = self.presentation_direct_drawable_bindings.get(&id) {
-            let fact = by_key.get(&binding.binding_key).ok_or_else(|| {
-                GameClientError::InvalidOperation(
-                    "native Draw binding changed during traversal".into(),
-                )
-            })?;
-            receiver.advance_material_draw(fact.effectively_dead, fact.frenzy);
-        } else {
-            receiver.advance_core_material_draw();
+        match self.presentation_direct_drawable_bindings.get(&id) {
+            Some(binding) => match by_key.get(&binding.binding_key) {
+                Some(fact) => receiver.advance_material_draw(fact.effectively_dead, fact.frenzy),
+                // Host object already left the roster: draw as an object-less Drawable.
+                None if binding.semantic_lifetime => receiver.advance_core_material_draw(),
+                None => {
+                    return Err(GameClientError::InvalidOperation(
+                        "native Draw binding changed during traversal".into(),
+                    ));
+                }
+            },
+            None => receiver.advance_core_material_draw(),
         }
         Ok(())
     }
@@ -715,7 +722,11 @@ impl GameClient {
             NativeDrawableOwner {
                 auxiliary_identity: &self.drawables.auxiliary_identity,
                 drawables: &mut self.drawables.state,
-                particles: &mut self.drawables.particles,
+                particles: self
+                    .drawables
+                    .particles
+                    .as_mut()
+                    .expect("GameClient particle manager"),
                 audio_device: self.native_audio_device.as_ref(),
             },
             self.ui_renderer.as_mut(),

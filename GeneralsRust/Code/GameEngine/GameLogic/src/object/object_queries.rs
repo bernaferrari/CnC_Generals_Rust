@@ -77,7 +77,8 @@ impl Object {
     pub fn get_controlling_player(&self) -> Option<Arc<RwLock<Player>>> {
         let team = self.get_team()?;
         let player_index = team.read().ok()?.get_controlling_player_id()? as Int;
-        let list = player_list().read().ok()?;
+        let __player_list_arc = player_list();
+        let list = __player_list_arc.read().ok()?;
         list.get_player(player_index).cloned()
     }
 

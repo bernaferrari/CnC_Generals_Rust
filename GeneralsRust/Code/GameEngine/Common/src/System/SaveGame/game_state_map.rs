@@ -480,11 +480,11 @@ mod tests {
 
     // THREAD: test-local guard; the repo convention runs tests with
     // `--test-threads=1`, so a per-thread cell replaces the old process mutex.
-    fn test_guard() -> Rc<RefCell<()>> {
-        thread_local! {
-            static TEST_GUARD: Rc<RefCell<()>> = Rc::new(RefCell::new(()));
-        }
-        TEST_GUARD.with(Rc::clone)
+    fn test_guard() -> std::sync::MutexGuard<'static, ()> {
+        struct TestGuardSlot(std::sync::Mutex<()>);
+        static TEST_GUARD: std::sync::LazyLock<TestGuardSlot> =
+            std::sync::LazyLock::new(|| TestGuardSlot(std::sync::Mutex::new(())));
+        TEST_GUARD.0.lock().unwrap_or_else(|p| p.into_inner())
     }
 
     fn unique_temp_save_dir(label: &str) -> PathBuf {
@@ -514,8 +514,7 @@ mod tests {
 
     #[test]
     fn load_refreshes_new_game_after_skirmish_payload() {
-        let guard_owner = test_guard();
-        let _guard = guard_owner.borrow();
+        let _guard = test_guard();
         let save_dir = unique_temp_save_dir("load_refresh");
         let map_path = save_dir.join("FrozenValley.map");
         fs::write(&map_path, b"dummy map payload").expect("write dummy map");

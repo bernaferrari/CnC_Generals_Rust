@@ -197,9 +197,16 @@ impl HostSpecialPowerStrikeRegistry {
             if !field.is_due_tick(current_frame) {
                 continue;
             }
+            // FireWeaponUpdate.cpp:83 forceFireWeapon(getObject(), …) — the
+            // NukeRadiationFieldWeapon Object is the damage source, not the
+            // original launcher that armed the residual field.
+            let damage_source = field.object_id.unwrap_or(field.source_object);
             let mut hits = Vec::new();
             for &(id, pos, _team, alive) in object_positions {
-                if !alive || id == field.source_object {
+                if !alive || id == damage_source || id == field.source_object {
+                    continue;
+                }
+                if field.object_id == Some(id) {
                     continue;
                 }
                 let dist = horizontal_distance(pos, field.position);
@@ -213,7 +220,7 @@ impl HostSpecialPowerStrikeRegistry {
             }
             plans.push(HostRadiationTickPlan {
                 field_id: field.id,
-                source_object: field.source_object,
+                source_object: damage_source,
                 source_team: field.source_team,
                 position: field.position,
                 hits,
@@ -1033,6 +1040,29 @@ impl HostSpecialPowerStrikeRegistry {
         manual_target_mode: bool,
         manual_drive_settings: ParticleManualDriveSettings,
     ) -> u32 {
+        self.spawn_beam_field_with_drive_and_swath(
+            source_object,
+            source_team,
+            position,
+            spawn_frame,
+            parent_strike_id,
+            manual_target_mode,
+            manual_drive_settings,
+            ParticleSwathSettings::default(),
+        )
+    }
+
+    pub(crate) fn spawn_beam_field_with_drive_and_swath(
+        &mut self,
+        source_object: ObjectId,
+        source_team: crate::game_logic::Team,
+        position: Vec3,
+        spawn_frame: u32,
+        parent_strike_id: u32,
+        manual_target_mode: bool,
+        manual_drive_settings: ParticleManualDriveSettings,
+        swath_settings: ParticleSwathSettings,
+    ) -> u32 {
         let id = self.next_beam_id;
         self.next_beam_id = self.next_beam_id.saturating_add(1).max(1);
         let field = HostParticleBeamField {
@@ -1056,6 +1086,7 @@ impl HostSpecialPowerStrikeRegistry {
             objects_destroyed: 0,
             parent_strike_id,
             manual_drive_settings,
+            swath_settings,
             last_swath_position: position,
             max_swath_offset: 0.0,
             swath_applications: 0,
@@ -1384,8 +1415,8 @@ impl HostSpecialPowerStrikeRegistry {
                     current_frame,
                     field.spawn_frame,
                     field.expires_frame,
-                    PARTICLE_SWATH_OF_DEATH_DISTANCE,
-                    PARTICLE_SWATH_OF_DEATH_AMPLITUDE,
+                    field.swath_settings.swath_of_death_distance,
+                    field.swath_settings.swath_of_death_amplitude,
                 );
             }
             field.current_target_position.y = terrain.get_ground_height(

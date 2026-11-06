@@ -2190,13 +2190,13 @@ mod tests {
         assert!(reg.get(explosion).expect("explosion").active);
 
         // frame - spawned_frame reaches the 2-frame MediumExplosion lifetime.
-        reg.sync_projectile_exhausts(7, &[]);
+        reg.sync_projectile_exhausts(7, &[], &mut ());
         reg.clear_frame_events();
         assert!(!reg.get(explosion).expect("explosion").active);
         // SmokePlume residual lives 600 frames — untouched at 7.
         assert!(reg.get(smoke).expect("smoke").active);
 
-        reg.sync_projectile_exhausts(605, &[]);
+        reg.sync_projectile_exhausts(605, &[], &mut ());
         reg.clear_frame_events();
         assert!(!reg.get(smoke).expect("smoke").active);
     }
@@ -2215,6 +2215,7 @@ mod tests {
                 first_position,
                 "TowMissileExhaust".to_string(),
             )],
+            &mut (),
         );
         let exhaust = reg
             .systems_of_kind(CombatParticleKind::ProjectileExhaust)
@@ -2235,6 +2236,7 @@ mod tests {
                 moved_position,
                 "TowMissileExhaust".to_string(),
             )],
+            &mut (),
         );
         let exhausts = reg.systems_of_kind(CombatParticleKind::ProjectileExhaust);
         assert_eq!(
@@ -2254,7 +2256,7 @@ mod tests {
         );
 
         let no_projectiles: [(ObjectId, ObjectId, Vec3, String); 0] = [];
-        reg.sync_projectile_exhausts(12, &no_projectiles);
+        reg.sync_projectile_exhausts(12, &no_projectiles, &mut ());
         assert!(
             !reg.get(exhaust_id).expect("retained history entry").active,
             "trail is destroyed when the projectile impacts or expires"
@@ -2266,6 +2268,7 @@ mod tests {
         reg.sync_projectile_exhausts(
             13,
             &[(ObjectId(701), shooter, Vec3::ZERO, "None".to_string())],
+            &mut (),
         );
         assert_eq!(
             reg.systems_of_kind(CombatParticleKind::ProjectileExhaust)
@@ -2456,7 +2459,7 @@ mod tests {
         assert!(!reg.has_body_particles(owner));
 
         let attached = reg
-            .attach_named_to_object(owner, pos, 7, "WreckSmoke")
+            .attach_named_to_object(owner, pos, 7, "WreckSmoke", &mut ())
             .expect("ocl particle");
         assert_eq!(
             reg.get(attached).expect("entry").template_name,
@@ -2489,6 +2492,7 @@ mod tests {
                 "DieselSmoke",
                 CombatParticleKind::ParticleSysBone,
                 None,
+                &mut (),
             )
             .expect("bone system");
         let entry = reg.get(id).expect("entry");
@@ -2513,6 +2517,7 @@ mod tests {
                 "DisabledEffectBinaryShower0",
                 CombatParticleKind::DisableFx,
                 Some(120),
+                &mut (),
             )
             .expect("disable fx");
         assert!(reg.get(id).expect("entry").active);

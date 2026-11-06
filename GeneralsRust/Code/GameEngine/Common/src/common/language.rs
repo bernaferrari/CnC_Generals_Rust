@@ -127,21 +127,26 @@ impl LanguageId {
     }
 }
 
-// Global language setting
-// THREAD: C++ plain statics; driven only by the single game/client thread.
-thread_local! {
-    static CURRENT_LANGUAGE: RefCell<LanguageId> = RefCell::new(LanguageId::Us);
-    static LOCALIZED_STRINGS: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
-}
+
 
 /// Get the current language
 pub fn get_current_language() -> LanguageId {
-    CURRENT_LANGUAGE.with_borrow(|language| *language)
+    let services = crate::common::common_services::common_services();
+    *services
+        .system
+        .language_current
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
 }
 
 /// Set the current language
 pub fn set_current_language(language: LanguageId) {
-    CURRENT_LANGUAGE.with_borrow_mut(|current| *current = language);
+    let services = crate::common::common_services::common_services();
+    *services
+        .system
+        .language_current
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = language;
 }
 
 /// Language utility functions
@@ -208,14 +213,24 @@ impl Language {
 
     /// Register or replace a localized string in the runtime table.
     pub fn register_localized_string<K: Into<String>, V: Into<String>>(key: K, value: V) {
-        LOCALIZED_STRINGS.with_borrow_mut(|table| {
-            table.insert(key.into(), value.into());
-        });
+        let services = crate::common::common_services::common_services();
+        services
+            .system
+            .language_strings
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(key.into(), value.into());
     }
 
     /// Clear all runtime localized strings.
     pub fn clear_localized_strings() {
-        LOCALIZED_STRINGS.with_borrow_mut(|table| table.clear());
+        let services = crate::common::common_services::common_services();
+        services
+            .system
+            .language_strings
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clear();
     }
 
     /// Get localized string from runtime table, falling back to original key.
@@ -226,15 +241,19 @@ impl Language {
         }
 
         let lookup = trimmed.strip_prefix("LOC:").unwrap_or(trimmed);
-        LOCALIZED_STRINGS.with_borrow(|table| {
-            if let Some(value) = table.get(lookup) {
-                return value.clone();
-            }
-            if let Some(value) = table.get(trimmed) {
-                return value.clone();
-            }
-            lookup.to_string()
-        })
+        let services = crate::common::common_services::common_services();
+        let table = services
+            .system
+            .language_strings
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if let Some(value) = table.get(lookup) {
+            return value.clone();
+        }
+        if let Some(value) = table.get(trimmed) {
+            return value.clone();
+        }
+        lookup.to_string()
     }
 
     /// Format localized string with indexed replacements (`{0}`, `{1}`, ...).

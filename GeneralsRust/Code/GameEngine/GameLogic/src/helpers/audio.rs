@@ -113,8 +113,8 @@ struct GameLogicAudioShroudResolver;
 
 impl AudioShroudResolver for GameLogicAudioShroudResolver {
     fn is_position_visible_to_local_player(&self, position: &EngineCoord3D) -> Bool {
-        let local_player_index = crate::player::player_list()
-            .read()
+        let __player_list_arc = crate::player::player_list();
+            let local_player_index = __player_list_arc.read()
             .ok()
             .and_then(|list| list.get_local_player().cloned())
             .and_then(|player| player.read().ok().map(|guard| guard.get_player_index()));
@@ -148,7 +148,8 @@ struct GameLogicAudioLocalityResolver;
 
 impl AudioLocalityResolver for GameLogicAudioLocalityResolver {
     fn get_local_player_index(&self) -> Option<Int> {
-        let list = crate::player::player_list().read().ok()?;
+        let __player_list_arc = crate::player::player_list();
+        let list = __player_list_arc.read().ok()?;
         let player = list.get_local_player()?.clone();
         let guard = player.read().ok()?;
         Some(guard.get_player_index())
@@ -158,7 +159,8 @@ impl AudioLocalityResolver for GameLogicAudioLocalityResolver {
         if player_index < 0 {
             return false;
         }
-        let list = match crate::player::player_list().read() {
+        let __player_list_arc = crate::player::player_list();
+        let list = match __player_list_arc.read() {
             Ok(list) => list,
             Err(_) => return false,
         };
@@ -187,7 +189,8 @@ impl AudioLocalityResolver for GameLogicAudioLocalityResolver {
         if player_index < 0 {
             return false;
         }
-        let list = match crate::player::player_list().read() {
+        let __player_list_arc = crate::player::player_list();
+        let list = match __player_list_arc.read() {
             Ok(list) => list,
             Err(_) => return false,
         };
@@ -214,7 +217,8 @@ impl AudioLocalityResolver for GameLogicAudioLocalityResolver {
             return AudioLocalityRelationship::Neutral;
         }
 
-        let list = match crate::player::player_list().read() {
+        let __player_list_arc = crate::player::player_list();
+        let list = match __player_list_arc.read() {
             Ok(list) => list,
             Err(_) => return AudioLocalityRelationship::Neutral,
         };

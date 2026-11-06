@@ -68,7 +68,7 @@ pub use vector3_random::{
 };
 pub use vector4::Vector4;
 pub use matrix4::Matrix4;
-pub use wwmath::{WWMath, EPSILON, EPSILON2, PI, FLOAT_MAX, FLOAT_MIN, SQRT2, SQRT3, OO_SQRT2, OO_SQRT3, RAD_TO_DEG, DEG_TO_RAD};
+pub use wwmath::{WWMath, WwMathRng, EPSILON, EPSILON2, PI, FLOAT_MAX, FLOAT_MIN, SQRT2, SQRT3, OO_SQRT2, OO_SQRT3, RAD_TO_DEG, DEG_TO_RAD};
 pub use vector2i::Vector2i;
 pub use vector3i::{Vector3i, Vector3i16};
 pub use matrix3::Matrix3;
@@ -110,5 +110,4 @@ pub use ode::{ODESystem, IntegrationSystem, StateVector, HarmonicOscillator};
 pub use normal_cone::NormalCone;
 pub use lookup_table::{
     LookupTable, LookupTableManager, Curve1D as LookupCurve1D, LinearCurve as LookupLinearCurve, SineCurve,
-    global_table_manager
 };

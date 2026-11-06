@@ -531,23 +531,26 @@ pub fn replay_menu_input(
 #[cfg(test)]
 mod tests {
     use super::*;
+use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn esc_char_is_consumed_before_key_up_like_cpp() {
-        let window = GameWindow::new();
+        crate::test_support::ensure_ambient_host();
+        let mut window = GameWindow::new();
 
         assert_eq!(
-            replay_menu_input(&window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0),
+            WindowEventEffects::with_standalone(|effects| replay_menu_input(&mut window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0, effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            replay_menu_input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0),
+            WindowEventEffects::with_standalone(|effects| replay_menu_input(&mut window, WindowMessage::Char, b'A' as WindowMsgData, 0, effects)),
             WindowMsgHandled::Ignored
         );
     }
 
     #[test]
     fn replay_double_click_uses_current_listbox_selection_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut state = ReplayMenuState::new();
         state.listbox_id = 42;
 
@@ -577,6 +580,7 @@ mod tests {
 
     #[test]
     fn replay_menu_system_handles_glm_double_clicked_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let listbox_id = 42;
         let listbox_window = Rc::new(RefCell::new(GameWindow::new()));
         listbox_window
@@ -585,8 +589,9 @@ mod tests {
                 crate::gui::gadgets::ListBox::new(listbox_id as u32, 0, 0, 200, 80),
             ));
 
+        let mut wm = crate::gui::window_manager::WindowManager::new();
+        let state_handle = replay_menu_state(&mut wm);
         {
-            let state_handle = replay_menu_state();
             let mut state = state_handle.borrow_mut();
             *state = ReplayMenuState::new();
             state.listbox_id = listbox_id;
@@ -594,14 +599,15 @@ mod tests {
         }
 
         let mut window = GameWindow::new();
-        window.set_user_data(replay_menu_state());
+        window.set_user_data(replay_menu_state(&mut wm));
         assert_eq!(
-            replay_menu_system(
-                &window,
+            WindowEventEffects::with_standalone(|effects| replay_menu_system(
+                &mut window,
                 WindowMessage::User(GLM_DOUBLE_CLICKED),
                 listbox_id as WindowMsgData,
                 (-1isize) as WindowMsgData,
-            ),
+                effects,
+            )),
             WindowMsgHandled::Handled
         );
     }
@@ -619,29 +625,77 @@ pub enum ResidualReplayMenuAction {
     Back = 5,
 }
 
-static RESIDUAL_REPLAY_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_REPLAY_SLOT: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ReplayMenuResidualState {
+    action: u8,
+    slot: i32,
+}
+
+impl Default for ReplayMenuResidualState {
+    fn default() -> Self {
+        Self { action: 0, slot: -1 }
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_REPLAY_RESIDUAL: std::cell::Cell<ReplayMenuResidualState> =
+        std::cell::Cell::new(ReplayMenuResidualState { action: 0, slot: -1 });
+}
+
+fn with_replay_residual_mut<R>(
+    f: impl FnOnce(&mut ReplayMenuResidualState) -> R,
+) -> R {
+    let mut f = Some(f);
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .with_replay_menu_residual_mut(|state| f.take().expect("replay")(state))
+    }) {
+        return result;
+    }
+    #[cfg(test)]
+    {
+        return TEST_REPLAY_RESIDUAL.with(|slot| {
+            let mut state = slot.get();
+            let out = f.take().expect("replay")(&mut state);
+            slot.set(state);
+            out
+        });
+    }
+    #[cfg(not(test))]
+    {
+        f.take().expect("replay")(&mut ReplayMenuResidualState::default())
+    }
+}
 
 fn residual_replay_action_store(action: ResidualReplayMenuAction) {
-    RESIDUAL_REPLAY_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+    with_replay_residual_mut(|state| {
+        state.action = action as u8;
+    });
 }
 
 /// Residual: last ReplayMenu residual action.
 pub fn residual_replay_menu_last_action() -> ResidualReplayMenuAction {
-    match RESIDUAL_REPLAY_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+    with_replay_residual_mut(|state| match state.action {
         1 => ResidualReplayMenuAction::SelectSlot,
         2 => ResidualReplayMenuAction::Load,
         3 => ResidualReplayMenuAction::Delete,
         4 => ResidualReplayMenuAction::Copy,
         5 => ResidualReplayMenuAction::Back,
         _ => ResidualReplayMenuAction::None,
-    }
+    })
 }
 
 /// Residual: last selected replay list slot (-1 if none).
 pub fn residual_replay_menu_selected_slot() -> Option<i32> {
-    let slot = RESIDUAL_REPLAY_SLOT.load(std::sync::atomic::Ordering::Relaxed);
-    if slot < 0 { None } else { Some(slot) }
+    with_replay_residual_mut(|state| {
+        if state.slot < 0 {
+            None
+        } else {
+            Some(state.slot)
+        }
+    })
 }
 
 fn ensure_replay_control_ids(state: &mut ReplayMenuState) {
@@ -695,7 +749,7 @@ pub fn simulate_replay_menu_select_slot(
     ensure_replay_control_ids(&mut state);
     // Best-effort list selection when list is populated; residual slot is authoritative.
     state.menu.set_selected_index(slot_index);
-    RESIDUAL_REPLAY_SLOT.store(slot_index, std::sync::atomic::Ordering::Relaxed);
+    with_replay_residual_mut(|state| { state.slot = slot_index; });
     residual_replay_action_store(ResidualReplayMenuAction::SelectSlot);
     residual_replay_menu_selected_slot() == Some(slot_index)
 }
@@ -751,7 +805,7 @@ pub fn simulate_replay_menu_back_button_gadget_selected(
     let mut state = state_handle.borrow_mut();
     ensure_replay_control_ids(&mut state);
     residual_replay_action_store(ResidualReplayMenuAction::Back);
-    RESIDUAL_REPLAY_SLOT.store(-1, std::sync::atomic::Ordering::Relaxed);
+    with_replay_residual_mut(|state| { state.slot = -1; });
     state.menu.set_selected_index(-1);
     true
 }
@@ -859,40 +913,61 @@ pub fn drive_os_wnd_replay_menu_copy_like_cpp(
 #[cfg(test)]
 mod os_wnd_tests {
     use super::*;
-    use crate::gui::with_window_manager;
+    use crate::gui::game_window::WindowEventEffects;
 
-    fn install_named_button(name: &str, x: i32, y: i32) {
-        with_window_manager(|manager| {
-            let button = manager.create_window(None, x, y, 80, 24).expect(name);
+    fn with_fixture(operation: impl FnOnce(&mut WindowEventEffects<'_>)) {
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&owner);
+        effects.menus = Some(
+            menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
+        );
+        operation(&mut effects);
+    }
+
+    fn install_named_button(name: &str, x: i32, y: i32, effects: &mut WindowEventEffects<'_>) {
+        let owner = effects
+            .window_manager_owner
+            .expect("named button install requires receiving owner");
+        owner.with_manager(|manager| {
+            let button = manager.test_create_window(None, x, y, 80, 24).expect(name);
             button.borrow_mut().set_name(name);
-            let _ = button.borrow_mut().hide(false);
+            let _ = button.borrow_mut().hide_without_manager_side_effects(false);
         });
     }
 
     #[test]
     fn os_wnd_replay_menu_prepare_load_hits_list_and_load() {
-        install_named_button("ReplayMenu.wnd:ListboxReplayFiles", 10, 10);
-        install_named_button("ReplayMenu.wnd:ButtonLoadReplay", 10, 40);
-        assert!(
-            drive_os_wnd_replay_menu_prepare_load_like_cpp(0),
-            "OS WND clicks on list + Load must latch Load residual"
-        );
-        assert_eq!(residual_replay_menu_selected_slot(), Some(0));
-        assert_eq!(
-            residual_replay_menu_last_action(),
-            ResidualReplayMenuAction::Load
-        );
-        assert!(!drive_os_wnd_replay_menu_prepare_load_like_cpp(-1));
+        crate::test_support::ensure_ambient_host();
+        with_fixture(|effects| {
+            install_named_button("ReplayMenu.wnd:ListboxReplayFiles", 10, 10, effects);
+            install_named_button("ReplayMenu.wnd:ButtonLoadReplay", 10, 40, effects);
+            assert!(
+                drive_os_wnd_replay_menu_prepare_load_like_cpp(0, effects),
+                "OS WND clicks on list + Load must latch Load residual"
+            );
+            assert_eq!(residual_replay_menu_selected_slot(), Some(0));
+            assert_eq!(
+                residual_replay_menu_last_action(),
+                ResidualReplayMenuAction::Load
+            );
+            assert!(!drive_os_wnd_replay_menu_prepare_load_like_cpp(-1, effects));
+        });
     }
 
     #[test]
     fn os_wnd_replay_menu_back_hits_button_back() {
-        install_named_button("ReplayMenu.wnd:ButtonBack", 10, 70);
-        assert!(drive_os_wnd_replay_menu_back_like_cpp());
-        assert_eq!(
-            residual_replay_menu_last_action(),
-            ResidualReplayMenuAction::Back
-        );
-        assert_eq!(residual_replay_menu_selected_slot(), None);
+        crate::test_support::ensure_ambient_host();
+        with_fixture(|effects| {
+            install_named_button("ReplayMenu.wnd:ButtonBack", 10, 70, effects);
+            assert!(drive_os_wnd_replay_menu_back_like_cpp(effects));
+            assert_eq!(
+                residual_replay_menu_last_action(),
+                ResidualReplayMenuAction::Back
+            );
+        });
     }
 }
+

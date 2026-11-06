@@ -157,7 +157,7 @@ fn missing_or_physically_removed_planned_source_never_uses_stale_team_credit() {
         let source_id = if missing { ObjectId(999_999) } else { source };
         plan(&mut world, Some(source_id), victim);
         if !missing {
-            world.destroy_object(source);
+            world.destroy_object(source).unwrap();
             world.process_destroy_list();
             assert!(!world.objects.contains_key(&source));
         }
@@ -231,7 +231,7 @@ fn immediate_comanche_and_scud_blasts_share_source_aware_score_order() {
 #[test]
 fn direct_deletion_and_a_late_manual_mark_never_invent_score_or_death() {
     let (mut world, _, victim) = setup();
-    world.destroy_object(victim);
+    world.destroy_object(victim).unwrap();
     world.mark_object_for_destruction(victim, Some(Team::USA));
     assert!(!world.objects[&victim].status.on_die_started);
     assert_eq!(world.objects_to_destroy.len(), 1);
@@ -247,11 +247,22 @@ fn direct_deletion_and_a_late_manual_mark_never_invent_score_or_death() {
 }
 #[test]
 fn encoded_pre_drain_save_retains_admitted_credit_and_ordered_removals() {
+    // Three full worlds, a snapshot, and a bincode round trip are live at once;
+    // the unoptimized debug frames exceed libtest's 2 MiB default thread stack.
+    let worker = std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(encoded_pre_drain_save_retains_admitted_credit_and_ordered_removals_body)
+        .expect("spawn large-stack test thread");
+    if let Err(panic) = worker.join() {
+        std::panic::resume_unwind(panic);
+    }
+}
+fn encoded_pre_drain_save_retains_admitted_credit_and_ordered_removals_body() {
     let (mut source_world, source, victim) = setup();
     plan(&mut source_world, Some(source), victim);
     tick(&mut source_world, victim);
     credited(&source_world, source, 0);
-    source_world.destroy_object(source); // ordered [victim death, source direct].
+    source_world.destroy_object(source).unwrap(); // ordered [victim death, source direct].
     let expected = source_world.pending_object_removal_snapshot();
     assert_eq!(
         expected

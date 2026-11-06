@@ -1616,8 +1616,9 @@ struct TextTypeTransition {
     draw_state: i32,
     pos: ICoord2D,
     size: ICoord2D,
-    full_text: String,
-    partial_text: String,
+    /// C++ UnicodeString — indexed by UTF-16 code units (wchar_t).
+    full_text_utf16: Vec<u16>,
+    partial_text_utf16: Vec<u16>,
     win: Option<Weak<RefCell<GameWindow>>>,
 }
 
@@ -1630,14 +1631,20 @@ impl TextTypeTransition {
             draw_state: -1,
             pos: ICoord2D::default(),
             size: ICoord2D::default(),
-            full_text: String::new(),
-            partial_text: String::new(),
+            full_text_utf16: Vec::new(),
+            partial_text_utf16: Vec::new(),
             win: None,
         }
     }
 
     fn with_window(&self) -> Option<Rc<RefCell<GameWindow>>> {
         self.win.as_ref().and_then(|w| w.upgrade())
+    }
+
+    fn partial_display_text(&self) -> String {
+        // Lone surrogate prefixes become U+FFFD for valid Rust UTF-8 draw paths
+        // while still advancing one code unit per frame like C++ getCharAt.
+        String::from_utf16_lossy(&self.partial_text_utf16)
     }
 }
 
@@ -1662,10 +1669,14 @@ impl Transition for TextTypeTransition {
         self.is_finished = false;
         self.is_forward = true;
         if let Some(win_rc) = &win {
-            self.full_text = window_access.borrow_window(win_rc).get_text().to_owned();
+            let text = window_access.borrow_window(win_rc).get_text().to_owned();
+            self.full_text_utf16 = text.encode_utf16().collect();
+        } else {
+            self.full_text_utf16.clear();
         }
-        self.frame_length = (self.full_text.chars().count() as i32).min(30);
-        self.partial_text.clear();
+        // C++ m_fullText.getLength() is wchar_t / UTF-16 code units.
+        self.frame_length = (self.full_text_utf16.len() as i32).min(30);
+        self.partial_text_utf16.clear();
     }
 
     fn update(&mut self, frame: i32, window_access: &mut TransitionWindowAccess<'_, '_>) {
@@ -1704,11 +1715,11 @@ impl Transition for TextTypeTransition {
             play_sound("GUITypeText");
             if self.is_forward {
                 let idx = frame as usize - 1;
-                if let Some(ch) = self.full_text.chars().nth(idx) {
-                    self.partial_text.push(ch);
+                if let Some(&unit) = self.full_text_utf16.get(idx) {
+                    self.partial_text_utf16.push(unit);
                 }
             } else {
-                self.partial_text.pop();
+                self.partial_text_utf16.pop();
             }
         }
     }
@@ -1716,7 +1727,7 @@ impl Transition for TextTypeTransition {
     fn reverse(&mut self, window_access: &mut TransitionWindowAccess<'_, '_>) {
         self.is_finished = false;
         self.is_forward = false;
-        self.partial_text = self.full_text.clone();
+        self.partial_text_utf16 = self.full_text_utf16.clone();
     }
 
     fn draw(
@@ -1733,9 +1744,9 @@ impl Transition for TextTypeTransition {
         let win_ref = window_access.borrow_window(&win_rc);
         let color = rgba_from_color(win_ref.get_enabled_text_color(), None);
         let font_size = win_ref.get_font().map(|f| f.size).unwrap_or(14) as f32;
-        let text = self.partial_text.clone();
+        let text = self.partial_display_text();
         let (x, y) = if win_ref.get_status().contains(WindowStatus::WRAP_CENTERED) {
-            let width_estimate = font_size * text.chars().count() as f32 * 0.6;
+            let width_estimate = font_size * self.partial_text_utf16.len() as f32 * 0.6;
             (
                 self.pos.x as f32 + (self.size.x as f32 / 2.0) - (width_estimate / 2.0),
                 self.pos.y as f32 + (self.size.y as f32 / 2.0) - (font_size / 2.0),
@@ -2975,62 +2986,125 @@ impl GameWindowTransitionsHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gui::window_manager::{CaptureFlags, TransitionWindowAccess};
+
+    fn with_access<R>(f: impl FnOnce(&mut TransitionWindowAccess<'_, '_>) -> R) -> R {
+        let mut keyboard_focus = None;
+        let mut modal_stack = None;
+        let mut mouse_capture = None;
+        let mut capture_flags = CaptureFlags::empty();
+        let mut access = TransitionWindowAccess::new(
+            &mut keyboard_focus,
+            &mut modal_stack,
+            &mut mouse_capture,
+            &mut capture_flags,
+            None,
+        );
+        f(&mut access)
+    }
 
     #[test]
     fn fade_transition_finishes_on_last_forward_frame() {
+        crate::test_support::ensure_ambient_host();
         let win = Rc::new(RefCell::new(GameWindow::new()));
         let mut transition = FadeTransition::new();
-        transition.init(Some(win.clone()), &HashMap::new(), (800, 600));
-
-        transition.update(9);
-
-        assert!(transition.is_finished());
+        with_access(|access| {
+            transition.init(Some(win.clone()), &HashMap::new(), (800, 600), access);
+            transition.update(9, access);
+            assert!(transition.is_finished());
+        });
     }
 
     #[test]
     fn fade_transition_is_not_finished_before_last_forward_frame() {
+        crate::test_support::ensure_ambient_host();
         let win = Rc::new(RefCell::new(GameWindow::new()));
         let mut transition = FadeTransition::new();
-        transition.init(Some(win.clone()), &HashMap::new(), (800, 600));
-
-        transition.update(8);
-
-        assert!(!transition.is_finished());
+        with_access(|access| {
+            transition.init(Some(win.clone()), &HashMap::new(), (800, 600), access);
+            transition.update(8, access);
+            assert!(!transition.is_finished());
+        });
     }
 
     #[test]
     fn fade_transition_reverse_finishes_on_zero_frame_only() {
+        crate::test_support::ensure_ambient_host();
         let win = Rc::new(RefCell::new(GameWindow::new()));
         let mut transition = FadeTransition::new();
-        transition.init(Some(win.clone()), &HashMap::new(), (800, 600));
-
-        transition.reverse();
-        transition.update(9);
-        assert!(!transition.is_finished());
-
-        transition.update(0);
-        assert!(transition.is_finished());
+        with_access(|access| {
+            transition.init(Some(win.clone()), &HashMap::new(), (800, 600), access);
+            transition.reverse(access);
+            transition.update(9, access);
+            assert!(!transition.is_finished());
+            transition.update(0, access);
+            assert!(transition.is_finished());
+        });
     }
 
     #[test]
     fn text_type_transition_keeps_window_text_on_init() {
+        crate::test_support::ensure_ambient_host();
         let win = Rc::new(RefCell::new(GameWindow::new()));
         win.borrow_mut().set_text("  GUI:Back ").unwrap();
         let mut transition = TextTypeTransition::new();
+        with_access(|access| {
+            transition.init(Some(win), &HashMap::new(), (800, 600), access);
+        });
+        assert_eq!(
+            String::from_utf16_lossy(&transition.full_text_utf16),
+            "  GUI:Back "
+        );
+    }
 
-        transition.init(Some(win), &HashMap::new(), (800, 600));
-
-        assert_eq!(transition.full_text, "  GUI:Back ");
+    #[test]
+    fn text_type_transition_advances_one_utf16_code_unit_per_frame() {
+        // hq-e2s7dm — C++ UnicodeString::getCharAt indexes wchar_t units.
+        crate::test_support::ensure_ambient_host();
+        let win = Rc::new(RefCell::new(GameWindow::new()));
+        // U+1F600 grin encodes as two UTF-16 units (surrogate pair).
+        let grin = char::from_u32(0x1F600).unwrap();
+        win.borrow_mut()
+            .set_text(&format!("A{grin}B"))
+            .unwrap();
+        let mut transition = TextTypeTransition::new();
+        with_access(|access| {
+            transition.init(Some(win.clone()), &HashMap::new(), (800, 600), access);
+            assert_eq!(transition.full_text_utf16.len(), 4);
+            assert_eq!(transition.frame_length, 4);
+            transition.update(1, access);
+            assert_eq!(transition.partial_text_utf16, [b'A' as u16]);
+            transition.update(2, access);
+            assert_eq!(transition.partial_text_utf16.len(), 2);
+            assert!(
+                (0xD800..=0xDBFF).contains(&transition.partial_text_utf16[1]),
+                "second frame must admit the high surrogate alone"
+            );
+            let replacement = char::from_u32(0xFFFD).unwrap();
+            assert_eq!(
+                transition.partial_display_text(),
+                format!("A{replacement}")
+            );
+            transition.update(3, access);
+            assert_eq!(transition.partial_text_utf16.len(), 3);
+            assert_eq!(transition.partial_display_text(), format!("A{grin}"));
+            // C++ only concats while frame < m_frameLength; at frameLength the
+            // real window is shown with the full string (last unit is not typed
+            // into m_partialText).
+            transition.update(4, access);
+            assert_eq!(transition.partial_text_utf16.len(), 3);
+        });
     }
 
     #[test]
     fn count_up_transition_keeps_numeric_text_after_localization() {
+        crate::test_support::ensure_ambient_host();
         let win = Rc::new(RefCell::new(GameWindow::new()));
         win.borrow_mut().set_text("1234").unwrap();
         let mut transition = CountUpTransition::new();
-
-        transition.init(Some(win), &HashMap::new(), (800, 600));
-
+        with_access(|access| {
+            transition.init(Some(win), &HashMap::new(), (800, 600), access);
+        });
         assert_eq!(transition.full_text, "1234");
         assert_eq!(transition.int_value, 1234);
     }

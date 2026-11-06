@@ -121,12 +121,13 @@ pub const AVENGER_PDL_SCAN_RANGE: f32 = 200.0;
 pub const AVENGER_PDL_ONE: &str = "AvengerPointDefenseLaserOne";
 pub const AVENGER_PDL_TWO: &str = "AvengerPointDefenseLaserTwo";
 
-/// Convert residual milliseconds to logic frames @ 30 FPS (round half-up).
+/// Convert residual milliseconds to logic frames @ 30 FPS.
+/// C++ ConvertDurationFromMsecsToFrames + REAL_TO_INT_CEIL (ActiveBody.cpp:463-464).
 pub fn avenger_ms_to_frames(ms: u32) -> u32 {
     if ms == 0 {
         return 0;
     }
-    ((ms as f32) * AVENGER_LOGIC_FPS / 1000.0).round() as u32
+    ((ms as f32) * AVENGER_LOGIC_FPS / 1000.0).ceil() as u32
 }
 
 /// Host residual honesty counters for Avenger paint / air laser / ROF grant.
@@ -209,30 +210,6 @@ pub fn is_avenger_template(template_name: &str) -> bool {
         return false;
     }
     n.contains("avenger")
-}
-
-/// Whether residual Avenger shot should paint FAERIE_FIRE (primary designator path).
-///
-/// Retail: PRIMARY AvengerTargetDesignator applies status; secondary is air dummy.
-/// Residual: primary slot paints; secondary air laser deals HP damage vs aircraft.
-pub fn should_apply_faerie_fire_paint(
-    is_avenger: bool,
-    weapon_slot: u8,
-    target_alive: bool,
-    enemy_or_forced: bool,
-) -> bool {
-    is_avenger && weapon_slot == 0 && target_alive && enemy_or_forced
-}
-
-/// Whether residual Avenger air laser should deal HP damage (secondary slot).
-pub fn should_apply_avenger_air_laser(
-    is_avenger: bool,
-    weapon_slot: u8,
-    target_is_air: bool,
-    target_alive: bool,
-    enemy_or_forced: bool,
-) -> bool {
-    is_avenger && weapon_slot == 1 && target_is_air && target_alive && enemy_or_forced
 }
 
 /// Effective weapon reload seconds under TARGET_FAERIE_FIRE ROF residual.
@@ -404,16 +381,6 @@ mod tests {
     }
 
     #[test]
-    fn paint_and_air_laser_gates() {
-        assert!(should_apply_faerie_fire_paint(true, 0, true, true));
-        assert!(!should_apply_faerie_fire_paint(true, 1, true, true));
-        assert!(!should_apply_faerie_fire_paint(false, 0, true, true));
-        assert!(should_apply_avenger_air_laser(true, 1, true, true, true));
-        assert!(!should_apply_avenger_air_laser(true, 0, true, true, true));
-        assert!(!should_apply_avenger_air_laser(true, 1, false, true, true));
-    }
-
-    #[test]
     fn faerie_rof_speeds_reload() {
         let base = 1.0_f32;
         let effective = effective_reload_vs_target(base, true);
@@ -454,6 +421,9 @@ mod tests {
     #[test]
     fn avenger_residual_pack_honesty_wave66() {
         assert_eq!(avenger_ms_to_frames(200), 6);
+        // 16ms → 0.48 frames; ceil keeps a partial frame (round would drop to 0).
+        assert_eq!(avenger_ms_to_frames(16), 1);
+        assert_eq!(avenger_ms_to_frames(1), 1);
         assert!(honesty_avenger_designator_residual_ok());
         assert!(honesty_avenger_air_laser_residual_ok());
         assert!(honesty_avenger_body_residual_ok());

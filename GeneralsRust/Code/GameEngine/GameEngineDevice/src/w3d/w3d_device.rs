@@ -759,7 +759,7 @@ impl W3DDevice {
             ..Limits::default()
         };
 
-        let (device, queue) = ww3d_gpu::acquire_device(
+        let (device, queue) = ww3d_gpu::DeviceAuthority::new().acquire_device(
             &adapter,
             &wgpu::DeviceDescriptor {
                 label: Some("W3D Device"),

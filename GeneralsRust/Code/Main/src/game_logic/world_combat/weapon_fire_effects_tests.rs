@@ -307,3 +307,42 @@ fn nested_attack_acceptance_delivers_fire_effects_before_body_and_never_requeues
             .any(|object| object.template_name == FIRE_CHILD)
     );
 }
+
+
+#[test]
+fn no_drawable_skips_muzzle_fx_but_still_runs_fire_ocl() {
+    // C++ Weapon.cpp:889 — muzzle/FireFX require sourceObj->getDrawable();
+    // FireOCL at 943 is outside that gate and must still run.
+    let (mut owner, source, target) = world(false, 0);
+    owner.host_object_mut(source).unwrap().has_drawable = false;
+    let origin = owner.host_object(source).unwrap().get_position();
+    let accepted = owner.begin_owned_weapon_effects(
+        source,
+        0,
+        Some(target),
+        Some(owner.host_object(target).unwrap().get_position()),
+        origin,
+        None,
+    );
+    assert!(accepted.is_some(), "accepted discharge without Drawable");
+    owner.finish_accepted_weapon_discharge(accepted.unwrap());
+    let fire = child(&owner, FIRE_CHILD);
+    assert_eq!(
+        owner.host_object(fire).unwrap().get_position(),
+        Vec3::new(5.0, 0.0, 7.0),
+        "FireOCL must still spawn without a Drawable"
+    );
+    let flashes = owner.combat_particles.systems_of_kind(
+        crate::game_logic::combat_particles::CombatParticleKind::WeaponMuzzleFlash,
+    );
+    assert!(
+        flashes.is_empty(),
+        "no-Drawable source must not play muzzle/FireFX"
+    );
+    let events = owner.weapon_discharge_log.take_for_presentation();
+    assert_eq!(events.len(), 1);
+    assert!(
+        events[0].visual_plan.is_none(),
+        "absent Drawable yields no frozen visual plan"
+    );
+}

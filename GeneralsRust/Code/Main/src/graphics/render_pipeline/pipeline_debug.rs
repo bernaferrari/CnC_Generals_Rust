@@ -71,12 +71,69 @@ impl RenderPipeline {
         self.debug_last_alive_objects
     }
 
+    pub fn debug_last_terrain_chunks(&self) -> usize {
+        self.debug_last_terrain_chunks
+    }
+
+    pub fn debug_last_terrain_visible_chunks(&self) -> usize {
+        self.debug_last_terrain_visible_chunks
+    }
+
+    pub fn debug_last_terrain_total_chunks(&self) -> usize {
+        self.debug_last_terrain_total_chunks
+    }
+
+    pub fn debug_last_selection_indicators(&self) -> usize {
+        self.debug_last_selection_indicators
+    }
+
+    pub fn debug_last_ui_draw_items(&self) -> usize {
+        self.debug_last_ui_draw_items
+    }
+
+    /// Forward opaque+transparent model items (unit/prop meshes), excluding UI/water/shadow.
+    pub fn debug_model_item_count(&self) -> usize {
+        self.render_items
+            .iter()
+            .filter(|item| {
+                matches!(
+                    item.render_pass,
+                    RenderPass::ForwardOpaque | RenderPass::ForwardTransparent | RenderPass::Ghost
+                )
+            })
+            .count()
+    }
+
+    pub fn debug_ui_pass_item_count(&self) -> usize {
+        self.render_items
+            .iter()
+            .filter(|item| matches!(item.render_pass, RenderPass::UIPass))
+            .count()
+            .max(self.debug_last_ui_draw_items)
+    }
+
     pub fn debug_last_fow_filtered(&self) -> usize {
         self.debug_last_fow_filtered
     }
 
     pub fn debug_last_frustum_culled(&self) -> usize {
         self.debug_last_frustum_culled
+    }
+
+    pub fn debug_last_present_ms(&self) -> f32 {
+        self.debug_last_present_ms
+    }
+
+    pub fn debug_last_collect_ms(&self) -> f32 {
+        self.debug_last_collect_ms
+    }
+
+    pub fn debug_last_terrain_ms(&self) -> f32 {
+        self.debug_last_terrain_ms
+    }
+
+    pub fn debug_last_forward_ms(&self) -> f32 {
+        self.debug_last_forward_ms
     }
 
     pub fn debug_last_model_missing(&self) -> usize {

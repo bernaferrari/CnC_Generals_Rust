@@ -6,14 +6,24 @@
 /// FX list bridge to client-side effect manager (matching C++ TheFXList)
 pub struct TheFXList;
 
-static FX_LIST_MANAGER: OnceLock<Arc<dyn FXListManagerInterface>> = OnceLock::new();
-
 pub fn register_fx_list_manager(manager: Arc<dyn FXListManagerInterface>) -> bool {
-    FX_LIST_MANAGER.set(manager).is_ok()
+    let Some(services) = crate::system::engine_stores::try_active_services() else {
+        return false;
+    };
+    *services
+        .fx_list_manager()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(manager);
+    true
 }
 
-pub fn get_fx_list_manager() -> Option<&'static Arc<dyn FXListManagerInterface>> {
-    FX_LIST_MANAGER.get()
+pub fn get_fx_list_manager() -> Option<Arc<dyn FXListManagerInterface>> {
+    let services = crate::system::engine_stores::try_active_services()?;
+    services
+        .fx_list_manager()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 impl TheFXList {
@@ -23,7 +33,7 @@ impl TheFXList {
     }
 
     pub fn do_fx_at_position(&self, fx_template: &str, pos: &Coord3D) {
-        let Some(manager) = FX_LIST_MANAGER.get() else {
+        let Some(manager) = get_fx_list_manager() else {
             return;
         };
         let fx_id = NameKeyGenerator::name_to_key(fx_template) as FXListId;
@@ -40,7 +50,7 @@ impl TheFXList {
         override_radius: f32,
         matrix: Option<&Matrix3D>,
     ) {
-        let Some(manager) = FX_LIST_MANAGER.get() else {
+        let Some(manager) = get_fx_list_manager() else {
             return;
         };
         let fx_id = NameKeyGenerator::name_to_key(fx_template) as FXListId;
@@ -61,7 +71,7 @@ impl TheFXList {
         primary_id: ObjectID,
         secondary_id: Option<ObjectID>,
     ) {
-        let Some(manager) = FX_LIST_MANAGER.get() else {
+        let Some(manager) = get_fx_list_manager() else {
             return;
         };
         let fx_id = NameKeyGenerator::name_to_key(fx_template) as FXListId;
@@ -75,7 +85,7 @@ impl TheFXList {
         primary: &HostFxObjectPose,
         secondary: Option<&HostFxObjectPose>,
     ) {
-        let Some(manager) = FX_LIST_MANAGER.get() else {
+        let Some(manager) = get_fx_list_manager() else {
             return;
         };
         let fx_id = NameKeyGenerator::name_to_key(fx_template) as FXListId;
@@ -98,14 +108,54 @@ pub struct HostFxObjectPose {
     pub is_shrouded: bool,
 }
 
-static HOST_FX_OBJECT_POSES: std::sync::LazyLock<RwLock<HashMap<ObjectID, HostFxObjectPose>>> =
-    std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
+fn with_host_fx_poses_mut_on<R>(
+    services: &crate::system::engine_stores::WorldServices,
+    f: impl FnOnce(&mut HashMap<ObjectID, HostFxObjectPose>) -> R,
+) -> R {
+    let mut map = services
+        .client_visuals()
+        .host_fx_poses
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    f(&mut map)
+}
+
+fn with_host_fx_poses_on<R>(
+    services: &crate::system::engine_stores::WorldServices,
+    f: impl FnOnce(&HashMap<ObjectID, HostFxObjectPose>) -> R,
+) -> R {
+    let map = services
+        .client_visuals()
+        .host_fx_poses
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    f(&map)
+}
+
+fn with_host_fx_poses_mut<R>(f: impl FnOnce(&mut HashMap<ObjectID, HostFxObjectPose>) -> R) -> Option<R> {
+    // Transitional ambient: prefer set_host_fx_object_pose_on / replace_*_on.
+    let services = crate::system::engine_stores::try_active_services()?;
+    Some(with_host_fx_poses_mut_on(&services, f))
+}
+
+fn with_host_fx_poses<R>(f: impl FnOnce(&HashMap<ObjectID, HostFxObjectPose>) -> R) -> Option<R> {
+    let services = crate::system::engine_stores::try_active_services()?;
+    Some(with_host_fx_poses_on(&services, f))
+}
 
 /// Stamp a live host object's leftover-space pose for object-form FX.
+/// Prefer [`set_host_fx_object_pose_on`] with the driving WorldServices.
 pub fn set_host_fx_object_pose(pose: HostFxObjectPose) {
-    if let Ok(mut map) = HOST_FX_OBJECT_POSES.write() {
-        insert_host_fx_object_pose(&mut map, pose);
-    }
+    let _ = with_host_fx_poses_mut(|map| insert_host_fx_object_pose(map, pose));
+}
+
+/// hq-spb88j: write host-FX pose into the owning WorldServices without
+/// requiring a whole-operation with_world_services publish.
+pub fn set_host_fx_object_pose_on(
+    services: &crate::system::engine_stores::WorldServices,
+    pose: HostFxObjectPose,
+) {
+    with_host_fx_poses_mut_on(services, |map| insert_host_fx_object_pose(map, pose));
 }
 
 fn insert_host_fx_object_pose(
@@ -117,29 +167,30 @@ fn insert_host_fx_object_pose(
 
 /// Look up a host object pose published by the live host.
 pub fn host_fx_object_pose(id: ObjectID) -> Option<HostFxObjectPose> {
-    HOST_FX_OBJECT_POSES
-        .read()
-        .ok()
-        .and_then(|map| map.get(&id).copied())
+    with_host_fx_poses(|map| map.get(&id).copied()).flatten()
 }
 
 /// Drop a published host pose when the live object is gone.
 pub fn remove_host_fx_object_pose(id: ObjectID) {
-    if let Ok(mut map) = HOST_FX_OBJECT_POSES.write() {
+    let _ = with_host_fx_poses_mut(|map| {
         map.remove(&id);
-    }
+    });
 }
 
 /// Keep poses for live host IDs still present (including dying wrecks).
 pub fn retain_host_fx_object_poses(keep: impl Fn(ObjectID) -> bool) {
-    if let Ok(mut map) = HOST_FX_OBJECT_POSES.write() {
+    let _ = with_host_fx_poses_mut(|map| {
         map.retain(|&id, _| keep(id));
-    }
+    });
 }
 
 #[cfg(test)]
 mod host_fx_pose_publication_tests {
-    use super::{HostFxObjectPose, apply_host_fx_pose_frame, insert_host_fx_object_pose};
+    use super::{
+        HostFxObjectPose, apply_host_fx_pose_frame, host_fx_object_pose,
+        insert_host_fx_object_pose, set_host_fx_object_pose,
+        set_host_fx_object_pose_on,
+    };
     use crate::common::{Matrix3D, ObjectID};
     use std::collections::HashMap;
 
@@ -180,6 +231,54 @@ mod host_fx_pose_publication_tests {
         assert!(!poses.contains_key(&91_004));
         assert_eq!(poses.get(&91_003).unwrap().position.x, 5.0);
     }
+
+    #[test]
+    #[test]
+    fn set_on_ignores_foreign_active_world_services() {
+        use crate::system::engine_stores::{new_world_services, with_world_services};
+
+        let owner = new_world_services();
+        let foreign = new_world_services();
+        with_world_services(&foreign, || {
+            set_host_fx_object_pose_on(&owner, pose(42, 9.0));
+            // Ambient still sees foreign (empty).
+            assert!(host_fx_object_pose(42).is_none());
+        });
+        with_world_services(&owner, || {
+            assert_eq!(host_fx_object_pose(42).map(|p| p.position.x), Some(9.0));
+        });
+    }
+
+    fn parallel_worlds_keep_independent_host_fx_poses() {
+        use crate::system::engine_stores::{new_world_services, with_world_services};
+        use std::sync::{Arc, Barrier, Mutex};
+        use std::thread;
+
+        let barrier = Arc::new(Barrier::new(2));
+        let results = Arc::new(Mutex::new(Vec::new()));
+        let mut handles = Vec::new();
+        for seed in [11.0_f32, 22.0_f32] {
+            let barrier = Arc::clone(&barrier);
+            let results = Arc::clone(&results);
+            handles.push(thread::spawn(move || {
+                let services = new_world_services();
+                with_world_services(&services, || {
+                    barrier.wait();
+                    set_host_fx_object_pose(pose(1, seed));
+                    barrier.wait();
+                    let got = host_fx_object_pose(1).map(|p| p.position.x);
+                    results.lock().unwrap().push((seed, got));
+                });
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        let mut got = results.lock().unwrap();
+        got.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        assert_eq!(got[0].1, Some(11.0));
+        assert_eq!(got[1].1, Some(22.0));
+    }
 }
 
 /// Publish a complete presentation-frame pose set with one write-lock
@@ -187,9 +286,19 @@ mod host_fx_pose_publication_tests {
 /// between frame publications; the next frame retains exactly its live IDs,
 /// matching the former upsert-then-retain sequence.
 pub fn replace_host_fx_object_poses_for_frame(poses: impl IntoIterator<Item = HostFxObjectPose>) {
-    if let Ok(mut current) = HOST_FX_OBJECT_POSES.write() {
-        apply_host_fx_pose_frame(&mut current, poses);
-    }
+    let _ = with_host_fx_poses_mut(|current| {
+        apply_host_fx_pose_frame(current, poses);
+    });
+}
+
+/// hq-spb88j: frame pose replace on an explicit WorldServices owner.
+pub fn replace_host_fx_object_poses_for_frame_on(
+    services: &crate::system::engine_stores::WorldServices,
+    poses: impl IntoIterator<Item = HostFxObjectPose>,
+) {
+    with_host_fx_poses_mut_on(services, |current| {
+        apply_host_fx_pose_frame(current, poses);
+    });
 }
 
 fn apply_host_fx_pose_frame(
@@ -206,18 +315,27 @@ fn apply_host_fx_pose_frame(
 /// Particle system manager bridge to the client-side implementation.
 pub struct TheParticleSystemManager;
 
-static PARTICLE_SYSTEM_MANAGER: OnceLock<Arc<dyn ParticleSystemManagerInterface>> = OnceLock::new();
-
 pub fn register_particle_system_manager(manager: Arc<dyn ParticleSystemManagerInterface>) -> bool {
-    PARTICLE_SYSTEM_MANAGER.set(manager).is_ok()
+    let Some(services) = crate::system::engine_stores::try_active_services() else {
+        return false;
+    };
+    *services
+        .particle_system_manager()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(manager);
+    true
 }
 
-fn get_particle_system_manager() -> Option<&'static Arc<dyn ParticleSystemManagerInterface>> {
-    PARTICLE_SYSTEM_MANAGER.get()
+fn get_particle_system_manager() -> Option<Arc<dyn ParticleSystemManagerInterface>> {
+    let services = crate::system::engine_stores::try_active_services()?;
+    services
+        .particle_system_manager()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 pub type ScorchHook = Arc<dyn Fn(&Coord3D, Real, i32) + Send + Sync>;
-static SCORCH_HOOK: OnceLock<ScorchHook> = OnceLock::new();
 
 #[derive(Clone, Debug)]
 pub struct TerrainTreeRegistration {
@@ -253,49 +371,80 @@ pub struct TerrainUnitMovedInfo {
 }
 
 pub type TerrainUnitMovedHook = Arc<dyn Fn(TerrainUnitMovedInfo) + Send + Sync>;
-static TERRAIN_UNIT_MOVED_HOOK: OnceLock<TerrainUnitMovedHook> = OnceLock::new();
 pub type TerrainTreeHook = Arc<dyn Fn(TerrainTreeEvent) + Send + Sync>;
-static TERRAIN_TREE_HOOK: OnceLock<TerrainTreeHook> = OnceLock::new();
 pub type AnimationMetadataHook = Arc<dyn Fn(&str) -> Option<Real> + Send + Sync>;
-static ANIMATION_METADATA_HOOK: OnceLock<AnimationMetadataHook> = OnceLock::new();
 
 pub fn register_scorch_hook(hook: ScorchHook) -> bool {
-    SCORCH_HOOK.set(hook).is_ok()
+    let Some(services) = crate::system::engine_stores::try_active_services() else {
+        return false;
+    };
+    *services.scorch_hook().lock().unwrap_or_else(|p| p.into_inner()) = Some(hook);
+    true
 }
 
-fn get_scorch_hook() -> Option<&'static ScorchHook> {
-    SCORCH_HOOK.get()
+fn get_scorch_hook() -> Option<ScorchHook> {
+    let services = crate::system::engine_stores::try_active_services()?;
+    services.scorch_hook().lock().unwrap_or_else(|p| p.into_inner()).clone()
 }
 
 pub fn register_terrain_tree_hook(hook: TerrainTreeHook) -> bool {
-    TERRAIN_TREE_HOOK.set(hook).is_ok()
+    let Some(services) = crate::system::engine_stores::try_active_services() else {
+        return false;
+    };
+    *services.terrain_tree_hook().lock().unwrap_or_else(|p| p.into_inner()) = Some(hook);
+    true
 }
 
-fn get_terrain_tree_hook() -> Option<&'static TerrainTreeHook> {
-    TERRAIN_TREE_HOOK.get()
+fn get_terrain_tree_hook() -> Option<TerrainTreeHook> {
+    let services = crate::system::engine_stores::try_active_services()?;
+    services.terrain_tree_hook().lock().unwrap_or_else(|p| p.into_inner()).clone()
 }
 
 pub fn register_terrain_unit_moved_hook(hook: TerrainUnitMovedHook) -> bool {
-    TERRAIN_UNIT_MOVED_HOOK.set(hook).is_ok()
+    let Some(services) = crate::system::engine_stores::try_active_services() else {
+        return false;
+    };
+    *services
+        .terrain_unit_moved_hook()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(hook);
+    true
 }
 
-fn get_terrain_unit_moved_hook() -> Option<&'static TerrainUnitMovedHook> {
-    TERRAIN_UNIT_MOVED_HOOK.get()
+fn get_terrain_unit_moved_hook() -> Option<TerrainUnitMovedHook> {
+    let services = crate::system::engine_stores::try_active_services()?;
+    services
+        .terrain_unit_moved_hook()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 pub fn register_animation_metadata_hook(hook: AnimationMetadataHook) -> bool {
-    ANIMATION_METADATA_HOOK.set(hook).is_ok()
+    let Some(services) = crate::system::engine_stores::try_active_services() else {
+        return false;
+    };
+    *services
+        .animation_metadata_hook()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(hook);
+    true
 }
 
-fn get_animation_metadata_hook() -> Option<&'static AnimationMetadataHook> {
-    ANIMATION_METADATA_HOOK.get()
+fn get_animation_metadata_hook() -> Option<AnimationMetadataHook> {
+    let services = crate::system::engine_stores::try_active_services()?;
+    services
+        .animation_metadata_hook()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 impl TheParticleSystemManager {
     /// Capture the already-installed bridge for one synchronous owner operation.
     /// This is a borrow only; it creates no manager, allocation, or publication.
-    pub(crate) fn borrowed_manager(&self) -> Option<&dyn ParticleSystemManagerInterface> {
-        get_particle_system_manager().map(Arc::as_ref)
+    pub(crate) fn borrowed_manager(&self) -> Option<Arc<dyn ParticleSystemManagerInterface>> {
+        get_particle_system_manager()
     }
 
     pub fn get() -> Option<&'static Self> {

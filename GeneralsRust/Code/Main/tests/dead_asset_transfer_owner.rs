@@ -75,8 +75,7 @@ fn self_destruct_transfers_dead_and_live_assets_before_source_death() {
         .unwrap();
     world.start_new_game(GameMode::SinglePlayer);
     assert!(world.load_map(map.to_str().unwrap()));
-    assert_eq!(
-        world.player_relationship(1, 2),
+    assert_eq!(world.player_relationship(1, 2),
         gamelogic::common::Relationship::Allies
     );
     assert_eq!(

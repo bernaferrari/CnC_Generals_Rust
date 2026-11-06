@@ -2336,7 +2336,7 @@ impl TurretAIFireWeaponState {
                 }
                 if let Some(weapon) = weapon_set.get_weapon_in_slot_mut(current_slot) {
                     // Check weapon status - matches C++ line 5189-5197
-                    let weapon_status = weapon.get_status();
+                    let weapon_status = weapon.observe_status();
 
                     if weapon_status == crate::weapon::WeaponStatus::PreAttack {
                         // Still in pre-attack delay, continue waiting
@@ -2405,7 +2405,7 @@ impl TurretAIFireWeaponState {
                     return Ok(StateReturnType::Failure);
                 }
                 if let Some(weapon) = weapon_set.get_weapon_in_slot_mut(current_slot) {
-                    let status = weapon.get_status();
+                    let status = weapon.observe_status();
                     if status == crate::weapon::WeaponStatus::PreAttack {
                         weapon_set.apply_pending_shared_fire();
                         owner_guard.weapon_set = weapon_set;
@@ -2493,8 +2493,8 @@ impl StateImplementation for TurretAIFireWeaponState {
                     owner_guard.clear_status(crate::common::ObjectStatusMaskType::from_status(
                         crate::object::ObjectStatusTypes::IgnoringStealth,
                     ));
-                    if owner_guard.get_current_weapon().is_some_and(|(weapon, _)| {
-                        weapon.get_status() == crate::weapon::WeaponStatus::PreAttack
+                    if owner_guard.weapon_set.get_current_weapon_mut().is_some_and(|weapon| {
+                        weapon.observe_status() == crate::weapon::WeaponStatus::PreAttack
                     }) {
                         owner_guard.cancel_pre_attack_for_current_weapon();
                     }

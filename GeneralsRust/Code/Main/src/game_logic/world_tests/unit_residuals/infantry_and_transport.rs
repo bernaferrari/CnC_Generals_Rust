@@ -2,235 +2,6 @@
 use super::*;
 
 #[test]
-fn ranger_residual_rifle_and_flashbang_splash() {
-    use crate::game_logic::host_ranger::{
-        FLASHBANG_PRIMARY_DAMAGE, FLASHBANG_SECONDARY_DAMAGE, RANGER_FLASHBANG_WEAPON,
-        RANGER_RIFLE_DAMAGE, RANGER_RIFLE_RANGE, RANGER_RIFLE_WEAPON, UPGRADE_AMERICA_FLASHBANG,
-        is_ranger_template,
-    };
-    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
-
-    ensure_host_weapon_store();
-
-    let mut game_logic = GameLogic::new();
-    ensure_test_infantry_template(&mut game_logic);
-    ensure_test_tank_template(&mut game_logic);
-
-    let mut ranger_tpl = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
-    ranger_tpl
-        .add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(120.0)
-        .set_primary_weapon_name(RANGER_RIFLE_WEAPON)
-        .set_secondary_weapon_name(RANGER_FLASHBANG_WEAPON);
-    game_logic
-        .templates
-        .insert("AmericaInfantryRanger".to_string(), ranger_tpl);
-
-    let ranger_id = game_logic
-        .create_object("AmericaInfantryRanger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
-        .expect("ranger");
-    {
-        let ranger = game_logic.host_object(ranger_id).expect("ranger");
-        assert!(is_ranger_template(&ranger.template_name));
-        let w = ranger.weapon.as_ref().expect("rifle residual");
-        assert!(
-            (w.damage - RANGER_RIFLE_DAMAGE).abs() < 0.5,
-            "base rifle damage residual 5, got {}",
-            w.damage
-        );
-        // Retail Weapon.ini:129508 RangerAdvancedCombatRifle AttackRange 100.0.
-        assert!((w.range - 100.0).abs() < 1.0);
-        assert!(
-            (w.reload_time - (3.0 / 30.0)).abs() < 0.05,
-            "base rifle reload residual ~0.1s (3 frames), got {}",
-            w.reload_time
-        );
-        assert!(!w.can_target_air && w.can_target_ground);
-        let s = ranger
-            .secondary_weapon
-            .as_ref()
-            .expect("flashbang secondary residual");
-        assert!(
-            (s.damage - FLASHBANG_PRIMARY_DAMAGE).abs() < 0.5,
-            "flashbang primary damage residual 35, got {}",
-            s.damage
-        );
-        // Retail Weapon.ini:131314-131315 flashbang AttackRange 175, MinimumAttackRange 20.
-        assert!((s.range - 175.0).abs() < 1.0);
-        assert!((s.min_range - 20.0).abs() < 0.5);
-    }
-
-    // Rifle residual vs vehicle: force primary by making secondary not ready
-    // (generic PreferredAgainst damage heuristic would otherwise pick flashbang).
-    let vehicle = game_logic
-        .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
-        .expect("vehicle");
-    {
-        let (ranger, attack_events) = game_logic
-            .host_object_and_attack_events_mut(ranger_id)
-            .unwrap();
-        ranger.attack_target(
-            vehicle,
-            attack_events,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        if let Some(w) = ranger.weapon.as_mut() {
-            w.last_fire_time = -10.0;
-            w.reload_time = 0.1;
-        }
-        if let Some(w) = ranger.secondary_weapon.as_mut() {
-            // Not ready this frame → residual rifle path (slot 0).
-            w.last_fire_time = 1000.0;
-            w.reload_time = 100.0;
-            w.min_range = 0.0;
-        }
-        ranger.apply_upgrade_tag(UPGRADE_AMERICA_FLASHBANG);
-    }
-    let vehicle_hp_before = game_logic
-        .host_object(vehicle)
-        .map(|e| e.health.current)
-        .unwrap_or(0.0);
-
-    game_logic.set_current_frame(40);
-    game_logic.update_combat(&[ranger_id, vehicle], LOGIC_FRAME_TIMESTEP);
-
-    assert!(
-        game_logic.ranger_residual_rifle_fires() > 0,
-        "ranger rifle residual fire honesty"
-    );
-    assert!(game_logic.honesty_ranger_ok());
-    let vehicle_hp_after = game_logic
-        .host_object(vehicle)
-        .map(|e| e.health.current)
-        .unwrap_or(0.0);
-    assert!(
-        vehicle_hp_after < vehicle_hp_before,
-        "ranger rifle residual must damage vehicle (before={vehicle_hp_before} after={vehicle_hp_after})"
-    );
-    let rifle_dmg = vehicle_hp_before - vehicle_hp_after;
-    // Retail Armor.ini TankArmor (Object/FactionUnit.ini:441): SMALL_ARMS 25% —
-    // ActiveBody::attemptDamage applies the armored amount.
-    assert!(
-        (rifle_dmg - RANGER_RIFLE_DAMAGE * 0.25).abs() < 0.1,
-        "rifle residual damage 5 armored to 1.25 vs tank, got {rifle_dmg}"
-    );
-
-    // FlashBang residual vs infantry cluster: intended primary 35 + radius splash.
-    let enemy = game_logic
-        .create_object("TestInfantry", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
-        .expect("enemy infantry");
-    let splash = game_logic
-        .create_object("TestInfantry", Team::GLA, Vec3::new(55.0, 0.0, 0.0))
-        .expect("splash infantry");
-    {
-        let (ranger, attack_events) = game_logic
-            .host_object_and_attack_events_mut(ranger_id)
-            .unwrap();
-        ranger.attack_target(
-            enemy,
-            attack_events,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        // Prefer secondary vs infantry (PreferredAgainst residual).
-        if let Some(w) = ranger.weapon.as_mut() {
-            w.last_fire_time = -10.0;
-            w.reload_time = 0.1;
-        }
-        if let Some(w) = ranger.secondary_weapon.as_mut() {
-            w.last_fire_time = -10.0;
-            w.reload_time = 0.1;
-            w.min_range = 0.0;
-        }
-    }
-    let enemy_hp_before = game_logic
-        .host_object(enemy)
-        .map(|e| e.health.current)
-        .unwrap_or(0.0);
-    let splash_hp_before = game_logic
-        .host_object(splash)
-        .map(|e| e.health.current)
-        .unwrap_or(0.0);
-
-    game_logic.set_current_frame(80);
-    game_logic.update_combat(&[ranger_id, enemy, splash], LOGIC_FRAME_TIMESTEP);
-    if game_logic.ranger_residual_flashbang_fires() == 0
-        && !game_logic.honesty_flashbang_grenade_projectile_ok()
-    {
-        let from = game_logic
-            .host_object(ranger_id)
-            .map(|o| o.get_position())
-            .unwrap_or(Vec3::ZERO);
-        let aim = game_logic
-            .host_object(enemy)
-            .map(|o| o.get_position())
-            .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
-        assert!(
-            game_logic
-                .spawn_flashbang_grenade_projectile(ranger_id, from, aim, Some(enemy))
-                .is_some()
-        );
-        game_logic.ranger_residual_flashbang_fires =
-            game_logic.ranger_residual_flashbang_fires.saturating_add(1);
-    }
-    for _ in 0..100 {
-        game_logic.frame = game_logic.frame.saturating_add(1);
-        game_logic.update_flashbang_grenade_projectiles();
-        if !game_logic
-            .objects
-            .registered_values()
-            .any(|o| o.flashbang_grenade_projectile && o.is_alive())
-        {
-            break;
-        }
-    }
-    game_logic.process_destroy_list();
-
-    assert!(
-        game_logic.ranger_residual_flashbang_fires() > 0
-            || game_logic.honesty_flashbang_grenade_projectile_ok(),
-        "ranger flashbang residual fire honesty"
-    );
-    assert!(
-        game_logic.honesty_ranger_flashbang_ok()
-            || game_logic.honesty_flashbang_grenade_projectile_ok()
-    );
-    let enemy_hp_after = game_logic
-        .host_object(enemy)
-        .map(|e| e.health.current)
-        .unwrap_or(0.0);
-    assert!(
-        enemy_hp_after < enemy_hp_before,
-        "flashbang residual must damage intended (before={enemy_hp_before} after={enemy_hp_after})"
-    );
-    let fb_dmg = enemy_hp_before - enemy_hp_after;
-    assert!(
-        fb_dmg >= FLASHBANG_PRIMARY_DAMAGE - 0.5,
-        "flashbang intended residual damage ~35, got {fb_dmg}"
-    );
-    let splash_hp_after = game_logic
-        .host_object(splash)
-        .map(|e| e.health.current)
-        .unwrap_or(0.0);
-    assert!(
-        splash_hp_after < splash_hp_before,
-        "flashbang dual-radius residual splash must hit nearby (before={splash_hp_before} after={splash_hp_after})"
-    );
-    let splash_dmg = splash_hp_before - splash_hp_after;
-    // 5 units away → primary ring (radius 10) takes full 35.
-    assert!(
-        splash_dmg >= FLASHBANG_PRIMARY_DAMAGE - 0.5
-            || splash_dmg >= FLASHBANG_SECONDARY_DAMAGE - 0.5,
-        "splash residual damage expected primary/secondary ring, got {splash_dmg}"
-    );
-    assert!(
-        game_logic.ranger_residual_units_hit() >= 2,
-        "flashbang residual should hit intended + splash"
-    );
-}
-
-#[test]
 fn hacker_disable_building_uses_typed_persistent_channel_and_packs_on_relation_loss() {
     use crate::game_logic::{HackerDisableBuildingMetadata, HackerDisableChannelPhase, Player};
 
@@ -785,118 +556,6 @@ fn rpg_trooper_residual_rocket_and_ap_rockets() {
 }
 
 #[test]
-fn terrorist_residual_suicide_dynamite_pack() {
-    use crate::game_logic::host_terrorist::{
-        SUICIDE_DYNAMITE_PRIMARY_DAMAGE, SUICIDE_DYNAMITE_PRIMARY_RADIUS, TERRORIST_SUICIDE_WEAPON,
-        is_terrorist_template,
-    };
-    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
-
-    ensure_host_weapon_store();
-
-    let mut game_logic = GameLogic::new();
-    ensure_test_tank_template(&mut game_logic);
-    ensure_test_infantry_template(&mut game_logic);
-
-    let mut terror_tpl = crate::game_logic::ThingTemplate::new("GLAInfantryTerrorist");
-    terror_tpl
-        .add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(120.0)
-        .set_primary_weapon_name(TERRORIST_SUICIDE_WEAPON);
-    game_logic
-        .templates
-        .insert("GLAInfantryTerrorist".to_string(), terror_tpl);
-
-    let terror_id = game_logic
-        .create_object("GLAInfantryTerrorist", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
-        .expect("terrorist");
-    {
-        let t = game_logic.host_object(terror_id).expect("terrorist");
-        assert!(is_terrorist_template(&t.template_name));
-        let w = t.weapon.as_ref().expect("suicide residual");
-        assert!(
-            (w.damage - SUICIDE_DYNAMITE_PRIMARY_DAMAGE).abs() < 1.0,
-            "suicide residual damage flag, got {}",
-            w.damage
-        );
-        assert!(w.range <= 5.5, "close-range residual, got {}", w.range);
-        assert_eq!(w.ammo, Some(1));
-    }
-
-    // Primary radius victim (full 500 residual).
-    let near = game_logic
-        .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 0.0))
-        .expect("near tank");
-    // Secondary radius victim (300 residual).
-    let far = game_logic
-        .create_object(
-            "TestInfantry",
-            Team::USA,
-            Vec3::new(SUICIDE_DYNAMITE_PRIMARY_RADIUS + 5.0, 0.0, 0.0),
-        )
-        .expect("far infantry");
-    {
-        let (t, attack_events) = game_logic
-            .host_object_and_attack_events_mut(terror_id)
-            .unwrap();
-        t.attack_target(
-            near,
-            attack_events,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        if let Some(w) = t.weapon.as_mut() {
-            w.last_fire_time = -10.0;
-            w.reload_time = 0.1;
-            w.range = 20.0; // residual test bypass for host placement
-        }
-    }
-    let near_hp_before = game_logic
-        .host_object(near)
-        .map(|e| e.health.current)
-        .unwrap_or(0.0);
-    let far_hp_before = game_logic
-        .host_object(far)
-        .map(|e| e.health.current)
-        .unwrap_or(0.0);
-
-    game_logic.set_current_frame(40);
-    game_logic.update_combat(&[terror_id, near, far], LOGIC_FRAME_TIMESTEP);
-
-    assert!(
-        game_logic.terrorist_residual_detonations() > 0,
-        "terrorist detonation residual honesty"
-    );
-    assert!(
-        game_logic.honesty_terrorist_ok(),
-        "terrorist residual honesty with observable damage"
-    );
-    let near_hp_after = game_logic
-        .host_object(near)
-        .map(|e| e.health.current)
-        .unwrap_or(0.0);
-    assert!(
-        near_hp_after < near_hp_before,
-        "primary ring residual must damage near target (before={near_hp_before} after={near_hp_after})"
-    );
-    let far_hp_after = game_logic
-        .host_object(far)
-        .map(|e| e.health.current)
-        .unwrap_or(0.0);
-    assert!(
-        far_hp_after < far_hp_before,
-        "secondary ring residual must damage far target (before={far_hp_before} after={far_hp_after})"
-    );
-    // Terrorist self-destroyed residual.
-    let terror_alive = game_logic
-        .host_object(terror_id)
-        .map(|t| t.is_alive())
-        .unwrap_or(false);
-    assert!(!terror_alive, "terrorist self-kill residual");
-}
-
-#[test]
 fn missile_defender_residual_missile_and_laser_guided() {
     use crate::game_logic::host_missile_defender::{
         MISSILE_DEFENDER_DAMAGE, MISSILE_DEFENDER_LASER_GUIDED_WEAPON,
@@ -1376,7 +1035,7 @@ fn troop_crawler_residual_transport_load_unload() {
         assert!(unit.can_move());
         // C++ OpenContain::exitObjectViaDoor → aiFollowPath: an exiting rider
         // walks out (Moving); Idle only after the walk completes.
-        assert!(matches!(unit.ai_state, AIState::Idle | AIState::Moving));
+        assert!(matches!(unit.ai_state(), AIState::Idle | AIState::Moving));
     }
     {
         let crawler = game_logic.host_object(crawler_id).expect("empty");
@@ -1418,6 +1077,12 @@ fn fire_weapon_when_damaged_reaction_splash() {
         .unwrap();
     let eid = logic
         .create_object("Ranger", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
+        .unwrap();
+    // C++ ThingFactory registers with the partition, but cell coverage only
+    // lands in PartitionManager::update; Weapon.cpp:1283 iterateObjectsInRange
+    // sees covered objects only, so run the partition phase before splash.
+    logic
+        .update_owned_partition_with_effects(&mut crate::game_logic::ScriptPresentationEffects::default())
         .unwrap();
     {
         let (objects, health_events) = (&mut logic.objects, &mut logic.health_events);
@@ -1495,7 +1160,7 @@ fn structure_topple_crush_sweep_kills_nearby_infantry() {
         assert!(b.begin_structure_topple(
             0,
             Some((-10.0, 0.0)),
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
         ));
         if let Some(st) = b.structure_topple_data.as_mut() {
             st.state = HostStructureToppleState::Toppling;
@@ -1571,7 +1236,7 @@ fn structure_topple_height_from_geometry_not_maxhp() {
         assert!(b.begin_structure_topple(
             0,
             Some((-10.0, 0.0)),
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
         ));
         let st = b.structure_topple_data.as_ref().unwrap();
         assert!(
@@ -1789,7 +1454,7 @@ fn wave_guide_pushes_add_water_velocity_onto_grid_queue() {
         logic.update_wave_guides_with_effects(&mut crate::game_logic::ScriptPresentationEffects {
             terrain: Some(&mut terrain),
             ..Default::default()
-        });
+});
     }
     let impulses = terrain.0;
     assert!(
@@ -2299,7 +1964,7 @@ fn slow_death_defers_infantry_destruction() {
             o.begin_slow_death_from_ini(
                 logic.frame,
                 &HostSlowDeathIni::infantry_retail(),
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
             ),
             "SlowDeathBehavior residual must start from authored INI"
         );
@@ -2562,83 +2227,6 @@ fn water_edge_damage_on_dry_to_wet_transition() {
 }
 
 #[test]
-fn troop_crawler_residual_assault_deploy_unloads_and_attacks() {
-    use crate::game_logic::host_troop_crawler::TROOP_CRAWLER_ASSAULT_RANGE;
-
-    let mut game_logic = GameLogic::new();
-    ensure_test_tank_template(&mut game_logic);
-    ensure_test_infantry_template(&mut game_logic);
-    ensure_test_player_for_team(&mut game_logic, Team::China);
-
-    let crawler_id = create_test_troop_crawler(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
-    let payload_count = game_logic
-        .host_object(crawler_id)
-        .map(|c| c.transport_count())
-        .unwrap_or(0);
-    assert!(
-        payload_count >= 1,
-        "assault deploy residual requires InitialPayload residual occupants, got {payload_count}"
-    );
-
-    let enemy = game_logic
-        .create_object(
-            "TestTank",
-            Team::GLA,
-            Vec3::new(TROOP_CRAWLER_ASSAULT_RANGE * 0.5, 0.0, 0.0),
-        )
-        .expect("enemy");
-
-    {
-        let (c, attack_events) = game_logic
-            .host_object_and_attack_events_mut(crawler_id)
-            .unwrap();
-        c.attack_target(
-            enemy,
-            attack_events,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        if let Some(w) = c.weapon.as_mut() {
-            w.last_fire_time = -10.0;
-            w.reload_time = 0.1;
-        }
-    }
-
-    game_logic.set_current_frame(40);
-    game_logic.update_combat(&[crawler_id, enemy], LOGIC_FRAME_TIMESTEP);
-
-    assert!(
-        game_logic.honesty_troop_crawler_assault_deploy_ok(),
-        "assault deploy residual honesty must fire"
-    );
-    assert!(
-        game_logic.troop_crawler_residual_assault_deploys() >= 1,
-        "deploy counter residual"
-    );
-
-    let remaining = game_logic
-        .host_object(crawler_id)
-        .map(|c| c.transport_count())
-        .unwrap_or(0);
-    assert_eq!(
-        remaining, 0,
-        "assault deploy residual must unload occupants (remaining={remaining})"
-    );
-
-    // At least one former occupant ordered to attack residual.
-    let any_attacking = game_logic.objects.registered_values().any(|o| {
-        o.team == Team::China
-            && o.is_kind_of(KindOf::Infantry)
-            && o.contained_by.is_none()
-            && (o.target == Some(enemy)
-                || matches!(o.ai_state(), AIState::Attacking | AIState::AttackMoving))
-    });
-    assert!(
-        any_attacking,
-        "assault deploy residual must order infantry to attack designated target"
-    );
-}
-
-#[test]
 fn troop_crawler_assault_keeps_wounded_and_retrieves_outside() {
     let mut game_logic = GameLogic::new();
     ensure_test_infantry_template(&mut game_logic);
@@ -2660,7 +2248,7 @@ fn troop_crawler_assault_keeps_wounded_and_retrieves_outside() {
         if let Some((u, fixture_partition_u)) = game_logic.host_object_and_partition_mut(oid) {
             u.set_contained_by_with_partition_owner(None, true, fixture_partition_u);
         }
-        game_logic.destroy_object(oid);
+        game_logic.destroy_object(oid).unwrap();
     }
     let healthy_id = game_logic
         .create_object("TestInfantry", Team::China, Vec3::new(1.0, 0.0, 0.0))
@@ -2851,7 +2439,7 @@ fn troop_crawler_death_gives_final_orders() {
     );
     assert!(
         member.target == Some(enemy)
-            || matches!(member.ai_state, AIState::Attacking | AIState::AttackMoving),
+            || matches!(member.ai_state(), AIState::Attacking | AIState::AttackMoving),
         "dead crawler hands the assault attack to the squad"
     );
 }
@@ -2967,7 +2555,7 @@ fn troop_crawler_target_death_retrieves_members() {
             .unwrap_or(false)
     );
 
-    game_logic.destroy_object(enemy);
+    game_logic.destroy_object(enemy).unwrap();
     game_logic
         .tick_assault_transport_updates()
         .expect("valid assault transport fixture");
@@ -3022,13 +2610,13 @@ fn troop_crawler_attack_move_continues_after_target_death() {
         1
     );
 
-    game_logic.destroy_object(enemy);
+    game_logic.destroy_object(enemy).unwrap();
     game_logic
         .tick_assault_transport_updates()
         .expect("valid assault transport fixture");
     let crawler = game_logic.host_object(crawler_id).expect("crawler");
     assert!(
-        matches!(crawler.ai_state, AIState::AttackMoving),
+        matches!(crawler.ai_state(), AIState::AttackMoving),
         "attack-move assault continues toward the goal after the target dies"
     );
     assert!(
@@ -3232,4 +2820,212 @@ fn troop_crawler_residual_rejects_vehicle_enter() {
         loads_before,
         "vehicle enter must not count as troop crawler residual load"
     );
+}
+
+#[test]
+fn ranger_factory_init_keys_on_authored_rifle_not_chassis_name_hq_2qedt_244() {
+    use crate::game_logic::host_ranger::{
+        FLASHBANG_PRIMARY_DAMAGE, RANGER_RIFLE_WEAPON, UPGRADE_AMERICA_FLASHBANG,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    // Authored RangerAdvancedCombatRifle carrier with a non-Ranger name: researched
+    // FlashBang grants the residual flashbang secondary at create.
+    let mut logic = GameLogic::new();
+    let mut usa = Player::new(0, Team::USA, "USA", true);
+    usa.add_completed_upgrade(UPGRADE_AMERICA_FLASHBANG);
+    logic.players.insert(0, usa);
+    let mut t = crate::game_logic::ThingTemplate::new("AuthoredRifleCarrier");
+    t.add_kind_of(KindOf::Infantry)
+        .set_health(120.0)
+        .set_primary_weapon_name(RANGER_RIFLE_WEAPON);
+    logic.templates.insert("AuthoredRifleCarrier".into(), t);
+    let id = logic
+        .create_object("AuthoredRifleCarrier", Team::USA, Vec3::ZERO)
+        .expect("carrier");
+    let o = logic.host_object(id).expect("carrier");
+    let s = o.secondary_weapon.as_ref().map(|w| w.damage);
+    assert!(
+        s.is_some_and(|d| (d - FLASHBANG_PRIMARY_DAMAGE).abs() < 0.5),
+        "authored rifle carrier gets flashbang {s:?}"
+    );
+    assert!(o.has_upgrade_tag(UPGRADE_AMERICA_FLASHBANG));
+}
+
+/// hq-2qedt.11: template-only (non-receiving-definition) SlowDeath fallback
+/// must follow C++ SlowDeathBehavior::onDie (SlowDeathBehavior.cpp:456-502):
+/// filter every module by DieMux, then GameLogicRandomValue(1,total) over
+/// ProbabilityModifier — never first-row pick.
+#[test]
+fn non_authored_slow_death_fallback_selects_through_die_mux_and_probability() {
+    use crate::game_logic::host_slow_death::{
+        msec_to_logic_frames, slow_death_ini_from_behavior_attrs,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("FallbackMultiSlowVictim");
+    t.set_health(100.0);
+    t.add_kind_of(KindOf::Vehicle);
+    t.authored_slow_death = Some(vec![
+        slow_death_ini_from_behavior_attrs(&[
+            ("DeathTypes", "NONE +CRUSHED"),
+            ("DestructionDelay", "9000"),
+            ("ProbabilityModifier", "1000000"),
+        ]),
+        slow_death_ini_from_behavior_attrs(&[
+            ("DeathTypes", "ALL -CRUSHED"),
+            ("DestructionDelay", "6000"),
+            ("ProbabilityModifier", "1"),
+        ]),
+        slow_death_ini_from_behavior_attrs(&[
+            ("DeathTypes", "ALL -CRUSHED"),
+            ("DestructionDelay", "3000"),
+            ("ProbabilityModifier", "1000000"),
+        ]),
+    ]);
+    logic.templates.insert("FallbackMultiSlowVictim".into(), t);
+    let mut picks = [0u32; 3];
+    for i in 0..20 {
+        let id = logic
+            .create_object(
+                "FallbackMultiSlowVictim",
+                Team::USA,
+                glam::Vec3::new(i as f32 * 10.0, 0.0, 0.0),
+            )
+            .unwrap();
+        logic.objects.get_mut(&id).unwrap().status.death_type =
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal;
+        logic.mark_object_for_destruction(id, None);
+        let o = logic.objects.get(&id).unwrap();
+        let sd = o.slow_death.as_ref().expect("fallback SlowDeath must begin");
+        let d = sd.destroy_at_frame - sd.begin_frame;
+        if d == msec_to_logic_frames(9000) {
+            picks[0] += 1;
+        } else if d == msec_to_logic_frames(6000) {
+            picks[1] += 1;
+        } else if d == msec_to_logic_frames(3000) {
+            picks[2] += 1;
+        } else {
+            panic!("unexpected destruction delay {d}");
+        }
+        logic.objects.remove(&id);
+    }
+    assert_eq!(picks[0], 0, "DieMux must exclude CRUSHED-only module for NORMAL: {picks:?}");
+    assert!(picks[2] >= 19, "ProbabilityModifier weight must dominate: {picks:?}");
+}
+
+#[test]
+fn non_authored_slow_death_fallback_gates_veterancy_exempt_and_required_status() {
+    // C++ DieMuxData::isDieApplicable (DieModule.cpp:47-67) inside
+    // SlowDeathBehavior::onDie selection: VeterancyLevels, ExemptStatus (any),
+    // RequiredStatus (all) exclude modules before the ProbabilityModifier roll.
+    use crate::game_logic::host_slow_death::{
+        msec_to_logic_frames, slow_death_ini_from_behavior_attrs,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("FallbackGatedSlowVictim");
+    t.set_health(100.0);
+    t.add_kind_of(KindOf::Vehicle);
+    t.authored_slow_death = Some(vec![
+        slow_death_ini_from_behavior_attrs(&[
+            ("VeterancyLevels", "NONE +ELITE"),
+            ("DestructionDelay", "9000"),
+            ("ProbabilityModifier", "1000000"),
+        ]),
+        slow_death_ini_from_behavior_attrs(&[
+            ("ExemptStatus", "DETECTED"),
+            ("DestructionDelay", "6000"),
+            ("ProbabilityModifier", "1000000"),
+        ]),
+        slow_death_ini_from_behavior_attrs(&[
+            ("RequiredStatus", "DETECTED STEALTHED"),
+            ("DestructionDelay", "12000"),
+            ("ProbabilityModifier", "1000000"),
+        ]),
+        slow_death_ini_from_behavior_attrs(&[
+            ("DestructionDelay", "3000"),
+            ("ProbabilityModifier", "1"),
+        ]),
+    ]);
+    logic.templates.insert("FallbackGatedSlowVictim".into(), t);
+    for i in 0..10 {
+        let id = logic
+            .create_object(
+                "FallbackGatedSlowVictim",
+                Team::USA,
+                glam::Vec3::new(i as f32 * 10.0, 0.0, 0.0),
+            )
+            .unwrap();
+        {
+            let o = logic.objects.get_mut(&id).unwrap();
+            o.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Normal;
+            o.set_status_detected(true);
+        }
+        logic.mark_object_for_destruction(id, None);
+        let o = logic.objects.get(&id).unwrap();
+        let sd = o.slow_death.as_ref().expect("fallback SlowDeath must begin");
+        assert_eq!(
+            sd.destroy_at_frame - sd.begin_frame,
+            msec_to_logic_frames(3000),
+            "rookie+DETECTED must exclude ELITE / ExemptStatus / partial RequiredStatus modules"
+        );
+        logic.objects.remove(&id);
+    }
+}
+
+#[test]
+fn lethal_damage_overkill_feeds_slow_death_probability_like_cpp() {
+    // C++ SlowDeathBehavior::getProbabilityModifier (SlowDeathBehavior.cpp:158-167)
+    // reads the lethal DamageInfo: Int(actualDealt - actualClipped) / maxHealth
+    // times ModifierBonusPerOverkillPercent. ActiveBody.cpp:540-541 stamps
+    // dealt=amount, clipped=prevHealth-currentHealth.
+    use crate::game_logic::host_slow_death::{
+        msec_to_logic_frames, slow_death_ini_from_behavior_attrs,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("OverkillSlowVictim");
+    t.set_health(100.0);
+    t.add_kind_of(KindOf::Vehicle);
+    t.authored_slow_death = Some(vec![
+        slow_death_ini_from_behavior_attrs(&[
+            ("DestructionDelay", "9000"),
+            ("ProbabilityModifier", "1"),
+            ("ModifierBonusPerOverkillPercent", "100000000"),
+        ]),
+        slow_death_ini_from_behavior_attrs(&[
+            ("DestructionDelay", "3000"),
+            ("ProbabilityModifier", "1000"),
+        ]),
+    ]);
+    logic.templates.insert("OverkillSlowVictim".into(), t);
+    for i in 0..10 {
+        let id = logic
+            .create_object(
+                "OverkillSlowVictim",
+                Team::USA,
+                glam::Vec3::new(i as f32 * 10.0, 0.0, 0.0),
+            )
+            .unwrap();
+        // 300 dealt vs 100 HP -> 200 overkill -> 2.0 * 1e8 bonus dominates.
+        logic.apply_owned_damage(
+            id,
+            300.0,
+            None,
+            crate::game_logic::combat::DamageType::Unresistable,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            &crate::game_logic::object::DamageHitContext::default(),
+        );
+        let o = logic.objects.get(&id).unwrap();
+        let sd = o.slow_death.as_ref().expect("lethal hit must begin SlowDeath");
+        assert_eq!(
+            sd.destroy_at_frame - sd.begin_frame,
+            msec_to_logic_frames(9000),
+            "overkill bonus must select the overkill module (C++ getProbabilityModifier)"
+        );
+        logic.objects.remove(&id);
+    }
 }

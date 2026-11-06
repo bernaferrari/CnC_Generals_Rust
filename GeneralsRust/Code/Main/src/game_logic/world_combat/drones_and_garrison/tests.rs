@@ -35,7 +35,7 @@ fn neutron_unman_deselects_and_idles_ai() {
         obj.target_location = Some(Vec3::new(80.0, 0.0, 0.0));
         obj.set_status_moving(true);
         assert!(obj.selected || obj.status.selected);
-        assert!(matches!(obj.ai_state, AIState::Moving));
+        assert!(matches!(obj.ai_state(), AIState::Moving));
     }
     assert!(
         logic
@@ -64,7 +64,7 @@ fn neutron_unman_deselects_and_idles_ai() {
         "C++ deselectObject must clear status.selected"
     );
     assert!(
-        matches!(obj.ai_state, AIState::Idle),
+        matches!(obj.ai_state(), AIState::Idle),
         "C++ aiIdle(CMD_FROM_AI) must idle the husk"
     );
     assert!(
@@ -170,6 +170,7 @@ fn combat_chinook_vehicle_rider_does_not_residual_fire() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(300.0);
+    crate::game_logic::host_combat_chinook::author_combat_chinook_contain(&mut chinook);
     logic
         .templates
         .insert("AirF_AmericaVehicleChinook".to_string(), chinook);
@@ -874,7 +875,7 @@ fn enemy_may_enter_stealth_garrison_only_civilian_and_kick() {
     );
     assert!(ninja.contained_by.is_none());
     assert!(
-        matches!(ninja.ai_state, AIState::Moving),
+        matches!(ninja.ai_state(), AIState::Moving),
         "kicked occupant must walk out, not idle"
     );
     assert!(
@@ -913,7 +914,7 @@ fn evac_burst_walks_out_instead_of_idling_at_origin() {
     }
     assert!(logic.evacuate_container_now(bunker, false));
     let r = logic.host_object(ranger_id).unwrap();
-    assert!(matches!(r.ai_state, AIState::Moving));
+    assert!(matches!(r.ai_state(), AIState::Moving));
     assert!(r.status.moving);
     let dest = r.movement.target_position.unwrap_or(r.get_position());
     assert!(
@@ -992,7 +993,7 @@ fn really_damaged_ejects_garrison_with_burst_walk() {
     let r = logic.host_object(ranger_id).unwrap();
     assert!(r.contained_by.is_none());
     assert!(
-        matches!(r.ai_state, AIState::Moving),
+        matches!(r.ai_state(), AIState::Moving),
         "ReallyDamaged eject must walk out, not Idle on an 8-unit ring"
     );
     assert!(r.status.moving);
@@ -1284,7 +1285,7 @@ fn heal_contain_auto_exit_walks_exit_path() {
     let r = logic.host_object(ranger_id).unwrap();
     assert!(r.contained_by.is_none());
     assert!(
-        matches!(r.ai_state, AIState::Moving),
+        matches!(r.ai_state(), AIState::Moving),
         "HealContain auto-exit must follow ExitStart/End, not Idle on an 8-unit circle"
     );
     assert!(r.status.moving);
@@ -1423,7 +1424,7 @@ End
         &mut crate::game_logic::ScriptPresentationEffects {
             audio: Some(&mut output),
             ..Default::default()
-        },
+},
     );
     let u = logic.host_object(rider).unwrap();
     assert_eq!(u.next_mood_check_time, 77);
@@ -1693,7 +1694,7 @@ fn play_container_enter_sound_drains_leftover_template_sound_enter() {
         &mut crate::game_logic::ScriptPresentationEffects {
             audio: Some(&mut output),
             ..Default::default()
-        },
+},
     );
     audio::assert_events(&output, &[("EnterAuthored", transport)]);
 }
@@ -1805,7 +1806,7 @@ fn defector_idles_and_kicks_cargo() {
     assert!(logic.activate_defector(caster, victim));
     let v = logic.host_object(victim).unwrap();
     assert_eq!(v.team, Team::USA);
-    assert!(matches!(v.ai_state, AIState::Idle));
+    assert!(matches!(v.ai_state(), AIState::Idle));
     assert!(!v.status.attacking);
     assert!(v.target.is_none());
     assert!(v.is_undetected_defector());
@@ -2095,6 +2096,8 @@ fn tunnel_occupants_do_not_garrison_fire() {
         .players
         .insert(0, Player::new(0, Team::GLA, "GLA", true));
     let mut tunnel_t = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    tunnel_t.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     tunnel_t
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::Selectable)
@@ -2120,7 +2123,7 @@ fn tunnel_occupants_do_not_garrison_fire() {
     {
         let t = logic.host_object_mut(tunnel).unwrap();
         t.owner_player_id = Some(0);
-        t.install_tunnel_network_residual();
+        t.install_tunnel_network_residual(10);
     }
     let rebel = logic
         .create_object("GLARebel", Team::GLA, Vec3::ZERO)

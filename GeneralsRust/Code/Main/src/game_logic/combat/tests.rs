@@ -96,6 +96,7 @@ pub(in crate::game_logic) mod tests {
             attack_range: 0.0,
             min_attack_range: 0.0,
             historic_weapon_key: String::new(),
+            damage_status_type: None,
             historic_bonus_time_frames: 0,
             historic_bonus_count: 0,
             historic_bonus_radius: 0.0,
@@ -322,8 +323,8 @@ pub(in crate::game_logic) mod tests {
         projectile.missile_kill_self_started_frame = Some(0);
         projectile.lifetime = 2.0 / 30.0;
         owner.frame = 2;
-        let mut projection = GameWorldShadow::new(64);
-        projection.sync_from_host(&owner);
+        let mut projection = owner.with_own_services(|| GameWorldShadow::new(64));
+        owner.with_own_services_mut(|owner| projection.sync_from_host(owner));
         let observed = projection
             .world()
             .projectiles()
@@ -1432,6 +1433,7 @@ pub(in crate::game_logic) mod tests {
             attack_range: 0.0,
             min_attack_range: 0.0,
             historic_weapon_key: String::new(),
+            damage_status_type: None,
             historic_bonus_time_frames: 0,
             historic_bonus_count: 0,
             historic_bonus_radius: 0.0,
@@ -2232,6 +2234,7 @@ pub(in crate::game_logic) mod tests {
             attack_range: 0.0,
             min_attack_range: 0.0,
             historic_weapon_key: String::new(),
+            damage_status_type: None,
             historic_bonus_time_frames: 0,
             historic_bonus_count: 0,
             historic_bonus_radius: 0.0,
@@ -2312,6 +2315,7 @@ pub(in crate::game_logic) mod tests {
             attack_range: 375.0,
             min_attack_range: 50.0,
             historic_weapon_key: String::new(),
+            damage_status_type: None,
             historic_bonus_time_frames: 0,
             historic_bonus_count: 0,
             historic_bonus_radius: 0.0,
@@ -2373,6 +2377,7 @@ pub(in crate::game_logic) mod tests {
             attack_range: 375.0,
             min_attack_range: 50.0,
             historic_weapon_key: String::new(),
+            damage_status_type: None,
             historic_bonus_time_frames: 0,
             historic_bonus_count: 0,
             historic_bonus_radius: 0.0,
@@ -2444,6 +2449,7 @@ pub(in crate::game_logic) mod tests {
             attack_range: 200.0,
             min_attack_range: 0.0,
             historic_weapon_key: historic_weapon_key.into(),
+            damage_status_type: None,
             historic_bonus_time_frames: 0,
             historic_bonus_count: 0,
             historic_bonus_radius: 0.0,
@@ -2864,6 +2870,69 @@ pub(in crate::game_logic) mod tests {
     }
 
     #[test]
+    fn projectileless_delay_uses_unsigned_frame_wrap_not_saturating() {
+        // Weapon.cpp:1060-1061 — UnsignedInt when = getFrame() + ceil(delay).
+        // Saturating addition would pin near u32::MAX and never match C++ wrap.
+        let mut combat = CombatSystem::new();
+        let _combat_serial = combat_test_guard();
+        let frame = u32::MAX - 2;
+        let delay_whole = 5u32;
+        let when = frame.wrapping_add(delay_whole);
+        assert_eq!(when, 2, "C++ UnsignedInt addition wraps");
+        assert_ne!(
+            frame.saturating_add(delay_whole),
+            when,
+            "saturating addition must not be used for projectileless delay"
+        );
+        queue_delayed_impact_for_test(
+            &mut combat,
+            when,
+            lifecycle_test_pending_projectile("WrapDelayShot", None, Vec3::ZERO),
+            Vec3::ZERO,
+        );
+        assert_eq!(live_projectileless_delayed_count_for_test(&combat), 1);
+        // Weapon.cpp:1593-1594 — unsigned curFrame >= when is already true after
+        // wrap, so the entry is ready before the clock returns to `when`.
+        let ready_early = take_ready_projectileless_delayed_damage(&mut combat, u32::MAX - 1);
+        assert_eq!(ready_early.len(), 1);
+        assert_eq!(ready_early[0].when, 2);
+    }
+
+    #[test]
+    fn delayed_damage_same_frame_callback_append_runs_before_update_returns() {
+        // Weapon.cpp:1589-1604 — erase after dealDamageInternal and continue the
+        // same list walk. Extract-all-then-apply would leave callback-appended
+        // due entries until the next frame.
+        let mut combat = CombatSystem::new();
+        let _combat_serial = combat_test_guard();
+        queue_delayed_impact_for_test(
+            &mut combat,
+            10,
+            lifecycle_test_pending_projectile("DelaySeedShot", None, Vec3::ZERO),
+            Vec3::ZERO,
+        );
+        let mut applied = Vec::new();
+        drain_ready_projectileless_delayed(&mut combat, 10, |combat, shot| {
+            let name = shot.pending.projectile_object_name.clone();
+            applied.push(name.clone());
+            if name == "DelaySeedShot" {
+                queue_delayed_impact_for_test(
+                    combat,
+                    10,
+                    lifecycle_test_pending_projectile("DelayCallbackShot", None, Vec3::ZERO),
+                    Vec3::ZERO,
+                );
+            }
+        });
+        assert_eq!(
+            applied,
+            vec!["DelaySeedShot".to_string(), "DelayCallbackShot".to_string()],
+            "same-frame callback append must fire in this WeaponStore::update"
+        );
+        assert_eq!(live_projectileless_delayed_count_for_test(&combat), 0);
+    }
+
+    #[test]
     fn fire_at_projectileless_weapon_skips_dummy_projectile() {
         let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
 
@@ -2905,7 +2974,7 @@ pub(in crate::game_logic) mod tests {
             3,
             &mut combat,
             &mut _attack_output,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
         ));
         let mut objects = crate::game_logic::HostObjectStore::new();
         objects.insert(
@@ -3003,3 +3072,47 @@ pub(in crate::game_logic) mod tests {
         );
     }
 }
+
+    #[test]
+    fn directional_splash_cone_skips_behind_source() {
+        use super::leftover_radius_damage_cone_allows;
+        let source = Vec3::new(0.0, 0.0, 0.0);
+        let facing = (1.0_f32, 0.0_f32); // +X
+        let ahead = Vec3::new(10.0, 0.0, 0.0);
+        let behind = Vec3::new(-10.0, 0.0, 0.0);
+        let narrow = 0.1_f32;
+        assert!(leftover_radius_damage_cone_allows(
+            narrow,
+            Some(source),
+            Some(facing),
+            ahead,
+        ));
+        assert!(!leftover_radius_damage_cone_allows(
+            narrow,
+            Some(source),
+            Some(facing),
+            behind,
+        ));
+        assert!(leftover_radius_damage_cone_allows(
+            std::f32::consts::PI,
+            Some(source),
+            Some(facing),
+            behind,
+        ));
+        assert!(
+            !leftover_radius_damage_cone_allows(narrow, None, Some(facing), ahead),
+            "missing source must skip when directional"
+        );
+    }
+
+    #[test]
+    fn splash_template_equivalence_is_case_insensitive_and_rejects_empty() {
+        use crate::game_logic::weapon_bootstrap::splash_templates_equivalent;
+        assert!(splash_templates_equivalent("AmericaTankCrusader", "americatankcrusader"));
+        assert!(!splash_templates_equivalent("", "AmericaTankCrusader"));
+        assert!(!splash_templates_equivalent("AmericaTankCrusader", ""));
+        assert!(!splash_templates_equivalent(
+            "AmericaTankCrusader",
+            "AmericaInfantryRanger"
+        ));
+    }

@@ -62,7 +62,7 @@ fn enter(
         &mut ScriptPresentationEffects {
             audio: Some(output),
             ..Default::default()
-        },
+},
     );
     assert_eq!(
         world.host_object(passenger).unwrap().contained_by,
@@ -83,14 +83,14 @@ fn remove(
     output: &mut game_engine::common::audio::AudioManager,
 ) {
     assert!(world.unit_command_remove_occupant(container, passenger));
-    assert!(world.unit_command_exit_drop_with_effects(
+    assert_eq!(world.unit_command_exit_drop_with_effects(
         passenger,
         Vec3::new(50.0, 0.0, 50.0),
         &mut ScriptPresentationEffects {
             audio: Some(output),
             ..Default::default()
-        }
-    ));
+}
+    ).expect("result"), true);
     assert_eq!(world.host_object(passenger).unwrap().contained_by, None);
     assert!(
         !world
@@ -214,7 +214,7 @@ End
         &mut ScriptPresentationEffects {
             audio: Some(&mut output),
             ..Default::default()
-        },
+},
     );
     silent.play_container_removing_template_sounds(
         c,
@@ -222,7 +222,7 @@ End
         &mut ScriptPresentationEffects {
             audio: Some(&mut output),
             ..Default::default()
-        },
+},
     );
     assert_eq!(silent.host_object(c).unwrap().last_load_sound_frame, 12);
     assert_eq!(silent.host_object(c).unwrap().last_unload_sound_frame, 12);
@@ -286,7 +286,7 @@ fn native_module_static_nosound_retains_current_cue_and_none_is_registered_name(
         &mut ScriptPresentationEffects {
             audio: Some(&mut output),
             ..Default::default()
-        },
+},
     );
     world.play_container_removing_template_sounds(
         c,
@@ -294,7 +294,7 @@ fn native_module_static_nosound_retains_current_cue_and_none_is_registered_name(
         &mut ScriptPresentationEffects {
             audio: Some(&mut output),
             ..Default::default()
-        },
+},
     );
     audio::assert_events(
         &output,

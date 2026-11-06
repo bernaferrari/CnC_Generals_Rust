@@ -9,7 +9,6 @@
 use crate::common::ObjectID;
 use crate::object::Object;
 use crate::scripting::engine::get_script_engine;
-use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
@@ -314,16 +313,98 @@ impl ObjectRegistry {
     }
 }
 
-/// Global instance mirroring the legacy singleton.
-pub static OBJECT_REGISTRY: Lazy<ObjectRegistry> = Lazy::new(ObjectRegistry::default);
+/// Call-site-compatible proxy; resolves the published world's registry.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ObjectRegistryGlobal;
+
+pub static OBJECT_REGISTRY: ObjectRegistryGlobal = ObjectRegistryGlobal;
+
+impl ObjectRegistryGlobal {
+    fn try_get(self) -> Option<std::sync::Arc<ObjectRegistry>> {
+        crate::system::engine_stores::try_active_services()
+            .map(|services| std::sync::Arc::clone(services.object_registry()))
+    }
+
+    fn get(self) -> std::sync::Arc<ObjectRegistry> {
+        self.try_get().unwrap_or_else(|| {
+            panic!(
+                "ObjectRegistry requires with_world_services / install_services (no process bag)"
+            )
+        })
+    }
+
+    pub fn register_object(self, id: ObjectID, object: &Arc<RwLock<Object>>) {
+        self.get().register_object(id, object)
+    }
+
+    pub fn unregister_object(self, id: ObjectID) {
+        self.get().unregister_object(id)
+    }
+
+    pub(crate) fn unregister_object_if_same(
+        self,
+        id: ObjectID,
+        object: &SharedObjectHandle,
+    ) -> bool {
+        self.get().unregister_object_if_same(id, object)
+    }
+
+    pub fn get_object(self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
+        self.try_get()?.get_object(id)
+    }
+
+    pub fn contains(self, id: ObjectID) -> bool {
+        self.try_get().is_some_and(|registry| registry.contains(id))
+    }
+
+    pub fn with_object<R>(self, id: ObjectID, f: impl FnOnce(&Object) -> R) -> Option<R> {
+        self.get().with_object(id, f)
+    }
+
+    pub fn with_object_mut<R>(self, id: ObjectID, f: impl FnOnce(&mut Object) -> R) -> Option<R> {
+        self.get().with_object_mut(id, f)
+    }
+
+    pub fn is_empty(self) -> bool {
+        // Host matches never admit crate Objects; unbound ⇒ empty (fail closed).
+        self.try_get().map(|registry| registry.is_empty()).unwrap_or(true)
+    }
+
+    pub fn store_is_empty(self) -> bool {
+        self.try_get()
+            .map(|registry| registry.store_is_empty())
+            .unwrap_or(true)
+    }
+
+    pub fn get_all_objects(self) -> Vec<Arc<RwLock<Object>>> {
+        self.get().get_all_objects()
+    }
+
+    pub fn get_all_object_ids(self) -> Vec<ObjectID> {
+        self.get().get_all_object_ids()
+    }
+
+    pub fn clear(self) {
+        self.get().clear()
+    }
+
+    pub fn cleanup_dead_references(self) -> usize {
+        self.get().cleanup_dead_references()
+    }
+}
 
 /// Process-wide mutex for tests that clear/register objects on the shared
 /// [`OBJECT_REGISTRY`] / GameLogic singleton. Parallel weapon collision tests
 /// otherwise clobber each other mid-assertion.
+#[cfg(test)]
 pub fn test_isolation_lock() -> &'static std::sync::Mutex<()> {
+    test_isolation_lock_cell::LOCK.get_or_init(|| std::sync::Mutex::new(()))
+}
+
+#[cfg(test)]
+mod test_isolation_lock_cell {
     use std::sync::{Mutex, OnceLock};
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+    pub(super) static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 }
 
 #[cfg(test)]

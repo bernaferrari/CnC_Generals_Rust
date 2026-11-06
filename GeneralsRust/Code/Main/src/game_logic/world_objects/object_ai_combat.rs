@@ -605,29 +605,17 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> u32 {
         use crate::game_logic::host_upgrades::HostUpgradeKind;
+        // Authored UpgradeMux modules run for every completed upgrade; the
+        // template's module list, not the upgrade or unit name, selects them.
+        let authored = self.apply_authored_max_health_upgrades(recipients, upgrade_name);
         let kind = HostUpgradeKind::from_name(upgrade_name);
-        match kind {
-            HostUpgradeKind::FlashBangGrenade => {
-                self.apply_flashbang_unlock_to_team(recipients, upgrade_name)
-            }
-            HostUpgradeKind::TowMissile => self.apply_tow_unlock_to_team(recipients, upgrade_name),
+        authored
+            + match kind {
             HostUpgradeKind::CaptureBuilding => {
                 self.apply_capture_unlock_tags_to_team(recipients, upgrade_name)
             }
             HostUpgradeKind::SupplyLines => {
                 self.apply_supply_lines_tags_to_team(recipients, upgrade_name)
-            }
-            HostUpgradeKind::NeutronShells => {
-                self.apply_neutron_shells_unlock_to_team(recipients, upgrade_name)
-            }
-            HostUpgradeKind::BunkerBusters => {
-                self.apply_bunker_busters_unlock_to_team(recipients, upgrade_name)
-            }
-            HostUpgradeKind::ComancheRocketPods => {
-                self.apply_comanche_rocket_pods_unlock_to_team(recipients, upgrade_name)
-            }
-            HostUpgradeKind::SentryDroneGun => {
-                self.apply_sentry_drone_gun_unlock_to_team(recipients, upgrade_name)
             }
             HostUpgradeKind::Camouflage => {
                 self.apply_camouflage_unlock_to_team(recipients, upgrade_name)
@@ -635,20 +623,39 @@ impl GameLogic {
             HostUpgradeKind::CamoNetting => {
                 self.apply_camo_netting_unlock_to_team(recipients, upgrade_name)
             }
-            HostUpgradeKind::CompositeArmor => {
-                self.apply_composite_armor_unlock_to_team(recipients, upgrade_name)
-            }
+            // WeaponSetUpgrade / WeaponBonusUpgrade / ArmorUpgrade modules
+            // (authored_upgrade_modules.rs) own these upgrades' effects.
+            HostUpgradeKind::FlashBangGrenade
+            | HostUpgradeKind::TowMissile
+            | HostUpgradeKind::NeutronShells
+            | HostUpgradeKind::ComancheRocketPods
+            | HostUpgradeKind::SentryDroneGun
+            | HostUpgradeKind::ScorpionRocket
+            | HostUpgradeKind::ApRockets
+            | HostUpgradeKind::LaserMissiles
+            | HostUpgradeKind::ChainGuns
+            | HostUpgradeKind::UraniumShells
+            | HostUpgradeKind::BlackNapalm
+            | HostUpgradeKind::ApBullets
+            | HostUpgradeKind::AnthraxBeta
+            | HostUpgradeKind::ToxinShells
+            | HostUpgradeKind::TacticalNukeMig
+            | HostUpgradeKind::FortifiedStructure
+            | HostUpgradeKind::ChemicalSuits
+            | HostUpgradeKind::Countermeasures
+            | HostUpgradeKind::AdvancedTraining
+            | HostUpgradeKind::BunkerBusters
+            | HostUpgradeKind::NuclearTanks
+            | HostUpgradeKind::AnthraxGamma => 0,
+            // MaxHealthUpgrade modules (authored_upgrade_modules.rs).
+            HostUpgradeKind::CompositeArmor
+            | HostUpgradeKind::DroneArmor
+            | HostUpgradeKind::AircraftArmor => 0,
             HostUpgradeKind::WorkerShoes => {
                 self.apply_worker_shoes_unlock_to_team(recipients, upgrade_name)
             }
-            HostUpgradeKind::NuclearTanks => {
-                self.apply_nuclear_tanks_unlock_to_team(recipients, upgrade_name)
-            }
             HostUpgradeKind::BoobyTrap => {
                 self.apply_booby_trap_unlock_to_team(recipients, upgrade_name)
-            }
-            HostUpgradeKind::AnthraxGamma => {
-                self.apply_anthrax_gamma_unlock_to_team(recipients, upgrade_name)
             }
             HostUpgradeKind::SuicideBomb => {
                 self.apply_demo_suicide_bomb_unlock_to_team(recipients, upgrade_name)
@@ -659,50 +666,15 @@ impl GameLogic {
             HostUpgradeKind::SubliminalMessaging => {
                 self.apply_subliminal_messaging_to_team(recipients, upgrade_name)
             }
-            HostUpgradeKind::ScorpionRocket => {
-                self.apply_scorpion_rocket_to_team(recipients, upgrade_name)
-            }
-            HostUpgradeKind::ApRockets => self.apply_ap_rockets_to_team(recipients, upgrade_name),
-            HostUpgradeKind::LaserMissiles => {
-                self.apply_laser_missiles_to_team(recipients, upgrade_name)
-            }
             HostUpgradeKind::Nationalism => {
                 self.apply_nationalism_to_team(recipients, upgrade_name)
             }
             HostUpgradeKind::Fanaticism => self.apply_fanaticism_to_team(recipients, upgrade_name),
-
-            HostUpgradeKind::ChainGuns => self.apply_chain_guns_to_team(recipients, upgrade_name),
-            HostUpgradeKind::UraniumShells => {
-                self.apply_uranium_shells_to_team(recipients, upgrade_name)
-            }
-            HostUpgradeKind::BlackNapalm => {
-                self.apply_black_napalm_to_team(recipients, upgrade_name)
-            }
-            HostUpgradeKind::ApBullets => self.apply_ap_bullets_to_team(recipients, upgrade_name),
-            HostUpgradeKind::AnthraxBeta => {
-                self.apply_anthrax_beta_to_team(recipients, upgrade_name)
-            }
-            HostUpgradeKind::ToxinShells => {
-                self.apply_toxin_shells_to_team(recipients, upgrade_name)
-            }
-            HostUpgradeKind::AdvancedTraining => {
-                self.apply_advanced_training_to_team(recipients, upgrade_name)
-            }
-            HostUpgradeKind::TacticalNukeMig => {
-                self.apply_tactical_nuke_mig_to_team(recipients, upgrade_name)
-            }
-            HostUpgradeKind::DroneArmor => self.apply_drone_armor_to_team(recipients, upgrade_name),
-            HostUpgradeKind::AircraftArmor => {
-                self.apply_aircraft_armor_to_team(recipients, upgrade_name)
-            }
             HostUpgradeKind::ChinaMines => {
                 self.apply_player_unlock_upgrade(recipients, upgrade_name, "Upgrade_ChinaMines")
             }
             HostUpgradeKind::EmpMines => {
                 self.apply_player_unlock_upgrade(recipients, upgrade_name, "Upgrade_ChinaEMPMines")
-            }
-            HostUpgradeKind::FortifiedStructure => {
-                self.apply_fortified_structure_to_team(recipients, upgrade_name)
             }
             HostUpgradeKind::Radar => match recipients {
                 UpgradeRecipients::Object { object_id, .. } => {
@@ -718,17 +690,11 @@ impl GameLogic {
                 upgrade_name,
                 "Upgrade_GLARadarVanScan",
             ),
-            HostUpgradeKind::ChemicalSuits => {
-                self.apply_chemical_suits_to_team(recipients, upgrade_name)
-            }
             HostUpgradeKind::Moab => {
                 self.apply_player_unlock_upgrade(recipients, upgrade_name, "Upgrade_AmericaMOAB")
             }
             HostUpgradeKind::SatelliteHack => {
                 self.apply_satellite_hack_to_team(recipients, upgrade_name)
-            }
-            HostUpgradeKind::Countermeasures => {
-                self.apply_countermeasures_to_team(recipients, upgrade_name)
             }
             HostUpgradeKind::SlaveDrone => self
                 .apply_slave_drone_upgrade_to_team_with_interpreter_and_effects(

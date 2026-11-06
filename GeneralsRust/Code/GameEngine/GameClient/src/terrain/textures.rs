@@ -266,14 +266,37 @@ pub const FLIPPED_MASK: u8 = 0x2;
 
 type TextureCacheKey = (TextureId, TextureKind);
 
-type PathCache = Mutex<HashMap<String, Option<PathBuf>>>;
 type DecodedImage = Arc<image::DynamicImage>;
-type ImageCache = Mutex<HashMap<String, Option<DecodedImage>>>;
-type GameFsPathCache = Mutex<HashMap<String, Option<String>>>;
 
-static RESOLVED_PATH_CACHE: OnceLock<PathCache> = OnceLock::new();
-static GAME_FS_PATH_CACHE: OnceLock<GameFsPathCache> = OnceLock::new();
-static GAME_FS_IMAGE_CACHE: OnceLock<ImageCache> = OnceLock::new();
+#[derive(Default)]
+pub struct TerrainTextureCaches {
+    resolved_paths: HashMap<String, Option<PathBuf>>,
+    game_fs_paths: HashMap<String, Option<String>>,
+}
+
+fn with_texture_caches<R>(f: impl FnOnce(&mut TerrainTextureCaches) -> R) -> R {
+    #[cfg(test)]
+    {
+        return TEST_TEXTURE_CACHES.with(|slot| f(&mut slot.borrow_mut()));
+    }
+    #[cfg(not(test))]
+    {
+        if crate::core::game_client::live_game_client_frame().is_some() {
+            return crate::core::game_client::with_live_game_client_mut(|client| {
+                f(&mut client.terrain_texture_caches)
+            })
+            .expect("live client frame implies registered client");
+        }
+        let mut ephemeral = TerrainTextureCaches::default();
+        f(&mut ephemeral)
+    }
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static TEST_TEXTURE_CACHES: std::cell::RefCell<TerrainTextureCaches> =
+        std::cell::RefCell::new(TerrainTextureCaches::default());
+}
 
 fn normalized_texture_key(path: &str) -> String {
     normalize_texture_name(path).to_ascii_lowercase()
@@ -442,6 +465,11 @@ pub struct TextureManager {
 
     /// GPU texture cache keyed by texture identifier
     gpu_cache: HashMap<TextureCacheKey, GPUTextureEntry>,
+
+    /// Decoded CPU images keyed by normalized asset path. C++ TextureClass /
+    /// TerrainTextureClass keep bitmaps on the owning manager — not a process
+    /// global — and reuse by name on later looks.
+    decoded_image_cache: HashMap<String, Option<DecodedImage>>,
 
     /// Next available texture ID
     next_texture_id: TextureId,
@@ -628,6 +656,7 @@ impl TextureManager {
             textures: HashMap::new(),
             texture_path_index: HashMap::new(),
             gpu_cache: HashMap::new(),
+            decoded_image_cache: HashMap::new(),
             next_texture_id: 1,
             stats: TextureStats::default(),
             blend_debug_path,
@@ -639,6 +668,7 @@ impl TextureManager {
         self.textures.clear();
         self.texture_path_index.clear();
         self.gpu_cache.clear();
+        self.decoded_image_cache.clear();
         self.next_texture_id = 1;
         self.stats = TextureStats::default();
         Ok(())
@@ -646,17 +676,13 @@ impl TextureManager {
 
     fn resolve_texture_path_cached(diffuse_path: &str) -> Option<PathBuf> {
         let key = normalized_texture_key(diffuse_path);
-        let cache = RESOLVED_PATH_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-        if let Ok(cache) = cache.lock() {
-            if let Some(cached) = cache.get(&key) {
-                return cached.clone();
-            }
+        if let Some(cached) = with_texture_caches(|caches| caches.resolved_paths.get(&key).cloned()) {
+            return cached;
         }
-
         let resolved = Self::resolve_texture_path(diffuse_path);
-        if let Ok(mut cache) = cache.lock() {
-            cache.insert(key, resolved.clone());
-        }
+        with_texture_caches(|caches| {
+            caches.resolved_paths.insert(key, resolved.clone());
+        });
         resolved
     }
 
@@ -789,17 +815,13 @@ impl TextureManager {
 
     fn resolve_game_fs_path_cached(path: &str) -> Option<String> {
         let key = normalized_texture_key(path);
-        let cache = GAME_FS_PATH_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-        if let Ok(cache) = cache.lock() {
-            if let Some(cached) = cache.get(&key) {
-                return cached.clone();
-            }
+        if let Some(cached) = with_texture_caches(|caches| caches.game_fs_paths.get(&key).cloned()) {
+            return cached;
         }
-
         let resolved = Self::find_game_fs_path(path);
-        if let Ok(mut cache) = cache.lock() {
-            cache.insert(key, resolved.clone());
-        }
+        with_texture_caches(|caches| {
+            caches.game_fs_paths.insert(key, resolved.clone());
+        });
         resolved
     }
 
@@ -825,22 +847,48 @@ impl TextureManager {
         None
     }
 
-    fn load_image_from_game_fs(path: &str) -> Option<Arc<image::DynamicImage>> {
+
+    pub(crate) fn peek_decoded_image(&self, path: &str) -> Option<DecodedImage> {
+        let key = normalized_texture_key(path);
+        self.decoded_image_cache.get(&key).and_then(Clone::clone)
+    }
+
+    pub(crate) fn insert_decoded_image(&mut self, path: &str, image: DecodedImage) {
+        let key = normalized_texture_key(path);
+        self.decoded_image_cache.insert(key, Some(image));
+    }
+
+    /// C++ TextureClass::get by name: decode once per owning manager.
+    pub fn get_or_decode_image(&mut self, path: &str) -> Option<DecodedImage> {
+        self.load_image_from_game_fs(path)
+    }
+
+    fn load_image_from_game_fs(&mut self, path: &str) -> Option<DecodedImage> {
         let Some(candidate) = Self::resolve_game_fs_path_cached(path) else {
             return None;
         };
         let key = normalized_texture_key(&candidate);
-        let cache = GAME_FS_IMAGE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-        if let Ok(cache) = cache.lock() {
-            if let Some(cached) = cache.get(&key) {
-                return cached.clone();
-            }
+        if let Some(cached) = self.decoded_image_cache.get(&key) {
+            return cached.clone();
         }
 
         let result = Self::load_image_from_game_fs_path(&candidate).map(Arc::new);
-        if let Ok(mut cache) = cache.lock() {
-            cache.insert(key, result.clone());
+        self.decoded_image_cache.insert(key, result.clone());
+        result
+    }
+
+    /// Decode bytes under an asset key without touching the file system again.
+    pub fn get_or_decode_image_bytes(
+        &mut self,
+        asset_key: &str,
+        bytes: &[u8],
+    ) -> Option<DecodedImage> {
+        let key = normalized_texture_key(asset_key);
+        if let Some(cached) = self.decoded_image_cache.get(&key) {
+            return cached.clone();
         }
+        let result = Self::decode_image_from_bytes(asset_key, bytes).map(Arc::new);
+        self.decoded_image_cache.insert(key, result.clone());
         result
     }
 
@@ -852,7 +900,7 @@ impl TextureManager {
         Self::decode_image_from_bytes(path, &bytes)
     }
 
-    fn decode_image_from_bytes(resource_name: &str, bytes: &[u8]) -> Option<image::DynamicImage> {
+    pub(crate) fn decode_image_from_bytes(resource_name: &str, bytes: &[u8]) -> Option<image::DynamicImage> {
         let extension = Path::new(resource_name)
             .extension()
             .and_then(|ext| ext.to_str())
@@ -1052,55 +1100,58 @@ impl TextureManager {
         queue: &Queue,
         fallback_color: [u8; 4],
     ) -> TerrainResult<(Texture, TextureView)> {
-        if let Some(texture) = self.textures.get_mut(&texture_id) {
-            if kind != TextureKind::Diffuse {
-                return Ok(create_solid_texture(device, queue, fallback_color));
-            }
+        let Some(texture_meta) = self.textures.get(&texture_id).cloned() else {
+            return Ok(create_solid_texture(device, queue, fallback_color));
+        };
+        if kind != TextureKind::Diffuse {
+            return Ok(create_solid_texture(device, queue, fallback_color));
+        }
 
-            let (resolved_path, requested_path) = {
-                if texture.resolved_path.is_none() {
-                    if let Some(path) = Self::resolve_texture_path_cached(&texture.diffuse_path) {
-                        texture.resolved_path = Some(path);
+        let mut resolved_path = texture_meta.resolved_path.clone();
+        if resolved_path.is_none() {
+            if let Some(path) = Self::resolve_texture_path_cached(&texture_meta.diffuse_path) {
+                resolved_path = Some(path);
+                if let Some(texture) = self.textures.get_mut(&texture_id) {
+                    texture.resolved_path = resolved_path.clone();
+                }
+            }
+        }
+        let requested_path = texture_meta.diffuse_path.clone();
+        let mut image = texture_meta.cached_diffuse_image.clone();
+        if image.is_none() {
+            if let Some(path) = resolved_path.as_deref().and_then(|path| path.to_str()) {
+                image = self.load_image_from_game_fs(path);
+                if let Some(img) = image.clone() {
+                    if let Some(texture) = self.textures.get_mut(&texture_id) {
+                        texture.cached_diffuse_image = Some(img);
                     }
                 }
-                (texture.resolved_path.clone(), texture.diffuse_path.clone())
-            };
+            }
+        }
 
-            let cached_image = texture.cached_diffuse_image.clone();
-
-            let image = cached_image.or_else(|| {
-                let Some(path) = resolved_path.as_deref().and_then(|path| path.to_str()) else {
-                    return None;
-                };
-                let loaded = Self::load_image_from_game_fs(path);
-                if let Some(img) = loaded.as_ref() {
-                    texture
-                        .cached_diffuse_image
-                        .get_or_insert_with(|| img.clone());
-                }
-                loaded
-            });
-
-            if let Some(image) = image {
-                let label = resolved_path
-                    .as_ref()
-                    .map(|path| format!("Terrain Texture {}", path.display()))
-                    .unwrap_or_else(|| format!("Terrain Texture {}", requested_path));
-                let rgba = image.to_rgba8();
-                let placement = texture.atlas_placement.unwrap_or_else(|| {
+        if let Some(image) = image {
+            let label = resolved_path
+                .as_ref()
+                .map(|path| format!("Terrain Texture {}", path.display()))
+                .unwrap_or_else(|| format!("Terrain Texture {}", requested_path));
+            let rgba = image.to_rgba8();
+            let placement = self
+                .textures
+                .get(&texture_id)
+                .and_then(|texture| texture.atlas_placement)
+                .unwrap_or_else(|| {
                     Self::build_terrain_texture_placement(image.width(), image.height())
                 });
-                let upload_rgba = Self::pad_rgba_with_border(&rgba, placement);
-                let (texture, view) = create_gpu_texture_from_rgba(
-                    device,
-                    queue,
-                    upload_rgba.as_raw(),
-                    upload_rgba.width(),
-                    upload_rgba.height(),
-                    Some(&label),
-                );
-                return Ok((texture, view));
-            }
+            let upload_rgba = Self::pad_rgba_with_border(&rgba, placement);
+            let (texture, view) = create_gpu_texture_from_rgba(
+                device,
+                queue,
+                upload_rgba.as_raw(),
+                upload_rgba.width(),
+                upload_rgba.height(),
+                Some(&label),
+            );
+            return Ok((texture, view));
         }
 
         Ok(create_solid_texture(device, queue, fallback_color))
@@ -1108,25 +1159,36 @@ impl TextureManager {
 
     /// Load texture from file
     pub fn load_texture(&mut self, texture_id: TextureId) -> TerrainResult<()> {
-        let texture = self.textures.get_mut(&texture_id).ok_or_else(|| {
-            TerrainError::InvalidData(format!("Texture {} not found", texture_id))
-        })?;
-
-        if texture.loaded {
+        let (already_loaded, diffuse_path, resolved_existing) = {
+            let texture = self.textures.get(&texture_id).ok_or_else(|| {
+                TerrainError::InvalidData(format!("Texture {} not found", texture_id))
+            })?;
+            (
+                texture.loaded,
+                texture.diffuse_path.clone(),
+                texture.resolved_path.clone(),
+            )
+        };
+        if already_loaded {
             return Ok(());
         }
 
-        let resolved = Self::resolve_texture_path_cached(&texture.diffuse_path);
-
+        let resolved = resolved_existing.or_else(|| Self::resolve_texture_path_cached(&diffuse_path));
         if let Some(path) = resolved.clone() {
-            texture.resolved_path = Some(path.clone());
+            if let Some(texture) = self.textures.get_mut(&texture_id) {
+                texture.resolved_path = Some(path);
+            }
         }
 
-        let diffuse_image = texture
-            .resolved_path
+        let path_str = resolved
             .as_ref()
             .and_then(|path| path.to_str())
-            .and_then(Self::load_image_from_game_fs);
+            .map(str::to_owned);
+        let diffuse_image = path_str.as_deref().and_then(|path| self.load_image_from_game_fs(path));
+
+        let texture = self.textures.get_mut(&texture_id).ok_or_else(|| {
+            TerrainError::InvalidData(format!("Texture {} not found", texture_id))
+        })?;
         match diffuse_image {
             Some(img) => {
                 texture.dimensions = Some(img.dimensions());
@@ -1141,7 +1203,7 @@ impl TextureManager {
                     .as_ref()
                     .map(|path| path.display().to_string())
                     .unwrap_or_else(|| "<none>".to_string());
-                let gamefs_hint = Self::resolve_game_fs_path_cached(&texture.diffuse_path)
+                let gamefs_hint = Self::resolve_game_fs_path_cached(&diffuse_path)
                     .unwrap_or_else(|| "<none>".to_string());
                 warn!(
                     "Terrain texture '{}' failed to decode (resolved_path={}, gamefs_path={})",
@@ -1812,6 +1874,7 @@ mod tests {
 
     #[test]
     fn test_texture_creation() {
+        crate::test_support::ensure_ambient_host();
         let texture = TerrainTexture::new(1, "grass".to_string(), "grass.jpg".to_string());
         assert_eq!(texture.id, 1);
         assert_eq!(texture.name, "grass");
@@ -1820,6 +1883,7 @@ mod tests {
 
     #[test]
     fn tile_data_matches_cpp_supported_width_table() {
+        crate::test_support::ensure_ambient_host();
         let tile = TileData::new();
 
         for width in [
@@ -1845,6 +1909,7 @@ mod tests {
 
     #[test]
     fn tile_data_update_mips_averages_2x2_blocks_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut tile = TileData::new();
 
         for y in 0..TILE_PIXEL_EXTENT as usize {
@@ -1890,6 +1955,7 @@ mod tests {
 
     #[test]
     fn test_border_padding_and_uv_rect() {
+        crate::test_support::ensure_ambient_host();
         let mut image = RgbaImage::new(16, 16);
         image.put_pixel(0, 0, image::Rgba([10, 20, 30, 255]));
         image.put_pixel(15, 0, image::Rgba([40, 50, 60, 255]));
@@ -1914,6 +1980,7 @@ mod tests {
 
     #[test]
     fn test_texture_weights_normalization() {
+        crate::test_support::ensure_ambient_host();
         let mut weights = TextureWeights::new([0, 1, 2, 3], [0.5, 0.5, 0.5, 0.5]);
         let sum: f32 = weights.weights.iter().sum();
         assert!((sum - 1.0).abs() < 0.001);
@@ -1921,6 +1988,7 @@ mod tests {
 
     #[test]
     fn test_texture_weights_blend() {
+        crate::test_support::ensure_ambient_host();
         let weights = TextureWeights::blend_two(0, 1, 0.7);
         assert_eq!(weights.indices[0], 0);
         assert_eq!(weights.indices[1], 1);
@@ -1930,6 +1998,7 @@ mod tests {
 
     #[test]
     fn test_texture_weights_from_pairs() {
+        crate::test_support::ensure_ambient_host();
         let weights = TextureWeights::from_weight_pairs(vec![(10, 2.0), (5, 1.0)]);
         assert_eq!(weights.indices[0], 10);
         assert_eq!(weights.indices[1], 5);
@@ -1939,6 +2008,7 @@ mod tests {
 
     #[test]
     fn test_texture_manager() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = TextureManager::new();
         let texture = TerrainTexture::new(0, "test".to_string(), "test.jpg".to_string());
         let id = manager.register_texture(texture);
@@ -1950,6 +2020,7 @@ mod tests {
 
     #[test]
     fn test_texture_rule() {
+        crate::test_support::ensure_ambient_host();
         let rule = TextureRule {
             texture_id: 1,
             height_min: 0.0,
@@ -1970,6 +2041,7 @@ mod tests {
 
     #[test]
     fn test_generate_texture_weights_priority_bias() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = TextureManager::new();
         let rules = vec![
             TextureRule {
@@ -2001,6 +2073,7 @@ mod tests {
 
     #[test]
     fn test_generate_texture_weights_fallback() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = TextureManager::new();
         let rules = vec![TextureRule {
             texture_id: 4,
@@ -2020,6 +2093,7 @@ mod tests {
 
     #[test]
     fn test_texture_rule_gradient_preference() {
+        crate::test_support::ensure_ambient_host();
         let rock_rule = TextureRule {
             texture_id: 1,
             height_min: 0.0,
@@ -2058,6 +2132,7 @@ mod tests {
 
     #[test]
     fn test_generate_texture_weights_height_slope_only() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = TextureManager::new();
 
         let rules = vec![

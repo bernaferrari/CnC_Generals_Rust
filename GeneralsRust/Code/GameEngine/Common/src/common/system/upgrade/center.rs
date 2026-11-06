@@ -9,7 +9,7 @@
 //! Original C++ Author: Colin Day, March 2002
 
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, RwLock};
+use std::sync::{Arc, RwLock};
 
 use super::{UPGRADE_MAX_COUNT, UpgradeMask, UpgradeTemplate};
 use crate::common::ascii_string::AsciiString;
@@ -223,61 +223,55 @@ impl UpgradeCenter {
     }
 }
 
-/// The active world's UpgradeCenter (C++ single-pointer semantics: the one
-/// live world's center). `None` resolves to the engine-lifetime center below,
-/// so Upgrade.ini loads outside any world (engine boot, headless snippets,
-/// tests without a world) keep working. GameLogic's EngineStores is the only
-/// writer: it points this slot at the head world bundle's center.
-static UPGRADE_CENTER_ACTIVE: RwLock<Option<Arc<RwLock<UpgradeCenter>>>> = RwLock::new(None);
-
-/// Engine-lifetime UpgradeCenter (C++ `TheUpgradeCenter` created by
-/// `GameEngine::init`, GameEngine.cpp:468). Every world snapshot-clones it.
-static UPGRADE_CENTER_PROCESS_LIFETIME: LazyLock<Arc<RwLock<UpgradeCenter>>> =
-    LazyLock::new(|| {
-        let mut center = UpgradeCenter::new();
-        // C++ UpgradeCenter::init runs before Upgrade.ini is parsed.
-        center.init();
-        Arc::new(RwLock::new(center))
-    });
-
-/// The engine-lifetime UpgradeCenter.
+/// The engine-lifetime UpgradeCenter for the published CommonServices instance.
 pub fn process_lifetime_upgrade_center() -> Arc<RwLock<UpgradeCenter>> {
-    Arc::clone(&UPGRADE_CENTER_PROCESS_LIFETIME)
+    Arc::clone(
+        &crate::common::common_services::common_services()
+            .system
+            .upgrade_center_lifetime,
+    )
 }
 
 /// Initialize the engine-lifetime upgrade center (C++ engine boot order).
 pub fn initialize_upgrade_center() {
-    LazyLock::force(&UPGRADE_CENTER_PROCESS_LIFETIME);
+    let _ = process_lifetime_upgrade_center();
 }
 
 /// The active UpgradeCenter (C++ `TheUpgradeCenter`): the installed world
 /// bundle's center, or the engine-lifetime center when no world is active.
 pub fn get_upgrade_center() -> Arc<RwLock<UpgradeCenter>> {
-    let active = UPGRADE_CENTER_ACTIVE
-        .read()
+    let services = crate::common::common_services::common_services();
+    let active = services
+        .system
+        .upgrade_center_active
+        .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     active
         .as_ref()
         .map(Arc::clone)
-        .unwrap_or_else(|| Arc::clone(&UPGRADE_CENTER_PROCESS_LIFETIME))
+        .unwrap_or_else(|| Arc::clone(&services.system.upgrade_center_lifetime))
 }
 
 /// Install a world bundle's UpgradeCenter and return the center it replaced.
 pub fn install_upgrade_center(
     center: Arc<RwLock<UpgradeCenter>>,
 ) -> Option<Arc<RwLock<UpgradeCenter>>> {
-    let mut active = UPGRADE_CENTER_ACTIVE
-        .write()
+    let services = crate::common::common_services::common_services();
+    let mut active = services
+        .system
+        .upgrade_center_active
+        .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     active.replace(center)
 }
 
-/// Uninstall the active UpgradeCenter only if it is still `center` (a stale
-/// world dropping after a newer world must not deactivate the newer world).
-/// Returns `true` when the active slot was cleared.
+/// Uninstall the active UpgradeCenter only if it is still `center`.
 pub fn uninstall_upgrade_center_if_current(center: &Arc<RwLock<UpgradeCenter>>) -> bool {
-    let mut active = UPGRADE_CENTER_ACTIVE
-        .write()
+    let services = crate::common::common_services::common_services();
+    let mut active = services
+        .system
+        .upgrade_center_active
+        .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     match active.as_ref() {
         Some(current) if Arc::ptr_eq(current, center) => {

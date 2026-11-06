@@ -125,6 +125,7 @@ mod layout_load;
 mod messages;
 mod modal;
 mod reentry;
+mod menu_shell_flags;
 mod script_callbacks;
 mod script_message_window;
 mod transition_access;
@@ -134,6 +135,7 @@ mod wnd_parse;
 
 pub use control_bar_dispatch::{CameraOptionsInputContext, ControlBarInputContext};
 pub use layout::{WindowLayout, WindowLayoutInfo};
+pub use menu_shell_flags::MenuShellFlags;
 pub use reentry::{
     WindowManagerOwner, WindowManagerReceipt, WindowMouseFacts,
     dispatch_os_key_to_window_manager_for_owner,
@@ -462,3 +464,155 @@ mod receiving_key_delivery_tests;
 pub use reentry::dispatch_translated_window_input_for_owner;
 
 pub(crate) use reentry::opaque_window_at_screen;
+
+impl WindowManager {
+    /// Test-only create that owns a temporary WindowEventEffects on the stack.
+    pub fn test_create_window(
+        &mut self,
+        parent: Option<&Rc<RefCell<GameWindow>>>,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    ) -> WindowResult<Rc<RefCell<GameWindow>>> {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.create_window(parent, x, y, width, height, effects)
+        })
+    }
+
+    pub fn test_destroy_all_windows(&mut self) {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.destroy_all_windows(effects);
+        });
+    }
+
+    pub fn test_update(&mut self) {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.update(effects);
+        });
+    }
+
+    pub fn test_reset(&mut self) {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.reset(effects);
+        });
+    }
+
+    pub fn test_set_focus(
+        &mut self,
+        window: Option<&Rc<RefCell<GameWindow>>>,
+    ) -> WindowResult<()> {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| self.set_focus(window, effects))
+    }
+
+
+
+    pub(crate) fn test_create_window_from_definition(
+        &mut self,
+        window_def: &crate::gui::window_script::WindowDefinition,
+        parent: Option<&Rc<RefCell<GameWindow>>>,
+        layout: &Rc<RefCell<WindowLayout>>,
+        layout_def: &crate::gui::window_script::WindowLayoutDefinition,
+        info: &mut WindowLayoutInfo,
+    ) -> WindowResult<Rc<RefCell<GameWindow>>> {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.create_window_from_definition(
+                window_def, parent, layout, layout_def, info, effects,
+            )
+        })
+    }
+
+    pub(crate) fn test_create_slider_thumb_child(
+        &mut self,
+        slider: &Rc<RefCell<GameWindow>>,
+        layout: &crate::gui::window_script::WindowLayoutDefinition,
+    ) -> WindowResult<()> {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.create_slider_thumb_child(slider, layout, effects)
+        })
+    }
+
+
+    pub fn test_flush_destroy_queue(&mut self) {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.flush_destroy_queue(effects);
+        });
+    }
+
+    pub fn test_create_windows_from_script(
+        &mut self,
+        filename: &str,
+    ) -> WindowResult<WindowLayoutInfo> {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.create_windows_from_script(filename, effects)
+        })
+    }
+
+    pub fn test_destroy_script_message_window(&mut self) {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.destroy_script_message_window(effects);
+        });
+    }
+
+    pub fn test_process_key_event(
+        &mut self,
+        key: u8,
+        state: u8,
+    ) -> WindowInputReturnCode {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| self.process_key_event(key, state, effects))
+    }
+
+    pub fn test_process_mouse_event_with_delta(
+        &mut self,
+        msg: WindowMessage,
+        x: i32,
+        y: i32,
+        data: WindowMsgData,
+        mouse_delta: Option<(i32, i32)>,
+    ) -> WindowInputReturnCode {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.process_mouse_event_with_delta(msg, x, y, data, mouse_delta, effects)
+        })
+    }
+
+    pub fn test_set_lone_window(
+        &mut self,
+        window: Option<&Rc<RefCell<GameWindow>>>,
+    ) {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.set_lone_window(window, effects);
+        });
+    }
+
+    pub fn test_navigate_tab(&mut self, direction: TabDirection) {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.navigate_tab(direction, effects);
+        });
+    }
+
+    pub fn test_create_window_with_id(
+        &mut self,
+        parent: Option<&Rc<RefCell<GameWindow>>>,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        window_id: WindowId,
+    ) -> WindowResult<Rc<RefCell<GameWindow>>> {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.create_window_with_id(parent, x, y, width, height, window_id, effects)
+        })
+    }
+
+    pub fn test_process_mouse_event(
+        &mut self,
+        msg: WindowMessage,
+        x: i32,
+        y: i32,
+        data: WindowMsgData,
+    ) -> WindowInputReturnCode {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.process_mouse_event(msg, x, y, data, effects)
+        })
+    }
+}

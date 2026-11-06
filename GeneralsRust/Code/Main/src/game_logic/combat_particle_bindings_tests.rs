@@ -448,7 +448,7 @@ fn receiving_particle_loaded_receipt_rejects_peer_without_mutating_host_bindings
     peer.create_preset_system_at("AdoptLoaded", Vec3::ZERO)
         .unwrap();
     let bytes = first.capture_xfer_bytes().unwrap();
-    let receipt = first.restore_xfer_bytes(&bytes).unwrap().unwrap();
+    let receipt = first.restore_xfer_bytes(&bytes).unwrap().expect("receipt");
     let mut saved = entry(1, "AdoptLoaded");
     saved.client_system_id = Some(id);
     let mut registry = make_registry(vec![saved]);
@@ -475,6 +475,8 @@ fn receiving_particle_loaded_receipt_rejects_peer_without_mutating_host_bindings
 #[test]
 fn paired_particle_sav_companion_adopts_actual_loaded_ids_without_replaying_omissions() {
     use crate::save_load::SaveFileManager;
+    use crate::save_load::snapshot::ClientDrawableWorldSnapshot;
+    use game_client::core::game_client::GameClient;
     use game_client::effects::particle_manager::{GameClientRandomVariable, ParticlePriorityType};
     let directory = tempfile::tempdir().unwrap();
     let mut saves = SaveFileManager::with_save_directory(directory.path());
@@ -491,104 +493,129 @@ fn paired_particle_sav_companion_adopts_actual_loaded_ids_without_replaying_omis
             ],
         )
         .unwrap();
-    let saved_ids = with_client_particle_manager(|manager| {
-        // This real .sav test intentionally drives the existing compatibility
-        // manager/companion stream; broader pending-slot isolation is separate.
-        let mut template = ParticleSystemTemplate::new("PairedArchiveParticle".into());
-        let info = template.info_mut();
-        info.system_lifetime = 1000;
-        info.priority = ParticlePriorityType::AlwaysRender;
-        info.start_size = GameClientRandomVariable::new(3.0, 3.0);
-        info.start_size_rate = GameClientRandomVariable::new(2.0, 2.0);
-        info.size_rate = GameClientRandomVariable::new(0.0, 0.0);
-        info.burst_count = GameClientRandomVariable::new(1.0, 1.0);
-        info.burst_delay = GameClientRandomVariable::new(0.0, 0.0);
-        info.initial_delay = GameClientRandomVariable::new(0.0, 0.0);
-        info.lifetime = GameClientRandomVariable::new(100.0, 100.0);
-        for key in &mut info.alpha_keys[..2] {
-            key.min_value = 1.0;
-            key.max_value = 1.0;
-        }
-        info.alpha_keys[1].frame = 100;
-        manager.register_template(Arc::new(template));
-        assert_eq!(
+    let mut client = GameClient::new().expect("CPU-only GameClient");
+    let manager = client.particle_systems_mut();
+    let mut template = ParticleSystemTemplate::new("PairedArchiveParticle".into());
+    let info = template.info_mut();
+    info.system_lifetime = 1000;
+    info.priority = ParticlePriorityType::AlwaysRender;
+    info.start_size = GameClientRandomVariable::new(3.0, 3.0);
+    info.start_size_rate = GameClientRandomVariable::new(2.0, 2.0);
+    info.size_rate = GameClientRandomVariable::new(0.0, 0.0);
+    info.burst_count = GameClientRandomVariable::new(1.0, 1.0);
+    info.burst_delay = GameClientRandomVariable::new(0.0, 0.0);
+    info.initial_delay = GameClientRandomVariable::new(0.0, 0.0);
+    info.lifetime = GameClientRandomVariable::new(100.0, 100.0);
+    for key in &mut info.alpha_keys[..2] {
+        key.min_value = 1.0;
+        key.max_value = 1.0;
+    }
+    info.alpha_keys[1].frame = 100;
+    manager.register_template(Arc::new(template));
+    assert_eq!(
+        world.combat_particles_mut().backfill_client_systems(manager),
+        3
+    );
+    let saved_ids: Vec<_> = (1..=3)
+        .map(|id| {
             world
+                .combat_particles()
+                .get(id)
+                .unwrap()
+                .client_system_id
+                .unwrap()
+        })
+        .collect();
+    manager.update(0, 1);
+    let particle = &manager.find_particle_system(saved_ids[0]).unwrap().particles()[0];
+    assert_eq!((particle.size, particle.personality), (3.0, 0));
+    assert_eq!(particle.create_timestamp, 1);
+    manager.destroy_particle_system(saved_ids[1]);
+    manager
+        .find_particle_system_mut(saved_ids[2])
+        .unwrap()
+        .set_saveable(false);
+
+    let save_info = crate::save_load::SaveGameInfo {
+        pristine_map_name: None,
+        filename: "quicksave".into(),
+        display_name: "Quick Save".into(),
+        description: "Quick save".into(),
+        map_name: "Unknown".into(),
+        campaign_side: None,
+        mission_number: None,
+        save_date: std::time::SystemTime::now(),
+        game_version: env!("CARGO_PKG_VERSION").into(),
+        play_time: std::time::Duration::from_secs(0),
+        difficulty: crate::save_load::GameDifficulty::Medium,
+        save_type: crate::save_load::SaveFileType::QuickSave,
+    };
+    saves
+        .save_game_with_client_state(
+            "quicksave",
+            &world,
+            ClientDrawableWorldSnapshot::default(),
+            &mut client,
+            &save_info,
+        )
+        .unwrap();
+
+    let mut restored = crate::game_logic::GameLogic::new();
+    let decoded = saves.load_game_snapshot("quicksave").unwrap();
+    saves
+        .restore_game_snapshot(&decoded.snapshot, &mut restored)
+        .unwrap();
+    let mut receiving_client = GameClient::new().expect("receiving GameClient");
+    if let Some(bytes) = decoded.snapshot.particle_system_companion.as_deref() {
+        crate::save_load::snapshot::restore_particle_system_from_xfer_bytes(
+            receiving_client.particle_systems_mut(),
+            bytes,
+        )
+        .unwrap();
+    }
+    let manager = receiving_client.particle_systems_mut();
+    assert!(manager.find_particle_system(saved_ids[0]).is_some());
+    assert!(manager.find_particle_system(saved_ids[1]).is_none());
+    assert!(manager.find_particle_system(saved_ids[2]).is_none());
+    assert_eq!(
+        restored.combat_particles().get(1).unwrap().client_system_id,
+        Some(saved_ids[0])
+    );
+    assert!(!restored.combat_particles().get(2).unwrap().active);
+    assert!(!restored.combat_particles().get(3).unwrap().active);
+    let particle = &manager
+        .find_particle_system(saved_ids[0])
+        .unwrap()
+        .particles()[0];
+    assert_eq!((particle.size, particle.personality), (3.0, 0));
+    assert_eq!(particle.create_timestamp, 1);
+    manager.update(0, 2);
+    let system = manager.find_particle_system(saved_ids[0]).unwrap();
+    assert_eq!(system.particle_count(), 2);
+    let next = &system.particles()[1];
+    assert_eq!((next.size, next.personality), (7.0, 2));
+    assert_eq!(next.create_timestamp, 2);
+    let count = manager.active_system_count();
+    for _ in 0..3 {
+        assert_eq!(
+            restored
                 .combat_particles_mut()
                 .backfill_client_systems(manager),
-            3
+            0
         );
-        let ids: Vec<_> = (1..=3)
-            .map(|id| {
-                world
-                    .combat_particles()
-                    .get(id)
-                    .unwrap()
-                    .client_system_id
-                    .unwrap()
-            })
-            .collect();
-        manager.update(0, 1);
-        let particle = &manager.find_particle_system(ids[0]).unwrap().particles()[0];
-        assert_eq!((particle.size, particle.personality), (3.0, 0));
-        assert_eq!(particle.create_timestamp, 1);
-        manager.destroy_particle_system(ids[1]);
+        assert_eq!(manager.active_system_count(), count);
+    }
+    restored
+        .combat_particles_mut()
+        .deactivate_with_client_manager(1, manager);
+    assert!(
         manager
-            .find_particle_system_mut(ids[2])
-            .unwrap()
-            .set_saveable(false);
-        ids
-    })
-    .unwrap();
-    saves.quick_save(&world).unwrap();
-    let mut restored = crate::game_logic::GameLogic::new();
-    saves.load_game("quicksave", &mut restored).unwrap();
-    with_client_particle_manager(|manager| {
-        assert!(manager.find_particle_system(saved_ids[0]).is_some());
-        assert!(manager.find_particle_system(saved_ids[1]).is_none());
-        assert!(manager.find_particle_system(saved_ids[2]).is_none());
-        assert_eq!(
-            restored.combat_particles().get(1).unwrap().client_system_id,
-            Some(saved_ids[0])
-        );
-        assert!(!restored.combat_particles().get(2).unwrap().active);
-        assert!(!restored.combat_particles().get(3).unwrap().active);
-        let particle = &manager
             .find_particle_system(saved_ids[0])
             .unwrap()
-            .particles()[0];
-        assert_eq!((particle.size, particle.personality), (3.0, 0));
-        assert_eq!(particle.create_timestamp, 1);
-        // C++ ParticleSys.cpp:2488 generates once on load, advancing the
-        // size bonus2 ->4; forced restoration also advances store1 ->2.
-        // These observations pass through the real .sav companion adoption.
-        manager.update(0, 2);
-        let system = manager.find_particle_system(saved_ids[0]).unwrap();
-        assert_eq!(system.particle_count(), 2);
-        let next = &system.particles()[1];
-        assert_eq!((next.size, next.personality), (7.0, 2));
-        assert_eq!(next.create_timestamp, 2);
-        let count = manager.active_system_count();
-        for _ in 0..3 {
-            assert_eq!(
-                restored
-                    .combat_particles_mut()
-                    .backfill_client_systems(manager),
-                0
-            );
-            assert_eq!(manager.active_system_count(), count);
-        }
-        restored
-            .combat_particles_mut()
-            .deactivate_with_client_manager(1, manager);
-        assert!(
-            manager
-                .find_particle_system(saved_ids[0])
-                .unwrap()
-                .is_destroyed()
-        );
-    })
-    .unwrap();
+            .is_destroyed()
+    );
 }
+
 
 #[test]
 fn receiving_particle_native_companion_adopts_exact_loaded_namespace_and_omissions() {
@@ -621,7 +648,7 @@ fn receiving_particle_native_companion_adopts_exact_loaded_namespace_and_omissio
     let owner = receiving
         .restore_xfer_bytes(&actual_bytes)
         .unwrap()
-        .unwrap();
+        .expect("receipt");
     assert!(!previous_owner.is_live());
     assert!(owner.belongs_to(&receiving));
     assert!(!owner.belongs_to(&source));
@@ -688,7 +715,7 @@ fn receiving_particle_companion_receipt_rejects_later_created_omitted_id() {
         .set_saveable(false);
     let bytes = source.capture_xfer_bytes().unwrap();
     let mut receiving = manager("ReceiptMembership");
-    let receipt = receiving.restore_xfer_bytes(&bytes).unwrap().unwrap();
+    let receipt = receiving.restore_xfer_bytes(&bytes).unwrap().expect("receipt");
     assert!(receipt.contains_system(first_id));
     assert!(!receipt.contains_system(omitted_id));
     let template = receiving.find_template("ReceiptMembership").unwrap();
@@ -731,7 +758,7 @@ fn receiving_particle_companion_rejects_same_id_wrong_template_before_mutation()
     let bytes = source.capture_xfer_bytes().unwrap();
     let mut receiving = manager("LoadedEffect");
     receiving.register_template(Arc::new(ParticleSystemTemplate::new("OtherEffect".into())));
-    let receipt = receiving.restore_xfer_bytes(&bytes).unwrap().unwrap();
+    let receipt = receiving.restore_xfer_bytes(&bytes).unwrap().expect("receipt");
     assert!(receipt.contains_system(id));
 
     let mut wrong_entry = entry(1, "OtherEffect");

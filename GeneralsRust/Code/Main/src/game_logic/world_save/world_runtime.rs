@@ -313,11 +313,13 @@ impl GameLogic {
         mode: GameMode,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        log::info!("Starting new game: {:?}", mode);
-        clear_live_campaign_victorious_for_new_game(self);
-        self.reset_with_effects_checked(effects)?;
-        self.finish_start_new_game_state(mode, NewGamePlayerAdmission::Resolved, false, false);
-        Ok(())
+        self.with_own_services_mut(|this| {
+            log::info!("Starting new game: {:?}", mode);
+            clear_live_campaign_victorious_for_new_game(this);
+            this.reset_with_effects_checked(effects)?;
+            this.finish_start_new_game_state(mode, NewGamePlayerAdmission::Resolved, false, false);
+            Ok(())
+        })
     }
 
     pub(crate) fn start_new_game_in_campaign_session(
@@ -359,11 +361,13 @@ impl GameLogic {
         is_campaign: bool,
         is_challenge: bool,
     ) {
-        log::info!("Starting new game: {:?}", mode);
-        // C++ GameLogic.cpp:1254-1256 TheCampaignManager->SetVictorious(FALSE).
-        clear_live_campaign_victorious_for_new_game(self);
-        self.reset();
-        self.finish_start_new_game_state(mode, admission, is_campaign, is_challenge);
+        self.with_own_services_mut(|this| {
+            log::info!("Starting new game: {:?}", mode);
+            // C++ GameLogic.cpp:1254-1256 TheCampaignManager->SetVictorious(FALSE).
+            clear_live_campaign_victorious_for_new_game(this);
+            this.reset();
+            this.finish_start_new_game_state(mode, admission, is_campaign, is_challenge);
+        })
     }
 
     fn finish_start_new_game_state(
@@ -404,6 +408,7 @@ impl GameLogic {
                 return;
             };
             self.templates = baseline.clone();
+        self.invalidate_build_facility_template_names_cache();
             self.refresh_receiving_client_templates();
         } else {
             self.setup_templates();

@@ -64,6 +64,13 @@ impl SkirmishPlayerTemplateSelection {
     /// it into a different base faction.
     pub fn exact_template_name(template_name: &str) -> Self {
         let requested_name = template_name.trim().to_string();
+        // Config builders may run before a GameLogic bind; use a temporary
+        // CommonServices so PlayerTemplate lookup is not ambient-dependent.
+        let _common = if game_engine::common::common_services::try_common_services().is_none() {
+            Some(game_engine::common::common_services::CommonServicesScope::new())
+        } else {
+            None
+        };
         game_engine::common::ini::ensure_player_templates_loaded();
         let store = game_engine::common::rts::player_template::get_player_template_store();
         let Some(template_index) = store
@@ -733,7 +740,10 @@ fn resolve_skirmish_slots<'a>(
             .filter(|index| !colors.contains(&(*index as i32)))
             .count();
         if available < random {
-            return Err("not enough authored colors for occupied Random slots".into());
+            return Err(format!(
+                "not enough authored colors for occupied Random slots: palette={} random={random} available={available} colors={colors:?}",
+                palette.len()
+            ));
         }
     }
     // Caller supplies the driving match's seeded scoped stream; never
@@ -888,61 +898,64 @@ fn apply_skirmish_config_for_mode_with_settings(
     multiplayer: Option<&game_engine::common::ini::ini_multiplayer::MultiplayerSettings>,
     mut effects: Option<&mut crate::game_logic::ScriptPresentationEffects<'_>>,
 ) -> Result<(), String> {
-    // Validate/resolve the candidate without changing an existing match on
-    // error. Replay admission uses the same GameInfo seed in this config.
-    let mut selection = game_engine::common::random_value::RandomState::default();
-    selection.seed_random(config.random_seed);
-    let resolved_slots = resolve_skirmish_slots_for_owner_with_settings(
-        config,
-        logic.player_template_definitions.as_ref(),
-        &mut selection,
-        multiplayer,
-    )?;
-    // New admission metadata must reject before reset/seed side effects. This
-    // scratch validation does not perform start selection or retain a second owner.
-    saved_admission::SavedSkirmishAdmission::capture_with_settings(
-        config,
-        &config.slots,
-        &resolved_slots,
-        multiplayer,
-    )?;
-    if let Some(effects) = effects.as_deref_mut() {
-        logic
-            .validate_reset_with_effects(effects)
-            .map_err(|error| error.to_string())?;
-    }
-    logic.set_logic_random_seed(config.random_seed);
-    let stream = logic.logic_random.clone();
-    game_engine::common::random_value::with_session_random(&stream, || {
-        if let Some(effects) = effects {
-            logic
-                .start_new_game_for_resolved_players_with_effects(mode, effects)
-                .map_err(|error| error.to_string())?;
-        } else {
-            logic.start_new_game_for_resolved_players(mode);
-        }
-        // Carry faction-selection draws into the admitted match stream before
-        // the subsequent start-position selection.
-        logic.logic_random.set_seed_words(selection.seed_words());
-
-        let mut assigned = config.slots.clone();
-        populate_random_start_position(&mut assigned, &config.map, &logic.logic_random);
-
-        let admission = saved_admission::SavedSkirmishAdmission::capture_with_settings(
+    // Bind this world's Common/World/Main for player-template resolve and start.
+    logic.with_own_services_mut(|logic| {
+        // Validate/resolve the candidate without changing an existing match on
+        // error. Replay admission uses the same GameInfo seed in this config.
+        let mut selection = game_engine::common::random_value::RandomState::default();
+        selection.seed_random(config.random_seed);
+        let resolved_slots = resolve_skirmish_slots_for_owner_with_settings(
             config,
-            &assigned,
+            logic.player_template_definitions.as_ref(),
+            &mut selection,
+            multiplayer,
+        )?;
+        // New admission metadata must reject before reset/seed side effects. This
+        // scratch validation does not perform start selection or retain a second owner.
+        saved_admission::SavedSkirmishAdmission::capture_with_settings(
+            config,
+            &config.slots,
             &resolved_slots,
             multiplayer,
         )?;
-        admit_resolved_slots(logic, config, &assigned, resolved_slots, multiplayer)?;
-        admission.admit_local_selection(logic);
-        logic.initial_skirmish_admission = Some(Box::new(admission));
-        logic.multiplayer_definitions =
-            multiplayer.map(|settings| std::sync::Arc::new(settings.clone()));
-        if mode == GameMode::Replay {
-            logic.apply_replay_observer_as_local_player();
+        if let Some(effects) = effects.as_deref_mut() {
+            logic
+                .validate_reset_with_effects(effects)
+                .map_err(|error| error.to_string())?;
         }
-        Ok(())
+        logic.set_logic_random_seed(config.random_seed);
+        let stream = logic.logic_random.clone();
+        game_engine::common::random_value::with_session_random(&stream, || {
+            if let Some(effects) = effects {
+                logic
+                    .start_new_game_for_resolved_players_with_effects(mode, effects)
+                    .map_err(|error| error.to_string())?;
+            } else {
+                logic.start_new_game_for_resolved_players(mode);
+            }
+            // Carry faction-selection draws into the admitted match stream before
+            // the subsequent start-position selection.
+            logic.logic_random.set_seed_words(selection.seed_words());
+
+            let mut assigned = config.slots.clone();
+            populate_random_start_position(&mut assigned, &config.map, &logic.logic_random);
+
+            let admission = saved_admission::SavedSkirmishAdmission::capture_with_settings(
+                config,
+                &assigned,
+                &resolved_slots,
+                multiplayer,
+            )?;
+            admit_resolved_slots(logic, config, &assigned, resolved_slots, multiplayer)?;
+            admission.admit_local_selection(logic);
+            logic.initial_skirmish_admission = Some(Box::new(admission));
+            logic.multiplayer_definitions =
+                multiplayer.map(|settings| std::sync::Arc::new(settings.clone()));
+            if mode == GameMode::Replay {
+                logic.apply_replay_observer_as_local_player();
+            }
+            Ok(())
+        })
     })
 }
 
@@ -1090,24 +1103,25 @@ pub fn local_faction_from_config(config: &SkirmishMatchConfig) -> String {
 
 /// Build match config from the live GameClient skirmish setup (WND Start path).
 ///
-/// SkirmishGameOptionsMenu writes slots/map/cash into `get_skirmish_setup()` and
+/// SkirmishGameOptionsMenu writes slots/map/cash into the client's lobby and
 /// queues `GameMessageType::NewGame`. Main must convert that setup into
 /// `SkirmishMatchConfig` so `start_game_from_ui` applies the same authority path
 /// as the headless shell smoke / SkirmishMenu.
 #[cfg(feature = "game_client")]
 pub fn config_from_client_skirmish_setup(
+    setup: &game_client::gui::skirmish_setup::SkirmishSetup,
     map_override: Option<&str>,
 ) -> Option<SkirmishMatchConfig> {
-    config_from_client_skirmish_setup_with_definitions(map_override, None)
+    config_from_client_skirmish_setup_with_definitions(setup, map_override, None)
 }
 
 #[cfg(feature = "game_client")]
 pub(crate) fn config_from_client_skirmish_setup_with_definitions(
+    setup: &game_client::gui::skirmish_setup::SkirmishSetup,
     map_override: Option<&str>,
     definitions: Option<&game_engine::common::rts::player_template::PlayerTemplateStore>,
 ) -> Option<SkirmishMatchConfig> {
     let (map, local_slot, old_factions_only) = {
-        let setup = game_client::gui::get_skirmish_setup();
         let info = setup.game_info().game_info();
         let map = map_override
             .map(str::trim)
@@ -1125,7 +1139,7 @@ pub(crate) fn config_from_client_skirmish_setup_with_definitions(
     };
     let descriptor = game_engine::common::message_stream::ClientSkirmishLaunch {
         map,
-        game_info: game_client::gui::skirmish_setup::snapshot_skirmish_lobby(),
+        game_info: game_client::gui::skirmish_setup::snapshot_skirmish_lobby(setup),
         local_slot,
         old_factions_only,
         fog_of_war: game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(
@@ -1916,7 +1930,7 @@ mod tests {
     #[cfg(feature = "game_client")]
     #[test]
     fn config_from_client_skirmish_setup_reads_slots_and_map() {
-        use game_client::gui::get_skirmish_setup;
+        use game_client::gui::skirmish_setup::SkirmishSetup;
         use game_client::{Money, SlotState};
 
         game_engine::common::ini::ensure_player_templates_loaded();
@@ -1924,8 +1938,9 @@ mod tests {
             .find_template_index("FactionAmericaAirForceGeneral")
             .expect("retail Air Force General template") as i32;
 
+        let lobby = std::sync::Mutex::new(SkirmishSetup::default());
         {
-            let mut setup = get_skirmish_setup();
+            let mut setup = lobby.lock().unwrap_or_else(|e| e.into_inner());
             setup.set_selected_map(String::new());
             let info = setup.game_info_mut().game_info_mut();
             info.reset();
@@ -1949,7 +1964,7 @@ mod tests {
             }
         }
 
-        let cfg = config_from_client_skirmish_setup(None).expect("config from setup");
+        let cfg = config_from_client_skirmish_setup(&lobby.lock().unwrap(), None).expect("config from setup");
         assert!(
             cfg.map.contains("Lone Eagle"),
             "map from GameInfo: {}",
@@ -1982,11 +1997,12 @@ mod tests {
     #[test]
     fn new_game_client_setup_applies_to_host_authority() {
         use crate::presentation_frame::PresentationFrame;
-        use game_client::gui::get_skirmish_setup;
+        use game_client::gui::skirmish_setup::SkirmishSetup;
         use game_client::{Money, SlotState};
 
+        let lobby = std::sync::Mutex::new(SkirmishSetup::default());
         {
-            let mut setup = get_skirmish_setup();
+            let mut setup = lobby.lock().unwrap_or_else(|e| e.into_inner());
             setup.set_selected_map("Maps/Lone Eagle/Lone Eagle.map".into());
             let info = setup.game_info_mut().game_info_mut();
             info.reset();
@@ -2006,7 +2022,7 @@ mod tests {
             }
         }
 
-        let cfg = config_from_client_skirmish_setup(None).expect("client setup config");
+        let cfg = config_from_client_skirmish_setup(&lobby.lock().unwrap(), None).expect("client setup config");
         assert!(cfg.map.contains("Lone Eagle"), "{}", cfg.map);
         assert_eq!(cfg.rules.starting_cash, 20_000);
         assert_eq!(cfg.slots.iter().filter(|s| s.is_active).count(), 2);

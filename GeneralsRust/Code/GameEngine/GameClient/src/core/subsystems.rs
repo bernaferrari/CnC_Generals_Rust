@@ -1199,11 +1199,18 @@ pub struct PresentationSuperweaponTimerResidual {
 /// In-game UI subsystem bridge.
 #[derive(Default)]
 pub struct InGameUISubsystem {
+    /// Meta-event demo/cheat toggles (was process TLS in meta_event_impl/state).
+    pub meta_demo: crate::meta_demo_state::MetaDemoState,
+    /// EVA speaker (was process TLS THE_EVA + host/residual latches).
+    pub eva: crate::eva::Eva,
     pub(crate) legacy_production_pause_requests: Vec<(u32, bool)>,
     pub(crate) host_control_bar_transport: Option<crate::gui::control_bar::HostControlBarTransport>,
     pub(crate) pending_control_bar_stage: Option<crate::gui::control_bar::ControlBarStage>,
     pub(crate) control_bar_events: crate::helpers::LiveControlBarEvents,
     pub(crate) control_bar_observer_look_at: Option<i32>,
+    pub(crate) legacy_core_control_bar_ingress: crate::helpers::LegacyCoreControlBarIngress,
+    /// C++ ControlBar m_genArrow (was process Mutex GEN_ARROW).
+    pub(crate) gen_arrow: Option<crate::gui::game_window::Image>,
     pub(crate) live_hud: crate::gui::ingame_ui::LiveHud,
     pub(crate) superweapon_strip: crate::gui::ingame_ui::LiveSuperweaponStrip,
     pub(crate) status: crate::helpers::InGameUIStatusState,
@@ -1866,6 +1873,8 @@ impl InGameUISubsystem {
         self.pending_control_bar_stage = None;
         self.control_bar_events = Default::default();
         self.control_bar_observer_look_at = None;
+        self.legacy_core_control_bar_ingress = Default::default();
+        self.gen_arrow = None;
         crate::gui::ingame_ui::reset_live_hud(&mut self.live_hud);
         self.superweapon_strip = Default::default();
         self.status = Default::default();
@@ -2242,6 +2251,9 @@ fn translate_audio_event(event: &str) -> &str {
 pub struct TerrainVisualStub {
     registered_trees: HashMap<u32, TerrainTreeRegistration>,
     tree_buffer: W3DTreeBuffer,
+    /// Empty chunk manager for the stub TerrainVisual trait surface when no
+    /// live terrain system is published. Owned per stub, not process-wide.
+    empty_chunks: crate::terrain::chunk::ChunkManager,
 }
 
 impl TerrainVisualStub {
@@ -2378,9 +2390,7 @@ impl TerrainVisual for TerrainVisualStub {
     }
 
     fn chunk_manager(&self) -> &crate::terrain::chunk::ChunkManager {
-        static EMPTY: once_cell::sync::Lazy<crate::terrain::chunk::ChunkManager> =
-            once_cell::sync::Lazy::new(crate::terrain::chunk::ChunkManager::new);
-        &EMPTY
+        &self.empty_chunks
     }
 
     fn chunk_draw_count(&self) -> usize {
@@ -2453,6 +2463,7 @@ mod tests {
 
     #[test]
     fn terrain_visual_bridge_fallback_normal_is_z_up_like_cpp_world() {
+        crate::test_support::ensure_ambient_host();
         let terrain = TerrainVisualStub::default();
 
         assert_eq!(terrain.get_normal_at(10.0, 20.0).unwrap(), Vec3::Z);
@@ -2460,6 +2471,7 @@ mod tests {
 
     #[test]
     fn terrain_visual_xfer_empty_state_starts_with_cpp_w3d_layout() {
+        crate::test_support::ensure_ambient_host();
         if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
             terrain.reset();
         }
@@ -2497,10 +2509,19 @@ mod tests {
 
     #[test]
     fn terrain_visual_xfer_applies_height_map_bytes_on_load() {
+        crate::test_support::ensure_ambient_host();
         // C++ W3DTerrainVisual::xfer v>=2 (W3DTerrainVisual.cpp:1231-1247)
-        // writes i32 len + raw logic height bytes and applies them on load.
+        // writes i32 len + raw logic height bytes and applies them on load
+        // into the already-admitted WorldHeightMap buffer (min(len,xferLen)).
         if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
             terrain.reset();
+            let mut map = gamelogic::system::map_loader::MapData::new();
+            map.width = 2;
+            map.height = 2;
+            map.heightmap = vec![0u8; 4];
+            terrain
+                .try_load_map_geometry(map)
+                .expect("admit receiving height grid before Client height xfer");
         }
         let path = std::env::temp_dir().join(format!(
             "terrain_visual_xfer_heights_{}_{}.bin",
@@ -2533,6 +2554,7 @@ mod tests {
 
     #[test]
     fn terrain_visual_xfer_skips_unknown_water_grid_snapshot() {
+        crate::test_support::ensure_ambient_host();
         // C++ W3DTerrainVisual::xfer (W3DTerrainVisual.cpp:1196-1198) xfers
         // WaterRenderObjClass when the grid is enabled. Rust must not reject
         // the save (hq-l01n); skip the unknown snapshot instead.
@@ -2572,6 +2594,7 @@ mod tests {
 
     #[test]
     fn terrain_visual_xfer_loads_cpp_v2_without_tree_phase() {
+        crate::test_support::ensure_ambient_host();
         let mut terrain = TerrainVisualStub::default();
         terrain.add_tree_registration(TerrainTreeRegistration {
             drawable_id: 42,
@@ -2611,6 +2634,7 @@ mod tests {
 
     #[test]
     fn terrain_visual_xfer_round_trips_live_tree_buffer_topple_state() {
+        crate::test_support::ensure_ambient_host();
         let mut module_data = W3DTreeDrawModuleData::new();
         module_data.model_name = AsciiString::from("Oak");
         module_data.texture_name = AsciiString::from("OakLeaves");
@@ -2677,6 +2701,7 @@ mod tests {
 
     #[test]
     fn terrain_visual_update_drain_dispatches_pending_tree_fx_once() {
+        crate::test_support::ensure_ambient_host();
         let mut module_data = W3DTreeDrawModuleData::new();
         module_data.model_name = AsciiString::from("Oak");
         module_data.texture_name = AsciiString::from("OakLeaves");
@@ -2713,6 +2738,7 @@ mod tests {
 
     #[test]
     fn in_game_ui_reset_clears_transient_state() {
+        crate::test_support::ensure_ambient_host();
         let mut ui = InGameUISubsystem::default();
         ui.beacon_markers.push(BeaconMarker {
             player_id: 1,
@@ -2729,7 +2755,7 @@ mod tests {
             lower_right: ICoord2D::new(3, 4),
         });
         ui.command_log.push_back(CommandLogEntry::Stop);
-        ui.push_hud_message("hello".to_string());
+        ui.push_hud_message("hello".to_string(), 0);
 
         ui.military_subtitles
             .push_back(("SCRIPT:Caption".to_string(), 2000));
@@ -2791,6 +2817,7 @@ mod tests {
 
     #[test]
     fn in_game_ui_reset_keeps_another_instances_tooltip_deadline() {
+        crate::test_support::ensure_ambient_host();
         let mut first = InGameUISubsystem::default();
         let mut second = InGameUISubsystem::default();
         first.disable_tooltips_until(99);
@@ -2808,17 +2835,18 @@ mod tests {
 
     #[test]
     fn in_game_ui_radius_cursor_type_state_transitions() {
+        crate::test_support::ensure_ambient_host();
         let mut ui = InGameUISubsystem::default();
 
-        ui.set_radius_cursor_active(Some("   ".to_string()));
+        ui.set_radius_cursor_active_state(Some("   ".to_string()));
         assert!(!ui.radius_cursor_active);
         assert_eq!(ui.radius_cursor_type, "");
 
-        ui.set_radius_cursor_active(Some("NONE".to_string()));
+        ui.set_radius_cursor_active_state(Some("NONE".to_string()));
         assert!(!ui.radius_cursor_active);
         assert_eq!(ui.radius_cursor_type, "NONE");
 
-        ui.set_radius_cursor_active(Some("GUARD_AREA".to_string()));
+        ui.set_radius_cursor_active_state(Some("GUARD_AREA".to_string()));
         assert!(ui.radius_cursor_active);
         assert_eq!(ui.radius_cursor_type, "GUARD_AREA");
 
@@ -2829,42 +2857,44 @@ mod tests {
 
     #[test]
     fn in_game_ui_military_subtitle_disables_tooltips_until_lifetime() {
+        crate::test_support::ensure_ambient_host();
         let mut ui = InGameUISubsystem::default();
+        let mut wm = crate::gui::window_manager::WindowManager::new();
         let current_frame = TheGameLogic::get_frame();
 
-        ui.push_military_subtitle("SCRIPT:Briefing", 2500);
+        ui.push_military_subtitle("SCRIPT:Briefing", 2500, current_frame, &mut wm);
 
         assert_eq!(ui.military_subtitles.len(), 1);
         assert_eq!(ui.tooltips_disabled_until, current_frame.saturating_add(75));
-        assert!(ui.are_tooltips_disabled());
+        assert!(ui.are_tooltips_disabled(current_frame));
 
         ui.clear_tooltips_disabled();
         assert_eq!(ui.tooltips_disabled_until, 0);
-        assert!(!ui.are_tooltips_disabled());
+        assert!(!ui.are_tooltips_disabled(current_frame));
     }
 
     #[test]
-    fn in_game_ui_handle_records_military_subtitles_separately_from_hud_messages() {
-        let ui = Arc::new(Mutex::new(InGameUISubsystem::default()));
-        let handle = InGameUiHandle::new(ui.clone());
-
-        handle.military_subtitle("SCRIPT:Caption", 2500);
-
-        let guard = ui.lock().unwrap();
+    fn in_game_ui_records_military_subtitles_separately_from_hud_messages() {
+        crate::test_support::ensure_ambient_host();
+        let mut ui = InGameUISubsystem::default();
+        let mut wm = crate::gui::window_manager::WindowManager::new();
+        let frame = TheGameLogic::get_frame();
+        ui.push_military_subtitle("SCRIPT:Caption", 2500, frame, &mut wm);
         assert_eq!(
-            guard.military_subtitles.front(),
+            ui.military_subtitles.front(),
             Some(&("SCRIPT:Caption".to_string(), 2500))
         );
-        assert!(guard.hud_messages.is_empty());
+        assert!(ui.hud_messages.is_empty());
     }
 
     #[test]
     fn hud_messages_timestamp_white_gray_and_fade_to_zero() {
+        crate::test_support::ensure_ambient_host();
         // C++ addMessageText (InGameUI.cpp:2090-2103) + update fade (1632-1657).
         let mut ui = InGameUISubsystem::default();
         let frame = TheGameLogic::get_frame();
-        ui.push_hud_message("first".to_string());
-        ui.push_hud_message("second".to_string());
+        ui.push_hud_message("first".to_string(), 0);
+        ui.push_hud_message("second".to_string(), 0);
 
         let msgs: Vec<_> = ui.hud_messages().iter().cloned().collect();
         assert_eq!(msgs.len(), 2);
@@ -2872,7 +2902,8 @@ mod tests {
         assert_eq!(msgs[0].original_color, 0xFFFF_FFFF);
         assert_eq!(msgs[0].creation_frame, frame);
         assert_eq!(msgs[1].text, "second");
-        assert_eq!(msgs[1].original_color, 0xFFB4_B4B4);
+        // Retail InGameUI.ini MessageColor2 = 180,180,255 (not ctor gray 180,180,180).
+        assert_eq!(msgs[1].original_color, 0xFFB4_B4FF);
         assert_eq!(msgs[1].creation_frame, frame);
 
         // Age 400 at timeout 0 → alpha 0 (messages.rs message_older_than_cpp_fade_is_removed).
@@ -2882,15 +2913,16 @@ mod tests {
 
     #[test]
     fn game_client_reset_does_not_destroy_wnd() {
+        crate::test_support::ensure_ambient_host();
         // C++ GameClient::reset (GameClient.cpp:426-457) never calls
         // TheWindowManager->reset()/winDestroyAll(). GAME_SHELL apply must
         // keep MainMenu.wnd:ButtonSinglePlayer (hq-3vo4).
         let mut client = crate::core::game_client::GameClient::new().expect("receiving client");
         let owner = client.window_manager_owner();
         owner.with_manager(|manager| {
-            manager.reset();
+            manager.test_reset();
             let window = manager
-                .create_window(None, 0, 0, 80, 24)
+                .test_create_window(None, 0, 0, 80, 24)
                 .expect("ButtonSinglePlayer");
             window
                 .borrow_mut()
@@ -2916,15 +2948,16 @@ mod tests {
 
     #[test]
     fn stub_add_tree_registration_appears_in_impl_buffer() {
+        crate::test_support::ensure_ambient_host();
         // C++ TheTerrainRenderObject is one object (BaseHeightMap.h:308).
         // TerrainVisualStub must forward add/remove into TerrainVisualImpl
         // W3DTreeBuffer that impl_gpu.rs record_tree_draws already reads.
         const DRAWABLE_ID: u32 = 0x00C0_FFEE;
-        if let Ok(mut visual) = crate::terrain::terrain_visual::get_terrain_visual() {
-            if visual.is_none() {
-                *visual = Some(crate::terrain::terrain_visual::TerrainVisualSystem::new());
-            }
-        }
+        // get_terrain_visual requires a published Arc (live GameClient or
+        // init_terrain_visual). Headless unit tests must publish first or
+        // with_live_tree_buffer silently no-ops.
+        crate::terrain::terrain_visual::init_terrain_visual()
+            .expect("publish TerrainVisualImpl for stub forward");
 
         let mut module_data = W3DTreeDrawModuleData::new();
         module_data.model_name = AsciiString::from("AlpineTree");
@@ -2991,18 +3024,18 @@ mod radar_presentation_tests {
 
     #[test]
     fn radar_draw_admits_chirp_once_and_acks_only_supplied_owner() {
-        let ui = Arc::new(Mutex::new(InGameUISubsystem::default()));
-        let handle = InGameUiHandle::new(ui);
+        crate::test_support::ensure_ambient_host();
+        let mut ui = InGameUISubsystem::default();
         let mut first = RadarSystem::new();
         let mut second = RadarSystem::new();
         let position = RadarPosition::new(0.5, 0.5, 0.0);
         first.create_event(&position, RadarEventType::Information, 1.0);
         second.create_event(&position, RadarEventType::Information, 1.0);
         let frozen = Arc::new(first.presentation());
-        handle.set_radar_presentation(frozen.clone());
-        assert_eq!(handle.admit_radar_draw(&frozen), 1);
-        assert_eq!(handle.admit_radar_draw(&frozen), 0);
-        let acknowledgments = handle.take_radar_acknowledgments();
+        ui.set_radar_presentation(frozen.clone());
+        assert_eq!(ui.admit_radar_draw(&frozen), 1);
+        assert_eq!(ui.admit_radar_draw(&frozen), 0);
+        let acknowledgments = ui.take_radar_acknowledgments();
         assert_eq!(acknowledgments.len(), 1);
         for (identity, events) in acknowledgments {
             second.acknowledge_presented_events(&identity, &events);
@@ -3011,14 +3044,15 @@ mod radar_presentation_tests {
         assert!(first.presentation().draw_events()[0].sound_played);
         assert!(!second.presentation().draw_events()[0].sound_played);
         let other = Arc::new(second.presentation());
-        handle.set_radar_presentation(other.clone());
-        assert_eq!(handle.admit_radar_draw(&frozen), 0);
-        assert_eq!(handle.admit_radar_draw(&other), 1);
+        ui.set_radar_presentation(other.clone());
+        assert_eq!(ui.admit_radar_draw(&frozen), 0);
+        assert_eq!(ui.admit_radar_draw(&other), 1);
     }
 
     #[test]
     fn radar_beacon_is_acknowledged_without_chirp() {
-        let handle = InGameUiHandle::new(Arc::new(Mutex::new(InGameUISubsystem::default())));
+        crate::test_support::ensure_ambient_host();
+        let mut ui = InGameUISubsystem::default();
         let mut radar = RadarSystem::new();
         radar.create_event(
             &RadarPosition::new(0.5, 0.5, 0.0),
@@ -3026,9 +3060,9 @@ mod radar_presentation_tests {
             1.0,
         );
         let frozen = Arc::new(radar.presentation());
-        handle.set_radar_presentation(frozen.clone());
-        assert_eq!(handle.admit_radar_draw(&frozen), 0);
-        assert_eq!(handle.take_radar_acknowledgments().len(), 1);
+        ui.set_radar_presentation(frozen.clone());
+        assert_eq!(ui.admit_radar_draw(&frozen), 0);
+        assert_eq!(ui.take_radar_acknowledgments().len(), 1);
     }
 }
 
@@ -3037,6 +3071,7 @@ mod missing_client_snapshot_tests {
     use super::*;
     #[test]
     fn real_client_snapshot_named_dispatch_uses_loan_not_registered_peer() {
+        crate::test_support::ensure_ambient_host();
         if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
             module_path!(),
             "real_client_snapshot_named_dispatch_uses_loan_not_registered_peer",
@@ -3109,6 +3144,7 @@ mod missing_client_snapshot_tests {
 
     #[test]
     fn game_client_snapshot_marker_rejects_missing_receiver() {
+        crate::test_support::ensure_ambient_host();
         let mut marker = GameClientSnapshotBridge;
         assert!(marker.requires_operation_owner());
         let mut writer = game_engine::System::xfer_save::XferSave::new();
@@ -3124,6 +3160,7 @@ mod client_audio_diagnostic_owner_tests {
 
     #[test]
     fn diagnostics_construct_without_an_unused_device_and_stay_client_owned() {
+        crate::test_support::ensure_ambient_host();
         let mut first = AudioSubsystem::new().unwrap();
         let peer = AudioSubsystem::new().unwrap();
         first.record_event("OwnerEvent", None);

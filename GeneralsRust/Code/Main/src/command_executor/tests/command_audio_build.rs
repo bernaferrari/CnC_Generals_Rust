@@ -59,7 +59,7 @@ fn switch_weapons_locks_button_slot_not_cycle() {
         ))
         .expect("execute")
     };
-    assert_eq!(result, CommandResult::Success);
+    assert!(result == CommandResult::Success);
     let obj = logic.host_object(id).expect("obj");
     assert_eq!(obj.weapon_lock_slot, 1, "must lock the button slot");
     assert_eq!(obj.active_weapon_slot, 1);
@@ -96,7 +96,7 @@ fn enable_retaliation_mode_sets_logical_flag() {
         ))
         .expect("execute")
     };
-    assert_eq!(result, CommandResult::Success);
+    assert!(result == CommandResult::Success);
     assert!(
         logic
             .get_player(0)
@@ -142,10 +142,9 @@ fn self_destruct_transfers_to_living_ally_then_kills() {
         ))
         .expect("execute")
     };
-    assert_eq!(result, CommandResult::Success);
+    assert!(result == CommandResult::Success);
     assert!(!logic.get_player(0).unwrap().is_alive);
-    assert_eq!(
-        logic.host_object(unit).map(|o| o.owner_player_id),
+    assert_eq!(logic.host_object(unit).map(|o| o.owner_player_id),
         Some(Some(1)),
         "unit must transfer to the living mutual ally"
     );
@@ -177,7 +176,7 @@ fn place_beacon_spawns_world_object_and_honors_cap() {
         .expect("execute")
     };
 
-    assert_eq!(place(&mut logic), CommandResult::Success);
+    assert!(place(&mut logic) == CommandResult::Success);
     let beacons: Vec<_> = logic
         .host_objects()
         .registered()
@@ -196,13 +195,9 @@ fn place_beacon_spawns_world_object_and_honors_cap() {
     })
     .max(1);
     for _ in 1..max {
-        assert_eq!(place(&mut logic), CommandResult::Success);
+        assert!(place(&mut logic) == CommandResult::Success);
     }
-    assert_eq!(
-        place(&mut logic),
-        CommandResult::InvalidCommand,
-        "cap must refuse extra beacons"
-    );
+    assert_eq!(place(&mut logic), CommandResult::InvalidCommand, "cap must refuse extra beacons");
 }
 
 /// C++ BuildAssistant.cpp:333-334 / :1365-1383 — placement clears trees/props.
@@ -286,11 +281,11 @@ fn execute_build_clears_removable_and_map_trees() {
             crate::game_logic::ScriptPresentationEffects {
                 terrain: Some(&mut visual),
                 ..Default::default()
-            },
+},
         );
-        exec.execute_build(&[ObjectId(9101)], "TestClearFootprintBarracks", site, 0.0)
+        exec.execute_build(&[ObjectId(9101)], "TestClearFootprintBarracks", site, 0.0).unwrap()
     };
-    assert_eq!(result, CommandResult::Success, "placement must succeed");
+    assert!(matches!(result, CommandResult::Success), "placement must succeed");
 
     let shrub = logic
         .host_object(ObjectId(9102))
@@ -380,9 +375,9 @@ fn execute_build_clears_kindof_not_name_substrings() {
     let site = Vec3::new(80.0, 0.0, 80.0);
     let result = {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        exec.execute_build(&[ObjectId(9201)], "TestKindOfClearBarracks", site, 0.0)
+        exec.execute_build(&[ObjectId(9201)], "TestKindOfClearBarracks", site, 0.0).unwrap()
     };
-    assert_eq!(result, CommandResult::Success);
+    assert!(matches!(result, CommandResult::Success));
 
     let cleared = logic.host_object(ObjectId(9202)).expect("cleared");
     assert!(
@@ -450,13 +445,9 @@ fn execute_build_refuses_human_on_unmovables() {
         .unwrap_or(0);
     let result = {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        exec.execute_build(&[ObjectId(9301)], "TestUnmovableBarracks", site, 0.0)
+        exec.execute_build(&[ObjectId(9301)], "TestUnmovableBarracks", site, 0.0).unwrap()
     };
-    assert_eq!(
-        result,
-        CommandResult::InvalidLocation,
-        "hq-ys09u: human buildObjectNow must refuse when leftover moveObjects is FALSE"
-    );
+    assert!(matches!(result, CommandResult::InvalidLocation), "hq-ys09u: human buildObjectNow must refuse when leftover moveObjects is FALSE");
     let money_after = logic
         .get_player(0)
         .map(|p| p.resources.supplies)
@@ -512,15 +503,10 @@ fn execute_build_no_money_queues_insufficient_funds_eva_and_refuses() {
     let site = Vec3::new(80.0, 0.0, 80.0);
     let result = {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        exec.execute_build(&[ObjectId(9311)], "TestPoorBarracks", site, 0.0)
+        exec.execute_build(&[ObjectId(9311)], "TestPoorBarracks", site, 0.0).unwrap()
     };
-    assert_eq!(
-        result,
-        CommandResult::InvalidCommand,
-        "insufficient funds must refuse the placement"
-    );
-    assert_eq!(
-        logic
+    assert_eq!(result, CommandResult::InvalidCommand, "insufficient funds must refuse the placement");
+    assert_eq!(logic
             .get_player(0)
             .map(|p| p.resources.supplies)
             .unwrap_or(0),
@@ -590,15 +576,10 @@ fn dozer_place_and_cancel_use_calc_cost_to_build_handicap() {
             "TestHandicapBarracks",
             Vec3::new(40.0, 0.0, 0.0),
             0.0,
-        )
+        ).unwrap()
     };
-    assert_eq!(
-        result,
-        CommandResult::Success,
-        "handicap place must succeed"
-    );
-    assert_eq!(
-        logic.get_player(0).unwrap().effective_supplies(),
+    assert_eq!(result, CommandResult::Success, "handicap place must succeed");
+    assert_eq!(logic.get_player(0).unwrap().effective_supplies(),
         250,
         "hq-iherw: place charges calcCostToBuild (1000 * 0.75)"
     );
@@ -617,11 +598,10 @@ fn dozer_place_and_cancel_use_calc_cost_to_build_handicap() {
     logic.economy_events.clear();
     let cancel = {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        exec.execute_cancel_construction(building_id, 0)
+        exec.execute_cancel_construction(building_id, 0).unwrap()
     };
-    assert_eq!(cancel, CommandResult::Success);
-    assert_eq!(
-        logic.get_player(0).unwrap().effective_supplies(),
+    assert!(cancel == CommandResult::Success);
+    assert_eq!(logic.get_player(0).unwrap().effective_supplies(),
         1_000,
         "hq-iherw: cancel refunds calcCostToBuild, not raw INI BuildCost"
     );
@@ -673,10 +653,8 @@ fn context_move_plays_voice_move_not_unit_command() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_move(&[a], Vec3::new(40.0, 0.0, 0.0)),
-            CommandResult::Success
-        );
+        assert!(
+            exec.execute_move(&[a], Vec3::new(40.0, 0.0, 0.0)).unwrap() == CommandResult::Success);
     }
     assert!(
         logic
@@ -701,10 +679,7 @@ fn context_move_plays_voice_move_not_unit_command() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_move_to(&[a], Vec3::new(80.0, 0.0, 0.0), &[]),
-            CommandResult::Success
-        );
+        assert!(exec.execute_move_to(&[a], Vec3::new(80.0, 0.0, 0.0), &[]) == CommandResult::Success);
     }
     assert!(
         logic
@@ -717,10 +692,7 @@ fn context_move_plays_voice_move_not_unit_command() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_attack_move(&[a], Vec3::new(120.0, 0.0, 0.0), -1),
-            CommandResult::Success
-        );
+        assert!(exec.execute_attack_move(&[a], Vec3::new(120.0, 0.0, 0.0), -1).unwrap() == CommandResult::Success);
     }
     assert!(
         logic
@@ -772,10 +744,7 @@ fn salvage_click_plays_voice_salvage_not_voice_move() {
             0,
             vec![a],
         );
-        assert_eq!(
-            exec.execute_command(cmd).expect("salvage"),
-            CommandResult::Success
-        );
+        assert!(exec.execute_command(cmd).expect("salvage") == CommandResult::Success);
     }
     let names: Vec<_> = logic
         .queued_audio_events
@@ -853,11 +822,8 @@ fn context_attack_plays_voice_attack_and_air() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_attack(&[ranger], tank)
-                .expect("valid attack fixture"),
-            CommandResult::Success
-        );
+        assert!(exec.execute_attack(&[ranger], tank)
+                .expect("valid attack fixture") == CommandResult::Success);
     }
     assert!(
         logic
@@ -882,11 +848,8 @@ fn context_attack_plays_voice_attack_and_air() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_attack(&[ranger], jet)
-                .expect("valid attack fixture"),
-            CommandResult::Success
-        );
+        assert!(exec.execute_attack(&[ranger], jet)
+                .expect("valid attack fixture") == CommandResult::Success);
     }
     assert!(
         logic
@@ -1016,10 +979,8 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_repair(&[dozer], damaged),
-            CommandResult::Success
-        );
+        assert!(
+            exec.execute_repair(&[dozer], damaged).unwrap() == CommandResult::Success);
     }
     assert!(
         logic
@@ -1040,10 +1001,7 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_resume_construction(&[dozer], scaffold),
-            CommandResult::Success
-        );
+        assert!(exec.execute_resume_construction(&[dozer], scaffold).unwrap() == CommandResult::Success);
     }
     assert!(
         logic
@@ -1064,10 +1022,7 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_get_repaired(&[tank_id], pad_id),
-            CommandResult::Success
-        );
+        assert!(exec.execute_get_repaired(&[tank_id], pad_id).unwrap() == CommandResult::Success);
     }
     assert!(
         logic
@@ -1088,10 +1043,7 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_get_healed(&[inf_id], heal_id),
-            CommandResult::Success
-        );
+        assert!(exec.execute_get_healed(&[inf_id], heal_id).unwrap() == CommandResult::Success);
     }
     assert!(
         logic
@@ -1111,10 +1063,7 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_snipe_vehicle(&[kell_id], enemy),
-            CommandResult::Success
-        );
+        assert!(exec.execute_snipe_vehicle(&[kell_id], enemy).unwrap() == CommandResult::Success);
     }
     assert!(
         logic
@@ -1137,14 +1086,11 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_special_power(
+        assert!(exec.execute_special_power(
                 &[sat_id],
                 &SpecialPowerType::SpySatellite,
                 &PowerTarget::Location(Vec3::new(80.0, 0.0, 80.0)),
-            ),
-            CommandResult::Success
-        );
+            ).unwrap() == CommandResult::Success);
     }
     assert!(
         logic
@@ -1280,11 +1226,8 @@ fn specialty_attack_voices_replace_voice_attack() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_attack(&[ranger_id], bldg_id)
-                .expect("valid attack fixture"),
-            CommandResult::Success
-        );
+        assert!(exec.execute_attack(&[ranger_id], bldg_id)
+                .expect("valid attack fixture") == CommandResult::Success);
     }
     assert!(
         logic
@@ -1333,11 +1276,8 @@ fn specialty_attack_voices_replace_voice_attack() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_attack(&[ranger_id], inf_id)
-                .expect("valid attack fixture"),
-            CommandResult::Success
-        );
+        assert!(exec.execute_attack(&[ranger_id], inf_id)
+                .expect("valid attack fixture") == CommandResult::Success);
     }
     assert!(
         logic
@@ -1348,8 +1288,7 @@ fn specialty_attack_voices_replace_voice_attack() {
         logic.queued_audio_events
     );
 
-    assert_eq!(
-        logic.host_object(ranger_id).unwrap().selected_weapon_slot(),
+    assert_eq!(logic.host_object(ranger_id).unwrap().selected_weapon_slot(),
         Some(1)
     );
     {
@@ -1358,12 +1297,10 @@ fn specialty_attack_voices_replace_voice_attack() {
         unit.set_active_weapon_slot(0);
     }
     logic.queued_audio_events.clear();
-    assert_eq!(
+    assert!(
         CommandExecutor::new(&mut logic, 0)
             .execute_attack(&[ranger_id], inf_id)
-            .expect("valid attack fixture"),
-        CommandResult::Success
-    );
+            .expect("valid attack fixture") == CommandResult::Success);
     assert!(
         logic
             .queued_audio_events
@@ -1372,12 +1309,9 @@ fn specialty_attack_voices_replace_voice_attack() {
         "the primary current weapon retains its ordinary attack voice"
     );
     logic.queued_audio_events.clear();
-    assert_eq!(
-        CommandExecutor::new(&mut logic, 0)
+    assert!(CommandExecutor::new(&mut logic, 0)
             .execute_attack(&[ranger_id], crate::game_logic::ObjectId(u32::MAX))
-            .expect("invalid target is an ordinary command result"),
-        CommandResult::InvalidTarget
-    );
+            .expect("invalid target is an ordinary command result") == CommandResult::InvalidTarget);
     assert!(
         logic.queued_audio_events.is_empty(),
         "failed target emits no translated voice"
@@ -1397,15 +1331,12 @@ fn specialty_attack_voices_replace_voice_attack() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_weapon(
+        assert!(exec.execute_weapon(
                 &[com_id],
                 &WeaponSlot::Tertiary,
                 -1,
                 &WeaponTarget::Location(Vec3::new(80.0, 0.0, 80.0)),
-            ),
-            CommandResult::Success
-        );
+            ) == CommandResult::Success);
     }
     assert!(
         logic
@@ -1430,15 +1361,12 @@ fn specialty_attack_voices_replace_voice_attack() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_weapon(
+        assert!(exec.execute_weapon(
                 &[dragon_id],
                 &WeaponSlot::Secondary,
                 -1,
                 &WeaponTarget::Location(Vec3::new(60.0, 0.0, 60.0)),
-            ),
-            CommandResult::Success
-        );
+            ) == CommandResult::Success);
     }
     assert!(
         logic
@@ -1463,15 +1391,12 @@ fn specialty_attack_voices_replace_voice_attack() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_weapon(
+        assert!(exec.execute_weapon(
                 &[burton_id],
                 &WeaponSlot::Tertiary,
                 -1,
                 &WeaponTarget::Object(inf_id),
-            ),
-            CommandResult::Success
-        );
+            ) == CommandResult::Success);
     }
     assert!(
         logic
@@ -1493,37 +1418,39 @@ fn click_to_gather_uses_gamedata_factor_and_cell_cap() {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use glam::Vec3;
 
-    let prev_factor = game_engine::common::ini::get_global_data()
-        .map(|d| d.read().group_move_click_to_gather_factor);
-    if let Some(data) = game_engine::common::ini::get_global_data() {
-        data.write().group_move_click_to_gather_factor = 0.5;
-    }
-
     let mut logic = GameLogic::new();
-    let mut tpl = ThingTemplate::new("CG_V");
-    tpl.add_kind_of(KindOf::Vehicle);
-    tpl.add_kind_of(KindOf::Selectable);
-    tpl.set_health(200.0);
-    logic.templates.insert("CG_V".to_string(), tpl);
-    let a = logic
-        .create_object("CG_V", Team::USA, Vec3::new(0.0, 0.0, 0.0))
-        .unwrap();
-    let b = logic
-        .create_object("CG_V", Team::USA, Vec3::new(100.0, 0.0, 0.0))
-        .unwrap();
-    let exec = CommandExecutor::new(&mut logic, 0);
-    assert!(
-        exec.should_tighten_group_move(&[a, b], Vec3::new(50.0, 0.0, 0.0)),
-        "click in the central half of the bbox must tighten"
-    );
-    assert!(
-        !exec.should_tighten_group_move(&[a, b], Vec3::new(5.0, 0.0, 0.0)),
-        "click inside the full bbox but outside the 0.5 gather rect must not tighten"
-    );
+    logic.with_own_services_mut(|logic| {
+        let prev_factor = game_engine::common::ini::get_global_data()
+            .map(|d| d.read().group_move_click_to_gather_factor);
+        if let Some(data) = game_engine::common::ini::get_global_data() {
+            data.write().group_move_click_to_gather_factor = 0.5;
+        }
 
-    if let Some(data) = game_engine::common::ini::get_global_data() {
-        data.write().group_move_click_to_gather_factor = prev_factor.unwrap_or(0.5);
-    }
+        let mut tpl = ThingTemplate::new("CG_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(200.0);
+        logic.templates.insert("CG_V".to_string(), tpl);
+        let a = logic
+            .create_object("CG_V", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let b = logic
+            .create_object("CG_V", Team::USA, Vec3::new(100.0, 0.0, 0.0))
+            .unwrap();
+        let exec = CommandExecutor::new(logic, 0);
+        assert!(
+            exec.should_tighten_group_move(&[a, b], Vec3::new(50.0, 0.0, 0.0)),
+            "click in the central half of the bbox must tighten"
+        );
+        assert!(
+            !exec.should_tighten_group_move(&[a, b], Vec3::new(5.0, 0.0, 0.0)),
+            "click inside the full bbox but outside the 0.5 gather rect must not tighten"
+        );
+
+        if let Some(data) = game_engine::common::ini::get_global_data() {
+            data.write().group_move_click_to_gather_factor = prev_factor.unwrap_or(0.5);
+        }
+    });
 }
 
 #[test]
@@ -1592,10 +1519,7 @@ fn attack_move_includes_immobile_attacker() {
     );
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_attack_move(&[tur, tk], Vec3::new(200.0, 0.0, 0.0), 4),
-            CommandResult::Success
-        );
+        assert!(exec.execute_attack_move(&[tur, tk], Vec3::new(200.0, 0.0, 0.0), 4).unwrap() == CommandResult::Success);
     }
     let u = logic.host_object(tur).unwrap();
     assert_ne!(u.ai_state(), AIState::AttackMoving);
@@ -1679,11 +1603,8 @@ fn group_attack_object_orders_weaponless_and_dead_victim() {
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_attack(&[dozer_id], victim)
-                .expect("valid attack fixture"),
-            CommandResult::Success
-        );
+        assert!(exec.execute_attack(&[dozer_id], victim)
+                .expect("valid attack fixture") == CommandResult::Success);
     }
     let d = logic.host_object(dozer_id).unwrap();
     assert_eq!(d.target, Some(victim));
@@ -1726,10 +1647,8 @@ fn free_move_dissolves_mixed_formation_stamps() {
         .collect();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_create_formation(&stamped),
-            CommandResult::Success
-        );
+        assert!(
+            exec.execute_create_formation(&stamped) == CommandResult::Success);
     }
     assert_ne!(logic.host_object(stamped[0]).unwrap().formation_id, 0);
     // AIGroup.cpp:320-373 takes the first counted member's formation ID.
@@ -1739,14 +1658,10 @@ fn free_move_dissolves_mixed_formation_stamps() {
     // Outside gather bbox, closer than MinDistanceForGroup so no column pack.
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_move(&all, Vec3::new(80.0, 0.0, 0.0)),
-            CommandResult::Success
-        );
+        assert!(exec.execute_move(&all, Vec3::new(80.0, 0.0, 0.0)).unwrap() == CommandResult::Success);
     }
     for id in stamped {
-        assert_eq!(
-            logic.host_object(id).unwrap().formation_id,
+        assert_eq!(logic.host_object(id).unwrap().formation_id,
             0,
             "free-move must dissolve stale formation stamps"
         );
@@ -1787,10 +1702,8 @@ fn tighten_scatter_include_stunned_members() {
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_tighten_to_position(&[a, b], Vec3::new(15.0, 0.0, 0.0)),
-            CommandResult::Success
-        );
+        assert!(
+            exec.execute_tighten_to_position(&[a, b], Vec3::new(15.0, 0.0, 0.0)) == CommandResult::Success);
     }
     assert_eq!(logic.host_object(b).unwrap().ai_state(), AIState::Moving);
     {
@@ -1803,7 +1716,7 @@ fn tighten_scatter_include_stunned_members() {
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_scatter(&[a, b]), CommandResult::Success);
+        assert!(exec.execute_scatter(&[a, b]) == CommandResult::Success);
     }
     assert_eq!(logic.host_object(b).unwrap().ai_state(), AIState::Moving);
 }

@@ -82,12 +82,10 @@ fn set_rally(world: &mut GameLogic, container: ObjectId, point: Vec3) {
         selected_units: vec![container],
         modifier_keys: ModifierKeys::default(),
     };
-    assert_eq!(
+    assert!(
         CommandExecutor::new(world, 1)
             .execute_command(command)
-            .expect("SetRallyPoint command"),
-        CommandResult::Success
-    );
+            .expect("SetRallyPoint command") == CommandResult::Success);
 }
 
 fn exit_path(world: &mut GameLogic, passenger: ObjectId, container: ObjectId) -> Vec<Vec3> {

@@ -229,6 +229,7 @@ mod tests {
 
     #[test]
     fn test_metal_feature_support() {
+        crate::test_support::ensure_ambient_host();
         if !is_metal_available() {
             return;
         }
@@ -243,6 +244,7 @@ mod tests {
 
     #[test]
     fn test_device_enumeration() {
+        crate::test_support::ensure_ambient_host();
         if !is_metal_available() {
             return;
         }

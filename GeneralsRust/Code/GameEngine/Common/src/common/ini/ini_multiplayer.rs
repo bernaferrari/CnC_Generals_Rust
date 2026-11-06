@@ -8,7 +8,6 @@
 //! Author: Matthew D. Campbell, January 2002 (Converted to Rust)
 //! Desc:   Parsing MultiplayerSettings and MultiplayerColor INI entries
 
-use once_cell::sync::OnceCell;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::common::ascii_string::AsciiString;
@@ -394,23 +393,21 @@ fn parse_starting_money_default(
     Ok(())
 }
 
-/// Global multiplayer settings instance (would be managed by a global state manager in practice)
-static MULTIPLAYER_SETTINGS: OnceCell<RwLock<MultiplayerSettings>> = OnceCell::new();
 
-fn multiplayer_settings_cell() -> &'static RwLock<MultiplayerSettings> {
-    MULTIPLAYER_SETTINGS.get_or_init(|| RwLock::new(MultiplayerSettings::new()))
+fn ini_multiplayer_cell() -> std::sync::Arc<std::sync::RwLock<MultiplayerSettings>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.multiplayer)
 }
 
 fn multiplayer_settings_mut() -> RwLockWriteGuard<'static, MultiplayerSettings> {
-    multiplayer_settings_cell()
-        .write()
-        .expect("MultiplayerSettings poisoned")
+    let cell = ini_multiplayer_cell();
+    let guard = cell.write().expect("MultiplayerSettings poisoned");
+    unsafe { std::mem::transmute(guard) }
 }
 
 fn multiplayer_settings() -> RwLockReadGuard<'static, MultiplayerSettings> {
-    multiplayer_settings_cell()
-        .read()
-        .expect("MultiplayerSettings poisoned")
+    let cell = ini_multiplayer_cell();
+    let guard = cell.read().expect("MultiplayerSettings poisoned");
+    unsafe { std::mem::transmute(guard) }
 }
 
 pub fn with_multiplayer_settings<R>(f: impl FnOnce(&MultiplayerSettings) -> R) -> R {
@@ -649,3 +646,4 @@ mod tests {
         assert_eq!(settings.get_color_value(0), None);
     }
 }
+

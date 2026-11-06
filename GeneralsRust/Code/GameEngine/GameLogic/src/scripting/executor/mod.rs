@@ -9,6 +9,7 @@
 //! Split into focused submodules by action/condition family.
 
 use super::core::*;
+use std::sync::atomic::Ordering;
 use super::engine::{
     CanonicalScriptExecutionDriver, ScriptExecutionDriver, TFade, get_area_tracker,
     get_named_object_tracker,
@@ -53,7 +54,6 @@ use game_engine::common::system::radar::{RadarEventType, get_radar_system};
 use once_cell::sync::Lazy;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 /// Live host drain: team/named attacks when leftover `OBJECT_REGISTRY` is empty.
@@ -527,240 +527,296 @@ pub struct HostScriptSkirmishBaseDefenseRequest {
     pub flank: bool,
 }
 
-thread_local! {
-    static HOST_SKIRMISH_FIRE_SPECIAL_REQUESTS: RefCell<Vec<(String, String)>> =
-        RefCell::new(Vec::new());
-    static HOST_SKIRMISH_BUILD_REQUESTS: RefCell<Vec<(String, String)>> = RefCell::new(Vec::new());
-    static HOST_SET_CAVE_INDEX_REQUESTS: RefCell<Vec<(String, i32)>> = RefCell::new(Vec::new());
-    static HOST_OBJECT_PANEL_FLAG_REQUESTS: RefCell<Vec<(String, String, bool)>> =
-        RefCell::new(Vec::new());
-    static HOST_TEAM_PANEL_FLAG_REQUESTS: RefCell<Vec<(String, String, bool)>> =
-        RefCell::new(Vec::new());
-    static HOST_SCIENCE_ACTION_REQUESTS: RefCell<Vec<(String, String, bool)>> =
-        RefCell::new(Vec::new());
-    static HOST_SCRIPT_MOVE_ATTACK_REQUESTS: RefCell<Vec<HostScriptMoveAttackRequest>> =
-        RefCell::new(Vec::new());
-    static HOST_BUILD_TEAM_REQUESTS: RefCell<Vec<(String, String)>> = RefCell::new(Vec::new());
-    static HOST_RECRUIT_TEAM_REQUESTS: RefCell<Vec<(String, String, f32)>> =
-        RefCell::new(Vec::new());
-    static HOST_SCRIPT_CREATE_REQUESTS: RefCell<Vec<HostScriptCreateRequest>> =
-        RefCell::new(Vec::new());
-    static HOST_TEAM_ATTITUDE_REQUESTS: RefCell<Vec<(String, i32)>> = RefCell::new(Vec::new());
-    static HOST_AI_PLAYER_BUILD_SUPPLY_CENTER_REQUESTS: RefCell<Vec<(String, String, i32)>> =
-        RefCell::new(Vec::new());
-    static HOST_AI_PLAYER_BUILD_UPGRADE_REQUESTS: RefCell<Vec<(String, String)>> =
-        RefCell::new(Vec::new());
-    static HOST_AI_PLAYER_BUILD_TYPE_NEAREST_TEAM_REQUESTS: RefCell<Vec<(String, String, String)>> =
-        RefCell::new(Vec::new());
-    static HOST_GUARD_SUPPLY_CENTER_REQUESTS: RefCell<Vec<(String, i32)>> =
-        RefCell::new(Vec::new());
-    static HOST_SKIRMISH_ATTACK_GROUP_REQUESTS: RefCell<Vec<(String, i32, i32)>> =
-        RefCell::new(Vec::new());
-    static HOST_SKIRMISH_CMD_BUTTON_REQUESTS: RefCell<Vec<(String, String, f32)>> =
-        RefCell::new(Vec::new());
-    static HOST_SCRIPT_HUNT_GUARD_REQUESTS: RefCell<Vec<HostScriptHuntGuardRequest>> =
-        RefCell::new(Vec::new());
-    static HOST_SCRIPT_FOLLOW_WAYPOINTS_REQUESTS: RefCell<Vec<HostScriptFollowWaypointsRequest>> =
-        RefCell::new(Vec::new());
-    static HOST_SCRIPT_GUARD_VARIANT_REQUESTS: RefCell<Vec<HostScriptGuardVariantRequest>> =
-        RefCell::new(Vec::new());
-    static HOST_SCRIPT_NAMED_FIRE_SPECIAL_REQUESTS:
-        RefCell<Vec<HostScriptNamedFireSpecialPowerRequest>> = RefCell::new(Vec::new());
-    static HOST_SCRIPT_IDLE_REQUESTS: RefCell<Vec<HostScriptIdleRequest>> =
-        RefCell::new(Vec::new());
-    static HOST_SCRIPT_KILL_DELETE_DAMAGE_REQUESTS:
-        RefCell<Vec<HostScriptKillDeleteDamageRequest>> = RefCell::new(Vec::new());
-    static HOST_SCRIPT_FACE_REQUESTS: RefCell<Vec<HostScriptFaceRequest>> =
-        RefCell::new(Vec::new());
-    static HOST_SCRIPT_PLAYER_RELATES_REQUESTS: RefCell<Vec<HostScriptPlayerRelatesRequest>> =
-        RefCell::new(Vec::new());
-    static HOST_SCRIPT_BOOBYTRAP_REQUESTS: RefCell<Vec<HostScriptBoobytrapRequest>> =
-        RefCell::new(Vec::new());
-    static HOST_SCRIPT_UNMANNED_REQUESTS: RefCell<Vec<HostScriptUnmannedRequest>> =
-        RefCell::new(Vec::new());
-    static HOST_SCRIPT_RADAR_EVENT_REQUESTS: RefCell<Vec<HostScriptRadarEventRequest>> =
-        RefCell::new(Vec::new());
-    static HOST_SCRIPT_STEALTH_ENABLED_REQUESTS: RefCell<Vec<HostScriptStealthEnabledRequest>> =
-        RefCell::new(Vec::new());
-    static HOST_SCRIPT_BUILDABLE_OVERRIDE_REQUESTS:
-        RefCell<Vec<HostScriptBuildableOverrideRequest>> = RefCell::new(Vec::new());
-    static HOST_SCRIPT_NAMED_UPGRADE_REQUESTS: RefCell<Vec<HostScriptNamedUpgradeRequest>> =
-        RefCell::new(Vec::new());
-    static HOST_SCRIPT_FLASH_REQUESTS: RefCell<Vec<HostScriptFlashRequest>> =
-        RefCell::new(Vec::new());
-    static HOST_SCRIPT_EMOTICON_REQUESTS: RefCell<Vec<HostScriptEmoticonRequest>> =
-        RefCell::new(Vec::new());
-    static HOST_SCRIPT_HELD_REQUESTS: RefCell<Vec<HostScriptHeldRequest>> =
-        RefCell::new(Vec::new());
-    static HOST_SCRIPT_CUSTOM_COLOR_REQUESTS: RefCell<Vec<HostScriptCustomColorRequest>> =
-        RefCell::new(Vec::new());
-    static HOST_SCRIPT_NAMED_ATTITUDE_REQUESTS: RefCell<Vec<HostScriptNamedAttitudeRequest>> =
-        RefCell::new(Vec::new());
-    static HOST_SCRIPT_REPULSOR_REQUESTS: RefCell<Vec<HostScriptRepulsorRequest>> =
-        RefCell::new(Vec::new());
-    static HOST_SCRIPT_STOPPING_DISTANCE_REQUESTS:
-        RefCell<Vec<HostScriptStoppingDistanceRequest>> = RefCell::new(Vec::new());
-    static HOST_SCRIPT_FORCE_SELECT_REQUESTS: RefCell<Vec<HostScriptForceSelectRequest>> =
-        RefCell::new(Vec::new());
-    static HOST_SCRIPT_PLAYER_MISC_REQUESTS: RefCell<Vec<HostScriptPlayerMiscRequest>> =
-        RefCell::new(Vec::new());
-    static HOST_SCRIPT_USE_COMMAND_BUTTON_REQUESTS:
-        RefCell<Vec<HostScriptUseCommandButtonRequest>> = RefCell::new(Vec::new());
-    static HOST_TEAM_PARTIAL_COMMAND_BUTTON_REQUESTS:
-        RefCell<Vec<HostScriptTeamPartialCommandButtonRequest>> = RefCell::new(Vec::new());
-    static HOST_SET_BASE_CONSTRUCTION_SPEED_REQUESTS: RefCell<Vec<(String, i32)>> =
-        RefCell::new(Vec::new());
-    static HOST_SET_TRAIN_HELD_REQUESTS: RefCell<Vec<(String, bool)>> = RefCell::new(Vec::new());
-    static HOST_SCRIPT_TOPPLE_DIRECTIONS: RefCell<HashMap<String, (f32, f32)>> =
-        RefCell::new(HashMap::new());
-    static HOST_SKIRMISH_APPROACH_PATH_REQUESTS:
-        RefCell<Vec<HostScriptSkirmishApproachPathRequest>> = RefCell::new(Vec::new());
-    static HOST_SKIRMISH_BASE_DEFENSE_REQUESTS:
-        RefCell<Vec<HostScriptSkirmishBaseDefenseRequest>> = RefCell::new(Vec::new());
-
-
-
-
-
-
-
-
-
-
-
-
+/// Per-world host-script request drains (formerly process `thread_local!` queues).
+/// Owned by `WorldServices` so parallel instances never share script side-effects.
+pub struct HostScriptRequestQueues {
+    pub(crate) skirmish_fire_special_requests: Mutex<Vec<(String, String)>>,
+    pub(crate) skirmish_build_requests: Mutex<Vec<(String, String)>>,
+    pub(crate) set_cave_index_requests: Mutex<Vec<(String, i32)>>,
+    pub(crate) object_panel_flag_requests: Mutex<Vec<(String, String, bool)>>,
+    pub(crate) team_panel_flag_requests: Mutex<Vec<(String, String, bool)>>,
+    pub(crate) science_action_requests: Mutex<Vec<(String, String, bool)>>,
+    pub(crate) script_move_attack_requests: Mutex<Vec<HostScriptMoveAttackRequest>>,
+    pub(crate) build_team_requests: Mutex<Vec<(String, String)>>,
+    pub(crate) recruit_team_requests: Mutex<Vec<(String, String, f32)>>,
+    pub(crate) script_create_requests: Mutex<Vec<HostScriptCreateRequest>>,
+    pub(crate) team_attitude_requests: Mutex<Vec<(String, i32)>>,
+    pub(crate) ai_player_build_supply_center_requests: Mutex<Vec<(String, String, i32)>>,
+    pub(crate) ai_player_build_upgrade_requests: Mutex<Vec<(String, String)>>,
+    pub(crate) ai_player_build_type_nearest_team_requests: Mutex<Vec<(String, String, String)>>,
+    pub(crate) guard_supply_center_requests: Mutex<Vec<(String, i32)>>,
+    pub(crate) skirmish_attack_group_requests: Mutex<Vec<(String, i32, i32)>>,
+    pub(crate) skirmish_cmd_button_requests: Mutex<Vec<(String, String, f32)>>,
+    pub(crate) script_hunt_guard_requests: Mutex<Vec<HostScriptHuntGuardRequest>>,
+    pub(crate) script_follow_waypoints_requests: Mutex<Vec<HostScriptFollowWaypointsRequest>>,
+    pub(crate) script_guard_variant_requests: Mutex<Vec<HostScriptGuardVariantRequest>>,
+    pub(crate) script_named_fire_special_requests: Mutex<Vec<HostScriptNamedFireSpecialPowerRequest>>,
+    pub(crate) script_idle_requests: Mutex<Vec<HostScriptIdleRequest>>,
+    pub(crate) script_kill_delete_damage_requests: Mutex<Vec<HostScriptKillDeleteDamageRequest>>,
+    pub(crate) script_face_requests: Mutex<Vec<HostScriptFaceRequest>>,
+    pub(crate) script_player_relates_requests: Mutex<Vec<HostScriptPlayerRelatesRequest>>,
+    pub(crate) script_boobytrap_requests: Mutex<Vec<HostScriptBoobytrapRequest>>,
+    pub(crate) script_unmanned_requests: Mutex<Vec<HostScriptUnmannedRequest>>,
+    pub(crate) script_radar_event_requests: Mutex<Vec<HostScriptRadarEventRequest>>,
+    pub(crate) script_stealth_enabled_requests: Mutex<Vec<HostScriptStealthEnabledRequest>>,
+    pub(crate) script_buildable_override_requests: Mutex<Vec<HostScriptBuildableOverrideRequest>>,
+    pub(crate) script_named_upgrade_requests: Mutex<Vec<HostScriptNamedUpgradeRequest>>,
+    pub(crate) script_flash_requests: Mutex<Vec<HostScriptFlashRequest>>,
+    pub(crate) script_emoticon_requests: Mutex<Vec<HostScriptEmoticonRequest>>,
+    pub(crate) script_held_requests: Mutex<Vec<HostScriptHeldRequest>>,
+    pub(crate) script_custom_color_requests: Mutex<Vec<HostScriptCustomColorRequest>>,
+    pub(crate) script_named_attitude_requests: Mutex<Vec<HostScriptNamedAttitudeRequest>>,
+    pub(crate) script_repulsor_requests: Mutex<Vec<HostScriptRepulsorRequest>>,
+    pub(crate) script_stopping_distance_requests: Mutex<Vec<HostScriptStoppingDistanceRequest>>,
+    pub(crate) script_force_select_requests: Mutex<Vec<HostScriptForceSelectRequest>>,
+    pub(crate) script_player_misc_requests: Mutex<Vec<HostScriptPlayerMiscRequest>>,
+    pub(crate) script_use_command_button_requests: Mutex<Vec<HostScriptUseCommandButtonRequest>>,
+    pub(crate) team_partial_command_button_requests: Mutex<Vec<HostScriptTeamPartialCommandButtonRequest>>,
+    pub(crate) set_base_construction_speed_requests: Mutex<Vec<(String, i32)>>,
+    pub(crate) set_train_held_requests: Mutex<Vec<(String, bool)>>,
+    pub(crate) script_topple_directions: Mutex<HashMap<String, (f32, f32)>>,
+    pub(crate) skirmish_approach_path_requests: Mutex<Vec<HostScriptSkirmishApproachPathRequest>>,
+    pub(crate) skirmish_base_defense_requests: Mutex<Vec<HostScriptSkirmishBaseDefenseRequest>>,
 }
+
+impl Default for HostScriptRequestQueues {
+    fn default() -> Self {
+        Self {
+            skirmish_fire_special_requests: Mutex::new(Vec::new()),
+            skirmish_build_requests: Mutex::new(Vec::new()),
+            set_cave_index_requests: Mutex::new(Vec::new()),
+            object_panel_flag_requests: Mutex::new(Vec::new()),
+            team_panel_flag_requests: Mutex::new(Vec::new()),
+            science_action_requests: Mutex::new(Vec::new()),
+            script_move_attack_requests: Mutex::new(Vec::new()),
+            build_team_requests: Mutex::new(Vec::new()),
+            recruit_team_requests: Mutex::new(Vec::new()),
+            script_create_requests: Mutex::new(Vec::new()),
+            team_attitude_requests: Mutex::new(Vec::new()),
+            ai_player_build_supply_center_requests: Mutex::new(Vec::new()),
+            ai_player_build_upgrade_requests: Mutex::new(Vec::new()),
+            ai_player_build_type_nearest_team_requests: Mutex::new(Vec::new()),
+            guard_supply_center_requests: Mutex::new(Vec::new()),
+            skirmish_attack_group_requests: Mutex::new(Vec::new()),
+            skirmish_cmd_button_requests: Mutex::new(Vec::new()),
+            script_hunt_guard_requests: Mutex::new(Vec::new()),
+            script_follow_waypoints_requests: Mutex::new(Vec::new()),
+            script_guard_variant_requests: Mutex::new(Vec::new()),
+            script_named_fire_special_requests: Mutex::new(Vec::new()),
+            script_idle_requests: Mutex::new(Vec::new()),
+            script_kill_delete_damage_requests: Mutex::new(Vec::new()),
+            script_face_requests: Mutex::new(Vec::new()),
+            script_player_relates_requests: Mutex::new(Vec::new()),
+            script_boobytrap_requests: Mutex::new(Vec::new()),
+            script_unmanned_requests: Mutex::new(Vec::new()),
+            script_radar_event_requests: Mutex::new(Vec::new()),
+            script_stealth_enabled_requests: Mutex::new(Vec::new()),
+            script_buildable_override_requests: Mutex::new(Vec::new()),
+            script_named_upgrade_requests: Mutex::new(Vec::new()),
+            script_flash_requests: Mutex::new(Vec::new()),
+            script_emoticon_requests: Mutex::new(Vec::new()),
+            script_held_requests: Mutex::new(Vec::new()),
+            script_custom_color_requests: Mutex::new(Vec::new()),
+            script_named_attitude_requests: Mutex::new(Vec::new()),
+            script_repulsor_requests: Mutex::new(Vec::new()),
+            script_stopping_distance_requests: Mutex::new(Vec::new()),
+            script_force_select_requests: Mutex::new(Vec::new()),
+            script_player_misc_requests: Mutex::new(Vec::new()),
+            script_use_command_button_requests: Mutex::new(Vec::new()),
+            team_partial_command_button_requests: Mutex::new(Vec::new()),
+            set_base_construction_speed_requests: Mutex::new(Vec::new()),
+            set_train_held_requests: Mutex::new(Vec::new()),
+            script_topple_directions: Mutex::new(HashMap::new()),
+            skirmish_approach_path_requests: Mutex::new(Vec::new()),
+            skirmish_base_defense_requests: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+fn host_script_queues() -> std::sync::Arc<crate::system::engine_stores::WorldServices> {
+    crate::system::engine_stores::active_services()
+}
+
+fn try_host_script_queues() -> Option<std::sync::Arc<crate::system::engine_stores::WorldServices>> {
+    crate::system::engine_stores::try_active_services()
+}
+
 
 /// Live host drain: `SKIRMISH_FIRE_SPECIAL_POWER_AT_MOST_COST` when crate
 /// `OBJECT_REGISTRY` is empty (Wave 284 leftover no-op).
 pub fn request_host_skirmish_fire_special(player_name: &str, power_name: &str) {
-    HOST_SKIRMISH_FIRE_SPECIAL_REQUESTS.with(|q| {
-        q.borrow_mut()
+    {
+        let services = host_script_queues();
+        let mut q = services.host_script_requests().skirmish_fire_special_requests.lock().unwrap_or_else(|p| p.into_inner());
+
+        q
             .push((player_name.to_string(), power_name.to_string()));
-    });
+    }
 }
 
 pub fn take_host_skirmish_fire_special_requests() -> Vec<(String, String)> {
-    HOST_SKIRMISH_FIRE_SPECIAL_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().skirmish_fire_special_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: `SKIRMISH_BUILD_BUILDING` → `markPriorityBuild` on the
 /// executing script's player (C++ `ScriptActions::doBuildBuilding` always
 /// uses `TheScriptEngine->getCurrentPlayer()`).
 pub fn request_host_skirmish_build_building(player_name: &str, thing_name: &str) {
-    HOST_SKIRMISH_BUILD_REQUESTS.with(|q| {
-        q.borrow_mut()
+    {
+        let services = host_script_queues();
+        let mut q = services.host_script_requests().skirmish_build_requests.lock().unwrap_or_else(|p| p.into_inner());
+
+        q
             .push((player_name.to_string(), thing_name.to_string()));
-    });
+    }
 }
 
 pub fn take_host_skirmish_build_requests() -> Vec<(String, String)> {
-    HOST_SKIRMISH_BUILD_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().skirmish_build_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: `SET_CAVE_INDEX` → `CaveContain::tryToSetCaveIndex`.
 /// Leftover crate objects are empty on the player path.
 pub fn request_host_set_cave_index(cave_name: &str, cave_index: i32) {
-    HOST_SET_CAVE_INDEX_REQUESTS.with(|q| {
-        q.borrow_mut().push((cave_name.to_string(), cave_index));
-    });
+    {
+        let services = host_script_queues();
+        let mut q = services.host_script_requests().set_cave_index_requests.lock().unwrap_or_else(|p| p.into_inner());
+
+        q.push((cave_name.to_string(), cave_index));
+    }
 }
 
 /// Live host drain: UNIT_AFFECT_OBJECT_PANEL_FLAGS when leftover registry is empty.
 pub fn request_host_object_panel_flag(unit_name: &str, flag_name: &str, enable: bool) {
-    HOST_OBJECT_PANEL_FLAG_REQUESTS.with(|q| {
-        q.borrow_mut()
+    {
+        let services = host_script_queues();
+        let mut q = services.host_script_requests().object_panel_flag_requests.lock().unwrap_or_else(|p| p.into_inner());
+
+        q
             .push((unit_name.to_string(), flag_name.to_string(), enable));
-    });
+    }
 }
 
 pub fn take_host_object_panel_flag_requests() -> Vec<(String, String, bool)> {
-    HOST_OBJECT_PANEL_FLAG_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().object_panel_flag_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: TEAM_AFFECT_OBJECT_PANEL_FLAGS when leftover teams are empty.
 pub fn request_host_team_panel_flag(team_name: &str, flag_name: &str, enable: bool) {
-    HOST_TEAM_PANEL_FLAG_REQUESTS.with(|q| {
-        q.borrow_mut()
+    {
+        let services = host_script_queues();
+        let mut q = services.host_script_requests().team_panel_flag_requests.lock().unwrap_or_else(|p| p.into_inner());
+
+        q
             .push((team_name.to_string(), flag_name.to_string(), enable));
-    });
+    }
 }
 
 pub fn take_host_team_panel_flag_requests() -> Vec<(String, String, bool)> {
-    HOST_TEAM_PANEL_FLAG_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().team_panel_flag_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 pub fn take_host_set_cave_index_requests() -> Vec<(String, i32)> {
-    HOST_SET_CAVE_INDEX_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().set_cave_index_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: PLAYER_GRANT_SCIENCE / PLAYER_PURCHASE_SCIENCE.
 /// `grant == true` → grantScience; false → attemptToPurchaseScience.
 pub fn request_host_science_action(player_name: &str, science_name: &str, grant: bool) {
-    HOST_SCIENCE_ACTION_REQUESTS.with(|q| {
-        q.borrow_mut()
+    {
+        let services = host_script_queues();
+        let mut q = services.host_script_requests().science_action_requests.lock().unwrap_or_else(|p| p.into_inner());
+
+        q
             .push((player_name.to_string(), science_name.to_string(), grant));
-    });
+    }
 }
 
 pub fn take_host_science_action_requests() -> Vec<(String, String, bool)> {
-    HOST_SCIENCE_ACTION_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().science_action_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: TEAM/NAMED move and attack (`CMD_FROM_SCRIPT`).
 pub fn request_host_script_move_attack(req: HostScriptMoveAttackRequest) {
-    HOST_SCRIPT_MOVE_ATTACK_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_move_attack_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_move_attack_requests() -> Vec<HostScriptMoveAttackRequest> {
-    HOST_SCRIPT_MOVE_ATTACK_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_move_attack_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: `BUILD_TEAM` → `AIPlayer::buildSpecificAITeam`.
 pub fn request_host_build_team(owner_name: &str, team_name: &str) {
-    HOST_BUILD_TEAM_REQUESTS.with(|q| {
-        q.borrow_mut()
+    {
+        let services = host_script_queues();
+        let mut q = services.host_script_requests().build_team_requests.lock().unwrap_or_else(|p| p.into_inner());
+
+        q
             .push((owner_name.to_string(), team_name.to_string()));
-    });
+    }
 }
 
 pub fn take_host_build_team_requests() -> Vec<(String, String)> {
-    HOST_BUILD_TEAM_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    let Some(services) = try_host_script_queues() else {
+        return Vec::new();
+    };
+    std::mem::take(
+        &mut *services
+            .host_script_requests()
+            .build_team_requests
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()),
+    )
 }
 
 /// Live host drain: `RECRUIT_TEAM` → `AIPlayer::recruitSpecificAITeam`.
 pub fn request_host_recruit_team(owner_name: &str, team_name: &str, recruit_radius: f32) {
-    HOST_RECRUIT_TEAM_REQUESTS.with(|q| {
-        q.borrow_mut().push((
+    {
+        let services = host_script_queues();
+        let mut q = services.host_script_requests().recruit_team_requests.lock().unwrap_or_else(|p| p.into_inner());
+
+        q.push((
             owner_name.to_string(),
             team_name.to_string(),
             recruit_radius,
         ));
-    });
+    }
 }
 
 pub fn take_host_recruit_team_requests() -> Vec<(String, String, f32)> {
-    HOST_RECRUIT_TEAM_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    let Some(services) = try_host_script_queues() else {
+        return Vec::new();
+    };
+    std::mem::take(
+        &mut *services
+            .host_script_requests()
+            .recruit_team_requests
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()),
+    )
 }
 
 /// Live host drain: CREATE_OBJECT / named-at-waypoint / reinforcements.
 pub fn request_host_script_create(req: HostScriptCreateRequest) {
-    HOST_SCRIPT_CREATE_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_create_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_create_requests() -> Vec<HostScriptCreateRequest> {
-    HOST_SCRIPT_CREATE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_create_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: TEAM_SET_ATTITUDE → `set_team_attitude_by_name`.
 pub fn request_host_team_attitude(team_name: &str, mood: i32) {
-    HOST_TEAM_ATTITUDE_REQUESTS.with(|q| {
-        q.borrow_mut().push((team_name.to_string(), mood));
-    });
+    {
+        let services = host_script_queues();
+        let mut q = services.host_script_requests().team_attitude_requests.lock().unwrap_or_else(|p| p.into_inner());
+
+        q.push((team_name.to_string(), mood));
+    }
 }
 
 pub fn take_host_team_attitude_requests() -> Vec<(String, i32)> {
-    HOST_TEAM_ATTITUDE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().team_attitude_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: `AI_PLAYER_BUILD_SUPPLY_CENTER` → `AIPlayer::buildBySupplies`.
@@ -769,29 +825,35 @@ pub fn request_host_ai_player_build_supply_center(
     thing_name: &str,
     minimum_cash: i32,
 ) {
-    HOST_AI_PLAYER_BUILD_SUPPLY_CENTER_REQUESTS.with(|q| {
-        q.borrow_mut().push((
+    {
+        let services = host_script_queues();
+        let mut q = services.host_script_requests().ai_player_build_supply_center_requests.lock().unwrap_or_else(|p| p.into_inner());
+
+        q.push((
             player_name.to_string(),
             thing_name.to_string(),
             minimum_cash,
         ));
-    });
+    }
 }
 
 pub fn take_host_ai_player_build_supply_center_requests() -> Vec<(String, String, i32)> {
-    HOST_AI_PLAYER_BUILD_SUPPLY_CENTER_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().ai_player_build_supply_center_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: `AI_PLAYER_BUILD_UPGRADE` → `AIPlayer::buildUpgrade`.
 pub fn request_host_ai_player_build_upgrade(player_name: &str, upgrade_name: &str) {
-    HOST_AI_PLAYER_BUILD_UPGRADE_REQUESTS.with(|q| {
-        q.borrow_mut()
+    {
+        let services = host_script_queues();
+        let mut q = services.host_script_requests().ai_player_build_upgrade_requests.lock().unwrap_or_else(|p| p.into_inner());
+
+        q
             .push((player_name.to_string(), upgrade_name.to_string()));
-    });
+    }
 }
 
 pub fn take_host_ai_player_build_upgrade_requests() -> Vec<(String, String)> {
-    HOST_AI_PLAYER_BUILD_UPGRADE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().ai_player_build_upgrade_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: `AI_PLAYER_BUILD_TYPE_NEAREST_TEAM` →
@@ -801,282 +863,297 @@ pub fn request_host_ai_player_build_type_nearest_team(
     thing_name: &str,
     team_name: &str,
 ) {
-    HOST_AI_PLAYER_BUILD_TYPE_NEAREST_TEAM_REQUESTS.with(|q| {
-        q.borrow_mut().push((
+    {
+        let services = host_script_queues();
+        let mut q = services.host_script_requests().ai_player_build_type_nearest_team_requests.lock().unwrap_or_else(|p| p.into_inner());
+
+        q.push((
             player_name.to_string(),
             thing_name.to_string(),
             team_name.to_string(),
         ));
-    });
+    }
 }
 
 pub fn take_host_ai_player_build_type_nearest_team_requests() -> Vec<(String, String, String)> {
-    HOST_AI_PLAYER_BUILD_TYPE_NEAREST_TEAM_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().ai_player_build_type_nearest_team_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: `TEAM_GUARD_SUPPLY_CENTER` → `AIPlayer::guardSupplyCenter`.
 pub fn request_host_guard_supply_center(team_name: &str, min_supplies: i32) {
-    HOST_GUARD_SUPPLY_CENTER_REQUESTS.with(|q| {
-        q.borrow_mut().push((team_name.to_string(), min_supplies));
-    });
+    {
+        let services = host_script_queues();
+        let mut q = services.host_script_requests().guard_supply_center_requests.lock().unwrap_or_else(|p| p.into_inner());
+
+        q.push((team_name.to_string(), min_supplies));
+    }
 }
 
 pub fn take_host_guard_supply_center_requests() -> Vec<(String, i32)> {
-    HOST_GUARD_SUPPLY_CENTER_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().guard_supply_center_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: TEAM/NAMED HUNT, TEAM/NAMED GUARD, PLAYER_HUNT.
 pub fn request_host_script_hunt_guard(req: HostScriptHuntGuardRequest) {
-    HOST_SCRIPT_HUNT_GUARD_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_hunt_guard_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_hunt_guard_requests() -> Vec<HostScriptHuntGuardRequest> {
-    HOST_SCRIPT_HUNT_GUARD_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_hunt_guard_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: TEAM/NAMED FOLLOW_WAYPOINTS and EXACT.
 pub fn request_host_script_follow_waypoints(req: HostScriptFollowWaypointsRequest) {
-    HOST_SCRIPT_FOLLOW_WAYPOINTS_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_follow_waypoints_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_follow_waypoints_requests() -> Vec<HostScriptFollowWaypointsRequest> {
-    HOST_SCRIPT_FOLLOW_WAYPOINTS_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_follow_waypoints_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: TEAM_GUARD_POSITION / OBJECT / AREA / TUNNEL_NETWORK.
 pub fn request_host_script_guard_variant(req: HostScriptGuardVariantRequest) {
-    HOST_SCRIPT_GUARD_VARIANT_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_guard_variant_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_guard_variant_requests() -> Vec<HostScriptGuardVariantRequest> {
-    HOST_SCRIPT_GUARD_VARIANT_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_guard_variant_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: NAMED_FIRE_SPECIAL_POWER_AT_WAYPOINT / AT_NAMED.
 pub fn request_host_script_named_fire_special(req: HostScriptNamedFireSpecialPowerRequest) {
-    HOST_SCRIPT_NAMED_FIRE_SPECIAL_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_named_fire_special_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_named_fire_special_requests() -> Vec<HostScriptNamedFireSpecialPowerRequest>
 {
-    HOST_SCRIPT_NAMED_FIRE_SPECIAL_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_named_fire_special_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: NAMED_STOP / TEAM_STOP (`CMD_FROM_SCRIPT` idle).
 pub fn request_host_script_idle(req: HostScriptIdleRequest) {
-    HOST_SCRIPT_IDLE_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_idle_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_idle_requests() -> Vec<HostScriptIdleRequest> {
-    HOST_SCRIPT_IDLE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_idle_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: NAMED/TEAM DELETE / KILL / DAMAGE.
 pub fn request_host_script_kill_delete_damage(req: HostScriptKillDeleteDamageRequest) {
-    HOST_SCRIPT_KILL_DELETE_DAMAGE_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_kill_delete_damage_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_kill_delete_damage_requests() -> Vec<HostScriptKillDeleteDamageRequest> {
-    HOST_SCRIPT_KILL_DELETE_DAMAGE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_kill_delete_damage_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: NAMED/TEAM FACE (`aiFaceObject` / `aiFacePosition`).
 pub fn request_host_script_face(req: HostScriptFaceRequest) {
-    HOST_SCRIPT_FACE_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_face_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_face_requests() -> Vec<HostScriptFaceRequest> {
-    HOST_SCRIPT_FACE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_face_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: PLAYER_RELATES_PLAYER (`setPlayerRelationship`).
 pub fn request_host_player_relates(req: HostScriptPlayerRelatesRequest) {
-    HOST_SCRIPT_PLAYER_RELATES_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_player_relates_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_player_relates_requests() -> Vec<HostScriptPlayerRelatesRequest> {
-    HOST_SCRIPT_PLAYER_RELATES_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_player_relates_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: NAMED/TEAM SET_BOOBYTRAPPED (`initStickyBomb`).
 pub fn request_host_script_boobytrap(req: HostScriptBoobytrapRequest) {
-    HOST_SCRIPT_BOOBYTRAP_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_boobytrap_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_boobytrap_requests() -> Vec<HostScriptBoobytrapRequest> {
-    HOST_SCRIPT_BOOBYTRAP_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_boobytrap_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: NAMED/TEAM SET_UNMANNED / DELETE_ALL_UNMANNED.
 pub fn request_host_script_unmanned(req: HostScriptUnmannedRequest) {
-    HOST_SCRIPT_UNMANNED_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_unmanned_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_unmanned_requests() -> Vec<HostScriptUnmannedRequest> {
-    HOST_SCRIPT_UNMANNED_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_unmanned_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: OBJECT/TEAM CREATE_RADAR_EVENT.
 pub fn request_host_script_radar_event(req: HostScriptRadarEventRequest) {
-    HOST_SCRIPT_RADAR_EVENT_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_radar_event_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_radar_event_requests() -> Vec<HostScriptRadarEventRequest> {
-    HOST_SCRIPT_RADAR_EVENT_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_radar_event_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: NAMED/TEAM SET_STEALTH_ENABLED.
 pub fn request_host_script_stealth_enabled(req: HostScriptStealthEnabledRequest) {
-    HOST_SCRIPT_STEALTH_ENABLED_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_stealth_enabled_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_stealth_enabled_requests() -> Vec<HostScriptStealthEnabledRequest> {
-    HOST_SCRIPT_STEALTH_ENABLED_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_stealth_enabled_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: TECHTREE_MODIFY_BUILDABILITY_OBJECT.
 pub fn request_host_buildable_status_override(template: &str, status: i32) {
-    HOST_SCRIPT_BUILDABLE_OVERRIDE_REQUESTS.with(|q| {
-        q.borrow_mut().push(HostScriptBuildableOverrideRequest {
+    {
+        let services = host_script_queues();
+        let mut q = services.host_script_requests().script_buildable_override_requests.lock().unwrap_or_else(|p| p.into_inner());
+
+        q.push(HostScriptBuildableOverrideRequest {
             template: template.to_string(),
             status,
         });
-    });
+    }
 }
 
 pub fn take_host_buildable_status_override_requests() -> Vec<HostScriptBuildableOverrideRequest> {
-    HOST_SCRIPT_BUILDABLE_OVERRIDE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_buildable_override_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: NAMED_RECEIVE_UPGRADE.
 pub fn request_host_script_named_upgrade(req: HostScriptNamedUpgradeRequest) {
-    HOST_SCRIPT_NAMED_UPGRADE_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_named_upgrade_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_named_upgrade_requests() -> Vec<HostScriptNamedUpgradeRequest> {
-    HOST_SCRIPT_NAMED_UPGRADE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_named_upgrade_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: NAMED/TEAM FLASH / FLASH_WHITE.
 pub fn request_host_script_flash(req: HostScriptFlashRequest) {
-    HOST_SCRIPT_FLASH_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_flash_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_flash_requests() -> Vec<HostScriptFlashRequest> {
-    HOST_SCRIPT_FLASH_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_flash_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: NAMED/TEAM SET_EMOTICON.
 pub fn request_host_script_emoticon(req: HostScriptEmoticonRequest) {
-    HOST_SCRIPT_EMOTICON_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_emoticon_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_emoticon_requests() -> Vec<HostScriptEmoticonRequest> {
-    HOST_SCRIPT_EMOTICON_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_emoticon_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: NAMED_SET_HELD.
 pub fn request_host_script_held(req: HostScriptHeldRequest) {
-    HOST_SCRIPT_HELD_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_held_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_held_requests() -> Vec<HostScriptHeldRequest> {
-    HOST_SCRIPT_HELD_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_held_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: NAMED_CUSTOM_COLOR.
 pub fn request_host_script_custom_color(req: HostScriptCustomColorRequest) {
-    HOST_SCRIPT_CUSTOM_COLOR_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_custom_color_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_custom_color_requests() -> Vec<HostScriptCustomColorRequest> {
-    HOST_SCRIPT_CUSTOM_COLOR_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_custom_color_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: NAMED_SET_ATTITUDE.
 pub fn request_host_script_named_attitude(req: HostScriptNamedAttitudeRequest) {
-    HOST_SCRIPT_NAMED_ATTITUDE_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_named_attitude_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_named_attitude_requests() -> Vec<HostScriptNamedAttitudeRequest> {
-    HOST_SCRIPT_NAMED_ATTITUDE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_named_attitude_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: NAMED/TEAM SET_REPULSOR.
 pub fn request_host_script_repulsor(req: HostScriptRepulsorRequest) {
-    HOST_SCRIPT_REPULSOR_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_repulsor_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_repulsor_requests() -> Vec<HostScriptRepulsorRequest> {
-    HOST_SCRIPT_REPULSOR_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_repulsor_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: NAMED/TEAM SET_STOPPING_DISTANCE.
 pub fn request_host_script_stopping_distance(req: HostScriptStoppingDistanceRequest) {
-    HOST_SCRIPT_STOPPING_DISTANCE_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_stopping_distance_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_stopping_distance_requests() -> Vec<HostScriptStoppingDistanceRequest> {
-    HOST_SCRIPT_STOPPING_DISTANCE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_stopping_distance_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: OBJECT_FORCE_SELECT.
 pub fn request_host_script_force_select(req: HostScriptForceSelectRequest) {
-    HOST_SCRIPT_FORCE_SELECT_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_force_select_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_force_select_requests() -> Vec<HostScriptForceSelectRequest> {
-    HOST_SCRIPT_FORCE_SELECT_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_force_select_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: PLAYER_SELL_EVERYTHING / REPAIR_NAMED / SCORE / SKILLSET / KILL.
 pub fn request_host_script_player_misc(req: HostScriptPlayerMiscRequest) {
-    HOST_SCRIPT_PLAYER_MISC_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_player_misc_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_player_misc_requests() -> Vec<HostScriptPlayerMiscRequest> {
-    HOST_SCRIPT_PLAYER_MISC_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_player_misc_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: NAMED/TEAM USE_COMMANDBUTTON_ABILITY.
 pub fn request_host_script_use_command_button(req: HostScriptUseCommandButtonRequest) {
-    HOST_SCRIPT_USE_COMMAND_BUTTON_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().script_use_command_button_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_use_command_button_requests() -> Vec<HostScriptUseCommandButtonRequest> {
-    HOST_SCRIPT_USE_COMMAND_BUTTON_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_use_command_button_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: TEAM_PARTIAL_USE_COMMANDBUTTON.
 pub fn request_host_team_partial_command_button(req: HostScriptTeamPartialCommandButtonRequest) {
-    HOST_TEAM_PARTIAL_COMMAND_BUTTON_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().team_partial_command_button_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_team_partial_command_button_requests()
 -> Vec<HostScriptTeamPartialCommandButtonRequest> {
-    HOST_TEAM_PARTIAL_COMMAND_BUTTON_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().team_partial_command_button_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: SET_BASE_CONSTRUCTION_SPEED → `AIPlayer::setTeamDelaySeconds`.
 pub fn request_host_set_base_construction_speed(player: &str, delay_seconds: i32) {
-    HOST_SET_BASE_CONSTRUCTION_SPEED_REQUESTS.with(|q| {
-        q.borrow_mut().push((player.to_string(), delay_seconds));
-    });
+    {
+        let services = host_script_queues();
+        let mut q = services.host_script_requests().set_base_construction_speed_requests.lock().unwrap_or_else(|p| p.into_inner());
+
+        q.push((player.to_string(), delay_seconds));
+    }
 }
 
 pub fn take_host_set_base_construction_speed_requests() -> Vec<(String, i32)> {
-    HOST_SET_BASE_CONSTRUCTION_SPEED_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().set_base_construction_speed_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: SET_TRAIN_HELD → `HostRailroadCar::held`.
 pub fn request_host_set_train_held(unit: &str, held: bool) {
-    HOST_SET_TRAIN_HELD_REQUESTS.with(|q| {
-        q.borrow_mut().push((unit.to_string(), held));
-    });
+    {
+        let services = host_script_queues();
+        let mut q = services.host_script_requests().set_train_held_requests.lock().unwrap_or_else(|p| p.into_inner());
+
+        q.push((unit.to_string(), held));
+    }
 }
 
 pub fn take_host_set_train_held_requests() -> Vec<(String, bool)> {
-    HOST_SET_TRAIN_HELD_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().set_train_held_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// C++ `ScriptEngine::setToppleDirection` live map. Consulted by host topple.
@@ -1084,57 +1161,65 @@ pub fn request_host_script_topple_direction(unit: &str, dx: f32, dy: f32) {
     if unit.is_empty() {
         return;
     }
-    HOST_SCRIPT_TOPPLE_DIRECTIONS.with(|m| {
-        m.borrow_mut().insert(unit.to_string(), (dx, dy));
-    });
+    {
+        let services = host_script_queues();
+        let mut q = services.host_script_requests().script_topple_directions.lock().unwrap_or_else(|p| p.into_inner());
+        q.insert(unit.to_string(), (dx, dy));
+    }
 }
 
 pub fn host_script_topple_direction_for(unit: &str) -> Option<(f32, f32)> {
     if unit.is_empty() {
         return None;
     }
-    HOST_SCRIPT_TOPPLE_DIRECTIONS.with(|m| m.borrow().get(unit).copied())
+    { let services = host_script_queues(); services.host_script_requests().script_topple_directions.lock().unwrap_or_else(|p| p.into_inner()).get(unit).copied() }
 }
 
 /// Live host drain: SKIRMISH_FOLLOW/MOVE_TO_APPROACH_PATH.
 pub fn request_host_skirmish_approach_path(req: HostScriptSkirmishApproachPathRequest) {
-    HOST_SKIRMISH_APPROACH_PATH_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().skirmish_approach_path_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_skirmish_approach_path_requests() -> Vec<HostScriptSkirmishApproachPathRequest> {
-    HOST_SKIRMISH_APPROACH_PATH_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().skirmish_approach_path_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: SKIRMISH_BUILD_BASE_DEFENSE_* / SKIRMISH_BUILD_STRUCTURE_*.
 pub fn request_host_skirmish_base_defense(req: HostScriptSkirmishBaseDefenseRequest) {
-    HOST_SKIRMISH_BASE_DEFENSE_REQUESTS.with(|q| q.borrow_mut().push(req));
+    { let services = host_script_queues(); services.host_script_requests().skirmish_base_defense_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_skirmish_base_defense_requests() -> Vec<HostScriptSkirmishBaseDefenseRequest> {
-    HOST_SKIRMISH_BASE_DEFENSE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().skirmish_base_defense_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: SKIRMISH_ATTACK_NEAREST_GROUP_WITH_VALUE.
 pub fn request_host_skirmish_attack_nearest_group(team: &str, comparison: i32, value: i32) {
-    HOST_SKIRMISH_ATTACK_GROUP_REQUESTS.with(|q| {
-        q.borrow_mut().push((team.to_string(), comparison, value));
-    });
+    {
+        let services = host_script_queues();
+        let mut q = services.host_script_requests().skirmish_attack_group_requests.lock().unwrap_or_else(|p| p.into_inner());
+
+        q.push((team.to_string(), comparison, value));
+    }
 }
 
 pub fn take_host_skirmish_attack_nearest_group_requests() -> Vec<(String, i32, i32)> {
-    HOST_SKIRMISH_ATTACK_GROUP_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().skirmish_attack_group_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: SKIRMISH_PERFORM_COMMANDBUTTON_ON_MOST_VALUABLE_OBJECT.
 pub fn request_host_skirmish_command_button_most_valuable(team: &str, ability: &str, range: f32) {
-    HOST_SKIRMISH_CMD_BUTTON_REQUESTS.with(|q| {
-        q.borrow_mut()
+    {
+        let services = host_script_queues();
+        let mut q = services.host_script_requests().skirmish_cmd_button_requests.lock().unwrap_or_else(|p| p.into_inner());
+
+        q
             .push((team.to_string(), ability.to_string(), range));
-    });
+    }
 }
 
 pub fn take_host_skirmish_command_button_most_valuable_requests() -> Vec<(String, String, f32)> {
-    HOST_SKIRMISH_CMD_BUTTON_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().skirmish_cmd_button_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Wave 284: host-only path has no dual-world factory objects.
@@ -1147,7 +1232,44 @@ fn to_radar_coord(pos: &Coord3D) -> game_engine::common::system::radar::Coord3D 
     game_engine::common::system::radar::Coord3D::new(pos.x, pos.y, pos.z)
 }
 
-static SCRIPT_TEMP_GROUP_ID: AtomicU32 = AtomicU32::new(1);
+
+#[cfg(test)]
+mod host_script_queue_ownership_tests {
+    use super::*;
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+    use std::sync::{Arc, Barrier, Mutex};
+    use std::thread;
+
+    #[test]
+    fn parallel_worlds_keep_independent_host_script_queues() {
+        let barrier = Arc::new(Barrier::new(2));
+        let results = Arc::new(Mutex::new(Vec::new()));
+        let mut handles = Vec::new();
+        for seed in ["alpha", "beta"] {
+            let barrier = Arc::clone(&barrier);
+            let results = Arc::clone(&results);
+            let seed = seed.to_string();
+            handles.push(thread::spawn(move || {
+                let services = new_world_services();
+                with_world_services(&services, || {
+                    barrier.wait();
+                    request_host_skirmish_build_building(&seed, "thing");
+                    barrier.wait();
+                    let drained = take_host_skirmish_build_requests();
+                    results.lock().unwrap().push((seed, drained));
+                });
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        let mut got = results.lock().unwrap();
+        got.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(got[0].1, vec![("alpha".into(), "thing".into())]);
+        assert_eq!(got[1].1, vec![("beta".into(), "thing".into())]);
+    }
+}
+
 
 /// Script execution error
 #[derive(Debug, Clone)]

@@ -9,7 +9,6 @@
 //! Rust port: 2025
 
 use crate::common::ini::ini::{FieldParse, INI, INIError, INIResult};
-use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use std::sync::Arc;
 
@@ -235,27 +234,36 @@ impl GlobalLanguage {
 // Global Language Instance Management
 // ============================================================================
 
-static GLOBAL_LANGUAGE: OnceCell<Arc<RwLock<GlobalLanguage>>> = OnceCell::new();
 
 /// Initialize the global language settings
 pub fn init_global_language() {
-    let _ = GLOBAL_LANGUAGE.get_or_init(|| Arc::new(RwLock::new(GlobalLanguage::new())));
+    let _ = crate::common::common_services::common_services().ini.global_language;
 }
 
 /// Get a read reference to the global language settings
-pub fn get_global_language() -> Option<Arc<RwLock<GlobalLanguage>>> {
-    GLOBAL_LANGUAGE.get().cloned()
+pub fn get_global_language() -> Option<std::sync::Arc<parking_lot::RwLock<GlobalLanguage>>> {
+    Some(std::sync::Arc::clone(
+        &crate::common::common_services::common_services().ini.global_language,
+    ))
 }
 
 /// Get a read guard to the global language settings
 pub fn get_global_language_read() -> Option<parking_lot::RwLockReadGuard<'static, GlobalLanguage>> {
-    GLOBAL_LANGUAGE.get().map(|g| g.read())
+    let cell = std::sync::Arc::clone(
+        &crate::common::common_services::common_services().ini.global_language,
+    );
+    let guard = cell.read();
+    Some(unsafe { std::mem::transmute(guard) })
 }
 
 /// Get a write guard to the global language settings
 pub fn get_global_language_write() -> Option<parking_lot::RwLockWriteGuard<'static, GlobalLanguage>>
 {
-    GLOBAL_LANGUAGE.get().map(|g| g.write())
+    let cell = std::sync::Arc::clone(
+        &crate::common::common_services::common_services().ini.global_language,
+    );
+    let guard = cell.write();
+    Some(unsafe { std::mem::transmute(guard) })
 }
 
 // ============================================================================

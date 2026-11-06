@@ -8,7 +8,6 @@ use crate::player::{Player, player_list};
 use crate::scripting::engine::{get_named_object_tracker, get_script_engine};
 use crate::scripting::events::GameEventType;
 use crate::{GameLogicError, GameLogicResult};
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
@@ -209,28 +208,32 @@ impl HostScriptPlayerCensus {
     }
 }
 
-thread_local! {
-    static HOST_SCRIPT_QUERY: RefCell<HostScriptQuerySnapshot> =
-        RefCell::new(HostScriptQuerySnapshot::default());
+fn with_host_script_query_mut<R>(f: impl FnOnce(&mut HostScriptQuerySnapshot) -> R) -> R {
+    let services = crate::system::engine_stores::active_services();
+    let mut slot = services
+        .host_script_query()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    f(&mut *slot)
 }
 
 /// Merge additional host-query rows into the current snapshot.
 pub fn merge_host_script_query_snapshot(f: impl FnOnce(&mut HostScriptQuerySnapshot)) {
-    HOST_SCRIPT_QUERY.with(|slot| f(&mut *slot.borrow_mut()));
+    with_host_script_query_mut(|slot| f(slot));
 }
 
 /// Inject a read-only host name/team/area query map for crate conditions.
 pub fn set_host_script_query_snapshot(snap: HostScriptQuerySnapshot) {
-    HOST_SCRIPT_QUERY.with(|slot| *slot.borrow_mut() = snap);
+    with_host_script_query_mut(|slot| *slot = snap);
 }
 
 pub fn clear_host_script_query_snapshot() {
-    HOST_SCRIPT_QUERY.with(|slot| *slot.borrow_mut() = HostScriptQuerySnapshot::default());
+    with_host_script_query_mut(|slot| *slot = HostScriptQuerySnapshot::default());
 }
 
 pub fn host_bridge_broken(bridge_name: &str) -> bool {
-    HOST_SCRIPT_QUERY.with(|slot| {
-        let snap = slot.borrow();
+    with_host_script_query_mut(|slot| {
+        let snap = slot;
         snap.any_bridges_damage_states_changed
             && snap
                 .named_bridge_broken
@@ -242,8 +245,8 @@ pub fn host_bridge_broken(bridge_name: &str) -> bool {
 }
 
 pub fn host_bridge_repaired(bridge_name: &str) -> bool {
-    HOST_SCRIPT_QUERY.with(|slot| {
-        let snap = slot.borrow();
+    with_host_script_query_mut(|slot| {
+        let snap = slot;
         snap.any_bridges_damage_states_changed
             && snap
                 .named_bridge_repaired
@@ -255,17 +258,17 @@ pub fn host_bridge_repaired(bridge_name: &str) -> bool {
 }
 
 pub fn host_script_named_unit_id(name: &str) -> Option<u32> {
-    HOST_SCRIPT_QUERY.with(|slot| slot.borrow().named_unit_id(name))
+    with_host_script_query_mut(|slot| slot.named_unit_id(name))
 }
 
 /// True when a host snapshot was injected (any named/team/object/area/tech row).
 pub fn host_script_query_has_any() -> bool {
-    HOST_SCRIPT_QUERY.with(|slot| slot.borrow().has_any())
+    with_host_script_query_mut(|slot| slot.has_any())
 }
 
 /// Host named-unit aliveness from the snapshot (no crate Object).
 pub fn host_script_named_unit_alive(name: &str) -> Option<bool> {
-    HOST_SCRIPT_QUERY.with(|slot| slot.borrow().named_unit_alive(name))
+    with_host_script_query_mut(|slot| slot.named_unit_alive(name))
 }
 
 /// True when the host snapshot lists this named unit (alive or dying).
@@ -278,8 +281,8 @@ pub fn host_script_named_unit_selected(name: &str) -> Option<bool> {
     if name.is_empty() {
         return None;
     }
-    HOST_SCRIPT_QUERY.with(|slot| {
-        slot.borrow()
+    with_host_script_query_mut(|slot| {
+        slot
             .objects
             .iter()
             .find(|o| o.name == name)
@@ -296,8 +299,8 @@ pub fn host_team_sequential_status(team_name: &str) -> (bool, bool) {
     }
     let mut idle = true;
     let mut all_dead = true;
-    HOST_SCRIPT_QUERY.with(|slot| {
-        let snap = slot.borrow();
+    with_host_script_query_mut(|slot| {
+        let snap = slot;
         for id in ids {
             let Some(obj) = snap.objects.iter().find(|o| o.id == id) else {
                 continue;
@@ -318,8 +321,8 @@ pub fn host_script_query_object(name: &str) -> Option<HostScriptQueryObject> {
     if name.is_empty() {
         return None;
     }
-    HOST_SCRIPT_QUERY.with(|slot| {
-        let snap = slot.borrow();
+    with_host_script_query_mut(|slot| {
+        let snap = slot;
         if let Some(obj) = snap
             .objects
             .iter()
@@ -337,7 +340,7 @@ pub fn host_script_query_object(name: &str) -> Option<HostScriptQueryObject> {
 }
 
 pub fn host_script_query_object_by_id(id: u32) -> Option<HostScriptQueryObject> {
-    HOST_SCRIPT_QUERY.with(|slot| slot.borrow().object_by_id(id).cloned())
+    with_host_script_query_mut(|slot| slot.object_by_id(id).cloned())
 }
 
 /// C++ evaluateBuildingEntered on the host snapshot (no leftover contain).
@@ -359,8 +362,8 @@ pub fn host_team_has_any_live_objects(team_name: &str) -> bool {
     if ids.is_empty() {
         return false;
     }
-    HOST_SCRIPT_QUERY.with(|slot| {
-        slot.borrow().objects.iter().any(|o| {
+    with_host_script_query_mut(|slot| {
+        slot.objects.iter().any(|o| {
             ids.contains(&o.id) && o.alive && !o.kind_projectile && !o.kind_inert && !o.kind_mine
         })
     })
@@ -372,8 +375,8 @@ pub fn host_team_has_any_live_units(team_name: &str) -> bool {
     if ids.is_empty() {
         return false;
     }
-    HOST_SCRIPT_QUERY.with(|slot| {
-        slot.borrow().objects.iter().any(|o| {
+    with_host_script_query_mut(|slot| {
+        slot.objects.iter().any(|o| {
             ids.contains(&o.id)
                 && o.alive
                 && !o.kind_structure
@@ -389,7 +392,7 @@ pub fn host_team_was_fielded(team_name: &str) -> bool {
 }
 
 pub fn host_script_team_unit_ids(team: u32) -> Vec<u32> {
-    HOST_SCRIPT_QUERY.with(|slot| slot.borrow().team_unit_ids(team).to_vec())
+    with_host_script_query_mut(|slot| slot.team_unit_ids(team).to_vec())
 }
 
 fn host_player_query_key(name: &str) -> String {
@@ -402,7 +405,7 @@ pub fn host_query_supply_source_attacked(player_name: &str) -> Option<bool> {
     if key.is_empty() {
         return None;
     }
-    HOST_SCRIPT_QUERY.with(|slot| slot.borrow().supply_source_attacked.get(&key).copied())
+    with_host_script_query_mut(|slot| slot.supply_source_attacked.get(&key).copied())
 }
 
 /// Live `AIPlayer::isSupplySourceSafe(min)` for leftover conditions.
@@ -411,8 +414,8 @@ pub fn host_query_supply_source_safe(player_name: &str, min_supplies: i32) -> Op
     if key.is_empty() {
         return None;
     }
-    HOST_SCRIPT_QUERY.with(|slot| {
-        let snap = slot.borrow();
+    with_host_script_query_mut(|slot| {
+        let snap = slot;
         let Some(&cash) = snap.supply_center_cash.get(&key) else {
             // A known player without an AI has no cash row: C++
             // `Player::isSupplySourceSafe` returns TRUE when `m_ai` is NULL.
@@ -438,7 +441,7 @@ pub fn host_query_player_census(player_name: &str) -> Option<HostScriptPlayerCen
     if player_name.is_empty() {
         return None;
     }
-    HOST_SCRIPT_QUERY.with(|slot| slot.borrow().player_census.get(player_name).cloned())
+    with_host_script_query_mut(|slot| slot.player_census.get(player_name).cloned())
 }
 
 /// C++ Player::countObjectsByThingTemplate from the live host census.
@@ -553,8 +556,8 @@ pub fn host_count_player_type_in_area(
     {
         return None;
     }
-    Some(HOST_SCRIPT_QUERY.with(|slot| {
-        slot.borrow()
+    Some(with_host_script_query_mut(|slot| {
+        slot
             .objects
             .iter()
             .filter(|o| {
@@ -583,8 +586,8 @@ pub fn host_count_player_kind_in_area(
     {
         return None;
     }
-    Some(HOST_SCRIPT_QUERY.with(|slot| {
-        slot.borrow()
+    Some(with_host_script_query_mut(|slot| {
+        slot
             .objects
             .iter()
             .filter(|o| {
@@ -660,8 +663,8 @@ pub fn host_enemy_sighted(unit_name: &str, alliance: i32, player_name: &str) -> 
     if !looker.alive || looker.effectively_dead {
         return Some(false);
     }
-    Some(HOST_SCRIPT_QUERY.with(|slot| {
-        slot.borrow().objects.iter().any(|cand| {
+    Some(with_host_script_query_mut(|slot| {
+        slot.objects.iter().any(|cand| {
             if !host_sighted_candidate_ok(&looker, cand) {
                 return false;
             }
@@ -692,8 +695,8 @@ pub fn host_type_sighted(
     if !looker.alive || looker.effectively_dead {
         return Some(false);
     }
-    Some(HOST_SCRIPT_QUERY.with(|slot| {
-        slot.borrow().objects.iter().any(|cand| {
+    Some(with_host_script_query_mut(|slot| {
+        slot.objects.iter().any(|cand| {
             host_sighted_candidate_ok(&looker, cand)
                 && host_owner_matches(cand, player_name)
                 && type_names
@@ -704,8 +707,8 @@ pub fn host_type_sighted(
 }
 
 pub fn host_script_area_unit_ids(min_x: f32, min_z: f32, max_x: f32, max_z: f32) -> Vec<u32> {
-    HOST_SCRIPT_QUERY.with(|slot| {
-        slot.borrow()
+    with_host_script_query_mut(|slot| {
+        slot
             .objects
             .iter()
             .filter(|o| o.alive && o.x >= min_x && o.x <= max_x && o.z >= min_z && o.z <= max_z)
@@ -721,8 +724,8 @@ pub fn host_script_named_unit_in_area(
     max_x: f32,
     max_z: f32,
 ) -> bool {
-    HOST_SCRIPT_QUERY.with(|slot| {
-        slot.borrow()
+    with_host_script_query_mut(|slot| {
+        slot
             .named_unit_in_area(name, (min_x, min_z, max_x, max_z))
     })
 }
@@ -731,7 +734,7 @@ pub fn host_script_area_bounds(area_name: &str) -> Option<(f32, f32, f32, f32)> 
     if area_name.is_empty() {
         return None;
     }
-    HOST_SCRIPT_QUERY.with(|slot| slot.borrow().areas.get(area_name).copied())
+    with_host_script_query_mut(|slot| slot.areas.get(area_name).copied())
 }
 
 /// Host XZ → C++ trigger XY (`Object.cpp:2572-2574`, host Y-up).
@@ -760,8 +763,8 @@ pub(crate) fn host_named_unit_point_in_trigger(
     unit_name: &str,
     trigger: &crate::polygon_trigger::PolygonTrigger,
 ) -> bool {
-    HOST_SCRIPT_QUERY.with(|slot| {
-        slot.borrow()
+    with_host_script_query_mut(|slot| {
+        slot
             .named_unit_point_in_trigger(unit_name, trigger)
     })
 }
@@ -1154,7 +1157,7 @@ pub struct HostObjectTriggerPersist {
 
 /// Sync this world's host-object trigger mirror from its current query census.
 pub fn sync_host_trigger_flags_from_snapshot(world: &mut HostTriggerWorld, frame: u32) {
-    let snap = HOST_SCRIPT_QUERY.with(|slot| slot.borrow().clone());
+    let snap = with_host_script_query_mut(|slot| slot.clone());
     world.set_current_frame(frame);
     for obj in &snap.objects {
         let team = snap
@@ -1240,8 +1243,8 @@ pub fn host_script_team_member_ids(team_name: &str) -> Vec<u32> {
     if team_name.is_empty() {
         return Vec::new();
     }
-    let mut ids = HOST_SCRIPT_QUERY.with(|slot| {
-        let snap = slot.borrow();
+    let mut ids = with_host_script_query_mut(|slot| {
+        let snap = slot;
         snap.team_instance_ids
             .get(team_name)
             .cloned()
@@ -1373,8 +1376,8 @@ pub fn host_eval_skirmish_special_power_ready(player_name: &str, power_name: &st
     if power_name.is_empty() {
         return Some(false);
     }
-    Some(HOST_SCRIPT_QUERY.with(|slot| {
-        slot.borrow().objects.iter().any(|obj| {
+    Some(with_host_script_query_mut(|slot| {
+        slot.objects.iter().any(|obj| {
             host_owner_matches(obj, player_name)
                 && host_object_has_special_power(obj, power_name)
                 && obj.special_power_ready
@@ -1397,8 +1400,8 @@ pub fn host_eval_skirmish_value_in_area(
     {
         return Some(false);
     }
-    let total_cost = HOST_SCRIPT_QUERY.with(|slot| {
-        slot.borrow()
+    let total_cost = with_host_script_query_mut(|slot| {
+        slot
             .objects
             .iter()
             .filter(|obj| {
@@ -1419,8 +1422,8 @@ pub fn host_eval_skirmish_unowned_faction_unit_count() -> Option<i32> {
     if !host_script_query_has_any() {
         return None;
     }
-    Some(HOST_SCRIPT_QUERY.with(|slot| {
-        slot.borrow()
+    Some(with_host_script_query_mut(|slot| {
+        slot
             .objects
             .iter()
             .filter(|obj| obj.unmanned)
@@ -1436,8 +1439,8 @@ pub fn host_eval_skirmish_player_has_discovered_player(
     if !host_script_query_has_any() {
         return None;
     }
-    Some(HOST_SCRIPT_QUERY.with(|slot| {
-        slot.borrow().objects.iter().any(|obj| {
+    Some(with_host_script_query_mut(|slot| {
+        slot.objects.iter().any(|obj| {
             host_owner_matches(obj, player_name)
                 && obj
                     .discovered_by
@@ -1522,7 +1525,8 @@ fn leftover_census_or_player_has_science(
     if science == game_engine::common::rts::SCIENCE_INVALID {
         return true;
     }
-    if let Ok(list) = player_list().read() {
+    let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
         if let Some(arc) = list.find_player_by_name(player_name) {
             if let Ok(player) = arc.read() {
                 return player.has_science(science);
@@ -1553,8 +1557,8 @@ pub fn host_eval_skirmish_garrisoned_count(player_name: &str) -> Option<i32> {
     if !host_script_query_has_any() {
         return None;
     }
-    Some(HOST_SCRIPT_QUERY.with(|slot| {
-        slot.borrow()
+    Some(with_host_script_query_mut(|slot| {
+        slot
             .objects
             .iter()
             .filter(|obj| {
@@ -1569,8 +1573,8 @@ pub fn host_eval_skirmish_captured_count(player_name: &str) -> Option<i32> {
     if !host_script_query_has_any() {
         return None;
     }
-    Some(HOST_SCRIPT_QUERY.with(|slot| {
-        slot.borrow()
+    Some(with_host_script_query_mut(|slot| {
+        slot
             .objects
             .iter()
             .filter(|obj| host_owner_matches(obj, player_name) && obj.captured)
@@ -1591,8 +1595,8 @@ pub fn host_eval_skirmish_player_has_units_in_area(
     {
         return Some(false);
     }
-    Some(HOST_SCRIPT_QUERY.with(|slot| {
-        slot.borrow().objects.iter().any(|obj| {
+    Some(with_host_script_query_mut(|slot| {
+        slot.objects.iter().any(|obj| {
             host_owner_matches(obj, player_name)
                 && host_object_in_named_area(obj, area_name)
                 && obj.alive
@@ -1627,8 +1631,8 @@ pub fn host_eval_skirmish_supplies_value_within_distance(
         .filter(|&v| v > 0)
         .unwrap_or(75) as f32;
     let mut max_value = 0.0f32;
-    HOST_SCRIPT_QUERY.with(|slot| {
-        for obj in slot.borrow().objects.iter() {
+    with_host_script_query_mut(|slot| {
+        for obj in slot.objects.iter() {
             if !obj.is_supply_warehouse || !obj.kind_structure || obj.off_map {
                 continue;
             }
@@ -1675,7 +1679,8 @@ fn host_allow_neutral_affiliation(player_name: &str, obj: &HostScriptQueryObject
     if obj.owner_player.is_empty() {
         return true;
     }
-    if let Ok(players) = player_list().read() {
+    let __player_list_arc = player_list();
+        if let Ok(players) = __player_list_arc.read() {
         if let (Some(a), Some(b)) = (
             players.find_player_by_name(player_name),
             players.find_player_by_name(&obj.owner_player),
@@ -1700,7 +1705,8 @@ fn host_allow_non_ally_tech_affiliation(player_name: &str, owner_player: &str) -
     if host_owner_matches(&owner, player_name) {
         return false;
     }
-    if let Ok(players) = player_list().read() {
+    let __player_list_arc = player_list();
+        if let Ok(players) = __player_list_arc.read() {
         if let (Some(a), Some(b)) = (
             players.find_player_by_name(player_name),
             players.find_player_by_name(owner_player),
@@ -1730,8 +1736,8 @@ pub fn host_eval_skirmish_tech_building_within_distance(
         host_tech_building_search_circle(area_name, player_name)?;
     let radius = trigger_radius + extra_distance;
     let radius_sq = radius * radius;
-    HOST_SCRIPT_QUERY.with(|slot| {
-        let snap = slot.borrow();
+    with_host_script_query_mut(|slot| {
+        let snap = slot;
         if snap.tech_buildings.is_empty() && snap.objects.is_empty() {
             return None;
         }
@@ -1899,8 +1905,8 @@ fn leftover_command_button_kind(command_button_name: &str) -> LeftoverCommandBut
 }
 
 fn host_team_name_known(team_name: &str) -> bool {
-    HOST_SCRIPT_QUERY.with(|slot| {
-        slot.borrow()
+    with_host_script_query_mut(|slot| {
+        slot
             .team_instance_ids
             .keys()
             .any(|name| name.eq_ignore_ascii_case(team_name))
@@ -1969,8 +1975,8 @@ pub fn host_team_did_enter_or_exit(world: &HostTriggerWorld, team_name: &str, no
 
 fn host_team_area_members(team_name: &str, which_to_consider: u32) -> Vec<(u32, f32, f32)> {
     let ids: HashSet<u32> = host_script_team_member_ids(team_name).into_iter().collect();
-    HOST_SCRIPT_QUERY.with(|slot| {
-        slot.borrow()
+    with_host_script_query_mut(|slot| {
+        slot
             .objects
             .iter()
             .filter(|obj| {

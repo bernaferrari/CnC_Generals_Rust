@@ -55,7 +55,8 @@ impl Object {
             || self.is_kind_of(KindOf::BoobyTrap)
             || self.is_kind_of(KindOf::Demotrap)
         {
-            if let Ok(list) = player_list().read() {
+            let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                 if let Some(neutral) = list.get_neutral_player() {
                     if let Ok(mut player_guard) = neutral.write() {
                         player_guard.get_academy_stats_mut().record_mine();

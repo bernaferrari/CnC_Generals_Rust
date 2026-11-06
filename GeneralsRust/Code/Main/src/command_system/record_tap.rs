@@ -250,7 +250,6 @@ impl ReplayPendingState {
     }
 }
 
-static BRIDGES_INSTALLED: AtomicBool = AtomicBool::new(false);
 
 /// C++ `GameLogic.cpp` / `MessageStream.h` game-mode integers.
 fn game_mode_to_new_game_code(mode: GameMode) -> i32 {
@@ -382,7 +381,7 @@ fn cull_host_command_list() {
 /// Install CommandList source/sink + command_router host authority.
 /// Safe to call repeatedly.
 pub fn install_host_replay_bridges() {
-    if BRIDGES_INSTALLED.swap(true, Ordering::SeqCst) {
+    if crate::main_services::main_services().bridges_installed.swap(true, Ordering::SeqCst) {
         return;
     }
 
@@ -571,7 +570,9 @@ pub fn tap_host_team_slot_for_recorder(slot: u8, kind: u8, ids: &[ObjectId]) {
 }
 
 fn host_local_player_index() -> i32 {
-    let Ok(list) = gamelogic::player::ThePlayerList().read() else {
+    let __arc_bind = gamelogic::player::ThePlayerList();
+
+    let Ok(list) = __arc_bind.read() else {
         // Unresolvable (no player list yet): fall back to C++ player index 0.
         return 0;
     };

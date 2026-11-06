@@ -3,6 +3,7 @@ use super::*;
 
 #[test]
 fn owned_font_library_preserves_cache_identity_traversal_and_cleanup() {
+    crate::test_support::ensure_ambient_host();
     let mut library = FontLibrary::new();
     library.init_mut().unwrap();
     let first_desc = FontDesc::new("Arial", 12, false);
@@ -30,6 +31,7 @@ fn owned_font_library_preserves_cache_identity_traversal_and_cleanup() {
 
 #[test]
 fn owned_font_libraries_reset_and_statistics_do_not_cross_instances() {
+    crate::test_support::ensure_ambient_host();
     let mut first = FontLibrary::new();
     let mut second = FontLibrary::new();
     first.init_mut().unwrap();

@@ -22,6 +22,7 @@ pub mod texture_decode;
 pub mod texture_metrics;
 pub mod texture_quality;
 pub mod texture_system;
+pub mod frame_schedule;
 pub mod wgpu_main_renderer;
 pub mod wgpu_renderer;
 

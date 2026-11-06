@@ -213,7 +213,7 @@ fn china_wall_linebuild_uses_first_constructor_full_body_and_no_cash_debit() {
     for id in [first, second] {
         let builder = a.host_object(id).unwrap();
         assert_eq!(builder.ai_state(), AIState::Idle);
-        assert!(builder.dozer_task_build_target.is_none());
+        assert!(builder.dozer_task_build_target().is_none());
         assert!(builder.movement.target_position.is_none());
     }
     assert_eq!(a.get_player(0).unwrap().resources.supplies, 50);
@@ -256,7 +256,7 @@ fn linebuild_rejects_invalid_first_constructor_without_switching_to_second() {
             world
                 .host_object(second)
                 .unwrap()
-                .dozer_task_build_target
+                .dozer_task_build_target()
                 .is_none()
         );
         assert!(
@@ -313,7 +313,7 @@ fn instant_linebuild_still_rejects_a_preexisting_immobile_start_blocker() {
             world
                 .host_object(id)
                 .unwrap()
-                .dozer_task_build_target
+                .dozer_task_build_target()
                 .is_none()
         );
         assert!(
@@ -353,7 +353,7 @@ fn blocked_ordinary_line_preserves_the_prior_real_dozer_task_and_order() {
     world.process_commands();
     let builder = world.host_object(first).unwrap();
     let prior_task = builder
-        .dozer_task_build_target
+        .dozer_task_build_target()
         .expect("real single command must create a task");
     let prior_order = builder.target;
     let prior_destination = builder.movement.target_position;
@@ -386,7 +386,7 @@ fn blocked_ordinary_line_preserves_the_prior_real_dozer_task_and_order() {
     });
     world.process_commands();
     let builder = world.host_object(first).unwrap();
-    assert_eq!(builder.dozer_task_build_target, Some(prior_task));
+    assert_eq!(builder.dozer_task_build_target(), Some(prior_task));
     assert_eq!(builder.target, prior_order);
     assert_eq!(builder.movement.target_position, prior_destination);
     assert_eq!(builder.ai_state(), prior_state);
@@ -407,7 +407,7 @@ fn blocked_ordinary_line_preserves_the_prior_real_dozer_task_and_order() {
         world
             .host_object(second)
             .unwrap()
-            .dozer_task_build_target
+            .dozer_task_build_target()
             .is_none()
     );
 }
@@ -449,7 +449,7 @@ fn parsed_signed_line_limit_is_consumed_by_actual_wall_command() {
                 world
                     .host_object(id)
                     .unwrap()
-                    .dozer_task_build_target
+                    .dozer_task_build_target()
                     .is_none()
             );
         }
@@ -544,7 +544,7 @@ fn linebuild_authored_facing_controls_rotated_footprints_in_the_driving_world() 
                 world
                     .host_object(id)
                     .unwrap()
-                    .dozer_task_build_target
+                    .dozer_task_build_target()
                     .is_none()
             );
         }

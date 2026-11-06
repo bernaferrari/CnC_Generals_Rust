@@ -266,10 +266,7 @@ fn sell_command_uses_authored_refund_value_through_world_completion() {
             modifier_keys: ModifierKeys::default(),
         };
         assert_eq!(
-            command_system.execute_command(&sell, &mut logic),
-            CommandResult::Success,
-            "the physical sell command must enter the normal world sell lifecycle"
-        );
+            command_system.execute_command(&sell, &mut logic), CommandResult::Success, "the physical sell command must enter the normal world sell lifecycle");
 
         for frame in 1..=240 {
             logic.set_current_frame(frame);
@@ -284,8 +281,7 @@ fn sell_command_uses_authored_refund_value_through_world_completion() {
             logic.host_object(structure_id).is_none(),
             "sell lifecycle must finish by destroying the structure"
         );
-        assert_eq!(
-            logic.get_player(0).expect("owner").effective_supplies(),
+        assert_eq!(logic.get_player(0).expect("owner").effective_supplies(),
             650,
             "C++ RefundValue must override BuildCost × SellPercentage"
         );
@@ -321,10 +317,8 @@ fn sell_command_uses_authored_refund_value_through_world_completion() {
             selected_units: vec![fallback_id],
             modifier_keys: ModifierKeys::default(),
         };
-        assert_eq!(
-            command_system.execute_command(&fallback_sell, &mut logic),
-            CommandResult::Success
-        );
+        assert!(
+            command_system.execute_command(&fallback_sell, &mut logic) == CommandResult::Success);
         for frame in 241..=480 {
             logic.set_current_frame(frame);
             logic.update_sell_list();

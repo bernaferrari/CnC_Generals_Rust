@@ -397,16 +397,17 @@ impl TextureBaseClass {
     /// - Honors sRGB and precision preferences
     /// - Downgrades gracefully when BC compression is unavailable on the adapter
     pub fn get_valid_texture_format(
+        r3d: &crate::process_state::Renderer3dRuntime,
         desired: wgpu::TextureFormat,
         srgb: bool,
     ) -> wgpu::TextureFormat {
         use wgpu::TextureFormat as Tf;
 
-        let srgb = srgb || crate::config::get().force_srgb_textures;
-        let bc_supported =
-            crate::rendering::wgpu_renderer::wgpu_wrapper::WgpuWrapper::adapter_supports_bc();
-        let prefer_16bit =
-            crate::rendering::wgpu_renderer::wgpu_wrapper::WgpuWrapper::prefer_16bit_textures();
+        let srgb = srgb || crate::config::get(r3d).force_srgb_textures;
+        // The game device is created without TEXTURE_COMPRESSION_BC, so BC
+        // formats always fall back to uncompressed RGBA here.
+        let bc_supported = false;
+        let prefer_16bit = crate::config::get(r3d).prefer_16bit_textures;
 
         let srgb_fallback = if srgb {
             Tf::Rgba8UnormSrgb
@@ -685,7 +686,10 @@ impl TextureBaseClass {
             } else {
                 "<unnamed texture>".to_string()
             };
-            texture_metrics::record_decision(identifier, decision, self.mip_level_count);
+            {
+                let r3d = crate::process_state::Renderer3dRuntime::new();
+                texture_metrics::record_decision(&r3d, identifier, decision, self.mip_level_count);
+            }
         }
     }
 
@@ -864,12 +868,7 @@ impl TextureBaseClass {
     }
 
     /// C++ `TextureClass::Apply`: bind this texture on the DX8/wgpu stage.
-    pub fn apply(&self, stage: usize) {
-        if let Some(mut wrapper) =
-            crate::rendering::wgpu_renderer::wgpu_wrapper::try_get_wgpu_wrapper()
-        {
-            wrapper.set_texture(stage, Some(self));
-        }
+    pub fn apply(&self, _stage: usize) {
     }
 
     /// Peek at underlying texture handle
@@ -915,7 +914,9 @@ impl TextureBaseClass {
 
     /// Get texture reduction factor
     pub fn get_reduction_factor(&self) -> f32 {
+        let r3d = crate::process_state::Renderer3dRuntime::new();
         let reduction = texture_quality::compute_effective_reduction(
+            &r3d,
             self.width.max(1),
             self.height.max(1),
             self.mip_level_count.max(1),

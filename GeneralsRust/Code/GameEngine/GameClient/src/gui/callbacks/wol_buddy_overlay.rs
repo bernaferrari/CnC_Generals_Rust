@@ -15,7 +15,7 @@ use crate::gui::callbacks::wol_lobby_menu::{
 use crate::gui::gadgets::{ListBoxItemData, ListBoxRightClick};
 use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowWidget,
-    with_window_manager, write_input_focus_response,
+    write_input_focus_response,
 };
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -53,7 +53,7 @@ pub struct GameSpyRcMenuData {
 }
 
 #[derive(Default)]
-struct WolBuddyOverlayState {
+pub(crate) struct WolBuddyOverlayState {
     parent_id: i32,
     button_hide_id: i32,
     button_add_buddy_id: i32,
@@ -91,16 +91,42 @@ struct WolBuddyOverlayState {
     is_overlay_active: bool,
 }
 
+#[cfg(test)]
 thread_local! {
-    static WOL_BUDDY_OVERLAY_STATE: Rc<RefCell<WolBuddyOverlayState>> = Rc::new(RefCell::new(WolBuddyOverlayState::default()));
+    static TEST_WOL_BUDDY_OVERLAY_STATE: std::cell::OnceCell<Rc<RefCell<WolBuddyOverlayState>>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn wol_buddy_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<WolBuddyOverlayState>> {
+    if let Some(owner) = owner {
+        return owner.wol_buddy_overlay_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().wol_buddy_overlay_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_WOL_BUDDY_OVERLAY_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(WolBuddyOverlayState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(WolBuddyOverlayState::default()))
+    }
 }
 
 fn wol_buddy_state() -> Rc<RefCell<WolBuddyOverlayState>> {
-    WOL_BUDDY_OVERLAY_STATE.with(Rc::clone)
+    wol_buddy_state_on_owner(None)
 }
 
 #[derive(Default)]
-struct BuddyControls {
+pub(crate) struct BuddyControls {
     listbox_chat_id: i32,
     listbox_buddies_id: i32,
     text_entry_edit_id: i32,
@@ -110,12 +136,38 @@ struct BuddyControls {
     is_init: bool,
 }
 
+#[cfg(test)]
 thread_local! {
-    static BUDDY_CONTROLS: Rc<RefCell<BuddyControls>> = Rc::new(RefCell::new(BuddyControls::default()));
+    static TEST_BUDDY_CONTROLS: std::cell::OnceCell<Rc<RefCell<BuddyControls>>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn buddy_controls_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<BuddyControls>> {
+    if let Some(owner) = owner {
+        return owner.wol_buddy_controls_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().wol_buddy_controls_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_BUDDY_CONTROLS.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(BuddyControls::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(BuddyControls::default()))
+    }
 }
 
 fn buddy_controls() -> Rc<RefCell<BuddyControls>> {
-    BUDDY_CONTROLS.with(Rc::clone)
+    buddy_controls_on_owner(None)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -165,7 +217,7 @@ fn init_buddy_controls(kind: BuddyWindowType) {
             controls.text_entry_edit_id = name_to_id("WOLBuddyOverlay.wnd:TextEntryChat");
             controls.listbox_buddies_id = name_to_id("WOLBuddyOverlay.wnd:ListboxBuddies");
             controls.listbox_chat_id = name_to_id("WOLBuddyOverlay.wnd:ListboxBuddyChat");
-            with_window_manager(|manager| {
+            owner.with_manager(|manager| {
                 controls.text_entry_edit = manager.get_window_by_id(controls.text_entry_edit_id);
                 controls.listbox_buddies = manager.get_window_by_id(controls.listbox_buddies_id);
                 controls.listbox_chat = manager.get_window_by_id(controls.listbox_chat_id);
@@ -183,7 +235,7 @@ fn init_buddy_controls(kind: BuddyWindowType) {
             controls.text_entry_edit_id = name_to_id("Diplomacy.wnd:TextEntryChat");
             controls.listbox_buddies_id = name_to_id("Diplomacy.wnd:ListboxBuddies");
             controls.listbox_chat_id = name_to_id("Diplomacy.wnd:ListboxBuddyChat");
-            with_window_manager(|manager| {
+            owner.with_manager(|manager| {
                 controls.text_entry_edit = manager.get_window_by_id(controls.text_entry_edit_id);
                 controls.listbox_buddies = manager.get_window_by_id(controls.listbox_buddies_id);
                 controls.listbox_chat = manager.get_window_by_id(controls.listbox_chat_id);
@@ -595,7 +647,7 @@ fn show_notification_box(nick: AsciiString, message: &str) {
     let mut state = state_slot.borrow_mut();
 
     if state.notice_layout.is_none() {
-        let layout = with_window_manager(|manager| {
+        let layout = owner.with_manager(|manager| {
             manager
                 .create_layout_with_windows("Menus/PopupBuddyListNotification.wnd")
                 .ok()
@@ -610,7 +662,7 @@ fn show_notification_box(nick: AsciiString, message: &str) {
     let Some(layout) = layout else {
         return;
     };
-    layout.borrow_mut().hide(false);
+    layout.borrow_mut().hide_without_manager_side_effects(false);
 
     if state.button_notification_id == 0 {
         state.button_notification_id =
@@ -618,7 +670,7 @@ fn show_notification_box(nick: AsciiString, message: &str) {
     }
 
     let notification_window =
-        with_window_manager(|manager| manager.get_window_by_id(state.button_notification_id));
+        owner.with_manager(|manager| manager.get_window_by_id(state.button_notification_id));
 
     let Some(window) = notification_window else {
         drop(state);
@@ -652,7 +704,7 @@ fn delete_notification_box() {
     state.last_notification_was_status = false;
     state.num_online_in_notification = 0;
     if let Some(layout) = state.notice_layout.take() {
-        with_window_manager(|manager| manager.destroy_layout(&layout));
+        owner.with_manager(|manager| manager.destroy_layout(&layout));
     }
 }
 
@@ -686,7 +738,7 @@ pub fn wol_buddy_overlay_init(layout: &WindowLayout, _user_data: Option<&dyn std
     state.parent_ignore_id = name_to_id("WOLBuddyOverlay.wnd:IgnoreParent");
     state.listbox_ignore_id = name_to_id("WOLBuddyOverlay.wnd:ListboxIgnore");
 
-    with_window_manager(|manager| {
+    owner.with_manager(|manager| {
         state.parent = manager.get_window_by_id(state.parent_id);
         state.button_hide = manager.get_window_by_id(state.button_hide_id);
         state.button_add_buddy = manager.get_window_by_id(state.button_add_buddy_id);
@@ -711,10 +763,10 @@ pub fn wol_buddy_overlay_init(layout: &WindowLayout, _user_data: Option<&dyn std
     }
 
     if let Some(parent) = state.parent_buddies.as_ref() {
-        let _ = parent.borrow_mut().hide(false);
+        let _ = parent.borrow_mut().hide_without_manager_side_effects(false);
     }
     if let Some(parent) = state.parent_ignore.as_ref() {
-        let _ = parent.borrow_mut().hide(true);
+        let _ = parent.borrow_mut().hide_without_manager_side_effects(true);
     }
 
     populate_old_buddy_messages();
@@ -722,7 +774,7 @@ pub fn wol_buddy_overlay_init(layout: &WindowLayout, _user_data: Option<&dyn std
     layout.hide(false);
 
     if let Some(parent) = state.parent.as_ref() {
-        let _ = with_window_manager(|manager| manager.set_focus(Some(parent)));
+        let _ = owner.with_manager(|manager| manager.set_focus(Some(parent)));
     }
 
     state.is_overlay_active = true;
@@ -812,7 +864,7 @@ fn set_unignore_text(layout: &WindowLayout, nick: &AsciiString, profile_id: GPPr
         layout.get_filename().trim_start_matches("Menus/")
     );
     let id = name_to_id(&control_name);
-    let window = with_window_manager(|manager| manager.get_window_by_id(id));
+    let window = owner.with_manager(|manager| manager.get_window_by_id(id));
     let Some(window) = window else {
         return;
     };
@@ -831,7 +883,7 @@ fn set_unignore_text(layout: &WindowLayout, nick: &AsciiString, profile_id: GPPr
 fn close_right_click_menu(window: &GameWindow) {
     let layout = window.get_layout();
     if let Some(layout) = layout {
-        with_window_manager(|manager| manager.destroy_layout(&layout));
+        owner.with_manager(|manager| manager.destroy_layout(&layout));
     }
     let slot = wol_buddy_state();
     let mut state = slot.borrow_mut();
@@ -966,15 +1018,15 @@ pub fn wol_buddy_overlay_system(
             };
 
             let layout =
-                with_window_manager(|manager| manager.create_layout_with_windows(layout_name).ok());
+                owner.with_manager(|manager| manager.create_layout_with_windows(layout_name).ok());
             if let Some((layout, _)) = layout {
                 layout.borrow().run_init(None);
                 let rc_menu = layout.borrow().get_first_window();
                 if let Some(rc_menu) = rc_menu {
-                    rc_menu.borrow_mut().hide(false);
+                    rc_menu.borrow_mut().hide_without_manager_side_effects(false);
                     rc_menu.borrow_mut().bring_to_front();
                     let (win_w, win_h) = rc_menu.borrow().get_size();
-                    let (screen_w, screen_h) = with_window_manager(|manager| manager.screen_size());
+                    let (screen_w, screen_h) = owner.with_manager(|manager| manager.screen_size());
                     let mut pos_x = mouse_x;
                     let mut pos_y = mouse_y;
                     if pos_x + win_w > screen_w {
@@ -998,7 +1050,7 @@ pub fn wol_buddy_overlay_system(
                     };
                     set_unignore_text(&layout.borrow(), &rc_data.nick, rc_data.id);
                     rc_menu.borrow_mut().set_user_data(rc_data);
-                    with_window_manager(|manager| manager.set_lone_window(Some(&rc_menu)));
+                    owner.with_manager(|manager| manager.set_lone_window(Some(&rc_menu)));
                     let state_slot = wol_buddy_state();
                     let mut state = state_slot.borrow_mut();
                     state.rc_menu = Some(rc_menu);
@@ -1024,17 +1076,17 @@ pub fn wol_buddy_overlay_system(
                 close_overlay(GameSpyOverlayType::Buddy);
             } else if control_id == radio_buddies_id {
                 if let Some(parent) = parent_buddies.as_ref() {
-                    let _ = parent.borrow_mut().hide(false);
+                    let _ = parent.borrow_mut().hide_without_manager_side_effects(false);
                 }
                 if let Some(parent) = parent_ignore.as_ref() {
-                    let _ = parent.borrow_mut().hide(true);
+                    let _ = parent.borrow_mut().hide_without_manager_side_effects(true);
                 }
             } else if control_id == radio_ignore_id {
                 if let Some(parent) = parent_buddies.as_ref() {
-                    let _ = parent.borrow_mut().hide(true);
+                    let _ = parent.borrow_mut().hide_without_manager_side_effects(true);
                 }
                 if let Some(parent) = parent_ignore.as_ref() {
-                    let _ = parent.borrow_mut().hide(false);
+                    let _ = parent.borrow_mut().hide_without_manager_side_effects(false);
                 }
                 refresh_ignore_list();
             }
@@ -1335,15 +1387,15 @@ fn buddy_control_system(
                 RcItemType::NonBuddy => "Menus/RCNonBuddiesMenu.wnd",
             };
             let layout =
-                with_window_manager(|manager| manager.create_layout_with_windows(layout_name).ok());
+                owner.with_manager(|manager| manager.create_layout_with_windows(layout_name).ok());
             if let Some((layout, _)) = layout {
                 layout.borrow().run_init(None);
                 let rc_menu = layout.borrow().get_first_window();
                 if let Some(rc_menu) = rc_menu {
-                    rc_menu.borrow_mut().hide(false);
+                    rc_menu.borrow_mut().hide_without_manager_side_effects(false);
                     rc_menu.borrow_mut().bring_to_front();
                     let (win_w, win_h) = rc_menu.borrow().get_size();
-                    let (screen_w, screen_h) = with_window_manager(|manager| manager.screen_size());
+                    let (screen_w, screen_h) = owner.with_manager(|manager| manager.screen_size());
                     let mut pos_x = mouse_x;
                     let mut pos_y = mouse_y;
                     if pos_x + win_w > screen_w {
@@ -1361,7 +1413,7 @@ fn buddy_control_system(
                     };
                     set_unignore_text(&layout.borrow(), &rc_data.nick, rc_data.id);
                     rc_menu.borrow_mut().set_user_data(rc_data);
-                    with_window_manager(|manager| manager.set_lone_window(Some(&rc_menu)));
+                    owner.with_manager(|manager| manager.set_lone_window(Some(&rc_menu)));
                     let state_slot = wol_buddy_state();
                     let mut state = state_slot.borrow_mut();
                     state.rc_menu = Some(rc_menu);
@@ -1404,7 +1456,8 @@ fn buddy_control_system(
             let in_progress =
                 with_gamespy_game_info(|game| game.is_in_game() && game.is_game_in_progress());
             if in_progress {
-                if let Ok(list) = gamelogic::player::ThePlayerList().read() {
+                let __arc_bind = gamelogic::player::ThePlayerList();
+if let Ok(list) = __arc_bind.read() {
                     if let Some(player) = list.get_local_player() {
                         if let Ok(player) = player.read() {
                             if !player.is_player_active() {
@@ -1495,6 +1548,7 @@ mod tests {
 
     #[test]
     fn ascii_string_from_owned_listbox_text_uses_as_str() {
+        crate::test_support::ensure_ambient_host();
         let text = String::from("NickName");
         let nick = AsciiString::from(text.as_str());
         assert_eq!(nick.as_str(), "NickName");
@@ -1502,6 +1556,7 @@ mod tests {
 
     #[test]
     fn rc_item_type_discriminants_are_stable() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(RcItemType::Buddy as i32, 0);
         assert_eq!(RcItemType::Request as i32, 1);
         assert_eq!(RcItemType::NonBuddy as i32, 2);

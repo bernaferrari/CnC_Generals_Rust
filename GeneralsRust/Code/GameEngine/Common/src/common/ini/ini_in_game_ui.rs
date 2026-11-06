@@ -6,9 +6,6 @@
 use crate::common::ini::{FieldParse, INI, INIError, INIResult, ini};
 use std::sync::{OnceLock, RwLock};
 
-/// In-game UI settings singleton
-static INGAME_UI_SETTINGS: OnceLock<RwLock<InGameUISettings>> = OnceLock::new();
-
 /// 2D integer coordinate
 pub use crate::common::system::geometry::ICoord2D;
 
@@ -833,19 +830,31 @@ fn parse_move_rmb_scroll_anchor(
 }
 
 /// Initialize the InGameUI settings singleton
-pub fn init_in_game_ui_settings() {
-    INGAME_UI_SETTINGS.get_or_init(|| RwLock::new(InGameUISettings::default()));
-}
 
 /// Get a read reference to the InGameUI settings
-pub fn get_in_game_ui_settings() -> Option<std::sync::RwLockReadGuard<'static, InGameUISettings>> {
-    INGAME_UI_SETTINGS.get()?.read().ok()
+/// Get a write reference to the InGameUI settings
+
+fn ini_in_game_ui_cell() -> std::sync::Arc<std::sync::RwLock<InGameUISettings>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.in_game_ui)
 }
 
-/// Get a write reference to the InGameUI settings
-pub fn get_in_game_ui_settings_mut()
--> Option<std::sync::RwLockWriteGuard<'static, InGameUISettings>> {
-    INGAME_UI_SETTINGS.get()?.write().ok()
+
+pub fn init_in_game_ui_settings() {
+    let _ = ini_in_game_ui_cell();
+}
+
+
+pub fn get_in_game_ui_settings() -> Option<std::sync::RwLockReadGuard<'static, InGameUISettings>> {
+    let cell = ini_in_game_ui_cell();
+    let guard = cell.read().ok()?;
+    Some(unsafe { std::mem::transmute(guard) })
+}
+
+
+pub fn get_in_game_ui_settings_mut() -> Option<std::sync::RwLockWriteGuard<'static, InGameUISettings>> {
+    let cell = ini_in_game_ui_cell();
+    let guard = cell.write().ok()?;
+    Some(unsafe { std::mem::transmute(guard) })
 }
 
 /// Parse the InGameUI definition block

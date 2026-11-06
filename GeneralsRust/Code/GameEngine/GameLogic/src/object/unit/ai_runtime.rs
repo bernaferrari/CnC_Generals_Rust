@@ -601,6 +601,43 @@ impl UnitAiRuntime {
         guard.last_target_scan_frame = now;
         self.reset_mood_check_at(now, force_idle_frames);
     }
+    /// CPP AIUpdate::isAllowedToRespondToAiCommands (AIUpdate.cpp:2572-2590):
+    /// effectively-dead actors and computer-controlled sleeping actors ignore
+    /// every command except MOVE_TO_POSITION_EVEN_IF_SLEEPING.
+    pub(crate) fn is_allowed_to_respond_to_ai_commands(
+        &self,
+        command: &crate::ai::AiCommandParams,
+    ) -> bool {
+        use crate::ai::mood_matrix_parameters::{CONTROLLER_AI, MOOD_SLEEP};
+        if let Some(owner) = self.native_owner() {
+            if owner
+                .read()
+                .map(|o| o.is_effectively_dead())
+                .unwrap_or(true)
+            {
+                return false;
+            }
+        }
+        let mood = self.get_mood_matrix_value(true);
+        !((mood & CONTROLLER_AI) != 0
+            && (mood & MOOD_SLEEP) != 0
+            && command.cmd != crate::ai::AiCommandType::MoveToPositionEvenIfSleeping)
+    }
+
+    /// Owned-world form of `is_allowed_to_respond_to_ai_commands`: the
+    /// controller comes from the supplied world (AIUpdate.cpp:2580-2584).
+    pub(crate) fn is_allowed_to_respond_to_ai_commands_with_world(
+        &self,
+        command: &crate::ai::AiCommandParams,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> bool {
+        use crate::ai::mood_matrix_parameters::{CONTROLLER_AI, MOOD_SLEEP};
+        let mood = self.get_mood_matrix_value_with_world(true, world);
+        !((mood & CONTROLLER_AI) != 0
+            && (mood & MOOD_SLEEP) != 0
+            && command.cmd != crate::ai::AiCommandType::MoveToPositionEvenIfSleeping)
+    }
+
     pub(super) fn get_mood_matrix_value(&self, parent_exists: bool) -> u32 {
         if !parent_exists {
             return 0;

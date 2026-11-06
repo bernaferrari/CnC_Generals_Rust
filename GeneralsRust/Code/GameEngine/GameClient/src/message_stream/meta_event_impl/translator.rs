@@ -100,51 +100,56 @@ impl MetaEventTranslator {
             let shell_active = client.shell_active;
             let client_frame = client.frame;
 
-            let map_guard = get_meta_map().read().unwrap_or_else(|e| e.into_inner());
-            for map in map_guard.iter() {
-                // C++ parity: ignore game-only keybinds before the GameClient reaches frame 1.
-                // This prevents load-screen input from getting stuck in frame-0 menu transitions.
-                if map.usable_in == COMMANDUSABLE_GAME && client_frame < 1 {
-                    continue;
-                }
-                if shell_active && (map.usable_in & COMMANDUSABLE_SHELL) == 0 {
-                    continue;
-                }
-                if !shell_active && (map.usable_in & COMMANDUSABLE_GAME) == 0 {
-                    continue;
-                }
-
-                if map.key == 0
-                    && new_mod_state != self.last_mod_state
-                    && ((map.transition == Transition::Up && map.mod_state == self.last_mod_state)
-                        || (map.transition == Transition::Down && map.mod_state == new_mod_state))
-                {
-                    if let Some(new_disp) = dispatch_map_entry(map, display_dispatch, ui) {
-                        disp = new_disp;
-                        break;
+            disp = with_meta_map_ref(|meta_map| {
+                let mut disp = disp;
+                for map in meta_map.iter() {
+                    // C++ parity: ignore game-only keybinds before the GameClient reaches frame 1.
+                    // This prevents load-screen input from getting stuck in frame-0 menu transitions.
+                    if map.usable_in == COMMANDUSABLE_GAME && client_frame < 1 {
+                        continue;
                     }
-                }
-
-                let transition_matches = match map.transition {
-                    Transition::Up => (key_state & KEY_STATE_UP) != 0,
-                    Transition::Down => (key_state & KEY_STATE_DOWN) != 0,
-                    // C++ currently disables DOUBLEDOWN generation in MetaEvent.cpp.
-                    Transition::DoubleDown => false,
-                };
-
-                if map.key == key && map.mod_state == new_mod_state && transition_matches {
-                    // C++ eats autorepeat for known keys but does not emit the meta-message.
-                    if (key_state & KEY_STATE_AUTOREPEAT) != 0 {
-                        disp = GameMessageDisposition::DestroyMessage;
-                        break;
+                    if shell_active && (map.usable_in & COMMANDUSABLE_SHELL) == 0 {
+                        continue;
+                    }
+                    if !shell_active && (map.usable_in & COMMANDUSABLE_GAME) == 0 {
+                        continue;
                     }
 
-                    if let Some(new_disp) = dispatch_map_entry(map, display_dispatch, ui) {
-                        disp = new_disp;
-                        break;
+                    if map.key == 0
+                        && new_mod_state != self.last_mod_state
+                        && ((map.transition == Transition::Up
+                            && map.mod_state == self.last_mod_state)
+                            || (map.transition == Transition::Down
+                                && map.mod_state == new_mod_state))
+                    {
+                        if let Some(new_disp) = dispatch_map_entry(map, display_dispatch, ui) {
+                            disp = new_disp;
+                            break;
+                        }
+                    }
+
+                    let transition_matches = match map.transition {
+                        Transition::Up => (key_state & KEY_STATE_UP) != 0,
+                        Transition::Down => (key_state & KEY_STATE_DOWN) != 0,
+                        // C++ currently disables DOUBLEDOWN generation in MetaEvent.cpp.
+                        Transition::DoubleDown => false,
+                    };
+
+                    if map.key == key && map.mod_state == new_mod_state && transition_matches {
+                        // C++ eats autorepeat for known keys but does not emit the meta-message.
+                        if (key_state & KEY_STATE_AUTOREPEAT) != 0 {
+                            disp = GameMessageDisposition::DestroyMessage;
+                            break;
+                        }
+
+                        if let Some(new_disp) = dispatch_map_entry(map, display_dispatch, ui) {
+                            disp = new_disp;
+                            break;
+                        }
                     }
                 }
-            }
+                disp
+            });
 
             if matches!(msg_type, GameMessageType::RawKeyDown(_)) {
                 self.last_key_down = key;
@@ -154,7 +159,7 @@ impl MetaEventTranslator {
 
         match msg_type {
             GameMessageType::RawMousePosition(pos) => {
-                apply_demo_camera_adjust_from_mouse_position(pos);
+                apply_demo_camera_adjust_from_mouse_position(&mut ui.state.meta_demo, pos);
             }
             GameMessageType::RawMouseLeftButtonDown(pos, ..)
             | GameMessageType::RawMouseMiddleButtonDown(pos, ..)

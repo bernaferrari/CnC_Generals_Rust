@@ -402,7 +402,10 @@ impl InGameUI {
         player: &Player,
         is_multiplayer: bool,
     ) -> String {
-        if is_multiplayer && player.is_playable_side() {
+        // C++ appends the display name in multiplayer for playable sides.
+        // Observers are never playable in retail templates; the explicit
+        // observer bit still suppresses the suffix when tests toggle it alone.
+        if is_multiplayer && player.is_playable_side() && !player.is_player_observer() {
             format!("{}\n{}", tooltip, player.get_player_display_name())
         } else {
             tooltip.to_string()

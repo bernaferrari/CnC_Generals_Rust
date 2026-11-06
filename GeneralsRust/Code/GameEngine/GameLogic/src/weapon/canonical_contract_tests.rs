@@ -127,9 +127,10 @@ impl AuthoredWeaponDefinition {
 
 impl Drop for AuthoredWeaponDefinition {
     fn drop(&mut self) {
-        game_engine::common::ini::ini_weapon::get_weapon_store()
-            .unwrap()
-            .remove_template(&self.name);
+        // Soft: unbound store during failure teardown must not double-panic → SIGABRT.
+        if let Some(mut store) = game_engine::common::ini::ini_weapon::get_weapon_store() {
+            store.remove_template(&self.name);
+        }
     }
 }
 

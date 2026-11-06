@@ -225,6 +225,11 @@ impl CnCGameEngine {
     }
 
     pub(super) fn show_owned_control_bar(&mut self, immediate: bool) {
+        // C++ ControlBar::init/reset end in switchToContext(CB_CONTEXT_NONE):
+        // with nothing selected every right-HUD context parent (command grid,
+        // production queue, beacon, ...) starts hidden. Re-evaluate the
+        // context so a freshly shown bar does not paint empty queue slots.
+        self.control_bar.mark_ui_dirty();
         let receiving_callback_observation = self.receiving_control_bar_callback_observation();
         let game_ending = self.game_logic.owned_script_game_ending();
         self.control_bar.set_receiving_upgrade_definitions(
@@ -868,8 +873,18 @@ mod receiving_observer_roster_tests {
         assert!(peer_changed.selectable().next().is_none());
         assert_eq!(bar.observer_target_owned(&roster), Some(2));
         game_client::gui::control_bar::control_bar_observer::set_observer_look_at_player(Some(999));
-        bar.update_owned_with_observers(std::time::Duration::from_millis(33), &roster)
-            .unwrap();
+        let wm_owner = game_client::gui::window_manager::WindowManagerOwner::new();
+        game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            wm_owner.with_manager(|manager| {
+                bar.update_owned_with_observers(
+                    std::time::Duration::from_millis(33),
+                    &roster,
+                    manager,
+                    effects,
+                )
+                .unwrap();
+            });
+        });
         assert_eq!(bar.observer_target_owned(&roster), Some(2));
         assert_eq!(
             game_client::gui::control_bar::control_bar_observer::observer_look_at_player_index(),

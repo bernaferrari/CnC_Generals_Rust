@@ -1683,6 +1683,14 @@ impl GameLogic {
             return false;
         }
         self.local_player_id = player_id;
+        // Client FXList::doFXObj visibility reads PlayerList::get_local_player_index
+        // (C++ ThePlayerList->getLocalPlayer). Keep the world's published list in sync.
+        let index = player_id.map(|id| id as i32).unwrap_or(-1);
+        self.with_own_services(|| {
+            if let Ok(mut list) = gamelogic::player::player_list().write() {
+                list.set_local_player_index(index);
+            }
+        });
         true
     }
 
@@ -1693,6 +1701,10 @@ impl GameLogic {
     }
 
     pub fn try_add_player(&mut self, player: Player) -> gamelogic::GameLogicResult<()> {
+        self.with_own_services_mut(|this| this.try_add_player_with_services(player))
+    }
+
+    fn try_add_player_with_services(&mut self, player: Player) -> gamelogic::GameLogicResult<()> {
         let invalid = |text: &str| gamelogic::GameLogicError::Configuration(text.into());
         let owner = player
             .script_identity()
@@ -3074,6 +3086,16 @@ impl GameLogic {
         player_id: u32,
         player_template: PlayerTemplateIdentity,
     ) -> bool {
+        self.with_own_services_mut(|this| {
+            this.bind_player_template_identity_with_services(player_id, player_template)
+        })
+    }
+
+    fn bind_player_template_identity_with_services(
+        &mut self,
+        player_id: u32,
+        player_template: PlayerTemplateIdentity,
+    ) -> bool {
         let Some(template) = self.resolve_player_template_identity(&player_template) else {
             return false;
         };
@@ -3589,7 +3611,7 @@ mod dock_approach_owner_tests {
         // and gathering in B so its queue's liveness check cannot evict A.
         for &docker in &docker_ids_a[..9] {
             make_gathering(&mut world_a, dock_a, docker);
-            assert!(!world_a.try_claim_dock_for_test(dock_a, docker));
+            assert_eq!(world_a.try_claim_dock_for_test(dock_a, docker).expect("result"), false);
         }
         make_gathering(&mut world_a, dock_a, docker_ids_a[9]);
         assert_eq!(
@@ -3624,7 +3646,7 @@ mod dock_approach_owner_tests {
         let (mut world_a, dock_a, docker_ids_a) = world_with_warehouse_and_workers();
         for &docker in &docker_ids_a[..9] {
             make_gathering(&mut world_a, dock_a, docker);
-            assert!(!world_a.try_claim_dock_for_test(dock_a, docker));
+            assert_eq!(world_a.try_claim_dock_for_test(dock_a, docker).expect("result"), false);
         }
         make_gathering(&mut world_a, dock_a, docker_ids_a[9]);
         let query_a = |world: &mut GameLogic, docker| {
@@ -3645,7 +3667,7 @@ mod dock_approach_owner_tests {
 
         for &docker in &docker_ids_b[..9] {
             make_gathering(&mut world_b, dock_b, docker);
-            assert!(!world_b.try_claim_dock_for_test(dock_b, docker));
+            assert_eq!(world_b.try_claim_dock_for_test(dock_b, docker).expect("result"), false);
         }
         make_gathering(&mut world_b, dock_b, docker_ids_b[9]);
         assert_eq!(query_a(&mut world_b, docker_ids_b[9]), None);
@@ -3659,7 +3681,7 @@ mod dock_approach_owner_tests {
         let (mut world, dock, docker_ids) = world_with_warehouse_and_workers();
         for &docker in &docker_ids[..9] {
             make_gathering(&mut world, dock, docker);
-            assert!(!world.try_claim_dock_for_test(dock, docker));
+            assert_eq!(world.try_claim_dock_for_test(dock, docker).expect("result"), false);
         }
         let waiter = docker_ids[9];
         make_gathering(&mut world, dock, waiter);
@@ -3706,7 +3728,7 @@ mod dock_approach_owner_tests {
         let waiter_id = docker_ids[9];
         for &docker in &docker_ids[..9] {
             make_gathering(&mut world, dock, docker);
-            assert!(!world.try_claim_dock_for_test(dock, docker));
+            assert_eq!(world.try_claim_dock_for_test(dock, docker).expect("result"), false);
         }
         make_gathering(&mut world, dock, waiter_id);
 
@@ -3762,7 +3784,7 @@ mod dock_approach_owner_tests {
         let (mut world, dock, docker_ids) = world_with_warehouse_and_workers();
         for &docker in &docker_ids[..9] {
             make_gathering(&mut world, dock, docker);
-            assert!(!world.try_claim_dock_for_test(dock, docker));
+            assert_eq!(world.try_claim_dock_for_test(dock, docker).expect("result"), false);
         }
         let destroyed_id = docker_ids[0];
         let replacement = world.host_object(destroyed_id).unwrap().clone();
@@ -3792,7 +3814,7 @@ mod dock_approach_owner_tests {
         let (mut world, dock, docker_ids) = world_with_warehouse_and_workers();
         let owner = docker_ids[0];
         make_gathering(&mut world, dock, owner);
-        assert!(!world.try_claim_dock_for_test(dock, owner));
+        assert_eq!(world.try_claim_dock_for_test(dock, owner).expect("result"), false);
         assert!(world.host_dock_approach_queues.has_dock(dock));
 
         world.destroy_object(dock);
@@ -3819,7 +3841,7 @@ mod dock_approach_owner_tests {
         ] {
             world.set_fixture_object_position(active, glam::Vec3::ZERO);
             make_gathering(world, dock, active);
-            assert!(world.try_claim_dock_for_test(dock, active));
+            assert_eq!(world.try_claim_dock_for_test(dock, active).expect("result"), true);
             assert_eq!(
                 world.host_object(dock).unwrap().dock_active_docker,
                 Some(active)
@@ -3903,7 +3925,7 @@ mod dock_approach_owner_tests {
         assert_eq!(active_after_a.model_condition_bits & docking_model, 0);
         assert_ne!(active_after_a.model_condition_bits & ending_model, 0);
 
-        assert!(!world_a.try_claim_dock_for_test(dock_a, waiter_a));
+        assert_eq!(world_a.try_claim_dock_for_test(dock_a, waiter_a).expect("result"), false);
 
         let dock_after_b = world_b.host_object(dock_b).unwrap();
         let active_after_b = world_b.host_object(active_b).unwrap();
@@ -3960,7 +3982,7 @@ mod dock_approach_owner_tests {
         }
 
         let first_epoch = world.host_object(first).unwrap().dock_cancel_epoch;
-        assert!(!world.try_claim_dock_for_test(dock, first));
+        assert_eq!(world.try_claim_dock_for_test(dock, first).expect("result"), false);
         assert_eq!(
             world.host_object(first).unwrap().ai_state(),
             AIState::SeekingRepair,
@@ -3972,7 +3994,7 @@ mod dock_approach_owner_tests {
             "nested approach movement must preserve the outer dock session"
         );
 
-        assert!(!world.try_claim_dock_for_test(dock, second));
+        assert_eq!(world.try_claim_dock_for_test(dock, second).expect("result"), false);
         let queues = &world.host_dock_approach_queues;
         let owners: Vec<_> = queues
             .snapshot()
@@ -4054,7 +4076,9 @@ mod receiving_player_team_relationship_owner_tests {
                 foreign.set_team_relationship(&team.read().unwrap(), Relationship::Enemies);
                 let foreign = std::sync::Arc::new(std::sync::RwLock::new(foreign));
                 {
-                    let mut list = gamelogic::player::ThePlayerList().write().unwrap();
+                    let __arc_bind = gamelogic::player::ThePlayerList();
+
+                    let mut list = __arc_bind.write().unwrap();
                     list.clear();
                     list.add_player(std::sync::Arc::clone(&foreign));
                 }

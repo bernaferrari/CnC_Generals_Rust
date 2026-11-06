@@ -8,33 +8,40 @@
     clippy::all
 )]
 use super::*;
-use std::cell::RefCell;
+use std::sync::Arc;
 
 /// Static sort list for transparent object sorting
 #[derive(Debug, Default)]
-pub(super) struct StaticSortState {
+pub(crate) struct StaticSortState {
     entries: Vec<Arc<StaticSortRenderObject>>,
     meshes: Vec<Option<Arc<MeshClass>>>,
     sort_levels: Vec<u32>,
     enabled: bool,
     decals_enabled: bool,
+    sorting_enabled: bool,
     flush_depth: u32,
 }
 
-thread_local! {
-    /// C++ kept the static sort lists as plain statics on the game thread.
-    pub(super) static STATIC_SORT_STATE: RefCell<StaticSortState> = RefCell::new(StaticSortState {
+pub(crate) fn default_static_sort_state() -> StaticSortState {
+    StaticSortState {
         entries: Vec::new(),
         meshes: Vec::new(),
         sort_levels: Vec::new(),
         enabled: true,
         decals_enabled: true,
+        sorting_enabled: true,
         flush_depth: 0,
-    });
+    }
 }
 
-pub(super) fn with_sort_state<R>(f: impl FnOnce(&mut StaticSortState) -> R) -> R {
-    STATIC_SORT_STATE.with_borrow_mut(f)
+pub(super) fn with_sort_state<R>(
+    r3d: &crate::process_state::Renderer3dRuntime,
+    f: impl FnOnce(&mut StaticSortState) -> R,
+) -> R {
+    f(&mut r3d
+        .static_sort_state
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()))
 }
 
 #[derive(Clone)]
@@ -57,11 +64,13 @@ impl StaticSortEntry {
     }
 }
 
-pub struct StaticSortFlushGuard;
+pub struct StaticSortFlushGuard {
+    r3d: Arc<crate::process_state::Renderer3dRuntime>,
+}
 
 impl Drop for StaticSortFlushGuard {
     fn drop(&mut self) {
-        with_sort_state(|state| {
+        with_sort_state(&self.r3d, |state| {
             if state.flush_depth > 0 {
                 state.flush_depth -= 1;
                 if state.flush_depth == 0 {
@@ -77,9 +86,8 @@ impl Drop for StaticSortFlushGuard {
 pub struct StaticSortManager;
 
 impl StaticSortManager {
-    pub fn set_static_sort_lists_enabled(enabled: bool) {
-        let _ = ww3d_core::WW3D::set_static_sort_lists_enabled(enabled);
-        with_sort_state(|state| {
+    pub fn set_static_sort_lists_enabled(r3d: &crate::process_state::Renderer3dRuntime, enabled: bool) {
+        with_sort_state(r3d, |state| {
             state.enabled = enabled;
             if !enabled {
                 state.entries.clear();
@@ -89,24 +97,37 @@ impl StaticSortManager {
         });
     }
 
-    pub fn set_decals_enabled(enabled: bool) {
-        let _ = ww3d_core::WW3D::set_decals_enabled(enabled);
-        with_sort_state(|state| state.decals_enabled = enabled);
+    pub fn set_decals_enabled(r3d: &crate::process_state::Renderer3dRuntime, enabled: bool) {
+        with_sort_state(r3d, |state| state.decals_enabled = enabled);
     }
 
-    pub fn add_to_static_sort_list(handle: Arc<StaticSortRenderObject>, sort_level: u32) {
-        Self::add_to_static_sort_list_with_mesh(handle, sort_level, None);
+    pub fn set_sorting_enabled(r3d: &crate::process_state::Renderer3dRuntime, enabled: bool) {
+        with_sort_state(r3d, |state| state.sorting_enabled = enabled);
+    }
+
+    pub fn are_static_sort_lists_enabled(r3d: &crate::process_state::Renderer3dRuntime) -> bool {
+        with_sort_state(r3d, |state| state.enabled)
+    }
+
+    pub fn are_decals_enabled(r3d: &crate::process_state::Renderer3dRuntime) -> bool {
+        with_sort_state(r3d, |state| state.decals_enabled)
+    }
+
+    pub fn is_sorting_enabled(r3d: &crate::process_state::Renderer3dRuntime) -> bool {
+        with_sort_state(r3d, |state| state.sorting_enabled)
+    }
+
+    pub fn add_to_static_sort_list(r3d: &crate::process_state::Renderer3dRuntime, handle: Arc<StaticSortRenderObject>, sort_level: u32) {
+        Self::add_to_static_sort_list_with_mesh(r3d, handle, sort_level, None);
     }
 
     pub fn add_to_static_sort_list_with_mesh(
+        r3d: &crate::process_state::Renderer3dRuntime,
         handle: Arc<StaticSortRenderObject>,
         sort_level: u32,
         mesh: Option<Arc<MeshClass>>,
     ) {
-        if !ww3d_core::WW3D::are_static_sort_lists_enabled() {
-            return;
-        }
-        with_sort_state(|state| {
+        with_sort_state(r3d, |state| {
             if !state.enabled {
                 return;
             }
@@ -116,8 +137,8 @@ impl StaticSortManager {
         });
     }
 
-    pub fn snapshot_static_sort_list() -> Option<(Vec<StaticSortEntry>, Vec<u32>)> {
-        with_sort_state(|state| {
+    pub fn snapshot_static_sort_list(r3d: &crate::process_state::Renderer3dRuntime) -> Option<(Vec<StaticSortEntry>, Vec<u32>)> {
+        with_sort_state(r3d, |state| {
             if state.entries.is_empty() {
                 return None;
             }
@@ -132,13 +153,13 @@ impl StaticSortManager {
         })
     }
 
-    pub fn begin_flush() -> StaticSortFlushGuard {
-        with_sort_state(|state| state.flush_depth = state.flush_depth.saturating_add(1));
-        StaticSortFlushGuard
+    pub fn begin_flush(r3d: Arc<crate::process_state::Renderer3dRuntime>) -> StaticSortFlushGuard {
+        with_sort_state(&r3d, |state| state.flush_depth = state.flush_depth.saturating_add(1));
+        StaticSortFlushGuard { r3d }
     }
 
-    pub fn flush_static_sort_list() {
-        with_sort_state(|state| {
+    pub fn flush_static_sort_list(r3d: &crate::process_state::Renderer3dRuntime) {
+        with_sort_state(r3d, |state| {
             state.entries.clear();
             state.meshes.clear();
             state.sort_levels.clear();

@@ -194,8 +194,11 @@ fn particle_candidate_companion_is_skipped_by_serde_and_cleared_on_direct_xfer_r
 #[cfg(feature = "game_client")]
 mod particle_companion_runtime_control {
     use super::*;
-    use crate::game_logic::combat_particles::with_client_particle_manager;
     use crate::save_load::SnapshotBuilder;
+    use crate::save_load::snapshot::{
+        ClientDrawableWorldSnapshot, restore_particle_system_from_xfer_bytes,
+    };
+    use game_client::core::game_client::GameClient;
     use game_client::effects::{ParticleSystemManager, ParticleSystemTemplate};
     use game_client::system::SubsystemInterface;
     use std::sync::Arc;
@@ -250,15 +253,15 @@ mod particle_companion_runtime_control {
                 let position_b = Vec3::new(56.0, 67.0, 78.0);
                 let payload_a = native_payload("OldCompatibleParticleA", position_a);
                 let payload_b = native_payload("OldCompatibleParticleB", position_b);
-                with_client_particle_manager(|manager| {
-                    manager.reset().unwrap();
-                    for name in ["OldCompatibleParticleA", "OldCompatibleParticleB"] {
-                        let mut template = ParticleSystemTemplate::new(name.into());
-                        template.info_mut().system_lifetime = 1000;
-                        manager.register_template(Arc::new(template));
-                    }
-                })
-                .unwrap();
+                let mut client = GameClient::new().expect("CPU-only GameClient");
+                client.particle_systems_mut().reset().unwrap();
+                for name in ["OldCompatibleParticleA", "OldCompatibleParticleB"] {
+                    let mut template = ParticleSystemTemplate::new(name.into());
+                    template.info_mut().system_lifetime = 1000;
+                    client
+                        .particle_systems_mut()
+                        .register_template(Arc::new(template));
+                }
                 let archive_a = archive_with_raw_particle_chunk(payload_a);
                 let archive_b = archive_with_raw_particle_chunk(payload_b);
                 let crate::save_load::DecodedGameSave {
@@ -269,24 +272,28 @@ mod particle_companion_runtime_control {
                     snapshot: _candidate_b,
                     ..
                 } = SaveFileManager::read_common_sav_chunks(&archive_b, Path::new("")).unwrap();
-                // OLD407's shared pending slot now contains B. Restoring A must use
-                // A's actual native archive, irrespective of later candidate parsing.
+                // Restoring A must use A's actual native archive companion,
+                // irrespective of later candidate parsing of B.
                 let mut receiving_world = GameLogic::new();
                 SnapshotBuilder::new()
                     .restore_from_snapshot(&candidate_a, &mut receiving_world)
                     .unwrap();
-                with_client_particle_manager(|manager| {
-                    assert_eq!(manager.active_system_count(), 1);
-                    let actual = manager.find_particle_system(1).unwrap();
-                    assert_eq!(
-                        actual.position(),
-                        position_a,
-                        "restoring A consumed B's pending native particle payload"
-                    );
-                    assert_eq!(actual.template().name(), "OldCompatibleParticleA");
-                    manager.reset().unwrap();
-                })
-                .unwrap();
+                let companion = candidate_a
+                    .particle_system_companion
+                    .as_deref()
+                    .expect("archive A must carry a particle companion");
+                restore_particle_system_from_xfer_bytes(client.particle_systems_mut(), companion)
+                    .unwrap();
+                assert_eq!(client.particle_systems().active_system_count(), 1);
+                let actual = client.particle_systems().find_particle_system(1).unwrap();
+                assert_eq!(
+                    actual.position(),
+                    position_a,
+                    "restoring A consumed B's pending native particle payload"
+                );
+                assert_eq!(actual.template().name(), "OldCompatibleParticleA");
+                client.particle_systems_mut().reset().unwrap();
+                let _ = ClientDrawableWorldSnapshot::default();
             },
         );
     }

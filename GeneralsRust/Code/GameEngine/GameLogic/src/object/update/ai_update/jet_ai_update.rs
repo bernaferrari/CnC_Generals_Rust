@@ -126,10 +126,9 @@ fn reload_jet_countermeasures(obj: &crate::object::Object) {
     }
 }
 
-static TAXI_TO_TAKEOFF: Mutex<Vec<ObjectID>> = Mutex::new(Vec::new());
-
 fn register_taxi_to_takeoff(id: ObjectID) {
-    if let Ok(mut ids) = TAXI_TO_TAKEOFF.lock() {
+    let services = crate::system::engine_stores::active_services();
+    if let Ok(mut ids) = services.taxi_to_takeoff().lock() {
         if !ids.contains(&id) {
             ids.push(id);
         }
@@ -137,13 +136,16 @@ fn register_taxi_to_takeoff(id: ObjectID) {
 }
 
 fn unregister_taxi_to_takeoff(id: ObjectID) {
-    if let Ok(mut ids) = TAXI_TO_TAKEOFF.lock() {
+    let services = crate::system::engine_stores::active_services();
+    if let Ok(mut ids) = services.taxi_to_takeoff().lock() {
         ids.retain(|entry| *entry != id);
     }
 }
 
 fn is_registered_taxi_to_takeoff(id: ObjectID) -> bool {
-    TAXI_TO_TAKEOFF
+    let services = crate::system::engine_stores::active_services();
+    services
+        .taxi_to_takeoff()
         .lock()
         .map(|ids| ids.contains(&id))
         .unwrap_or(false)
@@ -2433,7 +2435,7 @@ impl JetAIUpdate {
                     continue;
                 }
                 specials += 1;
-                if weapon.get_status() == WeaponStatus::OutOfAmmo {
+                if weapon.peek_status_at(crate::helpers::TheGameLogic::get_frame()) == WeaponStatus::OutOfAmmo {
                     out += 1;
                 }
             }

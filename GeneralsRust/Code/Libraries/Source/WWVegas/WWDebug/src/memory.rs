@@ -54,15 +54,16 @@ impl MemoryStats {
     }
 }
 
-/// Global memory statistics
-static MEMORY_STATS: MemoryStats = MemoryStats::new();
-
 /// Profile memory allocator - equivalent to ProfileAllocMemory
 pub struct ProfileMemory;
 
 impl ProfileMemory {
     /// Allocate memory (equivalent to ProfileAllocMemory)
-    pub fn alloc(size: usize) -> ProfileResult<*mut u8> {
+    pub fn alloc(session: &crate::WwDebugSession, size: usize) -> ProfileResult<*mut u8> {
+        Self::alloc_with_stats(&session.memory_stats, size)
+    }
+
+    pub(crate) fn alloc_with_stats(stats: &MemoryStats, size: usize) -> ProfileResult<*mut u8> {
         if size == 0 {
             return Ok(std::ptr::null_mut());
         }
@@ -78,23 +79,36 @@ impl ProfileMemory {
             return Err(ProfileError::MemoryAllocation);
         }
 
-        MEMORY_STATS.record_allocation(size);
+        stats.record_allocation(size);
         Ok(ptr)
     }
 
     /// Reallocate memory (equivalent to ProfileReAllocMemory)
-    pub fn realloc(old_ptr: *mut u8, old_size: usize, new_size: usize) -> ProfileResult<*mut u8> {
-        // Handle special cases like the C++ version
+    pub fn realloc(
+        session: &crate::WwDebugSession,
+        old_ptr: *mut u8,
+        old_size: usize,
+        new_size: usize,
+    ) -> ProfileResult<*mut u8> {
+        Self::realloc_with_stats(&session.memory_stats, old_ptr, old_size, new_size)
+    }
+
+    pub(crate) fn realloc_with_stats(
+        stats: &MemoryStats,
+        old_ptr: *mut u8,
+        old_size: usize,
+        new_size: usize,
+    ) -> ProfileResult<*mut u8> {
         if old_ptr.is_null() {
             return if new_size > 0 {
-                Self::alloc(new_size)
+                Self::alloc_with_stats(stats, new_size)
             } else {
                 Ok(std::ptr::null_mut())
             };
         }
 
         if new_size == 0 {
-            Self::free(old_ptr, old_size);
+            Self::free_with_stats(stats, old_ptr, old_size);
             return Ok(std::ptr::null_mut());
         }
 
@@ -111,15 +125,18 @@ impl ProfileMemory {
             return Err(ProfileError::MemoryAllocation);
         }
 
-        // Update statistics
-        MEMORY_STATS.record_deallocation(old_size);
-        MEMORY_STATS.record_allocation(new_size);
+        stats.record_deallocation(old_size);
+        stats.record_allocation(new_size);
 
         Ok(new_ptr)
     }
 
     /// Free memory (equivalent to ProfileFreeMemory)
-    pub fn free(ptr: *mut u8, size: usize) {
+    pub fn free(session: &crate::WwDebugSession, ptr: *mut u8, size: usize) {
+        Self::free_with_stats(&session.memory_stats, ptr, size);
+    }
+
+    pub(crate) fn free_with_stats(stats: &MemoryStats, ptr: *mut u8, size: usize) {
         if ptr.is_null() || size == 0 {
             return;
         }
@@ -130,12 +147,12 @@ impl ProfileMemory {
             alloc::dealloc(ptr, layout);
         }
 
-        MEMORY_STATS.record_deallocation(size);
+        stats.record_deallocation(size);
     }
 
     /// Get memory statistics
-    pub fn get_stats() -> &'static MemoryStats {
-        &MEMORY_STATS
+    pub fn get_stats(session: &crate::WwDebugSession) -> &MemoryStats {
+        &session.memory_stats
     }
 }
 
@@ -143,13 +160,18 @@ impl ProfileMemory {
 pub struct ProfileMemoryBlock {
     ptr: *mut u8,
     size: usize,
+    stats: *const MemoryStats,
 }
 
 impl ProfileMemoryBlock {
     /// Allocate a new memory block
-    pub fn new(size: usize) -> ProfileResult<Self> {
-        let ptr = ProfileMemory::alloc(size)?;
-        Ok(Self { ptr, size })
+    pub fn new(session: &crate::WwDebugSession, size: usize) -> ProfileResult<Self> {
+        let ptr = ProfileMemory::alloc(session, size)?;
+        Ok(Self {
+            ptr,
+            size,
+            stats: &session.memory_stats as *const MemoryStats,
+        })
     }
 
     /// Get a raw pointer to the memory
@@ -191,7 +213,9 @@ impl ProfileMemoryBlock {
 
     /// Resize the memory block
     pub fn resize(&mut self, new_size: usize) -> ProfileResult<()> {
-        let new_ptr = ProfileMemory::realloc(self.ptr, self.size, new_size)?;
+        // SAFETY: stats pointer is valid for the session that allocated this block.
+        let stats = unsafe { &*self.stats };
+        let new_ptr = ProfileMemory::realloc_with_stats(stats, self.ptr, self.size, new_size)?;
         self.ptr = new_ptr;
         self.size = new_size;
         Ok(())
@@ -208,7 +232,9 @@ impl ProfileMemoryBlock {
 
 impl Drop for ProfileMemoryBlock {
     fn drop(&mut self) {
-        ProfileMemory::free(self.ptr, self.size);
+        // SAFETY: stats pointer is valid for the session that allocated this block.
+        let stats = unsafe { &*self.stats };
+        ProfileMemory::free_with_stats(stats, self.ptr, self.size);
     }
 }
 
@@ -217,6 +243,7 @@ pub struct ProfileArray<T> {
     ptr: *mut T,
     len: usize,
     capacity: usize,
+    stats: *const MemoryStats,
 }
 
 impl<T> ProfileArray<T> {
@@ -226,11 +253,12 @@ impl<T> ProfileArray<T> {
             ptr: std::ptr::null_mut(),
             len: 0,
             capacity: 0,
+            stats: std::ptr::null(),
         }
     }
 
     /// Create an array with initial capacity
-    pub fn with_capacity(capacity: usize) -> ProfileResult<Self> {
+    pub fn with_capacity(session: &crate::WwDebugSession, capacity: usize) -> ProfileResult<Self> {
         if capacity == 0 {
             return Ok(Self::new());
         }
@@ -245,12 +273,13 @@ impl<T> ProfileArray<T> {
             return Err(ProfileError::MemoryAllocation);
         }
 
-        MEMORY_STATS.record_allocation(layout.size());
+        session.memory_stats.record_allocation(layout.size());
 
         Ok(Self {
             ptr,
             len: 0,
             capacity,
+            stats: &session.memory_stats as *const MemoryStats,
         })
     }
 
@@ -304,9 +333,9 @@ impl<T> ProfileArray<T> {
             let old_size = Layout::array::<T>(self.capacity)
                 .map(|l| l.size())
                 .unwrap_or(0);
-            MEMORY_STATS.record_deallocation(old_size);
+            (unsafe { &*self.stats }).record_deallocation(old_size);
         }
-        MEMORY_STATS.record_allocation(new_layout.size());
+        (unsafe { &*self.stats }).record_allocation(new_layout.size());
 
         self.ptr = new_ptr;
         self.capacity = new_capacity;
@@ -400,7 +429,7 @@ impl<T> ProfileArray<T> {
             unsafe {
                 alloc::dealloc(self.ptr as *mut u8, layout);
             }
-            MEMORY_STATS.record_deallocation(layout.size());
+            (unsafe { &*self.stats }).record_deallocation(layout.size());
         }
 
         self.ptr = std::ptr::null_mut();
@@ -547,48 +576,48 @@ mod tests {
 
     #[test]
     fn test_memory_allocation() {
-        let _lock = crate::test_lock();
-        let stats_before = ProfileMemory::get_stats();
+        let session = crate::WwDebugSession::new();
+        let stats_before = ProfileMemory::get_stats(&session);
         let initial_allocated = stats_before.get_current_allocated();
 
-        let ptr = ProfileMemory::alloc(1024).unwrap();
+        let ptr = ProfileMemory::alloc(&session, 1024).unwrap();
         assert!(!ptr.is_null());
 
-        let stats_after = ProfileMemory::get_stats();
+        let stats_after = ProfileMemory::get_stats(&session);
         assert_eq!(
             stats_after.get_current_allocated(),
             initial_allocated + 1024
         );
 
-        ProfileMemory::free(ptr, 1024);
+        ProfileMemory::free(&session, ptr, 1024);
 
-        let stats_final = ProfileMemory::get_stats();
+        let stats_final = ProfileMemory::get_stats(&session);
         assert_eq!(stats_final.get_current_allocated(), initial_allocated);
     }
 
     #[test]
     fn test_memory_reallocation() {
-        let _lock = crate::test_lock();
-        let ptr = ProfileMemory::alloc(512).unwrap();
+        let session = crate::WwDebugSession::new();
+        let ptr = ProfileMemory::alloc(&session, 512).unwrap();
 
-        let new_ptr = ProfileMemory::realloc(ptr, 512, 1024).unwrap();
+        let new_ptr = ProfileMemory::realloc(&session, ptr, 512, 1024).unwrap();
         assert!(!new_ptr.is_null());
 
-        ProfileMemory::free(new_ptr, 1024);
+        ProfileMemory::free(&session, new_ptr, 1024);
 
         // Test realloc with null pointer
-        let ptr2 = ProfileMemory::realloc(std::ptr::null_mut(), 0, 256).unwrap();
+        let ptr2 = ProfileMemory::realloc(&session, std::ptr::null_mut(), 0, 256).unwrap();
         assert!(!ptr2.is_null());
 
         // Test realloc to zero size
-        let null_ptr = ProfileMemory::realloc(ptr2, 256, 0).unwrap();
+        let null_ptr = ProfileMemory::realloc(&session, ptr2, 256, 0).unwrap();
         assert!(null_ptr.is_null());
     }
 
     #[test]
     fn test_memory_block() {
-        let _lock = crate::test_lock();
-        let mut block = ProfileMemoryBlock::new(1024).unwrap();
+        let session = crate::WwDebugSession::new();
+        let mut block = ProfileMemoryBlock::new(&session, 1024).unwrap();
         assert_eq!(block.size(), 1024);
         assert!(!block.as_ptr().is_null());
 
@@ -597,11 +626,12 @@ mod tests {
 
         let (ptr, size) = block.into_raw();
         assert_eq!(size, 2048);
-        ProfileMemory::free(ptr, size);
+        ProfileMemory::free(&session, ptr, size);
     }
 
     #[test]
     fn test_profile_array() {
+        let session = crate::WwDebugSession::new();
         let mut array = ProfileArray::<i32>::new();
         assert!(array.is_empty());
         assert_eq!(array.capacity(), 0);
@@ -644,11 +674,12 @@ mod tests {
 
     #[test]
     fn test_memory_stats() {
-        let stats = ProfileMemory::get_stats();
+        let session = crate::WwDebugSession::new();
+        let stats = ProfileMemory::get_stats(&session);
         let initial_count = stats.get_allocation_count();
         let initial_allocated = stats.get_total_allocated();
 
-        let _block = ProfileMemoryBlock::new(512).unwrap();
+        let _block = ProfileMemoryBlock::new(&session, 512).unwrap();
 
         assert_eq!(stats.get_allocation_count(), initial_count + 1);
         assert_eq!(stats.get_total_allocated(), initial_allocated + 512);
@@ -656,6 +687,7 @@ mod tests {
 
     #[test]
     fn test_array_with_complex_type() {
+        let session = crate::WwDebugSession::new();
         #[derive(Debug, PartialEq)]
         struct TestStruct {
             value: i32,

@@ -241,14 +241,16 @@ const DEFAULT_REGISTRY_LANGUAGE: &str = "english";
 const DEFAULT_REGISTRY_SKU: &str = "GeneralsMPTest";
 const DEFAULT_REGISTRY_VERSION: u32 = 65536;
 
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static ZH_REGISTRY: RefCell<Registry> = RefCell::new(Registry::new());
-}
-
-/// Run `body` with the process-wide ZH config store (JSON-backed, C++ key names).
+/// Run `body` with the instance ZH config store (JSON-backed, C++ key names).
 fn with_zh_registry<R>(body: impl FnOnce(&Registry) -> R) -> R {
-    ZH_REGISTRY.with(|registry| body(&registry.borrow()))
+    let services = crate::common::common_services::common_services();
+    body(
+        &services
+            .system
+            .zh_registry
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()),
+    )
 }
 
 fn registry_lookup_keys(path: &str, key: &str) -> Vec<String> {

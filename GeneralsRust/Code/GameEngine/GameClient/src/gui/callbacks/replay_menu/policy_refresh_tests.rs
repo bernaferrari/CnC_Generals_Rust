@@ -7,17 +7,17 @@ impl ReplayMenuReceiver for Receiver {
     fn version_differs(&mut self, _: &str) -> bool {
         false
     }
-    fn playback_file(&mut self, file: String) {
+    fn playback_file(&mut self, file: String) -> Result<(), String> {
         self.files.push(file);
+            Ok(())
     }
-    fn restart(&mut self) {
+    fn restart(&mut self) -> Result<(), String> {
         unreachable!("test selects Load only")
     }
 }
 #[test]
-fn admitted_content_crc_refresh_preserves_active_native_selection_and_release(
-    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-) {
+fn admitted_content_crc_refresh_preserves_active_native_selection_and_release() {
+    crate::test_support::ensure_ambient_host();
     use crate::gui::callbacks::control_bar_callbacks::ControlBarViewport;
     use crate::gui::control_bar::ControlBar;
     use crate::gui::gadgets::{ListBox, PushButton};
@@ -81,14 +81,13 @@ fn admitted_content_crc_refresh_preserves_active_native_selection_and_release(
     ));
     let key = NameKeyGenerator::name_to_key;
     let parent = manager
-        .create_window_with_id(
+        .test_create_window_with_id(
             None,
             0,
             0,
             220,
             120,
             key("ReplayMenu.wnd:ParentReplayMenu") as i32,
-            effects,
         )
         .unwrap();
     manager.bind_window_callbacks(
@@ -100,7 +99,7 @@ fn admitted_content_crc_refresh_preserves_active_native_selection_and_release(
     );
     let id = key("ReplayMenu.wnd:ButtonLoadReplay") as i32;
     let button = manager
-        .create_window_with_id(Some(&parent), 10, 10, 40, 20, id, effects)
+        .test_create_window_with_id(Some(&parent), 10, 10, 40, 20, id)
         .unwrap();
     button
         .borrow_mut()
@@ -116,7 +115,7 @@ fn admitted_content_crc_refresh_preserves_active_native_selection_and_release(
     );
     let list_id = key("ReplayMenu.wnd:ListboxReplayFiles") as i32;
     let list = manager
-        .create_window_with_id(Some(&parent), 70, 10, 120, 80, list_id, effects)
+        .test_create_window_with_id(Some(&parent), 70, 10, 120, 80, list_id)
         .unwrap();
     list.borrow_mut()
         .set_widget(WindowWidget::ListBox(ListBox::new(
@@ -178,11 +177,12 @@ fn admitted_content_crc_refresh_preserves_active_native_selection_and_release(
             Rc::ptr_eq(&owner, manager.replay_menu.as_ref().unwrap()),
             "input admission must retain the actual selected menu owner"
         );
-        let mut operation = ReplayMenuOperation::new(true);
+        let mut operation = ReplayMenuOperation::new(true, crate::gui::window_manager::WindowManagerOwner::new().downgrade());
         let mut probe = |selected: &str| {
             assert_eq!(selected, filename);
             reader.test_version_playback(selected.into()).unwrap()
         };
+        let mut emitted_messages = Vec::new();
         let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
@@ -204,8 +204,15 @@ fn admitted_content_crc_refresh_preserves_active_native_selection_and_release(
             game_ending: false,
             tooltips_disabled: false,
             cursor_mouse: None,
-            emitted_messages: None,
+            emitted_messages: Some(&mut emitted_messages),
+            campaign_manager: None,
+            window_manager_owner: None,
 
+                        client_frame: None,
+            logic_frame: None,
+            ui: None,
+            menu_world: None,
+            menu_host: None,
             main_menu: None,
         };
         assert_eq!(

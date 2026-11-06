@@ -34,7 +34,6 @@
 //! its nuggets create runtime FX instances that live in this container.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use game_engine::common::global_data;
@@ -48,10 +47,19 @@ use glam::{Vec3};
 pub type FXId = u64;
 
 /// Global counter for generating unique IDs.
-static FX_NEXT_ID: AtomicU64 = AtomicU64::new(1);
-
 fn next_fx_id() -> FXId {
-    FX_NEXT_ID.fetch_add(1, Ordering::Relaxed)
+    if let Some(id) = crate::core::game_client::with_live_game_client_mut(|client| client.next_fx_id()) {
+        return id;
+    }
+    // Headless fixtures: prefer the published CommonServices instance counter
+    // (no process-wide GameClient static). SystemTime nanos collide in one body.
+    if let Some(services) = game_engine::common::common_services::try_common_services() {
+        return services
+            .system
+            .runtime_fx_next_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+    0
 }
 
 // ---------------------------------------------------------------------------
@@ -1060,6 +1068,7 @@ mod tests {
 
     #[test]
     fn test_fx_point_update() {
+        crate::test_support::ensure_ambient_host();
         let mut point = FXPoint::new(
             Vec3::new(0.0, 0.0, 0.0),
             [1.0, 0.0, 0.0, 1.0],
@@ -1083,6 +1092,7 @@ mod tests {
 
     #[test]
     fn fx_point_default_gravity_tracks_global_data_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let old_gravity = {
             let mut global = global_data::write();
             let old = global.gravity;
@@ -1105,6 +1115,7 @@ mod tests {
 
     #[test]
     fn test_fx_line_update() {
+        crate::test_support::ensure_ambient_host();
         let start = Vec3::new(0.0, 0.0, 0.0);
         let end = Vec3::new(10.0, 0.0, 0.0);
         let mut line = FXLine::extending(start, end, [1.0, 1.0, 0.0, 1.0], 0.2, 1.0);
@@ -1122,6 +1133,7 @@ mod tests {
 
     #[test]
     fn test_fx_ring_update() {
+        crate::test_support::ensure_ambient_host();
         let mut ring = FXRing::new(
             Vec3::new(0.0, 0.0, 0.0),
             [1.0, 1.0, 1.0, 0.8],
@@ -1142,6 +1154,7 @@ mod tests {
 
     #[test]
     fn test_fx_shader_update() {
+        crate::test_support::ensure_ambient_host();
         let mut shader = FXShader::new(
             Vec3::new(5.0, 5.0, 5.0),
             [0.5, 0.5, 1.0, 1.0],
@@ -1167,6 +1180,7 @@ mod tests {
 
     #[test]
     fn test_fx_list_update_and_cleanup() {
+        crate::test_support::ensure_ambient_host();
         let mut list = FXList::new();
 
         let p1 = FXPoint::new(Vec3::ZERO, [1.0; 4], Vec3::ZERO, 1.0, 0.1);
@@ -1185,6 +1199,7 @@ mod tests {
 
     #[test]
     fn test_fx_list_render_data_collection() {
+        crate::test_support::ensure_ambient_host();
         let mut list = FXList::new();
 
         list.add_point(FXPoint::new(
@@ -1225,6 +1240,7 @@ mod tests {
 
     #[test]
     fn test_fx_factory_muzzle_flash() {
+        crate::test_support::ensure_ambient_host();
         let flash =
             FXFactory::muzzle_flash(Vec3::new(10.0, 20.0, 5.0), Vec3::new(1.0, 0.0, 0.0));
         assert!(flash.is_alive());
@@ -1233,6 +1249,7 @@ mod tests {
 
     #[test]
     fn test_fx_factory_shockwave() {
+        crate::test_support::ensure_ambient_host();
         let ring = FXFactory::shockwave_ring(Vec3::ZERO, 30.0);
         assert!(ring.is_alive());
         assert!((ring.end_radius - 30.0).abs() < 0.01);
@@ -1240,6 +1257,7 @@ mod tests {
 
     #[test]
     fn test_persistent_effect() {
+        crate::test_support::ensure_ambient_host();
         // Lifetime 0.0 = never expires
         let mut ring = FXRing::new(
             Vec3::ZERO,

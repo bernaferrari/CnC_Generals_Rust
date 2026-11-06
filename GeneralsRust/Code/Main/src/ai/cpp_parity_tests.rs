@@ -61,54 +61,59 @@ fn ai_for_world(
     AIPlayer::new_with_team_factory(player_id, team, difficulty, logic.team_factory.clone())
 }
 
-fn clear_player_team_prototypes() {
-    if let Ok(mut list) = gamelogic::player::player_list().write() {
-        list.clear();
-    }
+fn clear_player_team_prototypes(world: &GameLogic) {
+    world.with_own_services(|| {
+        let __arc_bind = gamelogic::player::player_list();
+        if let Ok(mut list) = __arc_bind.write() {
+            list.clear();
+        }
+    });
 }
 
 fn admit_receiving_computer_class(world: &mut GameLogic, player_id: u32, skirmish: bool) {
     use game_engine::common::{dict::Dict, well_known_keys::*};
-    let faction = match world.get_player(player_id).unwrap().team {
-        Team::China => "FactionChina",
-        Team::GLA => "FactionGLA",
-        _ => "FactionAmerica",
-    };
-    let name = format!("OwnedPlayer{player_id}");
-    world
-        .get_player_mut(player_id)
-        .unwrap()
-        .map_side
-        .map_player_name = name.clone();
-    world.prepare_native_command_mode(if skirmish {
-        GameMode::Skirmish
-    } else {
-        GameMode::SinglePlayer
-    });
-    let mut row = Dict::new();
-    row.set_ascii_string(
-        key_player_name(),
-        if skirmish {
-            "TemplateSource".to_string()
+    world.with_own_services_mut(|world| {
+        let faction = match world.get_player(player_id).unwrap().team {
+            Team::China => "FactionChina",
+            Team::GLA => "FactionGLA",
+            _ => "FactionAmerica",
+        };
+        let name = format!("OwnedPlayer{player_id}");
+        world
+            .get_player_mut(player_id)
+            .unwrap()
+            .map_side
+            .map_player_name = name.clone();
+        world.prepare_native_command_mode(if skirmish {
+            GameMode::Skirmish
         } else {
-            name
-        },
-    );
-    row.set_ascii_string(key_player_faction(), faction);
-    row.set_bool(key_player_is_human(), false);
-    let catalog = [
-        (faction.to_string(), "ExactSide".to_string()),
-        ("FactionCivilian".to_string(), "Civilian".to_string()),
-    ]
-    .into_iter()
-    .collect();
-    world.sync_legacy_sides_list_from_dicts_with_controller_catalog(
-        &[row],
-        &[],
-        &[],
-        &[],
-        &catalog,
-    );
+            GameMode::SinglePlayer
+        });
+        let mut row = Dict::new();
+        row.set_ascii_string(
+            key_player_name(),
+            if skirmish {
+                "TemplateSource".to_string()
+            } else {
+                name
+            },
+        );
+        row.set_ascii_string(key_player_faction(), faction);
+        row.set_bool(key_player_is_human(), false);
+        let catalog = [
+            (faction.to_string(), "ExactSide".to_string()),
+            ("FactionCivilian".to_string(), "Civilian".to_string()),
+        ]
+        .into_iter()
+        .collect();
+        world.sync_legacy_sides_list_from_dicts_with_controller_catalog(
+            &[row],
+            &[],
+            &[],
+            &[],
+            &catalog,
+        );
+    });
 }
 
 #[test]
@@ -161,17 +166,22 @@ fn script_build_team_drains_onto_host_ai_queue() {
     let _ = logic.create_object("AmericaBarracks", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0));
 
     {
-        let mut factory = logic.team_factory.lock().expect("world team factory");
-        factory.reset();
-        factory.init_team(
-            gamelogic::common::AsciiString::from("USA_RangerSquad"),
-            gamelogic::common::AsciiString::from("PlyrAmerica"),
-            false,
-            None,
-        );
+        let factory_arc = logic.team_factory.clone();
+        logic.with_own_services(|| {
+            let mut factory = factory_arc.lock().expect("world team factory");
+            factory.reset();
+            factory.init_team(
+                gamelogic::common::AsciiString::from("USA_RangerSquad"),
+                gamelogic::common::AsciiString::from("PlyrAmerica"),
+                false,
+                None,
+            );
+        });
     }
 
-    gamelogic::scripting::request_host_build_team("PlyrAmerica", "USA_RangerSquad");
+    logic.with_own_services(|| {
+        gamelogic::scripting::request_host_build_team("PlyrAmerica", "USA_RangerSquad");
+    });
     logic.apply_host_loco_set_script_requests();
 
     let queued = logic
@@ -562,7 +572,7 @@ fn select_team_to_build_splits_min_max_not_max_as_required() {
                     ))
                     .collect::<Vec<_>>()
             );
-            clear_player_team_prototypes();
+            clear_player_team_prototypes(&logic);
         },
     );
 }
@@ -625,7 +635,7 @@ fn is_a_good_idea_does_not_reject_ready_queue_team() {
                 !ai.is_a_good_idea_to_build_team(&logic, "HQ_Auf59_ReadyOk"),
                 "TeamBuildQueue still vetoes a prototype already under construction"
             );
-            clear_player_team_prototypes();
+            clear_player_team_prototypes(&logic);
         },
     );
 }
@@ -880,7 +890,7 @@ fn active_loose_collector_rejoins_one_supply_center_before_paid_replacement() {
         .collect();
     assert_eq!(starter_ids.len(), 1, "authored one-shot starter exists");
     for starter_id in starter_ids {
-        logic.destroy_object(starter_id);
+        logic.destroy_object(starter_id).unwrap();
     }
     logic.process_destroy_list();
     assert!(
@@ -1146,6 +1156,70 @@ fn lost_dozer_queues_priority_command_center_replacement() {
     );
 }
 
+/// C++ queueDozer with no KINDOF_DOZER template queues nothing (AIPlayer.cpp:3138-3170).
+#[test]
+fn empty_dozer_catalog_queues_nothing() {
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
+    player.resources.supplies = 5_000;
+    logic.add_player(player);
+
+    let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+    cc.add_kind_of(crate::game_logic::KindOf::Structure)
+        .add_kind_of(crate::game_logic::KindOf::CommandCenter)
+        .set_cost(2000, 0);
+    logic.templates.insert("AmericaCommandCenter".into(), cc);
+    // Intentionally no KindOf::Dozer template in the catalog.
+
+    let cc_id = logic
+        .create_object("AmericaCommandCenter", Team::USA, Vec3::ZERO)
+        .expect("command center");
+    if let Some(obj) = logic.host_object_mut(cc_id) {
+        obj.owner_player_id = Some(1);
+        if let Some(bd) = obj.building_data.as_mut() {
+            bd.building_type = crate::game_logic::BuildingType::CommandCenter;
+        }
+    }
+
+    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    ai.queue_dozer(&mut logic, 0.0);
+    assert!(
+        ai.team_queue.is_empty(),
+        "C++ queueDozer must not invent a faction dozer when the catalog has none"
+    );
+}
+
+#[test]
+fn ai_kindof_gates_fail_closed_without_name_peel() {
+    // Invent triage: missing catalog entries must not classify by substring.
+    let logic = crate::game_logic::GameLogic::new();
+    assert!(
+        !AIPlayer::template_is_command_center(&logic, "FakeCommandCenterHut"),
+        "name-contains CommandCenter is invent"
+    );
+    assert!(
+        !AIPlayer::template_is_power_plan(&logic, "AmericaPowerPlant"),
+        "missing template must not invent PowerPlant from name"
+    );
+
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+    cc.add_kind_of(crate::game_logic::KindOf::CommandCenter);
+    logic.templates.insert("AmericaCommandCenter".into(), cc);
+    assert!(AIPlayer::template_is_command_center(
+        &logic,
+        "AmericaCommandCenter"
+    ));
+
+    let mut plant = crate::game_logic::ThingTemplate::new("AmericaPowerPlant");
+    plant
+        .add_kind_of(crate::game_logic::KindOf::FSPower)
+        .add_kind_of(crate::game_logic::KindOf::PowerPlant);
+    logic.templates.insert("AmericaPowerPlant".into(), plant);
+    assert!(AIPlayer::template_is_power_plan(&logic, "AmericaPowerPlant"));
+}
+
+
 #[test]
 fn aidata_rebuild_delay_gates_destroyed_structure() {
     assert!((AIPlayer::REBUILD_DELAY_SECONDS - 30.0).abs() < 1e-5);
@@ -1248,7 +1322,7 @@ fn captured_pad_unbinds_and_gla_hole_rebinds() {
         hole.set_team_with_partition_owner(Team::USA, ownership_events, partition);
     }
     ai.building_queue[0].object_id = Some(factory_id);
-    logic.destroy_object(factory_id);
+    logic.destroy_object(factory_id).unwrap();
     ai.sync_build_list_object_status(&logic, 13.0);
     assert_eq!(ai.building_queue[0].object_id, Some(hole_id));
 }
@@ -3057,17 +3131,22 @@ fn air_force_side_uses_a10_skillset_not_paladin() {
     assert_eq!(residual[0][0], "AirF_SCIENCE_A10ThunderboltMissileStrike1");
     assert_ne!(residual[0][0], "SCIENCE_PaladinTank");
 
+    let _ = crate::map_frame_scenario::ensure_assets_env_for_tests();
+    let Some(identity) =
+        crate::game_logic::PlayerTemplateIdentity::from_exact_name("FactionAmericaAirForceGeneral")
+    else {
+        eprintln!(
+            "air_force_side_uses_a10_skillset_not_paladin: SKIP (set GENERALS_ASSETS_DIR to windows_game retail root)"
+        );
+        return;
+    };
     let mut logic = crate::game_logic::GameLogic::new();
     logic.add_player(crate::game_logic::Player::new(1, Team::USA, "AirF", false));
-    if let Some(identity) =
-        crate::game_logic::PlayerTemplateIdentity::from_exact_name("FactionAmericaAirForceGeneral")
-    {
-        let _ = logic.bind_player_template_identity(1, identity);
-        let ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
-        let sets = ai.live_side_skillsets(&logic);
-        let first = sets[0].first().map(String::as_str).unwrap_or("");
-        assert_ne!(first, "SCIENCE_PaladinTank");
-    }
+    let _ = logic.bind_player_template_identity(1, identity);
+    let ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    let sets = ai.live_side_skillsets(&logic);
+    let first = sets[0].first().map(String::as_str).unwrap_or("");
+    assert_ne!(first, "SCIENCE_PaladinTank");
 }
 
 #[test]
@@ -3155,13 +3234,31 @@ fn acquire_enemy_keeps_healthy_current_target() {
     let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
     ai.base_center = Vec3::ZERO;
     ai.enemy_player_id = Some(2);
-    ai.enemy_check_time = -10.0;
     ai.update_enemy_assessment(&mut logic, 0.0);
     assert_eq!(
         ai.enemy_player_id,
         Some(2),
         "healthy current enemy with units and a factory must be kept"
     );
+}
+
+/// C++ `AISkirmishPlayer::getAiEnemy` (AISkirmishPlayer.cpp:530-537): the deadline
+/// starts at frame 0 (immediate first check), advances five seconds of logic
+/// frames when it fires, and fires again only at `frame >= deadline`.
+#[test]
+fn enemy_check_deadline_is_a_logic_frame_with_immediate_first_check() {
+    let mut logic = crate::game_logic::GameLogic::new();
+    logic.add_player(crate::game_logic::Player::new(1, Team::USA, "USA AI", false));
+    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    assert_eq!(ai.frame_to_check_enemy, 0);
+    ai.update_enemy_assessment(&mut logic, 0.0);
+    assert_eq!(ai.frame_to_check_enemy, 150, "first check is immediate");
+    logic.frame = 149;
+    ai.update_enemy_assessment(&mut logic, 4.97);
+    assert_eq!(ai.frame_to_check_enemy, 150, "no check before the deadline");
+    logic.frame = 150;
+    ai.update_enemy_assessment(&mut logic, 5.0);
+    assert_eq!(ai.frame_to_check_enemy, 300, "check fires at frame >= deadline");
 }
 
 #[test]
@@ -3221,9 +3318,7 @@ fn skillset_selector_uses_chosen_ai_side_info_set() {
 #[test]
 fn do_upgrades_and_skills_skips_first_two_frames_like_cpp() {
     // C++ AIPlayer.cpp:2910-2912 — if (TheGameLogic->getFrame() < 2) return;
-    if let Ok(mut list) = gamelogic::player::player_list().write() {
-        list.clear();
-    }
+    // PlayerList is per-world; a fresh GameLogic starts empty — no process clear.
     let mut logic = crate::game_logic::GameLogic::new();
     logic.frame = 0;
     let mut player = crate::game_logic::Player::new(1, Team::China, "China AI", false);
@@ -3270,7 +3365,7 @@ fn non_skirmish_ai_skillset_defaults_to_skillset1() {
             ai.try_purchase_skillset_science(&mut logic);
             assert_eq!(ai.skillset_selector, 0);
             assert_eq!(ai.side_skillsets()[0][0], "SCIENCE_NukeLauncher");
-            clear_player_team_prototypes();
+            clear_player_team_prototypes(&logic);
         },
     );
 }
@@ -3311,7 +3406,7 @@ fn skirmish_ai_skillset_randomizes_like_cpp() {
             ai.try_purchase_skillset_science(&mut logic);
             assert_eq!(ai.skillset_selector, expected);
             assert!((0..=limit).contains(&ai.skillset_selector));
-            clear_player_team_prototypes();
+            clear_player_team_prototypes(&logic);
         },
     );
 }
@@ -3323,13 +3418,20 @@ fn air_force_side_info_skillset_is_a10_not_paladin() {
     assert_eq!(residual[0][0], "AirF_SCIENCE_A10ThunderboltMissileStrike1");
     assert_eq!(residual[1][0], "SCIENCE_SpectreGunship1");
 
+    let _ = crate::map_frame_scenario::ensure_assets_env_for_tests();
+    let Some(identity) = crate::game_logic::PlayerTemplateIdentity::from_exact_name(
+        "FactionAmericaAirForceGeneral",
+    ) else {
+        eprintln!(
+            "air_force_side_info_skillset_is_a10_not_paladin: SKIP (set GENERALS_ASSETS_DIR to windows_game retail root)"
+        );
+        return;
+    };
+
     let mut logic = crate::game_logic::GameLogic::new();
     let mut player = crate::game_logic::Player::new(1, Team::USA, "Air Force AI", false);
     player.science_purchase_points = 5;
     logic.add_player(player);
-    let identity =
-        crate::game_logic::PlayerTemplateIdentity::from_exact_name("FactionAmericaAirForceGeneral")
-            .expect("retail Air Force PlayerTemplate");
     assert!(logic.bind_player_template_identity(1, identity));
 
     let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
@@ -3582,8 +3684,8 @@ fn find_supply_center_uses_warehouse_dock_and_cash_gen_and_sixty_forty() {
         "own cash-gen within CLOSE_DIST skips the near warehouse"
     );
 
-    logic.destroy_object(own);
-    logic.destroy_object(near);
+    logic.destroy_object(own).unwrap();
+    logic.destroy_object(near).unwrap();
     // Warehouse at 100 is closer to the China structure midpoint (0) than
     // to our base at 1000 under the 60/40 expansion gate.
     logic.set_fixture_object_position(far, Vec3::new(100.0, 0.0, 0.0));

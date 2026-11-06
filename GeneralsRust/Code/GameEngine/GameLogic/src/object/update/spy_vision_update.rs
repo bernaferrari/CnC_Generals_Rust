@@ -151,7 +151,8 @@ impl SpyVisionController {
     fn do_activation_work_for_owner(&mut self, owner: &crate::player::Player, setting: bool) {
         let spying_player_index = owner.get_player_index();
 
-        let Ok(list_guard) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list_guard) = __player_list_arc.read() else {
             // C++: ThePlayerList == NULL → return without changing m_currentlyActive.
             return;
         };
@@ -207,7 +208,8 @@ impl SpyVisionController {
         // Clone the player out and drop the list lock. do_activation_work locks
         // the same list again; std::sync::RwLock does not reenter.
         let spying_player_arc = {
-            let Ok(list_guard) = player_list().read() else {
+            let __player_list_arc = player_list();
+        let Ok(list_guard) = __player_list_arc.read() else {
                 return;
             };
             let Some(player) =

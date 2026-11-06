@@ -725,6 +725,7 @@ mod tests {
 
     #[test]
     fn test_combobox_creation() {
+        crate::test_support::ensure_ambient_host();
         let combobox = ComboBox::new(1, 10, 20, 150, 25);
         assert_eq!(combobox.items().len(), 0);
         assert!(!combobox.is_open());
@@ -732,6 +733,7 @@ mod tests {
 
     #[test]
     fn test_add_items() {
+        crate::test_support::ensure_ambient_host();
         let mut combobox = ComboBox::new(1, 10, 20, 150, 25);
         combobox.add_item(ComboBoxItem::new(1, "Item 1"));
         combobox.add_item(ComboBoxItem::new(2, "Item 2"));
@@ -744,6 +746,7 @@ mod tests {
 
     #[test]
     fn select_index_sets_text_after_explicit_selection_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut combobox = ComboBox::new(1, 10, 20, 150, 25);
         combobox.add_item(ComboBoxItem::new(1, "Item 1"));
         combobox.add_item(ComboBoxItem::new(2, "Item 2"));
@@ -755,6 +758,7 @@ mod tests {
 
     #[test]
     fn test_select_item() {
+        crate::test_support::ensure_ambient_host();
         let mut combobox = ComboBox::new(1, 10, 20, 150, 25);
         combobox.add_item(ComboBoxItem::new(1, "Item 1"));
         combobox.add_item(ComboBoxItem::new(2, "Item 2"));
@@ -765,6 +769,7 @@ mod tests {
 
     #[test]
     fn test_dropdown_toggle() {
+        crate::test_support::ensure_ambient_host();
         let mut combobox = ComboBox::new(1, 10, 20, 150, 25);
         combobox.add_item(ComboBoxItem::new(1, "Item 1"));
 
@@ -777,6 +782,7 @@ mod tests {
 
     #[test]
     fn keyboard_arrows_and_tab_request_focus_navigation_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut combobox = ComboBox::new(1, 10, 20, 150, 25);
         combobox.add_item(ComboBoxItem::new(1, "Item 1"));
         combobox.add_item(ComboBoxItem::new(2, "Item 2"));
@@ -806,6 +812,7 @@ mod tests {
 
     #[test]
     fn opens_on_left_up_not_left_down_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut combobox = ComboBox::new(1, 10, 20, 150, 25);
         combobox.add_item(ComboBoxItem::new(1, "Item 1"));
 
@@ -845,6 +852,7 @@ mod tests {
 
     #[test]
     fn outside_mouse_up_closes_open_dropdown_like_cpp_lone_window() {
+        crate::test_support::ensure_ambient_host();
         let mut combobox = ComboBox::new(1, 10, 20, 150, 25);
         combobox.add_item(ComboBoxItem::new(1, "Item 1"));
         let _ = combobox.handle_input(&InputEvent::MouseUp {
@@ -868,6 +876,7 @@ mod tests {
 
     #[test]
     fn combobox_render_commands_cover_main_edit_and_dropdown_button() {
+        crate::test_support::ensure_ambient_host();
         let theme = GadgetTheme::default();
         let mut combobox = ComboBox::new(1, 10, 20, 150, 25);
         combobox.add_item(ComboBoxItem::new(1, "Item 1"));
@@ -903,6 +912,7 @@ mod tests {
 
     #[test]
     fn combobox_render_commands_cover_open_list_visible_items_and_hidden() {
+        crate::test_support::ensure_ambient_host();
         let theme = GadgetTheme::default();
         let mut combobox = ComboBox::new(1, 10, 20, 150, 25);
         combobox.add_item(ComboBoxItem::new(1, "Item 1"));
@@ -975,6 +985,7 @@ mod tests {
 
     #[test]
     fn enter_space_escape_do_not_toggle_or_close_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut combobox = ComboBox::new(1, 10, 20, 150, 25);
         combobox.add_item(ComboBoxItem::new(1, "Item 1"));
         combobox.set_focus(true);
@@ -997,6 +1008,7 @@ mod tests {
 
     #[test]
     fn keyboard_chars_do_not_edit_combo_shadow_string_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut combobox = ComboBox::new(1, 10, 20, 150, 25);
         combobox.add_item(ComboBoxItem::new(1, "Item 1"));
         combobox.select_index(0);

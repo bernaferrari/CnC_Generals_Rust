@@ -409,6 +409,15 @@ impl Object {
     ///
     /// Every enabled StealthUpdate except mines and disguise-transition writes
     /// `setEffectiveOpacity(0.5 + sin(phase)*0.5)` and advances `m_pulsePhase`.
+    /// Authored StealthUpdate `InnateStealth Yes` + `StealthForbiddenConditions`
+    /// containing `ATTACKING`: returns the authored StealthDelay in ms (None
+    /// when unauthored). Outer None when the template lacks that module data.
+    pub(crate) fn authored_innate_attacking_stealth_delay_ms(&self) -> Option<Option<u32>> {
+        let t = &self.thing.template;
+        (t.stealth_update_innate && t.stealth_update_forbids_attacking)
+            .then_some(t.stealth_update_delay_ms)
+    }
+
     pub fn apply_stealth_update_pulse(&mut self) {
         if !self.stealth_or_detector_update_processes() {
             return;
@@ -606,7 +615,7 @@ impl Object {
         last_fire_slot == 0 && last_fire_sim_time > 0.0
     }
 
-    /// C++ Object::setVisionSpied residual (refcounted mask simplified to bitmask).
+    /// C++ Object::setVisionSpied (Object.cpp:5220-5250) per-player refcount.
     /// When on, spying player treats this unit as a temporary looker / revealed target.
     pub fn set_vision_spied_by_player(&mut self, player_id: u32, on: bool) {
         self.set_vision_spied_with_partition_context(player_id, on, None);
@@ -626,24 +635,38 @@ impl Object {
         partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
     ) {
         self.require_partition_owner(partition.as_deref());
-        let old_mask = self.vision_spied_mask;
-        let bit = 1u32 << player_id.min(31);
-        if on {
-            self.vision_spied_mask |= bit;
-        } else {
-            self.vision_spied_mask &= !bit;
+        // C++ Object.cpp:5220-5250: refcount per player; rebuild mask only on 0<->1 edge.
+        let idx = player_id as usize;
+        if idx >= self.vision_spied_by.len() {
+            return;
         }
-        if old_mask != self.vision_spied_mask {
+        let count = &mut self.vision_spied_by[idx];
+        *count = if on { count.wrapping_add(1) } else { count.wrapping_sub(1) };
+        let edge = if on { *count == 1 } else { *count == 0 };
+        if edge {
+            self.rebuild_vision_spied_mask();
             if let Some(partition) = partition {
                 self.handle_partition_cell_maintenance_with_partition_owner(partition);
             }
         }
     }
 
-    /// True if `player_id` currently has vision-spied residual on this unit.
+    /// Derive `vision_spied_mask` from `vision_spied_by` counts (Object.cpp:5232-5240).
+    pub fn rebuild_vision_spied_mask(&mut self) {
+        let mut mask = 0u32;
+        for (i, count) in self.vision_spied_by.iter().enumerate() {
+            if *count > 0 {
+                mask |= 1u32 << i;
+            }
+        }
+        self.vision_spied_mask = mask;
+    }
+
+    /// True if `player_id` currently spies this unit (`m_visionSpiedBy[i] > 0`).
     pub fn is_vision_spied_by_player(&self, player_id: u32) -> bool {
-        let bit = 1u32 << player_id.min(31);
-        (self.vision_spied_mask & bit) != 0
+        self.vision_spied_by
+            .get(player_id as usize)
+            .is_some_and(|count| *count > 0)
     }
 
     /// C++ `Object::getShroudClearingRange` (Object.cpp:5128-5140).
@@ -868,22 +891,25 @@ pub const SOUND_STEALTH_ON: &str = "StealthOn";
 pub const SOUND_STEALTH_OFF: &str = "StealthOff";
 
 /// C++ `StealthUpdate` `m_orderIdleEnemiesToAttackMeUponReveal` for retail units.
-pub fn order_idle_enemies_on_reveal(template_name: &str) -> bool {
+/// `authored_black_lotus`: template authors the Black Lotus capture power
+/// (`CapturePowerKind::BlackLotus`), the Lotus StealthUpdate owner.
+/// `authored_pathfinder`: WeaponSet authors `USAPathfinderSniperRifle` (hq-2qedt.261).
+pub fn order_idle_enemies_on_reveal(
+    template_name: &str,
+    authored_black_lotus: bool,
+    authored_pathfinder: bool,
+) -> bool {
     use crate::game_logic::host_colonel_burton::{
         BURTON_ORDER_IDLE_ENEMIES_ON_REVEAL, is_colonel_burton_template,
     };
-    use crate::game_logic::host_hero_abilities::{
-        LOTUS_ORDER_IDLE_ENEMIES_ON_REVEAL, is_black_lotus_template,
-    };
+    use crate::game_logic::host_hero_abilities::LOTUS_ORDER_IDLE_ENEMIES_ON_REVEAL;
     use crate::game_logic::host_jarmen_kell::{
         JARMEN_ORDER_IDLE_ENEMIES_ON_REVEAL, is_jarmen_kell_template,
     };
     use crate::game_logic::host_listening_outpost::{
         LISTENING_OUTPOST_ORDER_IDLE_ENEMIES_ON_REVEAL, is_listening_outpost_template,
     };
-    use crate::game_logic::host_pathfinder::{
-        PATHFINDER_ORDER_IDLE_ENEMIES_ON_REVEAL, is_pathfinder_template,
-    };
+    use crate::game_logic::host_pathfinder::PATHFINDER_ORDER_IDLE_ENEMIES_ON_REVEAL;
     use crate::game_logic::host_upgrades::is_camo_netting_structure_template;
 
     if is_colonel_burton_template(template_name) {
@@ -892,10 +918,10 @@ pub fn order_idle_enemies_on_reveal(template_name: &str) -> bool {
     if is_jarmen_kell_template(template_name) {
         return JARMEN_ORDER_IDLE_ENEMIES_ON_REVEAL;
     }
-    if is_black_lotus_template(template_name) {
+    if authored_black_lotus {
         return LOTUS_ORDER_IDLE_ENEMIES_ON_REVEAL;
     }
-    if is_pathfinder_template(template_name) {
+    if authored_pathfinder {
         return PATHFINDER_ORDER_IDLE_ENEMIES_ON_REVEAL;
     }
     if is_listening_outpost_template(template_name) {
@@ -1608,15 +1634,13 @@ mod stealth_grant_tests {
 
     #[test]
     fn order_idle_enemies_on_reveal_matches_retail_heroes() {
-        assert!(order_idle_enemies_on_reveal("AmericaInfantryColonelBurton"));
-        assert!(order_idle_enemies_on_reveal("GLAInfantryJarmenKell"));
-        assert!(order_idle_enemies_on_reveal("ChinaInfantryBlackLotus"));
-        assert!(order_idle_enemies_on_reveal("AmericaInfantryPathfinder"));
-        assert!(order_idle_enemies_on_reveal(
-            "AmericaVehicleListeningOutpost"
-        ));
-        assert!(order_idle_enemies_on_reveal("GLATunnelNetwork"));
-        assert!(!order_idle_enemies_on_reveal("AmericaInfantryRanger"));
+        assert!(order_idle_enemies_on_reveal("AmericaInfantryColonelBurton", false, false));
+        assert!(order_idle_enemies_on_reveal("GLAInfantryJarmenKell", false, false));
+        assert!(order_idle_enemies_on_reveal("ChinaInfantryBlackLotus", true, false));
+        assert!(order_idle_enemies_on_reveal("AmericaInfantryPathfinder", false, true));
+        assert!(order_idle_enemies_on_reveal("AmericaVehicleListeningOutpost", false, false));
+        assert!(order_idle_enemies_on_reveal("GLATunnelNetwork", false, false));
+        assert!(!order_idle_enemies_on_reveal("AmericaInfantryRanger", false, false));
     }
 
     #[test]
@@ -1730,5 +1754,24 @@ mod detector_material_tests {
             Some(0.375),
             "excluded scans are inert"
         );
+    }
+}
+
+#[cfg(test)]
+mod vision_spied_refcount_tests {
+    use crate::game_logic::{Object, ObjectId, Team, ThingTemplate};
+
+    #[test]
+    fn vision_spied_two_sources_one_off_keeps_vision_like_cpp_refcount() {
+        // C++ Object.cpp:5220-5250 m_visionSpiedBy[] refcount; mask rebuilt only on 0<->1.
+        let mut obj = Object::new(ThingTemplate::new("SpiedTank"), ObjectId(9), Team::GLA);
+        obj.set_vision_spied_by_player(2, true);
+        obj.set_vision_spied_by_player(2, true);
+        obj.set_vision_spied_by_player(2, false);
+        assert!(obj.is_vision_spied_by_player(2), "one spy source still on");
+        assert_eq!(obj.vision_spied_mask, 1 << 2);
+        obj.set_vision_spied_by_player(2, false);
+        assert!(!obj.is_vision_spied_by_player(2));
+        assert_eq!(obj.vision_spied_mask, 0);
     }
 }

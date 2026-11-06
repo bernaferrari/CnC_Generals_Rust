@@ -8,7 +8,7 @@
 //! - IgnorePreferences: Player ignore list settings
 
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
 use crate::common::ini::ini_map_cache::{get_map_cache, init_global_map_cache};
 use crate::common::ini::ini_multiplayer::with_multiplayer_settings;
@@ -784,24 +784,17 @@ fn default_starting_cash() -> u32 {
     })
 }
 
+/// C++ `IgnorePreferences` — UserPreferences map of profileID → username
+/// (`UserPreferences.cpp:815-849`). Keys are decimal profile IDs; values are
+/// last-login usernames. Written in BTreeMap / AsciiString map order.
 pub struct IgnorePreferences {
-    /// Set of ignored player names/IDs
-    pub ignored_players: HashSet<String>,
-    /// Block ignored players from chat
-    pub block_chat: bool,
-    /// Block ignored players from joining games
-    pub block_game_join: bool,
-    /// Block ignored players from invites
-    pub block_invites: bool,
+    pub(crate) prefs: UserPreferences,
 }
 
 impl Default for IgnorePreferences {
     fn default() -> Self {
         Self {
-            ignored_players: HashSet::new(),
-            block_chat: true,
-            block_game_join: true,
-            block_invites: true,
+            prefs: UserPreferences::new(),
         }
     }
 }
@@ -811,60 +804,68 @@ impl IgnorePreferences {
         Self::default()
     }
 
-    pub fn add_player(&mut self, player_id: String) {
-        self.ignored_players.insert(player_id);
+    /// Load from the per-profile ignore INI (C++ ctor path).
+    pub fn load_profile(&mut self, local_profile_id: i32) -> bool {
+        let filename = format!("GeneralsOnline/IgnorePref{local_profile_id}.ini");
+        self.prefs.load(&filename)
     }
 
-    pub fn remove_player(&mut self, player_id: &str) -> bool {
-        self.ignored_players.remove(player_id)
-    }
-
-    pub fn is_ignored(&self, player_id: &str) -> bool {
-        self.ignored_players.contains(player_id)
-    }
-
-    pub fn clear_all(&mut self) {
-        self.ignored_players.clear();
-    }
-
-    pub fn load(&mut self, data: HashMap<String, PreferenceValue>) {
-        for (key, value) in data {
-            match key.as_str() {
-                "block_chat" => {
-                    if let Some(v) = value.as_bool() {
-                        self.block_chat = v;
-                    }
-                }
-                "block_game_join" => {
-                    if let Some(v) = value.as_bool() {
-                        self.block_game_join = v;
-                    }
-                }
-                "block_invites" => {
-                    if let Some(v) = value.as_bool() {
-                        self.block_invites = v;
-                    }
-                }
-                _ => {}
-            }
+    /// C++ `IgnorePreferences::setIgnore` — store profileID→userName when ignore,
+    /// erase the profileID key when not ignoring.
+    pub fn set_ignore(&mut self, user_name: &str, profile_id: i32, ignore: bool) {
+        let key = profile_id.to_string();
+        if ignore {
+            self.prefs.set_string(&key, user_name.to_string());
+        } else {
+            self.prefs.remove(&key);
         }
     }
 
-    pub fn save(&self) -> HashMap<String, PreferenceValue> {
-        let mut data = HashMap::new();
-        data.insert(
-            "block_chat".to_string(),
-            PreferenceValue::Bool(self.block_chat),
-        );
-        data.insert(
-            "block_game_join".to_string(),
-            PreferenceValue::Bool(self.block_game_join),
-        );
-        data.insert(
-            "block_invites".to_string(),
-            PreferenceValue::Bool(self.block_invites),
-        );
-        data
+    /// C++ `IgnorePreferences::getIgnores` — profileID → username map.
+    pub fn get_ignores(&self) -> BTreeMap<i32, String> {
+        let mut ignores = BTreeMap::new();
+        for (key, value) in self.prefs.entries() {
+            if let Ok(profile_id) = key.parse::<i32>() {
+                ignores.insert(profile_id, value.clone());
+            }
+        }
+        ignores
+    }
+
+    pub fn write(&self) -> bool {
+        self.prefs.write()
+    }
+
+    pub fn add_player(&mut self, player_id: String) {
+        // Legacy helper: treat the string as a username with profile 0.
+        self.set_ignore(&player_id, 0, true);
+    }
+
+    pub fn remove_player(&mut self, player_id: &str) -> bool {
+        let before = self.get_ignores().len();
+        // Remove by username match.
+        let ids: Vec<i32> = self
+            .get_ignores()
+            .into_iter()
+            .filter(|(_, name)| name == player_id)
+            .map(|(id, _)| id)
+            .collect();
+        for id in ids {
+            self.set_ignore(player_id, id, false);
+        }
+        self.get_ignores().len() < before
+    }
+
+    pub fn is_ignored(&self, player_id: &str) -> bool {
+        self.get_ignores().values().any(|name| name == player_id)
+            || player_id
+                .parse::<i32>()
+                .ok()
+                .is_some_and(|id| self.get_ignores().contains_key(&id))
+    }
+
+    pub fn clear_all(&mut self) {
+        self.prefs.clear();
     }
 }
 
@@ -1012,13 +1013,38 @@ mod tests {
     #[test]
     fn test_ignore_preferences() {
         let mut prefs = IgnorePreferences::new();
-        assert_eq!(prefs.ignored_players.len(), 0);
+        assert!(prefs.get_ignores().is_empty());
 
-        prefs.add_player("BadPlayer123".to_string());
+        // C++ setIgnore: key = profileID string, value = userName
+        prefs.set_ignore("BadPlayer123", 42, true);
+        prefs.set_ignore("AlphaUser", 7, true);
+        assert_eq!(prefs.get_ignores().get(&42).map(String::as_str), Some("BadPlayer123"));
         assert!(prefs.is_ignored("BadPlayer123"));
+        assert!(prefs.is_ignored("42"));
         assert!(!prefs.is_ignored("GoodPlayer456"));
 
-        prefs.remove_player("BadPlayer123");
+        // Round-trip through UserPreferences write (sorted profile-id keys).
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("IgnorePref1.ini");
+        prefs.prefs.filename = Some(path.clone());
+        assert!(prefs.write());
+        let body = std::fs::read_to_string(&path).unwrap();
+        let keys: Vec<&str> = body
+            .lines()
+            .filter_map(|line| line.split_once('=').map(|(k, _)| k.trim()))
+            .collect();
+        assert_eq!(keys, vec!["42", "7"]);
+
+        let mut reloaded = IgnorePreferences::new();
+        reloaded.prefs.filename = Some(path.clone());
+        assert!(reloaded.prefs.load(path.to_str().unwrap()));
+        assert_eq!(
+            reloaded.get_ignores().get(&42).map(String::as_str),
+            Some("BadPlayer123")
+        );
+
+        prefs.set_ignore("BadPlayer123", 42, false);
+        assert!(!prefs.get_ignores().contains_key(&42));
         assert!(!prefs.is_ignored("BadPlayer123"));
     }
 

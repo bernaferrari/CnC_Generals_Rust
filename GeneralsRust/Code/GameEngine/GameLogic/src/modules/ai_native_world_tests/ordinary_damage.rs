@@ -11,6 +11,9 @@ pub(super) fn damage_actor(heals: bool) -> Arc<dyn ThingTemplate> {
     damage_actor_with_physics(heals, false)
 }
 fn damage_actor_with_physics(heals: bool, physics: bool) -> Arc<dyn ThingTemplate> {
+    damage_actor_kinded(heals, physics, KindOf::Infantry)
+}
+fn damage_actor_kinded(heals: bool, physics: bool, kind: KindOf) -> Arc<dyn ThingTemplate> {
     let mut base = DefaultThingTemplate::new(
         if heals {
             "OwnedDamageHealer"
@@ -19,7 +22,7 @@ fn damage_actor_with_physics(heals: bool, physics: bool) -> Arc<dyn ThingTemplat
         }
         .into(),
     );
-    base.add_kind_of(KindOf::Infantry);
+    base.add_kind_of(kind);
     let body = ActiveBodyModuleData {
         max_health: 100.0,
         initial_health: 100.0,
@@ -68,6 +71,9 @@ fn receiving_damage_world() -> NativeMatch {
     receiving_damage_world_with_physics(false)
 }
 fn receiving_damage_world_with_physics(physics: bool) -> NativeMatch {
+    receiving_damage_world_kinded(physics, KindOf::Infantry)
+}
+fn receiving_damage_world_kinded(physics: bool, kind: KindOf) -> NativeMatch {
     let mut game = NativeMatch::new(150.0);
     let mut factory = ObjectFactory::new();
     let definitions = Arc::new(
@@ -78,7 +84,7 @@ fn receiving_damage_world_with_physics(physics: bool) -> NativeMatch {
         )
         .unwrap(),
     );
-    let source_template = damage_actor_with_physics(true, physics);
+    let source_template = damage_actor_kinded(true, physics, kind);
     let target_template = damage_actor(false);
     let mut catalog = game_engine::common::thing::module_factory::ModuleFactory::new();
     crate::contain_module_overrides::register_native_module_overrides(&mut catalog).unwrap();
@@ -382,4 +388,109 @@ fn unavailable_shock_module_rejects_before_body_and_restored_impulse_uses_receiv
     );
     assert!(receiver_physics.installed_is_stunned().unwrap());
     assert_eq!(health(&peer.source), 100.0);
+}
+#[test]
+fn owned_kill_pilot_unmans_vehicle_without_hull_damage() {
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+    with_world_services(&new_world_services(), owned_kill_pilot_body);
+}
+fn owned_kill_pilot_body() {
+    use crate::common::DisabledType;
+    let mut first = receiving_damage_world_kinded(false, KindOf::Vehicle);
+    let peer = receiving_damage_world_kinded(false, KindOf::Vehicle);
+    let owner = Arc::clone(&first.source);
+    let wake = healing_wake(&first);
+    let mut damage = hit(2, 50.0);
+    damage.input.damage_type = DamageType::KillPilot;
+    first.operate(300, |world| {
+        assert_eq!(
+            world.attempt_damage_owned(&owner, &mut damage),
+            Ok(0.0),
+            "C++ ActiveBody DAMAGE_KILLPILOT is alreadyHandled on owned path"
+        )
+    });
+    let object = first.source.read().unwrap();
+    assert!(object.is_disabled_by_type(DisabledType::DisabledUnmanned));
+    assert!(!object.is_effectively_dead());
+    drop(object);
+    assert_eq!(health(&first.source), 100.0, "KillPilot never drains hull HP");
+    assert_eq!(healing_wake(&first), wake, "no onDamage for handled KillPilot");
+    assert!(!peer
+        .source
+        .read()
+        .unwrap()
+        .is_disabled_by_type(DisabledType::DisabledUnmanned));
+    assert_eq!(health(&peer.source), 100.0);
+}
+
+fn attacked_state(game: &NativeMatch, victim: i32, attacker: i32) -> (bool, u32) {
+    let player = game.players.get_player(victim).unwrap();
+    let player = player.read().unwrap();
+    (player.get_attacked_by(attacker), player.get_attacked_frame())
+}
+
+#[test]
+fn attacked_by_same_id_two_worlds_records_only_receiving_player_in_delivery_order() {
+    // CPP ActiveBody::attemptDamage -> victim controller Player::setAttackedBy(srcIndex),
+    // m_attackedFrame = TheGameLogic->getFrame(); per-Player, no process-global log.
+    let services = crate::system::engine_stores::new_world_services();
+    crate::system::engine_stores::with_world_services(&services, || {
+    let mut game =
+        super::lethal_damage::native_world_with_templates(damage_actor(false), damage_actor(false));
+    let peer =
+        super::lethal_damage::native_world_with_templates(damage_actor(false), damage_actor(false));
+    let source = game.source.read().unwrap().get_id();
+    assert_eq!(source, peer.source.read().unwrap().get_id());
+    let target = Arc::clone(&game.target);
+    assert_eq!(target.read().unwrap().get_id(), peer.target.read().unwrap().get_id());
+    let peer_victim = peer.players.get_player(1).unwrap();
+    let peer_guard = peer_victim.write().unwrap();
+    game.operate(40, |world| {
+        assert_eq!(world.attempt_damage_owned(&target, &mut hit(source, 10.0)).unwrap(), 10.0)
+    });
+    assert_eq!(attacked_state(&game, 1, 0), (true, 40));
+    assert_eq!(attacked_state(&game, 0, 1), (false, 0));
+    game.operate(47, |world| {
+        world.attempt_damage_owned(&target, &mut hit(source, 5.0)).unwrap()
+    });
+    assert_eq!(attacked_state(&game, 1, 0), (true, 47), "later delivery restamps frame");
+    drop(peer_guard);
+    assert_eq!(attacked_state(&peer, 1, 0), (false, 0));
+    assert_eq!(health(&peer.target), 100.0);
+    // A zero-amount delivery never reaches setAttackedBy (amount > 0 gate).
+    game.operate(52, |world| {
+        world.attempt_damage_owned(&target, &mut hit(source, 0.0)).unwrap()
+    });
+    assert_eq!(attacked_state(&game, 1, 0), (true, 47));
+    });
+}
+
+#[test]
+fn attacked_by_restamps_on_positive_damage_without_health_drop() {
+    // CPP ActiveBody.cpp:497-583: inside `amount > 0 || m_kill`, setAttackedBy runs
+    // from m_lastDamageInfo before the `m_currentHealth < m_prevHealth` onDamage gate.
+    // A sub-ulp Real amount (90.0f - 1e-6f == 90.0f) is amount>0 with no HP drop.
+    let services = crate::system::engine_stores::new_world_services();
+    crate::system::engine_stores::with_world_services(&services, || {
+        let mut game = super::lethal_damage::native_world_with_templates(
+            damage_actor(false),
+            damage_actor(false),
+        );
+        let source = game.source.read().unwrap().get_id();
+        let target = Arc::clone(&game.target);
+        game.operate(40, |world| {
+            world.attempt_damage_owned(&target, &mut hit(source, 10.0)).unwrap()
+        });
+        assert_eq!(health(&target), 90.0);
+        assert_eq!(attacked_state(&game, 1, 0), (true, 40));
+        game.operate(47, |world| {
+            world.attempt_damage_owned(&target, &mut hit(source, 1.0e-6)).unwrap()
+        });
+        assert_eq!(health(&target), 90.0, "sub-ulp damage: no HP drop");
+        assert_eq!(
+            attacked_state(&game, 1, 0),
+            (true, 47),
+            "positive damage restamps attacked frame even without HP drop"
+        );
+    });
 }

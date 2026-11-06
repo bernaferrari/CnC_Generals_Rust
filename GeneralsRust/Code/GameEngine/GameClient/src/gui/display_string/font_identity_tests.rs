@@ -18,6 +18,7 @@ fn independently_cached_fonts() -> (Arc<GameFont>, Arc<GameFont>) {
 // updating extents. Equal authored descriptors do not mean equal sources.
 #[test]
 fn owned_font_replacement_uses_identity_and_invalidates_layout() {
+    crate::test_support::ensure_ambient_host();
     let (first, replacement) = independently_cached_fonts();
     let mut display = DisplayString::new();
     display.set_text("Generals");
@@ -33,6 +34,7 @@ fn owned_font_replacement_uses_identity_and_invalidates_layout() {
 
 #[test]
 fn borrowed_arc_font_replacement_uses_identity_and_invalidates_layout() {
+    crate::test_support::ensure_ambient_host();
     let (first, replacement) = independently_cached_fonts();
     let mut display = DisplayString::new();
     display.set_text("Generals");

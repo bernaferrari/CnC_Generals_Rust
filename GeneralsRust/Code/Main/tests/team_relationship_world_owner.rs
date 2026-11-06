@@ -523,7 +523,6 @@ fn strategic_ai_uses_each_players_exact_default_team() {
     }
     let make_ai = || {
         let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
-        ai.enemy_check_time = -5.0;
         ai.next_building_time = f32::MAX;
         ai.next_team_time = f32::MAX;
         ai.next_team_queue_time = f32::MAX;

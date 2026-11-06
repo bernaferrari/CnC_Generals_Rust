@@ -355,3 +355,137 @@ fn nonnull_zero_mask_grant_rechecks_completed_player_upgrade() {
     });
     assert_eq!(crc_after, vec![1, 1]);
 }
+
+// hq-2qedt.67 — C++ UpgradeModule.cpp:105-147,191-201 + Object.cpp:4491-4503:
+// ConflictsWith blocks attemptUpgrade without latching; a later module's
+// RemovesUpgrades resets an earlier, already-executed module's latch so the
+// next updateUpgradeModules re-runs it in authored order.
+#[test]
+fn conflicts_block_without_latch_and_later_removal_resets_earlier_latch() {
+    if !child(concat!(
+        module_path!(),
+        "::conflicts_block_without_latch_and_later_removal_resets_earlier_latch"
+    )) {
+        return;
+    }
+    let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+    game_engine::common::common_services::with_common_services(&common, || {
+        let stores = crate::system::engine_stores::new_for_world();
+        crate::system::engine_stores::with_active_stores(&stores, conflict_reset_body);
+    });
+}
+
+fn conflict_reset_body() {
+    let modules = format!(
+        " Behavior = StatusBitsUpgrade EarlySet\n TriggeredBy = {FIRST}\n ConflictsWith = {SECOND}\n StatusToSet = MASKED\n End\n Behavior = StatusBitsUpgrade LateRemoves\n TriggeredBy = {SECOND}\n RemovesUpgrades = {FIRST}\n StatusToClear = MASKED\n End\n"
+    );
+    let owner = owner("OwnedAdmissionConflictReset", &modules, true);
+    // SECOND alone: LateRemoves runs (removing absent FIRST is a no-op).
+    owner
+        .write()
+        .unwrap()
+        .give_upgrade(&upgrade(SECOND, UpgradeType::Object));
+    // FIRST with SECOND owned: EarlySet conflicts -> not run, not latched.
+    owner
+        .write()
+        .unwrap()
+        .give_upgrade(&upgrade(FIRST, UpgradeType::Object));
+    assert!(
+        !status(&owner, ObjectStatusMaskType::MASKED),
+        "ConflictsWith in key mask blocks attemptUpgrade"
+    );
+    // Drop SECOND (resets LateRemoves), then regrant FIRST: EarlySet now runs.
+    owner
+        .write()
+        .unwrap()
+        .remove_upgrade_mask(mask(SECOND));
+    owner
+        .write()
+        .unwrap()
+        .give_upgrade(&upgrade(FIRST, UpgradeType::Object));
+    assert!(
+        status(&owner, ObjectStatusMaskType::MASKED),
+        "conflict-blocked module never latched, so it runs once the conflict clears"
+    );
+    // SECOND again: EarlySet already latched (skip); LateRemoves removes FIRST
+    // (resetting EarlySet) and clears MASKED.
+    owner
+        .write()
+        .unwrap()
+        .give_upgrade(&upgrade(SECOND, UpgradeType::Object));
+    assert!(!status(&owner, ObjectStatusMaskType::MASKED));
+    assert_eq!(owner.read().unwrap().completed_upgrades(), mask(SECOND));
+    // Remove SECOND, regrant FIRST: EarlySet latch was reset by the later
+    // module's removal, so it re-runs.
+    owner
+        .write()
+        .unwrap()
+        .remove_upgrade_mask(mask(SECOND));
+    owner
+        .write()
+        .unwrap()
+        .give_upgrade(&upgrade(FIRST, UpgradeType::Object));
+    assert!(
+        status(&owner, ObjectStatusMaskType::MASKED),
+        "later RemovesUpgrades reset the earlier executed module (C++ resetUpgrade)"
+    );
+}
+
+// hq-2qedt.18 — C++ Object.cpp onVeterancyLevelChanged: updateUpgradeModules()
+// runs *before* findVeterancyUpgrade/giveUpgrade and before the Body callback.
+// A module triggered by a researched PLAYER upgrade that ConflictsWith the rank
+// upgrade only runs if the pre-rank scan happens first; dropping or moving that
+// scan after giveUpgrade(Upgrade_Veterancy_VETERAN) leaves it conflict-blocked.
+#[test]
+fn veterancy_change_rescans_upgrade_modules_before_rank_upgrade_and_body() {
+    if !child(concat!(
+        module_path!(),
+        "::veterancy_change_rescans_upgrade_modules_before_rank_upgrade_and_body"
+    )) {
+        return;
+    }
+    let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+    game_engine::common::common_services::with_common_services(&common, || {
+        let stores = crate::system::engine_stores::new_for_world();
+        crate::system::engine_stores::with_active_stores(&stores, pre_rank_rescan_body);
+    });
+}
+
+fn pre_rank_rescan_body() {
+    let veteran = crate::upgrade::center::get_upgrade_center()
+        .read()
+        .unwrap()
+        .find_veterancy_upgrade("VETERAN")
+        .expect("C++ UpgradeCenter::init creates rank upgrades");
+    let veteran_name = veteran.get_name().as_str().to_owned();
+    assert_eq!(veteran_name, "Upgrade_Veterancy_VETERAN");
+    let player = player();
+    let first = upgrade(FIRST, UpgradeType::Player);
+    player.add_upgrade(&first, UpgradeStatus::Complete, None);
+    let owner = owner(
+        "OwnedAdmissionPreRankRescan",
+        &format!(
+            " Behavior = StatusBitsUpgrade PreRankPlayerUpgrade\n TriggeredBy = {FIRST}\n ConflictsWith = {veteran_name}\n StatusToSet = MASKED\n End\n"
+        ),
+        true,
+    );
+    // Installed before set_team supplied the player: module has not run.
+    assert!(!status(&owner, ObjectStatusMaskType::MASKED));
+    owner.write().unwrap().on_veterancy_level_changed(
+        VeterancyLevel::Regular,
+        VeterancyLevel::Veteran,
+        false,
+    );
+    assert!(
+        owner
+            .read()
+            .unwrap()
+            .completed_upgrades()
+            .contains(UpgradeMaskType::from_bits_retain(veteran.mask().to_bits())),
+        "rank giveUpgrade still follows the pre-rank scan"
+    );
+    assert!(
+        status(&owner, ObjectStatusMaskType::MASKED),
+        "pre-rank updateUpgradeModules ran before the VETERAN conflict existed (C++ order)"
+    );
+}

@@ -187,26 +187,47 @@ impl AIPlayer {
             .any(|object| object.team == team && object.is_alive() && object.can_construct())
     }
 
-    pub(super) fn is_dozer_work_order_template(template_name: &str) -> bool {
-        let n = template_name.to_ascii_lowercase();
-        n.contains("dozer") || n.contains("infantryworker") || n.ends_with("worker")
+    /// C++ queueDozer / work-order gates use KINDOF_DOZER, never a name peel.
+    pub(super) fn is_dozer_work_order_template(
+        world: &GameLogic,
+        template_name: &str,
+    ) -> bool {
+        world
+            .templates
+            .get(template_name)
+            .is_some_and(|template| template.is_kind_of(crate::game_logic::KindOf::Dozer))
     }
 
-    pub(super) fn dozer_already_queued(&self) -> bool {
+    pub(super) fn dozer_already_queued(&self, world: &GameLogic) -> bool {
         self.team_queue.iter().any(|team| {
-            team.work_orders
-                .iter()
-                .any(|order| Self::is_dozer_work_order_template(&order.template_name))
+            team.work_orders.iter().any(|order| {
+                Self::is_dozer_work_order_template(world, &order.template_name)
+            })
         })
     }
 
-    pub(super) fn faction_dozer_template(team: Team) -> Option<&'static str> {
-        match team {
-            Team::USA => Some("AmericaVehicleDozer"),
-            Team::China => Some("ChinaVehicleDozer"),
-            Team::GLA => Some("GLAInfantryWorker"),
-            _ => None,
+    /// C++ `AIPlayer::queueDozer` walks TheThingFactory for KINDOF_DOZER and
+    /// queues the first template that has a busyOK factory. There is no
+    /// faction name fallback: an empty catalog queues nothing.
+    pub(super) fn first_dozer_template_with_factory(
+        world: &GameLogic,
+        team: Team,
+    ) -> Option<(String, crate::game_logic::ObjectId)> {
+        let mut names: Vec<String> = world
+            .templates
+            .iter()
+            .filter(|(_, template)| template.is_kind_of(KindOf::Dozer))
+            .map(|(name, _)| name.clone())
+            .collect();
+        // HashMap has no INI chain; name order keeps the empty/present outcome
+        // stable across runs when several Dozer kinds share one catalog.
+        names.sort();
+        for name in names {
+            if let Some(factory) = Self::find_factory_for_unit_ex(world, &name, team, true) {
+                return Some((name, factory));
+            }
         }
+        None
     }
 
     /// C++ `AIPlayer::queueDozer` (AIPlayer.cpp:3128-3171): prepend a priority
@@ -222,25 +243,24 @@ impl AIPlayer {
         &self,
         world: &GameLogic,
     ) -> Option<super::economic_owner::DozerQueueAttempt> {
-        if self.dozer_already_queued() {
+        if self.dozer_already_queued(world) {
             return None;
         }
-        let template = Self::faction_dozer_template(self.team)?;
-        let factory = Self::find_factory_for_unit_ex(world, template, self.team, true)?;
+        let (template, factory) = Self::first_dozer_template_with_factory(world, self.team)?;
         let mut preexisting: Vec<_> = world
             .host_objects()
             .registered()
             .filter_map(|(&id, object)| {
                 (world.object_owned_by_player(object, self.player_id)
                     && object.producer_id == Some(factory)
-                    && object.template_name.eq_ignore_ascii_case(template))
+                    && object.template_name.eq_ignore_ascii_case(&template))
                 .then_some(id)
             })
             .collect();
         preexisting.sort_by_key(|id| id.0);
         Some(super::economic_owner::DozerQueueAttempt {
             player: self.player_id,
-            template: template.into(),
+            template,
             factory,
             preexisting,
         })
@@ -546,9 +566,10 @@ impl AIPlayer {
         game_logic: &(impl AiReadSource + ?Sized),
         template_name: &str,
     ) -> bool {
+        // C++ KINDOF_FS_POWER && !KINDOF_CASH_GENERATOR — no name peel.
         let game_logic = &AiWorldView::new(game_logic);
         let Some(template) = game_logic.template(template_name) else {
-            return template_name.contains("PowerPlant");
+            return false;
         };
         let is_power =
             template.is_kind_of(KindOf::FSPower) || template.is_kind_of(KindOf::PowerPlant);
@@ -702,10 +723,7 @@ impl AIPlayer {
         let game_logic = &AiWorldView::new(game_logic);
         let is_cash = game_logic
             .template(thing_name)
-            .map(|t| t.is_kind_of(KindOf::SupplyCenter) || t.is_kind_of(KindOf::FSSupplyCenter))
-            .unwrap_or_else(|| {
-                thing_name.contains("SupplyCenter") || thing_name.contains("SupplyStash")
-            });
+            .is_some_and(|t| t.is_kind_of(KindOf::SupplyCenter) || t.is_kind_of(KindOf::FSSupplyCenter));
         // C++ always findSupplyCenter first; non-cash may then use m_curWarehouseID.
         let mut warehouse_id = self.find_supply_center_in_view(game_logic, minimum_cash);
         if !is_cash {

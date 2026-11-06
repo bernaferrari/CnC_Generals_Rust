@@ -116,9 +116,8 @@ impl ScriptActionHandler for MissionScriptActionHandler {
     }
 
     fn move_camera(&self, x: f32, y: f32, z: f32) -> GameLogicResult<()> {
-        static DEBUG_CAMERA_MOVE_LOGS: AtomicUsize = AtomicUsize::new(0);
-        let position = camera_coord3d_to_world(x, y, z);
-        if DEBUG_CAMERA_MOVE_LOGS.fetch_add(1, Ordering::Relaxed) < 16 {
+                let position = camera_coord3d_to_world(x, y, z);
+        if crate::main_services::main_services().debug_camera_move_logs.fetch_add(1, Ordering::Relaxed) < 16 {
             eprintln!(
                 "DEBUG_SHELL_CAMERA_ACTION: move_camera raw=({x:.3}, {y:.3}, {z:.3}) world={position:?}"
             );

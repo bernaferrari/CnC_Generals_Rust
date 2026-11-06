@@ -1,7 +1,6 @@
 use super::*;
 use glam::{Mat4, Vec3};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 
 mod template_metadata;
 pub(crate) use template_metadata::RallyPointExitOwner;
@@ -20,6 +19,7 @@ pub use template_metadata::{
     VeterancyGainCreateMetadata, apply_pack_unpack_variation_ms, pack_unpack_variation_multiplier,
 };
 
+mod authored_modules;
 mod template;
 pub(crate) use template::BodyKind;
 pub use template::ThingTemplate;

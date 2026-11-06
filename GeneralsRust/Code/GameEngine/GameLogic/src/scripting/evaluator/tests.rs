@@ -609,7 +609,8 @@ fn player_science_points_resolves_local_player_token_like_cpp() {
         player_guard.add_science_purchase_points(3);
     }
     {
-        let mut players = crate::player::player_list().write().unwrap();
+        let __player_list_arc = crate::player::player_list();
+        let mut players = __player_list_arc.write().unwrap();
         players.add_player(player);
         players.set_local_player_index(0);
     }
@@ -663,7 +664,8 @@ fn player_all_destroyed_resolves_local_player_token_like_cpp() {
         .unwrap()
         .set_display_name("EvaluatorEliminationLocalPlayer");
     {
-        let mut players = crate::player::player_list().write().unwrap();
+        let __player_list_arc = crate::player::player_list();
+        let mut players = __player_list_arc.write().unwrap();
         players.add_player(Arc::clone(&player));
         players.set_local_player_index(0);
     }
@@ -711,7 +713,8 @@ fn player_credits_resolves_side_tokens_and_missing_players_fail_closed_like_cpp(
         player_guard.get_money_mut().set_money(100);
     }
     {
-        let mut players = crate::player::player_list().write().unwrap();
+        let __player_list_arc = crate::player::player_list();
+        let mut players = __player_list_arc.write().unwrap();
         players.add_player(player);
         players.set_local_player_index(0);
     }
@@ -1036,7 +1039,8 @@ fn enemy_and_type_sighted_honor_cxx_relation_and_stealth_filters() {
         .unwrap()
         .set_display_name(TARGET_PLAYER_NAME);
     {
-        let mut players = crate::player::player_list().write().unwrap();
+        let __player_list_arc = crate::player::player_list();
+        let mut players = __player_list_arc.write().unwrap();
         players.add_player(source_player);
         players.add_player(target_player);
     }
@@ -1361,8 +1365,11 @@ fn test_victory_action() {
 
     let engine = get_script_engine();
     {
-        let guard = engine.write().unwrap();
-        let engine = guard.as_ref().unwrap();
+        let mut guard = engine.write().unwrap();
+        let engine = guard.as_mut().unwrap();
+        struct HeadlessWindows;
+        impl ScriptActionHandler for HeadlessWindows {}
+        engine.set_action_handler(Some(std::sync::Arc::new(HeadlessWindows)));
         engine.set_shown_mp_local_defeat_window(false);
         engine.close_windows(false);
         engine.set_campaign_victorious(false);

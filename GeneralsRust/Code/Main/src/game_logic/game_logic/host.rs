@@ -111,6 +111,9 @@ pub struct GameLogic {
     /// displaced (see `install_as_active_stores` and
     /// `impl Drop for GameLogic`).
     pub(crate) world_services: std::sync::Arc<gamelogic::system::engine_stores::WorldServices>,
+    /// Main runtime bag (assets, command system, host logs). Bound with the
+    /// world for this instance's free-function bridges; no process fallback.
+    pub(crate) main_services: std::sync::Arc<crate::main_services::MainServices>,
     /// Trigger membership for this host world. Objects keep only a weak
     /// handle so pose changes update this owner's slots without selecting an
     /// ambient game instance.
@@ -1210,6 +1213,11 @@ pub struct GameLogic {
 
     /// Thing templates registry
     pub templates: HashMap<String, ThingTemplate>,
+    /// Cached build-facility / CommandCenter prerequisite names for AI + script
+    /// census (C++ walks factories once; rebuild only when templates mutate).
+    pub(crate) build_facility_template_names_cache: std::cell::RefCell<
+        Option<std::sync::Arc<std::collections::HashSet<String>>>,
+    >,
     /// Names that already failed host-template + already-loaded Object INI lookup.
     /// Map spawn repeats the same decorative names; do not re-scan archives.
     pub(super) unresolved_spawn_templates: HashSet<String>,
@@ -1485,6 +1493,9 @@ pub struct GameLogic {
     /// presentation freeze (C++ PolygonTrigger water areas).
     pub(super) runtime_water_triggers: Vec<gamelogic::polygon_trigger::PolygonTrigger>,
     pub(super) runtime_terrain_texture_classes: Vec<super::script_loader::BlendTileTextureClass>,
+    /// HeightMapData/BlendTileData from fast sync — world_load must not re-parse.
+    pub(super) pending_map_heightmap: Option<super::script_loader::HeightMapData>,
+    pub(super) pending_blend_tile_data: Option<super::script_loader::BlendTileData>,
     pub(super) pathfinding_height_samples: Option<PathfindingHeightSamples>,
     pub(super) weather_state: RuntimeWeatherState,
     /// C++ `m_sleepyUpdates` host residual (`GameLogic.cpp:3699-3740`).
@@ -1530,12 +1541,42 @@ impl GameLogic {
     /// (C++ single-world engine: the world being started or committed is THE
     /// world). Idempotent per bundle — a live world resetting itself must
     /// not push a duplicate active-stack entry.
+
+    /// Bind this instance's WorldServices (nested CommonServices) and MainServices
+    /// for the duration of `f` only. Nested restore is stack-based; a peer
+    /// instance left alive on the same thread cannot observe these binds after
+    /// return. Prefer this over leaving services published until Drop.
+    pub(crate) fn with_own_services<R>(&self, f: impl FnOnce() -> R) -> R {
+        let world = std::sync::Arc::clone(&self.world_services);
+        let main = std::sync::Arc::clone(&self.main_services);
+        crate::main_services::with_main_services(&main, || {
+            gamelogic::system::engine_stores::with_world_services(&world, f)
+        })
+    }
+
+    /// Mutable variant of [`Self::with_own_services`].
+    pub(crate) fn with_own_services_mut<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        let world = std::sync::Arc::clone(&self.world_services);
+        let main = std::sync::Arc::clone(&self.main_services);
+        crate::main_services::with_main_services(&main, || {
+            gamelogic::system::engine_stores::with_world_services(&world, || f(self))
+        })
+    }
+
     pub(crate) fn install_as_active_stores(&self) {
+        // Transitional: publishes World + Main for nested free-function bridges
+        // (active_services, localization, destroy log, …). Prefer with_own_services
+        // for call-scoped publish; this leaves the bags bound until Drop/uninstall.
         let bundle = Arc::clone(&self.world_services);
-        if gamelogic::system::engine_stores::is_services_active(&bundle) {
-            return;
+        if !gamelogic::system::engine_stores::is_services_active(&bundle) {
+            gamelogic::system::engine_stores::install_services(bundle);
         }
-        gamelogic::system::engine_stores::install_services(bundle);
+        let main = Arc::clone(&self.main_services);
+        let already_main = crate::main_services::try_main_services()
+            .is_some_and(|active| Arc::ptr_eq(&active, &main));
+        if !already_main {
+            crate::main_services::install_main_services(main);
+        }
     }
 }
 
@@ -1554,6 +1595,7 @@ impl Drop for GameLogic {
         // died while a newer one was live only drops its buried entry so no
         // later pop can reinstate it.
         gamelogic::system::engine_stores::uninstall_services(&self.world_services);
+        crate::main_services::uninstall_main_services_if_current(&self.main_services);
     }
 }
 

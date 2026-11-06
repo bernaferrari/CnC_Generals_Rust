@@ -134,8 +134,8 @@ impl Drawable {
         self.set_indicator_color(indicator);
 
         if object.is_kind_of(KindOf::FSFake) {
-            let relationship = ThePlayerList()
-                .read()
+            let __player_list_arc = ThePlayerList();
+                let relationship = __player_list_arc.read()
                 .ok()
                 .and_then(|list| list.get_local_player().cloned())
                 .and_then(|player| {

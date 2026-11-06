@@ -14,6 +14,7 @@ fn add_set(manager: &mut SmudgeManager, size: f32) -> *const SmudgeSet {
 
 #[test]
 fn reset_recycles_smudges_in_cpp_used_set_order() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = SmudgeManager::new();
     let first = add_set(&mut manager, 1.0);
     let second = add_set(&mut manager, 2.0);
@@ -29,6 +30,7 @@ fn reset_recycles_smudges_in_cpp_used_set_order() {
 
 #[test]
 fn reset_appends_sets_after_existing_free_head() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = SmudgeManager::new();
     let removed = add_set(&mut manager, 1.0);
     let remaining = add_set(&mut manager, 2.0);
@@ -45,6 +47,7 @@ fn reset_appends_sets_after_existing_free_head() {
 
 #[test]
 fn removal_preserves_surviving_set_and_decal_order() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = SmudgeManager::new();
     let _ = add_set(&mut manager, 1.0);
     let _ = add_set(&mut manager, 2.0);

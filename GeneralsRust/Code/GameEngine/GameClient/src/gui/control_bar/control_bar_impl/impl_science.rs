@@ -68,6 +68,11 @@ fn reveal_ingame_command_window(receiving_manager: &mut crate::gui::window_manag
 /// CP_COMMAND (CommandWindow) and CP_BUILD_QUEUE (ProductionQueueWindow).
 /// Retail shows no command grid until a real context owns it.
 fn apply_none_context_hide(receiving_manager: &mut crate::gui::window_manager::WindowManager) {
+    // switchToContext starts with setPortraitByObject(NULL) ->
+    // setPortraitByImage(NULL): the unit-selected parent (its
+    // W3DCommandBarGridDraw lines) hides with no selection (ControlBar.cpp
+    // :2549-2554).
+    leftover_hide_window("ControlBar.wnd:WinUnitSelected", true, receiving_manager);
     leftover_hide_window("ControlBar.wnd:CommandWindow", true, receiving_manager);
     leftover_hide_window(
         "ControlBar.wnd:ProductionQueueWindow",
@@ -779,7 +784,8 @@ impl ControlBar {
         let skill = player.get_skill_points();
         let rank = player.get_rank_level();
         let (down, up) = gamelogic::system::rank_info::the_rank_info_store()
-            .and_then(|store| {
+            .and_then(|store_arc| {
+                let store = store_arc.read().ok()?;
                 let down = store
                     .get_rank_info(rank as usize)
                     .map(|info| info.skill_points_needed)
@@ -2796,6 +2802,7 @@ mod science_vec_gate_tests {
 
     #[test]
     fn science_vec_restricted_until_host_or_crate_owns() {
+        crate::test_support::ensure_ambient_host();
         // C++ ControlBarCommand.cpp:1219-1261
         let required_ids = [42];
         let required_names = vec!["SCIENCE_StealthFighter".to_string()];
@@ -2821,34 +2828,46 @@ mod science_vec_gate_tests {
 
     #[test]
     fn show_purchase_science_unhides_gen_exp_parent_and_sets_fade() {
+        crate::test_support::ensure_ambient_host();
         // C++ ControlBar.cpp:2918-2933 showPurchaseScience — winHide(FALSE)
         // on GeneralsExpPoints.wnd:GenExpParent + setGroup("GenExpFade").
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut bar = ControlBar::new();
-        bar.show_purchase_science();
-        assert!(
-            leftover_find_window(GEN_EXP_PARENT).is_some(),
-            "showPurchaseScience must bind GeneralsExpPoints.wnd:GenExpParent"
-        );
-        assert!(
-            !leftover_window_is_hidden(GEN_EXP_PARENT),
-            "showPurchaseScience must winHide(FALSE) GenExpParent"
-        );
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            owner.with_manager(|receiving_manager| {
+                bar.show_purchase_science(receiving_manager, effects);
+                assert!(
+                    leftover_find_window(GEN_EXP_PARENT, receiving_manager).is_some(),
+                    "showPurchaseScience must bind GeneralsExpPoints.wnd:GenExpParent"
+                );
+                assert!(
+                    !leftover_window_is_hidden(GEN_EXP_PARENT, receiving_manager),
+                    "showPurchaseScience must winHide(FALSE) GenExpParent"
+                );
+            });
+        });
         assert!(bar.science_state.is_visible);
         assert_eq!(bar.last_science_transition_group.take(), Some("GenExpFade"));
 
-        bar.hide_purchase_science();
-        assert!(
-            leftover_window_is_hidden(GEN_EXP_PARENT),
-            "hidePurchaseScience must winHide(TRUE) GenExpParent"
-        );
+        owner.with_manager(|receiving_manager| {
+            bar.hide_purchase_science(receiving_manager);
+            assert!(
+                leftover_window_is_hidden(GEN_EXP_PARENT, receiving_manager),
+                "hidePurchaseScience must winHide(TRUE) GenExpParent"
+            );
+        });
         assert!(!bar.science_state.is_visible);
     }
 
     #[test]
     fn progress_bar_experience_uses_live_host_skill() {
+        crate::test_support::ensure_ambient_host();
         // C++ ControlBar::updateContextPurchaseScience from live local skill.
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut bar = ControlBar::new();
-        bar.sync_rank_progress_from_presentation(50, 1150, 2, 3);
+        owner.with_manager(|receiving_manager| {
+            bar.sync_rank_progress_from_presentation(50, 1150, 2, 3, receiving_manager);
+        });
         assert_eq!(bar.science_state.live_rank_progress_percent, Some(50));
         assert!((bar.science_state.experience_progress - 0.5).abs() < 0.001);
         assert_eq!(bar.science_state.available_points, 3);
@@ -2858,17 +2877,24 @@ mod science_vec_gate_tests {
 
     #[test]
     fn generals_button_and_alt_g_toggle_purchase_science_window() {
+        crate::test_support::ensure_ambient_host();
         // C++ ControlBarCallback.cpp:396-399 ButtonGeneral → togglePurchaseScience.
         // Host Alt+G routes through TheControlBar::toggle_purchase_science.
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut bar = ControlBar::new();
-        bar.on_generals_button();
-        assert!(!leftover_window_is_hidden(GEN_EXP_PARENT));
-        bar.on_generals_button();
-        assert!(leftover_window_is_hidden(GEN_EXP_PARENT));
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            owner.with_manager(|receiving_manager| {
+                bar.on_generals_button(receiving_manager, effects);
+                assert!(!leftover_window_is_hidden(GEN_EXP_PARENT, receiving_manager));
+                bar.on_generals_button(receiving_manager, effects);
+                assert!(leftover_window_is_hidden(GEN_EXP_PARENT, receiving_manager));
+            });
+        });
     }
 
     #[test]
     fn leftover_authored_rect_table_covers_cpp_bound_windows() {
+        crate::test_support::ensure_ambient_host();
         // Retail ControlBar.wnd 800x600 rects for the ControlBar.cpp:1054-1225
         // bind names; bottom-right exclusive per WindowManager parse.
         assert_eq!(
@@ -2888,11 +2914,15 @@ mod science_vec_gate_tests {
 
     #[test]
     fn leftover_ensure_named_window_places_authored_windows_visible() {
+        crate::test_support::ensure_ambient_host();
         // Table hit: authored geometry + SHOWN (audit-1 quick win 3) instead
         // of the blind (0,0,200,200) hidden stub.
+        let mut wm = crate::gui::window_manager::WindowManager::new();
         let name = "ControlBar.wnd:UnitUpgrade3";
-        leftover_ensure_named_window(name);
-        let win = leftover_find_window(name).expect("UnitUpgrade3 authored fallback");
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            leftover_ensure_named_window(name, &mut wm, effects);
+        });
+        let win = leftover_find_window(name, &mut wm).expect("UnitUpgrade3 authored fallback");
         let (shown, pos, size) = {
             let w = win.borrow();
             (!w.is_hidden(), w.get_position(), w.get_size())
@@ -2905,8 +2935,10 @@ mod science_vec_gate_tests {
         );
 
         // Table miss keeps the fail-closed hidden stub.
-        leftover_ensure_named_window("ControlBar.wnd:LeftoverStubProbe");
-        let stub = leftover_find_window("ControlBar.wnd:LeftoverStubProbe").expect("stub fallback");
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            leftover_ensure_named_window("ControlBar.wnd:LeftoverStubProbe", &mut wm, effects);
+        });
+        let stub = leftover_find_window("ControlBar.wnd:LeftoverStubProbe", &mut wm).expect("stub fallback");
         let stub = stub.borrow();
         assert!(stub.is_hidden(), "non-table names keep the hidden stub");
         assert_eq!(stub.get_size(), (200, 200));
@@ -2918,19 +2950,29 @@ mod receiving_script_ending_tests {
     use super::*;
     #[test]
     fn receiving_science_toggle_preserves_hide_and_rejects_only_ending_show() {
+        crate::test_support::ensure_ambient_host();
+        let mut wm = crate::gui::window_manager::WindowManager::new();
         let mut owner = ControlBar::new();
         let mut peer = ControlBar::new();
-        owner.toggle_purchase_science_receiving(true);
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            owner.toggle_purchase_science_receiving(true, &mut wm, effects);
+        });
         assert!(!owner.get_science_state().is_visible);
-        peer.toggle_purchase_science_receiving(false);
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            peer.toggle_purchase_science_receiving(false, &mut wm, effects);
+        });
         assert!(peer.get_science_state().is_visible);
         // Source toggle still hides a visible screen during end-game: only
         // showPurchaseScience has the isGameEnding guard.
-        peer.toggle_purchase_science_receiving(true);
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            peer.toggle_purchase_science_receiving(true, &mut wm, effects);
+        });
         assert!(!peer.get_science_state().is_visible);
-        owner.toggle_purchase_science_receiving(false);
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            owner.toggle_purchase_science_receiving(false, &mut wm, effects);
+        });
         assert!(owner.get_science_state().is_visible);
         assert!(!peer.get_science_state().is_visible);
-        owner.hide_purchase_science();
+        owner.hide_purchase_science(&mut wm);
     }
 }

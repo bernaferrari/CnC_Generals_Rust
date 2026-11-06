@@ -81,6 +81,83 @@ pub fn run_windowed_acceptance_smoke(
 /// `wnd_widget_tree_nav` / `interactive_gameplay` latches stay false unless a
 /// real OS mouse input (human or OS clicker) re-enters
 /// `handle_mouse_button_input` — exactly the retail sit-through contract.
+/// Boot the production `generals` binary to the shell MainMenu.wnd, then exit.
+///
+/// This is the P0 hq-x1j4u.9.1 gate: real event loop + retail assets + live
+/// shell WND. It does not continue into skirmish/InGame.
+pub fn run_boot_to_shell_menu(timeout: Duration) -> ExecutableSmokeResult {
+    run_executable_smoke_with_launch_and_driver(
+        timeout,
+        false,
+        ExecutableSmokeLaunch::HeadlessHost,
+        SmokeDriver::MenuOnly,
+    )
+}
+
+/// Boot to shell, start a skirmish, and stop once a retail (non-shell) map is InGame.
+///
+/// P0 hq-x1j4u.9.2 gate. Skips the gameplay command chain so debug builds are not
+/// held in the post-load update hot path longer than needed for the latch.
+pub fn run_load_retail_skirmish_map(timeout: Duration) -> ExecutableSmokeResult {
+    run_executable_smoke_with_launch_and_driver(
+        timeout,
+        true, // NewGame / skirmish menu drain path
+        ExecutableSmokeLaunch::HeadlessHost,
+        SmokeDriver::MapLoadOnly,
+    )
+}
+
+/// Load a retail skirmish map, then issue select/move/attack on the live host.
+///
+/// P0 hq-x1j4u.9.3 gate. Stops after the three order residuals latch (does not
+/// walk the full retail command ladder).
+pub fn run_issue_player_orders(timeout: Duration) -> ExecutableSmokeResult {
+    run_executable_smoke_with_launch_and_driver(
+        timeout,
+        true,
+        ExecutableSmokeLaunch::HeadlessHost,
+        SmokeDriver::OrdersOnly,
+    )
+}
+
+/// Retail skirmish with concurrent human move orders and AI activity residual.
+///
+/// P0 hq-x1j4u.9.5 gate.
+pub fn run_ai_opponent_skirmish(timeout: Duration) -> ExecutableSmokeResult {
+    run_executable_smoke_with_launch_and_driver(
+        timeout,
+        true,
+        ExecutableSmokeLaunch::HeadlessHost,
+        SmokeDriver::AiActivity,
+    )
+}
+
+/// Retail skirmish save → load (fresh staged GameLogic) → restore assert → post-load order.
+///
+/// P0 hq-x1j4u.9.7 gate. Uses production-host quicksave/quickload so load goes
+/// through the same staged-candidate path as the UI load.
+pub fn run_retail_skirmish_save_load(timeout: Duration) -> ExecutableSmokeResult {
+    run_executable_smoke_with_launch_and_driver(
+        timeout,
+        true,
+        ExecutableSmokeLaunch::HeadlessHost,
+        SmokeDriver::SaveLoadOnly,
+    )
+}
+
+/// Windowed Lone Eagle present sit-through (≥60s) with selected unit + stable render items.
+///
+/// P0 hq-x1j4u.9.6 gate. Uses `-runtime_host=windowed`. Saves a screenshot under
+/// `GeneralsRust/artifacts/` (or `GENERALS_PRESENT_SCREENSHOT`) when capture works.
+pub fn run_present_skirmish_frame(timeout: Duration) -> ExecutableSmokeResult {
+    run_executable_smoke_with_launch_and_driver(
+        timeout,
+        true,
+        ExecutableSmokeLaunch::Windowed,
+        SmokeDriver::PresentFrameOnly,
+    )
+}
+
 pub fn run_executable_smoke_windowed(
     timeout: Duration,
     use_new_game_path: bool,

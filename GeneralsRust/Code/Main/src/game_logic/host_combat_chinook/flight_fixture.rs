@@ -8,8 +8,7 @@ use glam::Vec3;
 
 pub(super) fn authored_match() -> (GameLogic, ObjectId, ObjectId) {
     use game_engine::common::ini::ini_locomotor::load_locomotors_from_str;
-    assert_eq!(
-        load_locomotors_from_str(
+    assert_eq!(load_locomotors_from_str(
             r#"
 Locomotor Hq46k12ChinookLocomotor
   Surfaces = AIR
@@ -135,7 +134,7 @@ End
     passenger_object.set_contained_by(Some(transport));
     passenger_object.set_ai_state(
         AIState::Docked,
-        &mut crate::game_logic::ObjectAudio::record(audio_events),
+        &mut crate::game_logic::ObjectAudio::queue(audio_events),
     );
     (logic, transport, passenger)
 }
@@ -151,12 +150,10 @@ pub(super) fn combat_drop(logic: &mut GameLogic, transport: ObjectId) {
         selected_units: vec![transport],
         modifier_keys: ModifierKeys::default(),
     };
-    assert_eq!(
+    assert!(
         CommandExecutor::new(logic, 0)
             .execute_command(command)
-            .unwrap(),
-        CommandResult::Success
-    );
+            .unwrap() == CommandResult::Success);
     let object = logic.host_object(transport).unwrap();
     assert_eq!(
         object.chinook_ai.as_ref().unwrap().state,

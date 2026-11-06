@@ -1,14 +1,15 @@
 //! Messages system - matches core GameMessage flow.
+//!
+//! The queue is owned by a game instance (`GameMessageQueue`). There is no
+//! process-wide message store: two instances never share queued messages.
+//! Legacy `TheMessageStream::append_message` / `append_message` adapters that
+//! do not hold an owner drop the message (same observable black-hole as the
+//! old undrained process queue) instead of writing shared mutable state.
 
 use crate::commands::command::CommandType;
-use crate::common::{
-    AsciiString, Bool, Coord3D, DrawableID, ICoord2D, IRegion2D, Int, MessageType, ObjectID,
-    UnsignedInt,
-};
-use once_cell::sync::Lazy;
+use crate::common::{Coord3D, DrawableID, ICoord2D, IRegion2D, Int, MessageType, ObjectID, UnsignedInt};
 use std::collections::VecDeque;
 use std::ops::{Deref, DerefMut};
-use std::sync::Mutex;
 
 /// Game message structure
 #[derive(Debug, Clone)]
@@ -106,29 +107,83 @@ pub const MSG_DOZER_CONSTRUCT: u32 = CommandType::DozerConstruct as u32;
 pub const MSG_SELL: u32 = CommandType::Sell as u32;
 pub const MSG_LOGIC_CRC: u32 = 0xFFFF_FF01;
 
-static MESSAGE_QUEUE: Lazy<Mutex<VecDeque<GameMessage>>> =
-    Lazy::new(|| Mutex::new(VecDeque::new()));
+/// Instance-owned message queue. Construct one per game world / session.
+#[derive(Debug, Default)]
+pub struct GameMessageQueue {
+    messages: VecDeque<GameMessage>,
+}
 
-/// Builder that queues the message when dropped.
+impl GameMessageQueue {
+    pub fn new() -> Self {
+        Self {
+            messages: VecDeque::new(),
+        }
+    }
+
+    pub fn push(&mut self, message: GameMessage) {
+        self.messages.push_back(message);
+    }
+
+    pub fn drain(&mut self) -> Vec<GameMessage> {
+        self.messages.drain(..).collect()
+    }
+
+    pub fn len(&self) -> usize {
+        self.messages.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.messages.is_empty()
+    }
+
+    /// Append and return a builder that commits into this queue on drop.
+    pub fn append(&mut self, message_type: MessageType) -> MessageBuilder {
+        MessageBuilder::new_owned(message_type, self)
+    }
+}
+
+/// Builder that queues the message when dropped into its owning queue.
+///
+/// A builder created without an owner (legacy `append_message`) drops the
+/// message on commit instead of touching process-wide state.
 #[derive(Debug)]
 pub struct MessageBuilder {
     message: Option<GameMessage>,
+    queue: Option<*mut GameMessageQueue>,
 }
 
 impl MessageBuilder {
-    fn new(message_type: MessageType) -> Self {
+    fn new_owned(message_type: MessageType, queue: &mut GameMessageQueue) -> Self {
         Self {
             message: Some(GameMessage::new(message_type)),
+            queue: Some(queue as *mut GameMessageQueue),
+        }
+    }
+
+    fn new_unowned(message_type: MessageType) -> Self {
+        Self {
+            message: Some(GameMessage::new(message_type)),
+            queue: None,
+        }
+    }
+
+    fn push_into_sink(&mut self, msg: GameMessage) {
+        if let Some(ptr) = self.queue {
+            // SAFETY: pointer originates from GameMessageQueue::append and the
+            // builder cannot outlive that exclusive borrow.
+            unsafe { (*ptr).push(msg) }
+        } else {
+            log::debug!(
+                "GameMessageQueue: dropping unowned message id={}",
+                msg.id
+            );
         }
     }
 
     /// Explicitly commit the message to the queue.
     pub fn commit(mut self) {
         if let Some(msg) = self.message.take() {
-            MESSAGE_QUEUE
-                .lock()
-                .expect("Message queue poisoned")
-                .push_back(msg);
+            self.push_into_sink(msg);
         }
     }
 }
@@ -154,21 +209,106 @@ impl DerefMut for MessageBuilder {
 impl Drop for MessageBuilder {
     fn drop(&mut self) {
         if let Some(msg) = self.message.take() {
-            MESSAGE_QUEUE
-                .lock()
-                .expect("Message queue poisoned")
-                .push_back(msg);
+            self.push_into_sink(msg);
         }
     }
 }
 
-/// Append a message and return a builder for argument construction.
+
+/// Legacy adapter: build a message with no owning queue.
+///
+/// Prefer `GameMessageQueue::append`. Without an owner the message is dropped
+/// on commit (no process-wide store).
 pub fn append_message(message_type: MessageType) -> MessageBuilder {
-    MessageBuilder::new(message_type)
+    MessageBuilder::new_unowned(message_type)
 }
 
-/// Drain all pending messages.
+/// Legacy no-op drain. Owned queues use `GameMessageQueue::drain`.
 pub fn drain_messages() -> Vec<GameMessage> {
-    let mut queue = MESSAGE_QUEUE.lock().expect("Message queue poisoned");
-    queue.drain(..).collect()
+    Vec::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Barrier, Mutex};
+    use std::thread;
+
+    #[test]
+    fn owned_queues_do_not_share_state() {
+        let mut a = GameMessageQueue::new();
+        let mut b = GameMessageQueue::new();
+        a.append(MSG_DO_STOP).append_integer_argument(1);
+        assert_eq!(a.len(), 1);
+        assert!(b.is_empty());
+        b.append(MSG_DO_MOVETO).append_integer_argument(2);
+        assert_eq!(a.drain().len(), 1);
+        assert_eq!(b.drain().len(), 1);
+        assert!(a.is_empty());
+        assert!(b.is_empty());
+    }
+
+    #[test]
+    fn parallel_instances_keep_identical_independent_results() {
+        let barrier = Arc::new(Barrier::new(2));
+        let results = Arc::new(Mutex::new(Vec::new()));
+
+        let mut handles = Vec::new();
+        for seed in [11u32, 22u32] {
+            let barrier = Arc::clone(&barrier);
+            let results = Arc::clone(&results);
+            handles.push(thread::spawn(move || {
+                let mut queue = GameMessageQueue::new();
+                barrier.wait();
+                for i in 0..5 {
+                    let mut msg = queue.append(MSG_DO_STOP);
+                    msg.append_integer_argument((seed + i) as i32);
+                    msg.set_player_id(seed as Int);
+                }
+                {
+                    let mut move_msg = queue.append(MSG_DO_MOVETO);
+                    move_msg.append_integer_argument(seed as i32);
+                }
+                let drained = queue.drain();
+                assert_eq!(drained.len(), 6);
+                assert!(queue.is_empty());
+                let fingerprint: Vec<(u32, i32, Int)> = drained
+                    .iter()
+                    .map(|m| {
+                        let arg = match m.arguments.first() {
+                            Some(MessageArgument::Integer(v)) => *v,
+                            _ => -1,
+                        };
+                        (m.id, arg, m.player_id)
+                    })
+                    .collect();
+                results.lock().unwrap().push((seed, fingerprint));
+            }));
+        }
+        for h in handles {
+            h.join().expect("thread");
+        }
+        let mut got = results.lock().unwrap();
+        got.sort_by_key(|(seed, _)| *seed);
+        assert_eq!(got.len(), 2);
+        for (seed, fingerprint) in got.iter() {
+            assert_eq!(fingerprint.len(), 6);
+            for (i, (id, arg, player)) in fingerprint.iter().take(5).enumerate() {
+                assert_eq!(*id, MSG_DO_STOP);
+                assert_eq!(*arg, (*seed + i as u32) as i32);
+                assert_eq!(*player, *seed as Int);
+            }
+            assert_eq!(fingerprint[5].0, MSG_DO_MOVETO);
+            assert_eq!(fingerprint[5].1, *seed as i32);
+        }
+        assert_ne!(got[0].1, got[1].1);
+    }
+
+    #[test]
+    fn unowned_append_is_dropped_not_shared() {
+        let _ = append_message(MSG_DO_STOP);
+        assert!(drain_messages().is_empty());
+        let mut owned = GameMessageQueue::new();
+        assert!(owned.drain().is_empty());
+    }
 }

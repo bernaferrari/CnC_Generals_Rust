@@ -738,14 +738,22 @@ pub struct InputProcessorStatistics {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_support::with_receiving_ui;
+
     use super::*;
     use crate::message_stream::player_state::set_local_player_id;
     use std::sync::Mutex;
 
     static LOCAL_PLAYER_TEST_LOCK: Mutex<()> = Mutex::new(());
 
+    
+    fn noop_window_query(_x: i32, _y: i32, _ui: &mut crate::message_stream::ReceivingUi<'_>) -> bool {
+        false
+    }
+
     #[test]
     fn test_input_processor_creation() {
+        crate::test_support::ensure_ambient_host();
         let processor = InputProcessor::with_default_config();
         assert!(processor.config.enabled);
         assert_eq!(processor.events_processed, 0);
@@ -754,6 +762,7 @@ mod tests {
 
     #[test]
     fn test_mouse_move_processing() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         let event = InputEvent::MouseMove {
@@ -762,7 +771,7 @@ mod tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(event, &mut |_, _| false);
+        let messages = with_receiving_ui(|ui| { let mut q = noop_window_query; processor.process_input_event(event, &mut q, ui) });
 
         assert!(messages.len() >= 1);
         assert_eq!(processor.mouse_position(), (100.0, 200.0));
@@ -770,20 +779,25 @@ mod tests {
 
     #[test]
     fn test_input_messages_use_current_local_player_id() {
+        crate::test_support::ensure_ambient_host();
         let _guard = LOCAL_PLAYER_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         set_local_player_id(3);
         let mut processor = InputProcessor::with_default_config();
 
-        let messages = processor.process_input_event(
-            InputEvent::MouseMove {
-                x: 64.0,
-                y: 96.0,
-                timestamp: Instant::now(),
-            },
-            &mut |_, _| false,
-        );
+        let messages = with_receiving_ui(|ui| {
+            let mut q = noop_window_query;
+            processor.process_input_event(
+                InputEvent::MouseMove {
+                    x: 64.0,
+                    y: 96.0,
+                    timestamp: Instant::now(),
+                },
+                &mut q,
+                ui,
+            )
+        });
 
         assert!(!messages.is_empty());
         assert!(
@@ -797,6 +811,7 @@ mod tests {
 
     #[test]
     fn test_mouse_button_processing() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         // Mouse down
@@ -807,7 +822,7 @@ mod tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(down_event, &mut |_, _| false);
+        let messages = with_receiving_ui(|ui| { let mut q = noop_window_query; processor.process_input_event(down_event, &mut q, ui) });
         assert!(messages.len() >= 1);
         assert!(processor.is_mouse_button_down(MouseButton::Left));
 
@@ -819,12 +834,13 @@ mod tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(up_event, &mut |_, _| false);
+        let messages = with_receiving_ui(|ui| { let mut q = noop_window_query; processor.process_input_event(up_event, &mut q, ui) });
         assert!(messages.len() >= 1);
     }
 
     #[test]
     fn test_keyboard_processing() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         // Key down
@@ -834,7 +850,7 @@ mod tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(down_event, &mut |_, _| false);
+        let messages = with_receiving_ui(|ui| { let mut q = noop_window_query; processor.process_input_event(down_event, &mut q, ui) });
         assert!(messages.len() >= 1);
         assert!(processor.is_key_down(KeyCode::A));
 
@@ -845,12 +861,13 @@ mod tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(up_event, &mut |_, _| false);
+        let messages = with_receiving_ui(|ui| { let mut q = noop_window_query; processor.process_input_event(up_event, &mut q, ui) });
         assert!(messages.len() >= 1);
     }
 
     #[test]
     fn test_control_group_shortcut() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         // Ctrl+1 to create control group
@@ -860,7 +877,7 @@ mod tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(event, &mut |_, _| false);
+        let messages = with_receiving_ui(|ui| { let mut q = noop_window_query; processor.process_input_event(event, &mut q, ui) });
 
         // Should generate both RawKeyDown and MetaCreateTeam messages
         assert!(messages.len() >= 2);
@@ -874,6 +891,7 @@ mod tests {
 
     #[test]
     fn test_number_key_conversion() {
+        crate::test_support::ensure_ambient_host();
         let processor = InputProcessor::with_default_config();
 
         assert_eq!(processor.key_to_number_group(KeyCode::Num0), Some(0));
@@ -884,6 +902,7 @@ mod tests {
 
     #[test]
     fn test_virtual_key_conversion() {
+        crate::test_support::ensure_ambient_host();
         let processor = InputProcessor::with_default_config();
 
         assert_eq!(processor.key_to_virtual_code(KeyCode::A), 0x41);
@@ -894,6 +913,7 @@ mod tests {
 
     #[test]
     fn test_focus_loss_clears_state() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         // Simulate mouse down
@@ -904,11 +924,11 @@ mod tests {
             timestamp: Instant::now(),
         };
 
-        processor.process_input_event(down_event, &mut |_, _| false);
+        with_receiving_ui(|ui| { let mut q = noop_window_query; processor.process_input_event(down_event, &mut q, ui) });
         assert!(processor.is_mouse_button_down(MouseButton::Left));
 
         // Lose focus
-        processor.process_input_event(InputEvent::FocusLost, &mut |_, _| false);
+        with_receiving_ui(|ui| { let mut q = noop_window_query; processor.process_input_event(InputEvent::FocusLost, &mut q, ui) });
 
         // State should be cleared
         assert!(!processor.is_mouse_button_down(MouseButton::Left));
@@ -916,6 +936,7 @@ mod tests {
 
     #[test]
     fn test_enable_disable() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         processor.set_enabled(false);
@@ -928,12 +949,13 @@ mod tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(event, &mut |_, _| false);
+        let messages = with_receiving_ui(|ui| { let mut q = noop_window_query; processor.process_input_event(event, &mut q, ui) });
         assert_eq!(messages.len(), 0);
     }
 
     #[test]
     fn test_statistics() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         // Process some events
@@ -944,7 +966,7 @@ mod tests {
                 timestamp: Instant::now(),
             };
 
-            processor.process_input_event(event, &mut |_, _| false);
+            with_receiving_ui(|ui| { let mut q = noop_window_query; processor.process_input_event(event, &mut q, ui) });
         }
 
         let stats = processor.get_statistics();

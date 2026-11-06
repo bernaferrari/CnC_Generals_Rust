@@ -56,8 +56,7 @@ fn assert_constructor_admission(world: &mut GameLogic, name: &str) {
         "actual {name} construction permission"
     );
     assert!(object.can_repair(), "actual {name} repair permission");
-    assert_eq!(
-        world.unit_owner_if_can_construct(builder),
+    assert_eq!(world.unit_owner_if_can_construct(builder),
         Some((0, object.team))
     );
     world.admit_fixture_command_action_source(
@@ -66,12 +65,8 @@ fn assert_constructor_admission(world: &mut GameLogic, name: &str) {
     world.host_object_mut(builder).unwrap().command_set_override = Some("CatalogScaffoldBuildSet".into());
     let cash = world.get_player(0).unwrap().effective_supplies();
     assert_eq!(
-        construct(world, builder),
-        CommandResult::Success,
-        "actual {name} DozerConstruct"
-    );
-    assert_eq!(
-        world.get_player(0).unwrap().effective_supplies(),
+        construct(world, builder), CommandResult::Success, "actual {name} DozerConstruct");
+    assert_eq!(world.get_player(0).unwrap().effective_supplies(),
         cash - 300
     );
     let site = world
@@ -137,7 +132,7 @@ fn constructor_admission_does_not_promote_worker_harvester_or_names() {
         assert!(object.can_move());
         assert!(!object.can_construct());
         assert!(!object.can_repair());
-        assert_eq!(construct(&mut owner, id), CommandResult::InvalidCommand);
+        assert!(construct(&mut owner, id) == CommandResult::InvalidCommand);
         assert_eq!(owner.get_player(0).unwrap().effective_supplies(), 1000);
         assert!(
             !owner
@@ -167,15 +162,15 @@ fn same_id_constructor_admission_preserves_peer_cash_and_task() {
     peer.host_object_mut(peer_id).unwrap().command_set_override = Some("CatalogScaffoldBuildSet".into());
     assert_eq!(id, peer_id);
     let peer_count = peer.host_objects().registered_len();
-    assert_eq!(construct(&mut owner, id), CommandResult::Success);
+    assert!(construct(&mut owner, id) == CommandResult::Success);
     assert_eq!(owner.get_player(0).unwrap().effective_supplies(), 700);
     assert_eq!(peer.get_player(0).unwrap().effective_supplies(), 1000);
     assert_eq!(peer.host_objects().registered_len(), peer_count);
     assert_eq!(
-        peer.host_object(peer_id).unwrap().dozer_task_build_target,
+        peer.host_object(peer_id).unwrap().dozer_task_build_target(),
         None
     );
-    assert_eq!(construct(&mut peer, peer_id), CommandResult::Success);
+    assert!(construct(&mut peer, peer_id) == CommandResult::Success);
     assert_eq!(peer.get_player(0).unwrap().effective_supplies(), 700);
     assert_eq!(owner.get_player(0).unwrap().effective_supplies(), 700);
 }
@@ -193,3 +188,35 @@ fn ensured_faction_catalog_does_not_reclassify_existing_authored_definition() {
     assert!(!owner.host_object(object).unwrap().is_kind_of(KindOf::Dozer));
     assert!(!owner.host_object(object).unwrap().can_construct());
 }
+
+#[test]
+fn synthesized_builders_author_dozer_kindof_not_name() {
+    // hq-v16h8: C++ ActionManager requires KindOf::Dozer, never a name peel.
+    for (team, name) in [
+        (Team::USA, "USA_Dozer"),
+        (Team::USA, "AmericaVehicleDozer"),
+        (Team::China, "China_Dozer"),
+        (Team::GLA, "GLAInfantryWorker"),
+        (Team::GLA, "GLA_Worker"),
+    ] {
+        let mut owner = world(team);
+        owner.ensure_ai_faction_templates(team);
+        owner
+            .templates
+            .extend(crate::game_logic::units::create_unit_templates());
+        let id = owner
+            .create_object_for_player(name, 0, Vec3::new(10.0, 0.0, 10.0))
+            .unwrap_or_else(|| panic!("spawn {name}"));
+        let object = owner.host_object(id).unwrap();
+        assert!(
+            object.is_kind_of(KindOf::Dozer),
+            "{name} must author KindOf::Dozer"
+        );
+        assert!(object.can_construct(), "{name} can_construct via Dozer kind");
+        assert!(
+            !name.to_ascii_lowercase().contains("dozer") || object.is_kind_of(KindOf::Dozer),
+            "name alone is not the gate"
+        );
+    }
+}
+

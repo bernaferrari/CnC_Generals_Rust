@@ -109,29 +109,24 @@ pub struct BlockParse {
     pub parse: INIBlockParse,
 }
 
-static EXTRA_BLOCK_PARSERS: OnceLock<RwLock<Vec<BlockParse>>> = OnceLock::new();
-
 /// C++ INIParticleSys.cpp overlays `TheParticleSystemManager`. Common's
 /// own registry is not the live GameClient manager; GameClient registers
 /// this hook so map.ini / INI::load ParticleSystem blocks reach the live path.
 pub type ParticleSystemLiveOverlay =
     fn(name: &str, properties: &HashMap<String, String>, load_type: INILoadType);
 
-static PARTICLE_SYSTEM_LIVE_OVERLAY: LazyLock<RwLock<Option<ParticleSystemLiveOverlay>>> =
-    LazyLock::new(|| RwLock::new(None));
-
-fn particle_system_live_overlay_slot() -> &'static RwLock<Option<ParticleSystemLiveOverlay>> {
-    &PARTICLE_SYSTEM_LIVE_OVERLAY
-}
-
 pub fn register_particle_system_live_overlay(overlay: ParticleSystemLiveOverlay) {
-    if let Ok(mut guard) = particle_system_live_overlay_slot().write() {
+    let services = crate::common::common_services::common_services();
+    if let Ok(mut guard) = services.ini.particle_system_live_overlay.write() {
         *guard = Some(overlay);
     }
 }
 
 fn particle_system_live_overlay() -> Option<ParticleSystemLiveOverlay> {
-    particle_system_live_overlay_slot()
+    let services = crate::common::common_services::common_services();
+    services
+        .ini
+        .particle_system_live_overlay
         .read()
         .ok()
         .and_then(|guard| *guard)
@@ -139,8 +134,10 @@ fn particle_system_live_overlay() -> Option<ParticleSystemLiveOverlay> {
 
 /// Register an additional INI block parser at runtime (used by client-side modules).
 pub fn register_block_parser(token: &'static str, parse: INIBlockParse) -> bool {
-    let registry = EXTRA_BLOCK_PARSERS.get_or_init(|| RwLock::new(Vec::new()));
-    let mut guard = registry
+    let services = crate::common::common_services::common_services();
+    let mut guard = services
+        .ini
+        .extra_block_parsers
         .write()
         .expect("INI block parser registry poisoned");
     if guard
@@ -154,9 +151,12 @@ pub fn register_block_parser(token: &'static str, parse: INIBlockParse) -> bool 
 }
 
 fn get_extra_block_parser(token: &str) -> Option<INIBlockParse> {
-    EXTRA_BLOCK_PARSERS
-        .get()
-        .and_then(|registry| registry.read().ok())
+    let services = crate::common::common_services::common_services();
+    services
+        .ini
+        .extra_block_parsers
+        .read()
+        .ok()
         .and_then(|guard| {
             guard
                 .iter()
@@ -3251,19 +3251,24 @@ End
         // C++ INIParticleSys.cpp:24-32 overlays TheParticleSystemManager.
         use std::sync::atomic::{AtomicUsize, Ordering};
         // Observation only: this exact child owns its installed fn-pointer hook.
-        static CALLBACK_COUNT: AtomicUsize = AtomicUsize::new(0);
+        struct CallbackCountSlot(AtomicUsize);
+        impl std::ops::Deref for CallbackCountSlot {
+            type Target = AtomicUsize;
+            fn deref(&self) -> &Self::Target { &self.0 }
+        }
+        static CALLBACK_COUNT: CallbackCountSlot = CallbackCountSlot(AtomicUsize::new(0));
         fn hook(name: &str, properties: &HashMap<String, String>, _load_type: INILoadType) {
             assert_eq!(name, "MapOverrideSmoke");
             assert_eq!(properties.get("Priority").map(String::as_str), Some("NONE"));
-            CALLBACK_COUNT.fetch_add(1, Ordering::Relaxed);
+            CALLBACK_COUNT.0.fetch_add(1, Ordering::Relaxed);
         }
-        CALLBACK_COUNT.store(0, Ordering::Relaxed);
+        CALLBACK_COUNT.0.store(0, Ordering::Relaxed);
         register_particle_system_live_overlay(hook);
         let src = "ParticleSystem MapOverrideSmoke\n  Priority = NONE\n  IsOneShot = No\nEnd\n";
         let mut ini = INI::new();
         ini.with_inline_source(src, |ini| ini.parse_current_file())
             .expect("ParticleSystem NONE must parse");
-        assert_eq!(CALLBACK_COUNT.load(Ordering::Relaxed), 1);
+        assert_eq!(CALLBACK_COUNT.0.load(Ordering::Relaxed), 1);
     }
 }
 

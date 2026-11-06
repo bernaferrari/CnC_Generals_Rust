@@ -316,12 +316,12 @@ impl Default for DetectionManager {
     }
 }
 
-/// Global singleton accessor for DetectionManager
-static DETECTION_MANAGER: OnceLock<Mutex<DetectionManager>> = OnceLock::new();
-
-/// Get the global DetectionManager singleton
-pub fn get_detection_manager() -> &'static Mutex<DetectionManager> {
-    DETECTION_MANAGER.get_or_init(|| Mutex::new(DetectionManager::new()))
+pub fn get_detection_manager() -> std::sync::Arc<std::sync::Mutex<DetectionManager>> {
+    std::sync::Arc::clone(
+        &crate::system::engine_stores::active_services()
+            .logic_managers()
+            .detection,
+    )
 }
 
 #[cfg(test)]

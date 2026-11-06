@@ -44,7 +44,7 @@ pub use super::host_base_defense::{
     SUPW_PATRIOT_EMP_RADIUS, SUPW_PATRIOT_GROUND_DAMAGE, SUPW_PATRIOT_PRIMARY_WEAPON,
     SUPW_PATRIOT_SECONDARY_WEAPON, gattling_building_air_weapon, gattling_building_ground_weapon,
     is_base_defense_structure, is_dual_slot_base_defense, is_gattling_cannon_structure,
-    is_laser_patriot_template, is_legal_base_defense_target, is_legal_supw_patriot_emp_target,
+    is_legal_base_defense_target, is_legal_supw_patriot_emp_target,
     is_patriot_battery_structure, is_stinger_site_structure, is_supw_patriot_template,
     patriot_air_weapon, patriot_air_weapon_for_template, patriot_ground_weapon,
     patriot_ground_weapon_for_template, preferred_dual_defense_slot,
@@ -106,8 +106,6 @@ pub use super::host_comanche_rocket_pods::{
     ROCKET_POD_SECONDARY_RADIUS, UPGRADE_COMANCHE_ROCKET_PODS, comanche_antitank_damage_at,
     comanche_antitank_weapon, comanche_cannon_weapon, comanche_rocket_pod_weapon,
     is_comanche_template, rocket_pod_damage_at_distance, rocket_pod_ground_fire_active,
-    should_apply_comanche_antitank_residual, should_apply_comanche_cannon_residual,
-    should_apply_comanche_residual, should_apply_rocket_pod_area_attack,
 };
 pub use super::host_combat_chinook::{
     COMBAT_CHINOOK_TRANSPORT_SLOTS, HostCombatChinookRegistry,
@@ -148,7 +146,7 @@ pub use super::host_dragon_tank::{
     DRAGON_PRIMARY_DAMAGE, DRAGON_RANGE, DRAGON_SECONDARY_DAMAGE, DRAGON_SECONDARY_RADIUS,
     DRAGON_TANK_FLAME_WEAPON, DRAGON_TANK_FLAME_WEAPON_UPGRADED, UPGRADE_CHINA_BLACK_NAPALM,
     dragon_flame_damage_at, dragon_flame_stats, dragon_flame_weapon, dragon_flame_weapon_name,
-    has_black_napalm_upgrade, is_dragon_tank_template, should_apply_dragon_flame_residual,
+    has_black_napalm_upgrade,
 };
 pub use super::host_ecm_jam::{HOST_ECM_JAM_RADIUS, is_ecm_jammer, is_legal_ecm_jam_target};
 pub use super::host_emergency_repair::{
@@ -201,7 +199,6 @@ pub use super::host_gattling_tank::{
 pub use super::host_gla_rebel::{
     REBEL_DAMAGE, REBEL_MACHINE_GUN, REBEL_RANGE,
     UPGRADE_GLA_AP_BULLETS as REBEL_UPGRADE_AP_BULLETS, is_gla_rebel_template, rebel_weapon,
-    should_apply_rebel_residual,
 };
 pub use super::host_gla_worker::{
     HostGlaWorkerRegistry, UPGRADE_GLA_WORKER_SHOES, WORKER_SHOES_SPEED, WORKER_SHOES_SUPPLY_BOOST,
@@ -236,7 +233,7 @@ pub use super::host_satellite_hack::{
 
 pub use super::host_helix_minigun::{
     HELIX_MINIGUN_DAMAGE, HELIX_MINIGUN_DELAY_FRAMES, HELIX_MINIGUN_RANGE, HELIX_MINIGUN_WEAPON,
-    helix_minigun_weapon, is_legal_helix_minigun_target, should_apply_helix_minigun_residual,
+    is_legal_helix_minigun_target,
 };
 pub use super::host_helix_napalm::{
     HELIX_FIRESTORM_DAMAGE_PER_TICK, HELIX_FIRESTORM_DURATION_FRAMES, HELIX_FIRESTORM_RADIUS,
@@ -370,7 +367,7 @@ pub use super::host_bridge_behavior::{
     BRIDGE_SCAFFOLD_TEMPLATE, BRIDGE_SPLAT_DAMAGE, HostBridgeBehaviorRegistry,
     is_bridge_or_tower_template, is_bridge_span_template,
 };
-pub use super::host_cave_system::{HostCaveSystem, MAX_CAVE_CAPACITY, is_cave_template};
+pub use super::host_cave_system::{HostCaveSystem, is_cave_template};
 pub use super::host_rank_ui_residual::{
     honesty_chat_residual_host_pack_wave89, honesty_experience_residual_tables_pack_wave89,
     honesty_hotkey_residual_table_pack_wave89, honesty_options_residual_pack_wave89,
@@ -379,7 +376,7 @@ pub use super::host_rank_ui_residual::{
 };
 pub use super::host_red_guard::{
     REDGUARD_DAMAGE, REDGUARD_MACHINE_GUN, REDGUARD_RANGE, is_red_guard_template, red_guard_weapon,
-    should_apply_bayonet_residual, should_apply_red_guard_residual,
+    is_red_guard_weapon_name, should_apply_bayonet_residual,
 };
 
 pub use super::host_residual_acquire::{
@@ -392,8 +389,8 @@ pub use super::host_rng_residual::{
 };
 pub use super::host_rpg_trooper::{
     RPG_TROOPER_DAMAGE, RPG_TROOPER_RANGE, TUNNEL_DEFENDER_ROCKET_WEAPON,
-    UPGRADE_GLA_AP_ROCKETS as RPG_UPGRADE_AP_ROCKETS, is_rpg_trooper_template, rpg_trooper_weapon,
-    should_apply_rpg_trooper_residual,
+    UPGRADE_GLA_AP_ROCKETS as RPG_UPGRADE_AP_ROCKETS, is_rpg_trooper_template,
+    is_rpg_trooper_weapon_name, rpg_trooper_weapon,
 };
 pub use super::host_saboteur::{
     HostSaboteurRegistry, SABOTEUR_STEAL_CASH_AMOUNT, SABOTEUR_SUCCESS_AUDIO, SaboteurEffectKind,
@@ -433,7 +430,7 @@ pub use super::host_stealth_fighter::{
     STEALTH_FIGHTER_RANGE, STEALTH_JET_MISSILE_WEAPON as STEALTH_FIGHTER_MISSILE_WEAPON,
     USA_STEALTH_FIGHTER, is_stealth_fighter_science, is_stealth_fighter_template,
     player_may_produce_stealth_aircraft, requires_stealth_fighter_science,
-    should_apply_stealth_fighter_residual, stealth_fighter_damage_at, stealth_fighter_weapon,
+    stealth_fighter_damage_at,
 };
 pub use super::host_strategy_center::{
     BATTLE_PLAN_PARALYZE_FRAMES, BATTLE_PLAN_PARALYZE_TIME_MS, BOMBARDMENT_DAMAGE_MULT,
@@ -459,16 +456,16 @@ pub use super::host_supply_drop_zone::{
 };
 pub use super::host_tank_hunter::{
     TANK_HUNTER_DAMAGE, TANK_HUNTER_MISSILE_WEAPON, TANK_HUNTER_RANGE, is_tank_hunter_template,
-    should_apply_tank_hunter_residual, tank_hunter_weapon,
+    is_tank_hunter_weapon_name, tank_hunter_weapon,
 };
 pub use super::host_terrain_bridge_water_road_residual_wave108::honesty_heightmap_residual_deepen_pack_wave108;
 pub use super::host_terrorist::{
     SUICIDE_DYNAMITE_PACK, SUICIDE_DYNAMITE_PRIMARY_DAMAGE, SUICIDE_DYNAMITE_PRIMARY_DAMAGE_DEMO,
     SUICIDE_DYNAMITE_PRIMARY_DAMAGE_GAMMA, SUICIDE_DYNAMITE_PRIMARY_RADIUS,
     SUICIDE_DYNAMITE_SECONDARY_DAMAGE, SUICIDE_DYNAMITE_SECONDARY_RADIUS, TERRORIST_SUICIDE_WEAPON,
-    TerroristDeathProfile, is_demo_general_template as is_terrorist_demo_general_template,
+    TerroristDeathProfile, 
     is_terrorist_template, should_apply_terrorist_residual, suicide_dynamite_damage_at,
-    suicide_dynamite_damage_at_profile, terrorist_death_profile, terrorist_suicide_weapon,
+    suicide_dynamite_damage_at_profile, terrorist_suicide_weapon,
     terrorist_suicide_weapon_for_profile,
 };
 
@@ -480,7 +477,7 @@ pub use super::host_troop_crawler::{
     troop_crawler_assault_weapon, troop_crawler_detection_range, troop_crawler_spawn_is_detector,
 };
 pub use super::host_tunnel_network::{
-    HostTunnelNetworkRegistry, MAX_TUNNEL_CAPACITY, TUNNEL_FULL_HEAL_FRAMES, TUNNEL_NETWORK_GUN,
+    HostTunnelNetworkRegistry, TUNNEL_FULL_HEAL_FRAMES, TUNNEL_NETWORK_GUN,
     TUNNEL_NETWORK_GUN_DAMAGE, TUNNEL_NETWORK_GUN_DUMMY, TUNNEL_NETWORK_GUN_DUMMY_DAMAGE,
     TUNNEL_NETWORK_GUN_RANGE, is_sneak_attack_tunnel_template, is_tunnel_network_template,
     tunnel_network_gun_dummy_weapon, tunnel_network_gun_weapon, tunnel_network_primary_weapon,

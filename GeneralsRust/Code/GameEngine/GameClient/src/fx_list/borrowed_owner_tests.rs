@@ -27,9 +27,8 @@ impl FXNugget for ObjectNugget {
         let name = owner.get_template().get_name().as_str().to_owned();
         // A synchronous nugget can admit another FX definition. The bridge
         // must retain the immutable FX Arc, not the catalog read guard.
-        let _catalog = FX_LIST_STORE
-            .get()
-            .unwrap()
+        let catalog = super::fx_list_store_handle();
+        let _catalog = catalog
             .try_write()
             .expect("FX definition lookup guard must end before callback");
         self.calls.send(name).unwrap();
@@ -39,6 +38,7 @@ impl FXNugget for ObjectNugget {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn actual_bridge_uses_borrowed_owner_and_never_relocks_admitted_owner() {
+    crate::test_support::ensure_ambient_host();
     const CHILD_MARKER: &str = "GENERALS_BORROWED_FX_OWNER_CHILD";
     const TEST_NAME: &str = "fx_list::borrowed_owner_tests::actual_bridge_uses_borrowed_owner_and_never_relocks_admitted_owner";
     if std::env::var_os(CHILD_MARKER).is_none() {
@@ -51,7 +51,7 @@ fn actual_bridge_uses_borrowed_owner_and_never_relocks_admitted_owner() {
     const OBJECT_ID: u32 = 0x00F8_0B10;
     const FX_NAME: &str = "FX_BorrowedOwnerContract";
     assert!(OBJECT_REGISTRY.get_object(OBJECT_ID).is_none());
-    assert!(get_fx_list_store().find_fx_list(FX_NAME).is_none());
+    assert!(with_fx_list_store(|s| s.find_fx_list(FX_NAME).is_none()));
     gamelogic::player::player_list()
         .write()
         .unwrap()
@@ -60,7 +60,7 @@ fn actual_bridge_uses_borrowed_owner_and_never_relocks_admitted_owner() {
     let mut observed = Vec::new();
     let mut fx = FXList::new();
     fx.add_fx_nugget(Box::new(ObjectNugget { calls: recorded }));
-    get_fx_list_store_mut().add_fx_list(FX_NAME.into(), fx);
+    with_fx_list_store_mut(|s| s.add_fx_list(FX_NAME.into(), fx));
     let fx_id = NameKeyGenerator::name_to_key(FX_NAME) as FXListId;
 
     let foreign = Arc::new(RwLock::new(Object::new_raw(

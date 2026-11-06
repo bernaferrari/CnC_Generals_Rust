@@ -11,7 +11,6 @@
 use crate::common::ascii_string::AsciiString;
 use crate::debug_assert_crash;
 use log::{debug, trace};
-use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::fs::File;
@@ -438,19 +437,14 @@ impl Default for TerrainTypes {
     }
 }
 
-/// Global terrain types registry (thread-safe)
-static TERRAIN_TYPES: OnceCell<Arc<RwLock<TerrainTypes>>> = OnceCell::new();
-
 /// Ensure the terrain registry exists and return a handle to it
 pub fn initialize_terrain_types() -> Arc<RwLock<TerrainTypes>> {
-    TERRAIN_TYPES
-        .get_or_init(|| Arc::new(RwLock::new(TerrainTypes::new())))
-        .clone()
+    Arc::clone(&crate::common::common_services::common_services().ini.terrain_types)
 }
 
 /// Get the terrain registry if it has already been initialized
 pub fn get_terrain_types() -> Option<Arc<RwLock<TerrainTypes>>> {
-    TERRAIN_TYPES.get().cloned()
+    Some(Arc::clone(&crate::common::common_services::common_services().ini.terrain_types))
 }
 
 /// Parse a boolean value from string

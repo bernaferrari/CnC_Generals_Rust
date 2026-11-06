@@ -1167,6 +1167,20 @@ impl GameLogic {
         pos: Option<glam::Vec3>,
         attack_type: AbleToAttackType,
     ) -> CanAttackResult {
+        self.with_own_services(|| {
+            self.get_able_to_use_weapon_against_target_with_services(
+                unit_id, victim_id, pos, attack_type,
+            )
+        })
+    }
+
+    fn get_able_to_use_weapon_against_target_with_services(
+        &self,
+        unit_id: ObjectId,
+        victim_id: Option<ObjectId>,
+        pos: Option<glam::Vec3>,
+        attack_type: AbleToAttackType,
+    ) -> CanAttackResult {
         let Some(source) = self.objects.get(&unit_id) else {
             return CanAttackResult::NotPossible;
         };
@@ -1228,9 +1242,9 @@ impl GameLogic {
             // C++ WeaponSet.cpp:706 — skip DAMAGE_KILLPILOT on heroes while
             // current is PRIMARY and no specific slot (rifle-mode Jarmen).
             let skip_hero_kill_pilot = (source.is_kind_of(KindOf::Hero)
-                || crate::game_logic::host_jarmen_kell::is_jarmen_kell_template(
-                    &source.template_name,
-                ))
+                // Keyed on the authored rifle, not the template name (hq-2qedt.265).
+                || source.weapon_name_for_slot(0)
+                    == Some(crate::game_logic::host_jarmen_kell::JARMEN_KELL_RIFLE))
                 && current_is_primary
                 && !source.is_weapon_locked();
             let has_legal_anti = candidate_slots.iter().copied().any(|slot| {
@@ -1918,6 +1932,11 @@ mod common_target_parity {
     fn idle_enter_delays_the_mood_check_then_jitters_once() {
         use gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
         let mut logic = GameLogic::new();
+        // hq-6tx39: C++ resetNextMoodCheckTime uses AIData.forceIdleFramesCount.
+        logic.set_ai_definition_base(game_engine::common::ini::AIData {
+            force_idle_frames_count: 3,
+            ..Default::default()
+        });
         logic.frame = 50;
         let id = logic
             .create_object("Ranger", Team::USA, glam::Vec3::ZERO)
@@ -1929,11 +1948,11 @@ mod common_target_parity {
             );
             o.set_ai_state(
                 crate::game_logic::AIState::Moving,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             o.set_ai_state(
                 crate::game_logic::AIState::Idle,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             assert!(o.idle_mood_reset_pending);
             o.auto_acquire_idle_bits = AUTO_ACQUIRE_IDLE;
@@ -1978,7 +1997,7 @@ mod common_target_parity {
         if let Some(o) = logic.host_object_mut(id) {
             o.set_ai_state(
                 crate::game_logic::AIState::Idle,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             assert!(!o.idle_mood_reset_pending, "already idle must not rearm");
         }
@@ -2011,7 +2030,7 @@ mod common_target_parity {
         if let Some(unit) = logic.host_object_mut(id) {
             unit.set_ai_state(
                 crate::game_logic::AIState::Moving,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             unit.target = Some(jet_id);
             unit.locomotor_goal_type = crate::game_logic::object::LocoGoalType::PositionOnPath;
@@ -2148,11 +2167,11 @@ mod common_target_parity {
         if let Some(o) = logic.host_object_mut(id) {
             o.set_ai_state(
                 crate::game_logic::AIState::Moving,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             o.set_ai_state(
                 crate::game_logic::AIState::Idle,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
         logic.set_fixture_object_position(id, start);
@@ -2165,11 +2184,11 @@ mod common_target_parity {
         if let Some(o) = logic.host_object_mut(id) {
             o.set_ai_state(
                 crate::game_logic::AIState::Moving,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             o.set_ai_state(
                 crate::game_logic::AIState::Idle,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
         logic.set_fixture_object_position(id, far);
@@ -2821,4 +2840,79 @@ fn player_attack_rejects_hidden_garrison_without_script_targetable() {
         CanAttackResult::Possible,
         "visible occupant-owned garrison stays player-attackable"
     );
+}
+
+#[cfg(test)]
+mod mood_matrix_cluster {
+    use super::*;
+    use crate::game_logic::{
+        GameLogic, KindOf, Object, ObjectId, Player, Team, ThingTemplate,
+    };
+    use crate::game_logic::mood_action_adjust::{ACTION_OK, ACTION_TO_IDLE, AFFECT_RANGE_IGNORE_ALL};
+
+    /// Cluster proof for hq-24ekcg (+ human/mob exemptions used by hq-5ep2s callers):
+    /// controlling PlayerType and IGNORED_IN_GUI infantry force ACTION_OK.
+    #[test]
+    fn ai_update_cluster_mood_matrix_human_and_mob_exemptions() {
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA AI", false));
+        logic.add_player(Player::new(2, Team::USA, "Human", true));
+
+        let mut ai_t = ThingTemplate::new("MoodAiTank");
+        ai_t.set_authored_ai_update_interface(Some(true));
+        ai_t.add_kind_of(KindOf::Vehicle);
+        let ai_id = ObjectId(5101);
+        logic.objects.insert(ai_id, {
+            let mut o = Object::new(ai_t, ai_id, Team::USA);
+            o.owner_player_id = Some(1);
+            o.ai_attitude = -2; // Sleep would otherwise force idle on Attack
+            o
+        });
+
+        let sleep_attack = logic.get_mood_matrix_action_adjustment(ai_id, MoodMatrixAction::Attack);
+        assert_eq!(
+            sleep_attack & ACTION_TO_IDLE,
+            ACTION_TO_IDLE,
+            "AI sleep mood must rewrite Attack to idle"
+        );
+
+        // Human controller exemption.
+        if let Some(o) = logic.objects.get_mut(&ai_id) {
+            o.owner_player_id = Some(2);
+        }
+        assert_eq!(
+            logic.get_mood_matrix_action_adjustment(ai_id, MoodMatrixAction::Attack),
+            ACTION_OK,
+            "human controller must keep ACTION_OK regardless of Sleep"
+        );
+
+        // Mob infantry exemption (Infantry + IGNORED_IN_GUI) under AI controller.
+        let mut mob_t = ThingTemplate::new("MoodMob");
+        mob_t.set_authored_ai_update_interface(Some(true));
+        mob_t.add_kind_of(KindOf::Infantry);
+        mob_t.add_kind_of(KindOf::IgnoredInGui);
+        let mob_id = ObjectId(5102);
+        logic.objects.insert(mob_id, {
+            let mut o = Object::new(mob_t, mob_id, Team::USA);
+            o.owner_player_id = Some(1);
+            o.ai_attitude = -2;
+            o
+        });
+        assert_eq!(
+            logic.get_mood_matrix_action_adjustment(mob_id, MoodMatrixAction::Move),
+            ACTION_OK,
+            "IGNORED_IN_GUI infantry must skip mood rewrite"
+        );
+
+        // No controller → ACTION_OK default.
+        if let Some(o) = logic.objects.get_mut(&ai_id) {
+            o.owner_player_id = None;
+            o.ai_attitude = 2;
+        }
+        assert_eq!(
+            logic.get_mood_matrix_action_adjustment(ai_id, MoodMatrixAction::Idle),
+            ACTION_OK
+        );
+        let _ = AFFECT_RANGE_IGNORE_ALL; // keep import used if attitude paths change
+    }
 }

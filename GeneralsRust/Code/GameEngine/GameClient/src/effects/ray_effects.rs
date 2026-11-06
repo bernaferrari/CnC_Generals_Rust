@@ -197,6 +197,8 @@ pub struct RayEffect {
     id: RayEffectId,
     config: RayEffectConfig,
     created_at: Instant,
+    /// Simulated age advanced by `update(delta_time)` (game time, not wall clock).
+    age_secs: f32,
     active: bool,
     current_alpha: f32,
 }
@@ -208,6 +210,7 @@ impl RayEffect {
             id,
             config,
             created_at: Instant::now(),
+            age_secs: 0.0,
             active: true,
             current_alpha: 0.0,
         }
@@ -235,11 +238,12 @@ impl RayEffect {
 
     /// Update effect state
     pub fn update(&mut self, delta_time: f32) {
-        let elapsed = self.created_at.elapsed();
+        self.age_secs = (self.age_secs + delta_time.max(0.0)).max(0.0);
+        let elapsed_secs = self.age_secs;
 
-        // Check lifetime
+        // Check lifetime (sim time — matches C++ frame-driven FX, not wall Instant)
         if let Some(lifetime) = self.config.lifetime {
-            if elapsed > lifetime {
+            if elapsed_secs > lifetime.as_secs_f32() {
                 self.active = false;
                 return;
             }
@@ -249,7 +253,6 @@ impl RayEffect {
         let total_lifetime = self.config.lifetime.unwrap_or(Duration::from_secs(3600));
         let fade_in_secs = self.config.fade_in.as_secs_f32();
         let fade_out_secs = self.config.fade_out.as_secs_f32();
-        let elapsed_secs = elapsed.as_secs_f32();
         let total_secs = total_lifetime.as_secs_f32();
 
         self.current_alpha = if elapsed_secs < fade_in_secs {
@@ -280,7 +283,7 @@ impl RayEffect {
 
     /// Get effect age
     pub fn age(&self) -> Duration {
-        self.created_at.elapsed()
+        Duration::from_secs_f32(self.age_secs.max(0.0))
     }
 
     /// Get configuration
@@ -345,7 +348,9 @@ impl RayEffect {
     pub fn pulse_intensity(&self, time: f32) -> f32 {
         if self.config.pulse_frequency > 0.0 {
             let pulse = (time * self.config.pulse_frequency * std::f32::consts::TAU).sin();
-            0.5 + pulse * 0.5 // Oscillate between 0.5 and 1.0
+            // Clamp: sin(π) can be a tiny negative under f32, which must not
+            // drop the laser pulse floor below the C++ 0.5..1.0 envelope.
+            (0.5 + pulse * 0.5).clamp(0.5, 1.0)
         } else {
             1.0
         }
@@ -501,6 +506,7 @@ mod tests {
 
     #[test]
     fn test_ray_effect_creation() {
+        crate::test_support::ensure_ambient_host();
         let config = RayEffectConfig::laser();
         let effect = RayEffect::new(1, config);
 
@@ -511,6 +517,7 @@ mod tests {
 
     #[test]
     fn test_ray_effect_update() {
+        crate::test_support::ensure_ambient_host();
         let config = RayEffectConfig::default();
         let mut effect = RayEffect::new(1, config);
 
@@ -521,6 +528,7 @@ mod tests {
 
     #[test]
     fn test_ray_effect_lifetime() {
+        crate::test_support::ensure_ambient_host();
         let mut config = RayEffectConfig::default();
         config.lifetime = Some(Duration::from_millis(100));
         config.fade_in = Duration::from_millis(10);
@@ -538,6 +546,7 @@ mod tests {
 
     #[test]
     fn test_ray_manager() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = RayEffectManager::new();
 
         let id1 = manager.spawn(RayEffectConfig::laser());
@@ -554,6 +563,7 @@ mod tests {
 
     #[test]
     fn test_beam_point_generation() {
+        crate::test_support::ensure_ambient_host();
         let config = RayEffectConfig::default().between(Vec3::ZERO, Vec3::new(0.0, 0.0, 10.0));
         let effect = RayEffect::new(1, config);
 
@@ -570,6 +580,7 @@ mod tests {
 
     #[test]
     fn test_pulse_intensity() {
+        crate::test_support::ensure_ambient_host();
         let mut config = RayEffectConfig::laser();
         config.pulse_frequency = 1.0; // 1 Hz
         let effect = RayEffect::new(1, config);
@@ -585,6 +596,7 @@ mod tests {
 
     #[test]
     fn test_ray_presets() {
+        crate::test_support::ensure_ambient_host();
         let laser = RayEffectConfig::laser();
         assert_eq!(laser.ray_type, RayType::Laser);
 

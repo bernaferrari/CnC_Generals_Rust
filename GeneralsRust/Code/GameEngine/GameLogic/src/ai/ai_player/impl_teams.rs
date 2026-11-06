@@ -195,8 +195,8 @@ impl AIPlayer {
             return Ok(());
         }
 
-        let side = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let side = __player_list_arc.read()
             .ok()
             .and_then(|list| list.get_player(self.player_id as i32).cloned())
             .and_then(|p| p.read().ok().map(|g| g.get_side().to_string()))
@@ -220,7 +220,8 @@ impl AIPlayer {
             }
         }
 
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             if let Some(player_arc) = list.get_player(self.player_id as i32) {
                 if let Ok(mut pg) = player_arc.write() {
                     if let Some(info) = pg.get_build_list_mut() {
@@ -312,7 +313,8 @@ impl AIPlayer {
             return false;
         }
 
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return false;
         };
         let Some(player_arc) = list.get_player(self.player_id as i32) else {

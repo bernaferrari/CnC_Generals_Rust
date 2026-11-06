@@ -499,8 +499,7 @@ impl TerrainChunk {
                     4
                 }
             }
-        }
-        .min(2);
+        };
 
         if new_lod != self.lod_level {
             self.lod_level = new_lod;
@@ -886,6 +885,12 @@ impl ChunkBounds {
             || self.min.y > other.max.y
             || self.max.z < other.min.z
             || self.min.z > other.max.z)
+    }
+}
+
+impl Default for ChunkManager {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -1669,6 +1674,7 @@ mod tests {
 
     #[test]
     fn bordered_heightmap_chunks_cover_authored_samples_without_edge_overhang() {
+        crate::test_support::ensure_ambient_host();
         // C++ HeightMap.cpp converts every full-map sample i to
         // (i - border) * MAP_XY_FACTOR. The playable world is only the
         // interior; the renderer still has geometry for the authored border.
@@ -1728,6 +1734,7 @@ mod tests {
 
     #[test]
     fn test_chunk_creation() {
+        crate::test_support::ensure_ambient_host();
         let chunk = TerrainChunk::new(1, Vec3::new(0.0, 0.0, 0.0), 64.0);
         assert_eq!(chunk.id, 1);
         assert_eq!(chunk.size, 64.0);
@@ -1737,6 +1744,7 @@ mod tests {
 
     #[test]
     fn test_chunk_bounds() {
+        crate::test_support::ensure_ambient_host();
         let bounds = ChunkBounds {
             min: Vec3::new(-10.0, -5.0, -10.0),
             max: Vec3::new(10.0, 5.0, 10.0),
@@ -1748,6 +1756,7 @@ mod tests {
 
     #[test]
     fn test_chunk_manager_creation() {
+        crate::test_support::ensure_ambient_host();
         let config = TerrainConfig::default();
         let manager = ChunkManager::with_config(config);
         assert_eq!(manager.chunks.len(), 0);
@@ -1756,6 +1765,7 @@ mod tests {
 
     #[test]
     fn test_chunk_region_creation() {
+        crate::test_support::ensure_ambient_host();
         let config = TerrainConfig::default();
         let mut manager = ChunkManager::with_config(config);
 
@@ -1771,6 +1781,7 @@ mod tests {
 
     #[test]
     fn test_lod_calculation() {
+        crate::test_support::ensure_ambient_host();
         let mut chunk = TerrainChunk::new(1, Vec3::new(0.0, 0.0, 0.0), 64.0);
         let config = TerrainConfig::default();
 
@@ -1791,7 +1802,8 @@ mod tests {
 
     #[test]
     fn generate_geometry_uses_p0_p2_split_like_cpp_heightmap() {
-        crate::fx_list::clear_scene_dynamic_lights();
+        crate::test_support::ensure_ambient_host();
+        let _ = crate::core::game_client::with_live_game_client_mut(|client| client.fx_mut().clear_scene_dynamic_lights());
         let mut chunk = TerrainChunk::new(1, Vec3::new(32.0, 0.0, 32.0), 64.0);
         chunk.heights = vec![vec![0.0, 10.0], vec![20.0, 30.0]];
 
@@ -1825,6 +1837,7 @@ mod tests {
 
     #[test]
     fn terrain_normal_uses_source_sample_spacing_across_mesh_lods() {
+        crate::test_support::ensure_ambient_host();
         // C++ HeightMap.cpp builds its normal vectors from neighboring map
         // samples separated by MAP_XY_FACTOR. The output should not steepen
         // when the chunk mesh changes from 17 to 65 vertices during zoom.
@@ -1848,6 +1861,7 @@ mod tests {
 
     #[test]
     fn generate_geometry_bakes_do_the_dynamic_light_into_vertex_color() {
+        crate::test_support::ensure_ambient_host();
         use crate::fx_list::{DisplayLightPulse, DisplayLightScene, do_the_dynamic_light};
         let mut scene = DisplayLightScene::default();
         assert!(scene.create_pulse(DisplayLightPulse {
@@ -1922,6 +1936,7 @@ mod tests {
 
     #[test]
     fn dynamic_light_expiry_restores_static_color_once_then_skips_quiet_frames() {
+        crate::test_support::ensure_ambient_host();
         use crate::fx_list::{DisplayLightPulse, DisplayLightScene};
         let mut scene = DisplayLightScene::default();
 
@@ -1979,6 +1994,7 @@ mod tests {
 
     #[test]
     fn load_heightmap_preserves_exact_edge_samples_for_render_chunks() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(4, 4, 100.0, 1.0);
         heightmap.set_height_at_index(3, 0, 0.25);
         heightmap.set_height_at_index(0, 3, 0.5);

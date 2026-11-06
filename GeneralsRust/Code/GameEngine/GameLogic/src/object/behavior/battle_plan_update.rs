@@ -1,6 +1,7 @@
 //! BattlePlanUpdate - Handle building states and battle plan execution & changes
 //! Author: Kris Morness, September 2002 (C++ version) | Rust conversion: 2025
 
+use crate::object::ObjectDeletionServices;
 use crate::common::audio::AudioEventRts;
 use crate::common::{
     AsciiString, CommandSourceType, Coord3D, DisabledType, KindOf, KindOfMask, ModelConditionFlag,
@@ -797,16 +798,17 @@ impl BattlePlanUpdate {
         }
     }
 
-    fn destroy_vision_object(&self) {
-        if let Some(vision_id) = self.vision_object_id {
-            let _ = TheGameLogic::destroy_object_by_id(vision_id);
+    fn destroy_vision_object(&self, services: Option<&mut (dyn ObjectDeletionServices + '_)>) {
+        if let (Some(vision_id), Some(services)) = (self.vision_object_id, services) {
+            services.destroy_object(vision_id);
         }
     }
 
     /// C++ `BattlePlanUpdate::onDelete` (`BattlePlanUpdate.cpp:164-191`).
     /// Vision object teardown + invert army bonuses. Not `onDie`.
     fn on_delete(&mut self) {
-        self.destroy_vision_object();
+        // No driving owner here, so there is nobody to ask to destroy the
+        // vision object; the owner-aware path below handles that.
         if let Some(plan_type) = self.army_plan_type() {
             self.with_controlling_player_mut(|player| {
                 player.change_battle_plan(plan_type, -1, &self.bonuses);
@@ -814,8 +816,12 @@ impl BattlePlanUpdate {
         }
     }
 
-    fn on_delete_with_owner(&mut self, owner: &mut GameObject) {
-        self.destroy_vision_object();
+    fn on_delete_with_owner(
+        &mut self,
+        owner: &mut GameObject,
+        services: Option<&mut (dyn ObjectDeletionServices + '_)>,
+    ) {
+        self.destroy_vision_object(services);
         if let (Some(plan_type), Some(player_id)) =
             (self.army_plan_type(), owner.get_controlling_player_id())
         {
@@ -1284,8 +1290,12 @@ impl BattlePlanUpdateModule {
 
     /// Object's onDestroy already owns its mutable state. Preserve onDelete
     /// order without rediscovering that owner through the global registry.
-    pub(crate) fn on_delete_with_owner(&mut self, owner: &mut GameObject) {
-        self.behavior.on_delete_with_owner(owner);
+    pub(crate) fn on_delete_with_owner(
+        &mut self,
+        owner: &mut GameObject,
+        services: Option<&mut (dyn ObjectDeletionServices + '_)>,
+    ) {
+        self.behavior.on_delete_with_owner(owner, services);
     }
 }
 
@@ -1566,7 +1576,8 @@ mod tests {
 
         let player = Arc::new(RwLock::new(Player::new(0)));
         let player_index = {
-            let mut list = player_list().write().unwrap();
+            let __player_list_arc = player_list();
+        let mut list = __player_list_arc.write().unwrap();
             list.add_player(Arc::clone(&player));
             (list.get_player_count() - 1) as u32
         };

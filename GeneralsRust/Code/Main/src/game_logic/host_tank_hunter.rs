@@ -160,6 +160,11 @@ pub fn tank_hunter_ms_to_frames(ms: u32) -> u32 {
     ((ms as f32) * TANK_HUNTER_LOGIC_FPS / 1000.0).round() as u32
 }
 
+/// Authored Tank Hunter PRIMARY weapon (hq-2qedt.262).
+pub fn is_tank_hunter_missile_weapon(weapon_name: &str) -> bool {
+    weapon_name.eq_ignore_ascii_case(TANK_HUNTER_MISSILE_WEAPON)
+}
+
 /// Whether template is a residual Tank Hunter infantry.
 ///
 /// Fail-closed: name residual. Excludes weapons/debris/science tokens.
@@ -276,9 +281,9 @@ pub fn is_legal_tank_hunter_splash_target(
     is_alive && !is_self && !under_construction && is_combat_kind
 }
 
-/// Whether residual fire should apply Tank Hunter RPG residual path.
-pub fn should_apply_tank_hunter_residual(is_tank_hunter: bool) -> bool {
-    is_tank_hunter
+/// Authored WeaponTemplate identity for the Tank Hunter missile residual.
+pub fn is_tank_hunter_weapon_name(weapon_name: &str) -> bool {
+    weapon_name.eq_ignore_ascii_case(TANK_HUNTER_MISSILE_WEAPON)
 }
 
 /// Whether unit can issue TNT special residual (Tank Hunter only).

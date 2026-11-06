@@ -154,6 +154,7 @@ pub async fn run_cnc_game(
     window_attributes: WindowAttributes,
     cmd_args: Arc<CommandLineArgs>,
 ) -> Result<()> {
+    let _main_services_scope = crate::main_services::MainServicesScope::new();
     info!("🎮 Starting Command & Conquer Generals Zero Hour - Real Game");
 
     register_real_game_client_bootstrap();
@@ -169,7 +170,7 @@ pub async fn run_cnc_game(
     let mut next_redraw_at = Instant::now();
     let mut last_slow_frame_log = None::<Instant>;
     /// Frame-start Instant of the previous drive_frame that fed the logic dt
-    /// chain (ww3d_engine::update() + update_with_timing). Anchors the
+    /// chain (engine.ww3d.lock().update() + update_with_timing). Anchors the
     /// DT-CHAIN GUARD inside drive_frame: engine.update_with_timing must
     /// receive the true elapsed since the PREVIOUS frame start, never a span
     /// cut short by a mid-frame clock stamp. C++ anchor: GameEngine::execute
@@ -233,7 +234,7 @@ pub async fn run_cnc_game(
                     bridge.publish_status(&snapshot);
                 }
                 if engine.take_runtime_host_pending_capture() {
-                    bridge.force_capture_request();
+                    bridge.force_capture_request(&engine.ww3d);
                 }
                 let _ = applied;
             }
@@ -252,14 +253,15 @@ pub async fn run_cnc_game(
                 if matches!(engine.get_state(), GameState::Menu) {
                     log::trace!("drive_frame: pre ww3d_engine::update Menu");
                 }
-                let timing = match ww3d_engine::update() {
-                    Ok(_) => match ww3d_engine::timing() {
-                        Ok(timing) => Some(timing),
-                        Err(err) => {
-                            error!("Failed to fetch WW3D frame timing: {err:?}");
-                            None
-                        }
-                    },
+                // One guard for update + timing: a `lock()` temporary in the
+                // match scrutinee lives for the whole match, so locking again
+                // inside an arm self-deadlocks the non-reentrant mutex.
+                let timing = {
+                    let mut ww3d = engine.ww3d.lock();
+                    ww3d.update().map(|()| ww3d.timing())
+                };
+                let timing = match timing {
+                    Ok(timing) => Some(timing),
                     Err(err) => {
                         error!("WW3D engine update failed: {err:?}");
                         None
@@ -328,8 +330,9 @@ pub async fn run_cnc_game(
             }
 
             let update_elapsed = update_started.elapsed();
-            static DRIVE_FRAME_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-            let dfn = DRIVE_FRAME_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let dfn = crate::main_services::main_services()
+                .drive_frame_count
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             if dfn < 15 || (dfn < 50 && matches!(engine.get_state(), GameState::Menu)) {
                 info!("drive_frame #{} update_done {:?} state={:?} render_frame={}", dfn, update_elapsed, engine.get_state(), render_frame);
             }
@@ -342,6 +345,7 @@ pub async fn run_cnc_game(
                 }
                 match engine.render() {
                     Ok(_) => {
+                        engine.golden_after_present();
                         // Honest live_frame residual: a successful windowed render
                         // presented a wgpu surface (end_render present_surface_texture).
                         // Headless keeps capture-only promotion so headless smoke
@@ -452,7 +456,7 @@ pub async fn run_cnc_game(
 
             if let Some(bridge) = runtime_host_bridge.as_mut() {
                 let snapshot = engine.runtime_host_status_snapshot();
-                bridge.publish_runtime(&snapshot);
+                bridge.publish_runtime(&engine.ww3d, &snapshot);
             }
             Ok(())
         };
@@ -545,10 +549,12 @@ pub async fn run_cnc_game(
                                     if let raw_window_handle::RawWindowHandle::Win32(win) =
                                         handle.as_raw()
                                     {
-                                        crate::win_main::APPLICATION_WINDOW.store(
-                                            win.hwnd.get() as *mut std::ffi::c_void,
-                                            std::sync::atomic::Ordering::Relaxed,
-                                        );
+                                        crate::main_services::main_services()
+                                            .application_window
+                                            .store(
+                                                win.hwnd.get() as *mut std::ffi::c_void,
+                                                std::sync::atomic::Ordering::Relaxed,
+                                            );
                                         debug!("Win32 window handle stored");
                                     }
                                 }
@@ -623,10 +629,43 @@ pub async fn run_cnc_game(
                                 startup_focus = None;
                                 if let Some(bridge) = runtime_host_bridge.as_mut() {
                                     let snapshot = new_engine.runtime_host_status_snapshot();
-                                    bridge.publish_runtime(&snapshot);
+                                    bridge.publish_runtime(&new_engine.ww3d, &snapshot);
                                 }
                                 *services = Some(application_services);
                                 *engine = Some(new_engine);
+                                // Drain the startup worker on this thread. After
+                                // WM_KILLFOCUS, macOS may stop waking AboutToWait,
+                                // leaving ApplyFpsLimit / Prepared forever unread.
+                                if let Some(eng) = engine.as_mut() {
+                                    let drain_deadline =
+                                        Instant::now() + Duration::from_secs(180);
+                                    while matches!(
+                                        eng.startup_load_state,
+                                        super::StartupLoadState::InProgress { .. }
+                                    ) && Instant::now() < drain_deadline
+                                    {
+                                        if let Err(err) = eng.update_startup_loading() {
+                                            warn!(
+                                                "startup load drain failed during engine install: {err}"
+                                            );
+                                            break;
+                                        }
+                                        std::thread::sleep(STARTUP_POLL_INTERVAL);
+                                    }
+                                }
+                                // Drain may finish Loading→Menu on this thread.
+                                // Keep Poll whenever gpui is live so unfocused
+                                // macOS WaitUntil cannot freeze status.txt.
+                                if matches!(
+                                    engine
+                                        .as_ref()
+                                        .map(|e| &e.startup_load_state),
+                                    Some(super::StartupLoadState::InProgress { .. })
+                                ) || runtime_host_bridge.is_some()
+                                {
+                                    next_redraw_at = Instant::now();
+                                    elwt.set_control_flow(ControlFlow::Poll);
+                                }
                                 #[cfg(feature = "integration-diagnostics")]
                                 if cmd_args.wants_integration_diagnostics() {
                                     match pollster::block_on(IntegrationTelemetryBridge::new(
@@ -668,7 +707,15 @@ pub async fn run_cnc_game(
                     }
 
                     next_redraw_at = Instant::now() + STARTUP_POLL_INTERVAL;
-                    elwt.set_control_flow(control_flow_wait_until(next_redraw_at));
+                    if matches!(
+                        engine.as_ref().map(|e| &e.startup_load_state),
+                        Some(super::StartupLoadState::InProgress { .. })
+                    ) || runtime_host_bridge.is_some()
+                    {
+                        elwt.set_control_flow(ControlFlow::Poll);
+                    } else {
+                        elwt.set_control_flow(control_flow_wait_until(next_redraw_at));
+                    }
                 }
                 _ => {}
             }
@@ -689,7 +736,7 @@ pub async fn run_cnc_game(
             }
             if let Some(bridge) = runtime_host_bridge.as_mut() {
                 let snapshot = engine.runtime_host_status_snapshot();
-                bridge.publish_runtime(&snapshot);
+                bridge.publish_runtime(&engine.ww3d, &snapshot);
             }
             elwt.exit();
             return Ok(());
@@ -933,6 +980,16 @@ pub async fn run_cnc_game(
                             return Ok(());
                         }
                         next_redraw_at = now + STARTUP_POLL_INTERVAL;
+                    } else if matches!(
+                        engine.startup_load_state,
+                        super::StartupLoadState::InProgress { .. }
+                    ) {
+                        // macOS often stops delivering AboutToWait after
+                        // WM_KILLFOCUS; keep polling the startup worker so
+                        // gpui/bench hosts leave Loading assets.
+                        drive_frame(engine, current_window, &mut runtime_host_bridge, false)?;
+                        next_redraw_at = now + STARTUP_POLL_INTERVAL;
+                        current_window.request_redraw();
                     } else if runtime_window_suspended {
                         if should_keep_logic_running_while_iconic(
                             // Prefer presentation game_mode residual when installed.
@@ -954,10 +1011,17 @@ pub async fn run_cnc_game(
                             execute_wait_deadline(prev_time, engine.live_present_interval());
                     }
                 }
-                if engine.live_present_interval().is_none()
-                    && !runtime_headless_mode
-                    && !cmd_args.wants_smoke_test()
-                    && !runtime_window_minimized
+                // gpui/bench hosts must keep Poll after Menu: macOS WaitUntil
+                // stops waking AboutToWait once the window loses focus, which
+                // freezes status.txt at Loading and blocks open_skirmish_menu.
+                if matches!(
+                    engine.startup_load_state,
+                    super::StartupLoadState::InProgress { .. }
+                ) || runtime_host_bridge.is_some()
+                    || (engine.live_present_interval().is_none()
+                        && !runtime_headless_mode
+                        && !cmd_args.wants_smoke_test()
+                        && !runtime_window_minimized)
                 {
                     elwt.set_control_flow(ControlFlow::Poll);
                 } else {
@@ -1071,6 +1135,25 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         if let Some(ui) = self.game_client.in_game_ui_subsystem_mut() {
             admit_radar_presentations(&mut self.game_logic, ui.take_radar_acknowledgments());
+        }
+        // C++ W3DRadar::refreshTerrain after WorldHeightMap tiles arrive.
+        // Source tiles may hydrate after newMap's first black band admit.
+        #[cfg(feature = "game_client")]
+        {
+            let colors_gen = self.render_pipeline.radar_terrain_colors_generation();
+            if colors_gen != self.render_pipeline.radar_terrain_colors_admitted_generation {
+                let colors = self
+                    .render_pipeline
+                    .frozen_radar_terrain_colors(self.game_logic.radar());
+                if colors.iter().any(Option::is_some)
+                    && self.game_logic.admit_radar_terrain_colors(
+                        colors,
+                        self.game_logic.radar_water_color(),
+                    )
+                {
+                    self.render_pipeline.radar_terrain_colors_admitted_generation = colors_gen;
+                }
+            }
         }
         let frame = self.game_logic.frame;
         if self.game_logic.radar_mut().update_owned(frame) {

@@ -199,7 +199,7 @@ impl GameWindow {
                     .font
                     .as_ref()
                     .map(|font| {
-                        crate::gui::font::get_font_library()
+                        crate::gui::font::get_font_library().lock().unwrap_or_else(|e| e.into_inner())
                             .get_font(&font.to_font_desc())
                             .map(|resolved| resolved.height)
                             .unwrap_or_else(|_| crate::gui::font::font_pixel_size(font.size))
@@ -563,7 +563,7 @@ impl GameWindow {
         let font_for_children = font.clone();
         self.inst_data.font = Some(font);
         if let Some(font_desc) = self.inst_data.font.as_ref().map(GameFont::to_font_desc) {
-            if let Ok(font_ref) = get_font_library().get_font(&font_desc) {
+            if let Ok(font_ref) = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&font_desc) {
                 if let Some(display) = self.inst_data.display_text.as_ref() {
                     display.borrow_mut().set_font(font_ref.clone());
                 }
@@ -712,19 +712,27 @@ impl GameWindow {
         if self.inst_data.decorated_name.eq_ignore_ascii_case(name) {
             if let Some(parent) = self.get_parent() {
                 for child_rc in parent.borrow().children() {
-                    let child = child_rc.borrow();
-                    if child.inst_data.decorated_name.eq_ignore_ascii_case(name) {
+                    let matches = child_rc
+                        .borrow()
+                        .inst_data
+                        .decorated_name
+                        .eq_ignore_ascii_case(name);
+                    if matches {
                         return Some(child_rc.clone());
                     }
                 }
             }
         }
         for child_rc in &self.children {
-            let child = child_rc.borrow();
-            if child.inst_data.decorated_name.eq_ignore_ascii_case(name) {
+            let matches = child_rc
+                .borrow()
+                .inst_data
+                .decorated_name
+                .eq_ignore_ascii_case(name);
+            if matches {
                 return Some(child_rc.clone());
             }
-            if let Some(found) = child.find_child_window(name) {
+            if let Some(found) = child_rc.borrow().find_child_window(name) {
                 return Some(found);
             }
         }
@@ -734,11 +742,13 @@ impl GameWindow {
     /// Find a child window by window id.
     pub fn find_child_by_id(&self, id: WindowId) -> Option<Rc<RefCell<GameWindow>>> {
         for child_rc in &self.children {
-            let child = child_rc.borrow();
-            if child.id == id {
+            // Drop the child Ref before returning the Rc; callers commonly
+            // borrow_mut the result immediately on the same callback chain.
+            let matches = child_rc.borrow().id == id;
+            if matches {
                 return Some(child_rc.clone());
             }
-            if let Some(found) = child.find_child_by_id(id) {
+            if let Some(found) = child_rc.borrow().find_child_by_id(id) {
                 return Some(found);
             }
         }
@@ -1220,7 +1230,7 @@ impl GameWindow {
                 manager.new_display_string()
             };
             if let Some(font_desc) = self.inst_data.font.as_ref().map(GameFont::to_font_desc) {
-                if let Ok(font_ref) = get_font_library().get_font(&font_desc) {
+                if let Ok(font_ref) = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&font_desc) {
                     handle.borrow_mut().set_font(font_ref);
                 }
             }
@@ -1236,7 +1246,7 @@ impl GameWindow {
                 manager.new_display_string()
             };
             if let Some(font_desc) = self.inst_data.font.as_ref().map(GameFont::to_font_desc) {
-                if let Ok(font_ref) = get_font_library().get_font(&font_desc) {
+                if let Ok(font_ref) = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&font_desc) {
                     handle.borrow_mut().set_font(font_ref);
                 }
             }
@@ -1331,7 +1341,7 @@ impl GameWindow {
             .font
             .as_ref()
             .map(|font| {
-                crate::gui::font::get_font_library()
+                crate::gui::font::get_font_library().lock().unwrap_or_else(|e| e.into_inner())
                     .get_font(&font.to_font_desc())
                     .map(|resolved| resolved.height)
                     .unwrap_or_else(|_| crate::gui::font::font_pixel_size(font.size))
@@ -2084,6 +2094,7 @@ mod send_input_gate_tests {
 
     #[test]
     fn send_input_message_rejects_only_destroyed_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut window = GameWindow::new();
         let seen = Rc::new(RefCell::new(0u32));
         {
@@ -2094,23 +2105,23 @@ mod send_input_gate_tests {
             });
         }
 
-        window.hide(true).unwrap();
+        window.hide_without_manager_side_effects(true).unwrap();
         window.enable(false).unwrap();
         let _ = window.set_status(WindowStatus::NO_INPUT);
         assert_eq!(
-            window.send_input_message(WindowMessage::LeftDown, 0, 0),
+            window.test_send_input_message(WindowMessage::LeftDown, 0, 0),
             WindowMsgHandled::Handled
         );
         assert_eq!(*seen.borrow(), 1);
 
         window.set_status_exact(WindowStatus::DESTROYED);
         assert_eq!(
-            window.send_input_message(WindowMessage::LeftDown, 0, 0),
+            window.test_send_input_message(WindowMessage::LeftDown, 0, 0),
             WindowMsgHandled::Ignored
         );
         assert_eq!(*seen.borrow(), 1);
         assert_eq!(
-            window.send_input_message(WindowMessage::Destroy, 0, 0),
+            window.test_send_input_message(WindowMessage::Destroy, 0, 0),
             WindowMsgHandled::Handled
         );
         assert_eq!(*seen.borrow(), 2);
@@ -2123,6 +2134,7 @@ mod mutable_callback_borrow_tests {
 
     #[test]
     fn system_callback_can_replace_itself_and_reenter_the_same_window() {
+        crate::test_support::ensure_ambient_host();
         let mut window = GameWindow::new();
         window.set_user_data(Vec::<u32>::new());
         window.set_system_callback(|window, message, _, _| {
@@ -2134,16 +2146,71 @@ mod mutable_callback_borrow_tests {
                 WindowMsgHandled::Handled
             });
             assert_eq!(
-                window.send_system_message(WindowMessage::Destroy, 0, 0),
+                window.test_send_system_message(WindowMessage::Destroy, 0, 0),
                 WindowMsgHandled::Handled
             );
             window.get_user_data_mut::<Vec<u32>>().unwrap().push(3);
             WindowMsgHandled::Handled
         });
         assert_eq!(
-            window.send_system_message(WindowMessage::Create, 0, 0),
+            window.test_send_system_message(WindowMessage::Create, 0, 0),
             WindowMsgHandled::Handled
         );
         assert_eq!(window.get_user_data::<Vec<u32>>().unwrap(), &[1, 2, 3]);
+    }
+}
+
+
+impl GameWindow {
+    /// Test helper: stack-owned WindowEventEffects for system messages.
+    pub fn test_send_system_message(
+        &mut self,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+    ) -> WindowMsgHandled {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.send_system_message(msg, data1, data2, effects)
+        })
+    }
+
+    pub fn test_send_input_message(
+        &mut self,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+    ) -> WindowMsgHandled {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.send_input_message(msg, data1, data2, effects)
+        })
+    }
+
+    pub fn test_send_routed_input_message(
+        &mut self,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+    ) -> WindowMsgHandled {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.send_routed_input_message(msg, data1, data2, effects)
+        })
+    }
+
+    pub fn test_set_size(&mut self, width: i32, height: i32) -> WindowResult<()> {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.set_size(width, height, effects)
+        })
+    }
+
+    pub fn test_show_tab_pane(&mut self, index: usize) {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.show_tab_pane(index, effects);
+        });
+    }
+
+    pub fn test_update_listbox_scrollbar(&mut self) {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.update_listbox_scrollbar(effects);
+        });
     }
 }

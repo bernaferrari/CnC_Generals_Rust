@@ -39,12 +39,23 @@ pub type AudioHandle = u32;
 
 /// Which category of audio a request targets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u32)]
 pub enum AudioAffect {
     None = 0x00,
     Music = 0x01,
     Sound = 0x02,
+    MusicSound = 0x03,
     Sound3D = 0x04,
+    MusicSound3D = 0x05,
+    SoundSound3D = 0x06,
+    MusicSoundSound3D = 0x07,
     Speech = 0x08,
+    MusicSpeech = 0x09,
+    SoundSpeech = 0x0A,
+    MusicSoundSpeech = 0x0B,
+    Sound3DSpeech = 0x0C,
+    MusicSound3DSpeech = 0x0D,
+    SoundSound3DSpeech = 0x0E,
     All = 0x0F,
     SystemSetting = 0x10,
 }
@@ -52,18 +63,32 @@ pub enum AudioAffect {
 impl std::ops::BitOr for AudioAffect {
     type Output = Self;
     fn bitor(self, rhs: Self) -> Self::Output {
-        AudioAffect::from_bits(self as u32 | rhs as u32)
+        AudioAffect::from_bits((self as u32) | (rhs as u32))
     }
 }
 
 impl AudioAffect {
     pub fn from_bits(bits: u32) -> Self {
-        match bits & 0x0F {
+        // C++ AudioAffect is a bit mask; keep every low-nibble combination so
+        // BitOr chains (Music|Sound|Sound3D|Speech) reach All without dropping flags.
+        match bits & 0x1F {
+            0x00 => Self::None,
             0x01 => Self::Music,
             0x02 => Self::Sound,
+            0x03 => Self::MusicSound,
             0x04 => Self::Sound3D,
+            0x05 => Self::MusicSound3D,
+            0x06 => Self::SoundSound3D,
+            0x07 => Self::MusicSoundSound3D,
             0x08 => Self::Speech,
+            0x09 => Self::MusicSpeech,
+            0x0A => Self::SoundSpeech,
+            0x0B => Self::MusicSoundSpeech,
+            0x0C => Self::Sound3DSpeech,
+            0x0D => Self::MusicSound3DSpeech,
+            0x0E => Self::SoundSound3DSpeech,
             0x0F => Self::All,
+            0x10 => Self::SystemSetting,
             _ => Self::None,
         }
     }
@@ -1031,6 +1056,7 @@ mod tests {
 
     #[test]
     fn test_audio_affect_bits() {
+        crate::test_support::ensure_ambient_host();
         let all =
             AudioAffect::Music | AudioAffect::Sound | AudioAffect::Sound3D | AudioAffect::Speech;
         assert_eq!(all, AudioAffect::All);
@@ -1040,6 +1066,7 @@ mod tests {
 
     #[test]
     fn test_audio_position_distance() {
+        crate::test_support::ensure_ambient_host();
         let a = AudioPosition::new(0.0, 0.0, 0.0);
         let b = AudioPosition::new(3.0, 4.0, 0.0);
         assert!((a.distance_to(&b) - 5.0).abs() < 0.001);
@@ -1047,6 +1074,7 @@ mod tests {
 
     #[test]
     fn test_event_registry() {
+        crate::test_support::ensure_ambient_host();
         let mut engine = AudioEngine::new().unwrap();
         let info = AudioEventInfo {
             name: "TestSound".to_string(),
@@ -1062,6 +1090,7 @@ mod tests {
 
     #[test]
     fn test_volume_clamping() {
+        crate::test_support::ensure_ambient_host();
         let mut engine = AudioEngine::new().unwrap();
         engine.set_volume(1.5, AudioAffect::Music);
         assert!((engine.get_volume(AudioAffect::Music) - 1.0).abs() < 0.001);

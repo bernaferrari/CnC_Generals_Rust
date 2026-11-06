@@ -89,8 +89,21 @@ pub(super) struct RuntimeHostSnapshot {
     pub(super) render_alive_objects: u32,
     pub(super) render_fow_filtered: u32,
     pub(super) render_item_count: u32,
+    pub(super) render_terrain_chunks: u32,
+    pub(super) render_models: u32,
+    pub(super) render_ui: u32,
+    pub(super) render_selection: u32,
     pub(super) render_model_missing: u32,
     pub(super) render_frustum_culled: u32,
+    /// Non-black RGBA samples in the 128x128 W3DRadar terrain texture.
+    pub(super) radar_pixels: u32,
+    /// Last present execute total ms (diagnostic).
+    pub(super) present_ms: f32,
+    pub(super) present_collect_ms: f32,
+    pub(super) present_terrain_ms: f32,
+    pub(super) present_forward_ms: f32,
+    /// Last submitted WW3D frame counters (passes, GPU objects created).
+    pub(super) render_frame_stats: String,
     pub(super) camera_pos: String,
     pub(super) camera_target: String,
     pub(super) sample_unit_pos: String,
@@ -200,25 +213,21 @@ pub(super) fn format_clicker_aim_status(
 
 impl RuntimeHostBridge {
     pub(super) const CAPTURE_REQUEST_INTERVAL_LOADING: Duration = Duration::from_millis(120);
-    pub(super) const CAPTURE_REQUEST_INTERVAL_INTERACTIVE: Duration = Duration::from_millis(40);
+    // Diagnostic host only — C++ W3D never PNG-encodes the backbuffer each frame.
+    // 500ms keeps smoke/GPUI frames fresh without dominating present_ms.
+    pub(super) const CAPTURE_REQUEST_INTERVAL_INTERACTIVE: Duration = Duration::from_millis(500);
     pub(super) const CAPTURE_REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
 
-    pub(super) fn force_capture_request(&mut self) {
+    pub(super) fn force_capture_request(&mut self, ww3d: &ww3d_engine::SharedEngine) {
         // Drop interval gate so next publish_frame requests a screenshot immediately.
         self.last_capture_request_at = None;
         self.capture_request_in_flight = false;
         self.capture_request_started_at = None;
         // Best-effort immediate request.
-        match ww3d_engine::make_screenshot(&self.capture_path) {
-            Ok(()) => {
-                self.last_capture_request_at = Some(Instant::now());
-                self.capture_request_in_flight = true;
-                self.capture_request_started_at = Some(Instant::now());
-            }
-            Err(err) => {
-                log::trace!("force_capture_request screenshot failed: {err:?}");
-            }
-        }
+        ww3d.lock().make_screenshot(&self.capture_path);
+        self.last_capture_request_at = Some(Instant::now());
+        self.capture_request_in_flight = true;
+        self.capture_request_started_at = Some(Instant::now());
     }
 
     /// Latch live_frame_ok after a real windowed wgpu surface present.
@@ -389,8 +398,18 @@ impl RuntimeHostBridge {
             render_alive_objects: 0,
             render_fow_filtered: 0,
             render_item_count: 0,
+            render_terrain_chunks: 0,
+            render_models: 0,
+            render_ui: 0,
+            render_selection: 0,
             render_model_missing: 0,
             render_frustum_culled: 0,
+            radar_pixels: 0,
+            present_ms: 0.0,
+            present_collect_ms: 0.0,
+            present_terrain_ms: 0.0,
+            present_forward_ms: 0.0,
+            render_frame_stats: String::new(),
             camera_pos: String::new(),
             camera_target: String::new(),
             sample_unit_pos: String::new(),
@@ -403,9 +422,9 @@ impl RuntimeHostBridge {
         self.publish_status(&snapshot);
     }
 
-    pub(super) fn publish_runtime(&mut self, snapshot: &RuntimeHostSnapshot) {
+    pub(super) fn publish_runtime(&mut self, ww3d: &ww3d_engine::SharedEngine, snapshot: &RuntimeHostSnapshot) {
         // Promote capture before status so live_frame_ok reflects this frame.
-        self.publish_frame(snapshot.frame, &snapshot.state);
+        self.publish_frame(ww3d, snapshot.frame, &snapshot.state);
         self.publish_status(snapshot);
     }
 
@@ -554,6 +573,22 @@ impl RuntimeHostBridge {
             snapshot.render_item_count
         ));
         payload.push_str(&format!(
+            "render_terrain_chunks={}\n",
+            snapshot.render_terrain_chunks
+        ));
+        payload.push_str(&format!(
+            "render_models={}\n",
+            snapshot.render_models
+        ));
+        payload.push_str(&format!(
+            "render_ui={}\n",
+            snapshot.render_ui
+        ));
+        payload.push_str(&format!(
+            "render_selection={}\n",
+            snapshot.render_selection
+        ));
+        payload.push_str(&format!(
             "render_model_missing={}\n",
             snapshot.render_model_missing
         ));
@@ -561,6 +596,21 @@ impl RuntimeHostBridge {
             "render_frustum_culled={}\n",
             snapshot.render_frustum_culled
         ));
+        payload.push_str(&format!("radar_pixels={}\n", snapshot.radar_pixels));
+        payload.push_str(&format!("present_ms={:.3}\n", snapshot.present_ms));
+        payload.push_str(&format!(
+            "present_collect_ms={:.3}\n",
+            snapshot.present_collect_ms
+        ));
+        payload.push_str(&format!(
+            "present_terrain_ms={:.3}\n",
+            snapshot.present_terrain_ms
+        ));
+        payload.push_str(&format!(
+            "present_forward_ms={:.3}\n",
+            snapshot.present_forward_ms
+        ));
+        payload.push_str(&format!("render_frame_stats={}\n", snapshot.render_frame_stats));
         payload.push_str(&format!("camera_pos={}\n", snapshot.camera_pos));
         payload.push_str(&format!("camera_target={}\n", snapshot.camera_target));
         payload.push_str(&format!("sample_unit_pos={}\n", snapshot.sample_unit_pos));
@@ -579,7 +629,7 @@ impl RuntimeHostBridge {
         let _ = fs::write(&self.status_path, payload);
     }
 
-    pub(super) fn publish_frame(&mut self, frame: u32, state: &str) {
+    pub(super) fn publish_frame(&mut self, ww3d: &ww3d_engine::SharedEngine, frame: u32, state: &str) {
         if frame <= self.last_published_frame {
             return;
         }
@@ -615,22 +665,12 @@ impl RuntimeHostBridge {
                 .unwrap_or(true);
         if should_request_capture {
             let requested_at = Instant::now();
-            match ww3d_engine::make_screenshot(&self.capture_path) {
-                Ok(()) => {
-                    self.last_capture_request_at = Some(requested_at);
-                    self.capture_request_in_flight = true;
-                    self.capture_request_started_at = Some(requested_at);
-                    self.screenshot_enqueue_failed = false;
-                }
-                Err(err) => {
-                    if !self.screenshot_enqueue_failed {
-                        warn!(
-                            "Runtime host frame capture unavailable ({err:?}); falling back to static frame"
-                        );
-                        self.screenshot_enqueue_failed = true;
-                    }
-                }
-            }
+            // Caller must have passed ww3d into publish_frame; see signature update below.
+            ww3d.lock().make_screenshot(&self.capture_path);
+            self.last_capture_request_at = Some(requested_at);
+            self.capture_request_in_flight = true;
+            self.capture_request_started_at = Some(requested_at);
+            self.screenshot_enqueue_failed = false;
         }
 
         self.promote_capture_frame_if_ready();
@@ -659,6 +699,12 @@ impl RuntimeHostBridge {
                 self.capture_path.display()
             );
             self.last_capture_health_log_at = Some(Instant::now());
+        }
+
+        // Never plant the procedural green→blue ramp during a live match: the
+        // present-frame gate previously copied that placeholder and passed.
+        if matches!(state, "InGame" | "Paused") {
+            return;
         }
 
         let fallback_bytes = if let Some(bytes) = self.fallback_frame_png.as_ref() {

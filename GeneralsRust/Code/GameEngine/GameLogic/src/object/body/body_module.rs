@@ -135,6 +135,11 @@ pub enum OwnerMaxHealthChange {
 
 /// Interface for body module operations
 pub trait BodyModuleInterface: Send + Sync {
+    /// HiveStructureBody (propagate, swallow) flags for `damage_type`;
+    /// `None` for every other Body.
+    fn hive_redirect_flags(&self, _damage_type: crate::damage::DamageType) -> Option<(bool, bool)> {
+        None
+    }
     fn assess_owned_native_damage(&mut self, _damage: &DamageInfo) -> BodyResult<bool> {
         Err(BodyError::OperationNotSupported)
     }

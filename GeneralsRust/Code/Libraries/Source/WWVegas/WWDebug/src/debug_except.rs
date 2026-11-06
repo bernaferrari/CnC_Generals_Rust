@@ -1,5 +1,3 @@
-use crate::debug_debug::Debug;
-use crate::debug_stack::{DebugStackwalk, Signature, write_signature};
 use once_cell::sync::OnceCell;
 use std::panic::{self, PanicInfo};
 
@@ -22,28 +20,22 @@ impl DebugExceptionhandler {
 }
 
 fn handle_panic(info: &PanicInfo) {
-    let mut dbg = Debug::instance().lock().unwrap();
-    dbg.crash_begin(None, None);
-    dbg.write_plain("\n========================================\n");
-    dbg.write_plain("PANIC:\n");
+    // Process-level panic hook cannot borrow a game-instance WwDebugSession.
+    // Emit to stderr; hosts that need Debug IO should install their own hook.
+    eprintln!("========================================");
+    eprintln!("PANIC:");
     if let Some(location) = info.location() {
-        dbg.write_plain(&format!(
-            "at {}:{}:{}\n",
+        eprintln!(
+            "at {}:{}:{}",
             location.file(),
             location.line(),
             location.column()
-        ));
+        );
     }
     if let Some(payload) = info.payload().downcast_ref::<&str>() {
-        dbg.write_plain(payload);
-        dbg.write_plain("\n");
+        eprintln!("{payload}");
     } else if let Some(payload) = info.payload().downcast_ref::<String>() {
-        dbg.write_plain(payload);
-        dbg.write_plain("\n");
+        eprintln!("{payload}");
     }
-    dbg.write_plain("\nStacktrace:\n");
-    let mut sig = Signature::new();
-    DebugStackwalk::stack_walk(&mut sig);
-    write_signature(&mut dbg, &sig);
-    dbg.crash_done(false);
+    eprintln!("========================================");
 }

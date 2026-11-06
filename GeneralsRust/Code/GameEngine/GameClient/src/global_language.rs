@@ -4,7 +4,7 @@
 //! scales UI point sizes by `xResolution/800` clamped to [1, 2] using
 //! `ResolutionFontAdjustment` (default 0.7).
 
-use std::sync::{LazyLock, RwLock};
+use std::sync::{Arc, RwLock};
 
 use game_engine::common::ini::ini_game_data::get_global_data;
 use game_engine::common::ini::ini_language::{
@@ -147,19 +147,46 @@ fn to_client_font(font: &CommonFontDesc) -> FontDesc {
     FontDesc::new(&font.name, font.size, font.bold)
 }
 
-static GLOBAL_LANGUAGE_DATA: LazyLock<RwLock<GlobalLanguageData>> = LazyLock::new(|| {
-    let mut data = GlobalLanguageData::default();
-    data.init();
-    RwLock::new(data)
-});
+#[cfg(test)]
+thread_local! {
+    static TEST_GLOBAL_LANGUAGE: std::cell::RefCell<Option<Arc<RwLock<GlobalLanguageData>>>> =
+        const { std::cell::RefCell::new(None) };
+}
 
-pub fn get_global_language_data() -> &'static RwLock<GlobalLanguageData> {
-    &GLOBAL_LANGUAGE_DATA
+fn global_language_handle() -> Arc<RwLock<GlobalLanguageData>> {
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_global_language_data()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_GLOBAL_LANGUAGE.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| {
+                    let mut data = GlobalLanguageData::default();
+                    data.init();
+                    Arc::new(RwLock::new(data))
+                })
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        let mut data = GlobalLanguageData::default();
+        data.init();
+        Arc::new(RwLock::new(data))
+    }
+}
+
+pub fn get_global_language_data() -> Arc<RwLock<GlobalLanguageData>> {
+    global_language_handle()
 }
 
 /// Force Language.ini load / re-sync (C++ `TheGlobalLanguageData->init()`).
 pub fn init_global_language_data() {
-    if let Ok(mut guard) = GLOBAL_LANGUAGE_DATA.write() {
+    let __lang = get_global_language_data();
+    if let Ok(mut guard) = __lang.write() {
         guard.init();
     }
 }

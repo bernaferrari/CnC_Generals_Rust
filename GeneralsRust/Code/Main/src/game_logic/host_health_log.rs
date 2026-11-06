@@ -264,7 +264,7 @@ mod completed_receipt_tests {
     fn real_body_receipts_preserve_operation_order_and_frozen_result() {
         let mut object = body();
         let mut events = HostHealthEvents::default();
-        assert!(!object.take_damage(20.0, &mut events));
+        assert!(!object.take_damage(20.0, 0, &mut events));
         object.heal(5.0, &mut events, 0);
         assert_eq!(object.health.current, 85.0);
         let ordered = events.drain_for_host_boundary();

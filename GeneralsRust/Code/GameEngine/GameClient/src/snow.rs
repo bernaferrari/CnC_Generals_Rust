@@ -2,7 +2,6 @@
 
 use game_engine::common::ini::ini::{INI, INIError, INIResult, register_block_parser};
 use game_engine::common::ini::ini_weather;
-use once_cell::sync::OnceCell;
 use std::sync::{Arc, Mutex, RwLock};
 
 const SNOW_NOISE_X: usize = 64;
@@ -89,14 +88,67 @@ impl WeatherSetting {
     }
 }
 
-static WEATHER_SETTING: OnceCell<Arc<RwLock<WeatherSetting>>> = OnceCell::new();
-static SNOW_MANAGER: OnceCell<Arc<Mutex<SnowManager>>> = OnceCell::new();
+#[cfg(test)]
+thread_local! {
+    static TEST_WEATHER_SETTING: std::cell::RefCell<Option<Arc<RwLock<WeatherSetting>>>> =
+        const { std::cell::RefCell::new(None) };
+    static TEST_SNOW_MANAGER: std::cell::RefCell<Option<Arc<Mutex<SnowManager>>>> =
+        const { std::cell::RefCell::new(None) };
+}
 
 fn sync_weather_from_common(dest: &Arc<RwLock<WeatherSetting>>) {
     if let Some(common) = ini_weather::get_weather_setting() {
         if let Ok(mut guard) = dest.write() {
             *guard = WeatherSetting::from_common(&common);
         }
+    }
+}
+
+fn weather_setting_handle() -> Arc<RwLock<WeatherSetting>> {
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_weather_setting()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_WEATHER_SETTING.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| {
+                    let initial = ini_weather::get_weather_setting()
+                        .map(|common| WeatherSetting::from_common(&common))
+                        .unwrap_or_default();
+                    Arc::new(RwLock::new(initial))
+                })
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        let initial = ini_weather::get_weather_setting()
+            .map(|common| WeatherSetting::from_common(&common))
+            .unwrap_or_default();
+        Arc::new(RwLock::new(initial))
+    }
+}
+
+fn snow_manager_handle() -> Arc<Mutex<SnowManager>> {
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_snow_manager()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_SNOW_MANAGER.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| Arc::new(Mutex::new(SnowManager::new())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Arc::new(Mutex::new(SnowManager::new()))
     }
 }
 
@@ -107,29 +159,34 @@ pub fn get_weather_setting() -> Option<Arc<RwLock<WeatherSetting>>> {
 }
 
 pub fn get_snow_manager() -> Option<Arc<Mutex<SnowManager>>> {
-    SNOW_MANAGER.get().cloned()
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.snow_manager_opt()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_SNOW_MANAGER.with(|slot| slot.borrow().clone());
+    }
+    #[cfg(not(test))]
+    {
+        None
+    }
 }
 
 pub fn ensure_weather_setting() -> Arc<RwLock<WeatherSetting>> {
-    let settings = WEATHER_SETTING
-        .get_or_init(|| {
-            let initial = ini_weather::get_weather_setting()
-                .map(|common| WeatherSetting::from_common(&common))
-                .unwrap_or_default();
-            Arc::new(RwLock::new(initial))
-        })
-        .clone();
+    let settings = weather_setting_handle();
     sync_weather_from_common(&settings);
     settings
 }
 
 pub fn initialize_snow_manager() -> Arc<Mutex<SnowManager>> {
     let _ = ensure_weather_setting();
-    let manager = SNOW_MANAGER.get_or_init(|| Arc::new(Mutex::new(SnowManager::new())));
+    let manager = snow_manager_handle();
     if let Ok(mut guard) = manager.lock() {
         guard.init();
     }
-    manager.clone()
+    manager
 }
 
 pub fn register_weather_definition_parser() {
@@ -463,6 +520,7 @@ mod tests {
 
     #[test]
     fn terrain_visual_update_does_not_double_tick_snow() {
+        crate::test_support::ensure_ambient_host();
         // C++ GameClient.cpp:560 is the only TheSnowManager->UPDATE.
         let traits = include_str!("terrain/terrain_visual/traits.rs");
         let update_fn = traits
@@ -483,6 +541,7 @@ mod tests {
 
     #[test]
     fn weather_setting_defaults_match_cpp_constructor() {
+        crate::test_support::ensure_ambient_host();
         let setting = WeatherSetting::default();
 
         assert_eq!(setting.snow_texture, "EXSnowFlake.tga");
@@ -502,6 +561,7 @@ mod tests {
 
     #[test]
     fn weather_fields_accept_cpp_ini_token_style() {
+        crate::test_support::ensure_ambient_host();
         let mut setting = WeatherSetting::default();
 
         setting
@@ -525,6 +585,7 @@ mod tests {
 
     #[test]
     fn snow_update_advances_and_wraps_time() {
+        crate::test_support::ensure_ambient_host();
         let mut snow = SnowManager::new();
         snow.full_time_period = 2.0;
         snow.update(0.75);
@@ -535,6 +596,7 @@ mod tests {
 
     #[test]
     fn update_ini_settings_does_not_overwrite_script_visibility() {
+        crate::test_support::ensure_ambient_host();
         let settings = WeatherSetting {
             snow_enabled: true,
             snow_box_dimensions: 50.0,
@@ -564,6 +626,7 @@ mod tests {
 
     #[test]
     fn explicit_definition_lifecycle_is_instance_owned() {
+        crate::test_support::ensure_ambient_host();
         let mut first = SnowManager::new();
         let mut peer = SnowManager::new();
         assert!(first.starting_heights().is_empty());
@@ -635,6 +698,7 @@ mod tests {
 
     #[test]
     fn reset_restores_script_visibility() {
+        crate::test_support::ensure_ambient_host();
         let mut snow = SnowManager::new();
         snow.set_visible(false);
         snow.reset();
@@ -646,6 +710,7 @@ mod tests {
 
     #[test]
     fn flake_positions_clip_to_terrain_visible_box() {
+        crate::test_support::ensure_ambient_host();
         let settings = WeatherSetting {
             snow_enabled: true,
             snow_box_dimensions: 50.0,
@@ -694,6 +759,7 @@ mod tests {
 
     #[test]
     fn camera_facing_quads_are_not_world_axis_cards() {
+        crate::test_support::ensure_ambient_host();
         let corners =
             camera_facing_quad_corners([0.0, 10.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.8, 0.6], 1.0);
         // C++ half-size is 0.5 * quadSize, not ±quadSize.
@@ -716,6 +782,7 @@ mod tests {
 
     #[test]
     fn game_client_reset_source_resets_snow_manager() {
+        crate::test_support::ensure_ambient_host();
         let init = include_str!("core/game_client/impl_init.rs");
         let reset_fn = init
             .split("pub fn reset(&mut self)")

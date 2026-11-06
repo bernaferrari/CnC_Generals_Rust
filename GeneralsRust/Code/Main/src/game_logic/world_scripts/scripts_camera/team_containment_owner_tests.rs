@@ -49,6 +49,11 @@ End
     world.world_min = Vec3::ZERO;
     world.world_max = Vec3::splat(1000.0);
     world
+        .admit_locomotor_definitions(
+            crate::game_logic::locomotor_bootstrap::default_host_locomotor_store(),
+        )
+        .expect("owned locomotor baseline");
+    world
         .admit_receiving_module_content(
             crate::assets::ReceivingObjectContent::from_sources([(
                 "OwnedTeamContain.ini".into(),
@@ -94,15 +99,17 @@ fn spawn_named_pair(world: &mut GameLogic) -> (ObjectId, ObjectId) {
     (unit, target)
 }
 fn roster(owner: &GameLogic, member: ObjectId) -> u32 {
-    let mut factory = owner.team_factory.lock().unwrap();
-    factory
-        .init_team("ContainedTeam".into(), "NamedOwner".into(), false, None)
-        .unwrap();
-    let team = factory.create_inactive_team("ContainedTeam").unwrap();
-    let mut team = team.write().unwrap();
-    team.set_active();
-    team.add_member(member.0);
-    team.get_id()
+    owner.with_own_services(|| {
+        let mut factory = owner.team_factory.lock().unwrap();
+        factory
+            .init_team("ContainedTeam".into(), "NamedOwner".into(), false, None)
+            .unwrap();
+        let team = factory.create_inactive_team("ContainedTeam").unwrap();
+        let mut team = team.write().unwrap();
+        team.set_active();
+        team.add_member(member.0);
+        team.get_id()
+    })
 }
 #[test]
 fn actual_transport_team_wait_observes_only_driving_roster_and_physical_containment() {
@@ -238,12 +245,14 @@ fn train_held_action_before_first_tick_is_owned_and_failed_restore_preserves_pee
     action
         .add_parameter(Parameter::with_int(ParameterType::Int, 1))
         .unwrap();
-    engine.friend_execute_action_with_driver(
-        &action,
-        None,
-        context,
-        &mut HostScriptExecutionDriver::with_interpreter(&mut owner, &engine),
-    );
+    owner.with_own_services_mut(|owner| {
+        engine.friend_execute_action_with_driver(
+            &action,
+            None,
+            context,
+            &mut HostScriptExecutionDriver::with_interpreter(owner, &engine),
+        );
+    });
     assert!(owner.railroad_car(train).unwrap().held);
     assert!(peer.railroad_car(train).is_none());
     peer.set_railroad_held(train, false);
@@ -276,20 +285,22 @@ fn train_held_action_before_first_tick_is_owned_and_failed_restore_preserves_pee
 impl GameLogic {
     /// Exercise the actual borrowed action ingress from native train fixtures.
     pub(crate) fn execute_train_held_script_for_test(&mut self, name: &str, held: bool) {
-        let engine = ScriptEngine::new().unwrap();
-        let context = gamelogic::scripting::executor::ScriptContext::at_frame(self.frame);
-        let mut action = ScriptAction::new(ScriptActionType::SetTrainHeld);
-        action
-            .add_parameter(Parameter::with_string(ParameterType::Unit, name.into()))
-            .unwrap();
-        action
-            .add_parameter(Parameter::with_int(ParameterType::Int, i32::from(held)))
-            .unwrap();
-        engine.friend_execute_action_with_driver(
-            &action,
-            None,
-            context,
-            &mut HostScriptExecutionDriver::with_interpreter(self, &engine),
-        );
+        self.with_own_services_mut(|this| {
+            let engine = ScriptEngine::new().unwrap();
+            let context = gamelogic::scripting::executor::ScriptContext::at_frame(this.frame);
+            let mut action = ScriptAction::new(ScriptActionType::SetTrainHeld);
+            action
+                .add_parameter(Parameter::with_string(ParameterType::Unit, name.into()))
+                .unwrap();
+            action
+                .add_parameter(Parameter::with_int(ParameterType::Int, i32::from(held)))
+                .unwrap();
+            engine.friend_execute_action_with_driver(
+                &action,
+                None,
+                context,
+                &mut HostScriptExecutionDriver::with_interpreter(this, &engine),
+            );
+        })
     }
 }

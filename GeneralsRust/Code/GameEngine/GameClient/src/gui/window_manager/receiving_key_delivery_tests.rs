@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn receiving_key_sender_finishes_before_next_ancestor_and_peer_keeps_same_ids() {
+    crate::test_support::ensure_ambient_host();
     fn world() -> (
         WindowManager,
         Rc<RefCell<GameWindow>>,
@@ -9,10 +10,10 @@ fn receiving_key_sender_finishes_before_next_ancestor_and_peer_keeps_same_ids() 
     ) {
         let mut manager = WindowManager::new();
         let parent = manager
-            .create_window_with_id(None, 0, 0, 100, 100, 101)
+            .test_create_window_with_id(None, 0, 0, 100, 100, 101)
             .unwrap();
         let child = manager
-            .create_window_with_id(Some(&parent), 0, 0, 40, 40, 102)
+            .test_create_window_with_id(Some(&parent), 0, 0, 40, 40, 102)
             .unwrap();
         for window in [&parent, &child] {
             window
@@ -24,7 +25,7 @@ fn receiving_key_sender_finishes_before_next_ancestor_and_peer_keeps_same_ids() 
                     WindowMsgHandled::Ignored
                 });
         }
-        manager.set_focus(Some(&child)).unwrap();
+        manager.test_set_focus(Some(&child)).unwrap();
         assert!(
             manager
                 .get_focus()
@@ -51,7 +52,7 @@ fn receiving_key_sender_finishes_before_next_ancestor_and_peer_keeps_same_ids() 
                     .borrow_mut()
                     .set_text("child continuation complete")
                     .unwrap();
-                manager.set_focus(Some(&parent_a)).unwrap();
+                manager.test_set_focus(Some(&parent_a)).unwrap();
                 let peer = b.process_key_event_with_receiving_sender(
                     13,
                     1,

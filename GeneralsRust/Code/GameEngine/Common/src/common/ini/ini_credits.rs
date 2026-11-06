@@ -29,7 +29,6 @@
 //! };
 //! ```
 
-use once_cell::sync::OnceCell;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::common::ini::{INI, INIError, INIResult};
@@ -502,34 +501,30 @@ impl Default for CreditsManager {
     }
 }
 
-/// Global credits manager instance
-static CREDITS_MANAGER: OnceCell<RwLock<CreditsManager>> = OnceCell::new();
+fn credits_manager_cell() -> std::sync::Arc<RwLock<CreditsManager>> {
+    crate::common::common_services::common_services()
+        .credits_manager
+        .clone()
+}
 
-/// Get the global credits manager (read access)
+/// Get the credits manager (read access) on the published CommonServices.
 pub fn get_credits_manager() -> RwLockReadGuard<'static, CreditsManager> {
-    CREDITS_MANAGER
-        .get_or_init(|| RwLock::new(CreditsManager::new()))
-        .read()
-        .unwrap()
+    let cell = credits_manager_cell();
+    let guard = cell.read().unwrap();
+    unsafe { std::mem::transmute(guard) }
 }
 
-/// Get the global credits manager (write access)
+/// Get the credits manager (write access) on the published CommonServices.
 pub fn get_credits_manager_mut() -> RwLockWriteGuard<'static, CreditsManager> {
-    CREDITS_MANAGER
-        .get_or_init(|| RwLock::new(CreditsManager::new()))
-        .write()
-        .unwrap()
+    let cell = credits_manager_cell();
+    let guard = cell.write().unwrap();
+    unsafe { std::mem::transmute(guard) }
 }
 
-/// Initialize the global credits manager
+/// Initialize / reset the credits manager on the published CommonServices.
 pub fn init_credits_manager() {
-    if CREDITS_MANAGER.get().is_none() {
-        let _ = CREDITS_MANAGER.set(RwLock::new(CreditsManager::new()));
-    } else if let Some(manager) = CREDITS_MANAGER.get() {
-        if let Ok(mut guard) = manager.write() {
-            *guard = CreditsManager::new();
-        }
-    }
+    let cell = credits_manager_cell();
+    *cell.write().unwrap() = CreditsManager::new();
 }
 
 /// Parse credits definition from INI block
@@ -549,6 +544,7 @@ pub fn parse_credits_definition(ini: &mut INI) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use crate::common::common_services::CommonServicesScope;
     use super::*;
 
     #[test]
@@ -663,6 +659,7 @@ mod tests {
 
     #[test]
     fn test_parse_credits_uses_cpp_bool_color_and_unknown_field_rules() {
+        let _scope = CommonServicesScope::new();
         init_credits_manager();
 
         let mut ini = INI::new();
@@ -681,6 +678,7 @@ mod tests {
 
     #[test]
     fn test_parse_credits_rejects_non_cpp_bool_color_and_unknown_fields() {
+        let _scope = CommonServicesScope::new();
         init_credits_manager();
 
         let mut ini = INI::new();
@@ -704,6 +702,7 @@ mod tests {
 
     #[test]
     fn test_global_manager() {
+        let _scope = CommonServicesScope::new();
         init_credits_manager();
 
         let manager = get_credits_manager();

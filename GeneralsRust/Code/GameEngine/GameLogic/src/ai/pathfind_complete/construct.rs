@@ -101,7 +101,8 @@ impl PathfindingSystem {
         if queue.iter().any(|r| r.object_id == request.object_id) {
             return Ok(());
         }
-        if queue.len() >= PATHFIND_QUEUE_LEN {
+        // C++ ObjectID ring leaves one slot empty (AIPathfind.cpp:5640-5661).
+        if queue.len() >= PATHFIND_QUEUE_LEN.saturating_sub(1) {
             return Err("Pathfind queue full".to_string());
         }
         queue.push_back(request);

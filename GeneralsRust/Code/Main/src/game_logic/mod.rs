@@ -1,5 +1,26 @@
 //! Game logic, owned runtime adapters, and executable behavioral regressions.
 
+pub(crate) mod world_ambient;
+
+/// Ambient SCOPED_ACTIVE hooks: Main registers TLS via [`world_ambient`]; GameLogic
+/// `register_ambient_stack_hooks` is a no-op when the crate-local stack is used. Transitional
+/// with_world_services TLS lives in gamelogic::system::engine_stores until
+/// nested free functions take explicit `&WorldServices`.
+#[inline]
+pub fn ensure_world_ambient() {
+    world_ambient::bind_pre_ensure();
+    world_ambient::ensure_registered();
+    // Boot / subsystem registration still call GameLogic free functions that
+    // resolve through WorldServices TLS (weapon store, OCL cell, ActionManager).
+    // Install a bootstrap bag before those paths run; the match-owned bag is
+    // pushed later via GameLogic::install_as_active_stores and restores this
+    // one on Drop.
+    use gamelogic::system::engine_stores;
+    if engine_stores::try_active_services().is_some() {
+        return;
+    }
+    engine_stores::install_services(engine_stores::new_world_services());
+}
 #[cfg(test)]
 mod runtime_regressions;
 
@@ -48,8 +69,10 @@ pub(crate) fn evaluate_and_execute_scripts_for_test(logic: &mut game_logic::Game
 }
 
 mod host_types;
+mod kind_of_set;
 pub(crate) mod host_upgrade_rules;
 mod special_power_notifications;
+pub use kind_of_set::KindOfSet;
 pub use host_types::*;
 pub(crate) use special_power_notifications::ScriptEventRecipient;
 // Child modules (`use super::*`) historically saw these parent imports.
@@ -85,7 +108,7 @@ mod host_mods_logs_c;
 pub use host_mods_logs_c::*;
 
 use host_mods_combat::host_bone_fx_damage;
-use host_mods_combat::host_command_button_hunt;
+pub use host_mods_combat::host_command_button_hunt;
 pub(crate) use host_mods_combat::host_command_button_hunt::{
     HUNT_CMD_FROM_AI, HUNT_CMD_FROM_PLAYER, HUNT_CMD_FROM_SCRIPT,
 };

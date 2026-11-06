@@ -136,6 +136,9 @@ pub struct Projectile {
     pub projectile_collides: u32,
     /// C++ HistoricBonus weapon-template key (empty = none).
     pub historic_weapon_key: String,
+    /// Fired WeaponTemplate DamageStatusType (C++ DamageInfoInput).
+    #[serde(skip)]
+    pub damage_status_type: Option<gamelogic::common::ObjectStatusTypes>,
     /// Runtime continuation is framed separately by CPRJ v2, preserving v1 bytes.
     #[serde(skip)]
     pub stream_binding: Option<ProjectileStreamBinding>,
@@ -214,6 +217,7 @@ impl Projectile {
             radius_damage_affects: crate::game_logic::weapon_bootstrap::WEAPON_AFFECTS_DEFAULT,
             projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
             historic_weapon_key: String::new(),
+            damage_status_type: None,
             stream_binding: None,
             historic_bonus_time_frames: 0,
             historic_bonus_count: 0,

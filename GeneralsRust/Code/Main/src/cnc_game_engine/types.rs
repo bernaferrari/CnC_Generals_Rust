@@ -1046,6 +1046,8 @@ pub struct CnCGameEngine {
     pub(crate) command_line: Arc<CommandLineArgs>,
 
     // C++ SAGE equivalent rendering subsystems
+    /// Host-owned WW3D engine (no process singleton).
+    pub(crate) ww3d: ww3d_engine::SharedEngine,
     pub(crate) graphics_system: GraphicsSystem,
     pub(crate) render_pipeline: RenderPipeline,
 
@@ -1293,6 +1295,10 @@ pub struct CnCGameEngine {
     pub(crate) camera_rotate_right_held: bool,
     pub(crate) camera_zoom_in_held: bool,
     pub(crate) camera_zoom_out_held: bool,
+    /// CommandMap BEGIN/END_FORCEATTACK remap (C++ MetaEvent, not only Ctrl).
+    pub(crate) meta_force_attack_held: bool,
+    /// CommandMap BEGIN/END_FORCEMOVE remap.
+    pub(crate) meta_force_move_held: bool,
     /// Retail TOGGLE_CAMERA_TRACKING_DRAWABLE residual.
     pub(crate) camera_tracking_selection: bool,
     /// Retail TOGGLE_FAST_FORWARD_REPLAY residual (TiVO fast mode).
@@ -1347,6 +1353,8 @@ pub struct CnCGameEngine {
 
     pub(crate) active_menu_shell_hook: Option<&'static str>,
     pub(crate) runtime_host_headless: bool,
+    /// Deterministic golden-frame capture request (renderer plan R0).
+    pub(crate) golden_capture: Option<super::golden_capture::GoldenCapture>,
     /// True when `--runtime_host` is set (headless or windowed). Host cmds/status.
     pub(crate) runtime_host_active: bool,
     pub(crate) runtime_host_base_ui_screen: Option<String>,

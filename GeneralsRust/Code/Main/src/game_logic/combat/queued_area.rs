@@ -112,6 +112,7 @@ impl<'a> AreaDamage<'a> {
             damage,
             damage_type: _,
             death_type: _,
+            damage_status_type: _,
             radius,
             secondary_damage,
             secondary_radius,
@@ -142,11 +143,12 @@ impl<'a> AreaDamage<'a> {
         let shooter_dir_xz = self.shooter_dir_xz;
         let op = obj.get_position();
         let is_primary = self.primary_victim == Some(vid);
+        // C++ WEAPON_KILLS_SELF destroys the firing Object (launcher).
         let kills_self = *radius_source_present
             && (*radius_damage_affects
                 & crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF)
                 != 0
-            && vid == *radius_source_id;
+            && vid == *shooter_id;
         if *radius_source_present && !is_primary && !kills_self {
             let airborne = obj.is_significantly_above_terrain();
             use gamelogic::common::Relationship;

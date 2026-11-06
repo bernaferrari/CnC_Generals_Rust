@@ -26,12 +26,9 @@ fn place(logic: &mut GameLogic, player: u32, text: &str) -> ObjectId {
         selected_units: vec![],
         modifier_keys: ModifierKeys::default(),
     };
-    assert_eq!(
-        CommandExecutor::new(logic, player)
+    assert!(CommandExecutor::new(logic, player)
             .execute_command(command)
-            .unwrap(),
-        CommandResult::Success
-    );
+            .unwrap() == CommandResult::Success);
     *logic.host_objects().registered_keys().next().unwrap()
 }
 
@@ -96,8 +93,7 @@ fn authored_beacon_settings_and_templates_are_owned_by_each_world() {
         CommandResult::Success => *two.host_objects().registered_keys().next().unwrap(),
         result => panic!("second world rejected its beacon: {result:?}"),
     };
-    assert_eq!(
-        one_id, two_id,
+    assert_eq!(one_id, two_id,
         "sessions deliberately reuse the same object ID"
     );
     assert_eq!(
@@ -111,14 +107,9 @@ fn authored_beacon_settings_and_templates_are_owned_by_each_world() {
     assert!(host_object_is_beacon(&one, one_id));
     assert!(host_object_is_beacon(&two, two_id));
 
-    assert_eq!(
-        place_result(&mut one, 0, 21., "overflow"),
-        CommandResult::InvalidCommand
-    );
-    assert_eq!(
-        place_result(&mut two, 0, 21., "second"),
-        CommandResult::Success
-    );
+    assert!(
+        place_result(&mut one, 0, 21., "overflow") == CommandResult::InvalidCommand);
+    assert!(place_result(&mut two, 0, 21., "second") == CommandResult::Success);
     assert!(!host_object_is_beacon(&one, two_id));
     assert_eq!(host_beacon_caption(&one, one_id).as_deref(), Some("one"));
     assert_eq!(host_beacon_caption(&two, two_id).as_deref(), Some("two"));
@@ -128,10 +119,8 @@ fn authored_beacon_settings_and_templates_are_owned_by_each_world() {
     let builder = crate::save_load::snapshot::SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&two).unwrap();
     let mut restored = authored_beacon_world("RallyMarker", 1);
-    assert_eq!(
-        place_result(&mut restored, 0, 31., "prototype"),
-        CommandResult::Success
-    );
+    assert!(
+        place_result(&mut restored, 0, 31., "prototype") == CommandResult::Success);
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
@@ -187,7 +176,7 @@ fn beacon_removal_discards_only_its_session_entry_and_reused_ids_start_clean() {
     let id = place(&mut owner, 0, "remove me");
     let mut peer = world();
     assert_eq!(place(&mut peer, 0, "keep me"), id);
-    owner.destroy_object(id);
+    owner.destroy_object(id).unwrap();
     owner.process_destroy_list();
     assert_eq!(host_beacon_caption(&owner, id), None);
     assert_eq!(host_beacon_caption(&peer, id).as_deref(), Some("keep me"));
@@ -225,7 +214,7 @@ fn encoded_roster_replacement_cannot_reuse_the_previous_beacon_entry() {
     // Admit the same authored Enemy prototype, then save its empty roster.
     let mut source = world();
     let source_id = place(&mut source, 1, "source prototype");
-    source.destroy_object(source_id);
+    source.destroy_object(source_id).unwrap();
     source.process_destroy_list();
     // Preserve the admitted prototype but exercise a valid empty roster whose
     // saved allocator restarts at one, as the replacement boundary permits.

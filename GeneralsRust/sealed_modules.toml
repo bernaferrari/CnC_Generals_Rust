@@ -1,0 +1,636 @@
+# Sealed modules — finished ports. Agents must not edit these paths except via
+# an explicit `Unseal: <path> — <reason>` line in the commit message (see AGENTS.md).
+#
+# path: relative to GeneralsRust/
+# cpp:  C++ counterpart relative to the repo root
+# note: one-line status
+
+[[module]]
+path = "Code/GameEngine/GameLogic/src/supply_system/gathering.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/Common/RTS/ResourceGatheringManager.cpp"
+note = "Player-owned ResourceGatheringManager; Vec IDs (C++ std::list); scoring via precomputed transfer/clear maps from resource.rs."
+
+[[module]]
+path = "Code/GameEngine/GameLogic/src/resource.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/Common/RTS/ResourceGatheringManager.cpp"
+note = "Per-player RGM facade: canTransferSuppliesAt + dock clearance + preferred-dock module checks; no process store."
+
+[[module]]
+path = "Code/GameEngine/Common/src/common/bezier"
+cpp = "GeneralsMD/Code/GameEngine/Source/Common/Bezier"
+note = "Cubic BezierSegment + BezFwdIterator; 0 process globals; parity tests under feature internal."
+
+[[module]]
+path = "Code/GameEngine/Common/src/bezier"
+cpp = "GeneralsMD/Code/GameEngine/Source/Common/Bezier"
+note = "Thin re-export shim of common::bezier."
+
+[[module]]
+path = "Code/GameEngine/GameLogic/src/system/radar_notifier.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Radar.cpp"
+note = "World-owned radar update fan-out queue; under-attack path still on TheRadar."
+
+[[module]]
+path = "Code/Libraries/Source/WWVegas/Wwutil"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/Wwutil"
+note = "cMathUtil/cMiscUtil port; PDF RNG injected (no process rand); fs-backed file helpers; 0 process globals."
+
+[[module]]
+path = "Code/Libraries/Source/WWVegas/WWLib/src/trim.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWLib/trim.cpp"
+note = "strtrim/wcstrim in-place whitespace trim; trailing-loop bugfix vs C++; 0 globals."
+
+[[module]]
+path = "Code/Libraries/Source/WWVegas/WWLib/src/realcrc.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWLib/realcrc.cpp"
+note = "CRC32 Memory/String/Stringi; immutable table; chaining tests; 0 globals."
+
+[[module]]
+path = "Code/Libraries/Source/WWVegas/WWLib/src/nstrdup.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWLib/nstrdup.cpp"
+note = "Safe nstrdup/nstrdup_bytes; Option mirrors C++ null; 0 globals."
+
+[[module]]
+path = "Code/Libraries/Source/WWVegas/WWMath/src/lookup_table.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/lookuptable.cpp"
+note = "Owned LookupTableManager; removed process GLOBAL_MANAGER; immutable curves; 0 globals."
+
+[[module]]
+path = "Code/GameEngine/Common/src/common/game_lod.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/Common/GameLOD.cpp"
+note = "Probe/test overrides owned on GameLODManager; dead SlowDeath TLS cache removed; 8->0 process globals."
+
+[[module]]
+path = "Code/GameEngine/Common/src/common/game_lod"
+cpp = "GeneralsMD/Code/GameEngine/Source/Common/GameLOD.cpp"
+note = "Unit/isolation tests for static/dynamic LOD authority."
+
+[[module]]
+path = "Code/Main/src/graphics/render_pipeline/pipeline_execute.rs"
+cpp = "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient"
+note = "Startup once-log is OnceLock set-once (not mutable process state); 0 counted globals."
+
+[[module]]
+path = "Code/Main/src/graphics/render_pipeline/pipeline_prewarm.rs"
+cpp = "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient"
+note = "Terrain chunk once-logs are OnceLock; 0 counted globals."
+
+[[module]]
+path = "Code/GameEngine/GameLogic/src/system/world_logic_managers.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameLogic"
+note = "Per-world Arc bundle for stealth/detection/beacon/cave/command managers; no process OnceLocks."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/control_bar/control_bar_structure_inventory.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBarStructureInventory.cpp"
+note = "Garrison inventory latch owned on ControlBarContext; 6 process atomics removed; peel helpers take &mut StructureInventoryLatch."
+
+[[module]]
+path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/texture_loader.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/textureloader.cpp"
+note = "Owned TextureLoaderClass; removed TLS/SLOT/LOADER_ID_COUNTER; with_id for multi-instance; 4->0 globals."
+
+[[module]]
+path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/texture_core.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/texture.cpp"
+note = "Owned TextureBaseClass ids + TextureLoader helpers; removed TLS TEXTURE_LOADER/ID counter; 3->0 globals."
+
+[[module]]
+path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-effects/src/effects/streak_system.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/streak.cpp"
+note = "StreakRenderer-owned line/renderer ids; removed TLS STREAK_RENDERER_SLOT; free APIs take &mut; 4->0 globals."
+
+[[module]]
+path = "Code/Main/src/assets/mesh_asset_resolve.rs"
+cpp = "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient"
+note = "MeshResolveState owned by AssetManager/LiveAssetResolver; honesty+missing-W3D off process atomics; 4->0 globals."
+
+[[module]]
+path = "Code/Main/src/release_candidate.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/Common"
+note = "MissingAssetDiagnostics owned by AssetManager/TextureManager/MeshResolveState; process Mutex removed; 1->0 globals."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/control_bar/control_bar_multi_select.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBarMultiSelect.cpp"
+note = "Multi-select intersection latch owned per client; 6 process atomics removed; peels take &mut MultiSelectLatch."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/control_bar/control_bar_resizer.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBarResizer.cpp"
+note = "Resizer owned on ControlBarResizerLatch (was TLS+atomics); peels take &mut ControlBarResizerLatch."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/control_bar/control_bar_under_construction.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBarUnderConstruction.cpp"
+note = "Under-construction percent/cancel latch owned per client; 4 process atomics removed; peels take &mut UnderConstructionLatch."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/control_bar/control_bar_ocl_timer.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBarOCLTimer.cpp"
+note = "OCL timer residual latch owned per client; 3 process atomics removed; peels take &mut OclTimerLatch."
+
+[[module]]
+path = "Code/Libraries/Source/WWVegas/WWLib/src/random.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWLib/random.cpp"
+note = "Owned Random4Class helpers; removed TLS GLOBAL_RNG and SHARED Mutex RNG; 3->0 globals."
+
+[[module]]
+path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/rendering_2d.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/render2d.cpp"
+note = "Render2DClass::with_id; removed TLS RENDERER_2D and ID counter; free APIs take &mut; 3->0 globals."
+
+[[module]]
+path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/light_system.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/light.cpp"
+note = "LightEnvironment-owned light ids; removed TLS LIGHT_ENVIRONMENT and ID counter; push/pop take &mut env; 3->0 globals."
+
+[[module]]
+path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/sphere_render_obj.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/sphereobj.cpp"
+note = "Sphere LOD mesh/cost tables owned per SphereRenderObjClass; TLS SPHERE_MESH_ARRAY/LOD_COSTS removed; 3->0 globals."
+
+[[module]]
+path = "Code/Libraries/Source/WWVegas/WWLib/src/misc.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWLib/misc.h"
+note = "MiscVideoState owns palette/windowed/surfaces/audio-focus; process Mutex/atomics removed; 4->0 globals."
+
+
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/mod.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks"
+note = "LAN/Skirmish MenuShellFlags owned on WindowManagerOwner; removed 16 TLS Cells; dead main-menu/popup TLS dropped (owned on MainMenu)."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/window_manager/menu_shell_flags.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks"
+note = "MenuShellFlags type for per-client LAN/Skirmish shell transition flags; 0 process globals."
+
+[[module]]
+path = "Code/GameEngine/GameLogic/src/world/entity_generation.rs"
+cpp = "GeneralsMD/Code/GameEngine/Include/GameLogic/GameLogic.h"
+note = "Per-world EntityHandle epoch via SessionLogicFlags; 0 process globals; fail-closed reuse defense."
+
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/game_network.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameNetwork"
+note = "Offline NetworkCompatState on WindowManagerOwner; removed TLS queues + process NETWORK_ON; getters take &NetworkCompatState."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/meta_demo_state.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/MessageStream/MetaEvent.cpp"
+note = "MetaDemoState owned on InGameUISubsystem; 0 process globals; Sync plain fields."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/message_stream/meta_event_impl/state.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/MessageStream/MetaEvent.cpp"
+note = "Meta demo/cheat latches on InGameUISubsystem::meta_demo; removed TLS Cells; dispatch/helpers/tests take &mut MetaDemoState."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/eva.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Eva.cpp"
+note = "Eva + host/residual latches owned on InGameUISubsystem::eva; removed THE_EVA TLS and residual atomics; APIs take &mut Eva."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/load_screen/types.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/LoadScreen"
+note = "Map-transfer/multiplayer progress hooks on LoadScreenRuntime; residual LoadingScreen owned there; production TLS removed."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/loading_screen.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/LoadScreen"
+note = "LoadingScreenResidual on LoadScreenRuntime; removed residual TLS/atomics; simulate/drive take &mut LoadingScreenResidual."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/bink_audio.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Video/BinkVideoPlayer.cpp"
+note = "BinkAudioState owns Miles/kira soundtrack binding; removed SOUNDTRACK_BOUND/BINK_MILES/KIRA TLS; APIs take &mut BinkAudioState on BinkDecoder."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/fx_client_state.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/FXList.cpp"
+note = "FxClientState owns light scene + audio/decal/pulse hooks on GameClient::drawables.fx; TLS FX_* removed; free APIs take &mut owner."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/fx_owned_light_scene.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Display/W3DDisplay.cpp"
+note = "DisplayLightScene owns pulse admission and dynamic light fade; 0 process globals."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/core/script_action_runtime.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/MessageStream/LookAtXlat.cpp"
+note = "ScriptActionRuntime owns media waits, UI script latches, look-at reset, visual speed/FPS on GameClient; 0 process globals."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/core/script_action_handler.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient"
+note = "Script action peels use GameClient::script_runtime via live-client loan; removed SCRIPT_RUNTIME TLS and look-at/speed/FPS atomics."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/effects/tracer_fx.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/FXList.cpp"
+note = "TracerFxState on GameClient::drawables.tracers; removed TRACERS/TRACER_DRAWABLES TLS; peels use live-client loan."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/credits.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/Credits.cpp"
+note = "Credits residual peels read CreditsManager fields; process residual atomics removed."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/system/beacon_display.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient"
+note = "BeaconDisplayState on GameClient::drawables.beacons; TLS+residual atomics removed; peels use live-client loan."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/display/client_draw_schedule_state.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Display/W3DDisplay.cpp"
+note = "ClientDrawScheduleState owns sync-time and display/cpu frame latches; 0 process globals."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/display/client_draw_schedule.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Display/W3DDisplay.cpp"
+note = "Draw schedule peels use GameClient::draw_schedule; removed SYNC_TIME/LAST_* atomics."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/effects/ray_effect_system.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/RayEffect.cpp"
+note = "RayFxState on GameClient::drawables.rays; removed process OnceLock Mutex store; peels use live-client loan."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/display/image.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/System/Image.cpp"
+note = "Mapped ImageCollection + startup-shell log dedupe on GameClient; removed MAPPED_IMAGE_COLLECTION/REPORTED TLS; peels use live-client loan."
+
+path = "Code/GameEngine/Common/src/common/random_value.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/Common/RandomValue.cpp"
+note = "RNG streams on CommonServices; SessionRandom publish via TLS owner; 0 file globals."
+
+[[module]]
+path = "Code/GameEngine/Common/src/common/thing/thing_factory.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/Common/Thing/ThingFactory.cpp"
+note = "ThingFactory slot on CommonServices; bridge creators/overrides in LazyLock bag; 0 file globals."
+
+[[module]]
+path = "Code/GameEngine/Common/src/common/thing/thing.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/Common/Thing/Thing.cpp"
+note = "Terrain height/underwater/align providers in LazyLock bag; 0 file globals."
+
+[[module]]
+path = "Code/GameEngine/Common/src/common/crc_debug.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/Common/CRCDebug.cpp"
+note = "CRC flags on CommonServices; debug state LazyLock bag; 0 file globals."
+
+[[module]]
+path = "Code/GameEngine/Common/src/common/rts/team.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/Common/RTS/Team.cpp"
+note = "TeamFactory/sink/waypoint slots opaque LazyLock; 0 counted globals."
+
+[[module]]
+path = "Code/GameEngine/Common/src/common/audio/game_audio.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/Common/Audio/GameAudio.cpp"
+note = "THE_AUDIO + hooks/caches owned on SystemStores; process OnceLock/LazyLock slots removed."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/keyboard_options_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/KeyboardOptionsMenu.cpp"
+note = "KeyboardOptionsMenuState + residuals on WindowManagerOwner; removed process TLS/atomics; peels use owner or live-client loan."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/popup_communicator.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/PopupCommunicator.cpp"
+note = "PopupCommunicatorState + residuals on WindowManagerOwner; removed process TLS/atomics; peels use owner or live-client loan."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/generals_exp_points.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/GeneralsExpPoints.cpp"
+note = "GeneralsExp residual peels on WindowManagerOwner; removed process residual atomics."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/fx_list.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/FXList.cpp"
+note = "FXListStore catalog on GameClient; removed process OnceLock RwLock; peels use live-client loan / cfg(test) TLS fallback."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/replay_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/ReplayMenu.cpp"
+note = "ReplayMenu residual peels on WindowManagerOwner; removed process residual atomics."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/control_bar/control_bar_print_positions.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar.cpp"
+note = "ControlBar print-positions residual peels on WindowManagerOwner; removed process residual atomics."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/skirmish_game_options_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/SkirmishGameOptionsMenu.cpp"
+note = "SkirmishGameOptionsState + map-select layout on WindowManagerOwner; removed process TLS; peels use owner or live-client loan."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/lan_game_options_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/LanGameOptionsMenu.cpp"
+note = "LanGameOptionsState + map-select layout on WindowManagerOwner; removed process TLS; peels use owner or live-client loan."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/lan_lobby_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/LanLobbyMenu.cpp"
+note = "LanLobbyState + LAN event queue on WindowManagerOwner (online_ui); removed process TLS/OnceLock; peels use live-client loan."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/snow.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Snow.cpp"
+note = "WeatherSetting + SnowManager on GameClient; removed process OnceCells; peels use live-client loan / cfg(test) TLS fallback."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/map_util.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/MapUtil.cpp"
+note = "MapCache + TechAndSupplyImages on GameClient; removed process OnceLocks; peels use live-client loan / cfg(test) TLS fallback."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/video_player.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/VideoPlayer.cpp"
+note = "VideoPlayer + stream provider slots on GameClient; removed process OnceLocks; peels use live-client loan / cfg(test) TLS fallback."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/gadgets/button.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/Gadget/GadgetPushButton.cpp"
+note = "ButtonAudioHook on WindowManagerOwner; removed process TLS BUTTON_AUDIO; peels use live-client loan / cfg(test) TLS fallback."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/control_bar/control_bar_observer.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBarObserver.cpp"
+note = "Observer look-at + gen arrow on InGameUISubsystem; removed process Atomic/Mutex; peels use live-client loan / cfg(test) TLS fallback."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/display_string.rs"
+cpp = "GeneralsMD/Code/GameEngineDevice/Source/GameEngine/Source/GameClient/DisplayStringManager.cpp"
+note = "DisplayStringManager on WindowManagerOwner; removed process TLS; peels use live-client loan / cfg(test) TLS fallback."
+path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-core/src/ww3d.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/ww3d.h"
+note = "RENDERER_STORAGE off TLS onto Arc<Mutex> RendererStorageSlot; RendererBackend: Send; WgpuCoreBridge FrameStats Arc<Mutex>; old-style WWVegas TLS 2→0."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/skirmish_map_select_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/SkirmishMapSelectMenu.cpp"
+note = "SkirmishMapSelectState on WindowManagerOwner; removed process TLS; peels use live-client loan / cfg(test) TLS fallback."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/skirmish_battle_honor_display.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/SkirmishBattleHonors.cpp"
+note = "Battle-honor row-skip is a populate local; removed process TLS Cell ROWS_TO_SKIP."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/popup_join_game.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/PopupJoinGame.cpp"
+note = "PopupJoinState on WindowManagerOwner (online_ui); removed process TLS; peels use live-client loan / cfg(test) TLS fallback."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/popup_host_game.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/PopupHostGame.cpp"
+note = "PopupHostState on WindowManagerOwner (online_ui); removed process TLS; peels use live-client loan / cfg(test) TLS fallback."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/popup_player_info.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/PopupPlayerInfo.cpp"
+note = "PopupPlayerInfoState on WindowManagerOwner (online_ui); removed process TLS; peels use live-client loan / cfg(test) TLS fallback."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/lan_map_select_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/LanMapSelectMenu.cpp"
+note = "LanMapSelectState on WindowManagerOwner; removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/motd.rs"
+cpp = "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/GUI/GUICallbacks/W3DMOTD.cpp"
+note = "MOTD close-button id on WindowManagerOwner; removed process TLS Cell; peels prefer owner / live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/game_info_window.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/GameInfoWindow.cpp"
+note = "GameInfoWindowState on WindowManagerOwner; removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/download_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/DownloadMenu.cpp"
+note = "DownloadMenuState on WindowManagerOwner; removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/popup_ladder_select.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/PopupLadderSelect.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_status_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLStatusMenu.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_message_window.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLMessageWindow.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wolqm_score_screen.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLQMScoreScreen.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_custom_score_screen.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLCustomScoreScreen.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_locale_select_popup.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLLocaleSelectPopup.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_map_select_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLMapSelectMenu.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_lobby_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLLobbyMenu.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_game_setup_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLGameSetupMenu.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_quick_match_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLQuickMatchMenu.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/network_direct_connect.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/NetworkDirectConnect.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_buddy_overlay.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLBuddyOverlay.cpp"
+note = "Instance state on WindowManagerOwner (online_ui); removed process TLS/OnceLocks; peels prefer owner/live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_welcome_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLWelcomeMenu.cpp"
+note = "Instance state on WindowManagerOwner (online_ui); removed process TLS/OnceLocks; peels prefer owner/live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_login_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLLoginMenu.cpp"
+note = "Instance state on WindowManagerOwner (online_ui); removed process TLS/OnceLocks; peels prefer owner/live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_ladder_screen.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLLadderScreen.cpp"
+note = "Instance state on WindowManagerOwner (online_ui); removed process TLS/OnceLocks; peels prefer owner/live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/drawable/drawable_manager.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Drawable/DrawableManager.cpp"
+note = "DrawableManager owned on GameClient; peels use live-client loan / cfg(test) TLS fallback (no process TLS store)."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gamespy_overlay.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GameSpyOverlay.cpp"
+note = "GameSpyOverlayState on WindowManagerOwner (online_ui); removed process TLS; peels prefer owner/live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gamespy_game.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GameSpyGame.cpp"
+note = "GameSpy GameInfo on WindowManagerOwner (online_ui); removed process TLS; peels prefer owner/live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/core/game_client/ids.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GameClient.cpp"
+note = "HOST_CONTAINED_FLASH_QUEUE on GameClient; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/message_stream/player_state.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/MessageStream"
+note = "LOCAL_PLAYER_ID on GameClient.local_player_id; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/system/anim2_d.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/System/Anim2D.cpp"
+note = "Anim2DCollection Arc on GameClient; update via instance; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/draw_group_info.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/DrawGroupInfo.cpp"
+note = "DrawGroupInfo Arc on GameClient; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/system/smudge.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/System/Smudge.cpp"
+note = "SmudgeManager Arc on GameClient; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/game_text.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GameText.cpp"
+note = "GameText Arc on GameClient; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/global_language.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GlobalLanguage.cpp"
+note = "GlobalLanguageData Arc on GameClient; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/language_filter.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/LanguageFilter.cpp"
+note = "LanguageFilter Arc on GameClient; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/header_template.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/HeaderTemplate.cpp"
+note = "HeaderTemplateManager Arc on GameClient; peels live client; cfg(test) TLS fallback only. Parser OnceLock is set-once."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/presentation_translator_residual.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient"
+note = "TranslatorPresentationResidual Arc on GameClient; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/input/mouse.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Input/Mouse.cpp"
+note = "Mouse Arc on GameClient; the_mouse peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/effects/runtime_fx.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient"
+note = "FX next-id on GameClient atomic; no process AtomicU64."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/render_bridge.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient"
+note = "Render-bridge line ids on GameClient atomic; no process AtomicU64."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/game_window_global.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI"
+note = "win_draw_image command counter on GameClient; no process AtomicUsize."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/w3d_gadget_draw/common.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI"
+note = "Shipped UI draw counter on GameClient; no process AtomicUsize."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/w3d_gadget_draw/text_entry.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI"
+note = "Text-entry draw caret counter on GameClient; no process AtomicU8."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/w3d_gadget_draw/hud.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI"
+note = "Once-log uses OnceLock<()>; removed counted AtomicBool."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/w3d_gadget_draw/power.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI"
+note = "Once-log uses OnceLock<()>; removed counted AtomicBool."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/assets/mod.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient"
+note = "Asset id counter on GameClient; no process AtomicU64."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/platform/device_interface.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient"
+note = "Device id counter on GameClient; no process AtomicU64."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/lan_setup.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks"
+note = "LanSetup on GameClient; get_lan_setup peels live client then cfg(test) TLS; no process LazyLock."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/skirmish_setup.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks"
+note = "SkirmishSetup on GameClient; get_skirmish_setup peels live client then cfg(test) TLS; no process LazyLock."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/w3d_web_browser.rs"
+cpp = "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DWebBrowser.cpp"
+note = "Presented pages owned on W3DWebBrowser; process PAGES LazyLock removed."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/message_stream/command_router.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/MessageStream"
+note = "Host command authority on GameClient; process HOST_COMMAND_AUTHORITY LazyLock removed."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/network/bridge.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameNetwork"
+note = "Network progress map owned by NetworkBridgeHandle; process NETWORK_PROGRESS removed."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/font.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GameClient.cpp"
+note = "FontLibrary on GameClient; get_font_library returns Arc via live client then cfg(test) TLS; alternate unicode font OnceLock lives on DefaultFontData (no process FONT LazyLock)."

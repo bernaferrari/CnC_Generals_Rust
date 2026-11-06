@@ -156,7 +156,8 @@ struct GameLogicEnergyOwnerCallbacks;
 impl EnergyOwnerCallbacks for GameLogicEnergyOwnerCallbacks {
     fn on_power_brown_out_change(&self, player: PlayerHandle, brown_out: bool) {
         let player_id = player.value() as PlayerIndex;
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             if let Some(player_arc) = list.get_player(player_id) {
                 if let Ok(mut guard) = player_arc.write() {
                     let _ = guard.on_power_brown_out_change(brown_out);
@@ -250,10 +251,12 @@ fn install_save_game_counter_integration() {
     );
 
     register_save_lock_ghost_objects_hook(Some(Arc::new(|enable| {
-        if let Ok(mut manager) = THE_GHOST_OBJECT_MANAGER.write() {
+        let ghosts = the_ghost_object_manager();
+        if let Ok(mut manager) = ghosts.write() {
             manager.save_lock_ghost_objects(enable);
         }
-        if let Ok(mut manager) = crate::object::THE_W3D_GHOST_OBJECT_MANAGER.write() {
+        let __w3d_ghosts = crate::object::the_w3d_ghost_object_manager();
+            if let Ok(mut manager) = __w3d_ghosts.write() {
             manager.set_save_lock_ghost_objects(enable);
         }
     })));
@@ -274,24 +277,44 @@ fn install_save_game_counter_integration() {
 // Global Singleton Access
 // =============================================================================
 
-static GAME_LOGIC: OnceLock<Mutex<GameLogic>> = OnceLock::new();
 static SAVE_GAME_COUNTER_HOOKS: OnceLock<()> = OnceLock::new();
 
-fn game_logic_mutex() -> &'static Mutex<GameLogic> {
+fn try_game_logic_mutex() -> Option<&'static Mutex<GameLogic>> {
+    // Published Core preferred; Main world-services use the per-world slot.
+    // No process-lifetime fallback bag.
+    let mutex = if let Some(core) =
+        crate::system::engine_stores::published_core_for_game_logic()
+    {
+        core.game_logic_mutex()
+    } else if let Some(services) = crate::system::engine_stores::try_active_services() {
+        services.game_logic_mutex()
+    } else {
+        return None;
+    };
     SAVE_GAME_COUNTER_HOOKS.get_or_init(|| {
         install_save_game_counter_integration();
     });
-    GAME_LOGIC.get_or_init(|| {
-        Mutex::new(GameLogic::new_with_engine_stores(
-            crate::system::engine_stores::EngineStores::process_lifetime(),
-        ))
+    Some(mutex)
+}
+
+fn game_logic_mutex() -> &'static Mutex<GameLogic> {
+    try_game_logic_mutex().unwrap_or_else(|| {
+        panic!(
+            "GameLogic mutex requires with_active_stores / with_world_services (no process bag)"
+        )
     })
 }
 
-/// Get the global GameLogic singleton
+/// Get the GameLogic mutex for the active Core runtime (was process OnceLock).
 pub fn get_game_logic() -> &'static Mutex<GameLogic> {
     crate::system::object_data_provider::ensure_object_data_provider();
     game_logic_mutex()
+}
+
+/// Optional GameLogic mutex when no world/core is published on this thread.
+pub fn try_get_game_logic() -> Option<&'static Mutex<GameLogic>> {
+    crate::system::object_data_provider::ensure_object_data_provider();
+    try_game_logic_mutex()
 }
 
 /// Scoped in-update frame (migration aid, shape of the logic-RNG owner and
@@ -301,54 +324,82 @@ pub fn get_game_logic() -> &'static Mutex<GameLogic> {
 /// (script engine, object helpers, and evaluators all read the frame during
 /// Phase 1/6b). Published at update entry, cleared on every exit path
 /// including unwinding.
-thread_local! {
-    static IN_UPDATE_FRAME: std::cell::Cell<Option<UnsignedInt>> =
-        const { std::cell::Cell::new(None) };
-    /// Script `SetRankLevelLimit` while `GameLogic::update` holds `&mut self`.
-    /// Applied onto that instance after `ScriptEngine::update` returns.
-    static PENDING_RANK_LIMIT: std::cell::Cell<Option<i32>> =
-        const { std::cell::Cell::new(None) };
+fn session_flags() -> std::sync::Arc<crate::system::engine_stores::WorldServices> {
+    crate::system::engine_stores::active_services()
 }
 
-pub(crate) struct InUpdateFrameGuard;
+pub(crate) struct InUpdateFrameGuard {
+    services: std::sync::Arc<crate::system::engine_stores::WorldServices>,
+}
 
 impl Drop for InUpdateFrameGuard {
     fn drop(&mut self) {
-        IN_UPDATE_FRAME.with(|c| c.set(None));
-        PENDING_RANK_LIMIT.with(|c| c.set(None));
+        let flags = self.services.session_flags();
+        flags
+            .in_update_frame_plus_one
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        flags
+            .pending_rank_limit
+            .store(i32::MIN, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
-/// Publish `frame` as this thread's in-update frame for the duration of the
-/// guard. Private to the update path.
+/// Publish `frame` on the bound world services for the duration of the guard.
+/// Private to the update path. Avoids locking GAME_LOGIC from within update.
 pub(crate) fn enter_update_frame(frame: UnsignedInt) -> InUpdateFrameGuard {
-    IN_UPDATE_FRAME.with(|c| c.set(Some(frame)));
-    InUpdateFrameGuard
+    let services = session_flags();
+    services.session_flags().in_update_frame_plus_one.store(
+        frame.saturating_add(1),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    InUpdateFrameGuard { services }
 }
 
 /// During `GameLogic::update`, record the clamped cap and publish it.
 /// Returns false outside an update so the caller locks the singleton.
 pub fn note_rank_level_limit_during_update(level: i32) -> bool {
-    if IN_UPDATE_FRAME.with(|c| c.get()).is_none() {
+    let services = session_flags();
+    let flags = services.session_flags();
+    if flags
+        .in_update_frame_plus_one
+        .load(std::sync::atomic::Ordering::Relaxed)
+        == 0
+    {
         return false;
     }
     let level = if level < 1 { 1 } else { level };
-    PENDING_RANK_LIMIT.with(|c| c.set(Some(level)));
+    flags
+        .pending_rank_limit
+        .store(level, std::sync::atomic::Ordering::Relaxed);
     true
 }
 
 pub fn take_pending_rank_level_limit() -> Option<i32> {
-    PENDING_RANK_LIMIT.with(|c| c.replace(None))
+    let services = session_flags();
+    let prev = services
+        .session_flags()
+        .pending_rank_limit
+        .swap(i32::MIN, std::sync::atomic::Ordering::Relaxed);
+    if prev == i32::MIN {
+        None
+    } else {
+        Some(prev)
+    }
 }
 
 /// Try to fetch the current simulation frame from the global GameLogic instance.
 ///
-/// Inside an active `GameLogic::update` on this thread, returns that update's
+/// Inside an active `GameLogic::update` on the bound world, returns that update's
 /// frame WITHOUT locking the singleton (the lock is held by the update
 /// itself; locking again would self-deadlock).
 pub fn try_current_frame() -> Result<UnsignedInt, String> {
-    if let Some(frame) = IN_UPDATE_FRAME.with(|c| c.get()) {
-        return Ok(frame);
+    let services = session_flags();
+    let plus = services
+        .session_flags()
+        .in_update_frame_plus_one
+        .load(std::sync::atomic::Ordering::Relaxed);
+    if plus != 0 {
+        return Ok(plus - 1);
     }
     game_logic_mutex()
         .lock()

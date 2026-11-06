@@ -43,7 +43,8 @@ fn factory_open_admission_preserves_cpp_capacity_and_query_side_effects() {
         3,
     );
     {
-        let mut players = ThePlayerList().write().unwrap();
+        let __player_list_arc = ThePlayerList();
+        let mut players = __player_list_arc.write().unwrap();
         players.clear();
         players.add_player(Arc::new(RwLock::new(Player::new(0))));
     }
@@ -161,4 +162,99 @@ fn factory_open_admission_preserves_cpp_capacity_and_query_side_effects() {
                 .unwrap();
         }
     }
+}
+
+/// C++ OpenContain.cpp:58 (all-bits default allow mask), KindOf.h:163
+/// (`isAnyKindOf` rejects a kindless entrant) and Object.cpp:1548 (no ObjectID
+/// shortcut in `getRelationship`: an object is its own ally through its team).
+#[test]
+fn factory_open_default_allow_mask_kindless_entrant_and_self_relationship() {
+    #[cfg(not(target_arch = "wasm32"))]
+    if !matches!(
+        crate::test_process::run_bounded(
+            concat!(
+                module_path!(),
+                "::factory_open_default_allow_mask_kindless_entrant_and_self_relationship"
+            )
+            .strip_prefix("gamelogic::")
+            .unwrap(),
+            "GENERALS_OPEN_DEFAULT_MASK_CHILD",
+        ),
+        crate::test_process::TestProcess::Child
+    ) {
+        return;
+    }
+    let _serial = crate::test_sync::lock();
+    let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+    let services = crate::system::engine_stores::new_world_services();
+    game_engine::common::common_services::with_common_services(&common, || {
+        crate::system::engine_stores::with_world_services(&services, || {
+            if get_thing_factory().unwrap().is_none() {
+                init_thing_factory().unwrap();
+            }
+            if get_module_factory().unwrap().is_none() {
+                init_module_factory().unwrap();
+            }
+            crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+            assert_eq!(
+                get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(
+                    "Object DefaultMaskOpen\n KindOf = STRUCTURE\n Behavior = OpenContain Cargo\n ContainMax = 4\n NumberOfExitPaths = 0\n End\nEnd\nObject EmptyMaskOpen\n KindOf = STRUCTURE\n Behavior = OpenContain Cargo\n ContainMax = 4\n AllowInsideKindOf = NONE\n NumberOfExitPaths = 0\n End\nEnd\nObject MaskVehicle\n KindOf = VEHICLE\nEnd\nObject MaskKindless\nEnd\n"
+                ),
+                4,
+            );
+            {
+                let list = ThePlayerList();
+                let mut players = list.write().unwrap();
+                players.clear();
+                players.add_player(Arc::new(RwLock::new(Player::new(0))));
+            }
+            let team = Arc::new(RwLock::new(Team::new("DefaultMaskOwn".into(), 9401)));
+            team.write().unwrap().set_controlling_player_id(Some(0));
+            let mut factory = ObjectFactory::new();
+            let mut create = |name: &str| {
+                factory
+                    .create_object(
+                        name,
+                        Coord3D::new(10.0, 20.0, 0.0),
+                        Some(Arc::clone(&team)),
+                        ObjectCreationFlags::NO_AI,
+                    )
+                    .unwrap()
+            };
+            let default_id = create("DefaultMaskOpen");
+            let empty_id = create("EmptyMaskOpen");
+            let vehicle_id = create("MaskVehicle");
+            let kindless_id = create("MaskKindless");
+            let contain_of = |id| {
+                factory
+                    .get_object(id)
+                    .unwrap()
+                    .get_base_object()
+                    .unwrap()
+                    .read()
+                    .unwrap()
+                    .get_contain()
+                    .expect("authored OpenContain")
+            };
+            let default_contain = contain_of(default_id);
+            assert!(
+                default_contain.lock().unwrap().can_contain(vehicle_id),
+                "default allow mask admits every kind"
+            );
+            assert!(
+                !default_contain.lock().unwrap().can_contain(kindless_id),
+                "a kindless entrant matches no kind"
+            );
+            assert!(
+                !contain_of(empty_id).lock().unwrap().can_contain(vehicle_id),
+                "explicit empty allow mask admits nothing"
+            );
+            let owner = factory.get_object(default_id).unwrap().get_base_object().unwrap();
+            let owner = owner.read().unwrap();
+            assert_eq!(
+                owner.get_relationship_to(&owner),
+                crate::object::contain::open_contain::ObjectRelationship::Ally
+            );
+        })
+    });
 }

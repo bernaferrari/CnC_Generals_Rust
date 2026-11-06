@@ -117,14 +117,11 @@ fn secondary_weapon_name_for_known_units() {
     );
     assert_eq!(
         secondary_weapon_name_for_unit("USA_Humvee"),
-        Some(HUMVEE_SECONDARY_WEAPON)
+        None,
+        "hq-2qedt.246: Humvee secondary comes from authored WeaponSet"
     );
     assert_eq!(secondary_weapon_name_for_unit("GLA_Soldier"), None);
     assert_eq!(secondary_weapon_name_for_unit("USA_Dozer"), None);
-    assert_eq!(
-        secondary_weapon_name_for_unit("China_GattlingTank"),
-        Some(GATTLING_TANK_GUN_AIR)
-    );
     assert_eq!(
         secondary_weapon_name_for_unit("Infa_ChinaInfantryMiniGunner"),
         Some(MINIGUNNER_GUN_AIR)
@@ -154,18 +151,9 @@ fn primary_weapon_name_covers_china_gla_usa_residual_gaps() {
         primary_weapon_name_for_unit("GLA_RPGTrooper"),
         Some(TUNNEL_DEFENDER_ROCKET_WEAPON)
     );
-    assert_eq!(
-        primary_weapon_name_for_unit("China_DragonTank"),
-        Some(DRAGON_TANK_FLAME_WEAPON)
-    );
-    assert_eq!(
-        primary_weapon_name_for_unit("ChinaTankDragon"),
-        Some(DRAGON_TANK_FLAME_WEAPON)
-    );
-    assert_eq!(
-        primary_weapon_name_for_unit("China_GattlingTank"),
-        Some(GATTLING_TANK_GUN)
-    );
+    // hq-2qedt.242: Dragon flame comes from the authored WeaponSet only.
+    assert_eq!(primary_weapon_name_for_unit("China_DragonTank"), None);
+    assert_eq!(primary_weapon_name_for_unit("ChinaTankDragon"), None);
     assert_eq!(
         primary_weapon_name_for_unit("Infa_ChinaInfantryMiniGunner"),
         Some(MINIGUNNER_GUN)
@@ -644,9 +632,9 @@ fn projectile_stream_name_prefers_actual_parsed_field_over_dragon_seed() {
     impl Drop for RestoreStore {
         fn drop(&mut self) {
             if let Some(previous) = self.0.take() {
-                gamelogic::weapon::with_weapon_store_mut(|store| *store = previous).unwrap();
+                let _ = gamelogic::weapon::with_weapon_store_mut(|store| *store = previous);
             } else {
-                gamelogic::weapon::shutdown_weapon_store().unwrap();
+                let _ = gamelogic::weapon::shutdown_weapon_store();
             }
         }
     }
@@ -1629,5 +1617,92 @@ fn nearer_bridge_end_is_not_span_center() {
     assert!((aim.x - 60.0).abs() < 1.0);
 }
 
+
+#[test]
+fn aurora_seed_damage_type_is_aurora_bomb_not_explosion() {
+    use super::store::seed_damage_type_for;
+    use gamelogic::damage::DamageType;
+    for name in [
+        "AuroraBombWeapon",
+        "AirF_AuroraBombWeapon",
+        "SupW_AuroraFuelBombWeapon",
+    ] {
+        assert_eq!(
+            seed_damage_type_for(name, 99999.0),
+            DamageType::AuroraBomb,
+            "{name} fallback must keep AURORA_BOMB"
+        );
+    }
+}
+
+/// hq-2qedt.150: Humvee / Avenger / Helix PRIMARY comes from the authored
+/// WeaponSet (create peels removed in .138-.140); the unit_map name fallback
+/// must not invent a primary for them.
+#[test]
+fn unit_map_has_no_humvee_avenger_helix_primary_name_peel() {
+    for name in [
+        "USA_Humvee",
+        "AmericaVehicleHumvee",
+        "GoldenHumvee",
+        "TestHumvee",
+        "USA_Avenger",
+        "AmericaTankAvenger",
+        "AmericaVehicleAvenger",
+        "TestAvenger",
+        "ChinaVehicleHelix",
+        "China_Helix",
+        "Nuke_ChinaVehicleHelix",
+        "TestHelix",
+    ] {
+        assert_eq!(primary_weapon_name_for_unit(name), None, "{name}");
+    }
+}
+
 #[path = "bootstrap_owner_tests.rs"]
 mod bootstrap_owner_tests;
+
+/// hq-2qedt.157: C++ ThingTemplate WeaponSet (ChinaVehicleTroopCrawler PRIMARY
+/// TroopCrawlerAssault) is the sole primary authority; the bootstrap name map
+/// must not hard-code a Troop Crawler primary.
+#[test]
+fn troop_crawler_has_no_unit_map_primary_name_hq_2qedt_157() {
+    for name in [
+        "ChinaVehicleTroopCrawler",
+        "China_TroopCrawler",
+        "Tank_ChinaVehicleTroopCrawler",
+        "Nuke_ChinaVehicleTroopCrawler",
+        "TestTroopCrawler",
+    ] {
+        assert_eq!(primary_weapon_name_for_unit(name), None, "{name}");
+    }
+}
+
+#[test]
+fn gattling_tank_has_no_unit_map_weapon_names_hq_2qedt_186() {
+    for name in [
+        "ChinaTankGattling",
+        "China_GattlingTank",
+        "TestGattlingTank",
+        "Tank_ChinaTankGattling",
+        "Nuke_ChinaTankGattling",
+        "Infa_ChinaTankGattling",
+    ] {
+        assert_eq!(primary_weapon_name_for_unit(name), None, "{name}");
+        assert_eq!(secondary_weapon_name_for_unit(name), None, "{name}");
+    }
+}
+
+#[test]
+fn gattling_cannon_structure_has_no_unit_map_weapon_names_hq_2qedt_201() {
+    for name in [
+        "China_GattlingCannon",
+        "ChinaGattlingCannon",
+        "Nuke_ChinaGattlingCannon",
+        "Tank_ChinaGattlingCannon",
+        "Infa_ChinaGattlingCannon",
+        "TestGattlingCannon",
+    ] {
+        assert_eq!(primary_weapon_name_for_unit(name), None, "{name}");
+        assert_eq!(secondary_weapon_name_for_unit(name), None, "{name}");
+    }
+}

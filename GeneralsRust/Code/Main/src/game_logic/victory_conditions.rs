@@ -1030,10 +1030,16 @@ mod tests {
 
     #[test]
     fn evaluate_marks_receiving_player_defeated_without_mutating_foreign_list() {
-        static PLAYER_LIST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        struct PlayerListLockSlot(std::sync::Mutex<()>);
+        impl std::ops::Deref for PlayerListLockSlot {
+            type Target = std::sync::Mutex<()>;
+            fn deref(&self) -> &Self::Target { &self.0 }
+        }
+        static PLAYER_LIST_LOCK: PlayerListLockSlot = PlayerListLockSlot(std::sync::Mutex::new(()));
         let _lock = PLAYER_LIST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         {
-            let mut list = gamelogic::player::ThePlayerList()
+            let list_arc = gamelogic::player::ThePlayerList();
+            let mut list = list_arc
                 .write()
                 .unwrap_or_else(|e| e.into_inner());
             list.clear();
@@ -1056,7 +1062,9 @@ mod tests {
             "local should win when the other army is gone, got {outcome:?}"
         );
         let leftover_defeated = vc.is_player_defeated(1);
-        let foreign = gamelogic::player::ThePlayerList().read().unwrap();
+        let __arc_bind = gamelogic::player::ThePlayerList();
+
+        let foreign = __arc_bind.read().unwrap();
         assert!(!foreign.get_player(1).unwrap().read().unwrap().is_defeated());
         drop(foreign);
         assert!(
@@ -1067,7 +1075,8 @@ mod tests {
         assert!(!vc.is_local_allied_defeat_owned(&players, None, Some(0)));
 
         vc.reset();
-        if let Ok(mut list) = gamelogic::player::ThePlayerList().write() {
+        let __arc_bind = gamelogic::player::ThePlayerList();
+if let Ok(mut list) = __arc_bind.write() {
             list.clear();
         }
     }

@@ -3,6 +3,15 @@
 //! (C++ ScriptEngine / AISkirmishPlayer act on Player instances, not factions).
 use super::*;
 
+/// Run `body` in an exact child process with the Common/Main/World service owners
+/// these AI fixtures require (no process-wide service fallback exists).
+fn with_owned_services(test: &str, body: impl FnOnce()) {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(module_path!(), test, || {
+        let services = gamelogic::system::engine_stores::new_world_services();
+        gamelogic::system::engine_stores::with_world_services(&services, body);
+    });
+}
+
 fn same_faction_ai_match() -> crate::game_logic::GameLogic {
     let mut logic = crate::game_logic::GameLogic::new();
     for (id, name) in [(1, "PlyrChinaA"), (2, "PlyrChinaB")] {
@@ -32,131 +41,161 @@ fn script_player_tokens_resolve_the_exact_same_faction_player() {
 
 #[test]
 fn skirmish_build_building_marks_only_the_executing_players_pad() {
-    // C++ ScriptActions::doBuildBuilding acts on TheScriptEngine->getCurrentPlayer().
-    let _ = gamelogic::scripting::take_host_skirmish_build_requests();
-    let mut logic = same_faction_ai_match();
-    gamelogic::scripting::request_host_skirmish_build_building("PlyrChinaB", "ChinaBarracks");
-    logic.apply_host_skirmish_script_requests();
-    let priority = |logic: &crate::game_logic::GameLogic, id: u32| {
-        logic.ai_manager.ai_players[&id].building_queue[0].is_priority
-    };
-    assert!(
-        !priority(&logic, 1),
-        "the other same-faction AI must not be marked"
+    with_owned_services(
+        "skirmish_build_building_marks_only_the_executing_players_pad",
+        || {
+            // C++ ScriptActions::doBuildBuilding acts on TheScriptEngine->getCurrentPlayer().
+            let mut logic = same_faction_ai_match();
+            // The request queue is owned by the receiving world's services.
+            logic.with_own_services(|| {
+                let _ = gamelogic::scripting::take_host_skirmish_build_requests();
+                gamelogic::scripting::request_host_skirmish_build_building(
+                    "PlyrChinaB",
+                    "ChinaBarracks",
+                );
+            });
+            logic.apply_host_skirmish_script_requests();
+            let priority = |logic: &crate::game_logic::GameLogic, id: u32| {
+                logic.ai_manager.ai_players[&id].building_queue[0].is_priority
+            };
+            assert!(
+                !priority(&logic, 1),
+                "the other same-faction AI must not be marked"
+            );
+            assert!(priority(&logic, 2));
+        },
     );
-    assert!(priority(&logic, 2));
 }
 
 #[test]
 fn supply_source_queries_for_a_player_without_ai_match_cpp_defaults() {
-    // C++ Player::isSupplySourceSafe returns TRUE and isSupplySourceAttacked
-    // FALSE when the player has no AI (Player.cpp:1576-1593).
-    gamelogic::scripting::clear_host_script_query_snapshot();
-    let mut logic = crate::game_logic::GameLogic::new();
-    logic.add_player(
-        crate::game_logic::Player::new(0, Team::USA, "Display Label", true)
-            .with_script_identity("PlyrHuman"),
+    with_owned_services(
+        "supply_source_queries_for_a_player_without_ai_match_cpp_defaults",
+        || {
+            // C++ Player::isSupplySourceSafe returns TRUE and isSupplySourceAttacked
+            // FALSE when the player has no AI (Player.cpp:1576-1593).
+            gamelogic::scripting::clear_host_script_query_snapshot();
+            let mut logic = crate::game_logic::GameLogic::new();
+            logic.add_player(
+                crate::game_logic::Player::new(0, Team::USA, "Display Label", true)
+                    .with_script_identity("PlyrHuman"),
+            );
+            logic.inject_host_supply_source_queries();
+            // The snapshot lives in the receiving world's own services.
+            logic.with_own_services(|| {
+                assert_eq!(
+                    gamelogic::scripting::host_query_supply_source_safe("PlyrHuman", 1_000),
+                    Some(true)
+                );
+                assert_eq!(
+                    gamelogic::scripting::host_query_supply_source_attacked("PlyrHuman"),
+                    Some(false)
+                );
+                assert_eq!(
+                    gamelogic::scripting::host_query_supply_source_safe("NoSuchPlayer", 1_000),
+                    None
+                );
+            });
+            gamelogic::scripting::clear_host_script_query_snapshot();
+        },
     );
-    logic.inject_host_supply_source_queries();
-    assert_eq!(
-        gamelogic::scripting::host_query_supply_source_safe("PlyrHuman", 1_000),
-        Some(true)
-    );
-    assert_eq!(
-        gamelogic::scripting::host_query_supply_source_attacked("PlyrHuman"),
-        Some(false)
-    );
-    assert_eq!(
-        gamelogic::scripting::host_query_supply_source_safe("NoSuchPlayer", 1_000),
-        None
-    );
-    gamelogic::scripting::clear_host_script_query_snapshot();
 }
 
 #[test]
 fn supply_source_queries_use_canonical_map_player_identity() {
-    use crate::game_logic::{KindOf, Player, ThingTemplate};
-    use game_engine::common::name_key_generator::NameKeyGenerator;
-    use gamelogic::player::{Player as CorePlayer, PlayerList, player_list};
-    use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
-    use gamelogic::scripting::executor::{
-        ScriptConditionEvaluator, ScriptConditionResult, ScriptContext,
-    };
-    use std::sync::{Arc, RwLock};
+    with_owned_services(
+        "supply_source_queries_use_canonical_map_player_identity",
+        || {
+            use crate::game_logic::{KindOf, Player, ThingTemplate};
+            use game_engine::common::name_key_generator::NameKeyGenerator;
+            use gamelogic::player::{Player as CorePlayer, PlayerList, player_list};
+            use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
+            use gamelogic::scripting::executor::{
+                ScriptConditionEvaluator, ScriptConditionResult, ScriptContext,
+            };
+            use std::sync::{Arc, RwLock};
 
-    struct PlayerListRestore(Option<PlayerList>);
-    impl PlayerListRestore {
-        fn install(names: &[&str]) -> Self {
-            let handle = player_list();
-            let mut list = handle.write().expect("Core PlayerList");
-            let previous = std::mem::replace(&mut *list, PlayerList::new());
-            for (index, name) in names.iter().enumerate() {
-                let mut player = CorePlayer::new(index as i32);
-                player.set_display_name("Shared Display");
-                player.set_player_name_key(NameKeyGenerator::name_to_key(name));
-                list.add_player(Arc::new(RwLock::new(player)));
+            struct PlayerListRestore(Option<PlayerList>);
+            impl PlayerListRestore {
+                fn install(names: &[&str]) -> Self {
+                    let handle = player_list();
+                    let mut list = handle.write().expect("Core PlayerList");
+                    let previous = std::mem::replace(&mut *list, PlayerList::new());
+                    for (index, name) in names.iter().enumerate() {
+                        let mut player = CorePlayer::new(index as i32);
+                        player.set_display_name("Shared Display");
+                        player.set_player_name_key(NameKeyGenerator::name_to_key(name));
+                        list.add_player(Arc::new(RwLock::new(player)));
+                    }
+                    drop(list);
+                    Self(Some(previous))
+                }
             }
-            drop(list);
-            Self(Some(previous))
-        }
-    }
-    impl Drop for PlayerListRestore {
-        fn drop(&mut self) {
-            *player_list().write().expect("Core PlayerList") =
-                self.0.take().expect("saved Core PlayerList");
-        }
-    }
+            impl Drop for PlayerListRestore {
+                fn drop(&mut self) {
+                    let Some(prev) = self.0.take() else {
+                        return;
+                    };
+                    *player_list().write().unwrap_or_else(|e| e.into_inner()) = prev;
+                }
+            }
 
-    fn evaluate_supply_condition(
-        evaluator: &mut ScriptConditionEvaluator<'_>,
-        kind: ConditionType,
-        side: &str,
-    ) -> ScriptConditionResult {
-        let mut condition = Condition::new(kind);
-        condition
-            .add_parameter(Parameter::with_string(ParameterType::Side, side.into()))
-            .unwrap();
-        if kind == ConditionType::SupplySourceSafe {
-            condition
-                .add_parameter(Parameter::with_int(ParameterType::Int, 1_000))
-                .unwrap();
-        }
-        evaluator.evaluate_condition(&mut condition).unwrap()
-    }
+            fn evaluate_supply_condition(
+                evaluator: &mut ScriptConditionEvaluator<'_>,
+                kind: ConditionType,
+                side: &str,
+            ) -> ScriptConditionResult {
+                let mut condition = Condition::new(kind);
+                condition
+                    .add_parameter(Parameter::with_string(ParameterType::Side, side.into()))
+                    .unwrap();
+                if kind == ConditionType::SupplySourceSafe {
+                    condition
+                        .add_parameter(Parameter::with_int(ParameterType::Int, 1_000))
+                        .unwrap();
+                }
+                evaluator.evaluate_condition(&mut condition).unwrap()
+            }
 
-    gamelogic::scripting::clear_host_script_query_snapshot();
-    let _players = PlayerListRestore::install(&["AuthoredSideA", "AuthoredSideB"]);
-    assert!(gamelogic::object::registry::OBJECT_REGISTRY.is_empty());
-    let engine = gamelogic::scripting::engine::ScriptEngine::new().expect("ScriptEngine");
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
-    let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
+            gamelogic::scripting::clear_host_script_query_snapshot();
+            assert!(gamelogic::object::registry::OBJECT_REGISTRY.is_empty());
+            let engine = gamelogic::scripting::engine::ScriptEngine::new().expect("ScriptEngine");
+            let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+            let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
 
-    fn world(identity: &str, attacked: bool) -> crate::game_logic::GameLogic {
-        let mut world = crate::game_logic::GameLogic::new();
-        world.add_player(
-            Player::new(0, Team::USA, "Shared Display", false).with_script_identity(identity),
-        );
-        world.add_ai_opponent(0, Team::USA, crate::ai::AIDifficulty::Medium);
-        world.frame = 50;
-        let mut dozer = ThingTemplate::new("SupplyQueryDozer");
-        dozer.add_kind_of(KindOf::Dozer).set_health(100.0);
-        world.templates.insert(dozer.name.clone(), dozer);
-        let id = world
-            .create_object_for_player("SupplyQueryDozer", 0, glam::Vec3::new(10.0, 0.0, 20.0))
-            .expect("owned dozer for supply-source scan");
-        if attacked {
-            world
-                .players
-                .get_mut(&0)
-                .unwrap()
-                .set_attacked_by_at(1, world.frame);
-            world.host_object_mut(id).unwrap().last_damage_timestamp = Some(world.frame);
-        }
-        world
-    }
+            fn world(identity: &str, attacked: bool) -> crate::game_logic::GameLogic {
+                let mut world = crate::game_logic::GameLogic::new();
+                world.add_player(
+                    Player::new(0, Team::USA, "Shared Display", false)
+                        .with_script_identity(identity),
+                );
+                world.add_ai_opponent(0, Team::USA, crate::ai::AIDifficulty::Medium);
+                world.frame = 50;
+                let mut dozer = ThingTemplate::new("SupplyQueryDozer");
+                dozer.add_kind_of(KindOf::Dozer).set_health(100.0);
+                world.templates.insert(dozer.name.clone(), dozer);
+                let id = world
+                    .create_object_for_player(
+                        "SupplyQueryDozer",
+                        0,
+                        glam::Vec3::new(10.0, 0.0, 20.0),
+                    )
+                    .expect("owned dozer for supply-source scan");
+                if attacked {
+                    let frame = world.frame;
+                    world
+                        .get_player_mut(0)
+                        .unwrap()
+                        .set_attacked_by_at(1, frame);
+                    world.host_object_mut(id).unwrap().last_damage_timestamp = Some(frame);
+                }
+                world
+            }
 
-    let mut first = world("AuthoredSideA", true);
-    first.inject_host_supply_source_queries();
+            let mut first = world("AuthoredSideA", true);
+            first.inject_host_supply_source_queries();
+            first.with_own_services(|| {
+        let _players = PlayerListRestore::install(&["AuthoredSideA", "AuthoredSideB"]);
     assert_eq!(
         gamelogic::scripting::host_query_supply_source_safe("AuthoredSideA", 1_000),
         Some(true),
@@ -200,52 +239,59 @@ fn supply_source_queries_use_canonical_map_player_identity() {
         "the real ScriptEngine condition reads the receiving canonical attacked result"
     );
 
-    let mut peer = world("AuthoredSideB", false);
-    peer.inject_host_supply_source_queries();
-    assert_eq!(
-        gamelogic::scripting::host_query_supply_source_safe("AuthoredSideA", 1_000),
-        None,
-        "same display labels in separate worlds do not merge player identities"
+    });
+
+            let mut peer = world("AuthoredSideB", false);
+            peer.inject_host_supply_source_queries();
+            peer.with_own_services(|| {
+                let _players = PlayerListRestore::install(&["AuthoredSideA", "AuthoredSideB"]);
+                assert_eq!(
+                    gamelogic::scripting::host_query_supply_source_safe("AuthoredSideA", 1_000),
+                    None,
+                    "same display labels in separate worlds do not merge player identities"
+                );
+                assert_eq!(
+                    gamelogic::scripting::host_query_supply_source_safe("AuthoredSideB", 1_000),
+                    Some(true)
+                );
+                assert_eq!(
+                    evaluate_supply_condition(
+                        &mut evaluator,
+                        ConditionType::SupplySourceSafe,
+                        "AuthoredSideA"
+                    ),
+                    ScriptConditionResult::False,
+                    "the peer snapshot must not answer for the first world's authored side"
+                );
+                assert_eq!(
+                    evaluate_supply_condition(
+                        &mut evaluator,
+                        ConditionType::SupplySourceSafe,
+                        "AuthoredSideB"
+                    ),
+                    ScriptConditionResult::True
+                );
+                assert_eq!(
+                    evaluate_supply_condition(
+                        &mut evaluator,
+                        ConditionType::SupplySourceAttacked,
+                        "AuthoredSideB"
+                    ),
+                    ScriptConditionResult::False
+                );
+                assert_eq!(
+                    evaluate_supply_condition(
+                        &mut evaluator,
+                        ConditionType::SupplySourceAttacked,
+                        "AuthoredSideA"
+                    ),
+                    ScriptConditionResult::False,
+                    "the second world's same-ID player cannot inherit the first world's attack scan"
+                );
+            });
+            gamelogic::scripting::clear_host_script_query_snapshot();
+        },
     );
-    assert_eq!(
-        gamelogic::scripting::host_query_supply_source_safe("AuthoredSideB", 1_000),
-        Some(true)
-    );
-    assert_eq!(
-        evaluate_supply_condition(
-            &mut evaluator,
-            ConditionType::SupplySourceSafe,
-            "AuthoredSideA"
-        ),
-        ScriptConditionResult::False,
-        "the peer snapshot must not answer for the first world's authored side"
-    );
-    assert_eq!(
-        evaluate_supply_condition(
-            &mut evaluator,
-            ConditionType::SupplySourceSafe,
-            "AuthoredSideB"
-        ),
-        ScriptConditionResult::True
-    );
-    assert_eq!(
-        evaluate_supply_condition(
-            &mut evaluator,
-            ConditionType::SupplySourceAttacked,
-            "AuthoredSideB"
-        ),
-        ScriptConditionResult::False
-    );
-    assert_eq!(
-        evaluate_supply_condition(
-            &mut evaluator,
-            ConditionType::SupplySourceAttacked,
-            "AuthoredSideA"
-        ),
-        ScriptConditionResult::False,
-        "the second world's same-ID player cannot inherit the first world's attack scan"
-    );
-    gamelogic::scripting::clear_host_script_query_snapshot();
 }
 
 #[test]

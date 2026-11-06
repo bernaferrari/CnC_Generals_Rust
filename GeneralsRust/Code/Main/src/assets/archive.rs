@@ -8,6 +8,7 @@
 
 use super::resolver::LiveAssetResolver;
 use anyhow::{Result, anyhow};
+use std::collections::HashMap;
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::system::archive_file_system as core;
 use log::warn;
@@ -253,16 +254,15 @@ impl ArchiveFileSystem {
 
     fn warn_if_base_archives_missing(&self) {
         let loaded = self.core.get_loaded_big_files();
-        let has_textures_big = loaded
+        let lower: Vec<String> = loaded
             .iter()
             .map(|name| name.as_str().to_ascii_lowercase())
-            .any(|name| name.ends_with("textures.big"));
-        let has_w3d_big = loaded
-            .iter()
-            .map(|name| name.as_str().to_ascii_lowercase())
-            .any(|name| name.ends_with("w3d.big"));
+            .collect();
+        let has_textures_big = lower.iter().any(|name| name.ends_with("textures.big"));
+        let has_w3d_big = lower.iter().any(|name| name.ends_with("w3d.big"));
+        let has_terrain_big = lower.iter().any(|name| name.ends_with("terrain.big"));
 
-        if has_textures_big && has_w3d_big {
+        if has_textures_big && has_w3d_big && has_terrain_big {
             return;
         }
 
@@ -273,9 +273,12 @@ impl ArchiveFileSystem {
         if !has_w3d_big {
             missing.push("W3D.big");
         }
+        if !has_terrain_big {
+            missing.push("Terrain.big");
+        }
 
         warn!(
-            "Base Generals archives not loaded (missing: {}). Zero Hour models may reference textures unavailable in ZH-only archives.",
+            "Base Generals archives not loaded (missing: {}). Ground tile TGAs (TMSnow/TLCliff/TXRock) and ZH model textures need the original Generals install, not TerrainZH.big alone.",
             missing.join(", ")
         );
     }
@@ -570,46 +573,87 @@ impl ArchiveFileSystem {
     }
 }
 
-fn resolve_existing_path_case_insensitive(path: &Path) -> Option<PathBuf> {
-    let mut resolved = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::Prefix(prefix) => resolved.push(prefix.as_os_str()),
-            Component::RootDir => resolved.push(component.as_os_str()),
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if !resolved.pop() {
-                    return None;
-                }
-            }
-            Component::Normal(part) => {
-                let search_dir = if resolved.as_os_str().is_empty() {
-                    Path::new(".")
-                } else {
-                    resolved.as_path()
-                };
-                let part = part.to_string_lossy();
-                let matched = std::fs::read_dir(search_dir)
-                    .ok()?
-                    .filter_map(Result::ok)
-                    .find_map(|entry| {
-                        if entry
-                            .file_name()
-                            .to_string_lossy()
-                            .eq_ignore_ascii_case(&part)
-                        {
-                            Some(entry.path())
-                        } else {
-                            None
-                        }
-                    })?;
-                resolved = matched;
-            }
+/// Cached case-folded directory listings for the case-insensitive path walk.
+/// Keyed by canonical search-dir string; entries map lower(name) -> full path.
+/// This is filesystem metadata only (not game assets), shared to cut repeated
+/// `read_dir` during Lone Eagle spawn/hydrate under noisy disk load.
+#[cfg(not(target_os = "macos"))]
+fn case_insensitive_dir_index(search_dir: &Path) -> Option<HashMap<String, PathBuf>> {
+    let key = search_dir.to_string_lossy().to_ascii_lowercase();
+    let services = crate::main_services::main_services();
+    {
+        let guard = services
+            .archive_dir_index
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(hit) = guard.get(&key) {
+            return Some(hit.clone());
         }
     }
-
-    resolved.exists().then_some(resolved)
+    let mut index = HashMap::new();
+    for entry in std::fs::read_dir(search_dir).ok()? {
+        let entry = entry.ok()?;
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        index.entry(name).or_insert_with(|| entry.path());
+    }
+    let mut guard = services
+        .archive_dir_index
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    // Cap growth on long-running hosts: drop if huge.
+    if guard.len() > 4096 {
+        guard.clear();
+    }
+    guard.insert(key, index.clone());
+    Some(index)
 }
+
+fn resolve_existing_path_case_insensitive(path: &Path) -> Option<PathBuf> {
+    if path.exists() {
+        return Some(path.to_path_buf());
+    }
+    // Case-insensitive volumes (macOS APFS default): exists() already folds
+    // case. Skip the per-component read_dir walk on negative lookups — that
+    // walk dominated Lone Eagle/ShellMap spawn under load (opendir/stat).
+    #[cfg(target_os = "macos")]
+    {
+        return None;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let mut resolved = PathBuf::new();
+        for component in path.components() {
+            match component {
+                Component::Prefix(prefix) => resolved.push(prefix.as_os_str()),
+                Component::RootDir => resolved.push(component.as_os_str()),
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    if !resolved.pop() {
+                        return None;
+                    }
+                }
+                Component::Normal(part) => {
+                    let search_dir = if resolved.as_os_str().is_empty() {
+                        Path::new(".")
+                    } else {
+                        resolved.as_path()
+                    };
+                    let direct = search_dir.join(part);
+                    if direct.exists() {
+                        resolved = direct;
+                        continue;
+                    }
+                    let part_key = part.to_string_lossy().to_ascii_lowercase();
+                    let index = case_insensitive_dir_index(search_dir)?;
+                    let matched = index.get(&part_key)?.clone();
+                    resolved = matched;
+                }
+            }
+        }
+        resolved.exists().then_some(resolved)
+    }
+}
+
 
 /// Base (non-ZH) W3D archives C++ mounts from the original Generals install.
 /// `Win32BIGFileSystem.cpp:37-49` loads ZH `*.big` then registry `InstallPath`.
@@ -870,9 +914,6 @@ pub struct ArchiveStatistics {
     pub unique_files: usize,
 }
 
-/// Global archive file system instance - thread-safe version
-static ARCHIVE_SYSTEM: OnceLock<Arc<Mutex<ArchiveFileSystem>>> = OnceLock::new();
-
 /// Initialize the global archive file system
 pub async fn init_archive_file_system() -> Result<()> {
     let archive_system = Arc::new(Mutex::new(ArchiveFileSystem::new()));
@@ -882,16 +923,25 @@ pub async fn init_archive_file_system() -> Result<()> {
         system.init().await?;
     }
 
-    ARCHIVE_SYSTEM
-        .set(archive_system.clone())
-        .map_err(|_| anyhow!("Archive system already initialized"))?;
-
+    let services = crate::main_services::main_services();
+    let mut slot = services
+        .archive_system
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if slot.is_some() {
+        return Err(anyhow!("Archive system already initialized"));
+    }
+    *slot = Some(archive_system);
     Ok(())
 }
 
 /// Get reference to global archive file system
 pub fn get_archive_file_system() -> Option<Arc<Mutex<ArchiveFileSystem>>> {
-    ARCHIVE_SYSTEM.get().cloned()
+    crate::main_services::main_services()
+        .archive_system
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
 }
 
 /// Adapter that exposes a blocking reader as an `AsyncRead` using `block_in_place`.
@@ -990,20 +1040,28 @@ impl ArchiveFileReader for BigArchiveFileReader {
     }
 }
 
-static BIG_ARCHIVE_READER: OnceLock<Arc<BigArchiveFileReader>> = OnceLock::new();
-
 pub fn init_big_archive_file_reader() -> Result<()> {
     let archive_system =
         get_archive_file_system().ok_or_else(|| anyhow!("Archive file system not initialized"))?;
     let reader = Arc::new(BigArchiveFileReader::new(archive_system));
-    BIG_ARCHIVE_READER
-        .set(reader)
-        .map_err(|_| anyhow!("Big archive reader already initialized"))?;
+    let services = crate::main_services::main_services();
+    let mut slot = services
+        .big_archive_reader
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if slot.is_some() {
+        return Err(anyhow!("Big archive reader already initialized"));
+    }
+    *slot = Some(reader);
     Ok(())
 }
 
 pub fn get_big_archive_file_reader() -> Option<Arc<BigArchiveFileReader>> {
-    BIG_ARCHIVE_READER.get().cloned()
+    crate::main_services::main_services()
+        .big_archive_reader
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
 }
 
 #[cfg(test)]

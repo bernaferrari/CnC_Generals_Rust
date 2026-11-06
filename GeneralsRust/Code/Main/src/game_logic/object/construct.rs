@@ -315,6 +315,7 @@ impl Object {
         let locomotor_set_names = template.locomotor_set_names.clone();
         let locomotor_name = template.locomotor_name.clone();
         let turret = turret_spawn_for_thing_template(&template);
+        let alt_turret = super::turret_spawn::turret_spawn_alt_for_thing_template(&template);
         let is_fs_fake = template.is_kind_of(crate::game_logic::KindOf::FSFake);
 
         let occlusion_delay_frames = template_occlusion_delay_frames(&template);
@@ -1012,18 +1013,21 @@ impl Object {
             last_fire_sim_time: 0.0,
             last_fire_frame: 0,
             fire_intent_count: 0,
+            assist_clip_fire_commits: 0,
             last_weapon_discharge_sequence: 0,
             last_weapon_discharge_slot: 0,
             last_weapon_discharge_barrel: 0,
             last_weapon_discharge_frame: 0,
             visual_object_generation: 0,
             visual_draw_identity_token: std::sync::Arc::new(()),
+            has_drawable: true,
             spawn_behavior_children: Vec::new(),
             spawn_behavior_replacement_times: Vec::new(),
             partition_namespace: Default::default(),
             visual_draw_state_revision: 1,
             native_pose_revision: 1,
             pending_weapon_visual_capture: None,
+            pending_weapon_fire_commit: None,
             guard_radius: 0.0,
             guard_mode: GuardMode::Normal,
             pending_evacuate_on_stop: false,
@@ -1048,6 +1052,7 @@ impl Object {
             special_power_override_destination: None,
             special_power_override_type: None,
             mine_data: None,
+            assisted_targeting: None,
             is_detector: false,
             detection_range: 0.0,
             detection_rate_frames: 0,
@@ -1065,6 +1070,7 @@ impl Object {
             disguise_as_team: None,
             disguise_as_player_id: None,
             vision_spied_mask: 0,
+            vision_spied_by: [0; gamelogic::common::MAX_PLAYER_COUNT],
             weapon_bonus_enthusiastic: false,
             weapon_bonus_subliminal: false,
             weapon_bonus_horde: false,
@@ -1125,29 +1131,39 @@ impl Object {
             hive_slave_hp: 0.0,
             hive_slave_respawn_frame: 0,
             hive_slaves: [crate::game_logic::host_base_defense::ResidualHiveSlave::default(); 3],
-            turret_angle_deg: turret.angle_deg,
+            turret_ai: super::turret_ai_state::TurretAiState {
+                turret_angle_deg: turret.angle_deg,
+                turret_pitch_deg: turret.pitch_deg,
+                turret_idle_scan_next_frame: 0,
+                turret_idle_scanning: false,
+                turret_idle_scan_desired_angle_deg: 0.0,
+                turret_idle_scan_index: 0,
+                turret_holding: false,
+                turret_hold_until_frame: 0,
+                turret_idle_recentering: false,
+                turret_mood_target: false,
+                turret_target_id: None,
+                turret_force_attacking: false,
+                turret_enabled: turret.enabled,
+                turret_turn_rate_rad: turret.turn_rate_rad,
+                turret_substate: TurretSubState::Idle,
+                turret_rotating: false,
+                turret_natural_angle_deg: turret.natural_angle_deg,
+                turret_natural_pitch_deg: turret.natural_pitch_deg,
+                turret_recenter_frames: turret.recenter_frames,
+            },
             turret_runtime: super::turret_runtime::HostTurretExtra::from_spawn(&turret),
-            turret_pitch_deg: turret.pitch_deg,
-            turret_idle_scan_next_frame: 0,
-            turret_idle_scanning: false,
-            turret_idle_scan_desired_angle_deg: 0.0,
-            turret_idle_scan_index: 0,
-            turret_holding: false,
-            turret_hold_until_frame: 0,
-            turret_idle_recentering: false,
-            turret_mood_target: false,
-            turret_target_id: None,
-            turret_force_attacking: false,
-            turret_enabled: turret.enabled,
-            turret_turn_rate_rad: turret.turn_rate_rad,
-            turret_substate: TurretSubState::Idle,
-            turret_rotating: false,
-            turret_natural_angle_deg: turret.natural_angle_deg,
-            turret_natural_pitch_deg: turret.natural_pitch_deg,
-            turret_recenter_frames: turret.recenter_frames,
+            alt_turret_runtime: alt_turret
+                .as_ref()
+                .map(super::turret_runtime::HostTurretExtra::from_spawn),
+            alt_turret_ai: alt_turret
+                .as_ref()
+                .map(super::turret_ai_state::TurretAiState::from_spawn),
             ai_attitude: 0, // HostAiAttitude::Normal
             repulsor_until_frame: 0,
             last_damage_source: None,
+            last_damage_source_template: String::new(),
+            last_damage_source_player_mask: 0,
             last_damage_cleared: false,
             last_damage_timestamp: None,
             last_healing_timestamp: None,
@@ -1155,6 +1171,7 @@ impl Object {
             last_damage_info_type: None,
             next_damage_fx_time: 0,
             kill_experience_awarded: false,
+            deferred_destruction_credit: None,
             kill_score_phase: Default::default(),
             health_box_offset: [0.0, 0.0, 0.0],
             uses_inactive_body: false,
@@ -1238,6 +1255,7 @@ impl Object {
             TemporaryWeaponRuntimeBundle::from_thing_template(&template, 0);
         let selection_radius = template.geometry_info.bounding_circle_radius();
         let turret = turret_spawn_for_thing_template(&template);
+        let alt_turret = super::turret_spawn::turret_spawn_alt_for_thing_template(&template);
 
         let pitch_roll_yaw_factor =
             if template.pitch_roll_yaw_factor.is_finite() && template.pitch_roll_yaw_factor > 0.0 {
@@ -1965,18 +1983,21 @@ impl Object {
             last_fire_sim_time: 0.0,
             last_fire_frame: 0,
             fire_intent_count: 0,
+            assist_clip_fire_commits: 0,
             last_weapon_discharge_sequence: 0,
             last_weapon_discharge_slot: 0,
             last_weapon_discharge_barrel: 0,
             last_weapon_discharge_frame: 0,
             visual_object_generation: 0,
             visual_draw_identity_token: std::sync::Arc::new(()),
+            has_drawable: true,
             spawn_behavior_children: Vec::new(),
             spawn_behavior_replacement_times: Vec::new(),
             partition_namespace: Default::default(),
             visual_draw_state_revision: 1,
             native_pose_revision: 1,
             pending_weapon_visual_capture: None,
+            pending_weapon_fire_commit: None,
             guard_radius: 0.0,
             guard_mode: GuardMode::Normal,
             pending_evacuate_on_stop: false,
@@ -2001,6 +2022,7 @@ impl Object {
             special_power_override_destination: None,
             special_power_override_type: None,
             mine_data: None,
+            assisted_targeting: None,
             is_detector: false,
             detection_range: 0.0,
             detection_rate_frames: 0,
@@ -2018,6 +2040,7 @@ impl Object {
             disguise_as_team: None,
             disguise_as_player_id: None,
             vision_spied_mask: 0,
+            vision_spied_by: [0; gamelogic::common::MAX_PLAYER_COUNT],
             weapon_bonus_enthusiastic: false,
             weapon_bonus_subliminal: false,
             weapon_bonus_horde: false,
@@ -2078,29 +2101,39 @@ impl Object {
             hive_slave_hp: 0.0,
             hive_slave_respawn_frame: 0,
             hive_slaves: [crate::game_logic::host_base_defense::ResidualHiveSlave::default(); 3],
-            turret_angle_deg: turret.angle_deg,
+            turret_ai: super::turret_ai_state::TurretAiState {
+                turret_angle_deg: turret.angle_deg,
+                turret_pitch_deg: turret.pitch_deg,
+                turret_idle_scan_next_frame: 0,
+                turret_idle_scanning: false,
+                turret_idle_scan_desired_angle_deg: 0.0,
+                turret_idle_scan_index: 0,
+                turret_holding: false,
+                turret_hold_until_frame: 0,
+                turret_idle_recentering: false,
+                turret_mood_target: false,
+                turret_target_id: None,
+                turret_force_attacking: false,
+                turret_enabled: turret.enabled,
+                turret_turn_rate_rad: turret.turn_rate_rad,
+                turret_substate: TurretSubState::Idle,
+                turret_rotating: false,
+                turret_natural_angle_deg: turret.natural_angle_deg,
+                turret_natural_pitch_deg: turret.natural_pitch_deg,
+                turret_recenter_frames: turret.recenter_frames,
+            },
             turret_runtime: super::turret_runtime::HostTurretExtra::from_spawn(&turret),
-            turret_pitch_deg: turret.pitch_deg,
-            turret_idle_scan_next_frame: 0,
-            turret_idle_scanning: false,
-            turret_idle_scan_desired_angle_deg: 0.0,
-            turret_idle_scan_index: 0,
-            turret_holding: false,
-            turret_hold_until_frame: 0,
-            turret_idle_recentering: false,
-            turret_mood_target: false,
-            turret_target_id: None,
-            turret_force_attacking: false,
-            turret_enabled: turret.enabled,
-            turret_turn_rate_rad: turret.turn_rate_rad,
-            turret_substate: TurretSubState::Idle,
-            turret_rotating: false,
-            turret_natural_angle_deg: turret.natural_angle_deg,
-            turret_natural_pitch_deg: turret.natural_pitch_deg,
-            turret_recenter_frames: turret.recenter_frames,
+            alt_turret_runtime: alt_turret
+                .as_ref()
+                .map(super::turret_runtime::HostTurretExtra::from_spawn),
+            alt_turret_ai: alt_turret
+                .as_ref()
+                .map(super::turret_ai_state::TurretAiState::from_spawn),
             ai_attitude: 0, // HostAiAttitude::Normal
             repulsor_until_frame: 0,
             last_damage_source: None,
+            last_damage_source_template: String::new(),
+            last_damage_source_player_mask: 0,
             last_damage_cleared: false,
             last_damage_timestamp: None,
             last_healing_timestamp: None,
@@ -2108,6 +2141,7 @@ impl Object {
             last_damage_info_type: None,
             next_damage_fx_time: 0,
             kill_experience_awarded: false,
+            deferred_destruction_credit: None,
             kill_score_phase: Default::default(),
             health_box_offset: [0.0, 0.0, 0.0],
             uses_inactive_body: false,
@@ -2466,12 +2500,10 @@ impl Object {
     }
 
     pub fn is_worker(&self) -> bool {
+        // C++ ActionManager / AI worker gates use KindOf, never a name peel.
         self.is_kind_of(KindOf::Worker)
             || self.is_kind_of(KindOf::Dozer)
-            || self.template_name.contains("Dozer")
-            || self.template_name.contains("Worker")
-            || self.template_name.contains("Harvester")
-            || self.template_name.contains("Collector")
+            || self.is_kind_of(KindOf::Harvester)
     }
 
     /// C++ `KINDOF_HARVESTER`: semantic permission to collect supplies.
@@ -2492,12 +2524,12 @@ impl Object {
     }
 
     pub fn is_command_center(&self) -> bool {
+        // C++ uses KINDOF_COMMANDCENTER; name peel is invent.
         self.is_kind_of(KindOf::CommandCenter)
-            || self.template_name.contains("CommandCenter")
-            || self.template_name.contains("Headquarters")
     }
 
     pub fn is_faction_structure(&self) -> bool {
+        // C++ uses KINDOF_FS_* / CommandCenter kinds only — name peels invent.
         self.is_kind_of(KindOf::FSBarracks)
             || self.is_kind_of(KindOf::FSWarFactory)
             || self.is_kind_of(KindOf::FSAirfield)
@@ -2515,17 +2547,6 @@ impl Object {
             || self.is_command_center()
             || self.is_kind_of(KindOf::SupplyCenter)
             || self.is_kind_of(KindOf::PowerPlant)
-            || self.template_name.contains("Barracks")
-            || self.template_name.contains("WarFactory")
-            || self.template_name.contains("Airfield")
-            || self.template_name.contains("InternetCenter")
-            || self.template_name.contains("PowerPlant")
-            || self.template_name.contains("SupplyDropzone")
-            || self.template_name.contains("SupplyCenter")
-            || self.template_name.contains("Superweapon")
-            || self.template_name.contains("StrategyCenter")
-            || self.template_name.contains("BlackMarket")
-            || self.template_name.contains("TechCenter")
     }
 
     pub fn is_non_faction_structure(&self) -> bool {
@@ -2704,6 +2725,51 @@ mod tests {
     }
 
     #[test]
+    fn is_worker_and_command_center_use_kindof_not_name_peel() {
+        let mut named_dozer = ThingTemplate::new("AmericaFakeDozer");
+        named_dozer.add_kind_of(KindOf::Vehicle);
+        let named = Object::new(named_dozer, ObjectId(61), Team::USA);
+        assert!(
+            !named.is_worker(),
+            "name-contains Dozer is not a C++ worker gate"
+        );
+
+        let mut real = ThingTemplate::new("USA_Dozer");
+        real.add_kind_of(KindOf::Dozer);
+        let dozer = Object::new(real, ObjectId(62), Team::USA);
+        assert!(dozer.is_worker());
+
+        let mut named_cc = ThingTemplate::new("FakeCommandCenterHut");
+        named_cc.add_kind_of(KindOf::Structure);
+        let hut = Object::new(named_cc, ObjectId(63), Team::USA);
+        assert!(
+            !hut.is_command_center(),
+            "name-contains CommandCenter is invent"
+        );
+
+        let mut real_cc = ThingTemplate::new("AmericaCommandCenter");
+        real_cc.add_kind_of(KindOf::CommandCenter);
+        let cc = Object::new(real_cc, ObjectId(64), Team::USA);
+        assert!(cc.is_command_center());
+    }
+
+    #[test]
+    fn is_faction_structure_uses_kindof_not_name_peel() {
+        let mut named = ThingTemplate::new("FakeBarracksHut");
+        named.add_kind_of(KindOf::Structure);
+        let hut = Object::new(named, ObjectId(71), Team::USA);
+        assert!(
+            !hut.is_faction_structure(),
+            "name-contains Barracks is invent"
+        );
+
+        let mut real = ThingTemplate::new("AmericaBarracks");
+        real.add_kind_of(KindOf::FSBarracks);
+        let barracks = Object::new(real, ObjectId(72), Team::USA);
+        assert!(barracks.is_faction_structure());
+    }
+
+    #[test]
     fn turret_only_spawns_on_units_that_author_one() {
         use crate::game_logic::host_strategy_center::{
             STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG, STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
@@ -2716,27 +2782,27 @@ mod tests {
             ObjectId(1),
             Team::USA,
         );
-        assert!(!ranger.turret_enabled);
-        assert!((ranger.turret_angle_deg).abs() < 0.01);
-        assert!((ranger.turret_pitch_deg).abs() < 0.01);
+        assert!(!ranger.turret_ai.turret_enabled);
+        assert!((ranger.turret_ai.turret_angle_deg).abs() < 0.01);
+        assert!((ranger.turret_ai.turret_pitch_deg).abs() < 0.01);
 
         let dozer = Object::new(
             ThingTemplate::new("AmericaVehicleDozer"),
             ObjectId(2),
             Team::USA,
         );
-        assert!(!dozer.turret_enabled);
+        assert!(!dozer.turret_ai.turret_enabled);
 
         let crusader = Object::new(
             ThingTemplate::new("AmericaTankCrusader"),
             ObjectId(3),
             Team::USA,
         );
-        assert!(crusader.turret_enabled);
-        assert!((crusader.turret_angle_deg).abs() < 0.01);
-        assert!((crusader.turret_pitch_deg).abs() < 0.01);
+        assert!(crusader.turret_ai.turret_enabled);
+        assert!((crusader.turret_ai.turret_angle_deg).abs() < 0.01);
+        assert!((crusader.turret_ai.turret_pitch_deg).abs() < 0.01);
         assert!(
-            (crusader.turret_turn_rate_rad
+            (crusader.turret_ai.turret_turn_rate_rad
                 - turret_deg_per_sec_to_rad_per_frame(USA_TANK_TURRET_TURN_RATE))
             .abs()
                 < 1e-5
@@ -2747,11 +2813,11 @@ mod tests {
             ObjectId(4),
             Team::USA,
         );
-        assert!(!sc.turret_enabled, "InitiallyDisabled until Bombardment");
-        assert!((sc.turret_angle_deg - STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG).abs() < 0.01);
-        assert!((sc.turret_pitch_deg - STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG).abs() < 0.01);
+        assert!(!sc.turret_ai.turret_enabled, "InitiallyDisabled until Bombardment");
+        assert!((sc.turret_ai.turret_angle_deg - STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG).abs() < 0.01);
+        assert!((sc.turret_ai.turret_pitch_deg - STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG).abs() < 0.01);
         assert!(
-            (sc.turret_turn_rate_rad
+            (sc.turret_ai.turret_turn_rate_rad
                 - turret_deg_per_sec_to_rad_per_frame(
                     STRATEGY_CENTER_TURRET_TURN_RATE_DEG_PER_SEC
                 ))
@@ -2899,6 +2965,9 @@ mod body_initialization_owner_tests;
 #[cfg(test)]
 #[path = "inactive_body_owner_tests.rs"]
 mod inactive_body_owner_tests;
+#[cfg(test)]
+#[path = "authored_detector_tests.rs"]
+mod authored_detector_tests;
 
 impl Object {
     /// Restore the receiving RepairDock module after snapshot identity validation.

@@ -59,10 +59,15 @@ impl GameLogic {
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        self.object_lifecycle_callback_depth += 1;
-        let result = self.process_destroy_list_body_with_effects_checked(presentation_effects);
-        self.object_lifecycle_callback_depth -= 1;
-        result
+        // Destroy log / localization / player_list free-fns need World+Main.
+        // Nest-safe when already inside with_own_services (e.g. simulation step).
+        self.with_own_services_mut(|this| {
+            this.object_lifecycle_callback_depth += 1;
+            let result =
+                this.process_destroy_list_body_with_effects_checked(presentation_effects);
+            this.object_lifecycle_callback_depth -= 1;
+            result
+        })
     }
 
     fn process_destroy_list_body_with_effects_checked(
@@ -630,6 +635,8 @@ mod tests {
             .players
             .insert(0, Player::new(0, Team::GLA, "GLA", true));
         let mut tn = ThingTemplate::new("GLATunnelNetwork");
+        // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+        tn.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
         tn.add_kind_of(KindOf::Structure).set_health(1000.0);
         tn.build_cost.supplies = 800;
         logic.templates.insert("GLATunnelNetwork".into(), tn);
@@ -1086,13 +1093,13 @@ End
             &mut crate::game_logic::ScriptPresentationEffects {
                 audio: Some(&mut output),
                 ..Default::default()
-            },
+},
         );
         logic.process_destroy_list_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects {
                 audio: Some(&mut output),
                 ..Default::default()
-            },
+},
         );
         let r = logic.host_object(rider).expect("survivor stays in world");
         assert!(
@@ -1103,7 +1110,7 @@ End
         assert!(r.contained_by.is_none());
         // TransportContain.cpp389-393 scatters, then wakes the surviving rider
         // to target; the installed aggressive exit phase admits attack-move.
-        assert_eq!(r.ai_state, crate::game_logic::AIState::AttackMoving);
+        assert_eq!(r.ai_state(), crate::game_logic::AIState::AttackMoving);
         assert_eq!(r.ignored_obstacle_id, Some(transport));
         assert_eq!(r.ignore_collisions_with, Some(transport));
         let pos = r.get_position();

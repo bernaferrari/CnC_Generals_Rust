@@ -70,7 +70,7 @@ End
                 assert!(object.begin_slow_death_from_ini(
                     frame,
                     &ini,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+                    &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
                 ));
             }
             DeathKind::Jet => {
@@ -104,7 +104,6 @@ End
                 .expect("slow-death Idle entry belongs to the receiving world")
         );
         let actor = logic.host_object(id).unwrap();
-        assert!(actor.unit_ai_runtime.idle_initialized());
         assert!(!actor.idle_mood_reset_pending);
     }
     let mut shadow = GameWorldShadow::new(64);

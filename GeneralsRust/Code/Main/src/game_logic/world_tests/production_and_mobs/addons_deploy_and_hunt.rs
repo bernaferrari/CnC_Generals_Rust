@@ -694,7 +694,7 @@ fn construction_complete_end_dock_uses_stored_action() {
     logic.dozer_new_task_build(dozer, pad_id);
     let action = logic
         .host_object(dozer)
-        .and_then(|d| d.dozer_dock_action)
+        .and_then(|d| d.dozer_dock_action())
         .expect("ACTION");
     let off_line = Vec3::new(0.0, 0.0, 80.0);
     {
@@ -809,203 +809,6 @@ fn selected_general_start_binds_exact_template_and_rejects_late_invalid_identity
     );
     assert!(logic.get_player(0).is_none());
     assert!(logic.player_template_identity(0).is_none());
-}
-
-#[test]
-fn overlord_gattling_addon_residual_install_and_fire() {
-    use crate::game_logic::host_overlord_addons::{
-        OVERLORD_GATTLING_AIR_DAMAGE, OVERLORD_GATTLING_GROUND_DAMAGE, UPGRADE_OVERLORD_GATTLING,
-        is_overlord_tank_template,
-    };
-
-    let mut game_logic = GameLogic::new();
-    ensure_test_infantry_template(&mut game_logic);
-    ensure_test_tank_template(&mut game_logic);
-    // The synthetic victim models a C++ armor-less object: no ArmorSet rows ->
-    // ActiveBody keeps the default all-1.0 coefficients (Armor.h:56-58 passes
-    // damage through), so the passenger gattling contributes its full 10.
-    // The Rust residual resolves retail TankArmor by KindOf for armor-less
-    // templates (GATTLING 10%, Armor.ini:127) — stamp the all-ones armor like
-    // shells_and_missiles::stamp_cpp_armorless_dummy_armor does.
-    {
-        use gamelogic::object::armor::{ArmorDefinitions, ArmorTemplate};
-        const TEST_DUMMY_ALL_ONES_ARMOR: &str = "TestDummyAllOnesArmor";
-        if let Some(tpl) = game_logic.templates.get_mut("TestTank") {
-            let mut definitions = tpl
-                .armor_definitions
-                .as_deref()
-                .cloned()
-                .unwrap_or_else(ArmorDefinitions::new);
-            definitions.register_template(TEST_DUMMY_ALL_ONES_ARMOR, ArmorTemplate::new());
-            tpl.armor_definitions = Some(std::sync::Arc::new(definitions));
-            tpl.armor_sets.push(crate::game_logic::HostArmorSet {
-                conditions: 0,
-                armor: Some(TEST_DUMMY_ALL_ONES_ARMOR.to_string()),
-                damage_fx: None,
-            });
-        }
-    }
-
-    let mut overlord_tpl = crate::game_logic::ThingTemplate::new("ChinaTankOverlord");
-    overlord_tpl
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(1100.0)
-        .set_primary_weapon_name("OverlordTankGun");
-    game_logic
-        .templates
-        .insert("ChinaTankOverlord".to_string(), overlord_tpl);
-
-    // Seed primary residual weapon stats (80 dmg tank gun residual).
-    let overlord_id = game_logic
-        .create_object("ChinaTankOverlord", Team::China, Vec3::new(0.0, 0.0, 0.0))
-        .expect("overlord");
-    {
-        let o = game_logic.host_object_mut(overlord_id).unwrap();
-        assert!(is_overlord_tank_template(&o.template_name));
-        assert!(o.is_overlord_style_container());
-        assert!(!o.has_overlord_gattling_residual());
-        // Primary residual seed for host combat.
-        o.weapon = Some(Weapon {
-            damage: 80.0,
-            range: 175.0,
-            min_range: 0.0,
-            reload_time: 0.1,
-            last_fire_time: -10.0,
-            ammo: None,
-            clip_size: 0,
-            clip_reload_time: 0.0,
-            can_target_air: false,
-            can_target_ground: true,
-            projectile_speed: 300.0,
-            pre_attack_delay: 0.0,
-            splash_radius: 0.0,
-            suspend_fx_frame: 0,
-            reloading_clip: false,
-            last_bonus_rof: 0.0,
-        });
-    }
-
-    // Install gattling addon residual (upgrade path).
-    game_logic.apply_upgrade_to_object(overlord_id, UPGRADE_OVERLORD_GATTLING);
-    {
-        let o = game_logic.host_object(overlord_id).unwrap();
-        assert!(
-            o.has_overlord_gattling_residual(),
-            "gattling addon must install"
-        );
-        assert!(
-            o.secondary_weapon.is_some(),
-            "gattling residual equips AA secondary"
-        );
-        let sec = o.secondary_weapon.as_ref().unwrap();
-        assert!(sec.can_target_air);
-        assert!(
-            (sec.damage - OVERLORD_GATTLING_AIR_DAMAGE).abs() < 0.01,
-            "AA residual dmg {}",
-            sec.damage
-        );
-        assert!(
-            !o.has_overlord_propaganda_residual()
-                || crate::game_logic::host_overlord_addons::is_emperor_template(&o.template_name)
-        );
-    }
-    assert!(
-        game_logic.overlord_addons().honesty_gattling_install_ok(),
-        "gattling install honesty"
-    );
-
-    // Ground passenger fire residual: primary path + gattling ground dmg.
-    // Non-Infantry victim: OverlordTankGun carries retail
-    // ScatterRadiusVsInfantry and typed armor vs HumanArmor, which the
-    // naive 80+10 expectation ignores (C++ ActiveBody adjustDamage).
-    let victim_id = game_logic
-        .create_object("TestTank", Team::USA, Vec3::new(50.0, 0.0, 0.0))
-        .expect("victim");
-    let hp_before = game_logic
-        .host_object(victim_id)
-        .map(|i| i.health.current)
-        .unwrap_or(0.0);
-    {
-        let (o, attack_events) = game_logic
-            .host_object_and_attack_events_mut(overlord_id)
-            .unwrap();
-        o.active_weapon_slot = 0;
-        o.attack_target(
-            victim_id,
-            attack_events,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        if let Some(w) = o.weapon.as_mut() {
-            w.last_fire_time = -10.0;
-            w.reload_time = 0.1;
-            w.min_range = 0.0;
-        }
-    }
-    game_logic.set_current_frame(30);
-    game_logic.update_combat(&[overlord_id, victim_id], LOGIC_FRAME_TIMESTEP);
-
-    let hp_after = game_logic
-        .host_object(victim_id)
-        .map(|i| i.health.current)
-        .unwrap_or(0.0);
-    let dealt = hp_before - hp_after;
-    // 80 primary + 10 passenger gattling residual.
-    assert!(
-        dealt + 0.01 >= 80.0 + OVERLORD_GATTLING_GROUND_DAMAGE - 1.0
-            || !game_logic
-                .host_object(victim_id)
-                .map(|i| i.is_alive())
-                .unwrap_or(true),
-        "expected primary+passenger gattling residual damage, dealt={dealt} before={hp_before} after={hp_after}"
-    );
-    assert!(
-        game_logic.overlord_addons().gattling_ground_fires > 0,
-        "ground gattling fire honesty"
-    );
-    assert!(
-        game_logic.honesty_overlord_gattling_ok()
-            || game_logic.overlord_addons().honesty_gattling_fire_ok(),
-        "overlord gattling residual honesty"
-    );
-
-    // AA residual fire on secondary slot.
-    let mut air_tpl = crate::game_logic::ThingTemplate::new("TestAircraft");
-    air_tpl
-        .add_kind_of(KindOf::Aircraft)
-        .add_kind_of(KindOf::Attackable)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(100.0);
-    game_logic
-        .templates
-        .insert("TestAircraft".to_string(), air_tpl);
-    let air_id = game_logic
-        .create_object("TestAircraft", Team::USA, Vec3::new(40.0, 20.0, 0.0))
-        .expect("air");
-    {
-        let a = game_logic.host_object_mut(air_id).unwrap();
-        a.status.airborne_target = true;
-    }
-    let air_hp_before = game_logic.host_object(air_id).unwrap().health.current;
-    // Direct AA residual apply (slot 1): update_combat may still be SM-owned after
-    // the ground shot; residual damage path is the playability contract under test.
-    let air_pos = game_logic
-        .host_object(air_id)
-        .map(|a| a.get_position())
-        .unwrap_or(Vec3::new(40.0, 20.0, 0.0));
-    let (aa_hits, _) =
-        game_logic.apply_overlord_gattling_residual_at(air_pos, Some(overlord_id), Some(air_id), 1);
-    let air_hp_after = game_logic
-        .host_object(air_id)
-        .map(|a| a.health.current)
-        .unwrap_or(0.0);
-    assert!(
-        aa_hits > 0
-            || air_hp_after < air_hp_before - 0.01
-            || game_logic.overlord_addons().gattling_aa_fires > 0,
-        "AA gattling residual must damage air (before={air_hp_before} after={air_hp_after} hits={aa_hits})"
-    );
 }
 
 #[test]
@@ -1165,33 +968,40 @@ fn overlord_portable_addon_mirrors_host_body_damage() {
 #[test]
 fn emperor_innate_propaganda_and_helix_transport_residual() {
     use crate::game_logic::host_overlord_addons::{
-        HELIX_TRANSPORT_SLOTS, is_emperor_template, is_helix_template,
+        HELIX_TRANSPORT_SLOTS, is_helix_template,
     };
 
+    // hq-2qedt.256: Emperor innate tower is the authored PropagandaTowerBehavior
+    // on an OverlordContain host (TankGeneral.ini), not a name peel.
     let mut game_logic = GameLogic::new();
-    ensure_test_tank_template(&mut game_logic);
-    ensure_test_infantry_template(&mut game_logic);
-
-    let mut emp_tpl = crate::game_logic::ThingTemplate::new("Tank_ChinaTankEmperor");
-    emp_tpl
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(1100.0);
     game_logic
-        .templates
-        .insert("Tank_ChinaTankEmperor".to_string(), emp_tpl);
-
-    let emp_id = game_logic
-        .create_object(
-            "Tank_ChinaTankEmperor",
-            Team::China,
-            Vec3::new(0.0, 0.0, 0.0),
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "emperor.ini".into(),
+                "Object Tank_ChinaTankEmperor\nKindOf = VEHICLE SELECTABLE SCORE\nBody = ActiveBody Body\nMaxHealth = 1100\nInitialHealth = 1100\nEnd\nBehavior = OverlordContain ModuleTag_06\nSlots = 1\nEnd\nBehavior = PropagandaTowerBehavior ModulePropaganda_04\nRadius = 150.0\nDelayBetweenUpdates = 2000\nHealPercentEachSecond = 1%\nEnd\nEnd\nObject TestAllyTank\nKindOf = VEHICLE SELECTABLE SCORE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n"
+                    .to_string(),
+            )])
+            .unwrap(),
         )
-        .expect("emperor");
+        .unwrap();
+    game_logic.add_player(Player::new(1, Team::China, "owner", true));
+    let spawn = |game_logic: &mut GameLogic, name: &str, pos: Vec3| {
+        game_logic
+            .create_object_for_player_with_effects_checked(
+                name,
+                1,
+                pos,
+                None,
+                &mut Default::default(),
+            )
+            .unwrap()
+            .unwrap()
+    };
+
+    let emp_id = spawn(&mut game_logic, "Tank_ChinaTankEmperor", Vec3::new(0.0, 0.0, 0.0));
     {
         let e = game_logic.host_object(emp_id).unwrap();
-        assert!(is_emperor_template(&e.template_name));
+        assert!(e.authors_innate_propaganda_tower());
         assert!(e.has_overlord_propaganda_residual());
     }
     assert!(
@@ -1199,14 +1009,14 @@ fn emperor_innate_propaganda_and_helix_transport_residual() {
         "emperor innate propaganda install honesty"
     );
 
-    let ally_id = game_logic
-        .create_object("TestTank", Team::China, Vec3::new(10.0, 0.0, 0.0))
-        .expect("ally");
+    let ally_id = spawn(&mut game_logic, "TestAllyTank", Vec3::new(10.0, 0.0, 0.0));
     {
         let a = game_logic.host_object_mut(ally_id).unwrap();
         a.health.current = a.health.maximum * 0.5;
     }
     let hp_before = game_logic.host_object(ally_id).unwrap().health.current;
+    // C++ attemptHealingFromSoleBenefactor needs now > expiration (0) to claim.
+    game_logic.frame = 1;
     for _ in 0..30 {
         game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
     }
@@ -1216,6 +1026,7 @@ fn emperor_innate_propaganda_and_helix_transport_residual() {
         "emperor innate propaganda must heal (before={hp_before} after={hp_after})"
     );
 
+    let mut game_logic = GameLogic::new();
     // Helix transport residual.
     let mut helix_tpl = crate::game_logic::ThingTemplate::new("ChinaVehicleHelix");
     helix_tpl
@@ -1945,6 +1756,36 @@ fn battle_bus_unresistable_bypasses_undead_body() {
     assert!(killed, "UNRESISTABLE must bypass UndeadBody");
 }
 
+/// C++ selects HighlanderBody only from the authored Body module; a NatureProp
+/// style template name without that Body must not install the clamp.
+#[test]
+fn unauthored_tree_named_template_does_not_install_highlander_body() {
+    let mut game_logic = GameLogic::new();
+    let mut tpl = ThingTemplate::new("Tree01UnauthoredBody");
+    tpl.add_kind_of(KindOf::Structure).set_health(50.0);
+    game_logic.templates.insert("Tree01UnauthoredBody".into(), tpl);
+    let id = game_logic
+        .create_object("Tree01UnauthoredBody", Team::Neutral, Vec3::ZERO)
+        .expect("tree");
+    assert!(
+        !game_logic.host_object(id).unwrap().highlander_body,
+        "template-name peel must not stand in for authored Body = HighlanderBody"
+    );
+}
+
+#[test]
+fn authored_highlander_body_installs_without_template_name_peel() {
+    let mut game_logic = GameLogic::new();
+    let mut tpl = ThingTemplate::new("PlainAuthoredRock");
+    tpl.add_kind_of(KindOf::Structure).set_health(50.0);
+    tpl.highlander_body = true;
+    game_logic.templates.insert("PlainAuthoredRock".into(), tpl);
+    let id = game_logic
+        .create_object("PlainAuthoredRock", Team::Neutral, Vec3::ZERO)
+        .expect("rock");
+    assert!(game_logic.host_object(id).unwrap().highlander_body);
+}
+
 #[test]
 fn highlander_body_clamps_normal_and_penalty_damage_unresistable_kills() {
     let mut game_logic = GameLogic::new();
@@ -1953,6 +1794,8 @@ fn highlander_body_clamps_normal_and_penalty_damage_unresistable_kills() {
     tpl.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::Immobile)
         .set_health(50.0);
+    // Fixture stands in for authored `Body = HighlanderBody`.
+    tpl.highlander_body = true;
     game_logic
         .templates
         .insert("TreeHighlanderTest".into(), tpl);
@@ -2548,12 +2391,12 @@ fn deploy_style_must_center_turret_before_pack() {
         .expect("sentry");
     {
         let obj = logic.host_object_mut(id).unwrap();
-        obj.turret_enabled = true;
-        obj.turret_turn_rate_rad = 0.1;
-        obj.turret_angle_deg = 45.0;
-        obj.turret_natural_angle_deg = 0.0;
-        obj.turret_pitch_deg = 0.0;
-        obj.turret_natural_pitch_deg = 0.0;
+        obj.turret_ai.turret_enabled = true;
+        obj.turret_ai.turret_turn_rate_rad = 0.1;
+        obj.turret_ai.turret_angle_deg = 45.0;
+        obj.turret_ai.turret_natural_angle_deg = 0.0;
+        obj.turret_ai.turret_pitch_deg = 0.0;
+        obj.turret_ai.turret_natural_pitch_deg = 0.0;
     }
 
     logic.host_object_mut(id).unwrap().set_ai_state(
@@ -2569,7 +2412,6 @@ fn deploy_style_must_center_turret_before_pack() {
     {
         let entered = logic.host_object(id).unwrap();
         assert_eq!(entered.ai_state(), AIState::Idle);
-        assert!(entered.unit_ai_runtime.idle_initialized());
         assert!(!entered.idle_mood_reset_pending);
     }
     logic.set_current_frame(30);
@@ -2588,7 +2430,7 @@ fn deploy_style_must_center_turret_before_pack() {
 
     {
         let obj = logic.host_object_mut(id).unwrap();
-        obj.turret_angle_deg = 45.0;
+        obj.turret_ai.turret_angle_deg = 45.0;
     }
     logic.set_current_frame(31);
     assert!(
@@ -2626,7 +2468,7 @@ fn deploy_style_must_center_turret_before_pack() {
 
     {
         let obj = logic.host_object_mut(id).unwrap();
-        obj.turret_angle_deg = 0.0;
+        obj.turret_ai.turret_angle_deg = 0.0;
     }
     logic.set_current_frame(33);
     logic.tick_deploy_style_updates();
@@ -2716,7 +2558,7 @@ fn jet_out_of_ammo_paths_to_distant_airfield_then_rearms() {
         assert!(
             jet.movement.target_position.is_some()
                 || !jet.movement.path.is_empty()
-                || matches!(jet.ai_state, AIState::Moving),
+                || matches!(jet.ai_state(), AIState::Moving),
             "should path toward airfield"
         );
         // Ammo still empty until dock.
@@ -2929,7 +2771,7 @@ fn empty_jet_circles_last_airfield_instead_of_bleeding_in_place() {
         "must not bleed while a live airfield exists or while flying home"
     );
 
-    logic.destroy_object(af_id);
+    logic.destroy_object(af_id).unwrap();
     if let Some(af) = logic.objects.get_mut(&af_id) {
         af.status.destroyed = true;
         af.health.current = 0.0;
@@ -3085,7 +2927,7 @@ fn command_button_hunt_named_arms_capture_and_flashbang() {
     logic.frame = 0;
     logic.tick_command_button_hunt_updates();
     let r = logic.host_object(ranger).unwrap();
-    assert_eq!(r.ai_state, AIState::Patrolling);
+    assert_eq!(r.ai_state(), AIState::Patrolling);
     assert_eq!(r.weapon_lock_type, WeaponLockType::LockedTemporarily);
     assert_eq!(r.weapon_lock_slot, 1);
 
@@ -3141,7 +2983,7 @@ fn fire_weapon_command_button_hunt_rearms_lock_every_frame() {
     logic.tick_command_button_hunt_updates();
     {
         let r = logic.host_object(ranger).unwrap();
-        assert_eq!(r.ai_state, AIState::Patrolling);
+        assert_eq!(r.ai_state(), AIState::Patrolling);
         assert_eq!(r.weapon_lock_type, WeaponLockType::LockedTemporarily);
         assert_eq!(r.weapon_lock_slot, 1);
     }

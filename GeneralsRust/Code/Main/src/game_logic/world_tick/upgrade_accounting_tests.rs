@@ -172,7 +172,11 @@ fn production_upgrade_and_encoded_restore_never_publish_into_foreign_core_player
             struct Restore(Option<gamelogic::player::PlayerList>);
             impl Drop for Restore {
                 fn drop(&mut self) {
-                    *gamelogic::player::player_list().write().unwrap() = self.0.take().unwrap();
+                    if let Some(prev) = self.0.take() {
+                        *gamelogic::player::player_list()
+                            .write()
+                            .unwrap_or_else(|e| e.into_inner()) = prev;
+                    }
                 }
             }
             let mut foreign = gamelogic::player::Player::new(0);
@@ -527,7 +531,7 @@ fn local_player_upgrade_dirties_receiving_ui_without_selected_cameo_but_object_d
             &mut crate::game_logic::ScriptPresentationEffects {
                 ui: Some(&mut ui),
                 ..Default::default()
-            },
+},
         );
         assert_eq!(ui.0, expected);
         assert_eq!(peer_ui.0, 0);
@@ -546,7 +550,7 @@ fn local_player_upgrade_dirties_receiving_ui_without_selected_cameo_but_object_d
                 &mut crate::game_logic::ScriptPresentationEffects {
                     ui: Some(&mut ui),
                     ..Default::default()
-                },
+},
             );
             assert_eq!(
                 ui.0,

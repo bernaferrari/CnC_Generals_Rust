@@ -383,6 +383,18 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        self.with_own_services_mut(|this| {
+            this.run_owned_team_creation_actions_bound(team, actions, interpreter, ui)
+        })
+    }
+
+    fn run_owned_team_creation_actions_bound(
+        &mut self,
+        team: &std::sync::Arc<std::sync::RwLock<gamelogic::team::Team>>,
+        actions: Vec<String>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         {
             let team = team
                 .read()

@@ -717,6 +717,7 @@ mod host_bridge_execution_tests {
 
     #[test]
     fn enabled_host_bridge_intercepts_real_control_bar_execution() {
+        crate::test_support::ensure_ambient_host();
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
         transport_ui.admit_native_control_bar_transport();
@@ -738,6 +739,7 @@ mod host_bridge_execution_tests {
                 &context,
                 &mut Vec::new(),
                 &mut transport_ui,
+                crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             )
             .expect("host bridge request");
 
@@ -754,23 +756,34 @@ mod host_bridge_execution_tests {
 
     #[test]
     fn parsed_retail_mig_fire_weapon_keeps_max_shots_and_options_without_logic_button() {
+        crate::test_support::ensure_ambient_host();
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
         transport_ui.admit_native_control_bar_transport();
 
         const RETAIL_MIG_BUTTON: &str = "Command_ChinaJetMIGFireNapalmMissile";
-        // Parse the actual retail CommandButton.ini block, rather than hand
-        // constructing equivalent fields.  The host path must be driven by
-        // the loaded button data, not by a MiG-specific bridge rule.
-        let retail_path = std::env::var_os("GENERALS_ASSETS_DIR")
-            .map(std::path::PathBuf::from)
-            .expect("GENERALS_ASSETS_DIR must name the extracted INIZH asset root")
-            .join("Data/INI/CommandButton.ini");
-        let retail_command_buttons = std::fs::read_to_string(&retail_path)
-            .expect("retail CommandButton.ini is required for this asset-backed test");
-        let header = format!("CommandButton {RETAIL_MIG_BUTTON}");
+        // Parse the actual retail CommandButton block, rather than hand
+        // constructing equivalent fields.  ZH keeps this MiG fire button in
+        // multiplayer.ini (and GameDataDebug.ini), not CommandButton.ini.
+        let assets = std::path::PathBuf::from(
+            std::env::var_os("GENERALS_ASSETS_DIR")
+                .expect("GENERALS_ASSETS_DIR must name the extracted INIZH asset root"),
+        );
+        let header_needle = format!("CommandButton {RETAIL_MIG_BUTTON}");
+        let retail_command_buttons = [
+            "Data/INI/CommandButton.ini",
+            "Data/INI/multiplayer.ini",
+            "Data/INI/GameDataDebug.ini",
+        ]
+        .iter()
+        .find_map(|rel| {
+            let bytes = std::fs::read(assets.join(rel)).ok()?;
+            let text = String::from_utf8_lossy(&bytes).into_owned();
+            text.contains(&header_needle).then_some(text)
+        })
+        .expect("retail MiG command button must be present in INIZH");
         let tail = &retail_command_buttons[retail_command_buttons
-            .find(&header)
+            .find(&header_needle)
             .expect("retail MiG command button must be present")..];
         let end = tail
             .find("\nEnd")
@@ -807,6 +820,7 @@ mod host_bridge_execution_tests {
                 &context,
                 &mut Vec::new(),
                 &mut transport_ui,
+                crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             )
             .expect("host bridge request from parsed command button");
 
@@ -826,6 +840,7 @@ mod host_bridge_execution_tests {
 
     #[test]
     fn parsed_retail_switch_weapon_slot_reaches_host_direct_command_without_logic_button() {
+        crate::test_support::ensure_ambient_host();
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
         transport_ui.admit_native_control_bar_transport();
@@ -854,6 +869,7 @@ mod host_bridge_execution_tests {
                 &context,
                 &mut Vec::new(),
                 &mut transport_ui,
+                crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             )
             .expect("host bridge request from parsed retail switch button");
 
@@ -874,6 +890,7 @@ mod host_bridge_execution_tests {
 
     #[test]
     fn parsed_fire_weapon_buttons_keep_distinct_retail_keys() {
+        crate::test_support::ensure_ambient_host();
         // These are two distinct retail CommandButton.ini entries with the
         // same FIRE_WEAPON operation.  Collapsing them to the operation text
         // makes exact host mappings impossible and aliases their UI state.

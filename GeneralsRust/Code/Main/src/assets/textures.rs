@@ -158,6 +158,8 @@ pub struct TextureManager {
     gpu_cache: HashMap<String, GPUTexture>,
     /// Default white texture for fallback
     default_texture_name: String,
+    /// Instance-owned missing-texture diagnostics (release-candidate path).
+    pub missing_assets: crate::release_candidate::MissingAssetDiagnostics,
     /// Compact diagnostics for unresolved texture lookups.
     missing_texture_total: usize,
     missing_texture_counts: HashMap<String, usize>,
@@ -256,6 +258,7 @@ impl TextureManager {
             raw_cache: HashMap::new(),
             gpu_cache: HashMap::new(),
             default_texture_name: "default_white".to_string(),
+            missing_assets: Default::default(),
             missing_texture_total: 0,
             missing_texture_counts: HashMap::new(),
             known_missing_textures: HashSet::new(),
@@ -469,7 +472,7 @@ impl TextureManager {
         *entry += 1;
 
         // Production missing-asset diagnostic (no silent gameplay assumption).
-        crate::release_candidate::note_missing_texture_fallback(requested_name);
+        self.missing_assets.note_missing_texture(requested_name);
 
         // Keep logs compact: emit detailed misses only for first occurrences.
         if self.missing_texture_total <= 16 {

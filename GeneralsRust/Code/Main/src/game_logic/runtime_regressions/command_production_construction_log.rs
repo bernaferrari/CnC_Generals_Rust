@@ -17,7 +17,7 @@ fn command_production_construction_log() -> bool {
         logic.templates.insert("ConstrBldg199".into(), t);
     }
 
-    let Some(bid) = logic.create_object_under_construction(
+    let Ok(Some(bid)) = logic.create_object_under_construction(
         "ConstrBldg199",
         Team::USA,
         Vec3::new(50.0, 0.0, 50.0),

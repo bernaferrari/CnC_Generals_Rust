@@ -23,7 +23,7 @@ enum Transition {
 }
 
 #[derive(Debug, Clone)]
-struct MetaMapRec {
+pub(crate) struct MetaMapRec {
     name: String,
     meta: Option<GameMessageType>,
     key: u32,
@@ -46,8 +46,8 @@ pub struct CommandMapEntry {
 }
 
 #[derive(Default)]
-struct MetaMap {
-    records: Vec<MetaMapRec>,
+pub struct MetaMap {
+    pub(crate) records: Vec<MetaMapRec>,
 }
 
 impl MetaMap {
@@ -68,41 +68,20 @@ impl MetaMap {
         }
     }
 
-    fn iter(&self) -> impl Iterator<Item = &MetaMapRec> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &MetaMapRec> {
         self.records.iter()
     }
 }
 
-// THREAD: producer -> consumer across the host's startup worker. The host parses
-// CommandMap.ini on a background startup thread (`Main::spawn_startup_map_load`), and
-// the registered "CommandMap" INI block parser writes straight into this table, so
-// the map itself has to stay a process-wide lock; the meta-event toggles/cheat state
-// that is only ever touched by GUI-thread handlers lives in the thread-local cell
-// block in `state.rs`.
-static META_MAP: OnceLock<RwLock<MetaMap>> = OnceLock::new();
+// Parser registration is a process-wide one-shot (idempotent). The CommandMap
+// table itself lives on `GameClient::meta_map` (live client / test TLS).
 static META_PARSER_REGISTERED: OnceLock<()> = OnceLock::new();
 
 const DROPPED_MAX_PARTICLE_COUNT: i32 = 1000;
 const EXTENT_BIG_CHANGE: f32 = 10.0;
 const DEMO_CAMERA_ADJUST_FACTOR: f32 = 0.01;
 
-#[derive(Debug, Clone)]
-struct LowerDetailToggleState {
-    is_low_details: bool,
-    old_use_shadow_volumes: bool,
-    old_use_light_map: bool,
-    old_use_cloud_map: bool,
-    old_show_behind_building_markers: bool,
-    old_max_particle_count: i32,
-}
-
-#[derive(Debug, Clone, Default)]
-struct DemoCameraAdjustState {
-    is_pitching: bool,
-    is_changing_fov: bool,
-    anchor: ICoord2D,
-    current_pos: ICoord2D,
-}
+use crate::meta_demo_state::{DemoCameraAdjustState, LowerDetailToggleState, MetaDemoState};
 
 #[derive(Debug, Clone, Copy)]
 enum ExtentAdjustAxis {
@@ -118,15 +97,3 @@ struct ExtentAdjustSpec {
     amount: f32,
 }
 
-impl Default for LowerDetailToggleState {
-    fn default() -> Self {
-        Self {
-            is_low_details: false,
-            old_use_shadow_volumes: true,
-            old_use_light_map: true,
-            old_use_cloud_map: true,
-            old_show_behind_building_markers: true,
-            old_max_particle_count: 5000,
-        }
-    }
-}

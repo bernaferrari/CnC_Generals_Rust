@@ -298,7 +298,7 @@ fn pilot_recrew_adds_pilot_levels_not_max() {
         Some(0),
         VeterancyLevel::Veteran,
         &mut _ownership_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         &mut crate::game_logic::VeterancyFeedback::standalone(),
     ));
     assert_eq!(vehicle.experience.level, VeterancyLevel::Heroic);
@@ -415,7 +415,7 @@ fn sold_and_under_construction_cannot_attack_or_fire() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
 
     obj.status.under_construction = true;
@@ -428,7 +428,7 @@ fn sold_and_under_construction_cannot_attack_or_fire() {
             0,
             &mut shot_combat,
             &mut _attack_output,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
         ),
         "UC fire_at must fail"
     );
@@ -445,7 +445,7 @@ fn sold_and_under_construction_cannot_attack_or_fire() {
             0,
             &mut shot_combat,
             &mut _attack_output,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
         ),
         "sold fire_at must fail"
     );
@@ -484,7 +484,7 @@ fn unmanned_enter_wipes_veterancy_and_auto_heal() {
         Some(0),
         VeterancyLevel::Veteran,
         &mut _ownership_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         &mut crate::game_logic::VeterancyFeedback::standalone(),
     ));
     assert_eq!(vehicle.experience.level, VeterancyLevel::Veteran);
@@ -579,7 +579,7 @@ fn temporary_tertiary_lock_releases_after_its_auto_clip_reloads() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
 
     assert_eq!(object.last_fire_slot, 2);
@@ -675,7 +675,7 @@ fn fire_at_breaks_stealth_when_forbidden_while_attacking() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(!object.status.stealthed);
     assert!(!object.status.detected);
@@ -792,7 +792,7 @@ fn pre_attack_delay_blocks_first_shot() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(atk.pre_attack_target, Some(tgt_id));
     assert!((atk.pre_attack_ready_at - 11.0).abs() < 1e-4);
@@ -805,7 +805,7 @@ fn pre_attack_delay_blocks_first_shot() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(5));
 
@@ -816,7 +816,7 @@ fn pre_attack_delay_blocks_first_shot() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(4));
 }
@@ -845,7 +845,7 @@ fn pre_attack_resets_on_new_target() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!((atk.pre_attack_ready_at - 7.0).abs() < 1e-4);
     // Switch target restarts delay.
@@ -855,7 +855,7 @@ fn pre_attack_resets_on_new_target() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(atk.pre_attack_target, Some(ObjectId(11)));
     assert!((atk.pre_attack_ready_at - 8.0).abs() < 1e-4);
@@ -1024,7 +1024,7 @@ fn fire_at_scales_secondary_damage_with_damage_bonus() {
         30,
         &mut shot_combat,
         &mut attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(
         crate::game_logic::combat::pending_projectile_queue_len_for_test(&shot_combat),
@@ -1724,7 +1724,7 @@ fn keep_object_die_leaves_rubble() {
     o.health.current = 0.0;
     assert!(o.begin_keep_object_die(
         10,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(o.status.keep_as_rubble);
     assert!(o.status.effectively_dead);
@@ -1847,6 +1847,30 @@ fn jet_slow_death_begins_for_raptor() {
 }
 
 #[test]
+fn jet_grounded_and_deck_death_destroys_same_frame_without_delay() {
+    // C++ JetSlowDeathBehavior::onDie: ground/deck -> FXOnGroundDeath, OCL,
+    // destroyObject immediately (no slow-death timer), then clear deck offset.
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    for (y, deck) in [(0.0_f32, false), (80.0, true)] {
+        let mut t = ThingTemplate::new("AmericaJetRaptor");
+        t.set_health(200.0);
+        t.add_kind_of(KindOf::Aircraft);
+        let mut o = Object::new(t, ObjectId(3), Team::USA);
+        o.health.current = 0.0;
+        o.set_position(glam::Vec3::new(0.0, y, 0.0));
+        o.status.deck_height_offset = deck;
+        let start =
+            o.begin_jet_slow_death(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
+        assert!(!start.defer_destruction, "deck={deck}: destroy is not deferred");
+        assert!(!start.enter_idle);
+        let j = o.jet_slow_death.as_mut().unwrap();
+        assert!(j.started_on_ground && j.done && !j.is_active());
+        assert!(j.tick(0, 0.0).2, "any later tick reports destroy at once");
+        assert!(!o.status.deck_height_offset, "onDie clears DECK_HEIGHT_OFFSET");
+    }
+}
+
+#[test]
 fn helicopter_slow_death_begins() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut t = ThingTemplate::new("AmericaComanche");
@@ -1875,7 +1899,7 @@ fn slow_death_infantry_defers_and_sinks() {
     assert!(o.begin_slow_death_from_ini(
         0,
         &HostSlowDeathIni::infantry_retail(),
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(!o.status.destroyed);
     assert!(o.slow_death.as_ref().unwrap().is_active());
@@ -2020,7 +2044,7 @@ fn instant_death_under_construction_building() {
     t.add_kind_of(KindOf::Structure);
     let mut o = Object::new(t, ObjectId(5), Team::USA);
     o.status.under_construction = true;
-    assert!(o.fire_instant_death(&mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())));
+    assert!(o.fire_instant_death(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new())));
     let (fx, _) = o.take_pending_death_fx_audio();
     assert_eq!(fx.as_deref(), Some("FX_StructureMediumDeath"));
 }
@@ -2136,7 +2160,7 @@ fn structure_collapse_on_lethal() {
     b.health.current = 100.0;
     assert!(b.begin_structure_collapse(
         5,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(b.structure_collapse_data.as_ref().unwrap().is_active());
     let mut done = false;
@@ -2187,11 +2211,11 @@ fn structure_collapse_binds_and_plays_phase_fx() {
     ));
     assert!(b.begin_structure_collapse(
         0,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(other.begin_structure_collapse(
         0,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     {
         let sc = b.structure_collapse_data.as_ref().unwrap();
@@ -2249,7 +2273,7 @@ fn structure_topple_on_lethal_damage() {
     assert!(b.begin_structure_topple(
         10,
         Some((0.0, 0.0)),
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(
         b.structure_topple_data.as_ref().unwrap().is_active()
@@ -2367,6 +2391,7 @@ fn healing_and_water_damage_residuals() {
         25.0,
         Some(ObjectId(99)),
         DamageType::Healing,
+        0,
         &mut health_events
     ));
     assert!((unit.health.current - 65.0).abs() < 1e-3);
@@ -2379,7 +2404,7 @@ fn healing_and_water_damage_residuals() {
     assert!(unit.last_healing_timestamp.is_some());
 
     // Cap at maximum.
-    assert!(!unit.take_damage_from_typed(1000.0, None, DamageType::Healing, &mut health_events));
+    assert!(!unit.take_damage_from_typed(1000.0, None, DamageType::Healing, 0, &mut health_events));
     assert!((unit.health.current - 100.0).abs() < 1e-3);
 
     // Water deals normal HP damage.
@@ -2392,7 +2417,7 @@ fn healing_and_water_damage_residuals() {
     // Dead units do not heal.
     unit.health.current = 0.0;
     unit.status.destroyed = true;
-    assert!(!unit.take_damage_from_typed(50.0, None, DamageType::Healing, &mut health_events));
+    assert!(!unit.take_damage_from_typed(50.0, None, DamageType::Healing, 0, &mut health_events));
     assert!((unit.health.current - 0.0).abs() < 1e-3);
 }
 
@@ -2408,7 +2433,7 @@ fn deploy_hack_surrender_kill_garrisoned_damage_residuals() {
     tt.set_health(100.0);
     let mut crawler = Object::new(tt, ObjectId(1), Team::China);
     crawler.health.current = 100.0;
-    assert!(!crawler.take_damage_from_typed(50.0, None, DamageType::Deploy, &mut health_events));
+    assert!(!crawler.take_damage_from_typed(50.0, None, DamageType::Deploy, 0, &mut health_events));
     assert!((crawler.health.current - 100.0).abs() < 1e-3);
     assert!(!crawler.status.destroyed);
 
@@ -2418,7 +2443,7 @@ fn deploy_hack_surrender_kill_garrisoned_damage_residuals() {
     ht.add_kind_of(KindOf::Vehicle);
     let mut tank = Object::new(ht, ObjectId(2), Team::USA);
     tank.health.current = 100.0;
-    assert!(!tank.take_damage_from_typed(40.0, None, DamageType::Hack, &mut health_events));
+    assert!(!tank.take_damage_from_typed(40.0, None, DamageType::Hack, 0, &mut health_events));
     assert!((tank.health.current - 100.0).abs() < 1e-3);
 
     // SURRENDER: retail ALLOW_SURRENDER off — lethal hit is normal HP death
@@ -2428,7 +2453,7 @@ fn deploy_hack_surrender_kill_garrisoned_damage_residuals() {
     it.add_kind_of(KindOf::Infantry);
     let mut ranger = Object::new(it, ObjectId(3), Team::USA);
     ranger.health.current = 50.0;
-    assert!(ranger.take_damage_from_typed(50.0, None, DamageType::Surrender, &mut health_events));
+    assert!(ranger.take_damage_from_typed(50.0, None, DamageType::Surrender, 0, &mut health_events));
     assert!(!ranger.is_surrendered);
     assert!(!ranger.is_alive());
 
@@ -2442,6 +2467,7 @@ fn deploy_hack_surrender_kill_garrisoned_damage_residuals() {
         3.7,
         None,
         DamageType::KillGarrisoned,
+        0,
         &mut health_events
     ));
     assert!((bunker.health.current - 500.0).abs() < 1e-3);
@@ -2484,7 +2510,7 @@ fn disarm_damage_clears_mine_without_hp_on_tank() {
         ..HostMineData::land_mine()
     });
     mine.health.current = 10.0;
-    assert!(mine.take_damage_from_typed(1.0, None, DamageType::Disarm, &mut health_events));
+    assert!(mine.take_damage_from_typed(1.0, None, DamageType::Disarm, 0, &mut health_events));
     assert!(mine.status.destroyed);
     assert!(mine.mine_data.as_ref().unwrap().detonated);
 
@@ -2493,7 +2519,7 @@ fn disarm_damage_clears_mine_without_hp_on_tank() {
     tt.add_kind_of(KindOf::Vehicle);
     let mut tank = Object::new(tt, ObjectId(2), Team::USA);
     tank.health.current = 100.0;
-    assert!(!tank.take_damage_from_typed(50.0, None, DamageType::Disarm, &mut health_events));
+    assert!(!tank.take_damage_from_typed(50.0, None, DamageType::Disarm, 0, &mut health_events));
     assert!((tank.health.current - 100.0).abs() < 1e-3);
 }
 
@@ -2509,7 +2535,7 @@ fn disarm_keeps_regenerating_china_pad() {
     let mut mine = Object::new(mt, ObjectId(3), Team::China);
     mine.mine_data = Some(HostMineData::land_mine_for_template("ChinaStandardMine"));
     mine.health.current = 100.0;
-    assert!(!mine.take_damage_from_typed(1.0, None, DamageType::Disarm, &mut health_events));
+    assert!(!mine.take_damage_from_typed(1.0, None, DamageType::Disarm, 0, &mut health_events));
     assert!(!mine.status.destroyed);
     assert!((mine.health.current - MINE_MIN_HEALTH).abs() < 1e-3);
     assert_eq!(mine.mine_data.as_ref().unwrap().virtual_mines_remaining, 0);
@@ -2530,7 +2556,7 @@ fn disarm_damage_defuses_demo_trap_without_hp_splash_path() {
     trap.mine_data = Some(HostMineData::demo_trap());
     trap.health.current = 100.0;
     assert!(trap.is_disarmable_mine());
-    assert!(trap.take_damage_from_typed(1.0, None, DamageType::Disarm, &mut health_events));
+    assert!(trap.take_damage_from_typed(1.0, None, DamageType::Disarm, 0, &mut health_events));
     assert!(trap.status.destroyed);
     assert!(trap.mine_data.as_ref().unwrap().detonated);
 }
@@ -2547,7 +2573,7 @@ fn kill_pilot_damage_unmans_vehicle_without_hp_loss() {
     let mut o = Object::new(tmpl, ObjectId(5), Team::China);
     o.health.current = 200.0;
     o.health.maximum = 200.0;
-    assert!(!o.take_damage_from_typed(1.0, None, DamageType::KillPilot, &mut health_events));
+    assert!(!o.take_damage_from_typed(1.0, None, DamageType::KillPilot, 0, &mut health_events));
     assert!((o.health.current - 200.0).abs() < 1e-3);
     assert!(o.is_unmanned());
     assert_eq!(o.team, Team::Neutral);
@@ -2567,11 +2593,11 @@ fn microwave_is_hp_through_armor_not_emp_subdual() {
     let mut o = Object::new(tmpl, ObjectId(4), Team::USA);
     o.health.current = 100.0;
     o.health.maximum = 100.0;
-    assert!(!o.take_damage_from_typed(40.0, None, DamageType::Microwave, &mut health_events));
+    assert!(!o.take_damage_from_typed(40.0, None, DamageType::Microwave, 0, &mut health_events));
     assert!((o.health.current - 100.0).abs() < 1e-3);
     assert!(o.subdual_damage.abs() < 1e-3);
     assert!(!o.is_subdued());
-    assert!(!o.take_damage_from_typed(70.0, None, DamageType::EMP, &mut health_events));
+    assert!(!o.take_damage_from_typed(70.0, None, DamageType::EMP, 0, &mut health_events));
     assert!((o.health.current - 100.0).abs() < 1e-3);
     assert!(o.subdual_damage.abs() < 1e-3);
     assert!(!o.is_subdued());
@@ -2653,7 +2679,7 @@ fn most_percent_ready_between_shots_progresses() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(o.weapon_fire_status, WeaponFireStatus::BetweenFiringShots);
     let mid = o.get_most_percent_ready_to_fire_any_weapon(1.5);
@@ -2728,7 +2754,7 @@ fn weapon_status_sets_between_firing_model_condition() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(atk.weapon_fire_status, WeaponFireStatus::BetweenFiringShots);
     assert_ne!(
@@ -2767,7 +2793,7 @@ fn weapon_fire_status_between_shots_after_fire() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(atk.weapon_fire_status, WeaponFireStatus::BetweenFiringShots);
     atk.refresh_weapon_fire_status(2.0);
@@ -2835,7 +2861,7 @@ fn max_shots_to_fire_blocks_after_budget() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(atk.max_shots_to_fire, 1);
     assert!(atk.fire_at(
@@ -2844,7 +2870,7 @@ fn max_shots_to_fire_blocks_after_budget() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(atk.max_shots_to_fire, 0);
     assert!(!atk.fire_at(
@@ -2853,7 +2879,7 @@ fn max_shots_to_fire_blocks_after_budget() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     atk.set_max_shots_to_fire(-1);
     assert!(atk.fire_at(
@@ -2862,7 +2888,7 @@ fn max_shots_to_fire_blocks_after_budget() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(atk.max_shots_to_fire, -1);
 }
@@ -3201,7 +3227,7 @@ fn fire_at_ex_faerie_fire_speeds_reload() {
             logic.frame,
             &mut logic.combat_system,
             &mut logic.attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         ));
         // Without faerie, not ready at 0.7 (needs full 1.0s)
         assert!(!a.fire_at_ex(
@@ -3212,7 +3238,7 @@ fn fire_at_ex_faerie_fire_speeds_reload() {
             logic.frame,
             &mut logic.combat_system,
             &mut logic.attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         ));
         // With faerie ROF 150%, ready at 0.7 (effective reload ~0.667)
         assert!(
@@ -3224,7 +3250,7 @@ fn fire_at_ex_faerie_fire_speeds_reload() {
                 logic.frame,
                 &mut logic.combat_system,
                 &mut logic.attack_events,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             ),
             "TARGET_FAERIE_FIRE should ready at ~0.667s reload"
         );
@@ -3536,7 +3562,7 @@ fn pre_attack_type_per_shot_delays_every_discharge() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!((atk.pre_attack_ready_at - 10.5).abs() < 1e-4);
     // Still winding
@@ -3546,7 +3572,7 @@ fn pre_attack_type_per_shot_delays_every_discharge() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     // Fire after delay
     assert!(atk.fire_at(
@@ -3555,7 +3581,7 @@ fn pre_attack_type_per_shot_delays_every_discharge() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(atk.consecutive_shots_at_target, 1);
     // PER_SHOT: next shot needs a new delay even vs same target
@@ -3565,7 +3591,7 @@ fn pre_attack_type_per_shot_delays_every_discharge() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(atk.pre_attack_ready_at > 10.5);
     assert!(!atk.fire_at(
@@ -3574,7 +3600,7 @@ fn pre_attack_type_per_shot_delays_every_discharge() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(atk.fire_at(
         tgt,
@@ -3582,7 +3608,7 @@ fn pre_attack_type_per_shot_delays_every_discharge() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(atk.consecutive_shots_at_target, 2);
 }
@@ -3617,7 +3643,7 @@ fn pre_attack_type_per_attack_delays_once_per_target() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     )); // wind-up
     assert!(atk.fire_at(
         tgt,
@@ -3625,7 +3651,7 @@ fn pre_attack_type_per_attack_delays_once_per_target() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     )); // fire
     // Same target: no second wind-up
     assert!(atk.fire_at(
@@ -3634,7 +3660,7 @@ fn pre_attack_type_per_attack_delays_once_per_target() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(atk.consecutive_shots_at_target, 2);
     // New target: delay again
@@ -3645,7 +3671,7 @@ fn pre_attack_type_per_attack_delays_once_per_target() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(atk.fire_at(
         tgt2,
@@ -3653,7 +3679,7 @@ fn pre_attack_type_per_attack_delays_once_per_target() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
 }
 
@@ -3694,7 +3720,7 @@ fn pre_attack_type_per_clip_delays_on_full_clip_only() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(atk.fire_at(
         tgt,
@@ -3702,7 +3728,7 @@ fn pre_attack_type_per_clip_delays_on_full_clip_only() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(2));
     // Mid-clip → no delay
@@ -3712,7 +3738,7 @@ fn pre_attack_type_per_clip_delays_on_full_clip_only() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(1));
     assert!(atk.fire_at(
@@ -3721,7 +3747,7 @@ fn pre_attack_type_per_clip_delays_on_full_clip_only() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(0));
 }

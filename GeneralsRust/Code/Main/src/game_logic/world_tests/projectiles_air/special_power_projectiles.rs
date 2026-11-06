@@ -3107,7 +3107,7 @@ fn eject_pilot_die_mux_death_types_and_hijacked_residual() {
 
 #[test]
 fn pilot_find_vehicle_collide_module_would_like_residual() {
-    let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
+    let _env_guard = host_state_residual_test_env_lock()
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     // Authority channels default off on the fresh GameLogic context —

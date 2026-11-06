@@ -241,3 +241,80 @@ fn swath_retarget_uses_latest_live_frame_and_encoded_frame_is_not_replayed() {
         );
     }
 }
+
+#[test]
+fn authored_swath_settings_change_beam_epicenter() {
+    let terrain = terrain();
+    let random = game_engine::common::random_value::SessionRandom::default();
+    let birth = 10u32;
+    let building = Vec3::new(20., 17., 30.);
+    let click = Vec3::new(120., 91., 110.);
+
+    let mut retail = HostSpecialPowerStrikeRegistry::new();
+    retail.spawn_beam_field(ObjectId(1), Team::USA, click, birth, 0);
+    retail.beam_fields[0].bind_source_axis(building);
+    retail.advance_beam_targets(birth + 20, &terrain, &random);
+    let retail_pos = retail.beam_fields()[0].current_target_position;
+
+    let mut authored = HostSpecialPowerStrikeRegistry::new();
+    authored.spawn_beam_field_with_drive_and_swath(
+        ObjectId(1),
+        Team::USA,
+        click,
+        birth,
+        0,
+        false,
+        ParticleManualDriveSettings::default(),
+        ParticleSwathSettings {
+            swath_of_death_distance: 250.0,
+            swath_of_death_amplitude: 150.0,
+        },
+    );
+    authored.beam_fields[0].bind_source_axis(building);
+    authored.advance_beam_targets(birth + 20, &terrain, &random);
+    let authored_pos = authored.beam_fields()[0].current_target_position;
+
+    assert_ne!(
+        retail_pos, authored_pos,
+        "INI 250/150 swath must move the epicenter off the retail 200/50 residual"
+    );
+    assert_eq!(
+        authored.beam_fields()[0].swath_settings,
+        ParticleSwathSettings {
+            swath_of_death_distance: 250.0,
+            swath_of_death_amplitude: 150.0,
+        }
+    );
+}
+
+
+#[test]
+fn production_strike_carries_authored_swath_settings_per_source() {
+    // CPP ParticleUplinkCannonUpdate.cpp:112-113 reads SwathOfDeathDistance /
+    // SwathOfDeathAmplitude from the firing Object's own module data.
+    let object = |name: &str, distance: u32, amplitude: u32| {
+        format!(
+            "Object {name}\nKindOf = STRUCTURE\nGeometry = BOX\nGeometryMajorRadius = 20\nGeometryMinorRadius = 10\nGeometryHeight = 30\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = ParticleUplinkCannonUpdate PUCTag\nSwathOfDeathDistance = {distance}\nSwathOfDeathAmplitude = {amplitude}\nEnd\nEnd"
+        )
+    };
+    let mut world = crate::game_logic::GameLogic::new();
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "authored-puc-swath.ini".to_string(),
+        format!("{}\n{}", object("AuthoredPUC", 250, 150), object("RetailPUC", 200, 50)),
+    )])
+    .unwrap();
+    world.admit_receiving_module_content(content).unwrap();
+    let authored = world.create_object("AuthoredPUC", Team::USA, Vec3::ZERO).unwrap();
+    let retail = world
+        .create_object("RetailPUC", Team::USA, Vec3::new(400., 0., 0.))
+        .unwrap();
+    let power = crate::command_system::SpecialPowerType::ParticleCannon;
+    for (source, distance, amplitude) in [(authored, 250., 150.), (retail, 200., 50.)] {
+        let id = world
+            .queue_special_power_strike(&power, source, Vec3::new(100., 0., 100.))
+            .unwrap();
+        let settings = world.special_power_strikes.get(id).unwrap().swath_settings;
+        assert_eq!(settings.swath_of_death_distance, distance);
+        assert_eq!(settings.swath_of_death_amplitude, amplitude);
+    }
+}

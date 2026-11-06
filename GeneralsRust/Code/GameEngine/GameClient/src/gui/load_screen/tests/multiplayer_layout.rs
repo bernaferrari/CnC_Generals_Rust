@@ -2,6 +2,7 @@
 
 #[test]
 fn multiplayer_init_compacts_visible_context_slots_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -155,6 +156,7 @@ fn multiplayer_init_compacts_visible_context_slots_like_cpp() {
 
 #[test]
 fn multiplayer_row_team_text_is_localized_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -241,6 +243,7 @@ fn multiplayer_row_team_text_is_localized_like_cpp() {
 
 #[test]
 fn multiplayer_progress_bar_image_falls_back_when_color_image_missing_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -275,6 +278,7 @@ fn multiplayer_progress_bar_image_falls_back_when_color_image_missing_like_cpp()
 
 #[test]
 fn multiplayer_init_uses_context_general_portrait_features_and_name_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();
@@ -341,6 +345,7 @@ fn multiplayer_init_uses_context_general_portrait_features_and_name_like_cpp() {
 
 #[test]
 fn gamespy_init_keeps_player_row_for_ai_but_hides_ai_stats() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();
@@ -408,6 +413,7 @@ fn gamespy_init_keeps_player_row_for_ai_but_hides_ai_stats() {
 
 #[test]
 fn map_transfer_init_compacts_human_slots_and_hides_done_progress_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();
@@ -473,6 +479,7 @@ fn map_transfer_init_compacts_human_slots_and_hides_done_progress_like_cpp() {
 
 #[test]
 fn retail_timeout_formats_decimal_precision_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();
@@ -513,6 +520,7 @@ fn retail_timeout_formats_decimal_precision_like_cpp() {
 
 #[test]
 fn multiplayer_init_resets_all_progress_bars_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();
@@ -591,6 +599,7 @@ fn multiplayer_init_resets_all_progress_bars_like_cpp() {
 
 #[test]
 fn multiplayer_start_position_buttons_match_map_waypoints_and_apparent_slots() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -614,7 +623,7 @@ fn multiplayer_start_position_buttons_match_map_waypoints_and_apparent_slots() {
         wm.find_window_by_name("MultiplayerLoadScreen.wnd:WinMapPreview")
             .expect("preview")
             .borrow_mut()
-            .set_size(100, 100)
+            .test_set_size(100, 100)
             .expect("preview size");
         create_multiplayer_start_position_windows(
             &mut wm,
@@ -684,6 +693,7 @@ fn multiplayer_start_position_buttons_match_map_waypoints_and_apparent_slots() {
 
 #[test]
 fn multiplayer_map_preview_keeps_start_positions_when_preview_image_missing_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -723,7 +733,7 @@ fn multiplayer_map_preview_keeps_start_positions_when_preview_image_missing_like
         wm.find_window_by_name("MultiplayerLoadScreen.wnd:WinMapPreview")
             .expect("preview")
             .borrow_mut()
-            .set_size(100, 100)
+            .test_set_size(100, 100)
             .expect("preview size");
         create_multiplayer_start_position_windows(
             &mut wm,
@@ -768,6 +778,7 @@ fn multiplayer_map_preview_keeps_start_positions_when_preview_image_missing_like
 
 #[test]
 fn multiplayer_start_position_buttons_hide_without_multiplayer_metadata() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();
@@ -806,6 +817,7 @@ fn multiplayer_start_position_buttons_hide_without_multiplayer_metadata() {
 
 #[test]
 fn multiplayer_local_general_faction_logos_match_cpp_fallbacks() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();

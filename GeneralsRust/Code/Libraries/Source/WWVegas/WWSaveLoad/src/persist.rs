@@ -53,7 +53,7 @@
 //!     }
 //!     
 //!     fn get_factory(&self) -> Arc<dyn PersistFactory> {
-//!         Arc::new(SimplePersistFactory::<GameEntity>::new(0x12340000))
+//!         Arc::new(SimplePersistFactory::<GameEntity>::new(0x12340000, crate::saveload::new_save_load_system()))
 //!     }
 //!     
 //!     fn get_remap_id(&self) -> RemapId { self.id }
@@ -81,8 +81,8 @@
 //! Factories are registered with the save/load system:
 //!
 //! ```rust
-//! let system = get_save_load_system();
-//! let factory = Arc::new(SimplePersistFactory::<GameEntity>::new(0x12340000));
+//! let system = new_save_load_system();
+//! let factory = Arc::new(SimplePersistFactory::<GameEntity>::new(0x12340000, crate::saveload::new_save_load_system()));
 //! system.register_persist_factory(factory);
 //! ```
 
@@ -92,7 +92,6 @@ use std::sync::{Arc, Mutex};
 
 use crate::saveload::{
     ChunkId, ChunkLoad, ChunkSave, Persist, PersistFactory, RemapId, SaveLoadError, SaveLoadResult,
-    get_save_load_system,
 };
 
 /// Simple generic persist factory implementation
@@ -110,8 +109,8 @@ use crate::saveload::{
 /// # Usage
 /// ```rust
 /// // Create and register a factory for MyObject
-/// let factory = Arc::new(SimplePersistFactory::<MyObject>::new(0x12340000));
-/// get_save_load_system().register_persist_factory(factory);
+/// let factory = Arc::new(SimplePersistFactory::<MyObject>::new(0x12340000, crate::saveload::new_save_load_system()));
+/// system.register_persist_factory(factory);
 /// ```
 ///
 /// # Chunk Structure
@@ -125,6 +124,7 @@ where
     T: Persist + Default + 'static,
 {
     chunk_id: ChunkId,
+    system: crate::saveload::SharedSaveLoadSystem,
     _phantom: std::marker::PhantomData<T>,
 }
 
@@ -132,16 +132,18 @@ impl<T> SimplePersistFactory<T>
 where
     T: Persist + Default + 'static,
 {
-    /// Create a new simple persist factory with the given chunk ID
+    /// Create a new simple persist factory bound to a session save/load system
     ///
     /// # Arguments
     /// * `chunk_id` - The chunk ID that identifies objects created by this factory
+    /// * `system` - Shared session save/load system used for pointer remapping
     ///
     /// # Returns
     /// A new SimplePersistFactory instance
-    pub fn new(chunk_id: ChunkId) -> Self {
+    pub fn new(chunk_id: ChunkId, system: crate::saveload::SharedSaveLoadSystem) -> Self {
         Self {
             chunk_id,
+            system,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -198,7 +200,7 @@ where
         // Create Arc and register pointer mapping
         let new_obj_arc = Arc::new(new_obj) as Arc<dyn Persist>;
         let weak_ref = Arc::downgrade(&new_obj_arc);
-        get_save_load_system().register_pointer(old_id, weak_ref);
+        self.system.register_pointer(old_id, weak_ref);
 
         Ok(new_obj_arc)
     }
@@ -385,15 +387,16 @@ macro_rules! impl_default_post_loadable {
 /// use ww_save_load::register_persist_factory;
 ///
 /// // Register a factory for MyObject with chunk ID 0x12340000
-/// register_persist_factory!(MyObject, 0x12340000);
+/// register_persist_factory!(system, MyObject, 0x12340000);
 /// ```
 #[macro_export]
 macro_rules! register_persist_factory {
-    ($type:ty, $chunk_id:expr) => {{
+    ($sys:expr, $type:ty, $chunk_id:expr) => {{
         let factory = std::sync::Arc::new($crate::persist::SimplePersistFactory::<$type>::new(
             $chunk_id,
+            std::sync::Arc::clone(&$sys),
         ));
-        $crate::saveload::get_save_load_system().register_persist_factory(factory);
+        ($sys).register_persist_factory(factory);
     }};
 }
 
@@ -414,7 +417,12 @@ mod tests {
         post_load_called: bool,
     }
 
-    static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+    struct NextIdSlot(AtomicU64);
+    impl std::ops::Deref for NextIdSlot {
+        type Target = AtomicU64;
+        fn deref(&self) -> &Self::Target { &self.0 }
+    }
+    static NEXT_ID: NextIdSlot = NextIdSlot(AtomicU64::new(1));
 
     impl TestPersistObject {
         fn new(value: i32, name: String) -> Self {
@@ -471,7 +479,7 @@ mod tests {
         }
 
         fn get_factory(&self) -> Arc<dyn PersistFactory> {
-            Arc::new(SimplePersistFactory::<TestPersistObject>::new(0x12345678))
+            Arc::new(SimplePersistFactory::<TestPersistObject>::new(0x12345678, crate::saveload::new_save_load_system()))
         }
 
         fn get_remap_id(&self) -> RemapId {
@@ -607,7 +615,7 @@ mod tests {
             // Uses default save/load implementations
 
             fn get_factory(&self) -> Arc<dyn PersistFactory> {
-                Arc::new(SimplePersistFactory::<TestPersistObject>::new(0x12345678))
+                Arc::new(SimplePersistFactory::<TestPersistObject>::new(0x12345678, crate::saveload::new_save_load_system()))
             }
 
             fn get_remap_id(&self) -> RemapId {
@@ -665,7 +673,7 @@ mod tests {
 
     #[test]
     fn test_simple_persist_factory() {
-        let factory = SimplePersistFactory::<TestPersistObject>::new(0x12345678);
+        let factory = SimplePersistFactory::<TestPersistObject>::new(0x12345678, crate::saveload::new_save_load_system());
         assert_eq!(factory.chunk_id(), 0x12345678);
 
         // Create and save an object
@@ -713,7 +721,7 @@ mod tests {
         assert!(registry.find_factory(0x12345678).is_none());
 
         // Register a factory
-        let factory = Arc::new(SimplePersistFactory::<TestPersistObject>::new(0x12345678));
+        let factory = Arc::new(SimplePersistFactory::<TestPersistObject>::new(0x12345678, crate::saveload::new_save_load_system()));
         registry.register_factory(factory.clone()).unwrap();
 
         // Test registry state
@@ -724,7 +732,7 @@ mod tests {
 
         // Test duplicate registration fails
         let duplicate_factory =
-            Arc::new(SimplePersistFactory::<TestPersistObject>::new(0x12345678));
+            Arc::new(SimplePersistFactory::<TestPersistObject>::new(0x12345678, crate::saveload::new_save_load_system()));
         let result = registry.register_factory(duplicate_factory);
         assert!(result.is_err());
 
@@ -743,8 +751,8 @@ mod tests {
     fn test_registered_chunk_ids() {
         let registry = PersistFactoryRegistry::new();
 
-        let factory1 = Arc::new(SimplePersistFactory::<TestPersistObject>::new(0x11111111));
-        let factory2 = Arc::new(SimplePersistFactory::<TestPersistObject>::new(0x22222222));
+        let factory1 = Arc::new(SimplePersistFactory::<TestPersistObject>::new(0x11111111, crate::saveload::new_save_load_system()));
+        let factory2 = Arc::new(SimplePersistFactory::<TestPersistObject>::new(0x22222222, crate::saveload::new_save_load_system()));
 
         registry.register_factory(factory1).unwrap();
         registry.register_factory(factory2).unwrap();
@@ -757,7 +765,7 @@ mod tests {
 
     #[test]
     fn test_simple_persist_factory_debug() {
-        let factory = SimplePersistFactory::<TestPersistObject>::new(0x12345678);
+        let factory = SimplePersistFactory::<TestPersistObject>::new(0x12345678, crate::saveload::new_save_load_system());
         let debug_str = format!("{:?}", factory);
 
         assert!(debug_str.contains("SimplePersistFactory"));
@@ -789,7 +797,7 @@ mod tests {
 
     #[test]
     fn test_error_conditions() {
-        let factory = SimplePersistFactory::<TestPersistObject>::new(0x12345678);
+        let factory = SimplePersistFactory::<TestPersistObject>::new(0x12345678, crate::saveload::new_save_load_system());
 
         // Test loading with invalid chunk structure
         let invalid_chunks = vec![

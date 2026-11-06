@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{OnceLock, RwLock};
+use std::sync::{Arc, RwLock};
 
 use game_engine::common::global_data;
 use game_engine::common::language::{Language, LanguageId, get_current_language};
@@ -41,7 +41,8 @@ impl GameText {
             return (text, true);
         }
         let missing = format!("MISSING: '{key}'");
-        let mut guard = get_game_text().write().unwrap_or_else(|e| e.into_inner());
+        let __gt = get_game_text();
+        let mut guard = __gt.write().unwrap_or_else(|e| e.into_inner());
         guard
             .no_string_list
             .entry(key.to_string())
@@ -52,7 +53,8 @@ impl GameText {
 
     /// C++ `GameTextManager::getStringsWithLabelPrefix`.
     pub fn get_strings_with_label_prefix(prefix: &str) -> Vec<String> {
-        let Ok(guard) = get_game_text().read() else {
+        let __gt = get_game_text();
+        let Ok(guard) = __gt.read() else {
             return Vec::new();
         };
         let mut labels: Vec<String> = guard
@@ -68,7 +70,8 @@ impl GameText {
     }
 
     pub fn init_map_string_file(path: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let mut guard = get_game_text().write().unwrap_or_else(|e| e.into_inner());
+        let __gt = get_game_text();
+        let mut guard = __gt.write().unwrap_or_else(|e| e.into_inner());
         guard.map_strings.clear();
         let content = fs::read_to_string(path)?;
         parse_string_file(&content, &mut guard.map_strings);
@@ -122,7 +125,8 @@ impl GameText {
             .map(|(label, value)| (label.to_ascii_lowercase(), value.clone()))
             .collect();
         {
-            let mut guard = get_game_text().write().unwrap_or_else(|e| e.into_inner());
+            let __gt = get_game_text();
+        let mut guard = __gt.write().unwrap_or_else(|e| e.into_inner());
             guard.csf_strings = entries.clone();
             guard.csf_strings_lower = lower;
             guard.no_string_list.clear();
@@ -134,7 +138,8 @@ impl GameText {
     }
 
     pub fn reset() {
-        let mut guard = get_game_text().write().unwrap_or_else(|e| e.into_inner());
+        let __gt = get_game_text();
+        let mut guard = __gt.write().unwrap_or_else(|e| e.into_inner());
         guard.map_strings.clear();
         guard.map_strings_lower.clear();
         guard.no_string_list.clear();
@@ -142,7 +147,8 @@ impl GameText {
 
     fn lookup_string(key: &str) -> Option<String> {
         let lookup = key.strip_prefix("LOC:").unwrap_or(key);
-        if let Ok(guard) = get_game_text().read() {
+        let __gt = get_game_text();
+        if let Ok(guard) = __gt.read() {
             // C++ searches the CSF lookup table first and the map-string
             // table only on a miss (GameText.cpp:1253-1258).
             if let Some(text) = guard
@@ -196,10 +202,34 @@ fn prefer_richer_csf(
     }
 }
 
-static THE_GAME_TEXT: OnceLock<RwLock<GameText>> = OnceLock::new();
+#[cfg(test)]
+thread_local! {
+    static TEST_GAME_TEXT: std::cell::RefCell<Option<Arc<RwLock<GameText>>>> =
+        const { std::cell::RefCell::new(None) };
+}
 
-pub fn get_game_text() -> &'static RwLock<GameText> {
-    THE_GAME_TEXT.get_or_init(|| RwLock::new(GameText::default()))
+fn game_text_handle() -> Arc<RwLock<GameText>> {
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_game_text_store()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_GAME_TEXT.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| Arc::new(RwLock::new(GameText::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Arc::new(RwLock::new(GameText::default()))
+    }
+}
+
+pub fn get_game_text() -> Arc<RwLock<GameText>> {
+    game_text_handle()
 }
 
 fn parse_string_file(contents: &str, out: &mut HashMap<String, String>) {
@@ -511,6 +541,7 @@ mod csf_tests {
 
     #[test]
     fn csf_source_selection_keeps_the_complete_table() {
+        crate::test_support::ensure_ambient_host();
         let small = HashMap::from([("GUI:Back".to_string(), "BACK".to_string())]);
         let full = HashMap::from([
             ("GUI:Back".to_string(), "BACK".to_string()),
@@ -527,6 +558,7 @@ mod csf_tests {
 
     #[test]
     fn csf_recovery_uses_only_the_active_language_archives() {
+        crate::test_support::ensure_ambient_host();
         assert!(is_csf_archive_for_language("EnglishZH.big", "english"));
         assert!(is_csf_archive_for_language("W3DEnglishZH.big", "english"));
         assert!(!is_csf_archive_for_language("GermanZH.big", "english"));
@@ -539,6 +571,7 @@ mod csf_tests {
 
     #[test]
     fn recovered_zero_hour_csf_contains_missing_menu_labels() {
+        crate::test_support::ensure_ambient_host();
         // The retail archive is optional for source-only builds. When it is
         // installed, verify the recovery source without mutating global text
         // state shared with other tests.
@@ -557,9 +590,20 @@ mod csf_tests {
 
     #[test]
     fn csf_runtime_strings_include_shell_labels() {
-        let path = find_csf_path().expect("expected generals.csf in repo assets");
-        let bytes = fs::read(path).expect("read generals.csf");
-        let entries = parse_csf_strings(&bytes).expect("parse generals.csf");
+        crate::test_support::ensure_ambient_host();
+        // C++ FileSystem opens Data/<lang>/generals.csf from EnglishZH.big when
+        // no loose extract exists. Prefer the loose path, then archive recovery.
+        let entries = if let Some(path) = find_csf_path() {
+            let bytes = fs::read(path).expect("read generals.csf");
+            parse_csf_strings(&bytes).expect("parse generals.csf")
+        } else if let Some(entries) = parse_csf_from_install_archives() {
+            entries
+        } else if let Some(entries) = load_csf_through_engine_filesystem() {
+            entries
+        } else {
+            // Source-only / movie-less installs without language archives.
+            return;
+        };
         assert_eq!(entries.get("GUI:Back").map(String::as_str), Some("BACK"));
         assert_eq!(
             entries.get("GUI:SinglePlayer").map(String::as_str),
@@ -569,6 +613,7 @@ mod csf_tests {
 
     #[test]
     fn missing_labels_use_cpp_missing_prefix() {
+        crate::test_support::ensure_ambient_host();
         GameText::reset();
         let (text, exists) = GameText::fetch_with_exists("DefinitelyNotARealLabel");
         assert!(!exists);

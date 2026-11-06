@@ -12,6 +12,7 @@ impl ControlBarViewport for Viewport {
 }
 #[test]
 fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tree() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tree",
@@ -20,8 +21,8 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
     }
     let mut windows = WindowManager::new();
     let mut foreign = WindowManager::new();
-    let button = windows.create_window(None, 10, 10, 90, 40).unwrap();
-    let peer_button = foreign.create_window(None, 10, 10, 90, 40).unwrap();
+    let button = windows.test_create_window(None, 10, 10, 90, 40).unwrap();
+    let peer_button = foreign.test_create_window(None, 10, 10, 90, 40).unwrap();
     button.borrow_mut().set_id(42);
     peer_button.borrow_mut().set_id(42);
     button
@@ -36,8 +37,8 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
         });
     let layout = Rc::new(RefCell::new(WindowLayout::new("ReceivingTooltip".into())));
     let peer_layout = Rc::new(RefCell::new(WindowLayout::new("PeerTooltip".into())));
-    layout.borrow_mut().hide(true);
-    peer_layout.borrow_mut().hide(false);
+    layout.borrow().hide_with_manager(&mut windows, true);
+    peer_layout.borrow().hide_with_manager(&mut foreign, false);
     let mut bar = ControlBar::new();
     let mut peer_bar = ControlBar::new();
     bar.tooltip.layout = Some(Rc::clone(&layout));
@@ -46,16 +47,14 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
     peer_bar.tooltip.show_layout = true;
     button.borrow_mut().instance_data_mut().style = GWS_STATIC_TEXT;
     button.borrow_mut().instance_data_mut().tooltip_delay = 100;
-    let mouse = Arc::new(Mutex::new(crate::input::Mouse::new()));
-    let peer_mouse = Arc::new(Mutex::new(crate::input::Mouse::new()));
-    peer_mouse
-        .lock()
-        .unwrap()
-        .set_cursor_tooltip("Peer".into(), None, None, None);
-    let generic = windows.create_window(None, 120, 10, 90, 40).unwrap();
+    let mut mouse = crate::input::Mouse::new();
+    let mut peer_mouse = crate::input::Mouse::new();
+    peer_mouse.set_cursor_tooltip("Peer".into(), None, None, None);
+    let generic = windows.test_create_window(None, 120, 10, 90, 40).unwrap();
     generic.borrow_mut().set_tooltip("Generic");
     let mut viewport = Viewport;
     {
+        let mut emitted_messages = Vec::new();
         let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
@@ -76,9 +75,16 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
             replay: false,
             game_ending: false,
             tooltips_disabled: false,
-            cursor_mouse: Some(&mouse),
-            emitted_messages: None,
+            cursor_mouse: Some(&mut mouse),
+            emitted_messages: Some(&mut emitted_messages),
+            campaign_manager: None,
+            window_manager_owner: None,
 
+                        client_frame: None,
+            logic_frame: None,
+            ui: None,
+            menu_world: None,
+            menu_host: None,
             main_menu: None,
         };
         windows.process_mouse_event_with_control_bar(
@@ -88,10 +94,12 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
             0,
             &mut context,
         );
-        assert_eq!(
-            mouse.lock().unwrap().cursor_tooltip_state().tooltip_text,
-            "Generic"
-        );
+        let tip = context
+            .cursor_mouse
+            .as_ref()
+            .map(|m| m.cursor_tooltip_state().tooltip_text.clone())
+            .unwrap_or_default();
+        assert_eq!(tip, "Generic");
         windows.process_mouse_event_with_control_bar(
             WindowMessage::MousePos,
             20,
@@ -101,31 +109,20 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
         );
     }
     assert!(
-        mouse
-            .lock()
-            .unwrap()
-            .cursor_tooltip_state()
-            .tooltip_text
-            .is_empty(),
+        mouse.cursor_tooltip_state().tooltip_text.is_empty(),
         "owned command hover clears prior receiving generic tooltip before waiting"
     );
     assert_eq!(bar.tooltip.prev_window_id, Some(42));
     assert!(bar.tooltip.wait_start.is_some());
     assert!(layout.borrow().is_hidden());
     assert_eq!(peer_bar.tooltip.prev_window_id, Some(99));
-    assert_eq!(
-        peer_mouse
-            .lock()
-            .unwrap()
-            .cursor_tooltip_state()
-            .tooltip_text,
-        "Peer"
-    );
+    assert_eq!(peer_mouse.cursor_tooltip_state().tooltip_text, "Peer");
     assert!(!peer_layout.borrow().is_hidden());
     // Deterministically cross the existing real-time delay without sleeping.
     // Repeated calls are the production admitted-frame ingress, not MousePos events.
     bar.tooltip.wait_start = Some(Instant::now() - Duration::from_millis(101));
     for _ in 0..4 {
+        let mut emitted_messages = Vec::new();
         let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
@@ -146,14 +143,21 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
             replay: false,
             game_ending: false,
             tooltips_disabled: false,
-            cursor_mouse: Some(&mouse),
-            emitted_messages: None,
+            cursor_mouse: Some(&mut mouse),
+            emitted_messages: Some(&mut emitted_messages),
+            campaign_manager: None,
+            window_manager_owner: None,
 
+                        client_frame: None,
+            logic_frame: None,
+            ui: None,
+            menu_world: None,
+            menu_host: None,
             main_menu: None,
         };
         windows.refresh_control_bar_tooltip(20, 20, &mut context);
         drop(context);
-        bar.update_build_tooltip_layout_owned(false);
+        bar.update_build_tooltip_layout_owned(false, &mut windows);
         assert!(bar.tooltip.wait_initialized);
         assert!(
             !layout.borrow().is_hidden(),
@@ -166,6 +170,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
         assert!(!peer_layout.borrow().is_hidden());
     }
     {
+        let mut emitted_messages = Vec::new();
         let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
@@ -186,20 +191,27 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
             replay: false,
             game_ending: false,
             tooltips_disabled: false,
-            cursor_mouse: Some(&mouse),
-            emitted_messages: None,
+            cursor_mouse: Some(&mut mouse),
+            emitted_messages: Some(&mut emitted_messages),
+            campaign_manager: None,
+            window_manager_owner: None,
 
+                        client_frame: None,
+            logic_frame: None,
+            ui: None,
+            menu_world: None,
+            menu_host: None,
             main_menu: None,
         };
         windows.refresh_control_bar_tooltip(400, 400, &mut context);
     }
-    bar.update_build_tooltip_layout_owned(false);
+    bar.update_build_tooltip_layout_owned(false, &mut windows);
     assert!(
         layout.borrow().is_hidden(),
         "leaving command window ends only owner tooltip"
     );
     assert!(!peer_layout.borrow().is_hidden());
-    layout.borrow_mut().hide(false);
+    layout.borrow().hide_with_manager(&mut windows, false);
     bar.tooltip.show_layout = true;
     bar.tooltip.prev_window_id = Some(42);
     let mut tooltip_animator = AnimateWindowManager::new();
@@ -216,7 +228,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
     assert!(tooltip_animator.is_reversed());
     let animated_position = button.borrow().get_position();
     bar.tooltip.animate_manager = Some(tooltip_animator);
-    crate::system::SubsystemInterface::reset(&mut bar).unwrap();
+    bar.reset(&mut windows).unwrap();
     assert!(layout.borrow().is_hidden());
     assert!(!bar.tooltip.show_layout);
     let retained_animator = bar.tooltip.animate_manager.as_ref().unwrap();
@@ -231,11 +243,12 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
     );
     assert!(!peer_layout.borrow().is_hidden());
     assert!(peer_bar.tooltip.show_layout);
-    bar.delete_build_tooltip_layout_owned();
+    bar.delete_build_tooltip_layout_owned(&mut windows);
     assert_eq!(bar.tooltip.prev_window_id, None);
 }
 #[test]
 fn generic_tooltip_callback_replacement_and_clear_remove_owned_role() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     window.set_control_bar_tooltip_callback(|_, _, _, _| {});
     assert!(window.has_owned_control_bar_tooltip());

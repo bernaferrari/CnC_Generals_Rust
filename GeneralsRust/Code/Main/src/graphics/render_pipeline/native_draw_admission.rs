@@ -570,8 +570,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
         let retain = match &state.installed_draw_pose {
             InstalledDrawObject::Ready(pose) => {
                 Arc::ptr_eq(&pose.model, &model)
-                    && pose.turret_names.0 == selected.primary_turret.yaw_bone
-                    && pose.turret_names.1 == selected.primary_turret.pitch_bone
+                    && pose.turret_names.matches(&selected.primary_turret)
             }
             _ => false,
         };

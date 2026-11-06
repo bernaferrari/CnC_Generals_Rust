@@ -34,7 +34,8 @@ impl AIPlayer {
             return Ok(None);
         };
 
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return Ok(None);
         };
         let Some(player_arc) = list.get_player(self.player_id as i32) else {
@@ -259,8 +260,8 @@ impl AIPlayer {
             guard.get_id()
         };
 
-        let total_build_frames = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let total_build_frames = __player_list_arc.read()
             .ok()
             .and_then(|list| list.get_player(self.player_id as i32).cloned())
             .and_then(|p| {
@@ -288,7 +289,8 @@ impl AIPlayer {
         // + requested location so duplicate templates do not steal the stamp.
         // decrementNumRebuilds is done by caller in C++ processBaseBuilding; we
         // keep decrement here for solo process_base_building which does not.
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             if let Some(player_arc) = list.get_player(self.player_id as i32) {
                 if let Ok(mut pg) = player_arc.write() {
                     if let Some(info) = pg.get_build_list_mut() {
@@ -390,7 +392,8 @@ impl AIPlayer {
             return Ok(None);
         };
 
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return Ok(None);
         };
         let Some(player_arc) = list.get_player(self.player_id as i32) else {
@@ -437,7 +440,8 @@ impl AIPlayer {
 
         // Prefer matching build-list entry props first (before object exists fully).
         // C++ uses the BuildListInfo* argument — match by slot id or template+location.
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             if let Some(player_arc) = list.get_player(self.player_id as i32) {
                 if let Ok(pg) = player_arc.read() {
                     let mut best_dist = f32::MAX;
@@ -527,7 +531,8 @@ impl AIPlayer {
 
         // Stamp build list entry: C++ stamps the BuildListInfo* passed in.
         // Prefer slot id hint, else template + requested location, else first free.
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             if let Some(player_arc) = list.get_player(self.player_id as i32) {
                 if let Ok(mut pg) = player_arc.write() {
                     if let Some(info) = pg.get_build_list_mut() {
@@ -782,7 +787,8 @@ impl AIPlayer {
         }
 
         let mut busy_factory: Option<ObjectID> = None;
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return Ok(None);
         };
         let Some(player_arc) = list.get_player(self.player_id as i32) else {
@@ -796,7 +802,8 @@ impl AIPlayer {
         // Need mut build list to clear captured factory IDs like C++.
         drop(player_guard);
         drop(list);
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             if let Some(player_arc) = list.get_player(self.player_id as i32) {
                 if let Ok(mut player_guard) = player_arc.write() {
                     if let Some(head) = player_guard.get_build_list_mut() {
@@ -846,7 +853,8 @@ impl AIPlayer {
 
         // C++ iterates m_player->getPlayerTeams(), not the global TeamFactory.
         let candidates: Vec<(String, i32)> = {
-            let Ok(list) = player_list().read() else {
+            let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
                 return Ok(false);
             };
             let Some(player_arc) = list.get_player(self.player_id as i32) else {
@@ -919,8 +927,8 @@ impl AIPlayer {
         // C++: m_teamTimer = m_teamSeconds * LOGICFRAMES_PER_SECOND (0 is valid).
         let mut timer = (self.team_seconds.max(0.0) * LOGICFRAMES_PER_SECOND as f32) as u32;
 
-        let money = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let money = __player_list_arc.read()
             .ok()
             .and_then(|list| list.get_player(self.player_id as i32).cloned())
             .and_then(|p| p.read().ok().map(|g| g.get_money().get_money()))
@@ -948,7 +956,8 @@ impl AIPlayer {
     pub(crate) fn select_team_to_reinforce(&mut self, min_priority: i32) -> Result<bool, AiError> {
         // C++ iterates m_player->getPlayerTeams() only.
         let protos: Vec<_> = {
-            let Ok(list) = player_list().read() else {
+            let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
                 return Ok(false);
             };
             let Some(player_arc) = list.get_player(self.player_id as i32) else {

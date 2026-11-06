@@ -161,8 +161,9 @@ impl GameLogic {
         use crate::game_logic::host_scorpion::{
             SCORPION_GUN_DAMAGE_TYPE, SCORPION_GUN_DEATH_TYPE, SCORPION_GUN_FIRE_AUDIO,
             SCORPION_GUN_SPLASH_RADIUS, SCORPION_MISSILE_DAMAGE_TYPE, SCORPION_MISSILE_DEATH_TYPE,
-            SCORPION_MISSILE_FIRE_AUDIO, SCORPION_MISSILE_SECONDARY_RADIUS, has_ap_rockets_upgrade,
-            is_legal_scorpion_splash_target, is_scorpion_template, salvage_tier_from_upgrades,
+            SCORPION_MISSILE_FIRE_AUDIO, SCORPION_MISSILE_SECONDARY_RADIUS,
+            SCORPION_MISSILE_WEAPON, SCORPION_TANK_GUN, has_ap_rockets_upgrade,
+            is_legal_scorpion_splash_target, salvage_tier_from_upgrades,
             scorpion_gun_splash_damage_at, scorpion_missile_damage_at, scorpion_scatter_aim,
             scorpion_scatter_misses_infantry,
         };
@@ -174,7 +175,15 @@ impl GameLogic {
             let Some(obj) = self.objects.get(&sid) else {
                 return (0, false);
             };
-            if !is_scorpion_template(&obj.template_name) {
+            // C++ splash is a property of the fired Weapon template
+            // (Weapon::fireWeapon); key on the slot's authored weapon, not the
+            // firing template's name.
+            let authored_scorpion_weapon = obj.weapon_name_for_slot(slot).is_some_and(|w| {
+                let w = w.to_ascii_lowercase();
+                w.starts_with(&SCORPION_TANK_GUN.to_ascii_lowercase())
+                    || w.starts_with(&SCORPION_MISSILE_WEAPON.to_ascii_lowercase())
+            });
+            if !authored_scorpion_weapon {
                 return (0, false);
             }
             let tier = salvage_tier_from_upgrades(&obj.applied_upgrades);
@@ -365,18 +374,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact uses ProjectileDetonateFX, never a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -720,7 +719,7 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_tomahawk::{
             TOMAHAWK_DAMAGE_TYPE, TOMAHAWK_DEATH_TYPE, TOMAHAWK_FIRE_AUDIO,
-            TOMAHAWK_SECONDARY_RADIUS, is_legal_tomahawk_splash_target, is_tomahawk_template,
+            TOMAHAWK_SECONDARY_RADIUS, is_legal_tomahawk_splash_target,
             tomahawk_damage_at, tomahawk_scatter_aim, tomahawk_scatter_misses_infantry,
         };
 
@@ -883,25 +882,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-            let _ = is_tomahawk_template(
-                &self
-                    .objects
-                    .get(&sid)
-                    .map(|o| o.template_name.clone())
-                    .unwrap_or_default(),
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact uses ProjectileDetonateFX, never a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -909,18 +891,19 @@ impl GameLogic {
     /// Apply Laser Missiles residual tag + rebind Raptor jet missile damage.
     pub fn apply_raptor_laser_missiles_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_raptor::{
-            UPGRADE_AMERICA_LASER_MISSILES, has_laser_missiles_upgrade, is_king_raptor_template,
-            is_raptor_template, raptor_weapon,
+            UPGRADE_AMERICA_LASER_MISSILES, authors_raptor_missile, has_laser_missiles_upgrade,
+            raptor_weapon,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_raptor_template(&obj.template_name) {
+        // hq-2qedt.249: key on authored Raptor missile PRIMARY (WeaponStore identity).
+        if !crate::game_logic::host_raptor::authors_raptor_missile(obj.authored_primary_weapon_names(), None) {
             return false;
         }
+        let king = crate::game_logic::host_raptor::authors_raptor_missile(obj.authored_primary_weapon_names(), Some(true));
         obj.applied_upgrades
             .insert(UPGRADE_AMERICA_LASER_MISSILES.to_string());
-        let king = is_king_raptor_template(&obj.template_name);
         let laser = has_laser_missiles_upgrade(&obj.applied_upgrades);
         let mut w = raptor_weapon(king, laser);
         // Preserve fire clock if already mid-combat.
@@ -1215,7 +1198,7 @@ impl GameLogic {
         use crate::game_logic::host_raptor::{
             RAPTOR_DAMAGE_TYPE, RAPTOR_DEATH_TYPE, RAPTOR_FIRE_AUDIO, RAPTOR_PRIMARY_RADIUS,
             has_laser_missiles_upgrade, is_king_raptor_template, is_legal_raptor_target,
-            is_raptor_template, raptor_damage_at, raptor_scatter_aim,
+            raptor_damage_at, raptor_scatter_aim,
             raptor_scatter_misses_infantry,
         };
 
@@ -1224,7 +1207,7 @@ impl GameLogic {
                 if let Some(obj) = self.objects.get(&sid) {
                     (
                         obj.team,
-                        is_king_raptor_template(&obj.template_name),
+                        crate::game_logic::host_raptor::authors_raptor_missile(obj.authored_primary_weapon_names(), Some(true)),
                         has_laser_missiles_upgrade(&obj.applied_upgrades),
                     )
                 } else {
@@ -1389,25 +1372,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-            let _ = is_raptor_template(
-                &self
-                    .objects
-                    .get(&sid)
-                    .map(|o| o.template_name.clone())
-                    .unwrap_or_default(),
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact uses ProjectileDetonateFX, never a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -1415,19 +1381,34 @@ impl GameLogic {
     /// Apply BlackNapalm residual to a China MiG (PLAYER_UPGRADE fire-field residual).
     pub fn apply_mig_black_napalm_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_mig::{
-            UPGRADE_CHINA_BLACK_NAPALM, is_mig_template, is_nuke_mig_template, mig_loadout,
-            mig_weapon,
+            UPGRADE_CHINA_BLACK_NAPALM, authors_mig_missile, mig_loadout, mig_weapon_name,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_mig_template(&obj.template_name) || is_nuke_mig_template(&obj.template_name) {
+        // hq-2qedt.248: gate on authored standard MiG missile PRIMARY, not template name.
+        if !crate::game_logic::host_mig::authors_mig_missile(obj.authored_primary_weapon_names(), Some(false)) {
             return false;
         }
         obj.applied_upgrades
             .insert(UPGRADE_CHINA_BLACK_NAPALM.to_string());
         let loadout = mig_loadout(false, &obj.applied_upgrades);
-        let mut w = mig_weapon(loadout);
+        // C++ WeaponSetUpgrade → WEAPONSET_PLAYER_UPGRADE → updateWeaponSet
+        // (hq-2qedt.194): bind the authored PLAYER_UPGRADE row's PRIMARY, else
+        // the upgrade's retail weapon identity from the WeaponStore — never
+        // name-built mig_weapon() stats.
+        let name = obj
+            .authored_player_upgrade_weapon_name(0)
+            .unwrap_or(mig_weapon_name(loadout))
+            .to_string();
+        let Some(mut w) = self.with_own_services(|| {
+            crate::game_logic::ThingTemplate::weapon_from_host_store(&name)
+        }) else {
+            return false;
+        };
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
         if let Some(prev) = obj.weapon.as_ref() {
             w.last_fire_time = prev.last_fire_time;
         }
@@ -1440,18 +1421,34 @@ impl GameLogic {
     /// Apply Tactical Nuke MiG residual to a Nuke General MiG.
     pub fn apply_mig_tactical_nuke_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_mig::{
-            UPGRADE_CHINA_TACTICAL_NUKE_MIG, is_nuke_mig_template, mig_loadout, mig_weapon,
+            UPGRADE_CHINA_TACTICAL_NUKE_MIG, authors_mig_missile, mig_loadout, mig_weapon_name,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_nuke_mig_template(&obj.template_name) {
+        // hq-2qedt.248: gate on authored Nuke MiG missile PRIMARY, not template name.
+        if !crate::game_logic::host_mig::authors_mig_missile(obj.authored_primary_weapon_names(), Some(true)) {
             return false;
         }
         obj.applied_upgrades
             .insert(UPGRADE_CHINA_TACTICAL_NUKE_MIG.to_string());
         let loadout = mig_loadout(true, &obj.applied_upgrades);
-        let mut w = mig_weapon(loadout);
+        // C++ WeaponSetUpgrade → WEAPONSET_PLAYER_UPGRADE → updateWeaponSet
+        // (hq-2qedt.194): bind the authored PLAYER_UPGRADE row's PRIMARY, else
+        // the upgrade's retail weapon identity from the WeaponStore — never
+        // name-built mig_weapon() stats.
+        let name = obj
+            .authored_player_upgrade_weapon_name(0)
+            .unwrap_or(mig_weapon_name(loadout))
+            .to_string();
+        let Some(mut w) = self.with_own_services(|| {
+            crate::game_logic::ThingTemplate::weapon_from_host_store(&name)
+        }) else {
+            return false;
+        };
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
         if let Some(prev) = obj.weapon.as_ref() {
             w.last_fire_time = prev.last_fire_time;
         }
@@ -1731,7 +1728,7 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_mig::{
             MIG_BLACK_DAMAGE_TYPE, MIG_BLACK_DEATH_TYPE, MIG_DAMAGE_TYPE, MIG_DEATH_TYPE,
-            MIG_FIRE_AUDIO, MIG_PRIMARY_RADIUS, MigLoadout, is_legal_mig_target, is_mig_template,
+            MIG_FIRE_AUDIO, MIG_PRIMARY_RADIUS, MigLoadout, is_legal_mig_target,
             is_nuke_mig_template, mig_damage_at, mig_fire_field_upgraded, mig_loadout,
             mig_scatter_aim, mig_scatter_misses_infantry, mig_secondary_radius,
             mig_spawns_fire_field, mig_spawns_radiation,
@@ -1743,7 +1740,7 @@ impl GameLogic {
                     (
                         obj.team,
                         mig_loadout(
-                            is_nuke_mig_template(&obj.template_name),
+                            crate::game_logic::host_mig::authors_mig_missile(obj.authored_primary_weapon_names(), Some(true)),
                             &obj.applied_upgrades,
                         ),
                     )
@@ -1946,25 +1943,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-            let _ = is_mig_template(
-                &self
-                    .objects
-                    .get(&sid)
-                    .map(|o| o.template_name.clone())
-                    .unwrap_or_default(),
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact uses ProjectileDetonateFX, never a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -2215,7 +2195,7 @@ impl GameLogic {
         use crate::game_logic::host_fire_base::{
             FIRE_BASE_DAMAGE_TYPE, FIRE_BASE_DEATH_TYPE, FIRE_BASE_FIRE_AUDIO,
             FIRE_BASE_PRIMARY_RADIUS, fire_base_damage_at, fire_base_scatter_aim,
-            fire_base_scatter_misses_infantry, is_fire_base_template, is_legal_fire_base_target,
+            fire_base_scatter_misses_infantry, is_legal_fire_base_target,
         };
 
         let source_team = source
@@ -2377,25 +2357,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-            let _ = is_fire_base_template(
-                &self
-                    .objects
-                    .get(&sid)
-                    .map(|o| o.template_name.clone())
-                    .unwrap_or_default(),
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact uses ProjectileDetonateFX, never a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }

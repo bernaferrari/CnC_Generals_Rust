@@ -585,14 +585,6 @@ mod tests {
     }
 
     #[test]
-    fn should_apply_blast_gate() {
-        assert!(should_apply_neutron_blast(true, 1, true));
-        assert!(!should_apply_neutron_blast(true, 0, true));
-        assert!(!should_apply_neutron_blast(false, 1, true));
-        assert!(!should_apply_neutron_blast(true, 1, false));
-    }
-
-    #[test]
     fn blast_radius_constants() {
         assert!((HOST_NEUTRON_BLAST_RADIUS - 70.0).abs() < 0.01);
         assert!(in_neutron_blast_radius_2d((0.0, 0.0), (50.0, 0.0), 70.0));

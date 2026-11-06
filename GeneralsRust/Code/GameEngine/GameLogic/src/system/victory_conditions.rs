@@ -462,7 +462,8 @@ impl EliminationDetector {
     pub fn auto_eliminate_players(player_list: &mut PlayerList) -> Vec<PlayerIndex> {
         let mut runtime_census: HashMap<PlayerIndex, (usize, usize, bool)> = HashMap::new();
 
-        if let Ok(runtime_players) = crate::player::player_list().read() {
+        let __player_list_arc = crate::player::player_list();
+        if let Ok(runtime_players) = __player_list_arc.read() {
             for runtime_player_arc in runtime_players.iter() {
                 let Ok(runtime_player) = runtime_player_arc.read() else {
                     continue;

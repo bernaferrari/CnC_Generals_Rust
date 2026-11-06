@@ -175,6 +175,7 @@ mod tests {
 
     #[test]
     fn center_uv_warps_by_offset_x_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let smudge = HeatHazeSmudge {
             world_pos: [0.0, 0.0, -10.0],
             size: 2.0,
@@ -195,6 +196,7 @@ mod tests {
 
     #[test]
     fn empty_smudge_is_skipped() {
+        crate::test_support::ensure_ambient_host();
         let smudge = HeatHazeSmudge {
             world_pos: [0.0, 0.0, -1.0],
             size: 0.0,

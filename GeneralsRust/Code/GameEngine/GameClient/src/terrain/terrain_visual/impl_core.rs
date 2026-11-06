@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 // Split from `terrain/terrain_visual.rs` dump. Included by `terrain_visual/mod.rs`.
 
 /// C++ HeightMapRenderObjClass::updateCenter projects the four view corners
@@ -466,6 +467,13 @@ impl TerrainVisualImpl {
         self.reset_draw_area_state();
     }
 
+    pub fn debug_gpu_resources_ready(&self) -> bool {
+        self.device.is_some()
+            && self.queue.is_some()
+            && self.terrain_pipeline.is_some()
+            && self.terrain_camera_bind_group.is_some()
+    }
+
     pub fn debug_heightmap_loaded(&self) -> bool {
         self.height_map.is_some()
     }
@@ -616,6 +624,10 @@ impl TerrainVisualImpl {
 
     pub fn scorch_marks(&self) -> &[ScorchMark] {
         self.scorches.marks()
+    }
+
+    pub fn scorches_mut(&mut self) -> &mut crate::terrain::scorch_mesh::TerrainScorchBuffer {
+        &mut self.scorches
     }
 
     pub fn add_scorch(&mut self, location: [f32; 3], radius: f32, scorch_type: i32) -> bool {
@@ -844,6 +856,18 @@ impl TerrainVisualImpl {
         self.source_tiles.iter().any(Option::is_some)
     }
 
+    /// True when at least one source tile is a real Art/Terrain sample (not a stand-in).
+    pub fn has_real_source_tiles(&self) -> bool {
+        self.source_tiles.iter().enumerate().any(|(index, tile)| {
+            tile.is_some()
+                && !self
+                    .stand_in_source_tiles
+                    .get(index)
+                    .copied()
+                    .unwrap_or(true)
+        })
+    }
+
     pub fn load_source_tiles_from_texture_classes(
         &mut self,
         classes: &[TerrainSourceTileClass],
@@ -851,7 +875,7 @@ impl TerrainVisualImpl {
         self.load_source_tiles_with_image_source(classes, |visual, class| {
             visual
                 .resolve_source_tile_texture_path(&class.name)
-                .and_then(|path| Self::open_source_tile_image(&path))
+                .and_then(|path| visual.open_source_tile_image_cached(&path))
         })
     }
 
@@ -871,10 +895,70 @@ impl TerrainVisualImpl {
     fn load_source_tiles_with_image_source(
         &mut self,
         classes: &[TerrainSourceTileClass],
-        mut resolve_image: impl FnMut(&Self, &TerrainSourceTileClass) -> Option<image::DynamicImage>,
+        mut resolve_image: impl FnMut(&mut Self, &TerrainSourceTileClass) -> Option<image::DynamicImage>,
     ) -> TerrainResult<usize> {
         self.source_tile_classes = classes.to_vec();
         self.ranked_source_tile_classes = None;
+
+        // Unique class art only. Archive/file reads stay on this thread; CPU
+        // TGA decode fans out (C++ loads lazily and caches TextureClass by name).
+        let mut seen = std::collections::HashSet::new();
+        let mut pending_bytes: Vec<(String, Vec<u8>)> = Vec::new();
+        for class in classes {
+            if !seen.insert(class.name.to_ascii_lowercase()) {
+                continue;
+            }
+            let mut resolved = false;
+            for candidate in self.source_tile_texture_candidates(&class.name) {
+                let key = candidate.replace('\\', "/");
+                if self.texture_system.peek_decoded_image(&key).is_some() {
+                    resolved = true;
+                    break;
+                }
+                if let Ok(bytes) = std::fs::read(&candidate) {
+                    pending_bytes.push((key, bytes));
+                    resolved = true;
+                    break;
+                }
+                if let Some(path) = self.resolve_source_tile_texture_path(&class.name) {
+                    let path_key = path.to_string_lossy().replace('\\', "/");
+                    if self.texture_system.peek_decoded_image(&path_key).is_some() {
+                        resolved = true;
+                        break;
+                    }
+                    if path.is_file() {
+                        if let Ok(bytes) = std::fs::read(&path) {
+                            pending_bytes.push((path_key, bytes));
+                            resolved = true;
+                            break;
+                        }
+                    }
+                }
+                if let Some(bytes) = crate::terrain::tree_buffer::read_game_fs_bytes(&candidate) {
+                    pending_bytes.push((key, bytes));
+                    resolved = true;
+                    break;
+                }
+            }
+            if !resolved {
+                let _ = resolve_image(self, class);
+            }
+        }
+        if !pending_bytes.is_empty() {
+            let decoded: Vec<(String, Option<std::sync::Arc<image::DynamicImage>>)> = pending_bytes
+                .into_par_iter()
+                .map(|(key, bytes)| {
+                    let image = TerrainTextures::decode_image_from_bytes(&key, &bytes)
+                        .map(std::sync::Arc::new);
+                    (key, image)
+                })
+                .collect();
+            for (key, image) in decoded {
+                if let Some(image) = image {
+                    self.texture_system.insert_decoded_image(&key, image);
+                }
+            }
+        }
 
         let mut loaded = 0usize;
         for class in classes {
@@ -1051,7 +1135,14 @@ impl TerrainVisualImpl {
                 }
             }
         }
-        candidates.push(with_ext(class_name));
+        // C++ WorldHeightMap::readTexClass always opens under
+        // TERRAIN_TGA_DIR_PATH even when TheTerrainTypes has no match
+        // (#ifdef LOAD_TEST_ASSETS opens the bare class name as a fallback).
+        // ZH-only TerrainZH.big lacks ground tiles; base Generals Terrain.big
+        // holds TMSnow/TLCliff/TXRock — those paths must be tried every time.
+        let class_file = with_ext(class_name);
+        candidates.push(format!("{TERRAIN_TGA_DIR_PATH}{class_file}"));
+        candidates.push(class_file);
         candidates
     }
 
@@ -1069,20 +1160,17 @@ impl TerrainVisualImpl {
     }
 
     fn resolve_source_tile_image_with_reader(
-        &self,
+        &mut self,
         class_name: &str,
         read_virtual_file: &mut impl FnMut(&str) -> Option<Vec<u8>>,
     ) -> Option<image::DynamicImage> {
         for candidate in self.source_tile_texture_candidates(class_name) {
             if let Some(bytes) = read_virtual_file(&candidate) {
-                // TGA has no reliable signature for content-based detection.
-                // Use the selected mounted filename first, as `image::open`
-                // does for a loose source tile, and fall back to sniffing for
-                // any other supported format.
-                return image::ImageFormat::from_path(&candidate)
-                    .ok()
-                    .and_then(|format| image::load_from_memory_with_format(&bytes, format).ok())
-                    .or_else(|| image::load_from_memory(&bytes).ok());
+                // Decode once per owning TextureManager asset key (C++ TextureClass).
+                return self
+                    .texture_system
+                    .get_or_decode_image_bytes(&candidate, &bytes)
+                    .map(|image| (*image).clone());
             }
         }
         None
@@ -1091,12 +1179,18 @@ impl TerrainVisualImpl {
     /// Open a tile texture by disk path, falling back to the game file
     /// system: `resolve_texture_path` hands back a *virtual* path for
     /// BIG-backed art (`Art/Terrain/*.tga` inside `TerrainZH.big`), which
-    /// `image::open` cannot read on its own.
-    fn open_source_tile_image(path: &Path) -> Option<image::DynamicImage> {
-        if let Ok(image) = image::open(path) {
-            return Some(image);
+    /// `image::open` cannot read on its own. Cached on `texture_system`.
+    fn open_source_tile_image_cached(&mut self, path: &Path) -> Option<image::DynamicImage> {
+        let key = path.to_string_lossy().replace('\\', "/");
+        if path.is_file() {
+            let bytes = std::fs::read(path).ok()?;
+            return self
+                .texture_system
+                .get_or_decode_image_bytes(key.as_ref(), &bytes)
+                .map(|image| (*image).clone());
         }
-        let bytes = crate::terrain::tree_buffer::read_game_fs_bytes(&path.to_string_lossy())?;
-        image::load_from_memory(&bytes).ok()
+        self.texture_system
+            .get_or_decode_image(key.as_ref())
+            .map(|image| (*image).clone())
     }
 }

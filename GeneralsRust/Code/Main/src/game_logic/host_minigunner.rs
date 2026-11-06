@@ -416,11 +416,6 @@ pub fn is_legal_minigunner_target(
     is_alive && !is_self && !under_construction && is_combat_kind
 }
 
-/// Whether residual fire should apply MiniGunner residual path.
-pub fn should_apply_minigunner_residual(is_minigunner: bool) -> bool {
-    is_minigunner
-}
-
 /// Convert msec residual → logic frames @ 30 FPS (round half-up).
 pub fn minigunner_ms_to_frames(ms: u32) -> u32 {
     if ms == 0 {
@@ -659,17 +654,6 @@ mod tests {
             minigunner_coast_until_after_shot(100, GattlingFireLevel::Mean, false, false),
             100 + 7 + MINIGUNNER_COAST_FRAMES
         );
-    }
-
-    #[test]
-    fn slot_and_legal() {
-        assert_eq!(preferred_minigunner_slot(false), 0);
-        assert_eq!(preferred_minigunner_slot(true), 1);
-        assert!(should_apply_minigunner_residual(true));
-        assert!(!should_apply_minigunner_residual(false));
-        assert!(is_legal_minigunner_target(true, false, false, true));
-        assert!(!is_legal_minigunner_target(false, false, false, true));
-        assert!(!is_legal_minigunner_target(true, true, false, true));
     }
 
     #[test]

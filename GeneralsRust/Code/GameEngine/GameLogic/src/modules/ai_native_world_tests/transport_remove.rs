@@ -5,6 +5,19 @@ use super::*;
 use crate::modules::ai_world::AiWorld;
 use crate::weapon::WeaponSetType;
 
+/// Test-thread owner (hq-2qedt.20): these fixtures build templates and
+/// query the native AI runtime, so bind Common services + a Core
+/// EngineStores (which carries WorldServices) on this thread only.
+fn bind_test_world() {
+    if game_engine::common::common_services::try_common_services().is_none() {
+        game_engine::common::common_services::install_common_services(Arc::new(
+            game_engine::common::common_services::CommonServices::new(),
+        ));
+    }
+    if crate::system::engine_stores::try_active_services().is_none() {
+        crate::system::engine_stores::install_active(crate::system::engine_stores::new_for_world());
+    }
+}
 fn removal_template(orient: bool) -> Arc<dyn ThingTemplate> {
     let mut base = DefaultThingTemplate::new("NativeRemoveTransport".into());
     base.add_kind_of(KindOf::Structure);
@@ -132,6 +145,7 @@ fn saved_module(game: &NativeMatch) -> Vec<u8> {
 
 #[test]
 fn native_remove_last_armed_rider_restores_own_world_and_wakes_real_cached_ai() {
+    bind_test_world();
     let mut game = removal_game();
     let peer = removal_game();
     assert_eq!(
@@ -188,12 +202,11 @@ fn native_remove_last_armed_rider_restores_own_world_and_wakes_real_cached_ai() 
         207
     );
     drop(owner);
-    assert!(
-        game.collision
-            .partition_manager()
-            .get_object_info(id)
-            .is_some()
-    );
+    assert!(game
+        .collision
+        .partition_manager()
+        .get_object_info(id)
+        .is_some());
     game.operate(210, |world| assert!(world.contain_exit_busy(goal).unwrap()));
     game.operate(211, |world| {
         assert!(!world.contain_exit_busy(goal).unwrap())
@@ -214,6 +227,7 @@ fn native_remove_last_armed_rider_restores_own_world_and_wakes_real_cached_ai() 
 
 #[test]
 fn native_remove_preserves_remaining_armed_rider_and_module_xfer_future() {
+    bind_test_world();
     let mut original = removal_game();
     let mut restored = removal_game();
     let rider = another_armed_rider(&mut original);
@@ -226,13 +240,11 @@ fn native_remove_preserves_remaining_armed_rider_and_module_xfer_future() {
     restored.operate(407, |world| {
         world.remove_contained(first, goal, false).unwrap()
     });
-    assert!(
-        original
-            .target
-            .read()
-            .unwrap()
-            .test_weapon_set_flag(WeaponSetType::PlayerUpgrade)
-    );
+    assert!(original
+        .target
+        .read()
+        .unwrap()
+        .test_weapon_set_flag(WeaponSetType::PlayerUpgrade));
     assert_eq!(rider.read().unwrap().get_contained_by(), Some(goal));
     let bytes = saved_module(&original);
     let module = Object::install_fresh_contain_snapshot_for_test(&restored.target, bytes);
@@ -321,6 +333,7 @@ impl ThingTemplate for OrientedTransport {
 
 #[test]
 fn native_remove_applies_owner_orientation_and_layer_at_original_phase() {
+    bind_test_world();
     let mut game =
         NativeMatch::with_container(50.0, Arc::new(OrientedTransport(removal_template(true))));
     assert_eq!(game.target.read().unwrap().get_orientation(), 1.25);
@@ -382,6 +395,7 @@ fn with_physics(
 
 #[test]
 fn native_remove_inherits_actual_physics_force_and_fall_with_owned_schedule() {
+    bind_test_world();
     let mut game = NativeMatch::with_source_at(
         Coord3D::new(50.0, 50.0, 80.0),
         with_physics(removal_template(true), 20.0, 0.0),
@@ -445,6 +459,7 @@ fn native_remove_inherits_actual_physics_force_and_fall_with_owned_schedule() {
 
 #[test]
 fn native_dead_transport_scatter_enters_real_cached_move_before_idle_wake() {
+    bind_test_world();
     let mut game = removal_game();
     let mut peer = removal_game();
     let source = Arc::clone(&game.source);

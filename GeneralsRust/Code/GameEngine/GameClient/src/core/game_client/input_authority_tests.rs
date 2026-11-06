@@ -4,6 +4,7 @@ use game_engine::common::message_stream::{WindowInputDispatch, WindowInputDispat
 
 #[test]
 fn native_pipeline_does_not_repeat_raw_camera_actions_through_core_look_at() {
+    crate::test_support::ensure_ambient_host();
     let mut native =
         GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted).unwrap();
     let mut core = GameClient::new().unwrap();

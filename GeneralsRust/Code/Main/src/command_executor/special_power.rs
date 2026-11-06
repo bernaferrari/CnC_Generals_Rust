@@ -189,6 +189,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         location: Vec3,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         // Wave 233: special-power destination override via GameLogic authority API.
         if !location.x.is_finite() || !location.z.is_finite() {
             return CommandResult::InvalidLocation;
@@ -267,6 +268,7 @@ impl<'a> CommandExecutor<'a> {
         power_type: &crate::command_system::SpecialPowerType,
         location: Vec3,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         self.execute_special_power(
             units,
             power_type,
@@ -281,6 +283,7 @@ impl<'a> CommandExecutor<'a> {
         power_type: &crate::command_system::SpecialPowerType,
         target: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         self.execute_special_power(
             units,
             power_type,
@@ -296,6 +299,7 @@ impl<'a> CommandExecutor<'a> {
         power_type: &SpecialPowerType,
         target: &PowerTarget,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         // C++ CommandXlat.cpp:1055-1078 NEED_TARGET_POS: unit under the cursor
         // is only object-in-way. Leftover canDoSpecialPowerAtObject is FALSE;
         // leftover canDoSpecialPowerAtLocation is the gate.
@@ -1115,6 +1119,7 @@ impl<'a> CommandExecutor<'a> {
         max_shots_to_fire: i32,
         target: &WeaponTarget,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         let Some(slot) = host_weapon_slot_index(weapon_slot) else {
             warn!(
                 "Rejecting unindexed weapon command {:?}: it has no host weapon-set slot",

@@ -109,9 +109,14 @@ impl GameClient {
         let assets = self.render_bridge.asset_manager();
         self.drawables
             .particles
+            .as_mut()
+            .expect("particle manager")
             .admit_effective_definitions()
             .map_err(|error| GameClientError::SubsystemError(error.to_string()))?;
-        let (state, manager) = (&mut self.drawables.state, &mut self.drawables.particles);
+        let (state, manager) = (
+            &mut self.drawables.state,
+            self.drawables.particles.as_mut().expect("particle manager"),
+        );
         NativeRenderReceiver::new(
             state,
             &mut self.native_particle_capability_gaps,

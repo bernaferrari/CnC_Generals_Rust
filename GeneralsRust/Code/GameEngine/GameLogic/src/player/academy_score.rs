@@ -18,8 +18,10 @@ pub struct AcademyStats {
     pub(super) vehicles_sniped: Int,
     /// C++ AcademyStats::m_vehiclesDisguised
     pub(super) vehicles_disguised: Int,
-    /// Total money earned (for scoreboard / academy stats).
-    pub(super) total_income: Int,
+    /// C++ AcademyStats::m_lastIncomeFrame (AcademyStats.h; reset to 0).
+    pub(super) last_income_frame: UnsignedInt,
+    /// C++ AcademyStats::m_maxFramesBetweenIncome (reset to 0).
+    pub(super) max_frames_between_income: UnsignedInt,
     pub(super) mines: Int,
     pub(super) mines_cleared: Int,
     /// C++ AcademyStats::m_choseAStrategyForCenter
@@ -46,7 +48,8 @@ impl AcademyStats {
             special_powers_used: 0,
             vehicles_sniped: 0,
             vehicles_disguised: 0,
-            total_income: 0,
+            last_income_frame: 0,
+            max_frames_between_income: 0,
             mines: 0,
             mines_cleared: 0,
             chose_a_strategy_for_center: false,
@@ -104,9 +107,23 @@ impl AcademyStats {
             .or_insert(0) += 1;
     }
 
-    /// Record income earned (for scoreboard). Matches C++ AcademyStats::recordIncome.
-    pub fn record_income(&mut self, amount: Int) {
-        self.total_income = self.total_income.saturating_add(amount);
+    /// C++ AcademyStats.cpp:469-479 recordIncome. `now` is the driving
+    /// match's logic frame. C++ computes `m_lastIncomeFrame - now` in
+    /// unsigned arithmetic (wrapping), then keeps the maximum.
+    pub fn record_income(&mut self, now: UnsignedInt) {
+        let delta = self.last_income_frame.wrapping_sub(now);
+        if delta > self.max_frames_between_income {
+            self.max_frames_between_income = delta;
+        }
+        self.last_income_frame = now;
+    }
+
+    pub fn get_last_income_frame(&self) -> UnsignedInt {
+        self.last_income_frame
+    }
+
+    pub fn get_max_frames_between_income(&self) -> UnsignedInt {
+        self.max_frames_between_income
     }
 
     /// Record upgrade acquisition (matches C++ AcademyStats::recordUpgrade)

@@ -272,3 +272,72 @@ fn mood_range_uses_receiving_player_and_attitude_rules() {
         );
     });
 }
+
+#[test]
+fn owned_dispatch_sleeping_computer_ignores_commands() {
+    // C++ AIUpdate.cpp:2572-2590 isAllowedToRespondToAiCommands gates aiDoCommand.
+    let services = crate::system::engine_stores::new_world_services();
+    crate::system::engine_stores::with_world_services(&services, || {
+        let mut game = NativeMatch::new(50.0);
+        game.players
+            .get_player(0)
+            .unwrap()
+            .write()
+            .unwrap()
+            .set_player_type(crate::player::PlayerType::Computer, true);
+        let source = Arc::clone(&game.source);
+        let ai = source.read().unwrap().get_ai_update_interface().unwrap();
+        game.operate(0, |world| {
+            ai.lock()
+                .unwrap()
+                .execute_command_with_world(
+                    &crate::ai::AiCommandParams::new(
+                        crate::ai::AiCommandType::Idle,
+                        crate::ai::CommandSourceType::FromAi,
+                    ),
+                    world,
+                )
+                .unwrap();
+        });
+        ai.lock()
+            .unwrap()
+            .set_attitude(crate::modules::AIAttitudeType::Sleep)
+            .unwrap();
+        let busy = Some(crate::modules::AIStateType::Busy as u32);
+        assert_ne!(ai.lock().unwrap().get_current_state_id(), busy);
+        game.operate(1, |world| {
+            ai.lock()
+                .unwrap()
+                .execute_command_with_world(
+                    &crate::ai::AiCommandParams::new(
+                        crate::ai::AiCommandType::Busy,
+                        crate::ai::CommandSourceType::FromScript,
+                    ),
+                    world,
+                )
+                .unwrap();
+        });
+        assert_ne!(
+            ai.lock().unwrap().get_current_state_id(),
+            busy,
+            "sleeping computer AI must ignore owned Busy"
+        );
+        ai.lock()
+            .unwrap()
+            .set_attitude(crate::modules::AIAttitudeType::Normal)
+            .unwrap();
+        game.operate(2, |world| {
+            ai.lock()
+                .unwrap()
+                .execute_command_with_world(
+                    &crate::ai::AiCommandParams::new(
+                        crate::ai::AiCommandType::Busy,
+                        crate::ai::CommandSourceType::FromScript,
+                    ),
+                    world,
+                )
+                .unwrap();
+        });
+        assert_eq!(ai.lock().unwrap().get_current_state_id(), busy);
+    });
+}

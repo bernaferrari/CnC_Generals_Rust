@@ -17,17 +17,16 @@ use crate::effects::particle_manager::get_particle_system_manager;
 use crate::effects::particle_renderer::{
     ParticleRenderer as GpuParticleRenderer, ParticleUniforms,
 };
-use crate::fx_list::get_decal_manager;
+use crate::core::game_client::with_live_game_client_mut;
 use crate::game_text::GameText;
 use crate::gui::display_string::{DisplayStringHandle, get_display_string_manager};
 use crate::gui::font::{FontDesc, get_font_library};
 use crate::gui::ui_renderer::UIRect;
 use crate::platform::GraphicsContext;
-use crate::radius_decal::get_projected_shadow_manager;
 use crate::system::SubsystemInterface;
 use crate::system::debug_display::DebugDisplay;
 use crate::terrain::TerrainVisual;
-use crate::terrain::terrain_visual::THE_TERRAIN_VISUAL;
+use crate::terrain::terrain_visual::get_terrain_visual;
 use crate::video_buffer::{SoftwareVideoBuffer, VideoBuffer, VideoBufferType};
 use crate::video_player::{VideoPlayerInterface, get_video_player};
 use crate::video_stream::VideoStreamInterface;
@@ -750,7 +749,8 @@ impl Display {
         let mut manager = get_display_string_manager();
         let display_string = manager.new_display_string();
         let (font_name, font_size, font_bold) = {
-            let lang = crate::global_language::get_global_language_data()
+            let __lang = crate::global_language::get_global_language_data();
+            let lang = __lang
                 .read()
                 .ok();
             if let Some(lang) = lang.as_ref() {
@@ -771,7 +771,8 @@ impl Display {
             let mut display_string_mut = display_string.borrow_mut();
             display_string_mut.set_text(GameText::fetch("GUI:EACopyright"));
             let font_desc = FontDesc::new(&font_name, font_size, font_bold);
-            let mut font_library = get_font_library();
+            let font_library_handle = get_font_library();
+            let mut font_library = font_library_handle.lock().unwrap_or_else(|e| e.into_inner());
             if let Ok(font) = font_library.get_font(&font_desc) {
                 display_string_mut.set_font(font);
             }
@@ -1040,7 +1041,7 @@ impl Display {
             let proj_glam = projection_matrix;
 
             // Terrain rendering pass: guard must outlive RenderPass due to wgpu borrow on record_chunk_draws.
-            if let Ok(mut terrain_guard) = THE_TERRAIN_VISUAL.lock() {
+            if let Ok(mut terrain_guard) = get_terrain_visual() {
                 if let Some(terrain) = terrain_guard.as_mut() {
                     if let Some(snow) = snow {
                         let _ = terrain.render_client_view(&view_glam, &proj_glam, snow);
@@ -1254,7 +1255,7 @@ impl Display {
 
         // Decal rendering pass (retail snow is drawn by terrain overlays).
         if let Some(renderer) = self.particle_renderer.as_ref() {
-            let mut decals = if let Some(manager) = get_decal_manager() {
+            let mut decals = if let Some(manager) = with_live_game_client_mut(|c| c.fx().decal_manager()).flatten() {
                 manager
                     .lock()
                     .map(|guard| guard.collect_render_items())
@@ -1425,6 +1426,7 @@ mod tests {
 
     #[test]
     fn display_lighting_uses_object_lighting_for_scene_and_w3d_lights() {
+        crate::test_support::ensure_ambient_host();
         let mut global_data = GlobalData::new();
         global_data.init();
         global_data.num_global_lights = 2;
@@ -1460,6 +1462,7 @@ mod tests {
 
     #[test]
     fn display_lighting_clamps_active_light_count_and_invalid_uses_current_time() {
+        crate::test_support::ensure_ambient_host();
         let mut global_data = GlobalData::new();
         global_data.init();
         global_data.time_of_day = TimeOfDay::Evening;
@@ -1481,6 +1484,7 @@ mod tests {
 
     #[test]
     fn set_display_mode_rejects_zero_resolution() {
+        crate::test_support::ensure_ambient_host();
         // C++ W3DDisplay::setDisplayMode returns FALSE and restores on device failure.
         assert!(!display_fx::is_valid_device_mode(0, 0, 32));
         assert!(display_fx::display_mode_count() > 0);
@@ -1490,6 +1494,7 @@ mod tests {
 
     #[test]
     fn leftover_letterbox_matches_cpp_fade_out() {
+        crate::test_support::ensure_ambient_host();
         let fade_out = display_fx::letterbox_plan(1280.0, 1024.0, 0.4, false);
         assert!(fade_out.draw_top);
         assert!(!fade_out.draw_bottom);

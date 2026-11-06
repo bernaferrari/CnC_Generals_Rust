@@ -192,33 +192,25 @@ struct SinglePlayerLoadScreenState {
     ambient_loop_handle: Option<crate::gui::menu_audio::MenuAudioHandle>,
 }
 
-// Optional external progress callbacks retain their existing adapter boundary.
+// Optional external progress callbacks live on LoadScreenRuntime.
 // Per-screen mutable state is owned by LoadScreenRuntime below.
+#[cfg(test)]
 thread_local! {
-    static MAP_TRANSFER_LITEUPDATE_HOOK: RefCell<Option<MapTransferLiteupdateHook>> =
-        const { RefCell::new(None) };
-    static MULTIPLAYER_LOAD_PROGRESS_HOOK: RefCell<Option<MultiplayerLoadProgressHook>> =
-        const { RefCell::new(None) };
-    #[cfg(test)]
     static LOAD_SCREEN_FINISH_UPDATE_HOOK: RefCell<Option<LoadScreenFinishUpdateHook>> =
         const { RefCell::new(None) };
-    #[cfg(test)]
     static SINGLE_PLAYER_MOVIE_PLAY_HOOK: RefCell<Option<SinglePlayerMoviePlayHook>> =
         const { RefCell::new(None) };
-    #[cfg(test)]
     static SINGLE_PLAYER_MOVIE_PLAYING_HOOK: RefCell<Option<SinglePlayerMoviePlayHook>> =
         const { RefCell::new(None) };
-    #[cfg(test)]
     static CHALLENGE_MOVIE_PLAY_HOOK: RefCell<Option<ChallengeMoviePlayHook>> =
         const { RefCell::new(None) };
-    #[cfg(test)]
     static CHALLENGE_MOVIE_ADVANCE_HOOK: RefCell<Option<ChallengeMovieAdvanceHook>> =
         const { RefCell::new(None) };
 }
 
-type MapTransferLiteupdateHook =
+pub(crate) type MapTransferLiteupdateHook =
     Arc<dyn Fn(Option<&mut crate::input::Mouse>) + Send + Sync + 'static>;
-type MultiplayerLoadProgressHook = Arc<dyn Fn(i32, i32) + Send + Sync + 'static>;
+pub(crate) type MultiplayerLoadProgressHook = Arc<dyn Fn(i32, i32) + Send + Sync + 'static>;
 /// Explicit bridge from one load-screen operation to its receiving display.
 /// The weak handle keeps the GameClient as the display owner while retaining
 /// the display mutex required by native draw/update callers.
@@ -406,12 +398,18 @@ impl Default for LoadScreenInitContext {
 }
 
 /// Mutable loading presentation belongs to one client, independent of its thread.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct LoadScreenRuntime {
     single_player: SinglePlayerLoadScreenState,
     multiplayer: MultiplayerLoadScreenState,
     map_transfer: MapTransferLoadScreenState,
     challenge: ChallengeLoadScreenState,
+    /// Optional map-transfer Liteupdate adapter (was process TLS).
+    pub(crate) map_transfer_liteupdate_hook: Option<MapTransferLiteupdateHook>,
+    /// Optional multiplayer progress adapter (was process TLS).
+    pub(crate) multiplayer_load_progress_hook: Option<MultiplayerLoadProgressHook>,
+    /// Residual LoadingScreen peel state (was process TLS/atomics in loading_screen.rs).
+    pub residual_loading: crate::gui::loading_screen::LoadingScreenResidual,
 }
 
 /// One bounded loading operation borrows its client's state and window streams.

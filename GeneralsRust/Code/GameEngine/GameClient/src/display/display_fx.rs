@@ -940,6 +940,7 @@ mod tests {
 
     #[test]
     fn gamma_identity_at_defaults() {
+        crate::test_support::ensure_ambient_host();
         let mut fx = DisplayFxState::default();
         fx.set_gamma_state(1.0, 0.0, 1.0);
         let mapped = fx.apply_gamma_rgba(0.5, 0.25, 0.75);
@@ -950,6 +951,7 @@ mod tests {
 
     #[test]
     fn bmp_header_is_valid() {
+        crate::test_support::ensure_ambient_host();
         let dir = std::env::temp_dir();
         let path = dir.join("sshot_test_fx.bmp");
         let pixels = vec![0u8, 0, 255, 0, 255, 0, 255, 0, 0, 128, 128, 128];
@@ -961,17 +963,21 @@ mod tests {
 
     #[test]
     fn letterbox_fade_out_drops_bottom_bar() {
+        crate::test_support::ensure_ambient_host();
         // C++ W3DDisplay.cpp:2021-2022 — bottom drawFillRect commented out while fading out.
-        let fade_in = letterbox_plan(1920.0, 1080.0, 0.5, true);
+        // Use a 4:3 surface so the 16:9 letterbox bars are actually visible
+        // (exact 16:9 yields bar_height 0 and the plan correctly draws nothing).
+        let fade_in = letterbox_plan(800.0, 600.0, 0.5, true);
         assert!(fade_in.draw_top && fade_in.draw_bottom);
-        assert!((fade_in.bar_height - ((1080.0 - 9.0 / 16.0 * 1920.0) * 0.5)).abs() < 0.01);
-        let fade_out = letterbox_plan(1920.0, 1080.0, 0.5, false);
+        assert!((fade_in.bar_height - ((600.0 - 9.0 / 16.0 * 800.0) * 0.5)).abs() < 0.01);
+        let fade_out = letterbox_plan(800.0, 600.0, 0.5, false);
         assert!(fade_out.draw_top && !fade_out.draw_bottom);
         assert!((fade_out.bar_height - fade_in.bar_height).abs() < 0.01);
     }
 
     #[test]
     fn display_modes_are_four_by_three() {
+        crate::test_support::ensure_ambient_host();
         assert!(display_mode_count() > 0);
         for i in 0..display_mode_count() {
             let (w, h, depth) = display_mode_description(i).expect("mode");
@@ -984,6 +990,7 @@ mod tests {
 
     #[test]
     fn clip_image_quad_remaps_uv() {
+        crate::test_support::ensure_ambient_host();
         let mut fx = DisplayFxState::default();
         fx.enable_clipping(true);
         fx.set_clip_region(10.0, 10.0, 50.0, 50.0);
@@ -1007,6 +1014,7 @@ mod tests {
 
     #[test]
     fn grayscale_mode_desaturates_tint() {
+        crate::test_support::ensure_ambient_host();
         let mut fx = DisplayFxState::default();
         fx.set_gamma_state(1.0, 0.0, 1.0);
         let (c, blend) = apply_draw_image_color(
@@ -1026,6 +1034,7 @@ mod tests {
 
     #[test]
     fn draw_image_color_consumes_display_gamma_like_dx8_set_gamma() {
+        crate::test_support::ensure_ambient_host();
         let mut fx = DisplayFxState::default();
         // C++ W3DDisplay.cpp:519-524 TheDisplay->setGamma / DX8Wrapper::Set_Gamma.
         fx.set_gamma_state(2.0, 0.0, 1.0);
@@ -1042,6 +1051,7 @@ mod tests {
 
     #[test]
     fn present_gamma_remaps_presented_backbuffer() {
+        crate::test_support::ensure_ambient_host();
         let mut fx = DisplayFxState::default();
         fx.set_gamma_state(2.0, 0.0, 1.0);
         fx.note_presented_frame(1, 1, vec![64, 0, 0, 255]);
@@ -1054,6 +1064,7 @@ mod tests {
 
     #[test]
     fn screenshot_does_not_use_stale_movie_without_backbuffer() {
+        crate::test_support::ensure_ambient_host();
         let mut fx = DisplayFxState::default();
         fx.clear_movie_frame();
         let path = std::env::temp_dir().join("sshot_no_backbuffer.bmp");
@@ -1065,6 +1076,7 @@ mod tests {
 
     #[test]
     fn present_movie_notes_backbuffer_for_screenshot() {
+        crate::test_support::ensure_ambient_host();
         let mut fx = DisplayFxState::default();
         fx.clear_movie_frame();
         fx.store_movie_frame(1, 1, vec![255, 0, 0, 255]);
@@ -1076,6 +1088,7 @@ mod tests {
     }
     #[test]
     fn peer_display_state_changes_and_drop_leave_receiving_state_unchanged() {
+        crate::test_support::ensure_ambient_host();
         let mut receiving = DisplayFxState::default();
         receiving.set_gamma_state(2.0, 0.0, 1.0);
         receiving.set_clip_region(10.0, 20.0, 30.0, 40.0);

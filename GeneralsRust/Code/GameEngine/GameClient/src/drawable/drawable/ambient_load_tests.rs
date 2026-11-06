@@ -27,6 +27,7 @@ fn overrides(base: &AudioEventInfo) -> Vec<u8> {
 }
 #[test]
 fn base_definition_preserves_unoverridden_permanent_loop_and_custom_name() {
+    crate::test_support::ensure_ambient_host();
     let base = definition();
     let mut load = XferLoad::new(Cursor::new(overrides(&base)), 1);
     let loaded =
@@ -40,6 +41,7 @@ fn base_definition_preserves_unoverridden_permanent_loop_and_custom_name() {
 }
 #[test]
 fn missing_base_consumes_overrides_and_preserves_following_xfer_field() {
+    crate::test_support::ensure_ambient_host();
     let mut bytes = overrides(&definition());
     bytes.extend_from_slice(&0xC001_C0DEu32.to_le_bytes());
     let mut load = XferLoad::new(Cursor::new(bytes), 1);
@@ -52,6 +54,7 @@ fn missing_base_consumes_overrides_and_preserves_following_xfer_field() {
 }
 #[test]
 fn malformed_override_does_not_produce_custom_definition() {
+    crate::test_support::ensure_ambient_host();
     let base = definition();
     let mut bytes = overrides(&base);
     bytes.pop();
@@ -64,6 +67,7 @@ fn malformed_override_does_not_produce_custom_definition() {
 }
 #[test]
 fn real_drawable_snapshot_missing_definition_suppresses_custom_restart() {
+    crate::test_support::ensure_ambient_host();
     let mut base = definition();
     base.audio_name = "__AbsentDrawableAmbient_hq6m33q".into();
     let mut saved = BasicDrawable::new(DrawableId(881));
@@ -99,6 +103,7 @@ fn real_drawable_snapshot_missing_definition_suppresses_custom_restart() {
 
 #[test]
 fn native_snapshot_resolves_custom_ambient_from_receiving_catalog() {
+    crate::test_support::ensure_ambient_host();
     let source_base = definition();
     let mut receiving_base = definition();
     receiving_base.sounds = vec!["ReceivingLoop".into()];

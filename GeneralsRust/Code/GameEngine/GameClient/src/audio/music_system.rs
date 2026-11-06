@@ -439,6 +439,7 @@ mod tests {
 
     #[test]
     fn test_mood_from_name() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(MusicMood::from_name("peaceful"), Some(MusicMood::Peaceful));
         assert_eq!(MusicMood::from_name("Combat"), Some(MusicMood::Combat));
         assert_eq!(MusicMood::from_name("TENSE"), Some(MusicMood::Tense));
@@ -448,6 +449,7 @@ mod tests {
 
     #[test]
     fn test_music_system_add_track() {
+        crate::test_support::ensure_ambient_host();
         let mut sys = MusicSystem::new();
         sys.add_track(MusicTrack {
             index: 0,
@@ -462,6 +464,7 @@ mod tests {
 
     #[test]
     fn test_next_prev_track_names() {
+        crate::test_support::ensure_ambient_host();
         let mut sys = MusicSystem::new();
         sys.add_track_name("Alpha");
         sys.add_track_name("Beta");
@@ -474,6 +477,7 @@ mod tests {
 
     #[test]
     fn test_set_enabled() {
+        crate::test_support::ensure_ambient_host();
         let mut sys = MusicSystem::new();
         assert!(sys.is_enabled());
         sys.set_enabled(false);

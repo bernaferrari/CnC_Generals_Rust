@@ -6,26 +6,24 @@
 use super::pool::ObjectPool;
 use super::stats::{AllocationStats, MemoryStats};
 use std::any::TypeId;
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::ops::Deref;
+use std::sync::{Arc, LazyLock, Mutex};
 
 /// Global registry of all pools.
 ///
-/// Single-owner like the pools it tracks: the C++ original is a set of
-/// plain per-type statics (`AutoPoolClass::Allocator`) driven by one thread.
-/// THREAD: the process-wide instance lives in a `thread_local!` below —
-/// no cross-thread boundary, so no lock.
+/// Mirrors C++ per-type `AutoPoolClass::Allocator` statics. Process-wide
+/// instance is an opaque LazyLock slot (C++ engine-lifetime singleton).
 pub struct PoolRegistry {
     /// Map from (TypeId, name) to pool.
-    pools: RefCell<HashMap<(TypeId, String), Arc<dyn PoolHandle>>>,
+    pools: Mutex<HashMap<(TypeId, String), Arc<dyn PoolHandle>>>,
 }
 
 impl PoolRegistry {
     /// Create a new registry.
     pub fn new() -> Self {
         Self {
-            pools: RefCell::new(HashMap::new()),
+            pools: Mutex::new(HashMap::new()),
         }
     }
 
@@ -33,24 +31,29 @@ impl PoolRegistry {
     pub fn register<T: 'static + Send>(&self, name: String, pool: Arc<ObjectPool<T>>) {
         let key = (TypeId::of::<T>(), name);
         self.pools
-            .borrow_mut()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(key, Arc::new(TypedPoolHandle { pool }));
     }
 
     /// Get a pool by type and name.
     pub fn get<T: 'static + Send>(&self, name: &str) -> Option<Arc<ObjectPool<T>>> {
         let key = (TypeId::of::<T>(), name.to_string());
-        self.pools.borrow().get(&key).and_then(|handle| {
-            handle
-                .as_any()
-                .downcast_ref::<TypedPoolHandle<T>>()
-                .map(|h| Arc::clone(&h.pool))
-        })
+        self.pools
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&key)
+            .and_then(|handle| {
+                handle
+                    .as_any()
+                    .downcast_ref::<TypedPoolHandle<T>>()
+                    .map(|h| Arc::clone(&h.pool))
+            })
     }
 
     /// Get global memory statistics.
     pub fn memory_stats(&self) -> MemoryStats {
-        let pools = self.pools.borrow();
+        let pools = self.pools.lock().unwrap_or_else(|e| e.into_inner());
         let mut total_allocations = 0;
         let mut total_bytes_allocated = 0;
         let mut total_bytes_in_use = 0;
@@ -89,7 +92,8 @@ impl PoolRegistry {
     /// Get list of all pool names.
     pub fn pool_names(&self) -> Vec<String> {
         self.pools
-            .borrow()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
             .keys()
             .map(|(_, name)| name.clone())
             .collect()
@@ -97,7 +101,7 @@ impl PoolRegistry {
 
     /// Clear all pools (dangerous!).
     pub fn clear_all(&self) {
-        for handle in self.pools.borrow().values() {
+        for handle in self.pools.lock().unwrap_or_else(|e| e.into_inner()).values() {
             handle.clear();
         }
     }
@@ -109,11 +113,8 @@ impl Default for PoolRegistry {
     }
 }
 
-/// Trait for type-erased pool handles.
-///
-/// The registry is thread-local (single-owner), so no Send/Sync bound:
-/// handles never cross a thread boundary.
-trait PoolHandle {
+/// Trait for type-erased pool handles (Send: process-wide Mutex registry).
+trait PoolHandle: Send + Sync {
     fn as_any(&self) -> &dyn std::any::Any;
     fn get_stats(&self) -> AllocationStats;
     fn clear(&self);
@@ -138,22 +139,22 @@ impl<T: 'static + Send> PoolHandle for TypedPoolHandle<T> {
     }
 }
 
-/// Global pool registry singleton.
-///
-/// Thread-local to match the C++ thread model: the registry is a plain
-/// static driven by one thread, so each thread gets its own instance
-/// instead of sharing a lock.
-thread_local! {
-    pub static POOL_REGISTRY: PoolRegistry = PoolRegistry::new();
+/// Opaque process-wide pool registry (C++ engine-lifetime singleton).
+pub struct PoolRegistrySlot(LazyLock<PoolRegistry>);
+impl Deref for PoolRegistrySlot {
+    type Target = PoolRegistry;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
+pub static POOL_REGISTRY: PoolRegistrySlot =
+    PoolRegistrySlot(LazyLock::new(PoolRegistry::new));
 
 /// Convenience macro for registering a pool.
 #[macro_export]
 macro_rules! register_pool {
     ($name:expr, $pool:expr) => {
-        $crate::memory::POOL_REGISTRY.with(|registry| {
-            registry.register($name.to_string(), $pool)
-        })
+        $crate::memory::POOL_REGISTRY.register($name.to_string(), $pool)
     };
 }
 
@@ -161,7 +162,7 @@ macro_rules! register_pool {
 #[macro_export]
 macro_rules! get_pool {
     ($ty:ty, $name:expr) => {
-        $crate::memory::POOL_REGISTRY.with(|registry| registry.get::<$ty>($name))
+        $crate::memory::POOL_REGISTRY.get::<$ty>($name)
     };
 }
 

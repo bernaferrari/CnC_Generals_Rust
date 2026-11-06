@@ -373,7 +373,8 @@ pub struct AIPlayer {
     // Timing and Decision Making
     pub last_update_time: f32,
     pub resource_check_time: f32,
-    pub enemy_check_time: f32,
+    /// C++ `AISkirmishPlayer::m_frameToCheckEnemy`: logic-frame deadline for `getAiEnemy`.
+    pub frame_to_check_enemy: u32,
 
     // AI Decision State
     pub current_strategy: AIStrategy,

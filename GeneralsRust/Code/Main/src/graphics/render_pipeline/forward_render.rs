@@ -11,6 +11,7 @@ use super::*;
 use crate::graphics::fow_uniform_integration::frozen_fow_model_fields;
 use crate::graphics::render_item::RenderItemBonePaletteSource;
 use ww3d_renderer_3d::rendering::mesh_system::FrozenFowVisibility;
+use ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase;
 
 struct LaserCallbackPack {
     pipeline: std::sync::Arc<wgpu::RenderPipeline>,
@@ -124,7 +125,7 @@ impl ForwardPass {
             })
     }
 
-    pub(super) fn initialize(graphics_system: &GraphicsSystem) -> Result<Self> {
+    pub(super) fn initialize(engine: ww3d_engine::SharedEngine, graphics_system: &GraphicsSystem) -> Result<Self> {
         // Initialize WW3D renderer - this may fail if engine is not initialized
         let clear_color = if std::env::var_os("GENERALS_DEBUG_WW3D_CLEAR_COLOR").is_some() {
             Vec4::new(0.0, 0.55, 0.0, 1.0)
@@ -135,14 +136,17 @@ impl ForwardPass {
             clear_color,
             ..WgpuMainRendererConfig::default()
         };
-        let renderer = WgpuMainRenderer::from_engine(renderer_config)
+        let renderer = WgpuMainRenderer::from_engine(engine.clone(), renderer_config)
             .map_err(|e| anyhow::anyhow!("Failed to initialize WW3D renderer: {e:?}"))?;
+        // Publish session runtime so GameClient LOD / texture quality hit the same bag.
+        game_client::core::game_client::set_live_renderer_3d(std::sync::Arc::clone(
+            &renderer.renderer_3d,
+        ));
+
 
         // Get engine device and queue - these are Arc clones of the global engine resources
-        let device =
-            ww3d_engine::device().map_err(|e| anyhow::anyhow!("WW3D device unavailable: {e:?}"))?;
-        let queue =
-            ww3d_engine::queue().map_err(|e| anyhow::anyhow!("WW3D queue unavailable: {e:?}"))?;
+        let device = engine.lock().device();
+        let queue = engine.lock().queue();
 
         #[cfg(feature = "game_client")]
         let particle_renderer = match graphics_system.depth_format() {
@@ -247,9 +251,10 @@ impl ForwardPass {
             return false;
         }
         if self.laser_draw_gpu.is_none() {
+            let color_format = self.renderer.engine.lock().color_format();
             self.laser_draw_gpu = Some(crate::graphics::laser_draw::LaserDrawGpu::new(
                 self.device.as_ref(),
-                wgpu::TextureFormat::Bgra8UnormSrgb,
+                color_format,
             ));
         }
         let view_proj = *projection_matrix * *view_matrix;
@@ -269,7 +274,8 @@ impl ForwardPass {
             buffer,
             vertex_count,
         };
-        self.renderer.enqueue_post_frame_callback(move |frame| {
+        self.renderer.enqueue_frame_work(FramePhase::Translucent, move |frame| {
+            frame.note_render_pass();
             let color_view = frame.color_view_arc();
             let depth_view = frame.depth_view_arc();
             let encoder = frame.encoder();
@@ -365,7 +371,8 @@ impl ForwardPass {
                 radius_items: native_radius_items,
                 particles: prepared_particles,
             });
-        self.renderer.enqueue_scoped_post_frame_pass(
+        self.renderer.enqueue_scoped_native_pass(
+            FramePhase::Particles,
             ww3d_renderer_3d::rendering::wgpu_main_renderer::ScopedNativePass::ClientEffects,
         );
         true
@@ -449,7 +456,7 @@ impl ForwardPass {
     pub(super) fn is_ready(&self) -> bool {
         // Verify engine is still initialized by checking if we can get device/queue
         // The Arc references we hold should still be valid, but engine might have shut down
-        ww3d_engine::device().is_ok() && ww3d_engine::queue().is_ok()
+        true /* SharedEngine always exposes device/queue */
     }
 
     #[allow(unused_assignments)]
@@ -598,7 +605,7 @@ impl ForwardPass {
             .projected_shroud_uploader
             .renderer_binding(projected_shroud);
         self.ghost_lighting_environment =
-            Self::build_always_fogged_light_environment(lighting).map(Arc::new);
+            Self::build_always_fogged_light_environment(lighting, &self.renderer.renderer_3d).map(Arc::new);
 
         // An occluded window must not fail the frame or present into a drawable
         // the compositor will not take.
@@ -608,9 +615,21 @@ impl ForwardPass {
                 if std::env::var_os("GENERALS_CAMERA_GATE_REQUEST").is_some() {
                     warn!(
                         "ForwardPass::render skipped surface acquisition: {message}; total_owned_submits={} last_frame_submit_count={} frame_is_active={}",
-                        ww3d_engine::total_owned_submits(),
-                        ww3d_engine::last_frame_submit_count(),
-                        ww3d_engine::frame_is_active()
+                        {
+                            let eng = &self.renderer.engine;
+                            let fs = eng.lock().frame_submit_state();
+                            ww3d_engine::total_owned_submits(&fs.lock())
+                        },
+                        {
+                            let eng = &self.renderer.engine;
+                            let fs = eng.lock().frame_submit_state();
+                            ww3d_engine::last_frame_submit_count(&fs.lock())
+                        },
+                        {
+                            let eng = &self.renderer.engine;
+                            let fs = eng.lock().frame_submit_state();
+                            ww3d_engine::frame_is_active(&fs.lock())
+                        }
                     );
                 }
                 return Ok(());
@@ -682,7 +701,7 @@ impl ForwardPass {
             let (viewport_min, viewport_max) = self.tactical_viewport.normalized_bounds();
             self.camera.set_viewport(viewport_min, viewport_max);
             renderer.set_camera(self.camera.clone());
-            renderer.set_light_environment(Self::build_light_environment(lighting));
+            renderer.set_light_environment(Self::build_light_environment(lighting, &self.renderer.renderer_3d));
             renderer.set_projected_shroud(projected_shroud_binding);
             Self::log_visibility_probe(
                 render_items,
@@ -861,6 +880,7 @@ impl ForwardPass {
 
     pub(super) fn build_light_environment(
         lighting: Option<&CachedLighting>,
+        r3d: &ww3d_renderer_3d::Renderer3dRuntime,
     ) -> Option<LightEnvironmentClass> {
         let mut env = LightEnvironmentClass::new();
         let have_metadata = lighting
@@ -892,7 +912,7 @@ impl ForwardPass {
         let direction = Vec3::from_array(direction).normalize_or_zero();
         let mut light = LightClass::directional(direction, Vec3::from_array(color), 1.0);
         light.enabled = true;
-        env.add_light(light);
+        env.add_light(r3d, light);
 
         #[cfg(feature = "game_client")]
         {
@@ -910,12 +930,12 @@ impl ForwardPass {
                 let intensity = pulse_color.max_element().max(0.01);
                 let mut point = LightClass::point(position, pulse_color, intensity, range);
                 point.enabled = true;
-                env.add_light(point);
+                env.add_light(r3d, point);
             }
         }
 
-        static LOGGED_FALLBACK_LIGHTING: AtomicBool = AtomicBool::new(false);
-        if !have_metadata && !LOGGED_FALLBACK_LIGHTING.swap(true, Ordering::Relaxed) {
+        static LOGGED_FALLBACK_LIGHTING: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        if !have_metadata && LOGGED_FALLBACK_LIGHTING.set(()).is_ok() {
             warn!(
                 "ForwardPass lighting metadata unavailable/incomplete; using fallback ambient+sun lighting"
             );
@@ -928,8 +948,9 @@ impl ForwardPass {
     /// GameLogic query is permitted here.
     pub(super) fn build_always_fogged_light_environment(
         lighting: Option<&CachedLighting>,
+        r3d: &ww3d_renderer_3d::Renderer3dRuntime,
     ) -> Option<LightEnvironmentClass> {
-        let mut env = Self::build_light_environment(lighting)?;
+        let mut env = Self::build_light_environment(lighting, r3d)?;
         let fraction = lighting
             .and_then(|value| value.fogged_light_fraction)
             .unwrap_or(0.5)
@@ -947,8 +968,9 @@ impl ForwardPass {
         projection_matrix: &Mat4,
         camera_position: Vec3,
     ) {
-        static PROBE_FRAME_COUNTER: AtomicUsize = AtomicUsize::new(0);
-        let frame = PROBE_FRAME_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let frame = crate::main_services::main_services()
+            .probe_frame_counter
+            .fetch_add(1, Ordering::Relaxed);
         if !frame.is_multiple_of(120) {
             return;
         }
@@ -1029,8 +1051,9 @@ impl ForwardPass {
     }
 
     pub(super) fn log_material_probe(render_items: &[RenderItem]) {
-        static MATERIAL_PROBE_FRAME_COUNTER: AtomicUsize = AtomicUsize::new(0);
-        let frame = MATERIAL_PROBE_FRAME_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let frame = crate::main_services::main_services()
+            .material_probe_frame_counter
+            .fetch_add(1, Ordering::Relaxed);
         if !frame.is_multiple_of(120) {
             return;
         }
@@ -1174,8 +1197,8 @@ impl ForwardPass {
         };
         mesh.set_uv_offset_override(uv_override);
         if std::env::var_os("GENERALS_FORCE_TWO_SIDED").is_some() {
-            static LOGGED_FORCE_TWO_SIDED: AtomicBool = AtomicBool::new(false);
-            if !LOGGED_FORCE_TWO_SIDED.swap(true, Ordering::Relaxed) {
+            static LOGGED_FORCE_TWO_SIDED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+            if LOGGED_FORCE_TWO_SIDED.set(()).is_ok() {
                 warn!(
                     "GENERALS_FORCE_TWO_SIDED enabled: forcing two-sided pipelines for mesh diagnostics"
                 );
@@ -1190,22 +1213,13 @@ impl ForwardPass {
         Ok(Some(Arc::new(mesh)))
     }
 
-    pub(super) fn enqueue_post_frame_callback<F>(&mut self, callback: F)
+    pub(super) fn enqueue_frame_work<F>(&mut self, phase: FramePhase, work: F)
     where
         F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()>
             + wgpu::WasmNotSend
             + 'static,
     {
-        self.renderer.enqueue_post_frame_callback(callback);
-    }
-
-    pub(super) fn enqueue_pre_scene_callback<F>(&mut self, callback: F)
-    where
-        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()>
-            + wgpu::WasmNotSend
-            + 'static,
-    {
-        self.renderer.enqueue_pre_scene_callback(callback);
+        self.renderer.enqueue_frame_work(phase, work);
     }
 
     pub(super) fn ensure_mesh_model(
@@ -1494,9 +1508,9 @@ mod tests {
             fogged_light_fraction: Some(0.25),
         };
 
-        let ordinary = ForwardPass::build_light_environment(Some(&lighting))
+        let ordinary = ForwardPass::build_light_environment(Some(&lighting), &ww3d_renderer_3d::Renderer3dRuntime::new())
             .expect("frozen lighting metadata builds an ordinary environment");
-        let fogged = ForwardPass::build_always_fogged_light_environment(Some(&lighting))
+        let fogged = ForwardPass::build_always_fogged_light_environment(Some(&lighting), &ww3d_renderer_3d::Renderer3dRuntime::new())
             .expect("the same frozen metadata builds the dedicated ghost environment");
 
         assert_eq!(fogged.ambient, ordinary.ambient * 0.25);

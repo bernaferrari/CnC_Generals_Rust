@@ -680,6 +680,7 @@ pub fn live_kind_of_cpp_mask(kind: crate::game_logic::KindOf) -> u128 {
         KindOf::SpawnsAreTheWeapons => M::SPAWNS_ARE_THE_WEAPONS.bits(),
         KindOf::PortableStructure => M::PORTABLE_STRUCTURE.bits(),
         KindOf::BoobyTrap => M::BOOBY_TRAP.bits(),
+        KindOf::ProducedAtHelipad => 0, // gameplay-only; no leftover mask bit packed here
 
         KindOf::Resource | KindOf::Worker | KindOf::Harvestable => 0,
     }
@@ -695,59 +696,6 @@ pub fn live_object_kind_of_cpp_mask<'a>(
         .fold(0u128, |acc, k| acc | live_kind_of_cpp_mask(*k))
 }
 
-fn parse_extra_detect_kindof_ini(value: &str) -> u128 {
-    use game_engine::common::system::kind_of::KindOfMask;
-    KindOfMask::parse_ini(KindOfMask::empty(), value)
-        .map(|m| m.bits())
-        .unwrap_or(0)
-}
-
-/// Leftover ThingFactory `StealthDetectorUpdate` ExtraRequired/ForbiddenKindOf.
-pub fn extra_detect_kindof_from_leftover_template(template_name: &str) -> Option<(u128, u128)> {
-    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
-    let factory = guard.as_ref()?;
-    let tmpl = factory.find_template(template_name, false)?;
-    for entry in tmpl.get_behavior_module_info().iter() {
-        if !entry
-            .name
-            .as_str()
-            .eq_ignore_ascii_case("StealthDetectorUpdate")
-        {
-            continue;
-        }
-        if let Some(data) = entry
-            .data
-            .downcast_ref::<gamelogic::object::behavior::StealthDetectorUpdateModuleData>()
-        {
-            return Some((data.extra_detect_kindof, data.extra_detect_kindof_not));
-        }
-        let required = parse_extra_detect_kindof_ini(
-            entry
-                .data
-                .get_ini_field("ExtraRequiredKindOf")
-                .unwrap_or(""),
-        );
-        let forbidden = parse_extra_detect_kindof_ini(
-            entry
-                .data
-                .get_ini_field("ExtraForbiddenKindOf")
-                .unwrap_or(""),
-        );
-        return Some((required, forbidden));
-    }
-    None
-}
-
-/// ExtraRequired/ForbiddenKindOf for a detector: leftover module, else host fields.
-#[inline]
-pub fn extra_detect_kindof_for_detector(
-    template_name: &str,
-    extra_required: u128,
-    extra_forbidden: u128,
-) -> (u128, u128) {
-    extra_detect_kindof_from_leftover_template(template_name)
-        .unwrap_or((extra_required, extra_forbidden))
-}
 
 /// Wave 97 detector residual deepen honesty pack.
 pub fn honesty_detector_residual_deepen_pack_wave97() -> bool {

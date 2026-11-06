@@ -12,8 +12,7 @@ pub struct AudioViewObservation {
 }
 
 fn legacy_audio_visibility(position: &Coord3D) -> bool {
-    AUDIO_VIEW_RESOLVER
-        .get()
+    audio_view_resolver()
         .map(|resolver| resolver.is_world_position_on_screen(position))
         .unwrap_or(true)
 }
@@ -59,7 +58,7 @@ impl AudioManager {
     }
 
     fn update_listener_from_view(&mut self) {
-        let Some(resolver) = AUDIO_VIEW_RESOLVER.get() else {
+        let Some(resolver) = audio_view_resolver() else {
             return;
         };
 

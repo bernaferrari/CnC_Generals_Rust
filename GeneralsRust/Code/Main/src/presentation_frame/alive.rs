@@ -463,7 +463,7 @@ impl PresentationFrame {
                 o.team == player_team
                     && UnitControlSystem::presentation_is_selectable(o)
                     && !o.destroyed
-                    && (o.kind_of.contains(&KindOf::Hero) || o.template_name.contains("Hero"))
+                    && o.kind_of.contains(&KindOf::Hero)
             })
             .map(|o| o.id)
             .collect();

@@ -223,8 +223,8 @@ impl ForwardPass {
             let inv = 1.0 / mesh.vertices.len() as f32;
             let avg = color_sum * inv;
             if avg.x.max(avg.y).max(avg.z) <= 0.05 {
-                static LOW_VERTEX_COLOR_WARNINGS: AtomicUsize = AtomicUsize::new(0);
-                let count = LOW_VERTEX_COLOR_WARNINGS.fetch_add(1, Ordering::Relaxed);
+                let low_vertex_color_warnings = &crate::main_services::main_services().low_vertex_color_warnings;
+                let count = low_vertex_color_warnings.fetch_add(1, Ordering::Relaxed);
                 if count < 20 {
                     warn!(
                         "Mesh '{}' has explicit vertex colors but near-black average ({:.3},{:.3},{:.3},{:.3}); model '{}'",
@@ -232,8 +232,8 @@ impl ForwardPass {
                     );
                 }
             } else {
-                static EXPLICIT_VERTEX_COLOR_DEBUGS: AtomicUsize = AtomicUsize::new(0);
-                let count = EXPLICIT_VERTEX_COLOR_DEBUGS.fetch_add(1, Ordering::Relaxed);
+                let explicit_vertex_color_debugs = &crate::main_services::main_services().explicit_vertex_color_debugs;
+                let count = explicit_vertex_color_debugs.fetch_add(1, Ordering::Relaxed);
                 if count < 8 {
                     debug!(
                         "Mesh '{}' explicit vertex-color average ({:.3},{:.3},{:.3},{:.3})",
@@ -485,8 +485,8 @@ impl ForwardPass {
         if pass.shader.get_color_mask()
             == ww3d_renderer_3d::rendering::shader_system::shader::ColorMaskType::Disable
         {
-            static DISABLED_COLOR_MASK_WARNINGS: AtomicUsize = AtomicUsize::new(0);
-            let count = DISABLED_COLOR_MASK_WARNINGS.fetch_add(1, Ordering::Relaxed);
+            let disabled_color_mask_warnings = &crate::main_services::main_services().disabled_color_mask_warnings;
+            let count = disabled_color_mask_warnings.fetch_add(1, Ordering::Relaxed);
             if count < 40 {
                 warn!(
                     "Shader color mask disabled for mesh='{}' pass={} (shader_bits=0x{:08X})",

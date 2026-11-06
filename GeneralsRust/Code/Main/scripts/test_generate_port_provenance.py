@@ -316,6 +316,36 @@ class GeneratePortProvenanceTests(unittest.TestCase):
             ["PORT_STATE.txt"], provenance.verify_generated(fixture.root, output)
         )
 
+    def test_nonconventional_cargo_targets_are_discovered(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        fixture = ProvenanceFixture(root)
+        fixture.write(
+            "GeneralsRust/Code/Tools/Launcher/Cargo.toml",
+            '[package]\nname = "launcher"\nversion = "0.1.0"\nedition = "2021"\n\n'
+            '[[bin]]\nname = "launcher"\npath = "src/win_main.rs"\n',
+        )
+        fixture.write(
+            "GeneralsRust/Code/Tools/Launcher/src/win_main.rs",
+            "mod private_child;\nfn main() {}\n",
+        )
+        fixture.write(
+            "GeneralsRust/Code/Tools/Launcher/src/win_main/private_child.rs",
+            "pub fn helper() {}\n",
+        )
+        fixture.write(
+            "GeneralsRust/Code/Tools/Launcher/src/decoy.rs",
+            "pub fn decoy() {}\n",
+        )
+        reachable = provenance.collect_reachable_rust(root / "GeneralsRust")
+        win_main = (root / "GeneralsRust/Code/Tools/Launcher/src/win_main.rs").resolve()
+        child = (root / "GeneralsRust/Code/Tools/Launcher/src/win_main/private_child.rs").resolve()
+        decoy = (root / "GeneralsRust/Code/Tools/Launcher/src/decoy.rs").resolve()
+        self.assertIn(win_main, reachable)
+        self.assertIn(child, reachable)
+        self.assertNotIn(decoy, reachable)
+
 
 def file_sha(root: Path, relative: str) -> str:
     return hashlib.sha256((root / relative).read_bytes()).hexdigest()
@@ -916,6 +946,8 @@ class ReviewedOwnershipSchemaTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertEqual({}, provenance.load_reviewed_ownership(fixture.root))
+
+
 
 
 if __name__ == "__main__":

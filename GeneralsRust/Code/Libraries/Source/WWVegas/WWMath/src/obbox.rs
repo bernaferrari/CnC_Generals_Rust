@@ -113,18 +113,20 @@ impl OBBox {
 
     /// Initialize a random oriented box
     pub fn init_random(&mut self, min_extent: f32, max_extent: f32) {
+                let mut rng = crate::WwMathRng::default();
+
         self.center = Vector3::ZERO;
 
-        self.extent.x = min_extent + WWMath::random_float() * (max_extent - min_extent);
-        self.extent.y = min_extent + WWMath::random_float() * (max_extent - min_extent);
-        self.extent.z = min_extent + WWMath::random_float() * (max_extent - min_extent);
+        self.extent.x = min_extent + WWMath::random_float(&mut rng) * (max_extent - min_extent);
+        self.extent.y = min_extent + WWMath::random_float(&mut rng) * (max_extent - min_extent);
+        self.extent.z = min_extent + WWMath::random_float(&mut rng) * (max_extent - min_extent);
 
         // Create random orientation using quaternion
         let mut orient = crate::wwmath::Quaternion::from_components(
-            WWMath::random_float(),
-            WWMath::random_float(),
-            WWMath::random_float(),
-            WWMath::random_float(),
+            WWMath::random_float(&mut rng),
+            WWMath::random_float(&mut rng),
+            WWMath::random_float(&mut rng),
+            WWMath::random_float(&mut rng),
         );
         orient.normalize();
 

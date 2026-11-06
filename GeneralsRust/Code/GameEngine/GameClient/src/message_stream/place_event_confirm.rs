@@ -3,7 +3,7 @@
 //! Used by the crate translator and exported for the live host click path.
 
 use super::game_message::Coord3D;
-use crate::eva::{EvaMessage, with_eva};
+use crate::eva::EvaMessage;
 use crate::helpers::PendingSpecialPower;
 use game_engine::common::system::build_assistant::CanMakeType as BuildCanMakeType;
 use gamelogic::common::audio::AudioEventRts;
@@ -127,7 +127,7 @@ pub fn play_can_make_failure(
     ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) {
     if failure == BuildCanMakeType::NoMoney {
-        with_eva(|eva| eva.set_should_play(EvaMessage::InsufficientFunds));
+        ui.state.eva.set_should_play(EvaMessage::InsufficientFunds);
     }
     if let Some(message) = failure_message_for_can_make(failure) {
         ui.message(message);

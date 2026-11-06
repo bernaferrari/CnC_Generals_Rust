@@ -30,6 +30,10 @@ mod physics;
 mod presence;
 mod production;
 mod shock;
+#[cfg(test)]
+mod splash_partition_order_tests;
+#[cfg(test)]
+mod self_position_damage_tests;
 mod sleepy;
 mod step;
 pub(crate) use step::{
@@ -47,3 +51,5 @@ mod temporary_move_owner_tests;
 
 #[cfg(test)]
 mod jet_aim_owner_tests;
+#[cfg(test)]
+mod alt_turret_tick_owner_tests;

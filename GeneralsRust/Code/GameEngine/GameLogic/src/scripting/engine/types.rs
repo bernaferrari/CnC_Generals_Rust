@@ -2254,8 +2254,8 @@ pub(crate) fn qualify_trigger_area_name(
 ) -> Option<String> {
     if area_name == MY_INNER_PERIMETER || area_name == MY_OUTER_PERIMETER {
         let player_name = current_player_name?;
-        let ndx = crate::player::player_list()
-            .read()
+        let __player_list_arc = crate::player::player_list();
+            let ndx = __player_list_arc.read()
             .ok()
             .and_then(|list| list.find_player_by_name(player_name))
             .and_then(|player| {
@@ -2273,7 +2273,8 @@ pub(crate) fn qualify_trigger_area_name(
     if area_name == ENEMY_INNER_PERIMETER || area_name == ENEMY_OUTER_PERIMETER {
         let mut mp_ndx = -1;
         if let Some(player_name) = current_player_name {
-            if let Ok(list) = crate::player::player_list().read() {
+            let __player_list_arc = crate::player::player_list();
+        if let Ok(list) = __player_list_arc.read() {
                 if let Some(player) = list.find_player_by_name(player_name) {
                     if let Ok(guard) = player.read() {
                         if let Some(enemy_index) = guard.get_current_enemy_player_index() {
@@ -3010,8 +3011,6 @@ impl Drop for ActiveScriptListsRestore<'_> {
     }
 }
 
-static NEXT_SCRIPT_ENGINE_INSTANCE_ID: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(1);
 
 /// Hard cap on nested CALL_SUBROUTINE depth (C++ is stack-bound; we fail closed).
 const MAX_SUBROUTINE_CALL_DEPTH: u32 = 32;

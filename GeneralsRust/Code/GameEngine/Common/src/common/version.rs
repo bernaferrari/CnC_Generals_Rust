@@ -9,7 +9,6 @@
 // Author: Matthew D. Campbell, November 2001
 
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-use std::sync::OnceLock;
 
 /// The Version class formats the version number into integer and string
 /// values for different parts of the game.
@@ -258,11 +257,18 @@ impl Version {
     }
 }
 
-/// Global version instance stored in a thread-safe container.
-static VERSION_INSTANCE: OnceLock<RwLock<Version>> = OnceLock::new();
-
 fn version_lock() -> &'static RwLock<Version> {
-    VERSION_INSTANCE.get_or_init(|| RwLock::new(Version::new()))
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .system
+        .version
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if slot.is_none() {
+        *slot = Some(RwLock::new(Version::new()));
+    }
+    let lock = slot.as_ref().expect("version");
+    unsafe { std::mem::transmute(lock) }
 }
 
 /// Initialize the global version instance with default values.
@@ -307,7 +313,12 @@ pub fn get_version_mut() -> RwLockWriteGuard<'static, Version> {
 
 /// Check if version is initialized.
 pub fn is_version_initialized() -> bool {
-    VERSION_INSTANCE.get().is_some()
+    crate::common::common_services::common_services()
+        .system
+        .version
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .is_some()
 }
 
 #[cfg(test)]

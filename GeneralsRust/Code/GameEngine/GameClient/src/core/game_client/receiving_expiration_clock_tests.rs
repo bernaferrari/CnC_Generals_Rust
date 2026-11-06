@@ -93,7 +93,6 @@ fn run_public_expiration(
 ) -> Result<ExpirationObservations, String> {
     // These are the existing application presentation boundaries, exercised
     // serially. No fixture lock, ambient clock write or substitute UI is added.
-    get_shell().init().map_err(|error| error.to_string())?;
     let previous_bridge = crate::render_bridge::THE_RENDER_BRIDGE
         .lock()
         .unwrap()
@@ -104,6 +103,8 @@ fn run_public_expiration(
     let result = (|| {
         let template = expiration_template();
         let mut receiving = GameClient::new().map_err(|error| error.to_string())?;
+        receiving.subsystem_manager.in_game_ui =
+            Some(crate::core::subsystems::InGameUISubsystem::default());
         receiving.initialized = true;
         let id = receiving
             .create_drawable_from_template(&template)
@@ -143,7 +144,7 @@ fn run_public_expiration(
         for &frames in offers {
             receiving.set_frame(frames.client_frame);
             receiving
-                .update_presentation_shell_with_particle_frames(0., frames)
+                .update_presentation_shell_with_particle_frames(0., frames, 0)
                 .map_err(|error| error.to_string())?;
             stages.push(observe(&mut receiving, id));
         }
@@ -211,12 +212,14 @@ fn deadline_offers() -> [NativeParticleFrames; 3] {
 
 #[test]
 fn public_shell_expiration_uses_logic_clock_and_flash_uses_client_clock() {
+    crate::test_support::ensure_ambient_host();
     let observed = run_public_expiration(false, 4, &deadline_offers()).unwrap();
     assert_logic_expiration(&observed);
 }
 
 #[test]
 fn native_saved_expiration_continues_on_receiving_logic_clock() {
+    crate::test_support::ensure_ambient_host();
     let observed = run_public_expiration(true, 4, &deadline_offers()).unwrap();
     assert_logic_expiration(&observed);
     let (saved, resaved) = observed.payload.unwrap();
@@ -228,6 +231,7 @@ fn native_saved_expiration_continues_on_receiving_logic_clock() {
 
 #[test]
 fn public_shell_initial_client_zero_uses_actual_logic_one_for_expiration() {
+    crate::test_support::ensure_ambient_host();
     let observed = run_public_expiration(
         false,
         1,

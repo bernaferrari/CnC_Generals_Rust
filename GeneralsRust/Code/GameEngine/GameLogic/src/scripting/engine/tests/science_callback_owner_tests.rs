@@ -6,7 +6,7 @@ use crate::scripting::engine::get_script_engine;
 use crate::scripting::executor::ScriptContext;
 use crate::system::rank_info::{
     RankDefinition, RankDefinitionMode, RankInfoStore as GameLogicRankInfoStore,
-    init_global_rank_info_store, the_rank_info_store_mut,
+    init_global_rank_info_store, the_rank_info_store_arc,
 };
 use game_engine::common::ini::RankInfoStore as CommonRankInfoStore;
 use game_engine::common::rts::player_template::PlayerTemplate as CommonPlayerTemplate;
@@ -48,7 +48,8 @@ impl RankCatalogRestore {
         drop(common_handle);
 
         init_global_rank_info_store();
-        let mut logic_handle = the_rank_info_store_mut().expect("GameLogic rank store");
+        let logic_arc = the_rank_info_store_arc();
+        let mut logic_handle = logic_arc.write().expect("GameLogic rank store");
         let previous_game_logic =
             std::mem::replace(&mut *logic_handle, GameLogicRankInfoStore::new());
         for (index, sciences_granted) in rank_sciences.iter().enumerate() {
@@ -74,7 +75,8 @@ impl Drop for RankCatalogRestore {
         drop(common_handle);
 
         // This getter first synchronizes from the just-restored Common store.
-        let mut logic_handle = the_rank_info_store_mut().expect("GameLogic rank store");
+        let logic_arc = the_rank_info_store_arc();
+        let mut logic_handle = logic_arc.write().expect("GameLogic rank store");
         *logic_handle = self
             .game_logic
             .take()

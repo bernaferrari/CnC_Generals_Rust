@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::time::Duration;
 
 #[derive(Debug, Clone)]
@@ -50,13 +49,9 @@ impl Default for SimulationClock {
     }
 }
 
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static SIM_CLOCK: RefCell<SimulationClock> = RefCell::new(SimulationClock::default());
-}
-
 fn with_clock<R>(f: impl FnOnce(&mut SimulationClock) -> R) -> R {
-    SIM_CLOCK.with_borrow_mut(f)
+    let services = crate::common::common_services::common_services();
+    f(&mut services.sim_clock.lock().unwrap_or_else(|p| p.into_inner()))
 }
 
 fn fps_to_delta(target_fps: u32) -> Duration {
@@ -87,17 +82,17 @@ pub fn reset() {
 }
 
 pub fn frame() -> u32 {
-    SIM_CLOCK.with_borrow(|clock| clock.frame())
+    with_clock(|clock| clock.frame())
 }
 
 pub fn elapsed() -> Duration {
-    SIM_CLOCK.with_borrow(|clock| clock.elapsed())
+    with_clock(|clock| clock.elapsed())
 }
 
 pub fn delta() -> Duration {
-    SIM_CLOCK.with_borrow(|clock| clock.delta())
+    with_clock(|clock| clock.delta())
 }
 
 pub fn snapshot() -> SimulationClock {
-    SIM_CLOCK.with_borrow(|clock| clock.clone())
+    with_clock(|clock| clock.clone())
 }

@@ -18,9 +18,7 @@ use log::{debug, warn};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
-use log::warn;
+use std::sync::Arc;
 
 /// Texture loading priority
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -218,8 +216,13 @@ pub struct TextureLoaderClass {
 impl TextureLoaderClass {
     /// Create new texture loader
     pub fn new() -> Self {
-        let loader_id = LOADER_ID_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
+        // Instance-owned id (C++ file-static counter). Callers that need distinct
+        // ids across multiple loaders use `with_id`.
+        Self::with_id(1)
+    }
 
+    /// Construct with an explicit loader identity (no process counter).
+    pub fn with_id(loader_id: u32) -> Self {
         let format_manager = Arc::new(FormatManager::default_cpu());
 
         Self {
@@ -562,7 +565,9 @@ impl TextureLoaderClass {
 
         let allow_reduction = request.map_or(true, |req| req.allow_reduction);
         if allow_reduction {
+            let r3d = crate::process_state::Renderer3dRuntime::new();
             let mut reduction = texture_quality::compute_effective_reduction(
+                &r3d,
                 data.width,
                 data.height,
                 data.mip_levels,
@@ -792,68 +797,9 @@ pub struct CachedFileInfo {
     pub access_count: u64,
 }
 
-static LOADER_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
-
-fn texture_loader_slot() -> &'static Mutex<Option<TextureLoaderClass>> {
-    static SLOT: OnceLock<Mutex<Option<TextureLoaderClass>>> = OnceLock::new();
-    SLOT.get_or_init(|| Mutex::new(None))
-}
-
-fn lock_texture_loader_slot() -> MutexGuard<'static, Option<TextureLoaderClass>> {
-    match texture_loader_slot().lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    }
-}
-
-thread_local! {
-    /// C++ kept the texture loader singleton as a plain static on the game thread.
-    static TEXTURE_LOADER: RefCell<Option<TextureLoaderClass>> = const { RefCell::new(None) };
-}
-
-/// Run `f` with mutable access to the global texture loader, if initialized.
-pub fn with_texture_loader<R>(f: impl FnOnce(&mut TextureLoaderClass) -> R) -> Option<R> {
-    TEXTURE_LOADER.with_borrow_mut(|loader| {
-        let loader = loader.as_mut()?;
-        Some(f(loader))
-    })
-}
-
-/// Initialize global texture loader
-pub fn init_texture_loader() -> Result<()> {
-    TEXTURE_LOADER.with_borrow_mut(|slot| *slot = Some(TextureLoaderClass::new()));
-    Ok(())
-}
-
-/// Shutdown global texture loader
-pub fn shutdown_texture_loader() {
-    TEXTURE_LOADER.with_borrow_mut(|slot| *slot = None);
-}
-
-/// Quick texture loading functions
-pub fn load_texture(filename: &str) -> Result<Arc<TextureClass>> {
-    with_texture_loader(|loader| loader.load_texture(filename)).unwrap_or_else(|| {
-        Err(W3dError::NotInitialized(
-            "Texture loader not initialized".to_string(),
-        ))
-    })
-}
-
-pub fn load_texture_async(request: TextureLoadRequest) -> Result<()> {
-    with_texture_loader(|loader| loader.load_texture_async(request)).unwrap_or_else(|| {
-        Err(W3dError::NotInitialized(
-            "Texture loader not initialized".to_string(),
-        ))
-    })
-}
-
-pub fn get_cached_texture(filename: &str) -> Option<Arc<TextureClass>> {
-    with_texture_loader(|loader| loader.get_cached_texture(filename)).unwrap_or_default()
-}
-
-pub fn update_texture_loader() -> Result<()> {
-    with_texture_loader(|loader| loader.update()).unwrap_or(Ok(()))
-}
+/// Owned texture-loader helpers. Prefer constructing [`TextureLoaderClass`] on the
+/// owning renderer/asset manager — process TLS/slot singletons were removed so
+/// multiple game instances can each own a loader.
 
 #[cfg(test)]
 mod tests {

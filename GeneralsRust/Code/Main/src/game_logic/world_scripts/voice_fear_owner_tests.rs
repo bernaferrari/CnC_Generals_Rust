@@ -320,7 +320,7 @@ fn callback_completion_rereads_late_values_and_is_consumed_once_before_damage_fx
             // This is the real continuation window used for synchronous onDamage.
             object.set_position(Vec3::new(81., 2., -33.));
             object.owner_player_id = Some(11);
-            let mut audio = Vec::new();
+            let mut audio = crate::game_logic::SessionAudio::default();
             let mut receiver = |object: &mut Object,
                                 effect,
                                 source: Option<

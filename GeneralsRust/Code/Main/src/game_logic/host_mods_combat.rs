@@ -72,7 +72,7 @@ pub mod host_combat_chinook;
 pub mod host_combat_cycle;
 
 #[path = "host_command_button_hunt.rs"]
-pub(super) mod host_command_button_hunt;
+pub mod host_command_button_hunt;
 
 #[path = "host_countermeasures.rs"]
 pub mod host_countermeasures;
@@ -125,7 +125,8 @@ pub use host_fx_list_dispatch::{
     dispatch_fx_list_at_object, dispatch_fx_list_at_pos, dispatch_fx_list_at_pos_ex,
     dispatch_fx_list_at_pos_oriented, host_to_leftover_mat4, is_authored_fx_list_name,
     particle_template_names_for_fx_list, publish_host_fx_object, publish_host_fx_object_ex,
-    refresh_host_fx_object_poses_from_presentation, resolve_audio_event_names,
+    refresh_host_fx_object_poses_from_presentation,
+    refresh_host_fx_object_poses_from_presentation_on, resolve_audio_event_names,
     sound_names_for_fx_list,
 };
 

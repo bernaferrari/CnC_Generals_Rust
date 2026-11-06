@@ -82,32 +82,25 @@ End
 #[test]
 #[ignore = "requires native WGPU; explicit isolated airfield sale phase acceptance"]
 fn actual_airfield_sale_runs_body_die_before_native_retirement_and_checks_the_endphase_owner() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        let mut graphics = GraphicsSystem::new(
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     graphics.cache_model(
         crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
         model("CameraModel", 0.),
     );
-    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
-    let mut peer_pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
+    let mut peer_pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut client = GameClient::new().unwrap();
     let mut peer_client = GameClient::new().unwrap();
     let mut world = airfield_sell_world();
@@ -208,14 +201,14 @@ fn actual_airfield_sale_runs_body_die_before_native_retirement_and_checks_the_en
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             );
             assert!(world.start_sell_object_with_effects(
                 rack,
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             ));
             let object = &world.objects[&jet];
             assert_eq!(
@@ -270,7 +263,7 @@ fn actual_airfield_sale_runs_body_die_before_native_retirement_and_checks_the_en
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             crate::gameworld_shadow::run_owned_host_boundary(Some(&mut shadow), &mut world);
@@ -293,14 +286,14 @@ fn actual_airfield_sale_runs_body_die_before_native_retirement_and_checks_the_en
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             );
             world
                 .process_destroy_list_with_effects_checked(
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             assert!(world.objects.registered_is_empty());
@@ -331,7 +324,7 @@ fn actual_airfield_sale_runs_body_die_before_native_retirement_and_checks_the_en
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             ));
             assert_eq!(peer.objects[&peer_jet].health.current, 0.);
             assert_eq!(

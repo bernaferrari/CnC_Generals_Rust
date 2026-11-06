@@ -3,7 +3,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::{Mutex, OnceLock};
 
 use crate::display::image::Image;
 use crate::game_text::GameText;
@@ -17,7 +16,7 @@ use crate::gui::callbacks::wol_buddy_overlay::handle_buddy_responses;
 use crate::gui::gadgets::{ListBox, ListBoxItemData};
 use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, get_shell,
-    with_window_manager, write_input_focus_response,
+    write_input_focus_response,
 };
 use game_engine::common::ini::ini_game_data::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -51,7 +50,7 @@ const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
-struct WolWelcomeState {
+pub(crate) struct WolWelcomeState {
     parent_id: i32,
     button_back_id: i32,
     button_quick_match_id: i32,
@@ -91,27 +90,77 @@ struct WolWelcomeState {
     total_win_percent: f32,
 }
 
+#[cfg(test)]
 thread_local! {
-    static WOL_WELCOME_STATE: Rc<RefCell<WolWelcomeState>> = Rc::new(RefCell::new(WolWelcomeState::default()));
+    static TEST_WOL_WELCOME_STATE: std::cell::OnceCell<Rc<RefCell<WolWelcomeState>>> =
+        const { std::cell::OnceCell::new() };
+    static TEST_LOOK_AT_PLAYER: RefCell<(i32, String)> = const { RefCell::new((0, String::new())) };
 }
-static LOOK_AT_PLAYER: OnceLock<Mutex<(i32, String)>> = OnceLock::new();
+
+fn wol_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<WolWelcomeState>> {
+    if let Some(owner) = owner {
+        return owner.wol_welcome_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().wol_welcome_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_WOL_WELCOME_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(WolWelcomeState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(WolWelcomeState::default()))
+    }
+}
 
 fn wol_state() -> Rc<RefCell<WolWelcomeState>> {
-    WOL_WELCOME_STATE.with(Rc::clone)
+    wol_state_on_owner(None)
 }
 
 pub fn set_look_at_player(profile_id: i32, name: &str) {
-    let slot = LOOK_AT_PLAYER.get_or_init(|| Mutex::new((0, String::new())));
-    let mut guard = slot.lock().unwrap_or_else(|e| e.into_inner());
-    *guard = (profile_id, name.to_string());
+    let value = (profile_id, name.to_string());
+    if let Some(()) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .with_wol_welcome_look_at_player_mut(|slot| *slot = value.clone());
+    }) {
+        return;
+    }
+    #[cfg(test)]
+    {
+        *TEST_LOOK_AT_PLAYER.borrow_mut() = value;
+        return;
+    }
+    #[cfg(not(test))]
+    {
+        let _ = value;
+    }
 }
 
 pub fn get_look_at_player() -> (i32, String) {
-    LOOK_AT_PLAYER
-        .get_or_init(|| Mutex::new((0, String::new())))
-        .lock()
-        .map(|guard| guard.clone())
-        .unwrap_or((0, String::new()))
+    if let Some(value) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .with_wol_welcome_look_at_player_mut(|slot| slot.clone())
+    }) {
+        return value;
+    }
+    #[cfg(test)]
+    {
+        return TEST_LOOK_AT_PLAYER.with(|slot| slot.borrow().clone());
+    }
+    #[cfg(not(test))]
+    {
+        (0, String::new())
+    }
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -159,7 +208,7 @@ fn replace_first(haystack: &str, needle: &str, replacement: &str) -> String {
 
 fn update_num_players_online(state: &mut WolWelcomeState) {
     let players_online_id = name_to_id("WOLWelcomeMenu.wnd:StaticTextNumPlayersOnline");
-    with_window_manager(|manager| {
+    owner.with_manager(|manager| {
         if let Some(window) = manager.get_window_by_id(players_online_id) {
             let template = GameText::fetch("GUI:NumPlayersOnline");
             let text = replace_first(&template, "%d", &state.last_num_players_online.to_string());
@@ -305,7 +354,7 @@ fn update_overall_stats(state: &mut WolWelcomeState) {
         let text = replace_first(&template, "%d", &percent.to_string());
         let window_name = format!("WOLWelcomeMenu.wnd:Percent{}", side);
         let window_id = name_to_id(&window_name);
-        if let Some(window) = with_window_manager(|manager| manager.get_window_by_id(window_id)) {
+        if let Some(window) = owner.with_manager(|manager| manager.get_window_by_id(window_id)) {
             let _ = window.borrow_mut().set_text(&text);
         }
     }
@@ -404,7 +453,7 @@ pub(crate) fn populate_player_info_windows(
     let set_text = |name: &str, value: String| {
         let full = format!("{parent_window_name}:{name}");
         let id = name_to_id(&full);
-        if let Some(window) = with_window_manager(|manager| manager.get_window_by_id(id)) {
+        if let Some(window) = owner.with_manager(|manager| manager.get_window_by_id(id)) {
             let _ = window.borrow_mut().set_text(&value);
         }
     };
@@ -457,9 +506,9 @@ pub(crate) fn populate_player_info_windows(
     if let Some(rank_values) = rank_values.as_ref() {
         let progress_name = format!("{parent_window_name}:ProgressBarRank");
         let id = name_to_id(&progress_name);
-        if let Some(window) = with_window_manager(|manager| manager.get_window_by_id(id)) {
+        if let Some(window) = owner.with_manager(|manager| manager.get_window_by_id(id)) {
             if current_rank as usize >= rank_values.ranks.len().saturating_sub(1) {
-                let _ = window.borrow_mut().hide(true);
+                let _ = window.borrow_mut().hide_without_manager_side_effects(true);
             } else if let Some(progress) = window.borrow_mut().progress_bar_mut() {
                 let next_rank = rank_values.ranks[current_rank as usize + 1];
                 let current_val = rank_values.ranks[current_rank as usize];
@@ -479,7 +528,7 @@ pub(crate) fn populate_player_info_windows(
         }
         let full = format!("{parent_window_name}:{name}");
         let id = name_to_id(&full);
-        if let Some(window) = with_window_manager(|manager| manager.get_window_by_id(id)) {
+        if let Some(window) = owner.with_manager(|manager| manager.get_window_by_id(id)) {
             let Some(image) =
                 crate::gui::callbacks::online_callback_support::lookup_window_image(image_name)
             else {
@@ -542,12 +591,12 @@ pub(crate) fn populate_player_info_windows(
 
     let in_progress_name = format!("{parent_window_name}:StaticTextInProgress");
     if let Some(window) =
-        with_window_manager(|manager| manager.get_window_by_id(name_to_id(&in_progress_name)))
+        owner.with_manager(|manager| manager.get_window_by_id(name_to_id(&in_progress_name)))
     {
         if have_stats {
-            let _ = window.borrow_mut().hide(true);
+            let _ = window.borrow_mut().hide_without_manager_side_effects(true);
         } else {
-            let _ = window.borrow_mut().hide(false);
+            let _ = window.borrow_mut().hide_without_manager_side_effects(false);
             let _ = window
                 .borrow_mut()
                 .set_text(&GameText::fetch("GUI:FetchingPlayerInfo"));
@@ -601,7 +650,7 @@ fn populate_battle_honors_list(
         return;
     }
     let listbox_id = name_to_id("PopupPlayerInfo.wnd:ListboxInfo");
-    let Some(listbox_window) = with_window_manager(|manager| manager.get_window_by_id(listbox_id))
+    let Some(listbox_window) = owner.with_manager(|manager| manager.get_window_by_id(listbox_id))
     else {
         return;
     };
@@ -891,7 +940,7 @@ pub fn wol_welcome_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std:
     state.button_my_info_id = name_to_id("WOLWelcomeMenu.wnd:ButtonMyInfo");
     state.button_ladder_id = name_to_id("WOLWelcomeMenu.wnd:ButtonLadder");
 
-    with_window_manager(|manager| {
+    owner.with_manager(|manager| {
         state.parent = manager.get_window_by_id(state.parent_id);
         state.button_back = manager.get_window_by_id(state.button_back_id);
         state.button_options = manager.get_window_by_id(state.button_options_id);
@@ -960,7 +1009,7 @@ pub fn wol_welcome_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std:
     }
 
     if let Some(parent) = state.parent.as_ref() {
-        let _ = with_window_manager(|manager| manager.set_focus(Some(parent)));
+        let _ = owner.with_manager(|manager| manager.set_focus(Some(parent)));
     }
 
     let got_group_room_list = get_gamespy_info()
@@ -980,7 +1029,7 @@ pub fn wol_welcome_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std:
 
     detect_firewall();
 
-    with_window_manager(|manager| manager.transition_set_group("WOLWelcomeMenuFade", false));
+    owner.with_manager(|manager| manager.transition_set_group("WOLWelcomeMenuFade", false));
 }
 
 pub fn wol_welcome_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
@@ -1001,14 +1050,14 @@ pub fn wol_welcome_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn s
     }
 
     get_shell().reverse_animate_window();
-    with_window_manager(|manager| manager.transition_reverse("WOLWelcomeMenuFade"));
+    owner.with_manager(|manager| manager.transition_reverse("WOLWelcomeMenuFade"));
     raise_gs_message_box();
 }
 
 pub fn wol_welcome_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let state_slot = wol_state();
     let shell_finished = get_shell().is_anim_finished();
-    let transitions_finished = with_window_manager(|manager| manager.transitions_finished());
+    let transitions_finished = owner.with_manager(|manager| manager.transitions_finished());
     let (should_shutdown, next_screen, raise_boxes, should_poll) = {
         let mut state = state_slot.borrow_mut();
         if state.is_shutting_down && shell_finished && transitions_finished {

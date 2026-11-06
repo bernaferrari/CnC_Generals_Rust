@@ -99,7 +99,8 @@ impl GameLogic {
             unit.waiting_for_path = false;
             unit.queue_for_path_frame = 0;
             unit.movement.current_path_index = 0;
-            unit.movement.path = full_path;
+            let layers = self.pathfinding_system.found_path_layers().to_vec();
+            unit.movement.set_path_with_layers(full_path, layers);
             unit.movement.target_position = unit.movement.path.first().copied();
             unit.is_exact_path = true;
             unit.is_attack_path = false;
@@ -247,13 +248,13 @@ impl GameLogic {
                     .as_ref()
                     .is_some_and(|ds| ds.is_ready_to_move())
                 {
-                    let has_turret = unit.turret_enabled || unit.turret_turn_rate_rad > 0.0;
+                    let has_turret = unit.turret_ai.turret_enabled || unit.turret_ai.turret_turn_rate_rad > 0.0;
                     let turret_natural = crate::game_logic::host_deploy_style::leftover_host_turret_is_in_natural_position(
                         unit.status.under_construction,
-                        unit.turret_angle_deg,
-                        unit.turret_pitch_deg,
-                        unit.turret_natural_angle_deg,
-                        unit.turret_natural_pitch_deg,
+                        unit.turret_ai.turret_angle_deg,
+                        unit.turret_ai.turret_pitch_deg,
+                        unit.turret_ai.turret_natural_angle_deg,
+                        unit.turret_ai.turret_natural_pitch_deg,
                     );
                     let outcome = unit.deploy_style.as_mut().map(|ds| {
                         let started = ds.begin_undeploy_with_weapon_turret(
@@ -265,13 +266,13 @@ impl GameLogic {
                     });
                     if let Some((started, now_aligning)) = outcome {
                         if started && now_aligning {
-                            unit.turret_substate =
+                            unit.turret_ai.turret_substate =
                                 crate::game_logic::object::TurretSubState::Recenter;
-                            unit.turret_idle_recentering = true;
-                            unit.turret_target_id = None;
+                            unit.turret_ai.turret_idle_recentering = true;
+                            unit.turret_ai.turret_target_id = None;
                             unit.turret_runtime.target_pos = None;
                             unit.turret_runtime.victim_team = None;
-                            unit.turret_holding = false;
+                            unit.turret_ai.turret_holding = false;
                         } else if started && !now_aligning {
                             started_undeploy = true;
                             unit.set_deployed(
@@ -611,7 +612,8 @@ impl GameLogic {
             unit.is_attack_path = false;
             unit.is_exact_path = false;
             unit.set_locomotor_goal_position_on_path();
-            unit.movement.path = path;
+            let layers = self.pathfinding_system.found_path_layers().to_vec();
+            unit.movement.set_path_with_layers(path, layers);
             if unit.movement.path.len() >= 2 {
                 unit.movement.current_path_index = 1;
                 unit.movement.target_position = Some(unit.movement.path[1]);
@@ -642,7 +644,7 @@ impl GameLogic {
         unit.is_attack_path = false;
         unit.is_exact_path = false;
         unit.set_locomotor_goal_position_on_path();
-        unit.movement.path = vec![start, destination];
+        unit.movement.set_path_coords(vec![start, destination]);
         unit.movement.current_path_index = 1;
         unit.movement.target_position = Some(destination);
         unit.refresh_follow_path_extra_distance();
@@ -986,7 +988,8 @@ impl GameLogic {
             unit.movement.current_path_index = 0;
             unit.movement.target_position = Some(destination);
         }
-        unit.movement.path = full_path;
+        let layers = self.pathfinding_system.found_path_layers().to_vec();
+        unit.movement.set_path_with_layers(full_path, layers);
         unit.is_attack_path = false;
         unit.num_frames_blocked = 0;
         unit.is_blocked_and_stuck = false;
@@ -2038,11 +2041,8 @@ impl GameLogic {
                     })
                     .unwrap_or(50.0);
                 let raw_range = weapon.map(|w| w.range).unwrap_or(0.0);
-                let wname = slot.and_then(|s| u.weapon_name_for_slot(s));
-                let contact = wname
-                    .map(crate::game_logic::weapon_bootstrap::host_is_contact_weapon_name)
-                    .unwrap_or(false)
-                    || crate::game_logic::weapon_bootstrap::is_contact_effective_range(
+                // C++ Weapon.cpp:531 isContactWeapon: authored range only.
+                let contact = crate::game_logic::weapon_bootstrap::is_contact_effective_range(
                         raw_range - under,
                     );
                 (
@@ -2196,7 +2196,8 @@ impl GameLogic {
                 }
                 let last_node = full_path.last().copied();
                 if let Some(unit) = self.objects.get_mut(&unit_id) {
-                    unit.movement.path = full_path;
+                    let layers = self.pathfinding_system.found_path_layers().to_vec();
+                    unit.movement.set_path_with_layers(full_path, layers);
                     // AIUpdate.cpp:1985 timestamps a computed attack path.
                     unit.path_timestamp = self.frame;
                     unit.num_frames_blocked = 0;
@@ -2657,7 +2658,8 @@ impl GameLogic {
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }
-        unit.movement.path = appended;
+        let layers = self.pathfinding_system.found_path_layers().to_vec();
+        unit.movement.set_path_with_layers(appended, layers);
         if had_no_path {
             unit.movement.current_path_index = usize::from(unit.movement.path.len() > 1);
         }

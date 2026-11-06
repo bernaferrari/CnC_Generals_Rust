@@ -129,7 +129,8 @@ impl BuildPlacementMode {
         let build_time = template.calc_time_to_build(None).max(1) as u32;
 
         // Check if player can afford it
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             if let Some(player) = list.get_player(player_id as i32) {
                 if let Ok(player_guard) = player.read() {
                     let money = player_guard.get_money().get_money();
@@ -241,7 +242,8 @@ impl BuildPlacementMode {
     /// Internal validation logic.
     fn validate_placement_internal(&self) -> PlacementValidity {
         // Check funds
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             if let Some(player) = list.get_player(self.player_id as i32) {
                 if let Ok(player_guard) = player.read() {
                     let money = player_guard.get_money().get_money();
@@ -358,7 +360,8 @@ impl BuildPlacementMode {
         }
 
         // Also check all player objects (dozer might be far away)
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             if let Some(player) = list.get_player(self.player_id as i32) {
                 if let Ok(player_guard) = player.read() {
                     if let Some(team) = player_guard.get_default_team() {
@@ -404,7 +407,8 @@ impl BuildPlacementMode {
             .ok_or(PlacementValidity::BadTerrain)?;
 
         // Get player's team
-        let team = if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        let team = if let Ok(list) = __player_list_arc.read() {
             if let Some(player) = list.get_player(self.player_id as i32) {
                 if let Ok(player_guard) = player.read() {
                     player_guard.get_default_team()
@@ -465,7 +469,8 @@ impl BuildPlacementMode {
             return;
         }
 
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             if let Some(player) = list.get_player(self.player_id as i32) {
                 if let Ok(mut player_guard) = player.write() {
                     let facts = crate::helpers::capture_player_audio_locality(&player_guard, &list);

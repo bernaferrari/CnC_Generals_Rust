@@ -673,17 +673,13 @@ impl CommandQueueManager {
 // Type alias for compatibility
 pub type CommandQueue = PlayerCommandQueue;
 
-/// Global command queue manager instance
-use once_cell::sync::Lazy;
-static COMMAND_QUEUE_MANAGER: Lazy<Arc<Mutex<CommandQueueManager>>> = Lazy::new(|| {
-    Arc::new(Mutex::new(CommandQueueManager::new(
-        crate::common::MAX_PLAYER_COUNT as Int,
-    )))
-});
-
-/// Get global command queue manager
+/// Active-world command queue manager.
 pub fn get_command_queue_manager() -> Arc<Mutex<CommandQueueManager>> {
-    COMMAND_QUEUE_MANAGER.clone()
+    Arc::clone(
+        &crate::system::engine_stores::active_services()
+            .logic_managers()
+            .command_queue,
+    )
 }
 
 #[cfg(test)]

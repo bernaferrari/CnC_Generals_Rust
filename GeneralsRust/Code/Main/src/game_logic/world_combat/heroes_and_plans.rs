@@ -61,15 +61,15 @@ impl GameLogic {
                     AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
                 );
             // Snapshot residual state.
-            let mut scanning = obj.turret_idle_scanning;
-            let mut holding = obj.turret_holding;
-            let mut idle_recentering = obj.turret_idle_recentering;
-            let mut hold_until = obj.turret_hold_until_frame;
-            let mut desired = obj.turret_idle_scan_desired_angle_deg;
-            let mut next_frame = obj.turret_idle_scan_next_frame;
-            let mut scan_index = obj.turret_idle_scan_index;
-            let mut angle = obj.turret_angle_deg;
-            let mut pitch = obj.turret_pitch_deg;
+            let mut scanning = obj.turret_ai.turret_idle_scanning;
+            let mut holding = obj.turret_ai.turret_holding;
+            let mut idle_recentering = obj.turret_ai.turret_idle_recentering;
+            let mut hold_until = obj.turret_ai.turret_hold_until_frame;
+            let mut desired = obj.turret_ai.turret_idle_scan_desired_angle_deg;
+            let mut next_frame = obj.turret_ai.turret_idle_scan_next_frame;
+            let mut scan_index = obj.turret_ai.turret_idle_scan_index;
+            let mut angle = obj.turret_ai.turret_angle_deg;
+            let mut pitch = obj.turret_ai.turret_pitch_deg;
 
             if busy {
                 // Busy residual: cancel mid-scan / hold / idle-recenter.
@@ -164,15 +164,15 @@ impl GameLogic {
             }
 
             if let Some(obj) = self.objects.get_mut(&cid) {
-                obj.turret_idle_scanning = scanning;
-                obj.turret_holding = holding;
-                obj.turret_idle_recentering = idle_recentering;
-                obj.turret_hold_until_frame = hold_until;
-                obj.turret_idle_scan_desired_angle_deg = desired;
-                obj.turret_idle_scan_next_frame = next_frame;
-                obj.turret_idle_scan_index = scan_index;
-                obj.turret_angle_deg = angle;
-                obj.turret_pitch_deg = pitch;
+                obj.turret_ai.turret_idle_scanning = scanning;
+                obj.turret_ai.turret_holding = holding;
+                obj.turret_ai.turret_idle_recentering = idle_recentering;
+                obj.turret_ai.turret_hold_until_frame = hold_until;
+                obj.turret_ai.turret_idle_scan_desired_angle_deg = desired;
+                obj.turret_ai.turret_idle_scan_next_frame = next_frame;
+                obj.turret_ai.turret_idle_scan_index = scan_index;
+                obj.turret_ai.turret_angle_deg = angle;
+                obj.turret_ai.turret_pitch_deg = pitch;
             }
         }
         for _ in 0..scan_started {
@@ -612,13 +612,13 @@ impl GameLogic {
         for cid in centering {
             if let Some(obj) = self.objects.get_mut(&cid) {
                 // Pack recenter cancels idle-scan / Hold / idle-recenter residual.
-                obj.turret_idle_scanning = false;
-                obj.turret_holding = false;
-                obj.turret_hold_until_frame = 0;
-                obj.turret_idle_recentering = false;
-                let (a, p) = step_turret_toward_natural(obj.turret_angle_deg, obj.turret_pitch_deg);
-                obj.turret_angle_deg = a;
-                obj.turret_pitch_deg = p;
+                obj.turret_ai.turret_idle_scanning = false;
+                obj.turret_ai.turret_holding = false;
+                obj.turret_ai.turret_hold_until_frame = 0;
+                obj.turret_ai.turret_idle_recentering = false;
+                let (a, p) = step_turret_toward_natural(obj.turret_ai.turret_angle_deg, obj.turret_ai.turret_pitch_deg);
+                obj.turret_ai.turret_angle_deg = a;
+                obj.turret_ai.turret_pitch_deg = p;
             }
         }
 
@@ -842,13 +842,13 @@ impl GameLogic {
                             &mut self.queued_audio_events,
                         ));
                         // C++ enableTurret(false) when leaving Bombardment.
-                        center.turret_enabled = false;
+                        center.turret_ai.turret_enabled = false;
                         // Cancel TurretAI idle-scan / Hold residual when gun unequips.
-                        center.turret_idle_scanning = false;
-                        center.turret_holding = false;
-                        center.turret_hold_until_frame = 0;
-                        center.turret_idle_recentering = false;
-                        center.turret_idle_scan_next_frame = 0;
+                        center.turret_ai.turret_idle_scanning = false;
+                        center.turret_ai.turret_holding = false;
+                        center.turret_ai.turret_hold_until_frame = 0;
+                        center.turret_ai.turret_idle_recentering = false;
+                        center.turret_ai.turret_idle_scan_next_frame = 0;
                     }
                 }
             }
@@ -1036,7 +1036,7 @@ impl GameLogic {
                         }
                         HostBattlePlan::Bombardment => {
                             // C++ enableTurret(true) after unpack ACTIVE.
-                            center.turret_enabled = true;
+                            center.turret_ai.turret_enabled = true;
                             let _ = center.replace_weapon_set_slot(0, Some(
                                 crate::game_logic::host_strategy_center::strategy_center_gun_weapon(
                                 ),
@@ -1044,12 +1044,12 @@ impl GameLogic {
                             let _ = center.replace_weapon_set_slot(1, None);
                             // TurretAI idle-scan residual: schedule first idle scan
                             // via leftover GameLogicRandomValue(min, max).
-                            center.turret_idle_scan_index = 0;
-                            center.turret_idle_scanning = false;
-                            center.turret_holding = false;
-                            center.turret_hold_until_frame = 0;
-                            center.turret_idle_recentering = false;
-                            center.turret_idle_scan_next_frame = frame.saturating_add(
+                            center.turret_ai.turret_idle_scan_index = 0;
+                            center.turret_ai.turret_idle_scanning = false;
+                            center.turret_ai.turret_holding = false;
+                            center.turret_ai.turret_hold_until_frame = 0;
+                            center.turret_ai.turret_idle_recentering = false;
+                            center.turret_ai.turret_idle_scan_next_frame = frame.saturating_add(
                                 crate::game_logic::host_strategy_center::idle_scan_interval_frames(
                                     &self.logic_random,
                                 ),
@@ -1356,16 +1356,16 @@ impl GameLogic {
                         is_attacking,
                         has_target,
                         last_fire_age,
-                        c.turret_angle_deg,
-                        c.turret_pitch_deg,
+                        c.turret_ai.turret_angle_deg,
+                        c.turret_ai.turret_pitch_deg,
                     );
                     let busy = is_attacking
                         || has_target
                         || last_fire_age.is_some_and(|a| a < BATTLE_PLAN_TURRET_RECENTER_FRAMES);
                     let frames = strategy_center_turret_recenter_frames(
                         busy,
-                        c.turret_angle_deg,
-                        c.turret_pitch_deg,
+                        c.turret_ai.turret_angle_deg,
+                        c.turret_ai.turret_pitch_deg,
                     );
                     (natural, frames)
                 }
@@ -1912,6 +1912,7 @@ impl GameLogic {
         }
         self.projectile_streams.add_projectile(
             source_id,
+             0,
             HOST_CLEANUP_PROJECTILE_STREAM,
             start,
             None,
@@ -2017,6 +2018,7 @@ impl GameLogic {
         for (sid, pos, aim) in stream_pts {
             self.projectile_streams.add_projectile(
                 sid,
+                 0,
                 HOST_CLEANUP_PROJECTILE_STREAM,
                 pos,
                 None,

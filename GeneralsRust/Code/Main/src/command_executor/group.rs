@@ -593,6 +593,7 @@ impl<'a> CommandExecutor<'a> {
     // === Formation Commands ===
 
     pub(crate) fn execute_create_formation(&mut self, units: &[ObjectId]) -> CommandResult {
+        let _bind = self.bind_services();
         // Wave 232: formation stamp via GameLogic unit_command_set_formation.
         // C++ AIGroup::groupCreateFormation — stamp formation id + offset from
         // centroid. Does NOT path units or enter GuardingArea.

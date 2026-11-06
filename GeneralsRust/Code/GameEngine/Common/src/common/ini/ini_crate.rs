@@ -24,7 +24,6 @@
 //! End
 //! ```
 
-use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -154,14 +153,9 @@ impl Default for ParsedCrateSystem {
 // Global singleton (Common-layer)
 // ---------------------------------------------------------------------------
 
-/// Global parsed crate system (Common-layer singleton).
-static CRATE_SYSTEM: OnceCell<Arc<RwLock<ParsedCrateSystem>>> = OnceCell::new();
-
 /// Ensure the crate system exists.
 pub fn ensure_crate_system() -> Arc<RwLock<ParsedCrateSystem>> {
-    CRATE_SYSTEM
-        .get_or_init(|| Arc::new(RwLock::new(ParsedCrateSystem::new())))
-        .clone()
+    Arc::clone(&crate::common::common_services::common_services().ini.crate_system)
 }
 
 /// Initialize (clear) the crate system.
@@ -172,7 +166,7 @@ pub fn initialize_crate_system() {
 
 /// Get a handle to the crate system if initialized.
 pub fn get_crate_system() -> Option<Arc<RwLock<ParsedCrateSystem>>> {
-    CRATE_SYSTEM.get().cloned()
+    Some(Arc::clone(&crate::common::common_services::common_services().ini.crate_system))
 }
 
 // ---------------------------------------------------------------------------

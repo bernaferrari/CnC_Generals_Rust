@@ -280,7 +280,7 @@ impl CnCGameEngine {
                 }
                 _ => {}
             }
-            let _ = self.try_dispatch_command_map_remap(key, physical.as_ref(), true)?;
+            let _ = self.try_dispatch_command_map_remap(key, physical.as_ref(), true, true)?;
             return Ok(());
         }
 
@@ -324,7 +324,7 @@ impl CnCGameEngine {
         // C++ MetaEventTranslator walks TheMetaMap so Keyboard Options remaps
         // apply on the next key. Number-row CREATE/SELECT/ADD/VIEW_TEAM stays
         // with FixSelectSquad.
-        if self.try_dispatch_command_map_remap(key, physical.as_ref(), false)? {
+        if self.try_dispatch_command_map_remap(key, physical.as_ref(), false, true)? {
             return Ok(());
         }
 
@@ -1307,11 +1307,12 @@ impl CnCGameEngine {
 
     /// Consult Keyboard Options / CommandMap.ini remaps. Returns true when the
     /// chord was consumed as a remapped meta command.
-    fn try_dispatch_command_map_remap(
+    pub(super) fn try_dispatch_command_map_remap(
         &mut self,
         key: &Key,
         physical: Option<&winit::keyboard::PhysicalKey>,
         shell: bool,
+        key_down: bool,
     ) -> Result<bool, String> {
         #[cfg(feature = "game_client")]
         {
@@ -1337,11 +1338,15 @@ impl CnCGameEngine {
             } else {
                 game_client::message_stream::meta_event::COMMAND_MAP_USABLE_GAME
             };
-            let Some(name) =
+            let Some(name) = (if key_down {
                 game_client::message_stream::meta_event::lookup_command_map_name_usable(
                     code, mods, usable,
                 )
-            else {
+            } else {
+                game_client::message_stream::meta_event::lookup_command_map_name_usable_up(
+                    code, mods, usable,
+                )
+            }) else {
                 return Ok(false);
             };
             let upper = name.to_ascii_uppercase();
@@ -1494,6 +1499,65 @@ impl CnCGameEngine {
                     self.reset_camera_view_hotkey();
                     true
                 }
+                // C++ MetaEvent.cpp CommandMap BEGIN/END camera + force metas.
+                "BEGIN_CAMERA_ROTATE_LEFT" => {
+                    self.camera_rotate_left_held = true;
+                    true
+                }
+                "END_CAMERA_ROTATE_LEFT" => {
+                    self.camera_rotate_left_held = false;
+                    true
+                }
+                "BEGIN_CAMERA_ROTATE_RIGHT" => {
+                    self.camera_rotate_right_held = true;
+                    true
+                }
+                "END_CAMERA_ROTATE_RIGHT" => {
+                    self.camera_rotate_right_held = false;
+                    true
+                }
+                "BEGIN_CAMERA_ZOOM_IN" => {
+                    self.camera_zoom_in_held = true;
+                    true
+                }
+                "END_CAMERA_ZOOM_IN" => {
+                    self.camera_zoom_in_held = false;
+                    true
+                }
+                "BEGIN_CAMERA_ZOOM_OUT" => {
+                    self.camera_zoom_out_held = true;
+                    true
+                }
+                "END_CAMERA_ZOOM_OUT" => {
+                    self.camera_zoom_out_held = false;
+                    true
+                }
+                "BEGIN_FORCEATTACK" => {
+                    self.meta_force_attack_held = true;
+                    true
+                }
+                "END_FORCEATTACK" => {
+                    self.meta_force_attack_held = false;
+                    true
+                }
+                "BEGIN_FORCEMOVE" => {
+                    self.meta_force_move_held = true;
+                    true
+                }
+                "END_FORCEMOVE" => {
+                    self.meta_force_move_held = false;
+                    true
+                }
+                "FOLLOW" => {
+                    self.toggle_camera_tracking_drawable_hotkey();
+                    true
+                }
+                "CHAT_PLAYERS" => {
+                    if self.host_command_xlat_multiplayer_meta() {
+                        self.open_chat_hotkey(crate::ui::ChatTarget::All);
+                    }
+                    true
+                }
                 "OPTIONS" => {
                     // C++ CommandXlat.cpp:3091-3094 MSG_META_OPTIONS → ToggleQuitMenu.
                     #[cfg(feature = "game_client")]
@@ -1514,7 +1578,7 @@ impl CnCGameEngine {
         }
         #[cfg(not(feature = "game_client"))]
         {
-            let _ = (key, physical, shell);
+            let _ = (key, physical, shell, key_down);
             Ok(false)
         }
     }
@@ -1550,15 +1614,9 @@ impl CnCGameEngine {
             .map(|d| d.as_secs())
             .unwrap_or(0);
         let path = dir.join(format!("screenshot_{stamp}.png"));
-        match ww3d_engine::make_screenshot(&path) {
-            Ok(()) => {
-                // C++ CommandXlat MSG_META_TAKE_SCREENSHOT only takeScreenShot().
-                info!("screenshot written to {}", path.display());
-            }
-            Err(err) => {
-                warn!("screenshot failed: {err:?}");
-            }
-        }
+        self.ww3d.lock().make_screenshot(&path);
+        // C++ CommandXlat MSG_META_TAKE_SCREENSHOT only takeScreenShot().
+        info!("screenshot queued to {}", path.display());
     }
 
     /// Retail DIPLOMACY (KEY_TAB) residual.

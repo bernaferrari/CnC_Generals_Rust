@@ -87,6 +87,8 @@ pub struct CreditsManager {
     title_font: FontDesc,
     position_font: FontDesc,
     normal_font: FontDesc,
+    /// Residual peel latch (was process atomics).
+    residual_last_action: u8,
 }
 
 impl Default for CreditsManager {
@@ -110,6 +112,7 @@ impl CreditsManager {
             current_style: CreditStyle::Normal,
             is_finished: false,
             frames_since_started: 0,
+            residual_last_action: 0,
             normal_font_height: 10,
             title_font: FontDesc::new("Arial", 18, false),
             position_font: FontDesc::new("Arial", 14, false),
@@ -143,12 +146,13 @@ impl CreditsManager {
         self.parse_content(&content);
         self.scroll_rate = self.scroll_rate.max(1);
         self.scroll_rate_per_frames = self.scroll_rate_per_frames.max(1);
-        if let Ok(global) = get_global_language_data().read() {
+        let __lang = get_global_language_data();
+        if let Ok(global) = __lang.read() {
             self.title_font = global.credits_title_font.clone();
             self.position_font = global.credits_position_font.clone();
             self.normal_font = global.credits_normal_font.clone();
         }
-        if let Ok(font) = get_font_library().get_font(&self.normal_font) {
+        if let Ok(font) = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&self.normal_font) {
             self.normal_font_height = font.height;
         }
         Ok(())
@@ -440,8 +444,8 @@ impl CreditsManager {
                 line.color = title_color;
                 if !line.text.is_empty() {
                     let mut display = display_strings.new_display_string();
-                    let font = get_font_library().get_font(title_font).unwrap_or_else(|_| {
-                        get_font_library()
+                    let font = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(title_font).unwrap_or_else(|_| {
+                        get_font_library().lock().unwrap_or_else(|e| e.into_inner())
                             .get_font(normal_font)
                             .expect("Font library not initialized")
                     });
@@ -458,10 +462,10 @@ impl CreditsManager {
                 line.color = position_color;
                 if !line.text.is_empty() {
                     let mut display = display_strings.new_display_string();
-                    let font = get_font_library()
+                    let font = get_font_library().lock().unwrap_or_else(|e| e.into_inner())
                         .get_font(position_font)
                         .unwrap_or_else(|_| {
-                            get_font_library()
+                            get_font_library().lock().unwrap_or_else(|e| e.into_inner())
                                 .get_font(normal_font)
                                 .expect("Font library not initialized")
                         });
@@ -478,7 +482,7 @@ impl CreditsManager {
                 line.color = normal_color;
                 if !line.text.is_empty() {
                     let mut display = display_strings.new_display_string();
-                    let font = get_font_library()
+                    let font = get_font_library().lock().unwrap_or_else(|e| e.into_inner())
                         .get_font(normal_font)
                         .expect("Font library not initialized");
                     display.borrow_mut().set_font(font);
@@ -494,7 +498,7 @@ impl CreditsManager {
                 line.color = normal_color;
                 if !line.text.is_empty() {
                     let mut display = display_strings.new_display_string();
-                    let font = get_font_library()
+                    let font = get_font_library().lock().unwrap_or_else(|e| e.into_inner())
                         .get_font(normal_font)
                         .expect("Font library not initialized");
                     display.borrow_mut().set_font(font);
@@ -507,7 +511,7 @@ impl CreditsManager {
                 }
                 if line.use_second && !line.second_text.is_empty() {
                     let mut display = display_strings.new_display_string();
-                    let font = get_font_library()
+                    let font = get_font_library().lock().unwrap_or_else(|e| e.into_inner())
                         .get_font(normal_font)
                         .expect("Font library not initialized");
                     display.borrow_mut().set_font(font);
@@ -655,32 +659,17 @@ pub enum ResidualCreditsAction {
     FinishProbe = 6,
 }
 
-static RESIDUAL_CREDITS_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_CREDITS_LINE_COUNT: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-static RESIDUAL_CREDITS_FINISHED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-static RESIDUAL_CREDITS_FRAMES: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
-
-fn residual_credits_action_store(action: ResidualCreditsAction) {
-    RESIDUAL_CREDITS_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+fn residual_credits_action_store(manager: &mut CreditsManager, action: ResidualCreditsAction) {
+    manager.residual_last_action = action as u8;
 }
 
-fn residual_credits_sync(manager: &CreditsManager) {
-    RESIDUAL_CREDITS_LINE_COUNT.store(
-        manager.credit_lines.len(),
-        std::sync::atomic::Ordering::Relaxed,
-    );
-    RESIDUAL_CREDITS_FINISHED.store(manager.is_finished, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_CREDITS_FRAMES.store(
-        manager.frames_since_started,
-        std::sync::atomic::Ordering::Relaxed,
-    );
+fn residual_credits_sync(_manager: &CreditsManager) {
+    // Line count / finished / frames are read from the manager itself.
 }
 
 /// Residual: last Credits residual action.
-pub fn residual_credits_last_action() -> ResidualCreditsAction {
-    match RESIDUAL_CREDITS_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+pub fn residual_credits_last_action(manager: &CreditsManager) -> ResidualCreditsAction {
+    match manager.residual_last_action {
         1 => ResidualCreditsAction::Init,
         2 => ResidualCreditsAction::Reset,
         3 => ResidualCreditsAction::AddText,
@@ -692,18 +681,18 @@ pub fn residual_credits_last_action() -> ResidualCreditsAction {
 }
 
 /// Residual: credit line count latch.
-pub fn residual_credits_line_count() -> usize {
-    RESIDUAL_CREDITS_LINE_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+pub fn residual_credits_line_count(manager: &CreditsManager) -> usize {
+    manager.credit_lines.len()
 }
 
 /// Residual: finished latch.
-pub fn residual_credits_is_finished() -> bool {
-    RESIDUAL_CREDITS_FINISHED.load(std::sync::atomic::Ordering::Relaxed)
+pub fn residual_credits_is_finished(manager: &CreditsManager) -> bool {
+    manager.is_finished
 }
 
 /// Residual: frames since started latch.
-pub fn residual_credits_frames_since_started() -> i32 {
-    RESIDUAL_CREDITS_FRAMES.load(std::sync::atomic::Ordering::Relaxed)
+pub fn residual_credits_frames_since_started(manager: &CreditsManager) -> i32 {
+    manager.frames_since_started
 }
 
 /// Residual: init credits without INI/fonts load.
@@ -713,8 +702,8 @@ pub fn simulate_credits_init(owner: &crate::gui::window_manager::WindowManagerOw
         |guard, screen_size| {
             guard.init();
             residual_credits_sync(&guard);
-            residual_credits_action_store(ResidualCreditsAction::Init);
-            !residual_credits_is_finished()
+            residual_credits_action_store(guard, ResidualCreditsAction::Init);
+            !residual_credits_is_finished(&guard)
         },
     )
     .unwrap_or(false)
@@ -727,8 +716,8 @@ pub fn simulate_credits_reset(owner: &crate::gui::window_manager::WindowManagerO
         |guard, screen_size| {
             guard.reset();
             residual_credits_sync(&guard);
-            residual_credits_action_store(ResidualCreditsAction::Reset);
-            residual_credits_line_count() == 0 && !residual_credits_is_finished()
+            residual_credits_action_store(guard, ResidualCreditsAction::Reset);
+            residual_credits_line_count(&guard) == 0 && !residual_credits_is_finished(&guard)
         },
     )
     .unwrap_or(false)
@@ -747,8 +736,8 @@ pub fn simulate_credits_add_text(
         |guard, screen_size| {
             guard.add_text(text);
             residual_credits_sync(&guard);
-            residual_credits_action_store(ResidualCreditsAction::AddText);
-            residual_credits_line_count() > 0
+            residual_credits_action_store(guard, ResidualCreditsAction::AddText);
+            residual_credits_line_count(&guard) > 0
         },
     )
     .unwrap_or(false)
@@ -762,8 +751,8 @@ pub fn simulate_credits_add_blank(owner: &crate::gui::window_manager::WindowMana
             let before = guard.credit_lines.len();
             guard.add_blank();
             residual_credits_sync(&guard);
-            residual_credits_action_store(ResidualCreditsAction::AddBlank);
-            residual_credits_line_count() == before + 1
+            residual_credits_action_store(guard, ResidualCreditsAction::AddBlank);
+            residual_credits_line_count(&guard) == before + 1
         },
     )
     .unwrap_or(false)
@@ -776,7 +765,7 @@ pub fn simulate_credits_update(owner: &crate::gui::window_manager::WindowManager
         |guard, screen_size| {
             guard.update(screen_size);
             residual_credits_sync(&guard);
-            residual_credits_action_store(ResidualCreditsAction::Update);
+            residual_credits_action_store(guard, ResidualCreditsAction::Update);
             true
         },
     )
@@ -792,8 +781,8 @@ pub fn simulate_credits_is_finished_probe(
         |guard, screen_size| {
             let finished = guard.is_finished();
             residual_credits_sync(&guard);
-            residual_credits_action_store(ResidualCreditsAction::FinishProbe);
-            residual_credits_is_finished() == finished
+            residual_credits_action_store(guard, ResidualCreditsAction::FinishProbe);
+            residual_credits_is_finished(&guard) == finished
         },
     )
     .unwrap_or(false)
@@ -818,7 +807,10 @@ pub fn simulate_credits_prepare_short_roll(
     if !simulate_credits_add_text(owner, "GENERALS ZERO HOUR") {
         return false;
     }
-    residual_credits_line_count() >= 3 && !residual_credits_is_finished()
+    crate::gui::callbacks::owned_credits_menu::with_credits_for_owner(owner, |guard, _| {
+        residual_credits_line_count(guard) >= 3 && !residual_credits_is_finished(guard)
+    })
+    .unwrap_or(false)
 }
 
 /// Human click-through: OS LeftDown/Up on `CreditsMenu.wnd:ParentCreditsWindow`
@@ -868,31 +860,53 @@ pub fn drive_os_wnd_credits_roll_finished_like_cpp(
 #[cfg(test)]
 mod os_wnd_tests {
     use super::*;
-    use crate::gui::with_window_manager;
+    use crate::gui::game_window::WindowEventEffects;
+
+    fn with_fixture(operation: impl FnOnce(&mut WindowEventEffects<'_>, &crate::gui::window_manager::WindowManagerOwner)) {
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&owner);
+        effects.menus = Some(
+            menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
+        );
+        operation(&mut effects, &owner);
+    }
 
     #[test]
     fn os_wnd_credits_roll_prepare_hits_parent_then_latches_lines() {
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
-            with_window_manager(|manager| {
+        crate::test_support::ensure_ambient_host();
+        with_fixture(|effects, owner| {
+            owner.with_manager(|manager| {
                 let parent = manager
-                    .create_window(None, 10, 10, 200, 120)
+                    .test_create_window(None, 10, 10, 200, 120)
                     .expect("ParentCreditsWindow");
                 parent
                     .borrow_mut()
                     .set_name("CreditsMenu.wnd:ParentCreditsWindow");
-                let _ = parent.borrow_mut().hide(false);
+                let _ = parent.borrow_mut().hide_without_manager_side_effects(false);
             });
             assert!(
-                drive_os_wnd_credits_roll_prepare_like_cpp(),
+                crate::gui::callbacks::owned_credits_menu::attach_credits_playback_for_owner(owner),
+                "ParentCreditsWindow must own credits playback"
+            );
+            assert!(
+                drive_os_wnd_credits_roll_prepare_like_cpp(effects),
                 "OS WND click on ParentCreditsWindow must prepare short credits roll"
             );
-            assert!(residual_credits_line_count() >= 3);
-            assert!(!residual_credits_is_finished());
-            assert!(drive_os_wnd_credits_roll_update_like_cpp());
+            assert!(crate::gui::callbacks::owned_credits_menu::with_credits_for_owner(
+                owner,
+                |guard, _| residual_credits_line_count(guard) >= 3 && !residual_credits_is_finished(guard),
+            )
+            .unwrap_or(false));
+            assert!(drive_os_wnd_credits_roll_update_like_cpp(effects));
             assert_eq!(
-                residual_credits_last_action(),
-                ResidualCreditsAction::Update
+                crate::gui::callbacks::owned_credits_menu::with_credits_for_owner(
+                    owner,
+                    |guard, _| residual_credits_last_action(guard),
+                ),
+                Some(ResidualCreditsAction::Update)
             );
         });
     }

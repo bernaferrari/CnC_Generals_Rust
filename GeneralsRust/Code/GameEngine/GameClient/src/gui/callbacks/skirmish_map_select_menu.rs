@@ -30,7 +30,7 @@ const UNKNOWN_MAP_IMAGE: &str = "UnknownMap";
 const SUPPLY_TECH_SIZE: i32 = 15;
 
 #[derive(Default)]
-struct SkirmishMapSelectState {
+pub(crate) struct SkirmishMapSelectState {
     parent_id: i32,
     listbox_map_id: i32,
     button_ok_id: i32,
@@ -46,13 +46,40 @@ struct SkirmishMapSelectState {
     use_system_maps: bool,
 }
 
+#[cfg(test)]
 thread_local! {
-    static SKIRMISH_MAP_SELECT_STATE: Arc<Mutex<SkirmishMapSelectState>> =
-        Arc::new(Mutex::new(SkirmishMapSelectState::default()));
+    static TEST_SKIRMISH_MAP_SELECT_STATE: std::cell::OnceCell<
+        Arc<Mutex<SkirmishMapSelectState>>,
+    > = const { std::cell::OnceCell::new() };
 }
 
-fn map_select_state() -> Arc<Mutex<SkirmishMapSelectState>> {
-    SKIRMISH_MAP_SELECT_STATE.with(|state| state.clone())
+fn map_select_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Arc<Mutex<SkirmishMapSelectState>> {
+    if let Some(owner) = owner {
+        return owner.skirmish_map_select_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .skirmish_map_select_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_SKIRMISH_MAP_SELECT_STATE.with(|cell| {
+            cell.get_or_init(|| Arc::new(Mutex::new(SkirmishMapSelectState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        // A scratch state would silently discard the overlay selection.
+        panic!(
+            "skirmish map-select state requires a WindowManagerOwner or live GameClient; no process scratch"
+        );
+    }
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -242,7 +269,7 @@ pub fn skirmish_map_select_menu_init(
     _user_data: Option<&mut dyn std::any::Any>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let state_handle = map_select_state();
+    let state_handle = map_select_state_on_owner(effects.window_manager_owner);
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     state.parent_id = name_to_id(MAP_SELECT_PARENT_NAME);
@@ -269,7 +296,9 @@ pub fn skirmish_map_select_menu_init(
     });
 
     {
-        let setup = get_skirmish_setup();
+        let setup_handle = get_skirmish_setup(effects.window_manager_owner);
+
+        let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         if !setup.selected_map().is_empty() {
             state.selected_map = Some(setup.selected_map().to_string());
         } else if !setup.game_info().game_info().get_map().is_empty() {
@@ -285,7 +314,9 @@ pub fn skirmish_map_select_menu_init(
             }
         };
     } else {
-        let setup = get_skirmish_setup();
+        let setup_handle = get_skirmish_setup(effects.window_manager_owner);
+
+        let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         state.use_system_maps = setup.use_system_maps();
     }
 
@@ -336,11 +367,11 @@ pub fn skirmish_map_select_menu_shutdown(
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
     effects.with_manager(|manager, _effects| layout.hide(manager, true));
-    nullify_controls();
+    nullify_controls(effects.window_manager_owner);
 }
 
-fn nullify_controls() {
-    let state_handle = map_select_state();
+fn nullify_controls(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_handle = map_select_state_on_owner(owner);
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     state.parent = None;
     state.listbox_map = None;
@@ -355,14 +386,14 @@ pub fn skirmish_map_select_menu_system(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    let state_handle = map_select_state();
+    let state_handle = map_select_state_on_owner(effects.window_manager_owner);
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
         WindowMessage::Create => return WindowMsgHandled::Handled,
         WindowMessage::Destroy => {
             drop(state);
-            nullify_controls();
+            nullify_controls(effects.window_manager_owner);
             return WindowMsgHandled::Handled;
         }
         WindowMessage::InputFocus => return write_input_focus_response(data1, data2, true),
@@ -375,7 +406,9 @@ pub fn skirmish_map_select_menu_system(
                 };
 
                 let cache = get_map_cache_manager();
-                let mut setup = get_skirmish_setup();
+                let setup_handle = get_skirmish_setup(effects.window_manager_owner);
+
+                let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                 setup.set_selected_map(map_name.clone());
                 setup.set_use_system_maps(state.use_system_maps);
                 let info = setup.game_info_mut().game_info_mut();
@@ -474,7 +507,7 @@ pub fn skirmish_map_select_menu_input(
     }
 
     if (data2 & KEY_STATE_UP) != 0 {
-        let state_handle = map_select_state();
+        let state_handle = map_select_state_on_owner(effects.window_manager_owner);
         let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(parent) = state.parent.as_ref() {
             let _ = parent.borrow_mut().send_system_message(
@@ -821,17 +854,17 @@ fn ensure_map_select_control_ids(state: &mut SkirmishMapSelectState) {
 
 /// Residual: set the map-select row selection without a live listbox widget.
 /// Used by runtime-host / executable smoke when WindowZH listbox is unavailable.
-pub fn set_skirmish_map_select_selected_map(map: impl Into<String>) {
+pub fn set_skirmish_map_select_selected_map(owner: &crate::gui::window_manager::WindowManagerOwner, map: impl Into<String>) {
     let map = map.into();
-    let state_handle = map_select_state();
+    let state_handle = owner.skirmish_map_select_state_handle();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     ensure_map_select_control_ids(&mut state);
     state.selected_map = Some(map);
 }
 
 /// Residual: current map-select overlay selection (if any).
-pub fn skirmish_map_select_selected_map() -> Option<String> {
-    let state_handle = map_select_state();
+pub fn skirmish_map_select_selected_map(owner: &crate::gui::window_manager::WindowManagerOwner) -> Option<String> {
+    let state_handle = owner.skirmish_map_select_state_handle();
     let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     state.selected_map.clone()
 }
@@ -842,9 +875,9 @@ pub fn skirmish_map_select_selected_map() -> Option<String> {
 /// options menu, and destroys the overlay. Returns true when OK was handled
 /// with a selected map (setup commit residual).
 /// Fail-closed: without a selected map, OK is ignored (C++ parity) → false.
-pub fn simulate_skirmish_map_select_ok_button_gadget_selected() -> bool {
+pub fn simulate_skirmish_map_select_ok_button_gadget_selected(owner: &crate::gui::window_manager::WindowManagerOwner) -> bool {
     let (button_ok_id, selected_map, use_system_maps) = {
-        let state_handle = map_select_state();
+        let state_handle = owner.skirmish_map_select_state_handle();
         let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         ensure_map_select_control_ids(&mut state);
         (
@@ -863,7 +896,9 @@ pub fn simulate_skirmish_map_select_ok_button_gadget_selected() -> bool {
 
     // Host residual commit (no window-manager re-entry). Interactive overlay still
     // uses skirmish_map_select_menu_system via real GBM_SELECTED on ButtonOK.
-    let mut setup = get_skirmish_setup();
+    let setup_handle = owner.skirmish_setup();
+
+    let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     setup.set_selected_map(map_name.clone());
     setup.set_use_system_maps(use_system_maps);
     {
@@ -876,7 +911,10 @@ pub fn simulate_skirmish_map_select_ok_button_gadget_selected() -> bool {
 
 /// Residual: open map-select overlay path from options `ButtonSelectMap` when possible,
 /// latch `map`, and commit via ButtonOK. Returns true when setup received the map.
-pub fn simulate_skirmish_map_select_and_confirm(map: impl Into<String>) -> bool {
+pub fn simulate_skirmish_map_select_and_confirm(
+    owner: &crate::gui::window_manager::WindowManagerOwner,
+    map: impl Into<String>,
+) -> bool {
     let map = map.into();
     if map.trim().is_empty() {
         return false;
@@ -884,8 +922,8 @@ pub fn simulate_skirmish_map_select_and_confirm(map: impl Into<String>) -> bool 
     // Host residual: latch selected map + ButtonOK commit without requiring a live
     // WindowZH overlay load (create_layout can block/fail headless). Options menu
     // ButtonSelectMap still creates the overlay on interactive paths.
-    set_skirmish_map_select_selected_map(map);
-    simulate_skirmish_map_select_ok_button_gadget_selected()
+    set_skirmish_map_select_selected_map(owner, map);
+    simulate_skirmish_map_select_ok_button_gadget_selected(owner)
 }
 
 /// Human click-through: OS LeftDown/Up on `ButtonSelectMap` then overlay `ButtonOK`
@@ -907,16 +945,41 @@ pub fn drive_os_wnd_skirmish_map_select_like_cpp(
     if !clicked_select && !clicked_ok {
         return false;
     }
-    set_skirmish_map_select_selected_map(map);
-    simulate_skirmish_map_select_ok_button_gadget_selected()
+    let Some(owner) = effects.window_manager_owner else {
+        return false;
+    };
+    set_skirmish_map_select_selected_map(owner, map);
+    simulate_skirmish_map_select_ok_button_gadget_selected(owner)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gui::game_window::WindowEventEffects;
+
+    fn with_owner_effects<R>(
+        owner: &crate::gui::window_manager::WindowManagerOwner,
+        operation: impl FnOnce(&mut WindowEventEffects<'_>) -> R,
+    ) -> R {
+        let mut messages = Vec::new();
+        let mut ui = crate::core::subsystems::InGameUISubsystem::default();
+        let mut ime = crate::gui::ime_manager::ImeManager::new();
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(owner);
+        effects.ui = Some(&mut ui);
+        effects.ime = Some(&mut ime);
+        effects.menus = Some(
+            menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
+        );
+        let result = operation(&mut effects);
+        owner.complete_event_callbacks(&mut effects);
+        result
+    }
 
     #[test]
     fn preview_image_name_falls_back_to_unknown_map() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(resolve_preview_image_name(None), UNKNOWN_MAP_IMAGE);
         assert_eq!(
             resolve_preview_image_name(Some(String::new())),
@@ -930,6 +993,7 @@ mod tests {
 
     #[test]
     fn map_select_parent_name_preserves_legacy_typo() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             MAP_SELECT_PARENT_NAME,
             "SkirmishMapSelectMenu.wnd:SkrimishMapSelectMenuParent"
@@ -938,71 +1002,98 @@ mod tests {
 
     #[test]
     fn esc_char_is_consumed_before_key_up_like_cpp() {
-        let window = GameWindow::new();
+        crate::test_support::ensure_ambient_host();
+        let mut window = GameWindow::new();
 
         assert_eq!(
-            skirmish_map_select_menu_input(
+            WindowEventEffects::with_standalone(|effects| skirmish_map_select_menu_input(
                 &window,
                 WindowMessage::Char,
                 KEY_ESC as WindowMsgData,
                 0,
-            ),
+            effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            skirmish_map_select_menu_input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0),
+            WindowEventEffects::with_standalone(|effects| skirmish_map_select_menu_input(&mut window, WindowMessage::Char, b'A' as WindowMsgData, 0, effects)),
             WindowMsgHandled::Ignored
         );
     }
 
     #[test]
     fn os_wnd_skirmish_map_select_hits_select_map_and_ok_then_commits_setup() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
-            with_window_manager(|manager| {
+        { // was owner.with_scope
+            owner.with_manager(|manager| {
                 let select = manager
-                    .create_window(None, 10, 10, 80, 24)
+                    .test_create_window(None, 10, 10, 80, 24)
                     .expect("ButtonSelectMap");
                 select
                     .borrow_mut()
                     .set_name("SkirmishGameOptionsMenu.wnd:ButtonSelectMap");
-                let _ = select.borrow_mut().hide(false);
+                let _ = select.borrow_mut().hide_without_manager_side_effects(false);
                 let ok = manager
-                    .create_window(None, 10, 40, 80, 24)
+                    .test_create_window(None, 10, 40, 80, 24)
                     .expect("ButtonOK");
                 ok.borrow_mut()
                     .set_name("SkirmishMapSelectMenu.wnd:ButtonOK");
-                let _ = ok.borrow_mut().hide(false);
+                let _ = ok.borrow_mut().hide_without_manager_side_effects(false);
             });
             assert!(
-                drive_os_wnd_skirmish_map_select_like_cpp("maps\\alpine_war.map"),
+                with_owner_effects(&owner, |effects| { drive_os_wnd_skirmish_map_select_like_cpp("maps\\alpine_war.map", effects) }),
                 "OS WND clicks must commit map into skirmish setup"
             );
-            let committed = get_skirmish_setup()
+            let committed = get_skirmish_setup(Some(&owner)).lock().unwrap_or_else(|e| e.into_inner())
                 .game_info()
                 .game_info()
                 .get_map()
                 .to_string();
             assert_eq!(committed, "maps\\alpine_war.map");
-            assert!(!drive_os_wnd_skirmish_map_select_like_cpp(""));
-        });
+            assert!(!with_owner_effects(&owner, |effects| {
+                drive_os_wnd_skirmish_map_select_like_cpp("", effects)
+            }));
+        }
     }
 
     #[test]
     fn skirmish_map_select_system_consumes_lifecycle_messages_like_cpp() {
-        let window = GameWindow::new();
-
-        assert_eq!(
-            skirmish_map_select_menu_system(&window, WindowMessage::Create, 0, 0),
-            WindowMsgHandled::Handled
-        );
-        assert_eq!(
-            skirmish_map_select_menu_system(&window, WindowMessage::Destroy, 0, 0),
-            WindowMsgHandled::Handled
-        );
+        crate::test_support::ensure_ambient_host();
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        let mut window = GameWindow::new();
+        owner.with_manager(|wm| {
+            crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+                assert_eq!(
+                    skirmish_map_select_menu_system(
+                        &window,
+                        WindowMessage::Create,
+                        0,
+                        0,
+                        wm,
+                        effects,
+                    ),
+                    WindowMsgHandled::Handled
+                );
+                assert_eq!(
+                    skirmish_map_select_menu_system(
+                        &window,
+                        WindowMessage::Destroy,
+                        0,
+                        0,
+                        wm,
+                        effects,
+                    ),
+                    WindowMsgHandled::Handled
+                );
+            });
+        });
     }
 
-    fn install_map_listbox_for_test(listbox_id: i32, selected: Option<usize>) {
+    fn install_map_listbox_for_test(
+        listbox_id: i32,
+        selected: Option<usize>,
+        owner: &crate::gui::window_manager::WindowManagerOwner,
+    ) {
         let mut listbox = crate::gui::gadgets::ListBox::new(listbox_id as u32, 0, 0, 200, 80);
         listbox.add_item_with_data(
             0,
@@ -1027,7 +1118,7 @@ mod tests {
             .borrow_mut()
             .set_widget(crate::gui::WindowWidget::ListBox(listbox));
 
-        let state_handle = map_select_state();
+        let state_handle = map_select_state_on_owner(Some(owner));
         let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         *state = SkirmishMapSelectState::default();
         state.listbox_map_id = listbox_id;
@@ -1036,21 +1127,29 @@ mod tests {
 
     #[test]
     fn skirmish_map_select_system_handles_glm_selected_like_cpp() {
+        crate::test_support::ensure_ambient_host();
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let listbox_id = 101;
-        install_map_listbox_for_test(listbox_id, Some(1));
+        install_map_listbox_for_test(listbox_id, Some(1), &owner);
 
         let window = GameWindow::new();
-        assert_eq!(
-            skirmish_map_select_menu_system(
-                &window,
-                WindowMessage::User(GLM_SELECTED),
-                listbox_id as WindowMsgData,
-                1,
-            ),
-            WindowMsgHandled::Handled
-        );
+        with_owner_effects(&owner, |effects| {
+            effects.with_manager(|wm, effects| {
+                assert_eq!(
+                    skirmish_map_select_menu_system(
+                        &window,
+                        WindowMessage::User(GLM_SELECTED),
+                        listbox_id as WindowMsgData,
+                        1,
+                        wm,
+                        effects,
+                    ),
+                    WindowMsgHandled::Handled
+                );
+            });
+        });
 
-        let state_handle = map_select_state();
+        let state_handle = map_select_state_on_owner(Some(&owner));
         let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
             state.selected_map.as_deref(),
@@ -1060,21 +1159,29 @@ mod tests {
 
     #[test]
     fn skirmish_map_select_system_handles_glm_double_clicked_like_cpp() {
+        crate::test_support::ensure_ambient_host();
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let listbox_id = 101;
-        install_map_listbox_for_test(listbox_id, None);
+        install_map_listbox_for_test(listbox_id, None, &owner);
 
         let window = GameWindow::new();
-        assert_eq!(
-            skirmish_map_select_menu_system(
-                &window,
-                WindowMessage::User(GLM_DOUBLE_CLICKED),
-                listbox_id as WindowMsgData,
-                1,
-            ),
-            WindowMsgHandled::Handled
-        );
+        with_owner_effects(&owner, |effects| {
+            effects.with_manager(|wm, effects| {
+                assert_eq!(
+                    skirmish_map_select_menu_system(
+                        &window,
+                        WindowMessage::User(GLM_DOUBLE_CLICKED),
+                        listbox_id as WindowMsgData,
+                        1,
+                        wm,
+                        effects,
+                    ),
+                    WindowMsgHandled::Handled
+                );
+            });
+        });
 
-        let state_handle = map_select_state();
+        let state_handle = map_select_state_on_owner(Some(&owner));
         let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
             state.selected_map.as_deref(),
@@ -1084,12 +1191,16 @@ mod tests {
 
     #[test]
     fn simulate_map_select_and_confirm_commits_setup() {
+        crate::test_support::ensure_ambient_host();
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let map = "maps/alpine_assault/alpine_assault.map";
         assert!(
-            simulate_skirmish_map_select_and_confirm(map),
+            simulate_skirmish_map_select_and_confirm(&owner, map),
             "map-select OK residual must commit setup"
         );
-        let setup = get_skirmish_setup();
+        let setup_handle = get_skirmish_setup(Some(&owner));
+
+        let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         assert!(
             setup.selected_map() == map || setup.game_info().game_info().get_map() == map,
             "setup map residual: selected={} game_info={}",
@@ -1100,14 +1211,16 @@ mod tests {
 
     #[test]
     fn simulate_map_select_ok_without_selection_fail_closed() {
+        crate::test_support::ensure_ambient_host();
         // Clear selection residual.
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         {
-            let state_handle = map_select_state();
+            let state_handle = map_select_state_on_owner(Some(&owner));
             let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
             state.selected_map = None;
         }
         assert!(
-            !simulate_skirmish_map_select_ok_button_gadget_selected(),
+            !simulate_skirmish_map_select_ok_button_gadget_selected(&owner),
             "OK without selection must fail-closed (C++ ignores)"
         );
     }

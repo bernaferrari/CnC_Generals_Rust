@@ -96,8 +96,13 @@ fn closest_query_recognizes_the_driving_units_own_goal_after_another_search() {
     );
 
     let builder = generals_main::save_load::SnapshotBuilder::new();
-    let snapshot = builder.create_world_snapshot(&world).unwrap();
-    builder.restore_from_snapshot(&snapshot, &mut peer).unwrap();
+    let services = gamelogic::system::engine_stores::new_world_services();
+    let snapshot = gamelogic::system::engine_stores::with_world_services(&services, || {
+        builder.create_world_snapshot(&world).unwrap()
+    });
+    gamelogic::system::engine_stores::with_world_services(&services, || {
+        builder.restore_from_snapshot(&snapshot, &mut peer).unwrap();
+    });
     let mut restored_finder = PathfindingSystem::new(200.0, 200.0);
     restored_finder
         .grid

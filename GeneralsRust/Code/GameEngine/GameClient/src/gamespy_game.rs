@@ -10,12 +10,38 @@ use game_network::{
     GameInfo, MAX_SLOTS, PLAYERTEMPLATE_OBSERVER, SlotState, game_info_to_ascii_string,
 };
 
+#[cfg(test)]
 thread_local! {
-    static GAMESPY_GAME_INFO: Rc<RefCell<GameInfo>> = Rc::new(RefCell::new(GameInfo::new()));
+    static TEST_GAMESPY_GAME_INFO: std::cell::OnceCell<Rc<RefCell<GameInfo>>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn gamespy_game_info_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<GameInfo>> {
+    if let Some(owner) = owner {
+        return owner.gamespy_game_info_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().gamespy_game_info_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_GAMESPY_GAME_INFO.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(GameInfo::new())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(GameInfo::new()))
+    }
 }
 
 fn gamespy_game_info() -> Rc<RefCell<GameInfo>> {
-    GAMESPY_GAME_INFO.with(Rc::clone)
+    gamespy_game_info_on_owner(None)
 }
 
 pub fn with_gamespy_game_info<R>(f: impl FnOnce(&GameInfo) -> R) -> R {

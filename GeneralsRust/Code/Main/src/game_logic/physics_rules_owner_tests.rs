@@ -240,7 +240,7 @@ fn cloned_and_replaced_actor_admission_rebinds_rules_without_rewriting_resolved_
         previous_generation
     );
     assert_eq!(receiver.objects[&id].movement.velocity, previous_velocity);
-    receiver.destroy_object(id);
+    receiver.destroy_object(id).unwrap();
     receiver.process_destroy_list();
     receiver.add_object(detached);
     assert_eq!(

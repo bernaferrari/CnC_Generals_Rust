@@ -96,3 +96,161 @@ fn original_window_expiration_and_inclusive_radius_use_supplied_frame() {
         "CPP removes frame <= current-limit"
     );
 }
+
+#[test]
+fn peek_status_is_pure_and_observe_status_is_the_mutable_owner_write() {
+    // hq-2qedt.15: C++ Weapon::getStatus (Weapon.cpp:2736) writes the
+    // `mutable m_status`. Rust splits that into a pure `peek_status_at(&self)`
+    // and a mutable-owner `observe_status_at(&mut self)`.
+    let mut template = WeaponTemplate::new("ObserveStatusGun".into());
+    template.clip_size = 1;
+    let mut weapon = Weapon::new_at(Arc::new(template), WeaponSlotType::Primary, 0);
+    weapon.ammo_in_clip = 1;
+    weapon.when_pre_attack_finished = 0;
+    weapon.when_we_can_fire_again = 10;
+    weapon.store_status(WeaponStatus::ReloadingClip);
+
+    assert_eq!(weapon.peek_status_at(5), WeaponStatus::ReloadingClip);
+    assert_eq!(weapon.peek_status_at(10), WeaponStatus::ReadyToFire);
+    assert_eq!(
+        weapon.load_status(),
+        WeaponStatus::ReloadingClip,
+        "peek must not write"
+    );
+
+    assert_eq!(weapon.observe_status_at(10), WeaponStatus::ReadyToFire);
+    assert_eq!(
+        weapon.load_status(),
+        WeaponStatus::ReadyToFire,
+        "observe writes like C++"
+    );
+}
+
+#[test]
+fn weapon_selection_observes_status_through_mut_owner_and_peeks_in_selector() {
+    // hq-2qedt.80: C++ WeaponSet::chooseBestWeaponForTarget calls
+    // Weapon::getStatus (writes `mutable m_status`) on every slot that passes
+    // the auto-choose mask. Rust: the &mut owner observes, the selector peeks.
+    let mut template = WeaponTemplate::new("SelectObserveGun".into());
+    template.clip_size = 1;
+    let mut weapon = Weapon::new_at(Arc::new(template), WeaponSlotType::Primary, 0);
+    weapon.ammo_in_clip = 1;
+    weapon.when_pre_attack_finished = 0;
+    weapon.when_we_can_fire_again = 10;
+    weapon.store_status(WeaponStatus::ReloadingClip);
+    let mut set = WeaponSet::new();
+    set.restore_weapon(WeaponSlotType::Primary, weapon);
+
+    set.observe_selection_statuses_at(10, crate::common::CommandSourceType::FromAi);
+    assert_eq!(
+        set.get_weapon_in_slot(WeaponSlotType::Primary)
+            .unwrap()
+            .load_status(),
+        WeaponStatus::ReadyToFire,
+        "&mut selection observe writes stored status like C++ getStatus"
+    );
+
+    set.get_weapon_in_slot_mut(WeaponSlotType::Primary)
+        .unwrap()
+        .store_status(WeaponStatus::ReloadingClip);
+    assert_eq!(
+        set.peek_selection_status_at(WeaponSlotType::Primary, 10),
+        Some(WeaponStatus::ReadyToFire)
+    );
+    assert_eq!(
+        set.get_weapon_in_slot(WeaponSlotType::Primary)
+            .unwrap()
+            .load_status(),
+        WeaponStatus::ReloadingClip,
+        "&self selector status read is a pure peek"
+    );
+}
+
+#[test]
+fn shared_borrow_status_reads_are_pure_and_crc_reads_observed_status() {
+    // hq-2qedt.78: every `&self` status read (get_status_at, estimate,
+    // percent-ready, remaining-ammo, WeaponSet out-of-ammo) is pure. Only the
+    // `&mut` owner (`observe_status_at`) refreshes stored `m_status`, which is
+    // what the CRC/xfer path (crc_snapshot.rs load_status) serialises.
+    let mut template = WeaponTemplate::new("PureSharedReadGun".into());
+    template.clip_size = 1;
+    let mut weapon = Weapon::new_at(Arc::new(template), WeaponSlotType::Primary, 0);
+    weapon.ammo_in_clip = 1;
+    weapon.when_pre_attack_finished = 0;
+    weapon.when_we_can_fire_again = 10;
+    weapon.when_last_reload_started = 0;
+    weapon.store_status(WeaponStatus::ReloadingClip);
+
+    assert_eq!(weapon.get_status_at(10), WeaponStatus::ReadyToFire);
+    let _ = weapon.get_remaining_ammo_at(10);
+    let mut set = WeaponSet::new();
+    set.restore_weapon(WeaponSlotType::Primary, weapon);
+    assert!(!set.is_out_of_ammo_at(10));
+    let weapon = set.get_weapon_in_slot(WeaponSlotType::Primary).unwrap();
+    assert_eq!(
+        weapon.load_status(),
+        WeaponStatus::ReloadingClip,
+        "&self status reads must not write stored status"
+    );
+
+    let weapon = set.get_weapon_in_slot_mut(WeaponSlotType::Primary).unwrap();
+    assert_eq!(weapon.observe_status_at(10), WeaponStatus::ReadyToFire);
+    assert_eq!(weapon.load_status(), WeaponStatus::ReadyToFire, "CRC sees observed status");
+}
+
+#[test]
+fn weapon_xfer_saves_stored_status_raw_and_crc_ignores_status_like_cpp() {
+    // hq-2qedt.16: C++ Weapon::xfer (Weapon.cpp:3364) saves raw `m_status`
+    // without calling getStatus; Weapon::crc (Weapon.cpp:3163) has the status
+    // field commented out. So a stale stored status (nothing observed since the
+    // reload window ended) is saved as-is, and CRC is status-independent.
+    use crate::system::game_logic::LogicXferCrc;
+    use game_engine::common::system::xfer_load::XferLoad;
+    use game_engine::common::system::xfer_save::XferSave;
+    use game_engine::common::system::Snapshotable;
+    use std::io::Cursor;
+
+    let mut template = WeaponTemplate::new("XferStatusGun".into());
+    template.clip_size = 1;
+    let template = Arc::new(template);
+    let mut weapon = Weapon::new_at(template.clone(), WeaponSlotType::Primary, 0);
+    weapon.ammo_in_clip = 1;
+    weapon.when_pre_attack_finished = 0;
+    weapon.when_we_can_fire_again = 10;
+    weapon.store_status(WeaponStatus::ReloadingClip);
+    // Pure peek past the window: reports ReadyToFire, stored stays stale.
+    assert_eq!(weapon.peek_status_at(20), WeaponStatus::ReadyToFire);
+    assert_eq!(weapon.load_status(), WeaponStatus::ReloadingClip);
+
+    let mut bytes = Vec::new();
+    {
+        let mut xfer = XferSave::new(Cursor::new(&mut bytes), 1);
+        weapon
+            .xfer_with_templates(&mut xfer, &mut |_| Ok(Some(template.clone())))
+            .unwrap();
+    }
+    assert_eq!(weapon.load_status(), WeaponStatus::ReloadingClip, "save must not observe");
+
+    let mut loaded = Weapon::new_at(template.clone(), WeaponSlotType::Primary, 0);
+    loaded.store_status(WeaponStatus::ReadyToFire);
+    {
+        let mut xfer = XferLoad::new(Cursor::new(bytes.clone()), 1);
+        loaded
+            .xfer_with_templates(&mut xfer, &mut |_| Ok(Some(template.clone())))
+            .unwrap();
+    }
+    assert_eq!(loaded.load_status(), WeaponStatus::ReloadingClip, "raw stored status round-trips");
+    assert_eq!(loaded.peek_status_at(20), WeaponStatus::ReadyToFire);
+    assert_eq!(loaded.when_we_can_fire_again, 10);
+    assert_eq!(loaded.ammo_in_clip, 1);
+
+    let crc_of = |w: &Weapon| {
+        let mut x = LogicXferCrc::new();
+        w.crc(&mut x).unwrap();
+        x.get_crc()
+    };
+    let stale = crc_of(&weapon);
+    assert_eq!(weapon.observe_status_at(20), WeaponStatus::ReadyToFire);
+    assert_eq!(weapon.load_status(), WeaponStatus::ReadyToFire);
+    assert_eq!(crc_of(&weapon), stale, "C++ crc omits m_status");
+}

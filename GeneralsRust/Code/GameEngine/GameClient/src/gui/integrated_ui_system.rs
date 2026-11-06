@@ -570,6 +570,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_ui_system_creation() {
+        crate::test_support::ensure_ambient_host();
         // This would require a real wgpu device
         // let device = ...;
         // let queue = ...;
@@ -579,6 +580,7 @@ mod tests {
 
     #[test]
     fn test_ui_command_queue() {
+        crate::test_support::ensure_ambient_host();
         let mut queue = Vec::new();
         queue.push(UICommand::Build("barracks".into()));
         queue.push(UICommand::UnitCommand("attack".into()));

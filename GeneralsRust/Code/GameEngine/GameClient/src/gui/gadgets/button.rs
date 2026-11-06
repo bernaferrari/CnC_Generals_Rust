@@ -40,8 +40,10 @@ pub type ButtonCallback = Box<dyn Fn(GadgetId) + Send + Sync>;
 pub type ButtonAudioHook = Box<dyn FnMut(&str) + Send + Sync>;
 
 // THREAD: main thread only — push-button clicks dispatch audio on the GUI thread.
+// Owned on WindowManagerOwner.button_audio (live client peel / cfg(test) TLS).
+#[cfg(test)]
 thread_local! {
-    static BUTTON_AUDIO: RefCell<Option<ButtonAudioHook>> = const { RefCell::new(None) };
+    static TEST_BUTTON_AUDIO: RefCell<Option<ButtonAudioHook>> = const { RefCell::new(None) };
 }
 
 /// Register button audio dispatch.
@@ -49,20 +51,65 @@ thread_local! {
 /// C++ push buttons call `TheAudio->addAudioEvent()` on accepted mouse-down
 /// events. The hook keeps that behavior injectable for the Rust client.
 pub fn register_button_audio_hook(hook: ButtonAudioHook) {
-    BUTTON_AUDIO.with_borrow_mut(|slot| slot.replace(hook));
+    let mut hook = Some(hook);
+    if let Some(()) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .register_button_audio_hook(hook.take().expect("button audio hook"));
+    }) {
+        return;
+    }
+    let hook = hook.expect("button audio hook");
+    #[cfg(test)]
+    {
+        TEST_BUTTON_AUDIO.with_borrow_mut(|slot| {
+            slot.replace(hook);
+        });
+        return;
+    }
+    #[cfg(not(test))]
+    {
+        let _ = hook;
+    }
 }
 
 #[cfg(test)]
 fn clear_button_audio_hook() {
-    BUTTON_AUDIO.with_borrow_mut(Option::take);
+    if let Some(()) = crate::core::game_client::with_live_game_client_mut(|client| {
+        let _ = client.window_manager_owner_ref().take_button_audio_hook();
+    }) {
+        return;
+    }
+    TEST_BUTTON_AUDIO.with_borrow_mut(Option::take);
 }
 
 fn with_button_audio<F: FnOnce(&mut ButtonAudioHook)>(f: F) {
-    BUTTON_AUDIO.with_borrow_mut(|guard| {
-        if let Some(hook) = guard.as_mut() {
-            f(hook);
-        }
-    });
+    let mut f = Some(f);
+    if let Some(Some(())) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .with_button_audio_mut(|hook| {
+                f.take().expect("button audio")(hook);
+            })
+    }) {
+        return;
+    }
+    if f.is_none() {
+        return;
+    }
+    #[cfg(test)]
+    {
+        TEST_BUTTON_AUDIO.with_borrow_mut(|guard| {
+            if let Some(hook) = guard.as_mut() {
+                f.take().expect("button audio")(hook);
+            }
+        });
+        return;
+    }
+    #[cfg(not(test))]
+    {
+        let _ = f;
+    }
 }
 
 /// Clock display mode for progress indicators
@@ -1038,22 +1085,32 @@ mod tests {
         // GUI hooks are already owned by this test thread. Preserve an outer
         // fixture while giving this one an empty hook slot; no global lock.
         ButtonAudioTestGuard {
-            previous: BUTTON_AUDIO.with_borrow_mut(Option::take),
+            previous: {
+                if let Some(prev) = crate::core::game_client::with_live_game_client_mut(|client| {
+                    client.window_manager_owner_ref().take_button_audio_hook()
+                }) {
+                    prev
+                } else {
+                    TEST_BUTTON_AUDIO.with_borrow_mut(Option::take)
+                }
+            },
             _thread: PhantomData,
         }
     }
 
     impl Drop for ButtonAudioTestGuard {
         fn drop(&mut self) {
-            let installed =
-                BUTTON_AUDIO.with_borrow_mut(|slot| std::mem::replace(slot, self.previous.take()));
-            // Captured values are dropped after releasing the slot borrow.
-            drop(installed);
+            if let Some(prev) = self.previous.take() {
+                register_button_audio_hook(prev);
+            } else {
+                clear_button_audio_hook();
+            }
         }
     }
 
     #[test]
     fn audio_fixture_restores_outer_hook_after_normal_drop_and_panic() {
+        crate::test_support::ensure_ambient_host();
         use std::sync::atomic::{AtomicUsize, Ordering};
 
         let _outer = audio_test_guard();
@@ -1082,6 +1139,7 @@ mod tests {
 
     #[test]
     fn test_button_creation() {
+        crate::test_support::ensure_ambient_host();
         let button = PushButton::new(1, 10, 20, 100, 30);
         assert_eq!(button.id(), 1);
         assert_eq!(button.bounds(), Rect::new(10, 20, 100, 30));
@@ -1094,6 +1152,7 @@ mod tests {
 
     #[test]
     fn test_checkbox_behavior() {
+        crate::test_support::ensure_ambient_host();
         let mut button = PushButton::new(1, 0, 0, 100, 30).as_checkbox(false);
 
         assert!(button.is_checkbox());
@@ -1118,6 +1177,7 @@ mod tests {
 
     #[test]
     fn test_button_states() {
+        crate::test_support::ensure_ambient_host();
         let mut button = PushButton::new(1, 0, 0, 100, 30);
 
         // Test enable/disable
@@ -1135,6 +1195,7 @@ mod tests {
 
     #[test]
     fn test_button_text() {
+        crate::test_support::ensure_ambient_host();
         let mut button = PushButton::new(1, 0, 0, 100, 30).with_text("Test Button");
 
         assert_eq!(button.text(), "Test Button");
@@ -1145,6 +1206,7 @@ mod tests {
 
     #[test]
     fn test_button_builder() {
+        crate::test_support::ensure_ambient_host();
         let button = PushButtonBuilder::new(1, 10, 20, 100, 30)
             .text("Builder Button")
             .checkbox(true)
@@ -1159,6 +1221,7 @@ mod tests {
 
     #[test]
     fn render_commands_cover_button_draw_data_without_console_output() {
+        crate::test_support::ensure_ambient_host();
         let theme = GadgetTheme::default();
         let button = PushButtonBuilder::new(1, 10, 20, 100, 30)
             .text("Build")
@@ -1199,6 +1262,7 @@ mod tests {
 
     #[test]
     fn render_commands_include_check_like_state_and_skip_hidden_buttons() {
+        crate::test_support::ensure_ambient_host();
         let theme = GadgetTheme::default();
         let mut button = PushButton::new(1, 0, 0, 20, 20)
             .with_text("Toggle")
@@ -1230,6 +1294,7 @@ mod tests {
 
     #[test]
     fn test_mouse_events() {
+        crate::test_support::ensure_ambient_host();
         let mut button = PushButton::new(1, 0, 0, 100, 30);
 
         // Mouse enter
@@ -1247,6 +1312,7 @@ mod tests {
 
     #[test]
     fn mouse_leave_clears_normal_button_pressed_state_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut button = PushButton::new(1, 0, 0, 100, 30);
         button.handle_input(&InputEvent::MouseEnter { x: 50, y: 15 });
         button.handle_input(&InputEvent::MouseDown {
@@ -1274,6 +1340,7 @@ mod tests {
 
     #[test]
     fn test_right_click_ignored_by_default() {
+        crate::test_support::ensure_ambient_host();
         let mut button = PushButton::new(1, 0, 0, 100, 30);
         button.handle_input(&InputEvent::MouseEnter { x: 50, y: 15 });
 
@@ -1295,6 +1362,7 @@ mod tests {
 
     #[test]
     fn test_right_click_enabled_matches_cpp_status_opt_in() {
+        crate::test_support::ensure_ambient_host();
         let mut button = PushButtonBuilder::new(1, 0, 0, 100, 30)
             .accepts_right_click(true)
             .build();
@@ -1321,6 +1389,7 @@ mod tests {
 
     #[test]
     fn left_up_fires_clicked_from_selected_without_mouse_enter_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut button = PushButton::new(1, 0, 0, 100, 30);
         let down = button.handle_input(&InputEvent::MouseDown {
             x: 50,
@@ -1343,6 +1412,7 @@ mod tests {
 
     #[test]
     fn test_keyboard_activation_matches_cpp_key_up_for_normal_button() {
+        crate::test_support::ensure_ambient_host();
         let mut button = PushButton::new(1, 0, 0, 100, 30);
         button.set_focus(true);
 
@@ -1366,6 +1436,7 @@ mod tests {
 
     #[test]
     fn test_keyboard_activation_matches_cpp_key_down_for_check_like_button() {
+        crate::test_support::ensure_ambient_host();
         let mut button = PushButton::new(1, 0, 0, 100, 30).as_checkbox(false);
         button.set_focus(true);
 
@@ -1389,6 +1460,7 @@ mod tests {
 
     #[test]
     fn keyboard_arrows_and_tab_request_focus_navigation_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut button = PushButton::new(1, 0, 0, 100, 30);
         button.set_focus(true);
 
@@ -1413,6 +1485,7 @@ mod tests {
 
     #[test]
     fn test_left_click_plays_default_gui_click_sound() {
+        crate::test_support::ensure_ambient_host();
         let _guard = audio_test_guard();
         let events = Arc::new(Mutex::new(Vec::new()));
         let captured_events = Arc::clone(&events);
@@ -1437,6 +1510,7 @@ mod tests {
 
     #[test]
     fn test_click_uses_alt_sound_when_present() {
+        crate::test_support::ensure_ambient_host();
         let _guard = audio_test_guard();
         let events = Arc::new(Mutex::new(Vec::new()));
         let captured_events = Arc::clone(&events);
@@ -1461,6 +1535,7 @@ mod tests {
 
     #[test]
     fn test_ignored_right_click_does_not_play_audio() {
+        crate::test_support::ensure_ambient_host();
         let _guard = audio_test_guard();
         let events = Arc::new(Mutex::new(Vec::new()));
         let captured_events = Arc::clone(&events);
@@ -1487,6 +1562,7 @@ mod tests {
 
     #[test]
     fn clock_request_is_one_shot_and_can_be_rearmed() {
+        crate::test_support::ensure_ambient_host();
         let mut button = PushButton::new(1, 0, 0, 100, 30);
         assert_eq!(button.clock_request(), None);
 
@@ -1515,6 +1591,7 @@ mod tests {
 
     #[test]
     fn checkbox_keyboard_toggle_is_silent_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let _guard = audio_test_guard();
         let events = Arc::new(Mutex::new(Vec::new()));
         let captured_events = Arc::clone(&events);

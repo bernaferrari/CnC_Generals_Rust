@@ -10,6 +10,8 @@ pub enum DamageEvent {
         damage_type: DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         shooter_id: ObjectId,
+        /// Fired WeaponTemplate DamageStatusType (C++ DamageInfoInput).
+        damage_status_type: Option<gamelogic::common::ObjectStatusTypes>,
     },
     Area {
         position: Vec3,
@@ -49,6 +51,8 @@ pub enum DamageEvent {
         primary_victim: Option<ObjectId>,
         /// Effective WeaponTemplate identity resolved by the receiving match.
         radius_weapon_name: String,
+        /// Fired WeaponTemplate DamageStatusType (C++ DamageInfoInput).
+        damage_status_type: Option<gamelogic::common::ObjectStatusTypes>,
     },
 }
 
@@ -263,9 +267,10 @@ pub fn apply_ready_projectileless_delayed_damage(
     health_events: &mut crate::game_logic::HostHealthEvents,
     ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
 ) {
-    let ready = take_ready_projectileless_delayed_damage(combat, current_frame);
+    // Weapon.cpp:1589-1604 — dealDamageInternal then erase, continue the same
+    // list walk so same-frame callback-appended due entries still fire now.
     let historic_damage_limit = combat.historic_damage_limit();
-    for shot in ready {
+    drain_ready_projectileless_delayed(combat, current_frame, |combat, shot| {
         combat.apply_projectileless_delayed_shot(
             &shot,
             objects,
@@ -275,24 +280,39 @@ pub fn apply_ready_projectileless_delayed_damage(
             health_events,
             ownership_events,
         );
-    }
+    });
 }
 
-/// Select one batch only. Callback-enqueued shots remain on the live owner.
-pub(in crate::game_logic) fn take_ready_projectileless_delayed_damage(
+/// C++ WeaponStore::update delayed-damage walk: process one due entry at a time
+/// so a dealDamageInternal callback can append another due entry and have it
+/// run before this update returns.
+pub(in crate::game_logic) fn drain_ready_projectileless_delayed(
     combat: &mut CombatSystem,
     current_frame: u32,
-) -> Vec<LiveProjectilelessDelayedDamage> {
-    let queue = &mut combat.projectileless_delayed;
-    let mut ready = Vec::new();
+    mut apply: impl FnMut(&mut CombatSystem, LiveProjectilelessDelayedDamage),
+) {
     let mut i = 0;
-    while i < queue.len() {
-        if queue[i].when <= current_frame {
-            ready.push(queue.remove(i));
+    while i < combat.projectileless_delayed.len() {
+        if combat.projectileless_delayed[i].when <= current_frame {
+            let shot = combat.projectileless_delayed.remove(i);
+            apply(combat, shot);
         } else {
             i += 1;
         }
     }
+}
+
+/// Test/inspection helper: extract all currently-due entries without applying.
+/// Production delivery uses [`drain_ready_projectileless_delayed`] so same-frame
+/// appends still run (Weapon.cpp:1589-1604).
+pub(in crate::game_logic) fn take_ready_projectileless_delayed_damage(
+    combat: &mut CombatSystem,
+    current_frame: u32,
+) -> Vec<LiveProjectilelessDelayedDamage> {
+    let mut ready = Vec::new();
+    drain_ready_projectileless_delayed(combat, current_frame, |_combat, shot| {
+        ready.push(shot);
+    });
     ready
 }
 
@@ -395,6 +415,11 @@ pub struct PendingProjectile {
     pub min_attack_range: f32,
     /// C++ HistoricBonus residual peels (stamped at fire).
     pub historic_weapon_key: String,
+    /// C++ DamageInfoInput::m_damageStatusType copied from the fired
+    /// WeaponTemplate (Weapon.cpp dealDamageInternal). Instant/laser status
+    /// weapons never persist in flight, so it is not part of the wire format.
+    #[serde(skip)]
+    pub damage_status_type: Option<gamelogic::common::ObjectStatusTypes>,
     pub historic_bonus_time_frames: u32,
     pub historic_bonus_count: i32,
     pub historic_bonus_radius: f32,
@@ -804,6 +829,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         proj.shock_wave_taper_off = p.shock_wave_taper_off;
         proj.radius_damage_affects = p.radius_damage_affects;
         proj.historic_weapon_key = p.historic_weapon_key.clone();
+        proj.damage_status_type = p.damage_status_type;
         proj.stream_binding = stream_binding;
         proj.historic_bonus_time_frames = p.historic_bonus_time_frames;
         proj.historic_bonus_count = p.historic_bonus_count;

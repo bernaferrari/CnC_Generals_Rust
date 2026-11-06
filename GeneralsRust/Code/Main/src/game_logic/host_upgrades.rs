@@ -1188,21 +1188,6 @@ pub fn is_neutron_shell_unit_template(name: &str) -> bool {
     crate::game_logic::host_neutron_shell::is_nuke_cannon_template(name)
 }
 
-/// Template names that receive Bunker Busters upgrade tag when research completes.
-pub fn is_bunker_buster_unit_template(name: &str) -> bool {
-    crate::game_logic::host_bunker_buster::is_bunker_buster_carrier(name)
-}
-
-/// Template names that receive Comanche Rocket Pods secondary when research completes.
-pub fn is_comanche_rocket_pod_unit_template(name: &str) -> bool {
-    crate::game_logic::host_comanche_rocket_pods::is_comanche_template(name)
-}
-
-/// Template names that receive Sentry Drone Gun primary when research completes.
-pub fn is_sentry_drone_gun_unit_template(name: &str) -> bool {
-    crate::game_logic::host_sentry_drone::is_sentry_drone_template(name)
-}
-
 /// Template names that receive Capture upgrade tag (observability residual).
 pub fn is_capture_capable_infantry_template(name: &str) -> bool {
     if name.to_ascii_lowercase().contains("worker")

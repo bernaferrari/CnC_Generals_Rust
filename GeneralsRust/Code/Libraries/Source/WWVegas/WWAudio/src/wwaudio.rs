@@ -145,14 +145,6 @@ impl Default for WWAudioClass {
     }
 }
 
-thread_local! {
-    /// Process-lifetime audio singleton, matching the C++ static
-    /// `WWAudioClass` instance. Only the game thread drives this object, so
-    /// it is a thread-local `RefCell` rather than a shared mutex.
-    static WW_AUDIO_INSTANCE: std::cell::RefCell<WWAudioClass> =
-        std::cell::RefCell::new(WWAudioClass::default());
-}
-
 impl WWAudioClass {
     fn queue_handle_release(handle: WWHandle) {
         queue_delayed_release(PLAYLIST_RELEASE_DELAY_MS, move || {
@@ -176,14 +168,9 @@ impl WWAudioClass {
         }
     }
 
-    /// Run `f` against the process-lifetime singleton
-    /// (equivalent to the C++ `Get_Instance`, which handed out a pointer).
-    ///
-    /// The borrow is exclusive for the duration of `f`, mirroring how the
-    /// game thread used the C++ singleton; re-entering from inside `f`
-    /// panics instead of silently aliasing.
-    pub fn with_instance<R>(f: impl FnOnce(&mut WWAudioClass) -> R) -> R {
-        WW_AUDIO_INSTANCE.with(|cell| f(&mut cell.borrow_mut()))
+    /// Run `f` against this session instance (replaces C++ `Get_Instance`).
+    pub fn with_mut<R>(&mut self, f: impl FnOnce(&mut WWAudioClass) -> R) -> R {
+        f(self)
     }
 
     /// Create a new WWAudio wrapper without touching the singleton
@@ -1130,7 +1117,7 @@ impl WWAudioClass {
                 record.display_name.clone(),
             );
         }
-        LogicalListener::set_global_scale(self.dynamic_save.logical_listener_global_scale());
+        self.sound_scene.set_logical_global_scale(self.dynamic_save.logical_listener_global_scale());
         self.sound_scene.update(0);
         let system = self
             .audio_system

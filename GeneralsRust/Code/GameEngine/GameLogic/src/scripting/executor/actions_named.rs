@@ -735,8 +735,8 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         };
 
-        let destination_team = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let destination_team = __player_list_arc.read()
             .ok()
             .and_then(|list| list.find_player_by_name(&player_name))
             .and_then(|player| player.read().ok().and_then(|p| p.get_default_team()));
@@ -1043,9 +1043,10 @@ impl ScriptActionDispatcher<'_> {
         };
 
         let template_name = {
-            let Some(store) = get_special_power_store() else {
+            let Some(__sp_store_arc) = get_special_power_store() else {
                 return Ok(ScriptActionResult::Success);
             };
+            let Ok(store) = __sp_store_arc.read() else { return Ok(ScriptActionResult::Success); };
             let Some(template) = store.find_special_power_template(&power_name) else {
                 return Ok(ScriptActionResult::Success);
             };
@@ -1105,9 +1106,10 @@ impl ScriptActionDispatcher<'_> {
         }
 
         let template_name = {
-            let Some(store) = get_special_power_store() else {
+            let Some(__sp_store_arc) = get_special_power_store() else {
                 return Ok(ScriptActionResult::Success);
             };
+            let Ok(store) = __sp_store_arc.read() else { return Ok(ScriptActionResult::Success); };
             let Some(template) = store.find_special_power_template(&power_name) else {
                 return Ok(ScriptActionResult::Success);
             };

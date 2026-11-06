@@ -21,7 +21,7 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const PJST_MAGIC: &[u8; 4] = b"PJST";
-const PJST_VERSION: u32 = 1;
+const PJST_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ProjectileStreamPersistPayload {
@@ -50,20 +50,39 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
-    if version != PJST_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unknown PJST suffix version {version}"
-        )));
-    }
     let payload_len = take_u32(&mut rest)? as usize;
     if rest.len() < payload_len {
         return Err(SaveLoadError::Corrupted(
             "PJST payload truncated".to_string(),
         ));
     }
-    let payload: ProjectileStreamPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("PJST payload decode: {err}")))?;
-    game_logic.projectile_streams = payload.registry;
+    let encoded = &rest[..payload_len];
+    match version {
+        2 => {
+            let payload: ProjectileStreamPersistPayload =
+                bincode_legacy::deserialize(encoded).map_err(|err| {
+                    SaveLoadError::Corrupted(format!("PJST payload decode: {err}"))
+                })?;
+            game_logic.projectile_streams = payload.registry;
+        }
+        1 => {
+            #[derive(Deserialize)]
+            struct V1Payload {
+                registry: crate::game_logic::host_projectile_stream::ProjectileStreamRegistryV1Compat,
+            }
+            let payload: V1Payload = bincode_legacy::deserialize(encoded).map_err(|err| {
+                SaveLoadError::Corrupted(format!("PJST v1 payload decode: {err}"))
+            })?;
+            game_logic
+                .projectile_streams
+                .restore_from_v1_shooter_map(payload.registry.into_shooter_map());
+        }
+        other => {
+            return Err(SaveLoadError::Corrupted(format!(
+                "unknown PJST suffix version {other}"
+            )));
+        }
+    }
     Ok(())
 }
 
@@ -102,9 +121,12 @@ mod tests {
 
     #[test]
     fn snapshot_round_trips_flame_trail() {
+        // Drive PJST append/apply directly so this residual does not depend on
+        // the full WorldSnapshot CommonServices/BaseAI capture path.
         let mut source = GameLogic::new();
         source.projectile_streams.add_projectile(
             ObjectId(7),
+            0,
             "DragonTankFlameStream",
             Vec3::new(10.0, 0.0, 4.0),
             Some(ObjectId(11)),
@@ -113,6 +135,7 @@ mod tests {
         );
         source.projectile_streams.add_projectile(
             ObjectId(7),
+            0,
             "DragonTankFlameStream",
             Vec3::new(12.0, 0.0, 5.0),
             Some(ObjectId(12)),
@@ -120,30 +143,30 @@ mod tests {
             41,
         );
 
-        let builder = super::super::SnapshotBuilder::new();
-        let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
+        let mut tail = Vec::new();
+        append_to_lifecycle_tail(&mut tail, &source);
         assert!(
-            find_pjst_suffix(&snapshot.lifecycle_tail).is_some(),
+            find_pjst_suffix(&tail).is_some(),
             "PJST suffix must be appended to lifecycle tail"
         );
 
         let mut restored = GameLogic::new();
         restored.projectile_streams.add_projectile(
             ObjectId(99),
+            0,
             "ToxinStream",
             Vec3::ZERO,
             None,
             None,
             1,
         );
-        builder
-            .restore_from_snapshot(&snapshot, &mut restored)
-            .expect("restore");
+        apply_from_lifecycle_tail(&tail, &mut restored).expect("restore");
 
         let streams = restored.projectile_streams.snapshot();
         assert_eq!(streams.len(), 1);
-        let (shooter, state) = streams[0];
-        assert_eq!(shooter, ObjectId(7));
+        let (key, state) = streams[0];
+        assert_eq!(key.shooter, ObjectId(7));
+        assert_eq!(key.slot, 0);
         assert_eq!(state.stream_name, "DragonTankFlameStream");
         assert_eq!(state.target_id, Some(ObjectId(12)));
         assert_eq!(state.last_frame, 41);
@@ -156,7 +179,7 @@ mod tests {
                 .projectile_streams
                 .snapshot()
                 .iter()
-                .any(|(id, _)| *id == ObjectId(99)),
+                .any(|(key, _)| key.shooter == ObjectId(99)),
             "stale pre-load trail must not leak"
         );
     }
@@ -166,6 +189,7 @@ mod tests {
         let mut logic = GameLogic::new();
         logic.projectile_streams.add_projectile(
             ObjectId(1),
+             0,
             "DragonTankFlameStream",
             Vec3::ZERO,
             None,

@@ -1,5 +1,7 @@
-//! Receiving native prefix facts are observed at the original late UI boundary.
+use crate::message_stream::message_stream::THE_MESSAGE_STREAM;
+// Receiving native prefix facts are observed at the original late UI boundary.
 use super::*;
+use crate::test_support::with_receiving_ui;
 
 fn client(frame: u32) -> GameClient {
     let mut client = GameClient::new().unwrap();
@@ -15,6 +17,7 @@ fn frames(frame: u32) -> NativeParticleFrames {
 }
 #[test]
 fn native_visual_time_is_instance_scoped_and_repeated_frame_is_consumed_once() {
+    crate::test_support::ensure_ambient_host();
     let mut a = client(71);
     let mut b = client(71);
     assert_eq!(
@@ -62,6 +65,7 @@ fn native_visual_time_is_instance_scoped_and_repeated_frame_is_consumed_once() {
 }
 #[test]
 fn invalid_visual_speed_does_not_consume_receiving_frame() {
+    crate::test_support::ensure_ambient_host();
     let mut client = client(93);
     let before = client.last_visual_time_frame;
     for speed in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
@@ -87,6 +91,7 @@ fn invalid_visual_speed_does_not_consume_receiving_frame() {
 }
 #[test]
 fn actual_native_prefix_uses_supplied_facts_despite_foreign_core_observation() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "actual_native_prefix_uses_supplied_facts_despite_foreign_core_observation",
@@ -129,7 +134,7 @@ fn actual_native_prefix_uses_supplied_facts_despite_foreign_core_observation() {
                 frozen: false,
                 visual_speed: 2.,
             }
-        })
+        }, 0)
         .unwrap();
     assert!(!first.frozen);
     assert_eq!(observed, 1);
@@ -139,7 +144,7 @@ fn actual_native_prefix_uses_supplied_facts_despite_foreign_core_observation() {
                 frozen: true,
                 visual_speed: 0.5,
             }
-        })
+        }, 0)
         .unwrap();
     assert!(peer.frozen);
     let repeated = a
@@ -148,7 +153,7 @@ fn actual_native_prefix_uses_supplied_facts_despite_foreign_core_observation() {
                 frozen: false,
                 visual_speed: 2.,
             }
-        })
+        }, 0)
         .unwrap();
     assert!(repeated.frozen);
     a.set_frame(122);
@@ -158,7 +163,7 @@ fn actual_native_prefix_uses_supplied_facts_despite_foreign_core_observation() {
                 frozen: false,
                 visual_speed: 2.,
             }
-        })
+        }, 0)
         .unwrap();
     assert!(!next.frozen);
     assert_eq!(b.last_visual_time_frame, 121);
@@ -169,6 +174,7 @@ mod delta_drawable;
 
 #[test]
 fn actual_prefix_delivers_receiving_scaled_delta_repeat_zero_and_peer_reset_isolation() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "actual_prefix_delivers_receiving_scaled_delta_repeat_zero_and_peer_reset_isolation",
@@ -207,7 +213,7 @@ fn actual_prefix_delivers_receiving_scaled_delta_repeat_zero_and_peer_reset_isol
                     frozen: false,
                     visual_speed: speed,
                 }
-            })
+            }, 0)
             .unwrap();
     }
     assert_eq!(deltas(&a, aid), [0.04_f32 * 2.5]);
@@ -218,7 +224,7 @@ fn actual_prefix_delivers_receiving_scaled_delta_repeat_zero_and_peer_reset_isol
                 frozen: false,
                 visual_speed: 2.5,
             }
-        })
+        }, 0)
         .unwrap();
     assert_eq!(deltas(&a, aid), [0.04_f32 * 2.5, 0.]);
     // Dropping/reconstructing a peer cannot reset the receiving frame marker.
@@ -232,7 +238,7 @@ fn actual_prefix_delivers_receiving_scaled_delta_repeat_zero_and_peer_reset_isol
                 frozen: false,
                 visual_speed: 2.5,
             }
-        })
+        }, 0)
         .unwrap();
     assert_eq!(deltas(&a, aid), [0.04_f32 * 2.5, 0., 0.04_f32 * 2.5]);
     assert_eq!(peer.last_visual_time_frame, u32::MAX);
@@ -240,6 +246,7 @@ fn actual_prefix_delivers_receiving_scaled_delta_repeat_zero_and_peer_reset_isol
 
 #[test]
 fn receiving_freeze_admission_matches_extracted_cpp_truth_repeat_and_unsigned_wrap_trace() {
+    crate::test_support::ensure_ambient_host();
     let corpus = include_str!("native_visual_time_tests/fixtures/client_freeze_cpp.csv");
     let mut client = GameClient::new().unwrap();
     let mut rows = 0;
@@ -280,6 +287,7 @@ fn receiving_freeze_admission_matches_extracted_cpp_truth_repeat_and_unsigned_wr
 
 #[test]
 fn native_shell_never_advances_foreign_core_impulse_but_standalone_effects_do() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "native_shell_never_advances_foreign_core_impulse_but_standalone_effects_do",
@@ -320,7 +328,7 @@ fn native_shell_never_advances_foreign_core_impulse_but_standalone_effects_do() 
                     frozen: false,
                     visual_speed: 1.,
                 }
-            })
+            }, 0)
             .unwrap();
         assert!(!prepared.frozen);
         assert_eq!(
@@ -336,6 +344,8 @@ fn native_shell_never_advances_foreign_core_impulse_but_standalone_effects_do() 
 
 #[test]
 fn native_prefix_preserves_foreign_core_tracking_and_standalone_still_follows() {
+        crate::test_support::ensure_ambient_host();
+        with_receiving_ui(|ui| {
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "native_prefix_preserves_foreign_core_tracking_and_standalone_still_follows",
@@ -363,8 +373,16 @@ fn native_prefix_preserves_foreign_core_tracking_and_standalone_still_follows() 
     peer.drawables
         .admit_native_drawable(id, Box::new(peer_selected));
     crate::display::view::with_tactical_view(|view| view.set_position(&Point3::new(10., 20., 0.)));
-    crate::helpers::TheInGameUI::set_camera_tracking_drawable(true);
-    assert!(crate::helpers::TheInGameUI::is_camera_tracking_drawable());
+    // Tracking is owned per receiving InGameUI (not the throwaway with_receiving_ui).
+    for client in [&mut owner, &mut peer, &mut empty] {
+        let mut tracking_ui = crate::core::subsystems::InGameUISubsystem::default();
+        tracking_ui.set_camera_tracking_drawable(true);
+        client.set_in_game_ui_subsystem(tracking_ui);
+    }
+    ui.set_camera_tracking_drawable(true);
+    assert!(owner
+        .in_game_ui_subsystem()
+        .is_some_and(|ui| ui.is_camera_tracking_drawable()));
     let position = || {
         crate::display::view::with_tactical_view_ref(|view| {
             let p = view.position();
@@ -379,25 +397,29 @@ fn native_prefix_preserves_foreign_core_tracking_and_standalone_still_follows() 
                     frozen: false,
                     visual_speed: 1.,
                 }
-            })
+            }, 0)
             .unwrap();
         assert_eq!(
             position(),
             before,
             "native prefix must not follow foreign Core drawable selection"
         );
-        assert!(
-            crate::helpers::TheInGameUI::is_camera_tracking_drawable(),
-            "native empty peer must not clear foreign tracking"
-        );
     }
+    assert!(
+        owner
+            .in_game_ui_subsystem()
+            .is_some_and(|ui| ui.is_camera_tracking_drawable()),
+        "native empty peer must not clear foreign tracking"
+    );
     owner.update_camera_tracking_drawable();
     assert_ne!(
         position(),
         before,
         "retained standalone adapter still follows installed selection"
     );
-    assert!(crate::helpers::TheInGameUI::is_camera_tracking_drawable());
+    assert!(owner
+        .in_game_ui_subsystem()
+        .is_some_and(|ui| ui.is_camera_tracking_drawable()));
     let owner_position = position();
     peer.update_camera_tracking_drawable();
     assert_ne!(
@@ -405,16 +427,22 @@ fn native_prefix_preserves_foreign_core_tracking_and_standalone_still_follows() 
         owner_position,
         "same ID resolves the standalone receiving Client's drawable"
     );
-    assert!(crate::helpers::TheInGameUI::is_camera_tracking_drawable());
+    assert!(peer
+        .in_game_ui_subsystem()
+        .is_some_and(|ui| ui.is_camera_tracking_drawable()));
     empty.update_camera_tracking_drawable();
     assert!(
-        !crate::helpers::TheInGameUI::is_camera_tracking_drawable(),
+        empty
+            .in_game_ui_subsystem()
+            .is_some_and(|ui| !ui.is_camera_tracking_drawable()),
         "standalone empty selection retains original clear"
     );
-}
+        });
+    }
 
 #[test]
 fn fallible_native_observation_rejects_at_late_boundary_without_consuming_visual_frame() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "fallible_native_observation_rejects_at_late_boundary_without_consuming_visual_frame",
@@ -442,6 +470,7 @@ fn fallible_native_observation_rejects_at_late_boundary_without_consuming_visual
                 "missing receiving debug owner".into(),
             ))
         },
+        0,
     );
     assert!(
         matches!(result, Err(GameClientError::InvalidOperation(ref reason)) if reason == "missing receiving debug owner")
@@ -455,7 +484,7 @@ fn fallible_native_observation_rejects_at_late_boundary_without_consuming_visual
                 frozen: false,
                 visual_speed: 1.,
             })
-        })
+        }, 0)
         .unwrap();
     assert!(!step.frozen);
     let step = peer
@@ -464,13 +493,14 @@ fn fallible_native_observation_rejects_at_late_boundary_without_consuming_visual
                 frozen: true,
                 visual_speed: 1.,
             })
-        })
+        }, 0)
         .unwrap();
     assert!(step.frozen);
 }
 
 #[test]
 fn native_presentation_prefix_does_not_reactivate_hidden_shell_or_replace_match() {
+    crate::test_support::ensure_ambient_host();
     if crate::core::game_client::global_boundary_fixture::run_in_private_child(
         module_path!(),
         "native_presentation_prefix_does_not_reactivate_hidden_shell_or_replace_match",
@@ -506,7 +536,7 @@ fn native_presentation_prefix_does_not_reactivate_hidden_shell_or_replace_match(
                     frozen: false,
                     visual_speed: 1.,
                 }
-            })
+            }, 0)
             .unwrap();
         drop(prepared);
         let stream = THE_MESSAGE_STREAM.read().unwrap();
@@ -518,23 +548,32 @@ fn native_presentation_prefix_does_not_reactivate_hidden_shell_or_replace_match(
             )),
             "an ordinary native Client prefix must not queue a Shell game replacement"
         );
-        assert!(!get_shell().is_shell_active());
+        assert!(!a_shell.is_shell_active());
         assert_eq!(global.read().pending_file, "receiving-match.map");
     }
     // Explicit Menu admission remains available; do not suppress valid Shell starts.
-    a.ensure_shell_visible().unwrap();
-    let stream = THE_MESSAGE_STREAM.read().unwrap();
-    assert_eq!(
-        stream
-            .get_messages()
-            .iter()
-            .filter(|message| matches!(
+    a.message_stream_mut().clear_messages();
+    a.ensure_shell_visible(None).unwrap();
+    let new_games: Vec<_> = a
+        .message_stream()
+        .get_messages()
+        .iter()
+        .filter(|message| {
+            matches!(
                 message.get_type(),
                 crate::message_stream::GameMessageType::NewGame
-            ))
-            .count(),
-        1
+            )
+        })
+        .collect();
+    assert_eq!(new_games.len(), 1);
+    assert_eq!(
+        new_games[0]
+            .shell_map_launch()
+            .map(|launch| launch.map.as_str()),
+        Some("Maps\\ShellMap\\ShellMap.map"),
+        "shell map path rides on owned NewGame, not writable GlobalData"
     );
-    assert!(get_shell().is_shell_active());
-    assert_eq!(global.read().pending_file, "Maps\\ShellMap\\ShellMap.map");
+    assert!(a.window_manager_owner().shell_handle().is_shell_active());
+    // Peer match pending_file must stay untouched (message carries the map).
+    assert_eq!(global.read().pending_file, "receiving-match.map");
 }

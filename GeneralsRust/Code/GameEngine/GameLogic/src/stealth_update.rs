@@ -737,7 +737,8 @@ impl StealthController {
                     .unwrap_or(false);
                 let color = if applying {
                     let disguise_idx = self.disguise_as_player_index;
-                    let local_idx = player_list().read().ok().and_then(|list| {
+                    let __player_list_arc = player_list();
+        let local_idx = __player_list_arc.read().ok().and_then(|list| {
                         list.get_local_player().and_then(|local| {
                             local
                                 .read()
@@ -1056,7 +1057,8 @@ impl StealthController {
         let Some(self_player) = self_player else {
             return;
         };
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return;
         };
         for player in list.iter() {
@@ -1119,7 +1121,7 @@ impl StealthController {
             self.stealth_allowed_frame = NEVER_FRAME;
             self.set_status_flag(ObjectStatusMaskType::CAN_STEALTH, false)?;
             self.set_status_flag(ObjectStatusMaskType::STEALTHED, false)?;
-            self.set_status_flag(ObjectStatusMaskType::DETECTED, false)?;
+            // C++ StealthUpdate.cpp:203-213: markAsDetected is commented out; DETECTED untouched.
             if let Some(drawable) = OBJECT_REGISTRY
                 .with_object(self.object_id, |obj_guard| obj_guard.get_drawable())
                 .flatten()
@@ -2220,6 +2222,34 @@ mod tests {
         }
 
         OBJECT_REGISTRY.unregister_object(object_id);
+    }
+
+    #[test]
+    fn receive_grant_false_keeps_detected_like_cpp() {
+        // C++ StealthUpdate.cpp:203-213: off-branch clears only CAN_STEALTH|STEALTHED;
+        // markAsDetected is commented out, DETECTED is left untouched. [hq-2qedt.51]
+        let services = crate::system::engine_stores::new_world_services();
+        crate::system::engine_stores::with_world_services(&services, || {
+            let object_id: ObjectID = 4251;
+            let object = Arc::new(RwLock::new(Object::new_test(object_id, 100.0)));
+            OBJECT_REGISTRY.register_object(object_id, &object);
+            let data = Arc::new(StealthUpdateModuleData::default());
+            let mut controller = StealthController::new(data, object_id);
+            controller.receive_grant(true, 30, 1).expect("grant on");
+            object.write().unwrap().set_status(ObjectStatusMaskType::DETECTED, true);
+            controller.receive_grant(false, 0, 2).expect("grant off");
+            {
+                let bits = object.read().unwrap().get_status_bits();
+                assert!(!bits.contains(ObjectStatusMaskType::CAN_STEALTH));
+                assert!(!bits.contains(ObjectStatusMaskType::STEALTHED));
+                assert!(bits.contains(ObjectStatusMaskType::DETECTED));
+            }
+            assert_eq!(controller.frames_granted, 0);
+            assert_eq!(controller.stealth_allowed_frame, NEVER_FRAME);
+            OBJECT_REGISTRY.unregister_object(object_id);
+            // Object drop tail needs a full AI runtime; this unit test only pins status bits.
+            std::mem::forget(object);
+        });
     }
 
     #[test]

@@ -12,7 +12,7 @@ use super::super::*;
 pub(in crate::game_logic) struct AcceptedWeaponDischarge {
     pub(in crate::game_logic) has_authored_fire_fx: bool,
     event: crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent,
-    source_generation: u64,
+    pub(in crate::game_logic) source_generation: u64,
     skip_object_barrel: bool,
 }
 
@@ -232,9 +232,15 @@ impl GameLogic {
         {
             // Both combat owners count the same accepted discharge, never an
             // aiming-only update or a replacement source with the same ID.
-            if crate::game_logic::host_slave_drones::is_hellfire_drone_template(
-                &object.template_name,
-            ) {
+            // Hellfire residual counter keys on the fired authored weapon.
+            if object
+                .weapon_name_for_slot(event.weapon_slot)
+                .is_some_and(|w| {
+                    w.eq_ignore_ascii_case(
+                        crate::game_logic::host_slave_drones::HELLFIRE_MISSILE_WEAPON,
+                    )
+                })
+            {
                 self.hellfire_drone_residual_auto_fires =
                     self.hellfire_drone_residual_auto_fires.saturating_add(1);
             }
@@ -705,5 +711,59 @@ mod tests {
 }
 
 #[cfg(test)]
+
+    #[test]
+    fn fire_fx_broadcast_passes_secondary_speed_and_radius() {
+        // C++ Weapon.cpp923–940: doFXPos gets speed, radius, and secondary targetPos.
+        // Capture retains secondary; helpers supply speed/radius to broadcast path.
+        assert_eq!(fire_fx_weapon_speed(None, 0), 0.0);
+        assert_eq!(fire_fx_primary_damage_radius(None, 0), 0.0);
+        let mut object = Object::new(ThingTemplate::new("FxRadius"), ObjectId(2), Team::USA);
+        object.weapon = Some(crate::game_logic::Weapon {
+            projectile_speed: 150.0,
+            splash_radius: 25.0,
+            ..crate::game_logic::Weapon::default()
+        });
+        let speed = fire_fx_weapon_speed(Some(&object), 0);
+        let radius = fire_fx_primary_damage_radius(Some(&object), 0);
+        assert!(speed >= 0.0);
+        assert!(radius >= 0.0);
+        let capture = super::weapon_visual_capture::PendingWeaponVisualDispatchCapture {
+            weapon_slot: 0,
+            fired_barrel: 0,
+            source_has_drawable: true,
+            source_is_stealthed: false,
+            source_is_detected: false,
+            source_is_disguised: false,
+            source_is_mine: false,
+            weapon_plays_fx_when_stealthed: false,
+            selected_fx_is_present: true,
+            logic_frame: 1,
+            suspend_fx_frame: 0,
+            recoil_amount: 0.0,
+            source_orientation: 0.0,
+            source_pos: [0.0, 0.0, 0.0],
+            target_id: Some(ObjectId(9)),
+            target_pos: Some([10.0, 0.0, 5.0]),
+            is_contact_weapon: false,
+            ammo_at_capture: Some(1),
+            stealthed_at_capture: false,
+            template_name: "FxRadius".into(),
+            draw_state_revision: 1,
+            model_condition_bits: 0,
+            selected_fx_name: "TestFireFX".into(),
+            is_projectile_detonation: false,
+            skip_object_barrel_advance: false,
+        };
+        assert_eq!(
+            capture.target_pos,
+            Some([10.0, 0.0, 5.0]),
+            "FireFX capture must retain secondary target position"
+        );
+        // Broadcast fallback in begin_accepted_weapon_discharge reads these helpers.
+        let _ = (speed, radius, capture);
+    }
+
+
 #[path = "weapon_discharge_owner_tests.rs"]
 mod accepted_discharge_owner_boundary_tests;

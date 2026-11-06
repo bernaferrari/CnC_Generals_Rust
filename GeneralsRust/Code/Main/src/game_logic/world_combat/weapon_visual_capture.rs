@@ -206,7 +206,7 @@ impl Object {
         let capture = PendingWeaponVisualDispatchCapture {
             weapon_slot: slot,
             fired_barrel,
-            source_has_drawable: !self.template_name.trim().is_empty(),
+            source_has_drawable: self.has_drawable,
             source_is_stealthed: self.status.stealthed,
             source_is_detected: self.status.detected,
             source_is_disguised: self.status.disguised,
@@ -253,7 +253,7 @@ impl Object {
         self.pending_weapon_visual_capture = Some(PendingWeaponVisualDispatchCapture {
             weapon_slot: 0,
             fired_barrel,
-            source_has_drawable: !self.template_name.trim().is_empty(),
+            source_has_drawable: self.has_drawable,
             source_is_stealthed: self.status.stealthed,
             source_is_detected: self.status.detected,
             source_is_disguised: self.status.disguised,

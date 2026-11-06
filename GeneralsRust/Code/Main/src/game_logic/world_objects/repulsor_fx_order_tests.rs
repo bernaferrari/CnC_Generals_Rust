@@ -10,15 +10,14 @@ fn lethal_damage_observes_repulsor_policy_after_actual_fx_callback() {
         "lethal_damage_observes_repulsor_policy_after_actual_fx_callback",
         || {
             const FX: &str = "OwnedRepulsorPolicyDamageFX";
-            game_engine::common::ini::ini_damage_fx::init_global_damage_fx_store();
-            game_engine::common::ini::ini_damage_fx::get_damage_fx_store_mut()
-                .unwrap()
-                .add_damage_fx(
+            for initial in [false, true] {
+                let mut world = GameLogic::new();
+                // ActiveBody.cpp:307 — m_curDamageFX is the session armor
+                // DamageFX definition, not a process-global catalog.
+                world.damage_fx_definitions.add_damage_fx(
                     FX.into(),
                     game_engine::common::ini::ini_damage_fx::DamageFX::new(),
                 );
-            for initial in [false, true] {
-                let mut world = GameLogic::new();
                 world.set_enable_repulsors(initial);
                 let mut template = ThingTemplate::new("PostFxRepulsableCivilian");
                 template

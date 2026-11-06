@@ -18,7 +18,6 @@ use crate::common::global_data;
 use crate::common::system::kind_of::KindOfMask;
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use once_cell::sync::OnceCell;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 /// Construction completion constant
@@ -152,21 +151,29 @@ pub struct SellObjectSnapshot {
     pub player_index: u32,
 }
 
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static BACKEND: RefCell<Option<Arc<dyn BuildAssistantBackend>>> = const { RefCell::new(None) };
-}
-
 pub fn set_build_assistant_backend(backend: Arc<dyn BuildAssistantBackend>) {
-    BACKEND.with_borrow_mut(|backend_slot| *backend_slot = Some(backend));
+    let services = crate::common::common_services::common_services();
+    *services
+        .build_assistant_backend
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(backend);
 }
 
 pub fn clear_build_assistant_backend() {
-    BACKEND.with_borrow_mut(|backend_slot| *backend_slot = None);
+    let services = crate::common::common_services::common_services();
+    *services
+        .build_assistant_backend
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = None;
 }
 
 fn get_build_assistant_backend() -> Option<Arc<dyn BuildAssistantBackend>> {
-    BACKEND.with_borrow(|backend_slot| backend_slot.clone())
+    let services = crate::common::common_services::common_services();
+    services
+        .build_assistant_backend
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 /// Object ID type
@@ -847,25 +854,37 @@ impl BuildAssistant {
     }
 }
 
-/// Global build assistant instance
-static BUILD_ASSISTANT: OnceCell<Mutex<BuildAssistant>> = OnceCell::new();
-
-/// Initialize the global build assistant
+/// Initialize the build assistant for the published CommonServices instance.
 pub fn init_build_assistant() {
-    if BUILD_ASSISTANT.get().is_none() {
-        let _ = BUILD_ASSISTANT.set(Mutex::new(BuildAssistant::new()));
-    } else if let Some(cell) = BUILD_ASSISTANT.get() {
-        if let Ok(mut guard) = cell.lock() {
-            *guard = BuildAssistant::new();
-        }
-    }
+    let services = crate::common::common_services::common_services();
+    *services
+        .system
+        .build_assistant
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = BuildAssistant::new();
+    services
+        .system
+        .build_assistant_ready
+        .store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
-/// Get reference to the global build assistant
+/// Get reference to the instance build assistant (C++ `TheBuildAssistant`).
 pub fn get_build_assistant() -> Option<MutexGuard<'static, BuildAssistant>> {
-    BUILD_ASSISTANT
-        .get()
-        .map(|cell| cell.lock().expect("BuildAssistant mutex poisoned"))
+    let services = crate::common::common_services::common_services();
+    if !services
+        .system
+        .build_assistant_ready
+        .load(std::sync::atomic::Ordering::SeqCst)
+    {
+        return None;
+    }
+    let guard = services
+        .system
+        .build_assistant
+        .lock()
+        .expect("BuildAssistant mutex poisoned");
+    // Guard lifetime is bound to the published CommonServices Arc (TLS / WorldServices).
+    Some(unsafe { std::mem::transmute(guard) })
 }
 
 #[cfg(test)]

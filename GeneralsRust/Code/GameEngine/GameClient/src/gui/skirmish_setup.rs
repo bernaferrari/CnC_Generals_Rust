@@ -2,7 +2,7 @@
 
 use game_engine::System::{CHALLENGE_MAX_SLOTS, ChallengeGameInfoXfer, ChallengeSlotXfer};
 use game_network::{GameSlot, Money, SkirmishGameInfo, SlotState};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Default)]
 pub struct SkirmishSetup {
@@ -37,18 +37,55 @@ impl SkirmishSetup {
     }
 }
 
-static SKIRMISH_SETUP: OnceLock<Mutex<SkirmishSetup>> = OnceLock::new();
+#[cfg(test)]
+thread_local! {
+    static TEST_SKIRMISH_SETUP: std::cell::RefCell<Option<Arc<Mutex<SkirmishSetup>>>> =
+        const { std::cell::RefCell::new(None) };
+}
 
-pub fn get_skirmish_setup() -> std::sync::MutexGuard<'static, SkirmishSetup> {
-    SKIRMISH_SETUP
-        .get_or_init(|| Mutex::new(SkirmishSetup::default()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
+/// Owner-less unit-test lobby (paired with the options-menu test state).
+#[cfg(test)]
+pub(crate) fn test_skirmish_setup_handle() -> Arc<Mutex<SkirmishSetup>> {
+    TEST_SKIRMISH_SETUP.with(|slot| {
+        slot.borrow_mut()
+            .get_or_insert_with(|| Arc::new(Mutex::new(SkirmishSetup::default())))
+            .clone()
+    })
+}
+
+/// This client's `TheSkirmishGameInfo` lobby.
+///
+/// Callers holding their UI tree pass its `WindowManagerOwner` (window
+/// handlers: `effects.window_manager_owner`; hosts: the owning
+/// `GameClient::window_manager_owner_ref()`). Without one, the registered live
+/// client is consulted; production Main never publishes that slot, so a
+/// missing owner there is a lifecycle bug and fails loudly instead of handing
+/// out a scratch lobby whose writes would be silently discarded.
+pub fn get_skirmish_setup(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Arc<Mutex<SkirmishSetup>> {
+    if let Some(owner) = owner {
+        return owner.skirmish_setup();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.skirmish_setup()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return test_skirmish_setup_handle();
+    }
+    #[cfg(not(test))]
+    {
+        panic!(
+            "skirmish setup requires a WindowManagerOwner or live GameClient; no process scratch"
+        );
+    }
 }
 
 /// Live lobby → C++ `SkirmishGameInfo::xfer` v4 fields (GameInfo.cpp:1488).
-pub fn snapshot_skirmish_lobby() -> ChallengeGameInfoXfer {
-    let setup = get_skirmish_setup();
+pub fn snapshot_skirmish_lobby(setup: &SkirmishSetup) -> ChallengeGameInfoXfer {
     let gi = setup.game_info().game_info();
     let mut slots = std::array::from_fn(|_| ChallengeSlotXfer::default());
     for i in 0..CHALLENGE_MAX_SLOTS {
@@ -94,8 +131,7 @@ pub fn snapshot_skirmish_lobby() -> ChallengeGameInfoXfer {
 }
 
 /// C++ GameStateMap.cpp:406 `xferSnapshot(TheSkirmishGameInfo)` restore.
-pub fn restore_skirmish_lobby(payload: Option<Vec<u8>>) {
-    let mut setup = get_skirmish_setup();
+pub fn restore_skirmish_lobby(setup: &mut SkirmishSetup, payload: Option<Vec<u8>>) {
     if let Some(bytes) = payload {
         let Some(snapshot) = ChallengeGameInfoXfer::decode_xfer_bytes(&bytes) else {
             return;

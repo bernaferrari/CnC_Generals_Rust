@@ -364,11 +364,15 @@ impl CnCGameEngine {
             before.content_equals(&state.saved),
             "later camera save/load changed terrain continuation",
         )?;
-        let observe = |engine: &Self| NativeFrameWitness {
-            frame: engine.graphics_system.get_statistics().frame_count,
-            total: ww3d_engine::total_owned_submits(),
-            last: ww3d_engine::last_frame_submit_count(),
-            active: ww3d_engine::frame_is_active(),
+        let observe = |engine: &Self| {
+            let fs = engine.ww3d.lock().frame_submit_state();
+            let guard = fs.lock();
+            NativeFrameWitness {
+                frame: engine.graphics_system.get_statistics().frame_count,
+                total: ww3d_engine::total_owned_submits(&guard),
+                last: ww3d_engine::last_frame_submit_count(&guard),
+                active: ww3d_engine::frame_is_active(&guard),
+            }
         };
         let prior = observe(self);
         *attempted_frame = json!({"before":prior.report(),"terrain_before":before.report(),

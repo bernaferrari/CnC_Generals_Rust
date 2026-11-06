@@ -206,7 +206,7 @@ fn catalog(logic: &GameLogic, case: Case) -> Value {
         assert_eq!(store.get_template_count(), 0);
     })
     .unwrap();
-    assert_eq!(TheArmorStore::read().len(), 1);
+    assert_eq!(TheArmorStore::template_count(), 1);
     let mut expected: Vec<_> = GLA_SUPPORT
         .into_iter()
         .chain([PRODUCER, CONSUMER])

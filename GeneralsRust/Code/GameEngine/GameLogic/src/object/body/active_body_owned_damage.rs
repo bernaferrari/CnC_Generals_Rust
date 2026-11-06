@@ -14,6 +14,8 @@ pub struct OwnedDamageOutcome {
     pub max_health: f32,
     pub last_source: ObjectId,
     pub damaged: bool,
+    /// C++ `amount > 0 || m_kill` block entered (setAttackedBy gate).
+    pub applied: bool,
     pub processed: bool,
 }
 impl ActiveBody {
@@ -56,13 +58,17 @@ impl ActiveBody {
             || matches!(
                 damage.input.damage_type,
                 DamageType::Healing
-                    | DamageType::KillPilot
                     | DamageType::KillGarrisoned
                     | DamageType::Status
             )
             || is_subdual_damage(damage.input.damage_type)
         {
             return Err(BodyError::OperationNotSupported);
+        }
+        // C++ ActiveBody.cpp:365-418: KillPilot is alreadyHandled and never
+        // drains hull HP, so it is never lethal on the body.
+        if damage.input.damage_type == DamageType::KillPilot {
+            return Ok(false);
         }
         if self.state.armor_flags_dirty {
             return Err(BodyError::OperationNotSupported);
@@ -103,6 +109,7 @@ impl ActiveBody {
                 max_health: self.get_max_health(),
                 last_source: INVALID_ID,
                 damaged: false,
+                applied: false,
                 processed: false,
             });
         }
@@ -150,6 +157,7 @@ impl ActiveBody {
                 .map(|damage| damage.input.source_id)
                 .unwrap_or(INVALID_ID),
             damaged: changed && self.get_health() < previous,
+            applied: changed,
             processed: true,
         })
     }

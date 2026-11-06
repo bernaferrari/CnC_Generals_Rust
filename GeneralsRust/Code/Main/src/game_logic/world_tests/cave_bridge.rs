@@ -21,7 +21,7 @@ fn create_cave(logic: &mut GameLogic, name: &str, pos: Vec3, index: i32) -> Obje
     ensure_cave_template(logic, name);
     let id = logic.create_object(name, Team::Neutral, pos).expect("cave");
     if let Some(obj) = logic.host_object_mut(id) {
-        obj.install_cave_contain_residual(index);
+        obj.install_cave_contain_residual(index, 10);
     }
     logic.cave_system.register_cave(id, index, Team::Neutral);
     id
@@ -421,7 +421,7 @@ fn repair_complete_removes_scaffolding() {
         .expect("dozer");
     if let Some((d, attack_events)) = logic.host_object_and_attack_events_mut(dozer) {
         d.worker_ai_update = false;
-        d.dozer_task_repair_target = Some(tower);
+        d.set_dozer_task_repair_target(Some(tower));
         d.set_target(
             Some(tower),
             attack_events,
@@ -435,7 +435,7 @@ fn repair_complete_removes_scaffolding() {
     );
     if let Some(d) = logic.host_object_mut(dozer) {
         d.worker_ai_update = true;
-        d.dozer_task_repair_target = Some(tower);
+        d.set_dozer_task_repair_target(Some(tower));
     }
     logic.dozer_internal_task_complete(dozer, true);
     assert!(
@@ -647,7 +647,7 @@ fn ordinary_repair_command_rejects_bridge_and_tower() {
             logic
                 .host_object(dozer)
                 .unwrap()
-                .dozer_task_repair_target
+                .dozer_task_repair_target()
                 .is_none()
         );
         assert!(!logic.bridge_behavior.is_scaffold_present(span));

@@ -1184,23 +1184,28 @@ mod tests {
     #[test]
     fn object_special_power_dispatch_uses_store_gate_for_non_forced_calls() {
         let _guard = test_state_lock();
-        crate::object::special_power_template::get_special_power_store_mut()
-            .expect("special power store")
-            .reset();
+        {
+            let arc = crate::object::special_power_template::get_special_power_store_arc();
+            arc.write().expect("special power store").reset();
+        }
 
         let obj = Object::new_test(77_001, 100.0);
         assert!(obj.can_dispatch_special_power("MissingPower", true));
         assert!(!obj.can_dispatch_special_power("MissingPower", false));
 
-        crate::object::special_power_template::get_special_power_store_mut()
-            .expect("special power store")
-            .add_template(SpecialPowerTemplate::new("NeedsModule".to_string(), 77));
+        {
+            let arc = crate::object::special_power_template::get_special_power_store_arc();
+            arc.write()
+                .expect("special power store")
+                .add_template(SpecialPowerTemplate::new("NeedsModule".to_string(), 77));
+        }
 
         assert!(!obj.can_dispatch_special_power("NeedsModule", false));
 
-        crate::object::special_power_template::get_special_power_store_mut()
-            .expect("special power store")
-            .reset();
+        {
+            let arc = crate::object::special_power_template::get_special_power_store_arc();
+            arc.write().expect("special power store").reset();
+        }
     }
 
     #[test]
@@ -1694,7 +1699,8 @@ mod tests {
 
         let player = Arc::new(RwLock::new(Player::new(0)));
         {
-            let mut list = player_list().write().unwrap();
+            let __player_list_arc = player_list();
+        let mut list = __player_list_arc.write().unwrap();
             list.add_player(Arc::clone(&player));
             list.set_local_player_index(0);
         }
@@ -1755,6 +1761,7 @@ mod tests {
 
     #[test]
     fn under_attack_damage_classifies_harvester_per_cpp() {
+        let _serial_test_lock = crate::test_sync::lock();
         // C++ Radar.cpp:1174-1181 — infantry/vehicle + KINDOF_HARVESTER gets the
         // special harvester message, not the generic under-attack flavor.
         let _guard = test_state_lock();
@@ -1767,7 +1774,8 @@ mod tests {
 
         let player = Arc::new(RwLock::new(Player::new(0)));
         {
-            let mut list = player_list().write().unwrap();
+            let __player_list_arc = player_list();
+        let mut list = __player_list_arc.write().unwrap();
             list.add_player(Arc::clone(&player));
             list.set_local_player_index(0);
         }
@@ -1794,6 +1802,7 @@ mod tests {
 
     #[test]
     fn under_attack_damage_structure_counts_for_victory_plays_base_eva() {
+        let _serial_test_lock = crate::test_sync::lock();
         // C++ Radar.cpp:1194-1208 — STRUCTURE + MP_COUNT_FOR_VICTORY owned by the
         // local player plays EVA_BaseUnderAttack plus the structure message.
         let _guard = test_state_lock();
@@ -1806,7 +1815,8 @@ mod tests {
 
         let player = Arc::new(RwLock::new(Player::new(0)));
         {
-            let mut list = player_list().write().unwrap();
+            let __player_list_arc = player_list();
+        let mut list = __player_list_arc.write().unwrap();
             list.add_player(Arc::clone(&player));
             list.set_local_player_index(0);
         }
@@ -1868,6 +1878,98 @@ mod tests {
             "FAKE event within 10s must be suppressed by tryEvent, not re-created"
         );
     }
+    #[test]
+    fn quiet_promotion_of_selected_object_still_marks_control_bar_dirty_like_cpp_active_body() {
+        // C++ ActiveBody.cpp:1393-1439 — only the promotion audio is gated by
+        // provideFeedback; markUIDirty for a selected (or contained-in-selected)
+        // promoted object runs on every upward rank change.
+        let _guard = test_state_lock();
+        use crate::commands::selection::{get_selection_manager, SelectionType};
+        use crate::control_bar::{register_control_bar_ui_hooks, ControlBarUiHooks};
+        use std::sync::atomic::{AtomicU32, Ordering};
+        struct DirtyHooks(Arc<AtomicU32>);
+        impl ControlBarUiHooks for DirtyHooks {
+            fn mark_ui_dirty(&self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+            fn on_player_science_purchase_points_changed(&self, _: i32, _: i32) {}
+            fn on_player_rank_changed(&self, _: i32, _: i32, _: i32) {}
+        }
+        struct OneUnit(ObjectID);
+        impl crate::commands::selection::ObjectLookup for OneUnit {
+            fn get_object_info(&self, id: ObjectID) -> Option<crate::commands::selection::ObjectInfo> {
+                (id == self.0).then_some(crate::commands::selection::ObjectInfo {
+                    id,
+                    drawable_id: None,
+                    position: Coord3D::new(0.0, 0.0, 0.0),
+                    owner_id: 0,
+                    kind: crate::commands::selection::ObjectKind::Infantry,
+                    is_alive: true,
+                    is_selectable: true,
+                    is_controllable: true,
+                    is_crate: false,
+                    is_garrisonable_building: false,
+                })
+            }
+            fn get_objects_in_region(&self, _: &crate::common::IRegion2D) -> Vec<ObjectID> {
+                vec![self.0]
+            }
+            fn get_all_objects(&self) -> Vec<ObjectID> {
+                vec![self.0]
+            }
+            fn get_object_position(&self, _: ObjectID) -> Option<Coord3D> {
+                None
+            }
+            fn is_object_alive(&self, id: ObjectID) -> bool {
+                id == self.0
+            }
+            fn is_object_visible_to_player(&self, _: i32, _: ObjectID) -> bool {
+                true
+            }
+            fn is_object_detected_by_player(&self, _: i32, _: ObjectID) -> bool {
+                true
+            }
+            fn get_object_owner(&self, _: ObjectID) -> Option<i32> {
+                Some(0)
+            }
+            fn get_object_kind(&self, _: ObjectID) -> Option<crate::commands::selection::ObjectKind> {
+                Some(crate::commands::selection::ObjectKind::Infantry)
+            }
+            fn can_player_control(&self, player: i32, id: ObjectID) -> bool {
+                player == 0 && id == self.0
+            }
+            fn set_object_selected(&self, _: ObjectID, _: bool) {}
+        }
+        let dirty = Arc::new(AtomicU32::new(0));
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, || {
+        let stores = crate::system::engine_stores::new_for_world();
+        crate::system::engine_stores::with_active_stores(&stores, || {
+            register_control_bar_ui_hooks(Arc::new(DirtyHooks(Arc::clone(&dirty))));
+        let players = crate::player::player_list();
+        players.write().unwrap().set_local_player_index(0);
+        let id = 0xA62;
+        {
+            let manager = get_selection_manager();
+            let mut manager = manager.write().unwrap();
+            manager.initialize_player(0);
+            let selection = manager.get_player_selection(0).unwrap();
+            selection.set_object_lookup(Arc::new(OneUnit(id)));
+            assert!(selection.select_objects(vec![id], SelectionType::Replace));
+        }
+        let mut obj = Object::new_test(id, 100.0);
+        dirty.store(0, Ordering::SeqCst);
+        obj.on_veterancy_level_changed(VeterancyLevel::Regular, VeterancyLevel::Veteran, false);
+        let quiet = dirty.load(Ordering::SeqCst);
+        dirty.store(0, Ordering::SeqCst);
+        obj.on_veterancy_level_changed(VeterancyLevel::Veteran, VeterancyLevel::Regular, false);
+        let demote = dirty.load(Ordering::SeqCst);
+        assert!(quiet >= 1, "quiet promotion of selected object must mark UI dirty");
+        assert_eq!(demote, 0, "demotion never marks UI dirty");
+        })
+        });
+    }
+
 }
 
 //=============================================================================

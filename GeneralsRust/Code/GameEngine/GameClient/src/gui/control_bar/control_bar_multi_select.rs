@@ -188,9 +188,10 @@ fn push_common_slots(
 }
 
 /// Residual: last multi-select action requested by residual peels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
 pub enum ResidualMultiSelectAction {
+    #[default]
     None = 0,
     Populate = 1,
     Clear = 2,
@@ -204,56 +205,75 @@ pub const MULTI_SELECT_MAX_COMMANDS_PER_SET: usize = 18;
 /// Residual: OK_FOR_MULTI_SELECT option bit (CommandOption).
 pub const MULTI_SELECT_OK_FOR_MULTI_SELECT_BIT: u32 = 0x00000100;
 
-static RESIDUAL_MS_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_MS_SELECTED: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-static RESIDUAL_MS_ACTIONABLE: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-static RESIDUAL_MS_COMMON_COUNT: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-static RESIDUAL_MS_PORTRAIT_AGREE: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-static RESIDUAL_MS_ATTACK_MOVE: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-
-fn residual_ms_action_store(action: ResidualMultiSelectAction) {
-    RESIDUAL_MS_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+/// Per-ControlBar multi-select presentation latch (was process atomics).
+///
+/// C++ ControlBarMultiSelect keeps intersection state on the bar; Rust owns it
+/// per client so multiple instances never share process statics.
+#[derive(Debug, Clone, Default)]
+pub struct MultiSelectLatch {
+    pub last_action: ResidualMultiSelectAction,
+    pub selected_count: usize,
+    pub actionable_count: usize,
+    pub common_command_count: usize,
+    pub portrait_agrees: bool,
+    pub attack_move_kept: bool,
 }
 
-/// Residual: last multi-select residual action.
-pub fn residual_multi_select_last_action() -> ResidualMultiSelectAction {
-    match RESIDUAL_MS_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
-        1 => ResidualMultiSelectAction::Populate,
-        2 => ResidualMultiSelectAction::Clear,
-        3 => ResidualMultiSelectAction::Intersect,
-        4 => ResidualMultiSelectAction::AttackMoveKeep,
-        _ => ResidualMultiSelectAction::None,
+impl MultiSelectLatch {
+    pub fn clear(&mut self) {
+        *self = Self::default();
+        self.last_action = ResidualMultiSelectAction::Clear;
+    }
+
+    pub fn record_populate(
+        &mut self,
+        selected_count: usize,
+        actionable_count: usize,
+        common_command_count: usize,
+        portrait_agrees: bool,
+        attack_move_kept: bool,
+    ) {
+        self.selected_count = selected_count;
+        self.actionable_count = actionable_count;
+        self.common_command_count = common_command_count;
+        self.portrait_agrees = portrait_agrees;
+        self.attack_move_kept = attack_move_kept;
+        self.last_action = if attack_move_kept {
+            ResidualMultiSelectAction::AttackMoveKeep
+        } else {
+            ResidualMultiSelectAction::Populate
+        };
     }
 }
 
+/// Residual: last multi-select residual action.
+pub fn residual_multi_select_last_action(latch: &MultiSelectLatch) -> ResidualMultiSelectAction {
+    latch.last_action
+}
+
 /// Residual: selected unit count latch.
-pub fn residual_multi_select_selected_count() -> usize {
-    RESIDUAL_MS_SELECTED.load(std::sync::atomic::Ordering::Relaxed)
+pub fn residual_multi_select_selected_count(latch: &MultiSelectLatch) -> usize {
+    latch.selected_count
 }
 
 /// Residual: actionable unit count latch (not sold/ignored).
-pub fn residual_multi_select_actionable_count() -> usize {
-    RESIDUAL_MS_ACTIONABLE.load(std::sync::atomic::Ordering::Relaxed)
+pub fn residual_multi_select_actionable_count(latch: &MultiSelectLatch) -> usize {
+    latch.actionable_count
 }
 
 /// Residual: common command slot count latch (non-empty after intersect).
-pub fn residual_multi_select_common_command_count() -> usize {
-    RESIDUAL_MS_COMMON_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+pub fn residual_multi_select_common_command_count(latch: &MultiSelectLatch) -> usize {
+    latch.common_command_count
 }
 
 /// Residual: portrait agreement latch.
-pub fn residual_multi_select_portrait_agrees() -> bool {
-    RESIDUAL_MS_PORTRAIT_AGREE.load(std::sync::atomic::Ordering::Relaxed)
+pub fn residual_multi_select_portrait_agrees(latch: &MultiSelectLatch) -> bool {
+    latch.portrait_agrees
 }
 
 /// Residual: attack-move kept latch.
-pub fn residual_multi_select_attack_move_kept() -> bool {
-    RESIDUAL_MS_ATTACK_MOVE.load(std::sync::atomic::Ordering::Relaxed)
+pub fn residual_multi_select_attack_move_kept(latch: &MultiSelectLatch) -> bool {
+    latch.attack_move_kept
 }
 
 /// Residual unit command set for multi-select intersection peels.
@@ -285,14 +305,10 @@ impl ResidualMultiSelectUnit {
 }
 
 /// Residual: clear multi-select residual state.
-pub fn simulate_multi_select_clear() -> bool {
-    RESIDUAL_MS_SELECTED.store(0, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_MS_ACTIONABLE.store(0, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_MS_COMMON_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_MS_PORTRAIT_AGREE.store(false, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_MS_ATTACK_MOVE.store(false, std::sync::atomic::Ordering::Relaxed);
-    residual_ms_action_store(ResidualMultiSelectAction::Clear);
-    residual_multi_select_selected_count() == 0 && residual_multi_select_common_command_count() == 0
+pub fn simulate_multi_select_clear(latch: &mut MultiSelectLatch) -> bool {
+    latch.clear();
+    residual_multi_select_selected_count(latch) == 0
+        && residual_multi_select_common_command_count(latch) == 0
 }
 
 /// Residual: populate multi-select by intersecting OK_FOR_MULTI_SELECT slots.
@@ -302,7 +318,10 @@ pub fn simulate_multi_select_clear() -> bool {
 /// - first unit seeds OK_FOR_MULTI_SELECT slots
 /// - subsequent units clear divergent slots
 /// - AttackMove is kept if any unit contributes it in that slot
-pub fn simulate_multi_select_populate(units: &[ResidualMultiSelectUnit]) -> bool {
+pub fn simulate_multi_select_populate(
+    latch: &mut MultiSelectLatch,
+    units: &[ResidualMultiSelectUnit],
+) -> bool {
     if units.len() < 2 {
         return false;
     }
@@ -377,21 +396,18 @@ pub fn simulate_multi_select_populate(units: &[ResidualMultiSelectUnit]) -> bool
     }
 
     let common_count = common.iter().filter(|c| c.is_some()).count();
-    RESIDUAL_MS_SELECTED.store(units.len(), std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_MS_ACTIONABLE.store(actionable, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_MS_COMMON_COUNT.store(common_count, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_MS_PORTRAIT_AGREE.store(portrait.is_some(), std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_MS_ATTACK_MOVE.store(attack_move_kept, std::sync::atomic::Ordering::Relaxed);
-    residual_ms_action_store(if attack_move_kept {
-        ResidualMultiSelectAction::AttackMoveKeep
-    } else {
-        ResidualMultiSelectAction::Populate
-    });
-    residual_multi_select_actionable_count() >= 2
+    latch.record_populate(
+        units.len(),
+        actionable,
+        common_count,
+        portrait.is_some(),
+        attack_move_kept,
+    );
+    residual_multi_select_actionable_count(latch) >= 2
 }
 
 /// Residual: two-unit same-command composite (portrait agrees).
-pub fn simulate_multi_select_prepare_same_commands() -> bool {
+pub fn simulate_multi_select_prepare_same_commands(latch: &mut MultiSelectLatch) -> bool {
     let a = ResidualMultiSelectUnit::with_multi_ok(
         "Ranger",
         &["Command_Guard", "Command_AttackMove", "Command_Stop"],
@@ -400,26 +416,26 @@ pub fn simulate_multi_select_prepare_same_commands() -> bool {
         "Ranger",
         &["Command_Guard", "Command_AttackMove", "Command_Stop"],
     );
-    simulate_multi_select_populate(&[a, b])
-        && residual_multi_select_common_command_count() == 3
-        && residual_multi_select_portrait_agrees()
-        && residual_multi_select_attack_move_kept()
+    simulate_multi_select_populate(latch, &[a, b])
+        && residual_multi_select_common_command_count(latch) == 3
+        && residual_multi_select_portrait_agrees(latch)
+        && residual_multi_select_attack_move_kept(latch)
 }
 
 /// Residual: divergent commands clear non-AttackMove slots.
-pub fn simulate_multi_select_prepare_divergent() -> bool {
+pub fn simulate_multi_select_prepare_divergent(latch: &mut MultiSelectLatch) -> bool {
     let a =
         ResidualMultiSelectUnit::with_multi_ok("Ranger", &["Command_Guard", "Command_AttackMove"]);
     let b = ResidualMultiSelectUnit::with_multi_ok(
         "MissileDefender",
         &["Command_Stop", "Command_AttackMove"],
     );
-    if !simulate_multi_select_populate(&[a, b]) {
+    if !simulate_multi_select_populate(latch, &[a, b]) {
         return false;
     }
-    residual_ms_action_store(ResidualMultiSelectAction::Intersect);
+    latch.last_action = ResidualMultiSelectAction::Intersect;
     // Guard/Stop diverge → cleared; AttackMove kept.
-    residual_multi_select_common_command_count() == 1
-        && residual_multi_select_attack_move_kept()
-        && !residual_multi_select_portrait_agrees()
+    residual_multi_select_common_command_count(latch) == 1
+        && residual_multi_select_attack_move_kept(latch)
+        && !residual_multi_select_portrait_agrees(latch)
 }

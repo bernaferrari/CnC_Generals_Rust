@@ -497,7 +497,18 @@ fn prepare_native_map_visual(
         .terrain()
         .read()
         .map_err(|_| "receiving map terrain poisoned")?;
-    let frozen = world.try_terrain_heightmap_snapshot_with_terrain_logic(&terrain)?;
+    let mut frozen = world.try_terrain_heightmap_snapshot_with_terrain_logic(&terrain)?;
+    // Native admission precedes the TerrainData fold of this map's
+    // BlendTileData, so the snapshot has no tile indices yet; C++
+    // WorldHeightMap carries them with the heights. Without this every cell
+    // drew tile 0.
+    if let (Some(heightmap), Some(blend)) =
+        (frozen.as_mut(), world.pending_map_blend_tile_data())
+    {
+        if heightmap.tile_ndxes.iter().all(|tile| *tile == 0) {
+            crate::game_logic::terrain::apply_blend_tile_data(heightmap, blend);
+        }
+    }
     let samples = terrain.has_height_map().then(|| {
         let (width, height) = terrain.logic_height_map_extents();
         (width, height, terrain.logic_height_map_border_size())
@@ -690,27 +701,31 @@ mod failed_attempt_native_tests {
     #[test]
     #[ignore = "requires native WGPU; run explicit isolated candidate retirement acceptance"]
     fn failed_discard_survives_effects_reborrow_without_replaying_native_callback() {
-        ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
             width: 32,
             height: 32,
             ..Default::default()
         })
         .unwrap();
-        struct Scope;
-        impl Drop for Scope {
+        struct Scope<T> {
+            engine: Option<T>,
+        }
+        impl<T> Drop for Scope<T> {
             fn drop(&mut self) {
-                let _ = ww3d_engine::shutdown();
+                drop(self.engine.take());
             }
         }
-        let _scope = Scope;
+        let _scope = Scope {
+            engine: Some(engine.clone()),
+        };
         let mut graphics = GraphicsSystem::new(
-            ww3d_engine::device().unwrap(),
-            ww3d_engine::queue().unwrap(),
-            ww3d_engine::color_format().unwrap(),
-            ww3d_engine::depth_format().unwrap(),
+            engine.lock().device(),
+            engine.lock().queue(),
+            engine.lock().color_format(),
+            engine.lock().depth_format(),
         )
         .unwrap();
-        let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
+        let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
         let mut world = GameLogic::new();
         world
             .admit_receiving_module_content(

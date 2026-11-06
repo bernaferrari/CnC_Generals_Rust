@@ -508,11 +508,13 @@ impl Default for StealthSpecialPowerManager {
 }
 
 /// Global singleton accessor for StealthSpecialPowerManager
-static STEALTH_SPECIAL_POWER_MANAGER: OnceLock<Mutex<StealthSpecialPowerManager>> = OnceLock::new();
-
 /// Get the global StealthSpecialPowerManager singleton
-pub fn get_stealth_special_power_manager() -> &'static Mutex<StealthSpecialPowerManager> {
-    STEALTH_SPECIAL_POWER_MANAGER.get_or_init(|| Mutex::new(StealthSpecialPowerManager::new()))
+pub fn get_stealth_special_power_manager() -> std::sync::Arc<std::sync::Mutex<StealthSpecialPowerManager>> {
+    std::sync::Arc::clone(
+        &crate::system::engine_stores::active_services()
+            .logic_managers()
+            .stealth_special_power,
+    )
 }
 
 #[cfg(test)]

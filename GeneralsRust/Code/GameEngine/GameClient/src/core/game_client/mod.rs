@@ -66,12 +66,12 @@ use crate::display::image::{get_mapped_image_collection, sync_mapped_images_from
 use crate::display::view::with_tactical_view_ref;
 use crate::drawable::*;
 use crate::effects::{DecalManager, EffectsConfig};
-use crate::fx_list::{init_fx_list_store, register_decal_manager, register_fx_audio};
+use crate::fx_list::init_fx_list_store;
 use crate::game_text::GameText;
 
 use crate::gui::gadgets::register_button_audio_hook;
 use crate::gui::window_manager::WindowManagerOwner;
-use crate::gui::{UIRenderer, WindowStatus, get_skirmish_setup};
+use crate::gui::{UIRenderer, WindowStatus};
 use crate::input::*;
 use crate::message_stream::command_list::get_command_list;
 use crate::message_stream::command_router::route_commands_to_gamelogic;
@@ -148,6 +148,11 @@ use ww3d_core::w3d_io::{W3DChunk, W3DReader};
 include!("ids.rs");
 mod drawable_world;
 mod native_projected_resources;
+pub(crate) use native_projected_resources::{
+    NativeProjectedDecals, with_projected_decals_mut,
+};
+#[cfg(test)]
+pub(crate) use native_projected_resources::reset_test_projected_decals;
 pub use drawable_world::DrawableWorld as NativeDrawableWorld;
 include!("semantic_admission.rs");
 mod native_auxiliary;

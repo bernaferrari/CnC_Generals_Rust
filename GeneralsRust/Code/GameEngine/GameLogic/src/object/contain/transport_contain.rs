@@ -691,9 +691,7 @@ impl TransportContain {
                 if let Some(rider_weapon) =
                     rider.get_weapon_in_slot(WeaponSlotType::Secondary.into())
                 {
-                    let when_we_can_fire_again = rider_weapon.when_we_can_fire_again;
-                    let when_pre_attack_finished = rider_weapon.when_pre_attack_finished;
-                    let when_last_reload_started = rider_weapon.when_last_reload_started;
+                    let stats = rider_weapon.next_shot_stats();
                     drop(rider);
                     if let Some(owner_arc) = self.get_object() {
                         if let Ok(mut owner) = owner_arc.try_write() {
@@ -701,9 +699,7 @@ impl TransportContain {
                                 if let Some(bike_weapon) =
                                     owner.get_weapon_in_slot_mut(WeaponSlotType::Secondary.into())
                                 {
-                                    bike_weapon.when_we_can_fire_again = when_we_can_fire_again;
-                                    bike_weapon.when_pre_attack_finished = when_pre_attack_finished;
-                                    bike_weapon.when_last_reload_started = when_last_reload_started;
+                                    bike_weapon.apply_next_shot_stats(stats);
                                 }
                             }
                         }
@@ -794,10 +790,13 @@ impl TransportContain {
         if !self.module_data.exit_bone.is_empty() {
             if let Some(owner_arc) = self.get_object() {
                 if let Ok(owner) = owner_arc.try_read() {
-                    let (_, bone_pos, _) =
+                    // C++ :321 sets the rider only when the bone is found.
+                    let (found, bone_pos, _) =
                         owner.get_single_logical_bone_position(&self.module_data.exit_bone);
                     drop(owner);
-                    let _ = rider.set_position(&bone_pos);
+                    if found {
+                        let _ = rider.set_position(&bone_pos);
+                    }
                 }
             }
         }
@@ -855,13 +854,7 @@ impl TransportContain {
             let bike_secondary = if owner.is_kind_of(KindOf::CliffJumper) {
                 owner
                     .get_weapon_in_slot(WeaponSlotType::Secondary.into())
-                    .map(|w| {
-                        (
-                            w.when_we_can_fire_again,
-                            w.when_pre_attack_finished,
-                            w.when_last_reload_started,
-                        )
-                    })
+                    .map(|w| w.next_shot_stats())
             } else {
                 None
             };
@@ -873,6 +866,8 @@ impl TransportContain {
             ))
         });
 
+        // hq-on6u2: pose under Object write, release, then AI scatter callbacks.
+        let mut scatter_ai = None;
         if let Ok(mut rider) = obj.write() {
             if let Some((above_terrain, owner_dead, owner_is_bike, bike_secondary)) = owner_state {
                 if above_terrain {
@@ -887,22 +882,23 @@ impl TransportContain {
                     }
                 }
                 if owner_dead {
-                    let _ = self.base.scatter_to_nearby_position(&mut rider);
+                    scatter_ai = self.base.scatter_to_nearby_position(&mut rider)?;
                 }
                 if owner_is_bike
                     && rider.is_kind_of(KindOf::Hero)
                     && rider.is_kind_of(KindOf::Salvager)
                 {
-                    if let (Some((when_fire, when_pre, when_reload)), Some(rider_weapon)) = (
+                    if let (Some(stats), Some(rider_weapon)) = (
                         bike_secondary,
                         rider.get_weapon_in_slot_mut(WeaponSlotType::Secondary.into()),
                     ) {
-                        rider_weapon.when_we_can_fire_again = when_fire;
-                        rider_weapon.when_pre_attack_finished = when_pre;
-                        rider_weapon.when_last_reload_started = when_reload;
+                        rider_weapon.apply_next_shot_stats(stats);
                     }
                 }
             }
+        }
+        if let Some((ai, dest)) = scatter_ai {
+            self.base.apply_scatter_ai_followup(&ai, &dest);
         }
         if self.module_data.go_aggressive_on_exit {
             if let Ok(rider) = obj.try_read() {
@@ -2222,7 +2218,8 @@ mod tests {
     }
 
     fn reset_players() {
-        let mut list = ThePlayerList().write().expect("player list write");
+        let __player_list_arc = ThePlayerList();
+        let mut list = __player_list_arc.write().expect("player list write");
         list.clear();
         list.add_player(Arc::new(RwLock::new(Player::new(0))));
     }
@@ -2519,6 +2516,53 @@ mod tests {
         OBJECT_REGISTRY.unregister_object(95123);
         OBJECT_REGISTRY.unregister_object(95124);
         ThePlayerList().write().expect("player list write").clear();
+    }
+
+    #[test]
+    fn missing_exit_bone_preserves_rider_position_like_cpp() {
+        // C++ TransportContain.cpp:315-326 sets the rider position only when
+        // the drawable reports exactly one pristine ExitBone position.
+        let _lock = crate::test_sync::lock();
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        let services = crate::system::engine_stores::new_world_services();
+        game_engine::common::common_services::with_common_services(&common, || {
+            crate::system::engine_stores::with_world_services(&services, missing_exit_bone_body)
+        });
+    }
+
+    fn missing_exit_bone_body() {
+        reset_players();
+        let owner = owned_object("NoBoneTransport", 95141, 0);
+        let rider = slotted_passenger("NoBoneRider", 95142, 1);
+        let _ = owner
+            .write()
+            .expect("owner")
+            .set_position(&Coord3D::new(100.0, 50.0, 0.0));
+        let _ = rider
+            .write()
+            .expect("rider")
+            .set_position(&Coord3D::new(5.0, 6.0, 0.0));
+        let data = TransportContainModuleData {
+            slot_capacity: 4,
+            exit_bone: "ExitStart".to_string(),
+            reset_mood_check_time_on_exit: false,
+            ..Default::default()
+        };
+        let mut contain = TransportContain::new(Arc::downgrade(&owner), &data).expect("transport");
+
+        contain.on_removing(95142).expect("missing bone removal");
+
+        let pos = *rider.read().expect("rider").get_position();
+        assert_eq!((pos.x, pos.y), (5.0, 6.0));
+
+        OBJECT_REGISTRY.unregister_object(95141);
+        OBJECT_REGISTRY.unregister_object(95142);
+        ThePlayerList().write().expect("player list write").clear();
+        // Object::drop runs the destructor tail through the Core AI runtime,
+        // which this bounded contain fixture does not install.
+        std::mem::forget(contain);
+        std::mem::forget(owner);
+        std::mem::forget(rider);
     }
 
     #[test]

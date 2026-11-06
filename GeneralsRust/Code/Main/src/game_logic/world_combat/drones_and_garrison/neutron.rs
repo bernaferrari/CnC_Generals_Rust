@@ -311,10 +311,7 @@ impl GameLogic {
             .filter_map(|id| {
                 let obj = self.objects.get(id)?;
                 let mut occupants = obj.contained_units();
-                let is_tunnel = obj.is_tunnel_network_style_container()
-                    || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                        &obj.template_name,
-                    );
+                let is_tunnel = obj.is_tunnel_network_style_container();
                 if is_tunnel {
                     for uid in self
                         .tunnel_network
@@ -550,13 +547,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(155),
         );
-        let _ = self.combat_particles.spawn_weapon_fire_fx(
-            impact,
-            Some(impact),
-            self.frame,
-            caster_id.unwrap_or(ObjectId(0)),
-            None,
-        );
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact uses ProjectileDetonateFX, never a muzzle flash.
 
         (infantry_kills, vehicles_unmanned, vehicle_kills)
     }

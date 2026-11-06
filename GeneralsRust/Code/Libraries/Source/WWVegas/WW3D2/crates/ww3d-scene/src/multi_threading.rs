@@ -24,6 +24,7 @@ pub struct ThreadingManager {
     result_receiver: Receiver<TaskResult>,
     running: Arc<AtomicBool>,
     active_tasks: Arc<AtomicUsize>,
+    next_task_id: Arc<std::sync::atomic::AtomicU64>,
     stats: Arc<RwLock<ThreadStats>>,
 }
 
@@ -35,6 +36,7 @@ impl ThreadingManager {
 
         let running = Arc::new(AtomicBool::new(true));
         let active_tasks = Arc::new(AtomicUsize::new(0));
+        let next_task_id = Arc::new(std::sync::atomic::AtomicU64::new(1));
         let stats = Arc::new(RwLock::new(ThreadStats::new()));
 
         let mut workers = Vec::with_capacity(num_workers);
@@ -56,6 +58,7 @@ impl ThreadingManager {
             result_receiver,
             running,
             active_tasks,
+            next_task_id,
             stats,
         }
     }
@@ -294,10 +297,16 @@ impl std::fmt::Debug for Task {
     }
 }
 
+impl ThreadingManager {
+    pub fn create_task(&self, task_type: TaskType) -> Task {
+        Task::new(&self.next_task_id, task_type)
+    }
+}
+
 impl Task {
-    pub fn new(task_type: TaskType) -> Self {
+    pub fn new(counter: &std::sync::atomic::AtomicU64, task_type: TaskType) -> Self {
         Self {
-            id: TaskId::new(),
+            id: TaskId::new(counter),
             task_type,
             priority: TaskPriority::Normal,
             custom_function: None,
@@ -332,10 +341,8 @@ pub enum TaskPriority {
 pub struct TaskId(u64);
 
 impl TaskId {
-    fn new() -> Self {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        Self(COUNTER.fetch_add(1, Ordering::SeqCst))
+    fn new(counter: &std::sync::atomic::AtomicU64) -> Self {
+        Self(counter.fetch_add(1, Ordering::SeqCst))
     }
 }
 
@@ -398,7 +405,7 @@ impl ParallelSceneProcessor {
             .enumerate()
             .map(|(i, _)| {
                 let chunk_id = i;
-                Task::new(TaskType::Custom).with_custom_function(move || {
+                Task::new(&std::sync::atomic::AtomicU64::new(1), TaskType::Custom).with_custom_function(move || {
                     // Update scene chunk
                     println!("Updating scene chunk {}", chunk_id);
                 })
@@ -425,7 +432,7 @@ impl ParallelSceneProcessor {
             .enumerate()
             .map(|(i, _)| {
                 let chunk_id = i;
-                Task::new(TaskType::Custom).with_custom_function(move || {
+                Task::new(&std::sync::atomic::AtomicU64::new(1), TaskType::Custom).with_custom_function(move || {
                     // Simulate physics chunk
                     println!("Simulating physics chunk {}", chunk_id);
                 })
@@ -452,7 +459,7 @@ impl ParallelSceneProcessor {
             .enumerate()
             .map(|(i, _)| {
                 let chunk_id = i;
-                Task::new(TaskType::Custom).with_custom_function(move || {
+                Task::new(&std::sync::atomic::AtomicU64::new(1), TaskType::Custom).with_custom_function(move || {
                     // Prepare rendering for scene chunk
                     println!("Preparing rendering for chunk {}", chunk_id);
                 })
@@ -635,7 +642,7 @@ mod tests {
         // Give workers time to initialize
         std::thread::sleep(Duration::from_millis(50));
 
-        let task = Task::new(TaskType::Custom).with_custom_function(|| {
+        let task = Task::new(&std::sync::atomic::AtomicU64::new(1), TaskType::Custom).with_custom_function(|| {
             println!("Custom task executed");
         });
 

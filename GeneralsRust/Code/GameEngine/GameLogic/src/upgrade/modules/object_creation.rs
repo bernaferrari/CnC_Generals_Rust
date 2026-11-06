@@ -87,8 +87,11 @@ impl Snapshotable for ObjectCreationUpgradeModuleData {
     fn load_post_process(&mut self) -> Result<(), String> {
         if self.ocl.is_none() {
             if let Some(name) = self.ocl_name.as_ref() {
-                if let Some(store) = get_object_creation_list_store().as_ref() {
-                    self.ocl = store.find_object_creation_list(name.as_str());
+                let cell = get_object_creation_list_store();
+                if let Ok(guard) = cell.read() {
+                    if let Some(store) = guard.as_ref() {
+                        self.ocl = store.find_object_creation_list(name.as_str());
+                    }
                 }
             }
         }

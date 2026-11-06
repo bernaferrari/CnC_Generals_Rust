@@ -67,18 +67,18 @@ fn local_manager(free_windows: usize, deferred: bool) -> WindowManager {
     let layout = manager.create_layout("unrelated".into());
     let existing_id = NameKeyGenerator::name_to_key("Existing") as WindowId;
     let existing = manager
-        .create_window_with_id(None, 0, 0, 10, 10, existing_id)
+        .test_create_window_with_id(None, 0, 0, 10, 10, existing_id)
         .unwrap();
     layout.borrow_mut().add_window(existing.clone());
     manager.register_tab_list(vec![existing.clone()]);
-    manager.set_focus(Some(&existing)).unwrap();
+    manager.test_set_focus(Some(&existing)).unwrap();
     while manager.window_count < MAX_WINDOWS - free_windows {
         // Capacity fillers are unrelated unnamed windows. Keep their IDs
         // disjoint from the thread's low sequential authored NameKeys; using
         // the process-wide auto counter makes this depend on test ordering.
         let filler_id = i32::MAX - manager.window_count as WindowId;
         manager
-            .create_window_with_id(None, 0, 0, 10, 10, filler_id)
+            .test_create_window_with_id(None, 0, 0, 10, 10, filler_id)
             .unwrap();
     }
     if deferred {
@@ -97,16 +97,16 @@ fn load(
     with_layout: bool,
 ) -> WindowResult<WindowLayoutInfo> {
     if with_layout {
-        manager
-            .create_layout_with_windows(path.to_str().unwrap())
+                    crate::gui::game_window::WindowEventEffects::with_standalone(|effects| manager.create_layout_with_windows(path.to_str().unwrap(), effects))
             .map(|(_, info)| info)
     } else {
-        manager.create_windows_from_script(path.to_str().unwrap())
+        manager.test_create_windows_from_script(path.to_str().unwrap())
     }
 }
 
 #[test]
 fn public_layout_loaders_remove_first_root_when_second_hits_real_capacity() {
+    crate::test_support::ensure_ambient_host();
     for with_layout in [false, true] {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("PartialRoot.wnd");
@@ -123,6 +123,7 @@ fn public_layout_loaders_remove_first_root_when_second_hits_real_capacity() {
 }
 #[test]
 fn public_layout_loaders_remove_root_and_first_child_when_later_child_hits_capacity() {
+    crate::test_support::ensure_ambient_host();
     for with_layout in [false, true] {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("PartialChild.wnd");
@@ -154,6 +155,7 @@ fn public_layout_loaders_remove_root_and_first_child_when_later_child_hits_capac
 }
 #[test]
 fn successful_public_layout_loaders_keep_script_root_and_child_order() {
+    crate::test_support::ensure_ambient_host();
     for with_layout in [false, true] {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("Success.wnd");
@@ -191,6 +193,7 @@ fn successful_public_layout_loaders_keep_script_root_and_child_order() {
 }
 #[test]
 fn parser_failure_never_registers_a_candidate_layout() {
+    crate::test_support::ensure_ambient_host();
     for with_layout in [false, true] {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("Bad.wnd");
@@ -204,6 +207,7 @@ fn parser_failure_never_registers_a_candidate_layout() {
 
 #[test]
 fn empty_script_has_no_first_window_and_never_leaves_an_empty_layout() {
+    crate::test_support::ensure_ambient_host();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("Empty.wnd");
     std::fs::write(&path, "").unwrap();
@@ -217,7 +221,7 @@ fn empty_script_has_no_first_window_and_never_leaves_an_empty_layout() {
         before.assert_restored(&manager);
     }
     assert!(matches!(
-        manager.load_window(path.to_str().unwrap()),
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| manager.load_window(path.to_str().unwrap(), effects)),
         Err(WindowError::InvalidParameter)
     ));
     before.assert_restored(&manager);
@@ -248,6 +252,7 @@ fn install_selected_original_radio(manager: &mut WindowManager) -> (u32, u32) {
 
 #[test]
 fn public_capacity_failure_restores_preselected_radio_group_after_colliding_candidate_drop() {
+    crate::test_support::ensure_ambient_host();
     for with_layout in [false, true] {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("RadioCollision.wnd");
@@ -274,7 +279,7 @@ fn public_capacity_failure_restores_preselected_radio_group_after_colliding_cand
         );
         // Later unrelated manager work cannot deliver a deferred candidate Drop
         // that removes the original ID after the beforeimage was restored.
-        manager.flush_destroy_queue();
+        manager.test_flush_destroy_queue();
         assert_eq!(manager.radio_groups[&group_id].get_buttons(), members);
         assert_eq!(
             manager.radio_groups[&group_id].get_selected(),
@@ -285,6 +290,7 @@ fn public_capacity_failure_restores_preselected_radio_group_after_colliding_cand
 
 #[test]
 fn rollback_reclaims_selected_candidate_widget_before_restoring_existing_group() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = local_manager(1, false);
     let (group_id, original_selected) = install_selected_original_radio(&mut manager);
     let baseline = Baseline::capture(&manager);
@@ -313,8 +319,7 @@ fn rollback_reclaims_selected_candidate_widget_before_restoring_existing_group()
         radio_button_data: Some(crate::gui::window_script::RadioButtonData { group: group_id }),
         ..Default::default()
     };
-    let candidate = manager
-        .create_window_from_definition(&candidate_definition, None, &layout, &definition, &mut info)
+    let candidate =         crate::gui::game_window::WindowEventEffects::with_standalone(|effects| manager.create_window_from_definition(&candidate_definition, None, &layout, &definition, &mut info, effects))
         .unwrap();
     let candidate_id = {
         let mut window = candidate.borrow_mut();
@@ -330,7 +335,7 @@ fn rollback_reclaims_selected_candidate_widget_before_restoring_existing_group()
             .get_buttons()
             .contains(&candidate_id)
     );
-    let error = manager.create_window_from_definition(
+    let error = crate::gui::game_window::WindowEventEffects::with_standalone(|effects| manager.create_window_from_definition(
         &WindowDefinition {
             name: "RejectedChild".into(),
             size: (10, 10),
@@ -340,12 +345,12 @@ fn rollback_reclaims_selected_candidate_widget_before_restoring_existing_group()
         &layout,
         &definition,
         &mut info,
-    );
+    effects));
     assert!(
         matches!(error, Err(WindowError::OutOfWindows)),
         "actual manager capacity failure after candidate selection"
     );
-    manager.rollback_failed_layout(layout, info, before);
+    crate::gui::game_window::WindowEventEffects::with_standalone(|effects| manager.rollback_failed_layout(layout, info, before, effects));
     baseline.assert_restored(&manager);
     assert_eq!(manager.radio_groups[&group_id].get_buttons(), members);
     assert_eq!(
@@ -372,6 +377,7 @@ fn rollback_reclaims_selected_candidate_widget_before_restoring_existing_group()
 
 #[test]
 fn public_layout_loaders_reparse_same_path_and_keep_prior_live_windows() {
+    crate::test_support::ensure_ambient_host();
     for with_layout in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("FreshLayout.wnd");
@@ -422,7 +428,7 @@ fn public_layout_loaders_reparse_same_path_and_keep_prior_live_windows() {
         first_before.assert_restored(&first_owner);
         peer_before.assert_restored(&peer);
 
-        peer.reset();
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| peer.reset(effects));
         assert_eq!(peer.window_count, 0);
         first_before.assert_restored(&first_owner);
     }
@@ -430,6 +436,7 @@ fn public_layout_loaders_reparse_same_path_and_keep_prior_live_windows() {
 
 #[test]
 fn public_layout_loaders_apply_text_defaults_before_authored_colors() {
+    crate::test_support::ensure_ambient_host();
     fn assert_text(window: &Rc<RefCell<GameWindow>>, expected: [u32; 6]) {
         let window = window.borrow();
         let data = window.instance_data();

@@ -73,6 +73,7 @@ fn fixture_custom_with_variation(
 ) -> Fixture {
     let rule = format!("LibraryQueuedArea{label}Weapon");
     let rows = format!("LibraryQueuedArea{label}Rows");
+    queued_damage_fx::bind_test_world();
     gamelogic::initialize_weapon_store().unwrap();
     assert_eq!(
         register_weapons_from_ini_text(&format!(
@@ -105,10 +106,8 @@ End
     })
     .expect("real weapon store");
     init_global_damage_fx_store();
-    INI::new()
-        .with_inline_source(
-            &format!(
-                r#"
+    let damage_fx_source = format!(
+        r#"
 DamageFX {rows}
  VeterancyMajorFX = REGULAR SMALL_ARMS FX_{rows}_Regular
  VeterancyMajorFX = VETERAN SMALL_ARMS FX_{rows}_Veteran
@@ -136,12 +135,24 @@ FXList FX_{rows}_Elite
  End
 End
 "#
-            ),
-            |ini| ini.parse_current_file(),
-        )
+    );
+    INI::new()
+        .with_inline_source(&damage_fx_source, |ini| ini.parse_current_file())
         .unwrap();
     let fx = queued_damage_fx::install(&rows);
     let mut world = GameLogic::new();
+    queued_damage_fx::admit_into(&mut world);
+    // GameLogic::new owns a fresh WorldServices; admit the parsed rule into
+    // this session (C++ TheWeaponStore is the one store Object creation reads).
+    let weapon = gamelogic::weapon::with_weapon_store(|store| {
+        (**store.find_weapon_template(&rule).expect("authored Area weapon")).clone()
+    })
+    .expect("real weapon store");
+    assert_eq!(weapon.primary_damage_radius, radius);
+    world
+        .admit_receiving_weapon_snapshot(vec![(rule.clone(), weapon)])
+        .unwrap();
+    world.admit_damage_fx_source(&damage_fx_source).unwrap();
     for (id, team) in [(0, Team::USA), (1, Team::China)] {
         let mut player = Player::new(id, team, label, id == 0);
         player.alliance_team = id as i32;
@@ -892,9 +903,23 @@ fn ordinary_library_queued_area_elevation_uses_3d_sphere() {
 
 #[test]
 fn ordinary_library_queued_area_mask_fallback_and_intended_bypass() {
-    // Some(players)/None(team_factory) preserves the current frozen-team Neutral fallback,
-    // despite the players' explicit Enemies relationship.
+    // C++ Weapon.cpp:1360-1372 filters by curVictim->getRelationship(source).
+    // The session owns a live team factory, so alliance-team players resolve as
+    // Enemies (Player::getRelationship); give the victim's player an explicit
+    // Neutral relation to the shooter so the ENEMIES-only mask spares it, while
+    // the intended primaryVictim still bypasses the mask and producer exclusion.
     let mut f = fixture_custom("Mask", 200.0, false, 30000000, 1, 10.0, 5.0, "ENEMIES", "");
+    f.world
+        .get_player_mut(1)
+        .unwrap()
+        .set_map_relationship(0, gamelogic::common::Relationship::Neutral);
+    assert_eq!(
+        f.world.object_relationship(
+            &f.world.host_objects()[&f.victim],
+            &f.world.host_objects()[&f.shooters[0]]
+        ),
+        gamelogic::common::Relationship::Neutral
+    );
     f.world.host_object_mut(f.shooters[0]).unwrap().producer_id = Some(f.intended);
     f.accept();
     assert_eq!(f.world.host_objects()[&f.victim].health.current, 200.0);

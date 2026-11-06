@@ -24,7 +24,8 @@ const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
-struct DownloadMenuState {
+pub(crate) struct DownloadMenuState {
+    window_manager_owner: Option<crate::gui::window_manager::WindowManagerOwner>,
     button_cancel_id: i32,
     static_text_size_id: i32,
     static_text_time_id: i32,
@@ -45,13 +46,49 @@ struct DownloadMenuState {
 // state in the dialog itself), so the menu state is a plain thread-local
 // `RefCell` instead of a locked slot — a nested borrow now panics instead of
 // wedging a non-re-entrant mutex.
+#[cfg(test)]
 thread_local! {
-    static DOWNLOAD_MENU_STATE: Rc<RefCell<DownloadMenuState>> =
-        Rc::new(RefCell::new(DownloadMenuState::default()));
+    static TEST_DOWNLOAD_MENU_STATE: std::cell::OnceCell<Rc<RefCell<DownloadMenuState>>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn network_compat<'a>(
+    effects: &crate::gui::game_window::WindowEventEffects<'a>,
+) -> &'a crate::game_network_compat::NetworkCompatState {
+    effects
+        .window_manager_owner
+        .expect("download menu requires WindowManagerOwner")
+        .network_compat()
+}
+
+fn download_menu_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<DownloadMenuState>> {
+    if let Some(owner) = owner {
+        return owner.download_menu_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .download_menu_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_DOWNLOAD_MENU_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(DownloadMenuState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(DownloadMenuState::default()))
+    }
 }
 
 fn download_menu_state() -> Rc<RefCell<DownloadMenuState>> {
-    DOWNLOAD_MENU_STATE.with(|state| state.clone())
+    download_menu_state_on_owner(None)
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -64,7 +101,7 @@ fn close_download_window(
     mut selected: Option<&mut GameWindow>,
 ) {
     let parent = {
-        let state_handle = download_menu_state();
+        let state_handle = download_menu_state_on_owner(effects.window_manager_owner);
         let mut state = state_handle.borrow_mut();
         let Some(parent) = state.parent.take() else {
             return;
@@ -154,7 +191,7 @@ fn handle_download_error(
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
     let error_key = {
-        let download_slot = download_manager();
+        let download_slot = download_manager(network_compat(effects));
         let mut guard = download_slot
             .lock()
             .expect("download manager slot re-entered on the GUI thread");
@@ -253,7 +290,7 @@ fn update_from_event(
         }
         DownloadEvent::StatusUpdate(_) => {
             let status_key = {
-                let download_slot = download_manager();
+                let download_slot = download_manager(network_compat(effects));
                 let mut guard = download_slot
                     .lock()
                     .expect("download manager slot re-entered on the GUI thread");
@@ -289,7 +326,7 @@ fn update_from_event(
         }
         DownloadEvent::End => {
             let (should_start_next, should_quit) = {
-                let download_slot = download_manager();
+                let download_slot = download_manager(network_compat(effects));
                 let mut guard = download_slot
                     .lock()
                     .expect("download manager slot re-entered on the GUI thread");
@@ -303,7 +340,7 @@ fn update_from_event(
                     .unwrap_or((false, false))
             };
             if should_start_next {
-                start_next_download();
+                start_next_download(network_compat(effects));
             } else {
                 handle_download_success(should_quit, receiving_manager, effects);
             }
@@ -315,9 +352,13 @@ pub fn download_menu_init(
     _layout: &WindowLayout,
     _user_data: Option<&mut dyn std::any::Any>,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let state_handle = download_menu_state();
+    let state_handle = download_menu_state_on_owner(effects.window_manager_owner);
     let mut state = state_handle.borrow_mut();
+    if let Some(owner) = effects.window_manager_owner {
+        state.window_manager_owner = Some(owner.clone());
+    }
 
     state.button_cancel_id = name_to_id("DownloadMenu.wnd:ButtonCancel");
     state.static_text_size_id = name_to_id("DownloadMenu.wnd:StaticTextSize");
@@ -342,7 +383,7 @@ pub fn download_menu_init(
         state.progress_bar = parent_guard.find_child_by_id(state.progress_bar_id);
     }
 
-    let download_slot = download_manager();
+    let download_slot = download_manager(network_compat(effects));
     let mut guard = download_slot
         .lock()
         .expect("download manager slot re-entered on the GUI thread");
@@ -352,7 +393,12 @@ pub fn download_menu_init(
 }
 
 pub fn download_menu_shutdown(_layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
-    set_download_manager(None);
+    let state_handle = download_menu_state();
+    let state = state_handle.borrow();
+    if let Some(owner) = state.window_manager_owner.as_ref() {
+        set_download_manager(owner.network_compat(), None);
+    }
+    drop(state);
     let state_handle = download_menu_state();
     let mut state = state_handle.borrow_mut();
     state.parent = None;
@@ -371,10 +417,10 @@ pub fn download_menu_update(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let state_handle = download_menu_state();
+    let state_handle = download_menu_state_on_owner(effects.window_manager_owner);
     let mut state = state_handle.borrow_mut();
     let events = {
-        let download_slot = download_manager();
+        let download_slot = download_manager(network_compat(effects));
         let mut guard = download_slot
             .lock()
             .expect("download manager slot re-entered on the GUI thread");
@@ -422,7 +468,7 @@ pub fn download_menu_system(
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
-            let state_handle = download_menu_state();
+            let state_handle = download_menu_state_on_owner(effects.window_manager_owner);
             let cancel_id = state_handle.borrow().button_cancel_id;
             if control_id == cancel_id {
                 cancel_download(window, effects);
@@ -440,29 +486,33 @@ mod tests {
 
     #[test]
     fn download_menu_system_consumes_lifecycle_messages_like_cpp() {
-        let window = GameWindow::new();
+        crate::test_support::ensure_ambient_host();
+        let mut window = GameWindow::new();
 
         assert_eq!(
-            download_menu_system(&window, WindowMessage::Create, 0, 0),
+            WindowEventEffects::with_standalone(|effects| download_menu_system(&mut window, WindowMessage::Create, 0, 0, effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            download_menu_system(&window, WindowMessage::Destroy, 0, 0),
+            WindowEventEffects::with_standalone(|effects| download_menu_system(&mut window, WindowMessage::Destroy, 0, 0, effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            download_menu_system(&window, WindowMessage::InputFocus, 1, 0),
-            WindowMsgHandled::Handled
+            WindowEventEffects::with_standalone(|effects| download_menu_system(&mut window, WindowMessage::InputFocus, 1, 0, effects)),
+            WindowMsgHandled::FocusResponse(true)
         );
         assert_eq!(
-            download_menu_system(&window, WindowMessage::MousePos, 0, 0),
+            WindowEventEffects::with_standalone(|effects| download_menu_system(&mut window, WindowMessage::MousePos, 0, 0, effects)),
             WindowMsgHandled::Ignored
         );
     }
 }
 
-pub fn queue_download(download: QueuedDownload) {
-    let download_slot = download_manager();
+pub fn queue_download(
+    download: QueuedDownload,
+    state: &crate::game_network_compat::NetworkCompatState,
+) {
+    let download_slot = download_manager(state);
     let mut guard = download_slot
         .lock()
         .expect("download manager slot re-entered on the GUI thread");
@@ -471,8 +521,8 @@ pub fn queue_download(download: QueuedDownload) {
     }
 }
 
-pub fn start_next_download() {
-    let download_slot = download_manager();
+pub fn start_next_download(state: &crate::game_network_compat::NetworkCompatState) {
+    let download_slot = download_manager(state);
     let mut guard = download_slot
         .lock()
         .expect("download manager slot re-entered on the GUI thread");

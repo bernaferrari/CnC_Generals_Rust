@@ -8,12 +8,8 @@
 //! - `/GeneralsMD/Code/GameEngine/Include/Common/Money.h`
 
 use std::cell::RefCell;
-use std::collections::HashSet;
 
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static PENDING_INCOME: RefCell<HashSet<i32>> = RefCell::new(HashSet::new());
-}
+
 
 fn play_money_sound(player_index: i32, withdraw: bool) {
     use crate::common::audio::audio_event_rts::AudioEventRts;
@@ -49,14 +45,22 @@ fn play_money_sound(player_index: i32, withdraw: bool) {
 }
 
 fn notify_income(player_index: i32) {
-    PENDING_INCOME.with_borrow_mut(|pending| {
-        pending.insert(player_index);
-    });
+    let services = crate::common::common_services::common_services();
+    services
+        .pending_income
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .insert(player_index);
 }
 
 /// Consume a pending C++ `recordIncome` mark for this player.
 pub fn take_pending_income(player_index: i32) -> bool {
-    PENDING_INCOME.with_borrow_mut(|pending| pending.remove(&player_index))
+    let services = crate::common::common_services::common_services();
+    services
+        .pending_income
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .remove(&player_index)
 }
 
 ///

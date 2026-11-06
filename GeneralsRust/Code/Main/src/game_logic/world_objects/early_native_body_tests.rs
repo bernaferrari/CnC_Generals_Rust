@@ -79,7 +79,7 @@ fn damage(world: &mut GameLogic, id: ObjectId, amount: f32, view: &mut View) {
     let mut effects = crate::game_logic::ScriptPresentationEffects {
         view: Some(view),
         ..Default::default()
-    };
+};
     if amount < 0.0 {
         world
             .apply_owned_healing_with_effects(id, -amount, None, &mut effects)
@@ -161,7 +161,7 @@ fn max_health_modes_keep_cached_state_and_deliver_add_current_synchronously() {
     let mut effects = crate::game_logic::ScriptPresentationEffects {
         view: Some(&mut view),
         ..Default::default()
-    };
+};
     owner
         .set_owned_body_max_health_with_effects(
             id,
@@ -233,7 +233,7 @@ fn actual_script_difficulty_reclassifies_kept_cache_once_on_receiving_nonlocal_h
             let mut effects = crate::game_logic::ScriptPresentationEffects {
                 view: Some(&mut view),
                 ..Default::default()
-            };
+};
             world
                 .execute_script_team_actions_with_effects_checked(
                     engine,
@@ -268,7 +268,7 @@ fn actual_script_difficulty_reclassifies_kept_cache_once_on_receiving_nonlocal_h
     let mut effects = crate::game_logic::ScriptPresentationEffects {
         view: Some(&mut view),
         ..Default::default()
-    };
+};
     owner
         .with_owned_script_engine(|engine, world| {
             world

@@ -40,21 +40,6 @@ use winit::{
 // and use AtomicPtr to maintain compatibility with Windows APIs.
 // They represent opaque handles from the Windows API and are appropriate for FFI.
 
-/// Application instance handle (equivalent to HINSTANCE)
-pub static APPLICATION_INSTANCE: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
-
-/// Application window handle (equivalent to HWND)
-pub static APPLICATION_WINDOW: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
-
-/// Win32 mouse interface pointer
-pub static THE_WIN32_MOUSE: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
-
-/// Whether application is windowed
-pub static APPLICATION_IS_WINDOWED: AtomicBool = AtomicBool::new(false);
-
-/// Message time from Windows
-pub static THE_MESSAGE_TIME: AtomicU32 = AtomicU32::new(0);
-static LAUNCHER_SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 // Constants from C++
 const GENERALS_GUID: &str = "685EAFF2-3216-4265-B047-251C5F4B82F3";
@@ -76,7 +61,8 @@ pub unsafe fn win_main(
     _lp_cmd_line: *const c_char,
     n_cmd_show: c_int,
 ) -> c_int {
-    APPLICATION_INSTANCE.store(h_instance, Ordering::Relaxed);
+    let _main_services_scope = crate::main_services::MainServicesScope::new();
+    crate::main_services::main_services().application_instance.store(h_instance, Ordering::Relaxed);
 
     if let Err(err) = set_working_directory_to_executable() {
         warn!("Failed to set working directory to executable path: {err}");
@@ -103,7 +89,7 @@ pub unsafe fn win_main(
     // Check for windowed mode flag - exactly like C++
     for arg in &args {
         if arg.to_lowercase() == "-win" {
-            APPLICATION_IS_WINDOWED.store(true, Ordering::Relaxed);
+            crate::main_services::main_services().application_is_windowed.store(true, Ordering::Relaxed);
         }
     }
 
@@ -111,7 +97,7 @@ pub unsafe fn win_main(
     if !initialize_app_windows(
         h_instance,
         n_cmd_show,
-        APPLICATION_IS_WINDOWED.load(Ordering::Relaxed),
+        crate::main_services::main_services().application_is_windowed.load(Ordering::Relaxed),
     ) {
         return 0;
     }
@@ -183,7 +169,7 @@ unsafe fn initialize_app_windows(
     _n_cmd_show: c_int,
     run_windowed: bool,
 ) -> bool {
-    APPLICATION_IS_WINDOWED.store(run_windowed, Ordering::Relaxed);
+    crate::main_services::main_services().application_is_windowed.store(run_windowed, Ordering::Relaxed);
     true
 }
 
@@ -220,12 +206,9 @@ unsafe fn init_version() {
 /// Synchronous GameMain wrapper - equivalent to C++ GameMain call
 // SAFETY: parity wrapper; renderer attachment dispatch is safe Rust.
 unsafe fn game_main_sync(_argc: c_int, _argv: *mut *mut c_char) {
-    // Historically dispatched WW3D attachments; now we rely on the real engine run path.
-    let attachments = ww3d_renderer_3d::Renderer::with_global_mut(|renderer| {
-        Ok(renderer.take_pending_attachments())
-    })
-    .unwrap_or_default();
-    dispatch_attachments(attachments);
+    // Attachments drain through CncGameEngine::drain_renderer_attachments once the
+    // owned Ww3dContext is live on ForwardPass. No process-wide renderer remains.
+    dispatch_attachments(Vec::new());
 }
 
 fn set_working_directory_to_executable() -> anyhow::Result<()> {
@@ -333,7 +316,7 @@ pub unsafe fn check_for_launcher_messages() -> Result<()> {
         match message {
             crate::copy_protection::LauncherMessage::GameShutdown { .. } => {
                 info!("Received shutdown message from launcher");
-                LAUNCHER_SHUTDOWN_REQUESTED.store(true, Ordering::Relaxed);
+                crate::main_services::main_services().launcher_shutdown_requested.store(true, Ordering::Relaxed);
             }
             crate::copy_protection::LauncherMessage::VersionCheck { .. } => {
                 info!("Received version check message from launcher");
@@ -359,7 +342,7 @@ pub unsafe fn process_copy_protection_messages() {
 }
 
 pub fn is_launcher_shutdown_requested() -> bool {
-    LAUNCHER_SHUTDOWN_REQUESTED.load(Ordering::Relaxed)
+    crate::main_services::main_services().launcher_shutdown_requested.load(Ordering::Relaxed)
 }
 
 /// Build window + event loop and run the cross-platform RTS path from WinMain.
@@ -628,7 +611,7 @@ fn parse_level(level: &str) -> log::LevelFilter {
 #[cfg(test)]
 mod tests {
     use super::{
-        APPLICATION_IS_WINDOWED, DEFAULT_XRESOLUTION, DEFAULT_YRESOLUTION, STARTUP_WINDOW_TITLE,
+        DEFAULT_XRESOLUTION, DEFAULT_YRESOLUTION, STARTUP_WINDOW_TITLE,
         centered_startup_position_from_monitor, command_line, initialize_app_windows,
         resolve_window_mode, startup_window_attributes,
     };
@@ -672,19 +655,20 @@ mod tests {
 
     #[test]
     fn initialize_app_windows_tracks_startup_window_mode_flag() {
-        APPLICATION_IS_WINDOWED.store(false, Ordering::Relaxed);
+        let _scope = crate::main_services::MainServicesScope::new();
+        crate::main_services::main_services().application_is_windowed.store(false, Ordering::Relaxed);
 
         // SAFETY: test-only call with null instance; fn only stores a flag.
         unsafe {
             assert!(initialize_app_windows(std::ptr::null_mut(), 1, true));
         }
-        assert!(APPLICATION_IS_WINDOWED.load(Ordering::Relaxed));
+        assert!(crate::main_services::main_services().application_is_windowed.load(Ordering::Relaxed));
 
         // SAFETY: same null-arg test call; asserts flag toggling only.
         unsafe {
             assert!(initialize_app_windows(std::ptr::null_mut(), 1, false));
         }
-        assert!(!APPLICATION_IS_WINDOWED.load(Ordering::Relaxed));
+        assert!(!crate::main_services::main_services().application_is_windowed.load(Ordering::Relaxed));
     }
 
     #[test]

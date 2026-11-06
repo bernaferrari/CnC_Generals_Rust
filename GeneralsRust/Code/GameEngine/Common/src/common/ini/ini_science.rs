@@ -10,7 +10,6 @@
 //!
 //! Matches C++ Science.h and Science.cpp field parse table
 
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -352,23 +351,24 @@ impl Default for ScienceStore {
     }
 }
 
-/// Global science store
-static SCIENCE_STORE: OnceCell<RwLock<ScienceStore>> = OnceCell::new();
-
 /// Get the global science store
-pub fn get_science_store() -> RwLockReadGuard<'static, ScienceStore> {
-    SCIENCE_STORE
-        .get_or_init(|| RwLock::new(ScienceStore::new()))
-        .read()
-        .unwrap()
-}
 
 /// Get mutable access to the global science store
+
+fn ini_science_cell() -> std::sync::Arc<std::sync::RwLock<ScienceStore>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.science)
+}
+
+pub fn get_science_store() -> RwLockReadGuard<'static, ScienceStore> {
+    let cell = ini_science_cell();
+    let guard = cell.read().expect("ScienceStore poisoned");
+    unsafe { std::mem::transmute(guard) }
+}
+
 pub fn get_science_store_mut() -> RwLockWriteGuard<'static, ScienceStore> {
-    SCIENCE_STORE
-        .get_or_init(|| RwLock::new(ScienceStore::new()))
-        .write()
-        .unwrap()
+    let cell = ini_science_cell();
+    let guard = cell.write().expect("ScienceStore poisoned");
+    unsafe { std::mem::transmute(guard) }
 }
 
 fn parse_cpp_bool(field_name: &str, value: &str) -> ScienceResult<bool> {

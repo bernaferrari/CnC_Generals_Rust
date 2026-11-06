@@ -129,7 +129,7 @@ pub use hermite_spline::{HermiteSpline1D, HermiteSpline3D};
 pub use line_segment::LineSegment;
 pub use lookup_table::{
     Curve1D as LookupCurve1D, LinearCurve as LookupLinearCurve, LookupTable, LookupTableManager,
-    SineCurve, global_table_manager,
+    SineCurve,
 };
 pub use matrix3::Matrix3;
 pub use matrix3d::Matrix3D;
@@ -165,6 +165,7 @@ pub use vehicle_curve::{ArcInfo, VehicleCurve};
 pub use wwmath::{
     DEG_TO_RAD, EPSILON, EPSILON2, FLOAT_MAX, FLOAT_MIN, OO_SQRT2, OO_SQRT3, PI, RAD_TO_DEG, SQRT2,
     SQRT3, WWMath,
+    WwMathRng,
 };
 pub use wwmath_ids::*;
 
@@ -174,9 +175,7 @@ pub const WWMATH_VERSION: &str = "0.1.0";
 /// Initialize the WWMath system
 /// This should be called once during application startup
 pub fn init() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize lookup table manager if needed
-    lookup_table::global_table_manager();
-
+    // Lookup tables are owned by callers (`LookupTableManager::new`); nothing process-global to init.
     Ok(())
 }
 

@@ -518,8 +518,7 @@ impl GameLogic {
         rider: crate::game_logic::host_combat_cycle::CombatCycleRider,
     ) -> bool {
         use crate::game_logic::host_combat_cycle::{
-            CombatCycleRider, combat_cycle_weapon_for_rider, is_combat_cycle_template,
-            is_kell_snipe_transfer_rider, transfer_next_shot_last_fire_time,
+            CombatCycleRider, combat_cycle_weapon_for_rider, is_kell_snipe_transfer_rider, transfer_next_shot_last_fire_time,
         };
         use crate::game_logic::thing::ThingTemplate;
 
@@ -556,11 +555,10 @@ impl GameLogic {
                 .template
                 .contain_module
                 .has_supported_rider_change_roster();
-        if !is_combat_cycle_template(&obj.template_name) && !parsed_rider_change {
-            return false;
-        }
+        // hq-2qedt.275: gate on container state (installed residual transport
+        // or authored RiderChangeContain), never the template basename.
         if !obj.is_combat_cycle_style_container() && !parsed_rider_change {
-            obj.install_combat_cycle_transport();
+            return false;
         }
 
         obj.combat_cycle_rider = rider.as_u8();
@@ -607,8 +605,7 @@ impl GameLogic {
     /// Empty bike → PRIMARY NONE; single rider → rider weapon residual.
     pub fn refresh_combat_cycle_rider_weapon(&mut self, container_id: ObjectId) {
         use crate::game_logic::host_combat_cycle::{
-            CombatCycleRider, combat_cycle_weapon_for_rider, is_combat_cycle_template,
-            rider_from_template_name,
+            CombatCycleRider, combat_cycle_weapon_for_rider, rider_from_template_name,
         };
 
         let Some(container) = self.objects.get(&container_id) else {
@@ -640,9 +637,7 @@ impl GameLogic {
             }
             return;
         }
-        if !is_combat_cycle_template(&container.template_name)
-            && !container.is_combat_cycle_style_container()
-        {
+        if !container.is_combat_cycle_style_container() {
             return;
         }
         let occupants = container.contained_units();
@@ -672,291 +667,6 @@ impl GameLogic {
 
         let _ = combat_cycle_weapon_for_rider(rider);
         let _ = self.apply_combat_cycle_rider(container_id, rider);
-    }
-
-    /// Apply Combat Cycle residual fire (rider weapon or suicide area).
-    pub(in super::super) fn apply_combat_cycle_residual_at(
-        &mut self,
-        impact: Vec3,
-        source: Option<ObjectId>,
-        intended_target: Option<ObjectId>,
-    ) -> (u32, bool) {
-        self.apply_combat_cycle_residual_at_with_effects(
-            impact,
-            source,
-            intended_target,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(in super::super) fn apply_combat_cycle_residual_at_with_effects(
-        &mut self,
-        impact: Vec3,
-        source: Option<ObjectId>,
-        intended_target: Option<ObjectId>,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, bool) {
-        use crate::game_logic::host_combat_cycle::{
-            CombatCycleRider, KELL_DAMAGE_TYPE, KELL_DEATH_TYPE, REBEL_MG_DAMAGE_TYPE,
-            REBEL_MG_DEATH_TYPE, RPG_DAMAGE, RPG_DAMAGE_TYPE, RPG_DEATH_TYPE, RPG_SPLASH,
-            SUICIDE_DAMAGE_TYPE, SUICIDE_DEATH_TYPE, SUICIDE_SECONDARY_RADIUS,
-            combat_cycle_audio_for_rider, is_legal_combat_cycle_target, is_terrorist_suicide_rider,
-            rpg_splash_damage_at, suicide_bike_damage_at,
-        };
-
-        let (source_team, rider, bike_pos) = source
-            .and_then(|sid| {
-                self.objects.get(&sid).map(|o| {
-                    (
-                        o.team,
-                        CombatCycleRider::from_u8(o.combat_cycle_rider),
-                        o.get_position(),
-                    )
-                })
-            })
-            .unwrap_or((Team::Neutral, CombatCycleRider::None, impact));
-
-        // Infer rebel when rider unset but weapon residual looks like MG.
-        let rider = if matches!(rider, CombatCycleRider::None) {
-            if let Some(sid) = source {
-                if let Some(o) = self.objects.get(&sid) {
-                    if let Some(w) = o.weapon.as_ref() {
-                        if (w.damage - 8.0).abs() < 0.5 {
-                            CombatCycleRider::Rebel
-                        } else if (w.damage - 40.0).abs() < 0.5 {
-                            CombatCycleRider::TunnelDefender
-                        } else if (w.damage - 180.0).abs() < 1.0 {
-                            CombatCycleRider::JarmenKell
-                        } else if w.damage >= 500.0 {
-                            CombatCycleRider::Terrorist
-                        } else {
-                            rider
-                        }
-                    } else {
-                        rider
-                    }
-                } else {
-                    rider
-                }
-            } else {
-                rider
-            }
-        } else {
-            rider
-        };
-
-        let mut hits = 0u32;
-        let mut any_destroyed = false;
-        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
-        let mut destroy_self = false;
-
-        if is_terrorist_suicide_rider(rider) {
-            // SuicideBikeBomb residual around bike position.
-            let center = bike_pos;
-            let candidates: Vec<(ObjectId, f32)> = self
-                .objects
-                .registered()
-                .filter_map(|(id, obj)| {
-                    if source == Some(*id) {
-                        return None;
-                    }
-                    let combat_kind = obj.is_kind_of(KindOf::Attackable)
-                        || obj.is_kind_of(KindOf::Structure)
-                        || obj.is_kind_of(KindOf::Infantry)
-                        || obj.is_kind_of(KindOf::Vehicle)
-                        || obj.is_kind_of(KindOf::Aircraft);
-                    if !is_legal_combat_cycle_target(
-                        obj.is_alive(),
-                        false,
-                        obj.status.under_construction,
-                        combat_kind,
-                    ) {
-                        return None;
-                    }
-                    let pos = obj.get_position();
-                    let dist = {
-                        let dx = center.x - pos.x;
-                        let dz = center.z - pos.z;
-                        (dx * dx + dz * dz).sqrt()
-                    };
-                    if dist <= SUICIDE_SECONDARY_RADIUS {
-                        Some((*id, dist))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
-            for (id, dist) in candidates {
-                let dmg = suicide_bike_damage_at(dist);
-                if dmg <= 0.0 {
-                    continue;
-                }
-                if let Some(obj) = self.objects.get_mut(&id) {
-                    let receiving_damage_target_id = obj.id;
-                    let destroyed = self.apply_residual_damage_owned_with_effects(
-                        receiving_damage_target_id,
-                        dmg,
-                        source,
-                        crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
-                            SUICIDE_DAMAGE_TYPE,
-                        ),
-                        crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
-                            SUICIDE_DEATH_TYPE,
-                        ),
-                        None,
-                        presentation_effects,
-                    );
-                    hits = hits.saturating_add(1);
-                    if destroyed {
-                        any_destroyed = true;
-                        destroy_ids.push((id, Some(source_team)));
-                    }
-                }
-            }
-            destroy_self = true;
-            self.combat_cycle_residual_suicides =
-                self.combat_cycle_residual_suicides.saturating_add(1);
-        } else if matches!(rider, CombatCycleRider::TunnelDefender) {
-            // RPG splash residual.
-            let impact_xz = (impact.x, impact.z);
-            let candidates: Vec<(ObjectId, f32, bool)> = self
-                .objects
-                .registered()
-                .filter_map(|(id, obj)| {
-                    if source == Some(*id) {
-                        return None;
-                    }
-                    let combat_kind = obj.is_kind_of(KindOf::Attackable)
-                        || obj.is_kind_of(KindOf::Structure)
-                        || obj.is_kind_of(KindOf::Infantry)
-                        || obj.is_kind_of(KindOf::Vehicle)
-                        || obj.is_kind_of(KindOf::Aircraft);
-                    if !is_legal_combat_cycle_target(
-                        obj.is_alive(),
-                        false,
-                        obj.status.under_construction,
-                        combat_kind,
-                    ) {
-                        return None;
-                    }
-                    let pos = obj.get_position();
-                    let dist = {
-                        let dx = impact_xz.0 - pos.x;
-                        let dz = impact_xz.1 - pos.z;
-                        (dx * dx + dz * dz).sqrt()
-                    };
-                    let is_intended = intended_target == Some(*id);
-                    if is_intended || dist <= RPG_SPLASH {
-                        Some((*id, dist, is_intended))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
-            for (id, dist, is_intended) in candidates {
-                let dmg = rpg_splash_damage_at(is_intended, dist);
-                if dmg <= 0.0 {
-                    continue;
-                }
-                if let Some(obj) = self.objects.get_mut(&id) {
-                    let receiving_damage_target_id = obj.id;
-                    let destroyed = self.apply_residual_damage_owned_with_effects(
-                        receiving_damage_target_id,
-                        dmg,
-                        source,
-                        crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
-                            RPG_DAMAGE_TYPE,
-                        ),
-                        crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
-                            RPG_DEATH_TYPE,
-                        ),
-                        None,
-                        presentation_effects,
-                    );
-                    hits = hits.saturating_add(1);
-                    if destroyed {
-                        any_destroyed = true;
-                        destroy_ids.push((id, Some(source_team)));
-                    }
-                }
-            }
-            let _ = RPG_DAMAGE;
-        } else {
-            // Direct residual hit (Rebel MG / Kell sniper).
-            if let Some(tid) = intended_target {
-                let dmg = source
-                    .and_then(|sid| self.objects.get(&sid))
-                    .and_then(|o| o.weapon.as_ref())
-                    .map(|w| w.damage)
-                    .unwrap_or(0.0);
-                if dmg > 0.0 {
-                    if let Some(obj) = self.objects.get_mut(&tid) {
-                        if is_legal_combat_cycle_target(
-                            obj.is_alive(),
-                            false,
-                            obj.status.under_construction,
-                            true,
-                        ) {
-                            let (dt_name, death_name) = match rider {
-                                CombatCycleRider::JarmenKell => (KELL_DAMAGE_TYPE, KELL_DEATH_TYPE),
-                                CombatCycleRider::TunnelDefender => {
-                                    (RPG_DAMAGE_TYPE, RPG_DEATH_TYPE)
-                                }
-                                _ => (REBEL_MG_DAMAGE_TYPE, REBEL_MG_DEATH_TYPE),
-                            };
-                            let receiving_damage_target_id = obj.id;
-                            let destroyed = self.apply_residual_damage_owned_with_effects(receiving_damage_target_id, dmg, source, crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(dt_name), crate::game_logic::host_armor_residual::host_death_type_from_residual_name(death_name), None, presentation_effects);
-                            hits = hits.saturating_add(1);
-                            if destroyed {
-                                any_destroyed = true;
-                                destroy_ids.push((tid, Some(source_team)));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        for (id, killer) in destroy_ids {
-            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
-        }
-        if destroy_self {
-            if let Some(sid) = source {
-                self.mark_object_for_destruction_with_effects(
-                    sid,
-                    Some(source_team),
-                    presentation_effects,
-                );
-            }
-        }
-
-        self.combat_cycle_residual_fires = self.combat_cycle_residual_fires.saturating_add(1);
-        self.combat_cycle_residual_units_hit =
-            self.combat_cycle_residual_units_hit.saturating_add(hits);
-
-        if let Some(audio) = combat_cycle_audio_for_rider(rider) {
-            self.queue_audio_event(
-                AudioEventRequest::new(audio)
-                    .with_position(impact)
-                    .with_priority(150),
-            );
-        }
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-        }
-
-        (hits, any_destroyed)
     }
 
     /// Apply Toxin Tractor primary stream residual (poison damage radius).
@@ -1104,177 +814,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-        }
-
-        (hits, any_destroyed)
-    }
-
-    /// Apply Toxin Tractor contaminate spray residual + MediumPoisonField spawn.
-    pub(in super::super) fn apply_toxin_tractor_spray_at(
-        &mut self,
-        impact: Vec3,
-        source: Option<ObjectId>,
-        source_team: Team,
-    ) -> (u32, bool) {
-        self.apply_toxin_tractor_spray_at_with_effects(
-            impact,
-            source,
-            source_team,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(in super::super) fn apply_toxin_tractor_spray_at_with_effects(
-        &mut self,
-        impact: Vec3,
-        source: Option<ObjectId>,
-        source_team: Team,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, bool) {
-        use crate::game_logic::host_toxin_tractor::{
-            AnthraxResidualTier, TOXIN_DAMAGE_TYPE, TOXIN_POISON_AUDIO, TOXIN_SPRAY_AUDIO,
-            TOXIN_SPRAY_RADIUS, UPGRADE_GLA_ANTHRAX_BETA, UPGRADE_GLA_ANTHRAX_GAMMA,
-            UPGRADE_GLA_ANTHRAX_GAMMA_ALT, anthrax_tier_from_flags, is_chem_general_template,
-            is_legal_toxin_target, toxin_death_type_name, toxin_spray_damage,
-            toxin_spray_damage_at,
-        };
-
-        let anthrax = source
-            .and_then(|sid| {
-                self.objects.get(&sid).map(|a| {
-                    let has_gamma = a.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA)
-                        || a.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA_ALT)
-                        || a.has_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma")
-                        || a.has_upgrade_tag("Upgrade_GLAAnthraxGamma");
-                    let has_beta = a.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
-                        || a.has_upgrade_tag("Upgrade_GLAAnthraxBeta");
-                    anthrax_tier_from_flags(
-                        has_gamma,
-                        has_beta,
-                        is_chem_general_template(&a.template_name),
-                    )
-                })
-            })
-            .unwrap_or(AnthraxResidualTier::None);
-        let spray_dmg = toxin_spray_damage(anthrax);
-        // Spray residual originates at the tractor; impact is attack target.
-        // Fail-closed residual: use impact as field center (contaminate puddle).
-        let center = source
-            .and_then(|sid| self.objects.get(&sid).map(|o| o.get_position()))
-            .unwrap_or(impact);
-        let center_xz = (center.x, center.z);
-        let mut hits = 0u32;
-        let mut any_destroyed = false;
-        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
-
-        let candidates: Vec<(ObjectId, f32)> = self
-            .objects
-            .registered()
-            .filter_map(|(id, obj)| {
-                if source == Some(*id) {
-                    return None;
-                }
-                let combat_kind = obj.is_kind_of(KindOf::Attackable)
-                    || obj.is_kind_of(KindOf::Structure)
-                    || obj.is_kind_of(KindOf::Infantry)
-                    || obj.is_kind_of(KindOf::Vehicle);
-                let airborne = obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
-                if !is_legal_toxin_target(
-                    obj.is_alive(),
-                    false,
-                    obj.status.under_construction,
-                    combat_kind,
-                    airborne,
-                ) {
-                    return None;
-                }
-                let pos = obj.get_position();
-                let dist = {
-                    let dx = center_xz.0 - pos.x;
-                    let dz = center_xz.1 - pos.z;
-                    (dx * dx + dz * dz).sqrt()
-                };
-                if dist <= TOXIN_SPRAY_RADIUS {
-                    Some((*id, dist))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        for (id, dist) in candidates {
-            let dmg = toxin_spray_damage_at(dist, spray_dmg);
-            if dmg <= 0.0 {
-                continue;
-            }
-            if let Some(obj) = self.objects.get_mut(&id) {
-                let receiving_damage_target_id = obj.id;
-                let destroyed = self.apply_residual_damage_owned_with_effects(
-                    receiving_damage_target_id,
-                    dmg,
-                    source,
-                    crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
-                        TOXIN_DAMAGE_TYPE,
-                    ),
-                    crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
-                        toxin_death_type_name(anthrax),
-                    ),
-                    None,
-                    presentation_effects,
-                );
-                hits = hits.saturating_add(1);
-                if destroyed {
-                    any_destroyed = true;
-                    destroy_ids.push((id, Some(source_team)));
-                }
-            }
-        }
-
-        for (id, killer) in destroy_ids {
-            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
-        }
-
-        // C++ FireOCLAfterWeaponCooldown: count secondary shots; field on cooldown.
-        if let Some(sid) = source {
-            if let Some(obj) = self.objects.get_mut(&sid) {
-                let data = obj.fire_ocl_after_cooldown.get_or_insert_with(
-                    crate::game_logic::host_toxin_tractor::HostFireOclAfterCooldownData::new,
-                );
-                data.record_shot(self.frame);
-            }
-        }
-        self.toxin_tractor.record_spray_fire(hits);
-
-        self.queue_audio_event(
-            AudioEventRequest::new(TOXIN_SPRAY_AUDIO)
-                .with_position(center)
-                .with_priority(150),
-        );
-        self.queue_audio_event(
-            AudioEventRequest::new(TOXIN_POISON_AUDIO)
-                .with_position(center)
-                .with_priority(140),
-        );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                center,
-                Some(impact),
-                self.frame,
-                sid,
-                None,
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact never spawns a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -1698,18 +1239,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                None,
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact never spawns a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -1867,8 +1398,8 @@ impl GameLogic {
 
     /// Residual: attach Scout or Hellfire drone to a master vehicle (Humvee residual).
     ///
-    /// Spawns the drone near the master, tags the master with the object-upgrade
-    /// residual name, and records attach honesty.
+    /// Spawns the drone near the master and records attach honesty. Does not
+    /// grant the master upgrade (callers grant first, like Object::giveUpgrade).
     /// Fail-closed: not full ObjectCreationUpgrade ConflictsWith / ProductionUpdate.
     pub fn residual_attach_slave_drone(
         &mut self,
@@ -2022,9 +1553,8 @@ impl GameLogic {
         // C++ startSlavedEffects (SlavedUpdate.cpp:700-701) OBJECT_STATUS_UNSELECTABLE.
         if let Some(drone) = self.objects.get_mut(&drone_id) {
             drone.set_status_unselectable(true);
-            if drone.upgrade_die.is_none() {
-                drone.install_upgrade_die(kind.upgrade_name());
-            }
+            // UpgradeDie is bound at create from the drone's authored module
+            // (UpgradeDie.cpp m_upgradeName); attach never names one by kind.
         }
         if !self.object_birth_matches(drone_id, &drone_birth)
             || !self.object_birth_matches(master_id, &master_birth)
@@ -2081,10 +1611,8 @@ impl GameLogic {
             return Err(gamelogic::GameLogicError::InvalidObject(drone_id.0));
         }
 
-        if let Some(master) = self.objects.get_mut(&master_id) {
-            master.apply_upgrade_tag(kind.upgrade_name());
-        }
-
+        // C++ ObjectCreationUpgrade never sets the master upgrade bit; that is
+        // Object::giveUpgrade's job before the creation module fires.
         match kind {
             SlaveDroneKind::Scout => {
                 self.scout_drone_residual_attaches =
@@ -2183,10 +1711,7 @@ impl GameLogic {
                         ) || b.max_garrison > 0
                     })
                     .unwrap_or(false);
-            let tunnel = target.is_tunnel_network_style_container()
-                || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                    &target.template_name,
-                );
+            let tunnel = target.is_tunnel_network_style_container();
             (
                 occ,
                 bunker,

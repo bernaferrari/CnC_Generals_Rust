@@ -73,7 +73,7 @@ impl BorrowedAiWorld<'_> {
         self.validate_native_kill_score(owner, damage.input.source_id)
     }
 
-    fn validate_native_kill_score(
+    pub(super) fn validate_native_kill_score(
         &self,
         victim: &Arc<RwLock<Object>>,
         source: ObjectID,
@@ -114,7 +114,7 @@ impl BorrowedAiWorld<'_> {
         Ok(())
     }
 
-    fn score_native_kill(&mut self, victim: &Arc<RwLock<Object>>, source: ObjectID) {
+    pub(super) fn score_native_kill(&mut self, victim: &Arc<RwLock<Object>>, source: ObjectID) {
         let Some(source) = self.object(source) else {
             return;
         };

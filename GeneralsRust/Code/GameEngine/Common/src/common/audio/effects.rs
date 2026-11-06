@@ -762,11 +762,12 @@ impl SoundEffectManager {
         looping: bool,
         position: Option<Position3D>,
     ) -> Result<AudioHandle, Box<dyn std::error::Error>> {
-        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::sync::atomic::Ordering;
 
-        static NEXT_HANDLE: AtomicU32 = AtomicU32::new(10000);
-
-        let handle = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
+        let handle = crate::common::common_services::common_services()
+            .system
+            .effects_next_handle
+            .fetch_add(1, Ordering::Relaxed);
 
         #[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
         {

@@ -187,6 +187,10 @@ pub(super) fn seed_damage_type_for(name: &str, weapon_speed: f32) -> gamelogic::
     match n.as_str() {
         "missiledefenderlaserguidedmissileweapon" => return D::ArmorPiercing,
         "missiledefendermissileweapon" => return D::InfantryMissile,
+        // Retail Weapon.ini DamageType=AURORA_BOMB (ordinal 25), not Explosion.
+        "aurorabombweapon" | "airf_aurorabombweapon" | "supw_aurorafuelbombweapon" => {
+            return D::AuroraBomb;
+        }
         _ => {}
     }
     if n.contains("laser") || n.contains("point_defense") || n.contains("pointdefense") {
@@ -231,12 +235,14 @@ pub(super) fn seed_damage_type_for(name: &str, weapon_speed: f32) -> gamelogic::
     if n.contains("flashbang") {
         return D::Surrender;
     }
+    if n.contains("aurora") {
+        return D::AuroraBomb;
+    }
     if n.contains("bomb")
         || n.contains("scud")
         || n.contains("missile")
         || n.contains("rocket")
         || n.contains("tomahawk")
-        || n.contains("aurora")
         || n.contains("grenade")
         || n.contains("demo")
     {
@@ -357,6 +363,34 @@ pub(super) fn seed_known_host_weapons() -> usize {
             primary_damage: 25.0,
             attack_range: 350.0,
             delay_frames: 60,
+            clip_size: 4,
+            weapon_speed: 600.0,
+        },
+        // Weapon.ini PatriotMissileAssistWeapon (+Lazr/SupW): PrimaryDamage
+        // 25/35/25, AttackRange 450, DelayBetweenShots 250ms -> 8f, ClipSize 4,
+        // ClipReloadTime 1000ms, AntiAirborne + AntiGround. Authored SECONDARY
+        // slot of the retail Patriot WeaponSet (hq-2qedt.136).
+        SeedWeapon {
+            name: crate::game_logic::host_base_defense::PATRIOT_ASSIST_WEAPON,
+            primary_damage: 25.0,
+            attack_range: 450.0,
+            delay_frames: 8,
+            clip_size: 4,
+            weapon_speed: 600.0,
+        },
+        SeedWeapon {
+            name: crate::game_logic::host_base_defense::LAZR_PATRIOT_ASSIST_WEAPON,
+            primary_damage: 35.0,
+            attack_range: 450.0,
+            delay_frames: 8,
+            clip_size: 4,
+            weapon_speed: 999999.0,
+        },
+        SeedWeapon {
+            name: crate::game_logic::host_base_defense::SUPW_PATRIOT_ASSIST_WEAPON,
+            primary_damage: 25.0,
+            attack_range: 450.0,
+            delay_frames: 8,
             clip_size: 4,
             weapon_speed: 600.0,
         },
@@ -688,6 +722,28 @@ pub(super) fn seed_known_host_weapons() -> usize {
             attack_range: 110.0,
             delay_frames: 3,
             clip_size: 0,
+            weapon_speed: 999_999.0,
+        },
+        // ChinaInfantryTankHunterMissileLauncher — PrimaryDamage 40, AttackRange 175,
+        // DelayBetweenShots 1000ms → 30 frames, WeaponSpeed 600 (hq-2qedt.132:
+        // authored source for Tank Hunter PRIMARY at create).
+        SeedWeapon {
+            name: crate::game_logic::host_tank_hunter::TANK_HUNTER_MISSILE_WEAPON,
+            primary_damage: crate::game_logic::host_tank_hunter::TANK_HUNTER_DAMAGE,
+            attack_range: crate::game_logic::host_tank_hunter::TANK_HUNTER_RANGE,
+            delay_frames: 30,
+            clip_size: 0,
+            weapon_speed: crate::game_logic::host_tank_hunter::TANK_HUNTER_PROJECTILE_SPEED,
+        },
+        // ColonelBurtonSniperRifleWeapon — PrimaryDamage 40, AttackRange 125,
+        // DelayBetweenShots 100ms → 3f, ClipSize 3, ClipReloadTime 500ms → 15f
+        // (hq-2qedt.133: authored source for Burton PRIMARY at create).
+        SeedWeapon {
+            name: crate::game_logic::host_colonel_burton::BURTON_SNIPER_WEAPON,
+            primary_damage: crate::game_logic::host_colonel_burton::BURTON_SNIPER_DAMAGE,
+            attack_range: crate::game_logic::host_colonel_burton::BURTON_SNIPER_RANGE,
+            delay_frames: crate::game_logic::host_colonel_burton::BURTON_SNIPER_BASE_DELAY_FRAMES as i32,
+            clip_size: crate::game_logic::host_colonel_burton::BURTON_CLIP_SIZE as i32,
             weapon_speed: 999_999.0,
         },
         // MicrowaveTankBuildingClearer — PrimaryDamage 1 (kills 1 garrisoned unit),
@@ -1212,12 +1268,35 @@ pub(super) fn seed_known_host_weapons() -> usize {
             t.secondary_damage_radius = 25.0;
             t.minimum_attack_range = 40.0;
         }
+        // hq-2qedt.118: Weapon.ini FireBaseHowitzerGun MinimumAttackRange = 50.
+        if seed.name == FIRE_BASE_HOWITZER_WEAPON {
+            t.minimum_attack_range = 50.0;
+        }
         if seed.name == TOMAHAWK_MISSILE_WEAPON {
             t.primary_damage_radius = 10.0;
             t.secondary_damage = 50.0;
             t.secondary_damage_radius = 25.0;
             t.minimum_attack_range = 100.0;
             t.pre_attack_delay = 8; // 250ms @ 30 FPS residual
+        }
+        // Retail StealthJetMissileWeapon MinimumAttackRange 60 / PrimaryDamageRadius 5
+        // (authored source for Stealth Fighter PRIMARY at create, hq-2qedt.110).
+        if seed.name == STEALTH_JET_MISSILE_WEAPON {
+            t.primary_damage_radius = 5.0;
+            t.minimum_attack_range = 60.0;
+        }
+        // Retail ColonelBurtonSniperRifleWeapon ClipReloadTime 500ms → 15f (hq-2qedt.133).
+        if seed.name == crate::game_logic::host_colonel_burton::BURTON_SNIPER_WEAPON {
+            t.clip_reload_time =
+                crate::game_logic::host_colonel_burton::BURTON_CLIP_RELOAD_FRAMES as i32;
+        }
+        // Retail ChinaInfantryTankHunterMissileLauncher MinimumAttackRange 5 /
+        // PrimaryDamageRadius 5 / AntiAirborneVehicle+Infantry (hq-2qedt.132).
+        if seed.name == crate::game_logic::host_tank_hunter::TANK_HUNTER_MISSILE_WEAPON {
+            t.primary_damage_radius = crate::game_logic::host_tank_hunter::TANK_HUNTER_SPLASH_RADIUS;
+            t.minimum_attack_range = crate::game_logic::host_tank_hunter::TANK_HUNTER_MIN_RANGE;
+            t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
+            t.anti_mask.insert(WeaponAntiMask::AIRBORNE_INFANTRY);
         }
         if seed.name == DRAGON_TANK_FLAME_WEAPON || seed.name == DRAGON_TANK_FLAME_WEAPON_UPGRADED {
             t.primary_damage_radius = 5.0;
@@ -1256,6 +1335,13 @@ pub(super) fn seed_known_host_weapons() -> usize {
             t.clip_reload_time = DOZER_MINE_CLEAR_CLIP_RELOAD_FRAMES as i32;
             t.anti_mask.insert(WeaponAntiMask::MINE);
         }
+        // Weapon.ini MissileDefenderMissileWeapon: AntiAirborneVehicle /
+        // AntiAirborneInfantry Yes alongside AntiGround (hq-2qedt.146: the
+        // create-time name peel that carried these flags is gone).
+        if seed.name == crate::game_logic::host_missile_defender::MISSILE_DEFENDER_MISSILE_WEAPON {
+            t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
+            t.anti_mask.insert(WeaponAntiMask::AIRBORNE_INFANTRY);
+        }
         // Avenger designator can paint air + ground residual.
         if seed.name == AVENGER_TARGET_DESIGNATOR {
             t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
@@ -1282,6 +1368,16 @@ pub(super) fn seed_known_host_weapons() -> usize {
             || seed.name == GATTLING_BUILDING_SECONDARY_WEAPON
         {
             t.anti_mask = WeaponAntiMask::new(0);
+            t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
+            t.anti_mask.insert(WeaponAntiMask::AIRBORNE_INFANTRY);
+        }
+        if seed.name == crate::game_logic::host_base_defense::PATRIOT_ASSIST_WEAPON
+            || seed.name == crate::game_logic::host_base_defense::LAZR_PATRIOT_ASSIST_WEAPON
+            || seed.name == crate::game_logic::host_base_defense::SUPW_PATRIOT_ASSIST_WEAPON
+        {
+            t.clip_reload_time =
+                crate::game_logic::host_base_defense::PATRIOT_ASSIST_CLIP_RELOAD_FRAMES as i32;
+            t.anti_mask.insert(WeaponAntiMask::GROUND);
             t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
             t.anti_mask.insert(WeaponAntiMask::AIRBORNE_INFANTRY);
         }

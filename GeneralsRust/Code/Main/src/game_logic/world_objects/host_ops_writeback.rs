@@ -930,7 +930,6 @@ impl GameLogic {
     pub fn host_authoritative_occupant_count(&self, id: ObjectId) -> Option<u16> {
         let o = self.host_object(id)?;
         if o.is_tunnel_network_style_container()
-            || crate::game_logic::host_tunnel_network::is_tunnel_network_template(&o.template_name)
         {
             return Some(
                 self.tunnel_network
@@ -961,7 +960,6 @@ impl GameLogic {
             return Vec::new();
         };
         if o.is_tunnel_network_style_container()
-            || crate::game_logic::host_tunnel_network::is_tunnel_network_template(&o.template_name)
         {
             return self
                 .tunnel_network
@@ -1492,6 +1490,7 @@ impl GameLogic {
         at_location: bool,
         forced_slot: Option<u8>,
     ) -> crate::game_logic::audio_dispatch_impl::UnitVoiceSlot {
+        self.with_own_services(|| {
         use crate::game_logic::audio_dispatch_impl::{
             AttackVoiceWeapon, UnitVoiceSlot, pick_specialty_attack_voice,
         };
@@ -1525,6 +1524,7 @@ impl GameLogic {
             })
             .collect();
         pick_specialty_attack_voice(default, weapons, structure, specialty_weapon, at_location)
+            })
     }
 
     /// C++ MSG_DO_MOVETO / ATTACKMOVETO / GET_REPAIRED / GET_HEALED (`CommandXlat.cpp:384-443`).

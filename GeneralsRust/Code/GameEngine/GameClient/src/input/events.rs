@@ -469,6 +469,7 @@ mod tests {
 
     #[test]
     fn test_input_event_categorization() {
+        crate::test_support::ensure_ambient_host();
         let key_event = InputEvent::KeyPressed {
             key: KeyCode::A,
             modifiers: KeyModifiers::empty(),
@@ -496,6 +497,7 @@ mod tests {
 
     #[test]
     fn test_event_filter_include() {
+        crate::test_support::ensure_ambient_host();
         let filter = InputEventFilter::keyboard_only();
 
         let key_event = InputEvent::KeyPressed {
@@ -518,6 +520,7 @@ mod tests {
 
     #[test]
     fn test_event_filter_exclude() {
+        crate::test_support::ensure_ambient_host();
         let filter = InputEventFilter::no_mouse_move();
 
         let mouse_move = InputEvent::MouseMoved {
@@ -542,6 +545,7 @@ mod tests {
 
     #[test]
     fn test_event_type_display() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(InputEventType::KeyPressed.to_string(), "KeyPressed");
         assert_eq!(InputEventType::MouseMoved.to_string(), "MouseMoved");
         assert_eq!(
@@ -552,6 +556,7 @@ mod tests {
 
     #[test]
     fn test_gamepad_filter() {
+        crate::test_support::ensure_ambient_host();
         let filter = InputEventFilter::new().gamepad_filter(vec![0, 1]);
 
         let gamepad_0_event = InputEvent::GamepadButtonPressed {

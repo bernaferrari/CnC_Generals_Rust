@@ -716,124 +716,8 @@ impl GameLogic {
             );
         }
 
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-        }
-
-        (hits, any_destroyed)
-    }
-
-    pub(in super::super) fn apply_rebel_residual_at(
-        &mut self,
-        impact: Vec3,
-        source: Option<ObjectId>,
-        intended_target: Option<ObjectId>,
-    ) -> (u32, bool) {
-        self.apply_rebel_residual_at_with_effects(
-            impact,
-            source,
-            intended_target,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(in super::super) fn apply_rebel_residual_at_with_effects(
-        &mut self,
-        impact: Vec3,
-        source: Option<ObjectId>,
-        intended_target: Option<ObjectId>,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, bool) {
-        use crate::game_logic::host_gla_rebel::{
-            REBEL_DAMAGE, REBEL_DAMAGE_TYPE, REBEL_DEATH_TYPE, REBEL_FIRE_AUDIO,
-            is_legal_rebel_target,
-        };
-
-        let damage = source
-            .and_then(|sid| self.objects.get(&sid))
-            .and_then(|o| o.weapon.as_ref().map(|w| w.damage))
-            .unwrap_or(REBEL_DAMAGE);
-        let source_team = source
-            .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
-            .unwrap_or(Team::Neutral);
-
-        let Some(target_id) = intended_target else {
-            return (0, false);
-        };
-        let Some(target) = self.objects.get(&target_id) else {
-            return (0, false);
-        };
-        let combat_kind = target.is_kind_of(KindOf::Attackable)
-            || target.is_kind_of(KindOf::Structure)
-            || target.is_kind_of(KindOf::Infantry)
-            || target.is_kind_of(KindOf::Vehicle)
-            || target.is_kind_of(KindOf::Aircraft);
-        if !is_legal_rebel_target(
-            target.is_alive(),
-            source == Some(target_id),
-            target.status.under_construction,
-            combat_kind,
-        ) {
-            return (0, false);
-        }
-        let target_pos = target.get_position();
-
-        let mut hits = 0u32;
-        let mut any_destroyed = false;
-        if let Some(obj) = self.objects.get_mut(&target_id) {
-            let receiving_damage_target_id = obj.id;
-            let destroyed = self.apply_residual_damage_owned_with_effects(
-                receiving_damage_target_id,
-                damage,
-                source,
-                crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
-                    REBEL_DAMAGE_TYPE,
-                ),
-                crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
-                    REBEL_DEATH_TYPE,
-                ),
-                None,
-                presentation_effects,
-            );
-            hits = 1;
-            if destroyed {
-                any_destroyed = true;
-                self.mark_object_for_destruction_with_effects(
-                    target_id,
-                    Some(source_team),
-                    presentation_effects,
-                );
-            }
-        }
-
-        self.rebel_residual_fires = self.rebel_residual_fires.saturating_add(1);
-
-        self.queue_audio_event(
-            AudioEventRequest::new(REBEL_FIRE_AUDIO)
-                .with_position(target_pos)
-                .with_priority(150),
-        );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(target_pos),
-                self.frame,
-                sid,
-                intended_target,
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact never spawns a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -957,18 +841,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact never spawns a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -1068,148 +942,18 @@ impl GameLogic {
         let _ = slot; // slot honesty counted in apply_minigunner_residual_at
     }
 
-    /// Apply Colonel Burton residual fire: knife one-shot vs close infantry, else sniper.
-    pub(in super::super) fn apply_burton_residual_at(
-        &mut self,
-        impact: Vec3,
-        source: Option<ObjectId>,
-        intended_target: Option<ObjectId>,
-    ) -> (u32, bool) {
-        self.apply_burton_residual_at_with_effects(
-            impact,
-            source,
-            intended_target,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(in super::super) fn apply_burton_residual_at_with_effects(
-        &mut self,
-        impact: Vec3,
-        source: Option<ObjectId>,
-        intended_target: Option<ObjectId>,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, bool) {
-        use crate::game_logic::host_colonel_burton::{
-            BURTON_KNIFE_DAMAGE, BURTON_KNIFE_DAMAGE_TYPE, BURTON_KNIFE_DEATH_TYPE,
-            BURTON_KNIFE_FIRE_AUDIO, BURTON_SNIPER_DAMAGE, BURTON_SNIPER_DAMAGE_TYPE,
-            BURTON_SNIPER_DEATH_TYPE, BURTON_SNIPER_FIRE_AUDIO, distance_2d,
-            is_legal_burton_target, should_apply_burton_knife_residual,
-        };
-
-        let source_team = source
-            .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
-            .unwrap_or(Team::Neutral);
-        let source_pos = source
-            .and_then(|sid| self.objects.get(&sid).map(|o| o.get_position()))
-            .unwrap_or(impact);
-
-        let Some(target_id) = intended_target else {
-            return (0, false);
-        };
-        let Some(target) = self.objects.get(&target_id) else {
-            return (0, false);
-        };
-        let combat_kind = target.is_kind_of(KindOf::Attackable)
-            || target.is_kind_of(KindOf::Structure)
-            || target.is_kind_of(KindOf::Infantry)
-            || target.is_kind_of(KindOf::Vehicle)
-            || target.is_kind_of(KindOf::Aircraft);
-        if !is_legal_burton_target(
-            target.is_alive(),
-            source == Some(target_id),
-            target.status.under_construction,
-            combat_kind,
-        ) {
-            return (0, false);
-        }
-        let target_pos = target.get_position();
-        let dist = distance_2d(source_pos.x, source_pos.z, target_pos.x, target_pos.z);
-        let target_is_infantry = target.is_kind_of(KindOf::Infantry);
-        let knife = should_apply_burton_knife_residual(true, target_is_infantry, true, dist);
-        let damage = if knife {
-            BURTON_KNIFE_DAMAGE
-        } else {
-            source
-                .and_then(|sid| self.objects.get(&sid))
-                .and_then(|o| o.weapon.as_ref().map(|w| w.damage))
-                .unwrap_or(BURTON_SNIPER_DAMAGE)
-        };
-
-        let mut hits = 0u32;
-        let mut any_destroyed = false;
-        if let Some(obj) = self.objects.get_mut(&target_id) {
-            let (dt_name, death_name) = if knife {
-                (BURTON_KNIFE_DAMAGE_TYPE, BURTON_KNIFE_DEATH_TYPE)
-            } else {
-                (BURTON_SNIPER_DAMAGE_TYPE, BURTON_SNIPER_DEATH_TYPE)
-            };
-            let receiving_damage_target_id = obj.id;
-            let destroyed = self.apply_residual_damage_owned_with_effects(
-                receiving_damage_target_id,
-                damage,
-                source,
-                crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
-                    dt_name,
-                ),
-                crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
-                    death_name,
-                ),
-                None,
-                presentation_effects,
-            );
-            hits = 1;
-            if destroyed {
-                any_destroyed = true;
-                self.mark_object_for_destruction_with_effects(
-                    target_id,
-                    Some(source_team),
-                    presentation_effects,
-                );
-            }
-        }
-
-        if knife {
-            self.burton_residual_knife_kills = self.burton_residual_knife_kills.saturating_add(1);
-        } else {
-            self.burton_residual_sniper_fires = self.burton_residual_sniper_fires.saturating_add(1);
-        }
-
-        let audio = if knife {
-            BURTON_KNIFE_FIRE_AUDIO
-        } else {
-            BURTON_SNIPER_FIRE_AUDIO
-        };
-        self.queue_audio_event(
-            AudioEventRequest::new(audio)
-                .with_position(target_pos)
-                .with_priority(160),
-        );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(target_pos),
-                self.frame,
-                sid,
-                intended_target,
-            );
-        }
-
-        (hits, any_destroyed)
-    }
-
     /// Refresh RPG Trooper residual from current AP Rockets upgrade tag.
     pub(in super::super) fn refresh_rpg_trooper_weapon(&mut self, object_id: ObjectId) {
         use crate::game_logic::host_rpg_trooper::{
-            has_ap_rockets_upgrade, is_rpg_trooper_template, rpg_trooper_weapon,
+            has_ap_rockets_upgrade, is_rpg_trooper_weapon_name, rpg_trooper_weapon,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
-        if !is_rpg_trooper_template(&obj.template_name) {
+        if !obj
+            .authored_weapon_name_for_slot(0)
+            .is_some_and(is_rpg_trooper_weapon_name)
+        {
             return;
         }
         let ap = has_ap_rockets_upgrade(&obj.applied_upgrades);
@@ -1224,12 +968,15 @@ impl GameLogic {
     /// Apply AP Rockets residual tag to an RPG Trooper (damage × 1.25).
     pub fn apply_rpg_trooper_ap_rockets_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_rpg_trooper::{
-            UPGRADE_GLA_AP_ROCKETS, is_rpg_trooper_template,
+            UPGRADE_GLA_AP_ROCKETS, is_rpg_trooper_weapon_name,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_rpg_trooper_template(&obj.template_name) {
+        if !obj
+            .authored_weapon_name_for_slot(0)
+            .is_some_and(is_rpg_trooper_weapon_name)
+        {
             return false;
         }
         obj.applied_upgrades
@@ -1656,183 +1403,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-        }
-
-        (hits, any_destroyed)
-    }
-
-    /// Apply GLA Terrorist residual: SuicideDynamitePack AOE at self + destroy self.
-    ///
-    /// Chem Beta/Gamma + Demo death-weapon residual profiles applied.
-    /// Fail-closed: not ConvertToCarBomb matrix / SlowDeath fling / OCL particle bones.
-    pub(in super::super) fn apply_terrorist_residual_at(
-        &mut self,
-        source: Option<ObjectId>,
-        intended_target: Option<ObjectId>,
-    ) -> (u32, bool) {
-        self.apply_terrorist_residual_at_with_effects(
-            source,
-            intended_target,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(in super::super) fn apply_terrorist_residual_at_with_effects(
-        &mut self,
-        source: Option<ObjectId>,
-        intended_target: Option<ObjectId>,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, bool) {
-        use crate::game_logic::host_terrorist::{
-            SUICIDE_DYNAMITE_DAMAGE_TYPE, SUICIDE_DYNAMITE_DEATH_TYPE, TERRORIST_DETONATE_AUDIO,
-            is_legal_terrorist_aoe_target, suicide_dynamite_damage_at_profile,
-            terrorist_death_profile,
-        };
-
-        let Some(source_id) = source else {
-            return (0, false);
-        };
-        let Some(source_obj) = self.objects.get(&source_id) else {
-            return (0, false);
-        };
-        if !source_obj.is_alive() {
-            return (0, false);
-        }
-        let source_team = source_obj.team;
-        let center = source_obj.get_position();
-        let template_name = source_obj.template_name.clone();
-        let has_gamma = source_obj.has_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma")
-            || source_obj.has_upgrade_tag("Upgrade_GLAAnthraxGamma")
-            || source_obj.has_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma");
-        let has_beta = source_obj.has_upgrade_tag("Upgrade_GLAAnthraxBeta")
-            || source_obj.has_upgrade_tag("Chem_Upgrade_GLAAnthraxBeta");
-        let profile = terrorist_death_profile(&template_name, has_gamma, has_beta);
-        let secondary_radius = profile.secondary_radius();
-
-        let mut hits = 0u32;
-        let mut any_destroyed = false;
-        let mut damage_dealt = 0.0f32;
-        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
-
-        let candidates: Vec<(ObjectId, f32)> = self
-            .objects
-            .registered()
-            .filter_map(|(id, obj)| {
-                if *id == source_id {
-                    return None;
-                }
-                let combat_kind = obj.is_kind_of(KindOf::Attackable)
-                    || obj.is_kind_of(KindOf::Structure)
-                    || obj.is_kind_of(KindOf::Infantry)
-                    || obj.is_kind_of(KindOf::Vehicle)
-                    || obj.is_kind_of(KindOf::Aircraft);
-                if !is_legal_terrorist_aoe_target(
-                    obj.is_alive(),
-                    false,
-                    obj.status.under_construction,
-                    combat_kind,
-                ) {
-                    return None;
-                }
-                let pos = obj.get_position();
-                let dist = {
-                    let dx = center.x - pos.x;
-                    let dz = center.z - pos.z;
-                    (dx * dx + dz * dz).sqrt()
-                };
-                if dist <= secondary_radius {
-                    Some((*id, dist))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        for (id, dist) in candidates {
-            let dmg = suicide_dynamite_damage_at_profile(profile, dist);
-            if dmg <= 0.0 {
-                continue;
-            }
-            if let Some(obj) = self.objects.get_mut(&id) {
-                let applied = dmg.min(obj.health.current.max(0.0));
-                let receiving_damage_target_id = obj.id;
-                let destroyed = self.apply_residual_damage_owned_with_effects(
-                    receiving_damage_target_id,
-                    dmg,
-                    source,
-                    crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
-                        SUICIDE_DYNAMITE_DAMAGE_TYPE,
-                    ),
-                    crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
-                        SUICIDE_DYNAMITE_DEATH_TYPE,
-                    ),
-                    None,
-                    presentation_effects,
-                );
-                hits = hits.saturating_add(1);
-                damage_dealt += applied;
-                if destroyed {
-                    any_destroyed = true;
-                    destroy_ids.push((id, Some(source_team)));
-                }
-            }
-        }
-
-        // Intended-target residual honesty: ensure we counted the attack target
-        // even if already dead/out of range residual (fail-closed soft).
-        let _ = intended_target;
-
-        for (id, killer) in destroy_ids {
-            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
-        }
-
-        // Chem Beta/Gamma residual: spawn MediumPoisonField at suicide epicenter.
-        if profile.spawns_poison() {
-            let _ = self.toxin_tractor.spawn_medium_field(
-                source_id,
-                source_team,
-                center,
-                self.frame,
-                profile.poison_anthrax_tier(),
-            );
-        }
-
-        // Self-kill residual (TerroristSuicideWeapon SUICIDED + FireWeaponWhenDead).
-        self.mark_destroyed_authority_aware(source_id, Some(source_id));
-        self.mark_object_for_destruction_with_effects(
-            source_id,
-            Some(source_team),
-            presentation_effects,
-        );
-
-        self.terrorist_residual_detonations = self.terrorist_residual_detonations.saturating_add(1);
-        self.terrorist_residual_units_hit = self.terrorist_residual_units_hit.saturating_add(hits);
-        self.terrorist_residual_damage_dealt += damage_dealt;
-
-        self.queue_audio_event(
-            AudioEventRequest::new(TERRORIST_DETONATE_AUDIO)
-                .with_object(source_id)
-                .with_position(center)
-                .with_priority(190),
-        );
-        let _ = self.combat_particles.spawn(
-            CombatParticleKind::WeaponImpact,
-            center,
-            self.frame,
-            Some(source_id),
-            intended_target,
-        );
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact never spawns a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -2301,18 +1873,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact never spawns a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }

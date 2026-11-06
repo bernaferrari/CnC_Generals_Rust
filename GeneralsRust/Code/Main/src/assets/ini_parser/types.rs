@@ -348,6 +348,18 @@ pub struct AuthoredDrawPrimaryTurret {
     /// `AltTurretPitch` has an active source bone. Main intentionally does
     /// not substitute the primary gameplay pitch for this unsupported slot.
     pub alternate_pitch_bone_present: bool,
+    /// Lowercased C++ `AltTurret` pivot name (`m_turrets[1]` yaw NameKey),
+    /// or `None` when empty/`None`. Asset-only until the alt draw pose lands.
+    pub alternate_yaw_bone: Option<String>,
+    /// Lowercased C++ `AltTurretPitch` pivot name (`m_turrets[1]` pitch).
+    pub alternate_pitch_bone: Option<String>,
+    /// `AltTurretArtAngle` after C++ `INI::parseAngleReal`.
+    pub alternate_yaw_art_angle_radians_bits: u32,
+    /// `AltTurretArtPitch` after C++ `INI::parseAngleReal`.
+    pub alternate_pitch_art_angle_radians_bits: u32,
+    /// A malformed alternate art-angle token makes the alt binding unavailable
+    /// without invalidating the primary slot.
+    pub alternate_fields_valid: bool,
     /// A malformed primary art-angle token makes this binding unavailable.
     /// C++ would reject bad INI data during load; fail closed in Main rather
     /// than rendering a silently invented zero-degree correction.
@@ -363,6 +375,11 @@ impl Default for AuthoredDrawPrimaryTurret {
             pitch_art_angle_radians_bits: 0.0f32.to_bits(),
             alternate_yaw_bone_present: false,
             alternate_pitch_bone_present: false,
+            alternate_yaw_bone: None,
+            alternate_pitch_bone: None,
+            alternate_yaw_art_angle_radians_bits: 0.0f32.to_bits(),
+            alternate_pitch_art_angle_radians_bits: 0.0f32.to_bits(),
+            alternate_fields_valid: true,
             primary_fields_valid: true,
         }
     }
@@ -377,10 +394,31 @@ impl AuthoredDrawPrimaryTurret {
         f32::from_bits(self.pitch_art_angle_radians_bits)
     }
 
-    /// A second C++ turret slot is source-authored but deliberately unsupported
-    /// by the bounded primary-turret renderer.
-    pub fn has_unsupported_alternate_turret(&self) -> bool {
+    pub fn alternate_yaw_art_angle_radians(&self) -> f32 {
+        f32::from_bits(self.alternate_yaw_art_angle_radians_bits)
+    }
+
+    pub fn alternate_pitch_art_angle_radians(&self) -> f32 {
+        f32::from_bits(self.alternate_pitch_art_angle_radians_bits)
+    }
+
+    /// C++ `ModelConditionInfo::m_turrets[TURRET_ALT]` is source-authored.
+    pub fn has_alternate_turret(&self) -> bool {
         self.alternate_yaw_bone_present || self.alternate_pitch_bone_present
+    }
+
+    /// Both C++ turret slots parsed cleanly. A malformed primary or (when
+    /// authored) alternate art angle fails the whole binding closed, since
+    /// C++ rejects bad INI data at load instead of drawing a guessed offset.
+    pub fn turret_fields_valid(&self) -> bool {
+        self.primary_fields_valid && (!self.has_alternate_turret() || self.alternate_fields_valid)
+    }
+
+    /// Any exact turret pivot (TURRET_MAIN or TURRET_ALT) can be controlled.
+    pub fn has_any_turret_bone(&self) -> bool {
+        self.has_primary_bone()
+            || self.alternate_yaw_bone.is_some()
+            || self.alternate_pitch_bone.is_some()
     }
 
     /// This does not require both primary bones: C++ independently controls
@@ -403,6 +441,18 @@ impl AuthoredDrawPrimaryTurret {
             return;
         };
         self.pitch_art_angle_radians_bits = radians.to_bits();
+    }
+
+    pub(super) fn set_alternate_art_angle_degrees(&mut self, value: &str, is_yaw: bool) {
+        let Some(radians) = Self::parse_art_angle_radians(value) else {
+            self.alternate_fields_valid = false;
+            return;
+        };
+        if is_yaw {
+            self.alternate_yaw_art_angle_radians_bits = radians.to_bits();
+        } else {
+            self.alternate_pitch_art_angle_radians_bits = radians.to_bits();
+        }
     }
 
     fn parse_art_angle_radians(value: &str) -> Option<f32> {

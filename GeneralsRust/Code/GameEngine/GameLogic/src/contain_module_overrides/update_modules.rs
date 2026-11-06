@@ -843,23 +843,14 @@ pub(super) fn spawn_behavior_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
+    // C++ SpawnBehavior(thing, moduleData): the supplied thing is the owner;
+    // owned construction must not require a registry publication.
     let owner_id = resolve_owner_id(&thing);
-    let owner = match TheGameLogic::find_object_by_id(owner_id) {
-        Some(object) => object,
-        None => {
-            // Wave 449: missing owner → no-op module.
-            return missing_owner_module_auto("SpawnBehavior", &module_data);
-        }
-    };
+    if owner_id == crate::common::INVALID_ID {
+        return missing_owner_module_auto("SpawnBehavior", &module_data);
+    }
     let data_arc = cloned_module_data::<SpawnBehaviorModuleData>("SpawnBehavior", &module_data);
-    let behavior = SpawnBehavior::new_with_data(
-        owner
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(crate::common::INVALID_ID),
-        data_arc.clone(),
-    )
+    let behavior = SpawnBehavior::new_with_data(owner_id, data_arc.clone())
     .expect("SpawnBehavior failed to initialize");
     Box::new(SpawnBehaviorModule::new(
         behavior,

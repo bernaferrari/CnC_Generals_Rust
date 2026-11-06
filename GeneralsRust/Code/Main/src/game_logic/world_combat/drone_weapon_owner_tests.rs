@@ -20,6 +20,10 @@ fn world(deployed: bool, pre_delay: f32) -> GameLogic {
     template
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Attackable);
+    if !deployed {
+        template
+            .set_primary_weapon_name(crate::game_logic::host_slave_drones::HELLFIRE_MISSILE_WEAPON);
+    }
     if deployed {
         template.deploy_style_metadata = Some(DeployStyleMetadata {
             unpack_time_frames: 3,

@@ -1959,7 +1959,7 @@ fn attack_move_to_command_sets_moving_residual() {
     let o = logic.host_object(id).expect("alive");
     assert!(
         matches!(
-            o.ai_state,
+            o.ai_state(),
             AIState::Moving | AIState::AttackMoving | AIState::Attacking
         ) || o.movement.target_position.is_some()
             || !o.movement.path.is_empty(),
@@ -2142,14 +2142,14 @@ fn unique_building_max_simultaneous_from_ini_blocks_second() {
 
     let first =
         logic.create_object_under_construction("TestUniqueWarFactory", Team::USA, glam::Vec3::ZERO);
-    assert!(first.is_some(), "first unique building must place");
+    assert!(first.is_ok(), "first unique building must place");
     let second = logic.create_object_under_construction(
         "TestUniqueWarFactory",
         Team::USA,
         glam::Vec3::new(80.0, 0.0, 0.0),
     );
     assert!(
-        second.is_none(),
+        second.is_err(),
         "hq-ss0x8: INI MaxSimultaneousOfType=1 must block a second copy"
     );
 }
@@ -2184,7 +2184,7 @@ fn max_simultaneous_link_key_counts_rebuild_hole() {
         glam::Vec3::new(80.0, 0.0, 0.0),
     );
     assert!(
-        blocked.is_none(),
+        blocked.is_err(),
         "hq-ss0x8: rebuild hole must consume MaxSimultaneousLinkKey"
     );
 }
@@ -2874,7 +2874,7 @@ fn script_idle_and_guard_for_framecount_write_live() {
         logic
             .host_object(named)
             .map(|o| matches!(
-                o.ai_state,
+                o.ai_state(),
                 AIState::GuardingArea | AIState::GuardingObject | AIState::Idle
             ))
             .unwrap_or(false),

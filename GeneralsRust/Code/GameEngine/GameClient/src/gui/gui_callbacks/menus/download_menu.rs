@@ -12,7 +12,7 @@ pub fn DownloadMenuInit(
     user_data: Option<&mut dyn std::any::Any>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    effects.with_manager(|manager, effects| download_menu_init(layout, user_data, manager));
+    effects.with_manager(|manager, effects| download_menu_init(layout, user_data, manager, effects));
 }
 
 pub fn DownloadMenuUpdate(

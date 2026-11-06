@@ -12,10 +12,10 @@ use std::io::{self, Write};
 /// Result function interface - equivalent to ProfileResultInterface
 pub trait ProfileResultInterface: Send + Sync {
     /// Write out results (called on program exit)
-    fn write_results(&self);
+    fn write_results(&self, session: &crate::WwDebugSession);
 
     /// Get a name for this result function
-    fn get_name(&self) -> &str;
+    fn get_name(&self, session: &crate::WwDebugSession) -> &str;
 }
 
 /// C++-style CSV file result writer - equivalent to ProfileResultFileCSV
@@ -27,16 +27,16 @@ impl FileCsvResultWriter {
     }
 
     #[cfg(feature = "function-level")]
-    fn write_thread_csv(&self, writer: &mut dyn Write, thread_id: usize) -> io::Result<()> {
+    fn write_thread_csv(&self, session: &crate::WwDebugSession, writer: &mut dyn Write, thread_id: usize) -> io::Result<()> {
         writeln!(
             writer,
             "Function\tFile\tCall count\tPTT (all)\tGTT (all)\tPT/C (all)\tGT/C (all)\tCaller (all)"
         )?;
 
-        let frame_count = Profile::get_frame_count();
+        let frame_count = Profile::get_frame_count(session);
         for frame in 0..frame_count {
             let frame_name =
-                Profile::get_frame_name(frame).unwrap_or_else(|| format!("frame:{}", frame));
+                Profile::get_frame_name(session, frame).unwrap_or_else(|| format!("frame:{}", frame));
             write!(
                 writer,
                 "\tCall ({0})\tPTT ({0})\tGTT ({0})\tPT/C ({0})\tGT/C ({0})\tCaller ({0})",
@@ -45,7 +45,7 @@ impl FileCsvResultWriter {
         }
         writeln!(writer)?;
 
-        let func_level = Profile::func_level();
+        let func_level = Profile::func_level(session);
         let mut thread_index = 0;
         while let Some(thread) = func_level.enum_threads(thread_index) {
             if thread.get_id() == thread_id {
@@ -112,23 +112,23 @@ impl FileCsvResultWriter {
     }
 
     #[cfg(not(feature = "function-level"))]
-    fn write_thread_csv(&self, _writer: &mut dyn Write, _thread_id: usize) -> io::Result<()> {
+    fn write_thread_csv(&self, session: &crate::WwDebugSession, _writer: &mut dyn Write, _thread_id: usize) -> io::Result<()> {
         Ok(())
     }
 
-    fn write_high_level_csv(&self) -> io::Result<()> {
+    fn write_high_level_csv(&self, session: &crate::WwDebugSession) -> io::Result<()> {
         let mut file = File::create("profile-high.csv")?;
 
         write!(file, "Profile\tUnit\ttotal")?;
-        let frame_count = Profile::get_frame_count();
+        let frame_count = Profile::get_frame_count(session);
         for frame in 0..frame_count {
             let frame_name =
-                Profile::get_frame_name(frame).unwrap_or_else(|| format!("frame:{}", frame));
+                Profile::get_frame_name(session, frame).unwrap_or_else(|| format!("frame:{}", frame));
             write!(file, "\t{}", frame_name)?;
         }
         writeln!(file)?;
 
-        let high_level = Profile::high_level();
+        let high_level = Profile::high_level(session);
         let mut index = 0;
         while let Some(id) = high_level.enum_profile(index) {
             write!(
@@ -151,24 +151,24 @@ impl FileCsvResultWriter {
 }
 
 impl ProfileResultInterface for FileCsvResultWriter {
-    fn write_results(&self) {
+    fn write_results(&self, session: &crate::WwDebugSession) {
         #[cfg(feature = "function-level")]
         {
-            let func_level = Profile::func_level();
+            let func_level = Profile::func_level(session);
             let mut thread_index = 0;
             while let Some(thread) = func_level.enum_threads(thread_index) {
                 let filename = format!("prof{:08x}-all.csv", thread.get_id());
                 if let Ok(mut file) = File::create(&filename) {
-                    let _ = self.write_thread_csv(&mut file, thread.get_id());
+                    let _ = self.write_thread_csv(session, &mut file, thread.get_id());
                 }
                 thread_index += 1;
             }
         }
 
-        let _ = self.write_high_level_csv();
+        let _ = self.write_high_level_csv(session);
     }
 
-    fn get_name(&self) -> &str {
+    fn get_name(&self, session: &crate::WwDebugSession) -> &str {
         "file_csv"
     }
 }
@@ -196,11 +196,11 @@ impl DotResultWriter {
     }
 
     #[cfg(feature = "function-level")]
-    fn resolve_frame(&self) -> u32 {
+    fn resolve_frame(&self, session: &crate::WwDebugSession) -> u32 {
         if let Some(frame_name) = &self.frame_name {
-            let frame_count = Profile::get_frame_count();
+            let frame_count = Profile::get_frame_count(session);
             for frame in 0..frame_count {
-                if let Some(name) = Profile::get_frame_name(frame) {
+                if let Some(name) = Profile::get_frame_name(session, frame) {
                     if name == *frame_name {
                         return frame as u32;
                     }
@@ -211,8 +211,8 @@ impl DotResultWriter {
     }
 
     #[cfg(feature = "function-level")]
-    fn pick_thread(&self) -> Option<crate::func_level::ProfileFuncThread> {
-        let func_level = Profile::func_level();
+    fn pick_thread(&self, session: &crate::WwDebugSession) -> Option<crate::func_level::ProfileFuncThread> {
+        let func_level = Profile::func_level(session);
         let mut thread_index = 0;
         let mut best_thread: Option<crate::func_level::ProfileFuncThread> = None;
         let mut best_count = 0usize;
@@ -335,15 +335,15 @@ impl DotResultWriter {
 }
 
 impl ProfileResultInterface for DotResultWriter {
-    fn write_results(&self) {
+    fn write_results(&self, session: &crate::WwDebugSession) {
         #[cfg(feature = "function-level")]
         {
-            let thread = match self.pick_thread() {
+            let thread = match self.pick_thread(session) {
                 Some(thread) => thread,
                 None => return,
             };
 
-            let frame = self.resolve_frame();
+            let frame = self.resolve_frame(session);
 
             let mut active = 0usize;
             let mut func_index = 0;
@@ -383,7 +383,7 @@ impl ProfileResultInterface for DotResultWriter {
         }
     }
 
-    fn get_name(&self) -> &str {
+    fn get_name(&self, session: &crate::WwDebugSession) -> &str {
         "file_dot"
     }
 }
@@ -425,7 +425,7 @@ impl CsvResultWriter {
     }
 
     /// Write high-level profiling results to CSV
-    fn write_high_level_csv(&self, writer: &mut dyn Write) -> io::Result<()> {
+    fn write_high_level_csv(&self, session: &crate::WwDebugSession, writer: &mut dyn Write) -> io::Result<()> {
         if !self.include_high_level {
             return Ok(());
         }
@@ -433,7 +433,7 @@ impl CsvResultWriter {
         writeln!(writer, "# High Level Profiling Results")?;
         writeln!(writer, "Name,Description,Unit,Current Value,Total Value")?;
 
-        let high_level = Profile::high_level();
+        let high_level = Profile::high_level(session);
         let mut index = 0;
 
         while let Some(id) = high_level.enum_profile(index) {
@@ -453,7 +453,7 @@ impl CsvResultWriter {
 
     /// Write function-level profiling results to CSV
     #[cfg(feature = "function-level")]
-    fn write_func_level_csv(&self, writer: &mut dyn Write) -> io::Result<()> {
+    fn write_func_level_csv(&self, session: &crate::WwDebugSession, writer: &mut dyn Write) -> io::Result<()> {
         if !self.include_func_level {
             return Ok(());
         }
@@ -464,7 +464,7 @@ impl CsvResultWriter {
             "Thread ID,Function,Source,Line,Address,Total Calls,Total Time,Function Time"
         )?;
 
-        let func_level = Profile::func_level();
+        let func_level = Profile::func_level(session);
         let mut thread_index = 0;
 
         while let Some(thread) = func_level.enum_threads(thread_index) {
@@ -508,18 +508,18 @@ impl CsvResultWriter {
     }
 
     #[cfg(not(feature = "function-level"))]
-    fn write_func_level_csv(&self, _writer: &mut dyn Write) -> io::Result<()> {
+    fn write_func_level_csv(&self, session: &crate::WwDebugSession, _writer: &mut dyn Write) -> io::Result<()> {
         Ok(()) // No-op when function-level profiling is disabled
     }
 
     /// Write frame information to CSV
-    fn write_frame_info_csv(&self, writer: &mut dyn Write) -> io::Result<()> {
+    fn write_frame_info_csv(&self, session: &crate::WwDebugSession, writer: &mut dyn Write) -> io::Result<()> {
         writeln!(writer, "# Frame Information")?;
         writeln!(writer, "Frame Number,Frame Name")?;
 
-        let frame_count = Profile::get_frame_count();
+        let frame_count = Profile::get_frame_count(session);
         for i in 0..frame_count {
-            if let Some(frame_name) = Profile::get_frame_name(i) {
+            if let Some(frame_name) = Profile::get_frame_name(session, i) {
                 let safe_name = frame_name.replace(',', "_");
                 writeln!(writer, "{},{}", i, safe_name)?;
             }
@@ -530,20 +530,20 @@ impl CsvResultWriter {
 }
 
 impl ProfileResultInterface for CsvResultWriter {
-    fn write_results(&self) {
-        match self.write_csv_file() {
+    fn write_results(&self, session: &crate::WwDebugSession) {
+        match self.write_csv_file(session) {
             Ok(()) => log::info!("Successfully wrote CSV results to {}", self.filename),
             Err(e) => log::error!("Failed to write CSV results to {}: {}", self.filename, e),
         }
     }
 
-    fn get_name(&self) -> &str {
+    fn get_name(&self, session: &crate::WwDebugSession) -> &str {
         "csv_file_writer"
     }
 }
 
 impl CsvResultWriter {
-    fn write_csv_file(&self) -> io::Result<()> {
+    fn write_csv_file(&self, session: &crate::WwDebugSession) -> io::Result<()> {
         let mut file = File::create(&self.filename)?;
 
         // Write header
@@ -552,23 +552,23 @@ impl CsvResultWriter {
         writeln!(
             file,
             "# CPU Frequency: {} Hz",
-            Profile::get_clock_cycles_per_second().unwrap_or(0)
+            Profile::get_clock_cycles_per_second(session).unwrap_or(0)
         )?;
         writeln!(
             file,
             "# Total Frames Recorded: {}",
-            Profile::get_frame_count()
+            Profile::get_frame_count(session)
         )?;
         writeln!(file)?;
 
         // Write high-level results
-        self.write_high_level_csv(&mut file)?;
+        self.write_high_level_csv(session, &mut file)?;
 
         // Write function-level results
-        self.write_func_level_csv(&mut file)?;
+        self.write_func_level_csv(session, &mut file)?;
 
         // Write frame information
-        self.write_frame_info_csv(&mut file)?;
+        self.write_frame_info_csv(session, &mut file)?;
 
         file.flush()?;
         Ok(())
@@ -594,7 +594,7 @@ impl HtmlResultWriter {
         Box::new(Self::new(filename))
     }
 
-    fn write_html_file(&self) -> io::Result<()> {
+    fn write_html_file(&self, session: &crate::WwDebugSession) -> io::Result<()> {
         let mut file = File::create(&self.filename)?;
 
         // Write HTML header
@@ -625,23 +625,23 @@ impl HtmlResultWriter {
         writeln!(
             file,
             "        <p>CPU Frequency: {} Hz</p>",
-            Profile::get_clock_cycles_per_second().unwrap_or(0)
+            Profile::get_clock_cycles_per_second(session).unwrap_or(0)
         )?;
         writeln!(
             file,
             "        <p>Total Frames Recorded: {}</p>",
-            Profile::get_frame_count()
+            Profile::get_frame_count(session)
         )?;
         writeln!(file, "    </div>")?;
 
         // Write high-level profiling results
-        self.write_high_level_html(&mut file)?;
+        self.write_high_level_html(session, &mut file)?;
 
         // Write function-level profiling results
-        self.write_func_level_html(&mut file)?;
+        self.write_func_level_html(session, &mut file)?;
 
         // Write frame information
-        self.write_frame_info_html(&mut file)?;
+        self.write_frame_info_html(session, &mut file)?;
 
         // Close HTML
         writeln!(file, "</body>")?;
@@ -651,7 +651,7 @@ impl HtmlResultWriter {
         Ok(())
     }
 
-    fn write_high_level_html(&self, writer: &mut dyn Write) -> io::Result<()> {
+    fn write_high_level_html(&self, session: &crate::WwDebugSession, writer: &mut dyn Write) -> io::Result<()> {
         writeln!(writer, "    <div class=\"section\">")?;
         writeln!(writer, "        <h2>High Level Profiling</h2>")?;
         writeln!(writer, "        <table>")?;
@@ -660,7 +660,7 @@ impl HtmlResultWriter {
             "            <tr><th>Name</th><th>Description</th><th>Unit</th><th>Current</th><th>Total</th></tr>"
         )?;
 
-        let high_level = Profile::high_level();
+        let high_level = Profile::high_level(session);
         let mut index = 0;
 
         while let Some(id) = high_level.enum_profile(index) {
@@ -684,7 +684,7 @@ impl HtmlResultWriter {
     }
 
     #[cfg(feature = "function-level")]
-    fn write_func_level_html(&self, writer: &mut dyn Write) -> io::Result<()> {
+    fn write_func_level_html(&self, session: &crate::WwDebugSession, writer: &mut dyn Write) -> io::Result<()> {
         writeln!(writer, "    <div class=\"section\">")?;
         writeln!(writer, "        <h2>Function Level Profiling</h2>")?;
         writeln!(writer, "        <table>")?;
@@ -693,7 +693,7 @@ impl HtmlResultWriter {
             "            <tr><th>Thread</th><th>Function</th><th>Source</th><th>Line</th><th>Address</th><th>Calls</th><th>Total Time</th><th>Function Time</th></tr>"
         )?;
 
-        let func_level = Profile::func_level();
+        let func_level = Profile::func_level(session);
         let mut thread_index = 0;
 
         while let Some(thread) = func_level.enum_threads(thread_index) {
@@ -735,11 +735,11 @@ impl HtmlResultWriter {
     }
 
     #[cfg(not(feature = "function-level"))]
-    fn write_func_level_html(&self, _writer: &mut dyn Write) -> io::Result<()> {
+    fn write_func_level_html(&self, session: &crate::WwDebugSession, _writer: &mut dyn Write) -> io::Result<()> {
         Ok(()) // No-op when function-level profiling is disabled
     }
 
-    fn write_frame_info_html(&self, writer: &mut dyn Write) -> io::Result<()> {
+    fn write_frame_info_html(&self, session: &crate::WwDebugSession, writer: &mut dyn Write) -> io::Result<()> {
         writeln!(writer, "    <div class=\"section\">")?;
         writeln!(writer, "        <h2>Frame Information</h2>")?;
         writeln!(writer, "        <table>")?;
@@ -748,9 +748,9 @@ impl HtmlResultWriter {
             "            <tr><th>Frame Number</th><th>Frame Name</th></tr>"
         )?;
 
-        let frame_count = Profile::get_frame_count();
+        let frame_count = Profile::get_frame_count(session);
         for i in 0..frame_count {
-            if let Some(frame_name) = Profile::get_frame_name(i) {
+            if let Some(frame_name) = Profile::get_frame_name(session, i) {
                 let safe_name = html_escape(&frame_name);
                 writeln!(
                     writer,
@@ -767,14 +767,14 @@ impl HtmlResultWriter {
 }
 
 impl ProfileResultInterface for HtmlResultWriter {
-    fn write_results(&self) {
-        match self.write_html_file() {
+    fn write_results(&self, session: &crate::WwDebugSession) {
+        match self.write_html_file(session) {
             Ok(()) => log::info!("Successfully wrote HTML results to {}", self.filename),
             Err(e) => log::error!("Failed to write HTML results to {}: {}", self.filename, e),
         }
     }
 
-    fn get_name(&self) -> &str {
+    fn get_name(&self, session: &crate::WwDebugSession) -> &str {
         "html_file_writer"
     }
 }
@@ -798,13 +798,13 @@ impl ConsoleResultWriter {
 }
 
 impl ProfileResultInterface for ConsoleResultWriter {
-    fn write_results(&self) {
+    fn write_results(&self, session: &crate::WwDebugSession) {
         println!("\n=== PROFILE RESULTS ===");
         println!(
             "CPU Frequency: {} Hz",
-            Profile::get_clock_cycles_per_second().unwrap_or(0)
+            Profile::get_clock_cycles_per_second(session).unwrap_or(0)
         );
-        println!("Total Frames: {}\n", Profile::get_frame_count());
+        println!("Total Frames: {}\n", Profile::get_frame_count(session));
 
         // High-level results
         println!("HIGH LEVEL PROFILING:");
@@ -814,7 +814,7 @@ impl ProfileResultInterface for ConsoleResultWriter {
         );
         println!("{}", "-".repeat(80));
 
-        let high_level = Profile::high_level();
+        let high_level = Profile::high_level(session);
         let mut index = 0;
 
         while let Some(id) = high_level.enum_profile(index) {
@@ -836,7 +836,7 @@ impl ProfileResultInterface for ConsoleResultWriter {
         // Function-level results (if enabled)
         #[cfg(feature = "function-level")]
         {
-            let func_level = Profile::func_level();
+            let func_level = Profile::func_level(session);
             if func_level.get_thread_count() > 0 {
                 println!("\nFUNCTION LEVEL PROFILING:");
                 println!(
@@ -867,7 +867,7 @@ impl ProfileResultInterface for ConsoleResultWriter {
         println!("\n=== END PROFILE RESULTS ===\n");
     }
 
-    fn get_name(&self) -> &str {
+    fn get_name(&self, session: &crate::WwDebugSession) -> &str {
         "console_writer"
     }
 }
@@ -917,24 +917,25 @@ mod tests {
 
     #[test]
     fn test_csv_writer() {
+        let session = crate::WwDebugSession::new();
         let temp_file = "test_results.csv";
 
         // Create some profile data first
-        Profile::clear_patterns();
-        Profile::add_pattern("test*", true).unwrap();
-        Profile::start_range(Some("test_csv")).unwrap();
+        Profile::clear_patterns(&session);
+        Profile::add_pattern(&session, "test*", true).unwrap();
+        Profile::start_range(&session, Some("test_csv")).unwrap();
 
-        let high_level = Profile::high_level();
+        let high_level = Profile::high_level(&session);
         let id = high_level
             .add_profile("test.csv", "CSV Test", "count", 0, 0)
             .unwrap();
         id.increment(42.0);
 
-        Profile::stop_range(Some("test_csv")).unwrap();
+        Profile::stop_range(&session, Some("test_csv")).unwrap();
 
         // Write CSV results
         let writer = CsvResultWriter::new(temp_file);
-        writer.write_results();
+        writer.write_results(&session);
 
         // Check that file was created
         assert!(PathBuf::from(temp_file).exists());
@@ -951,10 +952,11 @@ mod tests {
 
     #[test]
     fn test_html_writer() {
+        let session = crate::WwDebugSession::new();
         let temp_file = "test_results.html";
 
         // Create some profile data
-        let high_level = Profile::high_level();
+        let high_level = Profile::high_level(&session);
         let id = high_level
             .add_profile("test.html", "HTML Test", "bytes", 2, 0)
             .unwrap();
@@ -962,7 +964,7 @@ mod tests {
 
         // Write HTML results
         let writer = HtmlResultWriter::new(temp_file);
-        writer.write_results();
+        writer.write_results(&session);
 
         // Check that file was created
         assert!(PathBuf::from(temp_file).exists());
@@ -980,38 +982,39 @@ mod tests {
 
     #[test]
     fn test_console_writer() {
-        // Just test that it doesn't panic
+        let session = crate::WwDebugSession::new();
         let writer = ConsoleResultWriter::new(false);
-        writer.write_results();
+        writer.write_results(&session);
 
         let writer = ConsoleResultWriter::new(true);
-        writer.write_results();
+        writer.write_results(&session);
     }
 
     #[test]
     fn test_result_function_registry() {
+        let session = crate::WwDebugSession::new();
         let functions = ResultFunctionRegistry::get_available_functions();
         assert_eq!(functions.len(), 5);
 
         let file_csv_writer = ResultFunctionRegistry::create_function("file_csv", &[]);
         assert!(file_csv_writer.is_some());
-        assert_eq!(file_csv_writer.unwrap().get_name(), "file_csv");
+        assert_eq!(file_csv_writer.unwrap().get_name(&session), "file_csv");
 
         let file_dot_writer = ResultFunctionRegistry::create_function("file_dot", &[]);
         assert!(file_dot_writer.is_some());
-        assert_eq!(file_dot_writer.unwrap().get_name(), "file_dot");
+        assert_eq!(file_dot_writer.unwrap().get_name(&session), "file_dot");
 
         let csv_writer = ResultFunctionRegistry::create_function("csv_file", &["test.csv"]);
         assert!(csv_writer.is_some());
-        assert_eq!(csv_writer.unwrap().get_name(), "csv_file_writer");
+        assert_eq!(csv_writer.unwrap().get_name(&session), "csv_file_writer");
 
         let html_writer = ResultFunctionRegistry::create_function("html_file", &["test.html"]);
         assert!(html_writer.is_some());
-        assert_eq!(html_writer.unwrap().get_name(), "html_file_writer");
+        assert_eq!(html_writer.unwrap().get_name(&session), "html_file_writer");
 
         let console_writer = ResultFunctionRegistry::create_function("console", &["verbose"]);
         assert!(console_writer.is_some());
-        assert_eq!(console_writer.unwrap().get_name(), "console_writer");
+        assert_eq!(console_writer.unwrap().get_name(&session), "console_writer");
 
         let unknown = ResultFunctionRegistry::create_function("unknown", &[]);
         assert!(unknown.is_none());

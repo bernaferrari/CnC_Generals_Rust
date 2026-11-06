@@ -1913,7 +1913,8 @@ impl ShroudManager {
         }
 
         // Second check: Is the object stealthed?
-        let stealth_mgr = match get_stealth_manager().lock() {
+        let __hold_stealth_mgr = get_stealth_manager();
+        let stealth_mgr = match __hold_stealth_mgr.lock() {
             Ok(mgr) => mgr,
             Err(_) => {
                 // On lock error, assume visible (fail-open for visibility)
@@ -1938,7 +1939,8 @@ impl ShroudManager {
         // Object is stealthed - check if we have detection capability
         drop(stealth_mgr); // Release the lock before acquiring detection lock
 
-        let stealth_strength = match get_stealth_manager().lock() {
+        let __hold_stealth_strength = get_stealth_manager();
+        let stealth_strength = match __hold_stealth_strength.lock() {
             Ok(mgr) => match mgr.get_stealth_strength(object_id) {
                 Ok(strength) => strength.value(),
                 Err(_) => 0.0,
@@ -1947,7 +1949,8 @@ impl ShroudManager {
         };
 
         // Get the player's detection capability
-        let detection_mgr = match get_detection_manager().lock() {
+        let __hold_detection_mgr = get_detection_manager();
+        let detection_mgr = match __hold_detection_mgr.lock() {
             Ok(mgr) => mgr,
             Err(_) => {
                 // On lock error, assume stealthed (fail-safe for stealth)
@@ -2295,7 +2298,8 @@ impl ShroudManager {
 
     /// Refresh using the driving instance clock, including while its save/load owner is borrowed.
     pub fn refresh_shroud_for_local_player_at_frame(&mut self, frame: u32) {
-        if let Ok(list) = crate::player::player_list().read() {
+        let __player_list_arc = crate::player::player_list();
+        if let Ok(list) = __player_list_arc.read() {
             let local_index = list.get_local_player_index();
             if local_index != PLAYER_INDEX_INVALID {
                 let player_id = local_index as u32;

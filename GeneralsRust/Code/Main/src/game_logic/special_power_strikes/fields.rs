@@ -572,6 +572,9 @@ pub struct HostParticleBeamField {
     /// time. Persisted in the lifecycle OXFR capsule, not the positional body.
     #[serde(skip, default)]
     pub manual_drive_settings: ParticleManualDriveSettings,
+    /// Authored SwathOfDeathDistance/Amplitude from the source module.
+    #[serde(skip, default)]
+    pub swath_settings: crate::game_logic::special_power_strikes::ParticleSwathSettings,
     /// Last residual SwathOfDeath epicenter used for a damage pulse.
     #[serde(default)]
     pub last_swath_position: Vec3,

@@ -990,7 +990,7 @@ impl GameLogic {
     pub fn honesty_patriot_assist_ok(&self) -> bool {
         self.patriot_assist_residual_requests > 0
             && self.patriot_assist_residual_accepts > 0
-            && self.patriot_assist_residual_fires > 0
+            && self.patriot_assist_residual_fires() > 0
     }
 
     /// Residual honesty: BinaryDataStream LaserFromAssisted + LaserToTarget spawned.
@@ -1002,8 +1002,13 @@ impl GameLogic {
         self.patriot_assist_residual_requests
     }
 
+    /// AssistingClipSize residual: real assist shots committed (fire commit,
+    /// not command enqueue) plus legacy residual count.
     pub fn patriot_assist_residual_fires(&self) -> u32 {
-        self.patriot_assist_residual_fires
+        self.objects
+            .registered_values()
+            .map(|o| o.assist_clip_fire_commits)
+            .fold(self.patriot_assist_residual_fires, u32::saturating_add)
     }
 
     pub fn patriot_assist_residual_accepts(&self) -> u32 {
@@ -1038,7 +1043,7 @@ impl GameLogic {
         self.projectile_streams
             .snapshot()
             .into_iter()
-            .map(|(id, s)| (id, s.stream_name.clone(), s.points.clone(), s.target_id))
+            .map(|(key, s)| (key.shooter, s.stream_name.clone(), s.points.clone(), s.target_id))
             .collect()
     }
 
@@ -1630,18 +1635,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact never spawns a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }

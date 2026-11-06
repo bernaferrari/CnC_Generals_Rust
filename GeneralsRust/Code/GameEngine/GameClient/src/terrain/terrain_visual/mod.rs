@@ -41,8 +41,6 @@ use super::w3d_overlay_mesh::{
     default_sectional_bridge_model, fill_bridge_gpu_upload_vertices, fill_road_gpu_upload_vertices,
     fill_water_gpu_upload_vertices,
 };
-#[cfg(test)]
-use crate::fx_list::scene_dynamic_lights;
 use crate::fx_list::{DisplayDynamicLight, do_the_dynamic_light};
 
 use super::{

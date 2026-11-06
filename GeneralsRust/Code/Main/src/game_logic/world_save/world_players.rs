@@ -14,6 +14,15 @@ fn host_slot_script_name(player: &Player) -> String {
 }
 
 impl GameLogic {
+    /// Map `BlendTileData` decoded by the current load and not yet folded into
+    /// `TerrainData` (native map admission runs before that fold).
+    #[cfg(feature = "game_client")]
+    pub(crate) fn pending_map_blend_tile_data(
+        &self,
+    ) -> Option<&super::script_loader::BlendTileData> {
+        self.pending_blend_tile_data.as_ref()
+    }
+
     pub(in super::super) fn sync_legacy_runtime_from_chunky(
         &mut self,
         map_path: &Path,
@@ -109,6 +118,7 @@ impl GameLogic {
         ) -> Result<(), String>,
     {
         let sync_started = Instant::now();
+        let mut stage_started = Instant::now();
         report_progress(
             &mut self.session_view.audio_random,
             self.queued_audio_events.policy(),
@@ -119,6 +129,7 @@ impl GameLogic {
             "Fast legacy runtime sync started for '{}'",
             map_path.display()
         );
+        let parse_only = Instant::now();
         let heightmap = match super::script_loader::parse_heightmap_data_from_chunky(chunky) {
             Ok(value) => value,
             Err(err) => {
@@ -130,11 +141,35 @@ impl GameLogic {
                 None
             }
         };
+        let blend_tile_data = heightmap.as_ref().and_then(|hm| {
+            match super::script_loader::parse_blend_tile_data_from_chunky(chunky, hm) {
+                Ok(value) => value,
+                Err(err) => {
+                    log::warn!(
+                        "Fast legacy runtime sync BlendTileData parse failed for '{}': {}",
+                        map_path.display(),
+                        err
+                    );
+                    None
+                }
+            }
+        });
+        // Stash for world_load — C++ does not re-read HeightMapData after MapReader.
+        // Move into pending; terrain write clones sample bytes once if needed.
+        if let Some(blend) = blend_tile_data.as_ref() {
+            self.runtime_terrain_texture_classes = blend.texture_classes.clone();
+        }
+        self.pending_map_heightmap = heightmap;
+        self.pending_blend_tile_data = blend_tile_data;
         log::info!(
-            "Fast legacy runtime sync heightmap parsed for '{}' in {:.2}s",
+            "Fast legacy runtime sync heightmap parsed for '{}' in {:.2}s (parse_only={:.3}s, stage={:.2}s, blend={})",
             map_path.display(),
-            sync_started.elapsed().as_secs_f32()
+            sync_started.elapsed().as_secs_f32(),
+            parse_only.elapsed().as_secs_f32(),
+            stage_started.elapsed().as_secs_f32(),
+            self.pending_blend_tile_data.is_some()
         );
+        stage_started = Instant::now();
         report_progress(
             &mut self.session_view.audio_random,
             self.queued_audio_events.policy(),
@@ -142,45 +177,36 @@ impl GameLogic {
             "Fast sync waypoints",
         )?;
 
-        let (waypoints, waypoint_links) =
-            match super::script_loader::parse_runtime_waypoints_from_chunky(chunky) {
-                Ok(value) => value,
-                Err(err) => {
-                    log::warn!(
-                        "Fast legacy runtime sync waypoint parse failed for '{}': {}",
-                        map_path.display(),
-                        err
-                    );
-                    (Vec::new(), Vec::new())
-                }
-            };
-        log::info!(
-            "Fast legacy runtime sync waypoints parsed for '{}' (count={}, links={}) in {:.2}s",
-            map_path.display(),
-            waypoints.len(),
-            waypoint_links.len(),
-            sync_started.elapsed().as_secs_f32()
-        );
-        report_progress(
-            &mut self.session_view.audio_random,
-            self.queued_audio_events.policy(),
-            0.42,
-            "Fast sync bridges",
-        )?;
-        let bridges = match super::script_loader::parse_runtime_bridges_from_chunky(
+        // C++ MapReader walks ObjectsList once; derive waypoints+bridges+roads together.
+        let parse_only = Instant::now();
+        let (waypoints, waypoint_links, bridges, parsed_roads) = match super::script_loader::parse_runtime_map_objects_bundle_from_chunky(
             chunky,
             &self.templates,
+            self.effective_terrain_roads(),
         ) {
             Ok(value) => value,
             Err(err) => {
                 log::warn!(
-                    "Fast legacy runtime sync bridge parse failed for '{}': {}",
+                    "Fast legacy runtime sync ObjectsList bundle parse failed for '{}': {}",
                     map_path.display(),
                     err
                 );
-                Vec::new()
+                (Vec::new(), Vec::new(), Vec::new(), Vec::new())
             }
         };
+        let objects_parse_s = parse_only.elapsed().as_secs_f32();
+        log::info!(
+            "Fast legacy runtime sync ObjectsList bundle for '{}' in {:.2}s (parse_only={:.3}s, stage={:.2}s, waypoints={}, links={}, bridges={}, roads={})",
+            map_path.display(),
+            sync_started.elapsed().as_secs_f32(),
+            objects_parse_s,
+            stage_started.elapsed().as_secs_f32(),
+            waypoints.len(),
+            waypoint_links.len(),
+            bridges.len(),
+            parsed_roads.len()
+        );
+        stage_started = Instant::now();
         report_progress(
             &mut self.session_view.audio_random,
             self.queued_audio_events.policy(),
@@ -254,6 +280,14 @@ impl GameLogic {
                 .unwrap_or_else(|error| error.into_inner());
             super::script_loader::install_runtime_polygon_triggers(&mut terrain, &polygon_triggers);
         } // Release before progress can dispatch authored load-screen callbacks.
+        log::info!(
+            "Fast legacy runtime sync polygons installed for '{}' in {:.2}s (stage={:.2}s, triggers={})",
+            map_path.display(),
+            sync_started.elapsed().as_secs_f32(),
+            stage_started.elapsed().as_secs_f32(),
+            polygon_triggers.len()
+        );
+        stage_started = Instant::now();
 
         report_progress(
             &mut self.session_view.audio_random,
@@ -261,21 +295,16 @@ impl GameLogic {
             0.435,
             "Fast sync roads",
         )?;
-        self.runtime_road_segments = match super::script_loader::parse_runtime_roads_from_chunky(
-            chunky,
-            self.effective_terrain_roads(),
-        ) {
-            Ok(value) => value,
-            Err(err) => {
-                log::warn!(
-                    "Fast legacy runtime sync road parse failed for '{}': {}",
-                    map_path.display(),
-                    err
-                );
-                Vec::new()
-            }
-        };
-        self.runtime_terrain_texture_classes.clear();
+        // Roads already decoded with bridges (single ObjectsList pass).
+        self.runtime_road_segments = parsed_roads;
+        log::info!(
+            "Fast legacy runtime sync roads installed for '{}' in {:.2}s (stage={:.2}s, roads={})",
+            map_path.display(),
+            sync_started.elapsed().as_secs_f32(),
+            stage_started.elapsed().as_secs_f32(),
+            self.runtime_road_segments.len()
+        );
+        stage_started = Instant::now();
         report_progress(
             &mut self.session_view.audio_random,
             self.queued_audio_events.policy(),
@@ -294,12 +323,14 @@ impl GameLogic {
             }
         };
         log::info!(
-            "Fast legacy runtime sync sides parsed for '{}' (sides={}, teams={}) in {:.2}s",
+            "Fast legacy runtime sync sides parsed for '{}' (sides={}, teams={}) in {:.2}s (stage={:.2}s)",
             map_path.display(),
             sides_data.side_dicts.len(),
             sides_data.team_dicts.len(),
-            sync_started.elapsed().as_secs_f32()
+            sync_started.elapsed().as_secs_f32(),
+            stage_started.elapsed().as_secs_f32()
         );
+        stage_started = Instant::now();
         report_progress(
             &mut self.session_view.audio_random,
             self.queued_audio_events.policy(),
@@ -307,7 +338,7 @@ impl GameLogic {
             "Fast sync terrain write",
         )?;
 
-        let has_terrain_payload = heightmap.is_some()
+        let has_terrain_payload = self.pending_map_heightmap.is_some()
             || water_height.is_some()
             || !bridges.is_empty()
             || !polygon_triggers.is_empty()
@@ -334,14 +365,15 @@ impl GameLogic {
                 })
                 .collect();
             map_data.waypoint_links = waypoint_links;
-            if let Some(heightmap) = heightmap {
+            if let Some(heightmap) = self.pending_map_heightmap.as_ref() {
                 map_data.width = heightmap.width.max(0) as u32;
                 map_data.height = heightmap.height.max(0) as u32;
-                map_data.heightmap = heightmap.data;
+                map_data.heightmap = heightmap.data.clone();
                 map_data.border_size = heightmap.border_size;
                 map_data.boundaries = heightmap
                     .boundaries
-                    .into_iter()
+                    .iter()
+                    .copied()
                     .map(|(x, y)| gamelogic::common::ICoord2D::new(x, y))
                     .collect();
             }
@@ -394,6 +426,7 @@ impl GameLogic {
         // going through LogicMapLoader's global SidesList callback. Retain the
         // prepared value on this world before deriving players and teams;
         // observer and script setup consume these same ordered map rows.
+        let scripts_started = Instant::now();
         if !self.admit_map_script_definitions_with_difficulty(
             &map_path.to_string_lossy(),
             Some(chunky),
@@ -401,18 +434,30 @@ impl GameLogic {
         ) {
             return Ok(false);
         }
-        let script_lists = self.loaded_script_lists.clone();
+        log::info!(
+            "Fast legacy runtime sync scripts admitted for '{}' in {:.2}s (lists={})",
+            map_path.display(),
+            scripts_started.elapsed().as_secs_f32(),
+            self.loaded_script_lists.len()
+        );
+        let sides_write_started = Instant::now();
+        // Borrow via take — ScriptList deep-clone of Lone Eagle lists was multi-second.
+        let script_lists = std::mem::take(&mut self.loaded_script_lists);
         let prepared_team_definitions = self.sync_legacy_sides_list_from_dicts(
             &sides_data.side_dicts,
             &sides_data.team_dicts,
             &sides_data.side_builds,
             &script_lists,
         );
+        self.loaded_script_lists = script_lists;
         log::info!(
-            "Fast legacy runtime sync sides write finished for '{}' in {:.2}s",
+            "Fast legacy runtime sync sides write finished for '{}' in {:.2}s (stage={:.2}s, sides_dicts={:.2}s)",
             map_path.display(),
-            sync_started.elapsed().as_secs_f32()
+            sync_started.elapsed().as_secs_f32(),
+            stage_started.elapsed().as_secs_f32(),
+            sides_write_started.elapsed().as_secs_f32()
         );
+        stage_started = Instant::now();
         if !self.uses_lobby_side_foundation() {
             if let Err(error) = self.admit_direct_map_players_from_prepared_sides() {
                 log::error!("Receiving authored Player admission failed: {error}");

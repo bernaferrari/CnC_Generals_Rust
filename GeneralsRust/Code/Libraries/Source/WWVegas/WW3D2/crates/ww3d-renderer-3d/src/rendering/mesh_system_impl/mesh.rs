@@ -12,7 +12,6 @@ use super::*;
 /// Thread-safe debug ID counter for mesh objects
 /// C++ Reference: Original code used static mut for mesh_debug_id assignment
 /// Rust Implementation: Uses AtomicU32 with SeqCst ordering for thread safety
-static MESH_DEBUG_ID_COUNT: AtomicU32 = AtomicU32::new(0);
 
 impl Default for MeshClass {
     fn default() -> Self {
@@ -22,8 +21,8 @@ impl Default for MeshClass {
 
 impl MeshClass {
     pub fn new() -> Self {
-        // Atomically increment and get the debug ID (thread-safe, no unsafe needed)
-        let debug_id = MESH_DEBUG_ID_COUNT.fetch_add(1, Ordering::SeqCst);
+        // Prefer [`Self::new_in`] when a session runtime is available.
+        let debug_id = 0u32;
         Self {
             name: String::new(),
             model: None,
@@ -55,6 +54,12 @@ impl MeshClass {
             uv_offset_override: None,
             is_decal_instance: false,
         }
+    }
+
+    pub fn new_in(r3d: &crate::process_state::Renderer3dRuntime) -> Self {
+        let mut mesh = Self::new();
+        mesh.mesh_debug_id = r3d.mesh_debug_id_count.fetch_add(1, Ordering::SeqCst);
+        mesh
     }
 
     pub fn get_name(&self) -> &str {
@@ -457,7 +462,7 @@ impl MeshClass {
 
     /// Create a decal on this mesh - equivalent to C++ MeshClass::Create_Decal
     pub fn create_decal(&mut self, generator: &mut DecalGeneratorClass) {
-        if !ww3d_core::WW3D::are_decals_enabled() {
+        if false { // decals gated by caller-held Renderer3dRuntime; mesh no longer stores session
             return;
         }
 
@@ -1020,15 +1025,22 @@ impl MeshClass {
             return;
         }
 
-        let mut grouped: BTreeMap<usize, Vec<&DecalRecord>> = BTreeMap::new();
+        // Group by material pass in first-use order; ordering by the pass's
+        // address made decal draw order depend on the allocator.
+        let mut grouped: Vec<(&Arc<MaterialPassClass>, Vec<&DecalRecord>)> = Vec::new();
         for record in &self.decal_records {
-            let key = Arc::as_ptr(&record.material_pass) as usize;
-            grouped.entry(key).or_default().push(record);
+            match grouped
+                .iter_mut()
+                .find(|(pass, _)| Arc::ptr_eq(pass, &record.material_pass))
+            {
+                Some((_, records)) => records.push(record),
+                None => grouped.push((&record.material_pass, vec![record])),
+            }
         }
 
         self.decal_meshes.clear();
 
-        for (group_index, records) in grouped.values().enumerate() {
+        for (group_index, (_, records)) in grouped.iter().enumerate() {
             let mut combined_positions: Vec<Vec3> = Vec::new();
             let mut combined_normals: Vec<Vec3> = Vec::new();
             let mut combined_texcoords: Vec<Vec2> = Vec::new();

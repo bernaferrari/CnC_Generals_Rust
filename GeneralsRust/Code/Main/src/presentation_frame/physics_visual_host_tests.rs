@@ -475,7 +475,7 @@ fn completed_inputs_are_inert_and_actual_admission_restore_reset_reject_stale_fr
         world.host_object(id).unwrap().visual_object_generation,
         original_generation
     );
-    world.destroy_object(id);
+    world.destroy_object(id).unwrap();
     world.process_destroy_list();
     world.add_object(cloned);
     let replacement_generation = world.host_object(id).unwrap().visual_object_generation;
@@ -593,7 +593,7 @@ fn both_creation_paths_admit_fresh_visual_identity_and_live_reinsertion_retains_
         .unwrap();
     let second = world
         .create_object_under_construction("AdmissionUnit", Team::USA, Vec3::ZERO)
-        .unwrap();
+        .unwrap().expect("ObjectId");
     let first_generation = world.host_object(first).unwrap().visual_object_generation;
     let second_generation = world.host_object(second).unwrap().visual_object_generation;
     assert_ne!(first_generation, 0);

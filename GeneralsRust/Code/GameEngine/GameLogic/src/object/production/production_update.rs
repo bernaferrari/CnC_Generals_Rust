@@ -164,7 +164,8 @@ impl ProductionUpdate {
     ) -> PlayerBuildModifiers {
         let mut mods = PlayerBuildModifiers::default();
 
-        let player_guard = match player_list().read() {
+        let __player_list_arc = player_list();
+        let player_guard = match __player_list_arc.read() {
             Ok(list) => list.get_player(player_id as PlayerIndex).cloned(),
             Err(_) => None,
         };

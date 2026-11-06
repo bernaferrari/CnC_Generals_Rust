@@ -1,3 +1,4 @@
+use std::sync::Arc;
 //! Windows registry utilities (ported from WWLib registry.cpp/h).
 
 use crate::ini::INIClass;
@@ -27,13 +28,13 @@ use windows::Win32::System::Registry::{
     RegSetValueExW,
 };
 
-static IS_LOCKED: AtomicBool = AtomicBool::new(false);
-
 #[derive(Debug)]
 pub struct RegistryClass {
     #[cfg(target_os = "windows")]
     key: HKEY,
     is_valid: bool,
+    /// Shared with [`crate::process_state::WwLibRuntime::registry_locked`].
+    locked: Arc<AtomicBool>,
 }
 
 impl RegistryClass {
@@ -78,11 +79,12 @@ impl RegistryClass {
                 return Self {
                     key,
                     is_valid: false,
+                    locked: Arc::new(AtomicBool::new(false)),
                 };
             };
 
             let mut result = -1i32;
-            if create && !IS_LOCKED.load(Ordering::Relaxed) {
+            if create && !self.locked.load(Ordering::Relaxed) {
                 let mut disposition = 0u32;
                 // SAFETY: [Category 8 — FFI] name buffer is a NUL-terminated `CString`; out key/disposition slots are valid; standard Win32 registry creation.
                 result = unsafe {
@@ -99,7 +101,7 @@ impl RegistryClass {
                     )
                 };
             } else {
-                let access = if IS_LOCKED.load(Ordering::Relaxed) {
+                let access = if self.locked.load(Ordering::Relaxed) {
                     KEY_READ
                 } else {
                     KEY_ALL_ACCESS
@@ -119,12 +121,16 @@ impl RegistryClass {
             Self {
                 key,
                 is_valid: result == ERROR_SUCCESS.0,
+                locked: Arc::new(AtomicBool::new(false)),
             }
         }
         #[cfg(not(target_os = "windows"))]
         {
             let _ = (sub_key, create);
-            Self { is_valid: false }
+            Self {
+                is_valid: false,
+                locked: Arc::new(AtomicBool::new(false)),
+            }
         }
     }
 
@@ -132,8 +138,15 @@ impl RegistryClass {
         self.is_valid
     }
 
-    pub fn set_read_only(set: bool) {
-        IS_LOCKED.store(set, Ordering::Relaxed);
+    pub fn set_read_only(&self, set: bool) {
+        self.locked.store(set, Ordering::Relaxed);
+    }
+
+    /// Construct sharing a session lock flag (explicit WwLibRuntime ownership).
+    pub fn with_lock_flag(sub_key: &str, create: bool, locked: Arc<AtomicBool>) -> Self {
+        let mut reg = Self::new(sub_key, create);
+        reg.locked = locked;
+        reg
     }
 
     pub fn get_int(&self, name: &str, def_value: i32) -> i32 {
@@ -175,7 +188,7 @@ impl RegistryClass {
     pub fn set_int(&self, name: &str, value: i32) {
         #[cfg(target_os = "windows")]
         {
-            if !self.is_valid || IS_LOCKED.load(Ordering::Relaxed) {
+            if !self.is_valid || self.locked.load(Ordering::Relaxed) {
                 return;
             }
             let Ok(value_name) = CString::new(name) else {
@@ -247,7 +260,7 @@ impl RegistryClass {
     pub fn set_float(&self, name: &str, value: f32) {
         #[cfg(target_os = "windows")]
         {
-            if !self.is_valid || IS_LOCKED.load(Ordering::Relaxed) {
+            if !self.is_valid || self.locked.load(Ordering::Relaxed) {
                 return;
             }
             let Ok(value_name) = CString::new(name) else {
@@ -333,7 +346,7 @@ impl RegistryClass {
     pub fn set_bin(&self, name: &str, buffer: &[u8]) {
         #[cfg(target_os = "windows")]
         {
-            if !self.is_valid || IS_LOCKED.load(Ordering::Relaxed) || buffer.is_empty() {
+            if !self.is_valid || self.locked.load(Ordering::Relaxed) || buffer.is_empty() {
                 return;
             }
             let Ok(value_name) = CString::new(name) else {
@@ -487,7 +500,7 @@ impl RegistryClass {
     pub fn set_string(&self, name: &str, value: &str) {
         #[cfg(target_os = "windows")]
         {
-            if !self.is_valid || IS_LOCKED.load(Ordering::Relaxed) {
+            if !self.is_valid || self.locked.load(Ordering::Relaxed) {
                 return;
             }
             let Ok(value_name) = CString::new(name) else {
@@ -587,7 +600,7 @@ impl RegistryClass {
     pub fn set_wide_string(&self, name: &UnicodeString, value: &UnicodeString) {
         #[cfg(target_os = "windows")]
         {
-            if !self.is_valid || IS_LOCKED.load(Ordering::Relaxed) {
+            if !self.is_valid || self.locked.load(Ordering::Relaxed) {
                 return;
             }
             let name_wide: Vec<u16> = name.as_str().encode_utf16().chain([0]).collect();
@@ -662,7 +675,7 @@ impl RegistryClass {
     pub fn delete_value(&self, name: &str) {
         #[cfg(target_os = "windows")]
         {
-            if !self.is_valid || IS_LOCKED.load(Ordering::Relaxed) {
+            if !self.is_valid || self.locked.load(Ordering::Relaxed) {
                 return;
             }
             let Ok(value_name) = CString::new(name) else {
@@ -680,7 +693,7 @@ impl RegistryClass {
     }
 
     pub fn delete_all_values(&self) {
-        if IS_LOCKED.load(Ordering::Relaxed) {
+        if self.locked.load(Ordering::Relaxed) {
             return;
         }
         let mut list: DynamicVectorClass<AsciiString> = DynamicVectorClass::new(0, None);
@@ -701,7 +714,7 @@ impl RegistryClass {
     }
 
     pub fn load_registry(filename: &str, old_path: &str, new_path: &str) {
-        if IS_LOCKED.load(Ordering::Relaxed) {
+        if self.locked.load(Ordering::Relaxed) {
             return;
         }
 
@@ -742,7 +755,7 @@ impl RegistryClass {
     }
 
     pub fn delete_registry_tree(path: &str) {
-        if IS_LOCKED.load(Ordering::Relaxed) {
+        if self.locked.load(Ordering::Relaxed) {
             return;
         }
         #[cfg(target_os = "windows")]

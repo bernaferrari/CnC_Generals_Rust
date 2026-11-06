@@ -592,7 +592,7 @@ pub fn update_load_screen_with_pump(
     let descriptor = descriptor_for_kind(kind);
     let percent = transformed_progress_percent(descriptor, raw_percent);
     if kind == LoadScreenKind::MapTransfer {
-        map_transfer_liteupdate(runtime.effects.cursor_mouse_mut());
+        map_transfer_liteupdate(runtime.state, runtime.effects.cursor_mouse_mut());
     }
     clear_load_screen_cursor_tooltip(runtime);
     if kind == LoadScreenKind::MapTransfer {
@@ -603,7 +603,7 @@ pub fn update_load_screen_with_pump(
         let local_player_id =
             with_multiplayer_load_screen_state(|state| state.local_player_id, runtime);
         if raw_percent <= 100.0 {
-            report_multiplayer_load_progress(local_player_id, percent);
+            report_multiplayer_load_progress(runtime.state, local_player_id, percent);
             let _ = process_load_screen_progress(kind, local_player_id, percent, runtime);
         }
         finish_load_screen_update(presentation_pump.as_deref_mut(), runtime)?;
@@ -691,25 +691,31 @@ fn pump_load_screen_presentation_test_hook() {
 }
 
 pub fn register_map_transfer_liteupdate_hook(
+    runtime: &mut LoadScreenRuntime,
     hook: impl Fn(Option<&mut crate::input::Mouse>) + Send + Sync + 'static,
 ) -> Option<MapTransferLiteupdateHook> {
     let hook = Arc::new(hook);
-    MAP_TRANSFER_LITEUPDATE_HOOK.with_borrow_mut(|slot| slot.replace(hook))
+    runtime.map_transfer_liteupdate_hook.replace(hook)
 }
 
-pub fn clear_map_transfer_liteupdate_hook() -> Option<MapTransferLiteupdateHook> {
-    MAP_TRANSFER_LITEUPDATE_HOOK.with_borrow_mut(|slot| slot.take())
+pub fn clear_map_transfer_liteupdate_hook(
+    runtime: &mut LoadScreenRuntime,
+) -> Option<MapTransferLiteupdateHook> {
+    runtime.map_transfer_liteupdate_hook.take()
 }
 
 pub fn register_multiplayer_load_progress_hook(
+    runtime: &mut LoadScreenRuntime,
     hook: impl Fn(i32, i32) + Send + Sync + 'static,
 ) -> Option<MultiplayerLoadProgressHook> {
     let hook = Arc::new(hook);
-    MULTIPLAYER_LOAD_PROGRESS_HOOK.with_borrow_mut(|slot| slot.replace(hook))
+    runtime.multiplayer_load_progress_hook.replace(hook)
 }
 
-pub fn clear_multiplayer_load_progress_hook() -> Option<MultiplayerLoadProgressHook> {
-    MULTIPLAYER_LOAD_PROGRESS_HOOK.with_borrow_mut(|slot| slot.take())
+pub fn clear_multiplayer_load_progress_hook(
+    runtime: &mut LoadScreenRuntime,
+) -> Option<MultiplayerLoadProgressHook> {
+    runtime.multiplayer_load_progress_hook.take()
 }
 
 #[cfg(test)]
@@ -729,19 +735,24 @@ fn load_screen_finish_update_hook() -> Option<LoadScreenFinishUpdateHook> {
     LOAD_SCREEN_FINISH_UPDATE_HOOK.with_borrow(Clone::clone)
 }
 
-fn map_transfer_liteupdate(mouse: Option<&mut crate::input::Mouse>) {
-    let hook = MAP_TRANSFER_LITEUPDATE_HOOK.with_borrow(Clone::clone);
-    if let Some(hook) = hook {
+fn map_transfer_liteupdate(
+    runtime: &LoadScreenRuntime,
+    mouse: Option<&mut crate::input::Mouse>,
+) {
+    if let Some(hook) = runtime.map_transfer_liteupdate_hook.as_ref() {
         hook(mouse);
     }
 }
 
-fn report_multiplayer_load_progress(player_id: i32, percentage: f32) {
+fn report_multiplayer_load_progress(
+    runtime: &LoadScreenRuntime,
+    player_id: i32,
+    percentage: f32,
+) {
     if !(0.0..=100.0).contains(&percentage) {
         return;
     }
-    let hook = MULTIPLAYER_LOAD_PROGRESS_HOOK.with_borrow(Clone::clone);
-    if let Some(hook) = hook {
+    if let Some(hook) = runtime.multiplayer_load_progress_hook.as_ref() {
         hook(player_id, percentage as i32);
     }
 }

@@ -305,6 +305,7 @@ mod tests {
 
     #[test]
     fn test_video_buffer_type_validate() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(VideoBufferType::validate(0), VideoBufferType::Unknown);
         assert_eq!(VideoBufferType::validate(1), VideoBufferType::R8G8B8);
         assert_eq!(VideoBufferType::validate(2), VideoBufferType::X8R8G8B8);
@@ -315,6 +316,7 @@ mod tests {
 
     #[test]
     fn test_rect_class() {
+        crate::test_support::ensure_ambient_host();
         let rect = RectClass::new(1.0, 2.0, 3.0, 4.0);
         assert_eq!(rect.x1, 1.0);
         assert_eq!(rect.y1, 2.0);
@@ -331,6 +333,7 @@ mod tests {
 
     #[test]
     fn software_video_buffer_validates_texture_size_like_w3d() {
+        crate::test_support::ensure_ambient_host();
         let mut buffer = SoftwareVideoBuffer::new(VideoBufferType::X8R8G8B8);
         assert!(buffer.allocate(300, 200));
 
@@ -346,6 +349,7 @@ mod tests {
 
     #[test]
     fn software_video_buffer_balances_extreme_aspect_ratio_like_w3d() {
+        crate::test_support::ensure_ambient_host();
         let mut buffer = SoftwareVideoBuffer::new(VideoBufferType::R5G6B5);
         assert!(buffer.allocate(1, 100));
 
@@ -356,6 +360,7 @@ mod tests {
 
     #[test]
     fn failed_allocate_frees_existing_buffer_like_w3d() {
+        crate::test_support::ensure_ambient_host();
         let mut buffer = SoftwareVideoBuffer::new(VideoBufferType::X8R8G8B8);
         assert!(buffer.allocate(64, 64));
         assert!(buffer.valid());

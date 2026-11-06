@@ -426,7 +426,7 @@ fn accepted_queue_fifo_repeated_shots_keep_frozen_source_after_retirement() {
         world.combat_system.take_fire_ocl().is_empty(),
         "accepted effects cannot replay at flight"
     );
-    world.destroy_object(source);
+    world.destroy_object(source).unwrap();
     world.process_destroy_list_if_needed();
     assert!(
         !world.objects.contains_key(&source),

@@ -4,8 +4,7 @@
 //! health never drops below 1. Unresistable (script kill / empty-hulk penalty /
 //! explicit ::kill) still destroys the object.
 //!
-//! Retail peels: NatureProp trees/props, some WeaponObjects trail markers,
-//! Airforce general markers. Template-name residual + explicit install flag.
+//! Installed only from the authored Body module (ThingTemplate::highlander_body).
 
 use serde::{Deserialize, Serialize};
 
@@ -36,31 +35,6 @@ impl HostHighlanderBodyRegistry {
     pub fn honesty_clamp_ok(&self) -> bool {
         self.clamps > 0
     }
-}
-
-/// True when template should install HighlanderBody residual.
-pub fn is_highlander_body_template(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    // Explicit install / residual markers.
-    if n.contains("highlander") {
-        return true;
-    }
-    // NatureProp.ini trees / bushes (not vehicles that merely contain "tree" in
-    // a longer unrelated token — require start or common prop prefixes).
-    if n.starts_with("tree")
-        || n.starts_with("bush")
-        || n.starts_with("shrub")
-        || n.contains("natureprop")
-        || n.starts_with("alpinetree")
-        || n.starts_with("oak")
-        || n.starts_with("pine")
-    {
-        return true;
-    }
-    // System.ini ParticleUplinkCannonTrailRemnant is authored ImmortalBody
-    // (never-dead floor), not HighlanderBody (UNRESISTABLE still kills).
-    // Matching "trailremnant" here dual-applies both leftovers.
-    false
 }
 
 /// C++ HighlanderBody.cpp:33-34: clamp raw `DamageInfo.in.m_amount`
@@ -95,18 +69,5 @@ mod tests {
         let (d3, c3) = highlander_clamp_damage(50.0, 10.0, false);
         assert!(!c3);
         assert!((d3 - 10.0).abs() < 0.01);
-    }
-
-    #[test]
-    fn template_detection() {
-        assert!(is_highlander_body_template("Tree01"));
-        assert!(is_highlander_body_template("NaturePropRock"));
-        assert!(is_highlander_body_template("AlpineTree02"));
-        assert!(!is_highlander_body_template("AmericaTankCrusader"));
-        assert!(!is_highlander_body_template("GLAVehicleBattleBus"));
-        assert!(!is_highlander_body_template(
-            "ParticleUplinkCannonTrailRemnant"
-        ));
-        assert!(!is_highlander_body_template("SomeTrailRemnantMarker"));
     }
 }

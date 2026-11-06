@@ -249,6 +249,12 @@ path = "examples/display_demo.rs"
 name = "gui_demo"
 path = "examples/gui_demo.rs"
 
+
+[[test]]
+name = "platform_context_main_thread"
+path = "tests/platform_context_main_thread.rs"
+harness = false
+
 [[bench]]
 name = "rendering_benchmark"
 harness = false

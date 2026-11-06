@@ -391,18 +391,53 @@ impl Default for Anim2DCollection {
     }
 }
 
-static CLIENT_ANIM2D_INSTANCES: std::sync::LazyLock<Mutex<Anim2DCollection>> =
-    std::sync::LazyLock::new(|| Mutex::new(Anim2DCollection::new()));
+#[cfg(test)]
+thread_local! {
+    static TEST_CLIENT_ANIM2D_INSTANCES: std::cell::OnceCell<
+        std::sync::Arc<Mutex<Anim2DCollection>>,
+    > = const { std::cell::OnceCell::new() };
+}
+
+fn client_anim2d_instances_arc() -> std::sync::Arc<Mutex<Anim2DCollection>> {
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.client_anim2d_instances_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_CLIENT_ANIM2D_INSTANCES.with(|cell| {
+            cell.get_or_init(|| std::sync::Arc::new(Mutex::new(Anim2DCollection::new())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        std::sync::Arc::new(Mutex::new(Anim2DCollection::new()))
+    }
+}
 
 /// Live client Anim2D instance list (C++ `TheAnim2DCollection`).
-pub fn client_anim2d_instances() -> &'static Mutex<Anim2DCollection> {
-    &CLIENT_ANIM2D_INSTANCES
+pub fn client_anim2d_instances() -> std::sync::Arc<Mutex<Anim2DCollection>> {
+    client_anim2d_instances_arc()
 }
 
-/// C++ `TheAnim2DCollection->UPDATE()` residual.
+/// C++ `TheAnim2DCollection->Update()` residual.
+/// Prefer the live GameClient collection; orphaned calls are no-ops (not a process store).
 pub fn update_client_anim2d_collection() {
-    client_anim2d_instances().lock().update();
+    if crate::core::game_client::with_live_game_client_mut(|client| {
+        client.client_anim2d_instances_handle().lock().update();
+    })
+    .is_some()
+    {
+        return;
+    }
+    #[cfg(test)]
+    {
+        client_anim2d_instances().lock().update();
+    }
 }
+
 
 impl Anim2DCollection {
     pub fn new() -> Self {
@@ -465,6 +500,7 @@ mod tests {
 
     #[test]
     fn get_current_frame_width_height_uses_image_natural_size() {
+        crate::test_support::ensure_ambient_host();
         const FRAME_NAME: &str = "Anim2DTestFrame64x48";
         const MISSING_NAME: &str = "Anim2DTestFrameMissingImage_NoSuchMappedImage";
 

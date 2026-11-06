@@ -4,6 +4,7 @@
 #![allow(unused_imports, non_snake_case)]
 
 mod ai_authority;
+mod authored_upgrade_modules;
 mod bridge_body_callbacks;
 mod containment_death;
 mod crates_radar_power;
@@ -42,12 +43,17 @@ mod unit_ai_runtime_tests;
 
 #[cfg(test)]
 mod residual_repulsor_owner_tests;
+#[cfg(test)]
+mod residual_ondie_fx_order_tests;
 
 #[cfg(test)]
 mod bridge_body_callback_tests;
 
 #[cfg(test)]
 mod fog_ghost_tests;
+
+#[cfg(test)]
+mod spawn_veterancy_notify_tests;
 
 #[cfg(test)]
 mod pilot_locomotor_owner_tests;

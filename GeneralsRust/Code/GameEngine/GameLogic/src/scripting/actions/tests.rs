@@ -134,7 +134,8 @@ fn test_context() -> ScriptContext {
 }
 
 fn reset_test_player(index: PlayerIndex, money: i32) {
-    let mut list = player_list().write().unwrap();
+    let __player_list_arc = player_list();
+        let mut list = __player_list_arc.write().unwrap();
     list.clear();
     let mut player = crate::player::Player::new(index);
     player.set_display_name(format!("Player{index}"));
@@ -143,7 +144,8 @@ fn reset_test_player(index: PlayerIndex, money: i32) {
 }
 
 fn reset_test_players(count: PlayerIndex) {
-    let mut list = player_list().write().unwrap();
+    let __player_list_arc = player_list();
+        let mut list = __player_list_arc.write().unwrap();
     list.clear();
     for index in 0..count {
         let mut player = crate::player::Player::new(index);
@@ -281,7 +283,8 @@ async fn set_player_resource_sets_money() {
 
     action.execute(&params, &test_context()).await.unwrap();
 
-    let list = player_list().read().unwrap();
+    let __player_list_arc = player_list();
+        let list = __player_list_arc.read().unwrap();
     let player = list.get_player(0).unwrap().read().unwrap();
     assert_eq!(player.get_money().get_money(), 1200);
 }
@@ -311,7 +314,8 @@ async fn add_player_resource_updates_money_and_ignores_unknown_resources() {
     params.insert("amount".to_string(), ScriptValue::Int(999));
     action.execute(&params, &test_context()).await.unwrap();
 
-    let list = player_list().read().unwrap();
+    let __player_list_arc = player_list();
+        let list = __player_list_arc.read().unwrap();
     let player = list.get_player(0).unwrap().read().unwrap();
     assert_eq!(player.get_money().get_money(), 800);
 }
@@ -346,7 +350,8 @@ async fn named_money_actions_update_money_without_reentrant_deposit() {
         .await
         .unwrap();
 
-    let list = player_list().read().unwrap();
+    let __player_list_arc = player_list();
+        let list = __player_list_arc.read().unwrap();
     let player = list.get_player(0).unwrap().read().unwrap();
     assert_eq!(player.get_money().get_money(), 1200);
     assert_eq!(player.get_score_keeper().get_total_money_spent(), 750);
@@ -368,7 +373,8 @@ async fn indexed_player_add_money_spends_only_available_money() {
         .await
         .unwrap();
 
-    let list = player_list().read().unwrap();
+    let __player_list_arc = player_list();
+        let list = __player_list_arc.read().unwrap();
     let player = list.get_player(0).unwrap().read().unwrap();
     assert_eq!(player.get_money().get_money(), 0);
     assert_eq!(player.get_score_keeper().get_total_money_spent(), 300);
@@ -485,7 +491,8 @@ async fn set_team_alliance_sets_one_way_player_relationship() {
         .await
         .unwrap();
 
-    let list = player_list().read().unwrap();
+    let __player_list_arc = player_list();
+        let list = __player_list_arc.read().unwrap();
     let player0 = list.get_player(0).unwrap().read().unwrap();
     let player1 = list.get_player(1).unwrap().read().unwrap();
     assert_eq!(player0.get_relationship(&player1), Relationship::Enemies);
@@ -583,8 +590,10 @@ async fn give_special_power_initializes_player_ready_timer() {
         return;
     }
     reset_test_players(1);
-    if let Some(mut store) = crate::object::special_power_template::get_special_power_store_mut() {
-        store.reset();
+    if let Some(store_arc) = crate::object::special_power_template::get_special_power_store_mut() {
+        if let Ok(mut store) = store_arc.write() {
+            store.reset();
+        }
     }
 
     let expected_frame = TheGameLogic::get_frame();
@@ -603,7 +612,8 @@ async fn give_special_power_initializes_player_ready_timer() {
     let template = find_or_create_special_power_template(&AsciiString::from("TestScriptPower"));
     assert_eq!(template.get_name(), "TestScriptPower");
 
-    let list = player_list().read().unwrap();
+    let __player_list_arc = player_list();
+        let list = __player_list_arc.read().unwrap();
     let mut player = list.get_player(0).unwrap().write().unwrap();
     assert_eq!(
         player.get_or_start_special_power_ready_frame(&template),
@@ -673,7 +683,8 @@ async fn player_hunt_sets_player_hunt_flag() {
         .await
         .unwrap();
 
-    let list = player_list().read().unwrap();
+    let __player_list_arc = player_list();
+        let list = __player_list_arc.read().unwrap();
     let player = list.get_player(0).unwrap();
     assert!(player.read().unwrap().get_units_should_hunt());
 }
@@ -1646,4 +1657,13 @@ async fn enable_disable_execute_script_actions_call_live_script_engine() {
             .expect("script present");
         assert!(!is_active, "disable_script must mutate live ScriptEngine");
     }
+}
+
+#[test]
+fn create_explosion_action_is_labelled_non_retail_vfx_only() {
+    // hq-2qedt.14: no C++ ScriptActions counterpart; the `damage` param is a
+    // VFX radius only and must never be described as dealing damage.
+    let desc = CreateExplosionAction.description().to_ascii_lowercase();
+    assert!(desc.contains("non-retail"), "{desc}");
+    assert!(desc.contains("no damage"), "{desc}");
 }

@@ -4,9 +4,8 @@
 //!
 //! Matches C++ FXList.h and FXList.cpp
 
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::common::ascii_string::AsciiString;
 use crate::common::game_common::ObjectShroudStatus;
@@ -34,6 +33,23 @@ impl generals_fx::FxValueParser for EngineFxValues {
     }
 }
 /// Shared pure parser with the engine's original unit conversions.
+
+fn ini_fx_list_cell() -> std::sync::Arc<std::sync::RwLock<FXListStore>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.fx_list)
+}
+
+pub fn get_fx_list_store() -> RwLockReadGuard<'static, FXListStore> {
+    let cell = ini_fx_list_cell();
+    let guard = cell.read().expect("FXListStore poisoned");
+    unsafe { std::mem::transmute(guard) }
+}
+
+pub fn get_fx_list_store_mut() -> RwLockWriteGuard<'static, FXListStore> {
+    let cell = ini_fx_list_cell();
+    let guard = cell.write().expect("FXListStore poisoned");
+    unsafe { std::mem::transmute(guard) }
+}
+
 pub fn parse_fx_nugget_definition(
     kind: &str,
     properties: &HashMap<String, String>,
@@ -72,50 +88,44 @@ pub trait FxListObjRuntime: Send + Sync {
     }
 }
 
-static FX_LIST_OBJ_RUNTIME: LazyLock<RwLock<Option<Arc<dyn FxListObjRuntime>>>> =
-    LazyLock::new(|| RwLock::new(None));
-static DISPATCHED_FX_NUGGETS: LazyLock<Mutex<Vec<DispatchedFxNugget>>> =
-    LazyLock::new(|| Mutex::new(Vec::new()));
-
-fn fx_list_obj_runtime_slot() -> &'static RwLock<Option<Arc<dyn FxListObjRuntime>>> {
-    &FX_LIST_OBJ_RUNTIME
-}
-
 /// Register the live `FXList::doFXObj` runner (C++ DamageFX.cpp:73).
 pub fn register_fx_list_obj_runtime(runtime: Arc<dyn FxListObjRuntime>) {
-    if let Ok(mut slot) = fx_list_obj_runtime_slot().write() {
+    let services = crate::common::common_services::common_services();
+    if let Ok(mut slot) = services.system.fx_list_obj_runtime.write() {
         *slot = Some(runtime);
     }
 }
 
 pub fn clear_fx_list_obj_runtime() {
-    if let Ok(mut slot) = fx_list_obj_runtime_slot().write() {
+    let services = crate::common::common_services::common_services();
+    if let Ok(mut slot) = services.system.fx_list_obj_runtime.write() {
         *slot = None;
     }
 }
 
 pub fn fx_list_obj_runtime() -> Option<Arc<dyn FxListObjRuntime>> {
-    fx_list_obj_runtime_slot()
+    let services = crate::common::common_services::common_services();
+    services
+        .system
+        .fx_list_obj_runtime
         .read()
         .ok()
         .and_then(|slot| slot.clone())
 }
 
-fn dispatched_fx_nuggets() -> &'static Mutex<Vec<DispatchedFxNugget>> {
-    &DISPATCHED_FX_NUGGETS
-}
-
 pub fn record_dispatched_fx_nugget(nugget: DispatchedFxNugget) {
-    if let Ok(mut log) = dispatched_fx_nuggets().lock() {
+    let services = crate::common::common_services::common_services();
+    if let Ok(mut log) = services.system.dispatched_fx_nuggets.lock() {
         log.push(nugget);
     }
 }
 
 pub fn take_dispatched_fx_nuggets() -> Vec<DispatchedFxNugget> {
-    dispatched_fx_nuggets()
-        .lock()
-        .map(|mut log| std::mem::take(&mut *log))
-        .unwrap_or_default()
+    let services = crate::common::common_services::common_services();
+    match services.system.dispatched_fx_nuggets.lock() {
+        Ok(mut log) => std::mem::take(&mut *log),
+        Err(poisoned) => std::mem::take(&mut *poisoned.into_inner()),
+    }
 }
 
 /// C++ `FXList.cpp:796` — skip FX when primary is fogged/shrouded.
@@ -174,21 +184,6 @@ impl Default for FXListStore {
     }
 }
 
-static FX_LIST_STORE: OnceCell<RwLock<FXListStore>> = OnceCell::new();
-
-pub fn get_fx_list_store() -> RwLockReadGuard<'static, FXListStore> {
-    FX_LIST_STORE
-        .get_or_init(|| RwLock::new(FXListStore::new()))
-        .read()
-        .unwrap()
-}
-
-pub fn get_fx_list_store_mut() -> RwLockWriteGuard<'static, FXListStore> {
-    FX_LIST_STORE
-        .get_or_init(|| RwLock::new(FXListStore::new()))
-        .write()
-        .unwrap()
-}
 
 #[cfg(test)]
 mod tests {

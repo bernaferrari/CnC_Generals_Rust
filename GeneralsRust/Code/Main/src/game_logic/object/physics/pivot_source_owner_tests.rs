@@ -87,7 +87,7 @@ fn actual_receiving_pivot_installs_new_heading_before_tree_push_callback() {
                 &mut crate::game_logic::ScriptPresentationEffects {
                     terrain: Some(&mut visual),
                     ..Default::default()
-                }
+}
             )
             .is_some()
     );

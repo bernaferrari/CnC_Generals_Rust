@@ -9,8 +9,7 @@ use log::debug;
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
@@ -48,15 +47,14 @@ const STARTUP_SHELL_IMAGE_NAMES: [&str; 4] = [
 ];
 
 fn log_startup_shell_image_once(name: &str, message: String) {
-    thread_local! {
-        static REPORTED: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
-    }
     let key = format!("{name}:{message}");
-    REPORTED.with_borrow_mut(|reported| {
-        if reported.insert(key) {
-            debug!("startup shell image: name={name} {message}");
-        }
-    });
+    let should_log = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.note_startup_shell_image_log(&key)
+    })
+    .unwrap_or(true);
+    if should_log {
+        debug!("startup shell image: name={name} {message}");
+    }
 }
 
 /// Image-related error types
@@ -866,21 +864,30 @@ impl SubsystemInterface for ImageCollection {
     }
 }
 
-// THREAD: main thread only — the collection is filled from Common's INI store
-// during client init and read by the draw path on the same thread. The slot is
-// thread-local; the `Arc<RwLock<...>>` handle it hands out keeps the published
-// API unchanged.
-thread_local! {
-    static MAPPED_IMAGE_COLLECTION: RefCell<Option<Arc<RwLock<ImageCollection>>>> =
-        const { RefCell::new(None) };
-}
-
-/// Ensure the mapped image collection exists and return a handle to it
+/// Ensure the mapped image collection exists and return a handle to it.
+/// Prefers the live GameClient slot; otherwise the published world's
+/// headless collection (typed Arc on WorldServices). No process FALLBACK.
 pub fn ensure_mapped_image_collection() -> Arc<RwLock<ImageCollection>> {
-    MAPPED_IMAGE_COLLECTION.with_borrow_mut(|slot| {
-        slot.get_or_insert_with(|| Arc::new(RwLock::new(ImageCollection::new())))
-            .clone()
-    })
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_mapped_image_collection()
+    }) {
+        return handle;
+    }
+    let services = gamelogic::system::engine_stores::try_active_services().expect(
+        "ensure_mapped_image_collection requires a live GameClient or published WorldServices",
+    );
+    let mut slot = services
+        .client_image_collection()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if let Some(existing) = slot.as_ref() {
+        if let Ok(typed) = Arc::clone(existing).downcast::<RwLock<ImageCollection>>() {
+            return typed;
+        }
+    }
+    let created: Arc<RwLock<ImageCollection>> = Arc::new(RwLock::new(ImageCollection::new()));
+    *slot = Some(created.clone());
+    created
 }
 
 fn candidate_texture_resource_names(filename: &str) -> Vec<String> {
@@ -1367,6 +1374,7 @@ mod tests {
 
     #[test]
     fn test_image_creation() {
+        crate::test_support::ensure_ambient_host();
         let image = Image::new();
         assert_eq!(image.get_name(), "");
         assert_eq!(image.get_image_width(), 0);
@@ -1376,12 +1384,14 @@ mod tests {
 
     #[test]
     fn test_image_with_name() {
+        crate::test_support::ensure_ambient_host();
         let image = Image::with_name("test_image");
         assert_eq!(image.get_name(), "test_image");
     }
 
     #[test]
     fn test_image_status() {
+        crate::test_support::ensure_ambient_host();
         let mut image = Image::new();
         assert!(!image.has_alpha());
 
@@ -1395,6 +1405,7 @@ mod tests {
 
     #[test]
     fn test_region2d() {
+        crate::test_support::ensure_ambient_host();
         let region = Region2D::new(10.0, 20.0, 100.0, 200.0);
         assert_eq!(region.width(), 100.0);
         assert_eq!(region.height(), 200.0);
@@ -1408,6 +1419,7 @@ mod tests {
 
     #[test]
     fn test_icoord2d() {
+        crate::test_support::ensure_ambient_host();
         let coord = ICoord2D::new(100, 200);
         assert_eq!(coord.x, 100);
         assert_eq!(coord.y, 200);
@@ -1419,6 +1431,7 @@ mod tests {
 
     #[test]
     fn test_image_collection() {
+        crate::test_support::ensure_ambient_host();
         let mut collection = ImageCollection::new();
         assert_eq!(collection.count(), 0);
 
@@ -1433,6 +1446,7 @@ mod tests {
 
     #[test]
     fn test_image_coords() {
+        crate::test_support::ensure_ambient_host();
         let mut image = Image::new();
         image.set_texture_width(512);
         image.set_texture_height(512);
@@ -1450,6 +1464,7 @@ mod tests {
 
     #[test]
     fn sync_mapped_images_from_common_imports_shell_menu_images() {
+        crate::test_support::ensure_ambient_host();
         game_engine::common::ini::ini_mapped_image::init_global_mapped_image_collection();
         CommonImageCollection::load_global(512);
 
@@ -1476,6 +1491,7 @@ mod tests {
 
     #[test]
     fn materialize_startup_shell_images_keeps_shell_assets_available() {
+        crate::test_support::ensure_ambient_host();
         game_engine::common::ini::ini_mapped_image::init_global_mapped_image_collection();
         CommonImageCollection::load_global(512);
 
@@ -1500,12 +1516,14 @@ mod tests {
 
     #[test]
     fn unknown_texture_type_keeps_raw_filename_candidate() {
+        crate::test_support::ensure_ambient_host();
         let candidates = candidate_texture_resource_names("UI/MyTexture.bin");
         assert_eq!(candidates, vec!["UI/MyTexture.bin".to_string()]);
     }
 
     #[test]
     fn tga_candidates_include_lowercase_art_basename_and_extracted_roots() {
+        crate::test_support::ensure_ambient_host();
         let candidates = candidate_texture_resource_names("MainMenuBackdrop.tga");
         assert!(candidates.contains(&"Data/English/Art/Textures/MainMenuBackdrop.tga".to_string()));
         assert!(candidates.contains(&"Art/Textures/MainMenuBackdrop.tga".to_string()));
@@ -1522,6 +1540,7 @@ mod tests {
 
     #[test]
     fn hydrate_mapped_image_loads_pixels_or_still_registers() {
+        crate::test_support::ensure_ambient_host();
         game_engine::common::ini::ini_mapped_image::init_global_mapped_image_collection();
         CommonImageCollection::load_global(512);
 
@@ -1591,6 +1610,7 @@ mod tests {
 
     #[test]
     fn win_draw_image_queues_command_when_gpu_texture_missing() {
+        let _client = crate::test_support::park_live_game_client();
         let mut image = Image::with_name("StageENoGpu");
         image.set_filename("stage_e_missing_no_gpu.tga");
         let client = ensure_mapped_image_collection();
@@ -1640,6 +1660,7 @@ mod tests {
 
     #[test]
     fn shell_button_atlas_hydrates_from_retail_big_archive() {
+        crate::test_support::ensure_ambient_host();
         // C++ parity: W3D texture lookup falls through to the mounted BIG
         // archives (`Data\English\Art\Textures\SCSmShellUserInterface512_001.tga`
         // lives in EnglishZH.big). The engine filesystem backend must resolve

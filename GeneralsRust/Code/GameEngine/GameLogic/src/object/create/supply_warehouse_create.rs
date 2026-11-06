@@ -27,7 +27,8 @@ impl SupplyWarehouseCreate {
             return;
         }
 
-        if let Ok(list_guard) = ThePlayerList().read() {
+        let __player_list_arc = ThePlayerList();
+        if let Ok(list_guard) = __player_list_arc.read() {
             for player_arc in list_guard.iter().rev() {
                 let Ok(mut player_guard) = player_arc.write() else {
                     continue;

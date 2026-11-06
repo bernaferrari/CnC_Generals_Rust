@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{OnceLock, RwLock};
+use std::sync::{Arc, RwLock};
 
 use crate::system::SubsystemInterface;
 
@@ -125,13 +125,34 @@ impl SubsystemInterface for LanguageFilter {
     }
 }
 
-static LANGUAGE_FILTER: OnceLock<RwLock<LanguageFilter>> = OnceLock::new();
+#[cfg(test)]
+thread_local! {
+    static TEST_LANGUAGE_FILTER: std::cell::RefCell<Option<Arc<RwLock<LanguageFilter>>>> =
+        const { std::cell::RefCell::new(None) };
+}
 
-pub fn get_language_filter() -> std::sync::RwLockWriteGuard<'static, LanguageFilter> {
-    LANGUAGE_FILTER
-        .get_or_init(|| RwLock::new(LanguageFilter::new()))
-        .write()
-        .unwrap_or_else(|e| e.into_inner())
+fn language_filter_handle() -> Arc<RwLock<LanguageFilter>> {
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_language_filter()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_LANGUAGE_FILTER.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| Arc::new(RwLock::new(LanguageFilter::new())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Arc::new(RwLock::new(LanguageFilter::new()))
+    }
+}
+
+pub fn get_language_filter() -> Arc<RwLock<LanguageFilter>> {
+    language_filter_handle()
 }
 
 fn locate_bad_word_file() -> Option<PathBuf> {

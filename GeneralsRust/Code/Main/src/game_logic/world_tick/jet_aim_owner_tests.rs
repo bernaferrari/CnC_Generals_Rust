@@ -1,5 +1,6 @@
 //! Actual headless Main AIM state observed through ordinary receiving owners.
-use super::*;
+use super::super::*;
+use crate::game_logic::{KindOf, ThingTemplate, Weapon};
 
 fn world(frame: u32) -> (GameLogic, ObjectId, ObjectId) {
     let mut world = GameLogic::new();
@@ -14,7 +15,10 @@ fn world(frame: u32) -> (GameLogic, ObjectId, ObjectId) {
         ..Default::default()
     });
     let mut victim = ThingTemplate::new("AmericaJetStealthFighter");
-    victim.add_kind_of(KindOf::Aircraft).set_health(100.0);
+    victim
+        .add_kind_of(KindOf::Aircraft)
+        .set_health(100.0)
+        .set_primary_weapon_name("StealthJetMissileWeapon");
     world.templates.insert(attacker.name.clone(), attacker);
     world.templates.insert(victim.name.clone(), victim);
     let source = world
@@ -81,8 +85,8 @@ fn aim_enter_admits_receiving_jet_before_turret_target_and_peer_is_independent()
 fn turret_aim_re_admits_targeter_before_observing_prevention() {
     let (mut world, source, target) = world(30);
     let actor = world.objects.get_mut(&source).unwrap();
-    actor.turret_enabled = true;
-    actor.turret_turn_rate_rad = 0.2;
+    actor.turret_ai.turret_enabled = true;
+    actor.turret_ai.turret_turn_rate_rad = 0.2;
     world.set_turret_target_object(source, Some(target), false);
     assert!(
         world

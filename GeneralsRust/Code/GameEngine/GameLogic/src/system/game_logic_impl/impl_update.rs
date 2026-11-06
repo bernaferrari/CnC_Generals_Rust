@@ -92,7 +92,7 @@ impl GameLogic {
         frame: u32,
         observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
     ) -> Result<(), GameLogicError> {
-        self.update_with_optional_upgrade_services(frame, None, None, None, observe_camera)
+        self.update_with_optional_upgrade_services(frame, None, None, None, None, observe_camera)
     }
 
     /// Update with a borrowed UI callback for a deferred new-game start.
@@ -103,7 +103,7 @@ impl GameLogic {
         hooks: &mut dyn crate::helpers::LoadScreenHooks,
         observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
     ) -> Result<(), GameLogicError> {
-        self.update_with_optional_upgrade_services(frame, None, Some(hooks), None, observe_camera)
+        self.update_with_optional_upgrade_services(frame, None, None, Some(hooks), None, observe_camera)
     }
 
     pub fn update_with_upgrade_services(
@@ -115,6 +115,26 @@ impl GameLogic {
         self.update_with_optional_upgrade_services(
             frame,
             Some(services),
+            None,
+            None,
+            None,
+            observe_camera,
+        )
+    }
+
+    /// Lend the match-owned services module updates use mid-frame
+    /// (production completion, GenerateMinefield placement/removal).
+    pub fn update_with_match_services(
+        &mut self,
+        frame: u32,
+        upgrades: Option<&mut dyn UpgradeCompletionServices>,
+        minefield: Option<&mut dyn MinefieldPlacementServices>,
+        observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
+    ) -> Result<(), GameLogicError> {
+        self.update_with_optional_upgrade_services(
+            frame,
+            upgrades,
+            minefield,
             None,
             None,
             observe_camera,
@@ -149,13 +169,14 @@ impl GameLogic {
         scripts: &mut dyn FnMut(&mut Self) -> Result<(), GameLogicError>,
         observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
     ) -> Result<(), GameLogicError> {
-        self.update_with_optional_upgrade_services(frame, None, None, Some(scripts), observe_camera)
+        self.update_with_optional_upgrade_services(frame, None, None, None, Some(scripts), observe_camera)
     }
 
     fn update_with_optional_upgrade_services(
         &mut self,
         frame: u32,
         mut services: Option<&mut dyn UpgradeCompletionServices>,
+        mut minefield: Option<&mut dyn MinefieldPlacementServices>,
         mut load_screen_hooks: Option<&mut dyn crate::helpers::LoadScreenHooks>,
         scripts: Option<&mut dyn FnMut(&mut Self) -> Result<(), GameLogicError>>,
         observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
@@ -365,8 +386,11 @@ impl GameLogic {
         //
         // Process all non-sleepy (every-frame) update modules.
         // These include physics updates that must run at full frame rate.
-        if let Some(services) = services.as_mut() {
-            self.process_normal_updates_with_upgrade_services(Some(&mut **services));
+        if services.is_some() || minefield.is_some() {
+            self.process_normal_updates_with_upgrade_services(
+                services.as_mut().map(|s| &mut **s as &mut dyn UpgradeCompletionServices),
+                minefield.as_mut().map(|s| &mut **s as &mut dyn MinefieldPlacementServices),
+            );
         } else {
             self.process_normal_updates();
         }
@@ -385,8 +409,12 @@ impl GameLogic {
         //   c. Stealth is broken, OBJECT_STATUS_STEALTHED cleared
         //   d. Stealth delay timer starts
         //   e. After delay + weapon stop, stealth reactivates
-        if let Some(services) = services.as_mut() {
-            self.process_sleepy_updates_with_upgrade_services(frame, Some(&mut **services));
+        if services.is_some() || minefield.is_some() {
+            self.process_sleepy_updates_with_upgrade_services(
+                frame,
+                services.as_mut().map(|s| &mut **s as &mut dyn UpgradeCompletionServices),
+                minefield.as_mut().map(|s| &mut **s as &mut dyn MinefieldPlacementServices),
+            );
         } else {
             self.process_sleepy_updates(frame);
         }
@@ -607,7 +635,11 @@ impl GameLogic {
     /// client/UI layers can trigger minimap and EVA feedback.
     fn process_radar_updates(&mut self) {
         for update in self.radar_updates.drain(..) {
-            radar_notifier::push(&update);
+            // Prefer the driving EngineStores/WorldServices (hq-spb88j): never
+            // require a whole-operation with_world_services publish to fan out.
+            if let Some(owner) = self.pathfinding_owner.as_ref() {
+                radar_notifier::push_on(owner.services(), &update);
+            }
             self.event_queue.push(GameEvent::RadarUpdate {
                 player_id: update.player_id,
                 position: update.position,
@@ -1256,7 +1288,8 @@ impl GameLogic {
         }
 
         // For each player, update their visible objects
-        if let Ok(player_list_guard) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(player_list_guard) = __player_list_arc.read() {
             for player_arc in player_list_guard.iter() {
                 if let Ok(player) = player_arc.read() {
                     let player_id = player.get_player_index();
@@ -1274,7 +1307,8 @@ impl GameLogic {
 
         // C++ PartitionData observes resolved per-object status after the
         // shroud update. Retail W3D captures only the current local player.
-        let local_player = crate::object::THE_W3D_GHOST_OBJECT_MANAGER
+        let __w3d_ghosts_r = crate::object::the_w3d_ghost_object_manager();
+        let local_player = __w3d_ghosts_r
             .read()
             .ok()
             .map(|manager| manager.local_player_index())
@@ -1290,7 +1324,8 @@ impl GameLogic {
                 .flatten();
             transitions.push((object_id, status, capture));
         }
-        if let Ok(mut manager) = crate::object::THE_W3D_GHOST_OBJECT_MANAGER.write() {
+        let __w3d_ghosts = crate::object::the_w3d_ghost_object_manager();
+            if let Ok(mut manager) = __w3d_ghosts.write() {
             for (object_id, status, capture) in &transitions {
                 self.partition_manager.apply_object_ghost_shroud_status(
                     *object_id,
@@ -1309,12 +1344,14 @@ impl GameLogic {
     /// Re-evaluates parentless ghosts against current cell shroud and drops
     /// modules that no longer hold any snapshot.
     pub fn update_orphaned_w3d_ghosts(&mut self) {
-        let local_player = crate::object::THE_W3D_GHOST_OBJECT_MANAGER
+        let __w3d_ghosts_r = crate::object::the_w3d_ghost_object_manager();
+        let local_player = __w3d_ghosts_r
             .read()
             .ok()
             .map(|manager| manager.local_player_index())
             .unwrap_or(0);
-        let Ok(mut manager) = crate::object::THE_W3D_GHOST_OBJECT_MANAGER.write() else {
+        let __w3d_ghosts = crate::object::the_w3d_ghost_object_manager();
+        let Ok(mut manager) = __w3d_ghosts.write() else {
             return;
         };
         let statuses: Vec<(ObjectID, crate::common::ObjectShroudStatus)> = self
@@ -1555,7 +1592,8 @@ impl GameLogic {
 
         let mut marker = "MARKER:ThePlayerList".to_string();
         let _ = Xfer::xfer_ascii_string(&mut xfer, &mut marker);
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             let mut count = list.get_player_count() as i32;
             let _ = Xfer::xfer_int(&mut xfer, &mut count);
             for player_arc in list.iter() {
@@ -1604,7 +1642,8 @@ impl GameLogic {
             return;
         }
 
-        let player_list = match player_list().read() {
+        let __player_list_arc = player_list();
+        let player_list = match __player_list_arc.read() {
             Ok(pl) => pl,
             Err(_) => return,
         };

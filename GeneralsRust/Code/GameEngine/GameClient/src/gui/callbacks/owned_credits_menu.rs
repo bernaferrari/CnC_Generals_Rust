@@ -150,6 +150,23 @@ pub(crate) fn input(
     }
 }
 /// Tooling operations borrow the same actual playback, never a private mirror.
+
+/// Test/tooling: attach an empty credits playback owner to the named parent.
+pub fn attach_credits_playback_for_owner(owner: &WindowManagerOwner) -> bool {
+    owner
+        .try_with_manager(|manager| {
+            let window = manager.find_window_by_name(PARENT)?;
+            window
+                .borrow_mut()
+                .set_user_data(CreditsWindowState {
+                    credits: CreditsManager::new(),
+                });
+            Some(())
+        })
+        .flatten()
+        .is_some()
+}
+
 pub fn with_credits_for_owner<R>(
     owner: &WindowManagerOwner,
     operation: impl FnOnce(&mut CreditsManager, (i32, i32)) -> R,

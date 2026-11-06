@@ -184,14 +184,7 @@ impl TextureCacheEntry {
             cached_surfaces: vec![None; mip_slots],
             texture: None,
             ref_count: AtomicU32::new(0),
-            last_access_time: {
-                let sync = WW3D::sync_time() as u64;
-                if sync > 0 {
-                    UNIX_EPOCH + Duration::from_millis(sync)
-                } else {
-                    SystemTime::now()
-                }
-            },
+            last_access_time: SystemTime::now(),
         }
     }
 
@@ -209,12 +202,7 @@ impl TextureCacheEntry {
     }
 
     fn touch(&mut self) {
-        let sync = WW3D::sync_time() as u64;
-        if sync > 0 {
-            self.last_access_time = UNIX_EPOCH + Duration::from_millis(sync);
-        } else {
-            self.last_access_time = SystemTime::now();
-        }
+        self.last_access_time = SystemTime::now();
     }
 
     fn drop_texture(&mut self) -> Option<Arc<TextureBaseClass>> {
@@ -444,14 +432,7 @@ impl TextureFileCache {
             cached_surfaces: vec![None; header.num_mipmaps.max(1) as usize],
             texture: None,
             ref_count: AtomicU32::new(0),
-            last_access_time: {
-                let sync = WW3D::sync_time() as u64;
-                if sync > 0 {
-                    UNIX_EPOCH + Duration::from_millis(sync)
-                } else {
-                    SystemTime::now()
-                }
-            },
+            last_access_time: SystemTime::now(),
             file_time: header.file_time,
         };
 
@@ -1367,25 +1348,27 @@ fn file_time_seconds(path: &Path) -> Option<u64> {
         .map(|duration| duration.as_secs())
 }
 
-thread_local! {
-    /// C++ kept the texture file cache as a plain singleton on the game thread.
-    static TEXTURE_CACHE: RefCell<Option<TextureFileCache>> = const { RefCell::new(None) };
-}
 
 /// Run `f` with mutable access to the global texture file cache, if initialised.
-pub fn with_global_texture_cache<R>(f: impl FnOnce(&mut TextureFileCache) -> R) -> Option<R> {
-    TEXTURE_CACHE.with_borrow_mut(|cache| {
-        let cache = cache.as_mut()?;
-        Some(f(cache))
-    })
+pub fn with_global_texture_cache<R>(
+    r3d: &crate::process_state::Renderer3dRuntime,
+    f: impl FnOnce(&mut TextureFileCache) -> R,
+) -> Option<R> {
+    let mut cache = r3d.texture_cache.lock().unwrap_or_else(|p| p.into_inner());
+    let cache = cache.as_mut()?;
+    Some(f(cache))
 }
 
 /// Initialise the global texture cache.
-pub fn init_global_texture_cache(file_prefix: &str) {
-    TEXTURE_CACHE.with_borrow_mut(|slot| *slot = Some(TextureFileCache::new(file_prefix)));
+pub fn init_global_texture_cache(
+    r3d: &crate::process_state::Renderer3dRuntime,
+    file_prefix: &str,
+) {
+    *r3d.texture_cache.lock().unwrap_or_else(|p| p.into_inner()) =
+        Some(TextureFileCache::new(file_prefix));
 }
 
 /// Tear down the global cache.
-pub fn shutdown_global_texture_cache() {
-    TEXTURE_CACHE.with_borrow_mut(|slot| *slot = None);
+pub fn shutdown_global_texture_cache(r3d: &crate::process_state::Renderer3dRuntime) {
+    *r3d.texture_cache.lock().unwrap_or_else(|p| p.into_inner()) = None;
 }

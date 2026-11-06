@@ -105,6 +105,7 @@ fn make_recording_audio(
 
 #[test]
 fn native_retirement_queues_stop_on_the_bound_application_audio_owner() {
+    crate::test_support::ensure_ambient_host();
     let events_a = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let events_b = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let device_a = std::sync::Arc::new(std::sync::Mutex::new(make_recording_audio(
@@ -161,6 +162,7 @@ fn native_retirement_queues_stop_on_the_bound_application_audio_owner() {
 }
 #[test]
 fn receiving_body_transition_and_snapshot_restamps_have_distinct_audio_effects() {
+    crate::test_support::ensure_ambient_host();
     let mut actor = make_actor(17);
     let mut peer = make_actor(17);
     let mut audio = make_audio();
@@ -268,6 +270,7 @@ fn receiving_body_transition_and_snapshot_restamps_have_distinct_audio_effects()
 }
 #[test]
 fn explicit_constructor_load_gates_and_missing_resources_do_not_invent_audio() {
+    crate::test_support::ensure_ambient_host();
     let locality = AudioSubmissionLocality::from_resolver(1, &Players);
     for (loading, saved) in [(true, false), (false, true), (true, true)] {
         let mut actor = make_actor(19);
@@ -303,6 +306,7 @@ fn explicit_constructor_load_gates_and_missing_resources_do_not_invent_audio() {
 
 #[test]
 fn native_ambient_tod_restart_retries_after_missing_owner_facts() {
+    crate::test_support::ensure_ambient_host();
     let mut actor = make_actor(22);
     actor.model_condition_flags.set(
         game_engine::common::bit_flags::ModelConditionFlags::DAMAGED,
@@ -377,6 +381,7 @@ fn native_ambient_tod_restart_retries_after_missing_owner_facts() {
 
 #[test]
 fn queued_tod_restart_bypasses_ambient_enable_gates() {
+    crate::test_support::ensure_ambient_host();
     let mut actor = make_actor(23);
     actor.ambient_sound_enabled = false;
     actor.ambient_sound_enabled_from_script = false;
@@ -404,6 +409,7 @@ fn queued_tod_restart_bypasses_ambient_enable_gates() {
 
 #[test]
 fn receiving_world_tod_transition_is_not_a_passive_snapshot_restamp() {
+    crate::test_support::ensure_ambient_host();
     let mut actor = make_actor(24);
     actor.admit_receiving_time_of_day(Some(TimeOfDay::Afternoon));
     actor.model_condition_flags.set(
@@ -446,6 +452,7 @@ fn receiving_world_tod_transition_is_not_a_passive_snapshot_restamp() {
 
 #[test]
 fn explicit_constructor_audio_preserves_ambient_enable_gates() {
+    crate::test_support::ensure_ambient_host();
     let locality = AudioSubmissionLocality::from_resolver(1, &Players);
     let mut actor = make_actor(21);
     actor.ambient_sound_enabled_from_script = false;
@@ -464,6 +471,7 @@ fn explicit_constructor_audio_preserves_ambient_enable_gates() {
 }
 #[test]
 fn receiving_state_fallback_rubble_and_custom_off_follow_original_selection() {
+    crate::test_support::ensure_ambient_host();
     let mut actor = make_actor(21);
     let mut audio = make_audio();
     let locality = AudioSubmissionLocality::from_resolver(1, &Players);
@@ -507,6 +515,7 @@ fn receiving_state_fallback_rubble_and_custom_off_follow_original_selection() {
 }
 #[test]
 fn valid_nonpermanent_or_out_of_range_events_remain_owned_without_play() {
+    crate::test_support::ensure_ambient_host();
     let locality = AudioSubmissionLocality::from_resolver(1, &Players);
     let mut actor = make_actor(22);
     let mut audio = AudioManager::new();

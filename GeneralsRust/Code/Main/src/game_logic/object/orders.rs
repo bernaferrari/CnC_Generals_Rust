@@ -868,9 +868,10 @@ impl Object {
         // ALLOW_INTERRUPT_AND_RESUME_OF_CUR_STATE_FOR_RELOAD.
         self.mark_jet_command_for_reload_interrupt(true);
         self.status.attacking = true;
-        if let Some(max) = max_shots {
-            self.max_shots_to_fire = max;
-        }
+        // AIUpdate.cpp:3450-3454: install maxShotsToFire after setState
+        // (AttackState::onEnter resets it). `None` is the C++
+        // NO_MAX_SHOTS_LIMIT caller (ActiveBody.cpp:696), not "keep stale".
+        self.max_shots_to_fire = max_shots.unwrap_or(-1);
         attack_events.record(self.id, victim);
     }
 
@@ -1530,8 +1531,7 @@ impl Object {
     pub fn install_overlord_battle_bunker(&mut self, slots: usize) {
         self.overlord_bunker_capacity = Some(slots);
         // Exclusive ConflictsWith residual (not Emperor innate propaganda).
-        let emperor =
-            crate::game_logic::host_overlord_addons::is_emperor_template(&self.template_name);
+        let emperor = self.authors_innate_propaganda_tower();
         self.has_overlord_gattling_addon = false;
         if !emperor {
             self.has_overlord_propaganda_addon = false;
@@ -1546,11 +1546,9 @@ impl Object {
     /// Fail-closed: not full portable-structure passenger object.
     pub fn install_overlord_gattling_addon(&mut self) {
         use crate::game_logic::host_gattling_tank::has_chain_guns_upgrade;
-        use crate::game_logic::host_overlord_addons::{
-            is_emperor_template, overlord_gattling_air_weapon,
-        };
+        use crate::game_logic::host_overlord_addons::overlord_gattling_air_weapon;
         // Exclusive ConflictsWith residual vs bunker / propaganda (except Emperor).
-        let emperor = is_emperor_template(&self.template_name);
+        let emperor = self.authors_innate_propaganda_tower();
         if !emperor {
             self.has_overlord_propaganda_addon = false;
             // Keep overlord-style marker but zero bunker slots.
@@ -1587,6 +1585,13 @@ impl Object {
     /// C++ OpenContain default `m_passengersAllowedToFire = FALSE`.
     /// `PassengersFireUpgrade` (Battle Bunker) sets the flag later.
     /// HelixContain still applies WEAPONBONUSCONDITION_GARRISONED on enter.
+    /// C++ OCL `ContainInsideSourceObject` portable-structure admission:
+    /// native HelixContain slot or authored OverlordContain (hq-2qedt.1).
+    pub(crate) fn admits_ocl_portable_structure(&self) -> bool {
+        let contain = &self.thing().template.contain_module;
+        (self.is_helix_transport && contain.is_helix_contain) || contain.is_overlord_contain
+    }
+
     pub fn install_helix_transport(&mut self) {
         self.is_helix_transport = true;
         self.max_transport = crate::game_logic::host_overlord_addons::HELIX_TRANSPORT_SLOTS;
@@ -1600,7 +1605,7 @@ impl Object {
             self.has_overlord_gattling_addon,
             self.has_overlord_propaganda_addon,
             self.overlord_bunker_slot_capacity(),
-            crate::game_logic::host_overlord_addons::is_emperor_template(&self.template_name),
+            self.authors_innate_propaganda_tower(),
         )
     }
 
@@ -1640,23 +1645,42 @@ impl Object {
         self.has_overlord_gattling_addon
     }
 
+    /// C++ Emperor shape: innate `PropagandaTowerBehavior` authored on an
+    /// `OverlordContain` host (TankGeneral.ini Tank_ChinaTankEmperor), rather
+    /// than granted by the portable tower addon (hq-2qedt.256).
+    pub fn authors_innate_propaganda_tower(&self) -> bool {
+        self.thing()
+            .template
+            .receiving_object_definition
+            .as_deref()
+            .is_some_and(|definition| {
+                let has = |name: &str| {
+                    definition
+                        .behavior_modules
+                        .iter()
+                        .any(|module| module.class_name.eq_ignore_ascii_case(name))
+                };
+                has("PropagandaTowerBehavior") && has("OverlordContain")
+            })
+    }
+
     /// True when portable / innate propaganda residual is active on this host.
     pub fn has_overlord_propaganda_residual(&self) -> bool {
         self.has_overlord_propaganda_addon
-            || crate::game_logic::host_overlord_addons::is_emperor_template(&self.template_name)
+            || self.authors_innate_propaganda_tower()
     }
 
-    /// Install residual GLA Tunnel Network structure:
-    /// C++ TunnelContain shared MaxTunnelCapacity=10 per player.
-    /// Fail-closed: not GuardTunnelNetwork AI / TimeForFullHeal / CaveSystem.
-    pub fn install_tunnel_network_residual(&mut self) {
+    /// Install a TunnelContain entrance. `capacity` is the receiving session's
+    /// GameData `MaxTunnelCapacity` (C++ TunnelTracker.cpp:81-84 reads
+    /// `TheGlobalData->m_maxTunnelCapacity`); GameLogic enforces the
+    /// per-player shared pool count.
+    pub fn install_tunnel_network_residual(&mut self, capacity: usize) {
         self.is_tunnel_network = true;
         if let Some(bd) = self.building_data.as_mut() {
-            // Local max is the shared pool cap; GameLogic enforces per-player count.
-            bd.max_garrison = crate::game_logic::host_tunnel_network::MAX_TUNNEL_CAPACITY;
+            bd.max_garrison = capacity;
         } else {
             let mut bd = BuildingData::new(BuildingType::Bunker);
-            bd.max_garrison = crate::game_logic::host_tunnel_network::MAX_TUNNEL_CAPACITY;
+            bd.max_garrison = capacity;
             self.building_data = Some(bd);
         }
     }
@@ -1673,14 +1697,16 @@ impl Object {
     }
 
     /// C++ CaveContain: CaveIndex-shared CaveSystem tracker.
-    pub fn install_cave_contain_residual(&mut self, cave_index: i32) {
+    /// `capacity` is the receiving session's GameData `MaxTunnelCapacity`
+    /// (CaveSystem trackers share TunnelTracker::getContainMax).
+    pub fn install_cave_contain_residual(&mut self, cave_index: i32, capacity: usize) {
         self.is_cave_contain = true;
         self.cave_index = cave_index;
         if let Some(bd) = self.building_data.as_mut() {
-            bd.max_garrison = crate::game_logic::host_cave_system::MAX_CAVE_CAPACITY;
+            bd.max_garrison = capacity;
         } else {
             let mut bd = BuildingData::new(BuildingType::Bunker);
-            bd.max_garrison = crate::game_logic::host_cave_system::MAX_CAVE_CAPACITY;
+            bd.max_garrison = capacity;
             self.building_data = Some(bd);
         }
     }

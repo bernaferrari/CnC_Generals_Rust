@@ -20,7 +20,7 @@ use crate::common::audio::{
 };
 use crate::common::system::{SubsystemInterface, SubsystemResult, SubsystemState};
 use anyhow::anyhow;
-use ww3d_animation::initialize_animated_sound_mgr;
+use ww3d_animation::{AnimatedSoundMgr, initialize_animated_sound_mgr};
 use ww3d_core::errors::{W3DError, W3DResult};
 
 /// Audio handle special values (from C++)
@@ -252,6 +252,8 @@ impl AudioFileCache {
 
 /// The main AudioManager - matches C++ API exactly
 pub struct AudioManager {
+    /// Owned WW3D animated-sound metadata manager (local to this rodio manager).
+    animated_sound_mgr: std::sync::Arc<AnimatedSoundMgr>,
     // Core settings
     audio_settings: AudioSettings,
     misc_audio: MiscAudio,
@@ -326,11 +328,13 @@ impl AudioManager {
         let audio_settings = AudioSettings::default();
         let audio_cache = Arc::new(AudioFileCache::new(audio_settings.max_cache_size as usize));
 
-        if let Err(err) = initialize_animated_sound_mgr::<&str>(None) {
+        let animated_sound_mgr = std::sync::Arc::new(AnimatedSoundMgr::new());
+        if let Err(err) = initialize_animated_sound_mgr::<&str>(&animated_sound_mgr, None) {
             log::debug!("Animated sound metadata not available: {err:?}");
         }
 
         AudioManager {
+            animated_sound_mgr,
             audio_settings,
             misc_audio: MiscAudio::default(),
             _stream: stream,
@@ -1742,31 +1746,8 @@ impl Default for AudioManager {
     }
 }
 
-use std::sync::Mutex as StdMutex;
-/// Global audio manager instance (matches C++ TheAudio)
-use std::sync::OnceLock;
-
-pub static THE_AUDIO: OnceLock<Arc<StdMutex<AudioManager>>> = OnceLock::new();
-
-/// Initialize the global audio manager
-pub fn initialize_global_audio_manager() -> Result<(), Box<dyn std::error::Error>> {
-    let audio_manager = AudioManager::new();
-    let audio_arc = Arc::new(StdMutex::new(audio_manager));
-    THE_AUDIO
-        .set(audio_arc.clone())
-        .map_err(|_| anyhow!("global audio manager already initialized"))?;
-
-    register_animation_sound_library(audio_arc);
-    Ok(())
-}
-
-/// Get reference to global audio manager
-pub fn get_global_audio_manager() -> Arc<StdMutex<AudioManager>> {
-    THE_AUDIO
-        .get()
-        .expect("Global audio manager not initialized")
-        .clone()
-}
+// Live TheAudio lives on SystemStores via `game_audio::{initialize,get}_global_audio_manager`.
+// This file is not wired into `audio/mod.rs` and must not publish a process singleton.
 
 #[cfg(test)]
 mod tests {

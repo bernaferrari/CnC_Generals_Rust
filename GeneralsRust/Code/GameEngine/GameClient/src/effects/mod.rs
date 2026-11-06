@@ -70,8 +70,10 @@ pub mod weather_complete;
 pub(crate) fn clear_live_effects_after_drawables() {
     ray_effect_system::clear_ray_effects_after_drawables();
     tracer_fx::clear_tracer_fx();
-    crate::fx_list::clear_scene_dynamic_lights();
-    let _ = crate::fx_list::drain_display_light_pulses();
+    let _ = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.fx_mut().clear_scene_dynamic_lights();
+        let _ = client.fx_mut().drain_display_light_pulses();
+    });
 }
 
 use std::time::{Duration, Instant};
@@ -120,19 +122,21 @@ pub use particle_system::{Particle, ParticleInfo, ParticleSystem};
 
 pub use ray_effect_system::{
     LiveRayEffect, MAX_RAY_EFFECTS, RayEffectGpuMesh, add_ray_effect,
-    bake_ray_effect_gpu_endpoints, bake_ray_effect_gpu_mesh, create_ray_effect_by_template,
+    bake_ray_effect_gpu_endpoints, bake_ray_effect_gpu_mesh, RayFxState, create_ray_effect_by_template,
     delete_ray_effect, get_ray_effect_data, live_ray_effects, ray_effect_midpoint,
     reset_ray_effects, update_ray_effects,
 };
 pub use ray_effects::{RayEffect, RayEffectConfig, RayEffectId, RayEffectManager, RayType};
 pub use tracer_fx::{
-    LiveTracerDrawable, TracerDrawableSpawn, TracerFxInstance, TracerGpuMesh, TracerGpuVertex,
-    bake_all_tracer_gpu_meshes, bake_tracer_gpu_mesh, build_tracer_transform, clear_tracer_fx,
-    create_tracer_fx, live_tracer_drawables, live_tracer_fx, lock_tracer_fx_tests,
+    LiveTracerDrawable, TracerDrawableSpawn, TracerFxInstance, TracerFxState, TracerGpuMesh,
+    TracerGpuVertex, bake_all_tracer_gpu_meshes, bake_tracer_gpu_mesh, build_tracer_transform,
+    clear_tracer_fx, create_tracer_fx, live_tracer_drawables, live_tracer_fx,
     spawn_tracer_drawable_like_cpp, tracer_distance, tracer_expiration_frames,
     tracer_line3d_local_endpoints, tracer_opacity_after_frames, tracer_world_endpoints,
     update_tracer_fx,
 };
+#[cfg(test)]
+pub use tracer_fx::lock_tracer_fx_tests;
 
 /// C++ `System.ini` GenericTracer registration (no full Object INI scan).
 pub fn ensure_generic_tracer_ini() -> bool {
@@ -470,6 +474,7 @@ mod tests {
 
     #[test]
     fn test_effects_quality_settings() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(EffectsQuality::Low.max_particles(), 500);
         assert_eq!(EffectsQuality::Ultra.max_particles(), 6000);
 
@@ -482,6 +487,7 @@ mod tests {
 
     #[test]
     fn test_effects_lod() {
+        crate::test_support::ensure_ambient_host();
         let config = EffectsConfig::default();
 
         assert_eq!(calculate_effects_lod(50.0, &config), EffectsLOD::High);
@@ -496,6 +502,7 @@ mod tests {
 
     #[test]
     fn test_effects_config_defaults() {
+        crate::test_support::ensure_ambient_host();
         let config = EffectsConfig::default();
 
         assert!(config.particles_enabled);
@@ -506,6 +513,7 @@ mod tests {
 
     #[test]
     fn test_effects_stats() {
+        crate::test_support::ensure_ambient_host();
         let mut stats = EffectsStats::default();
         stats.active_particles = 1000;
 
@@ -523,6 +531,7 @@ mod tests {
 
     #[test]
     fn test_utils_random_sphere() {
+        crate::test_support::ensure_ambient_host();
         use crate::effects::utils::*;
 
         let center = Vec3::new(0.0, 0.0, 0.0);
@@ -537,6 +546,7 @@ mod tests {
 
     #[test]
     fn test_utils_color_interpolation() {
+        crate::test_support::ensure_ambient_host();
         use crate::effects::utils::*;
 
         let start = [1.0, 0.0, 0.0, 1.0]; // Red

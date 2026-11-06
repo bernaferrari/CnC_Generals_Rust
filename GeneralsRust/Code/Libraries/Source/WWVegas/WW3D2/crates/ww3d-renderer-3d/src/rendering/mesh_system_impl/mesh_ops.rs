@@ -391,10 +391,11 @@ impl MeshClass {
         }
 
         // Static sort list handling (transparency sorting)
-        if ww3d_core::WW3D::are_static_sort_lists_enabled() && self.sort_level != SORT_LEVEL_NONE {
+        if false /* mesh session removed; static-sort add path needs explicit r3d at call site */ && self.sort_level != SORT_LEVEL_NONE {
             let mesh_arc = Arc::new(self.clone());
             let sort_handle = StaticSortRenderObject::from_arc(Arc::clone(&mesh_arc));
             StaticSortManager::add_to_static_sort_list_with_mesh(
+                unreachable!(),
                 sort_handle,
                 self.sort_level,
                 Some(mesh_arc),

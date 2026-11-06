@@ -297,7 +297,8 @@ impl ObjectDataProvider for GameLogicObjectDataProvider {
         with_object(id, |obj| {
             let contain = obj.get_contain()?;
             let contain_guard = contain.lock().ok()?;
-            let list = player_list().read().ok()?;
+            let __player_list_arc = player_list();
+        let list = __player_list_arc.read().ok()?;
             let viewer = list.get_player(viewer_player_id as crate::player::PlayerIndex)?;
             let viewer_guard = viewer.read().ok()?;
             let apparent = contain_guard.get_apparent_controlling_player(Some(&viewer_guard))?;

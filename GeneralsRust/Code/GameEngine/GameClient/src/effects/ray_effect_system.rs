@@ -5,7 +5,6 @@
 //! - `W3DGameClient::createRayEffectByTemplate` midpoint drawable + addRayEffect
 
 use glam::Vec3;
-use std::sync::{Mutex, OnceLock};
 
 /// C++ `RayEffectSystem::MAX_RAY_EFFECTS`.
 pub const MAX_RAY_EFFECTS: usize = 128;
@@ -70,10 +69,16 @@ pub fn ray_effect_midpoint(start: [f32; 3], end: [f32; 3]) -> [f32; 3] {
     ]
 }
 
-struct RayEffectStore {
+pub struct RayEffectStore {
     next_id: u32,
     frame: u32,
     slots: [Option<LiveRayEffect>; MAX_RAY_EFFECTS],
+}
+
+impl Default for RayEffectStore {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RayEffectStore {
@@ -96,9 +101,29 @@ impl RayEffectStore {
     }
 }
 
-fn global_rays() -> &'static Mutex<RayEffectStore> {
-    static STORE: OnceLock<Mutex<RayEffectStore>> = OnceLock::new();
-    STORE.get_or_init(|| Mutex::new(RayEffectStore::new()))
+pub type RayFxState = RayEffectStore;
+
+#[cfg(test)]
+thread_local! {
+    static TEST_RAYS: std::cell::RefCell<RayEffectStore> =
+        std::cell::RefCell::new(RayEffectStore::new());
+}
+
+fn with_ray_store<R>(f: impl FnOnce(&mut RayEffectStore) -> R) -> R {
+    let mut f = Some(f);
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        f.take().expect("ray callback")(client.rays_mut())
+    }) {
+        return result;
+    }
+    #[cfg(test)]
+    {
+        return TEST_RAYS.with(|slot| f.take().expect("ray callback")(&mut slot.borrow_mut()));
+    }
+    #[cfg(not(test))]
+    {
+        f.take().expect("ray callback")(&mut RayEffectStore::new())
+    }
 }
 
 /// C++ `W3DGameClient::createRayEffectByTemplate`.
@@ -120,7 +145,7 @@ pub fn create_ray_effect_by_template(
         &start_c,
         &end_c,
     );
-    let mut store = global_rays().lock().unwrap_or_else(|e| e.into_inner());
+    with_ray_store(|store| {
     let Some(idx) = store.free_index() else {
         if let Some(id) = template_drawable_id {
             gamelogic::helpers::TheGameClient.destroy_drawable(id);
@@ -167,11 +192,12 @@ pub fn create_ray_effect_by_template(
     };
     store.slots[idx] = Some(entry.clone());
     Some(entry)
+    })
 }
 
 /// C++ `RayEffectSystem::addRayEffect`.
 pub fn add_ray_effect(drawable_id: u32, start: [f32; 3], end: [f32; 3]) -> bool {
-    let mut store = global_rays().lock().unwrap_or_else(|e| e.into_inner());
+    with_ray_store(|store| {
     let Some(idx) = store.free_index() else {
         // C++ RayEffectSystem::addRayEffect never replaces a live drawable.
         return false;
@@ -193,12 +219,13 @@ pub fn add_ray_effect(drawable_id: u32, start: [f32; 3], end: [f32; 3]) -> bool 
         from_template_drawable: false,
     });
     true
+    })
 }
 
 /// C++ LaserUpdate width decay + drawable death → `removeFromRayEffects`.
 /// `expire_frame == 0` is drawable-owned (no FXList auto-expire).
 pub fn update_ray_effects(current_frame: u32) {
-    let mut store = global_rays().lock().unwrap_or_else(|e| e.into_inner());
+    with_ray_store(|store| {
     if store.frame == 0 && current_frame > 0 {
         for slot in &mut store.slots {
             if let Some(ray) = slot.as_mut() {
@@ -241,11 +268,12 @@ pub fn update_ray_effects(current_frame: u32) {
             ray.width_scalar = (1.0 - elapsed as f32 / fade_len as f32).clamp(0.0, 1.0);
         }
     }
+    })
 }
 
 /// C++ `RayEffectSystem::deleteRayEffect`.
 pub fn delete_ray_effect(drawable_id: u32) -> bool {
-    let mut store = global_rays().lock().unwrap_or_else(|e| e.into_inner());
+    with_ray_store(|store| {
     for slot in &mut store.slots {
         if slot.as_ref().is_some_and(|e| e.drawable_id == drawable_id) {
             let from_template = slot.as_ref().is_some_and(|e| e.from_template_drawable);
@@ -258,26 +286,29 @@ pub fn delete_ray_effect(drawable_id: u32) -> bool {
         }
     }
     false
+    })
 }
 
 /// C++ `RayEffectSystem::getRayEffectData`.
 pub fn get_ray_effect_data(drawable_id: u32) -> Option<LiveRayEffect> {
-    let store = global_rays().lock().unwrap_or_else(|e| e.into_inner());
+    with_ray_store(|store| {
     store.slots.iter().find_map(|slot| {
         slot.as_ref()
             .filter(|e| e.drawable_id == drawable_id)
             .cloned()
     })
+    })
 }
 
 pub fn live_ray_effects() -> Vec<LiveRayEffect> {
-    let store = global_rays().lock().unwrap_or_else(|e| e.into_inner());
+    with_ray_store(|store| {
     store.slots.iter().filter_map(|s| s.clone()).collect()
+    })
 }
 
 /// C++ `RayEffectSystem::reset` / `init`.
 pub fn reset_ray_effects() {
-    let mut store = global_rays().lock().unwrap_or_else(|e| e.into_inner());
+    with_ray_store(|store| {
     let ids: Vec<u32> = store
         .slots
         .iter()
@@ -292,16 +323,14 @@ pub fn reset_ray_effects() {
     for id in ids {
         gamelogic::helpers::TheGameClient.destroy_drawable(id);
     }
+    })
 }
 
 /// C++ `GameClient::reset` / destructor has already destroyed every Drawable
 /// before `TheRayEffects->reset` / delete. Discard ray bookkeeping without
 /// calling back into a cleared (or newer) client's drawable table.
 pub(crate) fn clear_ray_effects_after_drawables() {
-    global_rays()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .init();
+    with_ray_store(|store| store.init());
 }
 
 /// GPU line endpoints for the registered ray (start → end).
@@ -335,6 +364,7 @@ mod tests {
 
     #[test]
     fn cpp_ray_capacity_rejects_new_beam_without_evicting_existing_drawables() {
+        crate::test_support::ensure_ambient_host();
         // RayEffect.cpp:93-130: first free slot, otherwise no state change.
         // Exercise the production insertion API, including delete/reuse.
         reset_ray_effects();
@@ -359,6 +389,7 @@ mod tests {
 
     #[test]
     fn fxlist_ray_effect_nugget_gpu_mesh_matches_cpp_midpoint_and_offsets() {
+        crate::test_support::ensure_ambient_host();
         reset_ray_effects();
 
         let primary = [10.0_f32, 20.0, 30.0];
@@ -433,6 +464,7 @@ mod tests {
 
     #[test]
     fn fxlist_ray_effect_expires_after_max_intensity_plus_fade() {
+        crate::test_support::ensure_ambient_host();
         reset_ray_effects();
         update_ray_effects(10);
         let ray = create_ray_effect_by_template([0.0, 0.0, 0.0], [10.0, 0.0, 0.0], "GenericLaser")

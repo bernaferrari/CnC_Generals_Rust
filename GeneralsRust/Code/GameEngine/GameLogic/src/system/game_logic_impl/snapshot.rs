@@ -276,7 +276,17 @@ impl XferSnapshotTrait for TerrainLogicSnapshotBridge {
 }
 
 fn register_game_logic_snapshot_block() {
-    let logic = GAME_LOGIC.get_or_init(|| Mutex::new(GameLogic::default()));
+    // Direct Core slot: must not call get_game_logic() here — that re-enters
+    // SAVE_GAME_COUNTER_HOOKS OnceLock while install_save_game_counter runs.
+    let logic = if let Some(core) =
+        crate::system::engine_stores::published_core_for_game_logic()
+    {
+        core.game_logic_mutex()
+    } else if let Some(services) = crate::system::engine_stores::try_active_services() {
+        services.game_logic_mutex()
+    } else {
+        panic!("snapshot block registration requires published Core or WorldServices");
+    };
     let script_engine = get_script_engine();
     let mut state = game_engine::System::get_game_state();
     state.add_snapshot_block(
@@ -347,7 +357,7 @@ fn register_game_logic_snapshot_block() {
     state.add_snapshot_block(
         "CHUNK_GhostObject".to_string(),
         Box::new(GhostObjectSnapshotBridge::new(Arc::clone(
-            &THE_GHOST_OBJECT_MANAGER,
+            &the_ghost_object_manager(),
         ))),
         game_engine::System::SnapshotType::SaveLoad,
     );

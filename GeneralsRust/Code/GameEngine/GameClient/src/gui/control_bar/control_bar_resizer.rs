@@ -31,9 +31,8 @@ impl ResizerWindow {
 /// The original C++ implementation applies positions directly to `GameWindow`s.
 /// The Rust UI stack is transitioning to layout-driven sizing, so we persist the same authored
 /// data here and provide deterministic scaling calculations.
-// THREAD: main thread only — the resizer is residual/test scaffolding driven by
-// the GUI thread's menu callbacks, so its window list and the singleton slot
-// below are plain cells instead of locks.
+// THREAD: main thread only — window list is instance state on ControlBarResizerLatch
+// (no process TLS); RefCell is local to one resizer instance.
 #[derive(Debug)]
 pub struct IniControlBarResizer {
     windows: RefCell<Vec<ResizerWindow>>,
@@ -96,9 +95,10 @@ impl IniControlBarResizer {
 }
 
 /// Residual: last ControlBar resizer action requested by residual peels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
 pub enum ResidualControlBarResizerAction {
+    #[default]
     None = 0,
     AddWindow = 1,
     Clear = 2,
@@ -108,99 +108,73 @@ pub enum ResidualControlBarResizerAction {
     Prepare = 6,
 }
 
-static RESIDUAL_CB_RESIZER_ACTION: std::sync::atomic::AtomicU8 =
-    std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_CB_RESIZER_WINDOW_COUNT: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-static RESIDUAL_CB_RESIZER_BASE_W: std::sync::atomic::AtomicU32 =
-    std::sync::atomic::AtomicU32::new(800);
-static RESIDUAL_CB_RESIZER_BASE_H: std::sync::atomic::AtomicU32 =
-    std::sync::atomic::AtomicU32::new(600);
-
-fn residual_cb_resizer_action_store(action: ResidualControlBarResizerAction) {
-    RESIDUAL_CB_RESIZER_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
-}
-
-thread_local! {
-    static RESIZER: RefCell<IniControlBarResizer> = RefCell::new(IniControlBarResizer::new());
-}
-
-fn with_residual_cb_resizer<R>(f: impl FnOnce(&mut IniControlBarResizer) -> R) -> R {
-    RESIZER.with_borrow_mut(f)
+/// Per-ControlBar resizer latch (was TLS + process atomics).
+///
+/// C++ ControlBarResizer is instance state on the bar; Rust owns the resizer
+/// and residual peels per client so multiple instances never share TLS/statics.
+#[derive(Debug, Default)]
+pub struct ControlBarResizerLatch {
+    pub last_action: ResidualControlBarResizerAction,
+    pub resizer: IniControlBarResizer,
 }
 
 /// Residual: last ControlBar resizer residual action.
-pub fn residual_control_bar_resizer_last_action() -> ResidualControlBarResizerAction {
-    match RESIDUAL_CB_RESIZER_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
-        1 => ResidualControlBarResizerAction::AddWindow,
-        2 => ResidualControlBarResizerAction::Clear,
-        3 => ResidualControlBarResizerAction::SetBaseResolution,
-        4 => ResidualControlBarResizerAction::Resize,
-        5 => ResidualControlBarResizerAction::GetOptimal,
-        6 => ResidualControlBarResizerAction::Prepare,
-        _ => ResidualControlBarResizerAction::None,
-    }
+pub fn residual_control_bar_resizer_last_action(
+    latch: &ControlBarResizerLatch,
+) -> ResidualControlBarResizerAction {
+    latch.last_action
 }
 
 /// Residual: residual resizer window count latch.
-pub fn residual_control_bar_resizer_window_count() -> usize {
-    RESIDUAL_CB_RESIZER_WINDOW_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+pub fn residual_control_bar_resizer_window_count(latch: &ControlBarResizerLatch) -> usize {
+    latch.resizer.window_count()
 }
 
 /// Residual: residual base resolution latch.
-pub fn residual_control_bar_resizer_base_resolution() -> (u32, u32) {
-    (
-        RESIDUAL_CB_RESIZER_BASE_W.load(std::sync::atomic::Ordering::Relaxed),
-        RESIDUAL_CB_RESIZER_BASE_H.load(std::sync::atomic::Ordering::Relaxed),
-    )
-}
-
-fn residual_cb_resizer_sync(resizer: &IniControlBarResizer) {
-    RESIDUAL_CB_RESIZER_WINDOW_COUNT
-        .store(resizer.window_count(), std::sync::atomic::Ordering::Relaxed);
-    let (w, h) = resizer.get_optimal_size();
-    RESIDUAL_CB_RESIZER_BASE_W.store(w, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_CB_RESIZER_BASE_H.store(h, std::sync::atomic::Ordering::Relaxed);
+pub fn residual_control_bar_resizer_base_resolution(latch: &ControlBarResizerLatch) -> (u32, u32) {
+    latch.resizer.get_optimal_size()
 }
 
 /// Residual: add a named resizer window without applying layout.
-pub fn simulate_control_bar_resizer_add_window(name: &str) -> bool {
+pub fn simulate_control_bar_resizer_add_window(
+    latch: &mut ControlBarResizerLatch,
+    name: &str,
+) -> bool {
     if name.is_empty() {
         return false;
     }
-    with_residual_cb_resizer(|resizer| {
-        resizer.add_window(ResizerWindow::new(name));
-        residual_cb_resizer_sync(resizer);
-    });
-    residual_cb_resizer_action_store(ResidualControlBarResizerAction::AddWindow);
-    residual_control_bar_resizer_window_count() > 0
+    latch.resizer.add_window(ResizerWindow::new(name));
+    latch.last_action = ResidualControlBarResizerAction::AddWindow;
+    residual_control_bar_resizer_window_count(latch) > 0
 }
 
 /// Residual: clear residual resizer windows.
-pub fn simulate_control_bar_resizer_clear() -> bool {
-    with_residual_cb_resizer(|resizer| {
-        resizer.clear();
-        residual_cb_resizer_sync(resizer);
-    });
-    residual_cb_resizer_action_store(ResidualControlBarResizerAction::Clear);
-    residual_control_bar_resizer_window_count() == 0
+pub fn simulate_control_bar_resizer_clear(latch: &mut ControlBarResizerLatch) -> bool {
+    latch.resizer.clear();
+    latch.last_action = ResidualControlBarResizerAction::Clear;
+    residual_control_bar_resizer_window_count(latch) == 0
 }
 
 /// Residual: set base resolution residual (default 800x600 retail).
-pub fn simulate_control_bar_resizer_set_base_resolution(width: u32, height: u32) -> bool {
-    with_residual_cb_resizer(|resizer| {
-        resizer.set_base_resolution(width, height);
-        residual_cb_resizer_sync(resizer);
-    });
-    residual_cb_resizer_action_store(ResidualControlBarResizerAction::SetBaseResolution);
-    residual_control_bar_resizer_base_resolution() == (width.max(1), height.max(1))
+pub fn simulate_control_bar_resizer_set_base_resolution(
+    latch: &mut ControlBarResizerLatch,
+    width: u32,
+    height: u32,
+) -> bool {
+    latch.resizer.set_base_resolution(width, height);
+    latch.last_action = ResidualControlBarResizerAction::SetBaseResolution;
+    residual_control_bar_resizer_base_resolution(latch) == (width.max(1), height.max(1))
 }
 
 /// Residual: resize residual without GameWindow apply.
-pub fn simulate_control_bar_resizer_resize(width: u32, height: u32) -> bool {
-    match with_residual_cb_resizer(|resizer| resizer.resize(width, height)) {
+pub fn simulate_control_bar_resizer_resize(
+    latch: &mut ControlBarResizerLatch,
+    width: u32,
+    height: u32,
+) -> bool {
+    match latch.resizer.resize(width, height) {
         Ok(()) => {
-            residual_cb_resizer_action_store(ResidualControlBarResizerAction::Resize);
+            latch.last_action = ResidualControlBarResizerAction::Resize;
             true
         }
         Err(_) => false,
@@ -208,27 +182,29 @@ pub fn simulate_control_bar_resizer_resize(width: u32, height: u32) -> bool {
 }
 
 /// Residual: get optimal size residual.
-pub fn simulate_control_bar_resizer_get_optimal_size() -> (u32, u32) {
-    let size = with_residual_cb_resizer(|resizer| resizer.get_optimal_size());
-    residual_cb_resizer_action_store(ResidualControlBarResizerAction::GetOptimal);
+pub fn simulate_control_bar_resizer_get_optimal_size(
+    latch: &mut ControlBarResizerLatch,
+) -> (u32, u32) {
+    let size = latch.resizer.get_optimal_size();
+    latch.last_action = ResidualControlBarResizerAction::GetOptimal;
     size
 }
 
 /// Residual: clear + base 800x600 + add ControlBarParent + resize composite.
-pub fn simulate_control_bar_resizer_prepare_default() -> bool {
-    if !simulate_control_bar_resizer_clear() {
+pub fn simulate_control_bar_resizer_prepare_default(latch: &mut ControlBarResizerLatch) -> bool {
+    if !simulate_control_bar_resizer_clear(latch) {
         return false;
     }
-    if !simulate_control_bar_resizer_set_base_resolution(800, 600) {
+    if !simulate_control_bar_resizer_set_base_resolution(latch, 800, 600) {
         return false;
     }
-    if !simulate_control_bar_resizer_add_window("ControlBar.wnd:ControlBarParent") {
+    if !simulate_control_bar_resizer_add_window(latch, "ControlBar.wnd:ControlBarParent") {
         return false;
     }
-    if !simulate_control_bar_resizer_resize(1024, 768) {
+    if !simulate_control_bar_resizer_resize(latch, 1024, 768) {
         return false;
     }
-    residual_cb_resizer_action_store(ResidualControlBarResizerAction::Prepare);
-    residual_control_bar_resizer_window_count() == 1
-        && residual_control_bar_resizer_base_resolution() == (800, 600)
+    latch.last_action = ResidualControlBarResizerAction::Prepare;
+    residual_control_bar_resizer_window_count(latch) == 1
+        && residual_control_bar_resizer_base_resolution(latch) == (800, 600)
 }

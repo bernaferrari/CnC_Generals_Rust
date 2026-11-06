@@ -169,6 +169,8 @@ impl RenderPipeline {
         #[cfg(feature = "game_client")]
         {
             self.radar_terrain_colors = None;
+            self.radar_terrain_colors_generation =
+                self.radar_terrain_colors_generation.wrapping_add(1);
         }
         let Some(path) = self.heightmap_hint() else {
             return Ok(());
@@ -215,6 +217,8 @@ impl RenderPipeline {
                         .load_heightmap_with_world_size(path, explicit_world_size)
                         .map_err(|e| anyhow::anyhow!("Terrain heightmap load failed: {}", e))?;
                     self.radar_terrain_colors = visual.freeze_radar_terrain_colors();
+                    self.radar_terrain_colors_generation =
+                        self.radar_terrain_colors_generation.wrapping_add(1);
                     self.heightmap_world_size = Some(visual.world_size());
 
                     // Apply skybox textures if provided.
@@ -847,64 +851,58 @@ impl RenderPipeline {
         }
     }
 
-    /// Schedule a callback to run after the WW3D renderer finishes its main passes.
+    /// Queue frame work for `phase` of the next WW3D frame
+    /// (see `ww3d_renderer_3d::rendering::frame_schedule`).
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn enqueue_post_frame_callback<F>(&mut self, callback: F)
+    pub fn enqueue_frame_work<F>(&mut self, phase: ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase, work: F)
     where
         F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + 'static,
     {
-        self.forward_pass.enqueue_post_frame_callback(callback);
+        self.forward_pass.enqueue_frame_work(phase, work);
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub fn enqueue_post_frame_callback<F>(&mut self, callback: F)
+    pub fn enqueue_frame_work<F>(&mut self, phase: ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase, work: F)
     where
         F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + 'static,
     {
-        self.forward_pass.enqueue_post_frame_callback(callback);
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn enqueue_pre_scene_callback<F>(&mut self, callback: F)
-    where
-        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + 'static,
-    {
-        self.forward_pass.enqueue_pre_scene_callback(callback);
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    pub fn enqueue_pre_scene_callback<F>(&mut self, callback: F)
-    where
-        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + 'static,
-    {
-        self.forward_pass.enqueue_pre_scene_callback(callback);
+        self.forward_pass.enqueue_frame_work(phase, work);
     }
 }
 
 impl RenderPipeline {
     /// Sample only this pipeline's completed map hydration; no terrain singleton lookup.
+    #[cfg(feature = "game_client")]
+    pub fn radar_terrain_colors_generation(&self) -> u64 {
+        self.radar_terrain_colors_generation
+    }
+
     pub fn frozen_radar_terrain_colors(
         &self,
         radar: &game_engine::common::system::radar::RadarSystem,
     ) -> Vec<Option<[f32; 3]>> {
         use game_engine::common::system::radar::{ICoord2D, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH};
-        (0..RADAR_CELL_HEIGHT)
-            .flat_map(|y| {
-                (0..RADAR_CELL_WIDTH).map(move |x| {
-                    #[cfg(feature = "game_client")]
-                    {
-                        let position = radar.radar_to_world(&ICoord2D::new(x as i32, y as i32))?;
-                        self.radar_terrain_colors
-                            .as_ref()?
-                            .color_at(position.x, position.y)
-                    }
-                    #[cfg(not(feature = "game_client"))]
-                    {
-                        let _ = (x, y, radar);
-                        None
-                    }
-                })
-            })
-            .collect()
+        let mut out = Vec::with_capacity((RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT) as usize);
+        for y in 0..RADAR_CELL_HEIGHT {
+            for x in 0..RADAR_CELL_WIDTH {
+                #[cfg(feature = "game_client")]
+                {
+                    let sample = radar
+                        .radar_to_world(&ICoord2D::new(x as i32, y as i32))
+                        .and_then(|position| {
+                            self.radar_terrain_colors
+                                .as_ref()
+                                .and_then(|colors| colors.color_at(position.x, position.y))
+                        });
+                    out.push(sample);
+                }
+                #[cfg(not(feature = "game_client"))]
+                {
+                    let _ = (x, y, radar);
+                    out.push(None);
+                }
+            }
+        }
+        out
     }
 }

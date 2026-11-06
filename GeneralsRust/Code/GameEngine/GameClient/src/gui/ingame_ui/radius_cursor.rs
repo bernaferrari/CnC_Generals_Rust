@@ -202,11 +202,17 @@ impl InGameUI {
     }
 
     fn most_ready_shortcut_object(power_id: u32) -> Option<u32> {
-        let template_name = get_special_power_store().and_then(|store| {
+        let template_name = {
+            let Some(__sp) = get_special_power_store() else {
+                return None;
+            };
+            let Ok(store) = __sp.read() else {
+                return None;
+            };
             store
                 .find_special_power_template_by_id(power_id)
                 .map(|t| t.get_name().to_string())
-        })?;
+        }?;
         let mut best: Option<(u32, u32)> = None;
         for obj in OBJECT_REGISTRY.get_all_objects() {
             let Ok(guard) = obj.read() else {
@@ -284,11 +290,13 @@ impl InGameUI {
         }
 
         if let Some(pending) = ui.get_pending_special_power() {
-            if let Some(store) = get_special_power_store() {
-                if let Some(template) = store.find_special_power_template_by_id(pending.power_id) {
-                    let radius = template.get_radius_cursor_radius();
-                    if radius > 0.0 {
-                        return radius;
+            if let Some(__sp) = get_special_power_store() {
+                if let Ok(store) = __sp.read() {
+                    if let Some(template) = store.find_special_power_template_by_id(pending.power_id) {
+                        let radius = template.get_radius_cursor_radius();
+                        if radius > 0.0 {
+                            return radius;
+                        }
                     }
                 }
             }

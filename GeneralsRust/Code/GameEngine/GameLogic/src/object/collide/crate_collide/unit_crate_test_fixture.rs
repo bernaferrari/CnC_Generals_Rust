@@ -147,8 +147,8 @@ impl UnitCrateFixture {
                 "unit-crate object {id} lost exact team/template identity"
             ));
         }
-        let default_team = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let default_team = __player_list_arc.read()
             .map_err(|_| "unit-crate roster poisoned")?
             .get_player(0)
             .cloned()

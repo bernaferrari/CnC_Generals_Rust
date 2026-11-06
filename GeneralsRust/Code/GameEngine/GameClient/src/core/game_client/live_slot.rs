@@ -2,102 +2,142 @@
 // Split from `core/game_client.rs` dump. Included by `game_client/mod.rs`
 // so this stays one logical `game_client` module (public API identical).
 
-/// Published frame for the active client.  Input translators only need this
-/// scalar; borrowing the whole client just to read it would alias the normal
-/// `GameClient::update(&mut self)` path.
-static LIVE_GAME_CLIENT_FRAME: AtomicU32 = AtomicU32::new(0);
-
 /// Snapshot-only address of the engine-owned client.
 ///
-/// `GameClient` contains window/UI state and cannot be owned by a global mutex.
-/// The C++ save block nevertheless needs to reach the live instance.  Keep that
-/// narrow compatibility bridge same-thread and dynamically exclusive: normal
-/// input/render code must use published scalar state or its lexical `&mut
-/// GameClient`, never this slot.
-#[derive(Clone, Copy, Default)]
-struct LiveGameClientSlot {
-    raw: Option<usize>,
-    owner_thread: Option<std::thread::ThreadId>,
-    generation: u64,
-    borrowed: bool,
-}
+/// `GameClient` contains window/UI state and cannot be owned by a process mutex.
+/// The C++ save block nevertheless needs to reach the live instance.  The bridge
+/// lives on [`CommonServices::system.live_game_client`] (per-instance), same-thread
+/// and dynamically exclusive: normal input/render code must use published scalar
+/// state or its lexical `&mut GameClient`, never this slot.
+use game_engine::common::common_services::try_common_services;
+use game_engine::common::system_stores::LiveGameClientBridge;
 
-static LIVE_GAME_CLIENT_SLOT: OnceLock<Mutex<LiveGameClientSlot>> = OnceLock::new();
 const TEXTURE_REDUCTION_MIN: i32 = 0;
 const TEXTURE_REDUCTION_MAX: i32 = 4;
 const WW3D_TEXTURE_REDUCTION_MIN_DIMENSION: u32 = 32;
 
-fn live_game_client_slot() -> &'static Mutex<LiveGameClientSlot> {
-    LIVE_GAME_CLIENT_SLOT.get_or_init(|| Mutex::new(LiveGameClientSlot::default()))
+fn with_live_bridge_mut<R>(f: impl FnOnce(&mut LiveGameClientBridge) -> R) -> Option<R> {
+    let services = try_common_services()?;
+    let mut slot = services.system.live_game_client.lock().ok()?;
+    Some(f(&mut slot))
 }
 
 pub(crate) fn register_live_game_client(client: &mut GameClient) {
-    let Ok(mut slot) = live_game_client_slot().lock() else {
+    let player_id = client.local_player_id;
+    let frame = client.frame;
+    let raw = std::ptr::from_mut(client) as usize;
+    let registered = with_live_bridge_mut(|slot| {
+        if slot.borrowed {
+            // Replacing an address while its snapshot callback owns `&mut
+            // GameClient` would invalidate the callback's exclusivity.  This is
+            // not a valid lifecycle transition, so leave the existing slot live.
+            log::error!("refusing to replace a borrowed live GameClient snapshot slot");
+            return None;
+        }
+
+        slot.generation = slot.generation.wrapping_add(1).max(1);
+        slot.token = slot.generation;
+        slot.raw = Some(raw);
+        slot.owner_thread = Some(std::thread::current().id());
+        slot.frame = frame;
+        Some(slot.token)
+    })
+    .flatten();
+    let Some(token) = registered else {
         return;
     };
-    if slot.borrowed {
-        // Replacing an address while its snapshot callback owns `&mut
-        // GameClient` would invalidate the callback's exclusivity.  This is
-        // not a valid lifecycle transition, so leave the existing slot live.
-        log::error!("refusing to replace a borrowed live GameClient snapshot slot");
+    // Ownership follows this identity, which moves with the value; the address
+    // above is only the snapshot access path.
+    client.live_slot_token = token;
+    crate::terrain::terrain_visual::publish_terrain_visual(std::sync::Arc::clone(
+        &client.terrain_visual_gpu,
+    ));
+    // Free-function player-id publish may re-enter `with_live_game_client_mut`;
+    // never call it while the live bridge mutex is held.
+    set_local_player_id(player_id);
+}
+
+/// Re-anchor the snapshot access path after the owner may have been moved
+/// (C++ TheGameClient never moves; a Rust value can). Only the registered
+/// owner, outside a snapshot callback, may update the address.
+pub(crate) fn refresh_live_game_client_address(client: &mut GameClient) {
+    let token = client.live_slot_token;
+    if token == 0 {
         return;
     }
-
-    slot.generation = slot.generation.wrapping_add(1).max(1);
-    slot.raw = Some(std::ptr::from_mut(client) as usize);
-    slot.owner_thread = Some(std::thread::current().id());
-    LIVE_GAME_CLIENT_FRAME.store(client.frame, Ordering::Release);
-    set_local_player_id(client.local_player_id);
+    let raw = std::ptr::from_mut(client) as usize;
+    let current_thread = std::thread::current().id();
+    let _ = with_live_bridge_mut(|slot| {
+        if slot.token == token && slot.raw.is_some() && !slot.borrowed
+            && slot.owner_thread == Some(current_thread)
+        {
+            slot.raw = Some(raw);
+        }
+    });
 }
 
 /// Return whether this client owned the published slot. Only that client may
 /// tear down process-visible presentation state during its destructor.
+/// Identity is the client's registration token, so a client that was moved
+/// (including `drop(client)`) still clears exactly its own registration and an
+/// older client never clears a newer one.
 pub(crate) fn clear_live_game_client(client: &mut GameClient) -> bool {
-    if let Ok(mut slot) = live_game_client_slot().lock() {
-        let current = std::ptr::from_mut(client) as usize;
-        if slot.raw.is_some_and(|stored| stored == current) {
+    let token = std::mem::take(&mut client.live_slot_token);
+    if token == 0 {
+        return false;
+    }
+    with_live_bridge_mut(|slot| {
+        if slot.token == token && slot.raw.is_some() {
             slot.raw = None;
+            slot.token = 0;
             slot.owner_thread = None;
             slot.borrowed = false;
-            LIVE_GAME_CLIENT_FRAME.store(0, Ordering::Release);
-            return true;
+            slot.frame = 0;
+            true
+        } else {
+            false
         }
-    }
-    false
+    })
+    .unwrap_or(false)
 }
 
 pub(crate) fn owns_live_game_client_slot(client: &GameClient) -> bool {
-    let current = std::ptr::from_ref(client) as usize;
+    let token = client.live_slot_token;
     let current_thread = std::thread::current().id();
-    live_game_client_slot()
-        .lock()
-        .ok()
-        .is_some_and(|slot| slot.raw == Some(current) && slot.owner_thread == Some(current_thread))
+    token != 0
+        && with_live_bridge_mut(|slot| {
+            slot.token == token && slot.raw.is_some() && slot.owner_thread == Some(current_thread)
+        })
+        .unwrap_or(false)
 }
 
 /// Refresh the scalar frame observable for input translators without borrowing
 /// the live singleton.  A non-registered test/local client intentionally does
 /// not replace the active engine's value.
 pub(crate) fn publish_live_game_client_frame(client: &GameClient) {
-    publish_client_frame_for_identity(std::ptr::from_ref(client) as usize, client.frame);
+    publish_client_frame_for_identity(client.live_slot_token, client.frame);
 }
 
-fn publish_client_frame_for_identity(identity: usize, frame: u32) {
-    let current_thread = std::thread::current().id();
-    if let Ok(slot) = live_game_client_slot().lock() {
-        if slot.raw == Some(identity) && slot.owner_thread == Some(current_thread) {
-            LIVE_GAME_CLIENT_FRAME.store(frame, Ordering::Release);
-        }
+fn publish_client_frame_for_identity(token: u64, frame: u32) {
+    if token == 0 {
+        return;
     }
+    let current_thread = std::thread::current().id();
+    let _ = with_live_bridge_mut(|slot| {
+        if slot.token == token && slot.raw.is_some() && slot.owner_thread == Some(current_thread) {
+            slot.frame = frame;
+        }
+    });
 }
 
 /// Read the active client frame without manufacturing a mutable GameClient
-/// reference.  This is safe during `GameClient::update` and fails closed when
-/// no client is registered.
+/// reference. Safe during `GameClient::update`; fails closed when unregistered.
 pub(crate) fn live_game_client_frame() -> Option<u32> {
-    let slot = live_game_client_slot().lock().ok()?;
-    (slot.raw.is_some() && slot.owner_thread == Some(std::thread::current().id()))
-        .then(|| LIVE_GAME_CLIENT_FRAME.load(Ordering::Acquire))
+    with_live_bridge_mut(|slot| {
+        (slot.raw.is_some() && slot.owner_thread == Some(std::thread::current().id()))
+            .then_some(slot.frame)
+    })
+    .flatten()
 }
 
 /// Clears the snapshot callback's dynamic exclusive marker during unwind.
@@ -107,11 +147,12 @@ struct LiveGameClientBorrowGuard {
 
 impl Drop for LiveGameClientBorrowGuard {
     fn drop(&mut self) {
-        if let Ok(mut slot) = live_game_client_slot().lock() {
-            if slot.generation == self.generation && slot.raw.is_some() {
+        let generation = self.generation;
+        let _ = with_live_bridge_mut(|slot| {
+            if slot.generation == generation && slot.raw.is_some() {
                 slot.borrowed = false;
             }
-        }
+        });
     }
 }
 
@@ -119,18 +160,20 @@ pub(crate) fn with_live_game_client_mut<R>(
     callback: impl FnOnce(&mut GameClient) -> R,
 ) -> Option<R> {
     let (raw, _borrow_guard) = {
-        let mut slot = live_game_client_slot().lock().ok()?;
-        if slot.owner_thread != Some(std::thread::current().id()) || slot.borrowed {
-            return None;
-        }
-        let raw = slot.raw?;
-        slot.borrowed = true;
-        (
-            raw,
-            LiveGameClientBorrowGuard {
-                generation: slot.generation,
-            },
-        )
+        let acquired = with_live_bridge_mut(|slot| {
+            if slot.owner_thread != Some(std::thread::current().id()) || slot.borrowed {
+                return None;
+            }
+            let raw = slot.raw?;
+            slot.borrowed = true;
+            Some((
+                raw,
+                LiveGameClientBorrowGuard {
+                    generation: slot.generation,
+                },
+            ))
+        })?;
+        acquired?
     };
     let client = std::ptr::with_exposed_provenance_mut::<GameClient>(raw);
     // Snapshot adapter only: registration/clear are engine-lifecycle scoped;
@@ -329,6 +372,25 @@ pub fn recoil_glam_for_object(object_id: u32) -> Option<glam::Mat4> {
 /// C++ reference:
 /// - `W3DGameClient.cpp` `W3DGameClient::adjustLOD` (clamp [0,4], `WW3D::Set_Texture_Reduction`,
 ///   `TheTerrainRenderObject->setTextureLOD`)
+pub fn live_renderer_3d() -> Option<std::sync::Arc<ww3d_renderer_3d::Renderer3dRuntime>> {
+    let services = try_common_services()?;
+    let guard = services.system.renderer_3d_any.lock().ok()?;
+    let any = guard.as_ref()?;
+    std::sync::Arc::clone(any)
+        .downcast::<ww3d_renderer_3d::Renderer3dRuntime>()
+        .ok()
+}
+
+/// Publish the session [`Renderer3dRuntime`] for GameClient LOD / texture quality.
+pub fn set_live_renderer_3d(r3d: std::sync::Arc<ww3d_renderer_3d::Renderer3dRuntime>) {
+    if let Some(services) = try_common_services() {
+        if let Ok(mut guard) = services.system.renderer_3d_any.lock() {
+            *guard = Some(r3d);
+        }
+    }
+}
+
+
 pub fn apply_lod_texture_reduction(target_factor: i32) -> Option<i32> {
     apply_lod_texture_reduction_to(target_factor, &mut |clamped| {
         if let Ok(mut terrain_guard) = crate::terrain::terrain_visual::get_terrain_visual() {
@@ -342,6 +404,21 @@ pub fn apply_lod_texture_reduction(target_factor: i32) -> Option<i32> {
 /// Synchronous native operation: the caller lends its actual installed terrain.
 /// Definition and renderer changes precede terrain invalidation, then shadows.
 pub fn apply_lod_texture_reduction_to(
+    target_factor: i32,
+    terrain: &mut dyn FnMut(i32),
+) -> Option<i32> {
+    let owned = live_renderer_3d().unwrap_or_else(|| {
+        let owned = std::sync::Arc::new(ww3d_renderer_3d::Renderer3dRuntime::new());
+        // C++ WW3D texture reduction is process-global; publish the session so
+        // later reads observe the same runtime adjustLOD just wrote.
+        set_live_renderer_3d(std::sync::Arc::clone(&owned));
+        owned
+    });
+    apply_lod_texture_reduction_to_session(&owned, target_factor, terrain)
+}
+
+pub fn apply_lod_texture_reduction_to_session(
+    r3d: &ww3d_renderer_3d::Renderer3dRuntime,
     target_factor: i32,
     terrain: &mut dyn FnMut(i32),
 ) -> Option<i32> {
@@ -361,9 +438,10 @@ pub fn apply_lod_texture_reduction_to(
         runtime_global.texture_reduction_factor = clamped;
     }
 
-    let renderer_previous = ww3d_renderer_3d::rendering::texture_quality::texture_reduction();
+    let renderer_previous = ww3d_renderer_3d::rendering::texture_quality::texture_reduction(r3d);
     if renderer_previous != clamped as u32 {
         ww3d_renderer_3d::rendering::texture_quality::set_texture_reduction(
+            r3d,
             clamped as u32,
             WW3D_TEXTURE_REDUCTION_MIN_DIMENSION,
         );
@@ -399,13 +477,16 @@ mod live_slot_tests {
 
     #[test]
     fn live_snapshot_slot_is_same_thread_reentrant_safe_and_publishes_frame() {
-        let _serial = live_slot_test_lock()
+crate::test_support::ensure_ambient_host();
+let _serial = live_slot_test_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let mut client = GameClient::new().expect("client construction");
-        client.mark_initialized();
-        client.set_frame(41);
-        assert_eq!(live_game_client_frame(), Some(41));
+let mut client = GameClient::new().expect("client construction");
+// a04b05dc9: mark_initialized no longer publishes the live slot.
+        register_live_game_client(&mut client);
+client.mark_initialized();
+client.set_frame(41);
+assert_eq!(live_game_client_frame(), Some(41));
 
         let outer = with_live_game_client_mut(|_| {
             assert!(
@@ -429,7 +510,54 @@ mod live_slot_tests {
     }
 
     #[test]
+    fn moved_client_is_still_identified_and_cleared_by_explicit_drop() {
+        crate::test_support::ensure_ambient_host();
+        let _serial = live_slot_test_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut client = GameClient::new().expect("client");
+        register_live_game_client(&mut client);
+        client.set_frame(9);
+        assert_eq!(live_game_client_frame(), Some(9));
+        // Move the value (address changes), then keep driving it: the owner
+        // re-anchors the access path and remains the registered owner.
+        let mut moved = Box::new(client);
+        moved.set_frame(10);
+        assert!(owns_live_game_client_slot(&moved));
+        assert_eq!(live_game_client_frame(), Some(10));
+        assert_eq!(with_live_game_client_mut(|c| c.frame), Some(10));
+        // `drop(value)` moves before Drop; ownership is by identity so the slot
+        // is cleared rather than left naming a freed address.
+        drop(*moved);
+        assert_eq!(live_game_client_frame(), None);
+        assert!(with_live_game_client_mut(|_| ()).is_none());
+    }
+
+    #[test]
+    fn stale_older_client_cannot_clear_or_publish_into_a_newer_registration() {
+        crate::test_support::ensure_ambient_host();
+        let _serial = live_slot_test_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut older = Box::new(GameClient::new().expect("older"));
+        let mut newer = Box::new(GameClient::new().expect("newer"));
+        register_live_game_client(older.as_mut());
+        register_live_game_client(newer.as_mut());
+        newer.set_frame(77);
+        assert!(!owns_live_game_client_slot(&older));
+        assert!(owns_live_game_client_slot(&newer));
+        older.set_frame(5);
+        assert_eq!(live_game_client_frame(), Some(77));
+        assert!(!clear_live_game_client(older.as_mut()));
+        drop(older);
+        assert_eq!(live_game_client_frame(), Some(77));
+        assert!(clear_live_game_client(newer.as_mut()));
+        assert_eq!(live_game_client_frame(), None);
+    }
+
+    #[test]
     fn explicit_drawable_visual_restore_targets_only_its_client() {
+        crate::test_support::ensure_ambient_host();
         let _serial = live_slot_test_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -465,13 +593,58 @@ mod live_slot_tests {
     }
 
     #[test]
+    fn two_clients_own_independent_terrain_visual_gpu_arcs() {
+        crate::test_support::ensure_ambient_host();
+        let _serial = live_slot_test_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut a = GameClient::new().unwrap();
+        let mut b = GameClient::new().unwrap();
+        assert!(!std::sync::Arc::ptr_eq(
+            &a.terrain_visual_gpu,
+            &b.terrain_visual_gpu
+        ));
+        *a.terrain_visual_gpu.lock().unwrap() =
+            Some(crate::terrain::terrain_visual::TerrainVisualSystem::new());
+        assert!(a.terrain_visual_gpu.lock().unwrap().is_some());
+        assert!(b.terrain_visual_gpu.lock().unwrap().is_none());
+        register_live_game_client(&mut a);
+        {
+            let guard =
+                crate::terrain::terrain_visual::get_terrain_visual().expect("published a");
+            assert!(guard.is_some());
+        }
+        register_live_game_client(&mut b);
+        {
+            let mut guard =
+                crate::terrain::terrain_visual::get_terrain_visual().expect("published b");
+            assert!(guard.is_none(), "b starts empty; a must not be published");
+            *guard = Some(crate::terrain::terrain_visual::TerrainVisualSystem::new());
+        }
+        assert!(
+            a.terrain_visual_gpu.lock().unwrap().is_some(),
+            "a keeps its own visual after b becomes live"
+        );
+        assert!(b.terrain_visual_gpu.lock().unwrap().is_some());
+        assert!(clear_live_game_client(&mut b));
+        crate::terrain::terrain_visual::unpublish_terrain_visual(&b.terrain_visual_gpu);
+        // After clear, free-function peels must not observe a foreign client's Arc.
+        assert!(
+            a.terrain_visual_gpu.lock().unwrap().is_some()
+                && b.terrain_visual_gpu.lock().unwrap().is_some()
+        );
+    }
+
+    #[test]
     fn only_live_client_destroys_terrain_visual_after_drawables() {
+        crate::test_support::ensure_ambient_host();
         let _serial = live_slot_test_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut old_client = Box::new(GameClient::new().expect("old client"));
         old_client.mark_initialized();
         let mut live_client = Box::new(GameClient::new().expect("live client"));
+        register_live_game_client(live_client.as_mut());
         live_client.mark_initialized();
 
         {
@@ -505,12 +678,13 @@ mod live_slot_tests {
 
     #[test]
     fn reset_and_active_drop_clear_effects_without_old_client_interference() {
+        crate::test_support::ensure_ambient_host();
         let _serial = live_slot_test_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _tracer_serial = crate::effects::tracer_fx::lock_tracer_fx_tests();
 
-        fn seed_effects() {
+        fn seed_effects(client: &mut GameClient) {
             assert!(crate::effects::ray_effect_system::add_ray_effect(
                 901,
                 [0.0, 0.0, 0.0],
@@ -530,7 +704,7 @@ mod live_slot_tests {
                 )
                 .is_some()
             );
-            assert!(crate::fx_list::create_display_light_pulse(
+            assert!(client.fx_mut().create_display_light_pulse(
                 crate::fx_list::DisplayLightPulse {
                     pos: [0.0, 0.0, 0.0],
                     color: [1.0, 0.5, 0.25],
@@ -542,43 +716,47 @@ mod live_slot_tests {
             ));
         }
 
-        fn assert_effect_count(count: usize) {
+        fn assert_effect_count(client: &GameClient, count: usize) {
             assert_eq!(
                 crate::effects::ray_effect_system::live_ray_effects().len(),
                 count
             );
             assert_eq!(crate::effects::tracer_fx::live_tracer_fx().len(), count);
-            assert_eq!(crate::fx_list::scene_dynamic_lights().len(), count);
+            assert_eq!(client.fx().scene_dynamic_lights().len(), count);
         }
 
         crate::effects::clear_live_effects_after_drawables();
         let mut old_client = Box::new(GameClient::new().expect("old client"));
         old_client.mark_initialized();
         let mut live_client = Box::new(GameClient::new().expect("live client"));
+        register_live_game_client(live_client.as_mut());
         live_client.mark_initialized();
-        seed_effects();
-        assert_effect_count(1);
+        seed_effects(&mut live_client);
+        assert_effect_count(&live_client, 1);
 
         let mut candidate = GameClient::new().expect("unpublished staged client");
         candidate.reset().expect("unpublished candidate reset");
-        assert_effect_count(1);
+        assert_effect_count(&live_client, 1);
         drop(candidate);
-        assert_effect_count(1);
+        assert_effect_count(&live_client, 1);
 
         old_client.reset().expect("staged candidate reset");
-        assert_effect_count(1);
+        assert_effect_count(&live_client, 1);
         drop(old_client);
-        assert_effect_count(1);
+        assert_effect_count(&live_client, 1);
 
         live_client.reset().expect("next match reset");
-        assert_effect_count(0);
-        seed_effects();
+        assert_effect_count(&live_client, 0);
+        seed_effects(&mut live_client);
+        assert_effect_count(&live_client, 1);
         drop(live_client);
-        assert_effect_count(0);
-        assert!(crate::fx_list::drain_display_light_pulses().is_empty());
 
+        // After the live owner drops, process ray/tracer globals are cleared by Drop
+        // hooks; a fresh client starts with an empty owned light scene.
+        assert_eq!(crate::effects::ray_effect_system::live_ray_effects().len(), 0);
+        assert_eq!(crate::effects::tracer_fx::live_tracer_fx().len(), 0);
         let next_client = GameClient::new().expect("next client");
-        assert_effect_count(0);
+        assert_eq!(next_client.fx().scene_dynamic_lights().len(), 0);
         drop(next_client);
     }
 }
@@ -587,10 +765,10 @@ mod live_slot_tests {
 #[path = "fx_client_bone_tests.rs"]
 mod fx_client_bone_tests;
 
-/// Disjoint frame loan. Address is comparison identity only, never dereferenced.
+/// Disjoint frame loan. The live-slot token is its comparison identity.
 pub struct ClientFrameWriter<'a> {
     frame: &'a mut u32,
-    identity: usize,
+    identity: u64,
 }
 impl ClientFrameWriter<'_> {
     /// Read the admitted frame from this exact receiving Client loan.
@@ -623,7 +801,8 @@ impl GameClient {
     pub fn split_frame_and_snow(
         &mut self,
     ) -> (ClientFrameWriter<'_>, &mut crate::snow::SnowManager) {
-        let identity = std::ptr::from_mut(self) as usize;
+        refresh_live_game_client_address(self);
+        let identity = self.live_slot_token;
         (
             ClientFrameWriter {
                 frame: &mut self.frame,
@@ -639,7 +818,8 @@ impl GameClient {
         &mut crate::snow::SnowManager,
         NativeDrawablePresence<'_>,
     ) {
-        let identity = std::ptr::from_mut(self) as usize;
+        refresh_live_game_client_address(self);
+        let identity = self.live_slot_token;
         (
             ClientFrameWriter {
                 frame: &mut self.frame,
@@ -658,7 +838,8 @@ impl GameClient {
         &mut crate::snow::SnowManager,
         NativeDrawableOwner<'_>,
     ) {
-        let identity = std::ptr::from_mut(self) as usize;
+        refresh_live_game_client_address(self);
+        let identity = self.live_slot_token;
         let mut drawable_owner = self.drawables.borrow_native();
         drawable_owner.audio_device = self.native_audio_device.as_ref();
         (
@@ -678,7 +859,8 @@ impl GameClient {
         NativeDrawableOwner<'_>,
         &mut crate::gui::campaign_manager::CampaignManager,
     ) {
-        let identity = std::ptr::from_mut(self) as usize;
+        refresh_live_game_client_address(self);
+        let identity = self.live_slot_token;
         let mut drawable_owner = self.drawables.borrow_native();
         drawable_owner.audio_device = self.native_audio_device.as_ref();
         (
@@ -700,7 +882,8 @@ impl GameClient {
         &mut crate::gui::campaign_manager::CampaignManager,
         &mut crate::gui::command_hints::CommandHintState,
     ) {
-        let identity = std::ptr::from_mut(self) as usize;
+        refresh_live_game_client_address(self);
+        let identity = self.live_slot_token;
         let mut drawable_owner = self.drawables.borrow_native();
         drawable_owner.audio_device = self.native_audio_device.as_ref();
         (
@@ -729,7 +912,8 @@ impl GameClient {
         &'a mut crate::message_stream::message_stream::MessageStream,
     ) {
         let client_frame = self.frame;
-        let identity = std::ptr::from_mut(self) as usize;
+        refresh_live_game_client_address(self);
+        let identity = self.live_slot_token;
         let mut drawable_owner = self.drawables.borrow_native();
         drawable_owner.audio_device = self.native_audio_device.as_ref();
         self.script_display
@@ -807,6 +991,7 @@ impl GameClient {
 mod receiving_lod_tests {
     #[test]
     fn receiving_lod_callbacks_keep_peers_separate_and_follow_definition_renderer_updates() {
+        crate::test_support::ensure_ambient_host();
         const NAME: &str =
             "receiving_lod_callbacks_keep_peers_separate_and_follow_definition_renderer_updates";
         const MARKER: &str = "GENERALS_RECEIVING_LOD_CHILD";
@@ -829,7 +1014,12 @@ mod receiving_lod_tests {
         }
         let definitions = game_engine::common::ini::ini_game_data::ensure_global_data();
         definitions.write().texture_reduction_factor = 0;
-        ww3d_renderer_3d::rendering::texture_quality::set_texture_reduction(0, 32);
+        let __r3d = std::sync::Arc::new(ww3d_renderer_3d::Renderer3dRuntime::new());
+        // Same session as apply_lod / observe (parity with sibling LOD tests).
+        super::set_live_renderer_3d(std::sync::Arc::clone(&__r3d));
+        ww3d_renderer_3d::rendering::texture_quality::set_texture_reduction(&__r3d, 0, 32);
+        // Publish terrain visual through a live GameClient (register publishes it).
+        let _live = crate::test_support::park_live_game_client();
         // A real foreign native holder remains unavailable throughout. The
         // receiving operation must not rediscover or try to borrow that slot.
         let _foreign = crate::terrain::terrain_visual::get_terrain_visual().unwrap();
@@ -842,7 +1032,9 @@ mod receiving_lod_tests {
                 value
             );
             assert_eq!(
-                ww3d_renderer_3d::rendering::texture_quality::texture_reduction(),
+                ww3d_renderer_3d::rendering::texture_quality::texture_reduction(
+                    super::live_renderer_3d().as_deref().unwrap_or(__r3d.as_ref()),
+                ),
                 value as u32
             );
         };

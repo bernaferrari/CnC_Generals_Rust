@@ -12,8 +12,8 @@ pub struct TheTerrainLogic;
 
 impl TheTerrainLogic {
     pub fn get() -> Option<&'static Self> {
-        static TERRAIN: OnceLock<TheTerrainLogic> = OnceLock::new();
-        Some(TERRAIN.get_or_init(|| TheTerrainLogic))
+        static TERRAIN: TheTerrainLogic = TheTerrainLogic;
+        Some(&TERRAIN)
     }
 
     pub fn is_underwater(

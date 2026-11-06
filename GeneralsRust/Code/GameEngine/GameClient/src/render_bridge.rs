@@ -552,7 +552,6 @@ struct SceneLineEntry {
     visible: bool,
 }
 
-static NEXT_LINE_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 impl RenderBridge {
     pub fn new() -> Self {
@@ -1851,7 +1850,15 @@ impl SceneSubmissionTrait for RenderBridge {
     ) -> Option<game_engine::common::system::scene_submission::SceneLineId> {
         let mut guard = THE_RENDER_BRIDGE.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(bridge) = guard.as_mut() {
-            let id = NEXT_LINE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let id = crate::core::game_client::with_live_game_client_mut(|client| {
+                client.next_render_bridge_line_id()
+            })
+            .unwrap_or_else(|| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(1)
+            });
             let entry = SceneLineEntry {
                 start: glam::Vec3::new(desc.start.x, desc.start.y, desc.start.z),
                 end: glam::Vec3::new(desc.end.x, desc.end.y, desc.end.z),
@@ -2271,6 +2278,7 @@ mod tests {
 
     #[test]
     fn test_render_condition_flags_from_empty() {
+        crate::test_support::ensure_ambient_host();
         let flags = RenderConditionFlags::empty();
         let overrides = RenderStateOverrides::from_condition_flags(flags);
         assert!(!overrides.hidden);
@@ -2282,6 +2290,7 @@ mod tests {
 
     #[test]
     fn test_render_condition_flags_night() {
+        crate::test_support::ensure_ambient_host();
         let flags = RenderConditionFlags::NIGHT;
         let overrides = RenderStateOverrides::from_condition_flags(flags);
         assert!(overrides.apply_night_map);
@@ -2290,6 +2299,7 @@ mod tests {
 
     #[test]
     fn test_render_condition_flags_snow() {
+        crate::test_support::ensure_ambient_host();
         let flags = RenderConditionFlags::SNOW;
         let overrides = RenderStateOverrides::from_condition_flags(flags);
         assert!(overrides.apply_snow_map);
@@ -2298,6 +2308,7 @@ mod tests {
 
     #[test]
     fn test_render_condition_flags_damaged() {
+        crate::test_support::ensure_ambient_host();
         let flags = RenderConditionFlags::DAMAGED;
         let overrides = RenderStateOverrides::from_condition_flags(flags);
         assert!((overrides.damage_overlay - 0.5).abs() < f32::EPSILON);
@@ -2305,6 +2316,7 @@ mod tests {
 
     #[test]
     fn test_render_condition_flags_really_damaged() {
+        crate::test_support::ensure_ambient_host();
         let flags = RenderConditionFlags::REALLY_DAMAGED;
         let overrides = RenderStateOverrides::from_condition_flags(flags);
         assert!((overrides.damage_overlay - 1.0).abs() < f32::EPSILON);
@@ -2312,6 +2324,7 @@ mod tests {
 
     #[test]
     fn test_render_condition_flags_awaiting_construction_hidden() {
+        crate::test_support::ensure_ambient_host();
         let flags = RenderConditionFlags::AWAITING_CONSTRUCTION;
         let overrides = RenderStateOverrides::from_condition_flags(flags);
         assert!(overrides.hidden);
@@ -2319,6 +2332,7 @@ mod tests {
 
     #[test]
     fn test_render_condition_flags_selected() {
+        crate::test_support::ensure_ambient_host();
         let flags = RenderConditionFlags::SELECTED;
         let overrides = RenderStateOverrides::from_condition_flags(flags);
         assert!(overrides.selected);
@@ -2326,6 +2340,7 @@ mod tests {
 
     #[test]
     fn test_render_condition_flags_aflame_emissive() {
+        crate::test_support::ensure_ambient_host();
         let flags = RenderConditionFlags::AFLAME;
         let overrides = RenderStateOverrides::from_condition_flags(flags);
         assert!((overrides.emissive_tint[0] - 1.0).abs() < f32::EPSILON);
@@ -2334,6 +2349,7 @@ mod tests {
 
     #[test]
     fn test_bridge_submit_and_flush() {
+        crate::test_support::ensure_ambient_host();
         let mut bridge = RenderBridge::new();
         register_test_model(&mut bridge, "AVComanche");
         let mut camera = Camera::perspective(
@@ -2386,6 +2402,7 @@ mod tests {
 
     #[test]
     fn exact_w3d_ghost_adapter_requires_live_scale_and_color() {
+        crate::test_support::ensure_ambient_host();
         let mut bridge = RenderBridge::new();
         register_test_model(&mut bridge, "GhostMesh");
 
@@ -2446,6 +2463,7 @@ mod tests {
 
     #[test]
     fn exact_hlod_ghost_adapter_remains_fail_closed_without_live_child_state() {
+        crate::test_support::ensure_ambient_host();
         let mut bridge = RenderBridge::new();
         register_test_hlod(&mut bridge, "GhostHlod");
 
@@ -2494,6 +2512,7 @@ mod tests {
 
     #[test]
     fn exact_hlod_ghost_adapter_materializes_static_bind_pose_children() {
+        crate::test_support::ensure_ambient_host();
         let mut bridge = RenderBridge::new();
         let mut hierarchy =
             ww3d_assets::prototypes::HierarchyPrototype::new("GhostBindHierarchy".to_string());
@@ -2566,10 +2585,15 @@ mod tests {
         assert_eq!(snapshot.render_object.sub_objects.len(), 1);
         assert_eq!(snapshot.render_object.sub_objects[0].name, "GhostHlodChild");
         assert!(snapshot.render_object.sub_objects[0].visible);
+        // C++ HTree::Base_Update(root) then HLod::Update_Sub_Object_Transforms
+        // installs HTree::Get_Transform(bone) on each child (hlod.cpp:3242).
+        // Ghost xfer writes that world-rooted Get_Transform, never a local
+        // bind pose. Parent legacy transform (2,3,4) * bind (2,0,0) = (4,3,4).
         assert_eq!(
             snapshot.render_object.sub_objects[0].transform,
             gamelogic::object::w3d_ghost_object::Matrix3x4::from_logic_matrix(
-                GameMat4::from_translation(GameVec3::new(2.0, 0.0, 0.0))
+                GameMat4::from_translation(GameVec3::new(2.0, 3.0, 4.0))
+                    * GameMat4::from_translation(GameVec3::new(2.0, 0.0, 0.0))
             )
         );
         assert!(snapshot.uv_animations_disabled);
@@ -2577,6 +2601,7 @@ mod tests {
 
     #[test]
     fn exact_hlod_ghost_capture_applies_frozen_frame_visibility_and_bones() {
+        crate::test_support::ensure_ambient_host();
         let mut bridge = RenderBridge::new();
         let mut hierarchy =
             ww3d_assets::prototypes::HierarchyPrototype::new("GhostAnimHierarchy".to_string());
@@ -2675,9 +2700,13 @@ mod tests {
             .expect("HLOD with frozen bone frame should capture");
         assert_eq!(capture.render_objects[0].class_id, RenderObjectClass::HLod);
         assert_eq!(capture.render_objects[0].sub_objects.len(), 2);
+        // BoneOverrideState matches C++ Control_Bone relative_tm
+        // (pivot.cpp Capture_Update: Transform = Transform * CapTransform).
+        // Bind pose child (2,0,0) * relative frozen (4,5,6) = (6,5,6).
+        let expected_child = GameMat4::from_translation(GameVec3::new(2.0, 0.0, 0.0)) * frozen;
         assert_eq!(
             capture.render_objects[0].sub_objects[0].transform,
-            gamelogic::object::w3d_ghost_object::Matrix3x4::from_logic_matrix(frozen)
+            gamelogic::object::w3d_ghost_object::Matrix3x4::from_logic_matrix(expected_child)
         );
         assert!(capture.render_objects[0].sub_objects[0].visible);
         assert!(
@@ -2793,6 +2822,7 @@ mod tests {
 
     #[test]
     fn exact_hlod_ghost_capture_freezes_anim_applied_pose_without_bone_override() {
+        crate::test_support::ensure_ambient_host();
         let mut bridge = RenderBridge::new();
         register_animated_hlod_fixture(&mut bridge, "GhostAnimPoseHlod", "IdlePose");
 
@@ -2939,6 +2969,7 @@ mod tests {
 
     #[test]
     fn exact_mesh_ghost_capture_materializes_committed_model_draw() {
+        crate::test_support::ensure_ambient_host();
         let mut bridge = RenderBridge::new();
         register_test_model(&mut bridge, "GhostMesh");
 
@@ -2960,6 +2991,7 @@ mod tests {
 
     #[test]
     fn exact_mesh_ghost_capture_rejects_identity_and_dynamic_state() {
+        crate::test_support::ensure_ambient_host();
         let mut bridge = RenderBridge::new();
         register_test_model(&mut bridge, "GhostMesh");
 
@@ -2982,6 +3014,7 @@ mod tests {
 
     #[test]
     fn capture_window_generation_is_bound_to_the_flushed_draw_submission() {
+        crate::test_support::ensure_ambient_host();
         let mut bridge = RenderBridge::new();
         register_test_model(&mut bridge, "GhostMesh");
         let mut camera = Camera::perspective(
@@ -3040,6 +3073,7 @@ mod tests {
 
     #[test]
     fn test_bridge_frustum_culling() {
+        crate::test_support::ensure_ambient_host();
         let mut bridge = RenderBridge::new();
         let mut camera = Camera::perspective(
             "test".to_string(),
@@ -3079,6 +3113,7 @@ mod tests {
 
     #[test]
     fn test_draw_submission_default() {
+        crate::test_support::ensure_ambient_host();
         let s = DrawSubmission::default();
         assert_eq!(s.drawable_id, DrawableId(0));
         assert!(s.model_name.is_empty());
@@ -3088,6 +3123,7 @@ mod tests {
 
     #[test]
     fn test_model_cache() {
+        crate::test_support::ensure_ambient_host();
         let mut bridge = RenderBridge::new();
         assert!(!bridge.is_model_loaded("TestModel"));
         bridge.mark_model_loaded("TestModel");
@@ -3099,6 +3135,7 @@ mod tests {
 
     #[test]
     fn drained_submissions_skip_unresolved_models_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut bridge = RenderBridge::new();
         let mut camera = Camera::perspective(
             "fallback_scene".to_string(),
@@ -3127,6 +3164,7 @@ mod tests {
 
     #[test]
     fn drained_submissions_identify_asset_model_resolution_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut bridge = RenderBridge::new();
         bridge.asset_manager_mut().add_prototype(
             "realmodel".to_string(),
@@ -3179,6 +3217,7 @@ mod tests {
 
     #[test]
     fn drawable_mesh_keys_cover_requested_file_and_loaded_prototype_names() {
+        crate::test_support::ensure_ambient_host();
         let mut mesh = ww3d_assets::prototypes::MeshPrototype::new("TankBody".to_string());
         let entries = vec![("GUTank_Body", &mesh)];
         let keys = drawable_mesh_keys("GUTank", std::path::Path::new("Art/GUTank.w3d"), &entries);
@@ -3204,6 +3243,7 @@ mod tests {
 
     #[test]
     fn drawable_mesh_data_from_prototypes_concatenates_real_w3d_geometry() {
+        crate::test_support::ensure_ambient_host();
         use ww3d_core::{W3dTexCoordStruct, W3dTriangleStruct, W3dVectorStruct};
 
         let mut body = ww3d_assets::prototypes::MeshPrototype::new("Body".to_string());
@@ -3292,6 +3332,7 @@ mod tests {
 
     #[test]
     fn test_render_state_summary_for_fixed_gameplay_scene() {
+        crate::test_support::ensure_ambient_host();
         let mut bridge = RenderBridge::new();
         register_test_model(&mut bridge, "AVTank");
         register_test_model(&mut bridge, "ABPowerPlant");
@@ -3408,6 +3449,7 @@ mod tests {
 
     #[test]
     fn test_render_state_summary_tracks_hidden_shroud_and_fx_streams() {
+        crate::test_support::ensure_ambient_host();
         let mut bridge = RenderBridge::new();
         register_test_model(&mut bridge, "FXExplosion");
         let mut camera = Camera::perspective(
@@ -3480,18 +3522,21 @@ mod tests {
 
     #[test]
     fn test_create_default_game_scene() {
+        crate::test_support::ensure_ambient_host();
         let scene = create_default_game_scene();
         assert_eq!(scene.name(), "Game World");
     }
 
     #[test]
     fn test_game_logic_to_wwvegas_transform_identity() {
+        crate::test_support::ensure_ambient_host();
         let m = GameMat4::IDENTITY;
         assert_eq!(game_logic_to_wwvegas_transform(m), GameMat4::IDENTITY);
     }
 
     #[test]
     fn test_game_logic_to_wwvegas_vec3() {
+        crate::test_support::ensure_ambient_host();
         let v = GameVec3::new(1.0, 2.0, 3.0);
         let converted = game_logic_to_wwvegas_vec3(v);
         assert!((converted.x - 1.0).abs() < f32::EPSILON);
@@ -3501,6 +3546,7 @@ mod tests {
 
     #[test]
     fn ghost_scene_freeze_is_owned_stable_and_event_driven() {
+        crate::test_support::ensure_ambient_host();
         use gamelogic::object::w3d_ghost_object::{
             Matrix3x4, ParentGeometrySnapshot, RenderObjectClass, RenderObjectState,
             W3DDrawableInfo, W3DRenderObjectSnapshot,
@@ -3567,6 +3613,7 @@ mod tests {
 
     #[test]
     fn register_scene_submission_and_submit_line_makes_visible_scene_lines() {
+        crate::test_support::ensure_ambient_host();
         use game_engine::common::system::geometry::Coord3D;
         use game_engine::common::system::scene_submission::{SceneLineDesc, SceneSubmission};
         use std::sync::Arc;

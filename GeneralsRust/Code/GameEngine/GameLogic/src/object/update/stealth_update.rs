@@ -714,7 +714,8 @@ impl StealthUpdateController {
             self.disguise_transition_frames = self.data.disguise_transition_frames;
             self.disguise_halfpoint_reached = false;
 
-            if let Ok(mut disguise_manager) = get_disguise_manager().lock() {
+            let __arc_disguise = get_disguise_manager();
+            if let Ok(mut disguise_manager) = __arc_disguise.lock() {
                 let _ = disguise_manager.register_object(self.object_id);
                 let _ = disguise_manager.set_disguise(self.object_id, template, disguise_player);
                 let _ = disguise_manager
@@ -734,7 +735,8 @@ impl StealthUpdateController {
             self.transitioning_to_disguise = false;
             self.disguise_halfpoint_reached = false;
 
-            if let Ok(mut disguise_manager) = get_disguise_manager().lock() {
+            let __arc_disguise = get_disguise_manager();
+            if let Ok(mut disguise_manager) = __arc_disguise.lock() {
                 let _ = disguise_manager.unregister_object(self.object_id);
             }
 
@@ -832,8 +834,8 @@ impl StealthUpdateController {
             return StealthLookType::None;
         }
 
-        let relationship = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let relationship = __player_list_arc.read()
             .ok()
             .and_then(|players| players.get_player(player_id as i32).cloned())
             .and_then(|player| {
@@ -1250,13 +1252,8 @@ impl StealthUpdateController {
                 if let Some(base_arc) = base_arc {
                     // Work with the base Object for template and status queries
                     if let Ok(base) = base_arc.read() {
-                        // Heuristic: match template name to Black Market building
-                        let template_name = base.get_template_name().to_ascii_lowercase();
-                        let is_black_market = template_name.contains("blackmarket")
-                            || template_name.contains("black_market")
-                            || template_name.contains("black-market");
-
-                        if !is_black_market {
+                        // C++ StealthUpdate.cpp:157-175 isBlackMarket — KindOf, not name.
+                        if !base.is_kind_of(KindOf::FsBlackMarket) {
                             continue;
                         }
 
@@ -2001,7 +1998,8 @@ mod tests {
             .set_default_team(Some(Arc::clone(&viewer_team)));
 
         {
-            let mut players = player_list().write().expect("player list write");
+            let __player_list_arc = player_list();
+        let mut players = __player_list_arc.write().expect("player list write");
             players.add_player(Arc::new(RwLock::new(crate::player::Player::new(0))));
             players.add_player(Arc::clone(&object_player));
             players.add_player(Arc::clone(&viewer_player));

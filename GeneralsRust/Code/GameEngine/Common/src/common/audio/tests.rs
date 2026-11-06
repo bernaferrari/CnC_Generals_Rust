@@ -385,14 +385,14 @@ fn the_audio_singleton_registers_rodio_not_wwaudio() {
     // (GameEngine.cpp createAudioManager / MilesAudioManager).
     // Live Rust analog is Common THE_AUDIO + rodio, not the leftover audio crate.
     let manager = initialize_global_audio_manager();
-    assert!(
-        THE_AUDIO.get().is_some(),
-        "THE_AUDIO must be the live Common AudioManager singleton"
-    );
-    assert!(Arc::ptr_eq(
-        &manager,
-        THE_AUDIO.get().expect("THE_AUDIO set")
-    ));
+    let live = crate::common::common_services::common_services()
+        .system
+        .the_audio
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
+        .expect("the_audio must be the live Common AudioManager singleton");
+    assert!(Arc::ptr_eq(&manager, &live));
     assert!(
         sound_playback_hook_registered(),
         "boot must register the real playback hook"

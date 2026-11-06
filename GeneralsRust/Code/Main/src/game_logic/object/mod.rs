@@ -169,8 +169,10 @@ pub(crate) fn default_turret_turn_rate() -> f32 {
 
 mod open_contain_rally;
 pub(crate) mod parachute_contain;
+pub(crate) mod turret_ai_state;
 pub(crate) mod turret_runtime;
 pub(crate) mod turret_runtime_persist;
+pub(crate) mod alt_turret_persist;
 mod turret_spawn;
 use turret_spawn::turret_spawn_for_thing_template;
 pub(crate) use turret_spawn::{
@@ -387,6 +389,18 @@ pub struct PendingSpecialPowerConstructionButton {
     pub template_name: String,
     pub special_power_name: String,
     pub options_bits: u32,
+}
+
+/// Frozen post-fire ammo/timer commit for C++ Weapon::privateFireWeapon ordering.
+#[derive(Debug, Clone)]
+pub(crate) struct PendingWeaponFireCommit {
+    pub slot: u8,
+    pub current_time: f32,
+    pub logic_frame: u32,
+    pub target_id: Option<ObjectId>,
+    pub possible_next_shot_frame: u32,
+    pub fire_weapon_name: Option<String>,
+    pub owned_rof: Option<[f32; 3]>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1562,6 +1576,10 @@ pub struct Object {
     /// Host residual: cumulative successful fire_at discharges this match.
     #[serde(default)]
     pub fire_intent_count: u32,
+    /// AssistedTargetingUpdate clip shots committed while TEMP-locked on the
+    /// assist slot (Object::fireCurrentWeapon --m_maxShotCount residual).
+    #[serde(default)]
+    pub assist_clip_fire_commits: u32,
 
     /// Last real accepted WeaponSet discharge. This survives save/load as a
     /// v4 ObjectSnapshot tail; it must never be reconstructed from AI intent.
@@ -1581,6 +1599,11 @@ pub struct Object {
     /// dropping culled-but-live objects.
     #[serde(skip)]
     pub visual_draw_identity_token: std::sync::Arc<()>,
+    /// C++ `Object::getDrawable() != NULL`. Cleared when the receiving Drawable
+    /// is retired while the Object still lives; weapon muzzle FX (Weapon.cpp:889)
+    /// must not run without it. FireOCL stays independent of this flag.
+    #[serde(skip, default = "default_true")]
+    pub has_drawable: bool,
     /// Immutable attachment identity, equivalent to original m_partitionData's
     /// owner. No ambient selection or mutable state is reachable through it.
     #[serde(skip)]
@@ -1593,6 +1616,11 @@ pub struct Object {
     native_pose_revision: u64,
     #[serde(skip)]
     pub pending_weapon_visual_capture: Option<crate::game_logic::PendingWeaponVisualDispatchCapture>,
+
+    /// C++ Weapon.cpp2617–2669 ammo/timer commit deferred until after FireFX/FireOCL.
+    /// Set by GameLogic-owned prepare paths; applied after deliver_owned_weapon_shot.
+    #[serde(skip)]
+    pub(crate) pending_weapon_fire_commit: Option<PendingWeaponFireCommit>,
 
     /// Stored guard radius for pathing/AI persistence
     pub guard_radius: f32,
@@ -2500,6 +2528,10 @@ pub struct Object {
     #[serde(default)]
     pub jet_slow_death: Option<crate::game_logic::host_jet_slow_death::HostJetSlowDeathData>,
     pub mine_data: Option<crate::game_logic::host_mines::HostMineData>,
+    /// C++ AssistedTargetingUpdate module data (AssistingClipSize / AssistingWeaponSlot).
+    #[serde(default)]
+    pub assisted_targeting:
+        Option<crate::game_logic::host_base_defense::HostAssistedTargetingData>,
 
     /// Host residual: unit can detect stealthed enemies (C++ StealthDetectorUpdate).
     pub is_detector: bool,
@@ -2556,6 +2588,8 @@ pub struct Object {
     /// (C++ Object::m_visionSpiedBy / setVisionSpied for CIA Intelligence SpyVision).
     /// Fail-closed: not full looking_mask partition maintenance.
     pub vision_spied_mask: u32,
+    /// C++ `Object::m_visionSpiedBy[MAX_PLAYER_COUNT]` per-player refcount (Object.cpp:5220-5250).
+    pub vision_spied_by: [i32; gamelogic::common::MAX_PLAYER_COUNT],
 
     /// Host residual weapon-bonus flags from PropagandaTowerBehavior.
     /// C++ WEAPONBONUSCONDITION_ENTHUSIASTIC / SUBLIMINAL (rate-of-fire buff near speaker tower).
@@ -2761,69 +2795,24 @@ pub struct Object {
     #[serde(default)]
     pub hive_slaves: [crate::game_logic::host_base_defense::ResidualHiveSlave; 3],
 
-    /// Host residual: TurretAI yaw (deg). Defaults **0**; Strategy Center
-    /// authors NaturalTurretAngle **-90**.
+    /// C++ TurretAI pose / state-machine residual (primary turret, index 0).
+    /// Bincode-identical to the former inline fields (contiguous, same order).
     #[serde(default)]
-    pub turret_angle_deg: f32,
+    pub turret_ai: turret_ai_state::TurretAiState,
     #[serde(skip)]
     pub(crate) turret_runtime: turret_runtime::HostTurretExtra,
-    /// Host residual: TurretAI pitch (deg). Defaults **0**; Strategy Center
-    /// authors NaturalTurretPitch **45**.
-    #[serde(default)]
-    pub turret_pitch_deg: f32,
-    /// TurretAI idle-scan residual: absolute frame when next idle scan may start.
-    /// 0 = not scheduled (or just completed without reschedule).
-    #[serde(default)]
-    pub turret_idle_scan_next_frame: u32,
-    /// TurretAI idle-scan residual: true while rotating toward desired angle.
-    #[serde(default)]
-    pub turret_idle_scanning: bool,
-    /// TurretAI idle-scan residual: desired absolute yaw while scanning.
-    #[serde(default)]
-    pub turret_idle_scan_desired_angle_deg: f32,
-    /// TurretAI idle-scan residual: deterministic scan index (interval/offset seed).
-    #[serde(default)]
-    pub turret_idle_scan_index: u32,
-    /// TurretAI HoldTurret residual: true while holding after idle-scan complete.
-    #[serde(default)]
-    pub turret_holding: bool,
-    /// TurretAI HoldTurret residual: absolute frame when hold ends (0 = none).
-    #[serde(default)]
-    pub turret_hold_until_frame: u32,
-    /// TurretAI idle-recenter residual: true while recentering after Hold (not pack).
-    #[serde(default)]
-    pub turret_idle_recentering: bool,
-    /// TurretAI idle mood-target residual: target was set by friend_checkForIdleMoodTarget.
-    /// Cleared when mood target leaves range / dies (C++ m_targetWasSetByIdleMood).
-    #[serde(default)]
-    pub turret_mood_target: bool,
-    /// C++ TurretAI goal object residual.
-    #[serde(default)]
-    pub turret_target_id: Option<ObjectId>,
-    /// C++ TurretAI m_target forceAttacking residual.
-    #[serde(default)]
-    pub turret_force_attacking: bool,
-    /// C++ TurretAI enabled residual (false until unit has a turret slot).
-    #[serde(default)]
-    pub turret_enabled: bool,
-    /// C++ TurretAIData::m_turnRate residual (radians per logic frame).
-    #[serde(default = "default_turret_turn_rate")]
-    pub turret_turn_rate_rad: f32,
-    /// C++ TurretAI state machine residual.
-    #[serde(default)]
-    pub turret_substate: TurretSubState,
-    /// C++ MODELCONDITION_TURRET_ROTATE residual.
-    #[serde(default)]
-    pub turret_rotating: bool,
-    /// C++ TurretAIData NaturalTurretAngle residual (deg).
-    #[serde(default)]
-    pub turret_natural_angle_deg: f32,
-    /// C++ TurretAIData NaturalTurretPitch residual (deg).
-    #[serde(default)]
-    pub turret_natural_pitch_deg: f32,
-    /// C++ TurretAIData::m_recenterTime residual (logic frames).
-    #[serde(default = "default_turret_recenter_frames")]
-    pub turret_recenter_frames: u32,
+    /// C++ `AIUpdateInterface::m_turretAI[TURRET_ALT]` (AIUpdate.cpp:112-113):
+    /// second TurretAI seeded from the `AltTurret` block. Index 0 stays
+    /// `turret_runtime`; `None` for primary-only templates. Storage only:
+    /// slot pick / aim / draw land in hq-2qedt.2.2-.2.4.
+    #[serde(skip)]
+    pub(crate) alt_turret_runtime: Option<turret_runtime::HostTurretExtra>,
+    /// C++ `m_turretAI[TURRET_ALT]` pose / state-machine memory
+    /// (hq-2qedt.2.3.2). Paired with `alt_turret_runtime`; `None` for
+    /// primary-only templates. In-memory only: xfer is owned by .2.6/.2.7,
+    /// so primary save shape is unchanged. Ticks/targeting land in .2.3.3/.2.3.4.
+    #[serde(skip)]
+    pub(crate) alt_turret_ai: Option<turret_ai_state::TurretAiState>,
 
     /// C++ AIUpdateInterface AttitudeType residual (AI_SLEEP..AI_AGGRESSIVE).
     /// Host residual for TurretAI mood matrix Sleep/Passive gates.
@@ -2838,6 +2827,14 @@ pub struct Object {
     /// Set when damage is applied with a known attacker id.
     #[serde(default)]
     pub last_damage_source: Option<ObjectId>,
+    /// C++ DamageInfoInput::m_sourceTemplate frozen at impact (ActiveBody.cpp:341-346).
+    /// Scripts evaluate AttackedByType from this even after the shooter dies.
+    #[serde(default)]
+    pub last_damage_source_template: String,
+    /// C++ DamageInfoInput::m_sourcePlayerMask captured at impact. For
+    /// projectile radius hits this is the projectile controller mask and must
+    /// stay independent of a later launcher rewrite of last_damage_source.
+    pub last_damage_source_player_mask: u32,
     /// C++ ActiveBody::m_lastDamageCleared; does not erase last DamageInfo.
     #[serde(default)]
     pub(crate) last_damage_cleared: bool,
@@ -2859,6 +2856,10 @@ pub struct Object {
     /// C++ ActiveBody scoreTheKill once per death (splash/residual + direct-fire).
     #[serde(default)]
     pub kill_experience_awarded: bool,
+    /// Team admitted at lethal onDie for Slow/Jet/Heli final destroyObject credit.
+    /// C++ destroyObject itself carries no killer; Main's DestructionEvent does.
+    #[serde(default)]
+    pub deferred_destruction_credit: Option<crate::game_logic::Team>,
     /// Full score admission, distinct from the historical XP-only receipt.
     #[serde(skip)]
     pub(crate) kill_score_phase: crate::game_logic::kill_credit::KillScorePhase,
@@ -3312,12 +3313,24 @@ pub(crate) mod entity_lifecycle_projectiles;
 mod entity_lifecycle_residuals;
 #[cfg(test)]
 mod entity_lifecycle_round_trip_tests;
+#[cfg(test)]
+mod kill_special_reentry_tests;
+#[cfg(test)]
+mod damage_status_type_owner_tests;
+#[cfg(test)]
+mod source_template_damage_tests;
+#[cfg(test)]
+mod projectile_subdual_jam_tests;
 mod entity_lifecycle_tags;
 mod entity_lifecycle_weapon_slots;
 mod fx;
 pub(in crate::game_logic) use fx::{BodyStateFx, BodyStateFxReceiver};
 mod install;
 mod jets;
+#[cfg(test)]
+#[path = "jet_attack_loco_owner_tests.rs"]
+mod jet_attack_loco_owner_tests;
+
 pub(crate) use jets::NativeJetLockon;
 mod orders;
 mod panic_runtime;
@@ -3367,7 +3380,7 @@ pub use jets::{
     HostJetAi, HostJetPendingResume, JET_AFTERBURNER_SOUND, JET_AFTERBURNER_SOUND_STOP,
     JET_LOCKON_TICK_SOUND, JET_RTB_PHASE_APPROACH, JET_RTB_PHASE_LANDING, JET_RTB_PHASE_TAXI,
     JET_WHEEL_SCREECH_SOUND, JET_WHEEL_SCREECH_Z_SLOP, JetAiTickAction,
-    STEALTH_FIGHTER_LOCKON_CURSOR, STEALTH_FIGHTER_LOCKON_TIME_FRAMES,
+    STEALTH_FIGHTER_LOCKON_TIME_FRAMES,
 };
 pub(crate) use stealth::DrawableTintEnvelopes;
 pub use stealth::{
@@ -3695,6 +3708,37 @@ impl Object {
 }
 
 impl Object {
+
+    pub fn dozer_task_build_target(&self) -> Option<ObjectId> {
+        self.dozer_tasks.requests[0].target
+    }
+
+    pub fn set_dozer_task_build_target(&mut self, target: Option<ObjectId>) {
+        self.dozer_tasks.requests[0].target = target;
+    }
+
+    pub fn dozer_task_repair_target(&self) -> Option<ObjectId> {
+        self.dozer_tasks.requests[1].target
+    }
+
+    pub fn set_dozer_task_repair_target(&mut self, target: Option<ObjectId>) {
+        self.dozer_tasks.requests[1].target = target;
+    }
+
+    /// Action dock location for the current/build task (legacy `dozer_dock_action`).
+    pub fn dozer_dock_action(&self) -> Option<glam::Vec3> {
+        let dock = &self.dozer_tasks.docks[0][1];
+        dock.point().map(|c| glam::Vec3::new(c.x, c.y, c.z))
+    }
+
+    pub fn set_dozer_dock_action(&mut self, pos: Option<glam::Vec3>) {
+        use gamelogic::object::update::ai_update::dozer_ai_update::DozerDockPointInfo;
+        self.dozer_tasks.docks[0][1] = match pos {
+            Some(p) => DozerDockPointInfo::from_position(p),
+            None => DozerDockPointInfo::default(),
+        };
+    }
+
     pub fn ai_state(&self) -> AIState {
         self.unit_ai_runtime.machine().projected_state()
     }

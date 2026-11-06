@@ -66,7 +66,7 @@ impl GraphicsContext {
         }))
         .map_err(|_| PlatformError::AdapterNotFound)?;
 
-        let (device, queue) = pollster::block_on(ww3d_gpu::acquire_device(
+        let (device, queue) = pollster::block_on(ww3d_gpu::DeviceAuthority::new().acquire_device(
             &adapter,
             &wgpu::DeviceDescriptor {
                 label: Some("GameClient Device"),
@@ -217,11 +217,14 @@ impl PlatformContext {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
+    /// winit `EventLoop::new` must run on the macOS main thread. Lib unit
+    /// tests use worker threads, so this case lives in the harness=false
+    /// integration binary `tests/platform_context_main_thread.rs`.
     #[test]
+    #[ignore = "winit EventLoop requires macOS main thread; see tests/platform_context_main_thread.rs"]
     fn create_platform_context() {
-        let result = PlatformContext::new("Test", 800, 600);
+        crate::test_support::ensure_ambient_host();
+        let result = super::PlatformContext::new("Test", 800, 600);
         assert!(result.is_ok());
     }
 }

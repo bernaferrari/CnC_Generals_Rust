@@ -274,20 +274,41 @@ mod tests {
             self.version_queries.push(filename.into());
             false
         }
-        fn playback_file(&mut self, filename: String) {
+        fn playback_file(&mut self, filename: String) -> Result<(), String> {
             self.files.push(filename);
+            Ok(())
         }
-        fn restart(&mut self) {
+        fn restart(&mut self) -> Result<(), String> {
             panic!("unexpected restart")
         }
     }
     #[test]
     fn captured_filename_survives_other_menu_and_parent_reset() {
-        let parent_a = Rc::new(RefCell::new(GameWindow::new()));
-        let parent_b = Rc::new(RefCell::new(GameWindow::new()));
-        let first = ReplayPlayback::captured("A.rep".into(), Some(Rc::downgrade(&parent_a)));
-        let second = ReplayPlayback::captured("B.rep".into(), Some(Rc::downgrade(&parent_b)));
+        crate::test_support::ensure_ambient_host();
+        let owner_a = crate::gui::window_manager::WindowManagerOwner::new();
+        let owner_b = crate::gui::window_manager::WindowManagerOwner::new();
+        let parent_a = owner_a.with_manager(|manager| {
+            manager
+                .test_create_window(None, 0, 0, 40, 20)
+                .expect("parent_a")
+        });
+        let parent_b = owner_b.with_manager(|manager| {
+            manager
+                .test_create_window(None, 0, 0, 40, 20)
+                .expect("parent_b")
+        });
+        let first = ReplayPlayback::captured(
+            "A.rep".into(),
+            Some(Rc::downgrade(&parent_a)),
+            owner_a.downgrade(),
+        );
+        let second = ReplayPlayback::captured(
+            "B.rep".into(),
+            Some(Rc::downgrade(&parent_b)),
+            owner_b.downgrade(),
+        );
         drop(parent_a);
+        drop(owner_a);
         let mut receiver = Receiver::default();
         second.playback(&mut receiver);
         first.playback(&mut receiver);
@@ -296,33 +317,50 @@ mod tests {
     }
     #[test]
     fn failed_playback_call_still_hides_only_captured_parent() {
+        crate::test_support::ensure_ambient_host();
         // Receiver deliberately admits no successful game: source hides after
         // the call regardless of header Boolean/error, hq-ae0hh.
-        let parent = Rc::new(RefCell::new(GameWindow::new()));
-        let foreign = Rc::new(RefCell::new(GameWindow::new()));
-        let _ = parent.borrow_mut().hide(false);
-        let _ = foreign.borrow_mut().hide(false);
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        let foreign_owner = crate::gui::window_manager::WindowManagerOwner::new();
+        let parent = owner.with_manager(|manager| {
+            manager
+                .test_create_window(None, 0, 0, 40, 20)
+                .expect("parent")
+        });
+        let foreign = foreign_owner.with_manager(|manager| {
+            manager
+                .test_create_window(None, 0, 0, 40, 20)
+                .expect("foreign")
+        });
+        let _ = parent.borrow_mut().hide_without_manager_side_effects(false);
+        let _ = foreign.borrow_mut().hide_without_manager_side_effects(false);
         let mut receiver = Receiver::default();
-        ReplayPlayback::captured("missing.rep".into(), Some(Rc::downgrade(&parent)))
-            .playback(&mut receiver);
+        ReplayPlayback::captured(
+            "missing.rep".into(),
+            Some(Rc::downgrade(&parent)),
+            owner.downgrade(),
+        )
+        .playback(&mut receiver);
         assert_eq!(receiver.files, ["missing.rep"]);
         assert!(parent.borrow().is_hidden());
         assert!(!foreign.borrow().is_hidden());
     }
     #[test]
     fn direct_double_click_does_not_add_version_query() {
+        crate::test_support::ensure_ambient_host();
         let mut receiver = Receiver::default();
-        ReplayMenuStep::Playback(ReplayPlayback::captured("direct.rep".into(), None))
+        ReplayMenuStep::Playback(ReplayPlayback::captured("direct.rep".into(), None, crate::gui::window_manager::WindowManagerOwner::new().downgrade()))
             .complete(&mut receiver);
         assert_eq!(receiver.files, ["direct.rep"]);
         assert!(receiver.version_queries.is_empty());
-        ReplayMenuStep::CheckVersion(ReplayPlayback::captured("checked.rep".into(), None))
+        ReplayMenuStep::CheckVersion(ReplayPlayback::captured("checked.rep".into(), None, crate::gui::window_manager::WindowManagerOwner::new().downgrade()))
             .complete(&mut receiver);
         assert_eq!(receiver.version_queries, ["checked.rep"]);
         assert_eq!(receiver.files, ["direct.rep", "checked.rep"]);
     }
     #[test]
     fn actual_two_notification_load_keeps_receiving_menu_and_recorded_filename() {
+        crate::test_support::ensure_ambient_host();
         use crate::gui::callbacks::control_bar_callbacks::ControlBarViewport;
         use crate::gui::control_bar::ControlBar;
         use crate::gui::gadgets::{ListBox, PushButton};
@@ -373,7 +411,7 @@ mod tests {
         manager.configure_replay_menu_owned(inputs.clone());
         let key = NameKeyGenerator::name_to_key;
         let parent = manager
-            .create_window_with_id(
+            .test_create_window_with_id(
                 None,
                 0,
                 0,
@@ -391,7 +429,7 @@ mod tests {
         );
         let id = key("ReplayMenu.wnd:ButtonLoadReplay") as i32;
         let button = manager
-            .create_window_with_id(Some(&parent), 10, 10, 40, 20, id)
+            .test_create_window_with_id(Some(&parent), 10, 10, 40, 20, id)
             .unwrap();
         button
             .borrow_mut()
@@ -407,7 +445,7 @@ mod tests {
         );
         let list_id = key("ReplayMenu.wnd:ListboxReplayFiles") as i32;
         let list = manager
-            .create_window_with_id(Some(&parent), 70, 10, 120, 80, list_id)
+            .test_create_window_with_id(Some(&parent), 70, 10, 120, 80, list_id)
             .unwrap();
         list.borrow_mut()
             .set_widget(WindowWidget::ListBox(ListBox::new(
@@ -447,11 +485,12 @@ mod tests {
                 Rc::ptr_eq(&owner, manager.replay_menu.as_ref().unwrap()),
                 "input admission must retain the actual selected menu owner"
             );
-            let mut operation = ReplayMenuOperation::new(true);
+            let mut operation = ReplayMenuOperation::new(true, crate::gui::window_manager::WindowManagerOwner::new().downgrade());
             let mut probe = |selected: &str| {
                 assert_eq!(selected, filename);
                 reader.test_version_playback(selected.into()).unwrap()
             };
+            let mut emitted_messages = Vec::new();
             let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
@@ -473,9 +512,16 @@ mod tests {
                 game_ending: false,
                 tooltips_disabled: false,
                 cursor_mouse: None,
-                emitted_messages: None,
+                emitted_messages: Some(&mut emitted_messages),
+            campaign_manager: None,
+            window_manager_owner: None,
 
-                main_menu: None,
+                client_frame: None,
+            logic_frame: None,
+            ui: None,
+            menu_world: None,
+            menu_host: None,
+            main_menu: None,
             };
             assert_eq!(
                 manager.process_mouse_event_with_control_bar(

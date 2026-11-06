@@ -737,7 +737,8 @@ impl DefaultCommandHandler {
         let (local_visibility, local_allies) =
             self.beacon_visibility_and_allies(&player_arc, local_player_arc.as_ref());
         if local_visibility {
-            let mut manager = match get_beacon_manager().lock() {
+            let __hold_manager = get_beacon_manager();
+        let mut manager = match __hold_manager.lock() {
                 Ok(lock) => lock,
                 Err(_) => {
                     return CommandExecutionResult::Failed(AsciiString::from(
@@ -858,7 +859,8 @@ impl DefaultCommandHandler {
         }
 
         if !removed_entries.is_empty() {
-            if let Ok(mut manager) = get_beacon_manager().lock() {
+            let __arc_beacon = get_beacon_manager();
+            if let Ok(mut manager) = __arc_beacon.lock() {
                 for (owner_id, pos) in removed_entries {
                     let _ = manager.remove_beacon(owner_id, &pos);
                 }
@@ -881,7 +883,8 @@ impl DefaultCommandHandler {
         };
 
         let selected_beacons = self.collect_selected_beacon_positions(context.player_id);
-        let mut manager = match get_beacon_manager().lock() {
+        let __hold_manager = get_beacon_manager();
+        let mut manager = match __hold_manager.lock() {
             Ok(lock) => lock,
             Err(_) => {
                 return CommandExecutionResult::Failed(AsciiString::from(
@@ -925,7 +928,8 @@ impl DefaultCommandHandler {
             return Vec::new();
         }
 
-        let selected_ids = match player_list().read() {
+        let __player_list_arc = player_list();
+        let selected_ids = match __player_list_arc.read() {
             Ok(list) => list
                 .get_player(player_id)
                 .and_then(|player| {
@@ -971,7 +975,8 @@ impl DefaultCommandHandler {
         &self,
         player_id: Int,
     ) -> Option<Arc<dyn crate::common::ThingTemplate>> {
-        let list = player_list().read().ok()?;
+        let __player_list_arc = player_list();
+        let list = __player_list_arc.read().ok()?;
         let player_arc = list.get_player(player_id)?.clone();
         let player_guard = player_arc.read().ok()?;
         let template_name = player_guard

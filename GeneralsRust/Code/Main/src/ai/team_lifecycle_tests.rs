@@ -67,7 +67,7 @@ fn controller(world: &GameLogic, pid: u32, id: u32, unit: ObjectId, active: bool
     ai.next_building_time = f32::MAX;
     ai.next_team_time = f32::MAX;
     ai.next_team_queue_time = f32::MAX;
-    ai.enemy_check_time = f32::MAX;
+    ai.frame_to_check_enemy = u32::MAX;
     ai.team_queue.push_back(queued(id, unit));
     ai.team_ready_queue.push_back(queued(id, unit));
     ai

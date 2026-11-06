@@ -1853,6 +1853,7 @@ mod tests {
 
     #[test]
     fn single_select_click_toggles_existing_selection_when_not_forced() {
+        crate::test_support::ensure_ambient_host();
         let mut listbox = ListBox::new(7, 0, 0, 100, 40);
         listbox.add_item_with_id(42, "first");
 
@@ -1867,6 +1868,7 @@ mod tests {
 
     #[test]
     fn content_top_inset_keeps_title_area_out_of_queries_but_input_selects_first_row_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut listbox = ListBox::new(7, 0, 0, 100, 60).with_item_height(10);
         listbox.add_item_with_id(42, "first");
         listbox.add_item_with_id(43, "second");
@@ -1895,6 +1897,7 @@ mod tests {
 
     #[test]
     fn listbox_render_commands_cover_visible_rows_columns_selection_images_and_focus() {
+        crate::test_support::ensure_ambient_host();
         let theme = GadgetTheme::default();
         let mut listbox = ListBox::new(7, 10, 20, 120, 50).with_item_height(10);
         listbox.set_content_top_inset(5);
@@ -1977,6 +1980,7 @@ mod tests {
 
     #[test]
     fn listbox_render_commands_skip_hidden_and_use_disabled_background() {
+        crate::test_support::ensure_ambient_host();
         let theme = GadgetTheme::default();
         let mut listbox = ListBox::new(7, 10, 20, 120, 50).with_item_height(10);
         listbox.add_item_with_id(42, "Alpha");
@@ -1993,6 +1997,7 @@ mod tests {
 
     #[test]
     fn single_select_force_select_keeps_existing_selection_on_click() {
+        crate::test_support::ensure_ambient_host();
         let mut listbox = ListBox::new(7, 0, 0, 100, 40);
         listbox.set_force_select(true);
         listbox.add_item_with_id(42, "first");
@@ -2008,6 +2013,7 @@ mod tests {
 
     #[test]
     fn single_select_char_key_selects_next_matching_initial_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut listbox = ListBox::new(7, 0, 0, 100, 40);
         listbox.add_item_with_id(10, "Alpha");
         listbox.add_item_with_id(20, "Bravo");
@@ -2033,6 +2039,7 @@ mod tests {
 
     #[test]
     fn multi_select_char_key_is_ignored_like_cpp_multi_listbox() {
+        crate::test_support::ensure_ambient_host();
         let mut listbox =
             ListBox::new(7, 0, 0, 100, 40).with_selection_mode(SelectionMode::Multiple);
         listbox.add_item_with_id(10, "Alpha");
@@ -2051,6 +2058,7 @@ mod tests {
 
     #[test]
     fn single_select_left_right_and_tab_keys_match_cpp_tab_navigation() {
+        crate::test_support::ensure_ambient_host();
         let mut listbox = ListBox::new(7, 0, 0, 100, 40);
         listbox.set_focus(true);
 
@@ -2079,6 +2087,7 @@ mod tests {
 
     #[test]
     fn multi_select_keyboard_ignores_single_select_navigation_keys_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut listbox =
             ListBox::new(7, 0, 0, 100, 40).with_selection_mode(SelectionMode::Multiple);
         listbox.add_item_with_id(10, "Alpha");
@@ -2113,6 +2122,7 @@ mod tests {
 
     #[test]
     fn multi_select_mouse_click_toggles_row_without_ctrl_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut listbox =
             ListBox::new(7, 0, 0, 100, 60).with_selection_mode(SelectionMode::Multiple);
         listbox.add_item_with_id(10, "Alpha");
@@ -2139,6 +2149,7 @@ mod tests {
 
     #[test]
     fn right_mouse_down_is_handled_like_cpp_listbox() {
+        crate::test_support::ensure_ambient_host();
         let mut listbox = ListBox::new(7, 0, 0, 100, 40);
         let messages = listbox.handle_input(&InputEvent::MouseDown {
             x: 1,
@@ -2154,6 +2165,7 @@ mod tests {
 
     #[test]
     fn id_and_data_add_paths_apply_cpp_add_entry_buffer_rules() {
+        crate::test_support::ensure_ambient_host();
         let mut listbox = ListBox::new(7, 0, 0, 100, 40);
         listbox.set_max_length(2);
         listbox.set_auto_purge(true);
@@ -2180,6 +2192,7 @@ mod tests {
 
     #[test]
     fn empty_text_entries_are_normalized_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut listbox = ListBox::new(7, 0, 0, 100, 40);
 
         listbox.add_item("");
@@ -2191,6 +2204,7 @@ mod tests {
 
     #[test]
     fn single_select_scroll_buffer_preserves_shifted_first_row_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut listbox = ListBox::new(7, 0, 0, 100, 40);
         listbox.add_item_with_id(10, "Alpha");
         listbox.add_item_with_id(20, "Bravo");
@@ -2212,6 +2226,7 @@ mod tests {
 
     #[test]
     fn multi_select_scroll_buffer_drops_purged_entries_and_shifts_rest() {
+        crate::test_support::ensure_ambient_host();
         let mut listbox =
             ListBox::new(7, 0, 0, 100, 40).with_selection_mode(SelectionMode::Multiple);
         listbox.add_item_with_id(10, "Alpha");
@@ -2226,6 +2241,7 @@ mod tests {
 
     #[test]
     fn bottom_visible_entry_and_fullness_match_cpp_index_rules() {
+        crate::test_support::ensure_ambient_host();
         let mut listbox = ListBox::new(1, 0, 0, 100, 30).with_item_height(10);
         assert_eq!(listbox.get_bottom_visible_entry(), 0);
         assert!(!listbox.is_full());
@@ -2252,6 +2268,7 @@ mod tests {
 
     #[test]
     fn column_count_and_width_getters_match_cpp_invalid_rules() {
+        crate::test_support::ensure_ambient_host();
         let mut listbox = ListBox::new(1, 0, 0, 120, 30);
         assert_eq!(listbox.columns(), 1);
         assert_eq!(listbox.column_width(0), 120);
@@ -2274,6 +2291,7 @@ mod tests {
 
     #[test]
     fn toggle_multi_selection_matches_cpp_multi_only_rules() {
+        crate::test_support::ensure_ambient_host();
         let mut single = ListBox::new(7, 0, 0, 100, 40);
         single.add_item_with_id(10, "Alpha");
         assert!(!single.toggle_multi_selection(0));
@@ -2296,6 +2314,7 @@ mod tests {
 
     #[test]
     fn get_text_and_color_matches_cpp_invalid_and_text_cell_rules() {
+        crate::test_support::ensure_ambient_host();
         let mut listbox = ListBox::new(7, 0, 0, 100, 40);
         listbox.set_columns(2);
         let row = listbox.add_item_with_color("Alpha", Color::new(0x11, 0x22, 0x33, 0x44));
@@ -2352,6 +2371,7 @@ mod tests {
 
     #[test]
     fn get_selection_matches_cpp_single_and_multi_return_shapes() {
+        crate::test_support::ensure_ambient_host();
         let mut single = ListBox::new(7, 0, 0, 100, 40);
         single.add_item_with_id(10, "Alpha");
         single.add_item_with_id(20, "Bravo");
@@ -2380,6 +2400,7 @@ mod tests {
 
     #[test]
     fn forced_selection_rejects_off_list_rows_like_cpp_set_selected() {
+        crate::test_support::ensure_ambient_host();
         let mut single = ListBox::new(7, 0, 0, 100, 40);
         single.add_item_with_id(10, "Alpha");
         single.add_item_with_id(20, "Bravo");
@@ -2398,6 +2419,7 @@ mod tests {
 
     #[test]
     fn item_data_at_matches_cpp_signed_row_column_rules() {
+        crate::test_support::ensure_ambient_host();
         let mut listbox = ListBox::new(7, 0, 0, 100, 40);
         listbox.set_columns(2);
         listbox.add_item_with_id(10, "Alpha");
@@ -2420,6 +2442,7 @@ mod tests {
 
     #[test]
     fn add_entry_appends_and_writes_columns_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut listbox = ListBox::new(7, 0, 0, 100, 40);
         listbox.set_columns(2);
 
@@ -2459,6 +2482,7 @@ mod tests {
 
     #[test]
     fn add_entry_insert_and_overwrite_selection_rules_match_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut listbox = ListBox::new(7, 0, 0, 100, 60);
         listbox.add_item_with_id(10, "Alpha");
         listbox.add_item_with_id(20, "Bravo");
@@ -2496,6 +2520,7 @@ mod tests {
 
     #[test]
     fn add_entry_capacity_and_auto_purge_match_cpp_buffer_rules() {
+        crate::test_support::ensure_ambient_host();
         let mut full = ListBox::new(7, 0, 0, 100, 40);
         full.set_max_length(2);
         full.add_item_with_id(10, "Alpha");
@@ -2585,6 +2610,7 @@ mod tests {
 
     #[test]
     fn add_entry_stores_image_entries_like_cpp_image_path() {
+        crate::test_support::ensure_ambient_host();
         let mut listbox = ListBox::new(7, 0, 0, 100, 40);
 
         assert_eq!(
@@ -2627,6 +2653,7 @@ mod tests {
 
     #[test]
     fn single_select_home_end_page_keys_are_ignored_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut listbox = ListBox::new(7, 0, 0, 100, 40);
         listbox.add_item_with_id(10, "Alpha");
         listbox.add_item_with_id(20, "Bravo");
@@ -2651,6 +2678,7 @@ mod tests {
 
     #[test]
     fn click_sets_keyboard_focus_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut listbox = ListBox::new(7, 0, 0, 100, 40);
         listbox.add_item_with_id(10, "Alpha");
         assert!(!listbox.has_focus());
@@ -2672,6 +2700,7 @@ mod tests {
 
     #[test]
     fn double_click_window_uses_os_get_double_click_time() {
+        crate::test_support::ensure_ambient_host();
         let listbox = ListBox::new(7, 0, 0, 100, 40);
         assert_eq!(listbox.double_click_ms, os_double_click_time_ms());
         assert_ne!(listbox.double_click_ms, 0);
@@ -2679,6 +2708,7 @@ mod tests {
 
     #[test]
     fn multi_list_wheel_requires_buttons_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut listbox =
             ListBox::new(7, 0, 0, 100, 36).with_selection_mode(SelectionMode::Multiple);
         for i in 0..8 {

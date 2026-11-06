@@ -23,6 +23,7 @@ fn chain_manager() -> (ParticleSystemManager, Arc<ParticleSystemTemplate>) {
 
 #[test]
 fn authored_slave_factory_preserves_ids_links_draws_and_recursive_admission() {
+    crate::test_support::ensure_ambient_host();
     let (mut manager, root) = chain_manager();
     let mut draws = Vec::new();
     let id = manager
@@ -34,10 +35,13 @@ fn authored_slave_factory_preserves_ids_links_draws_and_recursive_admission() {
     assert_eq!(id, 1);
     assert_eq!(manager.next_system_id, 4);
     assert_eq!(manager.active_system_ids_in_order(), vec![3, 2, 1]);
+    // C++ ParticleSystem ctor seeds RandomValue with getGameClientRandomValue(0, UINT_MAX)
+    // before initialDelay / wind angles (ParticleSys.cpp constructor).
     let expected: Vec<_> = [10.0, 20.0, 30.0]
         .into_iter()
         .flat_map(|b| {
             [
+                (0.0, u32::MAX as f32),
                 (b, b + 1.0),
                 (b + 2.0, b + 3.0),
                 (b + 4.0, b + 5.0),
@@ -63,6 +67,7 @@ fn authored_slave_factory_preserves_ids_links_draws_and_recursive_admission() {
 
 #[test]
 fn authored_slave_factory_missing_child_and_false_path_stay_parent_only() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = ParticleSystemManager::new();
     let missing = definition("MissingParent", "Absent", 10.0);
     let mut draws = 0;
@@ -72,7 +77,7 @@ fn authored_slave_factory_missing_child_and_false_path_stay_parent_only() {
             lo
         })
         .unwrap();
-    assert_eq!(draws, 4);
+    assert_eq!(draws, 5); // seed + delay + 3 wind draws
     assert_eq!(manager.active_system_ids_in_order(), vec![1]);
     assert_eq!(
         manager.find_particle_system(1).unwrap().slave_system_id(),
@@ -92,6 +97,7 @@ fn authored_slave_factory_missing_child_and_false_path_stay_parent_only() {
 
 #[test]
 fn authored_slave_factory_cycle_rejects_before_draws_or_receiver_mutation() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = ParticleSystemManager::new();
     let root = definition("CycleA", "CycleB", 10.0);
     manager.register_template(root.clone());
@@ -118,6 +124,7 @@ fn authored_slave_factory_cycle_rejects_before_draws_or_receiver_mutation() {
 
 #[test]
 fn authored_slave_factory_cached_definition_and_same_id_peers_are_independent() {
+    crate::test_support::ensure_ambient_host();
     let mut root = ParticleSystemTemplate::new("CachedRoot".into());
     root.info_mut().slave_system_name = "NotInCatalog".into();
     root.set_slave_template(Some(definition("CachedLeaf", "", 30.0)));
@@ -146,6 +153,7 @@ fn authored_slave_factory_cached_definition_and_same_id_peers_are_independent() 
 
 #[test]
 fn authored_slave_factory_native_load_does_not_expand_saved_chain_again() {
+    crate::test_support::ensure_ambient_host();
     let (mut source, root) = chain_manager();
     source
         .create_particle_system_with_random(&root, true, &mut |lo, _| lo)
@@ -177,6 +185,7 @@ fn authored_slave_factory_native_load_does_not_expand_saved_chain_again() {
 
 #[test]
 fn authored_slave_factory_parsed_pair_updates_and_native_save_continues() {
+    crate::test_support::ensure_ambient_host();
     fn parsed_owner() -> ParticleSystemManager {
         let mut manager = ParticleSystemManager::new();
         let common = "Priority = ALWAYS_RENDER\nShader = ALPHA\nType = PARTICLE\nLifetime = 20 20\nAlpha1 = 1 1 0\nAlpha2 = 1 1 100\nColor1 = R:255 G:127.5 B:0 0\nColor2 = R:255 G:127.5 B:0 100\nVelocityType = ORTHO\nVelOrthoX = 0 0\nVelOrthoY = 0 0\nVelOrthoZ = 0 0\nVolumeType = POINT\nWindMotion = Unused\nBurstCount = 1 1\nBurstDelay = 0 0\n";
@@ -286,6 +295,7 @@ fn authored_slave_factory_parsed_pair_updates_and_native_save_continues() {
 
 #[test]
 fn authored_slave_factory_exhausted_child_ids_reject_without_mutation() {
+    crate::test_support::ensure_ambient_host();
     let (mut manager, root) = chain_manager();
     let mut draws = 0;
     assert!(

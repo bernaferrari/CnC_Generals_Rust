@@ -365,12 +365,10 @@ impl Object {
                 self.apply_inactive_body_damage(damage_type, death_type),
             );
         }
-        // C++ HiveStructureBody::attemptDamage (HiveStructureBody.cpp:45-112):
-        // propagate SMALL_ARMS/SNIPER/POISON/RADIATION/SURRENDER/MICROWAVE to
-        // closest slave; swallow SNIPER/POISON/SURRENDER when none remain.
-        if self.try_hive_structure_body_damage(damage, source, damage_type, frame, context) {
-            return DamageApplication::Complete(false);
-        }
+        // C++ HiveStructureBody::attemptDamage (HiveStructureBody.cpp:45-112)
+        // forwards to resident slave/rider Objects. Only the receiving world
+        // owns those children (GameLogic::try_owned_hive_structure_damage);
+        // a bare Object has no synthetic slave roster to damage.
         // C++ ActiveBody::attemptDamage (ActiveBody.cpp:329-330) bails before
         // type switch / armor / HP when m_indestructible.
         let direct_healing = context.is_healing_entry()
@@ -887,9 +885,6 @@ impl Object {
         if self.status.eject_invulnerable {
             return DamageApplication::Complete(false);
         }
-        if self.try_hive_structure_body_damage(damage, source, damage_type, frame, context) {
-            return DamageApplication::Complete(false);
-        }
         let prev_health = self.health.current;
         let max_health = if self.health.maximum > 0.0 {
             self.health.maximum
@@ -1182,6 +1177,11 @@ impl Object {
         if self.firewall_segment {
             return true;
         }
+        // Authored Body subclass owns the floor; name peel is only the
+        // fallback for unbound host templates.
+        if let Some(kind) = self.thing.template.body_kind {
+            return kind == crate::game_logic::thing::BodyKind::Immortal;
+        }
         let n = self.template_name.to_ascii_lowercase();
         n.contains("supplywarehouse")
             || n.contains("supply_warehouse")
@@ -1234,63 +1234,6 @@ impl Object {
         false
     }
 
-    /// C++ HiveStructureBody::attemptDamage on the live host take_damage path.
-    fn try_hive_structure_body_damage(
-        &mut self,
-        damage: f32,
-        source: Option<ObjectId>,
-        damage_type: crate::game_logic::combat::DamageType,
-        frame: u32,
-        context: &DamageHitContext,
-    ) -> bool {
-        if context.owned_hive_body() {
-            return false;
-        }
-        use crate::game_logic::host_base_defense::{
-            HostHiveDamageClass, hive_damage_class_for_type, is_stinger_site_structure,
-            resolve_hive_structure_damage_roster, sync_hive_slave_mirrors,
-        };
-        if source.is_none() {
-            return false;
-        }
-        if !is_stinger_site_structure(&self.template_name) {
-            return false;
-        }
-        let class = hive_damage_class_for_type(damage_type);
-        if matches!(class, HostHiveDamageClass::HitStructure) {
-            return false;
-        }
-        let struct_hp = self.health.current;
-        let pos = self.get_position();
-        let shooter_xz = context
-            .source()
-            .map(|source| (pos.x, pos.z, source.pos.x, source.pos.z));
-        let (_, _, result) = resolve_hive_structure_damage_roster(
-            &mut self.hive_slaves,
-            struct_hp,
-            damage.max(0.0),
-            class,
-            shooter_xz,
-        );
-        let (count, hp) = sync_hive_slave_mirrors(&self.hive_slaves);
-        self.hive_slave_count = count;
-        self.hive_slave_hp = hp;
-        if result.slaves_killed > 0 {
-            self.hive_slave_respawn_frame =
-                crate::game_logic::host_base_defense::next_stinger_slave_respawn_frame(
-                    frame,
-                    self.hive_slave_respawn_frame,
-                );
-        }
-        if result.slave_damage_applied > 0.0 || result.swallowed {
-            // HiveStructureBody.cpp:45-112 returns after the slave/rider
-            // accepts damage, or after swallowing it with no effect. It does
-            // not execute the hive hull's ArmorFX in either consumed branch.
-            // Native slave Body/FX ownership remains a separate integration.
-            return true;
-        }
-        false
-    }
     /// C++ ActiveBody.cpp:501-572 lastDamageInfo: amount>0 or kill, after armor.
     /// Same-or-next-frame overwrites only if new source exists and (old is gone
     /// or new is VEHICLE/INFANTRY/faction structure).
@@ -1335,12 +1278,18 @@ impl Object {
             },
         );
         if continuation.amount > 0.0 || continuation.is_kill {
+            let source_template = continuation
+                .source_fx
+                .as_ref()
+                .map(|snapshot| snapshot.name.clone())
+                .unwrap_or_default();
             self.stamp_last_damage_cpp_with_observations(
                 continuation.source,
                 continuation.damage_type,
                 continuation.frame,
                 continuation.incoming,
                 continuation.previous,
+                source_template,
             );
             player_effects(BodyPlayerEffect::AttackedBy {
                 victim_player: self.owner_player_id,
@@ -1373,13 +1322,21 @@ impl Object {
         context: &DamageHitContext,
     ) {
         let (incoming, previous) = context.last_damage_observations();
+        let source_template = context
+            .source()
+            .map(|snapshot| snapshot.name.clone())
+            .unwrap_or_default();
         self.stamp_last_damage_cpp_with_observations(
             source,
             damage_type,
             frame,
             incoming,
             previous,
+            source_template,
         );
+        // Weapon.cpp sets m_sourcePlayerMask before projectile→launcher rewrite.
+        // Refresh every impact so Object.cpp radar gating never re-reads sourceID.
+        self.last_damage_source_player_mask = context.source_player_mask();
     }
 
     fn stamp_last_damage_cpp_with_observations(
@@ -1389,6 +1346,7 @@ impl Object {
         frame: u32,
         incoming: LastDamageSourceObservation,
         previous: LastDamageSourceObservation,
+        source_template: String,
     ) {
         // CPP initializes m_lastDamageTimestamp to UINT_MAX. None represents
         // that initial/unknown older-save state without inventing a frame.
@@ -1399,6 +1357,7 @@ impl Object {
         if !same_or_next || (incoming.exists && (!previous.exists || incoming.preferred)) {
             self.last_damage_info_type = Some(damage_type);
             self.last_damage_source = source;
+            self.last_damage_source_template = source_template;
             self.last_damage_cleared = false;
             self.last_damage_timestamp = Some(frame);
         }
@@ -1433,6 +1392,7 @@ mod tests {
             80.0,
             None,
             DamageType::SubdualMissile,
+            0,
             &mut health_events
         ));
         assert!(
@@ -1452,6 +1412,7 @@ mod tests {
             40.0,
             None,
             DamageType::SubdualMissile,
+            0,
             &mut health_events
         ));
         assert_eq!(immune.health.current, before_hp);
@@ -1467,6 +1428,7 @@ mod tests {
             40.0,
             None,
             DamageType::SubdualMissile,
+            0,
             &mut health_events
         ));
         assert!((bare.health.current - 100.0).abs() < 1e-3);
@@ -1489,6 +1451,7 @@ mod tests {
             24.0,
             None,
             DamageType::SubdualVehicle,
+            0,
             &mut health_events
         ));
         assert!(
@@ -1553,6 +1516,7 @@ mod tests {
             1.0,
             None,
             DamageType::KillPilot,
+            0,
             &mut health_events
         ));
         assert!(moving.status.destroyed);
@@ -1569,6 +1533,7 @@ mod tests {
             1.0,
             None,
             DamageType::KillPilot,
+            0,
             &mut health_events
         ));
         assert!((parked.health.current - 150.0).abs() < 1e-3);
@@ -1577,7 +1542,13 @@ mod tests {
         assert!(parked.rider_change_scuttled_on_frame > 0);
 
         let mut tank = vehicle("Tank", 23, 200.0);
-        assert!(!tank.take_damage_from_typed(1.0, None, DamageType::KillPilot, &mut health_events));
+        assert!(!tank.take_damage_from_typed(
+            1.0,
+            None,
+            DamageType::KillPilot,
+            0,
+            &mut health_events
+        ));
         assert!((tank.health.current - 200.0).abs() < 1e-3);
         assert!(tank.is_unmanned());
         assert_eq!(tank.team, Team::Neutral);
@@ -1597,6 +1568,7 @@ mod tests {
             25.0,
             None,
             DamageType::Unresistable,
+            0,
             &mut health_events
         ));
         assert!(
@@ -1608,6 +1580,7 @@ mod tests {
             80.0,
             None,
             DamageType::Unresistable,
+            0,
             &mut health_events
         ));
         assert!(tank.health.current <= 0.0);
@@ -1632,6 +1605,7 @@ mod tests {
             50_000.0,
             None,
             DamageType::Explosive,
+            0,
             &mut health_events
         ));
         assert!(
@@ -1644,6 +1618,7 @@ mod tests {
             99.0,
             None,
             DamageType::Unresistable,
+            0,
             &mut health_events
         ));
         assert!((warehouse.health.current - 1.0).abs() < 1e-3);
@@ -1662,6 +1637,7 @@ mod tests {
             500.0,
             None,
             DamageType::Explosive,
+            0,
             &mut health_events
         ));
         assert!((segment.health.current - 1.0).abs() < 1e-3);
@@ -1673,6 +1649,7 @@ mod tests {
             400.0,
             None,
             DamageType::Unresistable,
+            0,
             &mut health_events
         ));
         assert!(tank.status.destroyed);
@@ -1712,7 +1689,13 @@ mod tests {
         let mut unit = Object::new(tmpl, ObjectId(41), Team::USA);
         unit.health.current = 40.0;
         unit.health.maximum = 100.0;
-        assert!(!unit.take_damage_from_typed(20.0, None, DamageType::Healing, &mut health_events));
+        assert!(!unit.take_damage_from_typed(
+            20.0,
+            None,
+            DamageType::Healing,
+            0,
+            &mut health_events
+        ));
         assert!(
             (unit.health.current - 50.0).abs() < 1e-3,
             "HEALING must use armor coeff 0.5 (heal 10), got {}",
@@ -1731,6 +1714,7 @@ mod tests {
             40.0,
             None,
             DamageType::Microwave,
+            0,
             &mut health_events
         ));
         assert!(
@@ -1754,6 +1738,7 @@ mod tests {
             40.0,
             None,
             DamageType::Microwave,
+            0,
             &mut health_events
         ));
         assert!(
@@ -1765,7 +1750,7 @@ mod tests {
 
         // Leftover host EMP alias is the same store type (Microwave).
         let mut tank2 = vehicle("EmpAliasTank", 44, 100.0);
-        assert!(!tank2.take_damage_from_typed(40.0, None, DamageType::EMP, &mut health_events));
+        assert!(!tank2.take_damage_from_typed(40.0, None, DamageType::EMP, 0, &mut health_events));
         assert!((tank2.health.current - 100.0).abs() < 1e-3);
         assert!(tank2.subdual_damage.abs() < 1e-3);
     }
@@ -1819,7 +1804,7 @@ mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let mut o = vehicle("StatusNone", 46, 100.0);
-        assert!(!o.take_damage_from_typed(2000.0, None, DamageType::Status, &mut health_events));
+        assert!(!o.take_damage_from_typed(2000.0, None, DamageType::Status, 0, &mut health_events));
         assert!(!o.is_faerie_fire());
         assert!((o.health.current - 100.0).abs() < 1e-3);
     }
@@ -1844,7 +1829,7 @@ mod tests {
                 armor: Some("RadTankArmor".into()),
                 damage_fx: None,
             });
-        assert!(!tank.take_radiation_field_tick(20.0, None, &mut health_events));
+        assert!(!tank.take_radiation_field_tick(20.0, None, 0, &mut health_events));
         assert!(
             (tank.health.current - 90.0).abs() < 1e-3,
             "Radiation must apply armor (50% of 20), got {}",
@@ -1864,14 +1849,14 @@ mod tests {
         }];
         jet.status.airborne_target = true;
         // Weapon.cpp:1351 tests real height, not aircraft/target classification.
-        assert!(!jet.take_radiation_field_tick(25.0, None, &mut health_events));
+        assert!(!jet.take_radiation_field_tick(25.0, None, 0, &mut health_events));
         assert_eq!(
             jet.health.current, 75.0,
             "grounded aircraft flags do not prevent radiation"
         );
         jet.health.current = 100.0;
         jet.set_position(glam::Vec3::new(0.0, 100.0, 0.0));
-        assert!(!jet.take_radiation_field_tick(25.0, None, &mut health_events));
+        assert!(!jet.take_radiation_field_tick(25.0, None, 0, &mut health_events));
         assert!(
             (jet.health.current - 100.0).abs() < 1e-3,
             "NOT_AIRBORNE must skip flying victims, got {}",
@@ -1946,9 +1931,7 @@ mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         // C++ ActiveBody.cpp:653 doDamageFX after attemptDamage.
-        use crate::game_logic::host_transition_damage_fx::{
-            TemplateDamageAudio, take_dispatched_armor_damage_fx,
-        };
+        use crate::game_logic::host_transition_damage_fx::take_dispatched_armor_damage_fx;
         game_engine::common::ini::ini_damage_fx::init_global_damage_fx_store();
         let mut dfx = game_engine::common::ini::ini_damage_fx::DamageFX::new();
         dfx.set_major_minor_fx(
@@ -1975,6 +1958,7 @@ mod tests {
             20.0,
             None,
             DamageType::Unresistable,
+            0,
             &mut health_events
         ));
         let dispatched = take_dispatched_armor_damage_fx();
@@ -1984,7 +1968,6 @@ mod tests {
                 .any(|n| n == "TankDamageFX" || n == "FX_TestHitSpark"),
             "armor DamageFX must dispatch, got {dispatched:?}"
         );
-        let _ = TemplateDamageAudio::default();
     }
 
     #[test]
@@ -2171,6 +2154,7 @@ mod tests {
             None,
             DamageType::Toxin,
             crate::game_logic::host_usa_pilot::HostDeathType::PoisonedBeta,
+            0,
             &mut health_events
         ));
         let p = unit
@@ -2226,6 +2210,36 @@ mod tests {
         assert!(
             (p.poison_damage_amount - amount).abs() < 0.01,
             "Unresistable DoT must not refresh poison amount"
+        );
+    }
+
+    #[test]
+    fn dead_keeps_poison_tint_after_duration_elapses() {
+        // C++ PoisonedBehavior.cpp:110-117 — stopPoisonedEffects only when
+        // duration elapsed AND !isEffectivelyDead(); corpses keep the tint.
+        let mut unit = Object::new(ThingTemplate::new("DeadTint"), ObjectId(34), Team::USA);
+        unit.poisoned_behavior =
+            Some(crate::game_logic::host_poisoned_behavior::HostPoisonedBehaviorData::default());
+        unit.poisoned_behavior
+            .as_mut()
+            .unwrap()
+            .start_poisoned_effects(
+                10,
+                5.0,
+                crate::game_logic::host_usa_pilot::HostDeathType::Poisoned,
+            );
+        let stop = unit
+            .poisoned_behavior
+            .as_ref()
+            .unwrap()
+            .poison_overall_stop_frame;
+        assert!(stop > 10);
+        unit.status.effectively_dead = true;
+        unit.health.current = 0.0;
+        let _ = unit.tick_poisoned_behavior(stop);
+        assert!(
+            unit.is_poison_tinted(),
+            "effectively-dead must keep poison tint after duration"
         );
     }
 
@@ -2293,6 +2307,7 @@ mod tests {
             20.0,
             Some(ObjectId(9)),
             DamageType::Healing,
+            0,
             &mut health_events
         ));
         assert_eq!(unit.last_damage_source, Some(ObjectId(9)));
@@ -2317,6 +2332,7 @@ mod tests {
             20.0,
             Some(ObjectId(1)),
             DamageType::Bullet,
+            0,
             &mut health_events
         ));
         assert!((field.health.current - 50.0).abs() < 1e-3);
@@ -2325,6 +2341,7 @@ mod tests {
             1.0,
             Some(ObjectId(1)),
             DamageType::Unresistable,
+            0,
             &mut health_events
         ));
         assert!(field.status.destroyed);
@@ -2332,12 +2349,13 @@ mod tests {
             1.0,
             Some(ObjectId(1)),
             DamageType::Unresistable,
+            0,
             &mut health_events
         ));
     }
 
     #[test]
-    fn stinger_small_arms_and_sniper_hit_slaves_not_structure() {
+    fn stinger_object_local_synthetic_roster_is_not_a_damage_owner() {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         use crate::game_logic::host_base_defense::{
@@ -2366,24 +2384,18 @@ mod tests {
             40.0,
             Some(ObjectId(5)),
             DamageType::Bullet,
+            0,
             &mut health_events
         ));
-        assert!((site.health.current - 1000.0).abs() < 0.01);
-        assert!((site.hive_slave_hp - 60.0).abs() < 0.01);
+        // OLD synthetic control (.97): Object-local mirrors no longer absorb
+        // damage; real slave forwarding is world-owned
+        // (spawn_behavior_child_roster_owner.rs integration tests).
+        assert!(site.health.current < 1000.0, "hull takes the hit");
+        assert!((site.hive_slave_hp - h).abs() < 0.01);
         assert_eq!(site.hive_slave_count, 3);
 
-        let mut empty = site;
-        crate::game_logic::host_base_defense::clear_hive_slave_roster(&mut empty.hive_slaves);
-        empty.hive_slave_count = 0;
-        empty.hive_slave_hp = 0.0;
-        empty.health.current = 1000.0;
-        assert!(!empty.take_damage_from_typed(
-            200.0,
-            Some(ObjectId(5)),
-            DamageType::Sniper,
-            &mut health_events
-        ));
-        assert!((empty.health.current - 1000.0).abs() < 0.01);
+        // Swallow-with-no-slaves is world-owned too: see
+        // hive_damage_masks_follow_receiving_body_and_source.
     }
 
     #[test]
@@ -2449,6 +2461,7 @@ mod tests {
             200.0,
             None,
             DamageType::Explosive,
+            0,
             &mut health_events
         ));
         assert!(bus.armor_set_second_life);
@@ -2461,6 +2474,43 @@ mod tests {
         assert!(!bus.status.destroyed);
         assert!(!bus.status.effectively_dead);
         assert!(!bus.status.on_die_started);
+    }
+
+    #[test]
+    fn battle_bus_start_undeath_fx_precedes_ai_idle_and_throw() {
+        // C++ BattleBusSlowDeathBehavior.cpp:128-150: doFXObj(m_fxStartUndeath)
+        // runs before aiIdle and before scrubVelocity2D/applyShock.
+        let mut bus = vehicle("GLAVehicleBattleBus", 97, 50.0);
+        bus.install_battle_bus_transport();
+        bus.target = Some(ObjectId(4242));
+        bus.status.attacking = true;
+        bus.movement.velocity = glam::Vec3::new(3.0, 0.0, 4.0);
+        let mut seen: Vec<(bool, Option<ObjectId>, bool, glam::Vec3)> = Vec::new();
+        bus.start_battle_bus_second_life_with_body_fx(
+            10,
+            None,
+            &mut |object: &mut Object, fx: BodyStateFx, _| {
+                if matches!(fx, BodyStateFx::ObjectPhase { .. }) {
+                    seen.push((
+                        true,
+                        object.target,
+                        object.status.attacking,
+                        object.movement.velocity,
+                    ));
+                }
+            },
+        );
+        assert_eq!(seen.len(), 1, "StartUndeath FX fires exactly once");
+        let (_, target, attacking, velocity) = seen[0];
+        assert_eq!(target, Some(ObjectId(4242)), "FX must run before aiIdle");
+        assert!(attacking, "FX must run before aiIdle");
+        assert_eq!(
+            velocity,
+            glam::Vec3::new(3.0, 0.0, 4.0),
+            "FX must run before physics scrub/throw"
+        );
+        assert!(bus.target.is_none());
+        assert!(bus.armor_set_second_life);
     }
 
     #[test]
@@ -2484,7 +2534,7 @@ mod tests {
                 armor: Some("BusFlameArmor".into()),
                 damage_fx: None,
             });
-        assert!(!bus.take_damage_from_typed(200.0, None, DamageType::Flame, &mut health_events));
+        assert!(!bus.take_damage_from_typed(200.0, None, DamageType::Flame, 0, &mut health_events));
         assert!(
             bus.armor_set_second_life,
             "raw 200 >= 50 must start second life despite 0.1 flame armor"
@@ -2543,7 +2593,13 @@ mod tests {
                 armor: Some("TreeFlameArmor".into()),
                 damage_fx: None,
             });
-        assert!(!tree.take_damage_from_typed(999.0, None, DamageType::Flame, &mut health_events));
+        assert!(!tree.take_damage_from_typed(
+            999.0,
+            None,
+            DamageType::Flame,
+            0,
+            &mut health_events
+        ));
         assert!(
             (tree.health.current - 37.75).abs() < 0.05,
             "raw clamp then 0.25 armor must leave 37.75, got {}",
@@ -2573,7 +2629,13 @@ mod tests {
                 armor: Some("TreeVulnArmor".into()),
                 damage_fx: None,
             });
-        assert!(tree.take_damage_from_typed(40.0, None, DamageType::Explosive, &mut health_events));
+        assert!(tree.take_damage_from_typed(
+            40.0,
+            None,
+            DamageType::Explosive,
+            0,
+            &mut health_events
+        ));
         assert!(tree.status.destroyed);
     }
 
@@ -2584,12 +2646,19 @@ mod tests {
         // C++ ActiveBody.cpp:329-330: m_indestructible returns before armor/HP.
         let mut o = vehicle("ScriptProp", 95, 100.0);
         o.set_indestructible(true);
-        assert!(!o.take_damage_from_typed(50.0, None, DamageType::Explosive, &mut health_events));
+        assert!(!o.take_damage_from_typed(
+            50.0,
+            None,
+            DamageType::Explosive,
+            0,
+            &mut health_events
+        ));
         assert!((o.health.current - 100.0).abs() < 1e-3);
         assert!(!o.take_damage_from_typed(
             999.0,
             None,
             DamageType::Unresistable,
+            0,
             &mut health_events
         ));
         assert!((o.health.current - 100.0).abs() < 1e-3);
@@ -2599,6 +2668,7 @@ mod tests {
             10.0,
             None,
             DamageType::Unresistable,
+            0,
             &mut health_events
         ));
         assert!((o.health.current - 90.0).abs() < 1e-3);

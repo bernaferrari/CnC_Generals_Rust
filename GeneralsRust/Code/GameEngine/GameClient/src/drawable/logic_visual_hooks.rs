@@ -4,9 +4,9 @@
 //! `TheTerrainTracksRenderObjClassSystem` directly. Those live in this crate,
 //! so the logic-side draw modules call through these registered adapters.
 
-use crate::radius_decal::{ShadowHandle, ShadowTypeInfo, get_projected_shadow_manager};
+use crate::radius_decal::{ShadowHandle, ShadowTypeInfo, with_projected_shadow_manager_mut};
 use crate::render_bridge::THE_RENDER_BRIDGE;
-use crate::terrain::terrain_visual::THE_TERRAIN_VISUAL;
+use crate::terrain::terrain_visual::get_terrain_visual;
 use gamelogic::common::{Coord3D, Matrix3D, ObjectID, Real};
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::object::draw::{
@@ -118,11 +118,11 @@ impl TerrainDecalClient for ProjectedDecalClient {
             offset_x: desc.offset_x,
             offset_y: desc.offset_y,
         };
-        let mut manager = get_projected_shadow_manager().write();
-        let Some(handle) = manager.add_decal(&info) else {
+        let Some(handle) = with_projected_shadow_manager_mut(|manager| manager.add_decal(&info))
+            .flatten()
+        else {
             return;
         };
-        drop(manager);
 
         handle.set_position(desc.position.x, desc.position.y, desc.position.z);
         handle.set_angle(desc.angle);
@@ -237,11 +237,11 @@ impl TerrainDecalClient for ProjectedDecalClient {
             offset_x: desc.offset_x,
             offset_y: desc.offset_y,
         };
-        let mut manager = get_projected_shadow_manager().write();
-        let Some(handle) = manager.add_shadow(&info) else {
+        let Some(handle) = with_projected_shadow_manager_mut(|manager| manager.add_shadow(&info))
+            .flatten()
+        else {
             return;
         };
-        drop(manager);
         handle.set_position(desc.position.x, desc.position.y, desc.position.z);
         handle.set_angle(desc.angle);
         self.install_blob(desc.object_id, handle, desc.shrouded);
@@ -278,7 +278,7 @@ struct TrackClient {
 
 impl TerrainTrackClient for TrackClient {
     fn bind_track(&self, object_id: ObjectID, width: Real, texture: &str) -> Option<u32> {
-        let mut visual = THE_TERRAIN_VISUAL.lock().ok()?;
+        let mut visual = get_terrain_visual().ok()?;
         let terrain = visual.as_mut()?;
         let handle = terrain
             .terrain_tracks_mut()
@@ -288,7 +288,7 @@ impl TerrainTrackClient for TrackClient {
     }
 
     fn unbind_track(&self, handle: u32) {
-        if let Ok(mut visual) = THE_TERRAIN_VISUAL.lock() {
+        if let Ok(mut visual) = get_terrain_visual() {
             if let Some(terrain) = visual.as_mut() {
                 terrain.terrain_tracks_mut().unbind_track(handle as usize);
             }
@@ -297,7 +297,7 @@ impl TerrainTrackClient for TrackClient {
     }
 
     fn add_edge(&self, handle: u32, x: Real, y: Real, sync_time: u32) {
-        if let Ok(mut visual) = THE_TERRAIN_VISUAL.lock() {
+        if let Ok(mut visual) = get_terrain_visual() {
             if let Some(terrain) = visual.as_mut() {
                 terrain.add_track_edge(handle as usize, x, y, sync_time as i32);
             }
@@ -305,7 +305,7 @@ impl TerrainTrackClient for TrackClient {
     }
 
     fn add_cap(&self, handle: u32, x: Real, y: Real, sync_time: u32) {
-        if let Ok(mut visual) = THE_TERRAIN_VISUAL.lock() {
+        if let Ok(mut visual) = get_terrain_visual() {
             if let Some(terrain) = visual.as_mut() {
                 terrain.add_track_cap(handle as usize, x, y, sync_time as i32);
             }
@@ -313,7 +313,7 @@ impl TerrainTrackClient for TrackClient {
     }
 
     fn set_airborne(&self, handle: u32) {
-        if let Ok(mut visual) = THE_TERRAIN_VISUAL.lock() {
+        if let Ok(mut visual) = get_terrain_visual() {
             if let Some(terrain) = visual.as_mut() {
                 if let Some(track) = terrain.terrain_tracks_mut().track_mut(handle as usize) {
                     track.set_airborne();
@@ -537,6 +537,7 @@ mod tests {
 
     #[test]
     fn track_callbacks_sample_ground_without_relocking_the_terrain_owner() {
+        crate::test_support::ensure_ambient_host();
         use crate::terrain::terrain_tracks::{MAX_TRACK_EDGE_COUNT, TerrainTracksConfig};
         use crate::terrain::terrain_visual::TerrainVisualImpl;
 
@@ -548,11 +549,11 @@ mod tests {
             .terrain_tracks_mut()
             .bind_track(4.0, 4.0, "track")
             .unwrap() as u32;
-        let previous = THE_TERRAIN_VISUAL.lock().unwrap().replace(visual);
+        let previous = get_terrain_visual().unwrap().replace(visual);
         struct RestoreTerrain(Option<TerrainVisualImpl>);
         impl Drop for RestoreTerrain {
             fn drop(&mut self) {
-                *THE_TERRAIN_VISUAL.lock().unwrap() = self.0.take();
+                *get_terrain_visual().unwrap() = self.0.take();
             }
         }
         let _restore = RestoreTerrain(previous);
@@ -563,7 +564,7 @@ mod tests {
         client.add_edge(handle, 20.0, 0.0, 20);
         client.add_edge(handle, 40.0, 0.0, 30);
         client.add_cap(handle, 60.0, 0.0, 40);
-        let owner = THE_TERRAIN_VISUAL.lock().unwrap();
+        let owner = get_terrain_visual().unwrap();
         let track = owner
             .as_ref()
             .unwrap()
@@ -583,6 +584,7 @@ mod tests {
 
     #[test]
     fn decal_state_updates_visibility_pose_and_releases_replaced_handles() {
+        crate::test_support::ensure_ambient_host();
         let object_id = 71;
         let mut manager = ProjectedShadowManager::new();
         let client = ProjectedDecalClient::default();
@@ -623,6 +625,7 @@ mod tests {
 
     #[test]
     fn independent_clients_keep_same_object_id_handles_and_pose_separate() {
+        crate::test_support::ensure_ambient_host();
         let object_id = 9;
         let mut manager_a = ProjectedShadowManager::new();
         let mut manager_b = ProjectedShadowManager::new();
@@ -648,6 +651,7 @@ mod tests {
 
     #[test]
     fn teardown_keeps_pending_blob_disable_until_explicitly_cleared() {
+        crate::test_support::ensure_ambient_host();
         let object_id = 18;
         let client = ProjectedDecalClient::default();
 

@@ -46,7 +46,7 @@ fn direct_deletion_keeps_roster_until_physical_removal_and_isolates_peer() {
     let (mut owner, id) = fixture();
     let (peer, peer_id) = fixture();
     assert_eq!(id, peer_id);
-    owner.destroy_object(id);
+    owner.destroy_object(id).unwrap();
     assert!(owner.host_object(id).unwrap().status.destroyed);
     assert_eq!(
         members(&owner),
@@ -82,7 +82,7 @@ fn lethal_body_callback_keeps_dead_member_until_queued_physical_removal() {
         vec![id.0],
         "CPP onDie only notifies the team"
     );
-    owner.destroy_object(id);
+    owner.destroy_object(id).unwrap();
     assert_eq!(members(&owner), vec![id.0]);
     owner.process_destroy_list();
     assert!(owner.host_object(id).is_none());

@@ -429,33 +429,44 @@ impl Default for AssetManager {
     }
 }
 
-/// Global asset manager instance
-static ASSET_MANAGER: std::sync::OnceLock<AssetManager> = std::sync::OnceLock::new();
-
 /// Initialize global asset manager
 pub fn init_asset_manager() -> &'static AssetManager {
-    ASSET_MANAGER.get_or_init(|| {
+    let services = crate::main_services::main_services();
+    let mut guard = services
+        .resource_asset_manager
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if guard.is_none() {
         let mut manager = AssetManager::new();
-
-        // Add default search paths
         if let Ok(current_dir) = std::env::current_dir() {
             manager.add_search_path(current_dir.join("assets"));
             manager.add_search_path(current_dir.join("data"));
             manager.add_search_path(current_dir.join("textures"));
             manager.add_search_path(current_dir.join("models"));
         }
-
         info!(
             "Asset manager initialized with {} search paths",
             manager.search_paths.len()
         );
-        manager
-    })
+        *guard = Some(std::sync::Arc::new(manager));
+    }
+    let arc = guard.as_ref().expect("resource asset manager").clone();
+    let ptr = arc.as_ref() as *const AssetManager;
+    std::mem::forget(arc);
+    unsafe { &*ptr }
 }
 
 /// Get global asset manager
 pub fn get_asset_manager() -> Option<&'static AssetManager> {
-    ASSET_MANAGER.get()
+    let services = crate::main_services::main_services();
+    let guard = services
+        .resource_asset_manager
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let arc = guard.as_ref()?.clone();
+    let ptr = arc.as_ref() as *const AssetManager;
+    std::mem::forget(arc);
+    Some(unsafe { &*ptr })
 }
 
 /// Windows resource management functions

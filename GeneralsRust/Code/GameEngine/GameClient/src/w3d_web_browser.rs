@@ -28,6 +28,8 @@ pub struct BrowserWindowRecord {
 pub struct W3DWebBrowser {
     active_windows: HashMap<String, BrowserWindowRecord>,
     dispatch_available: bool,
+    /// Native presented-page handles (was process PAGES LazyLock).
+    presented_pages: native_browser::PresentedPageMap,
 }
 
 impl Default for W3DWebBrowser {
@@ -41,6 +43,7 @@ impl W3DWebBrowser {
         Self {
             active_windows: HashMap::new(),
             dispatch_available: true,
+            presented_pages: native_browser::PresentedPageMap::default(),
         }
     }
 
@@ -69,8 +72,15 @@ impl W3DWebBrowser {
         let window_name = win.instance_data().decorated_name.clone();
         let (width, height) = win.get_size();
         let (x, y) = win.get_screen_position();
-        let presented =
-            native_browser::present_page(&window_name, url.url.as_str(), x, y, width, height);
+        let presented = native_browser::present_page(
+            &mut self.presented_pages,
+            &window_name,
+            url.url.as_str(),
+            x,
+            y,
+            width,
+            height,
+        );
 
         self.active_windows.insert(
             window_name.clone(),
@@ -92,7 +102,7 @@ impl W3DWebBrowser {
 
     pub fn close_browser_window(&mut self, win: &GameWindow) {
         let name = win.instance_data().decorated_name.clone();
-        native_browser::destroy_page(&name);
+        native_browser::destroy_page(&mut self.presented_pages, &name);
         self.active_windows.remove(name.as_str());
     }
 
@@ -111,18 +121,21 @@ impl W3DWebBrowser {
 
 mod native_browser {
     use std::collections::HashMap;
-    use std::sync::{LazyLock, Mutex};
 
+    #[derive(Debug, Clone, Default)]
+    pub struct PresentedPageMap {
+        pages: HashMap<String, PresentedPage>,
+    }
+
+    #[derive(Debug, Clone)]
     struct PresentedPage {
         url: String,
         #[cfg(target_os = "macos")]
         window: usize,
     }
 
-    static PAGES: LazyLock<Mutex<HashMap<String, PresentedPage>>> =
-        LazyLock::new(|| Mutex::new(HashMap::new()));
-
     pub fn present_page(
+        pages: &mut PresentedPageMap,
         window_name: &str,
         url: &str,
         x: i32,
@@ -133,7 +146,7 @@ mod native_browser {
         #[cfg(target_os = "macos")]
         {
             if let Some(handle) = present_wkwebview(url, x, y, width, height) {
-                PAGES.lock().unwrap_or_else(|e| e.into_inner()).insert(
+                pages.pages.insert(
                     window_name.to_string(),
                     PresentedPage {
                         url: url.to_string(),
@@ -146,7 +159,7 @@ mod native_browser {
         #[cfg(not(target_os = "macos"))]
         {
             let _ = (x, y, width, height);
-            PAGES.lock().unwrap_or_else(|e| e.into_inner()).insert(
+            pages.pages.insert(
                 window_name.to_string(),
                 PresentedPage {
                     url: url.to_string(),
@@ -158,19 +171,23 @@ mod native_browser {
         false
     }
 
-    pub fn destroy_page(window_name: &str) {
-        if let Some(page) = PAGES
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(window_name)
-        {
+    pub fn destroy_page(pages: &mut PresentedPageMap, window_name: &str) {
+        if let Some(page) = pages.pages.remove(window_name) {
             #[cfg(target_os = "macos")]
             destroy_wkwebview(page.window);
             let _ = page.url;
         }
     }
 
-    #[cfg(target_os = "macos")]
+    /// Unit tests must not spin up real WKWebView/NSWindow — that OOMs the full
+    /// lib suite (SIGKILL while entering `close_browser_window_*` after video tests).
+    #[cfg(all(target_os = "macos", test))]
+    fn present_wkwebview(url: &str, x: i32, y: i32, width: i32, height: i32) -> Option<usize> {
+        let _ = (url, x, y, width, height);
+        None
+    }
+
+    #[cfg(all(target_os = "macos", not(test)))]
     fn present_wkwebview(url: &str, x: i32, y: i32, width: i32, height: i32) -> Option<usize> {
         use cocoa::base::{id, nil};
         use cocoa::foundation::{NSPoint, NSRect, NSSize, NSString};
@@ -297,12 +314,13 @@ mod tests {
         let mut window = GameWindow::new();
         window.set_name(name);
         window.set_position(x, y).unwrap();
-        window.set_size(width, height).unwrap();
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| window.set_size(width, height, effects).unwrap());
         window
     }
 
     #[test]
     fn create_browser_window_records_cpp_window_name_url_and_rect() {
+        crate::test_support::ensure_ambient_host();
         register_url("W3DWebBrowserTermsOfService", "https://example.invalid/tos");
         let window = make_window("TOSListBox", 11, 12, 320, 240);
         let mut browser = W3DWebBrowser::new();
@@ -324,6 +342,7 @@ mod tests {
 
     #[test]
     fn create_browser_window_fails_for_missing_url_or_dispatch() {
+        crate::test_support::ensure_ambient_host();
         let window = make_window("MessageBoard", 0, 0, 100, 80);
         let mut browser = W3DWebBrowser::new();
 
@@ -340,6 +359,7 @@ mod tests {
 
     #[test]
     fn close_browser_window_destroys_record_by_decorated_name() {
+        crate::test_support::ensure_ambient_host();
         register_url(
             "W3DWebBrowserMessageBoardClose",
             "https://example.invalid/forum",

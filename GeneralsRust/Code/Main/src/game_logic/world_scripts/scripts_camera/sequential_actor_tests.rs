@@ -183,7 +183,7 @@ fn normal_runtime_sequential_actor_move_pauses_and_idle_resumes_same_tick() {
 
             world.evaluate_and_execute_scripts(0.0);
             assert!(!flag(&world, "SeqAfter"), "moving actor stays paused");
-            assert!(world.unit_command_stop(actor));
+            assert_eq!(world.unit_command_stop(actor).expect("result"), true);
             assert_eq!(world.host_object(actor).unwrap().ai_state(), AIState::Idle);
             let frame = world.frame;
             world.evaluate_and_execute_scripts(0.0);

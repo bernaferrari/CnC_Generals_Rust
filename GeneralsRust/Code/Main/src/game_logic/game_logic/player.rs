@@ -271,6 +271,13 @@ impl PlayerTemplateIdentity {
             return None;
         }
 
+        // Keep CommonServices alive for load + lookup; a scope inside
+        // ensure_player_templates_loaded alone would drop the catalog.
+        let _common = if game_engine::common::common_services::try_common_services().is_none() {
+            Some(game_engine::common::common_services::CommonServicesScope::new())
+        } else {
+            None
+        };
         game_engine::common::ini::ensure_player_templates_loaded();
         let store = game_engine::common::rts::player_template::get_player_template_store();
         Self::from_exact_name_in(template_name, &store)
@@ -379,6 +386,12 @@ impl PlayerTemplateIdentity {
 impl GameLogic {
     /// Purchase through this session's science definitions and live player.
     pub(crate) fn attempt_player_science_purchase(&mut self, id: u32, name: &str) -> bool {
+        self.with_own_services_mut(|this| {
+            this.attempt_player_science_purchase_bound(id, name)
+        })
+    }
+
+    fn attempt_player_science_purchase_bound(&mut self, id: u32, name: &str) -> bool {
         use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::normalize_science_name_residual;
         let Some(content) = self.receiving_module_content.as_ref() else {
             let canonical = normalize_science_name_residual(name);

@@ -21,6 +21,7 @@ mod specialized_draw_owner {
 
     #[test]
     fn same_ids_in_two_clients_keep_independent_pose_and_treads() {
+        crate::test_support::ensure_ambient_host();
         let id = 910_031;
         let mut first = GameClient::new().unwrap();
         let mut entry = tank_entry(id, [0.0; 3]);
@@ -50,6 +51,7 @@ mod specialized_draw_owner {
 
     #[test]
     fn constructing_client_does_not_inherit_another_clients_snapshot() {
+        crate::test_support::ensure_ambient_host();
         let id = 910_032;
         let mut first = GameClient::new().unwrap();
         first
@@ -63,6 +65,7 @@ mod specialized_draw_owner {
 
     #[test]
     fn destroy_and_recreate_same_id_has_no_predecessor_pose() {
+        crate::test_support::ensure_ambient_host();
         let id = 910_033;
         let mut client = GameClient::new().unwrap();
         client
@@ -93,6 +96,7 @@ mod specialized_draw_owner {
 
     #[test]
     fn attached_module_draw_does_not_overwrite_advanced_tread_state() {
+        crate::test_support::ensure_ambient_host();
         let id = 910_034;
         let mut client = GameClient::new().unwrap();
         client
@@ -129,6 +133,7 @@ mod specialized_draw_projection {
 
     #[test]
     fn non_ascii_mesh_leaf_is_rejected_without_utf8_slicing() {
+        crate::test_support::ensure_ambient_host();
         let snapshot = PresentationSpecializedDrawSnapshot {
             kind: PresentationSpecializedDrawKind::Tank,
             module_name: "W3DTankDraw".into(),
@@ -150,6 +155,7 @@ mod specialized_draw_projection {
 
     #[test]
     fn persistent_fx_receives_preceding_pose_not_new_snapshot_pose() {
+        crate::test_support::ensure_ambient_host();
         let mut entry = presentation_drawable_sync_for_test(
             910_041,
             1,
@@ -174,6 +180,7 @@ mod specialized_draw_projection {
 
     #[test]
     fn unchanged_module_names_move_through_sync_without_copying_strings() {
+        crate::test_support::ensure_ambient_host();
         let id = 910_042;
         let mut client = GameClient::new().unwrap();
         let mut entry = presentation_drawable_sync_for_test(
@@ -201,6 +208,7 @@ mod specialized_draw_projection {
 
 #[test]
 fn specialized_draw_owner_snapshot_iterator_rejects_foreign_epoch() {
+    crate::test_support::ensure_ambient_host();
     let mut client = GameClient::new().unwrap();
     let mut entry = presentation_drawable_sync_for_test(
         910_050,

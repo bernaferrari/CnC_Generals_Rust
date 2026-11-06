@@ -9,6 +9,7 @@
 
 use glam::{Mat3, Mat4, Quat, Vec3};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 type Quaternion = Quat;
 
@@ -27,6 +28,7 @@ pub struct PhysicsWorld {
     contact_cache: Vec<ContactManifold>,
     collision_events: Vec<CollisionEvent>,
     collision_callback: Option<CollisionCallback>,
+    next_body_id: AtomicU64,
 }
 
 impl PhysicsWorld {
@@ -43,6 +45,7 @@ impl PhysicsWorld {
             contact_cache: Vec::new(),
             collision_events: Vec::new(),
             collision_callback: None,
+            next_body_id: AtomicU64::new(1),
         }
     }
 
@@ -66,8 +69,8 @@ impl PhysicsWorld {
 
     /// Create a rigid body
     pub fn create_body(&mut self, desc: RigidBodyDesc) -> PhysicsBodyId {
-        let id = PhysicsBodyId::new();
-        let body = RigidBody::new(desc);
+        let id = PhysicsBodyId::next(&self.next_body_id);
+        let body = RigidBody::new(desc, id);
         self.bodies.insert(id, body);
         id
     }
@@ -696,10 +699,8 @@ impl PhysicsWorld {
 pub struct PhysicsBodyId(u64);
 
 impl PhysicsBodyId {
-    fn new() -> Self {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        Self(COUNTER.fetch_add(1, Ordering::SeqCst))
+    fn next(counter: &AtomicU64) -> Self {
+        Self(counter.fetch_add(1, Ordering::SeqCst))
     }
 }
 
@@ -783,7 +784,7 @@ pub struct RigidBody {
 }
 
 impl RigidBody {
-    fn new(desc: RigidBodyDesc) -> Self {
+    fn new(desc: RigidBodyDesc, id: PhysicsBodyId) -> Self {
         let inv_mass = if desc.mass > 0.0 {
             1.0 / desc.mass
         } else {
@@ -799,7 +800,7 @@ impl RigidBody {
         let inv_inertia_world = rot_mat * inv_inertia_local * rot_mat.transpose();
 
         Self {
-            id: PhysicsBodyId::new(),
+            id,
             position: desc.position,
             rotation: desc.rotation,
             transform: Mat4::IDENTITY,
@@ -2591,12 +2592,47 @@ mod tests {
     use super::*;
 
     fn test_body(position: Vec3, rotation: Quat, shape: CollisionShape) -> RigidBody {
-        RigidBody::new(RigidBodyDesc {
-            position,
-            rotation,
-            shape,
-            ..Default::default()
-        })
+        static TEST_IDS: AtomicU64 = AtomicU64::new(1);
+        RigidBody::new(
+            RigidBodyDesc {
+                position,
+                rotation,
+                shape,
+                ..Default::default()
+            },
+            PhysicsBodyId::next(&TEST_IDS),
+        )
+    }
+
+
+    #[test]
+    fn physics_worlds_allocate_independent_body_ids() {
+        use std::sync::{Arc, Barrier, Mutex};
+        let barrier = Arc::new(Barrier::new(2));
+        let ids_a = Arc::new(Mutex::new(Vec::new()));
+        let ids_b = Arc::new(Mutex::new(Vec::new()));
+        let spawn = |ids: Arc<Mutex<Vec<PhysicsBodyId>>>, barrier: Arc<Barrier>| {
+            std::thread::spawn(move || {
+                let mut world = PhysicsWorld::new();
+                barrier.wait();
+                for _ in 0..8 {
+                    let id = world.create_body(RigidBodyDesc::default());
+                    ids.lock().unwrap().push(id);
+                }
+            })
+        };
+        let t1 = spawn(ids_a.clone(), barrier.clone());
+        let t2 = spawn(ids_b.clone(), barrier);
+        t1.join().unwrap();
+        t2.join().unwrap();
+        let a = ids_a.lock().unwrap().clone();
+        let b = ids_b.lock().unwrap().clone();
+        assert_eq!(a.len(), 8);
+        assert_eq!(b.len(), 8);
+        // Worlds own separate counters — both can mint the same sequence.
+        assert_eq!(a, b);
+        assert_eq!(a[0], PhysicsBodyId(1));
+        assert_eq!(a[7], PhysicsBodyId(8));
     }
 
     #[test]

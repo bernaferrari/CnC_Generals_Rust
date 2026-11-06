@@ -357,6 +357,9 @@ pub struct ObjectOverchargeSnapshot {
 pub struct ObjectVisionSpiedSnapshot {
     pub object_id: ObjectId,
     pub vision_spied_mask: u32,
+    /// C++ `Object::xfer` `m_visionSpiedBy[]` counts (Object.cpp:4127).
+    #[serde(default)]
+    pub vision_spied_by: Vec<i32>,
 }
 
 /// C++ `Object::xfer` builder provenance; requested Dozer tasks use native module Xfer.

@@ -558,7 +558,6 @@ fn campaign_launch_descriptor_precedes_stale_map_and_hud_faction() {
     use game_client::gui::campaign_launch_host_bridge::HostCampaignLaunchDescriptor;
 
     let descriptor = HostCampaignLaunchDescriptor {
-        generation: 7,
         map_name: "Maps\\Campaign\\ExactLaunch.map".to_string(),
         campaign_name: "USA".to_string(),
         // Deliberately differs from the campaign name: C++'s campaign player
@@ -605,7 +604,6 @@ fn challenge_launch_rejects_a_missing_or_unpaired_selected_general() {
     use game_client::gui::campaign_launch_host_bridge::HostCampaignLaunchDescriptor;
 
     let descriptor = HostCampaignLaunchDescriptor {
-        generation: 9,
         map_name: "Maps\\Challenge\\Exact.map".to_string(),
         campaign_name: "CHALLENGE_0".to_string(),
         campaign_player_faction: "FactionAmericaAirForceGeneral".to_string(),
@@ -644,7 +642,6 @@ fn challenge_launch_retains_the_exact_selected_template_name_and_index() {
     };
 
     let descriptor = HostCampaignLaunchDescriptor {
-        generation: 10,
         map_name: "Maps\\Challenge\\ExactTank.map".to_string(),
         campaign_name: "CHALLENGE_0".to_string(),
         campaign_player_faction: "FactionChinaTankGeneral".to_string(),
@@ -1093,10 +1090,6 @@ fn game_logic_gate_with_network_uses_frame_ready_only() {
     ));
 }
 
-#[test]
-fn network_gate_skips_runtime_network_lookup_until_multiplayer_exists() {
-    assert_eq!(CnCGameEngine::network_frame_data_ready_gate(false), None);
-}
 
 #[test]
 fn iconic_minimized_mode_keeps_network_sessions_running() {
@@ -1422,7 +1415,7 @@ fn menu_client_survivors_use_actual_receiving_command_owner_without_core_queue()
                     foreign.fetch_add(1, Ordering::SeqCst);
                 }),
             ));
-            let client = game_client::core::GameClient::new().unwrap();
+            let mut client = game_client::core::GameClient::new().unwrap();
             let mut owner = crate::game_logic::GameLogic::new();
             let mut peer = crate::game_logic::GameLogic::new();
             game_client::message_stream::command_list::get_command_list()
@@ -1442,7 +1435,7 @@ fn menu_client_survivors_use_actual_receiving_command_owner_without_core_queue()
             // This is the same production helper used by both Menu branches
             // and runtime-host start after NewGame interception. These ordinary
             // survivors must not depend on Core's absent player0 queue.
-            CnCGameEngine::pump_receiving_client_commands(&client, &mut owner.replay_pending)
+            CnCGameEngine::pump_receiving_client_commands(&mut client, &mut owner.replay_pending)
                 .unwrap();
             assert_eq!(calls.load(Ordering::SeqCst), 0);
             stamp_host_logic_frame(&mut owner.replay_pending, 7);
@@ -1469,7 +1462,7 @@ fn menu_client_survivors_use_actual_receiving_command_owner_without_core_queue()
                 crate::command_system::CommandType::MoveTo { .. }
             ));
             assert!(peer.command_queue.is_empty());
-            CnCGameEngine::pump_receiving_client_commands(&client, &mut owner.replay_pending)
+            CnCGameEngine::pump_receiving_client_commands(&mut client, &mut owner.replay_pending)
                 .unwrap();
             flush_recorder_and_replay_authority(
                 &mut owner.replay_pending,

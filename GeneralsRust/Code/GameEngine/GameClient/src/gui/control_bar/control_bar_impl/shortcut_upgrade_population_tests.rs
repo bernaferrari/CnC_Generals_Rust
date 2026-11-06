@@ -3,13 +3,15 @@
 // is receiving-owned in this bounded migration.
 #[test]
 fn actual_shortcut_population_observes_each_receiving_upgrade_operation() {
+    crate::test_support::ensure_ambient_host();
     let owner = crate::gui::window_manager::WindowManagerOwner::new();
-    owner.with_scope(|| {
+    { // was owner.with_scope
         use game_engine::common::ini::{ini_command_button, ini_command_set};
         use game_engine::common::thing::receiving_module_content::{
             UpgradeTooltipObservation, UpgradeTooltipSource,
         };
         use gamelogic::player::PlayerArcExt;
+        use std::sync::RwLock;
         const TEST: &str = "actual_shortcut_population_observes_each_receiving_upgrade_operation";
         const UPGRADE: &str = "Upgrade_ActualReceivingShortcut";
         const BUTTON: &str = "Command_ActualReceivingShortcut";
@@ -55,7 +57,8 @@ fn actual_shortcut_population_observes_each_receiving_upgrade_operation() {
         local.init(Arc::new(template));
         let local = Arc::new(RwLock::new(local));
         {
-            let mut players = logic_player_list().write().unwrap();
+            let player_list = logic_player_list();
+            let mut players = player_list.write().unwrap();
             *players = gamelogic::player::PlayerList::new();
             players.add_player(Arc::clone(&local));
             players.set_local_player_index(7);
@@ -63,7 +66,10 @@ fn actual_shortcut_population_observes_each_receiving_upgrade_operation() {
         assert!(!local.has_upgrade_complete(&upgrade));
         // Install the existing shortcut row inventory and actual named windows.
         // No WND asset/device is required to call the real population algorithm.
-        fn bar(layout: &str) -> ControlBar {
+        fn bar(
+            layout: &str,
+            owner: &crate::gui::window_manager::WindowManagerOwner,
+        ) -> ControlBar {
             let mut bar = ControlBar::new();
             bar.special_power_shortcut_layout = layout.to_owned();
             bar.special_power_shortcut_count = 1;
@@ -77,15 +83,19 @@ fn actual_shortcut_population_observes_each_receiving_upgrade_operation() {
                 bar.leftover_shortcut_button_name(0),
                 bar.leftover_shortcut_parent_name(0),
             ] {
-                with_window_manager(|manager| {
-                    let window = manager.create_window(None, 0, 0, 32, 32).unwrap();
+                owner.with_manager(|manager| {
+                    let window = manager.test_create_window(None, 0, 0, 32, 32).unwrap();
                     window.borrow_mut().set_name(&name);
-                    window.borrow_mut().hide(true).unwrap();
+                    window.borrow_mut().hide_without_manager_side_effects(true).unwrap();
                 });
             }
             bar
         }
-        fn assert_row(bar: &ControlBar, visible: bool) {
+        fn assert_row(
+            bar: &ControlBar,
+            visible: bool,
+            owner: &crate::gui::window_manager::WindowManagerOwner,
+        ) {
             let row = &bar.special_power_shortcuts[0];
             assert_eq!(row.is_hidden, !visible);
             assert_eq!(row.command_name, if visible { BUTTON } else { "" });
@@ -93,7 +103,9 @@ fn actual_shortcut_population_observes_each_receiving_upgrade_operation() {
                 bar.leftover_shortcut_button_name(0),
                 bar.leftover_shortcut_parent_name(0),
             ] {
-                let window = leftover_find_window(&name).expect("real installed shortcut window");
+                let window = owner
+                    .with_manager(|wm| leftover_find_window(&name, wm))
+                    .expect("real installed shortcut window");
                 assert_eq!(window.borrow().is_hidden(), !visible, "{name}");
             }
         }
@@ -112,67 +124,75 @@ fn actual_shortcut_population_observes_each_receiving_upgrade_operation() {
         };
         let peer_incomplete = |_: &str, _: &str| observation(false, true, true);
         let missing = |_: &str, _: &str| observation(true, false, true);
-        let mut owner = bar("ReceivingOwner.wnd");
-        let mut peer = bar("ReceivingPeer.wnd");
+        let mut owner_bar = bar("ReceivingOwner.wnd", &owner);
+        let mut peer = bar("ReceivingPeer.wnd", &owner);
         let forbidden = |_: &str, _: &str| -> UpgradeTooltipObservation {
             panic!("ending shortcut reveal must stop before definition observation");
         };
-        owner.show_special_power_shortcut_receiving(
-            UpgradeTooltipSource::Receiving(&forbidden),
-            true,
-        );
-        assert_row(&owner, false);
-        assert_row(&peer, false);
-        owner
-            .populate_special_power_shortcut_with_upgrade_source(UpgradeTooltipSource::Receiving(
+        owner.with_manager(|wm| {
+            crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+                owner_bar.show_special_power_shortcut_receiving(
+                    UpgradeTooltipSource::Receiving(&forbidden),
+                    true,
+                    wm,
+                    effects,
+                );
+            });
+        });
+        assert_row(&owner_bar, false, &owner);
+        assert_row(&peer, false, &owner);
+        owner.with_manager(|wm| {
+            owner_bar.populate_special_power_shortcut_with_upgrade_source(UpgradeTooltipSource::Receiving(
                 &completed,
-            ))
-            .unwrap();
-        assert_row(&owner, true); // Core is incomplete: no Core fallback can supply this row.
-        peer.populate_special_power_shortcut_with_upgrade_source(UpgradeTooltipSource::Receiving(
+            ), wm).unwrap();
+        });
+        assert_row(&owner_bar, true, &owner); // Core is incomplete: no Core fallback can supply this row.
+        owner.with_manager(|wm| {
+            peer.populate_special_power_shortcut_with_upgrade_source(UpgradeTooltipSource::Receiving(
             &peer_incomplete,
-        ))
-        .unwrap();
-        assert_row(&peer, false); // Object completion is intentionally irrelevant to this Player gate.
-        assert_row(&owner, true); // Another bar cannot rewrite this installed row/window.
-        owner
-            .populate_special_power_shortcut_with_upgrade_source(UpgradeTooltipSource::Receiving(
+        ), wm).unwrap();
+        });
+        assert_row(&peer, false, &owner); // Object completion is intentionally irrelevant to this Player gate.
+        assert_row(&owner_bar, true, &owner); // Another bar cannot rewrite this installed row/window.
+        owner.with_manager(|wm| {
+            owner_bar.populate_special_power_shortcut_with_upgrade_source(UpgradeTooltipSource::Receiving(
                 &missing,
-            ))
-            .unwrap();
-        assert_row(&owner, false); // An old populated row is removed at this operation.
-        owner
-            .populate_special_power_shortcut_with_upgrade_source(UpgradeTooltipSource::Receiving(
+            ), wm).unwrap();
+        });
+        assert_row(&owner_bar, false, &owner); // An old populated row is removed at this operation.
+        owner.with_manager(|wm| {
+            owner_bar.populate_special_power_shortcut_with_upgrade_source(UpgradeTooltipSource::Receiving(
                 &completed,
-            ))
-            .unwrap();
-        assert_row(&owner, true);
-        owner
-            .populate_special_power_shortcut_with_upgrade_source(UpgradeTooltipSource::Standalone)
-            .unwrap();
-        assert_row(&owner, false);
+            ), wm).unwrap();
+        });
+        assert_row(&owner_bar, true, &owner);
+        owner.with_manager(|wm| {
+            owner_bar.populate_special_power_shortcut_with_upgrade_source(UpgradeTooltipSource::Standalone, wm).unwrap();
+        });
+        assert_row(&owner_bar, false, &owner);
         local.add_upgrade(&upgrade, gamelogic::upgrade::UpgradeStatus::Complete, None);
         assert!(local.has_upgrade_complete(&upgrade));
-        owner
-            .populate_special_power_shortcut_with_upgrade_source(UpgradeTooltipSource::Standalone)
-            .unwrap();
-        assert_row(&owner, true); // Explicit standalone still uses its real Core Player.
-        owner
-            .populate_special_power_shortcut_with_upgrade_source(UpgradeTooltipSource::Receiving(
+        owner.with_manager(|wm| {
+            owner_bar.populate_special_power_shortcut_with_upgrade_source(UpgradeTooltipSource::Standalone, wm).unwrap();
+        });
+        assert_row(&owner_bar, true, &owner); // Explicit standalone still uses its real Core Player.
+        owner.with_manager(|wm| {
+            owner_bar.populate_special_power_shortcut_with_upgrade_source(UpgradeTooltipSource::Receiving(
                 &missing,
-            ))
-            .unwrap();
-        assert_row(&owner, false); // Receiving Missing must reject even this completed Core sentinel.
-        peer.populate_special_power_shortcut_with_upgrade_source(UpgradeTooltipSource::Receiving(
+            ), wm).unwrap();
+        });
+        assert_row(&owner_bar, false, &owner); // Receiving Missing must reject even this completed Core sentinel.
+        owner.with_manager(|wm| {
+            peer.populate_special_power_shortcut_with_upgrade_source(UpgradeTooltipSource::Receiving(
             &peer_incomplete,
-        ))
-        .unwrap();
-        assert_row(&peer, false);
-        owner
-            .populate_special_power_shortcut_with_upgrade_source(UpgradeTooltipSource::Receiving(
+        ), wm).unwrap();
+        });
+        assert_row(&peer, false, &owner);
+        owner.with_manager(|wm| {
+            owner_bar.populate_special_power_shortcut_with_upgrade_source(UpgradeTooltipSource::Receiving(
                 &completed,
-            ))
-            .unwrap();
-        assert_row(&owner, true);
-    });
+            ), wm).unwrap();
+        });
+        assert_row(&owner_bar, true, &owner);
+    }
 }

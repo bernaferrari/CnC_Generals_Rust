@@ -439,7 +439,7 @@ impl CnCGameEngine {
 
     /// Wave 840: skirmish start must not keep boot ShellMapMD when a real control/
     /// setup map is available (or when empty → DEFAULT_SKIRMISH_MAP).
-    pub(super) fn resolve_skirmish_start_map_name(mode: GameMode, map: String) -> String {
+    pub(super) fn resolve_skirmish_start_map_name(&self, mode: GameMode, map: String) -> String {
         let mut map_name = if map.trim().is_empty() {
             DEFAULT_SKIRMISH_MAP.to_string()
         } else {
@@ -453,7 +453,9 @@ impl CnCGameEngine {
         }
         #[cfg(feature = "game_client")]
         {
-            let setup = game_client::gui::get_skirmish_setup();
+            let setup_handle = self.game_client.skirmish_setup();
+
+            let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             let selected = setup.selected_map().trim().to_string();
             if !Self::map_name_is_shell_residual(&selected) {
                 return selected;
@@ -706,7 +708,7 @@ impl CnCGameEngine {
         let map_name = if mode == GameMode::Shell {
             map
         } else {
-            Self::resolve_skirmish_start_map_name(mode, map)
+            self.resolve_skirmish_start_map_name(mode, map)
         };
 
         info!(
@@ -1316,6 +1318,34 @@ impl CnCGameEngine {
                         map_name, err
                     );
                 }
+            }
+        }
+
+        // Hint path installs heightmap geometry but historically skipped
+        // Art/Terrain TGA loads from TerrainZH.big (disk-only resolve → grey
+        // stand-ins). Always hydrate source tiles through the mounted archive
+        // after either heightmap route, matching C++ WorldHeightMap tile load.
+        {
+            let mut read_virtual_file = |path: &str| {
+                let mut assets = application_assets
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                assets.archive_file_system_mut().open_file_sync(path).ok()
+            };
+            match render_pipeline.hydrate_native_terrain_gpu_with_source_reader(
+                &graphics_system.device_arc(),
+                &graphics_system.queue_arc(),
+                &mut read_virtual_file,
+            ) {
+                Ok(true) => info!(
+                    "Hydrated terrain source tiles from archive for '{}'",
+                    map_name
+                ),
+                Ok(false) => {}
+                Err(err) => warn!(
+                    "Archive terrain source tile hydrate failed for '{}': {}",
+                    map_name, err
+                ),
             }
         }
 
@@ -2094,16 +2124,9 @@ impl CnCGameEngine {
     }
 
     pub(super) fn drain_renderer_attachments(&mut self) {
-        match ww3d_renderer_3d::Renderer::with_global_mut(|renderer| {
-            Ok(renderer.take_pending_attachments())
-        }) {
-            Ok(records) if !records.is_empty() => {
-                dispatch_attachments(records);
-            }
-            Ok(_) => {}
-            Err(err) => {
-                warn!("Failed to dispatch WW3D attachments: {err}");
-            }
+        let records = self.render_pipeline.drain_pending_attachments();
+        if !records.is_empty() {
+            dispatch_attachments(records);
         }
     }
 

@@ -363,6 +363,7 @@ mod tests {
 
     #[test]
     fn test_gamepad_state_creation() {
+        crate::test_support::ensure_ambient_host();
         let state = GamepadState::new(0, "Test Controller".to_string());
 
         assert_eq!(state.id, 0);
@@ -374,6 +375,7 @@ mod tests {
 
     #[test]
     fn test_gamepad_state_updates() {
+        crate::test_support::ensure_ambient_host();
         let mut state = GamepadState::new(0, "Test".to_string());
 
         state.set_button(GamepadButton::A, true);
@@ -389,6 +391,7 @@ mod tests {
 
     #[test]
     fn test_gamepad_manager_creation() {
+        crate::test_support::ensure_ambient_host();
         let manager = GamepadManager::new();
         assert!(manager.is_enabled());
         assert_eq!(manager.gamepad_count(), 0);
@@ -396,6 +399,7 @@ mod tests {
 
     #[test]
     fn test_gamepad_manager_enable_disable() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = GamepadManager::new();
 
         manager.set_enabled(false);
@@ -407,6 +411,7 @@ mod tests {
 
     #[test]
     fn test_button_conversion() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(convert_button(GilrsButton::South), GamepadButton::A);
         assert_eq!(convert_button(GilrsButton::East), GamepadButton::B);
         assert_eq!(convert_button(GilrsButton::West), GamepadButton::X);
@@ -415,6 +420,7 @@ mod tests {
 
     #[test]
     fn test_axis_conversion() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(convert_axis(GilrsAxis::LeftStickX), GamepadAxis::LeftStickX);
         assert_eq!(
             convert_axis(GilrsAxis::RightStickY),

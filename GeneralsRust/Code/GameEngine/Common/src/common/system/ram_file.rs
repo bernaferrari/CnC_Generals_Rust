@@ -12,6 +12,7 @@ use std::io;
 use crate::common::{
     ascii_string::AsciiString,
     system::file::{BaseFile, File, FileAccess, SeekMode},
+    system::file_system::get_file_system,
 };
 
 /// RAMFile - A file abstraction that loads entire file content into memory.
@@ -56,7 +57,7 @@ impl RAMFile {
     ///
     /// This reads the entire contents of the source file into memory,
     /// then closes the source file.
-    pub fn open_from_file<F: File>(&mut self, file: &mut F) -> bool {
+    pub fn open_from_file(&mut self, file: &mut dyn File) -> bool {
         let access = file.get_access();
         let name = file.get_name().to_string();
 
@@ -180,10 +181,24 @@ impl Default for RAMFile {
 
 impl File for RAMFile {
     fn open(&mut self, filename: &str, access: FileAccess) -> Result<(), io::Error> {
-        // RAMFile requires an external file system to load data from.
-        // This base open just sets up the file state but doesn't load data.
-        // Use open_from_file() or open_from_archive() to actually load data.
-        self.base.open_base(filename, access)
+        // C++ RAMFile.cpp:116-119 — TheFileSystem->openFile then copy bytes.
+        let fs = get_file_system();
+        let mut guard = fs.lock().map_err(|_| {
+            io::Error::new(io::ErrorKind::Other, "FileSystem lock poisoned")
+        })?;
+        let mut source = guard.open_file(filename, access).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("RAMFile::open could not open {filename}"),
+            )
+        })?;
+        if !self.open_from_file(source.as_mut()) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("RAMFile::open failed to load bytes from {filename}"),
+            ));
+        }
+        Ok(())
     }
 
     fn close(&mut self) {
@@ -648,5 +663,37 @@ mod tests {
         assert!(!ram_file.has_data());
         assert_eq!(ram_file.size(), 0);
         assert_eq!(ram_file.position(), 0);
+    }
+
+    #[test]
+    fn open_loads_bytes_through_filesystem_like_cpp() {
+        // hq-x1j4u.1.42 / C++ RAMFile.cpp:116-119
+        use crate::common::system::file_system::get_file_system;
+        use crate::common::system::local_file_system::LocalFileSystem;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("ram_open_probe.bin");
+        std::fs::write(&path, b"fs-loaded-payload").unwrap();
+
+        {
+            let fs = get_file_system();
+            let mut guard = fs.lock().unwrap();
+            guard.register_backend(Box::new(LocalFileSystem::new()));
+        }
+
+        let mut ram = RAMFile::new();
+        File::open(
+            &mut ram,
+            path.to_str().unwrap(),
+            FileAccess::READ.combine(FileAccess::BINARY),
+        )
+        .expect("RAMFile::open must load through TheFileSystem");
+        assert_eq!(ram.get_data(), Some(b"fs-loaded-payload".as_slice()));
+        let mut buf = [0u8; 8];
+        assert_eq!(ram.read(&mut buf).unwrap(), 8);
+        assert_eq!(&buf, b"fs-loade");
+        ram.seek(0, SeekMode::Start).unwrap();
+        let scanned = ram.scan_string().expect("scan_string");
+        assert_eq!(scanned.as_str(), "fs-loaded-payload");
     }
 }

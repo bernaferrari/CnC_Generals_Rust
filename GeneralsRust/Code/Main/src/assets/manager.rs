@@ -32,6 +32,8 @@ use std::time::SystemTime;
 
 /// Complete asset management system for C&C Generals
 pub struct AssetManager {
+    /// Instance-owned mesh-resolve honesty + missing-W3D diagnostics.
+    pub mesh_resolve: crate::assets::mesh_asset_resolve::MeshResolveState,
     /// Archive file system for reading BIG files
     archive_system: ArchiveFileSystem,
     /// Audio manager for music and sound effects
@@ -648,6 +650,7 @@ impl AssetManager {
         let (language, active_mod_path) = Self::runtime_overrides();
 
         Ok(Self {
+            mesh_resolve: Default::default(),
             archive_system: ArchiveFileSystem::new(),
             audio_manager: AudioManager::new()?,
             model_loader: W3DLoader::new(),
@@ -2190,7 +2193,7 @@ impl AssetManager {
             Err(e) => {
                 self.missing_model_keys.insert(model_key.clone());
                 self.missing_model_keys.insert(resolved_key.clone());
-                crate::release_candidate::note_missing_w3d_model(model_name);
+                self.mesh_resolve.missing_assets.note_missing_w3d(model_name);
                 warn!("W3D loader failed for '{}': {}", model_name, e);
                 return Err(anyhow!("W3D load failed for '{}': {e}", model_name));
             }
@@ -2253,7 +2256,7 @@ impl AssetManager {
             Err(err) => {
                 self.missing_model_keys.insert(model_key.clone());
                 self.missing_model_keys.insert(resolved_key.clone());
-                crate::release_candidate::note_missing_w3d_model(&resolved_name);
+                self.mesh_resolve.missing_assets.note_missing_w3d(&resolved_name);
                 warn!(
                     "Synchronous W3D load failed for '{}': {}",
                     resolved_name, err
@@ -2429,9 +2432,6 @@ impl AssetSearchResults {
 }
 
 /// Global asset manager instance
-// THREAD: process-wide asset owner; handed out as `Arc<Mutex<_>>` to the
-// render, audio and GUI callers that each hold it for one call.
-static ASSET_MANAGER: OnceLock<Arc<Mutex<AssetManager>>> = OnceLock::new();
 
 /// Initialize the global asset manager
 pub async fn init_asset_manager(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<()> {
@@ -2469,11 +2469,28 @@ pub(crate) async fn init_asset_manager_with_sources<T>(
     let sources = capture(&mut manager)?;
 
     let application_assets = Arc::new(Mutex::new(manager));
-    ASSET_MANAGER
-        .set(Arc::clone(&application_assets))
-        .map_err(|_| anyhow!("Asset manager already initialized"))?;
+    {
+        let services = crate::main_services::main_services();
+        let mut slot = services
+            .asset_manager
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if slot.is_some() {
+            return Err(anyhow!("Asset manager already initialized"));
+        }
+        *slot = Some(Arc::clone(&application_assets));
+    }
 
-    begin_background_music_startup(Arc::clone(&application_assets));
+    // Start music on this task (has CommonServices/MainServices TLS). A
+    // spawn_blocking worker has empty TLS and panics inside TheAudio.
+    {
+        let mut manager = application_assets
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Err(err) = manager.start_background_music().await {
+            warn!("Failed to start background music: {}", err);
+        }
+    }
 
     info!(
         "Global asset manager initialized (Total: {:.2}s)",
@@ -2482,19 +2499,15 @@ pub(crate) async fn init_asset_manager_with_sources<T>(
     Ok((sources, application_assets))
 }
 
-fn begin_background_music_startup(manager_arc: Arc<Mutex<AssetManager>>) {
-    tokio::task::spawn_blocking(move || {
-        let handle = tokio::runtime::Handle::current();
-        let mut manager = manager_arc.lock().unwrap_or_else(|e| e.into_inner());
-        if let Err(err) = handle.block_on(async { manager.start_background_music().await }) {
-            warn!("Failed to start background music: {}", err);
-        }
-    });
-}
-
 /// Get reference to global asset manager
 pub fn get_asset_manager() -> Option<Arc<Mutex<AssetManager>>> {
-    ASSET_MANAGER.get().cloned()
+    // Callers treat None as "no catalogue"; never panic on unbound MainServices.
+    let services = crate::main_services::try_main_services()?;
+    services
+        .asset_manager
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 /// Resolve the source-authored W3D model key for a frozen presentation object.

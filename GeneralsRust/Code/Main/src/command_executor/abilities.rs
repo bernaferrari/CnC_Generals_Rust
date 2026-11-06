@@ -24,6 +24,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         let mut any = false;
         for &unit_id in units {
             if self.game_logic.start_hacker_internet_hack(unit_id)? {
@@ -49,6 +50,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         // C++ ConvertToHijackedVehicleCrateCollide residual: enemy ground vehicle
         // only, not already HIJACKED, not neutral, not airborne.
         let (
@@ -126,6 +128,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         // C++ Sabotage*CrateCollide residual: GLA Saboteur only → enemy structure.
         let (target_team, target_pos, target_alive, target_is_structure) =
             match self.game_logic.host_object(target_id) {
@@ -190,6 +193,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         // C++ ConvertToCarBombCrateCollide: vehicle only (not aircraft/boat),
         // not already IS_CARBOMB. Neutral civilian cars are valid.
         let (target_pos, target_team, target_ok) = match self.game_logic.host_object(target_id) {
@@ -257,6 +261,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         self.execute_capture_building_for_power(units, target_id, None)
     }
 
@@ -270,6 +275,7 @@ impl<'a> CommandExecutor<'a> {
         target_id: ObjectId,
         required_power: Option<crate::game_logic::CapturePowerKind>,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         let building_pos = match self.game_logic.host_object(target_id) {
             Some(building) => building.get_position(),
             None => return Ok(CommandResult::InvalidTarget),
@@ -339,6 +345,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         let (
             target_team,
             target_pos,
@@ -442,6 +449,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         let (target_team, target_pos, target_alive, target_is_structure) =
             match self.game_logic.host_object(target_id) {
                 Some(target) => (
@@ -517,6 +525,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         let (
             target_team,
             target_pos,
@@ -594,6 +603,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         let (
             target_team,
             target_pos,
@@ -670,6 +680,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
     ) -> CommandResult {
+        let _bind = self.bind_services();
         let producers: Vec<ObjectId> = units
             .iter()
             .copied()
@@ -697,6 +708,7 @@ impl<'a> CommandExecutor<'a> {
     ///
     /// Fail-closed: requires SuicideBomb CommandSetUpgrade residual tag.
     pub(super) fn execute_demo_tertiary_suicide(&mut self, units: &[ObjectId]) -> CommandResult {
+        let _bind = self.bind_services();
         let mut any = false;
         for &unit_id in units {
             if self
@@ -723,6 +735,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         use crate::game_logic::host_hero_abilities::{
             can_activate_black_lotus_ability, is_black_lotus_template, is_cash_hack_target,
             is_legal_steal_cash_target,
@@ -818,6 +831,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         use crate::game_logic::host_hero_abilities::{
             can_activate_black_lotus_ability, is_black_lotus_template,
             is_legal_disable_vehicle_target,
@@ -905,6 +919,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         let mut any = false;
         for &unit_id in units {
             // C++ ActionManager authority is module- and readiness-based.
@@ -943,6 +958,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         use crate::game_logic::host_bomb_truck_disguise::{
             is_bomb_truck_template, is_legal_disguise_target,
         };
@@ -1033,6 +1049,7 @@ impl<'a> CommandExecutor<'a> {
     }
 
     pub(super) fn execute_switch_weapons(&mut self, units: &[ObjectId], slot: u8) -> CommandResult {
+        let _bind = self.bind_services();
         // C++ GameLogicDispatch.cpp:583-590 MSG_SWITCH_WEAPONS:
         // currentlySelectedGroup->setWeaponLockForGroup(weaponSlot, LOCKED_PERMANENTLY).
         let result = self.execute_set_weapon_lock(units, slot, 2);
@@ -1057,6 +1074,7 @@ impl<'a> CommandExecutor<'a> {
     }
 
     pub(super) fn execute_toggle_overcharge(&mut self, units: &[ObjectId]) -> CommandResult {
+        let _bind = self.bind_services();
         let mut any = false;
         for &unit_id in units {
             if self.game_logic.toggle_overcharge_object(unit_id) {

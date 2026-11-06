@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn actual_presentation_shell_preserves_the_admitted_client_frame() {
+    crate::test_support::ensure_ambient_host();
     if crate::core::game_client::global_boundary_fixture::run_in_private_child(
         module_path!(),
         "actual_presentation_shell_preserves_the_admitted_client_frame",
@@ -17,11 +18,13 @@ fn actual_presentation_shell_preserves_the_admitted_client_frame() {
         .expect("fresh local player command queue");
     let mut client = GameClient::new().unwrap();
     client.window_manager_owner().shell_handle().init().unwrap();
+    client.subsystem_manager.in_game_ui =
+        Some(crate::core::subsystems::InGameUISubsystem::default());
     client.initialized = true;
     client.set_frame(37);
-    client.update_presentation_shell(0.0).unwrap();
+    client.update_presentation_shell(0.0, 0, 0).unwrap();
     assert_eq!(client.get_frame(), 37);
-    client.update_presentation_shell(0.0).unwrap();
+    client.update_presentation_shell(0.0, 0, 0).unwrap();
     assert_eq!(
         client.get_frame(),
         37,
@@ -29,13 +32,15 @@ fn actual_presentation_shell_preserves_the_admitted_client_frame() {
     );
     let mut peer = GameClient::new().unwrap();
     peer.window_manager_owner().shell_handle().init().unwrap();
+    peer.subsystem_manager.in_game_ui =
+        Some(crate::core::subsystems::InGameUISubsystem::default());
     peer.initialized = true;
     peer.set_frame(900);
-    peer.update_presentation_shell(0.0).unwrap();
+    peer.update_presentation_shell(0.0, 0, 0).unwrap();
     assert_eq!(peer.get_frame(), 900);
     assert_eq!(client.get_frame(), 37);
     client.set_frame(38);
-    client.update_presentation_shell(0.0).unwrap();
+    client.update_presentation_shell(0.0, 0, 0).unwrap();
     assert_eq!(client.get_frame(), 38);
     let mut saved = Vec::new();
     client
@@ -45,6 +50,8 @@ fn actual_presentation_shell_preserves_the_admitted_client_frame() {
         ))
         .unwrap();
     let mut restored = GameClient::new().unwrap();
+    restored.subsystem_manager.in_game_ui =
+        Some(crate::core::subsystems::InGameUISubsystem::default());
     restored.initialized = true;
     restored.set_frame(901);
     restored
@@ -54,7 +61,7 @@ fn actual_presentation_shell_preserves_the_admitted_client_frame() {
         ))
         .unwrap();
     assert_eq!(restored.get_frame(), 38);
-    restored.update_presentation_shell(0.0).unwrap();
+    restored.update_presentation_shell(0.0, 0, 0).unwrap();
     assert_eq!(
         restored.get_frame(),
         38,
@@ -62,11 +69,18 @@ fn actual_presentation_shell_preserves_the_admitted_client_frame() {
     );
     assert_eq!(peer.get_frame(), 900);
     let mut no_companion = GameClient::new().unwrap();
+    no_companion
+        .window_manager_owner()
+        .shell_handle()
+        .init()
+        .unwrap();
+    no_companion.subsystem_manager.in_game_ui =
+        Some(crate::core::subsystems::InGameUISubsystem::default());
     no_companion.initialized = true;
     no_companion.set_frame(902);
     no_companion.restore_from_xfer_bytes(&[]).unwrap();
     assert_eq!(no_companion.get_frame(), 902);
-    no_companion.update_presentation_shell(0.0).unwrap();
+    no_companion.update_presentation_shell(0.0, 0, 0).unwrap();
     assert_eq!(
         no_companion.get_frame(),
         902,

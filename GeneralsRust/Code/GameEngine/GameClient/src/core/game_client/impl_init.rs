@@ -74,6 +74,8 @@ impl GameClient {
     pub fn new_with_input_authority(
         input_authority: ClientInputAuthority,
     ) -> GameClientResult<Self> {
+        #[cfg(test)]
+        crate::test_support::ensure_ambient_host();
         let window_manager_owner = WindowManagerOwner::new();
         let client = Self {
             window_manager_owner,
@@ -85,7 +87,10 @@ impl GameClient {
             ui_renderer: None,
             ime: crate::gui::ime_manager::ImeManager::new(),
             script_display: crate::core::script_action_handler::ScriptDisplayReceiver::default(),
+            script_runtime: crate::core::script_action_runtime::ScriptActionRuntime::new(),
+            draw_schedule: crate::display::client_draw_schedule::ClientDrawScheduleState::default(),
             message_stream: crate::message_stream::message_stream::MessageStream::new(),
+            meta_map: crate::message_stream::meta_event::MetaMap::default(),
             input_authority,
             shell_game_first_load: true,
             window_videos: crate::gui::window_video_manager::ClientWindowVideos::new(),
@@ -100,6 +105,43 @@ impl GameClient {
             command_hints: Default::default(),
             owned_world_animations: OwnedWorldAnimations::default(),
             receiving_ui_images: None,
+            mapped_image_collection: None,
+            fx_list_store: None,
+            weather_setting: None,
+            snow_manager: None,
+            draw_group_info: None,
+            game_text_store: None,
+            global_language_data: None,
+            language_filter: None,
+            smudge_manager: None,
+            header_template_manager: None,
+            translator_presentation_residual: None,
+            mouse: None,
+            lan_setup: None,
+            host_command_authority: None,
+            font_library: None,
+            tactical_view: {
+                let mut view = crate::display::view::View::new();
+                view.init();
+                view
+            },
+            hint_model_cache: crate::display::view::HintModelCache::default(),
+            display_letter_boxed: false,
+            shadow_pass: crate::display::shadow_pass::ShadowPassState::default(),
+            terrain_texture_caches: crate::terrain::textures::TerrainTextureCaches::default(),
+            terrain_visual_gpu: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            fx_next_id: std::sync::atomic::AtomicU64::new(1),
+            render_bridge_next_line_id: std::sync::atomic::AtomicU64::new(1),
+            win_draw_image_commands: std::sync::atomic::AtomicUsize::new(0),
+            shipped_ui_draw_commands: std::sync::atomic::AtomicUsize::new(0),
+            text_entry_draw_cnt: std::sync::atomic::AtomicU8::new(0),
+            asset_id_counter: std::sync::atomic::AtomicU64::new(1),
+            device_id_counter: std::sync::atomic::AtomicU64::new(1),
+            supply_and_tech_images: None,
+            map_cache_manager: None,
+            video_player_slot: None,
+            video_stream_provider_slot: None,
+            startup_shell_image_reported: std::collections::HashSet::new(),
             receiving_draw_icon_ui: true,
             snow: crate::snow::SnowManager::new(),
             snow_definition: crate::snow::WeatherSetting::default(),
@@ -121,7 +163,12 @@ impl GameClient {
 
             render_bridge: crate::render_bridge::RenderBridge::new(),
             drawable_manager: crate::drawable::DrawableManager::new(),
+            host_contained_flash_queue: Vec::new(),
+            client_anim2d_instances: std::sync::Arc::new(parking_lot::Mutex::new(
+                crate::system::anim2_d::Anim2DCollection::new(),
+            )),
             drawables: drawable_world::DrawableWorld::new(),
+            live_slot_token: 0,
             pending_drawable_post_process_order: None,
             drawable_toc: Vec::new(),
             loaded_map: None,
@@ -347,7 +394,10 @@ impl GameClient {
         self.drawables.drawable_map.clear();
         self.drawables.native_drawable_order.clear();
         self.drawables.ray_effects.reset();
-        self.drawables.light_scene = Default::default();
+        self.drawables.fx.scene = Default::default();
+        self.drawables.tracers = Default::default();
+        self.drawables.beacons = Default::default();
+        self.drawables.rays = Default::default();
         self.drawables.owned_laser_order.clear();
         self.drawables.drawable_object_map.clear();
         self.drawables.presentation_direct_drawable_bindings.clear();
@@ -491,9 +541,11 @@ impl GameClient {
         self.subsystem_manager
             .reset_all(self.script_display.fx_mut(), &self.session_lighting)?;
         if self.input_authority == ClientInputAuthority::StandaloneCore {
-            crate::eva::reset_eva_system();
+            if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
+                crate::eva::reset_eva_system(&mut ui.eva);
+            }
         }
-        self.drawables.particles.reset_runtime();
+        if let Some(particles) = self.drawables.particles.as_mut() { particles.reset_runtime(); };
         self.window_manager_owner
             .with_manager(|manager| self.ime.reset(manager));
 
@@ -531,15 +583,20 @@ impl GameClient {
         );
         // Campaign state is borrowed from the receiving GameClient at each
         // save/load operation; do not publish an ambient campaign callback.
+        // C++ GameStateMap.cpp:406 xferSnapshot(TheSkirmishGameInfo) v4: the
+        // hooks carry this client's lobby, not an ambient lookup.
+        let save_setup = self.window_manager_owner.skirmish_setup();
+        let load_setup = Arc::clone(&save_setup);
         register_save_load_skirmish_hooks(
-            Some(Arc::new(|| {
-                // C++ GameStateMap.cpp:406 xferSnapshot(TheSkirmishGameInfo) v4.
+            Some(Arc::new(move || {
+                let setup = save_setup.lock().unwrap_or_else(|e| e.into_inner());
                 let bytes =
-                    crate::gui::skirmish_setup::snapshot_skirmish_lobby().encode_xfer_bytes();
+                    crate::gui::skirmish_setup::snapshot_skirmish_lobby(&setup).encode_xfer_bytes();
                 if bytes.is_empty() { None } else { Some(bytes) }
             })),
-            Some(Arc::new(|payload| {
-                crate::gui::skirmish_setup::restore_skirmish_lobby(payload);
+            Some(Arc::new(move |payload| {
+                let mut setup = load_setup.lock().unwrap_or_else(|e| e.into_inner());
+                crate::gui::skirmish_setup::restore_skirmish_lobby(&mut setup, payload);
             })),
         );
     }
@@ -842,6 +899,29 @@ impl GameClient {
         &self.window_manager_owner
     }
 
+    pub(crate) fn drawable_manager(&self) -> &crate::drawable::DrawableManager {
+        &self.drawable_manager
+    }
+
+    pub(crate) fn drawable_manager_mut(&mut self) -> &mut crate::drawable::DrawableManager {
+        &mut self.drawable_manager
+    }
+
+    pub(crate) fn local_player_id(&self) -> i32 {
+        self.local_player_id
+    }
+
+    pub(crate) fn host_contained_flash_queue_mut(&mut self) -> &mut Vec<u32> {
+        &mut self.host_contained_flash_queue
+    }
+
+    pub(crate) fn client_anim2d_instances_handle(
+        &self,
+    ) -> std::sync::Arc<parking_lot::Mutex<crate::system::anim2_d::Anim2DCollection>> {
+        self.client_anim2d_instances.clone()
+    }
+
+
     /// Borrow this client's message pipeline for its synchronous producer/consumer operations.
     pub fn message_stream(&self) -> &crate::message_stream::message_stream::MessageStream {
         &self.message_stream
@@ -864,7 +944,7 @@ impl GameClient {
             audio.init()?;
             let audio_arc = Arc::new(Mutex::new(audio));
             let hook_audio = Arc::clone(&audio_arc);
-            register_fx_audio(Box::new(move |event, position| {
+            self.fx_mut().register_audio(Box::new(move |event, position| {
                 if let Ok(mut guard) = hook_audio.lock() {
                     let _ = guard.play_event(event, position);
                 }
@@ -889,7 +969,13 @@ impl GameClient {
         register_game_client_snapshot_block();
         crate::snow::register_weather_definition_parser();
         if self.input_authority == ClientInputAuthority::StandaloneCore {
-            crate::eva::initialize_eva_system().map_err(|err| {
+            {
+                let eva = self
+                    .subsystem_manager
+                    .in_game_ui
+                    .get_or_insert_with(crate::core::subsystems::InGameUISubsystem::default);
+                crate::eva::initialize_eva_system(&mut eva.eva)
+            }.map_err(|err| {
                 GameClientError::SubsystemError(format!("Eva init failed: {err}"))
             })?;
         }
@@ -954,7 +1040,7 @@ impl GameClient {
 
         if self.subsystem_manager.decal_manager.is_none() {
             let decals = Arc::new(Mutex::new(DecalManager::default()));
-            register_decal_manager(Arc::clone(&decals));
+            self.fx_mut().register_decal_manager(Arc::clone(&decals));
             let _ = register_scorch_hook(Arc::new(move |position, size, type_id| {
                 // C++ W3DGameClient::addScorch → terrain scorch only, no decal.
                 let _ = crate::terrain::scorch_mesh::add_terrain_scorch(
@@ -1111,7 +1197,7 @@ impl GameClient {
             return;
         }
 
-        match NetworkBridgeHandle::install() {
+        match NetworkBridgeHandle::install(&mut self.load_screen_runtime) {
             Some(handle) => {
                 log::info!("Network command bridge installed");
                 self.network_bridge = Some(handle);
@@ -1314,6 +1400,12 @@ impl GameClient {
     ) -> R {
         self.script_display
             .bind(self.subsystem_manager.display.as_ref());
+        // Chat/message paths and OS WND peels need a receiving UI even when the
+        // client has not yet run full subsystem init.
+        let _ = self
+            .subsystem_manager
+            .in_game_ui
+            .get_or_insert_with(crate::core::subsystems::InGameUISubsystem::default);
         let owner = &self.window_manager_owner;
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
@@ -1326,7 +1418,8 @@ impl GameClient {
                 crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             standalone_view: None,
             client_frame: Some(self.frame),
-            logic_frame: menu_world.map(|facts| facts.logic_frame),
+            // Chat/UI message paths need a frame even without MenuWorldFacts.
+            logic_frame: Some(menu_world.as_ref().map(|facts| facts.logic_frame).unwrap_or(0)),
             ui: self.subsystem_manager.in_game_ui.as_mut(),
             payloads: Default::default(),
             pending_window_callbacks: Default::default(),
@@ -1670,11 +1763,13 @@ impl GameClient {
         let display = &mut self.script_display;
         let videos = &mut self.window_videos;
         let ime = &mut self.ime;
-        let ui = self.subsystem_manager.in_game_ui.as_mut().ok_or_else(|| {
-            GameClientError::SubsystemError(
-                "message translation requires receiving InGameUI".into(),
-            )
-        })?;
+        // C++ TheInGameUI is always present for message translation. Presentation
+        // shell tests and partial init mark `initialized` without full subsystem
+        // init; admit a default owner rather than failing the pump.
+        let ui = self
+            .subsystem_manager
+            .in_game_ui
+            .get_or_insert_with(crate::core::subsystems::InGameUISubsystem::default);
         let mut mouse = self.subsystem_manager.input_mouse.as_mut();
         let mut dispatch = |request,
                             emitted: &mut Vec<GameMessage>,
@@ -1855,6 +1950,7 @@ mod native_world_install_tests {
 
     #[test]
     fn whole_native_world_install_keeps_candidate_ids_order_and_peer() {
+        crate::test_support::ensure_ambient_host();
         let mut receiving = GameClient::new().unwrap();
         let mut peer = GameClient::new().unwrap();
         receiving
@@ -1897,6 +1993,7 @@ mod load_screen_latch_owner_tests {
 
     #[test]
     fn shell_first_load_memory_is_owned_by_the_persistent_client() {
+        crate::test_support::ensure_ambient_host();
         let mut receiving = GameClient::new().unwrap();
         let peer = GameClient::new().unwrap();
 

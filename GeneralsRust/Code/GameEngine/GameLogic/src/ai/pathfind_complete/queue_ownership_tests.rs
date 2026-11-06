@@ -186,3 +186,28 @@ fn direct_object_admission_keeps_owner_identity_and_cpp_crc_ring_layout() {
     first.reset();
     assert_eq!(crc_bytes(&second), second_crc);
 }
+
+/// hq-8vmd8e: ring and residual request queue both cap at PATHFIND_QUEUE_LEN-1.
+#[test]
+fn pathfind_cluster_reserved_slot_capacity_is_511() {
+    assert_eq!(PATHFIND_QUEUE_LEN, 512);
+    let mut owner = crate::ai::Pathfinder::new();
+    for id in 1..PATHFIND_QUEUE_LEN as ObjectID {
+        owner
+            .queue_for_path_request(request(id, id as f32))
+            .unwrap();
+    }
+    assert_eq!(
+        owner.inner.request_queue.len(),
+        PATHFIND_QUEUE_LEN - 1,
+        "residual PathRequest queue must match C++ 511 pending max"
+    );
+    assert!(
+        owner
+            .queue_for_path_request(request(PATHFIND_QUEUE_LEN as ObjectID, 80.0))
+            .is_err()
+    );
+    // Duplicate id at capacity remains success and does not grow residual.
+    owner.queue_for_path_request(request(1, 99.0)).unwrap();
+    assert_eq!(owner.inner.request_queue.len(), PATHFIND_QUEUE_LEN - 1);
+}

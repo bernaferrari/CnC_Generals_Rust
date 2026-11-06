@@ -57,6 +57,9 @@ impl MoneyInterface for PlayerMoney {
 pub struct PlayerMoneyMut<'a> {
     player: &'a mut Player,
     locality: Option<game_engine::common::audio::AudioSubmissionLocality>,
+    /// Driving match's logic frame for AcademyStats::recordIncome; when absent
+    /// the classic adapter reads the current logic frame at deposit time.
+    frame: Option<UnsignedInt>,
 }
 
 impl<'a> PlayerMoneyMut<'a> {
@@ -64,7 +67,14 @@ impl<'a> PlayerMoneyMut<'a> {
         Self {
             player,
             locality: None,
+            frame: None,
         }
+    }
+
+    /// Supply the owning match's explicit logic frame (C++ TheGameLogic->getFrame()).
+    pub fn at_frame(mut self, frame: UnsignedInt) -> Self {
+        self.frame = Some(frame);
+        self
     }
 
     pub(super) fn with_locality(
@@ -74,6 +84,7 @@ impl<'a> PlayerMoneyMut<'a> {
         Self {
             player,
             locality: Some(locality),
+            frame: None,
         }
     }
 
@@ -118,7 +129,8 @@ impl<'a> PlayerMoneyMut<'a> {
             None => {
                 // Temporary classic adapter: discover the roster once, before
                 // borrowing audio. Callers already holding it pass frozen facts.
-                let Ok(list) = player_list().read() else {
+                let __player_list_arc = player_list();
+                let Ok(list) = __player_list_arc.read() else {
                     return;
                 };
                 crate::helpers::capture_player_audio_locality(self.player, &list)
@@ -185,7 +197,8 @@ impl<'a> PlayerMoneyMut<'a> {
             submit(self);
         }
         self.player.money.amount = self.player.money.amount.saturating_add(amount as Int);
-        self.player.academy_stats.record_income(amount as Int);
+        let now = self.frame.unwrap_or_else(TheGameLogic::get_frame);
+        self.player.academy_stats.record_income(now);
         Ok(())
     }
 

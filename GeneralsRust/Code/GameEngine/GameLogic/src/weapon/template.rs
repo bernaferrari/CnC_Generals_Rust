@@ -1644,6 +1644,9 @@ fn estimate_weapon_targetability_specials(
 /// Weapon.ini `HistoricBonusWeapon` is stored on the Common parser template
 /// even when the GameLogic Weak has not been wired yet.
 fn common_historic_bonus_weapon_name(owner: &str) -> Option<String> {
+    // Fail closed when no CommonServices is bound (synthetic templates / unit tests):
+    // the ambient Common INI lookup is optional at template-add time.
+    game_engine::common::common_services::try_common_services()?;
     game_engine::common::ini::ini_weapon::initialize_weapon_store();
     let store = game_engine::common::ini::ini_weapon::get_weapon_store()?;
     let tmpl = store.find_template(&AsciiString::from(owner))?;

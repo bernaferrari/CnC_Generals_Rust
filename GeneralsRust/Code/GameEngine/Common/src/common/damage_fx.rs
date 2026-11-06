@@ -250,29 +250,42 @@ impl DamageFXStore {
     }
 }
 
-// Global damage FX store instance
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static DAMAGE_FX_STORE: Rc<RefCell<DamageFXStore>> = Rc::new(RefCell::new(DamageFXStore::new()));
-}
-
-/// Initialize the global damage FX store
+/// Initialize the damage FX store on the published CommonServices.
 pub fn initialize_damage_fx_store() {
-    DAMAGE_FX_STORE.with(|store| {
-        let mut store = store.borrow_mut();
-        *store = DamageFXStore::new();
-    });
+    let services = crate::common::common_services::common_services();
+    *services
+        .damage_fx_store
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = DamageFXStore::new();
 }
 
-/// Get a handle to the global damage FX store (`borrow` for reads,
-/// `borrow_mut` for writes).
-pub fn get_damage_fx_store() -> Rc<RefCell<DamageFXStore>> {
-    DAMAGE_FX_STORE.with(Rc::clone)
+pub fn with_damage_fx_store<R>(f: impl FnOnce(&DamageFXStore) -> R) -> R {
+    let services = crate::common::common_services::common_services();
+    f(&services
+        .damage_fx_store
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()))
 }
 
-/// Get a handle to the global damage FX store (`borrow` for reads,
-/// `borrow_mut` for writes).
-pub fn get_damage_fx_store_mut() -> Rc<RefCell<DamageFXStore>> {
+pub fn with_damage_fx_store_mut<R>(f: impl FnOnce(&mut DamageFXStore) -> R) -> R {
+    let services = crate::common::common_services::common_services();
+    f(&mut services
+        .damage_fx_store
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()))
+}
+
+/// Legacy handle API — prefer [`with_damage_fx_store`].
+pub fn get_damage_fx_store() -> std::sync::MutexGuard<'static, DamageFXStore> {
+    let services = crate::common::common_services::common_services();
+    let guard = services
+        .damage_fx_store
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    unsafe { std::mem::transmute(guard) }
+}
+
+pub fn get_damage_fx_store_mut() -> std::sync::MutexGuard<'static, DamageFXStore> {
     get_damage_fx_store()
 }
 

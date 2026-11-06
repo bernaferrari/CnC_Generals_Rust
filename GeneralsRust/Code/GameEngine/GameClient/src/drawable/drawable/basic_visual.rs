@@ -120,7 +120,7 @@ impl BasicDrawable {
             return;
         }
         let mut sanitized = text.to_string();
-        get_language_filter().filter_line(&mut sanitized);
+        get_language_filter().write().unwrap_or_else(|e| e.into_inner()).filter_line(&mut sanitized);
         if self.caption_text.as_deref() != Some(sanitized.as_str()) {
             self.caption_text = Some(sanitized);
         }
@@ -446,7 +446,7 @@ impl BasicDrawable {
     ) {
         let mut text = text_handle.borrow_mut();
         let font_desc = FontDesc::new(font_name, font_size, font_is_bold);
-        if let Ok(font) = get_font_library().get_font(&font_desc) {
+        if let Ok(font) = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&font_desc) {
             text.set_font(font);
         }
         text.draw_with_drop(
@@ -469,6 +469,7 @@ mod model_draw_condition_mapping_tests {
 
     #[test]
     fn original_model_bits_map_by_meaning_not_integer_layout() {
+        crate::test_support::ensure_ambient_host();
         let cases = [
             (Model::DAMAGED, Render::DAMAGED),
             (Model::REALLYDAMAGED, Render::REALLY_DAMAGED),
@@ -513,6 +514,7 @@ mod model_draw_condition_mapping_tests {
 
     #[test]
     fn unrelated_model_conditions_never_become_selected_or_damage() {
+        crate::test_support::ensure_ambient_host();
         let input = Model::FRONTCRUSHED
             | Model::BACKCRUSHED
             | Model::WEAPONSET_VETERAN

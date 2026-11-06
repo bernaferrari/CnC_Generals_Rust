@@ -128,7 +128,10 @@ pub(crate) enum NativeDieKind {
     Dam,
     Pilot,
     Spawn,
-    Upgrade,
+    /// C++ UpgradeDieModuleData::m_upgradeName (`UpgradeToRemove`).
+    Upgrade {
+        upgrade_to_remove: String,
+    },
     Rebuild,
     Contain {
         overlord: bool,
@@ -202,7 +205,12 @@ pub(crate) fn bind(modules: &[BehaviorModuleDefinition]) -> Vec<NativeDieDeclara
                 "damdie" => NativeDieKind::Dam,
                 "ejectpilotdie" => NativeDieKind::Pilot,
                 "spawnbehavior" => NativeDieKind::Spawn,
-                "upgradedie" => NativeDieKind::Upgrade,
+                "upgradedie" => NativeDieKind::Upgrade {
+                    upgrade_to_remove: module
+                        .attribute("UpgradeToRemove")
+                        .unwrap_or_default()
+                        .to_string(),
+                },
                 "rebuildholeexposedie" => NativeDieKind::Rebuild,
                 // ModuleFactory.cpp317-330: registered OpenContain-derived
                 // classes inherit its Die interface. OpenTopContain is the

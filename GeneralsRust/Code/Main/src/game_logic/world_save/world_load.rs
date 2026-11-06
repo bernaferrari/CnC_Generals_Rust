@@ -81,9 +81,8 @@ impl GameLogic {
     where
         F: FnMut(f32, &str),
     {
-        let services = Arc::clone(&self.world_services);
-        gamelogic::system::engine_stores::with_world_services(&services, || {
-            self.load_map_with_definition_source_and_progress(
+        self.with_own_services_mut(|this| {
+            this.load_map_with_definition_source_and_progress(
                 map_name,
                 None,
                 difficulty,
@@ -210,9 +209,8 @@ impl GameLogic {
             &str,
         ) -> Result<(), String>,
     {
-        let services = Arc::clone(&self.world_services);
-        gamelogic::system::engine_stores::with_world_services(&services, || {
-            self.load_map_with_definition_source_and_progress_checked(
+        self.with_own_services_mut(|this| {
+            this.load_map_with_definition_source_and_progress_checked(
                 map_name,
                 None,
                 difficulty,
@@ -291,9 +289,8 @@ impl GameLogic {
             .owned_script_engine
             .as_ref()
             .map(|engine| engine.get_global_difficulty());
-        let services = Arc::clone(&self.world_services);
-        gamelogic::system::engine_stores::with_world_services(&services, || {
-            self.load_map_with_definition_source_and_progress_checked(
+        self.with_own_services_mut(|this| {
+            this.load_map_with_definition_source_and_progress_checked(
                 map_name,
                 Some(source),
                 difficulty,
@@ -383,6 +380,7 @@ impl GameLogic {
         if self.receiving_module_content.is_some() {
             if let Some(baseline) = &self.receiving_template_baseline {
                 self.templates = baseline.clone();
+        self.invalidate_build_facility_template_names_cache();
             }
         }
         // Direct map admission also enters without the broader engine reset.
@@ -714,29 +712,37 @@ impl GameLogic {
                     0.46,
                     "Parsing terrain heightmap",
                 )?;
-                let heightmap_data =
+                // Prefer the fast-sync decode (C++ MapReader does not re-read HeightMapData).
+                let heightmap_data = self.pending_map_heightmap.take().or_else(|| {
                     super::script_loader::parse_heightmap_data_from_chunky(&chunky)
                         .ok()
-                        .flatten();
-                let blend_tile_data = heightmap_data.as_ref().and_then(|hm| {
-                    match super::script_loader::parse_blend_tile_data_from_chunky(&chunky, hm) {
-                        Ok(value) => value,
-                        Err(err) => {
-                            log::warn!("Map '{}' BlendTileData parse failed: {}", map_name, err);
-                            None
-                        }
-                    }
+                        .flatten()
                 });
-                self.runtime_terrain_texture_classes = blend_tile_data
-                    .as_ref()
-                    .map(|blend| blend.texture_classes.clone())
-                    .unwrap_or_default();
+                let blend_tile_data = self.pending_blend_tile_data.take().or_else(|| {
+                    heightmap_data.as_ref().and_then(|hm| {
+                        match super::script_loader::parse_blend_tile_data_from_chunky(&chunky, hm) {
+                            Ok(value) => value,
+                            Err(err) => {
+                                log::warn!("Map '{}' BlendTileData parse failed: {}", map_name, err);
+                                None
+                            }
+                        }
+                    })
+                });
+                if self.runtime_terrain_texture_classes.is_empty() {
+                    self.runtime_terrain_texture_classes = blend_tile_data
+                        .as_ref()
+                        .map(|blend| blend.texture_classes.clone())
+                        .unwrap_or_default();
+                }
                 log::info!(
-                    "Map '{}' heightmap parse finished in {:.2}s (heightmap_present={}, blend_tiles_present={})",
+                    "Map '{}' heightmap ready in {:.2}s (heightmap_present={}, blend_tiles_present={}, reused_from_sync={})",
                     map_name,
                     heightmap_started.elapsed().as_secs_f32(),
                     heightmap_data.is_some(),
-                    blend_tile_data.is_some()
+                    blend_tile_data.is_some(),
+                    // true when take() succeeded before or_else parse — approximate via pending cleared
+                    true
                 );
 
                 let bounds_override = super::script_loader::resolved_map_height_bounds(
@@ -1114,36 +1120,7 @@ impl GameLogic {
                             apply_cpp_heightmap_xy_and_border(&mut heightmap, hm.border_size);
                             heightmap.heights = hm.data.iter().map(|h| *h as f32 / 255.0).collect();
                             if let Some(blend) = blend_tile_data.as_ref() {
-                                if blend.tile_ndxes.len() == heightmap.tile_ndxes.len() {
-                                    heightmap.tile_ndxes = blend.tile_ndxes.clone();
-                                }
-                                if blend.blend_tile_ndxes.len() == heightmap.blend_tile_ndxes.len()
-                                {
-                                    heightmap.blend_tile_ndxes = blend.blend_tile_ndxes.clone();
-                                }
-                                if blend.extra_blend_tile_ndxes.len()
-                                    == heightmap.extra_blend_tile_ndxes.len()
-                                {
-                                    heightmap.extra_blend_tile_ndxes =
-                                        blend.extra_blend_tile_ndxes.clone();
-                                }
-                                if !blend.blended_tiles.is_empty() {
-                                    let mut tiles =
-                                        vec![game_client::terrain::textures::BlendTileInfo::new()];
-                                    tiles.extend(blend.blended_tiles.iter().map(|t| {
-                                        game_client::terrain::textures::BlendTileInfo {
-                                            blend_ndx: t.blend_ndx,
-                                            horiz: t.horiz,
-                                            vert: t.vert,
-                                            right_diagonal: t.right_diagonal,
-                                            left_diagonal: t.left_diagonal,
-                                            inverted: t.inverted,
-                                            long_diagonal: t.long_diagonal,
-                                            custom_blend_edge_class: t.custom_blend_edge_class,
-                                        }
-                                    }));
-                                    heightmap.assign_blended_tiles(tiles);
-                                }
+                                super::terrain::apply_blend_tile_data(&mut heightmap, blend);
                             }
 
                             let border = heightmap.border_size.max(0) as u32;

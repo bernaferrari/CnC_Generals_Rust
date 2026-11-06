@@ -337,6 +337,7 @@ mod popup_owner_tests {
 
     #[test]
     fn resetting_peer_popup_only_resumes_the_borrowed_world() {
+        crate::test_support::ensure_ambient_host();
         let mut first = GameClient::new().unwrap();
         let mut peer = GameClient::new().unwrap();
         let mut first_world = gamelogic::system::game_logic::GameLogic::new();
@@ -363,6 +364,7 @@ mod popup_owner_tests {
 
     #[test]
     fn client_only_reset_preserves_a_paused_popup_resume_receipt() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
         popup(&mut client, true);
         assert!(client.reset().is_err());
@@ -371,6 +373,7 @@ mod popup_owner_tests {
 
     #[test]
     fn script_display_text_reaches_only_the_receiving_client() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
         let mut peer = GameClient::new().unwrap();
         client.set_in_game_ui_subsystem(InGameUISubsystem::default());
@@ -421,6 +424,7 @@ mod popup_owner_tests {
 
     #[test]
     fn clearing_nonpausing_popup_preserves_an_independent_pause() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
         let mut world = gamelogic::system::game_logic::GameLogic::new();
         popup(&mut client, false);

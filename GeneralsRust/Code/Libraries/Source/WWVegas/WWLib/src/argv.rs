@@ -13,31 +13,13 @@
 //! In typical Argv implementation, the first argument is the name of the application.
 //! This is not the case with this.
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 
 /// Maximum number of command-line arguments.
 const MAX_ARGC: usize = 256;
 
-/// Global argument storage matching C++ static members.
-struct GlobalArgs {
-    argc: usize,
-    argv: Vec<String>,
-}
-
-impl GlobalArgs {
-    fn new() -> Self {
-        GlobalArgs {
-            argc: 0,
-            argv: Vec::with_capacity(MAX_ARGC),
-        }
-    }
-}
-
-/// Get the global argument storage instance.
-fn global_args() -> &'static Mutex<GlobalArgs> {
-    static INSTANCE: OnceLock<Mutex<GlobalArgs>> = OnceLock::new();
-    INSTANCE.get_or_init(|| Mutex::new(GlobalArgs::new()))
-}
+use crate::process_state::ArgvStorage as GlobalArgs;
+use std::sync::Arc;
 
 /// Flags for argument matching behavior.
 #[derive(Clone, Copy, Debug)]
@@ -68,6 +50,8 @@ pub struct ArgvClass {
     last_arg: Option<String>,
     /// Behavior flags.
     flags: ArgvFlags,
+    /// Session argv storage (explicit ownership; shared with WwLibRuntime::argv).
+    args: Arc<Mutex<GlobalArgs>>,
 }
 
 impl ArgvClass {
@@ -87,10 +71,9 @@ impl ArgvClass {
     /// # Returns
     ///
     /// Number of parameters read in.
-    pub fn init(cmd_line: &str, fileprefix: Option<&str>) -> usize {
+    pub fn init(cmd_line: &str, fileprefix: Option<&str>, storage: &Arc<Mutex<GlobalArgs>>) -> usize {
         let fp = fileprefix.unwrap_or("@");
-        let global = global_args();
-        let mut args = global.lock().unwrap();
+        let mut args = storage.lock().unwrap();
         let orig_argc = args.argc;
 
         let mut ptr = cmd_line;
@@ -185,18 +168,16 @@ impl ArgvClass {
     /// Load arguments from a file (public interface).
     ///
     /// Matches C++ `static bool Load_File(const char *fname)`.
-    pub fn load_file(fname: &str) -> bool {
-        let global = global_args();
-        let mut args = global.lock().unwrap();
+    pub fn load_file(storage: &Arc<Mutex<GlobalArgs>>, fname: &str) -> bool {
+        let mut args = storage.lock().unwrap();
         Self::load_file_inner(&mut args, fname)
     }
 
     /// Release data allocated.
     ///
     /// Matches C++ `static void Free()`.
-    pub fn free() {
-        let global = global_args();
-        let mut args = global.lock().unwrap();
+    pub fn free(storage: &Arc<Mutex<GlobalArgs>>) {
+        let mut args = storage.lock().unwrap();
         args.argv.clear();
         args.argc = 0;
     }
@@ -209,7 +190,7 @@ impl ArgvClass {
     ///
     /// * `case_sensitive` - Do you want to perform a case sensitive search?
     /// * `exact_size` - Do you want string of same length?
-    pub fn new(case_sensitive: bool, exact_size: bool) -> Self {
+    pub fn new(case_sensitive: bool, exact_size: bool, storage: Arc<Mutex<GlobalArgs>>) -> Self {
         ArgvClass {
             current_pos: -1,
             last_arg: None,
@@ -217,6 +198,7 @@ impl ArgvClass {
                 case_sensitive,
                 exact_size,
             },
+            args: storage,
         }
     }
 
@@ -245,7 +227,7 @@ impl ArgvClass {
             None => return None,
         };
 
-        let global = global_args();
+        let global = &self.args;
         let args = global.lock().unwrap();
 
         self.current_pos += 1;
@@ -328,7 +310,7 @@ impl ArgvClass {
             return (None, false);
         }
 
-        let global = global_args();
+        let global = &self.args;
         let args = global.lock().unwrap();
         let pos = self.current_pos as usize;
 
@@ -373,7 +355,7 @@ impl ArgvClass {
     /// Matches C++ `void Update_Value(const char *attrib, const char *value)`.
     pub fn update_value(&mut self, attrib: &str, value: &str) {
         if self.find_value(attrib).is_some() {
-            let global = global_args();
+            let global = &self.args;
             let mut args = global.lock().unwrap();
             let pos = self.current_pos as usize;
 
@@ -403,7 +385,7 @@ impl ArgvClass {
             return;
         }
 
-        let global = global_args();
+        let global = &self.args;
         let mut args = global.lock().unwrap();
 
         if args.argc < MAX_ARGC {
@@ -427,7 +409,7 @@ impl ArgvClass {
     /// as values, calling remove_value("-i") will remove *.txt as well.
     pub fn remove_value(&mut self, attrib: &str) -> bool {
         if self.find_value(attrib).is_some() {
-            let global = global_args();
+            let global = &self.args;
             let mut args = global.lock().unwrap();
             let pos = self.current_pos as usize;
 
@@ -478,7 +460,7 @@ impl ArgvClass {
     ///
     /// Matches C++ `const char *Cur()`.
     pub fn cur(&self) -> Option<String> {
-        let global = global_args();
+        let global = &self.args;
         let args = global.lock().unwrap();
         let pos = self.current_pos as usize;
 
@@ -525,68 +507,81 @@ impl ArgvClass {
 
 impl Default for ArgvClass {
     fn default() -> Self {
-        ArgvClass::new(false, false)
+        ArgvClass::new(false, false, Arc::new(Mutex::new(GlobalArgs::new())))
     }
 }
 
+
+
+#[cfg(test)]
+fn test_argv_storage() -> Arc<Mutex<GlobalArgs>> {
+    Arc::new(Mutex::new(GlobalArgs::new()))
+}
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn setup_args() {
-        ArgvClass::free();
+        let __argv_storage = test_argv_storage();
+        ArgvClass::free(&__argv_storage);
     }
 
     #[test]
     fn test_init_simple() {
+        let __argv_storage = test_argv_storage();
         setup_args();
-        let count = ArgvClass::init("-flag value -other", None);
+        let count = ArgvClass::init("-flag value -other", None, &__argv_storage);
         assert_eq!(count, 3);
     }
 
     #[test]
     fn test_init_quoted() {
+        let __argv_storage = test_argv_storage();
         setup_args();
-        let count = ArgvClass::init("\"quoted arg\" -flag", None);
+        let count = ArgvClass::init("\"quoted arg\" -flag", None, &__argv_storage);
         assert_eq!(count, 2);
     }
 
     #[test]
     fn test_find() {
+        let __argv_storage = test_argv_storage();
         setup_args();
-        ArgvClass::init("-flag value -other", None);
+        ArgvClass::init("-flag value -other", None, &__argv_storage);
 
-        let mut argv = ArgvClass::new(false, false);
+        let mut argv = ArgvClass::new(false, false, Arc::clone(&__argv_storage));
         let result = argv.find("-flag");
         assert_eq!(result, Some("-flag".to_string()));
     }
 
     #[test]
     fn test_find_value() {
+        let __argv_storage = test_argv_storage();
         setup_args();
-        ArgvClass::init("-flag value -other", None);
+        ArgvClass::init("-flag value -other", None, &__argv_storage);
 
-        let mut argv = ArgvClass::new(false, false);
+        let mut argv = ArgvClass::new(false, false, Arc::clone(&__argv_storage));
         let value = argv.find_value("-flag");
         assert_eq!(value, Some("value".to_string()));
     }
 
     #[test]
     fn test_case_insensitive() {
+        let __argv_storage = test_argv_storage();
         setup_args();
-        ArgvClass::init("-FLAG value", None);
+        ArgvClass::init("-FLAG value", None, &__argv_storage);
 
-        let mut argv = ArgvClass::new(false, false);
+        let mut argv = ArgvClass::new(false, false, Arc::clone(&__argv_storage));
         let result = argv.find("-flag");
         assert_eq!(result, Some("-FLAG".to_string()));
     }
 
     #[test]
     fn test_case_sensitive() {
+        let __argv_storage = test_argv_storage();
         setup_args();
-        ArgvClass::init("-FLAG value", None);
+        ArgvClass::init("-FLAG value", None, &__argv_storage);
 
-        let mut argv = ArgvClass::new(true, false);
+        let mut argv = ArgvClass::new(true, false, Arc::clone(&__argv_storage));
         let result = argv.find("-flag");
         assert_eq!(result, None);
 
@@ -596,10 +591,11 @@ mod tests {
 
     #[test]
     fn test_exact_size() {
+        let __argv_storage = test_argv_storage();
         setup_args();
-        ArgvClass::init("-flag value", None);
+        ArgvClass::init("-flag value", None, &__argv_storage);
 
-        let mut argv = ArgvClass::new(false, true);
+        let mut argv = ArgvClass::new(false, true, Arc::clone(&__argv_storage));
         let result = argv.find("-fla"); // Prefix only, shouldn't match with exact_size
         assert_eq!(result, None);
 
@@ -609,10 +605,11 @@ mod tests {
 
     #[test]
     fn test_first_next() {
+        let __argv_storage = test_argv_storage();
         setup_args();
-        ArgvClass::init("first second third", None);
+        ArgvClass::init("first second third", None, &__argv_storage);
 
-        let mut argv = ArgvClass::new(false, false);
+        let mut argv = ArgvClass::new(false, false, Arc::clone(&__argv_storage));
         assert_eq!(argv.first(), Some("first".to_string()));
         assert_eq!(argv.next(), Some("second".to_string()));
         assert_eq!(argv.next(), Some("third".to_string()));
@@ -621,10 +618,11 @@ mod tests {
 
     #[test]
     fn test_add_value() {
+        let __argv_storage = test_argv_storage();
         setup_args();
-        ArgvClass::init("initial", None);
+        ArgvClass::init("initial", None, &__argv_storage);
 
-        let mut argv = ArgvClass::new(false, false);
+        let mut argv = ArgvClass::new(false, false, Arc::clone(&__argv_storage));
         argv.add_value("-new", Some("val"));
 
         let value = argv.find_value("-new");
@@ -633,20 +631,22 @@ mod tests {
 
     #[test]
     fn test_free() {
+        let __argv_storage = test_argv_storage();
         setup_args();
-        ArgvClass::init("something", None);
-        ArgvClass::free();
+        ArgvClass::init("something", None, &__argv_storage);
+        ArgvClass::free(&__argv_storage);
 
-        let mut argv = ArgvClass::new(false, false);
+        let mut argv = ArgvClass::new(false, false, Arc::clone(&__argv_storage));
         assert_eq!(argv.first(), None);
     }
 
     #[test]
     fn test_find_again() {
+        let __argv_storage = test_argv_storage();
         setup_args();
-        ArgvClass::init("-test one -test two", None);
+        ArgvClass::init("-test one -test two", None, &__argv_storage);
 
-        let mut argv = ArgvClass::new(false, false);
+        let mut argv = ArgvClass::new(false, false, Arc::clone(&__argv_storage));
         let first = argv.find("-test");
         assert_eq!(first, Some("-test".to_string()));
 

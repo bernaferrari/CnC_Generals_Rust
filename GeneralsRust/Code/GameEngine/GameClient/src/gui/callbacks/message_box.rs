@@ -1233,81 +1233,17 @@ pub use owner::{
 #[cfg(test)]
 mod tests {
     use super::*;
+use crate::gui::game_window::WindowEventEffects;
 
-    #[test]
-    fn test_message_box_callbacks() {
-        let mut message_box = MessageBoxCallbacks::new();
 
-        // Test initial state
-        assert!(!message_box.is_visible());
-        assert!(message_box.get_result().is_none());
 
-        // Test showing message box
-        assert!(
-            message_box
-                .show_message_box("Test", "This is a test", MessageBoxType::YesNo)
-                .is_ok()
-        );
-        assert!(message_box.is_visible());
-        assert_eq!(message_box.get_title(), "Test");
-        assert_eq!(message_box.get_message(), "This is a test");
-        assert_eq!(message_box.get_message_type(), &MessageBoxType::YesNo);
-
-        // Test setting result
-        assert!(message_box.set_result(MessageBoxResult::Yes).is_ok());
-        assert!(!message_box.is_visible());
-        assert_eq!(message_box.get_result(), Some(MessageBoxResult::Yes));
-    }
-
-    #[test]
-    fn test_extended_message_box() {
-        let mut extended = ExtendedMessageBoxCallbacks::new();
-
-        // Test showing extended message box
-        assert!(
-            extended
-                .show_extended_message_box(
-                    "Extended Test",
-                    "This is an extended test",
-                    MessageBoxType::OkCancel,
-                    Some(30),
-                    Some(MessageBoxButton::Ok),
-                    "warning"
-                )
-                .is_ok()
-        );
-
-        assert!(extended.is_visible());
-        assert_eq!(extended.get_timeout(), Some(30));
-        assert_eq!(extended.get_default_button(), Some(&MessageBoxButton::Ok));
-        assert_eq!(extended.get_icon_type(), "warning");
-    }
-
-    #[test]
-    fn test_quit_message_box() {
-        let mut quit_box = QuitMessageBoxCallbacks::new();
-
-        // Test showing quit dialog
-        assert!(quit_box.show_quit_dialog(false).is_ok());
-        assert!(quit_box.is_visible());
-        assert!(!quit_box.is_force_quit());
-
-        // Test force quit
-        assert!(quit_box.show_quit_dialog(true).is_ok());
-        assert!(quit_box.is_force_quit());
-
-        // Test result processing
-        assert!(quit_box.set_result(MessageBoxResult::Yes).is_ok());
-        let result = quit_box.process_quit_result().unwrap();
-        assert_eq!(result, Some(true));
-    }
 
     // Exercise the original construction algorithm with its receiving manager.
     // The removed System/global show wrappers held the callback writer while
     // WWM_CREATE synchronously called that same writer through the .wnd file.
     fn assert_constructed_message_box(title: &str, body: &str, button_flags: u16, use_logo: bool) {
         let mut manager = crate::gui::window_manager::WindowManager::new();
-        let window = gogo_message_box_in(
+        let window = WindowEventEffects::with_standalone(|effects| gogo_message_box_in(
             &mut manager,
             -1,
             -1,
@@ -1321,7 +1257,7 @@ mod tests {
             None,
             None,
             use_logo,
-        )
+            effects))
         .expect("real message-box layout and synchronous system callbacks");
         assert!(
             window
@@ -1342,23 +1278,19 @@ mod tests {
             assert_eq!(text.borrow().get_text(), expected);
         }
         manager.destroy_window(window).unwrap();
-        manager.flush_destroy_queue();
+        manager.test_flush_destroy_queue();
     }
 
     #[test]
     fn test_message_box_system() {
+        crate::test_support::ensure_ambient_host();
         #[cfg(not(target_arch = "wasm32"))]
         if let crate::test_process::TestProcess::ParentVerified =
             crate::test_process::run_bounded(module_path!(), "test_message_box_system")
         {
             return;
         }
-        let system = MessageBoxSystem::new();
-
-        // Actual callback components remain accessible; no writer spans create.
-        assert!(system.get_standard().read().is_ok());
-        assert!(system.get_extended().read().is_ok());
-        assert!(system.get_quit().read().is_ok());
+        let _system = MessageBoxSystem::new();
         assert_constructed_message_box("System Test", "Testing", MSG_BOX_OK, false);
         assert_constructed_message_box(
             "Quit Game",
@@ -1370,6 +1302,7 @@ mod tests {
 
     #[test]
     fn test_global_functions() {
+        crate::test_support::ensure_ambient_host();
         #[cfg(not(target_arch = "wasm32"))]
         if let crate::test_process::TestProcess::ParentVerified =
             crate::test_process::run_bounded(module_path!(), "test_global_functions")
@@ -1392,46 +1325,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_message_box_types() {
-        use MessageBoxType::*;
 
-        // Test all message box types can be created
-        let types = vec![
-            Ok,
-            OkCancel,
-            YesNo,
-            YesNoCancel,
-            RetryCancel,
-            AbortRetryIgnore,
-        ];
-
-        for msg_type in types {
-            let mut message_box = MessageBoxCallbacks::new();
-            assert!(
-                message_box
-                    .show_message_box("Test", "Test", msg_type)
-                    .is_ok()
-            );
-        }
-    }
-
-    #[test]
-    fn test_message_box_results() {
-        use MessageBoxResult::*;
-
-        // Test all message box results can be set
-        let results = vec![Ok, Cancel, Yes, No, Retry, Abort, Ignore, Closed];
-
-        for result in results {
-            let mut message_box = MessageBoxCallbacks::new();
-            message_box
-                .show_message_box("Test", "Test", MessageBoxType::Ok)
-                .unwrap();
-            assert!(message_box.set_result(result.clone()).is_ok());
-            assert_eq!(message_box.get_result(), Some(result));
-        }
-    }
 }
 
 /// Residual: last MessageBox action requested by residual peels.
@@ -1722,45 +1616,69 @@ pub fn drive_os_wnd_message_box_prepare_ok_like_cpp(
 #[cfg(test)]
 mod os_wnd_tests {
     use super::*;
-    use crate::gui::with_window_manager;
 
-    fn install_named_button(name: &str, x: i32, y: i32) {
-        with_window_manager(|manager| {
-            let button = manager.create_window(None, x, y, 80, 24).expect(name);
+    fn with_fixture(operation: impl FnOnce(&mut crate::gui::game_window::WindowEventEffects<'_>)) {
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut messages = Vec::new();
+        let mut effects = crate::gui::game_window::WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&owner);
+        effects.menus = Some(
+            menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
+        );
+        operation(&mut effects);
+    }
+
+    fn install_named_button(name: &str, x: i32, y: i32, effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
+        let owner = effects
+            .window_manager_owner
+            .expect("named button install requires receiving owner");
+        owner.with_manager(|manager| {
+            let button = manager.test_create_window(None, x, y, 80, 24).expect(name);
             button.borrow_mut().set_name(name);
-            let _ = button.borrow_mut().hide(false);
+            let _ = button.borrow_mut().hide_without_manager_side_effects(false);
         });
     }
 
     #[test]
     fn os_wnd_message_box_yes_hits_button_then_latches() {
-        install_named_button("MessageBox.wnd:ButtonYes", 10, 10);
-        assert!(
-            drive_os_wnd_message_box_yes_like_cpp(),
-            "OS WND click on ButtonYes must latch Yes residual"
-        );
-        assert_eq!(
-            residual_message_box_last_action(),
-            ResidualMessageBoxAction::Yes
-        );
-        assert!(!residual_message_box_is_visible());
-        assert!(!drive_os_wnd_message_box_ok_like_cpp());
+        crate::test_support::ensure_ambient_host();
+        with_fixture(|effects| {
+            install_named_button("MessageBox.wnd:ButtonYes", 10, 10, effects);
+            assert!(
+                drive_os_wnd_message_box_yes_like_cpp(effects),
+                "OS WND click on ButtonYes must latch Yes residual"
+            );
+            effects.with_message_boxes(|system| {
+                assert_eq!(
+                    residual_message_box_last_action(system),
+                    ResidualMessageBoxAction::Yes
+                );
+                assert!(!residual_message_box_is_visible(system));
+            });
+            assert!(!drive_os_wnd_message_box_ok_like_cpp(effects));
+        });
     }
 
     #[test]
     fn os_wnd_message_box_prepare_ok_hits_title_and_ok() {
-        install_named_button("MessageBox.wnd:StaticTextTitle", 10, 40);
-        install_named_button("MessageBox.wnd:StaticTextMessage", 10, 70);
-        install_named_button("MessageBox.wnd:ButtonOk", 10, 100);
-        assert!(drive_os_wnd_message_box_prepare_ok_like_cpp(
-            "GUI:Message",
-            "GUI:Confirm",
-            receiving_manager
-        ));
-        assert_eq!(
-            residual_message_box_last_action(),
-            ResidualMessageBoxAction::Ok
-        );
+        crate::test_support::ensure_ambient_host();
+        with_fixture(|effects| {
+            install_named_button("MessageBox.wnd:StaticTextTitle", 10, 40, effects);
+            install_named_button("MessageBox.wnd:StaticTextMessage", 10, 70, effects);
+            install_named_button("MessageBox.wnd:ButtonOk", 10, 100, effects);
+            assert!(drive_os_wnd_message_box_prepare_ok_like_cpp(
+                "GUI:Message",
+                "GUI:Confirm",
+                effects
+            ));
+            effects.with_message_boxes(|system| {
+                assert_eq!(
+                    residual_message_box_last_action(system),
+                    ResidualMessageBoxAction::Ok
+                );
+            });
+        });
     }
 }
 

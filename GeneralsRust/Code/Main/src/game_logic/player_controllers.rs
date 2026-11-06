@@ -78,16 +78,19 @@ mod tests {
         let mut world = GameLogic::new();
         world.prepare_native_command_mode(GameMode::Skirmish);
         world.add_player(Player::new(1, Team::USA, "Owner", false).with_script_identity("Owner"));
-        let mut source = Dict::new();
-        source.set_ascii_string(key_player_name(), "SourceAmerica");
-        source.set_ascii_string(key_player_faction(), "SourceFaction");
-        world.sync_legacy_sides_list_from_dicts_with_controller_catalog(
-            &[source],
-            &[],
-            &[],
-            &[],
-            catalog,
-        );
+        // Side Dict keys must share this world's NameKey namespace (C++ TheNameKeyGenerator).
+        world.with_own_services_mut(|world| {
+            let mut source = Dict::new();
+            source.set_ascii_string(key_player_name(), "SourceAmerica");
+            source.set_ascii_string(key_player_faction(), "SourceFaction");
+            world.sync_legacy_sides_list_from_dicts_with_controller_catalog(
+                &[source],
+                &[],
+                &[],
+                &[],
+                catalog,
+            );
+        });
         world
     }
     fn catalog(source: &str) -> HashMap<String, String> {
@@ -122,7 +125,9 @@ mod tests {
         let definitions = catalog("America");
         let owner = world(&definitions);
         let builder = SnapshotBuilder::new();
-        let saved = builder.create_world_snapshot(&owner).unwrap();
+        let saved = owner
+            .with_own_services(|| builder.create_world_snapshot(&owner))
+            .unwrap();
         let encoded = bincode_legacy::serialize(&saved).unwrap();
         let decoded = decode_bincode_world_snapshot(&encoded).unwrap();
         // Actual native restore prepares the saved map with its receiving
@@ -131,10 +136,12 @@ mod tests {
         let mut other_definitions = catalog("China");
         let mut peer = world(&other_definitions);
         other_definitions.clear();
-        builder
-            .restore_from_snapshot(&decoded, &mut receiving)
+        receiving
+            .with_own_services_mut(|receiving| {
+                builder.restore_from_snapshot(&decoded, receiving)
+            })
             .unwrap();
-        peer.reset();
+        peer.with_own_services_mut(|peer| peer.reset());
         assert!(receiving.get_player(1).unwrap().map_side.is_skirmish_ai);
         assert!(!receiving.get_player(1).unwrap().is_human);
         assert!(owner.get_player(1).unwrap().map_side.is_skirmish_ai);

@@ -509,11 +509,10 @@ pub(super) fn rider_change_contain_module_factory(
     let contain_data =
         contain_adapter_data::<RiderChangeContainModuleData>("RiderChangeContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain =
-        RiderChangeContain::new(owner_weak(owner_id), contain_data).unwrap_or_else(|_| {
-            RiderChangeContain::new(Weak::new(), &RiderChangeContainModuleData::default())
-                .expect("RiderChangeContain default construction failed")
-        });
+    let contain = RiderChangeContain::new_for_owner(owner_id, contain_data).unwrap_or_else(|_| {
+        RiderChangeContain::new_for_owner(owner_id, &RiderChangeContainModuleData::default())
+            .expect("RiderChangeContain default construction failed")
+    });
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
     build_contain_module("RiderChangeContain", thing, module_data, contain)
 }

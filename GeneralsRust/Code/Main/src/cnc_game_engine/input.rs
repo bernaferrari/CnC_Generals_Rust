@@ -165,9 +165,7 @@ impl CnCGameEngine {
             // (Retina) backbuffer leaves them painting the top-left quadrant.
             let (logical_w, logical_h) =
                 super::types::logical_surface_extent(new_size, self.window.scale_factor());
-            if let Err(err) = ww3d_engine::resize(logical_w, logical_h) {
-                warn!("WW3D resize failed: {err:?}");
-            }
+            self.ww3d.lock().resize(logical_w, logical_h);
 
             if let Err(error) = self
                 .game_logic
@@ -450,6 +448,21 @@ impl CnCGameEngine {
                                 self.camera_zoom_out_held = false;
                             }
                             _ => {}
+                        }
+                        // C++ MetaEvent walks KEY_UP so END_* camera/force metas clear.
+                        if !os_repeat
+                            && matches!(
+                                self.current_state,
+                                GameState::InGame | GameState::Paused | GameState::Menu
+                            )
+                        {
+                            let shell = matches!(self.current_state, GameState::Menu);
+                            let _ = self.try_dispatch_command_map_remap(
+                                key,
+                                Some(physical_key),
+                                shell,
+                                false,
+                            )?;
                         }
                         // C++ HotKeyTranslator: RAW_KEY_UP, no Ctrl/Shift/Alt.
                         let mods_down = self.keys_pressed.contains(&Key::Named(NamedKey::Control))
@@ -1197,6 +1210,9 @@ impl CnCGameEngine {
     }
 
     pub fn update_with_timing(&mut self, timing: &FrameTiming) -> Result<(), String> {
+        if self.golden_logic_frozen() {
+            return Ok(());
+        }
         if matches!(self.current_state, GameState::Menu | GameState::Loading) {
             // C++ shell/loading progression is driven by the engine's fixed update cadence, not
             // by renderer timing. WW3D timing can remain effectively stuck during startup/menu
@@ -1230,6 +1246,9 @@ impl CnCGameEngine {
     /// Advance simulation using the internal fallback clock (no WW3D timing).
     pub fn update_with_frame_clock(&mut self) -> Result<(), String> {
         const SHELL_MENU_STEP: Duration = Duration::from_nanos(33_333_333);
+        if self.golden_logic_frozen() {
+            return Ok(());
+        }
 
         let now = Instant::now();
         let elapsed = now.saturating_duration_since(self.menu_loading_last_tick);
@@ -1247,6 +1266,10 @@ impl CnCGameEngine {
         let mut steps = 0u32;
         let catchup_started = Instant::now();
         while self.menu_loading_tick_accumulator >= SHELL_MENU_STEP && steps < 8 {
+            if self.golden_remaining_logic_steps() == Some(0) {
+                break;
+            }
+            self.golden_note_shell_step();
             // One slow shell step must not be repeated eight times in the same
             // present. That catch-up used to turn a ~100ms tick into a ~900ms
             // update and the next frame then caught up again.
@@ -1642,6 +1665,15 @@ impl CnCGameEngine {
         let mut max_step = Duration::ZERO;
         let mut steps = 0usize;
 
+        // Particle-slot init can fail during boot; Menu message translation still
+        // requires a receiving InGameUI. Install a default shell UI if missing.
+        #[cfg(feature = "game_client")]
+        if self.game_client.in_game_ui_subsystem().is_none() {
+            self.game_client.set_in_game_ui_subsystem(
+                game_client::core::subsystems::InGameUISubsystem::default(),
+            );
+        }
+
         // Keep warmup bounded. This should absorb one-time startup work, not become a new stall.
         while steps < 2 && started.elapsed() < Duration::from_millis(900) {
             let step_started = Instant::now();
@@ -1945,9 +1977,10 @@ impl CnCGameEngine {
             }
         }
         self.apply_live_draw_dynamic_lod();
-        static RENDER_CALL_COUNT: std::sync::atomic::AtomicU32 =
-            std::sync::atomic::AtomicU32::new(0);
-        let render_call = RENDER_CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        struct RenderCallCountSlot(std::sync::atomic::AtomicU32);
+        static RENDER_CALL_COUNT: RenderCallCountSlot =
+            RenderCallCountSlot(std::sync::atomic::AtomicU32::new(0));
+        let render_call = RENDER_CALL_COUNT.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if render_call < 30 || render_call.is_multiple_of(300) {
             info!(
                 "render() called #{}, state={:?}",
@@ -2459,10 +2492,7 @@ impl CnCGameEngine {
             return;
         };
         // C++ WW3D::Set_Device_Resolution + Render2DClass::Set_Screen_Resolution.
-        if let Err(err) = ww3d_engine::resize(mode.xres.max(1), mode.yres.max(1)) {
-            warn!("W3DDisplay setDisplayMode device resize failed: {err:?}");
-            return;
-        }
+        self.ww3d.lock().resize(mode.xres.max(1), mode.yres.max(1));
         // C++ TheDisplay width/height is the logical client size; winit maps it
         // to the physical backbuffer via scale_factor, so request LogicalSize.
         let logical = winit::dpi::LogicalSize::new(f64::from(mode.xres), f64::from(mode.yres));
@@ -2504,13 +2534,7 @@ impl CnCGameEngine {
                 .fx_mut()
                 .write_backbuffer_screenshot(&path)
             {
-                if let Err(err) = ww3d_engine::make_screenshot(&path) {
-                    warn!("W3DDisplay takeScreenShot failed: {err:?}");
-                    self.game_client
-                        .script_display_receiver()
-                        .fx_mut()
-                        .queue_screenshot(path);
-                }
+                self.ww3d.lock().make_screenshot(&path);
             }
         }
         // C++ WW3D::Toggle_Movie_Capture("Movie", 30) dumps the presented framebuffer.
@@ -2527,11 +2551,11 @@ impl CnCGameEngine {
                 .write_backbuffer_movie_frame()
             {
                 let dir = game_client::display::display_fx::movie_capture_dir();
-                let _ = ww3d_engine::set_movie_capture_output(&dir, "Movie");
-                let _ = ww3d_engine::set_movie_capture_enabled(true);
+                self.ww3d.lock().set_movie_capture_output(dir.clone(), "Movie".to_string());
+                self.ww3d.lock().set_movie_capture_enabled(true);
             }
         } else {
-            let _ = ww3d_engine::set_movie_capture_enabled(false);
+            self.ww3d.lock().set_movie_capture_enabled(false);
         }
     }
 

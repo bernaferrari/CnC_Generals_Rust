@@ -25,6 +25,20 @@ pub struct MenuWorldFacts {
     pub in_shell_game: bool,
 }
 
+impl Default for MenuWorldFacts {
+    fn default() -> Self {
+        Self {
+            script_engine_available: false,
+            chat: None,
+            game_mode: 0,
+            client_frame: 0,
+            logic_frame: 0,
+            in_game: false,
+            in_shell_game: false,
+        }
+    }
+}
+
 /// Effective authored Shell settings admitted by this client after INI loading.
 /// Runtime map selection is carried by the message, never writable GlobalData.
 #[derive(Clone, Debug)]

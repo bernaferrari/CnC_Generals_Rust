@@ -188,7 +188,7 @@ fn assert_synchronized_empty_roster_fallback(case: u8) {
     accept_shot(&mut logic, 2.0);
     for id in [SOURCE, VICTIM] {
         let (object, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
-        assert!(object.take_damage_from_immediate(1_000_000.0, None, health_events));
+        assert!(object.take_damage_from_immediate(1_000_000.0, None, 0, health_events));
         let object = logic.host_object(id).unwrap();
         assert!(object.status.destroyed && object.health.current <= 0.0);
     }
@@ -239,7 +239,7 @@ fn accepted_discharge_synchronized_empty_roster_victory_runtime_fallback_keeps_f
 fn accepted_discharge_source_retirement_keeps_the_frozen_shot_once() {
     let mut logic = admitted_world(2);
     accept_shot(&mut logic, 1.0);
-    logic.destroy_object(SOURCE);
+    logic.destroy_object(SOURCE).unwrap();
     logic.process_destroy_list();
     assert!(logic.host_object(SOURCE).is_none());
     let frame = publish(&mut logic);
@@ -385,7 +385,7 @@ fn accepted_discharge_victory_fallback_freezes_post_defeat_cash() {
         accept_shot(&mut logic, 1.0);
         for id in [SOURCE, VICTIM] {
             let (object, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
-            assert!(object.take_damage_from_immediate(1_000_000.0, None, health_events));
+            assert!(object.take_damage_from_immediate(1_000_000.0, None, 0, health_events));
             assert!(logic.host_object(id).unwrap().status.destroyed);
         }
         // Use the documented sync-before-builder API boundary. All mapped

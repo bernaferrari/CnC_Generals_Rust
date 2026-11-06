@@ -684,7 +684,7 @@ pub struct RenderPipeline {
     native_terrain: Option<game_client::terrain::terrain_visual::TerrainVisualImpl>,
 
     // WW3D renderer bridge
-    forward_pass: ForwardPass,
+    pub(crate) forward_pass: ForwardPass,
     #[cfg(feature = "game_client")]
     view_filter_resources: game_client::display::shader_filter::ShaderFilterResources,
     #[cfg(feature = "game_client")]
@@ -703,6 +703,11 @@ pub struct RenderPipeline {
     heightmap_world_size: Option<(f32, f32)>,
     #[cfg(feature = "game_client")]
     radar_terrain_colors: Option<game_client::terrain::terrain_visual::FrozenRadarTerrainColors>,
+    /// Bumped when `radar_terrain_colors` is replaced so the host can re-admit once.
+    #[cfg(feature = "game_client")]
+    radar_terrain_colors_generation: u64,
+    #[cfg(feature = "game_client")]
+    pub(crate) radar_terrain_colors_admitted_generation: u64,
     /// Object/forward lighting selected at map activation.
     cached_lighting: Option<CachedLighting>,
     /// Terrain uses its own GameData `TerrainLighting*` record. Keeping this
@@ -733,12 +738,22 @@ pub struct RenderPipeline {
     /// cross-pipeline suppression of retries. Fresh instances start empty.
     failed_model_resolutions: pipeline_collect::FailedModelResolutions,
     debug_last_alive_objects: usize,
+    pub(crate) debug_last_terrain_chunks: usize,
+    pub(crate) debug_last_terrain_visible_chunks: usize,
+    pub(crate) debug_last_terrain_total_chunks: usize,
+    pub(crate) debug_last_selection_indicators: usize,
+    pub(crate) debug_last_ui_draw_items: usize,
     /// Live GameLogic object identity reads in unit mesh pass (0 when presentation owns pass).
     debug_last_live_unit_identity_reads: usize,
     /// Live GameLogic dual-reads while a presentation frame is installed (must stay 0).
     debug_last_presentation_live_fallback_reads: usize,
     debug_last_fow_filtered: usize,
     debug_last_frustum_culled: usize,
+    /// Last execute wall ms (present path).
+    debug_last_present_ms: f32,
+    debug_last_collect_ms: f32,
+    debug_last_terrain_ms: f32,
+    debug_last_forward_ms: f32,
     debug_last_model_missing: usize,
     debug_last_deferred_model_loads: usize,
     debug_last_deferred_model_load_budget: usize,
@@ -884,7 +899,7 @@ fn clear_visual_world_state_components<T>(
 
 /// Forward rendering pass powered by the WW3D renderer backend.
 pub struct ForwardPass {
-    renderer: WgpuMainRenderer,
+    pub(crate) renderer: WgpuMainRenderer,
     mesh_cache: HashMap<String, Arc<MeshModelClass>>,
     texture_cache: HashMap<String, Arc<TextureClass>>,
     pending_texture_stream: VecDeque<String>,

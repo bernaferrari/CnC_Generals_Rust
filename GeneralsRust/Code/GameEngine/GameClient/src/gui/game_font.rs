@@ -28,18 +28,18 @@ pub use super::font::get_font_library as the_font_library;
 
 /// C++ parity: `FontLibrary::init()`.
 pub fn init() -> Result<(), Box<dyn std::error::Error>> {
-    get_font_library().init_mut()
+    get_font_library().lock().unwrap_or_else(|e| e.into_inner()).init_mut()
 }
 
 /// C++ parity: `FontLibrary::reset()` — deletes all cached fonts.
 pub fn reset() -> Result<(), Box<dyn std::error::Error>> {
-    get_font_library().reset_mut()
+    get_font_library().lock().unwrap_or_else(|e| e.into_inner()).reset_mut()
 }
 
 /// C++ parity: `FontLibrary::update()` — periodic maintenance.
 /// In C++ this was a no-op. In Rust we clean up dead weak references.
 pub fn update() -> Result<(), Box<dyn std::error::Error>> {
-    get_font_library().update_mut()
+    get_font_library().lock().unwrap_or_else(|e| e.into_inner()).update_mut()
 }
 
 // ---------------------------------------------------------------------------
@@ -52,26 +52,26 @@ pub fn update() -> Result<(), Box<dyn std::error::Error>> {
 /// C++ parity: `FontLibrary::getFont(name, pointSize, bold)`.
 /// Searches the library for an existing match, loading a new font if needed.
 pub fn get_font(name: &str, point_size: i32, bold: bool) -> Option<Arc<GameFont>> {
-    get_font_library()
+    get_font_library().lock().unwrap_or_else(|e| e.into_inner())
         .get_font_by_name(name, point_size, bold)
         .ok()
 }
 
 /// C++ parity: `FontLibrary::firstFont()` — returns the first loaded font.
 pub fn first_font() -> Option<Arc<GameFont>> {
-    get_font_library().first_font()
+    get_font_library().lock().unwrap_or_else(|e| e.into_inner()).first_font()
 }
 
 /// C++ parity: `FontLibrary::nextFont(font)` — returns the font after `desc`.
 /// In C++ this followed the `next` pointer on the linked list.
 /// Rust follows the same newest-first traversal through the owned order list.
 pub fn next_font(desc: &FontDesc) -> Option<Arc<GameFont>> {
-    get_font_library().next_font(desc)
+    get_font_library().lock().unwrap_or_else(|e| e.into_inner()).next_font(desc)
 }
 
 /// C++ parity: `FontLibrary::getCount()` — number of unique fonts loaded.
 pub fn get_count() -> usize {
-    get_font_library().get_count()
+    get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_count()
 }
 
 // ---------------------------------------------------------------------------
@@ -81,7 +81,7 @@ pub fn get_count() -> usize {
 /// C++ parity: `FontLibrary::deleteAllFonts()`.
 /// Removes all loaded fonts from the library cache.
 pub fn delete_all_fonts() {
-    get_font_library().clear_cache();
+    get_font_library().lock().unwrap_or_else(|e| e.into_inner()).clear_cache();
 }
 
 /// C++ parity: `FontLibrary::linkFont(font)`.
@@ -100,7 +100,7 @@ pub fn link_font(_font: &Arc<GameFont>) {
 pub fn unlink_font(desc: &FontDesc) {
     // Rust doesn't expose individual removal. Mark for cleanup.
     // The C++ code walked the linked list to find and splice out the font.
-    get_font_library().cleanup_cache();
+    get_font_library().lock().unwrap_or_else(|e| e.into_inner()).cleanup_cache();
 }
 
 // ---------------------------------------------------------------------------

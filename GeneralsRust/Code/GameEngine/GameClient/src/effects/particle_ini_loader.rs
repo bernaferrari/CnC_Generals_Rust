@@ -893,6 +893,7 @@ mod tests {
 
     #[test]
     fn test_parser_creation() {
+        crate::test_support::ensure_ambient_host();
         let parser = ParticleSystemINIParser::default();
 
         // Test name mappings are populated
@@ -903,6 +904,7 @@ mod tests {
 
     #[test]
     fn test_basic_parsing() {
+        crate::test_support::ensure_ambient_host();
         let parser = ParticleSystemINIParser::default();
 
         // Test boolean parsing
@@ -920,6 +922,7 @@ mod tests {
 
     #[test]
     fn cpp_named_particle_distribution_encodings() {
+        crate::test_support::ensure_ambient_host();
         let parser = ParticleSystemINIParser::default();
         for (name, kind) in [
             "CONSTANT",
@@ -960,6 +963,7 @@ mod tests {
 
     #[test]
     fn test_enum_parsing() {
+        crate::test_support::ensure_ambient_host();
         let parser = ParticleSystemINIParser::default();
 
         assert_eq!(
@@ -987,6 +991,7 @@ mod tests {
 
     #[test]
     fn retail_blocks_keep_their_authored_name_and_labeled_values() {
+        crate::test_support::ensure_ambient_host();
         let source = r#"
 ParticleSystem RetailLabeledParticle
   Priority = WEAPON_EXPLOSION
@@ -1047,6 +1052,7 @@ End
 
     #[test]
     fn installed_retail_particle_system_ini_loads_all_authored_templates() {
+        crate::test_support::ensure_ambient_host();
         let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let Some(repository_root) = manifest.ancestors().nth(4) else {
             return;
@@ -1083,6 +1089,7 @@ End
 
     #[test]
     fn priority_none_does_not_abort_remaining_templates() {
+        crate::test_support::ensure_ambient_host();
         // C++ ParticleSys.h:251-253 — NONE is valid index 0, not a parse error.
         let source = r#"
 ParticleSystem FirstWithNone

@@ -85,7 +85,8 @@ impl AISkirmishPlayer {
         };
 
         // Turn on AI production by default for skirmish
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             if let Some(player_arc) = list.get_player(player_id as i32) {
                 if let Ok(mut player_ref) = player_arc.write() {
                     player_ref.set_can_build_units(true);
@@ -215,11 +216,9 @@ impl AISkirmishPlayer {
 
     /// Build specific AI building
     pub fn build_specific_ai_building(&mut self, thing_name: &str) {
-        // Wave 329: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
+        // hq-hlm7t / C++ AISkirmishPlayer.cpp:391-439: empty world still walks the
+        // build list and may mark priority / reset delay. Do not early-return on
+        // empty OBJECT_REGISTRY; missing live buildings simply count as unbuilt.
         let Some(player_arc) = self.base.get_player() else {
             return;
         };
@@ -1494,7 +1493,8 @@ impl AISkirmishPlayer {
             }
         }
 
-        let Ok(player_list) = ThePlayerList().read() else {
+        let __player_list_arc = ThePlayerList();
+        let Ok(player_list) = __player_list_arc.read() else {
             return -1;
         };
 
@@ -1549,7 +1549,8 @@ impl AISkirmishPlayer {
             }
         }
 
-        let Ok(player_list) = ThePlayerList().read() else {
+        let __player_list_arc = ThePlayerList();
+        let Ok(player_list) = __player_list_arc.read() else {
             return;
         };
 
@@ -1995,6 +1996,74 @@ mod tests {
     use super::*;
     use game_engine::system::xfer_save::XferSave;
     use std::io::Cursor;
+
+    #[test]
+    fn empty_registry_still_marks_priority_build_like_cpp() {
+        // hq-hlm7t: C++ queues missing/unbuilt entries even with an empty object world.
+        use crate::build_list_info::BuildListInfo;
+        use crate::common::AsciiString;
+        use crate::object::registry::OBJECT_REGISTRY;
+        use crate::player::{Player, ThePlayerList};
+        use game_engine::common::thing::thing_factory::{get_thing_factory, init_thing_factory};
+        use std::sync::{Arc, RwLock};
+
+        let _serial = crate::test_sync::lock();
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, || {
+            let core = crate::system::engine_stores::new_for_world();
+            crate::system::engine_stores::with_active_stores(&core, || {
+                OBJECT_REGISTRY.clear();
+                assert!(OBJECT_REGISTRY.is_empty());
+
+                if get_thing_factory().unwrap().is_none() {
+                    init_thing_factory().unwrap();
+                }
+                assert_eq!(
+                    get_thing_factory()
+                        .unwrap()
+                        .as_mut()
+                        .unwrap()
+                        .load_ini_text("Object Hlm7tBarracks\n KindOf = STRUCTURE\nEnd\n"),
+                    1,
+                );
+
+                let player_id = 0u32;
+                {
+                    let list = ThePlayerList();
+                    let mut players = list.write().unwrap();
+                    players.clear();
+                    players.add_player(Arc::new(RwLock::new(Player::new(player_id as i32))));
+                }
+                {
+                    let list = ThePlayerList();
+                    let players = list.read().unwrap();
+                    let player = players.get_player(player_id as i32).unwrap();
+                    let mut guard = player.write().unwrap();
+                    let mut info = BuildListInfo::new();
+                    info.set_template_name(AsciiString::from("Hlm7tBarracks"));
+                    assert!(!info.is_priority_build());
+                    guard.set_build_list(Some(info));
+                }
+
+                let mut ai = AISkirmishPlayer::new(player_id);
+                ai.base_for_test().set_build_delay_frames(77);
+                ai.build_specific_ai_building("Hlm7tBarracks");
+
+                {
+                    let list = ThePlayerList();
+                    let players = list.read().unwrap();
+                    let player = players.get_player(player_id as i32).unwrap();
+                    let guard = player.read().unwrap();
+                    let info = guard.get_build_list().expect("build list retained");
+                    assert!(
+                        info.is_priority_build(),
+                        "empty OBJECT_REGISTRY must not veto priority mark"
+                    );
+                }
+                assert_eq!(ai.base_for_test().get_build_delay(), 0);
+            })
+        });
+    }
 
     #[test]
     fn skirmish_xfer_does_not_write_runtime_enemy_check_frame() {

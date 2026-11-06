@@ -275,3 +275,27 @@ fn retained_hanim_survives_animationless_draw_and_is_saved_as_actual_motion() {
 
 #[path = "installed_render_phase_tests.rs"]
 mod render_phase_tests;
+
+/// C++ W3DModelDraw::setModelState rebuilds the render object/turret pivot
+/// lookup per ModelConditionInfo (m_turrets[0] AND m_turrets[1]); a condition
+/// that differs only by AltTurret/AltTurretPitch must not reuse a pose cached
+/// for another ALT bone set.
+#[test]
+fn alt_bone_change_invalidates_installed_pose_reuse_hq_2qedt_107() {
+    let model = Arc::new(model_with_camera([0.; 3], [0., 0., 0., 1.]));
+    let mut a = crate::assets::AuthoredDrawModel::default();
+    a.primary_turret.yaw_bone = Some("turret".into());
+    a.primary_turret.alternate_yaw_bone_present = true;
+    a.primary_turret.alternate_yaw_bone = Some("turret02".into());
+    a.primary_turret.alternate_pitch_bone_present = true;
+    a.primary_turret.alternate_pitch_bone = Some("turretpitch02".into());
+    let pose = InstalledDrawPose::created(model.clone(), Mat4::IDENTITY, &a, None);
+    assert!(pose.can_reuse_for(model.as_ref(), &a), "same MAIN+ALT bones reuse");
+    let mut b = a.clone();
+    b.primary_turret.alternate_yaw_bone = Some("turret03".into());
+    assert!(!pose.can_reuse_for(model.as_ref(), &b), "ALT yaw differs: no reuse");
+    let mut c = a.clone();
+    c.primary_turret.alternate_pitch_bone = None;
+    c.primary_turret.alternate_pitch_bone_present = false;
+    assert!(!pose.can_reuse_for(model.as_ref(), &c), "ALT pitch differs: no reuse");
+}

@@ -190,29 +190,30 @@ impl WindowTransitionStore {
     }
 }
 
-/// Global window transition store singleton
-static WINDOW_TRANSITION_STORE: OnceLock<RwLock<WindowTransitionStore>> = OnceLock::new();
-
 /// Get the window transition store (read guard)
-pub fn get_window_transition_store() -> std::sync::RwLockReadGuard<'static, WindowTransitionStore> {
-    WINDOW_TRANSITION_STORE
-        .get_or_init(|| RwLock::new(WindowTransitionStore::new()))
-        .read()
-        .unwrap()
-}
 
 /// Get the window transition store (write guard)
-pub fn get_window_transition_store_mut()
--> std::sync::RwLockWriteGuard<'static, WindowTransitionStore> {
-    WINDOW_TRANSITION_STORE
-        .get_or_init(|| RwLock::new(WindowTransitionStore::new()))
-        .write()
-        .unwrap()
+/// Initialize the window transition store
+
+
+fn ini_window_transition_cell() -> std::sync::Arc<std::sync::RwLock<WindowTransitionStore>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.window_transition)
 }
 
-/// Initialize the window transition store
 pub fn init_window_transition_store() {
-    let _ = WINDOW_TRANSITION_STORE.get_or_init(|| RwLock::new(WindowTransitionStore::new()));
+    let _ = ini_window_transition_cell();
+}
+
+pub fn get_window_transition_store() -> std::sync::RwLockReadGuard<'static, WindowTransitionStore> {
+    let cell = ini_window_transition_cell();
+    let guard = cell.read().expect("WindowTransitionStore poisoned");
+    unsafe { std::mem::transmute(guard) }
+}
+
+pub fn get_window_transition_store_mut() -> std::sync::RwLockWriteGuard<'static, WindowTransitionStore> {
+    let cell = ini_window_transition_cell();
+    let guard = cell.write().expect("WindowTransitionStore poisoned");
+    unsafe { std::mem::transmute(guard) }
 }
 
 /// Parse bool value from string

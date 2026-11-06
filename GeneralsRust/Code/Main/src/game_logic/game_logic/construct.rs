@@ -49,6 +49,7 @@ impl GameLogic {
     }
 
     pub fn new() -> Self {
+        crate::game_logic::ensure_world_ambient();
         log::debug!("GameLogic::new() - creating new GameLogic instance");
         let world_width = 512.0;
         let world_height = 512.0;
@@ -66,8 +67,15 @@ impl GameLogic {
         // Hoisting this one allocation creates no additional identity owner.
         let live_draw_playback_world = std::sync::Arc::new(());
         let world_services = gamelogic::system::engine_stores::new_world_services();
+        let main_services = std::sync::Arc::new(crate::main_services::MainServices::new());
+        // Temporarily bind World/Common/Main for UpgradeCenter::init / NameKey.
+        // Do not leave them published until Drop: two instances on one thread
+        // would otherwise share an ambient head. Method calls use
+        // with_own_services{,_mut}. Drop still uninstalls as a safety net.
+        gamelogic::system::engine_stores::install_services(std::sync::Arc::clone(&world_services));
+        crate::main_services::install_main_services(std::sync::Arc::clone(&main_services));
         // The original UpgradeCenter::init reserves these three mask bits
-        // before authored content. A constructor never samples another world.
+        // before authored content. Uses this instance's bound CommonServices.
         let mut upgrade_definitions = game_engine::common::system::upgrade::UpgradeCenter::new();
         upgrade_definitions.init();
         let mut instance = Self {
@@ -114,9 +122,9 @@ impl GameLogic {
             construction_events: Default::default(),
             // C++ engine-init order (GameEngine.cpp:468-481): immutable content
             // is admitted before the world. Main constructs no Core AI.
-            // Construction is inert (no active-slot write); Main installs
-            // the bundle at the explicit world-start boundaries below.
+            // new() publishes this bundle for free-function bridges; Drop pops it.
             world_services: std::sync::Arc::clone(&world_services),
+            main_services: std::sync::Arc::clone(&main_services),
             host_trigger_world,
             team_factory: team_factory.clone(),
             prepared_map_sides: gamelogic::sides_list::SidesList::new(),
@@ -608,6 +616,7 @@ impl GameLogic {
             receiving_object_definitions: None,
             receiving_template_baseline: None,
             templates: HashMap::new(),
+            build_facility_template_names_cache: std::cell::RefCell::new(None),
             unresolved_spawn_templates: HashSet::new(),
 
             map_name: String::new(),
@@ -751,7 +760,7 @@ impl GameLogic {
             script_engine: None,
             objects_receive_difficulty_bonus: true,
             session_difficulty: None,
-            owned_script_engine: Some(gamelogic::scripting::engine::ScriptEngine::new().expect("built-in script templates")),
+            owned_script_engine: Some(gamelogic::scripting::engine::ScriptEngine::new_with_services(&world_services).expect("built-in script templates")),
             script_input_enabled: true,
             intro_movie_playing: false,
             named_script_cache: Default::default(),
@@ -779,6 +788,8 @@ impl GameLogic {
             runtime_road_segments: Vec::new(),
             runtime_water_triggers: Vec::new(),
             runtime_terrain_texture_classes: Vec::new(),
+            pending_map_heightmap: None,
+            pending_blend_tile_data: None,
             pathfinding_height_samples: None,
             weather_state: RuntimeWeatherState::default(),
             host_sleepy: super::world_tick::HostSleepyHeap::new(),
@@ -786,11 +797,17 @@ impl GameLogic {
         };
         instance.refresh_pathfinding_ai_definitions();
         instance.rebuild_objective_lookup();
-        // C++ GameLogic::GameLogic only initializes fields. Constructing a
-        // candidate must not publish its authority, store bundle, or override
-        // callback while another world is live. WorldServices constructs a
-        // fresh shroud; it never copies a previous match's mutable state.
+        // Pop construction binds so ambient is clear between method calls.
+        let _ = gamelogic::system::engine_stores::uninstall_services(&instance.world_services);
+        let _ = crate::main_services::uninstall_main_services_if_current(&instance.main_services);
+        // WorldServices constructs a fresh shroud; it never copies prior state.
         instance
+    }
+
+    /// Staged-restore / inert candidate. Same as [`Self::new`]: construction
+    /// binds are temporary; the instance is not left on the ambient stacks.
+    pub fn new_unpublished() -> Self {
+        Self::new()
     }
 
     /// Admit the canonical ordered GameData result into this receiving match.
@@ -910,22 +927,21 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        let services = Arc::clone(&self.world_services);
-        gamelogic::system::engine_stores::with_world_services(&services, || {
-            self.validate_reset_with_effects(effects)?;
+        self.with_own_services_mut(|this| {
+            this.validate_reset_with_effects(effects)?;
 
             // C++ GameLogic::reset clears these controls and restores the
             // input/pause state before Object onDelete callbacks run.
             // Keep this prefix ahead of the ordered Object drain so callbacks
             // observe the reset session state.
-            self.buildable_status_overrides.clear();
-            self.control_bar_overrides.clear();
-            self.is_paused = false;
-            self.set_script_input_enabled(true);
-            self.objects.suspend_ordinary_lookup_for_reset();
+            this.buildable_status_overrides.clear();
+            this.control_bar_overrides.clear();
+            this.is_paused = false;
+            this.set_script_input_enabled(true);
+            this.objects.suspend_ordinary_lookup_for_reset();
 
-            self.destroy_all_objects_immediate_with_effects_checked(effects)?;
-            self.reset_with_receiving_services(effects)
+            this.destroy_all_objects_immediate_with_effects_checked(effects)?;
+            this.reset_with_receiving_services(effects)
         })
     }
 
@@ -961,6 +977,7 @@ impl GameLogic {
         self.locomotor_definitions = self.locomotor_definition_base.clone();
         if let Some(baseline) = &self.receiving_template_baseline {
             self.templates = baseline.clone();
+        self.invalidate_build_facility_template_names_cache();
         }
         if let Some(content) = &mut self.receiving_module_content {
             content.reset_map_overrides();
@@ -1661,6 +1678,57 @@ mod ownership_tests {
         Some(game_engine::common::system::geometry::Coord3D::new(
             17.0, 3.0, 29.0,
         ))
+    }
+
+    #[test]
+    fn two_game_logic_instances_interleaved_on_one_thread_stay_isolated() {
+        // Nested with_own_services: inner world wins; outer restored after.
+        let a = GameLogic::new();
+        let b = GameLogic::new();
+        let a_epoch = 11u32;
+        let b_epoch = 22u32;
+        a.world_services
+            .session_flags()
+            .world_epoch
+            .store(a_epoch, std::sync::atomic::Ordering::Relaxed);
+        b.world_services
+            .session_flags()
+            .world_epoch
+            .store(b_epoch, std::sync::atomic::Ordering::Relaxed);
+
+        a.with_own_services(|| {
+            assert_eq!(
+                gamelogic::system::engine_stores::active_services()
+                    .session_flags()
+                    .world_epoch
+                    .load(std::sync::atomic::Ordering::Relaxed),
+                a_epoch
+            );
+            b.with_own_services(|| {
+                assert_eq!(
+                    gamelogic::system::engine_stores::active_services()
+                        .session_flags()
+                        .world_epoch
+                        .load(std::sync::atomic::Ordering::Relaxed),
+                    b_epoch
+                );
+                assert!(std::sync::Arc::ptr_eq(
+                    &gamelogic::system::engine_stores::active_services(),
+                    &b.world_services
+                ));
+            });
+            assert_eq!(
+                gamelogic::system::engine_stores::active_services()
+                    .session_flags()
+                    .world_epoch
+                    .load(std::sync::atomic::Ordering::Relaxed),
+                a_epoch
+            );
+            assert!(std::sync::Arc::ptr_eq(
+                &gamelogic::system::engine_stores::active_services(),
+                &a.world_services
+            ));
+        });
     }
 
     #[test]

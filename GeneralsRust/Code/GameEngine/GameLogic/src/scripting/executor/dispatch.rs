@@ -185,7 +185,8 @@ impl ScriptActionDispatcher<'_> {
     }
 
     pub(crate) fn resolve_special_power_template_name(&self, power_name: &str) -> Option<String> {
-        let store = get_special_power_store()?;
+        let store_arc = get_special_power_store()?;
+        let store = store_arc.read().ok()?;
         let template = store.find_special_power_template(power_name)?;
         Some(template.get_name().to_string())
     }
@@ -2558,7 +2559,8 @@ impl ScriptActionDispatcher<'_> {
             return;
         };
 
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return;
         };
         let Some(player_arc) = list.find_player_by_name(&player_name) else {
@@ -2583,7 +2585,8 @@ impl ScriptActionDispatcher<'_> {
     where
         F: FnOnce(&mut crate::ai::integration::IntegratedAiPlayer),
     {
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return;
         };
         let Some(player_arc) = list.find_player_by_name(player_name) else {
@@ -2610,7 +2613,8 @@ impl ScriptActionDispatcher<'_> {
             .with_engine_ref(|engine| engine.get_current_player_name())
             .flatten()?;
 
-        let list = player_list().read().ok()?;
+        let __player_list_arc = player_list();
+        let list = __player_list_arc.read().ok()?;
         let current_player = list.find_player_by_name(&current_player_name)?;
         let current_guard = current_player.read().ok()?;
 
@@ -3106,7 +3110,10 @@ impl ScriptActionDispatcher<'_> {
         };
 
         // C++ script actions use short-lived groups; avoid contending on global AI write lock.
-        let group_id = SCRIPT_TEMP_GROUP_ID.fetch_add(1, Ordering::Relaxed);
+        let group_id = crate::system::engine_stores::active_services()
+            .session_flags()
+            .script_temp_group_id
+            .fetch_add(1, Ordering::Relaxed);
         let group = Arc::new(RwLock::new(AiGroup::new(group_id)));
 
         if let Ok(mut group_guard) = group.write() {

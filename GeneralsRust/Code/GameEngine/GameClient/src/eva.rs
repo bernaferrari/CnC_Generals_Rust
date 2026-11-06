@@ -1,7 +1,5 @@
 //! EVA voice system (GameClient/Eva.cpp).
 
-use std::cell::RefCell;
-use std::sync::atomic::AtomicUsize;
 
 use game_engine::common::ini::{
     FieldParse, INI, INIError, INILoadType, INIResult, register_block_parser,
@@ -496,6 +494,18 @@ impl EvaPlayback for CoreEvaPlayback {
     }
 }
 
+/// Residual: last EVA action requested by residual peels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ResidualEvaAction {
+    None = 0,
+    Enable = 1,
+    Disable = 2,
+    ShouldPlay = 3,
+    Reset = 4,
+    Update = 5,
+}
+
 #[derive(Debug)]
 pub struct Eva {
     checks: Vec<EvaCheck>,
@@ -505,6 +515,11 @@ pub struct Eva {
     enabled: bool,
     eva_speech: AudioEventRts,
     played_count: u32,
+    host_frame: u32,
+    host_sufficient_power: Option<bool>,
+    host_local_player: Option<(String, u32)>,
+    residual_action: ResidualEvaAction,
+    residual_last_message: Option<usize>,
 }
 
 impl Default for Eva {
@@ -523,6 +538,11 @@ impl Eva {
             enabled: true,
             eva_speech: AudioEventRts::default(),
             played_count: 0,
+            host_frame: 0,
+            host_sufficient_power: None,
+            host_local_player: None,
+            residual_action: ResidualEvaAction::None,
+            residual_last_message: None,
         }
     }
 
@@ -598,18 +618,13 @@ impl Eva {
     /// Standalone Core compatibility entry. Main supplies a context directly.
     pub fn update(&mut self) {
         self.sync_enabled_from_logic();
-        let context = Self::legacy_frame_context();
+        let context = self.legacy_frame_context();
         if self.enabled && context.frame >= 2 {
             self.ingest_logic_events();
         }
-        let before = self.played_count;
         self.update_with_playback(&context, &mut CoreEvaPlayback, &mut |lo, hi| {
             get_game_client_random_value(lo, hi)
         });
-        EVA_PLAYED_COUNT.fetch_add(
-            (self.played_count - before) as usize,
-            std::sync::atomic::Ordering::Relaxed,
-        );
     }
 
     /// Advance this speaker with its receiving audio service and client RNG.
@@ -647,12 +662,16 @@ impl Eva {
         self.should_play.fill(false);
     }
 
-    fn legacy_frame_context() -> EvaFrameContext {
-        let local_player = if let Some((side, index)) = eva_host_local_player() {
+    pub fn legacy_frame_context(&self) -> EvaFrameContext {
+        let local_player = if let Some((side, index)) = self.host_local_player.clone() {
+            let sufficient_power = match self.host_sufficient_power {
+                Some(v) => v,
+                None => !self.should_play_low_power_static(),
+            };
             Some(EvaLocalPlayerContext {
                 side,
                 index,
-                sufficient_power: !Self::should_play_low_power(),
+                sufficient_power,
             })
         } else {
             ThePlayerList()
@@ -668,9 +687,66 @@ impl Eva {
                 })
         };
         EvaFrameContext {
-            frame: eva_logic_frame(),
+            frame: self.logic_frame(),
             local_player,
         }
+    }
+
+
+    pub fn set_host_frame(&mut self, frame: u32) {
+        self.host_frame = frame;
+    }
+    pub fn host_frame(&self) -> u32 {
+        self.host_frame
+    }
+    pub fn logic_frame(&self) -> u32 {
+        if self.host_frame != 0 {
+            self.host_frame
+        } else {
+            TheGameLogic::get_frame()
+        }
+    }
+    pub fn set_host_sufficient_power(&mut self, sufficient: bool) {
+        self.host_sufficient_power = Some(sufficient);
+    }
+    pub fn clear_host_sufficient_power(&mut self) {
+        self.host_sufficient_power = None;
+    }
+    pub fn host_sufficient_power(&self) -> Option<bool> {
+        self.host_sufficient_power
+    }
+    pub fn set_host_local_player(&mut self, side: impl Into<String>, player_index: u32) {
+        self.host_local_player = Some((side.into(), player_index));
+    }
+    pub fn clear_host_local_player(&mut self) {
+        self.host_local_player = None;
+    }
+    pub fn host_local_player(&self) -> Option<(String, u32)> {
+        self.host_local_player.clone()
+    }
+    pub fn residual_last_action(&self) -> ResidualEvaAction {
+        self.residual_action
+    }
+    pub fn residual_is_enabled(&self) -> bool {
+        self.enabled
+    }
+    pub fn residual_last_message_index(&self) -> Option<usize> {
+        self.residual_last_message
+    }
+    pub(crate) fn residual_store(&mut self, action: ResidualEvaAction) {
+        self.residual_action = action;
+    }
+    pub(crate) fn set_residual_last_message(&mut self, index: Option<usize>) {
+        self.residual_last_message = index;
+    }
+    pub fn load_default_ini(&mut self) -> INIResult<()> {
+        if !self.all_check_infos.is_empty() {
+            return Ok(());
+        }
+        let contents =
+            std::fs::read_to_string("Data/INI/Eva.ini").map_err(|_| INIError::CantOpenFile)?;
+        *self = Self::from_ordered_ini_sources([contents.as_str()])?;
+        Ok(())
     }
 
     pub fn set_should_play(&mut self, message: EvaMessage) {
@@ -723,7 +799,7 @@ impl Eva {
     }
 
     fn message_should_play(&mut self, message: EvaMessage) -> bool {
-        self.message_should_play_with_local_player(message, Self::has_local_player())
+        self.message_should_play_with_local_player(message, self.has_local_player())
     }
 
     fn message_should_play_with_local_player(
@@ -737,15 +813,15 @@ impl Eva {
 
         self.message_being_tested = message;
         match message {
-            EvaMessage::LowPower => Self::should_play_low_power(),
+            EvaMessage::LowPower => self.should_play_low_power(),
             _ => self.should_play_generic(),
         }
     }
 
-    fn has_local_player() -> bool {
+    fn has_local_player(&self) -> bool {
         // C++ Eva.cpp:270 reads the same-process ThePlayerList; the live host
         // players live in Main, so prefer the published local-player snapshot.
-        if eva_host_local_player().is_some() {
+        if self.host_local_player.is_some() {
             return true;
         }
         ThePlayerList()
@@ -755,13 +831,23 @@ impl Eva {
             .is_some()
     }
 
-    fn should_play_low_power() -> bool {
+    fn should_play_low_power(&self) -> bool {
+        self.should_play_low_power_static_with(self.host_sufficient_power)
+    }
+
+    fn should_play_low_power_static(&self) -> bool {
+        self.should_play_low_power_static_with(None)
+    }
+
+    fn should_play_low_power_static_with(&self, host_power: Option<bool>) -> bool {
         // C++ Eva.cpp:422 polls localPlayer->getEnergy()->hasSufficientPower().
         // Live leftover ThePlayerList Energy is not host power_available.
-        if let Some(sufficient) = eva_host_sufficient_power() {
+        if let Some(sufficient) = host_power {
             return !sufficient;
         }
-        let Ok(list) = ThePlayerList().read() else {
+        let __arc_bind = ThePlayerList();
+
+        let Ok(list) = __arc_bind.read() else {
             return false;
         };
         let Some(local_player) = list.get_local_player().cloned() else {
@@ -796,16 +882,12 @@ impl Eva {
     }
 
     fn process_playing_messages(&mut self, current_frame: u32) {
-        let before = self.played_count;
+        let context = self.legacy_frame_context();
         self.process_playing_messages_with_context(
             current_frame,
-            &Self::legacy_frame_context(),
+            &context,
             &mut CoreEvaPlayback,
             &mut |lo, hi| get_game_client_random_value(lo, hi),
-        );
-        EVA_PLAYED_COUNT.fetch_add(
-            (self.played_count - before) as usize,
-            std::sync::atomic::Ordering::Relaxed,
         );
     }
 
@@ -1046,132 +1128,27 @@ fn parse_eva_event_into(ini: &mut INI, eva: &mut Eva) -> INIResult<()> {
     }
 }
 
-pub fn parse_eva_event(ini: &mut INI) -> INIResult<()> {
-    // Compatibility parser for standalone Core clients.
-    with_eva(|eva| parse_eva_event_into(ini, eva))
+/// Parse one EvaEvent block into the provided speaker.
+pub fn parse_eva_event_for(ini: &mut INI, eva: &mut Eva) -> INIResult<()> {
+    parse_eva_event_into(ini, eva)
 }
 
-thread_local! {
-    static THE_EVA: RefCell<Eva> = RefCell::new(Eva::new());
+pub fn initialize_eva_system(eva: &mut Eva) -> INIResult<()> {
+    eva.load_default_ini()
 }
 
-pub fn with_eva<R>(f: impl FnOnce(&mut Eva) -> R) -> R {
-    THE_EVA.with_borrow_mut(f)
+pub fn eva_check_info_count(eva: &Eva) -> usize {
+    eva.all_check_infos.len()
 }
 
-thread_local! {
-    /// Live host logic frame (Main `GameLogic::get_frame` / presentation freeze).
-    /// Zero means "unset" so crate `TheGameLogic::get_frame` remains the fallback.
-    static HOST_EVA_FRAME: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
-    /// Host `hasSufficientPower` snapshot. `None` = leftover Energy fallback.
-    static HOST_EVA_SUFFICIENT_POWER: std::cell::Cell<Option<bool>> =
-        const { std::cell::Cell::new(None) };
+pub fn eva_check_snapshot(eva: &Eva) -> (usize, usize, Option<usize>, bool, bool, u32) {
+    let context = eva.legacy_frame_context();
+    eva.check_snapshot(&context)
 }
 
-/// Publish the live host/sim frame Eva.cpp:271 reads as `TheGameLogic->getFrame()`.
-pub fn set_eva_host_frame(frame: u32) {
-    HOST_EVA_FRAME.with(|cell| cell.set(frame));
-}
-
-/// Last host frame published by Main / presentation. Zero if none.
-pub fn eva_host_frame() -> u32 {
-    HOST_EVA_FRAME.with(|cell| cell.get())
-}
-
-/// Frame Eva::update uses: host clock when published, else crate GameLogic.
-pub fn eva_logic_frame() -> u32 {
-    let host = eva_host_frame();
-    if host != 0 {
-        host
-    } else {
-        TheGameLogic::get_frame()
-    }
-}
-
-/// Publish host Energy::hasSufficientPower for Eva.cpp:408-422 LowPower poll.
-static EVA_PLAYED_COUNT: AtomicUsize = AtomicUsize::new(0);
-
-thread_local! {
-    static HOST_EVA_LOCAL_PLAYER: RefCell<Option<(String, u32)>> = const { RefCell::new(None) };
-}
-
-/// Live-probe counter: total EVA messages dispatched to the audio device.
-pub fn eva_played_count() -> usize {
-    EVA_PLAYED_COUNT.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-/// Publish host Energy::hasSufficientPower for Eva.cpp:408-422 LowPower poll.
-pub fn set_eva_host_sufficient_power(sufficient: bool) {
-    HOST_EVA_SUFFICIENT_POWER.with(|cell| cell.set(Some(sufficient)));
-}
-
-/// Drop the host power snapshot so leftover ThePlayerList Energy is used.
-pub fn clear_eva_host_sufficient_power() {
-    HOST_EVA_SUFFICIENT_POWER.with(|cell| cell.set(None));
-}
-
-/// Host sufficient-power snapshot. `None` when Main has not published.
-pub fn eva_host_sufficient_power() -> Option<bool> {
-    HOST_EVA_SUFFICIENT_POWER.with(|cell| cell.get())
-}
-
-/// Publish host local-player identity for Eva.cpp:270 `m_localPlayer`
-/// (side token for Eva.ini SideSounds + player index for the speech handle).
-pub fn set_eva_host_local_player(side: impl Into<String>, player_index: u32) {
-    HOST_EVA_LOCAL_PLAYER.with_borrow_mut(|cell| *cell = Some((side.into(), player_index)));
-}
-
-/// Drop the host local-player snapshot so leftover ThePlayerList is used.
-pub fn clear_eva_host_local_player() {
-    HOST_EVA_LOCAL_PLAYER.with_borrow_mut(|cell| *cell = None);
-}
-
-/// Host local-player snapshot: `(side token, player index)`.
-pub fn eva_host_local_player() -> Option<(String, u32)> {
-    HOST_EVA_LOCAL_PLAYER.with_borrow(Clone::clone)
-}
-
-pub fn initialize_eva_system() -> INIResult<()> {
-    if eva_check_info_count() > 0 {
-        return Ok(());
-    }
-    // Register + load without holding THE_EVA; parse_eva_event locks per event.
-    let _ = register_block_parser("EvaEvent", parse_eva_event);
-    let mut ini = INI::new();
-    ini.load("Data/INI/Eva.ini", INILoadType::Overwrite)
-}
-
-/// Number of Eva.ini `EvaEvent` blocks currently on the live singleton.
-pub fn eva_check_info_count() -> usize {
-    with_eva(|eva| eva.all_check_infos.len())
-}
-
-/// Live-probe snapshot: (check infos, pending checks, last played message,
-/// enabled latch, host local-player present, tick frame).
-pub fn eva_check_snapshot() -> (usize, usize, Option<usize>, bool, bool, u32) {
-    let present = eva_host_local_player().is_some();
-    let frame = eva_logic_frame();
-    with_eva(|eva| {
-        let last_played = eva
-            .checks
-            .iter()
-            .filter(|check| check.already_played)
-            .map(|check| check.eva_info.as_index())
-            .next_back();
-        (
-            eva.all_check_infos.len(),
-            eva.checks.len(),
-            last_played,
-            eva.enabled,
-            present,
-            frame,
-        )
-    })
-}
-
-pub fn reset_eva_system() {
-    set_eva_host_frame(0);
-    clear_eva_host_sufficient_power();
+pub fn reset_eva_system(eva: &mut Eva) {
+    eva.set_host_frame(0);
+    eva.clear_host_sufficient_power();
     // C++ has one TheEva singleton: a shell-menu script
     // EVA_SET_ENABLED_DISABLED(false) persists into the match until
     // GameClient::reset (GameClient.cpp:450) runs Eva::reset (Eva.cpp:245-263)
@@ -1180,20 +1157,67 @@ pub fn reset_eva_system() {
     // reset must re-arm both or sync_enabled_from_logic keeps re-applying the
     // stale shell disable every frame.
     let _ = LogicEva::set_enabled(true);
-    with_eva(|guard| guard.reset());
+    eva.reset();
 }
 
-pub fn update_eva_system() {
-    with_eva(|guard| guard.update());
+pub fn update_eva_system(eva: &mut Eva) {
+    eva.update();
 }
 
-pub fn set_eva_should_play(message: EvaMessage) {
-    with_eva(|guard| guard.set_should_play(message));
+pub fn set_eva_should_play(eva: &mut Eva, message: EvaMessage) {
+    eva.set_should_play(message);
 }
 
-pub fn set_eva_enabled(enabled: bool) {
-    with_eva(|guard| guard.set_enabled(enabled));
+pub fn set_eva_enabled(eva: &mut Eva, enabled: bool) {
+    eva.set_enabled(enabled);
 }
+
+pub fn simulate_eva_enable(eva: &mut Eva) -> bool {
+    eva.set_enabled(true);
+    eva.residual_store(ResidualEvaAction::Enable);
+    eva.residual_is_enabled()
+}
+
+pub fn simulate_eva_disable(eva: &mut Eva) -> bool {
+    eva.set_enabled(false);
+    eva.residual_store(ResidualEvaAction::Disable);
+    !eva.residual_is_enabled()
+}
+
+pub fn simulate_eva_set_should_play_by_name(eva: &mut Eva, name: &str) -> bool {
+    let Some(message) = EvaMessage::from_name(name) else {
+        return false;
+    };
+    eva.set_should_play(message);
+    eva.set_residual_last_message(Some(message.as_index()));
+    eva.residual_store(ResidualEvaAction::ShouldPlay);
+    eva.residual_last_message_index() == Some(message.as_index())
+}
+
+pub fn simulate_eva_set_should_play_low_power(eva: &mut Eva) -> bool {
+    simulate_eva_set_should_play_by_name(eva, "LOWPOWER")
+}
+
+pub fn simulate_eva_reset(eva: &mut Eva) -> bool {
+    eva.reset();
+    eva.set_residual_last_message(None);
+    eva.residual_store(ResidualEvaAction::Reset);
+    true
+}
+
+pub fn simulate_eva_update(eva: &mut Eva) -> bool {
+    eva.update();
+    eva.residual_store(ResidualEvaAction::Update);
+    true
+}
+
+pub fn simulate_eva_prepare_low_power_alert(eva: &mut Eva) -> bool {
+    if !simulate_eva_enable(eva) {
+        return false;
+    }
+    simulate_eva_set_should_play_low_power(eva)
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -1202,6 +1226,7 @@ mod tests {
 
     #[test]
     fn eva_expiration_minus_one_matches_original_duration() {
+        crate::test_support::ensure_ambient_host();
         // Exercise the local production field parser without global registration
         // or audio. C++ scans -1 as UINT_MAX, then uses f32 multiply and ceil.
         for fields in [
@@ -1238,15 +1263,14 @@ mod tests {
         }
     }
 
-    fn load_eva_file_for_test(path: &Path) -> INIResult<()> {
-        reset_eva_system();
-        let _ = register_block_parser("EvaEvent", parse_eva_event);
-        let mut ini = INI::new();
-        ini.load(path, INILoadType::Overwrite)
+    fn load_eva_file_for_test(path: &Path) -> INIResult<Eva> {
+        let contents = std::fs::read_to_string(path).map_err(|_| INIError::CantOpenFile)?;
+        Eva::from_ordered_ini_sources([contents.as_str()])
     }
 
     #[test]
     fn eva_message_names_match_cpp_indices() {
+        crate::test_support::ensure_ambient_host();
         for (index, name) in EVA_MESSAGE_NAMES.iter().enumerate() {
             let message = EvaMessage::from_index(index).expect("valid EVA index");
 
@@ -1266,6 +1290,7 @@ mod tests {
 
     #[test]
     fn new_eva_check_info_rejects_duplicates_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut eva = Eva::new();
 
         let first = eva
@@ -1283,6 +1308,7 @@ mod tests {
 
     #[test]
     fn eva_check_info_can_be_looked_up_by_name() {
+        crate::test_support::ensure_ambient_host();
         let mut eva = Eva::new();
         eva.new_eva_check_info("BUILDINGLOST")
             .expect("BUILDINGLOST check info");
@@ -1299,6 +1325,7 @@ mod tests {
 
     #[test]
     fn retail_eva_ini_loads_all_events() {
+        crate::test_support::ensure_ambient_host();
         let Some(root) = repo_root() else {
             return;
         };
@@ -1307,18 +1334,15 @@ mod tests {
             return;
         }
 
-        load_eva_file_for_test(&path).expect("retail Eva.ini should parse");
+        let eva = load_eva_file_for_test(&path).expect("retail Eva.ini should parse");
 
-        // Assert the shipped singleton the parser actually writes.
-        let (count, has_gps, has_sneak) = with_eva(|eva| {
-            (
-                eva.all_check_infos.len(),
-                eva.get_eva_check_info_by_name("SuperweaponLaunched_Enemy_GPS_Scrambler")
-                    .is_some(),
-                eva.get_eva_check_info_by_name("SuperweaponLaunched_Enemy_Sneak_Attack")
-                    .is_some(),
-            )
-        });
+        let count = eva.all_check_infos.len();
+        let has_gps = eva
+            .get_eva_check_info_by_name("SuperweaponLaunched_Enemy_GPS_Scrambler")
+            .is_some();
+        let has_sneak = eva
+            .get_eva_check_info_by_name("SuperweaponLaunched_Enemy_Sneak_Attack")
+            .is_some();
         assert_eq!(count, 49);
         assert!(has_gps);
         assert!(has_sneak);
@@ -1326,6 +1350,7 @@ mod tests {
 
     #[test]
     fn eva_enabled_state_mirrors_logic_script_toggle() {
+        crate::test_support::ensure_ambient_host();
         let _ = LogicEva::set_enabled(true);
         let mut eva = Eva::new();
         eva.set_should_play(EvaMessage::BuildingLost);
@@ -1342,6 +1367,7 @@ mod tests {
 
     #[test]
     fn generic_eva_messages_do_not_probe_without_local_player() {
+        crate::test_support::ensure_ambient_host();
         let mut eva = Eva::new();
         eva.set_should_play(EvaMessage::BuildingLost);
 
@@ -1352,10 +1378,11 @@ mod tests {
 
     #[test]
     fn eva_update_uses_host_frame_when_crate_clock_is_starved() {
+        crate::test_support::ensure_ambient_host();
         // C++ Eva.cpp:275 returns before probing when frame < 2. A starved crate
         // clock stays at 0; the live host frame must open that gate.
-        set_eva_host_frame(0);
         let mut eva = Eva::new();
+        eva.set_host_frame(0);
         eva.set_should_play(EvaMessage::BuildingLost);
         eva.update();
         assert!(
@@ -1363,135 +1390,35 @@ mod tests {
             "frame 0 must skip Eva.cpp:275 and leave shouldPlay latched"
         );
 
-        set_eva_host_frame(5);
-        assert_eq!(eva_logic_frame(), 5);
+        eva.set_host_frame(5);
+        assert_eq!(eva.logic_frame(), 5);
         eva.update();
         assert!(
             !eva.should_play[EvaMessage::BuildingLost.as_index()],
             "host frame >= 2 must run Eva::update and clear unprobed flags"
         );
-        set_eva_host_frame(0);
+        eva.set_host_frame(0);
     }
 
     #[test]
     fn low_power_polls_host_energy_not_leftover_flag() {
+        crate::test_support::ensure_ambient_host();
         // C++ Eva.cpp:408-422 polls Energy, never m_shouldPlay[LowPower].
-        clear_eva_host_sufficient_power();
         let mut eva = Eva::new();
+        eva.clear_host_sufficient_power();
         eva.set_should_play(EvaMessage::LowPower);
-        set_eva_host_sufficient_power(true);
+        eva.set_host_sufficient_power(true);
         assert!(
             !eva.message_should_play_with_local_player(EvaMessage::LowPower, true),
             "host sufficient power must not speak LowPower"
         );
-        set_eva_host_sufficient_power(false);
+        eva.set_host_sufficient_power(false);
         assert!(
             eva.message_should_play_with_local_player(EvaMessage::LowPower, true),
             "host brownout must speak LowPower"
         );
-        clear_eva_host_sufficient_power();
+        eva.clear_host_sufficient_power();
     }
-}
-
-/// Residual: last EVA action requested by residual peels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum ResidualEvaAction {
-    None = 0,
-    Enable = 1,
-    Disable = 2,
-    ShouldPlay = 3,
-    Reset = 4,
-    Update = 5,
-}
-
-static RESIDUAL_EVA_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_EVA_ENABLED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(true);
-static RESIDUAL_EVA_LAST_MESSAGE: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(usize::MAX);
-
-fn residual_eva_action_store(action: ResidualEvaAction) {
-    RESIDUAL_EVA_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
-}
-
-/// Residual: last EVA residual action.
-pub fn residual_eva_last_action() -> ResidualEvaAction {
-    match RESIDUAL_EVA_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
-        1 => ResidualEvaAction::Enable,
-        2 => ResidualEvaAction::Disable,
-        3 => ResidualEvaAction::ShouldPlay,
-        4 => ResidualEvaAction::Reset,
-        5 => ResidualEvaAction::Update,
-        _ => ResidualEvaAction::None,
-    }
-}
-
-/// Residual: EVA enabled latch.
-pub fn residual_eva_is_enabled() -> bool {
-    RESIDUAL_EVA_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-/// Residual: last EvaMessage index flagged for play (None if none).
-pub fn residual_eva_last_message_index() -> Option<usize> {
-    let idx = RESIDUAL_EVA_LAST_MESSAGE.load(std::sync::atomic::Ordering::Relaxed);
-    if idx == usize::MAX { None } else { Some(idx) }
-}
-
-/// Residual: enable EVA without INI reload.
-pub fn simulate_eva_enable() -> bool {
-    set_eva_enabled(true);
-    RESIDUAL_EVA_ENABLED.store(true, std::sync::atomic::Ordering::Relaxed);
-    residual_eva_action_store(ResidualEvaAction::Enable);
-    residual_eva_is_enabled()
-}
-
-/// Residual: disable EVA without INI reload.
-pub fn simulate_eva_disable() -> bool {
-    set_eva_enabled(false);
-    RESIDUAL_EVA_ENABLED.store(false, std::sync::atomic::Ordering::Relaxed);
-    residual_eva_action_store(ResidualEvaAction::Disable);
-    !residual_eva_is_enabled()
-}
-
-/// Residual: flag a named EVA message should play without audio.
-pub fn simulate_eva_set_should_play_by_name(name: &str) -> bool {
-    let Some(message) = EvaMessage::from_name(name) else {
-        return false;
-    };
-    set_eva_should_play(message);
-    RESIDUAL_EVA_LAST_MESSAGE.store(message.as_index(), std::sync::atomic::Ordering::Relaxed);
-    residual_eva_action_store(ResidualEvaAction::ShouldPlay);
-    residual_eva_last_message_index() == Some(message.as_index())
-}
-
-/// Residual: flag LowPower residual (common combat alert).
-pub fn simulate_eva_set_should_play_low_power() -> bool {
-    simulate_eva_set_should_play_by_name("LOWPOWER")
-}
-
-/// Residual: reset EVA residual flags without INI reload.
-pub fn simulate_eva_reset() -> bool {
-    with_eva(|guard| guard.reset());
-    RESIDUAL_EVA_ENABLED.store(true, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_EVA_LAST_MESSAGE.store(usize::MAX, std::sync::atomic::Ordering::Relaxed);
-    residual_eva_action_store(ResidualEvaAction::Reset);
-    true
-}
-
-/// Residual: update EVA system residual (no INI required).
-pub fn simulate_eva_update() -> bool {
-    update_eva_system();
-    residual_eva_action_store(ResidualEvaAction::Update);
-    true
-}
-
-/// Residual: enable + LowPower should-play composite.
-pub fn simulate_eva_prepare_low_power_alert() -> bool {
-    if !simulate_eva_enable() {
-        return false;
-    }
-    simulate_eva_set_should_play_low_power()
 }
 
 #[cfg(test)]

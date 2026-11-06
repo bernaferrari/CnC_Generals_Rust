@@ -10,6 +10,11 @@ logic is explicitly deferred until all non-network systems are ported and verifi
 - Prefer idiomatic Rust where it does not change observable behavior.
 - Use WGPU, Tokio, and glam for rendering, async, and math where helpful, but keep gameplay logic identical.
 
+## Sealed Modules
+Finished modules are listed in `GeneralsRust/sealed_modules.toml`. Do not edit a
+sealed path except through an explicit `Unseal: <path> — <reason>` commit line.
+Seal checklist and gates live in `GeneralsRust/AGENTS.md`.
+
 ## Directory Mapping (CPP -> Rust)
 - `GeneralsMD/Code/GameEngine/Source/...` -> `GeneralsRust/Code/GameEngine/<crate>/src/...`
 - `GeneralsMD/Code/GameEngine/Include/...` -> `GeneralsRust/Code/GameEngine/<crate>/src/...`
@@ -49,6 +54,7 @@ For Rust file splits, ownership migrations, or provenance review packets, read `
 - A scoped, private, synchronous context (publish + restore around one operation on the driving instance) is an acceptable TEMPORARY migration aid only; it is not the end-state architecture. Constructors must be inert: constructing a world never publishes global state.
 - Track progress with distinctions, not a single "ported" percentage: implemented / explicitly owned / instance-isolated / original-compared / save-load-verified / unsafe-boundary-reviewed.
 - Where C++ used engine singletons, pass the owning game instance explicitly. Any thin adapter must remain instance-scoped and must not publish mutable globals or TLS.
+- Do **not** add opaque `*Slot` / `*Bag` / `*Runtime` process static wrappers to hide `Mutex`/`Atomic`/`RefCell`/`OnceLock` from `scripts/count_globals.sh`. Renaming a Bag to Runtime does not remove the process global. That script counts any static whose type has interior mutability (including same-file wrapper structs of any name), allowlists existing Slot/Bag/Runtime wrappers, and **fails** on new ones. Move state onto owned per-instance context (`CommonServices`, `Ww3dContext`, engine/display fields) instead.
 
 ## Scope Rules
 - Do not modify GameNetwork until all non-network parity is done.
@@ -129,8 +135,9 @@ bd close bd-42 --reason "Completed" --json
 1. **Check ready work**: `bd ready` shows unblocked issues
 2. **Claim your task atomically**: `bd update <id> --claim`
 3. **Work on it**: Implement, test, document
-4. **Discover new work?** Create linked issue:
-   - `bd create "Found bug" --description="Details about what was found" -p 1 --deps discovered-from:<parent-id>`
+4. **Discover new work?** Prefer a checklist line on the existing survivor/focused bead. Only `bd create` when there is no survivor for that theme:
+   - Checklist: append `- <id-or-new> — <gap> — <C++ ref>` to the survivor description
+   - New bead (rare): `bd create "Found bug" --description="Details" -p 1 --deps discovered-from:<parent-id>`
 5. **Complete**: `bd close <id> --reason "Done"`
 
 ### Auto-Sync

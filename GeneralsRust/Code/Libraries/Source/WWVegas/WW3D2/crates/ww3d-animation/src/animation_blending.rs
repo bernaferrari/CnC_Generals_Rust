@@ -8,7 +8,7 @@
 use crate::combo::{HAnimCombo, HAnimComboData};
 use crate::manager::HAnimManager;
 use crate::{
-    AnimationChannel, HAnimClass, HTreeClass, embedded_sound_bone, has_embedded_sounds,
+    AnimatedSoundMgr, AnimationChannel, HAnimClass, HTreeClass, embedded_sound_bone, has_embedded_sounds,
     trigger_sound,
 };
 use glam::Mat4;
@@ -154,6 +154,7 @@ pub struct AdvancedAnimatable3DObj {
     bound_meshes: Vec<MeshBinding>,
     #[cfg(not(feature = "renderer-3d"))]
     bound_meshes: (),
+    pub sound_mgr: Arc<AnimatedSoundMgr>,
 }
 
 #[cfg(feature = "renderer-3d")]
@@ -177,6 +178,7 @@ impl AdvancedAnimatable3DObj {
             animation_channels: Vec::new(),
             combo: HAnimCombo::new(),
             root_transform: Mat4::IDENTITY,
+            sound_mgr: Arc::new(AnimatedSoundMgr::new()),
             #[cfg(feature = "renderer-3d")]
             bound_meshes: Vec::new(),
             #[cfg(not(feature = "renderer-3d"))]
@@ -210,9 +212,9 @@ impl AdvancedAnimatable3DObj {
 
             // Refresh sound metadata
             if let Some(animation) = layer.animation.as_ref() {
-                if has_embedded_sounds(animation) {
+                if has_embedded_sounds(&self.sound_mgr, animation) {
                     layer.has_sound_data = true;
-                    if let Some(bone) = embedded_sound_bone(animation) {
+                    if let Some(bone) = embedded_sound_bone(&self.sound_mgr, animation) {
                         layer.sound_bone_name = Some(bone.clone());
                     }
                 }
@@ -472,7 +474,7 @@ impl AdvancedAnimatable3DObj {
                     .unwrap_or_else(|| self.htree.transform(0).unwrap_or(Mat4::IDENTITY));
 
                 layer.prev_sound_frame =
-                    trigger_sound(animation, prev_frame, current_frame, &transform_matrix);
+                    trigger_sound(&self.sound_mgr, animation, prev_frame, current_frame, &transform_matrix);
             }
         }
     }
@@ -486,9 +488,9 @@ impl AdvancedAnimatable3DObj {
 
     fn refresh_layer_sound_metadata(&self, layer: &mut AnimationLayer) {
         if let Some(animation) = layer.animation.as_ref() {
-            if has_embedded_sounds(animation) {
+            if has_embedded_sounds(&self.sound_mgr, animation) {
                 layer.has_sound_data = true;
-                if let Some(bone) = embedded_sound_bone(animation) {
+                if let Some(bone) = embedded_sound_bone(&self.sound_mgr, animation) {
                     layer.sound_bone_name = Some(bone.clone());
                     if let Some(ref bone_name) = layer.sound_bone_name {
                         layer.sound_bone_index = self.htree.find_pivot_index(bone_name);

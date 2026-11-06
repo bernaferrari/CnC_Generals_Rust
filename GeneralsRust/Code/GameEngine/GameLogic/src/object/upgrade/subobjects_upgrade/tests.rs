@@ -2,7 +2,8 @@
 //! SubObjectsUpgrade.cpp:65–115,140–151; UpgradeModule.cpp:140–146,191–201.
 
 use super::*;
-use crate::common::{Coord3D, FXListId, FXListManagerInterface, ThingId};
+use crate::common::{AsciiString, Coord3D, FXListId, FXListManagerInterface, ThingId};
+use game_engine::common::ini::INI;
 use crate::helpers::TheThingFactory;
 use crate::object::draw::{W3DModelDraw, W3DModelDrawModuleData};
 use crate::object::drawable::{Drawable, DrawableExt, DrawableModuleHandle, DrawableType};
@@ -469,4 +470,46 @@ fn xfer_restores_only_destination_and_refresh_has_no_fx_or_removals() {
     assert!(a.applied() && !b.applied());
     assert_eq!(a.visibility(), vec![("a".into(), false)]);
     assert_eq!(b.visibility(), vec![("b".into(), false)]);
+}
+
+
+#[test]
+fn subobjects_mux_lists_replace_while_show_hide_append() {
+    // hq-50fda — TriggeredBy/Conflicts/Removes replace; Show/Hide append (INI.cpp:649-673).
+    let mut data = SubObjectsUpgradeModuleData::default();
+    INI::new()
+        .with_inline_source(
+            "TriggeredBy = FirstA
+ShowSubObjects = Arm
+HideSubObjects = Leg
+TriggeredBy = FinalA FinalB
+ConflictsWith = FinalConflict
+RemovesUpgrades = FinalRemoval
+ShowSubObjects = Torso
+HideSubObjects = Head
+End
+",
+            |ini| data.parse_from_ini(ini),
+        )
+        .unwrap();
+    let names = |values: &[AsciiString]| {
+        values
+            .iter()
+            .map(|v| v.as_str().to_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        names(&data.upgrade_mux_data.activation_upgrade_names),
+        ["FinalA", "FinalB"]
+    );
+    assert_eq!(
+        names(&data.upgrade_mux_data.conflicting_upgrade_names),
+        ["FinalConflict"]
+    );
+    assert_eq!(
+        names(&data.upgrade_mux_data.removal_upgrade_names),
+        ["FinalRemoval"]
+    );
+    assert_eq!(names(data.show_sub_object_names()), ["Arm", "Torso"]);
+    assert_eq!(names(data.hide_sub_object_names()), ["Leg", "Head"]);
 }

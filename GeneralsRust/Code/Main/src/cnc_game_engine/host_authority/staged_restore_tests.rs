@@ -154,12 +154,16 @@ fn staged_restore_rejects_unavailable_map_before_snapshot_restore() {
                     power_bar_baseline: source.power_bar_baseline(),
                     body_auto_particle_baseline: source.body_auto_particle_baseline(),
                     session_sell_percentage: 1.0,
-                },
+                            max_beacons_per_player: 0,
+            static_lod_level: None,
+            dynamic_debris_skip_mask: 0,
+},
                 &source.weapon_definition_base,
                 &source.projectile_definitions,
                 &source.ocl_application_definitions(),
                 source.ai_definitions.baseline(),
                 source.production_energy_baseline(),
+                source.combat_system.historic_damage_limit(),
                 source.physics_rules_baseline(),
                 source.effective_terrain_definitions(),
                 source.current_armor_definitions(),
@@ -201,6 +205,7 @@ fn malformed_client_chunk_rejects_candidate_before_touching_live_client() {
                 &crate::save_load::WorldSnapshot::default(),
                 save_info("corrupt_client", "Not A Retail Map".to_string()),
                 None,
+                None,
                 Some(invalid_chunk),
                 None, // no paired TerrainVisual in this direct staging fixture
                 "corrupt_client",
@@ -225,12 +230,16 @@ fn malformed_client_chunk_rejects_candidate_before_touching_live_client() {
                     power_bar_baseline: logic.power_bar_baseline(),
                     body_auto_particle_baseline: logic.body_auto_particle_baseline(),
                     session_sell_percentage: 1.0,
-                },
+                            max_beacons_per_player: 0,
+            static_lod_level: None,
+            dynamic_debris_skip_mask: 0,
+},
                 &logic.weapon_definition_base,
                 &logic.projectile_definitions,
                 &logic.ocl_application_definitions(),
                 logic.ai_definitions.baseline(),
                 logic.production_energy_baseline(),
+                logic.combat_system.historic_damage_limit(),
                 logic.physics_rules_baseline(),
                 logic.effective_terrain_definitions(),
                 logic.current_armor_definitions(),
@@ -372,12 +381,16 @@ fn staged_restore_requires_the_saved_retail_map_before_snapshot_restore() {
                     power_bar_baseline: source.power_bar_baseline(),
                     body_auto_particle_baseline: source.body_auto_particle_baseline(),
                     session_sell_percentage: 1.0,
-                },
+                            max_beacons_per_player: 0,
+            static_lod_level: None,
+            dynamic_debris_skip_mask: 0,
+},
                 &source.weapon_definition_base,
                 &source.projectile_definitions,
                 &source.ocl_application_definitions(),
                 source.ai_definitions.baseline(),
                 source.production_energy_baseline(),
+                source.combat_system.historic_damage_limit(),
                 source.physics_rules_baseline(),
                 source.effective_terrain_definitions(),
                 source.current_armor_definitions(),
@@ -667,6 +680,7 @@ fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
                 &snapshot,
                 info,
                 saved_game_mode,
+                None,
                 staged_client_bytes,
                 None, // no paired TerrainVisual in this direct staging fixture
                 "forced_stage_failure",
@@ -691,12 +705,16 @@ fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
                     power_bar_baseline: source.power_bar_baseline(),
                     body_auto_particle_baseline: source.body_auto_particle_baseline(),
                     session_sell_percentage: 1.0,
-                },
+                            max_beacons_per_player: 0,
+            static_lod_level: None,
+            dynamic_debris_skip_mask: 0,
+},
                 &source.weapon_definition_base,
                 &source.projectile_definitions,
                 &source.ocl_application_definitions(),
                 source.ai_definitions.baseline(),
                 source.production_energy_baseline(),
+                source.combat_system.historic_damage_limit(),
                 source.physics_rules_baseline(),
                 source.effective_terrain_definitions(),
                 source.current_armor_definitions(),
@@ -1015,6 +1033,7 @@ fn embedded_saved_map_restores_original_ai_companions_without_replacing_geometry
                         info,
                         saved_game_mode,
                         None,
+                        None,
                         None, // no paired TerrainVisual in this direct staging fixture
                         "owned_companions",
                         GameMode::Skirmish,
@@ -1038,12 +1057,16 @@ fn embedded_saved_map_restores_original_ai_companions_without_replacing_geometry
                             power_bar_baseline: source.power_bar_baseline(),
                             body_auto_particle_baseline: source.body_auto_particle_baseline(),
                             session_sell_percentage: 1.0,
-                        },
+                                    max_beacons_per_player: 0,
+            static_lod_level: None,
+            dynamic_debris_skip_mask: 0,
+},
                         &source.weapon_definition_base,
                         &source.projectile_definitions,
                         &source.ocl_application_definitions(),
                         source.ai_definitions.baseline(),
                         source.production_energy_baseline(),
+                        source.combat_system.historic_damage_limit(),
                         source.physics_rules_baseline(),
                         source.effective_terrain_definitions(),
                         source.current_armor_definitions(),
@@ -1273,12 +1296,16 @@ fn staged_restore_continues_logic_rng_stream_from_save_point() {
                     power_bar_baseline: source.power_bar_baseline(),
                     body_auto_particle_baseline: source.body_auto_particle_baseline(),
                     session_sell_percentage: 1.0,
-                },
+                            max_beacons_per_player: 0,
+            static_lod_level: None,
+            dynamic_debris_skip_mask: 0,
+},
                 &source.weapon_definition_base,
                 &source.projectile_definitions,
                 &source.ocl_application_definitions(),
                 source.ai_definitions.baseline(),
                 source.production_energy_baseline(),
+                source.combat_system.historic_damage_limit(),
                 source.physics_rules_baseline(),
                 source.effective_terrain_definitions(),
                 source.current_armor_definitions(),
@@ -1354,7 +1381,7 @@ fn restored_object_allocator_never_reuses_a_dead_object_id() {
                 );
             }
             let dead_id = *live_ids.last().expect("allocated ids");
-            source.destroy_object(dead_id);
+            source.destroy_object(dead_id).unwrap();
             // Drain the destruction list so the dead object is gone from the
             // saved world (C++ processes destruction during the logic update).
             for _ in 0..16 {
@@ -1723,6 +1750,7 @@ End
                         saved_game_mode,
                         None,
                         None,
+                        None,
                         "terminal-owned-services",
                         GameMode::Skirmish,
                         crate::save_load::CampaignMapContext::default(),
@@ -1732,6 +1760,7 @@ End
                         &source.ocl_application_definitions(),
                         source.ai_definitions.baseline(),
                         source.production_energy_baseline(),
+                        source.combat_system.historic_damage_limit(),
                         source.physics_rules_baseline(),
                         source.effective_terrain_definitions(),
                         source.current_armor_definitions(),
@@ -1854,6 +1883,7 @@ End
                     info,
                     saved_game_mode,
                     None,
+                    None,
                     None, // no paired TerrainVisual in this direct staging fixture
                     "owned_services",
                     GameMode::Skirmish,
@@ -1878,12 +1908,16 @@ End
                         power_bar_baseline: source.power_bar_baseline(),
                         body_auto_particle_baseline: source.body_auto_particle_baseline(),
                         session_sell_percentage: 1.0,
-                    },
+                                max_beacons_per_player: 0,
+            static_lod_level: None,
+            dynamic_debris_skip_mask: 0,
+},
                     &source.weapon_definition_base,
                     &source.projectile_definitions,
                     &source.ocl_application_definitions(),
                     source.ai_definitions.baseline(),
                     source.production_energy_baseline(),
+                    source.combat_system.historic_damage_limit(),
                     source.physics_rules_baseline(),
                     source.effective_terrain_definitions(),
                     source.current_armor_definitions(),
@@ -2012,12 +2046,16 @@ End
                         power_bar_baseline: source.power_bar_baseline(),
                         body_auto_particle_baseline: source.body_auto_particle_baseline(),
                         session_sell_percentage: 1.0,
-                    },
+                                max_beacons_per_player: 0,
+            static_lod_level: None,
+            dynamic_debris_skip_mask: 0,
+},
                     &source.weapon_definition_base,
                     &source.projectile_definitions,
                     &source.ocl_application_definitions(),
                     source.ai_definitions.baseline(),
                     source.production_energy_baseline(),
+                    source.combat_system.historic_damage_limit(),
                     source.physics_rules_baseline(),
                     source.effective_terrain_definitions(),
                     source.current_armor_definitions(),
@@ -2291,6 +2329,7 @@ End
                     &snapshot,
                     save_info("containment-audio-stage", map_name.clone()),
                     None,
+                    None,
                     client_bytes,
                     None,
                     "containment-audio-stage",
@@ -2302,6 +2341,7 @@ End
                     &source.ocl_application_definitions(),
                     source.ai_definitions.baseline(),
                     source.production_energy_baseline(),
+                    source.combat_system.historic_damage_limit(),
                     source.physics_rules_baseline(),
                     source.effective_terrain_definitions(),
                     source.current_armor_definitions(),
@@ -2391,31 +2431,24 @@ End
 }
 
 #[cfg(feature = "game_client")]
-struct StagedNativeGpuScope;
-#[cfg(feature = "game_client")]
-impl Drop for StagedNativeGpuScope {
-    fn drop(&mut self) {
-        let _ = ww3d_engine::shutdown();
-    }
-}
+struct StagedNativeGpuScope(ww3d_engine::SharedEngine);
 #[cfg(feature = "game_client")]
 fn staged_native_fixture_gpu() -> (StagedNativeGpuScope, GraphicsSystem, RenderPipeline) {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
     })
     .unwrap();
-    let scope = StagedNativeGpuScope;
     let graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
-    let pipeline = RenderPipeline::initialize(&graphics).unwrap();
-    (scope, graphics, pipeline)
+    let pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
+    (StagedNativeGpuScope(engine), graphics, pipeline)
 }
 #[cfg(feature = "game_client")]
 fn discard_staged_native_fixture(

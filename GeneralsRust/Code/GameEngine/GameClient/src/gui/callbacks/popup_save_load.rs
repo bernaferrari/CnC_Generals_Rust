@@ -501,6 +501,7 @@ mod tests {
 
     #[test]
     fn default_save_description_uses_cpp_backslash_only_path_strip() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             normalize_default_save_description_from_map_name(
                 "Maps\\USA\\Mission01.map".to_string()
@@ -515,6 +516,7 @@ mod tests {
 
     #[test]
     fn default_save_description_strips_any_cpp_four_char_extension() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             normalize_default_save_description_from_map_name("Skirmish.foo".to_string()),
             "Skirmish"
@@ -527,6 +529,7 @@ mod tests {
 
     #[test]
     fn save_load_menu_system_consumes_lifecycle_messages_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         with_test_effects(|effects| {
             let mut window = GameWindow::new();
 
@@ -543,6 +546,7 @@ mod tests {
 
     #[test]
     fn save_load_menu_system_handles_glm_double_clicked_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         with_test_effects(|effects| {
             let listbox_id = 101;
             let listbox_window = Rc::new(RefCell::new(GameWindow::new()));
@@ -588,6 +592,7 @@ mod tests {
 
     #[test]
     fn first_real_save_row_never_uses_new_save_pseudo_row() {
+        crate::test_support::ensure_ambient_host();
         let mut listbox = crate::gui::gadgets::ListBox::new(1, 0, 0, 200, 80);
         listbox.add_item_with_data(-1, "New Save Game", Some(ListBoxItemData::Integer(-1)));
         listbox.add_item_with_data(0, "Existing save", Some(ListBoxItemData::Integer(0)));
@@ -601,6 +606,7 @@ mod tests {
 
     #[test]
     fn host_bridge_emits_only_confirmed_typed_requests() {
+        crate::test_support::ensure_ambient_host();
         with_test_effects(|effects| {
             clear_host_popup_save_load_bridge(effects);
             publish_host_popup_save_load_entries(
@@ -651,6 +657,7 @@ mod tests {
 
     #[test]
     fn installed_empty_host_inventory_never_falls_back_to_common_rows() {
+        crate::test_support::ensure_ambient_host();
         with_test_effects(|effects| {
             clear_host_popup_save_load_bridge(effects);
             publish_host_popup_save_load_entries(Vec::new(), effects);
@@ -685,10 +692,11 @@ mod tests {
 
     #[test]
     fn named_live_load_confirms_the_exact_host_row() {
+        crate::test_support::ensure_ambient_host();
         with_test_effects(|effects| {
             {
                 clear_host_popup_save_load_bridge(effects);
-                effects.with_manager(|manager, _effects| manager.reset());
+                effects.with_manager(|manager, _effects| manager.test_reset());
                 // QuitMenu opens this popup while a game is running.  The retail
                 // in-game path presents LoadConfirm; the shell path instead loads
                 // directly, so model the former here.
@@ -726,7 +734,7 @@ mod tests {
                 );
 
                 clear_host_popup_save_load_bridge(effects);
-                effects.with_manager(|manager, _effects| manager.reset());
+                effects.with_manager(|manager, _effects| manager.test_reset());
                 effects
                     .shell_handle()
                     .set_shell_active(previous_shell_active);
@@ -736,10 +744,11 @@ mod tests {
 
     #[test]
     fn live_save_description_confirm_emits_the_host_request() {
+        crate::test_support::ensure_ambient_host();
         with_test_effects(|effects| {
             {
                 clear_host_popup_save_load_bridge(effects);
-                effects.with_manager(|manager, _effects| manager.reset());
+                effects.with_manager(|manager, _effects| manager.test_reset());
                 let previous_shell_active = effects.shell_handle().is_shell_active();
                 effects.shell_handle().set_shell_active(false);
                 // The empty published inventory is intentional: it proves the real
@@ -784,7 +793,7 @@ mod tests {
                 );
 
                 clear_host_popup_save_load_bridge(effects);
-                effects.with_manager(|manager, _effects| manager.reset());
+                effects.with_manager(|manager, _effects| manager.test_reset());
                 effects
                     .shell_handle()
                     .set_shell_active(previous_shell_active);
@@ -794,6 +803,7 @@ mod tests {
 
     #[test]
     fn popup_confirmation_provenance_is_snapshotted_and_other_paths_fail_closed() {
+        crate::test_support::ensure_ambient_host();
         with_test_effects(|effects| {
             clear_host_popup_save_load_bridge(effects);
             publish_host_popup_save_load_entries(

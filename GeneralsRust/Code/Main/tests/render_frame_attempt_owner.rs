@@ -122,21 +122,21 @@ fn execute(
 #[test]
 #[ignore = "requires a native GPU; run explicitly with --ignored"]
 fn failed_collection_discards_only_its_frame_work_before_retry() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
     })
     .unwrap();
     let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
-    let mut owner = RenderPipeline::initialize(&graphics).unwrap();
-    let mut peer = RenderPipeline::initialize(&graphics).unwrap();
+    let mut owner = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
+    let mut peer = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut world = generals_main::game_logic::GameLogic::new();
     let frame = std::rc::Rc::new(PresentationFrame::build_from_logic(&mut world, 0));
     owner.set_presentation_frame(Some(frame.clone()));
@@ -144,12 +144,12 @@ fn failed_collection_discards_only_its_frame_work_before_retry() {
     let stale = Arc::new(AtomicUsize::new(0));
     let peer_calls = Arc::new(AtomicUsize::new(0));
     let stale_capture = stale.clone();
-    owner.enqueue_post_frame_callback(move |_| {
+    owner.enqueue_frame_work(ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::Overlay2D, move |_| {
         stale_capture.fetch_add(1, Ordering::SeqCst);
         Ok(())
     });
     let peer_capture = peer_calls.clone();
-    peer.enqueue_post_frame_callback(move |_| {
+    peer.enqueue_frame_work(ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::Overlay2D, move |_| {
         peer_capture.fetch_add(1, Ordering::SeqCst);
         Ok(())
     });
@@ -166,7 +166,7 @@ fn failed_collection_discards_only_its_frame_work_before_retry() {
     execute(&mut peer, &mut graphics, &mut Receiver::default()).unwrap();
     let fresh = Arc::new(AtomicUsize::new(0));
     let fresh_capture = fresh.clone();
-    owner.enqueue_post_frame_callback(move |_| {
+    owner.enqueue_frame_work(ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::Overlay2D, move |_| {
         fresh_capture.fetch_add(1, Ordering::SeqCst);
         Ok(())
     });
@@ -188,5 +188,5 @@ fn failed_collection_discards_only_its_frame_work_before_retry() {
     );
     drop(peer);
     drop(owner);
-    ww3d_engine::shutdown().unwrap();
+    drop(engine);
 }

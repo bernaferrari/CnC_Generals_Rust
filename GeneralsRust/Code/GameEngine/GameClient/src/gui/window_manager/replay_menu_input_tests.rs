@@ -24,11 +24,13 @@ impl ReplayMenuReceiver for Receiver {
     fn version_differs(&mut self, _: &str) -> bool {
         panic!("confirmation must not recheck current menu")
     }
-    fn playback_file(&mut self, filename: String) {
+    fn playback_file(&mut self, filename: String) -> Result<(), String> {
         self.0.push(filename);
+            Ok(())
     }
-    fn restart(&mut self) {
+    fn restart(&mut self) -> Result<(), String> {
         self.0.push("restart".into());
+            Ok(())
     }
 }
 fn confirmation(
@@ -41,17 +43,17 @@ fn confirmation(
     let mut manager = WindowManager::new();
     let key = NameKeyGenerator::name_to_key;
     let parent = manager
-        .create_window_with_id(None, 0, 0, 200, 100, key("MessageBox.wnd:") as i32)
+        .test_create_window_with_id(None, 0, 0, 200, 100, key("MessageBox.wnd:") as i32)
         .unwrap();
     let menu = Rc::new(RefCell::new(GameWindow::new()));
-    let _ = menu.borrow_mut().hide(false);
-    let playback = ReplayPlayback::captured(filename.into(), Some(Rc::downgrade(&menu)));
-    parent
-        .borrow_mut()
-        .set_user_data(WindowMessageBoxData::default().with_owned_replay(playback));
+    let _ = menu.borrow_mut().hide_without_manager_side_effects(false);
+    let playback = ReplayPlayback::captured(filename.into(), Some(Rc::downgrade(&menu)), crate::gui::window_manager::WindowManagerOwner::new().downgrade());
+    parent.borrow_mut().set_user_data(std::rc::Rc::new(
+        WindowMessageBoxData::default().with_owned_replay(playback),
+    ));
     let id = key("MessageBox.wnd:ButtonOk") as i32;
     let button = manager
-        .create_window_with_id(Some(&parent), 10, 10, 40, 20, id)
+        .test_create_window_with_id(Some(&parent), 10, 10, 40, 20, id)
         .unwrap();
     button
         .borrow_mut()
@@ -75,15 +77,17 @@ fn select(
     let (x, y) = button.borrow().get_screen_position();
     let (x, y) = (x + 5, y + 5);
     let data = (((y as u32) << 16) | ((x as u32) & 0xffff)) as WindowMsgData;
-    let mut operation = ReplayMenuOperation::new(allow_restart);
+    let mut operation = ReplayMenuOperation::new(allow_restart, crate::gui::window_manager::WindowManagerOwner::new().downgrade());
     let mut bar = ControlBar::new();
     let mut view = View;
+    let mut emitted_messages = Vec::new();
+    let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
     let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
             menu_audio: None,
             input_provenance: crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
-            menus: None,
+            menus: Some(menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted)),
             ime:None,
             in_game_movies: None,
             script_display: None,
@@ -99,11 +103,16 @@ fn select(
         game_ending: false,
         tooltips_disabled: false,
         cursor_mouse: None,
-        emitted_messages: None,
+        emitted_messages: Some(&mut emitted_messages),
             campaign_manager: None,
             window_manager_owner: None,
 
-        main_menu: None,
+                    client_frame: None,
+            logic_frame: None,
+            ui: None,
+            menu_world: None,
+            menu_host: None,
+            main_menu: None,
     };
     for msg in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
         assert_eq!(
@@ -116,6 +125,7 @@ fn select(
 }
 #[test]
 fn wnd_confirmation_uses_captured_file_across_two_receiving_managers() {
+    crate::test_support::ensure_ambient_host();
     let (mut a, menu_a, button_a) = confirmation("A.rep");
     let (mut b, menu_b, button_b) = confirmation("B.rep");
     assert_eq!(button_a.borrow().get_id(), button_b.borrow().get_id());
@@ -142,17 +152,18 @@ fn wnd_confirmation_uses_captured_file_across_two_receiving_managers() {
 
 #[test]
 fn wnd_restart_confirmation_delivers_receiving_restart_once() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let key = NameKeyGenerator::name_to_key;
     let parent = manager
-        .create_window_with_id(None, 0, 0, 200, 100, key("MessageBox.wnd:") as i32)
+        .test_create_window_with_id(None, 0, 0, 200, 100, key("MessageBox.wnd:") as i32)
         .unwrap();
-    parent
-        .borrow_mut()
-        .set_user_data(WindowMessageBoxData::default().with_owned_restart());
+    parent.borrow_mut().set_user_data(std::rc::Rc::new(
+        WindowMessageBoxData::default().with_owned_restart(),
+    ));
     let id = key("MessageBox.wnd:ButtonYes") as i32;
     let button = manager
-        .create_window_with_id(Some(&parent), 10, 10, 40, 20, id)
+        .test_create_window_with_id(Some(&parent), 10, 10, 40, 20, id)
         .unwrap();
     button
         .borrow_mut()
@@ -181,10 +192,11 @@ fn wnd_restart_confirmation_delivers_receiving_restart_once() {
 }
 #[test]
 fn wnd_quit_restart_only_opens_confirmation_before_host_changes() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let key = NameKeyGenerator::name_to_key;
     let parent = manager
-        .create_window_with_id(None, 0, 0, 200, 100, key("QuitMenu.wnd:") as i32)
+        .test_create_window_with_id(None, 0, 0, 200, 100, key("QuitMenu.wnd:") as i32)
         .unwrap();
     manager.bind_window_callbacks(
         &mut parent.borrow_mut(),
@@ -195,7 +207,7 @@ fn wnd_quit_restart_only_opens_confirmation_before_host_changes() {
     );
     let id = key("QuitMenu.wnd:ButtonRestart") as i32;
     let button = manager
-        .create_window_with_id(Some(&parent), 10, 10, 40, 20, id)
+        .test_create_window_with_id(Some(&parent), 10, 10, 40, 20, id)
         .unwrap();
     button
         .borrow_mut()
@@ -219,6 +231,7 @@ fn wnd_quit_restart_only_opens_confirmation_before_host_changes() {
 
 #[test]
 fn wnd_load_without_selection_preserves_visible_receiving_menu() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     manager.configure_replay_menu_owned(crate::gui::shell::replay_menu::ReplayMenuInputs {
         replay_directory: std::path::PathBuf::from("explicit-empty-replay-fixture"),
@@ -232,7 +245,7 @@ fn wnd_load_without_selection_preserves_visible_receiving_menu() {
     });
     let key = NameKeyGenerator::name_to_key;
     let parent = manager
-        .create_window_with_id(
+        .test_create_window_with_id(
             None,
             0,
             0,
@@ -250,7 +263,7 @@ fn wnd_load_without_selection_preserves_visible_receiving_menu() {
     );
     let id = key("ReplayMenu.wnd:ButtonLoadReplay") as i32;
     let button = manager
-        .create_window_with_id(Some(&parent), 10, 10, 40, 20, id)
+        .test_create_window_with_id(Some(&parent), 10, 10, 40, 20, id)
         .unwrap();
     button
         .borrow_mut()

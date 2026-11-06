@@ -3,7 +3,6 @@
 //! Desc: Command sets are a configurable set of CommandButtons, we will use the sets as
 //!       part of the context sensitive user interface
 
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -482,28 +481,32 @@ impl Default for CommandSetManager {
     }
 }
 
-/// Global command set manager instance
-static COMMAND_SET_MANAGER: OnceCell<RwLock<CommandSetManager>> = OnceCell::new();
-
 /// Initialize the global command set manager
-pub fn initialize_command_set_manager() {
-    if COMMAND_SET_MANAGER.get().is_none() {
-        let _ = COMMAND_SET_MANAGER.set(RwLock::new(CommandSetManager::new()));
-    }
-}
 
 /// Get a reference to the global command set manager
-pub fn get_command_set_manager() -> Option<RwLockReadGuard<'static, CommandSetManager>> {
-    COMMAND_SET_MANAGER
-        .get()
-        .map(|manager| manager.read().expect("CommandSetManager poisoned"))
+/// Get a mutable reference to the global command set manager
+
+fn ini_command_set_cell() -> std::sync::Arc<std::sync::RwLock<CommandSetManager>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.command_set)
 }
 
-/// Get a mutable reference to the global command set manager
-pub fn get_command_set_manager_mut() -> Option<RwLockWriteGuard<'static, CommandSetManager>> {
-    COMMAND_SET_MANAGER
-        .get()
-        .map(|manager| manager.write().expect("CommandSetManager poisoned"))
+
+pub fn initialize_command_set_manager() {
+    let _ = ini_command_set_cell();
+}
+
+
+pub fn get_command_set_manager() -> Option<std::sync::RwLockReadGuard<'static, CommandSetManager>> {
+    let cell = ini_command_set_cell();
+    let guard = cell.read().ok()?;
+    Some(unsafe { std::mem::transmute(guard) })
+}
+
+
+pub fn get_command_set_manager_mut() -> Option<std::sync::RwLockWriteGuard<'static, CommandSetManager>> {
+    let cell = ini_command_set_cell();
+    let guard = cell.write().ok()?;
+    Some(unsafe { std::mem::transmute(guard) })
 }
 
 /// Parse command set definition from INI file

@@ -43,27 +43,29 @@ pub(crate) fn resolve_runtime_exe() -> Option<PathBuf> {
                 || s.eq_ignore_ascii_case("false")
                 || s.eq_ignore_ascii_case("no"))
         });
-    let candidates = [
-        PathBuf::from("target/release/generals"),
-        PathBuf::from("GeneralsRust/target/release/generals"),
-        PathBuf::from("./target/release/generals"),
-        PathBuf::from("target/debug/generals"),
-        PathBuf::from("GeneralsRust/target/debug/generals"),
-        PathBuf::from("./target/debug/generals"),
+    // Gates run with cwd = Code/Main, so cwd-relative candidates alone never
+    // resolve there: also anchor at the workspace target dir (CARGO_TARGET_DIR
+    // or `<workspace>/target`) and at the running test binary's profile dir
+    // (`target/<profile>/deps/<test>` → `target/<profile>/generals`).
+    let mut target_dirs: Vec<PathBuf> = vec![
+        PathBuf::from("target"),
+        PathBuf::from("GeneralsRust/target"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target"),
     ];
+    if let Some(dir) = std::env::var_os("CARGO_TARGET_DIR") {
+        target_dirs.push(PathBuf::from(dir));
+    }
+    let mut candidates: Vec<PathBuf> = ["release", "debug"]
+        .iter()
+        .flat_map(|profile| target_dirs.iter().map(move |t| t.join(profile).join("generals")))
+        .collect();
+    if let Ok(cur) = std::env::current_exe() {
+        candidates.extend(cur.ancestors().skip(1).take(2).map(|dir| dir.join("generals")));
+    }
     if let Some(path) = resolve_runtime_exe_from_candidates(&candidates, !prefer_release_first) {
         // The child runs in a temporary working directory. Keep the chosen
         // binary valid after Command::current_dir changes that directory.
         return Some(path.canonicalize().unwrap_or(path));
-    }
-    // Try next to current exe
-    if let Ok(cur) = std::env::current_exe() {
-        if let Some(dir) = cur.parent() {
-            let sibling = dir.join("generals");
-            if sibling.is_file() {
-                return Some(sibling);
-            }
-        }
     }
     None
 }
@@ -175,4 +177,22 @@ pub enum ExecutableSmokeLaunch {
 enum SmokeDriver {
     Automated,
     ManualObserver,
+    /// Stop once the live shell reaches MainMenu.wnd, then exit cleanly.
+    /// Used by the P0 boot-to-shell-menu gate (hq-x1j4u.9.1).
+    MenuOnly,
+    /// Menu → skirmish start → first InGame with a non-shell retail map, then exit.
+    /// Used by the P0 load-retail-map gate (hq-x1j4u.9.2).
+    MapLoadOnly,
+    /// MapLoadOnly path, then select → move → attack on the live host, then exit.
+    /// Used by the P0 issue-orders gate (hq-x1j4u.9.3).
+    OrdersOnly,
+    /// After retail InGame: player select/move, then require AI activity residual.
+    /// Used by the P0 AI-opponent gate (hq-x1j4u.9.5).
+    AiActivity,
+    /// After retail InGame: orders, N ticks, save, load into fresh candidate,
+    /// assert world restore, then post-load order. P0 hq-x1j4u.9.7.
+    SaveLoadOnly,
+    /// Windowed Lone Eagle sit-through ≥60s with a selected unit and stable
+    /// non-zero render items; captures a screenshot. P0 hq-x1j4u.9.6.
+    PresentFrameOnly,
 }

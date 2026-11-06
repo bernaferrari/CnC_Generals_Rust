@@ -1,7 +1,7 @@
 //! Shared LAN setup state for menu coordination.
 
 use game_network::GameInfo;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Default)]
 pub struct LanSetup {
@@ -36,11 +36,39 @@ impl LanSetup {
     }
 }
 
-static LAN_SETUP: OnceLock<Mutex<LanSetup>> = OnceLock::new();
+#[cfg(test)]
+thread_local! {
+    static TEST_LAN_SETUP: std::cell::RefCell<Option<Arc<Mutex<LanSetup>>>> =
+        const { std::cell::RefCell::new(None) };
+}
 
-pub fn get_lan_setup() -> std::sync::MutexGuard<'static, LanSetup> {
-    LAN_SETUP
-        .get_or_init(|| Mutex::new(LanSetup::default()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
+fn lan_setup_handle() -> Arc<Mutex<LanSetup>> {
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_lan_setup()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_LAN_SETUP.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| Arc::new(Mutex::new(LanSetup::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Arc::new(Mutex::new(LanSetup::default()))
+    }
+}
+
+/// Handle to the LAN setup for this client (or test/ephemeral fallback).
+pub fn get_lan_setup() -> Arc<Mutex<LanSetup>> {
+    lan_setup_handle()
+}
+
+pub fn with_lan_setup<R>(f: impl FnOnce(&mut LanSetup) -> R) -> R {
+    let handle = lan_setup_handle();
+    let mut guard = handle.lock().unwrap_or_else(|e| e.into_inner());
+    f(&mut guard)
 }

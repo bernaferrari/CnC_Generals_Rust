@@ -35,6 +35,7 @@ use crate::gui::window_manager::WindowManager;
 
 #[test]
 fn test_truncate_to_i32_matches_cpp_cast_behavior() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(truncate_to_i32(76.8), 76);
     assert_eq!(truncate_to_i32(76.2), 76);
     assert_eq!(truncate_to_i32(-3.7), -3);
@@ -42,6 +43,7 @@ fn test_truncate_to_i32_matches_cpp_cast_behavior() {
 
 #[test]
 fn test_text_entry_image_tiles_match_cpp_order_and_overlap() {
+    crate::test_support::ensure_ambient_host();
     let tiles = text_entry_image_tile_rects(100, 50, 73, 20, 3, 4, 8, 9, 16, 5);
 
     assert_eq!(
@@ -60,6 +62,7 @@ fn test_text_entry_image_tiles_match_cpp_order_and_overlap() {
 
 #[test]
 fn test_text_entry_image_tiles_preserve_cpp_small_center_gap_behavior() {
+    crate::test_support::ensure_ambient_host();
     let tiles = text_entry_image_tile_rects(0, 0, 20, 10, 0, 0, 8, 8, 16, 5);
 
     assert_eq!(
@@ -74,12 +77,14 @@ fn test_text_entry_image_tiles_preserve_cpp_small_center_gap_behavior() {
 
 #[test]
 fn text_entry_text_draw_x_keeps_long_end_visible_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(text_entry_text_draw_x(false, 10, 100, 40), 12);
     assert_eq!(text_entry_text_draw_x(false, 10, 100, 240), -138);
 }
 
 #[test]
 fn text_entry_draw_from_start_uses_cpp_x_and_full_window_clip() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(text_entry_text_draw_x(true, 10, 100, 240), 15);
     assert_eq!(
         text_entry_clip_region(true, 10, 20, 100, 14, 7, 9, 120, 22),
@@ -93,6 +98,7 @@ fn text_entry_draw_from_start_uses_cpp_x_and_full_window_clip() {
 
 #[test]
 fn text_entry_one_line_y_and_cursor_position_match_cpp() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(text_entry_start_y(50, 20, 12, true), 4);
     assert_eq!(text_entry_start_y(50, 20, 12, false), 55);
     assert_eq!(text_entry_cursor_window_x(138, 100), 40);
@@ -100,12 +106,14 @@ fn text_entry_one_line_y_and_cursor_position_match_cpp() {
 
 #[test]
 fn text_entry_skips_undefined_text_color_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     assert!(text_entry_text_color_defined(0xFF102030));
     assert!(!text_entry_text_color_defined(WIN_COLOR_UNDEFINED));
 }
 
 #[test]
 fn text_entry_password_ime_composition_is_masked_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut entry = TextEntry::new(1, 0, 0, 100, 30).as_password();
     entry.set_text("abc");
     entry.set_ime_composition("de", 1);
@@ -117,6 +125,7 @@ fn text_entry_password_ime_composition_is_masked_like_cpp() {
 
 #[test]
 fn text_entry_normal_ime_composition_stays_visible_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut entry = TextEntry::new(1, 0, 0, 100, 30);
     entry.set_text("abc");
     entry.set_ime_composition("de", 1);
@@ -128,6 +137,7 @@ fn text_entry_normal_ime_composition_stays_visible_like_cpp() {
 
 #[test]
 fn text_entry_caret_focus_matches_cpp_entry_or_combo_parent_rule() {
+    crate::test_support::ensure_ambient_host();
     assert!(text_entry_focus_matches(10, None, Some(10)));
     assert!(text_entry_focus_matches(10, Some(20), Some(20)));
     assert!(!text_entry_focus_matches(10, Some(20), Some(30)));
@@ -136,6 +146,7 @@ fn text_entry_caret_focus_matches_cpp_entry_or_combo_parent_rule() {
 
 #[test]
 fn push_button_one_image_enabled_selected_uses_hilite_selected() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(
         push_button_one_image_source(WindowStatus::ENABLED, WindowState::SELECTED, true,),
         (PushButtonDrawBank::Hilite, 1)
@@ -144,6 +155,7 @@ fn push_button_one_image_enabled_selected_uses_hilite_selected() {
 
 #[test]
 fn push_button_one_image_overlay_uses_enabled_base() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(
         push_button_one_image_source(
             WindowStatus::ENABLED | WindowStatus::USE_OVERLAY_STATES,
@@ -156,6 +168,7 @@ fn push_button_one_image_overlay_uses_enabled_base() {
 
 #[test]
 fn push_button_color_selected_uses_current_bank_selected_slot() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(
         push_button_color_entry_index(WindowStatus::ENABLED, WindowState::SELECTED, true),
         (PushButtonDrawBank::Enabled, 1)
@@ -176,6 +189,7 @@ fn push_button_color_selected_uses_current_bank_selected_slot() {
 
 #[test]
 fn push_button_solid_draw_keeps_color_slot_separate_from_image_draw() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(
         push_button_color_entry_index(WindowStatus::ENABLED, WindowState::SELECTED, true),
         (PushButtonDrawBank::Enabled, 1)
@@ -188,6 +202,7 @@ fn push_button_solid_draw_keeps_color_slot_separate_from_image_draw() {
 
 #[test]
 fn gadget_gpu_fill_rect_mesh_is_two_triangles_matching_window_rect() {
+    crate::test_support::ensure_ambient_host();
     let rect = crate::gui::ui_renderer::UIRect::new(10.0, 20.0, 100.0, 30.0);
     let color = [1.0, 0.0, 0.0, 1.0];
     let (positions, uvs, colors, indices) =
@@ -202,7 +217,7 @@ fn gadget_gpu_fill_rect_mesh_is_two_triangles_matching_window_rect() {
     let mut window = GameWindow::new();
     window.set_status(WindowStatus::ENABLED);
     let _ = window.set_position(10, 20);
-    let _ = window.set_size(100, 30);
+    let _ = window.test_set_size(100, 30);
     let scaled = super::authored_window_rect(&window);
     let (btn_pos, _, _, btn_idx) = crate::gui::ui_renderer::UIRenderer::gadget_gpu_fill_rect_mesh(
         scaled,
@@ -216,17 +231,18 @@ fn gadget_gpu_fill_rect_mesh_is_two_triangles_matching_window_rect() {
 
 #[test]
 fn pressed_button_keeps_cpp_authored_draw_bounds() {
+    crate::test_support::ensure_ambient_host();
     // W3DPushButton.cpp draws every state at winGetScreenPosition/winGetSize.
     let mut manager = WindowManager::new();
-    let window = manager.create_window(None, 10, 20, 100, 30).unwrap();
+    let window = manager.test_create_window(None, 10, 20, 100, 30).unwrap();
     window
         .borrow_mut()
         .set_widget(WindowWidget::PushButton(PushButton::new(7, 0, 0, 100, 30)));
     window
         .borrow_mut()
-        .send_routed_input_message(WindowMessage::LeftDown, 0, 0);
+        .test_send_routed_input_message(WindowMessage::LeftDown, 0, 0);
     std::thread::sleep(std::time::Duration::from_millis(16));
-    manager.update();
+    manager.test_update();
 
     let window = window.borrow();
     assert_eq!(window.get_screen_position(), (10, 20));
@@ -239,8 +255,9 @@ fn pressed_button_keeps_cpp_authored_draw_bounds() {
 
 #[test]
 fn window_update_still_syncs_button_widget_state() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
-    let window = manager.create_window(None, 10, 20, 100, 30).unwrap();
+    let window = manager.test_create_window(None, 10, 20, 100, 30).unwrap();
     window
         .borrow_mut()
         .set_widget(WindowWidget::PushButton(PushButton::new(7, 0, 0, 100, 30)));
@@ -257,7 +274,7 @@ fn window_update_still_syncs_button_widget_state() {
             .state
             .contains(WindowState::HILITED)
     );
-    manager.update();
+    manager.test_update();
     assert!(
         window
             .borrow()
@@ -269,8 +286,9 @@ fn window_update_still_syncs_button_widget_state() {
 
 #[test]
 fn window_update_does_not_add_nonbutton_state_sync() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
-    let window = manager.create_window(None, 10, 20, 100, 30).unwrap();
+    let window = manager.test_create_window(None, 10, 20, 100, 30).unwrap();
     window
         .borrow_mut()
         .set_widget(WindowWidget::ListBox(ListBox::new(8, 0, 0, 100, 30)));
@@ -287,7 +305,7 @@ fn window_update_does_not_add_nonbutton_state_sync() {
             .state
             .contains(WindowState::HILITED)
     );
-    manager.update();
+    manager.test_update();
     assert!(
         !window
             .borrow()
@@ -299,13 +317,14 @@ fn window_update_does_not_add_nonbutton_state_sync() {
 
 #[test]
 fn w3d_push_button_draw_consumes_clock_request_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     window.set_status(WindowStatus::ENABLED);
     let mut button = PushButton::new(7, 0, 0, 100, 30);
     button.set_clock_progress(50, Color::GREEN);
     window.set_widget(WindowWidget::PushButton(button));
 
-    w3d_gadget_push_button_draw(&window, window.instance_data());
+    w3d_gadget_push_button_draw(&window, window.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
 
     let Some(WindowWidget::PushButton(button)) = window.widget() else {
         panic!("push button widget missing");
@@ -316,6 +335,7 @@ fn w3d_push_button_draw_consumes_clock_request_like_cpp() {
 
 #[test]
 fn push_button_three_piece_tail_uses_full_tile_with_clip_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let (draw, clip) = push_button_three_piece_tail_clip(132, 137, 40, 64, 16).unwrap();
 
     assert_eq!(draw, (132, 40, 148, 64));
@@ -325,6 +345,7 @@ fn push_button_three_piece_tail_uses_full_tile_with_clip_like_cpp() {
 
 #[test]
 fn push_button_three_piece_tail_skips_exact_fit_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(
         push_button_three_piece_tail_clip(144, 144, 40, 64, 16),
         None
@@ -333,6 +354,7 @@ fn push_button_three_piece_tail_skips_exact_fit_like_cpp() {
 
 #[test]
 fn list_box_selected_image_slots_require_all_cpp_images() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(
         list_box_selected_image_slots([true, true, true, true]),
         Some([1, 2, 3, 4])
@@ -345,6 +367,7 @@ fn list_box_selected_image_slots_require_all_cpp_images() {
 
 #[test]
 fn list_box_selected_image_rect_matches_cpp_clip() {
+    crate::test_support::ensure_ambient_host();
     let clip = super::region_from_corners(11, 17, 79, 60);
     assert_eq!(
         list_box_selected_image_rect(10, 14, 70, 9, &clip),
@@ -359,6 +382,7 @@ fn list_box_selected_image_rect_matches_cpp_clip() {
 
 #[test]
 fn list_box_scrollbar_width_adjustment_matches_cpp_draw_variants() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(list_box_solid_content_width(100, Some((17, false))), 80);
     assert_eq!(list_box_solid_content_width(100, Some((17, true))), 100);
     assert_eq!(list_box_solid_content_width(100, None), 100);
@@ -369,6 +393,7 @@ fn list_box_scrollbar_width_adjustment_matches_cpp_draw_variants() {
 
 #[test]
 fn solid_list_box_keeps_full_frame_width_when_scrollbar_is_visible_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(
         list_box_solid_frame_and_content_widths(100, Some((17, false))),
         (100, 80)
@@ -381,8 +406,9 @@ fn solid_list_box_keeps_full_frame_width_when_scrollbar_is_visible_like_cpp() {
 
 #[test]
 fn list_box_solid_row_text_does_not_overwrite_title_display_string() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
-    window.set_size(160, 60).unwrap();
+    window.test_set_size(160, 60).unwrap();
     window.set_text("Title").unwrap();
 
     let mut listbox = ListBox::new(7, 0, 0, 160, 60);
@@ -400,15 +426,16 @@ fn list_box_solid_row_text_does_not_overwrite_title_display_string() {
         .clone();
     assert_eq!(title.borrow().get_text(), "Title");
 
-    super::w3d_gadget_list_box_draw(&window, window.instance_data());
+    super::w3d_gadget_list_box_draw(&window, window.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
 
     assert_eq!(title.borrow().get_text(), "Title");
 }
 
 #[test]
 fn list_box_image_row_text_does_not_require_title_display_string() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
-    window.set_size(160, 60).unwrap();
+    window.test_set_size(160, 60).unwrap();
 
     let mut listbox = ListBox::new(7, 0, 0, 160, 60);
     listbox.set_columns(1);
@@ -418,20 +445,22 @@ fn list_box_image_row_text_does_not_require_title_display_string() {
 
     assert!(window.instance_data().display_text.is_none());
 
-    super::w3d_gadget_list_box_image_draw(&window, window.instance_data());
+    super::w3d_gadget_list_box_image_draw(&window, window.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
 
     assert!(window.instance_data().display_text.is_none());
 }
 
 #[test]
 fn horizontal_slider_default_image_sources_match_cpp() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(horizontal_slider_box_image_sources(), (0, 1, 0));
 }
 
 #[test]
 fn tab_control_layout_does_not_force_phantom_tab() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
-    window.set_size(200, 100).unwrap();
+    window.test_set_size(200, 100).unwrap();
     let mut tab_control = TabControl::new(7, 0, 0, 200, 100);
     tab_control.set_tab_data(TabControlData {
         tab_edge: super::TP_TOP_SIDE,
@@ -449,17 +478,20 @@ fn tab_control_layout_does_not_force_phantom_tab() {
 
 #[test]
 fn horizontal_slider_box_counts_match_cpp_centering() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(horizontal_slider_box_counts(10, 52, 0.5), (4, 3, 2));
     assert_eq!(horizontal_slider_box_counts(10, 52, 0.0), (4, 0, 2));
 }
 
 #[test]
 fn horizontal_slider_image_draw_b_sources_match_cpp() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(horizontal_slider_image_draw_b_sources(), (0, 1, 0));
 }
 
 #[test]
 fn horizontal_slider_image_draw_a_sources_match_cpp_enabled_path() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(
         horizontal_slider_image_draw_a_sources(true),
         [
@@ -477,6 +509,7 @@ fn horizontal_slider_image_draw_a_sources_match_cpp_enabled_path() {
 
 #[test]
 fn horizontal_slider_image_draw_a_sources_share_disabled_images() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(
         horizontal_slider_image_draw_a_sources(false),
         [
@@ -494,11 +527,13 @@ fn horizontal_slider_image_draw_a_sources_share_disabled_images() {
 
 #[test]
 fn progress_bar_image_sources_match_cpp_slots() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(progress_bar_image_sources(), (0, 1, 2, 5, 6));
 }
 
 #[test]
 fn progress_bar_image_draw_a_sources_match_cpp_enabled_slots() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(progress_bar_image_draw_a_sources(), (6, 5, 0, 1, 2));
     assert_eq!(
         progress_bar_image_draw_a_bank(),
@@ -508,11 +543,13 @@ fn progress_bar_image_draw_a_sources_match_cpp_enabled_slots() {
 
 #[test]
 fn progress_bar_solid_sources_match_cpp_color_slots() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(progress_bar_solid_sources(), (0, 4));
 }
 
 #[test]
 fn progress_bar_w3d_draw_uses_raw_user_data_without_clamping() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(progress_bar_solid_width(100, 125), 125);
     assert_eq!(progress_bar_image_width(120, 125), 125);
     assert_eq!(progress_bar_solid_width(100, -25), -25);
@@ -521,6 +558,7 @@ fn progress_bar_w3d_draw_uses_raw_user_data_without_clamping() {
 
 #[test]
 fn progress_bar_w3d_progress_prefers_raw_user_data_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     let mut bar = ProgressBar::new(7, 0, 0, 100, 16);
     bar.set_percentage(50.0);
@@ -532,6 +570,7 @@ fn progress_bar_w3d_progress_prefers_raw_user_data_like_cpp() {
 
 #[test]
 fn static_text_draw_data_ignores_hilite_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     window.enable(true).unwrap();
     let mut inst_data = WindowInstanceData::default();
@@ -551,6 +590,7 @@ fn static_text_draw_data_ignores_hilite_like_cpp() {
 
 #[test]
 fn static_text_draw_data_uses_disabled_when_window_disabled() {
+    crate::test_support::ensure_ambient_host();
     let window = GameWindow::new();
     let mut inst_data = WindowInstanceData::default();
     inst_data.enabled_draw_data[0].color = 0xFF112233;
@@ -566,6 +606,7 @@ fn static_text_draw_data_uses_disabled_when_window_disabled() {
 
 #[test]
 fn static_text_text_colors_skip_undefined_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     window.enable(true).unwrap();
     let mut inst_data = WindowInstanceData::default();
@@ -577,6 +618,7 @@ fn static_text_text_colors_skip_undefined_like_cpp() {
 
 #[test]
 fn static_text_position_ignores_right_and_bottom_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(
         static_text_text_position(
             10,
@@ -596,6 +638,7 @@ fn static_text_position_ignores_right_and_bottom_like_cpp() {
 
 #[test]
 fn static_text_position_centers_only_cpp_center_flags() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(
         static_text_text_position(
             10,
@@ -615,6 +658,7 @@ fn static_text_position_centers_only_cpp_center_flags() {
 
 #[test]
 fn check_box_image_source_uses_cpp_checked_slots() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(
         check_box_image_source(WindowState::empty(), true),
         (PushButtonDrawBank::Enabled, 1)
@@ -639,12 +683,14 @@ fn check_box_image_source_uses_cpp_checked_slots() {
 
 #[test]
 fn solid_check_box_mark_draws_whenever_slot_color_is_defined_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(solid_check_box_mark_color(0xFF123456), Some(0xFF123456));
     assert_eq!(solid_check_box_mark_color(WIN_COLOR_UNDEFINED), None);
 }
 
 #[test]
 fn radio_button_image_sources_match_cpp_branch_order() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(
         radio_button_image_sources(WindowState::SELECTED, true),
         (PushButtonDrawBank::Hilite, [3, 4, 5])
@@ -669,6 +715,7 @@ fn radio_button_image_sources_match_cpp_branch_order() {
 
 #[test]
 fn radio_button_solid_box_source_uses_selected_slot_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(
         radio_button_solid_box_source(WindowState::empty(), true),
         (PushButtonDrawBank::Enabled, 1)
@@ -693,6 +740,7 @@ fn radio_button_solid_box_source_uses_selected_slot_like_cpp() {
 
 #[test]
 fn radio_button_image_draw_requires_all_strip_images_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     assert!(radio_button_image_set_complete([true, true, true]));
     assert!(!radio_button_image_set_complete([false, true, true]));
     assert!(!radio_button_image_set_complete([true, false, true]));
@@ -701,6 +749,7 @@ fn radio_button_image_draw_requires_all_strip_images_like_cpp() {
 
 #[test]
 fn combo_box_title_adjustment_matches_cpp_draw_variants() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(combo_box_title_adjustment(false, 14, false), None);
     assert_eq!(combo_box_title_adjustment(true, 14, false), Some((15, 15)));
     assert_eq!(combo_box_title_adjustment(true, 14, true), Some((14, 15)));
@@ -710,15 +759,16 @@ fn test_window(x: i32, y: i32, w: i32, h: i32) -> GameWindow {
     let mut window = GameWindow::new();
     window.set_status(WindowStatus::ENABLED);
     let _ = window.set_position(x, y);
-    let _ = window.set_size(w, h);
+    let _ = window.test_set_size(w, h);
     window
 }
 
 #[test]
 fn w3d_main_menu_draw_queues_commands_without_mapped_art() {
+    let _client = crate::test_support::park_live_game_client();
     super::reset_shipped_ui_draw_command_count();
     let window = test_window(0, 0, 800, 600);
-    super::w3d_main_menu_draw(&window, window.instance_data());
+    super::w3d_main_menu_draw(&window, window.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
     assert!(
         super::shipped_ui_draw_command_count() > 0,
         "main menu chrome must queue fallback rects/lines when images are missing"
@@ -727,12 +777,13 @@ fn w3d_main_menu_draw_queues_commands_without_mapped_art() {
 
 #[test]
 fn w3d_main_menu_four_and_metal_bar_queue_commands_without_art() {
+    let _client = crate::test_support::park_live_game_client();
     super::reset_shipped_ui_draw_command_count();
     let window = test_window(0, 80, 800, 40);
-    super::w3d_main_menu_four_draw(&window, window.instance_data());
-    super::w3d_metal_bar_menu_draw(&window, window.instance_data());
-    super::w3d_main_menu_map_border(&window, window.instance_data());
-    super::w3d_thin_border_draw(&window, window.instance_data());
+    super::w3d_main_menu_four_draw(&window, window.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
+    super::w3d_metal_bar_menu_draw(&window, window.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
+    { let mut __dc = crate::gui::window_draw_context::WindowDrawContext::new(None, Default::default()); super::w3d_main_menu_map_border(&window, window.instance_data(), &mut __dc); }
+    super::w3d_thin_border_draw(&window, window.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
     assert!(
         super::shipped_ui_draw_command_count() > 0,
         "menu metal/map/thin chrome must still emit draw commands"
@@ -741,9 +792,10 @@ fn w3d_main_menu_four_and_metal_bar_queue_commands_without_art() {
 
 #[test]
 fn w3d_command_bar_background_draw_ships_nothing_without_scheme() {
+    crate::test_support::ensure_ambient_host();
     super::reset_shipped_ui_draw_command_count();
     let window = test_window(0, 460, 800, 140);
-    super::w3d_command_bar_background_draw(&window, window.instance_data());
+    super::w3d_command_bar_background_draw(&window, window.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
     assert_eq!(
         super::shipped_ui_draw_command_count(),
         0,
@@ -754,9 +806,10 @@ fn w3d_command_bar_background_draw_ships_nothing_without_scheme() {
 
 #[test]
 fn w3d_command_bar_foreground_draw_ships_nothing_without_scheme() {
+    crate::test_support::ensure_ambient_host();
     super::reset_shipped_ui_draw_command_count();
     let window = test_window(8, 595, 5, 5);
-    super::w3d_command_bar_foreground_draw(&window, window.instance_data());
+    super::w3d_command_bar_foreground_draw(&window, window.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
     assert_eq!(
         super::shipped_ui_draw_command_count(),
         0,
@@ -766,11 +819,12 @@ fn w3d_command_bar_foreground_draw_ships_nothing_without_scheme() {
 
 #[test]
 fn w3d_push_button_draw_queues_fallback_when_colors_undefined() {
+    let _client = crate::test_support::park_live_game_client();
     super::reset_shipped_ui_draw_command_count();
     let mut window = test_window(20, 20, 120, 32);
     let button = PushButton::new(7, 0, 0, 120, 32);
     window.set_widget(WindowWidget::PushButton(button));
-    super::w3d_gadget_push_button_draw(&window, window.instance_data());
+    super::w3d_gadget_push_button_draw(&window, window.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
     assert!(
         super::shipped_ui_draw_command_count() > 0,
         "push button must queue a visible fill when draw-data colors/images are missing"
@@ -779,6 +833,7 @@ fn w3d_push_button_draw_queues_fallback_when_colors_undefined() {
 
 #[test]
 fn w3d_push_button_image_draw_queues_nothing_when_no_image_is_bound() {
+    crate::test_support::ensure_ambient_host();
     // C++ W3DGadgetPushButtonImageDrawOne (W3DPushButton.cpp:288-368) skips
     // the drawImage block when the state's image slot is empty: an
     // IMAGE-status button (ControlBar.wnd command buttons) renders nothing
@@ -788,7 +843,7 @@ fn w3d_push_button_image_draw_queues_nothing_when_no_image_is_bound() {
     window.set_status(WindowStatus::ENABLED | WindowStatus::IMAGE);
     let button = PushButton::new(8, 0, 0, 64, 64);
     window.set_widget(WindowWidget::PushButton(button));
-    super::w3d_gadget_push_button_image_draw(&window, window.instance_data());
+    super::w3d_gadget_push_button_image_draw(&window, window.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
     assert_eq!(
         super::shipped_ui_draw_command_count(),
         0,
@@ -798,29 +853,31 @@ fn w3d_push_button_image_draw_queues_nothing_when_no_image_is_bound() {
 
 #[test]
 fn w3d_push_button_image_one_never_falls_back_to_authored_red_color() {
+    crate::test_support::ensure_ambient_host();
     // The image helper itself must keep W3DPushButton.cpp:288-368 semantics,
     // even when a caller invokes it before the state's image is assigned.
     super::reset_shipped_ui_draw_command_count();
     let mut window = test_window(20, 60, 64, 64);
     window.set_status(WindowStatus::ENABLED | WindowStatus::IMAGE);
     window.instance_data_mut().enabled_draw_data[0].color = 0xFFFF_0000;
-    super::draw_push_button_image_one(&window, window.instance_data());
+    { let mut __dc = crate::gui::window_draw_context::WindowDrawContext::new(None, Default::default()); super::draw_push_button_image_one(&window, window.instance_data(), &mut __dc); }
     assert_eq!(super::shipped_ui_draw_command_count(), 0);
 }
 
 #[test]
 fn w3d_power_and_progress_queue_commands_without_art() {
+    let _client = crate::test_support::park_live_game_client();
     super::reset_shipped_ui_draw_command_count();
     let mut progress = test_window(10, 10, 200, 16);
     let mut bar = ProgressBar::new(3, 0, 0, 200, 16);
     bar.set_percentage(40.0);
     progress.set_widget(WindowWidget::ProgressBar(bar));
-    super::w3d_gadget_progress_bar_draw(&progress, progress.instance_data());
-    super::w3d_gadget_progress_bar_image_draw(&progress, progress.instance_data());
+    super::w3d_gadget_progress_bar_draw(&progress, progress.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
+    super::w3d_gadget_progress_bar_image_draw(&progress, progress.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
 
     let power = test_window(261, 473, 283, 7);
-    super::w3d_power_draw(&power, power.instance_data());
-    super::w3d_power_draw_a(&power, power.instance_data());
+    super::w3d_power_draw(&power, power.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
+    super::w3d_power_draw_a(&power, power.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
 
     assert!(
         super::shipped_ui_draw_command_count() > 0,

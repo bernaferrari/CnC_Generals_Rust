@@ -41,18 +41,16 @@ pub struct CompHeaderType {
     pub skip: u16,
 }
 
-fn iff_files() -> &'static Mutex<Vec<Option<WWFile>>> {
-    static FILES: OnceLock<Mutex<Vec<Option<WWFile>>>> = OnceLock::new();
-    FILES.get_or_init(|| Mutex::new(Vec::new()))
+fn iff_files(runtime: &crate::process_state::WwLibRuntime) -> &Mutex<Vec<Option<WWFile>>> {
+    &runtime.iff_files
 }
 
-fn uncomp_buffer() -> &'static Mutex<Option<Vec<u8>>> {
-    static BUFFER: OnceLock<Mutex<Option<Vec<u8>>>> = OnceLock::new();
-    BUFFER.get_or_init(|| Mutex::new(None))
+fn uncomp_buffer(runtime: &crate::process_state::WwLibRuntime) -> &Mutex<Option<Vec<u8>>> {
+    &runtime.iff_buffer
 }
 
 #[allow(non_snake_case)]
-pub fn Open_Iff_File(filename: &str) -> i32 {
+pub fn Open_Iff_File(runtime: &crate::process_state::WwLibRuntime, filename: &str) -> i32 {
     let mut file = WWFile::with_path(filename);
     if file.open(FileRights::ReadWrite).is_err() {
         if file.open(FileRights::Read).is_err() {
@@ -60,7 +58,7 @@ pub fn Open_Iff_File(filename: &str) -> i32 {
         }
     }
 
-    let mut files = iff_files().lock().unwrap();
+    let mut files = iff_files(runtime).lock().unwrap();
     for (idx, slot) in files.iter_mut().enumerate() {
         if slot.is_none() {
             *slot = Some(file);
@@ -72,11 +70,11 @@ pub fn Open_Iff_File(filename: &str) -> i32 {
 }
 
 #[allow(non_snake_case)]
-pub fn Close_Iff_File(handle: i32) {
+pub fn Close_Iff_File(runtime: &crate::process_state::WwLibRuntime, handle: i32) {
     if handle < 0 {
         return;
     }
-    let mut files = iff_files().lock().unwrap();
+    let mut files = iff_files(runtime).lock().unwrap();
     if let Some(slot) = files.get_mut(handle as usize) {
         if let Some(mut file) = slot.take() {
             let _ = file.close();
@@ -85,8 +83,8 @@ pub fn Close_Iff_File(handle: i32) {
 }
 
 #[allow(non_snake_case)]
-pub fn Get_Iff_Chunk_Size(handle: i32, id: u32) -> u32 {
-    let mut files = iff_files().lock().unwrap();
+pub fn Get_Iff_Chunk_Size(runtime: &crate::process_state::WwLibRuntime, handle: i32, id: u32) -> u32 {
+    let mut files = iff_files(runtime).lock().unwrap();
     let Some(file) = files
         .get_mut(handle as usize)
         .and_then(|slot| slot.as_mut())
@@ -97,8 +95,8 @@ pub fn Get_Iff_Chunk_Size(handle: i32, id: u32) -> u32 {
 }
 
 #[allow(non_snake_case)]
-pub fn Read_Iff_Chunk(handle: i32, id: u32, buffer: &mut [u8]) -> u32 {
-    let mut files = iff_files().lock().unwrap();
+pub fn Read_Iff_Chunk(runtime: &crate::process_state::WwLibRuntime, handle: i32, id: u32, buffer: &mut [u8]) -> u32 {
+    let mut files = iff_files(runtime).lock().unwrap();
     let Some(file) = files
         .get_mut(handle as usize)
         .and_then(|slot| slot.as_mut())
@@ -132,8 +130,8 @@ pub fn Read_Iff_Chunk(handle: i32, id: u32, buffer: &mut [u8]) -> u32 {
 }
 
 #[allow(non_snake_case)]
-pub fn Write_Iff_Chunk(handle: i32, id: u32, buffer: &[u8]) {
-    let mut files = iff_files().lock().unwrap();
+pub fn Write_Iff_Chunk(runtime: &crate::process_state::WwLibRuntime, handle: i32, id: u32, buffer: &[u8]) {
+    let mut files = iff_files(runtime).lock().unwrap();
     let Some(file) = files
         .get_mut(handle as usize)
         .and_then(|slot| slot.as_mut())
@@ -315,14 +313,14 @@ pub fn Uncompress_Data(src: &[u8], dst: &mut [u8]) -> u32 {
 }
 
 #[allow(non_snake_case)]
-pub fn Set_Uncomp_Buffer(_buffer_segment: i32, _size_of_buffer: i32) {
+pub fn Set_Uncomp_Buffer(runtime: &crate::process_state::WwLibRuntime, _buffer_segment: i32, _size_of_buffer: i32) {
     if _size_of_buffer <= 0 {
-        *uncomp_buffer().lock().unwrap() = None;
+        *uncomp_buffer(runtime).lock().unwrap() = None;
         return;
     }
     let mut buf = vec![0u8; _size_of_buffer as usize];
     buf.fill(0);
-    *uncomp_buffer().lock().unwrap() = Some(buf);
+    *uncomp_buffer(runtime).lock().unwrap() = Some(buf);
 }
 
 fn find_chunk(file: &mut WWFile, id: u32) -> Option<(u64, u32)> {

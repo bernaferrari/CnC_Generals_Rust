@@ -298,6 +298,7 @@ fn direct_archive_bad_terrain_tail_preserves_running_foreign_world() {
                 Some(&bytes),
                 directory.path(),
                 CPP_GAME_SINGLE_PLAYER,
+                &game_engine::System::CampaignManagerXferState::default(),
             )
             .unwrap();
             std::fs::write(manager.get_save_path("invalid_tail"), archive).unwrap();

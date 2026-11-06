@@ -161,7 +161,8 @@ impl AIPlayer {
         // 3. Enemy defenses (if we can win)
         // 4. Enemy command center (decisive strike)
 
-        let list = player_list().read().map_err(|_| AiError::LockFailed)?;
+        let __player_list_arc = player_list();
+        let list = __player_list_arc.read().map_err(|_| AiError::LockFailed)?;
         let mut best: Option<(f32, Coord3D)> = None;
 
         for (idx, player_arc) in list.iter().enumerate() {
@@ -274,7 +275,8 @@ impl AIPlayer {
     /// Matches C++ AIPlayer economic analysis
     /// Updates resource tracking, income rates, and economic pressure
     pub(super) fn analyze_economic_situation(&mut self) -> Result<(), AiError> {
-        let current_resources = if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        let current_resources = if let Ok(list) = __player_list_arc.read() {
             if let Some(player_arc) = list.get_player(self.player_id as i32) {
                 if let Ok(player_guard) = player_arc.read() {
                     let money = player_guard.get_money().get_money();

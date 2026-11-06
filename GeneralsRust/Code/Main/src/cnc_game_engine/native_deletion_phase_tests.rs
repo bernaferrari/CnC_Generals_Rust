@@ -14,31 +14,24 @@ fn actual_observer_preserves_pending_native_deletion_without_a_physical_owner() 
 }
 
 fn deletion_phase_scene(recrew: bool) {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        let mut graphics = GraphicsSystem::new(
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     graphics.cache_model(
         crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
         model("CameraModel", 0.),
     );
-    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut client = GameClient::new().unwrap();
     let mut world = GameLogic::new();
     let text = [("PhaseInfantry", "INFANTRY"), ("PhaseVehicle", "VEHICLE")]
@@ -112,19 +105,19 @@ fn deletion_phase_scene(recrew: bool) {
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             );
             assert!(world.objects[&unrelated].status.destroyed);
             if recrew {
-                assert!(world.try_physics_collide_with_effects(
+                assert_eq!(world.try_physics_collide_with_effects(
                     infantry,
                     vehicle,
                     1.,
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    }
-                ));
+}
+                ).expect("result"), true);
                 assert_eq!(world.unmanned_reclaim_count_for_test(), 1);
                 assert!(!world.objects[&vehicle].status.disabled_unmanned);
                 assert!(world.objects[&vehicle].is_private_captured());
@@ -135,7 +128,7 @@ fn deletion_phase_scene(recrew: bool) {
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 );
                 assert_eq!(world.unmanned_reclaim_count_for_test(), 0);
             }
@@ -186,7 +179,7 @@ fn deletion_phase_scene(recrew: bool) {
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             crate::gameworld_shadow::run_owned_host_boundary(Some(&mut shadow), &mut world);
@@ -207,14 +200,14 @@ fn deletion_phase_scene(recrew: bool) {
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             );
             world
                 .process_destroy_list_with_effects_checked(
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             assert!(world.objects.registered_is_empty());
@@ -226,33 +219,26 @@ fn deletion_phase_scene(recrew: bool) {
 #[test]
 #[ignore = "requires native WGPU; explicit isolated AI startup deletion phase acceptance"]
 fn actual_ai_startup_build_callbacks_keep_map_cc_and_unrelated_drawables_until_checked_endphase() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        let mut graphics = GraphicsSystem::new(
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     graphics.cache_model(
         crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
         model("CameraModel", 0.),
     );
-    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut client = GameClient::new().unwrap();
-    let mut peer_pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut peer_pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut peer_client = GameClient::new().unwrap();
     fn make_world() -> GameLogic {
         let definitions = [
@@ -418,14 +404,14 @@ fn actual_ai_startup_build_callbacks_keep_map_cc_and_unrelated_drawables_until_c
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut probe),
                     ..Default::default()
-                },
+},
             );
             world.initialize_owned_skirmish_ai_from_definitions_for_test(
                 1,
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut probe),
                     ..Default::default()
-                },
+},
             );
             for name in [
                 "AmericaCommandCenter",
@@ -463,7 +449,7 @@ fn actual_ai_startup_build_callbacks_keep_map_cc_and_unrelated_drawables_until_c
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut probe),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             for id in [old_cc, unrelated] {
@@ -478,7 +464,7 @@ fn actual_ai_startup_build_callbacks_keep_map_cc_and_unrelated_drawables_until_c
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut probe),
                         ..Default::default()
-                    },
+},
                 );
             }
             world
@@ -486,7 +472,7 @@ fn actual_ai_startup_build_callbacks_keep_map_cc_and_unrelated_drawables_until_c
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut probe),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
         },
@@ -508,13 +494,13 @@ fn actual_ai_startup_build_callbacks_keep_map_cc_and_unrelated_drawables_until_c
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             );
             peer.process_destroy_list_with_effects_checked(
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             )
             .unwrap();
         },

@@ -1293,7 +1293,8 @@ impl TeamFactory {
             .push((team_id, team_name.as_deref().unwrap_or("").to_string()));
 
         if let Some(team_arc) = &team_arc {
-            if let Ok(list) = player_list().read() {
+            let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                 for player_arc in list.iter() {
                     let player_id = player_arc
                         .read()
@@ -1424,7 +1425,10 @@ impl TeamFactory {
         &self,
         owner_name: &str,
     ) -> Option<Arc<RwLock<crate::player::Player>>> {
-        let list = player_list().read().ok()?;
+        // Reset/cleanup may run after with_own_services returns; skip player
+        // unlink when no world is published rather than panicking.
+        let __player_list_arc = crate::player::try_player_list()?;
+        let list = __player_list_arc.read().ok()?;
         if owner_name.is_empty() {
             list.get_neutral_player()
         } else {

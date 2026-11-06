@@ -149,32 +149,25 @@ pub(crate) fn run() -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("requires installed game content root"))?;
     std::env::set_current_dir(content_root)?;
 
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
     })?;
     eprintln!("reset probe: WGPU initialized");
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
-        }
-    }
-    let _scope = Scope;
     let mut graphics = crate::graphics::GraphicsSystem::new(
-        ww3d_engine::device()?,
-        ww3d_engine::queue()?,
-        ww3d_engine::color_format()?,
-        ww3d_engine::depth_format()?,
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )?;
     graphics.cache_model(
         crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
         camera_model(),
     );
     eprintln!("reset probe: graphics owner constructed");
-    let mut pipeline = crate::graphics::RenderPipeline::initialize(&graphics)?;
-    let mut peer_pipeline = crate::graphics::RenderPipeline::initialize(&graphics)?;
+    let mut pipeline = crate::graphics::RenderPipeline::initialize(engine.clone(), &graphics)?;
+    let mut peer_pipeline = crate::graphics::RenderPipeline::initialize(engine.clone(), &graphics)?;
     eprintln!("reset probe: render pipelines constructed");
     let mut client = game_client::core::game_client::GameClient::new()?;
     let mut peer_client = game_client::core::game_client::GameClient::new()?;
@@ -206,7 +199,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
                 &mut ScriptPresentationEffects {
                     view: Some(view),
                     ..Default::default()
-                },
+},
             )
             .map_err(anyhow::Error::msg)
     })?
@@ -224,7 +217,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
                 &mut ScriptPresentationEffects {
                     view: Some(view),
                     ..Default::default()
-                },
+},
             )
             .map_err(anyhow::Error::msg)
         },
@@ -275,7 +268,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
         world.reset_with_effects_checked(&mut ScriptPresentationEffects {
             view: Some(view),
             ..Default::default()
-        })
+})
     })
     .map_err(anyhow::Error::msg)?;
     assert!(world.objects.registered_is_empty());
@@ -322,7 +315,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
                 &mut ScriptPresentationEffects {
                     view: Some(view),
                     ..Default::default()
-                },
+},
             )
             .map_err(anyhow::Error::msg)
     })?
@@ -362,7 +355,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
             &mut ScriptPresentationEffects {
                 view: Some(view),
                 ..Default::default()
-            },
+},
         )
     })
     .map_err(anyhow::Error::msg)?;

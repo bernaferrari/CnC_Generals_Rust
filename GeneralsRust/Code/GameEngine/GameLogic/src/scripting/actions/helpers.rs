@@ -73,7 +73,9 @@ pub(super) fn record_script_money_delta(player: &mut crate::player::Player, delt
     if delta > 0 {
         let amount = delta.min(u32::MAX as i64) as u32;
         player.get_score_keeper_mut().add_money_earned(amount);
-        player.get_academy_stats_mut().record_income(delta as i32);
+        player
+            .get_academy_stats_mut()
+            .record_income(crate::helpers::TheGameLogic::get_frame());
     } else if delta < 0 {
         player
             .get_score_keeper_mut()

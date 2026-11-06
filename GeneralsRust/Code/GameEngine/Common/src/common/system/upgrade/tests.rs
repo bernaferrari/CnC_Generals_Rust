@@ -1,6 +1,7 @@
 //! Parity tests for the canonical upgrade store (C++ Upgrade.cpp).
 
 use super::*;
+use crate::common::common_services::CommonServicesScope;
 use crate::common::ascii_string::AsciiString;
 use crate::common::ini::INI;
 use crate::common::system::Xfer;
@@ -174,6 +175,7 @@ fn unknown_field_still_allocates_bit_like_cpp_new_upgrade() {
 
 #[test]
 fn xfer_upgrade_mask_round_trips_by_name() {
+    let _scope = CommonServicesScope::new();
     initialize_upgrade_center();
     let mask = {
         let center = get_upgrade_center();
@@ -203,6 +205,7 @@ fn xfer_upgrade_mask_round_trips_by_name() {
 
 #[test]
 fn xfer_upgrade_mask_rejects_unknown_name() {
+    let _scope = CommonServicesScope::new();
     initialize_upgrade_center();
     let mut bytes = vec![1u8, 1, 0];
     let name = b"XferNeverDefinedParityUpgrade";
@@ -269,6 +272,7 @@ fn cloned_center_lookups_survive_foreign_thread_key_namespace() {
 
 #[test]
 fn mask_lookup_returns_none_for_unknown_names() {
+    let _scope = CommonServicesScope::new();
     initialize_upgrade_center();
     assert!(upgrade_mask_for_name("NeverDefinedParityUpgrade").is_none());
     assert_eq!(

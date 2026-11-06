@@ -118,8 +118,8 @@ impl Player {
 
         crate::control_bar::mark_ui_dirty();
 
-        let local_player = crate::player::player_list()
-            .read()
+        let __player_list_arc = crate::player::player_list();
+            let local_player = __player_list_arc.read()
             .ok()
             .and_then(|list| list.get_local_player().cloned());
         // C++ queries current ownership and powers after the AI callback.

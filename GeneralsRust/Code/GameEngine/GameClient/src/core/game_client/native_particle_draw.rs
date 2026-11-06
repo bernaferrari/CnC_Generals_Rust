@@ -26,9 +26,14 @@ impl GameClient {
                 .retain(|gap| id.is_some_and(|id| gap.drawable_id != id));
             return Ok(());
         }
+        let manager = self.drawables.particles.as_mut().ok_or_else(|| {
+            GameClientError::SubsystemError(
+                "receiving particle manager absent during Drawable retirement".into(),
+            )
+        })?;
         self.drawables
             .state
-            .retire_native_particles_with_services(id, &mut self.drawables.particles)?;
+            .retire_native_particles_with_services(id, manager)?;
         self.native_particle_capability_gaps
             .retain(|gap| id.is_some_and(|id| gap.drawable_id != id));
         Ok(())
@@ -87,9 +92,14 @@ impl GameClient {
         let assets = self.render_bridge.asset_manager();
         self.drawables
             .particles
+            .as_mut()
+            .expect("particle manager")
             .admit_effective_definitions()
             .map_err(|error| GameClientError::SubsystemError(error.to_string()))?;
-        let (state, particles) = (&mut self.drawables.state, &mut self.drawables.particles);
+        let (state, particles) = (
+                &mut self.drawables.state,
+                self.drawables.particles.as_mut().expect("particle manager"),
+            );
         NativeRenderReceiver::new(
             state,
             &mut self.native_particle_capability_gaps,
@@ -538,6 +548,7 @@ mod missing_binding_retirement_tests {
     use super::*;
     #[test]
     fn actual_client_load_postprocess_keeps_cpu_actor_when_binding_disappears() {
+        crate::test_support::ensure_ambient_host();
         #[cfg(not(target_arch = "wasm32"))]
         if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
             module_path!(),

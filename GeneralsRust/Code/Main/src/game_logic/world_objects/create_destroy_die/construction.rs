@@ -9,8 +9,10 @@ impl GameLogic {
         team: Team,
         position: Vec3,
     ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
-        let owner = self.unique_player_id_for_team(team);
-        Ok(self.create_scaffold(template_name, team, owner, position, 0.0, None, None)?)
+        self.with_own_services_mut(|this| {
+            let owner = this.unique_player_id_for_team(team);
+            Ok(this.create_scaffold(template_name, team, owner, position, 0.0, None, None)?)
+        })
     }
 
     pub fn create_object_under_construction_for_player(
@@ -20,23 +22,25 @@ impl GameLogic {
         position: Vec3,
         orientation: f32,
     ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
-        let team = (match self.players.get(&owner_player_id) {
-            Some(value) => value,
-            None => return Ok(None),
+        self.with_own_services_mut(|this| {
+            let team = (match this.players.get(&owner_player_id) {
+                Some(value) => value,
+                None => return Ok(None),
+            })
+            .team;
+            if team == Team::Neutral {
+                return Ok(None);
+            }
+            Ok(this.create_scaffold(
+                template_name,
+                team,
+                Some(owner_player_id),
+                position,
+                orientation,
+                None,
+                None,
+            )?)
         })
-        .team;
-        if team == Team::Neutral {
-            return Ok(None);
-        }
-        Ok(self.create_scaffold(
-            template_name,
-            team,
-            Some(owner_player_id),
-            position,
-            orientation,
-            None,
-            None,
-        )?)
     }
 
     /// C++ DozerAIUpdate::construct: factory callbacks precede identities,

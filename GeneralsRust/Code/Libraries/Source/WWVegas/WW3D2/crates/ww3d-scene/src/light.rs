@@ -239,14 +239,14 @@ struct InputLight {
 
 impl InputLight {
     /// Initialize from a light and object center
-    fn from_light(light: &Light, object_center: Vec3) -> Self {
+    fn from_light(light: &Light, object_center: Vec3, lighting_lod_cutoff: f32) -> Self {
         match light.light_type {
-            LightType::Point | LightType::Spot => Self::from_point_or_spot(light, object_center),
-            LightType::Directional => Self::from_directional(light, object_center),
+            LightType::Point | LightType::Spot => Self::from_point_or_spot(light, object_center, lighting_lod_cutoff),
+            LightType::Directional => Self::from_directional(light, object_center, lighting_lod_cutoff),
         }
     }
 
-    fn from_point_or_spot(light: &Light, object_center: Vec3) -> Self {
+    fn from_point_or_spot(light: &Light, object_center: Vec3, lighting_lod_cutoff: f32) -> Self {
         let mut direction = light.position - object_center;
         let dist = direction.length();
         if dist > 0.0 {
@@ -279,7 +279,7 @@ impl InputLight {
 
         let mut ambient = light.ambient * light.intensity;
         let mut diffuse = light.diffuse * light.intensity;
-        let cutoff2 = get_lighting_lod_cutoff() * get_lighting_lod_cutoff();
+        let cutoff2 = lighting_lod_cutoff * lighting_lod_cutoff;
         let rejected = diffuse.length_squared() <= cutoff2;
         if !rejected {
             ambient *= atten;
@@ -304,7 +304,7 @@ impl InputLight {
         }
     }
 
-    fn from_directional(light: &Light, _object_center: Vec3) -> Self {
+    fn from_directional(light: &Light, _object_center: Vec3, _lighting_lod_cutoff: f32) -> Self {
         let z = light.transform.z_axis.truncate();
         let direction = if z.length_squared() > 0.0 {
             -z.normalize()
@@ -373,10 +373,15 @@ pub struct LightEnvironment {
     fill_light: Option<InputLight>,
     /// Fill light intensity multiplier
     fill_intensity: f32,
+    lighting_lod_cutoff: f32,
 }
 
 impl LightEnvironment {
     /// Create a new light environment
+    pub fn set_session_lighting_lod_cutoff(&mut self, cutoff: f32) {
+        self.lighting_lod_cutoff = cutoff;
+    }
+
     pub fn new() -> Self {
         Self {
             light_count: 0,
@@ -386,6 +391,7 @@ impl LightEnvironment {
             output_lights: Vec::new(),
             fill_light: None,
             fill_intensity: 0.0,
+            lighting_lod_cutoff: 0.5,
         }
     }
 
@@ -408,7 +414,7 @@ impl LightEnvironment {
             return;
         }
 
-        let mut new_light = InputLight::from_light(light, self.object_center);
+        let mut new_light = InputLight::from_light(light, self.object_center, self.lighting_lod_cutoff);
         if self.fill_intensity != 0.0 {
             new_light.diffuse *= light.intensity;
         }
@@ -622,21 +628,18 @@ fn hsv_to_rgb(hsv: Vec3) -> Vec3 {
     }
 }
 
-thread_local! {
-    /// C++ kept the lighting LOD cutoff as a plain static on the game thread.
-    static LIGHTING_LOD_CUTOFF: std::cell::Cell<f32> = const { std::cell::Cell::new(0.5) };
-}
 
 /// Set the lighting LOD cutoff
 ///
 /// Lights with diffuse intensity below this threshold are converted to pure ambient
-pub fn set_lighting_lod_cutoff(cutoff: f32) {
-    LIGHTING_LOD_CUTOFF.with(|cell| cell.set(cutoff));
+pub fn set_lighting_lod_cutoff(runtime: &crate::process_state::SceneRuntime, cutoff: f32) {
+    let mut cell = runtime.lighting_lod_cutoff.lock().unwrap_or_else(|p| p.into_inner());
+    *cell = cutoff;
 }
 
 /// Get the lighting LOD cutoff
-pub fn get_lighting_lod_cutoff() -> f32 {
-    LIGHTING_LOD_CUTOFF.with(std::cell::Cell::get)
+pub fn get_lighting_lod_cutoff(runtime: &crate::process_state::SceneRuntime) -> f32 {
+    runtime.lighting_lod_cutoff.lock().unwrap_or_else(|p| p.into_inner()).clone()
 }
 
 #[cfg(test)]

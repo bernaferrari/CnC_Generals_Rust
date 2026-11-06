@@ -10,7 +10,6 @@
 //! Rust port: 2025
 
 use crate::common::ini::ini::{INI, INIError, INIResult};
-use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 
 // ============================================================================
@@ -186,25 +185,27 @@ impl OnlineChatColors {
 // Global State
 // ============================================================================
 
-/// Global online chat colors instance
-static ONLINE_CHAT_COLORS: OnceCell<RwLock<OnlineChatColors>> = OnceCell::new();
-
-/// Get or initialize the global OnlineChatColors
-fn online_chat_colors_cell() -> &'static RwLock<OnlineChatColors> {
-    ONLINE_CHAT_COLORS.get_or_init(|| RwLock::new(OnlineChatColors::new()))
+fn online_chat_colors_cell() -> std::sync::Arc<parking_lot::RwLock<OnlineChatColors>> {
+    crate::common::common_services::common_services()
+        .online_chat_colors
+        .clone()
 }
 
-/// Get read access to the global OnlineChatColors
+/// Get read access to the online chat colors on the published CommonServices.
 pub fn get_online_chat_colors() -> parking_lot::RwLockReadGuard<'static, OnlineChatColors> {
-    online_chat_colors_cell().read()
+    let cell = online_chat_colors_cell();
+    let guard = cell.read();
+    unsafe { std::mem::transmute(guard) }
 }
 
-/// Get write access to the global OnlineChatColors
+/// Get write access to the online chat colors on the published CommonServices.
 pub fn get_online_chat_colors_mut() -> parking_lot::RwLockWriteGuard<'static, OnlineChatColors> {
-    online_chat_colors_cell().write()
+    let cell = online_chat_colors_cell();
+    let guard = cell.write();
+    unsafe { std::mem::transmute(guard) }
 }
 
-/// Initialize the global OnlineChatColors
+/// Initialize the online chat colors (ensures CommonServices is published).
 pub fn init_online_chat_colors() {
     let _ = online_chat_colors_cell();
 }
@@ -397,6 +398,7 @@ pub fn register_online_chat_colors_parser() {
 
 #[cfg(test)]
 mod tests {
+    use crate::common::common_services::CommonServicesScope;
     use super::*;
 
     #[test]

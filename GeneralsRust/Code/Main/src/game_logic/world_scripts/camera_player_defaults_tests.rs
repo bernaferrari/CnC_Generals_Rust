@@ -149,7 +149,8 @@ fn short_mmb_defaults_keep_first_setter_motion_then_cancel_second_and_sample_pos
             terrain: None,
             ui: None,
             view: Some(&mut view),
-        };
+                    pristine_bones: None,
+};
         world.mmb_angle_pitch_defaults(&mut effects).unwrap();
         assert!(world.session_view.scripted.motion.active);
         assert!(world.session_view.scripted.path_arrived);
@@ -237,7 +238,8 @@ fn short_mmb_defaults_keep_first_setter_motion_then_cancel_second_and_sample_pos
                 terrain: None,
                 ui: None,
                 view: Some(&mut second_view),
-            })
+                        pristine_bones: None,
+})
             .unwrap();
         assert_eq!(
             combined.capture_camera_continuation().unwrap(),
@@ -284,7 +286,8 @@ fn reset_and_mmb_default_share_minimum_hag_floor_without_mutating_peer() {
             terrain: None,
             ui: None,
             view: Some(&mut view),
-        })
+                    pristine_bones: None,
+})
         .unwrap();
     assert_eq!(world.session_view.camera.native_camera.desired(), floor);
     let saved = world.capture_camera_continuation().unwrap();

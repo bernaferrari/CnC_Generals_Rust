@@ -446,8 +446,8 @@ impl NeutronMissileUpdate {
             let player_guard = player.read().ok()?;
             Some(player_guard.get_player_index())
         });
-        let local_index = ThePlayerList()
-            .read()
+        let __player_list_arc = ThePlayerList();
+            let local_index = __player_list_arc.read()
             .ok()
             .map(|list| list.get_local_player_index());
         let allow_decal = if self

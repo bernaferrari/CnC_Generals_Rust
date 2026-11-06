@@ -3,6 +3,7 @@ use game_engine::Snapshot;
 
 #[test]
 fn receiving_snapshot_round_trips_while_foreign_client_is_registered() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "receiving_snapshot_round_trips_while_foreign_client_is_registered",

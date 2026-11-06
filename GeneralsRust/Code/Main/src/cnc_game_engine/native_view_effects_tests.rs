@@ -159,24 +159,17 @@ fn pose(sample: SlaveCameraSample) -> Mat4 {
 #[ignore = "requires native WGPU; run explicit isolated strict-backend acceptance"]
 fn actual_view_backend_uses_current_dirty_source_and_rejects_peer_or_unobserved_client_replacement()
 {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        let mut graphics = GraphicsSystem::new(
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     for (name, x) in [("CameraModel", 0.), ("MovingModel", 10.)] {
@@ -185,7 +178,7 @@ fn actual_view_backend_uses_current_dirty_source_and_rejects_peer_or_unobserved_
             model(name, x),
         );
     }
-    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut client = GameClient::new().unwrap();
     let mut world = GameLogic::new();
     admit(&mut world, 3.);
@@ -357,32 +350,25 @@ fn receiving_factory_world() -> GameLogic {
 #[ignore = "requires native WGPU; run explicit isolated strict-backend acceptance"]
 fn actual_factory_birth_installs_receiving_drawable_before_immediate_query_and_isolates_same_id_peer()
  {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        let mut graphics = GraphicsSystem::new(
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     graphics.cache_model(
         crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
         model("CameraModel", 0.),
     );
-    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
-    let mut peer_pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
+    let mut peer_pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut client = GameClient::new().unwrap();
     let mut peer_client = GameClient::new().unwrap();
     let mut world = receiving_factory_world();
@@ -413,7 +399,7 @@ fn actual_factory_birth_installs_receiving_drawable_before_immediate_query_and_i
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut probe),
                     ..Default::default()
-                },
+},
             )
             .unwrap()
             .unwrap();
@@ -453,7 +439,7 @@ fn actual_factory_birth_installs_receiving_drawable_before_immediate_query_and_i
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut runtime),
                     ..Default::default()
-                },
+},
             )
             .unwrap()
             .unwrap();
@@ -571,7 +557,7 @@ fn actual_factory_birth_installs_receiving_drawable_before_immediate_query_and_i
         &mut crate::game_logic::ScriptPresentationEffects {
             view: Some(&mut wrong),
             ..Default::default()
-        },
+},
     );
     assert!(failed.is_err());
     assert!(
@@ -607,31 +593,24 @@ fn actual_factory_birth_installs_receiving_drawable_before_immediate_query_and_i
 #[ignore = "requires native WGPU; run explicit isolated strict-backend acceptance"]
 fn detached_no_client_chunk_snapshot_rebuild_removes_absent_actor_and_rejects_old_generation() {
     use crate::game_logic::NativeMapAdmission;
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        let mut graphics = GraphicsSystem::new(
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     graphics.cache_model(
         crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
         model("CameraModel", 0.),
     );
-    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut candidate = super::map_native_admission::NativeMapCandidate::with_epoch(EPOCH);
     let mut world = receiving_factory_world();
     world.add_player(crate::game_logic::Player::new(0, Team::USA, "USA", true));
@@ -807,7 +786,7 @@ fn birth_physical_retirement_actor(
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             )
             .unwrap()
             .unwrap()
@@ -818,32 +797,25 @@ fn birth_physical_retirement_actor(
 #[ignore = "requires native WGPU; run explicit isolated physical-retirement acceptance"]
 fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects_stale_rebirth_including_no_draw()
  {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        let mut graphics = GraphicsSystem::new(
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     graphics.cache_model(
         crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
         model("CameraModel", 0.),
     );
-    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
-    let mut peer_pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
+    let mut peer_pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut client = GameClient::new().unwrap();
     let mut peer_client = GameClient::new().unwrap();
     let mut world = physical_retirement_world();
@@ -888,7 +860,7 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             );
             assert!(world.has_pending_object_removals());
             assert!(
@@ -910,7 +882,7 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             assert!(!world.objects.contains_key(&id));
@@ -994,7 +966,7 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             assert!(damage.destroyed());
@@ -1007,7 +979,7 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             assert!(!world.objects.contains_key(&reborn));
@@ -1044,7 +1016,7 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             );
             assert!(world.objects.contains_key(&no_draw));
             assert!(runtime.drawables.binding_key(EPOCH, no_draw.0).is_some());
@@ -1053,7 +1025,7 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             assert!(!world.objects.contains_key(&no_draw));
@@ -1093,14 +1065,14 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             );
             world
                 .process_destroy_list_with_effects_checked(
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             assert!(
@@ -1129,13 +1101,13 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             );
             peer.process_destroy_list_with_effects_checked(
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             )
             .unwrap();
         },
@@ -1145,27 +1117,20 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
 #[test]
 #[ignore = "requires native WGPU; run explicit isolated missing-binding acceptance"]
 fn missing_client_key_with_canonical_constructor_is_not_prebirth_absence() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        let mut graphics = GraphicsSystem::new(
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
-    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut client = GameClient::new().unwrap();
     let mut world = physical_retirement_world();
     let id = birth_physical_retirement_actor(
@@ -1208,32 +1173,25 @@ fn missing_client_key_with_canonical_constructor_is_not_prebirth_absence() {
 #[test]
 #[ignore = "requires native WGPU; exercises the production Client-before-GameLogic reset phase"]
 fn actual_client_reset_retires_renderer_receipts_before_logic_reset_and_preserves_peer() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        let mut graphics = GraphicsSystem::new(
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     graphics.cache_model(
         crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
         model("CameraModel", 0.),
     );
-    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
-    let mut peer_pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
+    let mut peer_pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut client = GameClient::new().unwrap();
     let mut peer_client = GameClient::new().unwrap();
     let mut world = physical_retirement_world();
@@ -1292,7 +1250,7 @@ fn actual_client_reset_retires_renderer_receipts_before_logic_reset_and_preserve
                 .reset_with_effects_checked(&mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                })
+})
                 .unwrap();
             assert!(world.objects.registered_is_empty());
         },
@@ -1327,24 +1285,17 @@ mod native_airfield_sell_tests;
 #[test]
 #[ignore = "requires native WGPU; run isolated actual bulk receiving-owner acceptance"]
 fn actual_native_bulk_clear_retires_each_owner_without_touching_peer() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        let mut graphics = GraphicsSystem::new(
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     graphics.cache_model(
@@ -1352,8 +1303,8 @@ fn actual_native_bulk_clear_retires_each_owner_without_touching_peer() {
         model("CameraModel", 0.),
     );
     {
-        let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
-        let mut peer_pipeline = RenderPipeline::initialize(&graphics).unwrap();
+        let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
+        let mut peer_pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
         let mut client = GameClient::new().unwrap();
         let mut peer_client = GameClient::new().unwrap();
         let mut world = physical_retirement_world();
@@ -1398,7 +1349,7 @@ fn actual_native_bulk_clear_retires_each_owner_without_touching_peer() {
                 let mut effects = crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                };
+};
                 world
                     .clear_all_objects_with_effects_checked(&mut effects)
                     .unwrap();
@@ -1433,7 +1384,7 @@ fn actual_native_bulk_clear_retires_each_owner_without_touching_peer() {
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             },
@@ -1444,24 +1395,17 @@ fn actual_native_bulk_clear_retires_each_owner_without_touching_peer() {
 #[test]
 #[ignore = "requires native WGPU; actual Tree/Prop collection and physical retirement"]
 fn actual_tree_prop_render_collection_preserves_constructor_retirement_and_peer() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        let mut graphics = GraphicsSystem::new(
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     graphics.cache_model(
@@ -1485,8 +1429,8 @@ fn actual_tree_prop_render_collection_preserves_constructor_retirement_and_peer(
             .unwrap();
         world.require_native_drawable_owner();
         let mut peer = physical_retirement_world();
-        let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
-        let mut peer_pipeline = RenderPipeline::initialize(&graphics).unwrap();
+        let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
+        let mut peer_pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
         let mut client = GameClient::new().unwrap();
         let mut peer_client = GameClient::new().unwrap();
         let id = birth_physical_retirement_actor(
@@ -1551,7 +1495,7 @@ fn actual_tree_prop_render_collection_preserves_constructor_retirement_and_peer(
                 let mut effects = crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                };
+};
                 world.destroy_object_with_effects(id, &mut effects);
                 world
                     .process_destroy_list_with_effects_checked(&mut effects)
@@ -1586,7 +1530,7 @@ fn actual_tree_prop_render_collection_preserves_constructor_retirement_and_peer(
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             },
@@ -1636,31 +1580,24 @@ fn actual_early_body_bridge_uses_real_native_actor_and_captured_local_audio() {
     use game_client::system::TimeOfDay;
     use game_engine::common::audio::{AC_LOOP, AudioEventInfo, AudioManager, ST_GLOBAL};
     use gamelogic::common::types::BodyDamageType;
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        let mut graphics = GraphicsSystem::new(
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     graphics.cache_model(
         crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
         model("CameraModel", 0.0),
     );
-    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut client = GameClient::new().unwrap();
     let mut world = GameLogic::new();
     world.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([(
@@ -1700,7 +1637,7 @@ fn actual_early_body_bridge_uses_real_native_actor_and_captured_local_audio() {
             &mut crate::game_logic::ScriptPresentationEffects {
                 view: Some(&mut runtime),
                 ..Default::default()
-            },
+},
         )
         .unwrap()
         .unwrap();
@@ -1716,7 +1653,8 @@ fn actual_early_body_bridge_uses_real_native_actor_and_captured_local_audio() {
                 false,
                 Some(TimeOfDay::Night),
                 None,
-                &locality
+                &locality,
+                &game_engine::common::audio::script_policy::ScriptAudioPolicy::default(),
             )
             .is_err()
     );
@@ -1728,7 +1666,8 @@ fn actual_early_body_bridge_uses_real_native_actor_and_captured_local_audio() {
                 true,
                 Some(TimeOfDay::Night),
                 None,
-                &locality
+                &locality,
+                &game_engine::common::audio::script_policy::ScriptAudioPolicy::default(),
             )
             .unwrap()
     );
@@ -1749,7 +1688,8 @@ fn actual_early_body_bridge_uses_real_native_actor_and_captured_local_audio() {
                 false,
                 None,
                 None,
-                &locality
+                &locality,
+                &game_engine::common::audio::script_policy::ScriptAudioPolicy::default(),
             )
             .unwrap()
     );
@@ -1766,7 +1706,7 @@ fn actual_early_body_bridge_uses_real_native_actor_and_captured_local_audio() {
                 view: Some(&mut runtime),
                 audio: Some(&mut audio),
                 ..Default::default()
-            },
+},
         )
         .unwrap();
     assert_eq!(world.host_object(id).unwrap().health.current, 60.0);

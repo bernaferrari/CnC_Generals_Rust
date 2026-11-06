@@ -21,6 +21,7 @@ use std::collections::{HashMap, HashSet};
 
 impl<'a> CommandExecutor<'a> {
     pub(super) fn execute_sell(&mut self, object_id: ObjectId, player_id: u32) -> CommandResult {
+        let _bind = self.bind_services();
         if let Some(obj) = self.game_logic.host_object(object_id) {
             if obj.owner_player_id != Some(player_id)
                 || !obj.is_alive()
@@ -56,6 +57,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         player_id: u32,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         let mut any = false;
         for &id in units {
             if matches!(self.execute_sell(id, player_id), CommandResult::Success) {
@@ -158,6 +160,7 @@ impl<'a> CommandExecutor<'a> {
         player_id: u32,
         science_name: &str,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         if science_name.trim().is_empty() {
             return CommandResult::InvalidCommand;
         }
@@ -185,6 +188,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         upgrade_name: &str,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         if upgrade_name.trim().is_empty() {
             return CommandResult::InvalidCommand;
         }
@@ -346,6 +350,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         upgrade_name: &str,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         // C++ cancel queue head residual: Command_CancelUpgrade may omit the name;
         // resolve from the first selected producer's PRODUCTION_UPGRADE head.
         let resolved_name = if upgrade_name.trim().is_empty() {

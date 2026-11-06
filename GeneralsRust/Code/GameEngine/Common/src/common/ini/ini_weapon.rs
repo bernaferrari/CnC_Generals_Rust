@@ -10,7 +10,6 @@
 
 use crate::common::ascii_string::AsciiString;
 use crate::common::ini::INILoadType;
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -1045,33 +1044,37 @@ impl Default for WeaponStore {
     }
 }
 
-/// Global weapon store instance
-static WEAPON_STORE: OnceCell<RwLock<WeaponStore>> = OnceCell::new();
-
 /// Initialize the global weapon store
-pub fn initialize_weapon_store() {
-    WEAPON_STORE.get_or_init(|| RwLock::new(WeaponStore::new()));
-}
 
 /// Explicitly clear registered weapon definitions.
 ///
 /// Initialization must be idempotent because every parsed `Weapon` calls it;
 /// resetting there previously discarded the preceding retail definition and
 /// left the store containing only the final weapon.
-pub fn reset_weapon_store() {
-    initialize_weapon_store();
-    if let Some(store) = WEAPON_STORE.get() {
-        if let Ok(mut guard) = store.write() {
-            guard.clear();
-        }
-    }
+/// Get a reference to the global weapon store
+
+fn ini_weapon_cell() -> std::sync::Arc<std::sync::RwLock<WeaponStore>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.weapon)
 }
 
-/// Get a reference to the global weapon store
+/// Initialize the weapon store on the published CommonServices (idempotent).
+pub fn initialize_weapon_store() {
+    let _ = ini_weapon_cell();
+}
+
+/// Explicitly clear registered weapon definitions.
+pub fn reset_weapon_store() {
+    ini_weapon_cell()
+        .write()
+        .expect("WeaponStore poisoned")
+        .clear();
+}
+
+/// Get a mutable reference to the instance weapon store
 pub fn get_weapon_store() -> Option<RwLockWriteGuard<'static, WeaponStore>> {
-    WEAPON_STORE
-        .get()
-        .map(|store| store.write().expect("WeaponStore poisoned"))
+    let cell = ini_weapon_cell();
+    let guard = cell.write().expect("WeaponStore poisoned");
+    Some(unsafe { std::mem::transmute(guard) })
 }
 
 /// Parse a boolean value from string
@@ -1378,11 +1381,45 @@ fn parse_bit_string(value: &str, names: &[&str], mut bits: u32, field: &str) -> 
     Ok(bits)
 }
 
+/// C++ `INI::scanReal` (INI.cpp:1577) is `sscanf(token, "%f")`: it accepts the
+/// longest decimal floating prefix and only rejects a token with no digits.
 fn parse_f32_field(field_name: &str, value: &str) -> WeaponResult<f32> {
     let token = value.split_whitespace().next().unwrap_or(value);
-    token.parse::<f32>().map_err(|e| {
-        WeaponError::ParseError(format!("Invalid {} value '{}': {}", field_name, value, e))
-    })
+    token
+        .parse::<f32>()
+        .ok()
+        .or_else(|| scan_real_decimal_prefix(token))
+        .ok_or_else(|| WeaponError::ParseError(format!("Invalid {} value '{}'", field_name, value)))
+}
+
+fn scan_real_decimal_prefix(token: &str) -> Option<f32> {
+    let bytes = token.as_bytes();
+    let digits = |mut at: usize| {
+        while bytes.get(at).is_some_and(u8::is_ascii_digit) {
+            at += 1;
+        }
+        at
+    };
+    let mut end = usize::from(matches!(bytes.first(), Some(b'+' | b'-')));
+    let int_end = digits(end);
+    let mut mantissa_digits = int_end - end;
+    end = int_end;
+    if bytes.get(end) == Some(&b'.') {
+        let frac_end = digits(end + 1);
+        mantissa_digits += frac_end - end - 1;
+        end = frac_end;
+    }
+    if mantissa_digits == 0 {
+        return None;
+    }
+    if matches!(bytes.get(end), Some(b'e' | b'E')) {
+        let sign = usize::from(matches!(bytes.get(end + 1), Some(b'+' | b'-')));
+        let exp_end = digits(end + 1 + sign);
+        if exp_end > end + 1 + sign {
+            end = exp_end;
+        }
+    }
+    token[..end].parse::<f32>().ok()
 }
 
 fn parse_u32_field(field_name: &str, value: &str) -> WeaponResult<u32> {
@@ -1648,6 +1685,31 @@ mod tests {
         assert_eq!(parse_shot_delay("Min: 34.99").unwrap(), (2, 2));
         assert!(parse_shot_delay("Min:").is_err());
         assert!(parse_shot_delay("Min: 34 Max:").is_err());
+    }
+
+    #[test]
+    fn weapon_real_fields_accept_scan_real_numeric_prefix() {
+        // INI::scanReal (INI.cpp:1577) is sscanf("%f"): a parsed numeric prefix is accepted.
+        let mut store = WeaponStore::new();
+        let name = AsciiString::from("ScanRealPrefixWeapon");
+        let properties = HashMap::from([
+            ("PrimaryDamage".to_owned(), "75.5f".to_owned()),
+            ("AttackRange".to_owned(), "150.0junk".to_owned()),
+            ("PrimaryDamageRadius".to_owned(), "1e1x".to_owned()),
+        ]);
+        store
+            .register_definition(name.clone(), &properties, INILoadType::Overwrite)
+            .unwrap();
+        let weapon = store.find_template(&name).unwrap();
+        assert_eq!(weapon.primary_damage, 75.5);
+        assert_eq!(weapon.range, 150.0);
+        assert_eq!(weapon.damage_radius, 10.0);
+        for (token, expected) in [("-2.5e", Some(-2.5)), (".5", Some(0.5)), ("7.", Some(7.0))] {
+            assert_eq!(parse_f32_field("X", token).ok(), expected, "{token}");
+        }
+        for invalid in ["", "junk", "+", ".", "-.e1"] {
+            assert!(parse_f32_field("X", invalid).is_err(), "{invalid}");
+        }
     }
 
     #[test]

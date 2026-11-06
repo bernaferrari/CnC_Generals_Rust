@@ -5,7 +5,7 @@
 use super::xfer::{DrawableID, ObjectID};
 use crate::common::ini::ini_game_data::get_global_data;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 pub mod campaign_xfer;
 pub mod game_state;
@@ -22,7 +22,6 @@ pub use campaign_xfer::{
 };
 pub use game_state_map::{GameStateMap, PORTABLE_MAPS, PORTABLE_SAVE, PORTABLE_USER_MAPS};
 
-static THE_GAME_STATE: OnceLock<Mutex<GameState>> = OnceLock::new();
 type ObjectIdCounterGetter = Arc<dyn Fn() -> ObjectID + Send + Sync>;
 type ObjectIdCounterSetter = Arc<dyn Fn(ObjectID) + Send + Sync>;
 type DrawableIdCounterGetter = Arc<dyn Fn() -> DrawableID + Send + Sync>;
@@ -39,21 +38,22 @@ type SetSkirmishPayloadHook = Arc<dyn Fn(Option<Vec<u8>>) + Send + Sync>;
 type ClearGameDataHook = Arc<dyn Fn() + Send + Sync>;
 type MissionStartArgsHook = Arc<dyn Fn() -> (i32, i32) + Send + Sync>;
 type SaveLockGhostObjectsHook = Arc<dyn Fn(bool) + Send + Sync>;
-/// (campaign side, mission number, current campaign map). `None` = no campaign.
+/// (campaign_name_label key, mission number, current campaign map). `None` = no campaign.
 type CampaignSnapshotHook = Arc<dyn Fn() -> Option<(String, i32, String)> + Send + Sync>;
+type FetchGameTextHook = Arc<dyn Fn(&str) -> String + Send + Sync>;
+type PostUiMessageHook = Arc<dyn Fn(&str) + Send + Sync>;
+type MessageBoxOkHook = Arc<dyn Fn(&str, &str) + Send + Sync>;
 
 #[derive(Default)]
-struct RuntimeIdCounterHooks {
+pub(crate) struct RuntimeIdCounterHooks {
     object_getter: Option<ObjectIdCounterGetter>,
     object_setter: Option<ObjectIdCounterSetter>,
     drawable_getter: Option<DrawableIdCounterGetter>,
     drawable_setter: Option<DrawableIdCounterSetter>,
 }
 
-static RUNTIME_ID_COUNTER_HOOKS: OnceLock<Mutex<RuntimeIdCounterHooks>> = OnceLock::new();
-
 #[derive(Default)]
-struct SaveLoadLifecycleHooks {
+pub(crate) struct SaveLoadLifecycleHooks {
     begin_load: Option<BeginLoadHook>,
     end_load: Option<EndLoadHook>,
     set_loading_save: Option<SetLoadingSaveHook>,
@@ -67,19 +67,28 @@ struct SaveLoadLifecycleHooks {
     mission_start_args: Option<MissionStartArgsHook>,
     save_lock_ghost_objects: Option<SaveLockGhostObjectsHook>,
     get_campaign_snapshot: Option<CampaignSnapshotHook>,
+    fetch_game_text: Option<FetchGameTextHook>,
+    post_ui_message: Option<PostUiMessageHook>,
+    message_box_ok: Option<MessageBoxOkHook>,
 }
 
-static SAVE_LOAD_LIFECYCLE_HOOKS: OnceLock<Mutex<SaveLoadLifecycleHooks>> = OnceLock::new();
-
-fn id_counter_hooks() -> &'static Mutex<RuntimeIdCounterHooks> {
-    RUNTIME_ID_COUNTER_HOOKS.get_or_init(|| Mutex::new(RuntimeIdCounterHooks::default()))
+fn id_counter_hooks() -> Arc<Mutex<RuntimeIdCounterHooks>> {
+    Arc::clone(
+        &crate::common::common_services::common_services()
+            .system
+            .save_id_counter_hooks,
+    )
 }
 
-fn save_load_hooks() -> &'static Mutex<SaveLoadLifecycleHooks> {
-    SAVE_LOAD_LIFECYCLE_HOOKS.get_or_init(|| Mutex::new(SaveLoadLifecycleHooks::default()))
+fn save_load_hooks() -> Arc<Mutex<SaveLoadLifecycleHooks>> {
+    Arc::clone(
+        &crate::common::common_services::common_services()
+            .system
+            .save_load_lifecycle_hooks,
+    )
 }
 
-fn default_save_directory() -> PathBuf {
+pub(crate) fn default_save_directory() -> PathBuf {
     let user_dir = get_global_data()
         .map(|data| data.read().get_path_user_data().to_string())
         .unwrap_or_default();
@@ -96,17 +105,22 @@ fn default_save_directory() -> PathBuf {
 }
 
 pub fn get_game_state() -> std::sync::MutexGuard<'static, GameState> {
-    let lock = THE_GAME_STATE.get_or_init(|| {
-        let mut state = GameState::new(default_save_directory());
-        state.init();
-        Mutex::new(state)
-    });
-    lock.lock().expect("TheGameState mutex poisoned")
+    let services = crate::common::common_services::common_services();
+    let guard = services
+        .system
+        .game_state
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    unsafe { std::mem::transmute(guard) }
 }
 
 pub fn init_game_state(save_directory: PathBuf) {
-    let lock = THE_GAME_STATE.get_or_init(|| Mutex::new(GameState::new(save_directory.clone())));
-    let mut state = lock.lock().expect("TheGameState mutex poisoned");
+    let services = crate::common::common_services::common_services();
+    let mut state = services
+        .system
+        .game_state
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
     state.reset_for_init(save_directory);
     state.init();
 }
@@ -184,8 +198,50 @@ pub fn register_save_load_campaign_hooks(get_campaign_snapshot: Option<CampaignS
     }
 }
 
+/// Wire GameText + InGameUI/MessageBox paths used by `GameState::save_game` /
+/// `mission_save` (C++ GameState.cpp:548-596, 616-618).
+pub fn register_save_game_ui_hooks(
+    fetch_game_text: Option<FetchGameTextHook>,
+    post_ui_message: Option<PostUiMessageHook>,
+    message_box_ok: Option<MessageBoxOkHook>,
+) {
+    if let Ok(mut hooks) = save_load_hooks().lock() {
+        hooks.fetch_game_text = fetch_game_text;
+        hooks.post_ui_message = post_ui_message;
+        hooks.message_box_ok = message_box_ok;
+    }
+}
+
+pub(crate) fn notify_fetch_game_text(key: &str) -> String {
+    let hooks_arc = save_load_hooks();
+    if let Ok(hooks) = hooks_arc.lock() {
+        if let Some(fetch) = hooks.fetch_game_text.as_ref() {
+            return fetch(key);
+        }
+    }
+    // Fall back to the map-cache GameText provider when UI hooks are unset.
+    crate::common::ini::ini_map_cache::lookup_game_text(key).unwrap_or_else(|| key.to_string())
+}
+
+pub(crate) fn notify_post_ui_message(text_or_label: &str) {
+    if let Ok(hooks) = save_load_hooks().lock() {
+        if let Some(post) = hooks.post_ui_message.as_ref() {
+            post(text_or_label);
+        }
+    }
+}
+
+pub(crate) fn notify_message_box_ok(title: &str, body: &str) {
+    if let Ok(hooks) = save_load_hooks().lock() {
+        if let Some(mbox) = hooks.message_box_ok.as_ref() {
+            mbox(title, body);
+        }
+    }
+}
+
 pub(crate) fn notify_get_campaign_snapshot() -> Option<(String, i32, String)> {
-    let hooks = save_load_hooks().lock().ok()?;
+    let hooks_arc = save_load_hooks();
+    let hooks = hooks_arc.lock().ok()?;
     hooks
         .get_campaign_snapshot
         .as_ref()
@@ -217,7 +273,8 @@ pub(crate) fn notify_set_loading_save(loading: bool) {
 }
 
 pub(crate) fn notify_get_game_mode() -> Option<i32> {
-    let hooks = save_load_hooks().lock().ok()?;
+    let hooks_arc = save_load_hooks();
+    let hooks = hooks_arc.lock().ok()?;
     hooks.get_game_mode.as_ref().map(|callback| callback())
 }
 
@@ -254,7 +311,8 @@ pub(crate) fn notify_clear_game_data() {
 }
 
 pub(crate) fn notify_get_mission_start_args() -> Option<(i32, i32)> {
-    let hooks = save_load_hooks().lock().ok()?;
+    let hooks_arc = save_load_hooks();
+    let hooks = hooks_arc.lock().ok()?;
     hooks.mission_start_args.as_ref().map(|callback| callback())
 }
 
@@ -267,7 +325,8 @@ pub(crate) fn notify_save_lock_ghost_objects(enable: bool) {
 }
 
 pub(crate) fn notify_get_skirmish_payload() -> Option<Vec<u8>> {
-    let hooks = save_load_hooks().lock().ok()?;
+    let hooks_arc = save_load_hooks();
+    let hooks = hooks_arc.lock().ok()?;
     hooks
         .get_skirmish_payload
         .as_ref()
@@ -283,7 +342,8 @@ pub(crate) fn notify_set_skirmish_payload(payload: Option<Vec<u8>>) {
 }
 
 pub fn get_runtime_object_id_counter() -> Option<ObjectID> {
-    let hooks = id_counter_hooks().lock().ok()?;
+    let hooks_arc = id_counter_hooks();
+    let hooks = hooks_arc.lock().ok()?;
     hooks.object_getter.as_ref().map(|getter| getter())
 }
 
@@ -296,7 +356,8 @@ pub fn set_runtime_object_id_counter(counter: ObjectID) {
 }
 
 pub fn get_runtime_drawable_id_counter() -> Option<DrawableID> {
-    let hooks = id_counter_hooks().lock().ok()?;
+    let hooks_arc = id_counter_hooks();
+    let hooks = hooks_arc.lock().ok()?;
     hooks.drawable_getter.as_ref().map(|getter| getter())
 }
 

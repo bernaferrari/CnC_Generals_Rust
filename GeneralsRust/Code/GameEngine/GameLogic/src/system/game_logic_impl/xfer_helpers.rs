@@ -313,7 +313,7 @@ fn xfer_game_logic_state_with_campaign(
     }
 
     xfer_campaign_manager_snapshot(xfer, campaign)?;
-    xfer_cave_system_snapshot(xfer)?;
+    xfer_cave_system_snapshot(logic, xfer)?;
 
     if version >= 2 {
         xfer.xfer_bool(&mut logic.is_scoring_enabled)?;
@@ -365,12 +365,17 @@ fn xfer_game_logic_state_with_campaign(
     Ok(())
 }
 
-fn xfer_cave_system_snapshot(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-    // C++ xferSnapshot(TheCaveSystem) — CaveSystem::xfer v1.
+fn xfer_cave_system_snapshot(logic: &GameLogic, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    // C++ xferSnapshot(TheCaveSystem) — CaveSystem::xfer v1. The cave system
+    // belongs to the driving GameLogic's world, not the ambient active world.
     let current_version: XferVersion = 1;
     let mut version = current_version;
     xfer.xfer_version(&mut version, current_version)?;
-    let cave = crate::system::cave_system::TheCaveSystem();
+    let cave = logic
+        .pathfinding_owner
+        .as_ref()
+        .map(|owner| Arc::clone(&owner.services().logic_managers().cave))
+        .unwrap_or_else(crate::system::cave_system::TheCaveSystem);
     let mut guard = cave.lock().map_err(|_| XferStatus::InvalidData)?;
     guard.xfer_game_logic(xfer)
 }

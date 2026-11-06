@@ -250,23 +250,55 @@ fn dual_world_registry_unavailable() -> bool {
 // Wave 984: host residual queue — flash contained presentation drawables on
 // select. THREAD: main thread only (queued by selection handling, drained by
 // the same thread's draw pass).
+#[cfg(test)]
 thread_local! {
-    static HOST_CONTAINED_FLASH_QUEUE: RefCell<Vec<u32>> = RefCell::new(Vec::new());
+    static TEST_HOST_CONTAINED_FLASH_QUEUE: RefCell<Vec<u32>> = RefCell::new(Vec::new());
 }
 
 /// Queue object ids whose presentation drawables should flash-as-selected.
 pub fn queue_host_contained_flash_object_ids(ids: impl IntoIterator<Item = u32>) {
-    HOST_CONTAINED_FLASH_QUEUE.with_borrow_mut(|queue| {
-        for id in ids {
-            if id != 0 && !queue.contains(&id) {
-                queue.push(id);
+    let ids: Vec<u32> = ids.into_iter().filter(|&id| id != 0).collect();
+    if let Some(()) = crate::core::game_client::with_live_game_client_mut(|client| {
+        let queue = client.host_contained_flash_queue_mut();
+        for id in &ids {
+            if !queue.contains(id) {
+                queue.push(*id);
             }
         }
-    });
+    }) {
+        return;
+    }
+    #[cfg(test)]
+    {
+        TEST_HOST_CONTAINED_FLASH_QUEUE.with_borrow_mut(|queue| {
+            for id in ids {
+                if !queue.contains(&id) {
+                    queue.push(id);
+                }
+            }
+        });
+        return;
+    }
+    #[cfg(not(test))]
+    {
+        let _ = ids;
+    }
 }
 
 fn take_host_contained_flash_object_ids() -> Vec<u32> {
-    HOST_CONTAINED_FLASH_QUEUE.with_borrow_mut(|queue| std::mem::take(queue))
+    if let Some(taken) = crate::core::game_client::with_live_game_client_mut(|client| {
+        std::mem::take(client.host_contained_flash_queue_mut())
+    }) {
+        return taken;
+    }
+    #[cfg(test)]
+    {
+        return TEST_HOST_CONTAINED_FLASH_QUEUE.with_borrow_mut(std::mem::take);
+    }
+    #[cfg(not(test))]
+    {
+        Vec::new()
+    }
 }
 
 /// Result type for GameClient operations

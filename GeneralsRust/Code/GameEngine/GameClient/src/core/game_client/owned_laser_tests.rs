@@ -25,6 +25,7 @@ fn template() -> ThingTemplate {
 
 #[test]
 fn actual_ray_factory_and_geometry_use_the_receiving_installed_modules() {
+    crate::test_support::ensure_ambient_host();
     let mut first = GameClient::new().unwrap();
     let mut peer = GameClient::new().unwrap();
     let template = template();
@@ -88,6 +89,7 @@ fn actual_ray_factory_and_geometry_use_the_receiving_installed_modules() {
 
 #[test]
 fn invalid_ray_template_never_creates_a_synthetic_drawable() {
+    crate::test_support::ensure_ambient_host();
     let mut client = GameClient::new().unwrap();
     assert!(
         client
@@ -100,6 +102,7 @@ fn invalid_ray_template_never_creates_a_synthetic_drawable() {
 
 #[test]
 fn full_cpp_ray_registry_keeps_the_real_factory_drawable_alive() {
+    crate::test_support::ensure_ambient_host();
     let mut client = GameClient::new().unwrap();
     let template = template();
     let mut last = DrawableId::INVALID;
@@ -115,6 +118,7 @@ fn full_cpp_ray_registry_keeps_the_real_factory_drawable_alive() {
 
 #[test]
 fn same_id_actual_laser_destructor_retires_only_its_receiving_particle_manager() {
+    crate::test_support::ensure_ambient_host();
     let mut template = template();
     // A separate actual template carries the original Lens/Target definitions.
     let mut particle_template = ThingTemplate::new();
@@ -247,6 +251,7 @@ fn same_id_actual_laser_destructor_retires_only_its_receiving_particle_manager()
 
 #[test]
 fn actual_multibeam_arc_preserves_cpp_draw_order_and_receiving_terrain_clamp() {
+    crate::test_support::ensure_ambient_host();
     let mut template = ThingTemplate::new();
     template.add_draw_module_info(
         "W3DLaserDraw".into(),
@@ -315,6 +320,7 @@ fn actual_multibeam_arc_preserves_cpp_draw_order_and_receiving_terrain_clamp() {
 
 #[test]
 fn actual_host_direct_drawable_is_converted_once_into_cpp_laser_coordinates() {
+    crate::test_support::ensure_ambient_host();
     let mut client = GameClient::new().unwrap();
     let source = presentation_drawable_sync_for_test(
         77,
@@ -423,6 +429,7 @@ fn actual_host_direct_drawable_is_converted_once_into_cpp_laser_coordinates() {
 
 #[test]
 fn actual_classic_module_rejects_owned_services_before_any_mutation() {
+    crate::test_support::ensure_ambient_host();
     let mut client = GameClient::new().unwrap();
     let mut drawable = BasicDrawable::new(DrawableId::INVALID);
     drawable.set_position(crate::drawable::Vector3::new(13.0, 29.0, 47.0));
@@ -495,6 +502,7 @@ fn actual_classic_module_rejects_owned_services_before_any_mutation() {
 
 #[test]
 fn normal_template_factory_binds_one_owned_callback_without_ray_enrollment() {
+    crate::test_support::ensure_ambient_host();
     let mut client = GameClient::new().unwrap();
     let template = template();
     let first = client.create_drawable_from_template(&template).unwrap();
@@ -543,6 +551,7 @@ fn normal_template_factory_binds_one_owned_callback_without_ray_enrollment() {
 
 #[test]
 fn invalid_normal_laser_data_is_rejected_before_native_id_or_slot_admission() {
+    crate::test_support::ensure_ambient_host();
     let mut client = GameClient::new().unwrap();
     let mut malformed = ThingTemplate::new();
     malformed.add_client_update_module_info(
@@ -567,6 +576,7 @@ fn invalid_normal_laser_data_is_rejected_before_native_id_or_slot_admission() {
 
 #[test]
 fn supplied_native_reset_marks_real_laser_particles_and_preserves_other_drawables() {
+    crate::test_support::ensure_ambient_host();
     let mut template = template();
     // Replace the template's single client bucket with an authored particle-bearing definition.
     let mut authored = ThingTemplate::new();

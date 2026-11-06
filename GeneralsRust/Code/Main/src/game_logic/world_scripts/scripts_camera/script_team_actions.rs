@@ -254,10 +254,7 @@ impl GameLogic {
                 o.is_alive()
                     && !o.status.sold
                     && o.tunnel_system_key() == key
-                    && (o.is_tunnel_network_style_container()
-                        || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                            &o.template_name,
-                        ))
+                    && (o.is_tunnel_network_style_container())
             })
             .min_by(|a, b| {
                 origin

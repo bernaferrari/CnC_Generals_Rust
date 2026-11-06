@@ -11,7 +11,6 @@
 
 use crate::common::game_common::ObjectShroudStatus;
 use crate::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
-use std::sync::OnceLock;
 use std::sync::{Arc, RwLock};
 
 mod presentation;
@@ -64,14 +63,27 @@ pub trait RadarEventFeedback: Send + Sync {
     fn set_eva_should_play(&self, eva_name: &str);
 }
 
-static RADAR_FEEDBACK: OnceLock<Arc<dyn RadarEventFeedback>> = OnceLock::new();
-
 pub fn register_radar_event_feedback(hook: Arc<dyn RadarEventFeedback>) -> bool {
-    RADAR_FEEDBACK.set(hook).is_ok()
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .system
+        .radar_feedback
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if slot.is_some() {
+        return false;
+    }
+    *slot = Some(hook);
+    true
 }
 
-fn radar_feedback() -> Option<&'static dyn RadarEventFeedback> {
-    RADAR_FEEDBACK.get().map(|hook| hook.as_ref())
+fn radar_feedback() -> Option<Arc<dyn RadarEventFeedback>> {
+    crate::common::common_services::common_services()
+        .system
+        .radar_feedback
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 /// Radar cell dimensions (matches C++ RADAR_CELL_WIDTH/HEIGHT)
@@ -2527,13 +2539,15 @@ impl Default for RadarSystem {
     }
 }
 
-/// Global radar system singleton
-static RADAR_SYSTEM: RwLock<Option<Arc<RwLock<RadarSystem>>>> = RwLock::new(None);
-
-/// Get global radar system
+/// Get instance radar system (C++ `TheRadar`).
 pub fn get_radar_system() -> Arc<RwLock<RadarSystem>> {
+    let services = crate::common::common_services::common_services();
     let created = {
-        let mut guard = RADAR_SYSTEM.write().unwrap();
+        let mut guard = services
+            .system
+            .radar_system
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         if guard.is_none() {
             *guard = Some(Arc::new(RwLock::new(RadarSystem::new())));
             true
@@ -2544,6 +2558,12 @@ pub fn get_radar_system() -> Arc<RwLock<RadarSystem>> {
     if created {
         snapshot::ensure_the_radar_snapshot_block();
     }
-    let guard = RADAR_SYSTEM.read().unwrap();
-    guard.as_ref().unwrap().clone()
+    services
+        .system
+        .radar_system
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .as_ref()
+        .expect("radar_system")
+        .clone()
 }

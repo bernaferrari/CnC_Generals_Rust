@@ -14,7 +14,7 @@ use crate::gui::callbacks::online_callback_support::{
 use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, get_shell,
-    with_window_manager, write_input_focus_response,
+    write_input_focus_response,
 };
 use crate::shell_hooks::{SHELL_SCRIPT_HOOK_GENERALS_ONLINE_LOGIN, signal_ui_interaction};
 use crate::w3d_web_browser::W3DWebBrowser;
@@ -42,7 +42,7 @@ const LOGIN_TIMEOUT: Duration = Duration::from_millis(10_000);
 const PREF_FILENAME: &str = "GameSpyLogin.ini";
 
 #[derive(Default)]
-struct WolLoginState {
+pub(crate) struct WolLoginState {
     parent_id: i32,
     button_back_id: i32,
     button_login_id: i32,
@@ -89,13 +89,58 @@ struct WolLoginState {
     use_web_browser_for_tos: bool,
 }
 
+#[cfg(test)]
 thread_local! {
-    static WOL_LOGIN_STATE: Rc<RefCell<WolLoginState>> = Rc::new(RefCell::new(WolLoginState::default()));
-    static THE_TOS_BROWSER: RefCell<W3DWebBrowser> = RefCell::new(W3DWebBrowser::new());
+    static TEST_WOL_LOGIN_STATE: std::cell::OnceCell<Rc<RefCell<WolLoginState>>> =
+        const { std::cell::OnceCell::new() };
+    static TEST_TOS_BROWSER: RefCell<W3DWebBrowser> = RefCell::new(W3DWebBrowser::new());
+}
+
+fn wol_login_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<WolLoginState>> {
+    if let Some(owner) = owner {
+        return owner.wol_login_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().wol_login_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_WOL_LOGIN_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(WolLoginState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(WolLoginState::default()))
+    }
 }
 
 fn wol_login_state() -> Rc<RefCell<WolLoginState>> {
-    WOL_LOGIN_STATE.with(Rc::clone)
+    wol_login_state_on_owner(None)
+}
+
+fn with_tos_browser_mut<R>(f: impl FnOnce(&mut W3DWebBrowser) -> R) -> R {
+    let mut f = Some(f);
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .with_wol_login_tos_browser_mut(|browser| f.take().expect("tos")(browser))
+    }) {
+        return result;
+    }
+    #[cfg(test)]
+    {
+        return TEST_TOS_BROWSER.with(|slot| f.take().expect("tos")(&mut slot.borrow_mut()));
+    }
+    #[cfg(not(test))]
+    {
+        f.take().expect("tos")(&mut W3DWebBrowser::new())
+    }
 }
 
 #[derive(Default)]
@@ -402,11 +447,11 @@ fn text_entry_text(window: &Option<Rc<RefCell<GameWindow>>>) -> String {
 
 fn show_tos(state: &mut WolLoginState) {
     if let Some(parent_tos) = state.parent_tos.as_ref() {
-        let _ = parent_tos.borrow_mut().hide(false);
+        let _ = parent_tos.borrow_mut().hide_without_manager_side_effects(false);
     }
     state.use_web_browser_for_tos = true;
     let opened = if let Some(listbox) = state.listbox_tos.as_ref() {
-        THE_TOS_BROWSER.with(|browser| {
+        with_tos_browser_mut(|browser| {
             let mut browser = browser.borrow_mut();
             let win = listbox.borrow();
             browser.create_browser_window("TermsOfService", &win)
@@ -595,8 +640,8 @@ pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
     let esrb_title_id =
         NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:StaticTextESRBTop") as i32;
     let esrb_parent_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ParentESRB") as i32;
-    let esrb_title = with_window_manager(|manager| manager.get_window_by_id(esrb_title_id));
-    let esrb_parent = with_window_manager(|manager| manager.get_window_by_id(esrb_parent_id));
+    let esrb_title = owner.with_manager(|manager| manager.get_window_by_id(esrb_title_id));
+    let esrb_parent = owner.with_manager(|manager| manager.get_window_by_id(esrb_parent_id));
     if let (Some(title), Some(parent)) = (esrb_title.as_ref(), esrb_parent.as_ref()) {
         let len = title
             .borrow()
@@ -607,7 +652,7 @@ pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
             })
             .unwrap_or(0);
         if len < 2 {
-            let _ = parent.borrow_mut().hide(true);
+            let _ = parent.borrow_mut().hide_without_manager_side_effects(true);
         }
     }
 
@@ -646,7 +691,7 @@ pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
     state.text_entry_year_id =
         NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:TextEntryYear") as i32;
 
-    with_window_manager(|manager| {
+    owner.with_manager(|manager| {
         state.parent = manager.get_window_by_id(state.parent_id);
         state.button_back = manager.get_window_by_id(state.button_back_id);
         state.button_login = manager.get_window_by_id(state.button_login_id);
@@ -690,7 +735,7 @@ pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
             tab_list.push(window.clone());
         }
     }
-    with_window_manager(|manager| {
+    owner.with_manager(|manager| {
         manager.clear_tab_list();
         if !tab_list.is_empty() {
             manager.register_tab_list(tab_list);
@@ -698,7 +743,7 @@ pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
     });
 
     if let Some(combo) = state.combo_box_email.as_ref() {
-        let _ = with_window_manager(|manager| manager.set_focus(Some(combo)));
+        let _ = owner.with_manager(|manager| manager.set_focus(Some(combo)));
     }
 
     if let Some(pref) = state.login_pref.as_ref() {
@@ -747,7 +792,7 @@ pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
         show_tos(&mut state);
     }
 
-    with_window_manager(|manager| manager.transition_set_group("GameSpyLoginProfileFade", false));
+    owner.with_manager(|manager| manager.transition_set_group("GameSpyLoginProfileFade", false));
 }
 
 pub fn wol_login_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
@@ -760,11 +805,11 @@ pub fn wol_login_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std
     let mut state = state_slot.borrow_mut();
     state.is_shutting_down = true;
     state.logged_in_ok = false;
-    with_window_manager(|manager| manager.clear_tab_list());
+    owner.with_manager(|manager| manager.clear_tab_list());
 
     if state.web_browser_active {
         if let Some(listbox) = state.listbox_tos.as_ref() {
-            THE_TOS_BROWSER.with(|browser| {
+            with_tos_browser_mut(|browser| {
                 browser.borrow_mut().close_browser_window(&listbox.borrow());
             });
         }
@@ -779,7 +824,7 @@ pub fn wol_login_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std
     }
 
     get_shell().reverse_animate_window();
-    with_window_manager(|manager| manager.transition_reverse("GameSpyLoginProfileFade"));
+    owner.with_manager(|manager| manager.transition_reverse("GameSpyLoginProfileFade"));
 }
 
 pub fn wol_login_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
@@ -787,7 +832,7 @@ pub fn wol_login_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std:
     let mut state = state_slot.borrow_mut();
 
     let shell_finished = get_shell().is_anim_finished();
-    let transitions_finished = with_window_manager(|manager| manager.transitions_finished());
+    let transitions_finished = owner.with_manager(|manager| manager.transitions_finished());
     if state.is_shutting_down && shell_finished && transitions_finished {
         let next = state.next_screen.clone();
         shutdown_complete(layout, &mut state, next);
@@ -1138,7 +1183,7 @@ pub fn wol_login_menu_system(
             if control_id == state.button_tos_ok_id {
                 enable_login_controls(&state, true);
                 if let Some(parent_tos) = state.parent_tos.as_ref() {
-                    let _ = parent_tos.borrow_mut().hide(true);
+                    let _ = parent_tos.borrow_mut().hide_without_manager_side_effects(true);
                 }
                 let mut option_pref = OptionPreferences::new();
                 option_pref.set_yes("SawTOS");
@@ -1163,28 +1208,30 @@ mod tests {
 
     #[test]
     fn login_system_handles_edit_done_like_cpp_gem_edit_done() {
-        let window = GameWindow::new();
+        crate::test_support::ensure_ambient_host();
+        let mut window = GameWindow::new();
         assert_eq!(
-            wol_login_menu_system(&window, WindowMessage::GadgetEditDone, 0, 0),
+            wol_login_menu_system(&mut window, WindowMessage::GadgetEditDone, 0, 0),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            wol_login_menu_system(&window, WindowMessage::User(1), 0, 0),
+            wol_login_menu_system(&mut window, WindowMessage::User(1), 0, 0),
             WindowMsgHandled::Ignored
         );
     }
 
     #[test]
     fn login_input_esc_key_down_is_handled_when_not_pushed() {
-        let window = GameWindow::new();
+        crate::test_support::ensure_ambient_host();
+        let mut window = GameWindow::new();
         wol_login_state().borrow_mut().button_pushed = false;
         assert_eq!(
-            wol_login_menu_input(&window, WindowMessage::Char, 0x1B, 0),
+            wol_login_menu_input(&mut window, WindowMessage::Char, 0x1B, 0),
             WindowMsgHandled::Handled
         );
         wol_login_state().borrow_mut().button_pushed = true;
         assert_eq!(
-            wol_login_menu_input(&window, WindowMessage::Char, 0x1B, 0x0001),
+            wol_login_menu_input(&mut window, WindowMessage::Char, 0x1B, 0x0001),
             WindowMsgHandled::Ignored
         );
         wol_login_state().borrow_mut().button_pushed = false;

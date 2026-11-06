@@ -131,7 +131,8 @@ impl UnitCrateCollide {
             return Ok(false);
         };
         let team_arc = {
-            let Ok(list_guard) = player_list().read() else {
+            let __player_list_arc = player_list();
+        let Ok(list_guard) = __player_list_arc.read() else {
                 return Ok(false);
             };
             let Some(player_arc) = list_guard.get_player(player_id.value() as i32).cloned() else {
@@ -682,7 +683,8 @@ mod tests {
         let _audio_guard = AudioEventsGuard::disabled();
         let baseline = UnitCrateFixture::admissions().unwrap();
         let (players, local_index) = {
-            let list = player_list().read().unwrap();
+            let __player_list_arc = player_list();
+        let list = __player_list_arc.read().unwrap();
             (
                 list.iter().cloned().collect::<Vec<_>>(),
                 list.get_local_player_index(),
@@ -719,7 +721,8 @@ mod tests {
             );
         }
         let (restored_players, restored_local_index) = {
-            let list = player_list().read().unwrap();
+            let __player_list_arc = player_list();
+        let list = __player_list_arc.read().unwrap();
             (
                 list.iter().cloned().collect::<Vec<_>>(),
                 list.get_local_player_index(),

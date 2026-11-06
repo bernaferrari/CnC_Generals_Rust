@@ -6,7 +6,6 @@
 //! Author: Steven Johnson, November 2001
 //! Rust port: 2025
 
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -76,33 +75,32 @@ pub const FX_LIST_AT_BONE_POS_MAX_BONE_POINTS: usize = 40;
 pub type FxBonePosQuery =
     fn(object_id: u32, bone_name: &str, start: i32, max_bones: usize) -> Vec<([f32; 3], [f32; 16])>;
 
-static FX_BONE_POS_RUNTIME: OnceCell<RwLock<Option<FxBonePosQuery>>> = OnceCell::new();
-
 /// Register the live client bone-point query (C++ FXList.cpp:711-728).
 pub fn register_fx_bone_pos_runtime(query: FxBonePosQuery) {
-    if let Ok(mut slot) = FX_BONE_POS_RUNTIME
-        .get_or_init(|| RwLock::new(None))
-        .write()
-    {
-        *slot = Some(query);
-    }
+    let services = crate::common::common_services::common_services();
+    *services
+        .system
+        .fx_bone_pos_runtime
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(query);
 }
 
 pub fn clear_fx_bone_pos_runtime() {
-    if let Ok(mut slot) = FX_BONE_POS_RUNTIME
-        .get_or_init(|| RwLock::new(None))
-        .write()
-    {
-        *slot = None;
-    }
+    let services = crate::common::common_services::common_services();
+    *services
+        .system
+        .fx_bone_pos_runtime
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = None;
 }
 
 pub fn fx_bone_pos_runtime() -> Option<FxBonePosQuery> {
-    FX_BONE_POS_RUNTIME
-        .get_or_init(|| RwLock::new(None))
-        .read()
-        .ok()
-        .and_then(|slot| *slot)
+    crate::common::common_services::common_services()
+        .system
+        .fx_bone_pos_runtime
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 pub const DAMAGE_NUM_TYPES: usize = 38;
@@ -287,12 +285,10 @@ impl DamageFX {
                 if !nested.is_empty() && !nested.eq_ignore_ascii_case("None") {
                     // C++ FXList.cpp:690-696 — doFxAtBones(primary, 0) then
                     // (primary, 1) walking BoneName, BoneName01…BoneName40.
-                    if !Self::execute_fx_list_at_bones(nested, bone_name.as_str(), victim) {
-                        // No bone runtime / no bones (headless): C++ drawable
-                        // absence also yields nothing; keep the prior center
-                        // dispatch so Sound nuggets still fire.
-                        Self::execute_selected_fx_list(nested, source, victim);
-                    }
+                    // C++ doFxAtBones only runs the nested list per bone point
+                    // found on the drawable; no drawable / no bones runs nothing
+                    // (no body-center substitute).
+                    let _ = Self::execute_fx_list_at_bones(nested, bone_name.as_str(), victim);
                 }
             }
             FXNugget::Tracer { .. }
@@ -814,10 +810,6 @@ impl DamageFXStore {
     pub fn parse_damage_fx_definition(ini: &mut INI) -> Result<(), String> {
         let (name, damage_fx) = Self::parse_entry(ini)?;
 
-        if DAMAGE_FX_STORE.get().is_none() {
-            init_global_damage_fx_store();
-        }
-
         if let Some(mut store) = get_damage_fx_store_mut() {
             store.add_damage_fx(name, damage_fx);
         }
@@ -826,35 +818,38 @@ impl DamageFXStore {
     }
 }
 
-/// Global DamageFXStore instance, initialized via `init_global_damage_fx_store`.
-static DAMAGE_FX_STORE: OnceCell<RwLock<DamageFXStore>> = OnceCell::new();
-
 /// Initialize the global damage FX store
-pub fn init_global_damage_fx_store() {
-    if DAMAGE_FX_STORE.get().is_none() {
-        let store = DamageFXStore::new();
-        let _ = DAMAGE_FX_STORE.set(RwLock::new(store));
-    }
-
-    if let Some(store) = DAMAGE_FX_STORE.get() {
-        if let Ok(mut guard) = store.write() {
-            guard.init();
-        }
-    }
-}
 
 /// Get reference to global damage FX store
-pub fn get_damage_fx_store() -> Option<RwLockReadGuard<'static, DamageFXStore>> {
-    DAMAGE_FX_STORE
-        .get()
-        .map(|store| store.read().expect("DamageFXStore poisoned"))
+/// Get mutable reference to global damage FX store
+
+fn ini_damage_fx_cell() -> Option<std::sync::Arc<std::sync::RwLock<DamageFXStore>>> {
+    // Fail closed when CommonServices is unbound (unit combat paths).
+    crate::common::common_services::try_common_services()
+        .map(|services| std::sync::Arc::clone(&services.ini.damage_fx))
 }
 
-/// Get mutable reference to global damage FX store
+/// Initialize the damage FX store on the published CommonServices.
+pub fn init_global_damage_fx_store() {
+    let Some(cell) = ini_damage_fx_cell() else {
+        return;
+    };
+    let mut guard = cell.write().expect("DamageFXStore poisoned");
+    guard.init();
+}
+
+/// Get reference to the instance damage FX store
+pub fn get_damage_fx_store() -> Option<RwLockReadGuard<'static, DamageFXStore>> {
+    let cell = ini_damage_fx_cell()?;
+    let guard = cell.read().expect("DamageFXStore poisoned");
+    Some(unsafe { std::mem::transmute(guard) })
+}
+
+/// Get mutable reference to the instance damage FX store
 pub fn get_damage_fx_store_mut() -> Option<RwLockWriteGuard<'static, DamageFXStore>> {
-    DAMAGE_FX_STORE
-        .get()
-        .map(|store| store.write().expect("DamageFXStore poisoned"))
+    let cell = ini_damage_fx_cell()?;
+    let guard = cell.write().expect("DamageFXStore poisoned");
+    Some(unsafe { std::mem::transmute(guard) })
 }
 
 /// INI parsing function (matches C++ interface)
@@ -866,6 +861,7 @@ pub fn parse_damage_fx_definition(ini: &mut INI) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use crate::common::common_services::CommonServicesScope;
     use super::*;
 
     struct TestObject {
@@ -1064,6 +1060,47 @@ mod tests {
     }
 
     #[test]
+    fn fx_list_at_bone_pos_without_bones_runs_nothing_at_body_center() {
+        // C++ FXList.cpp:681-728: doFxAtBones(primary, 0/1) runs the nested
+        // list once per bone point; with no drawable/bones it runs nothing.
+        use crate::common::ascii_string::AsciiString;
+        use crate::common::ini::ini_fx_list::{
+            DispatchedFxNugget, FXList, clear_fx_list_obj_runtime, get_fx_list_store_mut,
+            take_dispatched_fx_nuggets,
+        };
+        let _scope = CommonServicesScope::new();
+        clear_fx_list_obj_runtime();
+        clear_fx_bone_pos_runtime();
+        let _ = take_dispatched_fx_nuggets();
+
+        let mut nested = FXList::new(AsciiString::from("BoneWalk_Nested"));
+        nested.add_nugget(FXNugget::ViewShake {
+            shake_type: crate::common::ini::ini_fx_list::CameraShakeType::Normal,
+        });
+        get_fx_list_store_mut().add_fx_list(nested);
+        let mut outer = FXList::new(AsciiString::from("BoneWalk_Outer"));
+        outer.add_nugget(FXNugget::FXListAtBonePos {
+            fx_name: AsciiString::from("BoneWalk_Nested"),
+            bone_name: AsciiString::from("Muzzle"),
+            orient_to_bone: false,
+        });
+        get_fx_list_store_mut().add_fx_list(outer);
+
+        let victim = test_object("Victim", 7);
+        DamageFX::execute_selected_fx_list("BoneWalk_Outer", None, Some(&victim));
+        let dispatched = take_dispatched_fx_nuggets();
+        assert!(dispatched.contains(&DispatchedFxNugget::FXListAtBonePos(
+            "BoneWalk_Nested".to_string()
+        )));
+        assert!(
+            !dispatched
+                .iter()
+                .any(|n| matches!(n, DispatchedFxNugget::ViewShake(_))),
+            "no bones must not run the nested list at body center: {dispatched:?}"
+        );
+    }
+
+    #[test]
     fn negative_damage_picks_minor_fx_list() {
         // C++ DamageFX.cpp:84-91: only exact 0.0 nulls the list; negative uses minor.
         let mut damage_fx = DamageFX::new();
@@ -1089,6 +1126,7 @@ mod tests {
 
     #[test]
     fn test_global_store_init() {
+        let _scope = CommonServicesScope::new();
         init_global_damage_fx_store();
 
         assert!(get_damage_fx_store().is_some());
@@ -1105,6 +1143,7 @@ mod tests {
 
     #[test]
     fn init_and_reset_do_not_wipe_parsed_fx() {
+        let _scope = CommonServicesScope::new();
         // C++ DamageFX.cpp:266-273 — init/reset are empty; the catalog is not
         // a per-match table. dispatch_armor_damage_fx used to call
         // init_global_damage_fx_store on every hit, which wiped INI FX.

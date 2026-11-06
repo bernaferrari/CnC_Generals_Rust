@@ -837,6 +837,7 @@ mod tests {
 
     #[test]
     fn test_rect_contains_point() {
+        crate::test_support::ensure_ambient_host();
         let rect = Rect::new(10, 20, 100, 50);
 
         assert!(rect.contains_point(10, 20)); // Top-left corner
@@ -851,6 +852,7 @@ mod tests {
 
     #[test]
     fn test_color_operations() {
+        crate::test_support::ensure_ambient_host();
         let color = Color::rgb(100, 150, 200);
 
         let darker = color.darken(20);
@@ -866,6 +868,7 @@ mod tests {
 
     #[test]
     fn test_gadget_manager() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = GadgetManager::new();
 
         // Test ID generation
@@ -877,6 +880,7 @@ mod tests {
 
     #[test]
     fn test_keyboard_navigation_matches_push_button_arrow_parity() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = GadgetManager::new();
         manager.add_gadget(Box::new(PushButton::new(10, 0, 0, 20, 20)));
         manager.add_gadget(Box::new(PushButton::new(20, 30, 0, 20, 20)));
@@ -917,6 +921,7 @@ mod tests {
 
     #[test]
     fn test_focused_listbox_keeps_arrow_selection_before_tab_fallback() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = GadgetManager::new();
         let mut listbox = ListBox::new(10, 0, 0, 120, 80);
         listbox.add_item_with_id(100, "Alpha");
@@ -974,6 +979,7 @@ mod tests {
 
     #[test]
     fn test_focused_listbox_enter_and_space_emit_double_click() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = GadgetManager::new();
         let mut listbox = ListBox::new(10, 0, 0, 120, 80);
         listbox.add_item_with_id(100, "Alpha");
@@ -1002,6 +1008,7 @@ mod tests {
 
     #[test]
     fn test_focused_slider_perpendicular_keys_use_cpp_tab_navigation() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = GadgetManager::new();
         manager.add_gadget(Box::new(
             HorizontalSlider::new(10, 0, 0, 120, 20)
@@ -1039,6 +1046,7 @@ mod tests {
 
     #[test]
     fn test_focused_slider_boundary_key_does_not_fall_through_to_tab_navigation() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = GadgetManager::new();
         manager.add_gadget(Box::new(
             HorizontalSlider::new(10, 0, 0, 120, 20)

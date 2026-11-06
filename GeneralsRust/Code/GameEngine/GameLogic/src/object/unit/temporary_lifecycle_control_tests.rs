@@ -819,7 +819,8 @@ fn owner_aware_physics_queries_use_held_factory_object_facing_and_real_cargo() {
             2,
         );
         {
-            let mut players = crate::player::ThePlayerList().write().unwrap();
+            let __player_list_arc = crate::player::ThePlayerList();
+        let mut players = __player_list_arc.write().unwrap();
             players.clear();
             players.add_player(Arc::new(RwLock::new(crate::player::Player::new(0))));
         }

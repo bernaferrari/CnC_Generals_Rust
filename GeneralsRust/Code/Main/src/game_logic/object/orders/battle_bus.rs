@@ -90,6 +90,18 @@ impl Object {
         );
         self.armor_set_second_life = true;
         self.status.effectively_dead = false;
+        // C++ BattleBusSlowDeathBehavior::beginSlowDeath: "First do the special
+        // effects" -- FXList::doFXObj(m_fxStartUndeath, me) runs before aiIdle
+        // and before the physics stop/throw.
+        let fx = battle_bus_start_undeath_fx_name(&self.template_name);
+        body_fx(
+            self,
+            BodyStateFx::ObjectPhase {
+                name: fx,
+                at_object: true,
+            },
+            source,
+        );
         // C++ applyShock throwForce.z (up). Host is Y-up, so +Y.
         // scrubVelocity2D then throw — do not stop_moving (that zeroes the hop).
         let _ = self.apply_shock_wave_impulse_with_operation(
@@ -110,16 +122,6 @@ impl Object {
         self.target = None;
         self.status.attacking = false;
         let _ = BATTLE_BUS_MC_BIT_SECOND_LIFE; // set on land
-        // Leftover `execute_fx_at_object_id` / C++ `FXList::doFXObj(m_fxStartUndeath, me)`.
-        let fx = battle_bus_start_undeath_fx_name(&self.template_name);
-        body_fx(
-            self,
-            BodyStateFx::ObjectPhase {
-                name: fx,
-                at_object: true,
-            },
-            source,
-        );
     }
 
     /// Tick BattleBusSlowDeath first-death air time + empty hulk arming.

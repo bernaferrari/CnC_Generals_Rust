@@ -97,6 +97,7 @@ fn basic(client: &mut GameClient, id: DrawableId) -> &mut BasicDrawable {
 
 #[test]
 fn real_factory_constructs_all_nineteen_draw_and_four_client_update_classes_in_order() {
+    crate::test_support::ensure_ambient_host();
     let mut a = GameClient::new().unwrap();
     let mut b = GameClient::new().unwrap();
     let mut a_keys = NameKeyNamespace::new();
@@ -181,6 +182,7 @@ fn real_factory_constructs_all_nineteen_draw_and_four_client_update_classes_in_o
 
 #[test]
 fn actual_template_modules_keep_their_native_xfer_payloads() {
+    crate::test_support::ensure_ambient_host();
     let template = complete_template();
     let mut a = GameClient::new().unwrap();
     let mut b = GameClient::new().unwrap();
@@ -277,6 +279,7 @@ fn baseline_template() -> ThingTemplate {
 
 #[test]
 fn every_mistyped_class_is_rejected_without_receiver_identity_or_binding_changes() {
+    crate::test_support::ensure_ambient_host();
     let mut receiver = GameClient::new().unwrap();
     let mut peer = GameClient::new().unwrap();
     let resident = receiver
@@ -341,6 +344,7 @@ fn every_mistyped_class_is_rejected_without_receiver_identity_or_binding_changes
 
 #[test]
 fn unknown_missing_duplicate_and_wrong_bucket_declarations_fail_before_construction() {
+    crate::test_support::ensure_ambient_host();
     let mut receiver = GameClient::new().unwrap();
     let next = receiver.drawables.next_drawable_id;
     for (name, tag, mask) in [
@@ -421,6 +425,7 @@ impl game_engine::common::system::Snapshotable for BeaconDataView {
 
 #[test]
 fn wrapped_beacon_view_is_rejected_during_preflight_before_any_receiving_mutation() {
+    crate::test_support::ensure_ambient_host();
     let mut receiver = GameClient::new().unwrap();
     let mut peer = GameClient::new().unwrap();
     let resident = receiver

@@ -16,7 +16,6 @@ use crate::common::thing::thing_factory::{
 use crate::common::thing::thing_template::{
     WeaponSetDefinition, parse_bool_field, parse_u32_field, split_weapon_condition_tokens,
 };
-use once_cell::sync::Lazy;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::RwLock;
 
@@ -180,9 +179,6 @@ fn parse_weapon_set_key(key: &str) -> Option<(usize, &str)> {
 /// Object-definition helper bridge for parsing and lookup.
 pub struct ThingFactory;
 
-static OBJECT_DEFINITION_REGISTRY: Lazy<RwLock<HashMap<String, ObjectDefinition>>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
-
 fn with_runtime_factory<F, T>(operation: F) -> ObjectParseResult<T>
 where
     F: FnOnce(&mut RuntimeThingFactory) -> Result<T, String>,
@@ -234,7 +230,10 @@ impl ThingFactory {
 
     /// Register an object definition with the factory
     pub fn register_object_definition(definition: ObjectDefinition) -> ObjectParseResult<()> {
-        let mut registry = OBJECT_DEFINITION_REGISTRY.write().map_err(|_| {
+        let cell = std::sync::Arc::clone(
+            &crate::common::common_services::common_services().ini.object_definitions,
+        );
+        let mut registry = cell.write().map_err(|_| {
             ObjectParseError::ThingFactoryError("Object registry lock poisoned".to_string())
         })?;
         registry.insert(definition.name.as_str().to_ascii_lowercase(), definition);
@@ -243,8 +242,10 @@ impl ThingFactory {
 
     /// Find an existing object template by name
     pub fn find_object_template(name: &AsciiString) -> Option<ObjectDefinition> {
-        OBJECT_DEFINITION_REGISTRY
-            .read()
+        let cell = std::sync::Arc::clone(
+            &crate::common::common_services::common_services().ini.object_definitions,
+        );
+        cell.read()
             .ok()
             .and_then(|registry| registry.get(&name.as_str().to_ascii_lowercase()).cloned())
     }

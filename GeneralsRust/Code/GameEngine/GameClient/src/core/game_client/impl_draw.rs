@@ -57,6 +57,13 @@ impl GameClient {
     }
 
     /// All callbacks and presentation reborrow this operation sequentially.
+    /// Borrow this client's load-screen runtime (hooks + residual peels).
+    pub fn load_screen_runtime_state_mut(
+        &mut self,
+    ) -> &mut crate::gui::load_screen::LoadScreenRuntime {
+        &mut self.load_screen_runtime
+    }
+
     pub fn load_screen_runtime_mut<'a>(
         &'a mut self,
         menu_audio: &'a mut dyn crate::gui::menu_audio::MenuAudioEffects,

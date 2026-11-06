@@ -66,7 +66,7 @@ fn ordinary_scaffold_factory_observes_cpp_birth_before_payment_and_placement() {
                 assert_eq!(world.get_player(0).unwrap().effective_supplies(), 1000);
             },
         )
-        .unwrap();
+        .unwrap().expect("ObjectId");
     assert!(witnessed);
     let object = logic.host_object(id).unwrap();
     assert_eq!(object.producer_id, Some(constructor));
@@ -101,7 +101,7 @@ fn same_id_construction_worlds_keep_factory_resources_and_builders_isolated() {
             0.2,
             cost,
         )
-        .unwrap();
+        .unwrap().expect("ObjectId");
     let b = second
         .create_dozer_scaffold(
             "OwnedScaffold",
@@ -111,9 +111,9 @@ fn same_id_construction_worlds_keep_factory_resources_and_builders_isolated() {
             0.9,
             cost,
         )
-        .unwrap();
+        .unwrap().expect("ObjectId");
     assert_eq!(a, b);
-    second.destroy_object(b);
+    second.destroy_object(b).unwrap();
     assert_eq!(
         first.host_object(a).unwrap().stored_resources.supplies,
         3 * 75
@@ -145,14 +145,14 @@ fn ordinary_scaffold_defers_create_module_completion_until_real_completion() {
                 power: -15,
             },
         )
-        .unwrap();
+        .unwrap().expect("ObjectId");
     assert!(!has_preorder_model_bit(
         logic.host_object(id).unwrap().model_condition_bits
     ));
     let object = logic.host_object_mut(id).unwrap();
     object.construction_percent = 1.0;
     object.set_status_under_construction(false);
-    logic.notify_structure_construction_complete(id);
+    logic.notify_structure_construction_complete(id).unwrap();
     assert!(has_preorder_model_bit(
         logic.host_object(id).unwrap().model_condition_bits
     ));
@@ -199,7 +199,7 @@ fn ordinary_player_completion_reaches_owned_ai_script_and_power_before_modules()
                 power: 0,
             },
         )
-        .unwrap();
+        .unwrap().expect("ObjectId");
     prime_ai_completion(&mut world, id);
     world.frame = 8;
     world.dozer_new_task_build(builder, id);
@@ -233,7 +233,7 @@ fn ordinary_player_completion_reaches_owned_ai_script_and_power_before_modules()
         );
         assert_eq!(object.builder_id, Some(builder));
         assert_eq!(
-            world.host_object(builder).unwrap().dozer_task_build_target,
+            world.host_object(builder).unwrap().dozer_task_build_target(),
             Some(id)
         );
         assert!(!object.construction_power_admitted);
@@ -245,7 +245,8 @@ fn ordinary_player_completion_reaches_owned_ai_script_and_power_before_modules()
                 object.model_condition_bits
             )
         );
-    });
+    })
+    .unwrap();
     assert!(observed);
     assert_owned_completion(&world, id);
     assert!(
@@ -258,7 +259,7 @@ fn ordinary_player_completion_reaches_owned_ai_script_and_power_before_modules()
         300
     );
     assert_eq!(world.supply_create_center_registers, 1);
-    world.notify_structure_construction_complete(id);
+    world.notify_structure_construction_complete(id).unwrap();
     assert_eq!(
         world.get_player(0).unwrap().statistics.resources_spent(),
         300
@@ -326,7 +327,7 @@ fn structure_player_completion_replaces_only_its_owned_footprint() {
                 power: 0,
             },
         )
-        .unwrap();
+        .unwrap().expect("ObjectId");
     let old_cell = world.pathfinding_system.grid.world_to_grid(old_pos);
     let new_cell = world.pathfinding_system.grid.world_to_grid(new_pos);
     let foreign_cell = crate::game_logic::pathfinding::GridPos::new(old_cell.x + 6, old_cell.y);
@@ -419,7 +420,7 @@ fn authored_ai_completion_applies_metadata_and_nested_script_to_its_owner() {
                     power: 0,
                 },
             )
-            .unwrap()
+            .unwrap().expect("ObjectId")
     };
     let id = make(&mut first, builder);
     let foreign_id = make(&mut foreign, foreign_builder);
@@ -441,7 +442,7 @@ fn authored_ai_completion_applies_metadata_and_nested_script_to_its_owner() {
         unsellable: true,
     });
     first.frame = 9000;
-    first.notify_structure_construction_complete(id);
+    first.notify_structure_construction_complete(id).unwrap();
     let object = first.host_object(id).unwrap();
     assert_eq!(object.name, "AuthoredStructure");
     assert_eq!(object.health.current, 225.0);
@@ -470,7 +471,7 @@ fn authored_ai_completion_applies_metadata_and_nested_script_to_its_owner() {
     assert_eq!(foreign.host_object(foreign_id).unwrap().health.current, 1.0);
     assert!(foreign.new_script_messages.is_empty());
     assert_eq!(foreign.ai_manager.ai_players[&0].next_building_time, 700.0);
-    first.notify_structure_construction_complete(id);
+    first.notify_structure_construction_complete(id).unwrap();
     assert_eq!(
         first.new_script_messages.len(),
         1,
@@ -499,7 +500,7 @@ fn ordinary_completion_records_canonical_academy_exactly_once() {
                 power: 0,
             },
         )
-        .unwrap();
+        .unwrap().expect("ObjectId");
     world.frame = 9000;
     assert!(
         !world
@@ -508,7 +509,7 @@ fn ordinary_completion_records_canonical_academy_exactly_once() {
             .academy_stats
             .had_a_supply_center()
     );
-    world.notify_structure_construction_complete(id);
+    world.notify_structure_construction_complete(id).unwrap();
     assert!(
         world
             .get_player(0)
@@ -517,7 +518,7 @@ fn ordinary_completion_records_canonical_academy_exactly_once() {
             .had_a_supply_center()
     );
     let expected = world.get_player(0).unwrap().academy_stats.serialize();
-    world.notify_structure_construction_complete(id);
+    world.notify_structure_construction_complete(id).unwrap();
     assert_eq!(
         world.get_player(0).unwrap().academy_stats.serialize(),
         expected
@@ -539,7 +540,7 @@ fn completion_callback_executes_attachment_with_already_borrowed_interpreter() {
                 power: 0,
             },
         )
-        .unwrap();
+        .unwrap().expect("ObjectId");
     prime_ai_completion(&mut world, id);
     world.install_owned_script_engine(attached_completion_engine());
     world
@@ -557,13 +558,13 @@ fn completion_callback_executes_attachment_with_already_borrowed_interpreter() {
     world
         .with_owned_script_engine(|engine, world| {
             assert!(world.owned_script_engine.is_none());
-            world.notify_structure_construction_complete_with_interpreter(id, engine);
+            world.notify_structure_construction_complete_with_interpreter(id, engine).unwrap();
             assert_eq!(world.new_script_messages, ["Transmission: attached:done"]);
             assert_eq!(world.host_object(id).unwrap().health.current, 675.0);
         })
         .unwrap();
     assert!(world.owned_script_engine.is_some());
-    world.notify_structure_construction_complete(id);
+    world.notify_structure_construction_complete(id).unwrap();
     assert_eq!(world.new_script_messages.len(), 1);
 }
 
@@ -582,7 +583,7 @@ fn rebuilt_structure_callback_rebinds_only_exact_owned_hole_successor() {
                 power: 0,
             },
         )
-        .unwrap();
+        .unwrap().expect("ObjectId");
     let hole = world
         .create_object_for_player("OwnedDozer", 0, Vec3::ZERO)
         .unwrap();

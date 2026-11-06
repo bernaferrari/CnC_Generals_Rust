@@ -419,7 +419,7 @@ pub fn are_music_files_on_cd() -> bool {
     };
 
     if let Some(cd) = get_cd_manager() {
-        let cd = cd.borrow();
+        let cd = cd.lock().unwrap_or_else(|e| e.into_inner());
         for index in 0..cd.drive_count() {
             if let Some(drive) = cd.get_drive(index) {
                 let root = drive.get_path();

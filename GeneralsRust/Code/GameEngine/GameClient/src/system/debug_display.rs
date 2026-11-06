@@ -204,6 +204,7 @@ mod tests {
 
     #[test]
     fn w3d_debug_display_requires_font_and_display_string_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let sink = Arc::new(CaptureSink::default());
         let mut display = DebugDisplay::with_sink(sink.clone());
         display.set_font_width(8);
@@ -223,6 +224,7 @@ mod tests {
 
     #[test]
     fn w3d_debug_display_scales_character_coords_and_uses_cpp_colors() {
+        crate::test_support::ensure_ambient_host();
         let sink = Arc::new(CaptureSink::default());
         let mut display = DebugDisplay::with_sink(sink.clone());
         display.init();

@@ -671,7 +671,8 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         };
 
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return Ok(ScriptActionResult::Success);
         };
         let player_mask = if let Some(player_arc) = players.find_player_by_name(&player_name) {
@@ -728,7 +729,8 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         };
 
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return Ok(ScriptActionResult::Success);
         };
         let player_mask = if let Some(player_arc) = players.find_player_by_name(&player_name) {

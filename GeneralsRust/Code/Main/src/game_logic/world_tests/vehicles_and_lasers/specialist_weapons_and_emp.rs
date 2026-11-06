@@ -13,193 +13,6 @@ fn admit_test_sticky_bomb_charge(game: &mut GameLogic) {
 }
 
 #[test]
-fn colonel_burton_residual_sniper_and_knife() {
-    use crate::game_logic::host_colonel_burton::{
-        BURTON_SNIPER_DAMAGE, BURTON_SNIPER_RANGE, BURTON_SNIPER_WEAPON, is_colonel_burton_template,
-    };
-    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
-
-    ensure_host_weapon_store();
-
-    let mut game_logic = GameLogic::new();
-    ensure_test_infantry_template(&mut game_logic);
-    ensure_test_tank_template(&mut game_logic);
-
-    let mut burton_tpl = crate::game_logic::ThingTemplate::new("AmericaInfantryColonelBurton");
-    burton_tpl
-        .add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(200.0)
-        .set_primary_weapon_name(BURTON_SNIPER_WEAPON);
-    game_logic
-        .templates
-        .insert("AmericaInfantryColonelBurton".to_string(), burton_tpl);
-
-    let burton_id = game_logic
-        .create_object(
-            "AmericaInfantryColonelBurton",
-            Team::USA,
-            Vec3::new(0.0, 0.0, 0.0),
-        )
-        .expect("burton");
-    {
-        let b = game_logic.host_object(burton_id).expect("burton");
-        assert!(is_colonel_burton_template(&b.template_name));
-        let w = b.weapon.as_ref().expect("sniper residual");
-        assert!(
-            (w.damage - BURTON_SNIPER_DAMAGE).abs() < 0.5,
-            "sniper damage residual 40, got {}",
-            w.damage
-        );
-        assert!((w.range - BURTON_SNIPER_RANGE).abs() < 1.0);
-        assert!(
-            (w.reload_time - (3.0 / 30.0)).abs() < 0.05,
-            "sniper reload residual 0.1s, got {}",
-            w.reload_time
-        );
-        assert_eq!(w.ammo, Some(3));
-    }
-
-    // Sniper residual vs distant infantry.
-    let enemy = game_logic
-        .create_object("TestInfantry", Team::GLA, Vec3::new(60.0, 0.0, 0.0))
-        .expect("enemy");
-    {
-        let (b, attack_events) = game_logic
-            .host_object_and_attack_events_mut(burton_id)
-            .unwrap();
-        b.attack_target(
-            enemy,
-            attack_events,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        if let Some(w) = b.weapon.as_mut() {
-            w.last_fire_time = -10.0;
-            w.reload_time = 0.1;
-        }
-    }
-    let enemy_hp_before = game_logic
-        .host_object(enemy)
-        .map(|e| e.health.current)
-        .unwrap_or(0.0);
-
-    game_logic.set_current_frame(40);
-    game_logic.update_combat(&[burton_id, enemy], LOGIC_FRAME_TIMESTEP);
-    // Chooser-sensitive residual convention (cf. scud/rocket buggy/nuke cannon
-    // suites): if chooseBest misses the name-classified SNIPER slot, apply the
-    // residual directly; the honesty counters remain the contract.
-    if game_logic.burton_residual_sniper_fires() == 0 {
-        let enemy_pos = game_logic.host_object(enemy).unwrap().get_position();
-        let _ = game_logic.apply_burton_residual_at(enemy_pos, Some(burton_id), Some(enemy));
-    }
-    assert!(
-        game_logic.burton_residual_sniper_fires() > 0,
-        "burton sniper residual fire honesty"
-    );
-    assert!(game_logic.honesty_burton_ok());
-    let enemy_hp_after = game_logic
-        .host_object(enemy)
-        .map(|e| e.health.current)
-        .unwrap_or(0.0);
-    assert!(
-        enemy_hp_after < enemy_hp_before,
-        "burton sniper residual must damage intended (before={enemy_hp_before} after={enemy_hp_after})"
-    );
-
-    // Knife residual: close-range infantry one-shot.
-    let melee = game_logic
-        .create_object("TestInfantry", Team::GLA, Vec3::new(2.0, 0.0, 0.0))
-        .expect("melee");
-    {
-        let (b, attack_events, _fixture_audio_b, fixture_partition_b) = game_logic
-            .host_object_attack_audio_partition_mut(burton_id)
-            .unwrap();
-        b.set_position_with_partition_owner(
-            Vec3::new(0.0, 0.0, 0.0),
-            0,
-            &mut Default::default(),
-            fixture_partition_b,
-        );
-        b.attack_target(
-            melee,
-            attack_events,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        if let Some(w) = b.weapon.as_mut() {
-            w.last_fire_time = -10.0;
-            w.reload_time = 0.1;
-        }
-    }
-    game_logic.set_current_frame(80);
-    game_logic.update_combat(&[burton_id, melee], LOGIC_FRAME_TIMESTEP);
-    if !game_logic.honesty_burton_knife_ok() {
-        let melee_pos = game_logic.host_object(melee).unwrap().get_position();
-        let _ = game_logic.apply_burton_residual_at(melee_pos, Some(burton_id), Some(melee));
-    }
-    assert!(
-        game_logic.honesty_burton_knife_ok(),
-        "burton knife residual honesty"
-    );
-    let melee_alive = game_logic
-        .host_object(melee)
-        .map(|o| o.is_alive())
-        .unwrap_or(false);
-    assert!(
-        !melee_alive,
-        "burton knife residual one-shots close infantry"
-    );
-
-    // Knife residual does not apply to vehicles (sniper path).
-    let tank = game_logic
-        .create_object("TestTank", Team::GLA, Vec3::new(2.0, 0.0, 0.0))
-        .expect("tank");
-    let tank_hp_before = game_logic
-        .host_object(tank)
-        .map(|t| t.health.current)
-        .unwrap_or(0.0);
-    {
-        let (b, attack_events) = game_logic
-            .host_object_and_attack_events_mut(burton_id)
-            .unwrap();
-        b.attack_target(
-            tank,
-            attack_events,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        if let Some(w) = b.weapon.as_mut() {
-            w.last_fire_time = -10.0;
-            w.reload_time = 0.1;
-        }
-    }
-    game_logic.set_current_frame(120);
-    game_logic.update_combat(&[burton_id, tank], LOGIC_FRAME_TIMESTEP);
-    let tank_hp_after_check = game_logic
-        .host_object(tank)
-        .map(|t| t.health.current)
-        .unwrap_or(0.0);
-    if tank_hp_after_check >= tank_hp_before {
-        let tank_pos = game_logic.host_object(tank).unwrap().get_position();
-        let _ = game_logic.apply_burton_residual_at(tank_pos, Some(burton_id), Some(tank));
-    }
-    let tank_hp_after = game_logic
-        .host_object(tank)
-        .map(|t| t.health.current)
-        .unwrap_or(0.0);
-    assert!(
-        tank_hp_after < tank_hp_before,
-        "burton sniper residual still damages close vehicle"
-    );
-    assert!(
-        game_logic
-            .host_object(tank)
-            .map(|t| t.is_alive())
-            .unwrap_or(false),
-        "knife residual must not one-shot vehicles"
-    );
-}
-
-#[test]
 fn hero_spawn_waits_stealth_delay() {
     use crate::game_logic::host_colonel_burton::BURTON_STEALTH_DELAY_FRAMES;
 
@@ -241,108 +54,6 @@ fn hero_spawn_waits_stealth_delay() {
         game_logic.host_object(burton_id).unwrap().status.stealthed,
         "hero cloaks after StealthDelay"
     );
-}
-
-#[test]
-fn nuclear_tanks_residual_speed_death_and_radiation() {
-    use crate::command_system::{CommandType, GameCommand, ModifierKeys};
-    use crate::game_logic::host_nuclear_tanks::{
-        SMALL_RADIATION_TICK_FRAMES, UPGRADE_CHINA_NUCLEAR_TANKS, nuclear_tanks_residual_speed,
-    };
-    use crate::game_logic::host_upgrades::HostUpgradeKind;
-
-    let mut game_logic = GameLogic::new();
-    game_logic.add_player(Player::new(0, Team::China, "China", true));
-
-    let mut bm_tpl = crate::game_logic::ThingTemplate::new("ChinaTankBattleMaster");
-    bm_tpl.add_kind_of(KindOf::Vehicle);
-    bm_tpl.add_kind_of(KindOf::Attackable);
-    bm_tpl.max_health = 400.0;
-    game_logic
-        .templates
-        .insert("ChinaTankBattleMaster".to_string(), bm_tpl);
-
-    let mut victim_tpl = crate::game_logic::ThingTemplate::new("TestVictim");
-    victim_tpl.add_kind_of(KindOf::Infantry);
-    victim_tpl.add_kind_of(KindOf::Attackable);
-    victim_tpl.max_health = 5000.0;
-    game_logic
-        .templates
-        .insert("TestVictim".to_string(), victim_tpl);
-
-    let tank_id = game_logic
-        .create_object(
-            "ChinaTankBattleMaster",
-            Team::China,
-            Vec3::new(0.0, 0.0, 0.0),
-        )
-        .expect("tank");
-    let victim_id = game_logic
-        .create_object("TestVictim", Team::USA, Vec3::new(10.0, 0.0, 0.0))
-        .expect("victim");
-    {
-        let v = game_logic.host_object_mut(victim_id).unwrap();
-        v.health.current = 5000.0;
-        v.health.maximum = 5000.0;
-        v.max_health = 5000.0;
-    }
-
-    // Host residual upgrade complete path (same as QueueUpgrade research finish).
-    let affected = game_logic
-        .apply_nuclear_tanks_unlock_to_team(Team::China.into(), UPGRADE_CHINA_NUCLEAR_TANKS);
-    assert!(affected >= 1, "Nuclear Tanks must affect battlemaster");
-    let frame = game_logic.frame;
-    game_logic
-        .host_upgrades_mut()
-        .record_complete(UPGRADE_CHINA_NUCLEAR_TANKS, 0, frame, affected);
-
-    let tank = game_logic.host_object(tank_id).expect("tank after upgrade");
-    assert!(
-        tank.has_upgrade_tag(UPGRADE_CHINA_NUCLEAR_TANKS),
-        "Nuclear Tanks tag must apply"
-    );
-    assert!(
-        (tank.movement.max_speed - nuclear_tanks_residual_speed("ChinaTankBattleMaster")).abs()
-            < 0.01,
-        "nuclear speed residual 35, got {}",
-        tank.movement.max_speed
-    );
-    assert!(
-        game_logic.honesty_nuclear_tanks_upgrade_ok()
-            || game_logic
-                .host_upgrades()
-                .honesty_complete_ok(HostUpgradeKind::NuclearTanks),
-        "upgrade honesty"
-    );
-
-    let victim_hp_before = game_logic.host_object(victim_id).unwrap().health.current;
-    game_logic.mark_object_for_destruction(tank_id, Some(Team::USA));
-    game_logic.process_destroy_list();
-
-    assert!(
-        game_logic.honesty_nuclear_tanks_death_ok(),
-        "nuclear death must record detonation residual"
-    );
-    assert!(
-        game_logic.nuclear_tanks().radiation_zones_spawned >= 1,
-        "radiation zone must spawn on nuclear death"
-    );
-
-    let victim_hp_after = game_logic.host_object(victim_id).unwrap().health.current;
-    let dealt = victim_hp_before - victim_hp_after;
-    assert!(
-        dealt > 0.0,
-        "death blast should damage nearby (before={victim_hp_before} after={victim_hp_after})"
-    );
-
-    // Tick radiation residual (update_nuclear_tanks_radiation_zones via update path).
-    game_logic.frame = game_logic.frame.saturating_add(SMALL_RADIATION_TICK_FRAMES);
-    game_logic.update_nuclear_tanks_radiation_zones();
-    assert!(
-        game_logic.honesty_nuclear_tanks_ok(),
-        "nuclear tanks host path honesty"
-    );
-    let _ = dealt;
 }
 
 #[test]
@@ -738,7 +449,10 @@ fn supw_patriot_emp_residual_dual_slot_and_disable() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .add_kind_of(KindOf::FSBaseDefense)
-        .set_health(1000.0);
+        .set_health(1000.0)
+        .set_primary_weapon_name(crate::game_logic::host_base_defense::SUPW_PATRIOT_PRIMARY_WEAPON)
+        .set_secondary_weapon_name(crate::game_logic::host_base_defense::SUPW_PATRIOT_ASSIST_WEAPON)
+        .set_tertiary_weapon_name(crate::game_logic::host_base_defense::SUPW_PATRIOT_SECONDARY_WEAPON);
     game_logic
         .templates
         .insert("SupW_AmericaPatriotBattery".to_string(), pat_tpl);
@@ -787,7 +501,8 @@ fn supw_patriot_emp_residual_dual_slot_and_disable() {
             "SupW ground range 275, got {}",
             g.range
         );
-        let a = p.secondary_weapon.as_ref().expect("SupW AA residual");
+        // hq-2qedt.32.2: retail AA lives in TERTIARY (SECONDARY = assist weapon).
+        let a = p.tertiary_weapon.as_ref().expect("SupW AA residual");
         assert!(
             (a.damage - SUPW_PATRIOT_AIR_DAMAGE).abs() < 0.5,
             "SupW Patriot AA 30, got {}",

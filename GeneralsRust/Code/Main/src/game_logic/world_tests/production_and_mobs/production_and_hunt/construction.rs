@@ -274,7 +274,7 @@ fn dozer_construction_rate_applies_handicap_buildtime() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.status.moving = false;
-        obj.dozer_dock_action = Some(obj.get_position());
+        obj.set_dozer_dock_action(Some(obj.get_position()));
     }
 
     logic.update_construction(&[pad_id], 1.0);
@@ -312,7 +312,7 @@ fn arrived_moving_dozer_builds_at_the_dock() {
     logic.dozer_new_task_build(dozer, pad_id);
     let dock = logic
         .host_object(dozer)
-        .and_then(|d| d.dozer_dock_action)
+        .and_then(|d| d.dozer_dock_action())
         .expect("dock");
     {
         let obj = logic.host_object_mut(pad_id).expect("pad");
@@ -375,7 +375,7 @@ fn simulation_step_builds_when_dozer_is_at_the_pad() {
     logic.dozer_new_task_build(dozer, pad_id);
     let dock = logic
         .host_object(dozer)
-        .and_then(|d| d.dozer_dock_action)
+        .and_then(|d| d.dozer_dock_action())
         .unwrap_or(Vec3::ZERO);
     {
         let obj = logic.host_object_mut(pad_id).expect("pad");
@@ -440,7 +440,7 @@ fn simulation_step_finishes_a_short_build() {
     logic.dozer_new_task_build(dozer, pad_id);
     let action = logic
         .host_object(dozer)
-        .and_then(|d| d.dozer_dock_action)
+        .and_then(|d| d.dozer_dock_action())
         .expect("dozer_new_task_build stores the action dock");
     let building_pos = logic.host_object(pad_id).expect("pad").get_position();
     let end_dock = crate::game_logic::host_repair::dozer_end_dock_position(action, building_pos);
@@ -507,7 +507,7 @@ fn simulation_step_finishes_a_short_build() {
         unit.movement.path
     );
     assert_eq!(
-        unit.dozer_task_build_target, None,
+        unit.dozer_task_build_target(), None,
         "a finished build must clear the dozer task or construct buttons stay grey"
     );
 }
@@ -536,7 +536,7 @@ fn owned_construction_completion_walks_the_dozer_off_the_pad() {
     logic.dozer_new_task_build(dozer, pad_id);
     let action = logic
         .host_object(dozer)
-        .and_then(|d| d.dozer_dock_action)
+        .and_then(|d| d.dozer_dock_action())
         .expect("dozer_new_task_build stores the action dock");
     {
         let obj = logic.host_object_mut(pad_id).expect("pad");

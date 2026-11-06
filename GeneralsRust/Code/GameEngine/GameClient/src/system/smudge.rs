@@ -2,7 +2,7 @@
 
 use crate::effects::decals::DecalRenderItem;
 use glam::{Vec2, Vec3};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Copy)]
 pub struct SmudgeVertex {
@@ -128,6 +128,9 @@ pub struct SmudgeManager {
     free_smudges: Vec<Smudge>,
     smudge_count_last_frame: i32,
     hardware_support: HardwareSmudgeSupport,
+    residual_last_action: u8,
+    residual_set_count: usize,
+    residual_smudge_count: usize,
 }
 
 impl Default for SmudgeManager {
@@ -144,6 +147,9 @@ impl SmudgeManager {
             free_smudges: Vec::new(),
             smudge_count_last_frame: 0,
             hardware_support: HardwareSmudgeSupport::Unknown,
+            residual_last_action: 0,
+            residual_set_count: 0,
+            residual_smudge_count: 0,
         }
     }
 
@@ -227,10 +233,34 @@ impl SmudgeManager {
     }
 }
 
-static THE_SMUDGE_MANAGER: OnceLock<Mutex<SmudgeManager>> = OnceLock::new();
+#[cfg(test)]
+thread_local! {
+    static TEST_SMUDGE_MANAGER: std::cell::RefCell<Option<Arc<Mutex<SmudgeManager>>>> =
+        const { std::cell::RefCell::new(None) };
+}
 
-pub fn get_smudge_manager() -> &'static Mutex<SmudgeManager> {
-    THE_SMUDGE_MANAGER.get_or_init(|| Mutex::new(SmudgeManager::new()))
+fn smudge_manager_handle() -> Arc<Mutex<SmudgeManager>> {
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_smudge_manager()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_SMUDGE_MANAGER.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| Arc::new(Mutex::new(SmudgeManager::new())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Arc::new(Mutex::new(SmudgeManager::new()))
+    }
+}
+
+pub fn get_smudge_manager() -> Arc<Mutex<SmudgeManager>> {
+    smudge_manager_handle()
 }
 
 /// Residual: last Smudge action requested by residual peels.
@@ -246,19 +276,22 @@ pub enum ResidualSmudgeAction {
     SetCount = 6,
 }
 
-static RESIDUAL_SMUDGE_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_SMUDGE_SET_COUNT: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-static RESIDUAL_SMUDGE_COUNT: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
+fn residual_smudge_action_store(manager: &mut SmudgeManager, action: ResidualSmudgeAction) {
+    manager.residual_last_action = action as u8;
+}
 
-fn residual_smudge_action_store(action: ResidualSmudgeAction) {
-    RESIDUAL_SMUDGE_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+fn residual_smudge_sync(manager: &mut SmudgeManager) {
+    manager.residual_set_count = manager.used_sets.len();
+    manager.residual_smudge_count = manager.used_sets.iter().map(|s| s.used_smudge_count()).sum();
 }
 
 /// Residual: last Smudge residual action.
 pub fn residual_smudge_last_action() -> ResidualSmudgeAction {
-    match RESIDUAL_SMUDGE_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+    let __smudge = get_smudge_manager();
+    let Ok(manager) = __smudge.lock() else {
+        return ResidualSmudgeAction::None;
+    };
+    match manager.residual_last_action {
         1 => ResidualSmudgeAction::AddSet,
         2 => ResidualSmudgeAction::AddSmudge,
         3 => ResidualSmudgeAction::RemoveSmudge,
@@ -271,37 +304,43 @@ pub fn residual_smudge_last_action() -> ResidualSmudgeAction {
 
 /// Residual: residual smudge-set count latch.
 pub fn residual_smudge_set_count() -> usize {
-    RESIDUAL_SMUDGE_SET_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+    get_smudge_manager()
+        .lock()
+        .map(|m| m.residual_set_count)
+        .unwrap_or(0)
 }
 
 /// Residual: residual smudge count latch inside residual set.
 pub fn residual_smudge_count() -> usize {
-    RESIDUAL_SMUDGE_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+    get_smudge_manager()
+        .lock()
+        .map(|m| m.residual_smudge_count)
+        .unwrap_or(0)
 }
 
 /// Residual: allocate a residual smudge set without terrain render.
 /// Uses only SmudgeManager lock (no nested residual set slot).
 pub fn simulate_smudge_add_set() -> bool {
-    let Ok(mut manager) = get_smudge_manager().lock() else {
+    let __smudge = get_smudge_manager();
+    let Ok(mut manager) = __smudge.lock() else {
         return false;
     };
     // Keep a single residual set: clear used sets first for deterministic residual.
     manager.reset();
     let _set = manager.add_smudge_set();
-    RESIDUAL_SMUDGE_SET_COUNT.store(1, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_SMUDGE_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
-    residual_smudge_action_store(ResidualSmudgeAction::AddSet);
+    residual_smudge_sync(&mut manager);
+    residual_smudge_action_store(&mut manager, ResidualSmudgeAction::AddSet);
     residual_smudge_set_count() == 1
 }
 
 /// Residual: add a smudge into the first residual set.
 pub fn simulate_smudge_add(size: f32, opacity: f32) -> bool {
-    let Ok(mut manager) = get_smudge_manager().lock() else {
+    let __smudge = get_smudge_manager();
+    let Ok(mut manager) = __smudge.lock() else {
         return false;
     };
     if manager.used_sets.is_empty() {
         let _ = manager.add_smudge_set();
-        RESIDUAL_SMUDGE_SET_COUNT.store(1, std::sync::atomic::Ordering::Relaxed);
     }
     let count = {
         let mut set = manager.borrow_set(0);
@@ -310,15 +349,15 @@ pub fn simulate_smudge_add(size: f32, opacity: f32) -> bool {
         smudge.opacity = opacity;
         set.used_smudge_count()
     };
-    RESIDUAL_SMUDGE_COUNT.store(count, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_SMUDGE_SET_COUNT.store(1, std::sync::atomic::Ordering::Relaxed);
-    residual_smudge_action_store(ResidualSmudgeAction::AddSmudge);
+    residual_smudge_sync(&mut manager);
+    residual_smudge_action_store(&mut manager, ResidualSmudgeAction::AddSmudge);
     count > 0
 }
 
 /// Residual: remove first residual smudge.
 pub fn simulate_smudge_remove_first() -> bool {
-    let Ok(mut manager) = get_smudge_manager().lock() else {
+    let __smudge = get_smudge_manager();
+    let Ok(mut manager) = __smudge.lock() else {
         return false;
     };
     if manager.used_sets.is_empty() {
@@ -332,42 +371,44 @@ pub fn simulate_smudge_remove_first() -> bool {
         set.remove_smudge_from_set(0);
         set.used_smudge_count()
     };
-    RESIDUAL_SMUDGE_COUNT.store(count, std::sync::atomic::Ordering::Relaxed);
-    residual_smudge_action_store(ResidualSmudgeAction::RemoveSmudge);
+    residual_smudge_sync(&mut manager);
+    residual_smudge_action_store(&mut manager, ResidualSmudgeAction::RemoveSmudge);
     true
 }
 
 /// Residual: remove residual smudge set(s).
 pub fn simulate_smudge_remove_set() -> bool {
-    let Ok(mut manager) = get_smudge_manager().lock() else {
+    let __smudge = get_smudge_manager();
+    let Ok(mut manager) = __smudge.lock() else {
         return false;
     };
     manager.reset();
-    RESIDUAL_SMUDGE_SET_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_SMUDGE_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
-    residual_smudge_action_store(ResidualSmudgeAction::RemoveSet);
+    residual_smudge_sync(&mut manager);
+    residual_smudge_action_store(&mut manager, ResidualSmudgeAction::RemoveSet);
     residual_smudge_set_count() == 0
 }
 
 /// Residual: reset smudge manager residual.
 pub fn simulate_smudge_reset() -> bool {
-    let Ok(mut manager) = get_smudge_manager().lock() else {
+    let __smudge = get_smudge_manager();
+    let Ok(mut manager) = __smudge.lock() else {
         return false;
     };
     manager.reset();
-    RESIDUAL_SMUDGE_SET_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_SMUDGE_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
-    residual_smudge_action_store(ResidualSmudgeAction::Reset);
+    residual_smudge_sync(&mut manager);
+    residual_smudge_action_store(&mut manager, ResidualSmudgeAction::Reset);
     residual_smudge_set_count() == 0 && residual_smudge_count() == 0
 }
 
 /// Residual: set last-frame smudge count residual.
 pub fn simulate_smudge_set_count_last_frame(count: i32) -> bool {
-    let Ok(mut manager) = get_smudge_manager().lock() else {
+    let __smudge = get_smudge_manager();
+    let Ok(mut manager) = __smudge.lock() else {
         return false;
     };
     manager.set_smudge_count_last_frame(count);
-    residual_smudge_action_store(ResidualSmudgeAction::SetCount);
+    residual_smudge_sync(&mut manager);
+    residual_smudge_action_store(&mut manager, ResidualSmudgeAction::SetCount);
     manager.get_smudge_count_last_frame() == count
 }
 
@@ -389,6 +430,7 @@ mod tests {
 
     #[test]
     fn remove_smudge_set_reuses_without_reset_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = SmudgeManager::new();
         let mut set = manager.add_smudge_set();
         let original = identity(&set);
@@ -403,6 +445,7 @@ mod tests {
 
     #[test]
     fn collect_decal_render_items_skips_empty_and_keeps_used() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = SmudgeManager::new();
         {
             let mut set = manager.add_smudge_set();
@@ -423,6 +466,7 @@ mod tests {
 
     #[test]
     fn reset_clears_used_sets_before_pooling() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = SmudgeManager::new();
         let original = {
             let mut set = manager.add_smudge_set();
@@ -437,6 +481,7 @@ mod tests {
 
     #[test]
     fn free_smudges_follow_cpp_reuse_order_within_one_manager() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = SmudgeManager::new();
         {
             let mut first = manager.add_smudge_set();
@@ -451,6 +496,7 @@ mod tests {
 
     #[test]
     fn removing_a_smudge_keeps_the_remaining_cpp_list_order() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = SmudgeManager::new();
         let mut set = manager.add_smudge_set();
         for size in [1.0, 2.0, 3.0] {
@@ -469,6 +515,7 @@ mod tests {
 
     #[test]
     fn free_smudges_do_not_leak_between_managers() {
+        crate::test_support::ensure_ambient_host();
         let mut first_manager = SmudgeManager::new();
         let mut first = first_manager.add_smudge_set();
         first.add_smudge_to_set().size = 42.0;

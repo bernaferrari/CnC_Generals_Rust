@@ -76,6 +76,7 @@ mod tests {
 
     #[test]
     fn native_snow_keeps_y_up_even_at_steep_fx_pitch_and_projects_billboards() {
+        crate::test_support::ensure_ambient_host();
         let eye = Vec3::new(70., 500., 90.);
         let center = Vec3::new(72., 50., 100.);
         let view = Mat4::look_at_rh(eye, center, Vec3::Y);
@@ -98,6 +99,7 @@ mod tests {
 
     #[test]
     fn equivalent_native_and_client_source_cameras_have_the_same_snow_box() {
+        crate::test_support::ensure_ambient_host();
         let eye = Vec3::new(70., 500., -90.);
         let target = Vec3::new(90., 10., 90.);
         let view = Mat4::look_at_rh(eye, target, Vec3::Y);
@@ -128,6 +130,7 @@ mod tests {
 
     #[test]
     fn receiving_snow_box_is_independent_of_foreign_core_camera_changes() {
+        crate::test_support::ensure_ambient_host();
         if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
             module_path!(),
             "receiving_snow_box_is_independent_of_foreign_core_camera_changes",
@@ -160,6 +163,7 @@ mod tests {
 
     #[test]
     fn snow_camera_rejects_invalid_frustum_without_a_foreign_view_fallback() {
+        crate::test_support::ensure_ambient_host();
         assert!(SnowCamera::native_y_up(Mat4::ZERO, Mat4::IDENTITY, 0.).is_none());
         assert!(SnowCamera::native_y_up(Mat4::IDENTITY, Mat4::IDENTITY, f32::NAN).is_none());
     }

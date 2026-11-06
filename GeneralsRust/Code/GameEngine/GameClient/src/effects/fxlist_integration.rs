@@ -207,6 +207,8 @@ impl FXNugget for TracerFXNugget {
             } else {
                 self.speed
             };
+            // Receiving FXContext owns the client/logic frame for this emit
+            // (C++ TracerFXNugget reads TheGameClient frame during doFXPos).
             let _ = crate::effects::tracer_fx::spawn_tracer_drawable_like_cpp(
                 &self.tracer_name,
                 [primary.x, primary.y, primary.z],
@@ -216,7 +218,7 @@ impl FXNugget for TracerFXNugget {
                 self.width,
                 self.color,
                 self.decay_at,
-                gamelogic::helpers::TheGameLogic::get_frame(),
+                context.current_frame,
             );
         }
     }
@@ -306,13 +308,16 @@ impl FXNugget for LightPulseFXNugget {
         _context: &mut FXContext,
     ) {
         // C++ LightPulseFXNugget::doFXPos → TheDisplay->createLightPulse(pos, color, 1, radius, ...)
-        let _ = crate::fx_list::create_display_light_pulse(crate::fx_list::DisplayLightPulse {
+        let pulse = crate::fx_list::DisplayLightPulse {
             pos: [primary.x, primary.y, primary.z],
             color: self.color,
             inner_radius: 1.0,
             outer_radius: self.radius,
             increase_frames: self.increase_frames,
             decay_frames: self.decrease_frames,
+        };
+        let _ = crate::core::game_client::with_live_game_client_mut(|client| {
+            client.fx_mut().create_display_light_pulse(pulse.clone())
         });
     }
 }
@@ -1124,6 +1129,7 @@ mod tests {
 
     #[test]
     fn test_particle_system_fx_nugget() {
+        crate::test_support::ensure_ambient_host();
         let nugget = ParticleSystemFXNugget::new("SmallExplosion".to_string());
         assert_eq!(nugget.template_name, "SmallExplosion");
         assert_eq!(nugget.count, 1);
@@ -1131,6 +1137,7 @@ mod tests {
 
     #[test]
     fn test_fxlist_bridge() {
+        crate::test_support::ensure_ambient_host();
         let mut bridge = FXListParticleBridge::new();
         let nugget = ParticleSystemFXNugget::new("MuzzleFlash".to_string());
 
@@ -1140,6 +1147,7 @@ mod tests {
 
     #[test]
     fn fx_list_at_bone_pos_uses_current_client_bones() {
+        crate::test_support::ensure_ambient_host();
         if matches!(
             crate::test_process::run_bounded(
                 module_path!(),
@@ -1188,6 +1196,7 @@ mod tests {
 
     #[test]
     fn execute_fx_pos_skips_nuggets_unless_cellshroud_clear() {
+        crate::test_support::ensure_ambient_host();
         if matches!(
             crate::test_process::run_bounded(
                 module_path!(),
@@ -1242,6 +1251,7 @@ mod tests {
 
     #[test]
     fn execute_fx_obj_fail_closes_when_local_player_invalid() {
+        crate::test_support::ensure_ambient_host();
         let recorder = Arc::new(RecordingNugget::default());
         let mut list = FXList::new();
         list.add_nugget(recorder.clone());
@@ -1257,6 +1267,7 @@ mod tests {
 
     #[test]
     fn test_explosion_helper() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let position = Vec3::new(100.0, 200.0, 0.0);
 
@@ -1271,6 +1282,7 @@ mod tests {
 
     #[test]
     fn test_weapon_fire_helper() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let muzzle_pos = Vec3::new(10.0, 20.0, 5.0);
         let muzzle_dir = Vec3::new(1.0, 0.0, 0.0);
@@ -1281,6 +1293,7 @@ mod tests {
 
     #[test]
     fn test_building_destruction_helper() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let building_center = Vec3::new(50.0, 50.0, 0.0);
 

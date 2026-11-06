@@ -524,7 +524,7 @@ fn stop_drops_a_move_held_through_stun() {
     }
     assert!(logic.unit_command_move_to_moving(id, Vec3::new(80.0, 0.0, 10.0)));
     assert!(logic.host_object(id).unwrap().pending_move.is_some());
-    assert!(logic.unit_command_stop(id));
+    assert_eq!(logic.unit_command_stop(id).expect("result"), true);
     let unit = logic.host_object(id).expect("stopped");
     assert!(unit.pending_move.is_none());
     assert!(unit.movement.path.is_empty());
@@ -610,7 +610,7 @@ fn stop_prevents_further_attack_damage() {
     }
     let mid = logic.host_object(victim).expect("victim").health.current;
     assert!(mid < 100.0, "attack must land before stop, health={mid}");
-    assert!(logic.unit_command_stop(id));
+    assert_eq!(logic.unit_command_stop(id).expect("result"), true);
     for _ in 0..40 {
         logic.update();
     }

@@ -920,11 +920,13 @@ impl GameLogic {
         unit_id: ObjectId,
         container_id: ObjectId,
     ) {
-        self.walk_unit_via_open_contain_exit_with_effects(
-            unit_id,
-            container_id,
-            &mut Default::default(),
-        );
+        self.with_own_services_mut(|this| {
+            this.walk_unit_via_open_contain_exit_with_effects(
+                unit_id,
+                container_id,
+                &mut Default::default(),
+            );
+        });
     }
 
     pub(in crate::game_logic) fn walk_unit_via_open_contain_exit_with_effects(

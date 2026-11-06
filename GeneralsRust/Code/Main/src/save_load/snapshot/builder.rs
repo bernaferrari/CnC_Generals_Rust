@@ -671,6 +671,7 @@ impl SnapshotBuilder {
                 entries.push(ObjectVisionSpiedSnapshot {
                     object_id: id,
                     vision_spied_mask: object.vision_spied_mask,
+                    vision_spied_by: object.vision_spied_by.to_vec(),
                 });
             }
         }
@@ -1237,7 +1238,20 @@ impl SnapshotBuilder {
                 );
                 continue;
             };
-            object.vision_spied_mask = entry.vision_spied_mask;
+            // Object.cpp:4127 restores counts; legacy mask-only entries imply count 1.
+            object.vision_spied_by = [0; gamelogic::common::MAX_PLAYER_COUNT];
+            if entry.vision_spied_by.is_empty() {
+                for i in 0..object.vision_spied_by.len() {
+                    if entry.vision_spied_mask & (1u32 << i) != 0 {
+                        object.vision_spied_by[i] = 1;
+                    }
+                }
+            } else {
+                for (dst, src) in object.vision_spied_by.iter_mut().zip(&entry.vision_spied_by) {
+                    *dst = *src;
+                }
+            }
+            object.rebuild_vision_spied_mask();
         }
 
         let mut seen_builder = HashSet::new();
@@ -2029,7 +2043,9 @@ impl SnapshotBuilder {
     ) {
         game_logic.set_scoring_enabled(snapshot.is_scoring_enabled);
         game_logic.set_limit_superweapons(snapshot.limit_superweapons);
-        if let Ok(mut leftover) = gamelogic::system::game_logic::get_game_logic().lock() {
+        if let Some(Ok(mut leftover)) =
+            gamelogic::system::game_logic::try_get_game_logic().map(|mutex| mutex.lock())
+        {
             leftover.set_superweapon_restriction(if snapshot.limit_superweapons { 1 } else { 0 });
         }
         game_logic.restore_cave_system(snapshot.cave_system.clone());

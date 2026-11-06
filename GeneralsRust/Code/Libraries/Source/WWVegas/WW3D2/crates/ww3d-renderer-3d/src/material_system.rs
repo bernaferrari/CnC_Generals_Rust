@@ -149,7 +149,6 @@ impl MaterialTextureBinding {
 /// Material pass class - defines a rendering pass
 const MAX_TEXTURE_STAGES: usize = 8;
 
-static ENABLE_PER_POLYGON_CULLING: AtomicBool = AtomicBool::new(true);
 
 #[derive(Debug, Clone)]
 pub struct MaterialPassClass {
@@ -256,12 +255,12 @@ impl MaterialPassClass {
         self.enable_on_translucent_meshes
     }
 
-    pub fn enable_per_polygon_culling(onoff: bool) {
-        ENABLE_PER_POLYGON_CULLING.store(onoff, Ordering::Relaxed);
+    pub fn enable_per_polygon_culling(r3d: &crate::process_state::Renderer3dRuntime, onoff: bool) {
+        r3d.enable_per_polygon_culling.store(onoff, Ordering::Relaxed);
     }
 
-    pub fn is_per_polygon_culling_enabled() -> bool {
-        ENABLE_PER_POLYGON_CULLING.load(Ordering::Relaxed)
+    pub fn is_per_polygon_culling_enabled(r3d: &crate::process_state::Renderer3dRuntime) -> bool {
+        r3d.enable_per_polygon_culling.load(Ordering::Relaxed)
     }
 
     /// Get the pass index for multi-pass rendering
@@ -621,7 +620,7 @@ impl TextureStageSettings {
     pub fn from_descriptor(descriptor: &ww3d_core::W3dTextureStruct) -> Self {
         let info = descriptor.texture_info;
         let attrs = info.attributes;
-        let renderer_cfg = config::get();
+        let renderer_cfg = crate::config::RendererConfig::default();
 
         let address_u = if attrs & ww3d_core::W3D_TEXTURE_CLAMP_U != 0 {
             TextureAddressMode::Clamp

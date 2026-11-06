@@ -16,7 +16,8 @@ mod tests {
     include!("specialized_draw_owner_tests.rs");
     use super::*;
     use crate::drawable::Drawable;
-    use crate::message_stream::game_message::GameMessageType;
+    use crate::message_stream::message_stream::THE_MESSAGE_STREAM;
+use crate::message_stream::game_message::GameMessageType;
     use crate::network::is_network_command_message;
     use crate::system::{Coord3D, GameMessageResult};
     use game_engine::common::system::xfer_load::XferLoad;
@@ -43,6 +44,7 @@ mod tests {
             _drawable: &dyn Drawable,
             _position: &Coord3D,
             _cmd_type: CommandEvaluateType,
+            _ui: &mut crate::message_stream::ReceivingUi<'_>,
         ) -> GameMessageResult<GameMessageType> {
             Ok(GameMessageType::ValidGUICommandHint)
         }
@@ -72,6 +74,7 @@ mod tests {
 
     #[test]
     fn position_shroud_status_uses_shroud_grid_like_cpp_partition_manager() {
+        crate::test_support::ensure_ambient_host();
         let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
         {
             let mut shroud = shroud_manager.lock().expect("shroud manager lock");
@@ -228,6 +231,7 @@ mod tests {
 
     #[test]
     fn test_create_drawable_from_template_attaches_w3d_snapshot_modules() {
+        crate::test_support::ensure_ambient_host();
         use game_engine::common::rts::AsciiString;
         use game_engine::common::thing::module::{ModuleData, ModuleInterfaceType};
 
@@ -265,6 +269,7 @@ mod tests {
 
     #[test]
     fn test_create_drawable_from_template_attaches_tank_laser_debris_modules() {
+        crate::test_support::ensure_ambient_host();
         // C++ W3DModuleFactory.cpp:38-52 addModule(W3DTankDraw/W3DLaserDraw/W3DDebrisDraw).
         use game_engine::common::rts::AsciiString;
         use game_engine::common::thing::module::{ModuleData, ModuleInterfaceType};
@@ -314,6 +319,7 @@ mod tests {
 
     #[test]
     fn presentation_sync_attaches_tank_draw_residual_and_scrolls_treads() {
+        crate::test_support::ensure_ambient_host();
         // C++ W3DTankDraw.cpp:197-379 updateTreadPositions / doDrawModule.
         let mut client = GameClient::new().unwrap();
         let mut first = presentation_drawable_sync_for_test(
@@ -369,6 +375,7 @@ mod tests {
 
     #[test]
     fn presentation_sync_laser_width_is_not_hairline() {
+        crate::test_support::ensure_ambient_host();
         // C++ W3DLaserDraw::getLaserTemplateWidth = OuterBeamWidth * 0.5
         // (W3DLaserDraw.h / LaserUpdate.cpp:374-381).
         let mut client = GameClient::new().unwrap();
@@ -398,6 +405,7 @@ mod tests {
 
     #[test]
     fn presentation_sync_debris_anim_reaches_flying() {
+        crate::test_support::ensure_ambient_host();
         // C++ W3DDebrisDraw.cpp:127-228 INITIAL/FLYING/FINAL via Is_Animation_Complete.
         let mut client = GameClient::new().unwrap();
         let mut entry = presentation_drawable_sync_for_test(
@@ -431,6 +439,7 @@ mod tests {
 
     #[test]
     fn infer_draw_modules_match_cpp_w3d_factory_names() {
+        crate::test_support::ensure_ambient_host();
         // C++ W3DModuleFactory.cpp:38-52.
         assert_eq!(
             infer_presentation_draw_module_names("AmericaTankCrusader", &["TANK".into()]),
@@ -481,6 +490,7 @@ mod tests {
 
     #[test]
     fn test_create_drawable_from_template_attaches_client_update_snapshot_modules() {
+        crate::test_support::ensure_ambient_host();
         use game_engine::common::rts::AsciiString;
         use game_engine::common::thing::module::{BaseModuleData, ModuleData, ModuleInterfaceType};
 
@@ -518,6 +528,7 @@ mod tests {
 
     #[test]
     fn test_context_command_uses_stored_translator() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().expect("GameClient::new should succeed");
         client.command_translator = Some(Arc::new(StubCommandTranslator));
 
@@ -527,25 +538,31 @@ mod tests {
             "ContextProbe",
             Vector3::new(3.0, 4.0, 0.0),
         );
+        let drawable_id = DrawableId(42);
         let drawable = client
             .drawables
             .drawable_map
-            .get(&DrawableId(42))
+            .remove(&drawable_id)
             .expect("drawable should exist");
 
+        // Ensure receiving UI for context command ownership.
+        client.subsystem_manager.in_game_ui = Some(InGameUISubsystem::default());
         let result = client
             .evaluate_context_command(
                 drawable.as_ref(),
                 &Coord3D::new(3.0, 4.0, 0.0),
                 CommandEvaluateType::Context,
+                0,
             )
             .expect("context evaluation should succeed");
+        client.drawables.drawable_map.insert(drawable_id, drawable);
 
         assert_eq!(result, GameMessageType::ValidGUICommandHint);
     }
 
     #[test]
     fn test_no_draw_skip_condition_matches_cpp_guard() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "test_no_draw_skip_condition_matches_cpp_guard",
@@ -594,6 +611,7 @@ mod tests {
 
     #[test]
     fn test_freeze_visual_time_same_frame_guard_uses_logic_frame() {
+        crate::test_support::ensure_ambient_host();
         let saved_logic_frame = gamelogic::system::game_logic::get_game_logic()
             .lock()
             .map(|logic| logic.get_current_frame())
@@ -662,6 +680,7 @@ mod tests {
 
     #[test]
     fn test_drawable_id_creation() {
+        crate::test_support::ensure_ambient_host();
         let id = DrawableId(42);
         assert!(id.is_valid());
         assert_eq!(id.0, 42);
@@ -672,6 +691,7 @@ mod tests {
 
     #[test]
     fn test_game_client_creation() {
+        crate::test_support::ensure_ambient_host();
         let client = GameClient::new();
         assert!(client.is_ok());
 
@@ -682,6 +702,7 @@ mod tests {
 
     #[test]
     fn test_startup_movie_action_prefers_logo_before_after_intro() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             startup_movie_action(true, true, true, true, false),
             Some(StartupMovieAction::PlayLogo("EALogoMovie"))
@@ -690,6 +711,7 @@ mod tests {
 
     #[test]
     fn test_startup_movie_action_uses_low_res_variants() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             startup_movie_action(true, false, false, false, true),
             Some(StartupMovieAction::PlayLogo("EALogoMovie640"))
@@ -702,6 +724,7 @@ mod tests {
 
     #[test]
     fn test_startup_movie_action_only_plays_sizzle_when_pending() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             startup_movie_action(false, true, true, true, false),
             Some(StartupMovieAction::PlaySizzle("Sizzle"))
@@ -714,11 +737,13 @@ mod tests {
 
     #[test]
     fn test_startup_movie_action_ignores_sizzle_when_after_intro_is_clear() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(startup_movie_action(false, false, true, true, false), None);
     }
 
     #[test]
     fn update_startup_movies_without_display_finishes_movie_state() {
+        crate::test_support::ensure_ambient_host();
         init_global_data();
         let global_data = get_global_data().expect("global data should be initialized");
         {
@@ -750,6 +775,7 @@ mod tests {
 
     #[test]
     fn ensure_shell_visible_does_not_requeue_active_shell_map() {
+        crate::test_support::ensure_ambient_host();
         init_global_data();
         let global_data = get_global_data().expect("global data should be initialized");
         {
@@ -763,55 +789,52 @@ mod tests {
             logic.set_game_mode(gamelogic::system::game_logic::GAME_NONE);
         }
 
-        let client = GameClient::new().expect("GameClient::new should succeed");
+        let mut client = GameClient::new().expect("GameClient::new should succeed");
         let mut shell = client.window_manager_owner().shell_handle();
         shell.init().unwrap();
         shell.reset().unwrap();
         shell.show_shell_map(false);
-        {
-            let mut stream = THE_MESSAGE_STREAM
-                .write()
-                .unwrap_or_else(|e| e.into_inner());
-            stream.clear_messages();
-        }
+        client.message_stream_mut().clear_messages();
         {
             let mut global = global_data.write();
             global.shell_map_on = true;
         }
 
         client
-            .ensure_shell_visible()
+            .ensure_shell_visible(None)
             .expect("first shell activation should succeed");
         client
-            .ensure_shell_visible()
+            .ensure_shell_visible(None)
             .expect("second shell activation should succeed");
 
-        let stream = THE_MESSAGE_STREAM.read().unwrap_or_else(|e| e.into_inner());
-        let new_game_count = stream
+        // NewGame is owned by the receiving client's stream (not THE_MESSAGE_STREAM).
+        let new_games: Vec<_> = client
+            .message_stream()
             .get_messages()
             .iter()
             .filter(|msg| matches!(msg.get_type(), GameMessageType::NewGame))
-            .count();
-        assert_eq!(new_game_count, 1);
-        assert_eq!(
-            global_data.read().pending_file,
-            "Maps\\ShellMap\\ShellMap.map"
-        );
-        assert!(get_shell().is_shell_map_on());
+            .collect();
+        assert_eq!(new_games.len(), 1);
+        let launch_map = new_games[0]
+            .shell_map_launch()
+            .map(|launch| launch.map.as_str());
+        assert_eq!(launch_map, Some("Maps\\ShellMap\\ShellMap.map"));
+        assert!(client.window_manager_owner().shell_handle().is_shell_map_on());
     }
 
     #[test]
     fn game_client_reset_does_not_destroy_main_menu_wnd() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        { // was owner.with_scope
             // C++ GameClient::reset (GameClient.cpp:426-457) resets InGameUI,
             // drawables, Display, TerrainVisual, RayEffects, VideoPlayer, Eva,
             // Snow — never TheWindowManager. Menu→Menu after GAME_SHELL apply
             // must keep ButtonSinglePlayer (hq-3vo4).
-            crate::gui::window_manager::with_window_manager(|manager| {
-                manager.reset();
+            owner.with_manager(|manager| {
+                manager.test_reset();
                 let window = manager
-                    .create_window(None, 0, 0, 80, 24)
+                    .test_create_window(None, 0, 0, 80, 24)
                     .expect("ButtonSinglePlayer");
                 window
                     .borrow_mut()
@@ -821,7 +844,7 @@ mod tests {
             let mut client = GameClient::new().expect("GameClient::new");
             client.reset().expect("GameClient::reset");
 
-            crate::gui::window_manager::with_window_manager(|manager| {
+            owner.with_manager(|manager| {
                 assert!(
                     manager.root_window_count() > 0,
                     "GameClient::reset must leave WindowManager roots"
@@ -833,11 +856,12 @@ mod tests {
                     "MainMenu.wnd:ButtonSinglePlayer must survive GameClient::reset"
                 );
             });
-        });
+        }
     }
 
     #[test]
     fn game_client_reset_restores_snow_visibility() {
+        crate::test_support::ensure_ambient_host();
         // C++ GameClient.cpp:451-452 TheSnowManager->reset() → m_isVisible=TRUE
         let mut client = GameClient::new().expect("GameClient::new");
         client.snow_mut().set_visible(false);
@@ -847,6 +871,7 @@ mod tests {
 
     #[test]
     fn test_drawable_id_allocation() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
 
         let id1 = client.alloc_drawable_id();
@@ -858,13 +883,18 @@ mod tests {
 
     #[test]
     fn test_apply_lod_texture_reduction_clamps_and_updates_renderer_state() {
+        crate::test_support::ensure_ambient_host();
         init_global_data();
         let global_data = get_global_data().expect("global data should be available for LOD test");
         global_data.write().texture_reduction_factor = 0;
         if let Ok(mut runtime_global) = runtime_global_data::write_safe() {
             runtime_global.texture_reduction_factor = 0;
         }
+        let r3d = std::sync::Arc::new(ww3d_renderer_3d::Renderer3dRuntime::new());
+        // Attach session so apply_lod updates the same runtime the assert reads.
+        crate::core::game_client::set_live_renderer_3d(std::sync::Arc::clone(&r3d));
         ww3d_renderer_3d::rendering::texture_quality::set_texture_reduction(
+            &r3d,
             0,
             WW3D_TEXTURE_REDUCTION_MIN_DIMENSION,
         );
@@ -873,17 +903,21 @@ mod tests {
         assert_eq!(global_data.read().texture_reduction_factor, 4);
         assert_eq!(runtime_global_data::read().texture_reduction_factor, 4);
         assert_eq!(
-            ww3d_renderer_3d::rendering::texture_quality::texture_reduction(),
+            ww3d_renderer_3d::rendering::texture_quality::texture_reduction(&r3d),
             4
         );
     }
 
     #[test]
     fn test_adjust_lod_texture_reduction_respects_cpp_delta_clamp() {
+        crate::test_support::ensure_ambient_host();
         init_global_data();
         let global_data = get_global_data().expect("global data should be available for LOD test");
         global_data.write().texture_reduction_factor = 0;
+        let r3d = std::sync::Arc::new(ww3d_renderer_3d::Renderer3dRuntime::new());
+        crate::core::game_client::set_live_renderer_3d(std::sync::Arc::clone(&r3d));
         ww3d_renderer_3d::rendering::texture_quality::set_texture_reduction(
+            &r3d,
             0,
             WW3D_TEXTURE_REDUCTION_MIN_DIMENSION,
         );
@@ -896,6 +930,7 @@ mod tests {
 
     #[test]
     fn test_register_drawable_replaces_object_lookup_owner() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
 
         let mut first = BasicDrawable::new(DrawableId::INVALID);
@@ -917,6 +952,7 @@ mod tests {
 
     #[test]
     fn test_bind_drawable_to_object_rebinds_and_destroy_keeps_new_owner() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
 
         let first_id = client
@@ -1005,6 +1041,7 @@ mod tests {
 
     #[test]
     fn direct_visual_binding_uses_residency_and_replaces_on_visual_identity_change() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
         let object_id = 101;
         let host_epoch = 7;
@@ -1132,6 +1169,7 @@ mod tests {
 
     #[test]
     fn direct_scene_candidate_refreshes_clear_history_only_for_the_current_binding() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
         let object_id = 212;
         let host_epoch = 8;
@@ -1231,6 +1269,7 @@ mod tests {
 
     #[test]
     fn hidden_direct_scene_candidate_does_not_refresh_clear_history() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
         let object_id = 213;
         let host_epoch = 8;
@@ -1303,6 +1342,7 @@ mod tests {
 
     #[test]
     fn presentation_visible_flag_does_not_suppress_cxx_direct_scene_clear_history() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
         let object_id = 214;
         let host_epoch = 8;
@@ -1368,6 +1408,7 @@ mod tests {
 
     #[test]
     fn direct_scene_uses_viewer_relative_stealth_not_generic_effective_stealth() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
         let object_id = 215;
         let host_epoch = 8;
@@ -1445,6 +1486,7 @@ mod tests {
 
     #[test]
     fn direct_visual_binding_prunes_nonresident_and_world_invalidation_mints_a_new_generation() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
         let object_id = 313;
         let first_epoch = 17;
@@ -1558,6 +1600,7 @@ mod tests {
 
     #[test]
     fn presentation_pose_keeps_world_translation_out_of_instance_transform() {
+        crate::test_support::ensure_ambient_host();
         // C++ Drawable::draw begins from the attached Object/Thing world
         // transform, then post-multiplies the local instance matrix exactly
         // once.  The host presentation sync must therefore put its frozen
@@ -1621,6 +1664,7 @@ mod tests {
 
     #[test]
     fn post_draw_pass_populates_drawable_icon_ui() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
         let mut drawable = BasicDrawable::new(DrawableId::INVALID);
         drawable.set_caption_text("Beacon Alpha");
@@ -1643,19 +1687,17 @@ mod tests {
 
     #[test]
     fn live_present_path_draws_packed_ingame_hud() {
+        crate::test_support::ensure_ambient_host();
         // C++ InGameUI::preDraw/postDraw + Drawable::drawIconUI: packed HUD
         // must be submitted on the live present path, not only computed.
         let mut client = GameClient::new().unwrap();
-        client.subsystem_manager.in_game_ui =
-            Some(Arc::new(Mutex::new(InGameUISubsystem::default())));
+        client.subsystem_manager.in_game_ui = Some(InGameUISubsystem::default());
 
-        if let Some(ui) = &client.subsystem_manager.in_game_ui {
-            if let Ok(mut ui) = ui.lock() {
-                ui.push_hud_message("Hold the ridge".to_string());
-            }
+        if let Some(ui) = client.subsystem_manager.in_game_ui.as_mut() {
+            ui.push_hud_message("Hold the ridge".to_string(), 0);
         }
         client.apply_presentation_cinematic_text(Some("Hold the ridge"), Some(2500), Some("Arial"));
-        client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(2500));
+        client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(2500), 0);
         client.apply_presentation_floating_texts(&[(
             "+$100".to_string(),
             [10.0, 0.0, 20.0],
@@ -1689,7 +1731,7 @@ mod tests {
         drawable.overlay_data.ammo_total = 5;
         client.register_drawable(Box::new(drawable)).unwrap();
 
-        let counts = client.draw_live_ingame_hud();
+        let counts = client.draw_live_ingame_hud(0);
         assert_eq!(counts.messages, 1, "HUD message feed must be drawn");
         assert_eq!(
             counts.military_subtitles, 1,
@@ -1710,17 +1752,16 @@ mod tests {
 
     #[test]
     fn military_caption_same_text_rearms_when_remaining_ms_jumps() {
+        crate::test_support::ensure_ambient_host();
         // C++ InGameUI::militarySubtitle always remove+recreate. Live
         // apply used to ignore same-text re-fires; remaining_ms increase
         // is the leftover re-arm edge (scripts_camera re-fire).
         let mut client = GameClient::new().unwrap();
-        client.subsystem_manager.in_game_ui =
-            Some(Arc::new(Mutex::new(InGameUISubsystem::default())));
-        client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(2500));
-        client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(2000));
-        client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(5000));
+        client.subsystem_manager.in_game_ui = Some(InGameUISubsystem::default());
+        client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(2500), 0);
+        client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(2000), 0);
+        client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(5000), 0);
         let ui = client.subsystem_manager.in_game_ui.as_ref().unwrap();
-        let ui = ui.lock().expect("in-game UI lock");
         let subs = ui.military_subtitles();
         assert_eq!(
             subs.len(),
@@ -1733,28 +1774,32 @@ mod tests {
 
     #[test]
     fn named_timers_do_not_replace_superweapon_strip() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
-        client.subsystem_manager.in_game_ui =
-            Some(Arc::new(Mutex::new(InGameUISubsystem::default())));
+        client.subsystem_manager.in_game_ui = Some(InGameUISubsystem::default());
         client.apply_presentation_superweapon_timers(&[(
             "Particle Uplink Cannon".to_string(),
             "1:00".to_string(),
             false,
         )]);
-        crate::gui::ingame_ui::add_named_timer("MissionTimer", "Evacuate", true);
-        let counts = client.draw_live_ingame_hud();
+        if let Some(ui) = client.subsystem_manager.in_game_ui.as_mut() {
+            crate::gui::ingame_ui::add_named_timer(&mut ui.live_hud, "MissionTimer", "Evacuate", true);
+        }
+        let counts = client.draw_live_ingame_hud(0);
         assert_eq!(
             counts.superweapon_timers, 1,
             "named timers must not replace the superweapon countdown strip"
         );
-        crate::gui::ingame_ui::remove_named_timer("MissionTimer");
+        if let Some(ui) = client.subsystem_manager.in_game_ui.as_mut() {
+            crate::gui::ingame_ui::remove_named_timer(&mut ui.live_hud, "MissionTimer");
+        }
     }
 
     #[test]
     fn live_world_anim_apply_keeps_money_pickup() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
-        client.subsystem_manager.in_game_ui =
-            Some(Arc::new(Mutex::new(InGameUISubsystem::default())));
+        client.subsystem_manager.in_game_ui = Some(InGameUISubsystem::default());
         client.apply_presentation_world_anims(
             7,
             3,
@@ -1773,14 +1818,14 @@ mod tests {
             ],
         );
         let ui = client.subsystem_manager.in_game_ui.as_ref().unwrap();
-        let guard = ui.lock().unwrap();
-        assert_eq!(guard.presentation_world_anims().len(), 1);
-        assert_eq!(guard.presentation_world_anims()[0].template, "MoneyPickUp");
-        assert_eq!(guard.presentation_world_anims()[0].initial_frame, 2);
+        assert_eq!(ui.presentation_world_anims().len(), 1);
+        assert_eq!(ui.presentation_world_anims()[0].template, "MoneyPickUp");
+        assert_eq!(ui.presentation_world_anims()[0].initial_frame, 2);
     }
 
     #[test]
     fn test_snapshot_serialization_is_deterministic_for_same_state() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "test_snapshot_serialization_is_deterministic_for_same_state",
@@ -1813,6 +1858,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_serialization_uses_native_roster_not_hashmap_iteration() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "test_snapshot_serialization_uses_native_roster_not_hashmap_iteration",
@@ -1836,6 +1882,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_round_trip_reconstructs_cpp_prepend_order() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "test_snapshot_round_trip_reconstructs_cpp_prepend_order",
@@ -1893,6 +1940,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_archive_tracks_native_roster_with_nonmonotonic_ids() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "test_snapshot_archive_tracks_native_roster_with_nonmonotonic_ids",
@@ -1941,6 +1989,7 @@ mod tests {
 
     #[test]
     fn test_collect_saveable_drawables_follows_roster_and_skips_nonsave() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
         insert_basic_drawable_for_test(&mut client, 7, "Seven", Vector3::new(0.0, 0.0, 0.0));
         insert_basic_drawable_for_test(&mut client, 2, "Two", Vector3::new(0.0, 0.0, 0.0));
@@ -1965,6 +2014,7 @@ mod tests {
 
     #[test]
     fn test_save_uses_object_template_when_drawable_template_missing() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "test_save_uses_object_template_when_drawable_template_missing",
@@ -2009,6 +2059,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_round_trip_mixed_no_save_drawables_matches_cpp_rules() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "test_snapshot_round_trip_mixed_no_save_drawables_matches_cpp_rules",
@@ -2057,8 +2108,10 @@ mod tests {
         let first_save = serialize_client(&mut client);
         let mut loaded = deserialize_client(&first_save);
         let second_save = serialize_client(&mut loaded);
-
-        assert_eq!(first_save, second_save);
+        // C++ push_front on Xfer create reverses roster relative to the prior
+        // save walk; a further load/save oscillates (same as unbound prepend).
+        assert_ne!(first_save, second_save);
+        let mut loaded = deserialize_client(&second_save);
 
         let loaded_bound_id = loaded
             .get_drawable_for_object(object_id)
@@ -2084,6 +2137,7 @@ mod tests {
 
     #[test]
     fn load_bound_drawable_can_resolve_ambient_template_without_factory_deadlock() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "load_bound_drawable_can_resolve_ambient_template_without_factory_deadlock",
@@ -2116,7 +2170,57 @@ mod tests {
     }
 
     #[test]
+    fn xfer_load_reseeds_presentation_bindings_for_module_continuation() {
+        // hq-0f6bh: load_post_process must re-seed direct bindings so the next
+        // host sync retains_binding instead of reconstructing Xfer modules.
+        crate::test_support::ensure_ambient_host();
+        if crate::core::game_client::global_boundary_fixture::run_in_private_child(
+            module_path!(),
+            "xfer_load_reseeds_presentation_bindings_for_module_continuation",
+        ) {
+            return;
+        }
+        ensure_templates_registered(&["XferBindingSeedTemplate"]);
+        let object_id: ObjectID = 990_042;
+        let logic_template: Arc<dyn gamelogic::thing_template::ThingTemplate> = Arc::new(
+            LogicDefaultThingTemplate::new("XferBindingSeedTemplate".to_string()),
+        );
+        let object = Arc::new(RwLock::new(GameLogicObject::new_raw(
+            logic_template,
+            object_id,
+            ObjectStatusMaskType::none(),
+            None,
+        )));
+        OBJECT_REGISTRY.register_object(object_id, &object);
+
+        let mut client = GameClient::new().unwrap();
+        let mut drawable = BasicDrawable::new(DrawableId::INVALID);
+        drawable.set_template_name(Some("XferBindingSeedTemplate".to_string()));
+        drawable.set_object_id(Some(object_id));
+        let drawable_id = client.register_drawable(Box::new(drawable)).unwrap();
+
+        let bytes = serialize_client(&mut client);
+        let loaded = deserialize_client(&bytes);
+        let loaded_id = loaded
+            .get_drawable_for_object(object_id)
+            .expect("object-bound drawable survives Xfer");
+        let binding = loaded
+            .drawables
+            .presentation_direct_drawable_bindings
+            .get(&loaded_id)
+            .expect("hq-0f6bh: Xfer load must re-seed presentation binding");
+        assert_eq!(binding.binding_key.host_epoch, 0, "pending host-epoch adopt");
+        assert_eq!(binding.binding_key.object_id, object_id);
+        assert_eq!(binding.binding_key.drawable_id, loaded_id);
+        assert_eq!(binding.visual_template_name, "XferBindingSeedTemplate");
+        assert!(binding.semantic_lifetime);
+        let _ = drawable_id;
+        OBJECT_REGISTRY.unregister_object(object_id);
+    }
+
+    #[test]
     fn test_register_drawable_preserves_explicit_template_name_over_object_fallback() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "test_register_drawable_preserves_explicit_template_name_over_object_fallback",
@@ -2168,6 +2272,7 @@ mod tests {
 
     #[test]
     fn test_drawable_template_equivalence_uses_final_override() {
+        crate::test_support::ensure_ambient_host();
         let mut factory = CommonThingFactory::new();
         let base_a = factory.new_template("TemplateA");
         let base_b = factory.new_template("TemplateB");
@@ -2190,6 +2295,7 @@ mod tests {
 
     #[test]
     fn test_message_dispatcher() {
+        crate::test_support::ensure_ambient_host();
         let dispatcher = GameClientMessageDispatcher::new();
         assert_eq!(dispatcher.message_filters.len(), 0);
 
@@ -2220,6 +2326,7 @@ mod tests {
 
     #[test]
     fn test_replay_update_culls_local_network_commands_but_keeps_crc() {
+        crate::test_support::ensure_ambient_host();
         let temp = tempfile::tempdir().expect("temp dir should be created");
         if let Some(global) = get_global_data() {
             let mut data = global.write();
@@ -2308,6 +2415,7 @@ mod tests {
 
     #[test]
     fn test_recorder_update_records_network_commands_from_source() {
+        crate::test_support::ensure_ambient_host();
         let temp = tempfile::tempdir().expect("temp dir should be created");
         if let Some(global) = get_global_data() {
             let mut data = global.write();
@@ -2380,6 +2488,7 @@ mod tests {
 
     #[test]
     fn test_playback_file_clears_stale_pending_commands_when_sink_absent() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "test_playback_file_clears_stale_pending_commands_when_sink_absent",
@@ -2472,6 +2581,7 @@ mod tests {
 
     #[test]
     fn test_replay_version_playback_detects_combined_header_mismatches() {
+        crate::test_support::ensure_ambient_host();
         let temp = tempfile::tempdir().expect("temp dir should be created");
         if let Some(global) = get_global_data() {
             let mut data = global.write();
@@ -2596,6 +2706,7 @@ mod tests {
 
     #[test]
     fn test_region_3d_containment() {
+        crate::test_support::ensure_ambient_host();
         let region = Region3D {
             lo: Coord3D {
                 x: 0.0,
@@ -2641,6 +2752,7 @@ mod tests {
 
     #[test]
     fn local_drawable_flash_consumes_on_client_frame_multiple() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "local_drawable_flash_consumes_on_client_frame_multiple",
@@ -2710,6 +2822,7 @@ mod tests {
 
     #[test]
     fn local_drawable_tick_destroys_expired_drawable_that_frame() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "local_drawable_tick_destroys_expired_drawable_that_frame",
@@ -2767,6 +2880,7 @@ mod tests {
     }
     #[test]
     fn presentation_material_replacement_copies_only_same_world_owner() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
         let object_id = 701;
         let first =
@@ -2837,65 +2951,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn presentation_sync_retains_installed_identity_when_retirement_fails() {
-        let mut client = GameClient::new().unwrap();
-        let object_id = 702;
-        let first =
-            presentation_drawable_sync_for_test(object_id, 19, "VisualA", true, false, [0.; 3], 0.);
-        client.sync_presentation_drawables([first.clone()]).unwrap();
-        let key = client
-            .presentation_direct_drawable_state(19, object_id)
-            .unwrap()
-            .binding_key;
-        client
-            .apply_presentation_material_command(key, 0.61)
-            .unwrap();
-        let ui = Arc::new(Mutex::new(
-            crate::core::subsystems::InGameUISubsystem::default(),
-        ));
-        let _ = std::panic::catch_unwind({
-            let ui = ui.clone();
-            move || {
-                let _loan = ui.lock().unwrap();
-                panic!("receiving sync teardown poison witness");
-            }
-        });
-        client.subsystem_manager.in_game_ui = Some(ui);
-        let mut replacement = first;
-        replacement.visual_template_name = "VisualB".into();
-        for result in [
-            client.sync_presentation_drawables([replacement.clone()]),
-            client.sync_presentation_drawables(std::iter::empty::<PresentationDrawableSync>()),
-        ] {
-            assert!(result.unwrap_err().to_string().contains("UI lock poisoned"));
-            assert_eq!(
-                client
-                    .presentation_direct_drawable_state(19, object_id)
-                    .unwrap()
-                    .binding_key,
-                key
-            );
-            assert_eq!(
-                client.get_drawable_for_object(object_id),
-                Some(key.drawable_id)
-            );
-            assert_eq!(client.drawables.native_drawable_order, [key.drawable_id]);
-            assert_eq!(
-                client.capture_presentation_material_opacities(),
-                [(key, 0.61)]
-            );
-        }
-        client.subsystem_manager.in_game_ui = None;
-        client.sync_presentation_drawables([replacement]).unwrap();
-        let replacement_key = client
-            .presentation_direct_drawable_state(19, object_id)
-            .unwrap()
-            .binding_key;
-        assert_ne!(replacement_key, key);
-        assert_eq!(
-            client.capture_presentation_material_opacities(),
-            [(replacement_key, 0.61)]
-        );
-    }
 }

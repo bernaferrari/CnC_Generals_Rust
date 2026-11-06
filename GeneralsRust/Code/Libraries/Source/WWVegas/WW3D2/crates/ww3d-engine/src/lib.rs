@@ -12,7 +12,6 @@
 //! with proper frame timing, update phases, and rendering.
 
 use log::info;
-use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::fs::{self, File};
@@ -21,13 +20,23 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use ww3d_core::ensure_class_registry_initialized;
-use ww3d_gpu::{GpuDevice, GpuError, shared_device};
+use ww3d_gpu::{DeviceAuthority, GpuDevice, GpuError};
 
+mod frame_stats;
 mod frame_submit;
+pub use frame_stats::{GpuObjectCounts, RenderFrameStats};
+/// Shared handle for explicit frame-submit ownership.
+pub type FrameSubmitHandle = Arc<Mutex<frame_submit::FrameSubmitState>>;
+
+pub fn new_frame_submit_handle() -> FrameSubmitHandle {
+    Arc::new(Mutex::new(frame_submit::FrameSubmitState::new()))
+}
+
 pub use frame_submit::{
-    FrameCommandPhase, OutOfFrameReason, SUBMIT_DEBUG_ENV, frame_is_active,
-    last_frame_submit_count, last_out_of_frame_submit_count, on_begin_frame, reset_submit_debug,
-    submit_out_of_frame, submit_owned_frame, submit_recorded, total_owned_submits,
+    FrameCommandPhase, FrameSubmitState, OutOfFrameReason, SUBMIT_DEBUG_ENV, frame_is_active,
+    last_frame_submit_count, last_out_of_frame_submit_count, on_begin_frame,
+    reset_submit_debug, submit_out_of_frame, submit_owned_frame, submit_recorded,
+    total_owned_submits,
 };
 
 // Re-export core types
@@ -242,6 +251,11 @@ struct WindowSurfaceState {
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     depth: Option<DepthTarget>,
+    /// COPY_SRC target used when Metal returns Occluded/Timeout so present-frame
+    /// gates can still read a real GPU backbuffer instead of the procedural PNG.
+    occlusion_fallback: HeadlessTarget,
+    /// Present modes the surface supports (for swap-interval changes).
+    present_modes: Vec<wgpu::PresentMode>,
 }
 
 impl WindowSurfaceState {
@@ -290,10 +304,37 @@ impl WindowSurfaceState {
 
         surface.configure(device, &surface_config);
 
+        let occlusion_fallback = HeadlessTarget::new(
+            device,
+            surface_config.width,
+            surface_config.height,
+            surface_config.format,
+            config.enable_depth.then_some(config.depth_format),
+            config.sample_count,
+        );
+
         Self {
             surface,
             config: surface_config,
             depth,
+            occlusion_fallback,
+            present_modes: capabilities.present_modes,
+        }
+    }
+
+    /// C++ DX8 presentation interval: ONE (vsync) when `interval > 0`, else
+    /// IMMEDIATE. Reconfigures only when the chosen mode changes.
+    fn set_swap_interval(&mut self, device: &wgpu::Device, interval: i32) {
+        let desired = if interval > 0 {
+            wgpu::PresentMode::Fifo
+        } else {
+            wgpu::PresentMode::Immediate
+        };
+        let mode = select_present_mode(&self.present_modes, Some(desired));
+        if mode != self.config.present_mode {
+            self.config.present_mode = mode;
+            self.surface.configure(device, &self.config);
+            info!("WW3D swap interval {interval}: present_mode={mode:?}");
         }
     }
 
@@ -312,6 +353,7 @@ impl WindowSurfaceState {
         if let Some(depth) = &mut self.depth {
             depth.resize(device, width, height);
         }
+        self.occlusion_fallback.resize(device, width, height);
     }
 
     fn color_format(&self) -> wgpu::TextureFormat {
@@ -633,7 +675,10 @@ pub struct RenderFrame {
     color_texture: wgpu::Texture,
 
     surface_texture: Option<wgpu::SurfaceTexture>,
-    _start_time: Instant,
+    /// True when this frame rendered into the window occlusion fallback target.
+    rendered_offscreen: bool,
+    start_time: Instant,
+    stats_probe: frame_stats::FrameStatsProbe,
     frame_index: u64,
     color_format: wgpu::TextureFormat,
     /// Frame timing information
@@ -641,9 +686,19 @@ pub struct RenderFrame {
 }
 
 impl RenderFrame {
+    /// Count one render pass recorded into this frame's encoder (frame stats).
+    pub fn note_render_pass(&mut self) {
+        self.stats_probe.render_passes = self.stats_probe.render_passes.saturating_add(1);
+    }
+
     /// Whether ending this frame can present a real window surface.
     pub fn has_window_surface(&self) -> bool {
         self.surface_texture.is_some()
+    }
+
+    /// Real GPU color was produced this frame (window present or occlusion fallback).
+    pub fn has_gpu_color_target(&self) -> bool {
+        self.surface_texture.is_some() || self.rendered_offscreen
     }
 
     /// Borrow the command encoder to record render passes.
@@ -717,6 +772,14 @@ impl RenderFrame {
     }
 }
 
+/// Frame clock override used by deterministic golden captures: every frame
+/// reports the same total time and delta instead of wall time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FixedClock {
+    pub total_time: Duration,
+    pub delta_time: Duration,
+}
+
 /// FPS calculation helper
 #[derive(Debug, Clone)]
 struct FpsCounter {
@@ -777,8 +840,11 @@ pub struct Engine {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     gpu_device: Arc<GpuDevice>,
+    device_authority: DeviceAuthority,
     surface: SurfaceMode,
     settings: EngineSettings,
+    /// Owned frame-submit bookkeeping (C++ one in-flight WW3D device frame).
+    pub(crate) frame_submit: Arc<Mutex<frame_submit::FrameSubmitState>>,
     frame_active: bool,
     frame_index: u64,
     last_frame_start: Option<Instant>,
@@ -807,6 +873,10 @@ pub struct Engine {
     /// Reference: ww3d.cpp:88, ww3d.h:297
     previous_sync_time: u32,
     pending_screenshot_readbacks: Vec<ScreenshotReadback>,
+    /// Counters of the last submitted frame (renderer plan R0).
+    last_frame_stats: RenderFrameStats,
+    /// Deterministic clock override (golden capture); `None` = wall clock.
+    fixed_clock: Option<FixedClock>,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -821,6 +891,9 @@ unsafe impl Send for Engine {}
 // is never accessed from two threads and the handles' `!Sync` default is
 // unreachable.
 unsafe impl Sync for Engine {}
+
+/// Host-owned WW3D engine handle (no process singleton).
+pub type SharedEngine = Arc<Mutex<Engine>>;
 
 impl Engine {
     /// Create a windowed engine instance using the supplied surface target.
@@ -841,6 +914,21 @@ impl Engine {
     /// - Async device initialization
     /// - Thread-safe resource management
     /// - Cross-platform compatibility
+    pub fn new_windowed_blocking<W>(window: W, config: EngineConfig) -> EngineResult<Self>
+    where
+        W: Into<wgpu::SurfaceTarget<'static>> + Send + Sync + 'static,
+    {
+        pollster::block_on(Self::new_windowed(window, config))
+    }
+
+    pub fn new_headless_blocking(config: EngineConfig) -> EngineResult<Self> {
+        pollster::block_on(Self::new_headless(config))
+    }
+
+    pub fn into_shared(self) -> SharedEngine {
+        Arc::new(Mutex::new(self))
+    }
+
     pub async fn new_windowed<W>(window: W, config: EngineConfig) -> EngineResult<Self>
     where
         W: Into<wgpu::SurfaceTarget<'static>> + Send + Sync + 'static,
@@ -855,8 +943,17 @@ impl Engine {
         let adapter = request_adapter(&instance, Some(&surface), config.power_preference).await?;
         let adapter_info = adapter.get_info();
 
-        let gpu_device =
-            acquire_or_create_gpu_device(&adapter, config.features, config.limits.clone()).await?;
+        let (gpu_device, device_authority) = {
+            let authority = DeviceAuthority::new();
+            let gpu = acquire_or_create_gpu_device(
+                &adapter,
+                config.features,
+                config.limits.clone(),
+                &authority,
+            )
+            .await?;
+            (gpu, authority)
+        };
 
         let device = gpu_device.device_arc();
         let queue = gpu_device.queue_arc();
@@ -874,8 +971,10 @@ impl Engine {
             device,
             queue,
             gpu_device,
+            device_authority,
             surface: SurfaceMode::Windowed(surface_state),
             settings: EngineSettings::default(),
+            frame_submit: Arc::new(Mutex::new(frame_submit::FrameSubmitState::new())),
             frame_active: false,
             frame_index: 0,
             last_frame_start: None,
@@ -890,6 +989,8 @@ impl Engine {
             sync_time: 0,
             previous_sync_time: 0,
             pending_screenshot_readbacks: Vec::new(),
+            last_frame_stats: RenderFrameStats::default(),
+            fixed_clock: None,
         })
     }
 
@@ -909,8 +1010,17 @@ impl Engine {
         let adapter = request_adapter(&instance, None, config.power_preference).await?;
         let adapter_info = adapter.get_info();
 
-        let gpu_device =
-            acquire_or_create_gpu_device(&adapter, config.features, config.limits.clone()).await?;
+        let (gpu_device, device_authority) = {
+            let authority = DeviceAuthority::new();
+            let gpu = acquire_or_create_gpu_device(
+                &adapter,
+                config.features,
+                config.limits.clone(),
+                &authority,
+            )
+            .await?;
+            (gpu, authority)
+        };
 
         let device = gpu_device.device_arc();
         let queue = gpu_device.queue_arc();
@@ -939,8 +1049,10 @@ impl Engine {
             device,
             queue,
             gpu_device,
+            device_authority,
             surface: SurfaceMode::Headless(target),
             settings: EngineSettings::default(),
+            frame_submit: Arc::new(Mutex::new(frame_submit::FrameSubmitState::new())),
             frame_active: false,
             frame_index: 0,
             last_frame_start: None,
@@ -955,6 +1067,8 @@ impl Engine {
             sync_time: 0,
             previous_sync_time: 0,
             pending_screenshot_readbacks: Vec::new(),
+            last_frame_stats: RenderFrameStats::default(),
+            fixed_clock: None,
         })
     }
 
@@ -966,7 +1080,12 @@ impl Engine {
             .map(|last| now.duration_since(last))
             .unwrap_or(Duration::from_secs_f32(1.0 / 60.0));
 
-        let total_time = now.duration_since(self.start_time);
+        let mut total_time = now.duration_since(self.start_time);
+        let mut delta_time = delta_time;
+        if let Some(fixed) = self.fixed_clock {
+            total_time = fixed.total_time;
+            delta_time = fixed.delta_time;
+        }
 
         self.fps_counter.record_frame(now);
 
@@ -1021,6 +1140,11 @@ impl Engine {
     /// - Movie capture frame grabbing
     /// - Viewport setup for clearing
     /// - Scene begin
+    /// Shared frame-submit bookkeeping (explicit ownership; no process bridge).
+    pub fn frame_submit_state(&self) -> FrameSubmitHandle {
+        Arc::clone(&self.frame_submit)
+    }
+
     pub fn begin_render(&mut self) -> EngineResult<RenderFrame> {
         if self.frame_active {
             return Err(EngineError::FrameInProgress);
@@ -1043,7 +1167,12 @@ impl Engine {
             .map(|last| start_time.duration_since(last))
             .unwrap_or(Duration::from_secs_f32(1.0 / 60.0));
 
-        let total_time = start_time.duration_since(self.start_time);
+        let mut total_time = start_time.duration_since(self.start_time);
+        let mut delta_time = delta_time;
+        if let Some(fixed) = self.fixed_clock {
+            total_time = fixed.total_time;
+            delta_time = fixed.delta_time;
+        }
 
         let timing = FrameTiming {
             frame_number: self.frame_index,
@@ -1066,52 +1195,98 @@ impl Engine {
         self.frame_clock_open = false;
         self.last_emitted_timing = Some(timing);
 
-        let encoder = self
-            .gpu_device
-            .create_command_encoder(Some("WW3D Frame Encoder"));
+        // Counters are sampled before any frame object (encoder included) exists.
+        let stats_probe = frame_stats::FrameStatsProbe::begin(&self.device);
 
         match &mut self.surface {
             SurfaceMode::Windowed(surface_state) => {
-                let frame = ww3d_gpu::acquire_surface_texture(&surface_state.surface)?;
-                let view = Arc::new(
-                    frame
-                        .texture
-                        .create_view(&wgpu::TextureViewDescriptor::default()),
-                );
-
-                let depth_view = surface_state.depth_view();
-
-                self.frame_active = true;
-                frame_submit::on_begin_frame();
-                Ok(RenderFrame {
-                    device: Arc::clone(&self.device),
-                    queue: Arc::clone(&self.queue),
-                    encoder,
-                    color_view: view,
-                    depth_view,
-                    color_texture: frame.texture.clone(),
-                    surface_texture: Some(frame),
-                    _start_time: start_time,
-                    frame_index: self.frame_index,
-                    color_format: self.color_format,
-                    timing,
-                })
+                match ww3d_gpu::acquire_surface_texture(&surface_state.surface) {
+                    Ok(frame) => {
+                        let view = Arc::new(
+                            frame
+                                .texture
+                                .create_view(&wgpu::TextureViewDescriptor::default()),
+                        );
+                        let depth_view = surface_state.depth_view();
+                        self.frame_active = true;
+                        self.frame_submit.lock().on_begin_frame();
+                        Ok(RenderFrame {
+                            device: Arc::clone(&self.device),
+                            queue: Arc::clone(&self.queue),
+                            encoder: self
+                                .gpu_device
+                                .create_command_encoder(Some("WW3D Frame Encoder")),
+                            color_view: view,
+                            depth_view,
+                            color_texture: frame.texture.clone(),
+                            surface_texture: Some(frame),
+                            rendered_offscreen: false,
+                            start_time,
+                            stats_probe,
+                            frame_index: self.frame_index,
+                            color_format: self.color_format,
+                            timing,
+                        })
+                    }
+                    Err(err)
+                        if matches!(
+                            err,
+                            ww3d_gpu::GpuError::SurfaceOccluded
+                                | ww3d_gpu::GpuError::SurfaceTimeout
+                        ) =>
+                    {
+                        // Metal returns Occluded when the Aqua window is not
+                        // composited (common for non-interactive smoke). Keep
+                        // drawing into a COPY_SRC fallback so screenshots and
+                        // live_frame residuals still observe real GPU content.
+                        let view = surface_state.occlusion_fallback.color_view();
+                        let depth_view = surface_state
+                            .occlusion_fallback
+                            .depth_view()
+                            .or_else(|| surface_state.depth_view());
+                        let color_texture = surface_state.occlusion_fallback.texture().clone();
+                        self.frame_active = true;
+                        self.frame_submit.lock().on_begin_frame();
+                        Ok(RenderFrame {
+                            device: Arc::clone(&self.device),
+                            queue: Arc::clone(&self.queue),
+                            encoder: self
+                                .gpu_device
+                                .create_command_encoder(Some("WW3D Frame Encoder")),
+                            color_view: view,
+                            depth_view,
+                            color_texture,
+                            surface_texture: None,
+                            rendered_offscreen: true,
+                            start_time,
+                            stats_probe,
+                            frame_index: self.frame_index,
+                            color_format: self.color_format,
+                            timing,
+                        })
+                    }
+                    Err(err) => Err(err.into()),
+                }
             }
             SurfaceMode::Headless(target) => {
                 let color_view = target.color_view();
                 let depth_view = target.depth_view();
 
                 self.frame_active = true;
-                frame_submit::on_begin_frame();
+                self.frame_submit.lock().on_begin_frame();
                 Ok(RenderFrame {
                     device: Arc::clone(&self.device),
                     queue: Arc::clone(&self.queue),
-                    encoder,
+                    encoder: self
+                        .gpu_device
+                        .create_command_encoder(Some("WW3D Frame Encoder")),
                     color_view,
                     depth_view,
                     color_texture: target.color.clone(),
                     surface_texture: None,
-                    _start_time: start_time,
+                    rendered_offscreen: false,
+                    start_time,
+                    stats_probe,
                     frame_index: self.frame_index,
                     color_format: self.color_format,
                     timing,
@@ -1149,17 +1324,54 @@ impl Engine {
             depth_view: _,
             color_texture: _,
             mut surface_texture,
-            _start_time: _,
+            rendered_offscreen: frame_rendered_offscreen,
+            start_time,
+            stats_probe,
             frame_index: _,
             color_format: _,
             timing: _,
         } = frame;
 
         let command_buffer = encoder.finish();
+        self.last_frame_stats =
+            stats_probe.finish(&self.device, self.frame_index, start_time.elapsed());
         // Frame-owned submit: uploads + this encoder + overlays in one queue.submit.
-        frame_submit::submit_owned_frame(&self.queue, command_buffer, self.frame_index);
+        self.frame_submit.lock().submit_owned_frame(&self.queue, command_buffer, self.frame_index);
 
+        let rendered_offscreen = frame_rendered_offscreen;
         self.process_pending_screenshots(surface_texture.as_ref())?;
+        if surface_texture.is_none() && rendered_offscreen {
+            // Capture from the occlusion fallback color target.
+            let occlusion = if let SurfaceMode::Windowed(surface_state) = &self.surface {
+                let (width, height) = surface_state.occlusion_fallback.size();
+                Some((
+                    surface_state.occlusion_fallback.texture().clone(),
+                    width,
+                    height,
+                    surface_state.occlusion_fallback.format,
+                ))
+            } else {
+                None
+            };
+            if let Some((texture, width, height, format)) = occlusion {
+                let requests: Vec<_> = self.settings.pending_screenshots.drain(..).collect();
+                for request in requests {
+                    if let Err(err) = self.queue_texture_capture_readback(
+                        &texture,
+                        width,
+                        height,
+                        format,
+                        &request.path,
+                    ) {
+                        eprintln!(
+                            "WW3D occlusion-fallback screenshot queue failed for {}: {}",
+                            request.path.display(),
+                            err
+                        );
+                    }
+                }
+            }
+        }
 
         if let Some(texture) = surface_texture.take() {
             self.gpu_device.present_surface_texture(texture);
@@ -1168,6 +1380,16 @@ impl Engine {
         }
 
         Ok(())
+    }
+
+    /// Replace wall time with a fixed clock (`None` restores wall time).
+    pub fn set_fixed_clock(&mut self, clock: Option<FixedClock>) {
+        self.fixed_clock = clock;
+    }
+
+    /// Counters of the most recently submitted frame.
+    pub fn last_frame_stats(&self) -> RenderFrameStats {
+        self.last_frame_stats
     }
 
     /// Get current frame timing information
@@ -1285,6 +1507,9 @@ impl Engine {
     /// Configure the swap interval (VSync) equivalent.
     pub fn set_swap_interval(&mut self, interval: i32) {
         self.settings.swap_interval = interval.max(0);
+        if let SurfaceMode::Windowed(surface_state) = &mut self.surface {
+            surface_state.set_swap_interval(&self.device, self.settings.swap_interval);
+        }
     }
 
     /// Retrieve the swap interval.
@@ -1365,6 +1590,11 @@ impl Engine {
     /// Depth-stencil format currently configured, if any.
     pub fn depth_format(&self) -> Option<wgpu::TextureFormat> {
         self._depth_format
+    }
+
+    /// Schedule a screenshot captured on the next completed frame.
+    pub fn make_screenshot<P: AsRef<Path>>(&mut self, path: P) {
+        self.queue_screenshot(path.as_ref().to_path_buf());
     }
 
     fn queue_screenshot(&mut self, path: PathBuf) {
@@ -1552,7 +1782,7 @@ impl Engine {
         );
 
         // Out-of-frame: copy must run after the frame encoder has already been submitted.
-        frame_submit::submit_out_of_frame(
+        self.frame_submit.lock().submit_out_of_frame(
             &self.queue,
             std::iter::once(encoder.finish()),
             frame_submit::OutOfFrameReason::ScreenshotReadback,
@@ -1579,24 +1809,95 @@ impl Engine {
     }
 
     fn flush_pending_screenshot_readbacks(&mut self) {
+        // Hot-path only: never wait_indefinitely or PNG-encode on the present
+        // thread. C++ W3D has no per-frame screenshot finalize in end_render;
+        // the runtime-host capture bridge polls until the file appears.
+        // Ready maps are converted and encoded on a worker so ForwardPass /
+        // present_ms stay honest.
         let mut remaining = Vec::new();
         for pending in std::mem::take(&mut self.pending_screenshot_readbacks) {
             match pending.completion.try_recv() {
                 Ok(Ok(())) => {
-                    if let Err(err) = self.finish_screenshot_readback(pending) {
+                    if let Err(err) = Self::finish_screenshot_readback_async(pending) {
                         eprintln!("WW3D screenshot finalize failed: {}", err);
                     }
                 }
-                Ok(Err(err)) => {
-                    eprintln!("WW3D screenshot GPU map failed: {}", err);
-                }
+                Ok(Err(err)) => eprintln!("WW3D screenshot GPU map failed: {}", err),
                 Err(std::sync::mpsc::TryRecvError::Empty) => remaining.push(pending),
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                     eprintln!("WW3D screenshot completion channel disconnected");
                 }
             }
         }
+        // Keep outstanding maps alive; next end_render / poll will retry.
+        // A cheap non-blocking poll helps completions land without stalling.
+        if !remaining.is_empty() {
+            let _ = self.device.poll(wgpu::PollType::Poll);
+            let mut still = Vec::new();
+            for pending in remaining {
+                match pending.completion.try_recv() {
+                    Ok(Ok(())) => {
+                        if let Err(err) = Self::finish_screenshot_readback_async(pending) {
+                            eprintln!("WW3D screenshot finalize failed: {}", err);
+                        }
+                    }
+                    Ok(Err(err)) => eprintln!("WW3D screenshot GPU map failed: {}", err),
+                    Err(std::sync::mpsc::TryRecvError::Empty) => still.push(pending),
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        eprintln!("WW3D screenshot completion channel disconnected");
+                    }
+                }
+            }
+            remaining = still;
+        }
         self.pending_screenshot_readbacks = remaining;
+    }
+
+    /// Copy mapped pixels then encode/write on a worker. Unmaps on this thread
+    /// so the GPU buffer is released before the present path continues.
+    fn finish_screenshot_readback_async(pending: ScreenshotReadback) -> EngineResult<()> {
+        let buffer_slice = pending.buffer.slice(..);
+        let data = buffer_slice.get_mapped_range().map_err(|err| {
+            EngineError::Screenshot(format!("Screenshot buffer unavailable: {err}"))
+        })?;
+        let mapped_bytes = data.to_vec();
+        drop(data);
+        pending.buffer.unmap();
+
+        let path = pending.path;
+        let width = pending.width;
+        let height = pending.height;
+        let format = pending.format;
+        let row_size = pending.row_size;
+        let padded_row_size = pending.padded_row_size;
+        std::thread::Builder::new()
+            .name("ww3d-screenshot".into())
+            .spawn(move || {
+                let mut image_data = vec![0u8; width as usize * height as usize * 4];
+                for (row_index, dest_chunk) in
+                    image_data.chunks_exact_mut(width as usize * 4).enumerate()
+                {
+                    let src_offset = row_index * padded_row_size;
+                    let src_slice = &mapped_bytes[src_offset..src_offset + row_size];
+                    if let Err(err) = convert_row_to_rgba(format, src_slice, dest_chunk) {
+                        eprintln!(
+                            "WW3D screenshot row conversion failed for {}: {err}",
+                            path.display()
+                        );
+                        return;
+                    }
+                }
+                if let Err(err) = write_screenshot_png(path.as_path(), width, height, &image_data) {
+                    eprintln!(
+                        "WW3D screenshot encode/write failed for {}: {err}",
+                        path.display()
+                    );
+                }
+            })
+            .map_err(|err| {
+                EngineError::Screenshot(format!("Failed to spawn screenshot worker: {err}"))
+            })?;
+        Ok(())
     }
 
     fn finish_screenshot_readback(&self, pending: ScreenshotReadback) -> EngineResult<()> {
@@ -1615,31 +1916,27 @@ impl Engine {
         let format = pending.format;
         let row_size = pending.row_size;
         let padded_row_size = pending.padded_row_size;
-        std::thread::spawn(move || {
-            let mut image_data = vec![0u8; width as usize * height as usize * 4];
-            for (row_index, dest_chunk) in
-                image_data.chunks_exact_mut(width as usize * 4).enumerate()
-            {
-                let src_offset = row_index * padded_row_size;
-                let src_slice = &mapped_bytes[src_offset..src_offset + row_size];
-                if let Err(err) = convert_row_to_rgba(format, src_slice, dest_chunk) {
-                    eprintln!(
-                        "WW3D screenshot row conversion failed for {}: {}",
-                        path.display(),
-                        err
-                    );
-                    return;
-                }
-            }
-
-            if let Err(err) = write_screenshot_png(path.as_path(), width, height, &image_data) {
-                eprintln!(
-                    "WW3D screenshot encode/write failed for {}: {}",
-                    path.display(),
-                    err
-                );
-            }
-        });
+        // Write synchronously so promote_capture_frame_if_ready can see the PNG
+        // on this frame instead of racing a detached encoder thread against the
+        // procedural fallback placeholder.
+        let mut image_data = vec![0u8; width as usize * height as usize * 4];
+        for (row_index, dest_chunk) in image_data.chunks_exact_mut(width as usize * 4).enumerate()
+        {
+            let src_offset = row_index * padded_row_size;
+            let src_slice = &mapped_bytes[src_offset..src_offset + row_size];
+            convert_row_to_rgba(format, src_slice, dest_chunk).map_err(|err| {
+                EngineError::Screenshot(format!(
+                    "Screenshot row conversion failed for {}: {err}",
+                    path.display()
+                ))
+            })?;
+        }
+        write_screenshot_png(path.as_path(), width, height, &image_data).map_err(|err| {
+            EngineError::Screenshot(format!(
+                "Screenshot encode/write failed for {}: {err}",
+                path.display()
+            ))
+        })?;
         Ok(())
     }
 
@@ -1697,7 +1994,7 @@ impl Engine {
         );
 
         // Out-of-frame: blocking debug capture, not the game present path.
-        frame_submit::submit_out_of_frame(
+        self.frame_submit.lock().submit_out_of_frame(
             &self.queue,
             std::iter::once(encoder.finish()),
             frame_submit::OutOfFrameReason::BlockingScreenshotCapture,
@@ -1804,10 +2101,7 @@ fn write_screenshot_png(
 }
 
 fn unique_temp_path(path: &Path) -> PathBuf {
-    // Wall-clock resolution is too coarse to distinguish concurrent writers.
-    // This sequence identifies files only; it owns no simulation state.
-    static NEXT_TEMP_FILE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let sequence = NEXT_TEMP_FILE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    // pid + monotonic nanos identify files; no process counter owned here.
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -1817,7 +2111,7 @@ fn unique_temp_path(path: &Path) -> PathBuf {
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("ww3d-screenshot");
-    let temp_name = format!(".{base_name}.{pid}.{stamp}.{sequence}.tmp");
+    let temp_name = format!(".{base_name}.{pid}.{stamp}.tmp");
     path.with_file_name(temp_name)
 }
 
@@ -1901,8 +2195,9 @@ async fn acquire_or_create_gpu_device(
     adapter: &wgpu::Adapter,
     features: wgpu::Features,
     limits: wgpu::Limits,
+    authority: &DeviceAuthority,
 ) -> EngineResult<Arc<GpuDevice>> {
-    if let Some(shared) = shared_device() {
+    if let Some(shared) = authority.shared_device() {
         return Ok(Arc::new(GpuDevice::from_shared(
             Arc::new(shared.device),
             Arc::new(shared.queue),
@@ -1921,7 +2216,7 @@ async fn acquire_or_create_gpu_device(
         .max(limits.max_samplers_per_shader_stage);
     let limits = limits.using_resolution(adapter_limits);
     Ok(Arc::new(
-        GpuDevice::create_device(adapter, features, limits)
+        GpuDevice::create_device(adapter, features, limits, authority)
             .await
             .map_err(EngineError::Gpu)?,
     ))
@@ -1991,313 +2286,34 @@ fn select_alpha_mode(supported: &[wgpu::CompositeAlphaMode]) -> wgpu::CompositeA
         .unwrap_or(supported[0])
 }
 
-/// Global engine singleton mirroring the original static WW3D API.
-static ENGINE: OnceCell<Mutex<Option<Engine>>> = OnceCell::new();
 
-fn global_engine() -> &'static Mutex<Option<Engine>> {
-    ENGINE.get_or_init(|| Mutex::new(None))
-}
-
-/// Initialise the engine with a window surface (blocking variant).
-/// Reference: ww3d.cpp:185-234 (WW3D::Init)
-///
-/// This is a blocking wrapper around the async init_with_window function.
-/// Use this when you're not in an async context.
-pub fn init_with_window_blocking<W>(window: W, config: EngineConfig) -> EngineResult<()>
+/// Initialise a windowed engine (blocking). Caller owns the returned handle.
+pub fn init_with_window_blocking<W>(window: W, config: EngineConfig) -> EngineResult<SharedEngine>
 where
     W: Into<wgpu::SurfaceTarget<'static>> + Send + Sync + 'static,
 {
-    pollster::block_on(init_with_window(window, config))
+    Ok(Engine::new_windowed_blocking(window, config)?.into_shared())
 }
 
-/// Initialise the engine with a window surface (matches WW3D::Init).
-/// Reference: ww3d.cpp:185-234, ww3d.h:72
-///
-/// This function initializes the global WW3D engine instance with a window
-/// for rendering. It must be called before any other WW3D functions.
-///
-/// # Arguments
-/// * `window` - Window surface target (platform-specific)
-/// * `config` - Engine configuration settings
-///
-/// # Errors
-/// Returns `EngineError::AlreadyInitialised` if the engine is already initialized.
-pub async fn init_with_window<W>(window: W, config: EngineConfig) -> EngineResult<()>
+/// Initialise a windowed engine. Caller owns the returned handle.
+pub async fn init_with_window<W>(window: W, config: EngineConfig) -> EngineResult<SharedEngine>
 where
     W: Into<wgpu::SurfaceTarget<'static>> + Send + Sync + 'static,
 {
-    {
-        let slot = global_engine().lock();
-        if slot.is_some() {
-            return Err(EngineError::AlreadyInitialised);
-        }
-    } // drop lock before await
-
-    let engine = Engine::new_windowed(window, config).await?;
-    *global_engine().lock() = Some(engine);
-    Ok(())
+    Ok(Engine::new_windowed(window, config).await?.into_shared())
 }
 
-/// Initialise the engine without a surface (headless).
-pub fn init_headless_blocking(config: EngineConfig) -> EngineResult<()> {
-    pollster::block_on(init_headless(config))
+/// Initialise a headless engine (blocking). Caller owns the returned handle.
+pub fn init_headless_blocking(config: EngineConfig) -> EngineResult<SharedEngine> {
+    Ok(Engine::new_headless_blocking(config)?.into_shared())
 }
 
-/// Initialise the engine without a surface (headless).
-pub async fn init_headless(config: EngineConfig) -> EngineResult<()> {
-    {
-        let slot = global_engine().lock();
-        if slot.is_some() {
-            return Err(EngineError::AlreadyInitialised);
-        }
-    } // drop lock before await
-
-    let engine = Engine::new_headless(config).await?;
-    *global_engine().lock() = Some(engine);
-    Ok(())
+/// Initialise a headless engine. Caller owns the returned handle.
+pub async fn init_headless(config: EngineConfig) -> EngineResult<SharedEngine> {
+    Ok(Engine::new_headless(config).await?.into_shared())
 }
 
-/// Shut the engine down, releasing GPU resources (matches WW3D::Shutdown).
-/// Reference: ww3d.cpp:249-300, ww3d.h:73
-///
-/// This function cleanly shuts down the WW3D engine and releases all GPU resources.
-/// After calling this, you can call init again if needed.
-///
-/// The C++ version performs:
-/// - Movie capture stop (if active)
-/// - Timer resolution restoration
-/// - Predictive LOD optimizer memory freeing
-/// - Dazzle system deinitialization
-/// - Debug resource release
-/// - Asset manager cleanup
-/// - DX8 texture manager shutdown
-/// - DX8 wrapper shutdown
-/// - Static sort lists deletion
-/// - Animation sound manager shutdown
-pub fn shutdown() -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    if slot.take().is_none() {
-        return Err(EngineError::NotInitialised);
-    }
-    Ok(())
-}
-
-/// Begin rendering a frame using the global engine singleton (matches WW3D::Begin_Render).
-/// Reference: ww3d.cpp:708-779, ww3d.h:115
-///
-/// This function must be called at the start of each frame, before any rendering.
-/// It returns a RenderFrame which must be passed to end_render().
-///
-/// # Example
-/// ```no_run
-/// # use ww3d_engine::*;
-/// # pollster::block_on(async {
-/// let mut frame = begin_render()?;
-/// // ... record rendering commands ...
-/// end_render(frame)?;
-/// # Ok::<(), EngineError>(())
-/// # });
-/// ```
-pub fn begin_render() -> EngineResult<RenderFrame> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => engine.begin_render(),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Finish rendering the current frame (matches WW3D::End_Render).
-/// Reference: ww3d.cpp:999-1041, ww3d.h:122
-///
-/// This function must be called after begin_render() to complete the frame.
-/// It submits all rendering commands and presents the result.
-///
-/// # Arguments
-/// * `frame` - The RenderFrame returned by begin_render()
-pub fn end_render(frame: RenderFrame) -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => engine.end_render(frame),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Adjust the global swap interval (VSync) setting.
-pub fn set_swap_interval(interval: i32) -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => {
-            engine.set_swap_interval(interval);
-            Ok(())
-        }
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Retrieve the global swap interval.
-pub fn swap_interval() -> EngineResult<i32> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.swap_interval()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Global texture reduction setter.
-pub fn set_texture_reduction(reduction: u32) -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => {
-            engine.set_texture_reduction(reduction);
-            Ok(())
-        }
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Global texture reduction getter.
-pub fn texture_reduction() -> EngineResult<u32> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.texture_reduction()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Enable or disable movie capture globally.
-pub fn set_movie_capture_enabled(enabled: bool) -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => {
-            engine.set_movie_capture_enabled(enabled);
-            Ok(())
-        }
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Queue a one-off movie capture frame using the global engine.
-pub fn request_single_frame_capture() -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => {
-            engine.request_single_frame_capture();
-            Ok(())
-        }
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Configure the directory and base filename used for movie capture frames.
-pub fn set_movie_capture_output<P, S>(directory: P, base_name: S) -> EngineResult<()>
-where
-    P: AsRef<Path>,
-    S: Into<String>,
-{
-    let dir_buf = directory.as_ref().to_path_buf();
-    let name_string = base_name.into();
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => {
-            engine.set_movie_capture_output(dir_buf, name_string);
-            Ok(())
-        }
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Schedule a screenshot that will be captured on the next completed frame.
-pub fn make_screenshot<P: AsRef<Path>>(path: P) -> EngineResult<()> {
-    let Some(mut slot) = global_engine().try_lock() else {
-        return Err(EngineError::Rendering(
-            "WW3D screenshot scheduling skipped because engine is busy".to_string(),
-        ));
-    };
-    match slot.as_mut() {
-        Some(engine) => {
-            engine.queue_screenshot(path.as_ref().to_path_buf());
-            Ok(())
-        }
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Notify the engine about a window resize event.
-pub fn resize(width: u32, height: u32) -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => {
-            engine.resize(width, height);
-            Ok(())
-        }
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Clone the global wgpu device handle.
-pub fn device() -> EngineResult<Arc<wgpu::Device>> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.device()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Clone the global wgpu queue handle.
-pub fn queue() -> EngineResult<Arc<wgpu::Queue>> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.queue()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Clone the higher-level GPU device wrapper.
-pub fn gpu_device() -> EngineResult<Arc<GpuDevice>> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.gpu_device()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Fetch the current back buffer format used by the engine.
-pub fn color_format() -> EngineResult<wgpu::TextureFormat> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.color_format()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Query the global depth format if depth is enabled.
-pub fn depth_format() -> EngineResult<Option<wgpu::TextureFormat>> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.depth_format()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Report the current render surface size.
-pub fn surface_size() -> EngineResult<(u32, u32)> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.surface_size()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Query adapter information for diagnostics/UI.
-pub fn adapter_info() -> EngineResult<wgpu::AdapterInfo> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.adapter_info().clone()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Enumerate adapters matching the provided backend mask.
+/// Enumerate GPU adapters without a live engine instance.
 pub fn enumerate_adapters(backends: wgpu::Backends) -> Vec<wgpu::AdapterInfo> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends,
@@ -2313,142 +2329,6 @@ pub fn enumerate_adapters(backends: wgpu::Backends) -> Vec<wgpu::AdapterInfo> {
         .collect()
 }
 
-/// Update all engine subsystems (call before begin_render each frame)
-pub fn update() -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => engine.update(),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Get current frame timing information
-pub fn timing() -> EngineResult<FrameTiming> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.timing()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Get current FPS
-pub fn fps() -> EngineResult<f32> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.fps()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Queue an input event for processing
-pub fn queue_input(event: InputEvent) -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => {
-            engine.queue_input(event);
-            Ok(())
-        }
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Set an input handler
-pub fn set_input_handler(handler: Box<dyn InputHandler>) -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => {
-            engine.set_input_handler(handler);
-            Ok(())
-        }
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Register a subsystem with the global engine
-pub fn register_subsystem(subsystem: Box<dyn Subsystem>) -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => {
-            engine.register_subsystem(subsystem);
-            Ok(())
-        }
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Access subsystems with a closure
-pub fn with_subsystems<F, R>(f: F) -> EngineResult<R>
-where
-    F: FnOnce(&EngineSubsystems) -> R,
-{
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(f(engine.subsystems())),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Access subsystems mutably with a closure
-pub fn with_subsystems_mut<F, R>(f: F) -> EngineResult<R>
-where
-    F: FnOnce(&mut EngineSubsystems) -> R,
-{
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => Ok(f(engine.subsystems_mut())),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Set the sync time for the current frame (matches WW3D::Sync())
-/// Reference: ww3d.cpp:1097-1101, ww3d.h:134
-///
-/// This function synchronizes the engine's internal time with the game's logical time.
-/// The application should call this at the start of every frame with the current game
-/// time in milliseconds.
-///
-/// # Arguments
-/// * `sync_time` - Current game time in milliseconds
-pub fn sync(sync_time: u32) -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => {
-            engine.sync(sync_time);
-            Ok(())
-        }
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Get the current sync time in milliseconds (matches WW3D::Get_Sync_Time())
-/// Reference: ww3d.h:135
-pub fn get_sync_time() -> EngineResult<u32> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.get_sync_time()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Get the frame time (delta) in milliseconds (matches WW3D::Get_Frame_Time())
-/// Reference: ww3d.h:136
-pub fn get_frame_time() -> EngineResult<u32> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.get_frame_time()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Get the current frame count (matches WW3D::Get_Frame_Count())
-/// Reference: ww3d.h:137
-pub fn get_frame_count() -> EngineResult<u64> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.get_frame_count()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -2468,9 +2348,10 @@ mod tests {
 
     /// Serialize the GPU-backed engine tests in this binary.
     fn engine_test_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: std::sync::LazyLock<std::sync::Mutex<()>> =
-            std::sync::LazyLock::new(|| std::sync::Mutex::new(()));
-        LOCK.lock().unwrap_or_else(|e| e.into_inner())
+        struct LockRuntime(std::sync::LazyLock<std::sync::Mutex<()>>);
+        static LOCK: LockRuntime =
+            LockRuntime(std::sync::LazyLock::new(|| std::sync::Mutex::new(())));
+        LOCK.0.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     fn headless_engine() -> Engine {

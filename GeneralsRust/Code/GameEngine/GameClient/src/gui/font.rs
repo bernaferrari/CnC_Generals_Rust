@@ -89,7 +89,8 @@ pub fn font_atlas_files() -> Vec<std::path::PathBuf> {
 /// (W3DGameFont.cpp:73-88)). Registering the same files in the renderer's
 /// font database is what lets localized families and missing glyphs resolve.
 fn language_font_files() -> Vec<std::path::PathBuf> {
-    let Ok(language) = crate::global_language::get_global_language_data().read() else {
+    let __lang = crate::global_language::get_global_language_data();
+    let Ok(language) = __lang.read() else {
         return Vec::new();
     };
     let mut names: Vec<String> = language.local_fonts.clone();
@@ -272,6 +273,8 @@ pub struct DefaultFontData {
     metrics: FontMetrics,
     desc: FontDesc,
     font: Option<Arc<fontdue::Font>>,
+    /// C++ AlternateUnicodeFont — loaded once per font-data instance.
+    alternate_unicode: std::sync::OnceLock<Option<fontdue::Font>>,
 }
 
 impl DefaultFontData {
@@ -315,7 +318,14 @@ impl DefaultFontData {
             metrics,
             desc,
             font,
+            alternate_unicode: std::sync::OnceLock::new(),
         }
+    }
+
+    fn alternate_unicode_font(&self) -> Option<&fontdue::Font> {
+        self.alternate_unicode
+            .get_or_init(load_alternate_unicode_font)
+            .as_ref()
     }
 }
 impl FontData for DefaultFontData {
@@ -326,7 +336,7 @@ impl FontData for DefaultFontData {
     fn measure_text(&self, text: &str) -> i32 {
         if let Some(font) = self.font.as_deref() {
             let px = font_pixel_size(self.desc.size) as f32;
-            let alternate = alternate_unicode_font();
+            let alternate = self.alternate_unicode_font();
             let width = text
                 .chars()
                 .map(|ch| {
@@ -356,7 +366,7 @@ impl FontData for DefaultFontData {
     fn supports_char(&self, ch: char) -> bool {
         if let Some(font) = self.font.as_deref() {
             return font.lookup_glyph_index(ch) != 0
-                || alternate_unicode_font().is_some_and(|alt| alt.lookup_glyph_index(ch) != 0);
+                || self.alternate_unicode_font().is_some_and(|alt| alt.lookup_glyph_index(ch) != 0);
         }
         ch.is_ascii() || ch.is_ascii_graphic() || ch.is_whitespace()
     }
@@ -366,26 +376,24 @@ impl FontData for DefaultFontData {
 /// `FontCharsClass::AlternateUnicodeFont` concept: loaded from the
 /// language's `UnicodeFontName` (defaulting toward broad-coverage faces),
 /// same point size as the primary (W3DGameFont.cpp:73-88).
-fn alternate_unicode_font() -> Option<&'static fontdue::Font> {
-    static FONT: std::sync::LazyLock<Option<fontdue::Font>> = std::sync::LazyLock::new(|| {
-        let mut names: Vec<String> = Vec::new();
-        if let Ok(language) = crate::global_language::get_global_language_data().read() {
-            if !language.unicode_font_name.is_empty() {
-                names.push(language.unicode_font_name.clone());
-            }
+fn load_alternate_unicode_font() -> Option<fontdue::Font> {
+    let mut names: Vec<String> = Vec::new();
+    let __lang = crate::global_language::get_global_language_data();
+    if let Ok(language) = __lang.read() {
+        if !language.unicode_font_name.is_empty() {
+            names.push(language.unicode_font_name.clone());
         }
-        names.push("Arial Unicode MS".to_string());
-        names.push("DejaVuSans".to_string());
-        names.push("LiberationSans-Regular".to_string());
-        names.push("Arial".to_string());
-        for name in names {
-            if let Some(font) = load_fontdue_font(&FontDesc::new(&name, 12, false)) {
-                return Some(font);
-            }
+    }
+    names.push("Arial Unicode MS".to_string());
+    names.push("DejaVuSans".to_string());
+    names.push("LiberationSans-Regular".to_string());
+    names.push("Arial".to_string());
+    for name in names {
+        if let Some(font) = load_fontdue_font(&FontDesc::new(&name, 12, false)) {
+            return Some(font);
         }
-        None
-    });
-    FONT.as_ref()
+    }
+    None
 }
 
 /// Game font representation - device independent font object
@@ -699,17 +707,38 @@ impl FontLibrary {
     }
 }
 
-/// Global font library instance.
-///
-/// THREAD: kept as a process-wide lock because the guard-returning
-/// `get_font_library()` API is consumed across GameClient and the device crate;
-/// callers receive exclusive access through the outer guard. Independently
-/// owned libraries expose the same &mut self operations without a lock.
-static FONT_LIBRARY: std::sync::LazyLock<std::sync::Mutex<FontLibrary>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(FontLibrary::new()));
+/// Font library handle: live GameClient field, else cfg(test) TLS, else ephemeral.
+#[cfg(test)]
+thread_local! {
+    static TEST_FONT_LIBRARY: std::cell::RefCell<Option<std::sync::Arc<std::sync::Mutex<FontLibrary>>>> =
+        const { std::cell::RefCell::new(None) };
+}
 
-pub fn get_font_library() -> std::sync::MutexGuard<'static, FontLibrary> {
-    FONT_LIBRARY.lock().unwrap_or_else(|e| e.into_inner())
+fn font_library_handle() -> std::sync::Arc<std::sync::Mutex<FontLibrary>> {
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_font_library()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_FONT_LIBRARY.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| {
+                    std::sync::Arc::new(std::sync::Mutex::new(FontLibrary::new()))
+                })
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        std::sync::Arc::new(std::sync::Mutex::new(FontLibrary::new()))
+    }
+}
+
+/// Handle to the font library for this client (or test/ephemeral fallback).
+pub fn get_font_library() -> std::sync::Arc<std::sync::Mutex<FontLibrary>> {
+    font_library_handle()
 }
 
 #[cfg(test)]
@@ -718,6 +747,7 @@ mod tests {
 
     #[test]
     fn generals_bold_measurement_uses_the_same_real_face_as_arial_bold() {
+        crate::test_support::ensure_ambient_host();
         // C++ resolves Generals -> Arial before selecting FW_BOLD.
         let generals = DefaultFontData::new(FontDesc::new("Generals", 20, true));
         let arial = DefaultFontData::new(FontDesc::new("Arial", 20, true));
@@ -746,6 +776,7 @@ mod tests {
 
     #[test]
     fn generals_family_resolution_keeps_authored_identity_and_windows_bold_path() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(resolved_font_family("Generals"), "Arial");
         assert_eq!(resolved_font_family("generals"), "Arial");
         assert_eq!(resolved_font_family("Courier New"), "Courier New");
@@ -771,6 +802,7 @@ mod tests {
 
     #[test]
     fn test_font_desc_creation() {
+        crate::test_support::ensure_ambient_host();
         let desc = FontDesc::new("Arial", 12, false);
         assert_eq!(desc.name, "Arial");
         assert_eq!(desc.size, 12);
@@ -779,6 +811,7 @@ mod tests {
 
     #[test]
     fn test_font_desc_default() {
+        crate::test_support::ensure_ambient_host();
         let desc = FontDesc::default();
         assert_eq!(desc.name, "Arial");
         assert_eq!(desc.size, 12);
@@ -787,6 +820,7 @@ mod tests {
 
     #[test]
     fn test_game_font_creation() {
+        crate::test_support::ensure_ambient_host();
         let desc = FontDesc::new("Times New Roman", 14, true);
         let font = GameFont::new(desc.clone()).unwrap();
         assert_eq!(font.desc, desc);
@@ -798,6 +832,7 @@ mod tests {
 
     #[test]
     fn test_font_library_init() {
+        crate::test_support::ensure_ambient_host();
         let mut library = FontLibrary::new();
         assert!(library.init().is_ok());
         assert!(library.initialized);
@@ -805,6 +840,7 @@ mod tests {
 
     #[test]
     fn test_font_library_get_font_before_init() {
+        crate::test_support::ensure_ambient_host();
         let mut library = FontLibrary::new();
         let desc = FontDesc::new("Arial", 12, false);
         let result = library.get_font(&desc);
@@ -813,6 +849,7 @@ mod tests {
 
     #[test]
     fn test_font_library_get_font_invalid_params() {
+        crate::test_support::ensure_ambient_host();
         let mut library = FontLibrary::new();
         library.init().unwrap();
 
@@ -827,6 +864,7 @@ mod tests {
 
     #[test]
     fn test_font_library_caching() {
+        crate::test_support::ensure_ambient_host();
         let mut library = FontLibrary::new();
         library.init().unwrap();
 
@@ -850,6 +888,7 @@ mod tests {
 
     #[test]
     fn test_font_metrics() {
+        crate::test_support::ensure_ambient_host();
         let desc = FontDesc::new("Arial", 16, false);
         let font = GameFont::new(desc).unwrap();
         let metrics = font.get_metrics();
@@ -862,6 +901,7 @@ mod tests {
 
     #[test]
     fn test_text_measurement() {
+        crate::test_support::ensure_ambient_host();
         let desc = FontDesc::new("Arial", 12, false);
         let font = GameFont::new(desc).unwrap();
 
@@ -874,6 +914,7 @@ mod tests {
 
     #[test]
     fn test_font_library_cleanup() {
+        crate::test_support::ensure_ambient_host();
         let mut library = FontLibrary::new();
         library.init().unwrap();
 
@@ -890,6 +931,7 @@ mod tests {
 
     #[test]
     fn test_font_library_reset() {
+        crate::test_support::ensure_ambient_host();
         let mut library = FontLibrary::new();
         library.init().unwrap();
 
@@ -910,7 +952,9 @@ mod tests {
 
     #[test]
     fn test_global_font_library() {
-        let mut library = get_font_library();
+        crate::test_support::ensure_ambient_host();
+        let library_handle = get_font_library();
+        let mut library = library_handle.lock().unwrap_or_else(|e| e.into_inner());
         assert!(library.init().is_ok());
 
         let desc = FontDesc::new("Arial", 12, false);

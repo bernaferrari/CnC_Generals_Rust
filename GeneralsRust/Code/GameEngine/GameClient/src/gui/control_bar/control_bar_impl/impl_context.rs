@@ -30,6 +30,13 @@ impl ControlBar {
 
         if let Some(&obj_id) = context.selected_objects.first() {
             self.update_portrait_for_object(obj_id);
+            // setPortraitByObject(obj) shows the unit-selected parent
+            // (ControlBar.cpp:2603).
+            leftover_hide_window(
+                "ControlBar.wnd:WinUnitSelected",
+                false,
+                receiving_manager,
+            );
         }
 
         // C++ ControlBar.cpp:2177-2188 CB_CONTEXT_COMMAND: show CommandWindow,

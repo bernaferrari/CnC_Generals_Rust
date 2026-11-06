@@ -3,7 +3,11 @@ name = "wwutil"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
+description = "WWVegas Wwutil — cMathUtil / cMiscUtil port"
+license = "GPL-3.0-or-later"
 
 [dependencies]
-math_utilities = { path = "../WWMath" }
-wwlib_rust = { path = "../WWLib", package = "wwlib-rust" }
+fastrand = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]

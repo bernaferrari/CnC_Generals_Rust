@@ -15,7 +15,6 @@ use glam::{Mat4, Vec2, Vec3};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
-use ww3d_core::WW3D;
 
 /// Identifier for a frame-graph pass node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -209,8 +208,16 @@ struct FrameGraphSubmission {
 }
 
 impl FrameGraphSubmission {
-    fn new(mesh: Arc<MeshClass>, traits: SubmissionMaterialTraits, sort_level: u32) -> Self {
-        let tie_breaker = Arc::as_ptr(&mesh) as usize;
+    /// `order` is the submission index: equal-state meshes keep submission
+    /// order (C++ renders category lists in insertion order). The mesh
+    /// address used here before made draw order depend on the allocator.
+    fn new(
+        mesh: Arc<MeshClass>,
+        traits: SubmissionMaterialTraits,
+        sort_level: u32,
+        order: usize,
+    ) -> Self {
+        let tie_breaker = order;
         let sphere = mesh.get_bounding_sphere();
         let sort_key = compose_sort_key(
             traits.z_write,
@@ -317,6 +324,7 @@ pub struct FrameGraphNode {
     context: Option<FrameGraphPassContext>,
     submissions: Vec<FrameGraphSubmission>,
     queues: NodeQueues,
+    renderer_3d: Option<std::sync::Arc<crate::process_state::Renderer3dRuntime>>,
 }
 
 impl FrameGraphNode {
@@ -326,6 +334,7 @@ impl FrameGraphNode {
             context: None,
             submissions: Vec::new(),
             queues: NodeQueues::default(),
+                    renderer_3d: None,
         }
     }
 
@@ -365,12 +374,12 @@ impl FrameGraphNode {
             None => queue_from_blend(traits.dominant_blend),
         };
         let sort_level = sort_level_override.unwrap_or(mesh.sort_level);
-        let submission = FrameGraphSubmission::new(Arc::clone(&mesh), traits, sort_level);
         let index = self.submissions.len();
+        let submission = FrameGraphSubmission::new(Arc::clone(&mesh), traits, sort_level, index);
         self.submissions.push(submission);
         self.enqueue(index, resolved_queue);
 
-        if !is_decal && WW3D::are_decals_enabled() && !mesh.decal_meshes.is_empty() {
+        if !is_decal && self.renderer_3d.as_ref().map(|r| StaticSortManager::are_decals_enabled(r)).unwrap_or(true) && !mesh.decal_meshes.is_empty() {
             for decal in &mesh.decal_meshes {
                 if decal.model.is_none() {
                     continue;
@@ -431,7 +440,7 @@ impl FrameGraphNode {
     pub fn ingest_static_sort_entries(&mut self) -> Vec<Arc<dyn RenderObjClass>> {
         let mut fallback: Vec<Arc<dyn RenderObjClass>> = Vec::new();
 
-        if let Some((entries, sort_levels)) = StaticSortManager::snapshot_static_sort_list() {
+        if let Some((entries, sort_levels)) = self.renderer_3d.as_ref().and_then(|r| StaticSortManager::snapshot_static_sort_list(r)) {
             for (entry, sort_level) in entries.into_iter().zip(sort_levels) {
                 if let Some(mesh_arc) = entry.mesh_arc() {
                     let traits = SubmissionMaterialTraits::analyse(mesh_arc.as_ref());
@@ -507,12 +516,14 @@ fn compare_transparent(
 #[derive(Default)]
 pub struct FrameGraph {
     nodes: HashMap<FrameGraphPass, FrameGraphNode>,
+    pub renderer_3d: Option<std::sync::Arc<crate::process_state::Renderer3dRuntime>>,
 }
 
 impl FrameGraph {
     pub fn new() -> Self {
         let mut graph = FrameGraph {
             nodes: HashMap::new(),
+            renderer_3d: None,
         };
         graph.ensure_node(FrameGraphPass::Main);
         graph
@@ -532,7 +543,10 @@ impl FrameGraph {
 
     pub fn node_mut(&mut self, pass: FrameGraphPass) -> &mut FrameGraphNode {
         self.ensure_node(pass);
-        self.nodes.get_mut(&pass).expect("frame graph node present")
+        let r3d = self.renderer_3d.clone();
+        let node = self.nodes.get_mut(&pass).expect("frame graph node");
+        node.renderer_3d = r3d;
+        node
     }
 
     pub fn node(&self, pass: FrameGraphPass) -> Option<&FrameGraphNode> {

@@ -6,17 +6,24 @@ use super::*;
 pub(crate) enum BodyKind {
     Active,
     Inactive,
+    /// ActiveBody-family ImmortalBody (ImmortalBody.cpp:31-37 health floor).
+    Immortal,
+    /// ActiveBody-family HighlanderBody (HighlanderBody.cpp:33-34 floor;
+    /// DAMAGE_UNRESISTABLE still kills).
+    Highlander,
 }
 
 impl BodyKind {
     pub(crate) fn from_module_class(name: &str) -> Option<Self> {
         if name.eq_ignore_ascii_case("InactiveBody") {
             Some(Self::Inactive)
+        } else if name.eq_ignore_ascii_case("ImmortalBody") {
+            Some(Self::Immortal)
+        } else if name.eq_ignore_ascii_case("HighlanderBody") {
+            Some(Self::Highlander)
         } else if [
             "ActiveBody",
             "StructureBody",
-            "HighlanderBody",
-            "ImmortalBody",
             "HiveStructureBody",
             "UndeadBody",
         ]
@@ -200,6 +207,33 @@ impl ReceivingClientTemplate {
                 manual_driving_speed: data.manual_driving_speed,
                 manual_fast_driving_speed: data.manual_fast_driving_speed,
                 double_click_to_fast_drive_delay: data.double_click_to_fast_drive_delay,
+            },
+        ))
+    }
+
+    /// C++ ParticleUplinkCannonUpdate.cpp:112-113 SwathOfDeathDistance/Amplitude
+    /// from this exact authored module data.
+    pub(crate) fn particle_swath_settings(
+        &self,
+    ) -> Result<Option<crate::game_logic::special_power_strikes::ParticleSwathSettings>, ()> {
+        let Some(entry) = self.0.behavior_modules().iter().find(|entry| {
+            entry
+                .name
+                .as_str()
+                .eq_ignore_ascii_case("ParticleUplinkCannonUpdate")
+        }) else {
+            return Ok(None);
+        };
+        let Some(data) = entry
+            .data
+            .downcast_ref::<gamelogic::object::behavior::ParticleUplinkCannonUpdateModuleData>(
+        ) else {
+            return Err(());
+        };
+        Ok(Some(
+            crate::game_logic::special_power_strikes::ParticleSwathSettings {
+                swath_of_death_distance: data.swath_of_death_distance,
+                swath_of_death_amplitude: data.swath_of_death_amplitude,
             },
         ))
     }
@@ -396,7 +430,7 @@ impl ReceivingClientTemplate {
 pub struct ThingTemplate {
     pub name: String,
     pub display_name: String,
-    pub kind_of: HashSet<KindOf>,
+    pub kind_of: crate::game_logic::KindOfSet,
     /// C++ PartitionData::attachToObject excludes authored W3DDefaultDraw.
     #[serde(default)]
     pub(crate) default_draw_without_fog_memory: bool,
@@ -424,6 +458,9 @@ pub struct ThingTemplate {
     /// Preserve the historical positional ThingTemplate serialization.
     #[serde(skip)]
     pub(crate) body_kind: Option<BodyKind>,
+    /// C++ HighlanderBody is selected only by the authored Body module.
+    #[serde(skip)]
+    pub(crate) highlander_body: bool,
     /// Ordered receiving definitions; Some(empty) suppresses name inference.
     #[serde(skip)]
     pub(crate) native_lifecycle_definitions:
@@ -536,6 +573,15 @@ pub struct ThingTemplate {
     pub stealth_friendly_opacity_min: f32,
     #[serde(default = "default_stealth_friendly_opacity_max")]
     pub stealth_friendly_opacity_max: f32,
+    /// Exact StealthUpdate `InnateStealth` (C++ `m_innateStealth`).
+    #[serde(default)]
+    pub stealth_update_innate: bool,
+    /// StealthUpdate `StealthForbiddenConditions` contains `ATTACKING`.
+    #[serde(default)]
+    pub stealth_update_forbids_attacking: bool,
+    /// Exact StealthUpdate `StealthDelay` in ms, when authored.
+    #[serde(default)]
+    pub stealth_update_delay_ms: Option<u32>,
     /// Exact `ParkingPlaceBehavior` data.  This remains absent when the
     /// source object has no such behavior, even if its KindOf is
     /// `FSAirfield`; physical aircraft landing then fails closed.
@@ -1027,6 +1073,14 @@ impl ThingTemplate {
         )
     }
 
+    pub(crate) fn particle_swath_settings(
+        &self,
+    ) -> Result<Option<crate::game_logic::special_power_strikes::ParticleSwathSettings>, ()> {
+        self.receiving_client_template
+            .as_ref()
+            .map_or(Ok(None), ReceivingClientTemplate::particle_swath_settings)
+    }
+
     /// C++ Object::getObjectExitInterface checks behavior modules in authored
     /// order before falling back to the OpenContain interface.
     pub(crate) fn rally_point_exit_owner(&self) -> RallyPointExitOwner {
@@ -1096,7 +1150,7 @@ impl ThingTemplate {
         Self {
             name: name.to_string(),
             display_name: name.to_string(),
-            kind_of: HashSet::new(),
+            kind_of: crate::game_logic::KindOfSet::new(),
             default_draw_without_fog_memory: false,
             max_health: 100.0,
             client_module_declarations: None,
@@ -1105,6 +1159,7 @@ impl ThingTemplate {
             receiving_client_template: None,
             transition_damage_definition: None,
             body_kind: None,
+            highlander_body: false,
             native_lifecycle_definitions: None,
             native_lifecycle_error: None,
             body_initial_health: None,
@@ -1144,6 +1199,9 @@ impl ThingTemplate {
 
             stealth_friendly_opacity_min: default_stealth_friendly_opacity_min(),
             stealth_friendly_opacity_max: default_stealth_friendly_opacity_max(),
+            stealth_update_innate: false,
+            stealth_update_forbids_attacking: false,
+            stealth_update_delay_ms: None,
             parking_place: None,
             flight_deck: None,
             deploy_style_metadata: None,
@@ -1535,8 +1593,7 @@ impl ThingTemplate {
 
     /// Resolve weapon for a newly created combat unit:
     /// 1) explicit host stats, 2) WeaponStore by primary_weapon_name,
-    /// 3) host residual map by template name (`primary_weapon_name_for_unit`),
-    /// 4) kind-based default fallback (fail-open last resort for Attackable kinds).
+    /// 3) kind-based default fallback (fail-open last resort for Attackable kinds).
     pub fn resolve_primary_weapon(&self, frame: u32) -> Option<Weapon> {
         if let Some(w) = &self.primary_weapon {
             return Some(w.clone());
@@ -1555,14 +1612,8 @@ impl ThingTemplate {
             // kind-based Weapon::default after a store miss.
             return None;
         }
-        // Host residual map: templates often omit primary_weapon_name (units.rs /
-        // setup_templates gaps) but have a known retail weapon for the unit name.
-        // Prefer store residual over kind-based Weapon::default().
-        if let Some(wname) = super::weapon_bootstrap::primary_weapon_name_for_unit(&self.name) {
-            if let Some(w) = Self::weapon_from_host_store_at(wname, frame) {
-                return Some(w);
-            }
-        }
+        // C++ WeaponSet::updateWeaponSet (WeaponSet.cpp:275) arms only the
+        // authored WeaponSet: no weapon is ever inferred from the template name.
         // C++ dozers carry only MINE_CLEARING_DETAIL (Object.cpp:160-497 arms
         // ThingTemplate WeaponSet data; a Dozer template has no primary gun).
         // The kind-based Weapon::default() last resort must not hand
@@ -1584,7 +1635,6 @@ impl ThingTemplate {
     /// Resolve secondary weapon for a newly created combat unit.
     /// Fail-closed (not full WeaponSet):
     /// 1) explicit host stats, 2) WeaponStore by secondary_weapon_name,
-    /// 3) host residual map by template name (`secondary_weapon_name_for_unit`).
     /// No kind-based `Weapon::default()` fallback — units without SECONDARY stay unarmed there.
     pub fn resolve_secondary_weapon(&self, frame: u32) -> Option<Weapon> {
         if let Some(w) = &self.secondary_weapon {
@@ -1592,12 +1642,6 @@ impl ThingTemplate {
         }
         if let Some(name) = self.secondary_weapon_name.as_deref() {
             if let Some(w) = Self::weapon_from_host_store_at(name, frame) {
-                return Some(w);
-            }
-        }
-        // Host residual map: secondary slot by unit template name when not set.
-        if let Some(wname) = super::weapon_bootstrap::secondary_weapon_name_for_unit(&self.name) {
-            if let Some(w) = Self::weapon_from_host_store_at(wname, frame) {
                 return Some(w);
             }
         }
@@ -1762,10 +1806,7 @@ impl ThingTemplate {
 
     /// Resolve ContinuousFire / AutoReloadWhenIdle for this template's primary.
     pub fn weapon_tracker_bind(&self) -> WeaponTrackerBind {
-        let name = self
-            .primary_weapon_name
-            .as_deref()
-            .or_else(|| super::weapon_bootstrap::primary_weapon_name_for_unit(&self.name));
+        let name = self.primary_weapon_name.as_deref();
         match name {
             Some(name) => Self::weapon_tracker_from_store(name),
             None => WeaponTrackerBind::default(),

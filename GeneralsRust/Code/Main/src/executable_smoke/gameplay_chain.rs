@@ -20,6 +20,26 @@ fn smoke_drive_gameplay_chain(
     if st.saw_construct_ok && snap.under_construction > 0 {
         st.saw_construct_under_construction = true;
     }
+    // P0 orders gate: select → move → attack, then exit (no construct ladder).
+    if st.orders_goal {
+        smoke_drive_orders_only_chain(st, result, snap, control_path);
+        return;
+    }
+    // P0 AI gate: select → move, then require AI activity residual.
+    if st.ai_activity_goal {
+        smoke_drive_ai_activity_chain(st, result, snap, control_path);
+        return;
+    }
+    // P0 save/load gate: orders → N ticks → save → load → restore assert → post-load order.
+    if st.save_load_goal {
+        smoke_drive_save_load_chain(st, result, snap, control_path);
+        return;
+    }
+    // P0 present-frame gate: select, sit ≥60s with stable render items, screenshot.
+    if st.present_frame_goal {
+        smoke_drive_present_frame_chain(st, result, snap, control_path);
+        return;
+    }
     // Issue host gameplay commands (select + move), then exit.
     // Not WND widget clicks — still not playable_claim.
     if st.gameplay_step == 0 {
@@ -1694,5 +1714,1068 @@ fn smoke_drive_gameplay_chain(
             let _ = write_control(&control_path, &["exit"]);
             st.phase = 3;
         }
+    }
+}
+
+
+/// Minimal live-host order path for hq-x1j4u.9.3: select → move → attack → exit.
+///
+/// Advances only on `*_ok` residuals. Retries on fail. If no FOW-clear enemy is
+/// available, falls back to `attack_move` (still a live attack-class order).
+fn smoke_drive_orders_only_chain(
+    st: &mut SmokeRunState,
+    result: &mut ExecutableSmokeResult,
+    snap: &StatusSnap,
+    control_path: &Path,
+) {
+    if snap.last_gameplay_cmd.starts_with("select_ok") {
+        st.saw_select_ok = true;
+    }
+    if snap.last_gameplay_cmd.starts_with("move_ok") {
+        st.saw_move_ok = true;
+    }
+    if snap.last_gameplay_cmd.starts_with("attack_ok")
+        || snap.last_gameplay_cmd.starts_with("attack_move_ok")
+        || snap.last_gameplay_cmd.starts_with("force_attack_ok")
+    {
+        st.saw_attack_ok = true;
+    }
+    // Keep a breadcrumb of the latest host residual for failure reports.
+    if !snap.last_gameplay_cmd.is_empty() {
+        result.detail = format!(
+            "orders_step={} last_cmd={} mobiles={} selected={} select={} move={} attack={}",
+            st.gameplay_step,
+            snap.last_gameplay_cmd,
+            snap.local_mobile_units,
+            snap.selected_count,
+            st.saw_select_ok,
+            st.saw_move_ok,
+            st.saw_attack_ok
+        );
+    }
+    if st.saw_select_ok && st.saw_move_ok && st.saw_attack_ok {
+        result.gameplay_cmd_ok = true;
+        result.detail.push_str(" orders_select_move_attack;");
+        let _ = write_control(&control_path, &["exit"]);
+        st.commanded_at = Some(Instant::now());
+        st.phase = 3;
+        return;
+    }
+
+    let retry_due = st
+        .commanded_at
+        .map(|t| t.elapsed() > Duration::from_secs(6))
+        .unwrap_or(true);
+
+    // 0: wait until presentation publishes a local mobile, then select.
+    if !st.saw_select_ok {
+        if st.gameplay_step == 0 {
+            if snap.local_mobile_units == 0 && snap.selected_count == 0 {
+                // Stay on step 0 until a unit exists (map admission can lag).
+                if retry_due {
+                    st.commanded_at = Some(Instant::now());
+                }
+                return;
+            }
+            let _ = write_control(&control_path, &["select_local_unit"]);
+            st.gameplay_step = 1;
+            st.commanded_at = Some(Instant::now());
+            return;
+        }
+        // step >= 1: wait for select_ok; retry select on fail/timeout.
+        if snap.last_gameplay_cmd.starts_with("select_fail") || retry_due {
+            let _ = write_control(&control_path, &["select_local_unit"]);
+            st.commanded_at = Some(Instant::now());
+            st.gameplay_step = st.gameplay_step.saturating_add(1).min(20);
+        }
+        return;
+    }
+
+    // Selected: issue move and wait for move_ok.
+    if !st.saw_move_ok {
+        if st.gameplay_step < 30 {
+            let _ = write_control(&control_path, &["move_selected|x=100|y=0|z=100"]);
+            st.gameplay_step = 30;
+            st.commanded_at = Some(Instant::now());
+            return;
+        }
+        if snap.last_gameplay_cmd.starts_with("move_fail") || retry_due {
+            // Reselect then move — selection can be cleared by host ticks.
+            let _ = write_control(
+                &control_path,
+                &["select_local_unit", "move_selected|x=120|y=0|z=120"],
+            );
+            st.commanded_at = Some(Instant::now());
+            st.gameplay_step = st.gameplay_step.saturating_add(1).min(39);
+        }
+        return;
+    }
+
+    // Moved: issue attack (enemy if possible, else attack-move).
+    if !st.saw_attack_ok {
+        if st.gameplay_step < 40 {
+            let _ = write_control(&control_path, &["attack_nearest_enemy|auto_target=1"]);
+            st.gameplay_step = 40;
+            st.commanded_at = Some(Instant::now());
+            return;
+        }
+        if snap.last_gameplay_cmd.starts_with("attack_fail_no_enemy") {
+            let _ = write_control(
+                &control_path,
+                &["attack_move|x=200|y=0|z=200"],
+            );
+            st.commanded_at = Some(Instant::now());
+            st.gameplay_step = 41;
+            return;
+        }
+        if snap.last_gameplay_cmd.starts_with("attack_fail") || retry_due {
+            let _ = write_control(
+                &control_path,
+                &[
+                    "select_local_unit",
+                    "attack_nearest_enemy|auto_target=1",
+                    "attack_move|x=220|y=0|z=220",
+                ],
+            );
+            st.commanded_at = Some(Instant::now());
+            st.gameplay_step = st.gameplay_step.saturating_add(1).min(50);
+        }
+    }
+}
+
+
+fn smoke_drive_ai_activity_chain(
+    st: &mut SmokeRunState,
+    result: &mut ExecutableSmokeResult,
+    snap: &StatusSnap,
+    control_path: &Path,
+) {
+    if snap.last_gameplay_cmd.starts_with("select_ok") {
+        st.saw_select_ok = true;
+    }
+    if snap.last_gameplay_cmd.starts_with("move_ok") {
+        st.saw_move_ok = true;
+    }
+    if snap.last_gameplay_cmd.starts_with("ai_activity_ok") {
+        let act = snap
+            .last_gameplay_cmd
+            .split(':')
+            .find_map(|part| part.strip_prefix("act=")?.parse::<u64>().ok())
+            .unwrap_or(0);
+        let structs = snap
+            .last_gameplay_cmd
+            .split(':')
+            .find_map(|part| part.strip_prefix("struct=")?.parse::<u64>().ok())
+            .unwrap_or(0);
+        let units = snap
+            .last_gameplay_cmd
+            .split(':')
+            .find_map(|part| part.strip_prefix("units=")?.parse::<u64>().ok())
+            .unwrap_or(0);
+        let ai = snap
+            .last_gameplay_cmd
+            .split(':')
+            .find_map(|part| part.strip_prefix("ai=")?.parse::<u64>().ok())
+            .unwrap_or(0);
+        // AI present and either activity counter moved, multi-structure base, or units/queue.
+        if ai >= 1 && (act >= 1 || structs >= 2 || units >= 1) {
+            st.saw_ai_activity_ok = true;
+        }
+        result.detail = format!(
+            "ai_probe act={act} struct={structs} units={units} ai={ai} select={} move={}",
+            st.saw_select_ok, st.saw_move_ok
+        );
+    }
+
+    if st.saw_select_ok && st.saw_move_ok && st.saw_ai_activity_ok {
+        result.gameplay_cmd_ok = true;
+        result.detail.push_str(" ai_activity_pass;");
+        let _ = write_control(&control_path, &["exit"]);
+        st.commanded_at = Some(Instant::now());
+        st.phase = 3;
+        return;
+    }
+
+    let retry_due = st
+        .commanded_at
+        .map(|t| t.elapsed() > Duration::from_secs(8))
+        .unwrap_or(true);
+
+    if !st.saw_select_ok {
+        if snap.local_mobile_units == 0 && st.gameplay_step == 0 && !retry_due {
+            return;
+        }
+        if st.gameplay_step == 0 || snap.last_gameplay_cmd.starts_with("select_fail") || retry_due {
+            let _ = write_control(&control_path, &["select_local_unit"]);
+            st.gameplay_step = 1;
+            st.commanded_at = Some(Instant::now());
+        }
+        return;
+    }
+
+    if !st.saw_move_ok {
+        if st.gameplay_step < 10 {
+            let _ = write_control(&control_path, &["move_selected|x=100|y=0|z=100"]);
+            st.gameplay_step = 10;
+            st.commanded_at = Some(Instant::now());
+            return;
+        }
+        if snap.last_gameplay_cmd.starts_with("move_fail") || retry_due {
+            let _ = write_control(
+                &control_path,
+                &["select_local_unit", "move_selected|x=120|y=0|z=120"],
+            );
+            st.commanded_at = Some(Instant::now());
+        }
+        return;
+    }
+
+    // Player has ordered; poll AI activity.
+    if st.gameplay_step < 20 {
+        let _ = write_control(&control_path, &["report_ai_activity"]);
+        st.gameplay_step = 20;
+        st.commanded_at = Some(Instant::now());
+        return;
+    }
+    if retry_due {
+        let _ = write_control(&control_path, &["report_ai_activity"]);
+        st.commanded_at = Some(Instant::now());
+        st.gameplay_step = st.gameplay_step.saturating_add(1).min(40);
+    }
+}
+
+
+
+/// Parse `key=value` fragments from a `world_snap_ok:...` residual.
+fn world_snap_field<'a>(cmd: &'a str, key: &str) -> Option<&'a str> {
+    let prefix = format!("{key}=");
+    cmd.split(':').find_map(|part| part.strip_prefix(&prefix))
+}
+
+fn world_snaps_match(pre: &str, post: &str) -> Result<(), String> {
+    if !pre.starts_with("world_snap_ok:") || !post.starts_with("world_snap_ok:") {
+        return Err(format!("bad snap residuals pre={pre} post={post}"));
+    }
+    let units: u64 = world_snap_field(pre, "units")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    if units == 0 {
+        return Err("unit count is 0 (empty world — not a retail skirmish restore)".into());
+    }
+    for key in ["map", "p0", "units", "id", "owner"] {
+        let a = world_snap_field(pre, key).unwrap_or("");
+        let b = world_snap_field(post, key).unwrap_or("");
+        if a != b {
+            return Err(format!("{key} mismatch pre={a} post={b}"));
+        }
+    }
+    for key in ["hp", "x", "y", "z"] {
+        let a: f32 = world_snap_field(pre, key)
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(f32::NAN);
+        let b: f32 = world_snap_field(post, key)
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(f32::NAN);
+        if !a.is_finite() || !b.is_finite() || (a - b).abs() > 0.05 {
+            return Err(format!("{key} mismatch pre={a} post={b}"));
+        }
+    }
+    let fa = world_snap_field(pre, "frame").unwrap_or("");
+    let fb = world_snap_field(post, "frame").unwrap_or("");
+    if fa != fb {
+        return Err(format!("frame mismatch pre={fa} post={fb}"));
+    }
+    Ok(())
+}
+
+/// P0 hq-x1j4u.9.7: retail Lone Eagle save → load into staged fresh GameLogic,
+/// assert map/resources/units, then prove orders still accept.
+fn smoke_drive_save_load_chain(
+    st: &mut SmokeRunState,
+    result: &mut ExecutableSmokeResult,
+    snap: &StatusSnap,
+    control_path: &Path,
+) {
+    if snap.last_gameplay_cmd.starts_with("select_ok") {
+        st.saw_select_ok = true;
+    }
+    if snap.last_gameplay_cmd.starts_with("move_ok") {
+        if st.gameplay_step >= 80 {
+            st.saw_post_load_move_ok = true;
+        } else {
+            st.saw_move_ok = true;
+        }
+    }
+    if snap.last_gameplay_cmd.starts_with("save_ok") {
+        st.saw_save_ok = true;
+    }
+    if snap.last_gameplay_cmd.starts_with("load_ok") {
+        st.saw_load_ok = true;
+    }
+    if snap.last_gameplay_cmd.starts_with("world_snap_ok:") {
+        if st.pre_world_snap.is_empty() && st.gameplay_step < 50 {
+            st.pre_world_snap = snap.last_gameplay_cmd.clone();
+        } else if !st.pre_world_snap.is_empty()
+            && st.saw_load_ok
+            && st.gameplay_step >= 60
+            && !st.saw_world_restore_ok
+        {
+            match world_snaps_match(&st.pre_world_snap, &snap.last_gameplay_cmd) {
+                Ok(()) => st.saw_world_restore_ok = true,
+                Err(err) => {
+                    result.detail = format!(
+                        "world_restore_fail:{err}; pre={}; post={}",
+                        st.pre_world_snap, snap.last_gameplay_cmd
+                    );
+                }
+            }
+        }
+    }
+
+    let breadcrumb = format!(
+        "save_load_step={} last_cmd={} select={} move={} save={} load={} restore={} post_move={}",
+        st.gameplay_step,
+        snap.last_gameplay_cmd,
+        st.saw_select_ok,
+        st.saw_move_ok,
+        st.saw_save_ok,
+        st.saw_load_ok,
+        st.saw_world_restore_ok,
+        st.saw_post_load_move_ok
+    );
+    if !result.detail.starts_with("world_restore_fail:") {
+        result.detail = breadcrumb;
+    }
+
+    if st.saw_select_ok
+        && st.saw_move_ok
+        && st.saw_save_ok
+        && st.saw_load_ok
+        && st.saw_world_restore_ok
+        && st.saw_post_load_move_ok
+    {
+        result.gameplay_cmd_ok = true;
+        result.save_cmd_ok = true;
+        result.load_cmd_ok = true;
+        result.detail.push_str(" save_load_pass;");
+        let _ = write_control(control_path, &["exit"]);
+        st.commanded_at = Some(Instant::now());
+        st.phase = 3;
+        return;
+    }
+
+    let retry_due = st
+        .commanded_at
+        .map(|t| t.elapsed() > Duration::from_secs(8))
+        .unwrap_or(true);
+
+    if !st.saw_select_ok {
+        if snap.local_mobile_units == 0 && st.gameplay_step == 0 && !retry_due {
+            return;
+        }
+        if st.gameplay_step == 0 || snap.last_gameplay_cmd.starts_with("select_fail") || retry_due {
+            let _ = write_control(control_path, &["select_local_unit"]);
+            st.gameplay_step = 1;
+            st.commanded_at = Some(Instant::now());
+        }
+        return;
+    }
+
+    if !st.saw_move_ok {
+        if st.gameplay_step < 10 {
+            let _ = write_control(control_path, &["move_selected|x=100|y=0|z=100"]);
+            st.gameplay_step = 10;
+            st.commanded_at = Some(Instant::now());
+            return;
+        }
+        if snap.last_gameplay_cmd.starts_with("move_fail") || retry_due {
+            let _ = write_control(
+                control_path,
+                &["select_local_unit", "move_selected|x=120|y=0|z=120"],
+            );
+            st.commanded_at = Some(Instant::now());
+        }
+        return;
+    }
+
+    // Advance N logic ticks after the order before freezing the world.
+    const SAVE_LOAD_TICK_WAIT: u32 = 45;
+    if st.gameplay_step < 20 {
+        st.save_load_tick_anchor = Some(snap.frame);
+        st.gameplay_step = 20;
+        st.commanded_at = Some(Instant::now());
+        return;
+    }
+    if st.gameplay_step == 20 {
+        let anchor = st.save_load_tick_anchor.unwrap_or(snap.frame);
+        let advanced = snap.frame.saturating_sub(anchor);
+        let waited = st
+            .commanded_at
+            .map(|t| t.elapsed() >= Duration::from_secs(3))
+            .unwrap_or(false);
+        if advanced < SAVE_LOAD_TICK_WAIT && !waited {
+            return;
+        }
+        // Pause so pre-snap / save / load / post-snap share one logic frame.
+        let _ = write_control(control_path, &["pause"]);
+        st.gameplay_step = 25;
+        st.commanded_at = Some(Instant::now());
+        return;
+    }
+    if st.gameplay_step == 25 {
+        if snap.last_gameplay_cmd.starts_with("pause_ok") || retry_due {
+            st.gameplay_step = 30;
+            st.commanded_at = Some(Instant::now());
+        } else if retry_due {
+            let _ = write_control(control_path, &["pause"]);
+            st.commanded_at = Some(Instant::now());
+        }
+        return;
+    }
+
+    if st.pre_world_snap.is_empty() {
+        if st.gameplay_step < 30 {
+            st.gameplay_step = 30;
+        }
+        if st.gameplay_step == 30 || retry_due {
+            let _ = write_control(control_path, &["report_world_snapshot"]);
+            st.gameplay_step = 31;
+            st.commanded_at = Some(Instant::now());
+        }
+        return;
+    }
+
+    if !st.saw_save_ok {
+        if st.gameplay_step < 40 {
+            let _ = write_control(control_path, &["quicksave"]);
+            st.gameplay_step = 40;
+            st.commanded_at = Some(Instant::now());
+            return;
+        }
+        if snap.last_gameplay_cmd.starts_with("save_fail") || retry_due {
+            let _ = write_control(control_path, &["quicksave"]);
+            st.commanded_at = Some(Instant::now());
+        }
+        return;
+    }
+
+    if !st.saw_load_ok {
+        if st.gameplay_step < 50 {
+            let _ = write_control(control_path, &["quickload"]);
+            st.gameplay_step = 50;
+            st.commanded_at = Some(Instant::now());
+            return;
+        }
+        if snap.last_gameplay_cmd.starts_with("load_fail") || retry_due {
+            let _ = write_control(control_path, &["quickload"]);
+            st.commanded_at = Some(Instant::now());
+            st.gameplay_step = st.gameplay_step.saturating_add(1).min(59);
+        }
+        return;
+    }
+
+    if !st.saw_world_restore_ok {
+        if st.gameplay_step < 60 {
+            let _ = write_control(control_path, &["report_world_snapshot"]);
+            st.gameplay_step = 60;
+            st.commanded_at = Some(Instant::now());
+            return;
+        }
+        if retry_due {
+            let _ = write_control(control_path, &["report_world_snapshot"]);
+            st.commanded_at = Some(Instant::now());
+            st.gameplay_step = st.gameplay_step.saturating_add(1).min(69);
+        }
+        return;
+    }
+
+    // Resume then prove orders still accept on the restored world.
+    if st.gameplay_step < 75 {
+        let _ = write_control(control_path, &["pause"]); // toggle → resume if still paused
+        st.gameplay_step = 75;
+        st.commanded_at = Some(Instant::now());
+        return;
+    }
+    if st.gameplay_step == 75 {
+        if snap.last_gameplay_cmd.starts_with("pause_ok") || retry_due {
+            st.gameplay_step = 80;
+            st.commanded_at = Some(Instant::now());
+        }
+        return;
+    }
+
+    if !st.saw_post_load_move_ok {
+        if st.gameplay_step == 80 {
+            let _ = write_control(
+                control_path,
+                &["select_local_unit", "move_selected|x=140|y=0|z=140"],
+            );
+            st.gameplay_step = 81;
+            st.commanded_at = Some(Instant::now());
+            return;
+        }
+        if snap.last_gameplay_cmd.starts_with("move_fail")
+            || snap.last_gameplay_cmd.starts_with("select_fail")
+            || retry_due
+        {
+            let _ = write_control(
+                control_path,
+                &["select_local_unit", "move_selected|x=150|y=0|z=150"],
+            );
+            st.commanded_at = Some(Instant::now());
+            st.gameplay_step = st.gameplay_step.saturating_add(1).min(89);
+        }
+    }
+}
+
+
+
+
+/// Sample the on-screen radar gadget (bottom-left HUD) from a captured frame.
+/// `radar_pixels` only proves the CPU terrain texture is non-black; shroud or a
+/// missing draw can still leave the gadget black. Require enough non-black,
+/// non-uniform samples inside the radar rectangle (C++ W3DRadar::draw into the
+/// radar window).
+fn png_minimap_on_screen_has_terrain(path: &Path) -> bool {
+    let Ok(data) = fs::read(path) else {
+        return false;
+    };
+    let Ok(img) = image::load_from_memory(&data) else {
+        return false;
+    };
+    let rgba = img.to_rgba8();
+    let (w, h) = rgba.dimensions();
+    if w < 320 || h < 240 {
+        return false;
+    }
+    // ControlBar radar sits bottom-left; keep a generous rect that still avoids
+    // the money/text strip to the right of the gadget on 1280x720.
+    let x0 = (w as f32 * 0.02) as u32;
+    let y0 = (h as f32 * 0.72) as u32;
+    let x1 = (w as f32 * 0.16) as u32;
+    let y1 = (h as f32 * 0.97) as u32;
+    let mut non_black = 0u32;
+    let mut samples = 0u32;
+    let mut sum = [0u64; 3];
+    let mut sum_sq = [0u64; 3];
+    let mut buckets = std::collections::HashSet::new();
+    let mut y = y0;
+    while y < y1 {
+        let mut x = x0;
+        while x < x1 {
+            let p = rgba.get_pixel(x, y).0;
+            samples += 1;
+            if p[0] | p[1] | p[2] != 0 {
+                non_black += 1;
+            }
+            for i in 0..3 {
+                let v = p[i] as u64;
+                sum[i] += v;
+                sum_sq[i] += v * v;
+            }
+            buckets.insert((p[0] >> 3, p[1] >> 3, p[2] >> 3));
+            x = x.saturating_add(2);
+        }
+        y = y.saturating_add(2);
+    }
+    if samples < 64 || non_black * 5 < samples {
+        // <20% non-black → still the empty black gadget.
+        return false;
+    }
+    let mut max_var = 0.0f64;
+    for i in 0..3 {
+        let mean = sum[i] as f64 / samples as f64;
+        let var = sum_sq[i] as f64 / samples as f64 - mean * mean;
+        max_var = max_var.max(var);
+    }
+    // Uniform fill or a single icon on black fails; retail snow/rock radar has
+    // hundreds of color buckets and material variance.
+    buckets.len() >= 24 && max_var >= 200.0
+}
+
+/// Playable terrain view (upper ~65%) must show tile-level color variance.
+/// Grey stand-in Art/Terrain placeholders are nearly uniform (~var 50); retail
+/// Lone Eagle snow/rock/cliff atlases are far more varied.
+fn png_terrain_view_has_retail_tile_variance(path: &Path) -> bool {
+    let Ok(data) = fs::read(path) else {
+        return false;
+    };
+    let Ok(img) = image::load_from_memory(&data) else {
+        return false;
+    };
+    let rgba = img.to_rgba8();
+    let (w, h) = rgba.dimensions();
+    if w < 320 || h < 240 {
+        return false;
+    }
+    let x0 = (w as f32 * 0.08) as u32;
+    let y0 = (h as f32 * 0.08) as u32;
+    let x1 = (w as f32 * 0.92) as u32;
+    let y1 = (h as f32 * 0.58) as u32;
+    let mut samples = 0u32;
+    let mut sum = [0u64; 3];
+    let mut sum_sq = [0u64; 3];
+    let mut buckets = std::collections::HashSet::new();
+    let mut y = y0;
+    while y < y1 {
+        let mut x = x0;
+        while x < x1 {
+            let p = rgba.get_pixel(x, y).0;
+            samples += 1;
+            for i in 0..3 {
+                let v = p[i] as u64;
+                sum[i] += v;
+                sum_sq[i] += v * v;
+            }
+            buckets.insert((p[0] >> 3, p[1] >> 3, p[2] >> 3));
+            x = x.saturating_add(3);
+        }
+        y = y.saturating_add(3);
+    }
+    if samples < 256 {
+        return false;
+    }
+    let mut max_var = 0.0f64;
+    for i in 0..3 {
+        let mean = sum[i] as f64 / samples as f64;
+        let var = sum_sq[i] as f64 / samples as f64 - mean * mean;
+        max_var = max_var.max(var);
+    }
+    // Prior grey stand-in frames measured ~53 variance / ~40 buckets in a
+    // corner crop; retail snow/rock is well above both.
+    buckets.len() >= 120 && max_var >= 250.0
+}
+
+
+/// Reject clear-color / sky-only frames: lower half must show edge/texture variance.
+fn is_procedural_runtime_fallback_png(path: &Path) -> bool {
+    // Matches RuntimeHostBridge::build_procedural_fallback_png (1280x720 smooth
+    // green→blue ramp). Real skirmish frames never match this exact formula.
+    let Ok(data) = fs::read(path) else {
+        return false;
+    };
+    if data.len() < 33 || data.get(0..8) != Some(&[0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n']) {
+        return false;
+    }
+    let Ok(img) = image::load_from_memory(&data) else {
+        return false;
+    };
+    let rgba = img.to_rgba8();
+    let (w, h) = rgba.dimensions();
+    if w != 1280 || h != 720 {
+        return false;
+    }
+    let sample = |x: u32, y: u32| {
+        let p = rgba.get_pixel(x, y).0;
+        (p[0], p[1], p[2])
+    };
+    let expected = |x: u32, y: u32| {
+        let v = y as f32 / (h.saturating_sub(1).max(1)) as f32;
+        let u = x as f32 / (w.saturating_sub(1).max(1)) as f32;
+        let r = (22.0 + 26.0 * (1.0 - v) + 12.0 * u).clamp(0.0, 255.0) as u8;
+        let g = (34.0 + 38.0 * (1.0 - v)).clamp(0.0, 255.0) as u8;
+        let b = (48.0 + 58.0 * v).clamp(0.0, 255.0) as u8;
+        (r, g, b)
+    };
+    for (x, y) in [(0u32, 0u32), (w / 2, h / 2), (w - 1, h - 1), (0, h - 1), (w - 1, 0)] {
+        let (a, e) = (sample(x, y), expected(x, y));
+        if a.0.abs_diff(e.0) > 1 || a.1.abs_diff(e.1) > 1 || a.2.abs_diff(e.2) > 1 {
+            return false;
+        }
+    }
+    true
+}
+
+fn png_lower_half_has_texture_variance(path: &Path) -> bool {
+    let Ok(data) = fs::read(path) else {
+        return false;
+    };
+    if data.len() < 33 || data.get(0..8) != Some(b"\x89PNG\r\n\x1a\n") {
+        return false;
+    }
+    let mut i = 8usize;
+    let mut w = 0u32;
+    let mut h = 0u32;
+    let mut color = 0u8;
+    let mut idat = Vec::new();
+    while i + 12 <= data.len() {
+        let ln = u32::from_be_bytes(data[i..i + 4].try_into().unwrap()) as usize;
+        let typ = &data[i + 4..i + 8];
+        if i + 12 + ln > data.len() {
+            break;
+        }
+        let chunk = &data[i + 8..i + 8 + ln];
+        match typ {
+            b"IHDR" if chunk.len() >= 10 => {
+                w = u32::from_be_bytes(chunk[0..4].try_into().unwrap());
+                h = u32::from_be_bytes(chunk[4..8].try_into().unwrap());
+                color = chunk[9];
+            }
+            b"IDAT" => idat.extend_from_slice(chunk),
+            b"IEND" => break,
+            _ => {}
+        }
+        i += 12 + ln;
+    }
+    if w < 8 || h < 8 || idat.is_empty() {
+        return false;
+    }
+    use std::io::Read;
+    let mut dec = flate2::read::ZlibDecoder::new(idat.as_slice());
+    let mut raw = Vec::new();
+    if dec.read_to_end(&mut raw).is_err() {
+        return false;
+    }
+    let bpp: usize = match color {
+        2 => 3,
+        6 => 4,
+        0 => 1,
+        _ => return false,
+    };
+    let stride = (w as usize).saturating_mul(bpp);
+    let expected = (stride + 1).saturating_mul(h as usize);
+    if raw.len() < expected || stride == 0 {
+        return false;
+    }
+    let mut prev = vec![0u8; stride];
+    let mut rows = Vec::with_capacity(h as usize);
+    let mut off = 0usize;
+    for _ in 0..h as usize {
+        let filter = raw[off];
+        off += 1;
+        let mut row = raw[off..off + stride].to_vec();
+        off += stride;
+        match filter {
+            1 => {
+                for x in bpp..stride {
+                    row[x] = row[x].wrapping_add(row[x - bpp]);
+                }
+            }
+            2 => {
+                for x in 0..stride {
+                    row[x] = row[x].wrapping_add(prev[x]);
+                }
+            }
+            3 => {
+                for x in 0..stride {
+                    let left = if x >= bpp { row[x - bpp] } else { 0 };
+                    let avg = ((u16::from(left) + u16::from(prev[x])) / 2) as u8;
+                    row[x] = row[x].wrapping_add(avg);
+                }
+            }
+            4 => {
+                for x in 0..stride {
+                    let a = if x >= bpp { row[x - bpp] } else { 0 };
+                    let b = prev[x];
+                    let c = if x >= bpp { prev[x - bpp] } else { 0 };
+                    let p = i16::from(a) + i16::from(b) - i16::from(c);
+                    let pa = (p - i16::from(a)).unsigned_abs();
+                    let pb = (p - i16::from(b)).unsigned_abs();
+                    let pc = (p - i16::from(c)).unsigned_abs();
+                    let pr = if pa <= pb && pa <= pc {
+                        a
+                    } else if pb <= pc {
+                        b
+                    } else {
+                        c
+                    };
+                    row[x] = row[x].wrapping_add(pr);
+                }
+            }
+            _ => {}
+        }
+        prev.clone_from(&row);
+        rows.push(row);
+    }
+    let start = (h as usize) / 2;
+    let step_y = ((h as usize) / 48).max(1);
+    let step_x = ((w as usize) / 48).max(1).saturating_mul(bpp).max(bpp);
+    let mut edge = 0u64;
+    let mut samples = 0u64;
+    let mut uniq = std::collections::BTreeSet::new();
+    for y in (start..h as usize).step_by(step_y) {
+        let row = &rows[y];
+        let y0 = y.saturating_sub(step_y).max(start);
+        let above = &rows[y0];
+        let mut x = 0usize;
+        while x + bpp < stride {
+            let dx = (row[x] as i16 - row[x + bpp] as i16).unsigned_abs() as u64;
+            let dy = (row[x] as i16 - above[x] as i16).unsigned_abs() as u64;
+            if dx > 12 || dy > 12 {
+                edge += 1;
+            }
+            // Quantize RGB for uniqueness (ignore alpha).
+            let key = (row[x] / 8, row.get(x + 1).copied().unwrap_or(0) / 8, row.get(x + 2).copied().unwrap_or(0) / 8);
+            uniq.insert(key);
+            samples += 1;
+            x += step_x;
+        }
+    }
+    // Smooth sky/clear gradients have almost no edges and few unique bins.
+    samples > 20 && edge * 10 >= samples && uniq.len() >= 12
+}
+
+/// P0 hq-x1j4u.9.6: windowed Lone Eagle present sit-through with a selected unit,
+/// non-zero stable render items, and a saved screenshot under the worktree.
+fn smoke_drive_present_frame_chain(
+    st: &mut SmokeRunState,
+    result: &mut ExecutableSmokeResult,
+    snap: &StatusSnap,
+    control_path: &Path,
+) {
+    if snap.last_gameplay_cmd.starts_with("select_ok") {
+        st.saw_select_ok = true;
+    }
+    if snap.selected_count > 0 {
+        st.saw_select_ok = true;
+    }
+    if snap.render_item_count > 0 {
+        st.max_render_item_count = st.max_render_item_count.max(snap.render_item_count);
+        st.render_items_nonzero_polls = st.render_items_nonzero_polls.saturating_add(1);
+    }
+    if snap.window_visible {
+        st.saw_window_visible = true;
+        result.window_visible = true;
+    }
+    if snap.presentation_frame_ok {
+        st.saw_presentation_frame_ok = true;
+        result.presentation_frame_ok = true;
+    }
+    if snap.live_frame_ok {
+        st.saw_live_frame_ok = true;
+        result.live_frame_ok = true;
+    }
+
+    result.detail = format!(
+        "present_step={} select={} selected={} window_visible={} render_items={} terrain={} models={} ui={} selection={} stable_polls={} sit_secs={} last_cmd={}",
+        st.gameplay_step,
+        st.saw_select_ok,
+        snap.selected_count,
+        st.saw_window_visible,
+        st.max_render_item_count,
+        st.max_terrain_chunks,
+        st.max_render_models,
+        st.max_render_ui,
+        st.max_render_selection,
+        st.render_items_nonzero_polls,
+        st.present_frame_ingame_since
+            .map(|t| t.elapsed().as_secs())
+            .unwrap_or(0),
+        snap.last_gameplay_cmd
+    );
+
+    let retry_due = st
+        .commanded_at
+        .map(|t| t.elapsed() > Duration::from_secs(6))
+        .unwrap_or(true);
+
+    // Select a local unit once InGame.
+    if !st.saw_select_ok || snap.selected_count == 0 {
+        if st.gameplay_step == 0 || snap.last_gameplay_cmd.starts_with("select_fail") || retry_due {
+            let _ = write_control(control_path, &["select_local_unit"]);
+            st.gameplay_step = 1;
+            st.commanded_at = Some(Instant::now());
+        }
+        return;
+    }
+
+    if st.present_frame_ingame_since.is_none() {
+        let _ = write_control(control_path, &["view_command_center"]);
+        st.present_frame_ingame_since = Some(Instant::now());
+        st.gameplay_step = 10;
+        st.commanded_at = Some(Instant::now());
+    }
+
+    let sit = st
+        .present_frame_ingame_since
+        .map(|t| t.elapsed())
+        .unwrap_or_default();
+    // Peak per-category draws (weak render_item_count alone is not enough).
+    st.max_terrain_chunks = st.max_terrain_chunks.max(snap.render_terrain_chunks);
+    st.max_render_models = st.max_render_models.max(snap.render_models);
+    st.max_render_ui = st.max_render_ui.max(snap.render_ui);
+    st.max_render_selection = st.max_render_selection.max(snap.render_selection);
+    st.max_radar_pixels = st.max_radar_pixels.max(snap.radar_pixels);
+    if snap.present_ms > 0.0 {
+        st.sum_present_ms += f64::from(snap.present_ms);
+        st.sum_collect_ms += f64::from(snap.present_collect_ms);
+        st.sum_terrain_ms += f64::from(snap.present_terrain_ms);
+        st.sum_forward_ms += f64::from(snap.present_forward_ms);
+        st.present_timing_samples = st.present_timing_samples.saturating_add(1);
+    }
+
+    // Model pass items can read 0 between presents while alive-object residual
+    // still proves unit/structure meshes were collected.
+    let categories_ok = st.max_terrain_chunks > 0
+        && (st.max_render_models >= 3
+            || st.max_render_alive_objects >= 3
+            || st.max_render_item_count.saturating_sub(st.max_render_ui) >= 3)
+        && st.max_render_ui > 0
+        && st.max_render_selection > 0
+        && st.max_radar_pixels > 0
+        && snap.selected_count > 0;
+    let stable = st.render_items_nonzero_polls >= 3 && st.max_render_item_count > 0;
+
+    // Sit through at least 60s with selection held; keep focusing camera on CC.
+    if sit < Duration::from_secs(60) {
+        if retry_due {
+            if snap.selected_count == 0 {
+                let _ = write_control(
+                    control_path,
+                    &["view_command_center", "select_local_unit"],
+                );
+            } else if sit.as_secs() % 15 == 0 {
+                let _ = write_control(control_path, &["view_command_center"]);
+            }
+            st.commanded_at = Some(Instant::now());
+        }
+        return;
+    }
+
+    if !stable || !categories_ok {
+        if sit < Duration::from_secs(120) {
+            if retry_due {
+                let _ = write_control(
+                    control_path,
+                    &["view_command_center", "select_local_unit"],
+                );
+                st.commanded_at = Some(Instant::now());
+            }
+            return;
+        }
+        result.detail = format!(
+            "present_frame_fail; categories short; terrain={} models={} ui={} selection={} radar_pixels={} items={} selected={}",
+            st.max_terrain_chunks,
+            st.max_render_models,
+            st.max_render_ui,
+            st.max_render_selection,
+            st.max_radar_pixels,
+            st.max_render_item_count,
+            snap.selected_count
+        );
+        let _ = write_control(control_path, &["exit"]);
+        st.commanded_at = Some(Instant::now());
+        st.phase = 3;
+        return;
+    }
+
+    // Request a capture, then copy frame.png into the worktree artifacts dir.
+    if st.gameplay_step < 20 {
+        let _ = write_control(control_path, &["request_capture"]);
+        st.gameplay_step = 20;
+        st.commanded_at = Some(Instant::now());
+        return;
+    }
+    if st.gameplay_step == 20 {
+        let ready = (snap.last_gameplay_cmd.starts_with("request_capture_ok")
+            && (snap.live_frame_ok || st.saw_live_frame_ok))
+            || st.commanded_at.map(|t| t.elapsed() > Duration::from_secs(20)).unwrap_or(false);
+        if !ready {
+            return;
+        }
+        let frame_src = control_path
+            .parent()
+            .map(|p| p.join("frame.png"))
+            .unwrap_or_else(|| PathBuf::from("frame.png"));
+        // Worktree-relative artifacts/ (gitignored). Prefer GENERALS_PRESENT_SCREENSHOT.
+        let dest = std::env::var_os("GENERALS_PRESENT_SCREENSHOT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../artifacts/present_frame_lone_eagle.png")
+            });
+        if let Some(parent) = dest.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        // Wait briefly for the PNG to appear after the capture request.
+        let mut copied = false;
+        for _ in 0..50 {
+            if frame_src.is_file()
+                && !is_procedural_runtime_fallback_png(&frame_src)
+                && fs::copy(&frame_src, &dest).is_ok()
+            {
+                copied = true;
+                break;
+            }
+            let _ = write_control(control_path, &["request_capture"]);
+            thread::sleep(Duration::from_millis(200));
+        }
+        st.present_screenshot_path = if copied {
+            dest.canonicalize()
+                .unwrap_or_else(|_| dest.clone())
+                .to_string_lossy()
+                .into_owned()
+        } else {
+            format!("capture_missing:{}", frame_src.display())
+        };
+        let image_ok = copied
+            && !is_procedural_runtime_fallback_png(Path::new(&st.present_screenshot_path))
+            && png_lower_half_has_texture_variance(Path::new(&st.present_screenshot_path))
+            && png_minimap_on_screen_has_terrain(Path::new(&st.present_screenshot_path))
+            && png_terrain_view_has_retail_tile_variance(Path::new(&st.present_screenshot_path))
+            && (snap.live_frame_ok || st.saw_live_frame_ok);
+        st.present_image_ok = image_ok;
+        if !image_ok {
+            result.detail = format!(
+                "present_frame_fail; image lacks on-screen radar terrain or retail tile variance; screenshot={} terrain={} models={} ui={} selection={} radar_pixels={}",
+                st.present_screenshot_path,
+                st.max_terrain_chunks,
+                st.max_render_models,
+                st.max_render_ui,
+                st.max_render_selection,
+                st.max_radar_pixels
+            );
+            // Keep failing closed: do not latch present_frame_ok on sky-only frames.
+            let _ = write_control(control_path, &["exit"]);
+            st.commanded_at = Some(Instant::now());
+            st.phase = 3;
+            return;
+        }
+        st.saw_present_frame_ok = true;
+        result.gameplay_cmd_ok = true;
+        result.render_items_stable_ok = true;
+        result.max_render_item_count = st.max_render_item_count;
+        let n = st.present_timing_samples.max(1) as f64;
+        let avg_present = st.sum_present_ms / n;
+        let avg_collect = st.sum_collect_ms / n;
+        let avg_terrain = st.sum_terrain_ms / n;
+        let avg_forward = st.sum_forward_ms / n;
+        let docs = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/lone_eagle_perf_baseline.md");
+        if let Some(parent) = docs.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let body = format!(
+            "# Lone Eagle performance baseline\n\nCaptured during `present_frame_gate` sit-through (America/Sao_Paulo local).\n\n| mode | samples | avg present_ms | collect | terrain | forward | radar_pixels | terrain_chunks |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n| windowed present | {} | {:.3} | {:.3} | {:.3} | {:.3} | {} | {} |\n\n## Hot spots\n\nPresent breakdown from `RenderPipeline::execute` residuals. Leading stage: {}.\n\n## Notes\n\n- Facility census cache: `facility_cache_gate` / `build_facility_template_names_cache_is_per_world_and_invalidates` (hq-wq7g6y).\n- Radar terrain texture non-black samples gated via `radar_pixels>0` (full 128x128 = 16384).\n- Terrain source tiles hydrate through TerrainZH.big archive reader after heightmap hint install.\n",
+            st.present_timing_samples,
+            avg_present,
+            avg_collect,
+            avg_terrain,
+            avg_forward,
+            st.max_radar_pixels,
+            st.max_terrain_chunks,
+            if avg_terrain >= avg_collect && avg_terrain >= avg_forward {
+                "terrain"
+            } else if avg_collect >= avg_forward {
+                "collect"
+            } else {
+                "forward"
+            }
+        );
+        let _ = fs::write(&docs, body);
+        result.detail = format!(
+            "present_frame_pass; window_visible={} terrain={} models={} ui={} selection={} radar_pixels={} items={} screenshot={} present_ms={:.3}",
+            st.saw_window_visible,
+            st.max_terrain_chunks,
+            st.max_render_models,
+            st.max_render_ui,
+            st.max_render_selection,
+            st.max_radar_pixels,
+            st.max_render_item_count,
+            st.present_screenshot_path,
+            avg_present
+        );
+        let _ = write_control(control_path, &["exit"]);
+        st.commanded_at = Some(Instant::now());
+        st.phase = 3;
     }
 }

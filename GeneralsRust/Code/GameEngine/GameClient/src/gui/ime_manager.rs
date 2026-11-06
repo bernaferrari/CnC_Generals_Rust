@@ -653,13 +653,14 @@ mod os_wnd_tests {
         y: i32,
     ) {
         client.window_manager_owner().with_manager(|manager| {
-            let button = manager.create_window(None, x, y, 80, 24).expect(name);
+            let button = manager.test_create_window(None, x, y, 80, 24).expect(name);
             button.borrow_mut().set_name(name);
-            let _ = button.borrow_mut().hide(false);
+            let _ = button.borrow_mut().hide_without_manager_side_effects(false);
         });
     }
     #[test]
     fn os_wnd_ime_prepare_hits_textarea_then_opens_candidate_list() {
+        crate::test_support::ensure_ambient_host();
         let mut client = crate::core::game_client::GameClient::new().unwrap();
         install_named_button(&mut client, "IMECandidateWindow.wnd:TextArea", 10, 10);
         assert!(
@@ -680,6 +681,7 @@ mod os_wnd_tests {
     }
     #[test]
     fn os_wnd_ime_clear_hits_downarrow_then_clears_candidates() {
+        crate::test_support::ensure_ambient_host();
         let mut client = crate::core::game_client::GameClient::new().unwrap();
         install_named_button(&mut client, "IMECandidateWindow.wnd:DownArrow", 10, 40);
         client.with_window_event_effects(None, |effects| {

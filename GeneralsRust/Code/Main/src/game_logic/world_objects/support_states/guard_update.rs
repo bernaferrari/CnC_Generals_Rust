@@ -290,9 +290,6 @@ impl GameLogic {
                             let guard_is_tunnel = self.objects.get(&guard_target_id).is_some_and(
                             |g| {
                                 g.is_tunnel_network_style_container()
-                                    || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                                        &g.template_name,
-                                    )
                             },
                         );
                             if guard_is_tunnel {

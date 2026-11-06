@@ -429,6 +429,7 @@ mod tests {
 
     #[test]
     fn test_effects_manager_creation() {
+        crate::test_support::ensure_ambient_host();
         let manager = EffectsManager::new();
         assert!(manager.is_enabled());
         assert_eq!(manager.active_particle_system_count(), 0);
@@ -438,6 +439,7 @@ mod tests {
 
     #[test]
     fn test_effects_manager_with_config() {
+        crate::test_support::ensure_ambient_host();
         let mut config = EffectsConfig::default();
         config.particles_enabled = false;
         config.weather_enabled = false;
@@ -449,6 +451,7 @@ mod tests {
 
     #[test]
     fn test_particle_system_spawning() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = EffectsManager::new();
 
         let position = Vec3::new(10.0, 20.0, 30.0);
@@ -464,6 +467,7 @@ mod tests {
 
     #[test]
     fn test_decal_creation() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = EffectsManager::new();
 
         let position = Vec3::new(5.0, 10.0, 0.0);
@@ -475,6 +479,7 @@ mod tests {
 
     #[test]
     fn test_weather_system() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = EffectsManager::new();
 
         manager.set_weather(WeatherType::Snow, 0.8);
@@ -484,6 +489,7 @@ mod tests {
 
     #[test]
     fn test_effects_enable_disable() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = EffectsManager::new();
 
         // Create some effects
@@ -506,6 +512,7 @@ mod tests {
 
     #[test]
     fn test_max_particle_systems_limit() {
+        crate::test_support::ensure_ambient_host();
         let mut config = EffectsConfig::default();
         config.max_particle_systems = 2;
 
@@ -523,6 +530,7 @@ mod tests {
 
     #[test]
     fn test_stats_tracking() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = EffectsManager::new();
 
         // Initial stats

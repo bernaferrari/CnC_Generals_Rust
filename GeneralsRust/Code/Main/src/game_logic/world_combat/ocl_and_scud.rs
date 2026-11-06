@@ -246,8 +246,8 @@ mod receiving_debris_ocl_owner_tests {
         let (mut world, source) = helix_portable_world(Vec3::ZERO);
         let host = world.objects.get_mut(&source).unwrap();
         host.is_helix_transport = false;
-        host.thing.template.contain_module.kind = crate::game_logic::ContainModuleKind::Transport;
-        host.thing.template.contain_module.slots = Some(1);
+        host.template_mut().contain_module.kind = crate::game_logic::ContainModuleKind::Transport;
+        host.template_mut().contain_module.slots = Some(1);
         host.max_transport = 1;
 
         let created = world.execute_parsed_weapon_ocl_at(
@@ -925,14 +925,15 @@ impl GameLogic {
         // C++ ObjectCreationList.cpp:1524-1534 createInternal walks every nugget
         // independently. A leftover-physics CreateDebris/FireWeapon/etc. must not
         // discard earlier CreateObject results from the same authored list.
+        // FireOCL after FireFX may run with a destroyed source; frozen team/pose
+        // still create (hq-ye145). Only stop when a captured birth no longer
+        // matches — that means a same-ID replacement, not a missing original.
         let mut created = Vec::new();
         for nugget in ocl.nuggets() {
-            if !source_id.is_some_and(|id| {
-                source_birth
-                    .as_ref()
-                    .is_some_and(|birth| self.object_birth_matches(id, birth))
-            }) {
-                break;
+            if let Some(birth) = source_birth.as_ref() {
+                if !source_id.is_some_and(|id| self.object_birth_matches(id, birth)) {
+                    break;
+                }
             }
             let Some(generic) = nugget
                 .as_any()
@@ -949,10 +950,9 @@ impl GameLogic {
             }
             if generic.contain_inside_source_object
                 && !source_id.is_some_and(|source_id| {
-                    self.objects.get(&source_id).is_some_and(|source| {
-                        source.is_helix_transport
-                            && source.thing().template.contain_module.is_helix_contain
-                    })
+                    self.objects
+                        .get(&source_id)
+                        .is_some_and(|source| source.admits_ocl_portable_structure())
                 })
             {
                 log::warn!(
@@ -962,7 +962,11 @@ impl GameLogic {
             }
             if generic.contain_inside_source_object
                 && !generic.names.iter().all(|name| {
-                    self.templates.get(name.trim()).is_some_and(|template| {
+                    // Resolve this session's admitted payload definition
+                    // before reading its KindOf (creation would do the same).
+                    let name = name.trim();
+                    self.ensure_host_spawn_template(name);
+                    self.templates.get(name).is_some_and(|template| {
                         template.is_kind_of(crate::game_logic::KindOf::PortableStructure)
                     })
                 })
@@ -1125,6 +1129,18 @@ impl GameLogic {
                         );
                     }
                 }
+                // C++ ObjectCreationList.cpp:985-993: any created object with a
+                // SlavedUpdate is enslaved to the source (startSlavedEffects ->
+                // UNSELECTABLE), independent of upgrade/OCL spelling.
+                if let (Some(source), Some(birth)) = (source_id, source_birth.as_ref()) {
+                    if self
+                        .objects
+                        .get(&created_id)
+                        .is_some_and(|object| object.thing().template.slaved_update_metadata.is_some())
+                    {
+                        self.enslave_owned_drone(created_id, source, birth);
+                    }
+                }
                 let veterancy_health_bonus = self.veterancy_health_bonus;
                 let inherit_name = self
                     .with_object_veterancy_feedback_and_locomotors(
@@ -1139,9 +1155,11 @@ impl GameLogic {
                             }
                             // C++ ObjectCreationList.cpp:996-1006 — inherit rank and
                             // transferObjectName only when the created tracker isTrainable.
+                            // ExperienceTracker::setVeterancyLevel is exact: it replaces
+                            // (and may lower) the receiving constructor/onCreate rank.
                             let inherit_name = generic.inherit_veterancy && object.is_trainable();
                             if inherit_name {
-                                object.set_min_veterancy_level_with_health_bonus_table(
+                                object.set_exact_veterancy_level_with_health_bonus_table(
                                     source_veterancy,
                                     &veterancy_health_bonus,
                                     audio,
@@ -1329,10 +1347,9 @@ impl GameLogic {
         {
             return false;
         }
-        let Some((is_helix, occupied)) = self.objects.get(&source_id).map(|source| {
+        let Some((admits_portable, occupied)) = self.objects.get(&source_id).map(|source| {
             (
-                source.is_helix_transport
-                    && source.thing().template.contain_module.is_helix_contain,
+                source.admits_ocl_portable_structure(),
                 source.overlord_portable_occupant,
             )
         }) else {
@@ -1343,12 +1360,13 @@ impl GameLogic {
         };
         if !child.is_kind_of(crate::game_logic::KindOf::PortableStructure)
             || occupied.is_some()
-            || !is_helix
+            || !admits_portable
         {
             return false;
         }
         // HelixContain's portable override bypasses normal TransportContain
-        // KindOf, relationship, controller, and slot-count checks.
+        // KindOf, relationship, controller, and slot-count checks; the
+        // OverlordContain (Slots=1, PORTABLE_STRUCTURE) rider uses the same slot.
         self.attach_overlord_portable_occupant(source_id, child_id);
         if self
             .objects
@@ -1603,11 +1621,15 @@ impl GameLogic {
     ) {
         let fire_ocls = self.combat_system.take_fire_ocl();
         for fire in fire_ocls {
-            // C++ Weapon.cpp handles FireFX before invoking FireOCL.  Do not
-            // synthesize a generic muzzle event for a blank FX reference: the
-            // parsed name is authoritative and a null FXList is genuinely no
-            // visual effect.
-            if !fire.fire_fx_name.trim().is_empty()
+            // C++ Weapon.cpp:889 wraps FireFX/muzzle in getDrawable(); FireOCL
+            // (943+) stays outside that gate. Do not synthesize a generic muzzle
+            // for a blank FX reference: the parsed name is authoritative.
+            let source_has_drawable = self
+                .objects
+                .get(&fire.shooter_id)
+                .is_some_and(|o| o.has_drawable);
+            if source_has_drawable
+                && !fire.fire_fx_name.trim().is_empty()
                 && !fire.fire_fx_name.trim().eq_ignore_ascii_case("None")
             {
                 let radius = host_fire_fx_override_radius(self.objects.get(&fire.shooter_id));
@@ -1673,22 +1695,8 @@ impl GameLogic {
             {
                 continue;
             }
-            if !impact.detonation_ocl_name.is_empty() {
-                let _ = self.execute_parsed_weapon_ocl_at_with_effects(
-                    &impact.detonation_ocl_name,
-                    Some(impact.shooter_id),
-                    impact.source_team,
-                    impact.source_veterancy,
-                    impact.source_orientation,
-                    impact.source_velocity,
-                    impact.position,
-                    presentation_effects,
-                );
-            }
-            // C++ Weapon.cpp:903-939 plays ProjectileDetonationFX exactly once
-            // (handleWeaponFireFX or a single doFXPos). Never invents a
-            // fire-time MuzzleFlash at the crater and never unhides the
-            // shooter's muzzle at detonation.
+            // C++ Weapon.cpp:889-949 — ProjectileDetonationFX (drawable/doFXPos)
+            // before ProjectileDetonationOCL. Keep independent empty-name skips.
             if !impact.detonation_fx_name.trim().is_empty()
                 && !impact
                     .detonation_fx_name
@@ -1707,6 +1715,18 @@ impl GameLogic {
                     0.0,
                     radius,
                     matrix,
+                    presentation_effects,
+                );
+            }
+            if !impact.detonation_ocl_name.is_empty() {
+                let _ = self.execute_parsed_weapon_ocl_at_with_effects(
+                    &impact.detonation_ocl_name,
+                    Some(impact.shooter_id),
+                    impact.source_team,
+                    impact.source_veterancy,
+                    impact.source_orientation,
+                    impact.source_velocity,
+                    impact.position,
                     presentation_effects,
                 );
             }
@@ -1882,18 +1902,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(160),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                None,
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact never spawns a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -2072,15 +2082,8 @@ impl GameLogic {
                 .with_position(muzzle)
                 .with_priority(140),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                muzzle,
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact never spawns a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -2249,6 +2252,23 @@ impl GameLogic {
     }
 
     /// Infer Technical salvage tier from residual weapon stats / upgrade tags.
+    /// Technical tier from the authored weapon in `slot`; `None` when the slot
+    /// does not hold a Technical weapon (hq-2qedt.173).
+    pub(in super::super) fn technical_tier_for_authored_weapon(
+        obj: &Object,
+        slot: u8,
+    ) -> Option<crate::game_logic::host_technical::TechnicalWeaponTier> {
+        use crate::game_logic::host_technical::{
+            TECHNICAL_CANNON, TECHNICAL_MACHINE_GUN, TECHNICAL_RPG, TechnicalWeaponTier,
+        };
+        match obj.selected_weapon_name(slot)? {
+            TECHNICAL_MACHINE_GUN => Some(TechnicalWeaponTier::Base),
+            TECHNICAL_CANNON => Some(TechnicalWeaponTier::One),
+            TECHNICAL_RPG => Some(TechnicalWeaponTier::Two),
+            _ => None,
+        }
+    }
+
     pub(in super::super) fn technical_tier_from_object(
         obj: &Object,
     ) -> crate::game_logic::host_technical::TechnicalWeaponTier {
@@ -2284,7 +2304,7 @@ impl GameLogic {
         tier: crate::game_logic::host_technical::TechnicalWeaponTier,
     ) -> bool {
         use crate::game_logic::host_technical::{
-            TECHNICAL_TRANSPORT_SLOTS, delay_frames_to_reload_secs, is_technical_template,
+            TECHNICAL_TRANSPORT_SLOTS, delay_frames_to_reload_secs, is_technical_weapon_name,
             technical_weapon_for_tier, technical_weapon_name_for_tier, technical_weapon_stats,
         };
         use crate::game_logic::thing::ThingTemplate;
@@ -2292,7 +2312,11 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_technical_template(&obj.template_name) {
+        // Salvage tier swaps the authored WeaponSet slot weapon; gate on it.
+        if !obj
+            .authored_weapon_name_for_slot(0)
+            .is_some_and(is_technical_weapon_name)
+        {
             return false;
         }
 
@@ -2360,7 +2384,7 @@ impl GameLogic {
         use crate::game_logic::host_technical::{
             TECH_CANNON_DAMAGE_TYPE, TECH_CANNON_DEATH_TYPE, TECH_FIRE_AUDIO, TECH_MG_DAMAGE_TYPE,
             TECH_MG_DEATH_TYPE, TECH_RPG_DAMAGE_TYPE, TECH_RPG_DEATH_TYPE, TechnicalWeaponTier,
-            is_legal_technical_splash_target, is_technical_template, technical_cannon_scatter_aim,
+            is_legal_technical_splash_target, technical_cannon_scatter_aim,
             technical_cannon_scatter_misses_infantry, technical_splash_damage_at,
             technical_weapon_stats,
         };
@@ -2515,25 +2539,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-            let _ = is_technical_template(
-                &self
-                    .objects
-                    .get(&sid)
-                    .map(|o| o.template_name.clone())
-                    .unwrap_or_default(),
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact never spawns a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -2597,15 +2604,29 @@ impl GameLogic {
         true
     }
 
+    /// True when the authored primary weapon is `DragonTankFlameWeapon(/Upgraded)`.
+    pub(in super::super) fn has_authored_dragon_flame_weapon(obj: &Object) -> bool {
+        use crate::game_logic::host_dragon_tank::{
+            DRAGON_TANK_FLAME_WEAPON, DRAGON_TANK_FLAME_WEAPON_UPGRADED,
+        };
+        obj.authored_weapon_name_for_slot(0).is_some_and(|w| {
+            w.eq_ignore_ascii_case(DRAGON_TANK_FLAME_WEAPON)
+                || w.eq_ignore_ascii_case(DRAGON_TANK_FLAME_WEAPON_UPGRADED)
+        })
+    }
+
     /// Apply BlackNapalm residual to a Dragon Tank (PLAYER_UPGRADE flame residual).
     pub fn apply_dragon_black_napalm_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_dragon_tank::{
-            UPGRADE_CHINA_BLACK_NAPALM, dragon_flame_weapon, is_dragon_tank_template,
+            DRAGON_TANK_FLAME_WEAPON, DRAGON_TANK_FLAME_WEAPON_UPGRADED,
+            UPGRADE_CHINA_BLACK_NAPALM, dragon_flame_weapon,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_dragon_tank_template(&obj.template_name) {
+        // Black Napalm is a WeaponBonusUpgrade on the authored Dragon flame weapon,
+        // not a chassis-name special case.
+        if !Self::has_authored_dragon_flame_weapon(obj) {
             return false;
         }
         obj.applied_upgrades
@@ -2617,25 +2638,40 @@ impl GameLogic {
         true
     }
 
+    /// Authored-weapon lane for Chain Guns: `Some(true)` for `GattlingTankGun`,
+    /// `Some(false)` for `GattlingBuildingGun`, `None` otherwise.
+    pub(in super::super) fn gattling_chain_guns_lane(obj: &Object) -> Option<bool> {
+        use crate::game_logic::host_gattling_tank::GATTLING_TANK_GUN;
+        use crate::game_logic::host_overlord_addons::GATTLING_BUILDING_GUN;
+        let w = obj.authored_weapon_name_for_slot(0)?;
+        if w.eq_ignore_ascii_case(GATTLING_TANK_GUN) {
+            Some(true)
+        } else if w.eq_ignore_ascii_case(GATTLING_BUILDING_GUN) {
+            Some(false)
+        } else {
+            None
+        }
+    }
+
     /// Apply Chain Guns residual to a Gattling Tank or Gattling Cannon structure
     /// (PLAYER_UPGRADE damage residual × 1.25).
     pub fn apply_gattling_chain_guns_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_base_defense::{
             gattling_building_air_weapon, gattling_building_ground_weapon,
-            is_gattling_cannon_structure,
+            is_authored_gattling_building,
         };
         use crate::game_logic::host_gattling_tank::{
             GattlingFireLevel, UPGRADE_CHINA_CHAIN_GUNS, gattling_air_weapon,
-            gattling_ground_weapon, is_gattling_tank_template,
+            gattling_ground_weapon,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        let is_tank = is_gattling_tank_template(&obj.template_name);
-        let is_building = is_gattling_cannon_structure(&obj.template_name);
-        if !is_tank && !is_building {
+        // Chain Guns is a WeaponBonusUpgrade on the authored Gattling weapon,
+        // not a chassis-name special case.
+        let Some(is_tank) = Self::gattling_chain_guns_lane(obj) else {
             return false;
-        }
+        };
         obj.applied_upgrades
             .insert(UPGRADE_CHINA_CHAIN_GUNS.to_string());
         let level = GattlingFireLevel::from_u8(obj.continuous_fire_level);
@@ -2955,180 +2991,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-        }
-
-        (hits, any_destroyed)
-    }
-
-    /// Apply Gattling Tank residual hit at impact (single-target residual).
-    ///
-    /// Returns (units_hit, any_destroyed). Continuous-fire ramp advances in
-    /// `advance_gattling_continuous_fire` after the fire path records last_fire_time.
-    pub(in super::super) fn apply_gattling_tank_residual_at(
-        &mut self,
-        impact: Vec3,
-        source: Option<ObjectId>,
-        intended_target: Option<ObjectId>,
-        slot: u8,
-    ) -> (u32, bool) {
-        self.apply_gattling_tank_residual_at_with_effects(
-            impact,
-            source,
-            intended_target,
-            slot,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(in super::super) fn apply_gattling_tank_residual_at_with_effects(
-        &mut self,
-        impact: Vec3,
-        source: Option<ObjectId>,
-        intended_target: Option<ObjectId>,
-        slot: u8,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, bool) {
-        use crate::game_logic::host_gattling_tank::{
-            GATTLING_AIR_DAMAGE, GATTLING_AIR_DAMAGE_TYPE, GATTLING_DEATH_TYPE,
-            GATTLING_FIRE_AUDIO, GATTLING_GROUND_DAMAGE, GATTLING_GROUND_DAMAGE_TYPE,
-            gattling_damage_with_chain_guns, has_chain_guns_upgrade, is_legal_gattling_target,
-        };
-
-        let (base_dmg, chain) = source
-            .and_then(|id| self.objects.get(&id))
-            .map(|o| {
-                let chain = has_chain_guns_upgrade(&o.applied_upgrades);
-                let base = if slot == 1 {
-                    GATTLING_AIR_DAMAGE
-                } else {
-                    GATTLING_GROUND_DAMAGE
-                };
-                (base, chain)
-            })
-            .unwrap_or((GATTLING_GROUND_DAMAGE, false));
-        let dmg = gattling_damage_with_chain_guns(base_dmg, chain);
-
-        let mut hits = 0u32;
-        let mut any_destroyed = false;
-        let mut destroy_ids: Vec<(ObjectId, Option<Team>)> = Vec::new();
-        let source_team = source.and_then(|id| self.objects.get(&id).map(|o| o.team));
-
-        let tid = match intended_target {
-            Some(id) => id,
-            None => {
-                // Pure residual acquire: nearest combat target near impact (XZ).
-                let candidates: Vec<_> = self
-                    .objects
-                    .registered()
-                    .map(|(&id, obj)| {
-                        let combat_kind =
-                            crate::game_logic::host_residual_acquire::residual_combat_kind(
-                                obj.is_kind_of(KindOf::Attackable),
-                                obj.is_kind_of(KindOf::Structure),
-                                obj.is_kind_of(KindOf::Infantry),
-                                obj.is_kind_of(KindOf::Vehicle),
-                                obj.is_kind_of(KindOf::Aircraft),
-                            );
-                        crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
-                            id,
-                            team: obj.team,
-                            position: obj.get_position(),
-                            is_alive: obj.is_alive(),
-                            is_neutral: obj.team == Team::Neutral,
-                            under_construction: obj.status.under_construction,
-                            combat_kind,
-                            effectively_stealthed: obj.is_effectively_stealthed(),
-                            is_air: obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
-                            eject_invulnerable: obj.is_eject_invulnerable(),
-                        }
-                    })
-                    .collect();
-                match crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
-                    source,
-                    (impact.x, impact.z),
-                    candidates,
-                    12.0,
-                    |c| is_legal_gattling_target(true, false, c.under_construction, c.combat_kind),
-                ) {
-                    Some((id, _, _)) => id,
-                    None => {
-                        self.queue_audio_event(
-                            AudioEventRequest::new(GATTLING_FIRE_AUDIO)
-                                .with_position(impact)
-                                .with_priority(140),
-                        );
-                        return (0, false);
-                    }
-                }
-            }
-        };
-
-        if let Some(obj) = self.objects.get_mut(&tid) {
-            if is_legal_gattling_target(
-                obj.is_alive(),
-                source == Some(tid),
-                obj.status.under_construction,
-                true,
-            ) {
-                let (dt_name, death_name) = if slot == 1 {
-                    (GATTLING_AIR_DAMAGE_TYPE, GATTLING_DEATH_TYPE)
-                } else {
-                    (GATTLING_GROUND_DAMAGE_TYPE, GATTLING_DEATH_TYPE)
-                };
-                let receiving_damage_target_id = obj.id;
-                let destroyed = self.apply_residual_damage_owned_with_effects(
-                    receiving_damage_target_id,
-                    dmg,
-                    source,
-                    crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
-                        dt_name,
-                    ),
-                    crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
-                        death_name,
-                    ),
-                    None,
-                    presentation_effects,
-                );
-                hits = 1;
-                if destroyed {
-                    any_destroyed = true;
-                    destroy_ids.push((tid, source_team));
-                }
-            }
-        }
-
-        for (id, killer) in destroy_ids {
-            self.mark_object_for_destruction_with_effects(id, killer, presentation_effects);
-        }
-
-        self.queue_audio_event(
-            AudioEventRequest::new(GATTLING_FIRE_AUDIO)
-                .with_position(impact)
-                .with_priority(140),
-        );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                Some(tid),
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact never spawns a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -3142,7 +3006,7 @@ impl GameLogic {
         tier: crate::game_logic::host_marauder::MarauderWeaponTier,
     ) -> bool {
         use crate::game_logic::host_marauder::{
-            delay_frames_to_reload_secs, is_marauder_template, marauder_weapon_for_tier,
+            delay_frames_to_reload_secs, is_marauder_weapon_name, marauder_weapon_for_tier,
             marauder_weapon_name_for_tier, marauder_weapon_stats,
         };
         use crate::game_logic::thing::ThingTemplate;
@@ -3150,7 +3014,11 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_marauder_template(&obj.template_name) {
+        // Salvage tier swaps the authored WeaponSet slot weapon; gate on it.
+        if !obj
+            .authored_weapon_name_for_slot(0)
+            .is_some_and(is_marauder_weapon_name)
+        {
             return false;
         }
 
@@ -3429,7 +3297,7 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_marauder::{
             MARAUDER_DAMAGE_TYPE, MARAUDER_DEATH_TYPE, MARAUDER_FIRE_AUDIO, MARAUDER_SPLASH_RADIUS,
-            is_legal_marauder_splash_target, is_marauder_template, marauder_scatter_aim,
+            is_legal_marauder_splash_target, marauder_scatter_aim,
             marauder_scatter_misses_infantry, marauder_splash_damage_at,
         };
 
@@ -3568,25 +3436,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-            let _ = is_marauder_template(
-                &self
-                    .objects
-                    .get(&sid)
-                    .map(|o| o.template_name.clone())
-                    .unwrap_or_default(),
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact never spawns a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -3599,13 +3450,13 @@ impl GameLogic {
     ) -> bool {
         use crate::game_logic::host_scorpion::{
             ScorpionSalvageTier, has_ap_rockets_upgrade, has_scorpion_rocket_upgrade,
-            is_scorpion_template, scorpion_gun_weapon, scorpion_missile_weapon,
+            scorpion_gun_weapon, scorpion_missile_weapon,
         };
 
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_scorpion_template(&obj.template_name) {
+        if !authored_scorpion_gun(obj) {
             return false;
         }
 
@@ -3652,14 +3503,14 @@ impl GameLogic {
     /// Equip Scorpion Rocket secondary residual (Upgrade_GLAScorpionRocket).
     pub fn apply_scorpion_rocket_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_scorpion::{
-            UPGRADE_GLA_SCORPION_ROCKET, has_ap_rockets_upgrade, is_scorpion_template,
-            salvage_tier_from_upgrades, scorpion_missile_weapon,
+            UPGRADE_GLA_SCORPION_ROCKET, has_ap_rockets_upgrade, salvage_tier_from_upgrades,
+            scorpion_missile_weapon,
         };
 
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_scorpion_template(&obj.template_name) {
+        if !authored_scorpion_gun(obj) {
             return false;
         }
         obj.applied_upgrades
@@ -3678,14 +3529,14 @@ impl GameLogic {
     /// Apply AP Rockets residual damage mult to Scorpion missile secondary.
     pub fn apply_scorpion_ap_rockets_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_scorpion::{
-            UPGRADE_GLA_AP_ROCKETS, has_scorpion_rocket_upgrade, is_scorpion_template,
-            salvage_tier_from_upgrades, scorpion_missile_weapon,
+            UPGRADE_GLA_AP_ROCKETS, has_scorpion_rocket_upgrade, salvage_tier_from_upgrades,
+            scorpion_missile_weapon,
         };
 
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_scorpion_template(&obj.template_name) {
+        if !authored_scorpion_gun(obj) {
             return false;
         }
         obj.applied_upgrades
@@ -4370,6 +4221,69 @@ End
         );
     }
 
+    /// hq-2qedt.60: C++ ObjectCreationList.cpp:996-1001 calls the exact
+    /// `ExperienceTracker::setVeterancyLevel` (ExperienceTracker.cpp:82-95),
+    /// not setMinVeterancyLevel, after construction/onCreate already seeded the
+    /// receiving rank (Object.cpp:456, VeterancyGainCreate). The inherited
+    /// source rank therefore replaces — and may lower — that rank.
+    #[test]
+    fn ocl_inherits_veterancy_sets_exact_rank_over_receiving_create_rank() {
+        let ini = r#"
+ObjectCreationList OCL_Hq60Inherit
+  CreateObject
+    ObjectNames = Hq60Spawned
+    Count = 1
+    InheritsVeterancy = Yes
+  End
+End
+"#;
+        let mut logic = GameLogic::new();
+        logic
+            .apply_receiving_ocl_overrides(&[ini.to_owned()])
+            .expect("inherit OCL must parse");
+        let mut source_tpl = ThingTemplate::new("__Hq60Source");
+        source_tpl.is_trainable = true;
+        logic.templates.insert("__Hq60Source".into(), source_tpl);
+        let mut spawned_tpl = ThingTemplate::new("Hq60Spawned");
+        spawned_tpl.is_trainable = true;
+        spawned_tpl.veterancy_gain_creates =
+            vec![crate::game_logic::VeterancyGainCreateMetadata {
+                starting_level: VeterancyLevel::Elite,
+                science_required: None,
+            }];
+        logic.templates.insert("Hq60Spawned".into(), spawned_tpl);
+        let source = logic
+            .create_object("__Hq60Source", Team::USA, Vec3::new(2.0, 0.0, 4.0))
+            .expect("source");
+
+        let baseline = logic
+            .create_object("Hq60Spawned", Team::USA, Vec3::new(20.0, 0.0, 4.0))
+            .expect("baseline");
+        assert_eq!(
+            logic.objects.get(&baseline).unwrap().experience.level,
+            VeterancyLevel::Elite,
+            "fixture: receiving create seeds Elite before OCL inherit"
+        );
+
+        for (source_rank, x) in [(VeterancyLevel::Veteran, 6.0), (VeterancyLevel::Rookie, 10.0)] {
+            let created = logic.execute_parsed_weapon_ocl_at(
+                "OCL_Hq60Inherit",
+                Some(source),
+                Team::USA,
+                source_rank,
+                0.0,
+                Vec3::ZERO,
+                Vec3::new(x, 0.0, 4.0),
+            );
+            assert_eq!(created.len(), 1);
+            assert_eq!(
+                logic.objects.get(&created[0]).unwrap().experience.level,
+                source_rank,
+                "C++ setVeterancyLevel is exact: source {source_rank:?} replaces created Elite"
+            );
+        }
+    }
+
     /// C++ HelixContain.cpp:340 — portable gattling fires without host shot.
     #[test]
     fn overlord_gattling_independent_acquire_not_stacked_primary() {
@@ -4473,4 +4387,88 @@ End
         assert!((debris.drawable_fade_opacity(40) - 0.0).abs() < 1e-5);
         assert!(debris.drawable_fade_opacity(40 + debris.drawable_fade_frames) > 0.99);
     }
+
+    /// hq-2qedt.1: C++ ObjectCreationUpgrade -> OCL CreateObject
+    /// ContainInsideSourceObject -> OverlordContain (TransportContain)
+    /// addToContain. The retail gattling rider must be admitted, and the
+    /// host_overlord_addons occupant path must reuse it (no double spawn).
+    #[test]
+    fn overlord_contain_admits_retail_gattling_ocl_exactly_once() {
+        // The retail name also drives the native host_overlord_addons occupant
+        // (double-spawn guard); the arbitrary name has only the authored
+        // OverlordContain + ObjectCreationUpgrade, so it proves OCL admission.
+        for host_name in ["ChinaTankOverlord", "ArbitraryAuthoredContainHost"] {
+            overlord_contain_gattling_ocl_case(host_name);
+        }
+    }
+
+    fn overlord_contain_gattling_ocl_case(host_name: &str) {
+        use crate::game_logic::host_overlord_addons::{
+            OCL_OVERLORD_GATTLING, OVERLORD_PAYLOAD_GATTLING, UPGRADE_OVERLORD_GATTLING,
+        };
+        let mut logic = GameLogic::new();
+        logic
+            .admit_object_creation_list_sources([format!(
+                "ObjectCreationList {OCL_OVERLORD_GATTLING}\nCreateObject\nObjectNames = {OVERLORD_PAYLOAD_GATTLING}\nCount = 1\nContainInsideSourceObject = Yes\nEnd\nEnd"
+            )])
+            .expect("retail Overlord addon OCL parses");
+        logic
+            .admit_object_ini_sources([(
+                "OverlordPortable.ini".into(),
+                format!(
+                    "Object {host_name}\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 1100\n InitialHealth = 1100\n End\n Behavior = OverlordContain Contain\n Slots = 1\n AllowInsideKindOf = PORTABLE_STRUCTURE\n End\n Behavior = ObjectCreationUpgrade Gattling\n TriggeredBy = {UPGRADE_OVERLORD_GATTLING}\n UpgradeObject = {OCL_OVERLORD_GATTLING}\n End\nEnd\nObject {OVERLORD_PAYLOAD_GATTLING}\n KindOf = VEHICLE PORTABLE_STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 1100\n InitialHealth = 1100\n End\nEnd\n"
+                ),
+            )])
+            .expect("ini");
+        let mut ini = game_engine::common::ini::INI::new();
+        ini.with_inline_source(
+            &format!("Upgrade {UPGRADE_OVERLORD_GATTLING}\nType = OBJECT\nEnd\n"),
+            |ini| {
+                ini.read_line()?;
+                logic.upgrade_definitions.parse_upgrade_definition(ini)
+            },
+        )
+        .expect("object upgrade definition should admit");
+        logic.players.insert(
+            1,
+            crate::game_logic::Player::new(1, Team::China, "Owner", true),
+        );
+        let overlord = logic
+            .create_object_for_player(host_name, 1, Vec3::ZERO)
+            .expect("overlord");
+        logic.apply_upgrade_to_object(overlord, UPGRADE_OVERLORD_GATTLING);
+
+        let all: Vec<_> = logic
+            .host_objects()
+            .registered_values()
+            .filter(|object| object.template_name == OVERLORD_PAYLOAD_GATTLING)
+            .map(|object| (object.id, object.status.destroyed, object.contained_by))
+            .collect();
+        assert_eq!(
+            all.len(),
+            1,
+            "{host_name}: exactly one gattling payload: {all:?}"
+        );
+        let (payload, destroyed, contained_by) = all[0];
+        assert!(!destroyed);
+        assert_eq!(contained_by, Some(overlord));
+        assert_eq!(
+            logic
+                .host_object(overlord)
+                .unwrap()
+                .overlord_portable_occupant,
+            Some(payload)
+        );
+    }
+}
+
+/// hq-2qedt.179: Scorpion gun/rocket refresh keys on the authored PRIMARY
+/// (ScorpionTankGun family) rather than a template-name sniff; C++ crate /
+/// WeaponSetUpgrade paths only flip WeaponSet conditions on the authored set.
+pub(in crate::game_logic) fn authored_scorpion_gun(obj: &crate::game_logic::Object) -> bool {
+    use crate::game_logic::host_scorpion::{SCORPION_TANK_GUN, SCORPION_TANK_GUN_PLUS_ONE};
+    obj.authored_weapon_name_for_slot(0).is_some_and(|w| {
+        w.eq_ignore_ascii_case(SCORPION_TANK_GUN)
+            || w.eq_ignore_ascii_case(SCORPION_TANK_GUN_PLUS_ONE)
+    })
 }

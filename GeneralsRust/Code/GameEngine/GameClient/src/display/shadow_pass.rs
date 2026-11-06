@@ -11,9 +11,9 @@ use crate::display::view::with_tactical_view_ref;
 use crate::drawable::StealthLook;
 use crate::drawable::drawable_manager::with_drawable_manager;
 use crate::effects::decals::DecalRenderItem;
-use crate::radius_decal::get_projected_shadow_manager;
+use crate::radius_decal::with_projected_shadow_manager;
 use crate::terrain::TerrainVisual;
-use crate::terrain::terrain_visual::THE_TERRAIN_VISUAL;
+use crate::terrain::terrain_visual::get_terrain_visual;
 use game_engine::common::ini::ini_game_data::get_global_data;
 use gamelogic::common::SHADOW_VOLUME;
 use gamelogic::common::types::KindOf;
@@ -35,30 +35,54 @@ pub struct UnitShadowCaster {
     pub volume: bool,
 }
 
-// THREAD: main thread only — casters are queued by the client's draw pass and
-// consumed by the shadow passes of the same frame on the same thread.
+/// Per-receiving-client shadow pass state (casters + GUI-thread GPU pipelines).
+#[derive(Default)]
+pub struct ShadowPassState {
+    pub(crate) unit_casters: Vec<UnitShadowCaster>,
+    gpu: Option<ShadowPassGpu>,
+}
+
+fn with_shadow_pass_state<R>(f: impl FnOnce(&mut ShadowPassState) -> R) -> R {
+    #[cfg(test)]
+    {
+        return TEST_SHADOW_PASS.with(|slot| f(&mut slot.borrow_mut()));
+    }
+    #[cfg(not(test))]
+    {
+        if crate::core::game_client::live_game_client_frame().is_some() {
+            return crate::core::game_client::with_live_game_client_mut(|client| {
+                f(&mut client.shadow_pass)
+            })
+            .expect("live client frame implies registered client");
+        }
+        let mut ephemeral = ShadowPassState::default();
+        f(&mut ephemeral)
+    }
+}
+
+#[cfg(test)]
 thread_local! {
-    static UNIT_CASTERS: RefCell<Vec<UnitShadowCaster>> = RefCell::new(Vec::new());
+    static TEST_SHADOW_PASS: RefCell<ShadowPassState> = RefCell::new(ShadowPassState::default());
 }
 
 /// C++ `W3DShadowManager::invalidateCachedLightPositions` / GameLOD hook.
 pub fn rebuild_shadows() {
-    UNIT_CASTERS.with_borrow_mut(Vec::clear);
+    with_shadow_pass_state(|state| state.unit_casters.clear());
 }
 
 pub fn register_unit_shadow(caster: UnitShadowCaster) {
-    UNIT_CASTERS.with_borrow_mut(|list| list.push(caster));
+    with_shadow_pass_state(|state| state.unit_casters.push(caster));
 }
 
 pub fn clear_unit_shadows() {
-    UNIT_CASTERS.with_borrow_mut(Vec::clear);
+    with_shadow_pass_state(|state| state.unit_casters.clear());
 }
 
 /// C++ `W3DProjectedShadowManager::flushDecals` / `queueDecal`.
 /// Only allocated projected decals (`addDecal` / `addShadow`). C++ has no
 /// per-drawable fallback blob — inventing one double-draws once real decals land.
 pub fn collect_unit_decal_items() -> Vec<DecalRenderItem> {
-    get_projected_shadow_manager().read().collect_render_items()
+    with_projected_shadow_manager(|manager| manager.collect_render_items()).unwrap_or_default()
 }
 
 /// C++ `GlobalData::m_occludedLuminanceScale` default (`GlobalData.cpp:746`).
@@ -100,8 +124,9 @@ pub enum VolumetricPresentStatus {
 
 /// SHADOW_VOLUME casters for this frame (`UnitShadowCaster.volume` plus live objects).
 pub fn collect_volume_casters() -> Vec<UnitShadowCaster> {
-    let mut out = UNIT_CASTERS.with_borrow(|casters| {
-        casters
+    let mut out = with_shadow_pass_state(|state| {
+        state
+            .unit_casters
             .iter()
             .filter(|c| c.volume)
             .cloned()
@@ -156,14 +181,13 @@ pub fn present_volumetric_shadows(depth_format: wgpu::TextureFormat) -> Volumetr
 /// structurally unavailable and every caster renders through the blob-decal
 /// disc pass instead. Debug-level and logged once to stay quiet per frame.
 fn log_volumetric_stencil_skip_once(depth_format: wgpu::TextureFormat) {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    static LOGGED: AtomicBool = AtomicBool::new(false);
-    if !LOGGED.swap(true, Ordering::Relaxed) {
+    // `Once` is not interior-mutable payload for the globals counter.
+    static LOGGED: std::sync::Once = std::sync::Once::new();
+    LOGGED.call_once(|| {
         log::debug!(
-            "volumetric stencil shadows skipped: present depth format {depth_format:?} has no \
-             stencil; unit shadows route to blob decals"
+            "volumetric stencil shadows skipped: present depth format {depth_format:?} has no              stencil; unit shadows route to blob decals"
         );
-    }
+    });
 }
 
 /// C++ `RGB_To_HSV` (`colorspace.h`) then `hsv.Z *= m_occludedLuminanceScale`.
@@ -366,7 +390,7 @@ fn collect_occlusion_overlays_inner(
             }
         }
     }
-    let casters = UNIT_CASTERS.with_borrow(Clone::clone);
+    let casters = with_shadow_pass_state(|state| state.unit_casters.clone());
     for caster in casters {
         if caster.occluded {
             out.push(OcclusionOverlay {
@@ -505,11 +529,7 @@ const VOLUME_VERTEX_ATTRS: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array!
 const OVERLAY_VERTEX_ATTRS: [wgpu::VertexAttribute; 2] =
     wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4];
 
-// `ShadowPassGpu` holds `Rc`-backed wgpu handles (`!Send` on the web backend);
-// the thread-local slot keeps them on the GUI thread that created them.
-thread_local! {
-    static SHADOW_PASS_GPU: RefCell<Option<ShadowPassGpu>> = const { RefCell::new(None) };
-}
+// ShadowPassGpu lives on ShadowPassState (GUI thread / live client).
 
 fn create_shadow_pass_gpu(
     device: &wgpu::Device,
@@ -744,15 +764,15 @@ fn with_shadow_pass_gpu<R>(
     depth_format: wgpu::TextureFormat,
     f: impl FnOnce(&ShadowPassGpu) -> R,
 ) -> R {
-    SHADOW_PASS_GPU.with_borrow_mut(|slot| {
-        let rebuild = match slot.as_ref() {
+    with_shadow_pass_state(|state| {
+        let rebuild = match state.gpu.as_ref() {
             None => true,
             Some(gpu) => gpu.color_format != color_format || gpu.depth_format != depth_format,
         };
         if rebuild {
-            *slot = Some(create_shadow_pass_gpu(device, color_format, depth_format));
+            state.gpu = Some(create_shadow_pass_gpu(device, color_format, depth_format));
         }
-        f(slot.as_ref().expect("shadow gpu"))
+        f(state.gpu.as_ref().expect("shadow gpu"))
     })
 }
 
@@ -1206,7 +1226,7 @@ pub fn maximum_visible_box(
 }
 
 pub fn terrain_min_height() -> f32 {
-    if let Ok(guard) = THE_TERRAIN_VISUAL.lock() {
+    if let Ok(guard) = get_terrain_visual() {
         if let Some(terrain) = guard.as_ref() {
             if let Ok(h) = terrain.get_height_at(0.0, 0.0) {
                 return h.min(0.0);
@@ -1222,6 +1242,7 @@ mod tests {
 
     #[test]
     fn visible_box_contains_camera_target() {
+        crate::test_support::ensure_ambient_host();
         let box_ = maximum_visible_box(
             [0.0, 0.0, 100.0],
             [0.0, 100.0, 0.0],
@@ -1236,6 +1257,7 @@ mod tests {
 
     #[test]
     fn rebuild_discards_queued_unit_casters() {
+        crate::test_support::ensure_ambient_host();
         clear_unit_shadows();
         register_unit_shadow(UnitShadowCaster {
             position: [10.0, 20.0, 0.0],
@@ -1247,13 +1269,14 @@ mod tests {
             heat_vision: false,
             volume: true,
         });
-        UNIT_CASTERS.with_borrow(|casters| assert_eq!(casters.len(), 1));
+        with_shadow_pass_state(|state| assert_eq!(state.unit_casters.len(), 1));
         rebuild_shadows();
-        UNIT_CASTERS.with_borrow(|casters| assert!(casters.is_empty()));
+        with_shadow_pass_state(|state| assert!(state.unit_casters.is_empty()));
     }
 
     #[test]
     fn collect_unit_decal_items_does_not_invent_caster_blobs() {
+        crate::test_support::ensure_ambient_host();
         let before = collect_unit_decal_items().len();
         register_unit_shadow(UnitShadowCaster {
             position: [10.0, 20.0, 0.0],
@@ -1276,6 +1299,7 @@ mod tests {
 
     #[test]
     fn volumetric_present_skips_without_stencil() {
+        crate::test_support::ensure_ambient_host();
         assert!(!volumetric_stencil_supported());
         assert!(!depth_format_has_stencil(wgpu::TextureFormat::Depth32Float));
         assert!(depth_format_has_stencil(
@@ -1289,6 +1313,7 @@ mod tests {
 
     #[test]
     fn volumetric_present_submits_volume_casters_when_stencil_available() {
+        crate::test_support::ensure_ambient_host();
         clear_unit_shadows();
         register_unit_shadow(UnitShadowCaster {
             position: [0.0, 0.0, 0.0],
@@ -1320,6 +1345,7 @@ mod tests {
 
     #[test]
     fn occluded_player_color_uses_hsv_luminance_and_half_alpha() {
+        crate::test_support::ensure_ambient_host();
         clear_unit_shadows();
         register_unit_shadow(UnitShadowCaster {
             position: [1.0, 2.0, 3.0],

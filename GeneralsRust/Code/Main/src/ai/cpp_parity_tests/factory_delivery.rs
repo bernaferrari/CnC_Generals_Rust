@@ -181,7 +181,7 @@ fn skirmish_queues_a_selected_team_without_waiting_for_team_seconds() {
                     .map(|building| building.production_queue.len()),
                 Some(1)
             );
-            clear_player_team_prototypes();
+            clear_player_team_prototypes(&logic);
         },
     );
 }
@@ -308,7 +308,7 @@ fn work_order_waits_for_live_factory_output_before_completing() {
     assert!(
         logic.host_object(unit).is_some_and(|unit| {
             matches!(
-                unit.ai_state,
+                unit.ai_state(),
                 crate::game_logic::AIState::Idle
                     | crate::game_logic::AIState::GuardingArea
                     | crate::game_logic::AIState::GuardingObject

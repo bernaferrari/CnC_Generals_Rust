@@ -109,6 +109,7 @@ mod tests {
 
     #[test]
     fn missing_and_recreated_money_window_get_current_amount() {
+        crate::test_support::ensure_ambient_host();
         let mut ui = InGameUISubsystem::default();
         ui.refresh_money_text(10000, None);
         assert!(ui.money_display_cache.is_none());
@@ -128,6 +129,7 @@ mod tests {
 
     #[test]
     fn money_cache_belongs_to_each_ui_and_resets_inertly() {
+        crate::test_support::ensure_ambient_host();
         let mut first = InGameUISubsystem::default();
         let mut second = InGameUISubsystem::default();
         assert!(first.money_display_cache.is_none());

@@ -5,11 +5,8 @@ use crate::{
     sound_scene_obj::{SoundObjectId, SoundSceneObject},
     sound_types::SoundClassId,
 };
-use std::sync::atomic::{AtomicU32, Ordering};
 
-static GLOBAL_SCALE_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
-static OLDEST_TIMESTAMP: AtomicU32 = AtomicU32::new(0);
-static NEWEST_TIMESTAMP: AtomicU32 = AtomicU32::new(1);
+/// Process-wide logical-listener clock/scale moved onto [`crate::sound_scene::SoundScene`].
 
 #[derive(Debug, Clone)]
 pub struct LogicalListener {
@@ -45,8 +42,8 @@ impl LogicalListener {
         self.scale
     }
 
-    pub fn effective_scale(&self) -> f32 {
-        self.scale * Self::global_scale()
+    pub fn effective_scale(&self, global_scale: f32) -> f32 {
+        self.scale * global_scale
     }
 
     pub fn set_position(&mut self, position: Vector3) {
@@ -73,39 +70,4 @@ impl LogicalListener {
         self.timestamp = timestamp;
     }
 
-    pub fn new_timestamp() -> u32 {
-        NEWEST_TIMESTAMP.fetch_add(1, Ordering::SeqCst)
-    }
-
-    pub fn newest_timestamp() -> u32 {
-        NEWEST_TIMESTAMP.load(Ordering::SeqCst).saturating_sub(1)
-    }
-
-    pub fn oldest_timestamp() -> u32 {
-        OLDEST_TIMESTAMP.load(Ordering::SeqCst)
-    }
-
-    pub fn set_oldest_timestamp(timestamp: u32) {
-        let mut current = OLDEST_TIMESTAMP.load(Ordering::SeqCst);
-        while timestamp > current {
-            match OLDEST_TIMESTAMP.compare_exchange(
-                current,
-                timestamp,
-                Ordering::SeqCst,
-                Ordering::SeqCst,
-            ) {
-                Ok(_) => break,
-                Err(actual) => current = actual,
-            }
-        }
-    }
-
-    pub fn global_scale() -> f32 {
-        f32::from_bits(GLOBAL_SCALE_BITS.load(Ordering::Relaxed))
-    }
-
-    pub fn set_global_scale(scale: f32) {
-        let clamped = scale.max(0.0);
-        GLOBAL_SCALE_BITS.store(clamped.to_bits(), Ordering::Relaxed);
-    }
 }

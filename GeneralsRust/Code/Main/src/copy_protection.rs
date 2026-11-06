@@ -24,11 +24,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/// Development mode flag - when true, all copy protection is bypassed
-static DEVELOPMENT_MODE: AtomicBool = AtomicBool::new(true);
-
-/// Copy protection enabled flag - can be configured at runtime
-static COPY_PROTECTION_ENABLED: AtomicBool = AtomicBool::new(false);
 
 /// Launcher communication timeout in seconds
 const _LAUNCHER_TIMEOUT_SECONDS: u64 = 30;
@@ -483,7 +478,7 @@ impl CopyProtection {
     /// Create new copy protection instance
     pub fn new() -> Self {
         let provider: Box<dyn CopyProtectionProvider + Send + Sync> =
-            if DEVELOPMENT_MODE.load(Ordering::Relaxed) {
+            if crate::main_services::main_services().development_mode.load(Ordering::Relaxed) {
                 info!("Initializing copy protection in development mode");
                 Box::new(DevelopmentProvider::new())
             } else {
@@ -510,7 +505,7 @@ impl CopyProtection {
         );
 
         // Check if protection is enabled
-        if !COPY_PROTECTION_ENABLED.load(Ordering::Relaxed) {
+        if !crate::main_services::main_services().copy_protection_enabled.load(Ordering::Relaxed) {
             info!("Copy protection is disabled via configuration");
             self.initialized = true;
             return Ok(());
@@ -549,7 +544,7 @@ impl CopyProtection {
             return false;
         }
 
-        if !COPY_PROTECTION_ENABLED.load(Ordering::Relaxed) {
+        if !crate::main_services::main_services().copy_protection_enabled.load(Ordering::Relaxed) {
             debug!("Copy protection disabled, launcher check is bypassed");
             return true;
         }
@@ -577,7 +572,7 @@ impl CopyProtection {
             return Err(anyhow::anyhow!("Copy protection not initialized"));
         }
 
-        if !COPY_PROTECTION_ENABLED.load(Ordering::Relaxed) {
+        if !crate::main_services::main_services().copy_protection_enabled.load(Ordering::Relaxed) {
             debug!("Copy protection disabled, skipping launcher notification");
             return Ok(());
         }
@@ -603,7 +598,7 @@ impl CopyProtection {
             return Err(anyhow::anyhow!("Copy protection not initialized"));
         }
 
-        if !COPY_PROTECTION_ENABLED.load(Ordering::Relaxed) {
+        if !crate::main_services::main_services().copy_protection_enabled.load(Ordering::Relaxed) {
             debug!("Copy protection disabled, skipping launcher version notification");
             return Ok(());
         }
@@ -617,7 +612,7 @@ impl CopyProtection {
 
     /// Check for launcher messages (matching C++ CopyProtect::checkForMessage)
     pub fn check_for_message(&self) -> Result<Option<LauncherMessage>> {
-        if !self.initialized || !COPY_PROTECTION_ENABLED.load(Ordering::Relaxed) {
+        if !self.initialized || !crate::main_services::main_services().copy_protection_enabled.load(Ordering::Relaxed) {
             return Ok(None);
         }
 
@@ -636,7 +631,7 @@ impl CopyProtection {
         info!("Shutting down copy protection system");
 
         // Notify launcher of shutdown
-        if COPY_PROTECTION_ENABLED.load(Ordering::Relaxed) {
+        if crate::main_services::main_services().copy_protection_enabled.load(Ordering::Relaxed) {
             let timestamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
@@ -663,7 +658,7 @@ impl CopyProtection {
             return Err(anyhow::anyhow!("Copy protection not initialized"));
         }
 
-        if !COPY_PROTECTION_ENABLED.load(Ordering::Relaxed) {
+        if !crate::main_services::main_services().copy_protection_enabled.load(Ordering::Relaxed) {
             debug!("Copy protection disabled, returning bypassed status");
             return Ok(ProtectionStatus::Bypassed);
         }
@@ -682,8 +677,6 @@ impl CopyProtection {
     }
 }
 
-/// Global copy protection instance
-static COPY_PROTECTION: OnceLock<Arc<Mutex<CopyProtection>>> = OnceLock::new();
 
 /// Cloneable handle for accessing the copy protection subsystem safely.
 #[derive(Clone)]
@@ -703,30 +696,37 @@ impl CopyProtectionHandle {
 
 /// Initialize global copy protection instance
 pub fn initialize_copy_protection() -> Result<()> {
-    if COPY_PROTECTION.get().is_none() {
+    let services = crate::main_services::main_services();
+    let mut slot = services
+        .copy_protection
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if slot.is_none() {
         let mut cp = CopyProtection::new();
         cp.initialize()?;
-
-        let arc = Arc::new(Mutex::new(cp));
-        COPY_PROTECTION
-            .set(arc)
-            .map_err(|_| anyhow::anyhow!("Copy protection already initialized"))?;
+        *slot = Some(Arc::new(Mutex::new(cp)));
     }
-
     Ok(())
 }
 
 /// Get global copy protection instance
 pub fn get_copy_protection() -> Option<CopyProtectionHandle> {
-    COPY_PROTECTION
-        .get()
-        .cloned()
+    crate::main_services::main_services()
+        .copy_protection
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
         .map(CopyProtectionHandle::new)
 }
 
 /// Shutdown global copy protection
 pub fn shutdown_copy_protection() -> Result<()> {
-    if let Some(arc) = COPY_PROTECTION.get() {
+    if let Some(arc) = crate::main_services::main_services()
+        .copy_protection
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+    {
         let cp = arc
             .lock()
             .expect("CopyProtection mutex poisoned during shutdown");
@@ -737,8 +737,8 @@ pub fn shutdown_copy_protection() -> Result<()> {
 
 /// Configure copy protection settings
 pub fn configure_copy_protection(development_mode: bool, enabled: bool) {
-    DEVELOPMENT_MODE.store(development_mode, Ordering::Relaxed);
-    COPY_PROTECTION_ENABLED.store(enabled, Ordering::Relaxed);
+    crate::main_services::main_services().development_mode.store(development_mode, Ordering::Relaxed);
+    crate::main_services::main_services().copy_protection_enabled.store(enabled, Ordering::Relaxed);
 
     info!(
         "Copy protection configured: development_mode={}, enabled={}",
@@ -748,12 +748,12 @@ pub fn configure_copy_protection(development_mode: bool, enabled: bool) {
 
 /// Check if development mode is enabled
 pub fn is_development_mode() -> bool {
-    DEVELOPMENT_MODE.load(Ordering::Relaxed)
+    crate::main_services::main_services().development_mode.load(Ordering::Relaxed)
 }
 
 /// Check if copy protection is enabled
 pub fn is_copy_protection_enabled() -> bool {
-    COPY_PROTECTION_ENABLED.load(Ordering::Relaxed)
+    crate::main_services::main_services().copy_protection_enabled.load(Ordering::Relaxed)
 }
 
 // Convenience functions matching C++ CopyProtect static methods

@@ -218,7 +218,7 @@ impl GameClient {
     /// C++ `TheSnowManager->UPDATE()` + `TheAnim2DCollection->UPDATE()`.
     pub fn update_cpp_snow_and_anim2d(&mut self, delta_seconds: f32) {
         self.snow.update(delta_seconds);
-        crate::system::update_client_anim2d_collection();
+        self.client_anim2d_instances.lock().update();
     }
 
     /// C++ `TheTerrainVisual->UPDATE()` (GameClient.cpp:719-722). Fail-soft.
@@ -359,9 +359,14 @@ impl GameClient {
             let assets = self.render_bridge.asset_manager();
             self.drawables
                 .particles
+                .as_mut()
+                .expect("particle manager")
                 .admit_effective_definitions()
                 .map_err(|error| GameClientError::SubsystemError(error.to_string()))?;
-            let (state, particles) = (&mut self.drawables.state, &mut self.drawables.particles);
+            let (state, particles) = (
+                &mut self.drawables.state,
+                self.drawables.particles.as_mut().expect("particle manager"),
+            );
             let ui = self.subsystem_manager.in_game_ui.as_mut();
             if let Some(ambient) = ambient {
                 NativeRenderReceiver::new_with_ambient(
@@ -817,7 +822,10 @@ impl GameClient {
                     .presentation_direct_drawable_bindings
                     .get(&drawable_id)
                     .map(|binding| {
-                        binding.binding_key.host_epoch == e.host_epoch
+                        // hq-0f6bh: host_epoch 0 = Xfer-restored pending adopt.
+                        let epoch_ok = binding.binding_key.host_epoch == e.host_epoch
+                            || binding.binding_key.host_epoch == 0;
+                        epoch_ok
                             && binding.binding_key.object_id == e.object_id
                             && binding.binding_key.drawable_id == drawable_id
                             && binding.visual_template_name == visual_template_name
@@ -872,9 +880,40 @@ impl GameClient {
             let mut inherited_material_opacity = None;
             if let Some(drawable_id) = existing_drawable_id {
                 if retains_binding {
+                    // An epoch-0 binding was seeded by Client Xfer for a
+                    // Drawable this host has never observed (Xfer replaced the
+                    // object's Drawable). Its key is new to every renderer, so
+                    // announce the replacement before ordinary updates: the
+                    // renderer retires the predecessor's constructor receipt
+                    // and binds this lifetime instead of rejecting a changed
+                    // key. Reused Drawables keep their key and are not adopted.
+                    let mut adopted = false;
+                    if let Some(binding) = self
+                        .drawables
+                        .presentation_direct_drawable_bindings
+                        .get_mut(&drawable_id)
+                    {
+                        if binding.binding_key.host_epoch == 0 {
+                            binding.binding_key.host_epoch = e.host_epoch;
+                            adopted = true;
+                        }
+                    }
                     let Some(drawable) = self.drawables.drawable_map.get_mut(&drawable_id) else {
                         continue;
                     };
+                    if adopted {
+                        observe(PresentationDrawableMutation::Destroyed {
+                            host_epoch: e.host_epoch,
+                            object_id: e.object_id,
+                        });
+                        if let Some(basic) = drawable.downcast_ref::<BasicDrawable>() {
+                            observe(PresentationDrawableMutation::Creating {
+                                source: &e,
+                                initial_transform: basic.native_base_transform(),
+                                sync_ms,
+                            });
+                        }
+                    }
                     let position = Vector3::new(e.position[0], e.position[1], e.position[2]);
                     drawable.set_position(position);
                     if let Some(basic) = drawable.downcast_ref::<BasicDrawable>() {
@@ -1338,6 +1377,7 @@ impl GameClient {
             &mut guard.superweapon_strip,
             &entries,
             self.frame,
+            &mut guard.eva,
         );
         let packed: Vec<crate::core::subsystems::PresentationSuperweaponTimerResidual> =
             crate::gui::ingame_ui::live_superweapon_draw_entries(&mut guard.superweapon_strip)
@@ -2267,7 +2307,8 @@ impl GameClient {
             logic.update_orphaned_w3d_ghosts();
             return;
         }
-        if let Ok(mut manager) = gamelogic::object::THE_W3D_GHOST_OBJECT_MANAGER.write() {
+        let __w3d_ghosts = gamelogic::object::the_w3d_ghost_object_manager();
+        if let Ok(mut manager) = __w3d_ghosts.write() {
             manager.update_orphaned_objects(&[]);
         }
     }
@@ -2347,7 +2388,7 @@ impl GameClient {
 
     fn update_scene_lights(&mut self, delta_time: f32) {
         if delta_time > 0.0 {
-            self.drawables.light_scene.update();
+            self.drawables.fx.scene.update();
         }
     }
 
@@ -2677,6 +2718,48 @@ impl GameClient {
         if !self.should_activate_shell_after_startup() {
             return Ok(());
         }
+        // Standalone/Core update and unit tests call with None; admit authored
+        // GlobalData shell-map settings (same as init_display_subsystems) and
+        // synthesize MenuWorldFacts from ambient GameLogic so request_shell_map
+        // can queue NewGame the way C++ Shell::showShellMap does.
+        // Refresh when the caller omitted MenuWorldFacts so flipped test/global
+        // shell_map_on bits are visible (C++ rereads TheGlobalData each show).
+        if !self.menu_host.shell_map_is_configured() || menu_world.is_none() {
+            if let Some(global) = get_global_data() {
+                let definitions = global.read();
+                self.menu_host.configure_shell_map(
+                    crate::gui::campaign_launch_host_bridge::ShellMapSettings {
+                        initial_file: definitions.initial_file.clone(),
+                        enabled: definitions.shell_map_on,
+                        map: definitions.shell_map_name.clone(),
+                    },
+                );
+            }
+        }
+        let menu_world = Some(menu_world.unwrap_or_else(|| {
+            // C++ GameLogic::isInGame(): any mode other than GAME_NONE.
+            let (in_game, in_shell_game, game_mode, logic_frame) =
+                if let Ok(logic) = gamelogic::system::game_logic::get_game_logic().lock() {
+                    let mode = logic.get_game_mode();
+                    (
+                        mode != gamelogic::system::game_logic::GAME_NONE,
+                        mode == gamelogic::system::game_logic::GAME_SHELL,
+                        mode,
+                        logic.get_frame(),
+                    )
+                } else {
+                    (false, false, gamelogic::system::game_logic::GAME_NONE, 0)
+                };
+            crate::gui::campaign_launch_host_bridge::MenuWorldFacts {
+                script_engine_available: false,
+                chat: None,
+                game_mode,
+                client_frame: self.frame,
+                logic_frame,
+                in_game,
+                in_shell_game,
+            }
+        }));
         self.with_receiving_shell(menu_world, |shell, effects| {
             let needs_screen = shell.get_screen_count() == 0 && !shell.is_shell_map_on();
             if needs_screen || !shell.is_shell_active() {
@@ -2766,7 +2849,9 @@ impl GameClient {
         }
 
         if self.input_authority == ClientInputAuthority::StandaloneCore {
-            crate::eva::update_eva_system();
+            if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
+                crate::eva::update_eva_system(&mut ui.eva);
+            }
         }
 
         Ok(())

@@ -11,6 +11,7 @@ use crate::{
     sound3d::Sound3D,
 };
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 const MAX_LOGICAL_LISTENER_UPDATES_PER_FRAME: usize = 4;
 
@@ -194,7 +195,6 @@ impl SceneSound {
 }
 
 /// Audio scene manager.
-#[derive(Clone)]
 pub struct SoundScene {
     pub next_object_id: SoundObjectId,
     pub listener: Listener3D,
@@ -210,6 +210,41 @@ pub struct SoundScene {
     pub current_time_ms: u64,
     pub min_extents: Vector3,
     pub max_extents: Vector3,
+    /// Session logical-listener clock / scale (formerly process LOGICAL_LISTENER_RUNTIME).
+    logical_global_scale_bits: AtomicU32,
+    logical_oldest_timestamp: AtomicU32,
+    logical_newest_timestamp: AtomicU32,
+}
+
+
+impl Clone for SoundScene {
+    fn clone(&self) -> Self {
+        Self {
+            next_object_id: self.next_object_id,
+            listener: self.listener.clone(),
+            secondary_listener: self.secondary_listener.clone(),
+            dynamic_sounds: self.dynamic_sounds.clone(),
+            static_sounds: self.static_sounds.clone(),
+            logical_sounds: self.logical_sounds.clone(),
+            logical_listeners: self.logical_listeners.clone(),
+            logical_listener_cursor: self.logical_listener_cursor,
+            logical_index: self.logical_index.clone(),
+            logical_index_dirty: self.logical_index_dirty,
+            batch_mode: self.batch_mode,
+            current_time_ms: self.current_time_ms,
+            min_extents: self.min_extents,
+            max_extents: self.max_extents,
+            logical_global_scale_bits: AtomicU32::new(
+                self.logical_global_scale_bits.load(Ordering::Relaxed),
+            ),
+            logical_oldest_timestamp: AtomicU32::new(
+                self.logical_oldest_timestamp.load(Ordering::SeqCst),
+            ),
+            logical_newest_timestamp: AtomicU32::new(
+                self.logical_newest_timestamp.load(Ordering::SeqCst),
+            ),
+        }
+    }
 }
 
 impl SoundScene {
@@ -229,6 +264,9 @@ impl SoundScene {
             current_time_ms: 0,
             min_extents: Vector3::new(-500.0, -500.0, -500.0),
             max_extents: Vector3::new(500.0, 500.0, 500.0),
+            logical_global_scale_bits: AtomicU32::new(1.0f32.to_bits()),
+            logical_oldest_timestamp: AtomicU32::new(0),
+            logical_newest_timestamp: AtomicU32::new(1),
         }
     }
 
@@ -236,6 +274,44 @@ impl SoundScene {
         let id = self.next_object_id;
         self.next_object_id = self.next_object_id.wrapping_add(1).max(1);
         id
+    }
+
+    pub fn logical_global_scale(&self) -> f32 {
+        f32::from_bits(self.logical_global_scale_bits.load(Ordering::Relaxed))
+    }
+
+    pub fn set_logical_global_scale(&self, scale: f32) {
+        self.logical_global_scale_bits
+            .store(scale.max(0.0).to_bits(), Ordering::Relaxed);
+    }
+
+    pub fn logical_new_timestamp(&self) -> u32 {
+        self.logical_newest_timestamp.fetch_add(1, Ordering::SeqCst)
+    }
+
+    pub fn logical_newest_timestamp(&self) -> u32 {
+        self.logical_newest_timestamp
+            .load(Ordering::SeqCst)
+            .saturating_sub(1)
+    }
+
+    pub fn logical_oldest_timestamp(&self) -> u32 {
+        self.logical_oldest_timestamp.load(Ordering::SeqCst)
+    }
+
+    pub fn set_logical_oldest_timestamp(&self, timestamp: u32) {
+        let mut current = self.logical_oldest_timestamp.load(Ordering::SeqCst);
+        while timestamp > current {
+            match self.logical_oldest_timestamp.compare_exchange(
+                current,
+                timestamp,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => break,
+                Err(actual) => current = actual,
+            }
+        }
     }
 
     pub fn set_batch_mode(&mut self, batch: bool) {
@@ -305,7 +381,7 @@ impl SoundScene {
     }
 
     pub fn add_logical_sound(&mut self, mut sound: LogicalSound) {
-        sound.set_listener_timestamp(LogicalListener::newest_timestamp());
+        sound.set_listener_timestamp(self.logical_newest_timestamp());
         if let Some(existing) = self
             .logical_sounds
             .iter_mut()
@@ -424,56 +500,69 @@ impl SoundScene {
 
         for offset in 0..listeners_to_process {
             let index = (self.logical_listener_cursor + offset) % total_listeners;
+            let (old_ts, listener_position, listener_mask, listener_id, scale_mul) = {
+                let Some(listener) = self.logical_listeners.get(index) else {
+                    continue;
+                };
+                (
+                    listener.timestamp(),
+                    listener.position(),
+                    listener.type_mask(),
+                    listener.base.id,
+                    listener.scale(),
+                )
+            };
+            let global_scale = self.logical_global_scale();
+            let effective_scale = scale_mul * global_scale;
+            self.set_logical_oldest_timestamp(old_ts);
+            let new_ts = self.logical_new_timestamp();
             if let Some(listener) = self.logical_listeners.get_mut(index) {
-                LogicalListener::set_oldest_timestamp(listener.timestamp());
-                listener.set_timestamp(LogicalListener::new_timestamp());
+                listener.set_timestamp(new_ts);
+            }
 
-                let listener_position = listener.position();
-                let effective_scale = listener.effective_scale();
-                let search_radius = (self.logical_index.max_radius() * effective_scale)
-                    .max(self.logical_index.cell_size());
-                let candidates = self
-                    .logical_index
-                    .candidates(listener_position, search_radius);
+            let search_radius = (self.logical_index.max_radius() * effective_scale)
+                .max(self.logical_index.cell_size());
+            let candidates = self
+                .logical_index
+                .candidates(listener_position, search_radius);
 
-                for idx in candidates {
-                    if collected.len() >= limit {
-                        break;
+            for idx in candidates {
+                if collected.len() >= limit {
+                    break;
+                }
+                let ts_for_sound = self.logical_new_timestamp();
+                if let Some(sound) = self.logical_sounds.get_mut(idx) {
+                    let sound_mask = sound.type_mask();
+                    if sound_mask != 0
+                        && listener_mask != 0
+                        && (sound_mask & listener_mask) == 0
+                    {
+                        continue;
                     }
-                    if let Some(sound) = self.logical_sounds.get_mut(idx) {
-                        let listener_mask = listener.type_mask();
-                        let sound_mask = sound.type_mask();
-                        if sound_mask != 0
-                            && listener_mask != 0
-                            && (sound_mask & listener_mask) == 0
-                        {
-                            continue;
+                    let max_listeners = sound.max_listeners();
+                    let current_count = per_sound_count.entry(sound.base.id).or_default();
+                    if max_listeners != 0 && *current_count >= max_listeners {
+                        continue;
+                    }
+                    let effective_radius = sound.dropoff_radius() * effective_scale;
+                    if effective_radius <= 0.0 {
+                        continue;
+                    }
+                    let distance = sound.position().distance(listener_position);
+                    if distance <= effective_radius && sound.allow_notify(now) {
+                        sound.set_listener_timestamp(ts_for_sound);
+                        *current_count += 1;
+                        collected.push(LogicalTrigger {
+                            listener_id,
+                            sound_id: sound.base.id,
+                            type_mask: sound.type_mask(),
+                            is_single_shot: sound.is_single_shot(),
+                        });
+                        if sound.is_single_shot() {
+                            single_shot_to_remove.insert(sound.base.id);
                         }
-                        let max_listeners = sound.max_listeners();
-                        let current_count = per_sound_count.entry(sound.base.id).or_default();
-                        if max_listeners != 0 && *current_count >= max_listeners {
-                            continue;
-                        }
-                        let effective_radius = sound.dropoff_radius() * effective_scale;
-                        if effective_radius <= 0.0 {
-                            continue;
-                        }
-                        let distance = sound.position().distance(listener_position);
-                        if distance <= effective_radius && sound.allow_notify(now) {
-                            sound.set_listener_timestamp(LogicalListener::new_timestamp());
-                            *current_count += 1;
-                            collected.push(LogicalTrigger {
-                                listener_id: listener.base.id,
-                                sound_id: sound.base.id,
-                                type_mask: sound.type_mask(),
-                                is_single_shot: sound.is_single_shot(),
-                            });
-                            if sound.is_single_shot() {
-                                single_shot_to_remove.insert(sound.base.id);
-                            }
-                            if collected.len() >= limit {
-                                break;
-                            }
+                        if collected.len() >= limit {
+                            break;
                         }
                     }
                 }

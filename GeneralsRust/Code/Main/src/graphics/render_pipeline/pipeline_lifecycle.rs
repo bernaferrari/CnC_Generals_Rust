@@ -31,11 +31,11 @@ impl RenderPipeline {
     }
 
     /// Initialize render pipeline - equivalent to C++ RenderPipeline::Initialize()
-    pub fn initialize(graphics_system: &GraphicsSystem) -> Result<Self> {
+    pub fn initialize(engine: ww3d_engine::SharedEngine, graphics_system: &GraphicsSystem) -> Result<Self> {
         info!("Initializing RenderPipeline (C++ SAGE equivalent)");
 
         // Initialize forward pass
-        let forward_pass = ForwardPass::initialize(graphics_system)?;
+        let forward_pass = ForwardPass::initialize(engine, graphics_system)?;
         let (ambient_light, sun_color, sun_direction) = graphics_system.current_lighting();
         let initial_lighting = CachedLighting {
             #[cfg(feature = "game_client")]
@@ -69,6 +69,10 @@ impl RenderPipeline {
             heightmap_world_size: None,
             #[cfg(feature = "game_client")]
             radar_terrain_colors: None,
+            #[cfg(feature = "game_client")]
+            radar_terrain_colors_generation: 0,
+            #[cfg(feature = "game_client")]
+            radar_terrain_colors_admitted_generation: 0,
             cached_lighting: Some(initial_lighting.clone()),
             cached_terrain_lighting: Some(initial_lighting),
             last_startup_model_prewarm_signature: None,
@@ -81,10 +85,19 @@ impl RenderPipeline {
             missing_ini_objects: HashSet::new(),
             failed_model_resolutions: Default::default(),
             debug_last_alive_objects: 0,
+            debug_last_terrain_chunks: 0,
+            debug_last_terrain_visible_chunks: 0,
+            debug_last_terrain_total_chunks: 0,
+            debug_last_selection_indicators: 0,
+            debug_last_ui_draw_items: 0,
             debug_last_live_unit_identity_reads: 0,
             debug_last_presentation_live_fallback_reads: 0,
             debug_last_fow_filtered: 0,
             debug_last_frustum_culled: 0,
+            debug_last_present_ms: 0.0,
+            debug_last_collect_ms: 0.0,
+            debug_last_terrain_ms: 0.0,
+            debug_last_forward_ms: 0.0,
             debug_last_model_missing: 0,
             debug_last_deferred_model_loads: 0,
             debug_last_deferred_model_load_budget: 0,
@@ -449,5 +462,16 @@ impl RenderPipeline {
     /// Observe an actual Sync operation. Pose evaluation stays lazy on each owner.
     pub(crate) fn observe_animation_sync(&mut self, sync_time_ms: u32) {
         self.animation_sync_ms = sync_time_ms;
+        self.forward_pass.renderer.ww3d.sync(sync_time_ms);
+    }
+
+    /// Drain WW3D attachment records from the owned session renderer.
+    pub(crate) fn drain_pending_attachments(
+        &mut self,
+    ) -> Vec<ww3d_renderer_3d::AttachmentRecord> {
+        ww3d_renderer_3d::Renderer::with_global_mut(&self.forward_pass.renderer.ww3d, |renderer| {
+            Ok(renderer.take_pending_attachments())
+        })
+        .unwrap_or_default()
     }
 }

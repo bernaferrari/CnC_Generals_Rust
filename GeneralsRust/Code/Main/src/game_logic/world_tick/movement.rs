@@ -41,8 +41,10 @@ impl GameLogic {
 
     #[cfg(test)]
     pub fn update_movement_for_test(&mut self, object_ids: &[ObjectId], dt: f32) {
-        self.update_movement(object_ids, dt)
-            .expect("movement owner fixture remains valid");
+        self.with_own_services_mut(|this| {
+            this.update_movement(object_ids, dt)
+                .expect("movement owner fixture remains valid");
+        })
     }
 
     #[cfg(test)]

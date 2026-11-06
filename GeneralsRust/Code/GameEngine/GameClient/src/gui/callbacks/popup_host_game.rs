@@ -27,7 +27,7 @@ const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
-struct PopupHostState {
+pub(crate) struct PopupHostState {
     parent_id: i32,
     text_entry_game_name_id: i32,
     text_entry_game_description_id: i32,
@@ -48,13 +48,41 @@ struct PopupHostState {
     check_box_use_stats: Option<Rc<RefCell<GameWindow>>>,
 }
 
+#[cfg(test)]
 thread_local! {
-    static POPUP_HOST_STATE: Rc<RefCell<PopupHostState>> = Rc::new(RefCell::new(PopupHostState::default()));
+    static TEST_POPUP_HOST_STATE: std::cell::OnceCell<Rc<RefCell<PopupHostState>>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn popup_host_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<PopupHostState>> {
+    if let Some(owner) = owner {
+        return owner.popup_host_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().popup_host_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_POPUP_HOST_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(PopupHostState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        // No owner / live client: ephemeral scratch (standalone residual without a client).
+        Rc::new(RefCell::new(PopupHostState::default()))
+    }
 }
 
 fn popup_host_state() -> Rc<RefCell<PopupHostState>> {
-    POPUP_HOST_STATE.with(Rc::clone)
+    popup_host_state_on_owner(None)
 }
+
 
 fn name_to_id(name: &str) -> i32 {
     NameKeyGenerator::name_to_key(name) as i32
@@ -67,7 +95,7 @@ pub fn custom_match_hide_host_popup(
     let state_slot = popup_host_state();
     let mut state = state_slot.borrow_mut();
     if let Some(parent) = state.parent.as_ref() {
-        let _ = parent.borrow_mut().hide(hide);
+        let _ = parent.borrow_mut().hide_without_manager_side_effects(hide);
         return;
     }
     if state.parent_id == 0 {
@@ -77,7 +105,7 @@ pub fn custom_match_hide_host_popup(
         manager.get_window_by_id(state.parent_id)
     })(receiving_manager);
     if let Some(parent) = state.parent.as_ref() {
-        let _ = parent.borrow_mut().hide(hide);
+        let _ = parent.borrow_mut().hide_without_manager_side_effects(hide);
     }
 }
 
@@ -187,7 +215,7 @@ pub fn popup_host_game_init(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let state_slot = popup_host_state();
+    let state_slot = popup_host_state_on_owner(effects.window_manager_owner);
     let mut state = state_slot.borrow_mut();
 
     state.parent_id = name_to_id("PopupHostGame.wnd:ParentHostPopUp");
@@ -258,7 +286,7 @@ pub fn popup_host_game_init(
 
     let _ = populate_custom_ladder_combo_box(receiving_manager);
 
-    let state_slot = popup_host_state();
+    let state_slot = popup_host_state_on_owner(effects.window_manager_owner);
     let state = state_slot.borrow_mut();
     if let Some(parent) = state.parent.as_ref() {
         (|manager: &mut crate::gui::window_manager::WindowManager| {
@@ -273,7 +301,7 @@ pub fn popup_host_game_update(
     _user_data: Option<&dyn std::any::Any>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let state_slot = popup_host_state();
+    let state_slot = popup_host_state_on_owner(effects.window_manager_owner);
     let state = state_slot.borrow_mut();
     sync_limit_armies_state(&state, effects);
 }
@@ -296,7 +324,7 @@ pub fn popup_host_game_input(
     }
 
     let (parent, button_id) = {
-        let slot = popup_host_state();
+        let slot = popup_host_state_on_owner(effects.window_manager_owner);
         let state = slot.borrow();
         (state.parent.clone(), state.button_cancel_id)
     };

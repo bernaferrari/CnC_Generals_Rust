@@ -1458,25 +1458,29 @@ impl GameWorldShadow {
                 e.oil_derrick_next_deposit_frame = 0;
             }
         }
-        e.turret_angle_deg = obj.turret_angle_deg;
-        e.turret_pitch_deg = obj.turret_pitch_deg;
-        e.turret_idle_scanning = obj.turret_idle_scanning;
-        e.turret_holding = obj.turret_holding;
-        e.turret_turn_rate_rad = obj.turret_turn_rate_rad;
-        e.turret_recenter_frames = obj.turret_recenter_frames;
-        e.turret_hold_until_frame = obj.turret_hold_until_frame;
-        e.turret_idle_recentering = obj.turret_idle_recentering;
-        e.turret_enabled = obj.turret_enabled;
-        e.turret_rotating = obj.turret_rotating;
-        e.turret_natural_angle_deg = obj.turret_natural_angle_deg;
-        e.turret_natural_pitch_deg = obj.turret_natural_pitch_deg;
-        e.turret_target_host = obj.turret_target_id.map(|id| id.0).unwrap_or(0);
-        e.turret_force_attacking = obj.turret_force_attacking;
-        e.turret_mood_target = obj.turret_mood_target;
-        e.turret_idle_scan_next_frame = obj.turret_idle_scan_next_frame;
-        e.turret_idle_scan_desired_angle_deg = obj.turret_idle_scan_desired_angle_deg;
-        e.turret_idle_scan_index = obj.turret_idle_scan_index;
-        e.turret_substate = obj.turret_substate.ordinal();
+        e.turret_angle_deg = obj.turret_ai.turret_angle_deg;
+        e.turret_pitch_deg = obj.turret_ai.turret_pitch_deg;
+        (e.alt_turret_angle_deg, e.alt_turret_pitch_deg) = obj
+            .alt_turret_ai
+            .as_ref()
+            .map_or((0.0, 0.0), |alt| (alt.turret_angle_deg, alt.turret_pitch_deg));
+        e.turret_idle_scanning = obj.turret_ai.turret_idle_scanning;
+        e.turret_holding = obj.turret_ai.turret_holding;
+        e.turret_turn_rate_rad = obj.turret_ai.turret_turn_rate_rad;
+        e.turret_recenter_frames = obj.turret_ai.turret_recenter_frames;
+        e.turret_hold_until_frame = obj.turret_ai.turret_hold_until_frame;
+        e.turret_idle_recentering = obj.turret_ai.turret_idle_recentering;
+        e.turret_enabled = obj.turret_ai.turret_enabled;
+        e.turret_rotating = obj.turret_ai.turret_rotating;
+        e.turret_natural_angle_deg = obj.turret_ai.turret_natural_angle_deg;
+        e.turret_natural_pitch_deg = obj.turret_ai.turret_natural_pitch_deg;
+        e.turret_target_host = obj.turret_ai.turret_target_id.map(|id| id.0).unwrap_or(0);
+        e.turret_force_attacking = obj.turret_ai.turret_force_attacking;
+        e.turret_mood_target = obj.turret_ai.turret_mood_target;
+        e.turret_idle_scan_next_frame = obj.turret_ai.turret_idle_scan_next_frame;
+        e.turret_idle_scan_desired_angle_deg = obj.turret_ai.turret_idle_scan_desired_angle_deg;
+        e.turret_idle_scan_index = obj.turret_ai.turret_idle_scan_index;
+        e.turret_substate = obj.turret_ai.turret_substate.ordinal();
         e.ai_attitude = obj.ai_attitude;
         e.last_damage_source_host = obj.last_damage_source.map(|id| id.0).unwrap_or(0);
         e.sole_healing_benefactor_id = obj.sole_healing_benefactor.map(|id| id.0);

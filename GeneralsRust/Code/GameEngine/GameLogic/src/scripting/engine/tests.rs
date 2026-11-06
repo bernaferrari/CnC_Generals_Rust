@@ -85,6 +85,34 @@ fn test_script_engine_creation() {
 }
 
 #[test]
+fn receiving_xfer_tail_none_fade_starts_multiply_intro() {
+    // hq-r9gaw: archive restore applies C++ FADE_NONE → Multiply intro.
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+    let services = new_world_services();
+    with_world_services(&services, || {
+        let engine = ScriptEngine::new().unwrap();
+        let mut tail = ScriptEngineXferTail::default();
+        tail.fade = TFade::None as i32;
+        engine.restore_receiving_xfer_tail(&tail);
+        assert_eq!(engine.get_fade(), TFade::Multiply);
+        assert_eq!(engine.get_fade_value(), 0.0);
+        assert_eq!(engine.with_inner(|i| i.min_fade), 1.0);
+        assert_eq!(engine.with_inner(|i| i.max_fade), 0.0);
+        assert_eq!(engine.with_inner(|i| i.fade_frames_decrease), 33);
+        assert_eq!(engine.with_inner(|i| i.cur_fade_frame), 0);
+        // Active non-None fade must stay unchanged.
+        let mut active = ScriptEngineXferTail::default();
+        active.fade = TFade::Add as i32;
+        active.cur_fade_value = 0.5;
+        active.fade_frames_decrease = 10;
+        engine.restore_receiving_xfer_tail(&active);
+        assert_eq!(engine.get_fade(), TFade::Add);
+        assert_eq!(engine.get_fade_value(), 0.5);
+        assert_eq!(engine.with_inner(|i| i.fade_frames_decrease), 10);
+    });
+}
+
+#[test]
 fn test_new_map_starts_fade_in_from_black() {
     let mut engine = ScriptEngine::new().unwrap();
     engine.reset();
@@ -172,7 +200,10 @@ fn end_game_timer_expiry_appends_clear_game_data_message() {
 fn close_window_timer_expiry_destroys_message_window() {
     // C++ ScriptEngine.cpp:5508-5512 TheScriptActions->closeWindows(FALSE)
     let _lock = crate::test_sync::lock();
+    struct HeadlessWindows;
+    impl ScriptActionHandler for HeadlessWindows {}
     let mut engine = ScriptEngine::new().unwrap();
+    engine.set_action_handler(Some(std::sync::Arc::new(HeadlessWindows)));
     engine.create_win_lose_window("Menus/LocalDefeat.wnd");
     assert_eq!(
         engine.current_win_lose_window().as_deref(),
@@ -258,7 +289,8 @@ fn qualify_my_inner_perimeter_rewrites_to_player_start_index() {
     player.set_display_name("QualifyPerimeterPlayer");
     player.set_mp_start_index(2);
     {
-        let mut list = player_list().write().expect("player list");
+        let __player_list_arc = player_list();
+        let mut list = __player_list_arc.write().expect("player list");
         list.clear();
         list.add_player(Arc::new(RwLock::new(player)));
     }

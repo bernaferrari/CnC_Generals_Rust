@@ -91,6 +91,7 @@ fn list(sound: &str) -> FXList {
 
 #[test]
 fn actual_fx_list_creates_receiving_particle_light_scorch_and_sound() {
+    crate::test_support::ensure_ambient_host();
     let mut catalog = FXListStore::new();
     catalog.add_fx_list("OwnedImpact".into(), list("OwnedSound"));
     let mut particles = ParticleSystemManager::new();
@@ -126,7 +127,11 @@ fn actual_fx_list_creates_receiving_particle_light_scorch_and_sound() {
 }
 
 #[test]
-fn missing_late_sound_preflights_before_any_fx_owner_mutates() {
+fn missing_late_sound_errors_after_earlier_nuggets_run_like_cpp() {
+    crate::test_support::ensure_ambient_host();
+    // C++ FXList walks nuggets in order with no whole-list sound preflight
+    // (fx_view_services / FXList.cpp). Earlier particle/light/scorch side
+    // effects stand when a later SoundFX event is unavailable.
     let mut catalog = FXListStore::new();
     catalog.add_fx_list("OwnedImpact".into(), list("MissingSound"));
     let mut particles = ParticleSystemManager::new();
@@ -147,8 +152,8 @@ fn missing_late_sound_preflights_before_any_fx_owner_mutates() {
         .unwrap_err()
         .contains("MissingSound")
     );
-    assert_eq!(particles.active_system_count(), 0);
-    assert!(lights.lights().is_empty());
-    assert!(scorches.is_empty());
+    assert_eq!(particles.active_system_count(), 1);
+    assert_eq!(lights.lights().len(), 1);
+    assert_eq!(scorches.len(), 1);
     assert_eq!(audio.pending_play_request_count(), 0);
 }

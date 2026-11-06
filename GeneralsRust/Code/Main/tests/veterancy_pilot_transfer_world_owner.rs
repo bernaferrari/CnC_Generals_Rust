@@ -2,7 +2,7 @@
 //! health factors; same-ID sessions and save continuation must stay separate.
 use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
 use generals_main::game_logic::{
-    GameLogic, GameMode, HostHealthEvents, ObjectAudio, ObjectId, Player, Team, VeterancyLevel,
+    GameLogic, GameMode, HostHealthEvents, ObjectAudio, ObjectId, Player, SessionAudio, Team, VeterancyLevel,
 };
 use generals_main::save_load::SnapshotBuilder;
 use glam::Vec3;
@@ -49,18 +49,11 @@ fn spawn_pair(world: &mut GameLogic) -> (ObjectId, ObjectId) {
     // the setup on the public Object method, then drive the normal command and
     // GameLogic update path that performs pilot veterancy transfer.
     let mut health_events = HostHealthEvents::default();
-    let GameLogic {
-        objects,
-        queued_audio_events,
-        ..
-    } = world;
-    objects
-        .get_mut(&vehicle)
+    let mut audio = SessionAudio::default();
+    world
+        .host_object_mut(vehicle)
         .expect("vehicle")
-        .apply_kill_pilot_unmanned(
-            &mut health_events,
-            &mut ObjectAudio::queue(queued_audio_events),
-        );
+        .apply_kill_pilot_unmanned(&mut health_events, &mut ObjectAudio::queue(&mut audio));
     assert!(world.can_execute_pilot_recrew(pilot, vehicle));
     (pilot, vehicle)
 }

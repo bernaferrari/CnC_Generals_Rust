@@ -713,9 +713,9 @@ impl PathfindingSystem {
                     None,
                     false,
                 ),
-                None => TheTerrainLogic::get()
-                    .map(|terrain| terrain.get_layer_height(x, y, layer))
-                    .unwrap_or(0.0),
+                // hq-6oqj89 sibling: path reconstruct fail-closes without
+                // PathfindObservations from the driving world.
+                None => 0.0,
             },
         )
     }

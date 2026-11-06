@@ -26,10 +26,10 @@ impl RestoreInputs {
 impl Drop for RestoreInputs {
     fn drop(&mut self) {
         if let Some(store) = self.store.take() {
-            gamelogic::weapon::with_weapon_store_mut(|current| *current = store)
-                .expect("restore exact compatibility weapon store");
+            // Soft: unbound store during failure teardown must not double-panic.
+            let _ = gamelogic::weapon::with_weapon_store_mut(|current| *current = store);
         } else {
-            gamelogic::weapon::shutdown_weapon_store().expect("restore absent store");
+            let _ = gamelogic::weapon::shutdown_weapon_store();
         }
     }
 }
@@ -103,7 +103,7 @@ fn fire_at_keeps_gattling_store_type() {
         3,
         &mut combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(
         crate::game_logic::combat::last_pending_projectile_damage_type_for_test(&combat),
@@ -202,7 +202,7 @@ fn fire_at_projectileless_keeps_identity_in_receiving_pending_queue() {
         3,
         &mut combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(
         crate::game_logic::combat::last_pending_projectile_identity_for_test(&combat),

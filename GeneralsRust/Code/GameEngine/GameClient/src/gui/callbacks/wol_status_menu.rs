@@ -6,7 +6,7 @@ use std::rc::Rc;
 use crate::gui::callbacks::online_callback_support::dispatch_esc_gadget_selected;
 use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, get_shell,
-    with_window_manager, write_input_focus_response,
+    write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 
@@ -14,7 +14,7 @@ const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
-struct WolStatusState {
+pub(crate) struct WolStatusState {
     parent_id: i32,
     button_disconnect_id: i32,
     progress_text_id: i32,
@@ -23,12 +23,38 @@ struct WolStatusState {
     progress_text: Option<Rc<RefCell<GameWindow>>>,
 }
 
+#[cfg(test)]
 thread_local! {
-    static WOL_STATUS_STATE: Rc<RefCell<WolStatusState>> = Rc::new(RefCell::new(WolStatusState::default()));
+    static TEST_WOL_STATUS_STATE: std::cell::OnceCell<Rc<RefCell<WolStatusState>>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn wol_status_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<WolStatusState>> {
+    if let Some(owner) = owner {
+        return owner.wol_status_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().wol_status_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_WOL_STATUS_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(WolStatusState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(WolStatusState::default()))
+    }
 }
 
 fn wol_status_state() -> Rc<RefCell<WolStatusState>> {
-    WOL_STATUS_STATE.with(Rc::clone)
+    wol_status_state_on_owner(None)
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -40,16 +66,16 @@ pub fn wol_status_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::
     let button_disconnect_id = name_to_id("WOLStatusMenu.wnd:ButtonDisconnect");
     let progress_text_id = name_to_id("WOLStatusMenu.wnd:ListboxStatus");
 
-    let parent = with_window_manager(|manager| manager.get_window_by_id(parent_id as i32));
+    let parent = owner.with_manager(|manager| manager.get_window_by_id(parent_id as i32));
     let button_disconnect =
-        with_window_manager(|manager| manager.get_window_by_id(button_disconnect_id as i32));
+        owner.with_manager(|manager| manager.get_window_by_id(button_disconnect_id as i32));
     let progress_text =
-        with_window_manager(|manager| manager.get_window_by_id(progress_text_id as i32));
+        owner.with_manager(|manager| manager.get_window_by_id(progress_text_id as i32));
 
     layout.hide(false);
 
     if let Some(parent) = parent.as_ref() {
-        let _ = with_window_manager(|manager| manager.set_focus(Some(parent)));
+        let _ = owner.with_manager(|manager| manager.set_focus(Some(parent)));
     }
 
     let state_slot = wol_status_state();
@@ -118,43 +144,46 @@ mod tests {
 
     #[test]
     fn status_system_handles_create_and_ignores_unknown_when_dispatched() {
-        let window = GameWindow::new();
+        crate::test_support::ensure_ambient_host();
+        let mut window = GameWindow::new();
         assert_eq!(
-            wol_status_menu_system(&window, WindowMessage::Create, 0, 0),
+            wol_status_menu_system(&mut window, WindowMessage::Create, 0, 0),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            wol_status_menu_system(&window, WindowMessage::User(1), 0, 0),
+            wol_status_menu_system(&mut window, WindowMessage::User(1), 0, 0),
             WindowMsgHandled::Ignored
         );
         assert_eq!(
-            wol_status_menu_system(&window, WindowMessage::GadgetEditDone, 0, 0),
+            wol_status_menu_system(&mut window, WindowMessage::GadgetEditDone, 0, 0),
             WindowMsgHandled::Handled
         );
     }
 
     #[test]
     fn status_input_ignores_non_escape_when_char_is_other_key() {
-        let window = GameWindow::new();
+        crate::test_support::ensure_ambient_host();
+        let mut window = GameWindow::new();
         assert_eq!(
-            wol_status_menu_input(&window, WindowMessage::Char, 0x41, KEY_STATE_UP),
+            wol_status_menu_input(&mut window, WindowMessage::Char, 0x41, KEY_STATE_UP),
             WindowMsgHandled::Ignored
         );
         assert_eq!(
-            wol_status_menu_input(&window, WindowMessage::LeftDown, KEY_ESC, KEY_STATE_UP),
+            wol_status_menu_input(&mut window, WindowMessage::LeftDown, KEY_ESC, KEY_STATE_UP),
             WindowMsgHandled::Ignored
         );
     }
 
     #[test]
     fn status_input_esc_does_not_panic_when_parent_missing() {
-        let window = GameWindow::new();
+        crate::test_support::ensure_ambient_host();
+        let mut window = GameWindow::new();
         assert_eq!(
-            wol_status_menu_input(&window, WindowMessage::Char, KEY_ESC, 0),
+            wol_status_menu_input(&mut window, WindowMessage::Char, KEY_ESC, 0),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            wol_status_menu_input(&window, WindowMessage::Char, KEY_ESC, KEY_STATE_UP),
+            wol_status_menu_input(&mut window, WindowMessage::Char, KEY_ESC, KEY_STATE_UP),
             WindowMsgHandled::Handled
         );
     }

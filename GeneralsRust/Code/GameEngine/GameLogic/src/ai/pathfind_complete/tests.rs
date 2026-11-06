@@ -4133,3 +4133,19 @@ fn closest_path_reaches_goal_beyond_four_thousand_expansions() {
         goal
     );
 }
+
+#[test]
+fn adjust_without_observations_does_not_need_ambient_terrain_logic() {
+    // hq-6oqj89: destination snap fail-closes at z=0 when no PathfindObservations.
+    let system = PathfindingSystem::new(16, 16);
+    let mut pos = Coord3D::new(8.0, 8.0, 99.0);
+    system.adjust_coord_to_cell_with_observations(
+        1,
+        1,
+        true,
+        &mut pos,
+        PathfindLayerEnum::Ground,
+        None,
+    );
+    assert_eq!(pos.z, 0.0);
+}

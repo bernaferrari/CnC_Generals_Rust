@@ -1,12 +1,7 @@
 // game_lod.rs - Game Level of Detail system
 // Loads GameLOD.ini and exposes dynamic LOD parameters used by gameplay systems.
 
-use std::cell::RefCell;
-use std::collections::HashMap;
 use std::fs;
-use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, Ordering};
-
 use crate::common::ini::ini_game_data::{GlobalData, get_global_data};
 use crate::common::ini::ini_game_lod::{
     ChipsetType, CpuType, DynamicGameLODLevel, StaticGameLODInfo, StaticGameLODLevel,
@@ -15,24 +10,30 @@ use crate::common::ini::ini_game_lod::{
 use crate::common::ini::{INI, INILoadType};
 use crate::common::user_preferences::UserPreferences;
 
-static REBUILD_SHADOWS: OnceLock<fn()> = OnceLock::new();
-static REBUILD_SHORELINE: OnceLock<fn()> = OnceLock::new();
-static REBUILD_TANK_TRACKS: OnceLock<fn()> = OnceLock::new();
-static ADJUST_CLIENT_LOD: OnceLock<fn(i32)> = OnceLock::new();
-static GAME_LOD_INI_LOADED: OnceLock<bool> = OnceLock::new();
+fn set_lod_hook(slot: &std::sync::Mutex<Option<fn()>>, hook: fn()) {
+    *slot.lock().unwrap_or_else(|p| p.into_inner()) = Some(hook);
+}
 
 /// Terrain/Shadow slices register these; Common only invokes them.
 pub fn register_rebuild_shadows(hook: fn()) {
-    let _ = REBUILD_SHADOWS.set(hook);
+    let services = crate::common::common_services::common_services();
+    set_lod_hook(&services.system.rebuild_shadows, hook);
 }
 pub fn register_rebuild_shoreline(hook: fn()) {
-    let _ = REBUILD_SHORELINE.set(hook);
+    let services = crate::common::common_services::common_services();
+    set_lod_hook(&services.system.rebuild_shoreline, hook);
 }
 pub fn register_rebuild_tank_tracks(hook: fn()) {
-    let _ = REBUILD_TANK_TRACKS.set(hook);
+    let services = crate::common::common_services::common_services();
+    set_lod_hook(&services.system.rebuild_tank_tracks, hook);
 }
 pub fn register_adjust_client_lod(hook: fn(i32)) {
-    let _ = ADJUST_CLIENT_LOD.set(hook);
+    let services = crate::common::common_services::common_services();
+    *services
+        .system
+        .adjust_client_lod
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(hook);
 }
 
 /// C++ `TheGlobalData->m_useShadowDecals` (Options "2D Shadows").
@@ -95,16 +96,6 @@ impl GameLod {
 }
 
 // Remaining classic probe/cache adapters; live level authority is on GameLODManager.
-thread_local! {
-    static DYNAMIC_LOD_SLOW_DEATH: RefCell<HashMap<String, f32>> = RefCell::new(HashMap::new());
-    static MEM_PASSED_OVERRIDE: RefCell<Option<bool>> = RefCell::new(None);
-    static CPU_FREQ_MHZ_OVERRIDE: RefCell<Option<i32>> = RefCell::new(None);
-    static CPU_TYPE_OVERRIDE: RefCell<Option<CpuType>> = RefCell::new(None);
-    static VIDEO_CHIP_OVERRIDE: RefCell<Option<ChipsetType>> = RefCell::new(None);
-    static RAM_MB_OVERRIDE: RefCell<Option<i32>> = RefCell::new(None);
-}
-static SKIP_OPTIONS_PERSIST: AtomicBool = AtomicBool::new(false);
-
 /// Result delivered to a receiving session after the application LOD request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionStaticLodResult {
@@ -360,24 +351,28 @@ fn apply_static_lod_level(
 
     // C++ GameLODManager::applyStaticLODLevel client/terrain side effects.
     if requested_texture_reduction != prev_texture {
-        if let Some(hook) = ADJUST_CLIENT_LOD.get() {
+        let services = crate::common::common_services::common_services();
+        if let Some(hook) = *services.system.adjust_client_lod.lock().unwrap_or_else(|p| p.into_inner()) {
             hook(0);
         }
     }
     if lod_info.use_shadow_volumes != prev_shadow_volumes
         || lod_info.use_shadow_decals != prev_shadow_decals
     {
-        if let Some(hook) = REBUILD_SHADOWS.get() {
+        let services = crate::common::common_services::common_services();
+        if let Some(hook) = *services.system.rebuild_shadows.lock().unwrap_or_else(|p| p.into_inner()) {
             hook();
         }
     }
     if lod_info.show_soft_water_edge != prev_soft_water {
-        if let Some(hook) = REBUILD_SHORELINE.get() {
+        let services = crate::common::common_services::common_services();
+        if let Some(hook) = *services.system.rebuild_shoreline.lock().unwrap_or_else(|p| p.into_inner()) {
             hook();
         }
     }
     if invoke_legacy_terrain_hook {
-        if let Some(hook) = REBUILD_TANK_TRACKS.get() {
+        let services = crate::common::common_services::common_services();
+        if let Some(hook) = *services.system.rebuild_tank_tracks.lock().unwrap_or_else(|p| p.into_inner()) {
             hook();
         }
     }
@@ -478,7 +473,7 @@ pub fn get_ideal_static_lod() -> String {
 /// detection is unavailable so low-level load-screen code does not trigger
 /// graphics/display probing.
 pub fn did_mem_pass() -> bool {
-    if let Some(value) = MEM_PASSED_OVERRIDE.with(|cell| *cell.borrow()) {
+    if let Some(value) = get_game_lod_manager().mem_passed_override {
         return value;
     }
 
@@ -490,8 +485,8 @@ pub fn did_mem_pass() -> bool {
 }
 
 pub fn is_really_low_mhz() -> bool {
-    let cpu_freq_mhz = CPU_FREQ_MHZ_OVERRIDE
-        .with(|cell| *cell.borrow())
+    let cpu_freq_mhz = get_game_lod_manager()
+        .cpu_freq_mhz_override
         .or_else(detected_cpu_frequency_mhz);
     let Some(cpu_freq_mhz) = cpu_freq_mhz else {
         return false;
@@ -502,28 +497,31 @@ pub fn is_really_low_mhz() -> bool {
 
 #[doc(hidden)]
 pub fn set_mem_passed_override_for_tests(value: Option<bool>) {
-    MEM_PASSED_OVERRIDE.with(|cell| *cell.borrow_mut() = value);
+    get_game_lod_manager_mut().mem_passed_override = value;
 }
 
 #[doc(hidden)]
 pub fn set_cpu_freq_mhz_override_for_tests(value: Option<i32>) {
-    CPU_FREQ_MHZ_OVERRIDE.with(|cell| *cell.borrow_mut() = value);
+    get_game_lod_manager_mut().cpu_freq_mhz_override = value;
 }
 
 #[doc(hidden)]
 pub fn reset_static_lod_state_for_tests() {
-    SKIP_OPTIONS_PERSIST.store(true, Ordering::Relaxed);
     {
         let mut manager = get_game_lod_manager_mut();
+        manager.skip_options_persist = true;
         manager.set_current_static_lod_level(StaticGameLODLevel::Unknown);
         manager.set_ideal_static_lod_level(StaticGameLODLevel::Unknown);
+        manager.mem_passed_override = None;
+        manager.cpu_freq_mhz_override = None;
+        manager.cpu_type_override = None;
+        manager.video_chip_override = None;
+        manager.ram_mb_override = None;
     }
-    set_mem_passed_override_for_tests(None);
-    set_hardware_overrides_for_tests(None, None, None, None);
 }
 
 fn probe_cpu_type() -> CpuType {
-    if let Some(value) = CPU_TYPE_OVERRIDE.with(|cell| *cell.borrow()) {
+    if let Some(value) = get_game_lod_manager().cpu_type_override {
         return value;
     }
     // Presets only name P3/P4/K7. Modern hardware is treated as P4 so the
@@ -532,7 +530,7 @@ fn probe_cpu_type() -> CpuType {
 }
 
 fn probe_video_chip() -> ChipsetType {
-    if let Some(value) = VIDEO_CHIP_OVERRIDE.with(|cell| *cell.borrow()) {
+    if let Some(value) = get_game_lod_manager().video_chip_override {
         return value;
     }
     // C++ unknown video becomes TNT2. Modern wgpu/Metal is at least R300.
@@ -540,7 +538,7 @@ fn probe_video_chip() -> ChipsetType {
 }
 
 fn probe_ram_mb() -> i32 {
-    if let Some(value) = RAM_MB_OVERRIDE.with(|cell| *cell.borrow()) {
+    if let Some(value) = get_game_lod_manager().ram_mb_override {
         return value;
     }
     detected_physical_memory_bytes()
@@ -549,14 +547,14 @@ fn probe_ram_mb() -> i32 {
 }
 
 fn probe_cpu_mhz() -> i32 {
-    CPU_FREQ_MHZ_OVERRIDE
-        .with(|cell| *cell.borrow())
+    get_game_lod_manager()
+        .cpu_freq_mhz_override
         .or_else(detected_cpu_frequency_mhz)
         .unwrap_or(2000)
 }
 
 fn persist_recommended_static_lod(ideal: &str, also_static: bool) {
-    if SKIP_OPTIONS_PERSIST.load(Ordering::Relaxed) {
+    if get_game_lod_manager().skip_options_persist {
         return;
     }
     let mut prefs = UserPreferences::new();
@@ -611,10 +609,11 @@ pub fn set_hardware_overrides_for_tests(
     video: Option<ChipsetType>,
     ram_mb: Option<i32>,
 ) {
-    CPU_TYPE_OVERRIDE.with(|cell| *cell.borrow_mut() = cpu);
-    set_cpu_freq_mhz_override_for_tests(mhz);
-    VIDEO_CHIP_OVERRIDE.with(|cell| *cell.borrow_mut() = video);
-    RAM_MB_OVERRIDE.with(|cell| *cell.borrow_mut() = ram_mb);
+    let mut manager = get_game_lod_manager_mut();
+    manager.cpu_type_override = cpu;
+    manager.cpu_freq_mhz_override = mhz;
+    manager.video_chip_override = video;
+    manager.ram_mb_override = ram_mb;
 }
 
 pub fn prefers_low_res_movies() -> bool {
@@ -624,40 +623,21 @@ pub fn prefers_low_res_movies() -> bool {
         || matches!(get_static_lod().as_str(), "Low")
 }
 
-fn ensure_game_lod_loaded() {
-    load_game_lod_ini_presets_and_options();
-
-    DYNAMIC_LOD_SLOW_DEATH.with(|cell| {
-        let mut map_guard = cell.borrow_mut();
-        if !map_guard.is_empty() {
-            return;
-        }
-
-        let mut files = Vec::new();
-        let default_path = "Data/INI/Default/GameLOD.ini";
-        let override_path = "Data/INI/GameLOD.ini";
-        if std::path::Path::new(default_path).exists() {
-            files.push(default_path.to_string());
-        }
-        if std::path::Path::new(override_path).exists() {
-            files.push(override_path.to_string());
-        }
-
-        for path in files {
-            if let Ok(contents) = fs::read_to_string(&path) {
-                parse_game_lod_ini(&contents, &mut map_guard);
-            }
-        }
-    });
-}
-
 /// C++ `GameLODManager::init`: load GameLOD.ini, GameLODPresets.ini, snapshot
 /// Custom from GlobalData, apply OptionPreferences, then setStaticLODLevel.
 pub fn load_game_lod_ini_presets_and_options() {
-    if GAME_LOD_INI_LOADED.get().is_some() {
-        return;
+    let services = crate::common::common_services::common_services();
+    {
+        let mut loaded = services
+            .system
+            .game_lod_ini_loaded
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if *loaded {
+            return;
+        }
+        *loaded = true;
     }
-    let _ = GAME_LOD_INI_LOADED.set(true);
 
     crate::common::ini::ini_game_lod::init_game_lod_manager();
 
@@ -742,40 +722,6 @@ pub fn load_game_lod_ini_presets_and_options() {
         ensure_static_lod_applied();
     } else {
         set_static_lod_from_string(&user_detail);
-    }
-}
-
-fn parse_game_lod_ini(contents: &str, map: &mut HashMap<String, f32>) {
-    let mut current_dynamic: Option<String> = None;
-
-    for raw_line in contents.lines() {
-        let line = raw_line.split(';').next().unwrap_or("").trim();
-        if line.is_empty() {
-            continue;
-        }
-
-        if line.starts_with("DynamicGameLOD") {
-            let parts: Vec<_> = line.split('=').collect();
-            if parts.len() >= 2 {
-                current_dynamic = Some(parts[1].trim().to_string());
-            }
-            continue;
-        }
-
-        if line.eq_ignore_ascii_case("End") {
-            current_dynamic = None;
-            continue;
-        }
-
-        if let Some(name) = current_dynamic.as_ref() {
-            if let Some((key, value)) = line.split_once('=') {
-                if key.trim().eq_ignore_ascii_case("SlowDeathScale") {
-                    if let Ok(scale) = value.trim().parse::<f32>() {
-                        map.insert(name.clone(), scale);
-                    }
-                }
-            }
-        }
     }
 }
 

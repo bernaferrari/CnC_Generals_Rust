@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::cell::RefCell;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, Mutex};
 
 // Re-export Relationship from game_common for convenience
 pub use crate::common::system::game_common::{Relationship, VeterancyLevel};
@@ -36,27 +36,30 @@ use crate::common::well_known_keys::{
     key_team_unit_type7,
 };
 
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static TEAM_HOME_WAYPOINT_RESOLVER: RefCell<Option<fn(&str) -> Option<Coord3D>>> =
-        const { RefCell::new(None) };
-}
-
 /// GameLogic registers terrain waypoint lookup so leftover `from_dict` can resolve `teamHome`.
 pub fn set_team_home_waypoint_resolver(resolver: fn(&str) -> Option<Coord3D>) {
-    TEAM_HOME_WAYPOINT_RESOLVER.with_borrow_mut(|guard| {
-        *guard = Some(resolver);
-    });
+    let services = crate::common::common_services::common_services();
+    *services
+        .team_home_waypoint_resolver
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(resolver);
 }
 
 pub fn clear_team_home_waypoint_resolver() {
-    TEAM_HOME_WAYPOINT_RESOLVER.with_borrow_mut(|guard| {
-        *guard = None;
-    });
+    let services = crate::common::common_services::common_services();
+    *services
+        .team_home_waypoint_resolver
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = None;
 }
 
 fn resolve_team_home_waypoint(name: &str) -> Option<Coord3D> {
-    TEAM_HOME_WAYPOINT_RESOLVER.with_borrow(|guard| guard.and_then(|resolver| resolver(name)))
+    let services = crate::common::common_services::common_services();
+    services
+        .team_home_waypoint_resolver
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .and_then(|resolver| resolver(name))
 }
 
 /// Invalid object ID constant (corresponds to C++ INVALID_ID)
@@ -3156,34 +3159,34 @@ pub trait TeamCommandSink: Send + Sync {
     }
 }
 
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static TEAM_COMMAND_SINK: RefCell<Option<Arc<dyn TeamCommandSink>>> =
-        const { RefCell::new(None) };
-}
-
 pub fn set_team_command_sink(sink: Arc<dyn TeamCommandSink>) {
-    TEAM_COMMAND_SINK.with_borrow_mut(|guard| {
-        *guard = Some(sink);
-    });
+    let services = crate::common::common_services::common_services();
+    *services
+        .team_command_sink
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(sink);
 }
 
 pub fn clear_team_command_sink() {
-    TEAM_COMMAND_SINK.with_borrow_mut(|guard| {
-        *guard = None;
-    });
+    let services = crate::common::common_services::common_services();
+    *services
+        .team_command_sink
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = None;
 }
 
 pub fn get_team_command_sink() -> Option<Arc<dyn TeamCommandSink>> {
-    TEAM_COMMAND_SINK.with_borrow(|guard| guard.clone())
+    let services = crate::common::common_services::common_services();
+    services
+        .team_command_sink
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
-static THE_TEAM_FACTORY: LazyLock<Arc<Mutex<TeamFactory>>> =
-    LazyLock::new(|| Arc::new(Mutex::new(TeamFactory::new())));
-
-/// C++ `TheTeamFactory` singleton.
+/// C++ `TheTeamFactory` singleton for the published CommonServices instance.
 pub fn get_team_factory() -> Arc<Mutex<TeamFactory>> {
-    Arc::clone(&THE_TEAM_FACTORY)
+    Arc::clone(&crate::common::common_services::common_services().system.team_factory)
 }
 
 pub fn set_team_factory(factory: TeamFactory) {
@@ -3645,6 +3648,11 @@ impl Default for TeamFactory {
 
 #[cfg(test)]
 mod tests {
+    fn with_services<R>(f: impl FnOnce() -> R) -> R {
+        let services = std::sync::Arc::new(crate::common::common_services::CommonServices::new());
+        crate::common::common_services::with_common_services(&services, f)
+    }
+
     use super::*;
 
     #[derive(Clone)]
@@ -3843,22 +3851,24 @@ mod tests {
 
     #[test]
     fn from_dict_resolves_team_home_waypoint() {
-        set_team_home_waypoint_resolver(|name| {
-            (name == "HomeFlag").then_some(Coord3D::new(120.0, 40.0, 3.0))
+        with_services(|| {
+            set_team_home_waypoint_resolver(|name| {
+                (name == "HomeFlag").then_some(Coord3D::new(120.0, 40.0, 3.0))
+            });
+            let mut dict = crate::common::dict::Dict::new();
+            dict.set_ascii_string(key_team_home(), "HomeFlag");
+            dict.set_int(key_team_unit_min_count1(), 1);
+            dict.set_int(key_team_unit_max_count1(), 3);
+            dict.set_ascii_string(key_team_unit_type1(), "AmericaTankCrusader");
+
+            let info = TeamTemplateInfo::from_dict(&dict);
+            clear_team_home_waypoint_resolver();
+
+            assert!(info.has_home_location);
+            assert_eq!(info.home_location, Coord3D::new(120.0, 40.0, 3.0));
+            assert_eq!(info.num_units_info, 1);
+            assert_eq!(info.units_info[0].unit_thing_name, "AmericaTankCrusader");
         });
-        let mut dict = crate::common::dict::Dict::new();
-        dict.set_ascii_string(key_team_home(), "HomeFlag");
-        dict.set_int(key_team_unit_min_count1(), 1);
-        dict.set_int(key_team_unit_max_count1(), 3);
-        dict.set_ascii_string(key_team_unit_type1(), "AmericaTankCrusader");
-
-        let info = TeamTemplateInfo::from_dict(&dict);
-        clear_team_home_waypoint_resolver();
-
-        assert!(info.has_home_location);
-        assert_eq!(info.home_location, Coord3D::new(120.0, 40.0, 3.0));
-        assert_eq!(info.num_units_info, 1);
-        assert_eq!(info.units_info[0].unit_thing_name, "AmericaTankCrusader");
     }
 
     #[test]

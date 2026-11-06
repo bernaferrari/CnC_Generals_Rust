@@ -28,6 +28,7 @@ impl<'a> CommandExecutor<'a> {
         template_name: &str,
         quantity: u32,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         let mut queued = false;
         for &unit_id in units {
             for _ in 0..quantity {
@@ -52,6 +53,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         template_name: &str,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         // Resolve empty name → unit production head residual (not PRODUCTION_UPGRADE).
         let resolved = if template_name.trim().is_empty() {
             units.iter().find_map(|&unit_id| {

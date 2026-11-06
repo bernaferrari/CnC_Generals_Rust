@@ -100,7 +100,7 @@ impl DisplayFontSource for &GameFont {
         current.desc == self.desc
     }
     fn to_display_font(self) -> Arc<GameFont> {
-        if let Ok(font) = get_font_library().get_font(&self.desc) {
+        if let Ok(font) = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&self.desc) {
             return font;
         }
         Arc::new(
@@ -124,7 +124,7 @@ impl DisplayFontSource for &LegacyGameFont {
     }
     fn to_display_font(self) -> Arc<GameFont> {
         let desc = self.to_font_desc();
-        if let Ok(font) = get_font_library().get_font(&desc) {
+        if let Ok(font) = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&desc) {
             return font;
         }
         Arc::new(
@@ -434,7 +434,7 @@ impl DisplayString {
         }
 
         let desc = FontDesc::new(DEFAULT_FONT_NAME, DEFAULT_FONT_SIZE, DEFAULT_FONT_BOLD);
-        if let Ok(font) = get_font_library().get_font(&desc) {
+        if let Ok(font) = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&desc) {
             return font;
         }
 
@@ -493,7 +493,8 @@ impl DisplayString {
         // C++ `W3DDisplayString::notifyTextChanged` applies the language
         // INI's `UseHardWordWrap` to every string's renderer
         // (W3DDisplayString.cpp:91-103).
-        let hard_wrap = crate::global_language::get_global_language_data()
+        let __lang = crate::global_language::get_global_language_data();
+        let hard_wrap = __lang
             .read()
             .map(|language| language.use_hard_wrap)
             .unwrap_or(false);
@@ -710,11 +711,12 @@ pub struct DisplayStringManager {
 fn apply_draw_group_style(handle: &DisplayStringHandle, text: String) {
     let mut display = handle.borrow_mut();
     display.set_text(text);
-    let info = get_draw_group_info()
+    let __dgi = get_draw_group_info();
+    let info = __dgi
         .read()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let desc = FontDesc::new(&info.font_name, info.font_size, info.font_is_bold);
-    if let Ok(font) = get_font_library().get_font(&desc) {
+    if let Ok(font) = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&desc) {
         display.set_font(font);
     }
 }
@@ -818,7 +820,7 @@ impl SubsystemInterface for DisplayStringManager {
     fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.default_font.is_none() {
             let desc = FontDesc::new(DEFAULT_FONT_NAME, DEFAULT_FONT_SIZE, DEFAULT_FONT_BOLD);
-            if let Ok(font) = get_font_library().get_font(&desc) {
+            if let Ok(font) = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&desc) {
                 self.default_font = Some(font);
             }
         }
@@ -841,45 +843,68 @@ impl SubsystemInterface for DisplayStringManager {
     }
 }
 
+// Owned on WindowManagerOwner.display_string_manager (live peel / cfg(test) TLS).
+#[cfg(test)]
 thread_local! {
-    static DISPLAY_STRING_MANAGER: RefCell<DisplayStringManager> =
+    static TEST_DISPLAY_STRING_MANAGER: RefCell<DisplayStringManager> =
         RefCell::new(DisplayStringManager::new());
+}
+
+fn with_display_string_manager_mut<R>(f: impl FnOnce(&mut DisplayStringManager) -> R) -> R {
+    let mut f = Some(f);
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .with_display_string_manager_mut(|manager| f.take().expect("display string")(manager))
+    }) {
+        return result;
+    }
+    #[cfg(test)]
+    {
+        return TEST_DISPLAY_STRING_MANAGER.with(|slot| {
+            f.take().expect("display string")(&mut slot.borrow_mut())
+        });
+    }
+    #[cfg(not(test))]
+    {
+        // No live client: ephemeral manager (standalone callers without GameClient).
+        f.take().expect("display string")(&mut DisplayStringManager::new())
+    }
 }
 
 pub struct DisplayStringManagerAccess;
 
 impl DisplayStringManagerAccess {
     pub fn set_default_font(&mut self, font: Arc<GameFont>) {
-        DISPLAY_STRING_MANAGER.with(|manager| manager.borrow_mut().set_default_font(font));
+        with_display_string_manager_mut(|manager| manager.set_default_font(font));
     }
 
     pub fn new_display_string(&mut self) -> DisplayStringHandle {
-        DISPLAY_STRING_MANAGER.with(|manager| manager.borrow_mut().new_display_string())
+        with_display_string_manager_mut(|manager| manager.new_display_string())
     }
 
     pub fn free_display_string(&mut self, handle: DisplayStringHandle) {
-        DISPLAY_STRING_MANAGER.with(|manager| manager.borrow_mut().free_display_string(handle));
+        with_display_string_manager_mut(|manager| manager.free_display_string(handle));
     }
 
     pub fn get_group_numeral_string(&mut self, numeral: i32) -> Option<DisplayStringHandle> {
-        DISPLAY_STRING_MANAGER
-            .with(|manager| manager.borrow_mut().get_group_numeral_string(numeral))
+        with_display_string_manager_mut(|manager| manager.get_group_numeral_string(numeral))
     }
 
     pub fn get_formation_letter_string(&mut self) -> Option<DisplayStringHandle> {
-        DISPLAY_STRING_MANAGER.with(|manager| manager.borrow_mut().get_formation_letter_string())
+        with_display_string_manager_mut(|manager| manager.get_formation_letter_string())
     }
 
     pub fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        DISPLAY_STRING_MANAGER.with(|manager| manager.borrow_mut().init())
+        with_display_string_manager_mut(|manager| manager.init())
     }
 
     pub fn reset(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        DISPLAY_STRING_MANAGER.with(|manager| manager.borrow_mut().reset())
+        with_display_string_manager_mut(|manager| manager.reset())
     }
 
     pub fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        DISPLAY_STRING_MANAGER.with(|manager| manager.borrow_mut().update())
+        with_display_string_manager_mut(|manager| manager.update())
     }
 }
 
@@ -933,6 +958,7 @@ mod tests {
 
     #[test]
     fn layout_cache_measures_once_until_text_changes() {
+        crate::test_support::ensure_ambient_host();
         let measures = Arc::new(AtomicU32::new(0));
         let mut string = DisplayString::new();
         string.set_font(counting_font(measures.clone()));
@@ -966,6 +992,7 @@ mod tests {
 
     #[test]
     fn hotkey_prefix_is_measured_at_layout_not_draw() {
+        crate::test_support::ensure_ambient_host();
         let measures = Arc::new(AtomicU32::new(0));
         let mut string = DisplayString::new();
         string.set_font(counting_font(measures.clone()));
@@ -993,6 +1020,7 @@ mod tests {
 
     #[test]
     fn lru_reclaims_stale_strings_in_checkpoint_windows() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = DisplayStringManager::new();
         let mut handles = Vec::new();
         for _ in 0..12 {

@@ -39,23 +39,39 @@ impl ReceivingObjectContent {
     where
         I: IntoIterator<Item = (String, String)>,
     {
-        let sources = sources.into_iter().collect::<Vec<_>>();
-        let mut factory =
-            ModuleFactory::new_receiving_with_sciences(NameKeyNamespace::new(), sciences);
-        gamelogic::contain_module_overrides::register_native_module_overrides(&mut factory)?;
-        let mut modules = ReceivingModuleContent::new(factory);
-        modules.admit_action_definitions(actions);
-        for (path, text) in &sources {
-            modules
-                .load_ini_text(text, INILoadType::Overwrite)
-                .map_err(|error| format!("Receiving Object source '{path}': {error}"))?;
+        // ThingTemplate / GlobalData paths still read CommonServices. Callers
+        // with a GameLogic bind already publish; free/test constructors get a
+        // temporary scope so they do not depend on process ambient state.
+        let _common = if game_engine::common::common_services::try_common_services().is_none() {
+            Some(game_engine::common::common_services::CommonServicesScope::new())
+        } else {
+            None
+        };
+        let build = || -> Result<Self, String> {
+            let sources = sources.into_iter().collect::<Vec<_>>();
+            let mut factory =
+                ModuleFactory::new_receiving_with_sciences(NameKeyNamespace::new(), sciences);
+            gamelogic::contain_module_overrides::register_native_module_overrides(&mut factory)?;
+            let mut modules = ReceivingModuleContent::new(factory);
+            modules.admit_action_definitions(actions);
+            for (path, text) in &sources {
+                modules
+                    .load_ini_text(text, INILoadType::Overwrite)
+                    .map_err(|error| format!("Receiving Object source '{path}': {error}"))?;
+            }
+            modules.validate_production_prerequisites()?;
+            let projections = ReceivingObjectDefinitions::from_boot_sources(&sources)?;
+            Ok(Self {
+                modules,
+                projections,
+            })
+        };
+        if gamelogic::system::engine_stores::try_active_services().is_none() {
+            let services = gamelogic::system::engine_stores::new_world_services();
+            gamelogic::system::engine_stores::with_world_services(&services, build)
+        } else {
+            build()
         }
-        modules.validate_production_prerequisites()?;
-        let projections = ReceivingObjectDefinitions::from_boot_sources(&sources)?;
-        Ok(Self {
-            modules,
-            projections,
-        })
     }
     /// Extend this application's action catalog using its own science identities.
     pub(crate) fn admit_command_source(&mut self, source: &str) -> Result<(), String> {

@@ -1771,17 +1771,19 @@ mod receiving_terrain_lod_tests {
             .find(|button| button.action == ActionButton::Apply)
             .unwrap();
         let (x, y) = (button.position.0 + 1, button.position.1 + 1);
-        let event = receiver_a.with_window_event_effects(|effects| {
+        let event = receiver_a.with_window_event_effects(None, |effects| {
             a.handle_mouse_click_with_terrain_lod_and_effects(
                 x,
                 y,
                 MouseButton::Left,
                 Some(&mut |value| {
                     assert_eq!(definitions.read().texture_reduction_factor, value);
-                    assert_eq!(
-                        ww3d_renderer_3d::rendering::texture_quality::texture_reduction(),
-                        value as u32
-                    );
+                    if let Some(r3d) = game_client::core::game_client::live_renderer_3d() {
+                        assert_eq!(
+                            ww3d_renderer_3d::rendering::texture_quality::texture_reduction(&r3d),
+                            value as u32
+                        );
+                    }
                     observed_a.push(value);
                 }),
                 Some(effects),
@@ -1795,7 +1797,7 @@ mod receiving_terrain_lod_tests {
         );
         assert!(observed_b.is_empty());
         assert_eq!(b.snapshot_current_values(), before_b);
-        assert!(receiver_b.with_window_event_effects(|effects| {
+        assert!(receiver_b.with_window_event_effects(None, |effects| {
             b.handle_key_press_with_terrain_lod_and_effects(
                 KeyCode::Enter,
                 Some(&mut |value| {

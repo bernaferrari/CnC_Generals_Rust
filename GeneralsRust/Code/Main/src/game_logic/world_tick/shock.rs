@@ -173,6 +173,13 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<u32> {
+        self.with_own_services_mut(|this| this.update_owned_partition_with_effects_inner(effects))
+    }
+
+    fn update_owned_partition_with_effects_inner(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<u32> {
         let mut contacts = Vec::new();
         let mut seen = std::collections::HashSet::new();
         while let Some(dirty) = self.partition_manager.take_next_receiving_dirty() {
@@ -505,18 +512,20 @@ impl GameLogic {
         intended_id: ObjectId,
         weapon_name: Option<&str>,
     ) -> u32 {
-        self.apply_instant_hit_splash_at_with_effects(
-            impact,
-            primary_damage,
-            secondary_damage,
-            primary_radius,
-            secondary_radius,
-            attacker_id,
-            attacker_team,
-            intended_id,
-            weapon_name,
-            &mut Default::default(),
-        )
+        self.with_own_services_mut(|this| {
+            this.apply_instant_hit_splash_at_with_effects(
+                impact,
+                primary_damage,
+                secondary_damage,
+                primary_radius,
+                secondary_radius,
+                attacker_id,
+                attacker_team,
+                intended_id,
+                weapon_name,
+                &mut Default::default(),
+            )
+        })
     }
 
     pub(crate) fn apply_instant_hit_splash_at_with_effects(
@@ -595,13 +604,22 @@ impl GameLogic {
             .map(|id| id.0)
             .collect();
         let players = &self.players;
-        let candidates: Vec<(ObjectId, f32)> = self
-            .objects
-            .registered()
-            .filter_map(|(id, obj)| {
-                if *id == intended_id {
+        // Weapon.cpp:1283 iterateObjectsInRange — partition fastest-iterator
+        // order, never HostObjectStore registration order.
+        let ordered_ids = self.partition_manager.ids_in_radius_iterator_order(
+            impact.x,
+            impact.z,
+            max_r,
+            |_| true,
+        );
+        let candidates: Vec<(ObjectId, f32)> = ordered_ids
+            .into_iter()
+            .filter_map(|raw| {
+                let id = ObjectId(raw);
+                if id == intended_id {
                     return None;
                 }
+                let obj = self.objects.lookup(&id)?;
                 if !obj.is_alive() {
                     return None;
                 }
@@ -640,7 +658,7 @@ impl GameLogic {
                         affects & !doesnt_affect_similar,
                         mask_relationship,
                         attacker_id,
-                        *id,
+                        id,
                         attacker_producer,
                         airborne,
                         false,
@@ -656,7 +674,7 @@ impl GameLogic {
                 if dist > max_r {
                     return None;
                 }
-                Some((*id, dist))
+                Some((id, dist))
             })
             .collect();
         let mut hits = 0u32;
@@ -704,6 +722,11 @@ impl GameLogic {
                     weapon_name,
                     damage_type,
                     native_rule.as_deref(),
+                )
+                .with_source_player_mask(
+                    attacker_owner
+                        .map(|pid| 1u32 << pid.min(31))
+                        .unwrap_or(0),
                 );
                 // C++ Weapon::dealDamageInternal completes each attemptDamage:
                 // body callbacks -> scoreTheKill -> onDie -> fresh-source FX.
@@ -744,16 +767,18 @@ impl GameLogic {
         skip_id: ObjectId,
         weapon_name: Option<&str>,
     ) -> u32 {
-        self.apply_scatter_miss_splash_at_with_effects(
-            impact,
-            weapon_damage,
-            splash_radius,
-            attacker_id,
-            attacker_team,
-            skip_id,
-            weapon_name,
-            &mut Default::default(),
-        )
+        self.with_own_services_mut(|this| {
+            this.apply_scatter_miss_splash_at_with_effects(
+                impact,
+                weapon_damage,
+                splash_radius,
+                attacker_id,
+                attacker_team,
+                skip_id,
+                weapon_name,
+                &mut Default::default(),
+            )
+        })
     }
 
     pub(crate) fn apply_scatter_miss_splash_at_with_effects(
@@ -859,13 +884,20 @@ impl GameLogic {
             .unwrap_or_default();
         let source_present = self.objects.lookup(&attacker_id).is_some();
         let players = &self.players;
-        let candidates: Vec<(ObjectId, f32)> = self
-            .objects
-            .registered()
-            .filter_map(|(id, obj)| {
-                if *id == skip_id {
+        let ordered_ids = self.partition_manager.ids_in_radius_iterator_order(
+            impact.x,
+            impact.z,
+            max_r,
+            |_| true,
+        );
+        let candidates: Vec<(ObjectId, f32)> = ordered_ids
+            .into_iter()
+            .filter_map(|raw| {
+                let id = ObjectId(raw);
+                if id == skip_id {
                     return None;
                 }
+                let obj = self.objects.lookup(&id)?;
                 if !obj.is_alive() {
                     return None;
                 }
@@ -926,7 +958,7 @@ impl GameLogic {
                         affects & !doesnt_affect_similar,
                         mask_relationship,
                         attacker_id,
-                        *id,
+                        id,
                         attacker_producer,
                         airborne,
                         false,
@@ -942,7 +974,7 @@ impl GameLogic {
                 if dist > max_r {
                     return None;
                 }
-                Some((*id, dist))
+                Some((id, dist))
             })
             .collect();
         let mut hits = 0u32;
@@ -988,6 +1020,11 @@ impl GameLogic {
                     weapon_name,
                     damage_type,
                     native_rule.as_deref(),
+                )
+                .with_source_player_mask(
+                    attacker_owner
+                        .map(|pid| 1u32 << pid.min(31))
+                        .unwrap_or(0),
                 );
                 // C++ Weapon::dealDamageInternal completes each attemptDamage:
                 // body callbacks -> scoreTheKill -> onDie -> fresh-source FX.
@@ -1208,10 +1245,8 @@ impl GameLogic {
         if gap < 0.001 {
             return src;
         }
-        let contact = weapon_name
-            .map(crate::game_logic::weapon_bootstrap::host_is_contact_weapon_name)
-            .unwrap_or(false)
-            || crate::game_logic::weapon_bootstrap::is_contact_effective_range(raw_gap);
+        // C++ Weapon.cpp:531 isContactWeapon: authored range only.
+        let contact = crate::game_logic::weapon_bootstrap::is_contact_effective_range(raw_gap);
         if contact {
             return target_pos;
         }

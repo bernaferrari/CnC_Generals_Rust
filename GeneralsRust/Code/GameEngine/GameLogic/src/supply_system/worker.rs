@@ -72,6 +72,9 @@ pub struct WorkerAIUpdate {
     audio_system: Option<Arc<dyn AudioSystem>>,
     /// Upgrade system reference
     upgrade_system: Option<Arc<dyn UpgradeSystem>>,
+    /// C++ getObject(): the exact owning Object, bound at construction by the
+    /// factory. Standalone adapters leave it unbound.
+    owner: Option<std::sync::Weak<RwLock<Object>>>,
 }
 
 /// Dozer-style task types for workers (matches C++ WorkerAIUpdate task handling).
@@ -215,7 +218,14 @@ impl WorkerAIUpdate {
             player_index,
             audio_system: None,
             upgrade_system: None,
+            owner: None,
         }
+    }
+
+    /// Bind the exact owning Object (C++ `getObject()`), so Drawable
+    /// notifications never resolve a same-ID foreign Object by registry id.
+    pub fn bind_owner(&mut self, owner: &Arc<RwLock<Object>>) {
+        self.owner = Some(Arc::downgrade(owner));
     }
 
     fn owner_id(&self) -> ObjectID {
@@ -223,6 +233,19 @@ impl WorkerAIUpdate {
     }
 
     fn update_drawable_supply_status(&self) {
+        // C++ WorkerAIUpdate.cpp 1005-1015: getObject()->getDrawable().
+        if let Some(owner) = &self.owner {
+            let Some(owner) = owner.upgrade() else {
+                return;
+            };
+            let drawable = owner.read().ok().and_then(|guard| guard.get_drawable());
+            if let Some(drawable) = drawable {
+                if let Ok(mut draw_guard) = drawable.write() {
+                    draw_guard.update_supply_status(self.data.max_boxes, self.number_boxes);
+                }
+            }
+            return;
+        }
         // Wave 298: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
             return;
@@ -1152,7 +1175,7 @@ impl WorkerAIUpdate {
 
     pub fn gain_one_box(&mut self, remaining_stock: i32) -> bool {
         // Wave 298: empty dual-world → fail-closed.
-        if dual_world_registry_unavailable() {
+        if self.owner.is_none() && dual_world_registry_unavailable() {
             return false;
         }
 
@@ -1202,11 +1225,13 @@ impl WorkerAIUpdate {
         true
     }
 
+    /// C++ WorkerAIUpdate.cpp:1376-1386 gates on Upgrade_GLAWorkerShoes.
+    /// Without a live upgrade owner, never invent the authored boost amount.
     pub fn get_upgraded_supply_boost(&self) -> u32 {
         if let Some(upgrade) = &self.upgrade_system {
             upgrade.get_supply_boost(self.player_index)
         } else {
-            self.data.upgraded_supply_boost
+            0
         }
     }
 
@@ -1273,12 +1298,23 @@ impl WorkerAIUpdate {
     }
 
     /// Get action delay for a dock (matches C++ WorkerAIUpdate::getActionDelayForDock).
-    pub fn get_action_delay_for_dock(&self, is_warehouse: bool) -> u32 {
-        if is_warehouse {
+    /// C++ WorkerAIUpdate::getActionDelayForDock — warehouse, else center, else 0.
+    pub fn get_action_delay_for_dock_modules(
+        &self,
+        has_warehouse: bool,
+        has_center: bool,
+    ) -> u32 {
+        if has_warehouse {
             self.data.warehouse_delay
-        } else {
+        } else if has_center {
             self.data.center_delay
+        } else {
+            0
         }
+    }
+
+    pub fn get_action_delay_for_dock(&self, is_warehouse: bool) -> u32 {
+        self.get_action_delay_for_dock_modules(is_warehouse, !is_warehouse)
     }
 
     /// Get warehouse scan distance (AI players get 2x distance).
@@ -1313,8 +1349,115 @@ mod worker_dozer_parity_tests {
         worker.drop_all_boxes_if_carrying();
         assert_eq!(worker.get_number_boxes(), 0);
     }
+
+    fn in_world(f: impl FnOnce()) {
+        let _serial = crate::test_sync::lock();
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, || {
+            let stores = crate::system::engine_stores::new_for_world();
+            crate::system::engine_stores::with_active_stores(&stores, f);
+        });
+    }
+
+    fn owner_with_drawable(
+        id: ObjectID,
+    ) -> (
+        Arc<RwLock<Object>>,
+        Arc<RwLock<crate::object::drawable::Drawable>>,
+    ) {
+        let owner = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
+        let drawable = Arc::new(RwLock::new(crate::object::drawable::Drawable::new(
+            0xA0_0000 + id,
+            id,
+            "WorkerOwnerTest".to_owned(),
+            crate::object::drawable::DrawableType::Static,
+        )));
+        owner.write().unwrap().set_drawable(Some(drawable.clone()));
+        (owner, drawable)
+    }
+
+    fn carrying(drawable: &Arc<RwLock<crate::object::drawable::Drawable>>) -> bool {
+        drawable
+            .read()
+            .unwrap()
+            .get_model_conditions()
+            .contains(ModelConditionFlags::CARRYING)
+    }
+
+    #[test]
+    fn bound_worker_notifies_its_own_drawable_not_a_same_id_foreign_owner() {
+        in_world(|| {
+        // C++ WorkerAIUpdate.cpp:1005-1015: getObject()->getDrawable() with the
+        // authored MaxBoxes of that actual owner.
+        let (owner_a, drawable_a) = owner_with_drawable(7);
+        let (owner_b, drawable_b) = owner_with_drawable(7);
+        let mut data_a = WorkerAIUpdateData::default();
+        data_a.max_boxes = 1;
+        let mut data_b = WorkerAIUpdateData::default();
+        data_b.max_boxes = 3;
+        let mut worker_a = WorkerAIUpdate::new(data_a, 7, 0);
+        let mut worker_b = WorkerAIUpdate::new(data_b, 7, 0);
+        worker_a.bind_owner(&owner_a);
+        worker_b.bind_owner(&owner_b);
+
+        assert!(worker_a.gain_one_box(5));
+        assert!(carrying(&drawable_a));
+        assert!(!carrying(&drawable_b));
+        // A's capacity (1) is exhausted; B's authored capacity is independent.
+        assert!(!worker_a.gain_one_box(5));
+        assert!(worker_b.gain_one_box(5));
+        assert!(worker_b.gain_one_box(5));
+        assert!(carrying(&drawable_b));
+        assert!(worker_b.lose_one_box());
+        assert!(carrying(&drawable_b));
+        assert!(worker_b.lose_one_box());
+        assert!(!carrying(&drawable_b));
+        assert!(carrying(&drawable_a));
+        // Mine-clearing drop clears only A's own drawable.
+        worker_a.drop_all_boxes_if_carrying();
+        assert!(!carrying(&drawable_a));
+        assert_eq!(worker_a.get_number_boxes(), 0);
+        });
+    }
+
+    #[test]
+    fn bound_worker_with_expired_owner_keeps_cargo_but_notifies_nothing() {
+        in_world(|| {
+        let (owner, drawable) = owner_with_drawable(9);
+        let mut data = WorkerAIUpdateData::default();
+            data.max_boxes = 2;
+            let mut worker = WorkerAIUpdate::new(data, 9, 0);
+        worker.bind_owner(&owner);
+        drop(owner);
+        assert!(worker.gain_one_box(5));
+        assert_eq!(worker.get_number_boxes(), 1);
+        assert!(!carrying(&drawable));
+        });
+    }
+
+    #[test]
+    fn ungated_worker_shoes_boost_is_zero_without_upgrade_owner() {
+        // C++ WorkerAIUpdate.cpp:1376-1386 gates on Upgrade_GLAWorkerShoes.
+        let mut data = WorkerAIUpdateData::default();
+        data.upgraded_supply_boost = 8;
+        let worker = WorkerAIUpdate::new(data, INVALID_ID, 0);
+        assert_eq!(worker.get_upgraded_supply_boost(), 0);
+    }
+
+    #[test]
+    fn non_supply_dock_action_delay_is_zero() {
+        // C++ WorkerAIUpdate.cpp:196-213 returns 0 without warehouse/center modules.
+        let mut data = WorkerAIUpdateData::default();
+        data.warehouse_delay = 30;
+        data.center_delay = 20;
+        let worker = WorkerAIUpdate::new(data, INVALID_ID, 0);
+        assert_eq!(worker.get_action_delay_for_dock_modules(false, false), 0);
+        assert_eq!(worker.get_action_delay_for_dock_modules(true, false), 30);
+        assert_eq!(worker.get_action_delay_for_dock_modules(false, true), 20);
+    }
 }
 
 #[cfg(test)]
 #[path = "construction_tests.rs"]
 mod construction_tests;
+

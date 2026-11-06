@@ -469,7 +469,10 @@ impl GameClient {
             self.local_player_id,
             self.input_authority,
         )
-        .destroy_drawable_with_particles(id, Some(&mut self.drawables.particles))
+        .destroy_drawable_with_particles(
+            id,
+            self.drawables.particles.as_mut(),
+        )
     }
 
     /// C++ destroyDrawable: disregard UI, unlink identity, then retire modules.
@@ -530,17 +533,14 @@ impl GameClient {
     /// Sets the current frame number
     pub fn set_frame(&mut self, frame: u32) {
         self.frame = frame;
+        refresh_live_game_client_address(self);
         publish_live_game_client_frame(self);
     }
 
     /// Sets the local player identifier used for command routing.
     pub fn set_local_player_id(&mut self, player_id: i32) {
+        // Instance field is the owning store; translators peel the live client.
         self.local_player_id = player_id;
-        // Only the admitted application client publishes the input scalar.
-        // Detached worlds and load candidates update their own field only.
-        if owns_live_game_client_slot(self) {
-            set_local_player_id(player_id);
-        }
     }
 
     /// Gets the current frame number
@@ -721,9 +721,11 @@ impl GameClient {
         // manager, then release it before touching WGPU resources.
         self.drawables
             .particles
+            .as_mut()
+            .expect("particle manager")
             .admit_effective_definitions()
             .map_err(|error| GameClientError::SubsystemError(error.to_string()))?;
-        self.drawables.particles.preload_assets();
+        self.particle_systems_mut().preload_assets();
         // Authored names stay on this particle owner. Its next receiving CPU
         // render frame carries them to the exact native GPU renderer, even if
         // no particles are alive; preload never chooses a process renderer.
@@ -1604,14 +1606,16 @@ impl GameClient {
         &mut self,
         include_compatibility_registry: bool,
     ) -> Result<(), String> {
-        // Binding keys describe pre-load runtime Drawable instances and are
-        // intentionally not serialized.  Recreated presentation drawables
-        // receive fresh keys on the next host sync.
+        // Binding keys are not serialized. Clear pre-load runtime keys, then
+        // hq-0f6bh: re-seed Xfer-restored object associations so the next host
+        // sync retains typed module continuation (retains_binding) instead of
+        // reconstructing decoded modules. host_epoch=0 means "adopt on sync".
         self.drawables.presentation_direct_drawable_bindings.clear();
         self.drawables.drawable_object_map.clear();
         let mut next_drawable_id = self.drawables.next_drawable_id.0.max(1);
 
         let state = &mut self.drawables.state;
+        let mut restored_bindings = Vec::new();
         for drawable in state.drawable_map.values() {
             let id = drawable.get_id();
             if id.0 >= next_drawable_id {
@@ -1619,7 +1623,29 @@ impl GameClient {
             }
             if let Some(object_id) = drawable.get_object_id() {
                 state.drawable_object_map.insert(object_id, id);
+                let visual_template_name = drawable
+                    .as_any()
+                    .downcast_ref::<BasicDrawable>()
+                    .and_then(|basic| basic.template_name().map(|s| s.to_string()))
+                    .unwrap_or_default();
+                restored_bindings.push((id, object_id, visual_template_name));
             }
+        }
+        for (id, object_id, visual_template_name) in restored_bindings {
+            let binding_generation = state.alloc_binding_generation();
+            state.presentation_direct_drawable_bindings.insert(
+                id,
+                PresentationDirectDrawableBinding {
+                    semantic_lifetime: true,
+                    binding_key: PresentationDirectDrawableBindingKey {
+                        host_epoch: 0,
+                        object_id,
+                        drawable_id: id,
+                        binding_generation,
+                    },
+                    visual_template_name,
+                },
+            );
         }
 
         // C++ scans the global drawable list; include GameLogic-owned drawables as well

@@ -632,6 +632,7 @@ mod tests {
 
     #[test]
     fn actual_ui_transport_isolates_same_id_requests_reset_and_drop() {
+        crate::test_support::ensure_ambient_host();
         let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let mut a = crate::core::subsystems::InGameUISubsystem::default();
         let mut b = crate::core::subsystems::InGameUISubsystem::default();
@@ -695,6 +696,7 @@ mod tests {
 
     #[test]
     fn bridge_is_opt_in_and_drains_typed_production_requests() {
+        crate::test_support::ensure_ambient_host();
         let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = acquire();
@@ -736,6 +738,7 @@ mod tests {
 
     #[test]
     fn bridge_routes_idle_worker_selection_only_when_enabled() {
+        crate::test_support::ensure_ambient_host();
         let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = acquire();
@@ -757,6 +760,7 @@ mod tests {
 
     #[test]
     fn bridge_routes_structure_placement_cancel_only_when_enabled() {
+        crate::test_support::ensure_ambient_host();
         let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = acquire();
@@ -778,6 +782,7 @@ mod tests {
 
     #[test]
     fn bridge_routes_popup_acknowledgement_only_when_enabled() {
+        crate::test_support::ensure_ambient_host();
         let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = acquire();
@@ -808,6 +813,7 @@ mod tests {
 
     #[test]
     fn popup_boundary_clear_discards_only_popup_acknowledgements() {
+        crate::test_support::ensure_ambient_host();
         let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = acquire();
@@ -831,6 +837,7 @@ mod tests {
 
     #[test]
     fn publication_captures_explicit_physical_provenance_and_fails_closed_otherwise() {
+        crate::test_support::ensure_ambient_host();
         let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = acquire();
@@ -912,6 +919,7 @@ mod tests {
 
     #[test]
     fn minimap_publication_captures_wnd_provenance_without_forging_it() {
+        crate::test_support::ensure_ambient_host();
         let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = acquire();
@@ -979,6 +987,7 @@ mod tests {
 
     #[test]
     fn native_admission_never_consumes_a_standalone_peers_pause_requests() {
+        crate::test_support::ensure_ambient_host();
         let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let mut standalone = crate::core::subsystems::InGameUISubsystem::default();
         let mut native = crate::core::subsystems::InGameUISubsystem::default();
@@ -995,6 +1004,7 @@ mod tests {
 
     #[test]
     fn target_upgrade_direct_cancel_and_pause_keep_host_meaning() {
+        crate::test_support::ensure_ambient_host();
         let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = acquire();
@@ -1106,6 +1116,7 @@ mod tests {
 
     #[test]
     fn purchase_science_with_object_display_field_is_never_production() {
+        crate::test_support::ensure_ambient_host();
         let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let _guard = acquire();
         let mut button = CommandButton::default();
@@ -1139,6 +1150,7 @@ mod tests {
 
     #[test]
     fn object_bearing_non_production_commands_keep_their_real_semantics() {
+        crate::test_support::ensure_ambient_host();
         let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let _guard = acquire();
 
@@ -1172,7 +1184,7 @@ mod tests {
             &context(),
             CommandSourceType::FromUser,
             Some(99),
-            false,
+            true,
         );
         assert!(matches!(
             request,
@@ -1190,6 +1202,7 @@ mod tests {
 
     #[test]
     fn construct_gui_token_survives_the_generic_special_power_command_mapping() {
+        crate::test_support::ensure_ambient_host();
         let _guard = acquire();
         let mut button = CommandButton::default();
         button.command_name = "Command_SneakAttack".to_string();
@@ -1224,6 +1237,7 @@ mod tests {
 
     #[test]
     fn required_upgrade_metadata_does_not_turn_an_action_into_queue_upgrade() {
+        crate::test_support::ensure_ambient_host();
         let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let _guard = acquire();
 
@@ -1271,6 +1285,7 @@ mod tests {
 
     #[test]
     fn fire_weapon_slot_is_preserved_for_target_and_direct_requests() {
+        crate::test_support::ensure_ambient_host();
         let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let _guard = acquire();
         let mut fire_weapon = CommandButton::default();
@@ -1318,6 +1333,7 @@ mod tests {
 
     #[test]
     fn special_and_generic_target_arms_preserve_identity_and_options() {
+        crate::test_support::ensure_ambient_host();
         let input_provenance = HostControlBarInputProvenance::InjectedOrUnknown;
         let _guard = acquire();
 

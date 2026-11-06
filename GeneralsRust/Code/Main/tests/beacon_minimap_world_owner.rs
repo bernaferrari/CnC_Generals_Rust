@@ -6,6 +6,15 @@ use generals_main::save_load::SnapshotBuilder;
 use generals_main::ui::color_for_player;
 use std::time::SystemTime;
 
+/// The Common/Main service owners a hosted match needs; no process fallback exists.
+fn with_services(body: impl FnOnce()) {
+    let common = std::sync::Arc::new(game_engine::common::common_services::CommonServices::new());
+    game_engine::common::common_services::with_common_services(&common, || {
+        let main = std::sync::Arc::new(generals_main::main_services::MainServices::new());
+        generals_main::main_services::with_main_services(&main, body);
+    });
+}
+
 fn minimal_map(root: &std::path::Path) -> std::path::PathBuf {
     let mut output = DataChunkOutput::new();
     output.open_data_chunk("HeightMapData", 3);
@@ -49,11 +58,11 @@ fn place(world: &mut GameLogic, position: glam::Vec3) -> ObjectId {
         selected_units: vec![],
         modifier_keys: ModifierKeys::default(),
     };
-    assert_eq!(
+    assert!(
         CommandExecutor::new(world, 1)
             .execute_command(command)
-            .unwrap(),
-        CommandResult::Success
+            .unwrap()
+            == CommandResult::Success
     );
     *world.host_objects().registered_keys().next().unwrap()
 }
@@ -67,133 +76,136 @@ fn remove(world: &mut GameLogic, id: ObjectId) {
         selected_units: vec![id],
         modifier_keys: ModifierKeys::default(),
     };
-    assert_eq!(
+    assert!(
         CommandExecutor::new(world, 1)
             .execute_command(command)
-            .unwrap(),
-        CommandResult::Success
+            .unwrap()
+            == CommandResult::Success
     );
 }
 
 #[test]
 fn minimap_beacons_use_receiving_objects_with_same_ids_and_conflicting_global_markers() {
-    let first_root = tempfile::tempdir().unwrap();
-    let peer_root = tempfile::tempdir().unwrap();
-    let first_map = minimal_map(first_root.path());
-    let peer_map = minimal_map(peer_root.path());
-    let mut first = world(&first_map);
-    let mut peer = world(&peer_map);
+    with_services(|| {
+        let first_root = tempfile::tempdir().unwrap();
+        let peer_root = tempfile::tempdir().unwrap();
+        let first_map = minimal_map(first_root.path());
+        let peer_map = minimal_map(peer_root.path());
+        let mut first = world(&first_map);
+        let mut peer = world(&peer_map);
 
-    let first_position = glam::Vec3::new(-500.0, 0.0, 300.0);
-    let first_nearby_position = first_position + glam::Vec3::new(1.0, 0.0, 0.0);
-    let peer_position = glam::Vec3::new(700.0, 0.0, -400.0);
-    let first_id = place(&mut first, first_position);
-    let first_nearby_id = place(&mut first, first_nearby_position);
-    let peer_id = place(&mut peer, peer_position);
-    assert_eq!(
-        first_id, peer_id,
-        "worlds deliberately reuse the beacon ObjectId"
-    );
+        let first_position = glam::Vec3::new(-500.0, 0.0, 300.0);
+        let first_nearby_position = first_position + glam::Vec3::new(1.0, 0.0, 0.0);
+        let peer_position = glam::Vec3::new(700.0, 0.0, -400.0);
+        let first_id = place(&mut first, first_position);
+        let first_nearby_id = place(&mut first, first_nearby_position);
+        let peer_id = place(&mut peer, peer_position);
+        assert_eq!(
+            first_id, peer_id,
+            "worlds deliberately reuse the beacon ObjectId"
+        );
 
-    // Seed a marker owned by the Core singleton without a matching receiving
-    // Object. Neither hosted map may inherit it.
-    {
-        let mut global = gamelogic::system::beacon_manager::get_beacon_manager()
-            .lock()
-            .unwrap();
-        global.place_beacon(0, gamelogic::common::Coord3D::new(1400.0, 0.0, 1400.0), 99);
-    }
+        // Seed a marker owned by the Core singleton without a matching receiving
+        // Object. Neither hosted map may inherit it.
+        {
+            let manager = gamelogic::system::beacon_manager::get_beacon_manager();
+            let mut global = manager.lock().unwrap();
+            global.place_beacon(0, gamelogic::common::Coord3D::new(1400.0, 0.0, 1400.0), 99);
+        }
 
-    let bounds = first.world_bounds();
-    assert_eq!(bounds, peer.world_bounds());
-    let first_position = first.host_object(first_id).unwrap().get_position();
-    let peer_position = peer.host_object(peer_id).unwrap().get_position();
-    assert_ne!(first_position, peer_position);
-    let expected = |position: glam::Vec3| {
-        (
-            ((position.x - bounds.0.x) / (bounds.1.x - bounds.0.x).max(1.0)).clamp(0.0, 1.0),
-            ((position.z - bounds.0.z) / (bounds.1.z - bounds.0.z).max(1.0)).clamp(0.0, 1.0),
-        )
-    };
-    let first_expected = expected(first_position);
-    let first_nearby_actual = first.host_object(first_nearby_id).unwrap().get_position();
-    let first_nearby_expected = expected(first_nearby_actual);
-    let peer_expected = expected(peer_position);
-    let first_state = first.update_ui_state(1);
-    let peer_state = peer.update_ui_state(1);
+        let bounds = first.world_bounds();
+        assert_eq!(bounds, peer.world_bounds());
+        let first_position = first.host_object(first_id).unwrap().get_position();
+        let peer_position = peer.host_object(peer_id).unwrap().get_position();
+        assert_ne!(first_position, peer_position);
+        let expected = |position: glam::Vec3| {
+            (
+                ((position.x - bounds.0.x) / (bounds.1.x - bounds.0.x).max(1.0)).clamp(0.0, 1.0),
+                ((position.z - bounds.0.z) / (bounds.1.z - bounds.0.z).max(1.0)).clamp(0.0, 1.0),
+            )
+        };
+        let first_expected = expected(first_position);
+        let first_nearby_actual = first.host_object(first_nearby_id).unwrap().get_position();
+        let first_nearby_expected = expected(first_nearby_actual);
+        let peer_expected = expected(peer_position);
+        let first_state = first.update_ui_state(1);
+        let peer_state = peer.update_ui_state(1);
 
-    assert_eq!(first_state.minimap_beacons.len(), 2);
-    assert_eq!(peer_state.minimap_beacons.len(), 1);
-    assert_eq!(
-        first_state.minimap_beacons[0].color,
-        color_for_player(1),
-        "dot color comes from the receiving beacon owner"
-    );
-    assert_eq!(
-        peer_state.minimap_beacons[0].color,
-        color_for_player(1),
-        "same numeric owner in a peer still receives its own marker"
-    );
-    assert_eq!(first_state.minimap_beacons[0].size, 4.0);
-    assert_eq!(first_state.minimap_beacons[1].size, 4.0);
-    assert_eq!(peer_state.minimap_beacons[0].size, 4.0);
-    let first_dots: Vec<_> = first_state
-        .minimap_beacons
-        .iter()
-        .map(|dot| dot.position)
-        .collect();
-    let peer_dot = peer_state.minimap_beacons[0].position;
-    assert!((first_dots[0].x - first_expected.0).abs() < 0.001);
-    assert!((first_dots[0].y - first_expected.1).abs() < 0.001);
-    assert!((first_dots[1].x - first_nearby_expected.0).abs() < 0.001);
-    assert!((first_dots[1].y - first_nearby_expected.1).abs() < 0.001);
-    assert!((peer_dot.x - peer_expected.0).abs() < 0.001);
-    assert!((peer_dot.y - peer_expected.1).abs() < 0.001);
+        assert_eq!(first_state.minimap_beacons.len(), 2);
+        assert_eq!(peer_state.minimap_beacons.len(), 1);
+        assert_eq!(
+            first_state.minimap_beacons[0].color,
+            color_for_player(1),
+            "dot color comes from the receiving beacon owner"
+        );
+        assert_eq!(
+            peer_state.minimap_beacons[0].color,
+            color_for_player(1),
+            "same numeric owner in a peer still receives its own marker"
+        );
+        assert_eq!(first_state.minimap_beacons[0].size, 4.0);
+        assert_eq!(first_state.minimap_beacons[1].size, 4.0);
+        assert_eq!(peer_state.minimap_beacons[0].size, 4.0);
+        let first_dots: Vec<_> = first_state
+            .minimap_beacons
+            .iter()
+            .map(|dot| dot.position)
+            .collect();
+        let peer_dot = peer_state.minimap_beacons[0].position;
+        assert!((first_dots[0].x - first_expected.0).abs() < 0.001);
+        assert!((first_dots[0].y - first_expected.1).abs() < 0.001);
+        assert!((first_dots[1].x - first_nearby_expected.0).abs() < 0.001);
+        assert!((first_dots[1].y - first_nearby_expected.1).abs() < 0.001);
+        assert!((peer_dot.x - peer_expected.0).abs() < 0.001);
+        assert!((peer_dot.y - peer_expected.1).abs() < 0.001);
 
-    // C++ removes the selected live Object; it does not collapse nearby
-    // placements into one BeaconManager location.
-    remove(&mut first, first_id);
-    let first_after_remove = first.update_ui_state(1);
-    let peer_after_remove = peer.update_ui_state(1);
-    assert_eq!(first_after_remove.minimap_beacons.len(), 1);
-    assert_eq!(peer_after_remove.minimap_beacons.len(), 1);
-    assert_eq!(
-        first.host_object(first_nearby_id).unwrap().get_position(),
-        first_nearby_actual
-    );
-    assert!(peer.host_object(peer_id).is_some());
+        // C++ removes the selected live Object; it does not collapse nearby
+        // placements into one BeaconManager location.
+        remove(&mut first, first_id);
+        let first_after_remove = first.update_ui_state(1);
+        let peer_after_remove = peer.update_ui_state(1);
+        assert_eq!(first_after_remove.minimap_beacons.len(), 1);
+        assert_eq!(peer_after_remove.minimap_beacons.len(), 1);
+        assert_eq!(
+            first.host_object(first_nearby_id).unwrap().get_position(),
+            first_nearby_actual
+        );
+        assert!(peer.host_object(peer_id).is_some());
+    });
 }
 
 #[test]
 fn minimap_beacon_comes_from_restored_receiving_world_objects() {
-    let source_root = tempfile::tempdir().unwrap();
-    let restored_root = tempfile::tempdir().unwrap();
-    let source_map = minimal_map(source_root.path());
-    let restored_map = minimal_map(restored_root.path());
-    let mut source = world(&source_map);
-    let beacon_id = place(&mut source, glam::Vec3::new(-300.0, 0.0, 450.0));
-    // Placement clamps to the loaded map before the object is created.
-    let position = source.host_object(beacon_id).unwrap().get_position();
+    with_services(|| {
+        let source_root = tempfile::tempdir().unwrap();
+        let restored_root = tempfile::tempdir().unwrap();
+        let source_map = minimal_map(source_root.path());
+        let restored_map = minimal_map(restored_root.path());
+        let mut source = world(&source_map);
+        let beacon_id = place(&mut source, glam::Vec3::new(-300.0, 0.0, 450.0));
+        // Placement clamps to the loaded map before the object is created.
+        let position = source.host_object(beacon_id).unwrap().get_position();
 
-    let builder = SnapshotBuilder::new();
-    let snapshot = builder.create_world_snapshot(&source).unwrap();
-    let mut restored = world(&restored_map);
-    builder
-        .restore_from_snapshot(&snapshot, &mut restored)
-        .unwrap();
+        let builder = SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&source).unwrap();
+        let mut restored = world(&restored_map);
+        builder
+            .restore_from_snapshot(&snapshot, &mut restored)
+            .unwrap();
 
-    let restored_beacon = restored
-        .host_object(beacon_id)
-        .expect("snapshot restores the receiving beacon object");
-    assert_eq!(restored_beacon.get_position(), position);
-    let bounds = restored.world_bounds();
-    let expected = glam::Vec2::new(
-        ((position.x - bounds.0.x) / (bounds.1.x - bounds.0.x).max(1.0)).clamp(0.0, 1.0),
-        ((position.z - bounds.0.z) / (bounds.1.z - bounds.0.z).max(1.0)).clamp(0.0, 1.0),
-    );
-    let ui = restored.update_ui_state(1);
-    assert_eq!(ui.minimap_beacons.len(), 1);
-    let dot = ui.minimap_beacons[0].position;
-    assert!((dot.x - expected.x).abs() < 0.001);
-    assert!((dot.y - expected.y).abs() < 0.001);
+        let restored_beacon = restored
+            .host_object(beacon_id)
+            .expect("snapshot restores the receiving beacon object");
+        assert_eq!(restored_beacon.get_position(), position);
+        let bounds = restored.world_bounds();
+        let expected = glam::Vec2::new(
+            ((position.x - bounds.0.x) / (bounds.1.x - bounds.0.x).max(1.0)).clamp(0.0, 1.0),
+            ((position.z - bounds.0.z) / (bounds.1.z - bounds.0.z).max(1.0)).clamp(0.0, 1.0),
+        );
+        let ui = restored.update_ui_state(1);
+        assert_eq!(ui.minimap_beacons.len(), 1);
+        let dot = ui.minimap_beacons[0].position;
+        assert!((dot.x - expected.x).abs() < 0.001);
+        assert!((dot.y - expected.y).abs() < 0.001);
+    });
 }

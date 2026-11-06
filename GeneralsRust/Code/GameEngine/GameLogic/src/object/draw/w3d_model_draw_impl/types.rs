@@ -634,33 +634,31 @@ const PRISTINE_BONE_LAST_FRAME: i32 = -1;
 pub type PristineBoneLookupHook =
     std::sync::Arc<dyn Fn(&str, Real, i32, &str) -> Option<(i32, Matrix3D)> + Send + Sync>;
 
-static PRISTINE_BONE_LOOKUP: std::sync::LazyLock<
-    std::sync::RwLock<Option<PristineBoneLookupHook>>,
-> = std::sync::LazyLock::new(|| std::sync::RwLock::new(None));
-
 /// Register a W3D backend that can pose a state model and return a bone.
 /// `frame == -1` means last clip frame. `None` unregisters.
 pub fn register_pristine_bone_lookup_hook(hook: Option<PristineBoneLookupHook>) {
-    if let Ok(mut guard) = PRISTINE_BONE_LOOKUP.write() {
+    let services = crate::system::engine_stores::active_services();
+    if let Ok(mut guard) = services.pristine_bone_lookup_hook().write() {
         *guard = hook;
     }
 }
 
 pub type SubObjectNameHook = std::sync::Arc<dyn Fn(&str) -> Vec<String> + Send + Sync>;
 
-static SUB_OBJECT_NAMES: std::sync::LazyLock<std::sync::RwLock<Option<SubObjectNameHook>>> =
-    std::sync::LazyLock::new(|| std::sync::RwLock::new(None));
-
 /// Register a W3D backend that lists HLOD child mesh names for a model.
 /// `None` unregisters. Headlight hiding uses this; it is not a save field.
 pub fn register_sub_object_name_hook(hook: Option<SubObjectNameHook>) {
-    if let Ok(mut guard) = SUB_OBJECT_NAMES.write() {
+    let services = crate::system::engine_stores::active_services();
+    if let Ok(mut guard) = services.sub_object_name_hook().write() {
         *guard = hook;
     }
 }
 
 pub(crate) fn lookup_sub_object_names(model: &str) -> Vec<String> {
-    let Ok(guard) = SUB_OBJECT_NAMES.read() else {
+    let Some(services) = crate::system::engine_stores::try_active_services() else {
+        return Vec::new();
+    };
+    let Ok(guard) = services.sub_object_name_hook().read() else {
         return Vec::new();
     };
     let Some(hook) = guard.as_ref() else {
@@ -672,17 +670,16 @@ pub(crate) fn lookup_sub_object_names(model: &str) -> Vec<String> {
 pub type ModelBoundsHook =
     std::sync::Arc<dyn Fn(&str) -> Option<([f32; 3], [f32; 3])> + Send + Sync>;
 
-static MODEL_OBJ_BOUNDS: std::sync::LazyLock<std::sync::RwLock<Option<ModelBoundsHook>>> =
-    std::sync::LazyLock::new(|| std::sync::RwLock::new(None));
-
 pub fn register_model_bounds_hook(hook: Option<ModelBoundsHook>) {
-    if let Ok(mut guard) = MODEL_OBJ_BOUNDS.write() {
+    let services = crate::system::engine_stores::active_services();
+    if let Ok(mut guard) = services.model_obj_bounds_hook().write() {
         *guard = hook;
     }
 }
 
 pub(crate) fn lookup_model_obj_bounds(model: &str) -> Option<([f32; 3], [f32; 3])> {
-    let guard = MODEL_OBJ_BOUNDS.read().ok()?;
+    let services = crate::system::engine_stores::try_active_services()?;
+    let guard = services.model_obj_bounds_hook().read().ok()?;
     guard.as_ref()?(model)
 }
 
@@ -692,7 +689,8 @@ fn lookup_pristine_bone(
     frame: i32,
     bone_name: &str,
 ) -> Option<(i32, Matrix3D)> {
-    let guard = PRISTINE_BONE_LOOKUP.read().ok()?;
+    let services = crate::system::engine_stores::try_active_services()?;
+    let guard = services.pristine_bone_lookup_hook().read().ok()?;
     let hook = guard.as_ref()?;
     hook(model, scale, frame, bone_name)
 }

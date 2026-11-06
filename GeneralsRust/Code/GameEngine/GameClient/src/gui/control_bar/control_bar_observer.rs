@@ -12,7 +12,6 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use gamelogic::control_bar::get_control_bar_bridge;
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::player::{PlayerType, player_list as logic_player_list};
-use std::sync::atomic::{AtomicI32, Ordering};
 
 const MAX_OBSERVER_BUTTONS: usize = 8;
 
@@ -22,8 +21,6 @@ const KINDOF_SCORE: u128 = 1u128 << 35;
 const KINDOF_STRUCTURE: u128 = 1u128 << 7;
 const KINDOF_SCORE_CREATE: u128 = 1u128 << 36;
 const KINDOF_SCORE_DESTROY: u128 = 1u128 << 37;
-
-static OBSERVER_LOOK_AT: AtomicI32 = AtomicI32::new(-1);
 
 /// Populate observer-specific commands.
 ///
@@ -98,13 +95,29 @@ pub fn init_observer_controls(receiving_manager: &mut crate::gui::window_manager
 }
 
 pub fn set_observer_look_at_player(index: Option<i32>) {
-    OBSERVER_LOOK_AT.store(index.unwrap_or(-1), Ordering::Relaxed);
+    let _ = crate::core::game_client::with_live_game_client_mut(|client| {
+        if let Some(ui) = client.in_game_ui_subsystem_mut() {
+            ui.control_bar_observer_look_at = index;
+        }
+    });
     crate::helpers::set_legacy_core_control_bar_observer_look_at(index);
 }
 
 pub fn observer_look_at_player_index() -> Option<i32> {
-    let index = OBSERVER_LOOK_AT.load(Ordering::Relaxed);
-    (index >= 0).then_some(index)
+    match crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .in_game_ui_subsystem()
+            .map(|ui| ui.control_bar_observer_look_at)
+    }) {
+        Some(Some(index)) => return index,
+        Some(None) => {
+            // Live client, no InGameUI yet.
+            return None;
+        }
+        None => {}
+    }
+    // Standalone Core / tests without a live client: legacy ingress.
+    crate::helpers::TheControlBar::get_observer_look_at_player_index()
 }
 
 /// C++ ControlBar.cpp switchToContext hide matrix (2135-2137, 2186-2188,
@@ -515,16 +528,57 @@ pub fn control_bar_observer_system(
 }
 
 /// Used by Close13 GameWindowTransitions (`TheControlBar->getArrowImage()`).
-static GEN_ARROW: std::sync::Mutex<Option<Image>> = std::sync::Mutex::new(None);
+/// Owned on InGameUISubsystem.gen_arrow (live peel / cfg(test) TLS).
+#[cfg(test)]
+thread_local! {
+    static TEST_GEN_ARROW: std::cell::RefCell<Option<Image>> =
+        const { std::cell::RefCell::new(None) };
+}
 
 pub fn set_gen_arrow_image(image: Option<Image>) {
-    if let Ok(mut slot) = GEN_ARROW.lock() {
-        *slot = image;
+    let mut image = Some(image);
+    if let Some(true) = crate::core::game_client::with_live_game_client_mut(|client| {
+        if let Some(ui) = client.in_game_ui_subsystem_mut() {
+            ui.gen_arrow = image.take().expect("gen arrow");
+            true
+        } else {
+            false
+        }
+    }) {
+        return;
+    }
+    let Some(image) = image else {
+        return;
+    };
+    #[cfg(test)]
+    {
+        TEST_GEN_ARROW.with(|slot| {
+            *slot.borrow_mut() = image;
+        });
+        return;
+    }
+    #[cfg(not(test))]
+    {
+        let _ = image;
     }
 }
 
 pub fn get_gen_arrow_image() -> Option<Image> {
-    GEN_ARROW.lock().ok().and_then(|slot| slot.clone())
+    if let Some(Some(image)) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .in_game_ui_subsystem()
+            .map(|ui| ui.gen_arrow.clone())
+    }) {
+        return image;
+    }
+    #[cfg(test)]
+    {
+        return TEST_GEN_ARROW.with(|slot| slot.borrow().clone());
+    }
+    #[cfg(not(test))]
+    {
+        None
+    }
 }
 
 pub fn ensure_gen_arrow_from_mapped_images(
@@ -782,6 +836,7 @@ mod native_observer_label_tests {
 
     #[test]
     fn native_observer_label_replaces_cpp_string_arguments_in_order() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             format_observer_player_label("%s — %s", "Alice", "Team:3"),
             "Alice — Team:3"
@@ -794,6 +849,7 @@ mod native_observer_label_tests {
 
     #[test]
     fn native_observer_list_hides_same_non_observer_windows_as_cpp_fallback() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = crate::gui::window_manager::WindowManager::new();
         let names = [
             "ControlBar.wnd:ObserverPlayerInfoWindow",
@@ -804,7 +860,7 @@ mod native_observer_label_tests {
             "ControlBar.wnd:OCLTimerWindow",
         ];
         for name in names {
-            let window = manager.create_window(None, 0, 0, 1, 1).unwrap();
+            let window = manager.test_create_window(None, 0, 0, 1, 1).unwrap();
             window.borrow_mut().set_name(name);
             let _ = window.borrow_mut().hide(false, &mut manager);
         }

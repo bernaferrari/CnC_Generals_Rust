@@ -11,11 +11,12 @@ use gamelogic::world::entities::{
     TemplateRef, Transform,
 };
 
-const EXPECTED_INVENTORY_LEN: usize = 68;
+const EXPECTED_INVENTORY_LEN: usize = 69;
 
 pub(super) const EXPECTED_INVENTORY_TAGS: &[&str] = &[
     "WeaponSlots",
     "TurretRuntime",
+    "AltTurretRuntime",
     "UpgradeDie",
     "SpecialPowerCompletionDie",
     "BattleBusSlowDeath",

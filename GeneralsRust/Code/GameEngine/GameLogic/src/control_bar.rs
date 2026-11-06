@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{RwLock, RwLockReadGuard};
+use std::sync::RwLock;
 
 use crate::command_button::{CommandButton, CommandButtonId, CommandSet, MAX_COMMANDS_PER_SET};
 use crate::upgrade::center::UpgradeCenter;
@@ -15,10 +15,9 @@ use game_engine::common::rts::{CommandSetHandle, PlayerHandle, ThingTemplateHand
 use game_engine::rts::academy_stats::{
     AcademyTemplateContext, set_academy_template_context_provider,
 };
-use once_cell::sync::OnceCell;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ControlBarBridge {
     buttons_by_id: HashMap<CommandButtonId, CommandButton>,
     command_sets: HashMap<String, CommandSet>,
@@ -191,14 +190,14 @@ impl ControlBarBridge {
     }
 }
 
-static CONTROL_BAR_BRIDGE: OnceCell<RwLock<ControlBarBridge>> = OnceCell::new();
+fn with_bridge_slot<R>(f: impl FnOnce(&RwLock<Option<Arc<ControlBarBridge>>>) -> R) -> R {
+    let services = crate::system::engine_stores::active_services();
+    f(services.control_bar_bridge())
+}
 
 pub fn initialize_control_bar_bridge_from_common() -> Result<(), String> {
     let bridge = ControlBarBridge::build_from_common()?;
-    CONTROL_BAR_BRIDGE
-        .set(RwLock::new(bridge))
-        .map_err(|_| "ControlBarBridge already initialized".to_string())?;
-    Ok(())
+    replace_control_bar_bridge(bridge)
 }
 
 pub fn refresh_control_bar_bridge_from_common() -> Result<(), String> {
@@ -215,20 +214,19 @@ pub fn refresh_control_bar_bridge_from_common_with_upgrade_definitions(
 }
 
 fn replace_control_bar_bridge(bridge: ControlBarBridge) -> Result<(), String> {
-    if let Some(cell) = CONTROL_BAR_BRIDGE.get() {
-        let mut guard = cell
+    with_bridge_slot(|slot| {
+        let mut guard = slot
             .write()
             .map_err(|_| "ControlBarBridge lock poisoned".to_string())?;
-        *guard = bridge;
-        return Ok(());
-    }
-    CONTROL_BAR_BRIDGE
-        .set(RwLock::new(bridge))
-        .map_err(|_| "ControlBarBridge already initialized".to_string())
+        *guard = Some(Arc::new(bridge));
+        Ok(())
+    })
 }
 
-pub fn get_control_bar_bridge() -> Option<RwLockReadGuard<'static, ControlBarBridge>> {
-    CONTROL_BAR_BRIDGE.get().and_then(|cell| cell.read().ok())
+/// Shared catalog view for the active world. `Arc` derefs to [`ControlBarBridge`]
+/// so existing `bridge.find_*` call sites stay unchanged.
+pub fn get_control_bar_bridge() -> Option<Arc<ControlBarBridge>> {
+    with_bridge_slot(|slot| slot.read().ok().and_then(|g| g.clone()))
 }
 
 /// Authorize a producer/template pair from the parsed retail CommandSet
@@ -303,26 +301,28 @@ pub fn install_test_command_button(
         ));
     }
 
-    let cell = CONTROL_BAR_BRIDGE.get_or_init(|| {
-        RwLock::new(ControlBarBridge {
-            buttons_by_id: HashMap::new(),
-            command_sets: HashMap::new(),
-        })
-    });
-    let mut guard = cell
-        .write()
-        .map_err(|_| "ControlBarBridge lock poisoned".to_string())?;
-
-    let id = button.get_id();
-    guard.buttons_by_id.insert(id, button.clone());
-    let set = guard
-        .command_sets
-        .entry(command_set_name.to_string())
-        .or_insert_with(|| CommandSet::new(command_set_name.to_string()));
-    if !set.set_command_button(slot, Some(button)) {
-        return Err(format!("Failed to set command button at slot {}", slot));
-    }
-    Ok(())
+    with_bridge_slot(|bridge_slot| {
+        let mut guard = bridge_slot
+            .write()
+            .map_err(|_| "ControlBarBridge lock poisoned".to_string())?;
+        let bridge = guard.get_or_insert_with(|| {
+            Arc::new(ControlBarBridge {
+                buttons_by_id: HashMap::new(),
+                command_sets: HashMap::new(),
+            })
+        });
+        let bridge = Arc::make_mut(bridge);
+        let id = button.get_id();
+        bridge.buttons_by_id.insert(id, button.clone());
+        let set = bridge
+            .command_sets
+            .entry(command_set_name.to_string())
+            .or_insert_with(|| CommandSet::new(command_set_name.to_string()));
+        if !set.set_command_button(slot, Some(button)) {
+            return Err(format!("Failed to set command button at slot {}", slot));
+        }
+        Ok(())
+    })
 }
 
 pub fn register_academy_template_context_provider() {
@@ -335,8 +335,8 @@ fn find_academy_template_context(player: PlayerHandle) -> Option<AcademyTemplate
     }
 
     let player_index = player.value() as i32;
-    let player_arc = player_list()
-        .read()
+    let __player_list_arc = player_list();
+        let player_arc = __player_list_arc.read()
         .ok()
         .and_then(|players| players.get_player(player_index).cloned())?;
     let object_ids = get_object_manager()
@@ -409,13 +409,19 @@ pub fn set_command_set_slot_override(
     slot: usize,
     button_name: Option<&str>,
 ) -> Result<(), String> {
-    let Some(cell) = CONTROL_BAR_BRIDGE.get() else {
-        return Err("ControlBarBridge not initialized".to_string());
-    };
-    let mut guard = cell
-        .write()
-        .map_err(|_| "ControlBarBridge lock poisoned".to_string())?;
-    guard.set_command_set_slot_override(command_set_name, slot, button_name)?;
+    with_bridge_slot(|bridge_slot| {
+        let mut guard = bridge_slot
+            .write()
+            .map_err(|_| "ControlBarBridge lock poisoned".to_string())?;
+        let Some(bridge) = guard.as_mut() else {
+            return Err("ControlBarBridge not initialized".to_string());
+        };
+        Arc::make_mut(bridge).set_command_set_slot_override(
+            command_set_name,
+            slot,
+            button_name,
+        )
+    })?;
     if let Ok(mut logic) = crate::system::game_logic::lock_game_logic() {
         logic.set_control_bar_override(command_set_name, slot as i32, button_name);
     }
@@ -429,10 +435,10 @@ pub trait ControlBarUiHooks: Send + Sync {
     fn on_player_rank_changed(&self, player_id: i32, rank_level: i32, points: i32);
 }
 
-static CONTROL_BAR_UI_HOOKS: Mutex<Option<Arc<dyn ControlBarUiHooks>>> = Mutex::new(None);
-
 pub fn register_control_bar_ui_hooks(hooks: Arc<dyn ControlBarUiHooks>) -> bool {
-    let mut slot = CONTROL_BAR_UI_HOOKS
+    let services = crate::system::engine_stores::active_services();
+    let mut slot = services
+        .control_bar_ui_hooks()
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     *slot = Some(hooks);
@@ -443,8 +449,10 @@ fn with_control_bar_ui_hooks<F>(f: F)
 where
     F: FnOnce(&dyn ControlBarUiHooks),
 {
+    let services = crate::system::engine_stores::active_services();
     let hooks = {
-        let slot = CONTROL_BAR_UI_HOOKS
+        let slot = services
+            .control_bar_ui_hooks()
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         slot.clone()
@@ -551,5 +559,53 @@ mod tests {
             ),
             Some(false)
         );
+    }
+
+    #[test]
+    fn parallel_worlds_keep_independent_control_bar_bridges() {
+        use crate::system::engine_stores::{new_world_services, with_world_services};
+        use std::sync::{Arc, Barrier, Mutex};
+        use std::thread;
+
+        let barrier = Arc::new(Barrier::new(2));
+        let results = Arc::new(Mutex::new(Vec::new()));
+        let mut handles = Vec::new();
+        for seed in [1u32, 2u32] {
+            let barrier = Arc::clone(&barrier);
+            let results = Arc::clone(&results);
+            handles.push(thread::spawn(move || {
+                let services = new_world_services();
+                with_world_services(&services, || {
+                    let mut bridge = ControlBarBridge {
+                        buttons_by_id: HashMap::new(),
+                        command_sets: HashMap::new(),
+                    };
+                    bridge.command_sets.insert(
+                        format!("Seed{seed}Set"),
+                        CommandSet::new(format!("Seed{seed}Set")),
+                    );
+                    replace_control_bar_bridge(bridge).unwrap();
+                    barrier.wait();
+                    let mine = get_control_bar_bridge()
+                        .unwrap()
+                        .find_command_set_by_name(&format!("Seed{seed}Set"))
+                        .is_some();
+                    let other_seed = if seed == 1 { 2 } else { 1 };
+                    let other = get_control_bar_bridge()
+                        .unwrap()
+                        .find_command_set_by_name(&format!("Seed{other_seed}Set"))
+                        .is_some();
+                    results.lock().unwrap().push((seed, mine, other));
+                    barrier.wait();
+                });
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        let mut got = results.lock().unwrap();
+        got.sort_by_key(|(s, _, _)| *s);
+        assert!(got[0].1 && !got[0].2);
+        assert!(got[1].1 && !got[1].2);
     }
 }

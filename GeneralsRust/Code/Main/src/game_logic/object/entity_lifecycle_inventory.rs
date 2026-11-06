@@ -133,10 +133,16 @@ pub(crate) fn collect_module_states(
 ) -> Result<Vec<EntityModuleState>, EntityLifecycleCodecError> {
     let mut out = Vec::new();
     super::entity_lifecycle_weapon_slots::collect(object, &mut out)?;
-    if object.turret_enabled || object.turret_runtime.seeded {
+    if object.turret_ai.turret_enabled || object.turret_runtime.seeded {
         out.push(EntityModuleState {
             tag: TAG_TURRET_RUNTIME.to_owned(),
             payload: super::turret_runtime_persist::encode(object)?,
+        });
+    }
+    if super::alt_turret_persist::present(object) {
+        out.push(EntityModuleState {
+            tag: TAG_ALT_TURRET.to_owned(),
+            payload: super::alt_turret_persist::encode(object)?,
         });
     }
     push_opt(&mut out, TAG_UPGRADE_DIE, &object.upgrade_die)?;

@@ -243,7 +243,10 @@ pub(crate) fn host_object_is_shrouded_for_local(id: u32) -> bool {
     // C++ PartitionManager.cpp:3017-3023 fails closed: a negative player index
     // or a missing cell reports SHROUDED. An unanswerable query here must
     // suppress host FX, never leak it.
-    let player = gamelogic::player::player_list()
+    let Some(list) = gamelogic::player::try_player_list() else {
+        return true;
+    };
+    let player = list
         .read()
         .ok()
         .map(|list| list.get_local_player_index())
@@ -270,6 +273,18 @@ pub(crate) fn host_object_is_shrouded_for_local(id: u32) -> bool {
 pub fn refresh_host_fx_object_poses_from_presentation(
     frame: &crate::presentation_frame::PresentationFrame,
 ) {
+    // Transitional: ambient active WorldServices. Prefer *_on with an owner.
+    let Some(services) = gamelogic::system::engine_stores::try_active_services() else {
+        return;
+    };
+    refresh_host_fx_object_poses_from_presentation_on(&services, frame);
+}
+
+/// hq-spb88j: publish presentation FX poses into the owning WorldServices.
+pub fn refresh_host_fx_object_poses_from_presentation_on(
+    services: &gamelogic::system::engine_stores::WorldServices,
+    frame: &crate::presentation_frame::PresentationFrame,
+) {
     let poses = frame.objects.iter().map(|object| {
         let is_shrouded = (object.drawable_shroud.raw_status as u8)
             >= (crate::presentation_frame::PresentationObjectShroudStatus::Fogged as u8);
@@ -285,7 +300,7 @@ pub fn refresh_host_fx_object_poses_from_presentation(
             is_shrouded,
         )
     });
-    gamelogic::helpers::replace_host_fx_object_poses_for_frame(poses);
+    gamelogic::helpers::replace_host_fx_object_poses_for_frame_on(services, poses);
 }
 
 fn host_object_fx_radius(obj: &crate::game_logic::Object) -> f32 {
@@ -552,7 +567,7 @@ impl crate::game_logic::GameLogic {
                 );
             };
         let mut find_list =
-            |name: &str| game_client::fx_list::get_fx_list_store().find_fx_list(name);
+            |name: &str| game_client::fx_list::with_fx_list_store(|s| s.find_fx_list(name));
         let mut position_visible = |position: Option<&gamelogic::common::Coord3D>| {
             let (Some(player), Some(position)) = (player, position) else {
                 return false;
@@ -570,6 +585,8 @@ impl crate::game_logic::GameLogic {
             shake: &mut shake,
             find_list: &mut find_list,
             bone_transforms,
+            create_light_pulse: &mut (|_| false),
+            play_fx_audio: &mut (|_, _| false),
             position_visible: &mut position_visible,
         })
     }
@@ -677,10 +694,10 @@ impl crate::game_logic::GameLogic {
             // Attached systems still use the published scene poses between logic
             // callbacks. Immediate FX receives these owned values directly.
             if let Some(primary) = primary {
-                gamelogic::helpers::set_host_fx_object_pose(primary);
+                gamelogic::helpers::set_host_fx_object_pose_on(&self.world_services, primary);
             }
             if let Some(secondary) = secondary {
-                gamelogic::helpers::set_host_fx_object_pose(secondary);
+                gamelogic::helpers::set_host_fx_object_pose_on(&self.world_services, secondary);
             }
             let Some(primary) = primary else {
                 return false;
@@ -882,7 +899,7 @@ mod emission_player_owner_tests {
         (world, id)
     }
     fn emit(world: &mut GameLogic, id: ObjectId) -> gamelogic::helpers::HostFxObjectPose {
-        world.spawn_emp_sparks_on_victim(id, 30);
+        world.spawn_emp_sparks_on_victim(id, 30, &mut ());
         gamelogic::helpers::host_fx_object_pose(id.0)
             .expect("actual particle create publishes its attachment pose")
     }
@@ -923,7 +940,9 @@ mod emission_player_owner_tests {
                 let (mut peer, peer_id) = world(ObjectShroudStatus::Fogged);
                 assert_eq!(id, peer_id);
                 {
-                    let mut foreign = gamelogic::player::ThePlayerList().write().unwrap();
+                    let __arc_bind = gamelogic::player::ThePlayerList();
+
+                    let mut foreign = __arc_bind.write().unwrap();
                     foreign.clear();
                     foreign.set_local_player_index(77);
                 }

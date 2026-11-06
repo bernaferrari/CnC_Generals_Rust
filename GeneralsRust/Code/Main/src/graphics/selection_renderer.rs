@@ -959,13 +959,12 @@ fn resolve_show_object_health(parsed: Option<bool>, retail_game_data_source_pres
 
 /// Cached probe: 0 unresolved, 1 a GameData INI source resolves on this
 /// install, 2 none resolves.
-static RETAIL_GAME_DATA_PROBE: AtomicU8 = AtomicU8::new(0);
 
 /// Whether any boot GameData INI source (`Data/INI/GameData.ini` or
 /// `Data/INI/Default/GameData.ini`, the `bootstrap_global_data_from_ini`
 /// pair) resolves from this install's extracted disk roots.
 fn retail_game_data_source_present() -> bool {
-    match RETAIL_GAME_DATA_PROBE.load(Ordering::Relaxed) {
+    match crate::main_services::main_services().retail_game_data_probe.load(Ordering::Relaxed) {
         1 => true,
         2 => false,
         _ => {
@@ -975,7 +974,7 @@ fn retail_game_data_source_present() -> bool {
                     crate::cnc_game_engine::CnCGameEngine::read_startup_ini_from_disk(path)
                         .is_some()
                 });
-            RETAIL_GAME_DATA_PROBE.store(if present { 1 } else { 2 }, Ordering::Relaxed);
+            crate::main_services::main_services().retail_game_data_probe.store(if present { 1 } else { 2 }, Ordering::Relaxed);
             present
         }
     }
@@ -985,15 +984,17 @@ fn retail_game_data_source_present() -> bool {
 /// 2 absent, 0 re-probe on next use).
 #[cfg(test)]
 fn force_retail_game_data_probe_for_tests(state: u8) {
-    RETAIL_GAME_DATA_PROBE.store(state, Ordering::Relaxed);
+    crate::main_services::main_services().retail_game_data_probe.store(state, Ordering::Relaxed);
 }
 
 /// Log the active ShowObjectHealth value once at InGame entry (first
 /// health-bar pack of the session).
-static SHOW_OBJECT_HEALTH_GATE_LOGGED: AtomicBool = AtomicBool::new(false);
-
 fn log_show_object_health_gate_once(open: bool) {
-    if !SHOW_OBJECT_HEALTH_GATE_LOGGED.swap(true, Ordering::Relaxed) {
+    let services = crate::main_services::main_services();
+    if !services
+        .show_object_health_gate_logged
+        .swap(true, Ordering::Relaxed)
+    {
         if open {
             log::info!("ShowObjectHealth gate open at InGame entry: health bars visible");
         } else {
@@ -1191,12 +1192,16 @@ pub fn enqueue_selection_render(
     let view_proj = *projection_matrix * *view_matrix;
 
     let mut selected_units = collect_selected_units(presentation);
+    // Count true selection circles before blob-shadow / marker padding so the
+    // present-frame gate can require a selected unit indicator.
+    let selection_indicator_count = selected_units.len();
     // Blob discs are the fallback when the forward-pass projected/CSM sample
     // is empty. Planted at unit Y (not world origin) so units do not hover.
     if let Some(frame) = presentation {
         selected_units.splice(0..0, collect_blob_shadows_from_presentation(frame));
     }
     selected_units.extend(ground_markers);
+    pipeline.debug_last_selection_indicators = selection_indicator_count;
 
     // C++ Drawable::drawIconUI health bars for the selected set (Drawable.cpp
     // 2738-2754 / 3825-3937), packed for the 2D overlay pass.
@@ -1258,9 +1263,10 @@ pub fn enqueue_selection_render(
         // through the SAME tactical viewport as the terrain and mesh lanes, so
         // its depth reads/writes line up row-for-row with theirs.
         let (vp_w, vp_h) = pipeline.tactical_viewport_pixel_size();
-        pipeline.enqueue_pre_scene_callback(move |frame| {
+        pipeline.enqueue_frame_work(ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::DecalShadows, move |frame| {
             let color_view = frame.color_view_arc();
             let depth_view = frame.depth_view_arc();
+            frame.note_render_pass();
             let encoder = frame.encoder();
 
             let depth_stencil =
@@ -1315,8 +1321,9 @@ pub fn enqueue_selection_render(
         // widgets still render over both the marquee and RMB anchor exactly as
         // in the original.
         let drag_renderer = Arc::clone(&renderer);
-        pipeline.enqueue_post_frame_callback(move |frame| {
+        pipeline.enqueue_frame_work(ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::Overlay2D, move |frame| {
             let color_view = frame.color_view_arc();
+            frame.note_render_pass();
             let encoder = frame.encoder();
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("selection drag rectangle pass"),

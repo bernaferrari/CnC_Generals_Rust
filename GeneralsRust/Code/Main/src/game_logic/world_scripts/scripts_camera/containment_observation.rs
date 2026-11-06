@@ -53,14 +53,14 @@ impl GameLogic {
                     .filter(|id| self.players.contains_key(id))?;
                 (
                     self.tunnel_network.contain_count(player),
-                    crate::game_logic::host_tunnel_network::MAX_TUNNEL_CAPACITY,
+                    usize::try_from(self.tunnel_network.capacity()).unwrap_or(0),
                 )
             }
             ContainModuleKind::Cave => {
                 let index = self.cave_system.index_of(id)?;
                 (
                     self.cave_system.contain_count(index),
-                    crate::game_logic::host_cave_system::MAX_CAVE_CAPACITY,
+                    usize::try_from(self.cave_system.capacity()).unwrap_or(0),
                 )
             }
             ContainModuleKind::Garrison

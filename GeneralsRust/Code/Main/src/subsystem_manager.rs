@@ -470,12 +470,16 @@ impl_bootstrap_subsystem!(LocomotorSubsystem, "LocomotorStore", {
 });
 
 impl_bootstrap_subsystem!(ObjectCreationListSubsystem, "ObjectCreationListStore", {
-    gamelogic::object_creation_list::init_object_creation_list_store();
+    // Real OCL init needs an active WorldServices (engine_stores TLS). That
+    // exists only after GameLogic/world admission; shell bootstrap calls
+    // init_object_creation_list_store + archive INI load there. Early subsystem
+    // registration stays a no-op so boot does not panic on empty ambient stack.
     Ok(())
 });
 
 impl_bootstrap_subsystem!(BuildAssistantSubsystem, "BuildAssistant", {
-    gamelogic::system::build_assistant_bridge::install_build_assistant_backend();
+    // Needs CommonServices TLS (install_common_services). GameLogic::init
+    // installs the backend after world/common services are published.
     Ok(())
 });
 
@@ -1251,7 +1255,8 @@ impl_bootstrap_subsystem!(MetaMapSubsystem, "MetaMap", {
 });
 
 impl_bootstrap_subsystem!(ActionManagerSubsystem, "ActionManager", {
-    let _ = gamelogic::action_manager::get_rts_action_manager();
+    // get_rts_action_manager requires WorldServices TLS. Constructed when the
+    // match world is admitted; early subsystem registration stays a no-op.
     Ok(())
 });
 

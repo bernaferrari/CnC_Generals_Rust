@@ -34,7 +34,7 @@
 //! use profile_rust::{Profile, ProfileHighLevel};
 //!
 //! // Start a profiling range
-//! Profile::start_range(Some("my_range"));
+//! Profile::start_range(session, Some("my_range"));
 //!
 //! // Do some work...
 //! {
@@ -43,16 +43,18 @@
 //! }
 //!
 //! // Stop the range
-//! Profile::stop_range(Some("my_range"));
+//! Profile::stop_range(session, Some("my_range"));
 //! ```
 
-use once_cell::sync::{Lazy, OnceCell};
+use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use thiserror::Error;
 
 pub mod cmd;
+mod process_state;
+pub use process_state::WwDebugSession;
 pub mod func_level;
 pub mod high_level;
 pub mod memory;
@@ -141,37 +143,40 @@ struct FrameName {
     last_global_index: Option<i32>,
 }
 
-/// Global profiler state
-struct ProfilerState {
+/// Per-session profiler state
+pub(crate) struct ProfilerState {
     /// Recorded frame count
-    rec_count: AtomicUsize,
+    pub(crate) rec_count: AtomicUsize,
     /// Recorded frame names
-    rec_names: Mutex<Vec<String>>,
+    pub(crate) rec_names: Mutex<Vec<String>>,
     /// Known frame names
-    frame_names: RwLock<Vec<FrameName>>,
+    pub(crate) frame_names: RwLock<Vec<FrameName>>,
     /// Pattern list for enabling/disabling ranges
-    pattern_list: RwLock<Vec<PatternListEntry>>,
+    pub(crate) pattern_list: RwLock<Vec<PatternListEntry>>,
     /// Result functions to execute on shutdown
-    result_functions: Mutex<Vec<Box<dyn ProfileResultInterface>>>,
+    pub(crate) result_functions: Mutex<Vec<Box<dyn ProfileResultInterface>>>,
     /// High-level profiler instance
-    high_level: ProfileHighLevel,
+    pub(crate) high_level: ProfileHighLevel,
     /// Function-level profiler instance
-    func_level: ProfileFuncLevel,
+    pub(crate) func_level: ProfileFuncLevel,
     /// CPU clock cycles per second (cached)
-    clock_cycles_per_second: OnceCell<u64>,
+    pub(crate) clock_cycles_per_second: OnceCell<u64>,
 }
 
-/// Global profiler state instance
-static PROFILER_STATE: Lazy<ProfilerState> = Lazy::new(|| ProfilerState {
-    rec_count: AtomicUsize::new(0),
-    rec_names: Mutex::new(Vec::new()),
-    frame_names: RwLock::new(Vec::new()),
-    pattern_list: RwLock::new(Vec::new()),
-    result_functions: Mutex::new(Vec::new()),
-    high_level: ProfileHighLevel::new(),
-    func_level: ProfileFuncLevel::new(),
-    clock_cycles_per_second: OnceCell::new(),
-});
+impl ProfilerState {
+    pub(crate) fn new_session() -> Self {
+        Self {
+            rec_count: AtomicUsize::new(0),
+            rec_names: Mutex::new(Vec::new()),
+            frame_names: RwLock::new(Vec::new()),
+            pattern_list: RwLock::new(Vec::new()),
+            result_functions: Mutex::new(Vec::new()),
+            high_level: ProfileHighLevel::new(),
+            func_level: ProfileFuncLevel::new(),
+            clock_cycles_per_second: OnceCell::new(),
+        }
+    }
+}
 
 /// Main Profile class - equivalent to C++ Profile static class
 pub struct Profile;
@@ -181,9 +186,9 @@ impl Profile {
     ///
     /// # Arguments
     /// * `range` - Name of range to record, None for "frame"
-    pub fn start_range(range: Option<&str>) -> ProfileResult<()> {
+    pub fn start_range(session: &WwDebugSession, range: Option<&str>) -> ProfileResult<()> {
         let range_name = range.unwrap_or("frame");
-        let state = &*PROFILER_STATE;
+        let state = &session.profiler;
 
         // Find or create the frame name entry
         let mut frame_names = state.frame_names.write();
@@ -206,7 +211,7 @@ impl Profile {
         // Stop old recording if already recording
         if frame_names[frame_idx].is_recording {
             drop(frame_names);
-            Self::stop_range(Some(range_name))?;
+            Self::stop_range(session, Some(range_name))?;
             frame_names = state.frame_names.write();
         }
 
@@ -245,9 +250,9 @@ impl Profile {
     ///
     /// # Arguments
     /// * `range` - Name of range to record, None for "frame"
-    pub fn append_range(range: Option<&str>) -> ProfileResult<()> {
+    pub fn append_range(session: &WwDebugSession, range: Option<&str>) -> ProfileResult<()> {
         let range_name = range.unwrap_or("frame");
-        let state = &*PROFILER_STATE;
+        let state = &session.profiler;
 
         let mut frame_names = state.frame_names.write();
         let frame_idx = match frame_names.iter().position(|f| f.name == range_name) {
@@ -255,7 +260,7 @@ impl Profile {
             None => {
                 // Range doesn't exist, so StartRange will handle it
                 drop(frame_names);
-                return Self::start_range(Some(range_name));
+                return Self::start_range(session, Some(range_name));
             }
         };
 
@@ -300,9 +305,9 @@ impl Profile {
     ///
     /// # Arguments
     /// * `range` - Name of range to record, None for "frame"
-    pub fn stop_range(range: Option<&str>) -> ProfileResult<()> {
+    pub fn stop_range(session: &WwDebugSession, range: Option<&str>) -> ProfileResult<()> {
         let range_name = range.unwrap_or("frame");
-        let state = &*PROFILER_STATE;
+        let state = &session.profiler;
 
         let mut frame_names = state.frame_names.write();
         let frame_idx = match frame_names.iter().position(|f| f.name == range_name) {
@@ -358,8 +363,8 @@ impl Profile {
     ///
     /// # Returns
     /// `true` if range profiling is enabled, `false` if not
-    pub fn is_enabled() -> bool {
-        let state = &*PROFILER_STATE;
+    pub fn is_enabled(session: &WwDebugSession) -> bool {
+        let state = &session.profiler;
         let frame_names = state.frame_names.read();
         frame_names.iter().any(|f| f.is_recording)
     }
@@ -368,8 +373,8 @@ impl Profile {
     ///
     /// # Returns
     /// Number of recorded range frames
-    pub fn get_frame_count() -> usize {
-        PROFILER_STATE.rec_count.load(Ordering::Relaxed)
+    pub fn get_frame_count(session: &WwDebugSession) -> usize {
+        session.profiler.rec_count.load(Ordering::Relaxed)
     }
 
     /// Determines the range name of a recorded range frame.
@@ -380,16 +385,16 @@ impl Profile {
     ///
     /// # Returns
     /// Range name, or None if frame not found
-    pub fn get_frame_name(frame: usize) -> Option<String> {
-        let state = &*PROFILER_STATE;
+    pub fn get_frame_name(session: &WwDebugSession, frame: usize) -> Option<String> {
+        let state = &session.profiler;
         let rec_names = state.rec_names.lock().unwrap();
         rec_names.get(frame).cloned()
     }
 
     /// Resets all 'total' counter values to 0.
     /// This function does not change any recorded frames.
-    pub fn clear_totals() {
-        let state = &*PROFILER_STATE;
+    pub fn clear_totals(session: &WwDebugSession) {
+        let state = &session.profiler;
         state.high_level.clear_totals();
         #[cfg(feature = "function-level")]
         state.func_level.clear_totals();
@@ -400,8 +405,8 @@ impl Profile {
     ///
     /// # Returns
     /// Number of CPU clock cycles per second
-    pub fn get_clock_cycles_per_second() -> ProfileResult<u64> {
-        let state = &*PROFILER_STATE;
+    pub fn get_clock_cycles_per_second(session: &WwDebugSession) -> ProfileResult<u64> {
+        let state = &session.profiler;
         match state.clock_cycles_per_second.get() {
             Some(&cycles) => Ok(cycles),
             None => {
@@ -421,8 +426,8 @@ impl Profile {
     ///
     /// # Arguments
     /// * `result_fn` - Result function to add
-    pub fn add_result_function(result_fn: Box<dyn ProfileResultInterface>) {
-        let state = &*PROFILER_STATE;
+    pub fn add_result_function(session: &WwDebugSession, result_fn: Box<dyn ProfileResultInterface>) {
+        let state = &session.profiler;
         let mut result_functions = state.result_functions.lock().unwrap();
         result_functions.push(result_fn);
     }
@@ -432,8 +437,8 @@ impl Profile {
     /// # Arguments
     /// * `pattern` - Pattern to match against range names (supports '*' wildcard)
     /// * `active` - Whether matched ranges should be active or inactive
-    pub fn add_pattern(pattern: &str, active: bool) -> ProfileResult<()> {
-        let state = &*PROFILER_STATE;
+    pub fn add_pattern(session: &WwDebugSession, pattern: &str, active: bool) -> ProfileResult<()> {
+        let state = &session.profiler;
         let mut pattern_list = state.pattern_list.write();
         pattern_list.push(PatternListEntry {
             is_active: active,
@@ -443,22 +448,22 @@ impl Profile {
     }
 
     /// Clear all patterns
-    pub fn clear_patterns() {
-        let state = &*PROFILER_STATE;
+    pub fn clear_patterns(session: &WwDebugSession) {
+        let state = &session.profiler;
         let mut pattern_list = state.pattern_list.write();
         pattern_list.clear();
     }
 
     /// Clear patterns matching the provided pattern (supports '*' wildcard)
-    pub fn clear_patterns_matching(pattern: &str) {
-        let state = &*PROFILER_STATE;
+    pub fn clear_patterns_matching(session: &WwDebugSession, pattern: &str) {
+        let state = &session.profiler;
         let mut pattern_list = state.pattern_list.write();
         pattern_list.retain(|entry| !PatternMatcher::simple_match(&entry.pattern, pattern));
     }
 
     /// Get a snapshot of the current pattern list
-    pub fn get_patterns() -> Vec<(bool, String)> {
-        let state = &*PROFILER_STATE;
+    pub fn get_patterns(session: &WwDebugSession) -> Vec<(bool, String)> {
+        let state = &session.profiler;
         let pattern_list = state.pattern_list.read();
         pattern_list
             .iter()
@@ -467,28 +472,28 @@ impl Profile {
     }
 
     /// Get access to the high-level profiler
-    pub fn high_level() -> &'static ProfileHighLevel {
-        &PROFILER_STATE.high_level
+    pub fn high_level(session: &WwDebugSession) -> &ProfileHighLevel {
+        &session.profiler.high_level
     }
 
     /// Get access to the function-level profiler
     #[cfg(feature = "function-level")]
-    pub fn func_level() -> &'static ProfileFuncLevel {
-        &PROFILER_STATE.func_level
+    pub fn func_level(session: &WwDebugSession) -> &ProfileFuncLevel {
+        &session.profiler.func_level
     }
 
     /// Execute all registered result functions (typically called on shutdown)
-    pub fn execute_result_functions() {
-        let state = &*PROFILER_STATE;
+    pub fn execute_result_functions(session: &WwDebugSession) {
+        let state = &session.profiler;
         let mut result_functions = state.result_functions.lock().unwrap();
         for result_fn in result_functions.drain(..) {
-            result_fn.write_results();
+            result_fn.write_results(session);
         }
     }
 
     /// Compatibility helper for legacy examples/tests.
-    pub fn write_results() {
-        Self::execute_result_functions();
+    pub fn write_results(session: &WwDebugSession) {
+        Self::execute_result_functions(session);
     }
 }
 
@@ -503,39 +508,23 @@ macro_rules! profile_block {
 /// Convenience macro for profiling a range
 #[macro_export]
 macro_rules! profile_range {
-    ($name:expr, $code:block) => {{
-        $crate::Profile::start_range(Some($name)).ok();
+    ($session:expr, $name:expr, $code:block) => {{
+        $crate::Profile::start_range(&$session, Some($name)).ok();
         let result = $code;
-        $crate::Profile::stop_range(Some($name)).ok();
+        $crate::Profile::stop_range(&$session, Some($name)).ok();
         result
     }};
 }
 
-// Automatic shutdown handling
-static SHUTDOWN_REGISTERED: std::sync::Once = std::sync::Once::new();
-
-/// Register automatic shutdown to execute result functions
-fn register_shutdown() {
-    SHUTDOWN_REGISTERED.call_once(|| {
-        extern "C" fn shutdown_handler() {
-            log::info!(
-                "CPU speed is {} Hz",
-                Profile::get_clock_cycles_per_second().unwrap_or(0)
-            );
-            crate::cmd::ProfileCmdInterface::run_result_functions();
-        }
-
-        // SAFETY: [Category 8 — FFI] registers a C-ABI shutdown handler that only calls back into this crate's profiler; runs at process exit once.
-        unsafe {
-            libc::atexit(shutdown_handler);
-        }
-    });
+/// Initialize the profiler (session-scoped; no process atexit hook).
+/// Hosts should call [`Profile::execute_result_functions`] on session teardown.
+pub fn init_placeholder_doc() {
+    // kept for patch anchor
 }
 
 /// Initialize the profiler (called automatically via lazy initialization)
-pub fn init() {
-    Lazy::force(&PROFILER_STATE);
-    register_shutdown();
+pub fn init(session: &WwDebugSession) {
+    let _ = session;
 }
 
 // Re-export main types
@@ -548,14 +537,6 @@ pub use func_level::ProfileFuncId;
 pub use high_level::ProfileId as HighLevelId;
 
 #[cfg(test)]
-pub(crate) fn test_lock() -> std::sync::MutexGuard<'static, ()> {
-    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
-    LOCK.get_or_init(|| std::sync::Mutex::new(()))
-        .lock()
-        .expect("profile test lock")
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use std::thread;
@@ -563,46 +544,46 @@ mod tests {
 
     #[test]
     fn test_basic_range_recording() {
-        let _lock = crate::test_lock();
-        Profile::clear_patterns();
-        Profile::add_pattern("test*", true).unwrap();
+        let session = crate::WwDebugSession::new();
+        Profile::clear_patterns(&session);
+        Profile::add_pattern(&session, "test*", true).unwrap();
 
-        let start_frame = Profile::get_frame_count();
-        assert!(!Profile::is_enabled());
+        let start_frame = Profile::get_frame_count(&session);
+        assert!(!Profile::is_enabled(&session));
 
-        Profile::start_range(Some("test_range")).unwrap();
-        assert!(Profile::is_enabled());
+        Profile::start_range(&session, Some("test_range")).unwrap();
+        assert!(Profile::is_enabled(&session));
 
         thread::sleep(Duration::from_millis(10));
 
-        Profile::stop_range(Some("test_range")).unwrap();
-        assert!(!Profile::is_enabled());
+        Profile::stop_range(&session, Some("test_range")).unwrap();
+        assert!(!Profile::is_enabled(&session));
 
-        assert_eq!(Profile::get_frame_count(), start_frame + 1);
-        let frame_name = Profile::get_frame_name(start_frame).unwrap();
+        assert_eq!(Profile::get_frame_count(&session), start_frame + 1);
+        let frame_name = Profile::get_frame_name(&session, start_frame).unwrap();
         assert_eq!(frame_name, "test_range:1");
     }
 
     #[test]
     fn test_pattern_matching() {
-        let _lock = crate::test_lock();
-        Profile::clear_patterns();
+        let session = crate::WwDebugSession::new();
+        Profile::clear_patterns(&session);
 
         // Start with no patterns - should be inactive
-        Profile::start_range(Some("inactive_range")).unwrap();
-        Profile::stop_range(Some("inactive_range")).unwrap();
+        Profile::start_range(&session, Some("inactive_range")).unwrap();
+        Profile::stop_range(&session, Some("inactive_range")).unwrap();
 
         // Add active pattern
-        Profile::add_pattern("active*", true).unwrap();
-        Profile::start_range(Some("active_range")).unwrap();
-        assert!(Profile::is_enabled());
-        Profile::stop_range(Some("active_range")).unwrap();
+        Profile::add_pattern(&session, "active*", true).unwrap();
+        Profile::start_range(&session, Some("active_range")).unwrap();
+        assert!(Profile::is_enabled(&session));
+        Profile::stop_range(&session, Some("active_range")).unwrap();
     }
 
     #[test]
     fn test_high_level_profiling() {
-        let _lock = crate::test_lock();
-        let high_level = Profile::high_level();
+        let session = crate::WwDebugSession::new();
+        let high_level = Profile::high_level(&session);
 
         let id = high_level
             .add_profile("test.counter", "Test counter", "count", 0, 0)
@@ -619,28 +600,28 @@ mod tests {
 
     #[test]
     fn test_cpu_frequency_measurement() {
-        let _lock = crate::test_lock();
-        let freq = Profile::get_clock_cycles_per_second().unwrap();
+        let session = crate::WwDebugSession::new();
+        let freq = Profile::get_clock_cycles_per_second(&session).unwrap();
         assert!(freq > 1000000); // Should be at least 1 MHz
 
         // Second call should return cached value
-        let freq2 = Profile::get_clock_cycles_per_second().unwrap();
+        let freq2 = Profile::get_clock_cycles_per_second(&session).unwrap();
         assert_eq!(freq, freq2);
     }
 
     #[test]
     fn test_macros() {
-        let _lock = crate::test_lock();
-        Profile::clear_patterns();
-        Profile::add_pattern("macro*", true).unwrap();
-        let start_frame = Profile::get_frame_count();
+        let session = crate::WwDebugSession::new();
+        Profile::clear_patterns(&session);
+        Profile::add_pattern(&session, "macro*", true).unwrap();
+        let start_frame = Profile::get_frame_count(&session);
 
-        let result = profile_range!("macro_test", {
+        let result = profile_range!(session, "macro_test", {
             thread::sleep(Duration::from_millis(1));
             42
         });
 
         assert_eq!(result, 42);
-        assert_eq!(Profile::get_frame_count(), start_frame + 1);
+        assert_eq!(Profile::get_frame_count(&session), start_frame + 1);
     }
 }

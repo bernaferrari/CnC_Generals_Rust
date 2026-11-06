@@ -80,7 +80,7 @@ fn preorder_create_sets_model_bit_on_command_center_complete() {
         let o = logic.host_object_mut(id).unwrap();
         o.status.under_construction = true;
     }
-    logic.notify_structure_construction_complete(id);
+    logic.notify_structure_construction_complete(id).unwrap();
     let o = logic.host_object(id).unwrap();
     assert!(
         has_preorder_model_bit(o.model_condition_bits),
@@ -90,7 +90,7 @@ fn preorder_create_sets_model_bit_on_command_center_complete() {
 
     // A repeated completion cannot re-run this creation callback.
     logic.set_player_did_preorder(Team::USA, false);
-    logic.notify_structure_construction_complete(id);
+    logic.notify_structure_construction_complete(id).unwrap();
     assert!(has_preorder_model_bit(
         logic.host_object(id).unwrap().model_condition_bits
     ));
@@ -106,7 +106,7 @@ fn preorder_create_sets_model_bit_on_command_center_complete() {
         )
         .unwrap();
     logic.host_object_mut(other).unwrap().model_condition_bits |= 1u128 << MC_BIT_PREORDER;
-    logic.notify_structure_construction_complete(other);
+    logic.notify_structure_construction_complete(other).unwrap();
     assert!(!has_preorder_model_bit(
         logic.host_object(other).unwrap().model_condition_bits
     ));
@@ -2306,7 +2306,7 @@ fn fire_spread_tree_ignites_neighbor() {
     assert!(logic.host_object(b).unwrap().has_fire_spread());
     assert!(logic.fire_spread_reg.installed >= 2);
 
-    assert!(logic.ignite_object_fire_spread(a));
+    assert!(logic.ignite_object_fire_spread(a, &mut crate::game_logic::ScriptPresentationEffects::default()));
     // Force spread due immediately.
     {
         let o = logic.host_object_mut(a).unwrap();
@@ -2329,6 +2329,161 @@ fn fire_spread_tree_ignites_neighbor() {
         "neighbor within range must ignite"
     );
     assert!(logic.honesty_fire_spread_ok());
+}
+
+#[test]
+fn effectively_dead_aflame_object_keeps_spreading_fire_like_cpp() {
+    // C++ GameLogic::update (GameLogic.cpp:3700-3725) calls every due sleepy
+    // update without an isEffectivelyDead check, and FireSpreadUpdate::update
+    // (FireSpreadUpdate.cpp:93-131) only tests OBJECT_STATUS_AFLAME. A burning
+    // object retained after death (e.g. SlowDeath) still spreads fire.
+    use crate::game_logic::host_fire_spread::TREE_SPREAD_TRY_RANGE;
+
+    let mut logic = GameLogic::new();
+    for name in ["DogwoodTreeA", "DogwoodTreeB"] {
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.set_health(50.0);
+        logic.templates.insert(name.to_string(), tpl);
+    }
+    let a = logic
+        .create_object("DogwoodTreeA", Team::Neutral, Vec3::new(0.0, 0.0, 0.0))
+        .expect("a");
+    let b = logic
+        .create_object(
+            "DogwoodTreeB",
+            Team::Neutral,
+            Vec3::new(TREE_SPREAD_TRY_RANGE * 0.5, 0.0, 0.0),
+        )
+        .expect("b");
+    assert!(logic.ignite_object_fire_spread(
+        a,
+        &mut crate::game_logic::ScriptPresentationEffects::default()
+    ));
+    {
+        let o = logic.host_object_mut(a).unwrap();
+        o.status.effectively_dead = true;
+        if let Some(fs) = o.fire_spread.as_mut() {
+            fs.next_spread_frame = 0;
+        }
+    }
+    logic.set_current_frame(30);
+    logic.update_fire_spread();
+    assert!(
+        logic
+            .host_object(b)
+            .and_then(|o| o.fire_spread.as_ref().map(|f| f.is_aflame()))
+            .unwrap_or(false),
+        "dead-but-retained aflame source must still ignite its neighbor"
+    );
+}
+
+#[test]
+fn fire_spread_lights_effectively_dead_neighbor_like_cpp() {
+    // C++ FireSpreadUpdate.cpp:118 PartitionManager::getClosestObject with
+    // PartitionFilterFlammable (FireSpreadUpdate.cpp:36-48): only "has a
+    // FlammableUpdate that wouldIgnite". PartitionManager.cpp:3267-3288 has
+    // no death check, so a dead-but-retained flammable neighbour is lit.
+    use crate::game_logic::host_fire_spread::TREE_SPREAD_TRY_RANGE;
+
+    let mut logic = GameLogic::new();
+    for name in ["DogwoodTreeA", "DogwoodTreeB"] {
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.set_health(50.0);
+        logic.templates.insert(name.to_string(), tpl);
+    }
+    let a = logic
+        .create_object("DogwoodTreeA", Team::Neutral, Vec3::new(0.0, 0.0, 0.0))
+        .expect("a");
+    let b = logic
+        .create_object(
+            "DogwoodTreeB",
+            Team::Neutral,
+            Vec3::new(TREE_SPREAD_TRY_RANGE * 0.5, 0.0, 0.0),
+        )
+        .expect("b");
+    assert!(logic.ignite_object_fire_spread(
+        a,
+        &mut crate::game_logic::ScriptPresentationEffects::default()
+    ));
+    logic.host_object_mut(b).unwrap().status.effectively_dead = true;
+    if let Some(fs) = logic.host_object_mut(a).unwrap().fire_spread.as_mut() {
+        fs.next_spread_frame = 0;
+    }
+    logic.set_current_frame(30);
+    logic.update_fire_spread();
+    assert!(
+        logic
+            .host_object(b)
+            .and_then(|o| o.fire_spread.as_ref().map(|f| f.is_aflame()))
+            .unwrap_or(false),
+        "dead-but-retained flammable neighbour must be lit"
+    );
+}
+
+#[test]
+fn fire_spread_skips_destroyed_and_aflame_neighbours_and_isolates_peer_world() {
+    // hq-2qedt.42: FireSpreadUpdate.cpp:118 getClosestObject +
+    // PartitionFilterFlammable::allow (FireSpreadUpdate.cpp:36-48) admits only
+    // objects whose FlammableUpdate wouldIgnite() (false once AFLAME/BURNED);
+    // destroyed objects have left the partition. No isAlive check. Same IDs in
+    // a peer world must be untouched.
+    use crate::game_logic::host_fire_spread::TREE_SPREAD_TRY_RANGE;
+
+    let build = || {
+        let mut logic = GameLogic::new();
+        for name in ["DogwoodTreeA", "DogwoodTreeB"] {
+            let mut tpl = crate::game_logic::ThingTemplate::new(name);
+            tpl.set_health(50.0);
+            logic.templates.insert(name.to_string(), tpl);
+        }
+        let mk = |logic: &mut GameLogic, name: &str, x: f32| {
+            logic
+                .create_object(name, Team::Neutral, Vec3::new(x, 0.0, 0.0))
+                .expect("tree")
+        };
+        let src = mk(&mut logic, "DogwoodTreeA", 0.0);
+        let destroyed = mk(&mut logic, "DogwoodTreeB", TREE_SPREAD_TRY_RANGE * 0.1);
+        let aflame = mk(&mut logic, "DogwoodTreeB", TREE_SPREAD_TRY_RANGE * 0.2);
+        let dead = mk(&mut logic, "DogwoodTreeB", TREE_SPREAD_TRY_RANGE * 0.4);
+        let far = mk(&mut logic, "DogwoodTreeB", TREE_SPREAD_TRY_RANGE * 0.8);
+        (logic, [src, destroyed, aflame, dead, far])
+    };
+    let lit = |logic: &GameLogic, id| {
+        logic
+            .host_object(id)
+            .and_then(|o| o.fire_spread.as_ref().map(|f| f.is_aflame()))
+            .unwrap_or(false)
+    };
+
+    let (mut logic, [src, destroyed, aflame, dead, far]) = build();
+    let (peer, peer_ids) = build();
+    assert_eq!(peer_ids, [src, destroyed, aflame, dead, far]);
+
+    let fx = &mut crate::game_logic::ScriptPresentationEffects::default();
+    assert!(logic.ignite_object_fire_spread(src, fx));
+    assert!(logic.ignite_object_fire_spread(aflame, fx));
+    logic.host_object_mut(destroyed).unwrap().status.destroyed = true;
+    logic.host_object_mut(dead).unwrap().status.effectively_dead = true;
+    for id in [src, aflame] {
+        if let Some(fs) = logic.host_object_mut(id).unwrap().fire_spread.as_mut() {
+            fs.next_spread_frame = u32::MAX;
+        }
+    }
+    if let Some(fs) = logic.host_object_mut(src).unwrap().fire_spread.as_mut() {
+        fs.next_spread_frame = 0;
+    }
+    logic.set_current_frame(30);
+    logic.update_fire_spread();
+
+    assert!(!lit(&logic, destroyed), "destroyed neighbour left the partition");
+    assert!(
+        lit(&logic, dead),
+        "closest wouldIgnite neighbour (dead-but-retained) wins like C++"
+    );
+    assert!(!lit(&logic, far), "only the single closest candidate ignites");
+    for id in peer_ids {
+        assert!(!lit(&peer, id), "peer world same-ID object must stay unlit");
+    }
 }
 
 #[test]
@@ -2396,7 +2551,7 @@ fn fire_spread_spawns_burning_embers_and_uses_3d_range() {
             Vec3::new(30.0, 80.0, 0.0),
         )
         .expect("cliff");
-    assert!(logic.ignite_object_fire_spread(a));
+    assert!(logic.ignite_object_fire_spread(a, &mut crate::game_logic::ScriptPresentationEffects::default()));
     {
         let o = logic.host_object_mut(a).unwrap();
         if let Some(fs) = o.fire_spread.as_mut() {
@@ -2439,7 +2594,7 @@ fn tree_smolders_while_still_aflame() {
     let id = logic
         .create_object("DogwoodTreeA", Team::Neutral, Vec3::ZERO)
         .expect("tree");
-    assert!(logic.ignite_object_fire_spread(id));
+    assert!(logic.ignite_object_fire_spread(id, &mut crate::game_logic::ScriptPresentationEffects::default()));
     {
         let o = logic.host_object_mut(id).unwrap();
         if let Some(fs) = o.fire_spread.as_mut() {
@@ -2464,6 +2619,8 @@ fn status_bits_upgrade_booby_trap_sets_bit() {
 
     let mut logic = GameLogic::new();
     let mut tpl = crate::game_logic::ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    tpl.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     tpl.set_health(400.0);
     logic.templates.insert("GLATunnelNetwork".to_string(), tpl);
     let id = logic
@@ -2548,47 +2705,44 @@ fn tensile_formation_avalanche_damage_slide_and_rubble() {
     );
 }
 
+/// hq-2qedt.37: CPP TensileFormationUpdate.cpp:~243 life>300 →
+/// `body->setDamageState(BODY_RUBBLE)` (ActiveBody.cpp:216-239 → internalChangeHealth
+/// → effectivelyDead) with NO onDie / destroyObject. Drives the host tensile
+/// update, not a bare internal_change_health call.
 #[test]
-fn toxin_fire_ocl_spawns_field_after_min_shots_and_coast() {
-    use crate::game_logic::host_toxin_tractor::{
-        TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_FRAMES, TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL,
-        is_toxin_tractor_template,
-    };
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    use glam::Vec3;
+fn tensile_update_rubble_sets_body_rubble_without_destroy_object() {
+    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use crate::game_logic::host_tensile_formation::TENSILE_LIFE_MAX;
 
     let mut logic = GameLogic::new();
-    let mut tpl = ThingTemplate::new("GLAVehicleToxinTruck");
-    tpl.add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(200.0);
-    logic.templates.insert("GLAVehicleToxinTruck".into(), tpl);
-    let id = logic
-        .create_object("GLAVehicleToxinTruck", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
-        .expect("toxin");
-    assert!(is_toxin_tractor_template("GLAVehicleToxinTruck"));
-    assert!(
-        logic
-            .host_object(id)
-            .unwrap()
-            .fire_ocl_after_cooldown
-            .is_some()
-    );
-
-    // Fire secondary spray MinShots times.
-    for f in 0..TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL {
-        logic.frame = f;
-        let _ = logic.apply_toxin_tractor_spray_at(Vec3::new(10.0, 0.0, 0.0), Some(id), Team::GLA);
+    let mut tpl = crate::game_logic::ThingTemplate::new("AvalancheChunk");
+    tpl.set_health(100.0);
+    logic.templates.insert("AvalancheChunk".to_string(), tpl);
+    let a = logic
+        .create_object("AvalancheChunk", Team::Neutral, Vec3::new(0.0, 10.0, 0.0))
+        .expect("chunk");
+    {
+        let o = logic.host_object_mut(a).unwrap();
+        assert_ne!(o.body_damage_state, HostBodyDamageType::Rubble);
+        let tf = o.tensile_formation.as_mut().expect("tensile module");
+        tf.enabled = true;
+        tf.life = TENSILE_LIFE_MAX;
     }
-    assert_eq!(logic.toxin_tractor.fire_ocl_spawns, 0, "no OCL until coast");
-    // Advance past coast without more shots.
-    logic.frame = TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL + TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_FRAMES;
-    logic.tick_fire_ocl_after_weapon_cooldown();
-    assert!(
-        logic.toxin_tractor.fire_ocl_spawns > 0,
-        "FireOCL should spawn medium field after min shots + coast"
+    logic.set_current_frame(400);
+    logic.update_tensile_formations();
+
+    let o = logic.host_object(a).expect("rubble object must remain present");
+    assert!(o.tensile_formation.as_ref().unwrap().rubble, "life>300 must rubble");
+    assert_eq!(
+        o.body_damage_state,
+        HostBodyDamageType::Rubble,
+        "tensile rubble must setDamageState(BODY_RUBBLE)"
     );
-    assert!(logic.honesty_toxin_fire_ocl_ok());
+    assert_eq!(o.health.current, 0.0);
+    assert!(o.status.effectively_dead, "BODY_RUBBLE → effectivelyDead");
+    assert!(!o.status.destroyed, "rubble is not destroyObject");
+    assert!(!o.status.on_die_started, "rubble does not run onDie");
+    assert!(!logic.has_pending_destroy_work());
 }
 
 #[test]
@@ -2613,6 +2767,12 @@ fn upgrade_die_removes_producer_drone_upgrade() {
     let master_id = game_logic
         .create_object("AmericaVehicleHumvee", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("humvee");
+    // C++ Object::giveUpgrade sets the master bit before ObjectCreationUpgrade.
+    game_logic
+        .objects
+        .get_mut(&master_id)
+        .unwrap()
+        .apply_upgrade_tag(crate::game_logic::host_slave_drones::UPGRADE_AMERICA_SCOUT_DRONE);
     let drone_id = game_logic
         .residual_attach_slave_drone(
             master_id,
@@ -2653,6 +2813,49 @@ fn upgrade_die_removes_producer_drone_upgrade() {
 }
 
 #[test]
+fn residual_attach_slave_drone_uses_authored_upgrade_die_without_kind_name_fallback() {
+    // C++ UpgradeDie is bound only from the drone Object's authored module
+    // (UpgradeDieModuleData::m_upgradeName); attach never names one by kind.
+    use crate::game_logic::host_slave_drones::SlaveDroneKind;
+    let mut game_logic = GameLogic::new();
+    super::super::super::world_combat::slaved_update_tests::install_slave_fixture(
+        &mut game_logic,
+        SlaveDroneKind::Scout,
+    );
+    let name = SlaveDroneKind::Scout.template_name();
+    // Drop only the authored Die modules; keep the admitted receiving
+    // definition bound so create reuses this exact template.
+    let definition = game_logic
+        .receiving_object_definitions
+        .as_ref()
+        .and_then(|definitions| definitions.get(name))
+        .cloned();
+    let template = game_logic.templates.get_mut(name).expect("scout template");
+    template.native_die_declarations = None;
+    if definition.is_some() {
+        template.receiving_object_definition = definition;
+    }
+    let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+    humvee
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(200.0);
+    game_logic
+        .templates
+        .insert("AmericaVehicleHumvee".into(), humvee);
+    let master_id = game_logic
+        .create_object("AmericaVehicleHumvee", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("humvee");
+    let drone_id = game_logic
+        .residual_attach_slave_drone(master_id, SlaveDroneKind::Scout)
+        .expect("scout drone");
+    assert!(
+        game_logic.host_object(drone_id).unwrap().upgrade_die.is_none(),
+        "drone without authored UpgradeDie must not get a kind-name UpgradeDie"
+    );
+}
+
+#[test]
 fn tunnel_network_residual_flags_and_capacity_installed() {
     let mut game_logic = GameLogic::new();
     let tunnel_id = create_test_tunnel_network(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
@@ -2661,7 +2864,7 @@ fn tunnel_network_residual_flags_and_capacity_installed() {
     assert!(tunnel.can_contain());
     assert_eq!(
         tunnel.garrison_capacity(),
-        crate::game_logic::host_tunnel_network::MAX_TUNNEL_CAPACITY
+        game_logic.tunnel_network.capacity() as usize
     );
 }
 
@@ -2853,7 +3056,7 @@ fn tunnel_network_residual_shared_capacity_full_rejects_enter() {
     let tunnel_a = create_test_tunnel_network(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
     let tunnel_b = create_test_tunnel_network(&mut game_logic, Vec3::new(50.0, 0.0, 0.0));
 
-    let cap = crate::game_logic::host_tunnel_network::MAX_TUNNEL_CAPACITY;
+    let cap = game_logic.tunnel_network.capacity() as usize;
     let mut unit_ids = Vec::new();
     for i in 0..cap {
         // Fill half via A, half via B to prove shared pool.
@@ -3074,7 +3277,7 @@ fn a10_transport_pose_uses_the_receiving_world_after_id_collision() {
         ensure_test_player_for_team(&mut logic, Team::USA);
         let trigger = PolygonTrigger::new(
             trigger_id,
-            AsciiString::from(format!("A10PoseArea{trigger_id}")),
+            AsciiString::from(format!("A10PoseArea{trigger_id}").as_str()),
             vec![
                 ICoord3D::new(min_x, -10, 0),
                 ICoord3D::new(min_x + 20, -10, 0),

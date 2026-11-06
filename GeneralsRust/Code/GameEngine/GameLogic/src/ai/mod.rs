@@ -1199,7 +1199,8 @@ impl AI {
         }
 
         // C++ AI::update — ThePlayerList->UPDATE() after pathfind queue.
-        if let Ok(list) = ThePlayerList().read() {
+        let __player_list_arc = ThePlayerList();
+        if let Ok(list) = __player_list_arc.read() {
             let players: Vec<_> = list.iter().cloned().collect();
             drop(list);
             for player in players {

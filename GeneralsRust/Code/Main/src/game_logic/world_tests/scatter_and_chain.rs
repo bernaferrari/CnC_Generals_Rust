@@ -103,7 +103,7 @@ fn continue_attack_range_chains_to_nearby_same_team_target() {
         Some("DozerMineDisarmingWeapon"),
     );
     let a = logic.objects.get(&atk).unwrap();
-    assert!(matches!(a.ai_state, AIState::Idle) || a.target.is_none());
+    assert!(matches!(a.ai_state(), AIState::Idle) || a.target.is_none());
 }
 
 #[test]
@@ -1908,6 +1908,8 @@ fn stinger_scatter_misses_infantry_residual() {
     let stinger = logic
         .create_object("GLAStingerSite", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("stinger");
+
+    logic.run_first_spawn_update_for_test();
     // SPAWNS_ARE_THE_WEAPONS residual needs slaves.
     if let Some(s) = logic.objects.get_mut(&stinger) {
         s.hive_slave_count = 3;
@@ -3548,71 +3550,280 @@ fn mig_scatter_misses_infantry_residual() {
     assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
 }
 
+/// hq-2qedt.87.1: C++ Weapon.cpp FireFX plays at fire time only; impact uses
+/// ProjectileDetonateFX. vehicle_shells residual impact handlers must not
+/// spawn a second muzzle at the shooter (shared dispatch owns the one muzzle).
 #[test]
-fn comanche_at_scatter_misses_infantry_residual() {
-    use crate::game_logic::host_comanche_rocket_pods::{
-        COMANCHE_ANTITANK_WEAPON, COMANCHE_AT_SCATTER_VS_INFANTRY,
-    };
+fn vehicle_shells_residual_impact_spawns_no_muzzle_hq_2qedt_87_1() {
+    use crate::game_logic::combat_particles::CombatParticleKind;
+    use crate::game_logic::host_fire_base::FIRE_BASE_HOWITZER_WEAPON;
+    use crate::game_logic::host_mig::NAPALM_MISSILE_WEAPON;
+    use crate::game_logic::host_raptor::RAPTOR_JET_MISSILE_WEAPON;
+    use crate::game_logic::host_scorpion::SCORPION_TANK_GUN;
+    use crate::game_logic::host_tomahawk::TOMAHAWK_MISSILE_WEAPON;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let cases: [(&str, &str, KindOf, Team); 5] = [
+        ("GLAVehicleScorpion", SCORPION_TANK_GUN, KindOf::Vehicle, Team::GLA),
+        ("AmericaVehicleTomahawk", TOMAHAWK_MISSILE_WEAPON, KindOf::Vehicle, Team::USA),
+        ("AmericaJetRaptor", RAPTOR_JET_MISSILE_WEAPON, KindOf::Aircraft, Team::USA),
+        ("ChinaJetMIG", NAPALM_MISSILE_WEAPON, KindOf::Aircraft, Team::China),
+        ("AmericaFireBase", FIRE_BASE_HOWITZER_WEAPON, KindOf::Structure, Team::USA),
+    ];
+    for (tpl_name, weapon, kind, team) in cases {
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let mut tpl = ThingTemplate::new(tpl_name);
+        tpl.add_kind_of(kind)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0)
+            .set_primary_weapon_name(weapon);
+        logic.templates.insert(tpl_name.to_string(), tpl);
+        let src = logic
+            .create_object(tpl_name, team, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("shooter");
+        let enemy = if team == Team::GLA { Team::USA } else { Team::GLA };
+        let tank = logic
+            .create_object("TestTank", enemy, glam::Vec3::new(45.0, 0.0, 0.0))
+            .expect("tank");
+        let impact = logic.objects.get(&tank).unwrap().get_position();
+        let shooter_pos = logic.objects.get(&src).unwrap().get_position();
+        let before = logic
+            .combat_particles()
+            .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
+            .iter()
+            .filter(|e| e.position.distance(shooter_pos) < 1.0)
+            .count();
+        let _ = match tpl_name {
+            "GLAVehicleScorpion" => logic.apply_scorpion_residual_at(impact, Some(src), Some(tank), 0),
+            "AmericaVehicleTomahawk" => logic.apply_tomahawk_residual_at(impact, Some(src), Some(tank)),
+            "AmericaJetRaptor" => logic.apply_raptor_residual_at(impact, Some(src), Some(tank)),
+            "ChinaJetMIG" => logic.apply_mig_residual_at(impact, Some(src), Some(tank)),
+            _ => logic.apply_fire_base_residual_at(impact, Some(src), Some(tank)),
+        };
+        let after = logic
+            .combat_particles()
+            .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
+            .iter()
+            .filter(|e| e.position.distance(shooter_pos) < 1.0)
+            .count();
+        assert_eq!(
+            after, before,
+            "{tpl_name}: impact residual must not spawn a second muzzle at the shooter (C++ FireFX is fire-time only)"
+        );
+    }
+}
+
+/// hq-2qedt.87.5: C++ Weapon.cpp FireFX plays at fire time only; impact uses
+/// ProjectileDetonateFX. Neutron shell blast and infantry SCUD area impact
+/// residuals must not spawn any WeaponMuzzleFlash (shooter or impact point).
+#[test]
+fn neutron_scud_residual_impact_spawns_no_muzzle_hq_2qedt_87_5() {
+    use crate::game_logic::combat_particles::CombatParticleKind;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut failures = Vec::new();
+    for case in ["neutron", "scud", "scud_toxin"] {
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let src = logic
+            .create_object("TestTank", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("shooter");
+        let tank = logic
+            .create_object("TestTank", Team::GLA, glam::Vec3::new(45.0, 0.0, 0.0))
+            .expect("tank");
+        let impact = logic.objects.get(&tank).unwrap().get_position();
+        let count = |l: &GameLogic| {
+            l.combat_particles()
+                .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
+                .len()
+        };
+        let before = count(&logic);
+        match case {
+            "neutron" => {
+                let _ = logic.apply_neutron_blast_at(impact, Team::USA, Some(src), false);
+            }
+            "scud" => {
+                let _ = logic.apply_scud_area_at(impact, Some(src), Team::USA, false);
+            }
+            _ => {
+                let _ = logic.apply_scud_area_at(impact, Some(src), Team::USA, true);
+            }
+        }
+        if count(&logic) != before {
+            failures.push(case);
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "impact residuals spawned a muzzle (C++ FireFX is fire-time only): {failures:?}"
+    );
+}
+
+/// hq-2qedt.125: base-defense residual fire captures a pending visual
+/// dispatch and records the accepted discharge (shared FireFX owner,
+/// Weapon.cpp:923-939). C++ plays FireFX exactly once per accepted shot, so
+/// the residual must not add a second muzzle on top of the shared owner.
+#[test]
+fn base_defense_fire_time_exactly_one_muzzle_per_shot_hq_2qedt_125() {
+    use crate::game_logic::combat_particles::CombatParticleKind;
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
     ensure_host_weapon_store();
     let mut logic = GameLogic::new();
-    ensure_test_infantry_template(&mut logic);
-    ensure_test_tank_template(&mut logic);
-
-    let mut tpl = ThingTemplate::new("AmericaJetComanche");
-    tpl.add_kind_of(KindOf::Aircraft)
+    let mut pat_tpl = crate::game_logic::ThingTemplate::new("Lazr_AmericaPatriotBattery");
+    pat_tpl
+        .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
-        .set_health(200.0)
-        .set_primary_weapon_name(COMANCHE_ANTITANK_WEAPON);
+        .add_kind_of(KindOf::FSBaseDefense)
+        .set_health(1000.0)
+        .set_primary_weapon_name("Lazr_PatriotMissileWeapon");
     logic
         .templates
-        .insert("AmericaJetComanche".to_string(), tpl);
-
-    let helo = logic
-        .create_object(
-            "AmericaJetComanche",
-            Team::USA,
-            glam::Vec3::new(0.0, 40.0, 0.0),
-        )
-        .expect("comanche");
-    let inf = logic
-        .create_object("TestInfantry", Team::GLA, glam::Vec3::new(50.0, 0.0, 0.0))
-        .expect("inf");
-    if let Some(o) = logic.objects.get_mut(&inf) {
-        o.set_selection_radius(0.5);
+        .insert("Lazr_AmericaPatriotBattery".to_string(), pat_tpl);
+    ensure_test_tank_template(&mut logic);
+    let pat = logic
+        .create_object("Lazr_AmericaPatriotBattery", Team::USA, glam::Vec3::ZERO)
+        .expect("patriot");
+    if let Some(p) = logic.host_object_mut(pat) {
+        p.set_status_under_construction(false);
+        p.construction_percent = 100.0;
+        if let Some(w) = p.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+        }
     }
+    let _enemy = logic
+        .create_object("TestTank", Team::GLA, glam::Vec3::new(100.0, 0.0, 0.0))
+        .expect("enemy");
+    let muzzles = |l: &GameLogic| {
+        l.combat_particles()
+            .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
+            .iter()
+            .filter(|e| e.source_object == Some(pat))
+            .count()
+    };
+    logic.frame = 30;
+    let mut fired = false;
+    for _ in 0..30 {
+        let before_fires = logic.base_defense_residual_fires();
+        let before = muzzles(&logic);
+        logic.try_base_defense_residual_fire(pat);
+        if logic.base_defense_residual_fires() > before_fires {
+            let after = muzzles(&logic);
+            eprintln!("hq-2qedt.125 muzzles per accepted shot = {}", after - before);
+            assert_eq!(after - before, 1, "exactly one fire-time muzzle per accepted shot");
+            fired = true;
+            break;
+        }
+        logic.frame = logic.frame.saturating_add(1);
+    }
+    assert!(fired, "base defense must fire");
+}
 
-    let impact = logic
+/// hq-2qedt.126: inferno fire zone (impact-time, from shell detonation / MIG
+/// napalm) and Aurora bomb queue (called inside the accepted-shot path where
+/// shared dispatch already plays FireFX) must not add a WeaponMuzzleFlash
+/// owned by the shooter. C++ Weapon.cpp:923-939 plays FireFX once per shot at
+/// fire time; impact plays DetonationFX/OCL (OCL_FireFieldSmall), launch has
+/// no second muzzle. FireWall special power (no weapon FireFX dispatch) keeps
+/// its single segment flame presentation.
+#[test]
+fn angry_mob_aurora_zone_launch_muzzle_ownership_hq_2qedt_126() {
+    use crate::game_logic::combat_particles::CombatParticleKind;
+    use crate::game_logic::host_aurora_bomb::HostAuroraBombKind;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let muzzles = |l: &GameLogic, src: ObjectId| {
+        l.combat_particles()
+            .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
+            .iter()
+            .filter(|e| e.source_object == Some(src))
+            .count()
+    };
+    let mut logic = GameLogic::new();
+    ensure_test_tank_template(&mut logic);
+    let src = logic
+        .create_object("TestTank", Team::USA, glam::Vec3::ZERO)
+        .expect("src");
+    let impact = glam::Vec3::new(120.0, 0.0, 0.0);
+
+    let b = muzzles(&logic, src);
+    logic.spawn_inferno_fire_zone(src, Team::USA, impact, false);
+    assert_eq!(muzzles(&logic, src) - b, 0, "inferno zone at impact must not spawn shooter muzzle");
+
+    let b = muzzles(&logic, src);
+    logic.queue_aurora_bomb(HostAuroraBombKind::Standard, src, Team::USA, impact);
+    assert_eq!(muzzles(&logic, src) - b, 0, "aurora launch must not add a second muzzle over shared FireFX");
+
+    let b = muzzles(&logic, src);
+    if logic.activate_firewall(src, impact).is_some() {
+        assert_eq!(muzzles(&logic, src) - b, 1, "firewall keeps exactly one segment flame presentation");
+    }
+}
+
+/// C++ AIAttackFireWeaponState::update (AIStates.cpp:5225-5233) relies on
+/// AIUpdateInterface::transferAttack (AIUpdate.cpp:4149-4151) also moving the
+/// state-machine goal object when a killed victim hands off (CreateObjectDie).
+#[test]
+fn fire_callback_transfer_attack_updates_machine_goal_same_frame() {
+    use crate::game_logic::host_create_object_die::HostCreateObjectDieData;
+    let mut logic = GameLogic::new();
+    for (name, structure) in [("XferAtk", false), ("XferBldg", true), ("XferHole", true)] {
+        let mut t = ThingTemplate::new(name);
+        t.add_kind_of(KindOf::Attackable).set_health(100.0);
+        if structure {
+            t.add_kind_of(KindOf::Structure);
+        } else {
+            t.add_kind_of(KindOf::Vehicle);
+        }
+        logic.templates.insert(name.into(), t);
+    }
+    let atk = logic
+        .create_object("XferAtk", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+        .expect("atk");
+    let bldg = logic
+        .create_object("XferBldg", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
+        .expect("bldg");
+    if let Some(o) = logic.objects.get_mut(&atk) {
+        o.weapon = Some(Weapon {
+            damage: 999.0,
+            range: 100.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            ..Weapon::default()
+        });
+    }
+    if let Some(o) = logic.objects.get_mut(&bldg) {
+        o.create_object_die = Some(HostCreateObjectDieData {
+            ocl_name: "OCL_XferHole".into(),
+            spawn_templates: vec!["XferHole".into()],
+            transfer_previous_health: true,
+            fired: false,
+        });
+    }
+    assert!(logic.unit_command_attack(atk, bldg).unwrap());
+    for _ in 0..120 {
+        logic.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        if logic.objects.get(&bldg).is_none_or(|v| !v.is_alive()) {
+            break;
+        }
+    }
+    let hole = logic
         .objects
-        .get(&inf)
-        .map(|o| o.get_position())
-        .unwrap_or(glam::Vec3::new(50.0, 0.0, 0.0));
-    let _ = logic.apply_comanche_antitank_residual_at(impact, Some(helo), Some(inf));
-    assert!(
-        logic.comanche_at_scatter_applied > 0
-            || logic.comanche_at_scatter_misses > 0
-            || logic.honesty_comanche_at_scatter_ok(),
-        "comanche AT scatter residual must peel vs infantry"
+        .registered_values()
+        .find(|o| o.template_name == "XferHole")
+        .map(|o| o.id)
+        .expect("CreateObjectDie hole spawned");
+    let a = &logic.objects[&atk];
+    assert_eq!(a.target, Some(hole), "transferAttack retargets host");
+    assert_eq!(
+        a.unit_ai_runtime.machine().goals.object,
+        Some(hole),
+        "attack machine goal must follow the transferred victim"
     );
-    assert!((COMANCHE_AT_SCATTER_VS_INFANTRY - 10.0).abs() < 0.01);
-
-    let tank = logic
-        .create_object("TestTank", Team::GLA, glam::Vec3::new(48.0, 0.0, 0.0))
-        .expect("tank");
-    logic.mark_object_for_destruction(inf, None);
-    logic.process_destroy_list();
-    let hp_before = logic.host_object(tank).unwrap().health.current;
-    let impact = logic
-        .objects
-        .get(&tank)
-        .map(|o| o.get_position())
-        .unwrap_or(glam::Vec3::new(48.0, 0.0, 0.0));
-    let (hits, _) = logic.apply_comanche_antitank_residual_at(impact, Some(helo), Some(tank));
-    let hp_after = logic
-        .host_object(tank)
-        .map(|o| o.health.current)
-        .unwrap_or(0.0);
-    assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
 }

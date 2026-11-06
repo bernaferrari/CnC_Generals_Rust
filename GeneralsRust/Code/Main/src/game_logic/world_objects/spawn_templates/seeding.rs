@@ -104,6 +104,7 @@ impl GameLogic {
         self.receiving_object_definitions = Some(projection_candidate);
         self.projectile_definitions = projectile_candidate;
         self.templates = templates;
+        self.invalidate_build_facility_template_names_cache();
         self.refresh_receiving_client_templates();
         Ok(())
     }
@@ -252,6 +253,16 @@ impl GameLogic {
         weapons: Vec<(String, gamelogic::weapon::WeaponTemplate)>,
         definitions: &[(String, ObjectDefinition)],
     ) -> Result<(), String> {
+        self.with_own_services_mut(|this| {
+            this.admit_weapon_content_snapshot_bound(weapons, definitions)
+        })
+    }
+
+    fn admit_weapon_content_snapshot_bound(
+        &mut self,
+        weapons: Vec<(String, gamelogic::weapon::WeaponTemplate)>,
+        definitions: &[(String, ObjectDefinition)],
+    ) -> Result<(), String> {
         let mut catalog: HashMap<String, std::sync::Arc<gamelogic::weapon::WeaponTemplate>> =
             HashMap::new();
         for (name, rule) in weapons {
@@ -304,7 +315,7 @@ impl GameLogic {
 
     /// Catalogue seeding core with no global state, used to characterize the
     /// exact-data-only policy in tests.
-    pub(in super::super::super) fn seed_asset_definition_templates_from_snapshot<I>(
+    pub(crate) fn seed_asset_definition_templates_from_snapshot<I>(
         &mut self,
         definitions: I,
     ) -> usize
@@ -592,11 +603,8 @@ impl GameLogic {
         if self.receiving_module_content.is_some() {
             return;
         }
-        if let Some(manager_arc) = get_asset_manager() {
-            if let Ok(mut manager) = manager_arc.try_lock() {
-                manager.overlay_object_create_overrides(name, reskin_from, properties);
-            }
-        }
+        // Common record_object_create_override already overlaid the live
+        // catalog once (C++ parseObjectDefinition -> newOverride). Read it.
         let definition = leftover_object_definition_for_live(name, reskin_from, properties);
         let existing_key = if self.templates.contains_key(name) {
             Some(name.to_string())

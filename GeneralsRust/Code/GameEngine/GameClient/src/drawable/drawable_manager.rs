@@ -889,19 +889,50 @@ impl Default for DrawableManager {
     }
 }
 
-// Global singleton instance (matching C++ TheDrawableManager pattern)
+// Owned on GameClient.drawable_manager. Peel helpers prefer the live client.
+#[cfg(test)]
 thread_local! {
-    static THE_DRAWABLE_MANAGER: RefCell<DrawableManager> = RefCell::new(DrawableManager::new());
+    static TEST_DRAWABLE_MANAGER: RefCell<DrawableManager> = RefCell::new(DrawableManager::new());
 }
 
-/// Access the global drawable manager
+/// Access the drawable manager for the live GameClient (or test fallback).
 pub fn with_drawable_manager<R>(f: impl FnOnce(&mut DrawableManager) -> R) -> R {
-    THE_DRAWABLE_MANAGER.with(|manager| f(&mut manager.borrow_mut()))
+    let mut f = Some(f);
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        f.take().expect("drawable manager")(client.drawable_manager_mut())
+    }) {
+        return result;
+    }
+    #[cfg(test)]
+    {
+        return TEST_DRAWABLE_MANAGER.with(|manager| {
+            f.take().expect("drawable manager")(&mut manager.borrow_mut())
+        });
+    }
+    #[cfg(not(test))]
+    {
+        f.take().expect("drawable manager")(&mut DrawableManager::new())
+    }
 }
 
-/// Access the global drawable manager immutably
+/// Access the drawable manager immutably for the live GameClient (or test fallback).
 pub fn with_drawable_manager_ref<R>(f: impl FnOnce(&DrawableManager) -> R) -> R {
-    THE_DRAWABLE_MANAGER.with(|manager| f(&manager.borrow()))
+    let mut f = Some(f);
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        f.take().expect("drawable manager")(client.drawable_manager())
+    }) {
+        return result;
+    }
+    #[cfg(test)]
+    {
+        return TEST_DRAWABLE_MANAGER.with(|manager| {
+            f.take().expect("drawable manager")(&manager.borrow())
+        });
+    }
+    #[cfg(not(test))]
+    {
+        f.take().expect("drawable manager")(&DrawableManager::new())
+    }
 }
 
 // Downcasting support is provided by DrawableExt in drawable.rs
@@ -919,6 +950,7 @@ mod tests {
 
     #[test]
     fn test_drawable_manager_creation() {
+        crate::test_support::ensure_ambient_host();
         let manager = DrawableManager::new();
         assert_eq!(manager.drawables.len(), 0);
         assert_eq!(manager.next_drawable_id, DrawableId(1));
@@ -927,6 +959,7 @@ mod tests {
 
     #[test]
     fn test_create_drawable() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = DrawableManager::new();
 
         let id = manager.create_drawable(DrawableType::Model {
@@ -947,6 +980,7 @@ mod tests {
 
     #[test]
     fn test_destroy_drawable() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = DrawableManager::new();
 
         let id = manager.create_drawable(DrawableType::Sprite {
@@ -968,6 +1002,7 @@ mod tests {
 
     #[test]
     fn test_drawable_layers() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = DrawableManager::new();
 
         let id = manager.create_drawable(DrawableType::UI {
@@ -985,6 +1020,7 @@ mod tests {
 
     #[test]
     fn test_spatial_queries() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = DrawableManager::new();
 
         // Create drawables at different positions
@@ -1026,6 +1062,7 @@ mod tests {
 
     #[test]
     fn test_frustum_culling() {
+        crate::test_support::ensure_ambient_host();
         let frustum = Frustum::from_view_projection(&Matrix4::identity());
 
         // Test points inside and outside frustum
@@ -1035,6 +1072,7 @@ mod tests {
 
     #[test]
     fn test_frustum_extracts_normalized_identity_planes() {
+        crate::test_support::ensure_ambient_host();
         let frustum = Frustum::from_view_projection(&Matrix4::identity());
 
         assert_close(frustum.planes[0].x, 1.0);
@@ -1049,6 +1087,7 @@ mod tests {
 
     #[test]
     fn test_frustum_uses_view_projection_translation() {
+        crate::test_support::ensure_ambient_host();
         let translated = Matrix4::translation(Vector3::new(-10.0, 0.0, 0.0));
         let frustum = Frustum::from_view_projection(&translated);
 
@@ -1058,6 +1097,7 @@ mod tests {
 
     #[test]
     fn test_render_list_sorting() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = DrawableManager::new();
 
         // Create drawables at different distances
@@ -1096,6 +1136,7 @@ mod tests {
 
     #[test]
     fn test_performance_stats() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = DrawableManager::new();
 
         // Create some drawables
@@ -1140,6 +1181,7 @@ mod logic_clock_tests {
 
     #[test]
     fn receiving_manager_uses_logic_for_expiry_and_keeps_client_progression() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = DrawableManager::new();
         let id = expiring_model(&mut manager, 4);
         manager.current_frame = 29;
@@ -1154,6 +1196,7 @@ mod logic_clock_tests {
 
     #[test]
     fn receiving_manager_client_wrap_does_not_replace_logic_deadline() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = DrawableManager::new();
         let id = expiring_model(&mut manager, u32::MAX);
         let permanent = expiring_model(&mut manager, 0);

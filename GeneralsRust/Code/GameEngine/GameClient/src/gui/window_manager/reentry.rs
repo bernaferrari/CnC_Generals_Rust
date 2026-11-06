@@ -50,6 +50,144 @@ struct WindowManagerOwnerState {
     deferred_shell_pushes: RefCell<Vec<String>>,
     last_widget_tree_click_used: Cell<bool>,
     widget_tree_navigation_observed: Cell<bool>,
+    /// LAN / Skirmish shell transition flags (C++ file-statics on those menus).
+    menu_shell_flags: super::menu_shell_flags::MenuShellFlags,
+    /// Keyboard options menu + residual peels (was process TLS/atomics).
+    keyboard_options: std::sync::Arc<
+        std::sync::Mutex<crate::gui::callbacks::keyboard_options_menu::KeyboardOptionsMenuState>,
+    >,
+    /// PopupCommunicator menu + residual peels (was process TLS/atomics).
+    popup_communicator: RefCell<crate::gui::callbacks::popup_communicator::PopupCommunicatorState>,
+    /// GeneralsExpPoints residual peels (was process atomics).
+    generals_exp_residual: std::cell::Cell<
+        crate::gui::callbacks::generals_exp_points::GeneralsExpResidualState,
+    >,
+    /// ReplayMenu residual peels (was process atomics).
+    replay_menu_residual: std::cell::Cell<
+        crate::gui::callbacks::replay_menu::ReplayMenuResidualState,
+    >,
+    /// ControlBar print-positions residual peels (was process atomics).
+    control_bar_print_residual: std::cell::Cell<
+        crate::gui::control_bar::control_bar_print_positions::ControlBarPrintPositionsResidualState,
+    >,
+    /// Skirmish game options menu state (was process TLS).
+    skirmish_game_options: RefCell<
+        crate::gui::callbacks::skirmish_game_options_menu::SkirmishGameOptionsState,
+    >,
+    /// C++ `TheSkirmishGameInfo` (SkirmishGameOptionsMenu.cpp / GameInfo.cpp):
+    /// the lobby the options menu edits and `startSkirmishGame` launches.
+    /// One per client UI tree; shared with the save hook via `Arc`.
+    skirmish_setup: std::sync::Arc<std::sync::Mutex<crate::gui::skirmish_setup::SkirmishSetup>>,
+    /// Skirmish map-select layout slot (was process TLS).
+    skirmish_map_select_layout: RefCell<Option<Rc<RefCell<crate::gui::WindowLayout>>>>,
+    /// Skirmish map-select menu state (was process TLS).
+    skirmish_map_select_state: std::sync::Arc<
+        std::sync::Mutex<crate::gui::callbacks::skirmish_map_select_menu::SkirmishMapSelectState>,
+    >,
+    /// LAN game options menu state (was process TLS).
+    lan_game_options: RefCell<crate::gui::callbacks::lan_game_options_menu::LanGameOptionsState>,
+    /// LAN map-select layout slot (was process TLS).
+    lan_map_select_layout: RefCell<Option<Rc<RefCell<crate::gui::WindowLayout>>>>,
+    /// LAN map-select menu state (was process TLS).
+    lan_map_select_state: std::sync::Arc<
+        std::sync::Mutex<crate::gui::callbacks::lan_map_select_menu::LanMapSelectState>,
+    >,
+    /// MOTD close-button id (was process TLS Cell).
+    motd_close_button_id: Cell<u32>,
+    /// GameInfoWindow state (was process TLS).
+    game_info_window_state: RefCell<crate::gui::callbacks::game_info_window::GameInfoWindowState>,
+    /// DownloadMenu state (was process TLS).
+    download_menu_state: Rc<RefCell<crate::gui::callbacks::download_menu::DownloadMenuState>>,
+    /// LAN lobby menu state (was process TLS).
+    #[cfg(feature = "online_ui")]
+    lan_lobby_state: Rc<RefCell<crate::gui::callbacks::lan_lobby_menu::LanLobbyState>>,
+    /// LAN event queue (tokio producer → GUI consumer).
+    #[cfg(feature = "online_ui")]
+    lan_events: std::sync::Arc<
+        std::sync::Mutex<std::collections::VecDeque<game_network::lan_api::LanEvent>>,
+    >,
+    /// Offline network stub queues / facade (not(feature = "network")).
+    #[cfg(not(feature = "network"))]
+    network_compat: crate::game_network_compat::NetworkCompatState,
+    /// Push-button audio hook (was process TLS BUTTON_AUDIO).
+    button_audio: RefCell<Option<crate::gui::gadgets::ButtonAudioHook>>,
+    /// DisplayStringManager (was process TLS DISPLAY_STRING_MANAGER).
+    display_string_manager: RefCell<crate::gui::display_string::DisplayStringManager>,
+    /// PopupJoinGame state (was process TLS).
+    #[cfg(feature = "online_ui")]
+    popup_join_state: Rc<RefCell<crate::gui::callbacks::popup_join_game::PopupJoinState>>,
+    /// PopupHostGame state (was process TLS).
+    #[cfg(feature = "online_ui")]
+    popup_host_state: Rc<RefCell<crate::gui::callbacks::popup_host_game::PopupHostState>>,
+    /// PopupPlayerInfo state (was process TLS).
+    #[cfg(feature = "online_ui")]
+    popup_player_info_state: Rc<RefCell<crate::gui::callbacks::popup_player_info::PopupPlayerInfoState>>,
+    /// PopupLadderSelectState (was process TLS).
+    #[cfg(feature = "online_ui")]
+    popup_ladder_select_state: Rc<RefCell<crate::gui::callbacks::popup_ladder_select::PopupLadderSelectState>>,
+    /// WolStatusState (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_status_state: Rc<RefCell<crate::gui::callbacks::wol_status_menu::WolStatusState>>,
+    /// WolMessageWindowState (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_message_window_state: Rc<RefCell<crate::gui::callbacks::wol_message_window::WolMessageWindowState>>,
+    /// WolQmScoreState (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_qm_score_state: Rc<RefCell<crate::gui::callbacks::wolqm_score_screen::WolQmScoreState>>,
+    /// WolCustomScoreState (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_custom_score_state: Rc<RefCell<crate::gui::callbacks::wol_custom_score_screen::WolCustomScoreState>>,
+    /// WolLocaleSelectState (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_locale_select_state: Rc<RefCell<crate::gui::callbacks::wol_locale_select_popup::WolLocaleSelectState>>,
+    /// WolMapSelectState (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_map_select_state: Rc<RefCell<crate::gui::callbacks::wol_map_select_menu::WolMapSelectState>>,
+    /// WolLobbyState (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_lobby_menu_state: Rc<RefCell<crate::gui::callbacks::wol_lobby_menu::WolLobbyState>>,
+    /// WolGameSetupState (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_game_setup_state: Rc<RefCell<crate::gui::callbacks::wol_game_setup_menu::WolGameSetupState>>,
+    /// WolQuickMatchState (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_quick_match_state: Rc<RefCell<crate::gui::callbacks::wol_quick_match_menu::WolQuickMatchState>>,
+    /// NetworkDirectConnectState (was process TLS).
+    #[cfg(feature = "online_ui")]
+    network_direct_connect_state: Rc<RefCell<crate::gui::callbacks::network_direct_connect::NetworkDirectConnectState>>,
+    /// WOL ladder menu state (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_ladder_state: Rc<RefCell<crate::gui::callbacks::wol_ladder_screen::WolLadderState>>,
+    /// WOL ladder web browser (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_ladder_browser: RefCell<crate::w3d_web_browser::W3DWebBrowser>,
+    /// WOL ladder Webpages.ini loaded latch (was process OnceLock).
+    #[cfg(feature = "online_ui")]
+    wol_ladder_webpages_loaded: Cell<bool>,
+    /// WOL buddy overlay state (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_buddy_overlay_state: Rc<RefCell<crate::gui::callbacks::wol_buddy_overlay::WolBuddyOverlayState>>,
+    /// Buddy controls residual (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_buddy_controls: Rc<RefCell<crate::gui::callbacks::wol_buddy_overlay::BuddyControls>>,
+    /// WOL welcome menu state (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_welcome_state: Rc<RefCell<crate::gui::callbacks::wol_welcome_menu::WolWelcomeState>>,
+    /// WOL welcome look-at player residual (was process OnceLock).
+    #[cfg(feature = "online_ui")]
+    wol_welcome_look_at_player: RefCell<(i32, String)>,
+    /// WOL login menu state (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_login_state: Rc<RefCell<crate::gui::callbacks::wol_login_menu::WolLoginState>>,
+    /// WOL login TOS browser (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_login_tos_browser: RefCell<crate::w3d_web_browser::W3DWebBrowser>,
+    /// GameSpy overlay state (was process TLS).
+    #[cfg(feature = "online_ui")]
+    gamespy_overlay_state: Rc<RefCell<crate::gamespy_overlay::GameSpyOverlayState>>,
+    /// GameSpy GameInfo residual (was process TLS).
+    #[cfg(feature = "online_ui")]
+    gamespy_game_info: Rc<RefCell<game_network::GameInfo>>,
 }
 
 /// Persistent owner for one native client's WND tree and its re-entry queues.
@@ -66,18 +204,24 @@ pub struct WindowManagerReceipt {
 }
 impl WindowManagerReceipt {
     pub(crate) fn hide_registered_window(&self, window: Weak<RefCell<GameWindow>>) {
-        let (Some(state), Some(window)) = (self.state.upgrade(), window.upgrade()) else {
+        let Some(window) = window.upgrade() else {
             return;
         };
         // The admitted replay step runs only after callback and WM loans end.
-        let mut manager = state.manager.borrow_mut();
-        let id = window.borrow().get_id();
-        let Some(current) = manager.get_window_by_id(id) else {
-            return;
-        };
-        if Rc::ptr_eq(&current, &window) {
-            let _ = manager.hide_window(&window, true);
+        // Prefer the receiving manager hide (layout side effects). When the
+        // captured parent is not in that tree — C++ still winHides the pointer —
+        // fall back to the window flag so playback residual matches ReplayMenu.cpp.
+        if let Some(state) = self.state.upgrade() {
+            let mut manager = state.manager.borrow_mut();
+            let id = window.borrow().get_id();
+            if let Some(current) = manager.get_window_by_id(id) {
+                if Rc::ptr_eq(&current, &window) {
+                    let _ = manager.hide_window(&window, true);
+                    return;
+                }
+            }
         }
+        let _ = window.borrow_mut().hide_without_manager_side_effects(true);
     }
 }
 
@@ -98,6 +242,9 @@ impl WindowManagerOwner {
     }
 
     pub fn new() -> Self {
+        let skirmish_setup = std::sync::Arc::new(std::sync::Mutex::new(
+            crate::gui::skirmish_setup::SkirmishSetup::default(),
+        ));
         Self {
             state: Rc::new(WindowManagerOwnerState {
                 manager: RefCell::new(WindowManager::new()),
@@ -112,6 +259,148 @@ impl WindowManagerOwner {
                 deferred_shell_pushes: RefCell::new(Vec::new()),
                 last_widget_tree_click_used: Cell::new(false),
                 widget_tree_navigation_observed: Cell::new(false),
+                menu_shell_flags: super::menu_shell_flags::MenuShellFlags::new(),
+                keyboard_options: std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::gui::callbacks::keyboard_options_menu::KeyboardOptionsMenuState::default(),
+                )),
+                popup_communicator: RefCell::new(
+                    crate::gui::callbacks::popup_communicator::PopupCommunicatorState::default(),
+                ),
+                generals_exp_residual: std::cell::Cell::new(
+                    crate::gui::callbacks::generals_exp_points::GeneralsExpResidualState::default(),
+                ),
+                replay_menu_residual: std::cell::Cell::new(
+                    crate::gui::callbacks::replay_menu::ReplayMenuResidualState::default(),
+                ),
+                control_bar_print_residual: std::cell::Cell::new(
+                    crate::gui::control_bar::control_bar_print_positions::ControlBarPrintPositionsResidualState::default(),
+                ),
+                skirmish_game_options: RefCell::new(
+                    crate::gui::callbacks::skirmish_game_options_menu::SkirmishGameOptionsState::for_setup(
+                        std::sync::Arc::clone(&skirmish_setup),
+                    ),
+                ),
+                skirmish_setup,
+                skirmish_map_select_layout: RefCell::new(None),
+                skirmish_map_select_state: std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::gui::callbacks::skirmish_map_select_menu::SkirmishMapSelectState::default(),
+                )),
+                lan_game_options: RefCell::new(
+                    crate::gui::callbacks::lan_game_options_menu::LanGameOptionsState::default(),
+                ),
+                lan_map_select_layout: RefCell::new(None),
+                lan_map_select_state: std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::gui::callbacks::lan_map_select_menu::LanMapSelectState::default(),
+                )),
+                motd_close_button_id: Cell::new(0),
+                game_info_window_state: RefCell::new(
+                    crate::gui::callbacks::game_info_window::GameInfoWindowState::default(),
+                ),
+                download_menu_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::download_menu::DownloadMenuState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                lan_lobby_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::lan_lobby_menu::LanLobbyState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                lan_events: std::sync::Arc::new(std::sync::Mutex::new(
+                    std::collections::VecDeque::new(),
+                )),
+                #[cfg(not(feature = "network"))]
+                network_compat: crate::game_network_compat::NetworkCompatState::new(),
+                button_audio: RefCell::new(None),
+                display_string_manager: RefCell::new(crate::gui::display_string::DisplayStringManager::new()),
+                #[cfg(feature = "online_ui")]
+                popup_join_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::popup_join_game::PopupJoinState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                popup_host_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::popup_host_game::PopupHostState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                popup_player_info_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::popup_player_info::PopupPlayerInfoState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                popup_ladder_select_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::popup_ladder_select::PopupLadderSelectState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_status_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_status_menu::WolStatusState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_message_window_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_message_window::WolMessageWindowState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_qm_score_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wolqm_score_screen::WolQmScoreState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_custom_score_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_custom_score_screen::WolCustomScoreState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_locale_select_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_locale_select_popup::WolLocaleSelectState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_map_select_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_map_select_menu::WolMapSelectState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_lobby_menu_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_lobby_menu::WolLobbyState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_game_setup_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_game_setup_menu::WolGameSetupState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_quick_match_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_quick_match_menu::WolQuickMatchState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                network_direct_connect_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::network_direct_connect::NetworkDirectConnectState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_ladder_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_ladder_screen::WolLadderState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_ladder_browser: RefCell::new(crate::w3d_web_browser::W3DWebBrowser::new()),
+                #[cfg(feature = "online_ui")]
+                wol_ladder_webpages_loaded: Cell::new(false),
+                #[cfg(feature = "online_ui")]
+                wol_buddy_overlay_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_buddy_overlay::WolBuddyOverlayState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_buddy_controls: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_buddy_overlay::BuddyControls::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_welcome_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_welcome_menu::WolWelcomeState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_welcome_look_at_player: RefCell::new((0, String::new())),
+                #[cfg(feature = "online_ui")]
+                wol_login_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_login_menu::WolLoginState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_login_tos_browser: RefCell::new(crate::w3d_web_browser::W3DWebBrowser::new()),
+                #[cfg(feature = "online_ui")]
+                gamespy_overlay_state: Rc::new(RefCell::new(
+                    crate::gamespy_overlay::GameSpyOverlayState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                gamespy_game_info: Rc::new(RefCell::new(game_network::GameInfo::new())),
             }),
         }
     }
@@ -122,6 +411,352 @@ impl WindowManagerOwner {
     pub fn widget_tree_navigation_observed(&self) -> bool {
         self.state.widget_tree_navigation_observed.get()
     }
+
+    /// LAN/Skirmish shell transition flags for this client.
+    pub fn menu_shell_flags(&self) -> &super::menu_shell_flags::MenuShellFlags {
+        &self.state.menu_shell_flags
+    }
+
+    pub(crate) fn register_button_audio_hook(
+        &self,
+        hook: crate::gui::gadgets::ButtonAudioHook,
+    ) {
+        *self.state.button_audio.borrow_mut() = Some(hook);
+    }
+
+    pub(crate) fn take_button_audio_hook(&self) -> Option<crate::gui::gadgets::ButtonAudioHook> {
+        self.state.button_audio.borrow_mut().take()
+    }
+
+    pub(crate) fn with_button_audio_mut<R>(
+        &self,
+        f: impl FnOnce(&mut crate::gui::gadgets::ButtonAudioHook) -> R,
+    ) -> Option<R> {
+        let mut slot = self.state.button_audio.borrow_mut();
+        slot.as_mut().map(f)
+    }
+
+    pub(crate) fn with_display_string_manager_mut<R>(
+        &self,
+        f: impl FnOnce(&mut crate::gui::display_string::DisplayStringManager) -> R,
+    ) -> R {
+        f(&mut self.state.display_string_manager.borrow_mut())
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn popup_join_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::popup_join_game::PopupJoinState>> {
+        Rc::clone(&self.state.popup_join_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn popup_host_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::popup_host_game::PopupHostState>> {
+        Rc::clone(&self.state.popup_host_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn popup_player_info_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::popup_player_info::PopupPlayerInfoState>> {
+        Rc::clone(&self.state.popup_player_info_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn popup_ladder_select_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::popup_ladder_select::PopupLadderSelectState>> {
+        Rc::clone(&self.state.popup_ladder_select_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_status_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_status_menu::WolStatusState>> {
+        Rc::clone(&self.state.wol_status_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_message_window_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_message_window::WolMessageWindowState>> {
+        Rc::clone(&self.state.wol_message_window_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_qm_score_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wolqm_score_screen::WolQmScoreState>> {
+        Rc::clone(&self.state.wol_qm_score_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_custom_score_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_custom_score_screen::WolCustomScoreState>> {
+        Rc::clone(&self.state.wol_custom_score_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_locale_select_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_locale_select_popup::WolLocaleSelectState>> {
+        Rc::clone(&self.state.wol_locale_select_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_map_select_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_map_select_menu::WolMapSelectState>> {
+        Rc::clone(&self.state.wol_map_select_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_lobby_menu_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_lobby_menu::WolLobbyState>> {
+        Rc::clone(&self.state.wol_lobby_menu_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_game_setup_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_game_setup_menu::WolGameSetupState>> {
+        Rc::clone(&self.state.wol_game_setup_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_quick_match_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_quick_match_menu::WolQuickMatchState>> {
+        Rc::clone(&self.state.wol_quick_match_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn network_direct_connect_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::network_direct_connect::NetworkDirectConnectState>> {
+        Rc::clone(&self.state.network_direct_connect_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_ladder_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_ladder_screen::WolLadderState>> {
+        Rc::clone(&self.state.wol_ladder_state)
+    }
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn with_wol_ladder_browser_mut<R>(
+        &self,
+        f: impl FnOnce(&mut crate::w3d_web_browser::W3DWebBrowser) -> R,
+    ) -> R {
+        f(&mut self.state.wol_ladder_browser.borrow_mut())
+    }
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_ladder_webpages_loaded(&self) -> bool {
+        self.state.wol_ladder_webpages_loaded.get()
+    }
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn set_wol_ladder_webpages_loaded(&self, loaded: bool) {
+        self.state.wol_ladder_webpages_loaded.set(loaded);
+    }
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_buddy_overlay_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_buddy_overlay::WolBuddyOverlayState>> {
+        Rc::clone(&self.state.wol_buddy_overlay_state)
+    }
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_buddy_controls_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_buddy_overlay::BuddyControls>> {
+        Rc::clone(&self.state.wol_buddy_controls)
+    }
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_welcome_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_welcome_menu::WolWelcomeState>> {
+        Rc::clone(&self.state.wol_welcome_state)
+    }
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn with_wol_welcome_look_at_player_mut<R>(
+        &self,
+        f: impl FnOnce(&mut (i32, String)) -> R,
+    ) -> R {
+        f(&mut self.state.wol_welcome_look_at_player.borrow_mut())
+    }
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_login_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_login_menu::WolLoginState>> {
+        Rc::clone(&self.state.wol_login_state)
+    }
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn with_wol_login_tos_browser_mut<R>(
+        &self,
+        f: impl FnOnce(&mut crate::w3d_web_browser::W3DWebBrowser) -> R,
+    ) -> R {
+        f(&mut self.state.wol_login_tos_browser.borrow_mut())
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn gamespy_overlay_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gamespy_overlay::GameSpyOverlayState>> {
+        Rc::clone(&self.state.gamespy_overlay_state)
+    }
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn gamespy_game_info_handle(
+        &self,
+    ) -> Rc<RefCell<game_network::GameInfo>> {
+        Rc::clone(&self.state.gamespy_game_info)
+    }
+
+    pub(crate) fn keyboard_options_handle(
+        &self,
+    ) -> std::sync::Arc<
+        std::sync::Mutex<crate::gui::callbacks::keyboard_options_menu::KeyboardOptionsMenuState>,
+    > {
+        self.state.keyboard_options.clone()
+    }
+
+    pub(crate) fn with_popup_communicator_mut<R>(
+        &self,
+        f: impl FnOnce(&mut crate::gui::callbacks::popup_communicator::PopupCommunicatorState) -> R,
+    ) -> R {
+        f(&mut self.state.popup_communicator.borrow_mut())
+    }
+
+    pub(crate) fn with_generals_exp_residual_mut<R>(
+        &self,
+        f: impl FnOnce(
+            &mut crate::gui::callbacks::generals_exp_points::GeneralsExpResidualState,
+        ) -> R,
+    ) -> R {
+        let mut state = self.state.generals_exp_residual.get();
+        let out = f(&mut state);
+        self.state.generals_exp_residual.set(state);
+        out
+    }
+
+    pub(crate) fn with_replay_menu_residual_mut<R>(
+        &self,
+        f: impl FnOnce(&mut crate::gui::callbacks::replay_menu::ReplayMenuResidualState) -> R,
+    ) -> R {
+        let mut state = self.state.replay_menu_residual.get();
+        let out = f(&mut state);
+        self.state.replay_menu_residual.set(state);
+        out
+    }
+
+    pub(crate) fn with_control_bar_print_residual_mut<R>(
+        &self,
+        f: impl FnOnce(
+            &mut crate::gui::control_bar::control_bar_print_positions::ControlBarPrintPositionsResidualState,
+        ) -> R,
+    ) -> R {
+        let mut state = self.state.control_bar_print_residual.get();
+        let out = f(&mut state);
+        self.state.control_bar_print_residual.set(state);
+        out
+    }
+
+    pub(crate) fn with_skirmish_game_options_mut<R>(
+        &self,
+        f: impl FnOnce(&RefCell<crate::gui::callbacks::skirmish_game_options_menu::SkirmishGameOptionsState>) -> R,
+    ) -> R {
+        f(&self.state.skirmish_game_options)
+    }
+
+    /// This UI tree's `TheSkirmishGameInfo` lobby.
+    pub fn skirmish_setup(
+        &self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::gui::skirmish_setup::SkirmishSetup>> {
+        std::sync::Arc::clone(&self.state.skirmish_setup)
+    }
+
+    pub(crate) fn with_skirmish_map_select_layout_mut<R>(
+        &self,
+        f: impl FnOnce(&mut Option<Rc<RefCell<crate::gui::WindowLayout>>>) -> R,
+    ) -> R {
+        f(&mut self.state.skirmish_map_select_layout.borrow_mut())
+    }
+
+    pub(crate) fn skirmish_map_select_state_handle(
+        &self,
+    ) -> std::sync::Arc<
+        std::sync::Mutex<crate::gui::callbacks::skirmish_map_select_menu::SkirmishMapSelectState>,
+    > {
+        self.state.skirmish_map_select_state.clone()
+    }
+
+    pub(crate) fn with_lan_game_options_mut<R>(
+        &self,
+        f: impl FnOnce(&RefCell<crate::gui::callbacks::lan_game_options_menu::LanGameOptionsState>) -> R,
+    ) -> R {
+        f(&self.state.lan_game_options)
+    }
+
+    pub(crate) fn with_lan_map_select_layout_mut<R>(
+        &self,
+        f: impl FnOnce(&mut Option<Rc<RefCell<crate::gui::WindowLayout>>>) -> R,
+    ) -> R {
+        f(&mut self.state.lan_map_select_layout.borrow_mut())
+    }
+
+    pub(crate) fn lan_map_select_state_handle(
+        &self,
+    ) -> std::sync::Arc<
+        std::sync::Mutex<crate::gui::callbacks::lan_map_select_menu::LanMapSelectState>,
+    > {
+        self.state.lan_map_select_state.clone()
+    }
+
+    pub(crate) fn motd_close_button_id(&self) -> u32 {
+        self.state.motd_close_button_id.get()
+    }
+
+    pub(crate) fn set_motd_close_button_id(&self, id: u32) {
+        self.state.motd_close_button_id.set(id);
+    }
+
+    pub(crate) fn with_game_info_window_state_mut<R>(
+        &self,
+        f: impl FnOnce(&mut crate::gui::callbacks::game_info_window::GameInfoWindowState) -> R,
+    ) -> R {
+        f(&mut self.state.game_info_window_state.borrow_mut())
+    }
+
+    pub(crate) fn download_menu_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::download_menu::DownloadMenuState>> {
+        Rc::clone(&self.state.download_menu_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn lan_lobby_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::lan_lobby_menu::LanLobbyState>> {
+        Rc::clone(&self.state.lan_lobby_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn lan_events_handle(
+        &self,
+    ) -> std::sync::Arc<
+        std::sync::Mutex<std::collections::VecDeque<game_network::lan_api::LanEvent>>,
+    > {
+        std::sync::Arc::clone(&self.state.lan_events)
+    }
+
+    /// Offline network stub state for this client (`not(feature = "network")`).
+    #[cfg(not(feature = "network"))]
+    pub fn network_compat(&self) -> &crate::game_network_compat::NetworkCompatState {
+        &self.state.network_compat
+    }
+
     pub(crate) fn record_widget_tree_click_used(&self, used: bool) {
         self.state.last_widget_tree_click_used.set(used);
     }
@@ -756,17 +1391,18 @@ mod owner_tests {
 
     #[test]
     fn receiving_owner_keeps_same_id_windows_in_distinct_client_trees() {
+        crate::test_support::ensure_ambient_host();
         let first = WindowManagerOwner::new();
         let second = WindowManagerOwner::new();
         let first_window =
-            first.with_manager(|manager| manager.create_window(None, 0, 0, 20, 20).unwrap());
+            first.with_manager(|manager| manager.test_create_window(None, 0, 0, 20, 20).unwrap());
         let second_window =
-            second.with_manager(|manager| manager.create_window(None, 0, 0, 20, 20).unwrap());
+            second.with_manager(|manager| manager.test_create_window(None, 0, 0, 20, 20).unwrap());
         assert_eq!(first_window.borrow().id, second_window.borrow().id);
         assert!(!Rc::ptr_eq(&first_window, &second_window));
         first.with_manager(|manager| {
             manager.destroy_window(first_window.clone()).unwrap();
-            manager.flush_destroy_queue();
+            manager.test_flush_destroy_queue();
             assert!(manager.get_window_by_id(first_window.borrow().id).is_none());
         });
         second.with_manager_ref(|manager| {
@@ -779,12 +1415,13 @@ mod owner_tests {
 
     #[test]
     fn nested_explicit_owner_borrows_never_select_a_peer() {
+        crate::test_support::ensure_ambient_host();
         let first = WindowManagerOwner::new();
         let second = WindowManagerOwner::new();
         first.with_manager(|manager| {
-            let window = manager.create_window(None, 0, 0, 20, 20).unwrap();
+            let window = manager.test_create_window(None, 0, 0, 20, 20).unwrap();
             second.with_manager(|peer| {
-                peer.create_window(None, 0, 0, 20, 20).unwrap();
+                peer.test_create_window(None, 0, 0, 20, 20).unwrap();
             });
             assert!(
                 manager
@@ -796,6 +1433,7 @@ mod owner_tests {
 
     #[test]
     fn shell_stack_and_late_owner_handle_survive_equal_id_peer_reset() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "shell_stack_and_late_owner_handle_survive_equal_id_peer_reset",
@@ -807,9 +1445,9 @@ mod owner_tests {
         let first_owner = first.window_manager_owner();
         let second_owner = second.window_manager_owner();
         let first_window =
-            first_owner.with_manager(|manager| manager.create_window(None, 0, 0, 20, 20).unwrap());
+            first_owner.with_manager(|manager| manager.test_create_window(None, 0, 0, 20, 20).unwrap());
         let second_window =
-            second_owner.with_manager(|manager| manager.create_window(None, 0, 0, 20, 20).unwrap());
+            second_owner.with_manager(|manager| manager.test_create_window(None, 0, 0, 20, 20).unwrap());
         assert_eq!(first_window.borrow().id, second_window.borrow().id);
         assert!(!Rc::ptr_eq(&first_window, &second_window));
         first
@@ -893,6 +1531,7 @@ mod owner_tests {
 
     #[test]
     fn shell_residuals_and_deferred_pushes_are_receiving_owner_state() {
+        crate::test_support::ensure_ambient_host();
         use crate::gui::shell::ResidualShellMapAction;
         let first = WindowManagerOwner::new();
         let second = WindowManagerOwner::new();
@@ -921,6 +1560,7 @@ mod owner_tests {
 
     #[test]
     fn owner_borrow_unwinds_and_keeps_callback_queues_separate() {
+        crate::test_support::ensure_ambient_host();
         use std::cell::RefCell;
         use std::panic::{AssertUnwindSafe, catch_unwind};
         let mut first = crate::core::game_client::GameClient::new().unwrap();

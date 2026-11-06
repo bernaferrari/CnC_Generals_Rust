@@ -26,6 +26,7 @@ fn draw_registered(runtime: &mut FontRuntime, weight: Weight) -> RasterizedText 
 
 #[test]
 fn actual_constructor_empty_database_accepts_memory_face_before_first_draw() {
+    crate::test_support::ensure_ambient_host();
     let font_system = empty_font_system();
     assert_eq!(font_system.db().faces().count(), 0);
     // This exact helper is called by UIRenderer::new. OLD is intentionally
@@ -51,6 +52,7 @@ fn actual_constructor_empty_database_accepts_memory_face_before_first_draw() {
 
 #[test]
 fn actual_constructor_buffer_preserves_preloaded_face_identity_and_bold_request() {
+    crate::test_support::ensure_ambient_host();
     // Preload through the real registration boundary, not a manual DB insert.
     // The constructor helper accepts the same preloaded DB shape native
     // discovery supplies; this test does not claim native filesystem coverage.

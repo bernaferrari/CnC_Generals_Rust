@@ -144,13 +144,16 @@ impl LocalizationManager {
     }
 }
 
-// THREAD: read from any thread that formats a string; only the shell mutates.
-static GLOBAL_LOCALIZATION: OnceLock<Arc<RwLock<LocalizationManager>>> = OnceLock::new();
-
 fn manager() -> Arc<RwLock<LocalizationManager>> {
-    GLOBAL_LOCALIZATION
-        .get_or_init(|| Arc::new(RwLock::new(LocalizationManager::new("English"))))
-        .clone()
+    let services = crate::main_services::main_services();
+    let mut slot = services
+        .localization
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if slot.is_none() {
+        *slot = Some(Arc::new(RwLock::new(LocalizationManager::new("English"))));
+    }
+    slot.as_ref().expect("localization").clone()
 }
 
 /// Initialize the localization system (idempotent).

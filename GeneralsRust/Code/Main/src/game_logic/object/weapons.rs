@@ -172,6 +172,33 @@ impl Object {
         }
     }
 
+    /// Whether any authored WeaponSet slot is the Pathfinder sniper rifle
+    /// (hq-2qedt.261 authored gate replacing the template-name sniff).
+    pub fn authors_pathfinder_sniper_weapon(&self) -> bool {
+        (0u8..3).any(|slot| {
+            self.authored_weapon_name_for_slot(slot)
+                .is_some_and(crate::game_logic::host_pathfinder::is_pathfinder_sniper_weapon)
+        })
+    }
+
+    /// Whether any authored WeaponSet slot is the Red Guard machine gun
+    /// (hq-2qedt.262 nationalism gate replacing the template-name sniff).
+    pub fn authors_red_guard_machine_gun(&self) -> bool {
+        (0u8..3).any(|slot| {
+            self.authored_weapon_name_for_slot(slot)
+                .is_some_and(crate::game_logic::host_red_guard::is_red_guard_machine_gun_weapon)
+        })
+    }
+
+    /// Whether any authored WeaponSet slot is the Tank Hunter missile launcher
+    /// (hq-2qedt.262 nationalism gate replacing the template-name sniff).
+    pub fn authors_tank_hunter_missile(&self) -> bool {
+        (0u8..3).any(|slot| {
+            self.authored_weapon_name_for_slot(slot)
+                .is_some_and(crate::game_logic::host_tank_hunter::is_tank_hunter_missile_weapon)
+        })
+    }
+
     /// Restore the C++ client-only `Weapon::m_suspendFXFrame` parallel
     /// snapshot tail without exposing slot storage to save/load code.
     pub(crate) fn restore_weapon_suspend_fx_frame_for_slot(
@@ -866,19 +893,28 @@ impl Object {
             crate::game_logic::host_quad_cannon::is_quad_cannon_template(&self.template_name)
                 && target_is_air;
 
-        // Avenger residual: airborne targets prefer air laser secondary.
+        // Avenger residual: airborne targets prefer the authored air-laser
+        // SECONDARY (WeaponSet SECONDARY AvengerAirLaserDummy), keyed on the
+        // WeaponTemplate like C++ chooseBestWeaponForTarget, not template name.
         let avenger_prefer_aa = crate::game_logic::host_avenger::avenger_prefer_air_laser(
-            crate::game_logic::host_avenger::is_avenger_template(&self.template_name),
+            self.authored_weapon_name_for_slot(1)
+                == Some(crate::game_logic::host_avenger::AVENGER_AIR_LASER_DUMMY),
             target_is_air,
         );
 
-        // Humvee residual: airborne targets prefer air TOW after TOW upgrade.
-        let humvee_prefer_aa = crate::game_logic::host_humvee::humvee_prefer_air_tow(
-            crate::game_logic::host_humvee::is_humvee_template(&self.template_name),
-            self.has_upgrade_tag(crate::game_logic::host_upgrades::UPGRADE_AMERICA_TOW)
-                || self.has_upgrade_tag("Upgrade_AmericaTOWMissile"),
-            target_is_air,
-        );
+        // Humvee residual: airborne targets prefer TOW when authored HumveeMissileWeapon(/Air).
+        let humvee_prefer_aa = {
+            use crate::game_logic::host_humvee::{
+                HUMVEE_MISSILE_WEAPON, HUMVEE_MISSILE_WEAPON_AIR,
+            };
+            target_is_air
+                && (self.weapon_name_for_slot(1).is_some_and(|w| {
+                    w.eq_ignore_ascii_case(HUMVEE_MISSILE_WEAPON)
+                        || w.eq_ignore_ascii_case(HUMVEE_MISSILE_WEAPON_AIR)
+                }) || self.weapon_name_for_slot(2).is_some_and(|w| {
+                    w.eq_ignore_ascii_case(HUMVEE_MISSILE_WEAPON_AIR)
+                }))
+        };
 
         if secondary_ok {
             if scud_prefer_toxin || quad_prefer_aa || avenger_prefer_aa || humvee_prefer_aa {
@@ -1065,23 +1101,39 @@ impl Object {
         }
     }
 
+    /// C++ `WeaponTemplate::isContactWeapon` (Weapon.cpp:531): authored
+    /// attack range only, from the selected rule or the live WeaponStore
+    /// template for this slot. No name heuristic (hq-2qedt.45/.50).
+    pub(in crate::game_logic) fn is_slot_contact_weapon(&self, slot: u8) -> bool {
+        if let Some(rule) = self.selected_native_weapon_rule(slot) {
+            return rule.is_contact_weapon();
+        }
+        let Some(name) = self.authored_weapon_name_for_slot(slot) else {
+            return false;
+        };
+        crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
+            store
+                .find_weapon_template(name)
+                .map(|wt| wt.is_contact_weapon())
+        })
+        .ok()
+        .flatten()
+        .unwrap_or(false)
+    }
+
     /// Leftover `Weapon::isWithinTargetPitch` via leftover-backed loft limits.
     fn is_slot_within_target_pitch(&self, slot: u8, victim: &Object) -> bool {
         use crate::game_logic::weapon_bootstrap::{
-            host_is_contact_weapon_name, host_target_pitch_limits_for_weapon_name,
-            is_pitch_within_limits_geom,
+            host_target_pitch_limits_for_weapon_name, is_pitch_within_limits_geom,
         };
+        // Weapon.cpp:2757: isContactWeapon() || !isPitchLimited() → true.
+        if self.is_slot_contact_weapon(slot) {
+            return true;
+        }
         // Pitch belongs to this concrete WeaponSet entry. The legacy
         // secondary-name fallback is not an authored SECONDARY declaration.
         let name = self.authored_weapon_name_for_slot(slot).unwrap_or("");
         let selected = self.selected_native_weapon_rule(slot);
-        let contact = selected
-            .as_ref()
-            .map(|rule| rule.is_contact_weapon())
-            .unwrap_or_else(|| !name.is_empty() && host_is_contact_weapon_name(name));
-        if contact {
-            return true;
-        }
         let limits = selected
             .as_ref()
             .map(
@@ -1108,13 +1160,29 @@ impl Object {
         self.is_weapon_slot_on_turret(slot) && self.is_trying_to_aim_at_target(victim.id)
     }
 
-    /// Leftover `TurretAI::isWeaponSlotOnTurret` (ControlledWeaponSlots bit).
+    /// C++ `AIUpdateInterface::isWeaponSlotOnTurret*` loops every TurretAI
+    /// (AIUpdate.cpp:711-720); true when any turret controls `slot`.
     pub fn is_weapon_slot_on_turret(&self, slot: u8) -> bool {
-        if !self.turret_runtime.has_authored_turret && !self.turret_enabled {
-            return false;
+        self.which_turret_for_weapon_slot(slot).is_some()
+    }
+
+    /// C++ `AIUpdateInterface::getWhichTurretForWeaponSlot` (AIUpdate.cpp:756-770):
+    /// first of `m_turretAI[MAX_TURRETS]` whose `TurretAI::isWeaponSlotOnTurret`
+    /// holds. `Some(0)` = TURRET_MAIN (`turret_runtime`), `Some(1)` = TURRET_ALT
+    /// (`alt_turret_runtime`), `None` = TURRET_INVALID.
+    pub fn which_turret_for_weapon_slot(&self, slot: u8) -> Option<usize> {
+        fn controls(mask: u32, slot: u8) -> bool {
+            slot < 3 && (mask & (1u32 << slot)) != 0
         }
-        let mask = self.turret_runtime.controlled_weapon_slots;
-        slot < 3 && (mask & (1u32 << slot)) != 0
+        if (self.turret_runtime.has_authored_turret || self.turret_ai.turret_enabled)
+            && controls(self.turret_runtime.controlled_weapon_slots, slot)
+        {
+            return Some(0);
+        }
+        self.alt_turret_runtime
+            .as_ref()
+            .filter(|alt| alt.has_authored_turret && controls(alt.controlled_weapon_slots, slot))
+            .map(|_| 1)
     }
 
     /// C++ WeaponSet.cpp:869-877 — PreferredAgainst KindOf match, ready unless
@@ -1433,13 +1501,13 @@ impl Object {
         rel_thresh: f32,
     ) -> bool {
         let desired = Self::normalize_angle_rad(desired_rel_rad);
-        let orig = self.turret_angle_deg.to_radians();
+        let orig = self.turret_ai.turret_angle_deg.to_radians();
         let mut actual = Self::normalize_angle_rad(orig);
-        let turn_rate = (self.turret_turn_rate_rad * rate_modifier.max(0.0)).max(0.0);
+        let turn_rate = (self.turret_ai.turret_turn_rate_rad * rate_modifier.max(0.0)).max(0.0);
         let angle_diff = Self::normalize_angle_rad(desired - actual);
         if angle_diff.abs() < turn_rate {
             actual = desired;
-            self.turret_rotating = false;
+            self.turret_ai.turret_rotating = false;
         } else {
             if angle_diff > 0.0 {
                 actual += turn_rate;
@@ -1447,9 +1515,9 @@ impl Object {
                 actual -= turn_rate;
             }
             actual = Self::normalize_angle_rad(actual);
-            self.turret_rotating = true;
+            self.turret_ai.turret_rotating = true;
         }
-        self.turret_angle_deg = actual.to_degrees();
+        self.turret_ai.turret_angle_deg = actual.to_degrees();
         let aligned = Self::normalize_angle_rad(actual - desired).abs() <= rel_thresh.max(0.0);
         aligned
     }
@@ -1463,8 +1531,8 @@ impl Object {
         rate_modifier: f32,
     ) -> bool {
         let desired = Self::normalize_angle_rad(desired_pitch_rad);
-        let mut actual = Self::normalize_angle_rad(self.turret_pitch_deg.to_radians());
-        let pitch_rate = (self.turret_turn_rate_rad * rate_modifier.max(0.0)).max(0.0);
+        let mut actual = Self::normalize_angle_rad(self.turret_ai.turret_pitch_deg.to_radians());
+        let pitch_rate = (self.turret_ai.turret_turn_rate_rad * rate_modifier.max(0.0)).max(0.0);
         let diff = Self::normalize_angle_rad(desired - actual);
         if diff.abs() < pitch_rate {
             actual = desired;
@@ -1473,36 +1541,36 @@ impl Object {
         } else {
             actual = Self::normalize_angle_rad(actual - pitch_rate);
         }
-        self.turret_pitch_deg = actual.to_degrees();
+        self.turret_ai.turret_pitch_deg = actual.to_degrees();
         let aligned = Self::normalize_angle_rad(actual - desired).abs() <= 1e-4;
         aligned
     }
 
     pub fn set_turret_target_object(&mut self, victim: Option<ObjectId>, force_attacking: bool) {
-        if !self.turret_enabled {
+        if !self.turret_ai.turret_enabled {
             return;
         }
         self.turret_runtime.target_pos = None;
         self.turret_runtime.victim_team = None;
         match victim {
             None => {
-                self.turret_target_id = None;
-                self.turret_force_attacking = false;
+                self.turret_ai.turret_target_id = None;
+                self.turret_ai.turret_force_attacking = false;
                 if matches!(
-                    self.turret_substate,
+                    self.turret_ai.turret_substate,
                     TurretSubState::Aim | TurretSubState::Fire
                 ) {
-                    self.turret_substate = TurretSubState::Hold;
+                    self.turret_ai.turret_substate = TurretSubState::Hold;
                 }
             }
             Some(id) => {
-                self.turret_target_id = Some(id);
-                self.turret_force_attacking = force_attacking;
+                self.turret_ai.turret_target_id = Some(id);
+                self.turret_ai.turret_force_attacking = force_attacking;
                 if !matches!(
-                    self.turret_substate,
+                    self.turret_ai.turret_substate,
                     TurretSubState::Aim | TurretSubState::Fire
                 ) {
-                    self.turret_substate = TurretSubState::Aim;
+                    self.turret_ai.turret_substate = TurretSubState::Aim;
                 }
             }
         }
@@ -1510,7 +1578,7 @@ impl Object {
 
     /// C++ TurretAI::isTryingToAimAtTarget residual.
     pub fn is_trying_to_aim_at_target(&self, victim: ObjectId) -> bool {
-        self.turret_substate == TurretSubState::Aim && self.turret_target_id == Some(victim)
+        self.turret_ai.turret_substate == TurretSubState::Aim && self.turret_ai.turret_target_id == Some(victim)
     }
 
     pub fn relative_angle_2d_to(&self, target_pos: Vec3) -> f32 {

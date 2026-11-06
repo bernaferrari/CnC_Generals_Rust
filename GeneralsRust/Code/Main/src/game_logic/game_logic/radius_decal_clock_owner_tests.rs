@@ -105,7 +105,7 @@ impl RestoreInputs {
 impl Drop for RestoreInputs {
     fn drop(&mut self) {
         let native = gamelogic::system::game_logic::get_game_logic();
-        let mut logic = native.lock().unwrap();
+        let mut logic = native.lock().unwrap_or_else(|p| p.into_inner());
         logic.set_current_frame(self.native_frame);
         logic.set_draw_icon_ui(self.draw_icon_ui);
         drop(logic);

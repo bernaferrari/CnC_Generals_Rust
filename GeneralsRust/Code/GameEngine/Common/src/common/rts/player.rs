@@ -222,26 +222,26 @@ pub trait PlayerObjectWorld: Send + Sync + std::fmt::Debug {
     }
 }
 
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static PLAYER_OBJECT_WORLD: RefCell<Option<Arc<dyn PlayerObjectWorld>>> =
-        const { RefCell::new(None) };
-}
-
 pub fn set_player_object_world(world: Arc<dyn PlayerObjectWorld>) {
-    PLAYER_OBJECT_WORLD.with_borrow_mut(|slot| {
-        *slot = Some(world);
-    });
+    *crate::common::common_services::common_services()
+        .player_object_world
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(world);
 }
 
 pub fn clear_player_object_world() {
-    PLAYER_OBJECT_WORLD.with_borrow_mut(|slot| {
-        *slot = None;
-    });
+    *crate::common::common_services::common_services()
+        .player_object_world
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = None;
 }
 
 pub fn get_player_object_world() -> Option<Arc<dyn PlayerObjectWorld>> {
-    PLAYER_OBJECT_WORLD.with_borrow(|slot| slot.clone())
+    crate::common::common_services::common_services()
+        .player_object_world
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 // =========================================================

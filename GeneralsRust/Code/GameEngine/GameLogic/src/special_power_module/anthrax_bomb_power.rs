@@ -89,8 +89,8 @@ impl AnthraxBombPower {
         if !self.data.bomb_template.is_empty() {
             if let Some(template) = TheThingFactory::find_template(self.data.bomb_template.as_str())
             {
-                let list = player_list()
-                    .read()
+                let __player_list_arc = player_list();
+                    let list = __player_list_arc.read()
                     .map_err(|_| "PlayerList lock poisoned".to_string())?;
                 let player = list
                     .get_player(player_id as Int)

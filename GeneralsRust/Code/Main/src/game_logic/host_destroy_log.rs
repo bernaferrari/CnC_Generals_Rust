@@ -1,25 +1,29 @@
 //! Frame-local host destroy log for GameWorld shadow parity.
 
 use super::ObjectId;
-use std::cell::RefCell;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HostDestroyEvent {
     pub id: ObjectId,
 }
 
-thread_local! {
-    static LOG: RefCell<Vec<HostDestroyEvent>> = RefCell::new(Vec::new());
+fn with_log_mut<R>(f: impl FnOnce(&mut Vec<HostDestroyEvent>) -> R) -> R {
+    let services = crate::main_services::main_services();
+    let mut log = services
+        .host_destroy_log
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    f(&mut log)
 }
 
 pub fn record(id: ObjectId) {
-    LOG.with(|log| log.borrow_mut().push(HostDestroyEvent { id }));
+    with_log_mut(|log| log.push(HostDestroyEvent { id }));
 }
 
 pub fn drain() -> Vec<HostDestroyEvent> {
-    LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
+    with_log_mut(std::mem::take)
 }
 
 pub fn clear() {
-    LOG.with(|log| log.borrow_mut().clear());
+    with_log_mut(|log| log.clear());
 }

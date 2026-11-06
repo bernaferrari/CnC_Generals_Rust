@@ -66,7 +66,6 @@ use winit::{
     keyboard::{Key, NamedKey},
     window::{Window, WindowAttributes},
 };
-use ww3d_core::ww3d::WW3D;
 use ww3d_engine::{self, EngineConfig, EngineError, FrameTiming};
 use ww3d_renderer_3d::core::error::Error as RendererError;
 
@@ -102,6 +101,7 @@ mod dispatch;
 mod display_clock;
 mod eva_delivery;
 mod fps_limiter;
+mod golden_capture;
 mod host;
 mod host_authority;
 mod hotkeys;

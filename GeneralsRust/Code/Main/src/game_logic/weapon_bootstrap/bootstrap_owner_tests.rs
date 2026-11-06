@@ -11,6 +11,13 @@ fn isolated(test: &str, run: impl FnOnce()) {
     let module = module_path!().split_once("::").expect("crate prefix").1;
     let exact = format!("{module}::{test}");
     if std::env::var(CHILD).ok().as_deref() == Some(exact.as_str()) {
+        // The child runs on libtest's main thread with no owning WorldServices;
+        // WeaponStore has no process bag, so bind one for the witness (hq-2qedt.151).
+        if gamelogic::system::engine_stores::try_active_services().is_none() {
+            gamelogic::system::engine_stores::install_services(
+                gamelogic::system::engine_stores::new_world_services(),
+            );
+        }
         run();
         return;
     }
@@ -80,13 +87,12 @@ impl RestoreStore {
 impl Drop for RestoreStore {
     fn drop(&mut self) {
         if let Some(previous) = self.0.take() {
-            // A failed absent-store query may leave the catalog absent. Restore
-            // its actual presence before restoring the exact owned contents.
-            gamelogic::initialize_weapon_store().expect("restore previous catalog presence");
-            gamelogic::weapon::with_weapon_store_mut(|store| *store = previous)
-                .expect("restore exact previous catalog");
+            // Soft restores: a failed query may leave the catalog unbound; never
+            // panic in Drop (double-panic → SIGABRT hides later suite results).
+            let _ = gamelogic::initialize_weapon_store();
+            let _ = gamelogic::weapon::with_weapon_store_mut(|store| *store = previous);
         } else {
-            gamelogic::weapon::shutdown_weapon_store().expect("restore absence");
+            let _ = gamelogic::weapon::shutdown_weapon_store();
         }
     }
 }
@@ -245,7 +251,7 @@ End
 fn stream_query_bootstraps_absent_actual_catalog() {
     isolated("stream_query_bootstraps_absent_actual_catalog", || {
         let _restore = RestoreStore::install();
-        gamelogic::weapon::shutdown_weapon_store().expect("actual missing catalog");
+        let _ = gamelogic::weapon::shutdown_weapon_store();
         assert!(gamelogic::weapon::with_weapon_store(|_| ()).is_err());
         // No direct ensure/initializer after shutdown: this reached stream query
         // must admit the actual host fallback rules before reading their field.

@@ -68,6 +68,7 @@ use ww3d_core::w3d_string_from_bytes;
 use ww3d_core::*;
 use ww3d_gpu::device::GpuDevice;
 
+mod bind_cache;
 mod cast_ray_aligned;
 mod collect_billboard_xform;
 mod dx8;
@@ -414,3 +415,5 @@ pub const MESH_SYSTEM_SRC: &str = concat!(
     include_str!("materials.rs"),
     include_str!("render_obj.rs"),
 );
+
+pub(crate) use static_sort::{StaticSortState, default_static_sort_state};

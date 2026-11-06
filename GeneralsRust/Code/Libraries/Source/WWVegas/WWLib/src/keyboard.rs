@@ -1,7 +1,9 @@
 //! Keyboard input handling (ported from WWLib keyboard.cpp/h).
 
 use crate::msgloop::windows_message_handler;
+use crate::process_state::WwLibRuntime;
 use crate::xmouse::with_mouse_cursor;
+use std::sync::Arc;
 
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, WPARAM};
@@ -42,6 +44,8 @@ pub struct WWKeyboardClass {
     buffer: [u16; 256],
     head: usize,
     tail: usize,
+    /// Optional WWLib session for mouse coordinate conversion.
+    pub lib: Option<Arc<WwLibRuntime>>,
 }
 
 impl WWKeyboardClass {
@@ -53,6 +57,7 @@ impl WWKeyboardClass {
             buffer: [0; 256],
             head: 0,
             tail: 0,
+            lib: None,
         }
     }
 
@@ -171,7 +176,9 @@ impl WWKeyboardClass {
             }
             let mut x = point.x;
             let mut y = point.y;
-            let _ = with_mouse_cursor(|cursor| cursor.convert_coordinate(&mut x, &mut y));
+            if let Some(lib) = self.lib.as_deref() {
+                let _ = with_mouse_cursor(lib, |cursor| cursor.convert_coordinate(&mut x, &mut y));
+            }
 
             let mut processed = false;
             match message {
@@ -313,7 +320,9 @@ impl WWKeyboardClass {
 
     fn fill_buffer_from_system(&mut self) {
         if !self.is_buffer_full() {
-            windows_message_handler();
+            if let Some(lib) = self.lib.as_ref() {
+                windows_message_handler(lib);
+            }
         }
     }
 

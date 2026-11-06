@@ -1093,6 +1093,7 @@ mod tests {
 
     #[test]
     fn test_chunk_type_conversion() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(W3DChunkType::from(0x00000000), W3DChunkType::Mesh);
         // C++ w3d_file.h assigns hierarchy trees to 0x100, not 0x1.
         assert_eq!(W3DChunkType::from(0x00000100), W3DChunkType::Hierarchy);
@@ -1102,6 +1103,7 @@ mod tests {
 
     #[test]
     fn test_bounding_box_calculation() {
+        crate::test_support::ensure_ambient_host();
         let vertices = vec![
             Vertex {
                 position: Vec3::new(-1.0, -1.0, -1.0),

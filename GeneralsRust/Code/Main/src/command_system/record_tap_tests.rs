@@ -578,7 +578,8 @@ fn logic_crc_message_carries_local_player_index() {
             let mut state = ReplayPendingState::default();
             clear_command_list();
             {
-                let mut list = gamelogic::player::ThePlayerList()
+                let player_list = gamelogic::player::ThePlayerList();
+                let mut list = player_list
                     .write()
                     .unwrap_or_else(|e| e.into_inner());
                 list.clear();
@@ -606,7 +607,8 @@ fn logic_crc_message_carries_local_player_index() {
                 "MSG_LOGIC_CRC must be attributed to the local player slot"
             );
             {
-                let mut list = gamelogic::player::ThePlayerList()
+                let player_list = gamelogic::player::ThePlayerList();
+                let mut list = player_list
                     .write()
                     .unwrap_or_else(|e| e.into_inner());
                 list.clear();
@@ -948,7 +950,8 @@ fn slow_client_pump_records_each_logic_crc_exactly_once() {
             }
             // Local player in slot 2 so the recorded attribution is non-zero.
             {
-                let mut list = gamelogic::player::ThePlayerList()
+                let player_list = gamelogic::player::ThePlayerList();
+                let mut list = player_list
                     .write()
                     .unwrap_or_else(|e| e.into_inner());
                 list.clear();
@@ -1011,10 +1014,13 @@ fn slow_client_pump_records_each_logic_crc_exactly_once() {
                 &[2, 2, 2],
                 "each recorded MSG_LOGIC_CRC carries the local player slot"
             );
-            gamelogic::player::ThePlayerList()
-                .write()
-                .unwrap_or_else(|e| e.into_inner())
-                .clear();
+            {
+                let player_list = gamelogic::player::ThePlayerList();
+                player_list
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clear();
+            }
         },
     );
 }
@@ -1026,7 +1032,7 @@ fn native_client_stream_routes_once_to_receiving_world_without_core_player_queue
         module_path!(),
         "native_client_stream_routes_once_to_receiving_world_without_core_player_queue",
         || {
-            let client = game_client::core::GameClient::new().unwrap();
+            let mut client = game_client::core::GameClient::new().unwrap();
             let mut owner = GameLogic::new();
             let mut peer = GameLogic::new();
             let ambient_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -1052,6 +1058,8 @@ fn native_client_stream_routes_once_to_receiving_world_without_core_player_queue
                             .receive_client_messages(messages)
                             .map_err(game_client::core::GameClientError::InvalidOperation)
                     },
+                    0,
+                    0
                 )
                 .unwrap();
             assert_eq!(deliveries, 1);
@@ -1071,6 +1079,8 @@ fn native_client_stream_routes_once_to_receiving_world_without_core_player_queue
                 .pump_message_stream_to_receiving_owner(
                     owner.replay_pending.recorder_owned(),
                     &mut |_| panic!("empty second pump must not redeliver the batch"),
+                    0,
+                    0
                 )
                 .unwrap();
             owner.replay_pending.clear();
@@ -1084,6 +1094,8 @@ fn native_client_stream_routes_once_to_receiving_world_without_core_player_queue
                             .receive_client_messages(messages)
                             .map_err(game_client::core::GameClientError::InvalidOperation)
                     },
+                    0,
+                    0
                 )
                 .unwrap();
             assert_eq!(owner.replay_pending.take_incoming().len(), 1);
@@ -1097,6 +1109,8 @@ fn native_client_stream_routes_once_to_receiving_world_without_core_player_queue
                             "receiving rejection".into(),
                         ))
                     },
+                    0,
+                    0
                 )
                 .unwrap_err();
             assert!(error.to_string().contains("receiving rejection"));
@@ -1134,7 +1148,7 @@ fn native_world_bind_reset_preserves_foreign_core_callback_and_explicit_command_
                         .extend(messages.iter().map(|message| message.get_player_index()));
                 }),
             ));
-            let client = game_client::core::GameClient::new().unwrap();
+            let mut client = game_client::core::GameClient::new().unwrap();
             let mut first = GameLogic::new();
             let mut second = GameLogic::new();
             // Both constructors, binds and actual resets must preserve the
@@ -1170,6 +1184,8 @@ fn native_world_bind_reset_preserves_foreign_core_callback_and_explicit_command_
                             .receive_client_messages(messages)
                             .map_err(game_client::core::GameClientError::InvalidOperation)
                     },
+                    0,
+                    0
                 )
                 .unwrap();
             let first_batch = first.replay_pending.take_incoming();
@@ -1187,6 +1203,8 @@ fn native_world_bind_reset_preserves_foreign_core_callback_and_explicit_command_
                             .receive_client_messages(messages)
                             .map_err(game_client::core::GameClientError::InvalidOperation)
                     },
+                    0,
+                    0
                 )
                 .unwrap();
             let second_batch = second.replay_pending.take_incoming();
@@ -1197,6 +1215,8 @@ fn native_world_bind_reset_preserves_foreign_core_callback_and_explicit_command_
                 .pump_message_stream_to_receiving_owner(
                     second.replay_pending.recorder_owned(),
                     &mut |_| panic!("native batch delivered twice"),
+                    0,
+                    0
                 )
                 .unwrap();
             assert_eq!(
@@ -1253,7 +1273,7 @@ fn native_client_culls_by_actual_receiving_replay_reader_while_global_recorder_i
             init_recorder();
             with_recorder_mut(|recorder| recorder.reset());
             assert!(!host_recorder_is_playback());
-            let client = game_client::core::GameClient::new().unwrap();
+            let mut client = game_client::core::GameClient::new().unwrap();
             append_game_message_to_stream(&GameMessage::with_player(GameMessageType::DoStop, 7));
             let mut delivered = 0;
             client
@@ -1266,6 +1286,8 @@ fn native_client_culls_by_actual_receiving_replay_reader_while_global_recorder_i
                             .count();
                         Ok(())
                     },
+                    0,
+                    0
                 )
                 .unwrap();
             assert_eq!(

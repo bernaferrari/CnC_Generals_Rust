@@ -31,6 +31,8 @@ fn unit_render_input_world_matrix_applies_mesh_scale() {
         terrain_decal_opacity: 0.0,
         turret_angle_deg: 0.0,
         turret_pitch_deg: 0.0,
+        alt_turret_angle_deg: 0.0,
+        alt_turret_pitch_deg: 0.0,
         selected: false,
         selection_radius: 5.0,
         selection_flash_remaining: 0,
@@ -241,6 +243,8 @@ fn unit_render_input_fixture() -> UnitRenderInput {
         terrain_decal_opacity: 0.0,
         turret_angle_deg: 0.0,
         turret_pitch_deg: 0.0,
+        alt_turret_angle_deg: 0.0,
+        alt_turret_pitch_deg: 0.0,
         selected: false,
         selection_radius: 5.0,
         selection_flash_remaining: 0,
@@ -1263,7 +1267,7 @@ fn presentation_freezes_transport_kind_damage_residual() {
         obj.has_overlord_gattling_addon = true;
         obj.has_overlord_propaganda_addon = true;
         obj.demo_suicided_detonating = true;
-        obj.turret_holding = true;
+        obj.turret_ai.turret_holding = true;
         obj.last_damage_source = Some(src_id);
     }
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
@@ -1429,9 +1433,9 @@ fn presentation_freezes_turret_and_weapon_bonus_residual() {
         .expect("id");
     {
         let obj = logic.host_object_mut(id).expect("obj");
-        obj.turret_angle_deg = 33.0;
-        obj.turret_pitch_deg = 12.0;
-        obj.turret_idle_scanning = true;
+        obj.turret_ai.turret_angle_deg = 33.0;
+        obj.turret_ai.turret_pitch_deg = 12.0;
+        obj.turret_ai.turret_idle_scanning = true;
         obj.weapon_bonus_enthusiastic = true;
         obj.weapon_bonus_horde = true;
         obj.weapon_bonus_frenzy = true;
@@ -2020,15 +2024,20 @@ fn presentation_freezes_dozer_construct_can_make_cameos() {
     assert!(!plant2.available);
     assert_eq!(plant2.can_make, CANMAKE_NO_MONEY);
 
-    let mut bar = game_client::gui::control_bar::ControlBar::new();
-    frame2.apply_to_control_bar(&mut bar);
-    assert!(
-        bar.presentation_can_make()
-            .iter()
-            .any(|(n, s)| n.contains("PowerPlant") && *s == CANMAKE_NO_MONEY),
-        "ControlBar must receive dozer CanMake gray residual: {:?}",
-        bar.presentation_can_make()
-    );
+    let owner = game_client::gui::window_manager::WindowManagerOwner::new();
+    game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+        owner.with_manager(|manager| {
+            let mut bar = game_client::gui::control_bar::ControlBar::new();
+            frame2.apply_to_control_bar(&mut bar, manager, effects);
+            assert!(
+                bar.presentation_can_make()
+                    .iter()
+                    .any(|(n, s)| n.contains("PowerPlant") && *s == CANMAKE_NO_MONEY),
+                "ControlBar must receive dozer CanMake gray residual: {:?}",
+                bar.presentation_can_make()
+            );
+        });
+    });
 }
 
 fn presentation_freezes_public_timer_superweapons() {

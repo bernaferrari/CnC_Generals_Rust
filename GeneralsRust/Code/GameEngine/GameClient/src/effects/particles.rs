@@ -682,6 +682,7 @@ mod tests {
 
     #[test]
     fn test_particle_creation() {
+        crate::test_support::ensure_ambient_host();
         let position = Vec3::new(1.0, 2.0, 3.0);
         let velocity = Vec3::new(0.5, 1.0, 0.0);
         let particle = Particle::new(position, velocity, 1.0, [1.0, 1.0, 1.0, 1.0], 5.0);
@@ -695,6 +696,7 @@ mod tests {
 
     #[test]
     fn test_particle_aging() {
+        crate::test_support::ensure_ambient_host();
         let mut particle = Particle::new(
             Vec3::new(0.0, 0.0, 0.0),
             Vec3::new(0.0, 0.0, 0.0),
@@ -716,6 +718,7 @@ mod tests {
 
     #[test]
     fn test_particle_forces() {
+        crate::test_support::ensure_ambient_host();
         let particle = Particle::new(
             Vec3::new(0.0, 0.0, 0.0),
             Vec3::new(1.0, 0.0, 0.0),
@@ -737,6 +740,7 @@ mod tests {
 
     #[test]
     fn test_particle_emitter() {
+        crate::test_support::ensure_ambient_host();
         let mut emitter = ParticleEmitter::new(Vec3::new(0.0, 0.0, 0.0));
         emitter.emission_rate = 100.0; // 100 particles per second
 
@@ -747,6 +751,7 @@ mod tests {
 
     #[test]
     fn test_particle_system() {
+        crate::test_support::ensure_ambient_host();
         let mut system =
             ParticleSystem::new(1, ParticleType::Explosion, Vec3::new(0.0, 0.0, 0.0));
 
@@ -768,6 +773,7 @@ mod tests {
 
     #[test]
     fn test_particle_system_desc() {
+        crate::test_support::ensure_ambient_host();
         let desc = ParticleSystemDesc::explosion()
             .at_position(10.0, 20.0, 30.0)
             .with_scale(2.0)
@@ -785,6 +791,7 @@ mod tests {
 
     #[test]
     fn test_particle_renderer() {
+        crate::test_support::ensure_ambient_host();
         let renderer = ParticleRenderer::new();
         let system = ParticleSystem::new(1, ParticleType::Fire, Vec3::new(0.0, 0.0, 0.0));
 

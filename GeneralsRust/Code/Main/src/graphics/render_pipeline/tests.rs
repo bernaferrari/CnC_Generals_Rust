@@ -34,9 +34,10 @@ fn bridge_test_animation(name: &str, x: f32) -> crate::assets::W3dAnimation {
 #[test]
 fn visual_world_state_reset_clears_object_timeline_components() {
     use std::collections::HashMap;
+    use crate::assets::NativeDrawOwnerId;
 
     let mut animation_states = HashMap::from([(
-        (1_u32, 2_u32),
+        (NativeDrawOwnerId::Actor(1), 2_u32),
         ObjectVisualState {
             animation: Some(ObjectAnimationState {
                 animation_binding_key: None,

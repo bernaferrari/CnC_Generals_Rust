@@ -340,6 +340,14 @@ impl HiveStructureBody {
 }
 
 impl BodyModuleInterface for HiveStructureBody {
+    fn hive_redirect_flags(&self, damage_type: crate::damage::DamageType) -> Option<(bool, bool)> {
+        Some((
+            self.module_data
+                .damage_types_to_propagate_to_slaves
+                .test_damage_type(damage_type),
+            self.module_data.damage_types_to_swallow.test_damage_type(damage_type),
+        ))
+    }
     fn attempt_damage(&mut self, damage_info: &mut DamageInfo) -> BodyResult<()> {
         self.attempt_damage_with_context_inner(damage_info, None)
     }

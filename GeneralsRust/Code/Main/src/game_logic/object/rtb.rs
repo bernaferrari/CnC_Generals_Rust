@@ -673,15 +673,14 @@ impl Object {
 
     fn slot_is_contact_weapon(&self, slot: u8) -> bool {
         use crate::game_logic::weapon_bootstrap::{
-            PATHFIND_CELL_SIZE, host_is_contact_weapon_name, is_contact_effective_range,
+            PATHFIND_CELL_SIZE, is_contact_effective_range,
         };
         let Some(weapon) = self.weapon_slot(slot) else {
             return false;
         };
         let under = PATHFIND_CELL_SIZE * 0.25;
-        self.weapon_name_for_slot(slot)
-            .is_some_and(host_is_contact_weapon_name)
-            || is_contact_effective_range(weapon.range - under)
+        // C++ Weapon.cpp:531 isContactWeapon: authored range only.
+        is_contact_effective_range(weapon.range - under)
     }
 
     /// C++ Weapon.cpp:2161-2171 — try abutment 1, then 2 if out of max range.
@@ -785,6 +784,10 @@ impl Object {
                 continue;
             }
             any_limited = true;
+            // Weapon.cpp:2757: contact weapons pass isWithinTargetPitch.
+            if self.is_slot_contact_weapon(slot) {
+                return true;
+            }
             if is_pitch_within_limits_geom(src, tgt, &limits, src_half, tgt_above, tgt_below) {
                 return true;
             }
@@ -1055,6 +1058,30 @@ mod tests {
             atk.is_within_attack_range_for_slot(0, &bld),
             "touching the building must pass contact collide"
         );
+    }
+
+    /// C++ Weapon.cpp:531 `isContactWeapon` is purely
+    /// `getAttackRange() < PATHFIND_CELL_SIZE`; the weapon name is irrelevant
+    /// (hq-2qedt.45).
+    #[test]
+    fn contact_weapon_is_range_only_not_name_heuristic() {
+        use crate::game_logic::{Team, ThingTemplate, Weapon};
+        let mut t = ThingTemplate::new("LongSuicideAtk");
+        t.primary_weapon_name = Some("SuicideLongRangeTest".to_string());
+        let mut atk = Object::new(t, ObjectId(1), Team::GLA);
+        atk.weapon = Some(Weapon {
+            range: 200.0,
+            ..Weapon::default()
+        });
+        assert!(
+            !atk.slot_is_contact_weapon(0),
+            "long authored range must not be contact just because of a suicide-like name"
+        );
+        atk.weapon = Some(Weapon {
+            range: 5.0,
+            ..Weapon::default()
+        });
+        assert!(atk.slot_is_contact_weapon(0), "short authored range is contact");
     }
 
     #[test]

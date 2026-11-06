@@ -138,7 +138,7 @@ fn same_id_peer_reset_does_not_redirect_receiving_ride_tree_fx() {
         terrain: Some(&mut terrain),
         audio: Some(&mut audio),
         ..Default::default()
-    })
+})
     .unwrap();
     assert_eq!(audio.0, ["HijackerTreeSound"]);
     assert!(terrain.tree_buffer_mut().pending_fx_events().is_empty());

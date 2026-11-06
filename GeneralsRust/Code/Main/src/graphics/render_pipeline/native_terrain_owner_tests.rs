@@ -9,26 +9,26 @@ fn visual(raw: u8) -> game_client::terrain::terrain_visual::TerrainVisualImpl {
 #[test]
 #[ignore = "requires native GPU for actual RenderPipeline construction"]
 fn two_actual_pipeline_terrain_owners_accept_canonical_bytes_without_global_selection() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 16,
         height: 16,
         ..Default::default()
     })
     .unwrap();
     let graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
-    let mut a = RenderPipeline::initialize(&graphics).unwrap();
+    let mut a = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     assert!(
         a.native_terrain().is_none(),
         "pipeline construction is inert"
     );
     a.native_terrain = Some(visual(40));
-    let mut b = RenderPipeline::initialize(&graphics).unwrap();
+    let mut b = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     assert!(b.native_terrain().is_none());
     assert_eq!(a.native_terrain().unwrap().get_raw_map_height(1, 1), 40);
     b.native_terrain = Some(visual(80));
@@ -111,5 +111,5 @@ fn two_actual_pipeline_terrain_owners_accept_canonical_bytes_without_global_sele
     drop(a);
     drop(b);
     drop(graphics);
-    ww3d_engine::shutdown().unwrap();
+    drop(engine);
 }

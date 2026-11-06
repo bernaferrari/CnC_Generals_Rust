@@ -124,7 +124,7 @@ fn ordinary_boundary_admits_owned_damage_and_removes_dead_objects_before_next_fr
     let (mut logic, id, mut shadow) = fixture("OwnedFrameDamage", 100.0);
     let entity = shadow.entity_for_host(id).unwrap();
     let (object, events) = logic.host_object_and_health_events_mut(id).unwrap();
-    assert!(!object.take_damage_from(40.0, None, events));
+    assert!(!object.take_damage_from(40.0, None, 0, events));
     assert_eq!(logic.host_authoritative_health(id), Some(60.0));
     shadow
         .world_mut()
@@ -320,9 +320,9 @@ fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentati
         AIState::Constructing,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
-    builder.dozer_task_build_target = Some(id);
+    builder.set_dozer_task_build_target(Some(id));
     builder.status.moving = false;
-    builder.dozer_dock_action = Some(builder.get_position());
+    builder.set_dozer_dock_action(Some(builder.get_position()));
     shadow.sync_from_host(&logic);
     // Sleepy UpdateModules cannot wake before frame 1. Frame 0 preserves the
     // scaffold; the next actual frame performs completion and its observation.

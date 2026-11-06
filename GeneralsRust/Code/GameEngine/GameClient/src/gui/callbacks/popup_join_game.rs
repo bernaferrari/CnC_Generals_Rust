@@ -16,7 +16,7 @@ const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
-struct PopupJoinState {
+pub(crate) struct PopupJoinState {
     parent_id: Option<i32>,
     text_entry_id: Option<i32>,
     button_cancel_id: Option<i32>,
@@ -24,12 +24,39 @@ struct PopupJoinState {
     text_entry: Option<Rc<RefCell<GameWindow>>>,
 }
 
+#[cfg(test)]
 thread_local! {
-    static POPUP_JOIN_STATE: Rc<RefCell<PopupJoinState>> = Rc::new(RefCell::new(PopupJoinState::default()));
+    static TEST_POPUP_JOIN_STATE: std::cell::OnceCell<Rc<RefCell<PopupJoinState>>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn popup_join_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<PopupJoinState>> {
+    if let Some(owner) = owner {
+        return owner.popup_join_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().popup_join_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_POPUP_JOIN_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(PopupJoinState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        // No owner / live client: ephemeral scratch (standalone residual without a client).
+        Rc::new(RefCell::new(PopupJoinState::default()))
+    }
 }
 
 fn popup_join_state() -> Rc<RefCell<PopupJoinState>> {
-    POPUP_JOIN_STATE.with(Rc::clone)
+    popup_join_state_on_owner(None)
 }
 
 pub fn popup_join_game_init(
@@ -86,7 +113,7 @@ pub fn popup_join_game_init(
         })(receiving_manager);
     }
 
-    let state_slot = popup_join_state();
+    let state_slot = popup_join_state_on_owner(effects.window_manager_owner);
     let mut state = state_slot.borrow_mut();
     state.parent_id = Some(parent_id);
     state.text_entry_id = Some(text_entry_id);

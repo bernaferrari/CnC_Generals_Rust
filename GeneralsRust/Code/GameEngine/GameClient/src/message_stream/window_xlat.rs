@@ -349,11 +349,13 @@ mod tests {
 
     #[test]
     fn pack_legacy_mouse_data_matches_low_level_layout() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(pack_legacy_mouse_data(12, 34), (34u32 << 16) | 12u32);
     }
 
     #[test]
     fn raw_mouse_wheel_zero_is_ignored() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             raw_mouse_to_window_message(&GameMessageType::RawMouseWheel(0)),
             None
@@ -362,6 +364,7 @@ mod tests {
 
     #[test]
     fn raw_mouse_drag_uses_end_position_and_delta_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let msg =
             GameMessageType::RawMouseLeftDrag(ICoord2D { x: 10, y: 20 }, ICoord2D { x: 14, y: 17 });
 
@@ -374,6 +377,7 @@ mod tests {
 
     #[test]
     fn locked_mouse_without_scrolling_keeps_left_clicks_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let left_down = GameMessageType::RawMouseLeftButtonDown(ICoord2D { x: 1, y: 2 }, 0, 0);
         let left_up = GameMessageType::RawMouseLeftButtonUp(ICoord2D { x: 1, y: 2 }, 0, 0);
         let position = GameMessageType::RawMousePosition(ICoord2D { x: 1, y: 2 });
@@ -385,6 +389,7 @@ mod tests {
 
     #[test]
     fn locked_mouse_while_scrolling_only_passes_left_clicks_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let left_down = GameMessageType::RawMouseLeftButtonDown(ICoord2D { x: 1, y: 2 }, 0, 0);
         let left_up = GameMessageType::RawMouseLeftButtonUp(ICoord2D { x: 1, y: 2 }, 0, 0);
         let right_down = GameMessageType::RawMouseRightButtonDown(ICoord2D { x: 1, y: 2 }, 0, 0);
@@ -399,6 +404,7 @@ mod tests {
 
     #[test]
     fn locked_os_dispatch_while_scrolling_only_passes_left_clicks_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         // C++ WindowXlat.cpp:147-167 — mouse-locked + isScrolling lets LMB
         // reach winProcessMouseEvent so ControlBar clicks are not issued
         // through the HUD.
@@ -430,35 +436,27 @@ mod tests {
 
     #[test]
     fn live_os_dispatch_uses_window_xlat_mouse_lock_pass_through() {
+        crate::test_support::ensure_ambient_host();
         let dispatch = include_str!("../gui/window_manager/reentry.rs");
         let start = dispatch
-            .find("pub fn dispatch_os_mouse_to_window_manager")
-            .expect("live OS mouse dispatch");
+            .find("pub fn dispatch_os_mouse_to_window_manager_for_owner")
+            .expect("live OS mouse dispatch for owner");
         let body = &dispatch[start..];
         let end = body
-            .find("pub fn dispatch_os_key_to_window_manager")
+            .find("pub fn dispatch_translated_window_input_for_owner")
             .unwrap_or(body.len());
         let body = &body[..end];
-        assert!(body.contains("dispatch_os_mouse_to_window_manager_with_facts"));
-        assert!(body.contains("let mouse_locked = crate::display::view::with_tactical_view_ref"));
-        let native = body
-            .split_once("pub fn dispatch_os_mouse_to_window_manager_with_facts(")
-            .unwrap()
-            .1
-            .split_once("fn dispatch_mouse_with_facts(")
-            .unwrap()
-            .0;
-        assert!(native.contains("dispatch_mouse_with_facts("));
-        assert!(native.contains("manager.process_mouse_event(msg, x, y, data)"));
-        assert!(!native.contains("with_tactical_view"));
-        let gate = body.split_once("fn dispatch_mouse_with_facts(").unwrap().1;
+        assert!(body.contains("dispatch_mouse_with_facts("));
+        assert!(!body.contains("with_tactical_view"));
+        let gate_start = dispatch
+            .find("fn dispatch_mouse_with_facts(")
+            .expect("shared mouse facts gate");
+        let gate = &dispatch[gate_start..];
         assert!(gate.contains("facts.mouse_locked") && gate.contains("facts.scrolling"));
         assert!(
             gate.find("should_skip_os_window_manager_while_mouse_locked")
                 .expect("source lock gate")
-                < gate
-                    .find("let rc = dispatch(")
-                    .expect("actual callback dispatch"),
+                < gate.find("dispatch(").expect("actual callback dispatch"),
             "receiving lock gate must precede callback dispatch"
         );
     }

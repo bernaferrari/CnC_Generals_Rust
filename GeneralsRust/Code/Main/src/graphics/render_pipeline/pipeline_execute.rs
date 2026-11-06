@@ -402,9 +402,9 @@ impl RenderPipeline {
             sort_elapsed = sort_started.elapsed();
             // Removed excessive logging
 
-            static LOGGED_STARTUP_RENDER_ITEM_SUMMARY: AtomicBool = AtomicBool::new(false);
+            static LOGGED_STARTUP_RENDER_ITEM_SUMMARY: std::sync::OnceLock<()> = std::sync::OnceLock::new();
             if !self.render_items.is_empty()
-                && !LOGGED_STARTUP_RENDER_ITEM_SUMMARY.swap(true, Ordering::Relaxed)
+                && LOGGED_STARTUP_RENDER_ITEM_SUMMARY.set(()).is_ok()
             {
                 let sample_items: Vec<String> = self
                     .render_items
@@ -457,6 +457,25 @@ impl RenderPipeline {
 
         #[cfg(feature = "game_client")]
         if render_world_scene {
+            // CPU-admitted maps must own GPU pipelines before TerrainGround,
+            // otherwise record_chunk_draws only paints the skybox clear/gradient.
+            if self
+                .native_terrain
+                .as_ref()
+                .is_some_and(|t| !t.debug_gpu_resources_ready())
+            {
+                let device = graphics_system.device_arc();
+                let queue = graphics_system.queue_arc();
+                match self.hydrate_native_terrain_gpu(&device, &queue) {
+                    Ok(true) => {
+                        if self.frame_number <= 3 {
+                            info!("hydrated native terrain GPU before TerrainGround pass");
+                        }
+                    }
+                    Ok(false) => {}
+                    Err(err) => warn!("native terrain GPU hydrate failed: {err}"),
+                }
+            }
             let terrain_started = std::time::Instant::now();
             let motion = self
                 .presentation_frame
@@ -514,7 +533,9 @@ impl RenderPipeline {
                 device: graphics_system.device_arc(),
             };
             let shadow_viewport_px = self.tactical_viewport_pixel_size();
-            self.enqueue_post_frame_callback(move |gpu_frame| {
+            self.enqueue_frame_work(
+                ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::StencilShadows,
+                move |gpu_frame| {
                 let Some(depth_view) = gpu_frame.depth_view_arc() else {
                     return Ok(());
                 };
@@ -532,7 +553,8 @@ impl RenderPipeline {
                     shadow_viewport_px,
                 );
                 Ok(())
-            });
+                },
+            );
 
             // C++ W3DScene order: water (static sort level 2) renders after the
             // shadow passes and before translucent objects / post filters
@@ -553,15 +575,14 @@ impl RenderPipeline {
         let skip_filter_scene = native_receiver.view_filter().filter()
             == game_client::display::view::FilterType::MotionBlur
             && native_receiver.view_filter().skip_render()
-            && ww3d_engine::surface_size()
-                .ok()
-                .is_some_and(|(width, height)| {
-                    self.view_filter_resources.has_scene_capture_for(
-                        width,
-                        height,
-                        graphics_system.color_format(),
-                    )
-                });
+            && {
+                let (width, height) = self.forward_pass.renderer.engine.lock().surface_size();
+                self.view_filter_resources.has_scene_capture_for(
+                    width,
+                    height,
+                    graphics_system.color_format(),
+                )
+            };
         #[cfg(feature = "game_client")]
         if skip_filter_scene {
             // Reusing an image is not a new accepted draw of its ghost objects.
@@ -715,6 +736,10 @@ impl RenderPipeline {
 
         // Removed excessive logging
         let execute_elapsed = execute_started.elapsed();
+        self.debug_last_present_ms = execute_elapsed.as_secs_f32() * 1000.0;
+        self.debug_last_collect_ms = collect_elapsed.as_secs_f32() * 1000.0;
+        self.debug_last_terrain_ms = terrain_elapsed.as_secs_f32() * 1000.0;
+        self.debug_last_forward_ms = forward_elapsed.as_secs_f32() * 1000.0;
         if execute_elapsed >= std::time::Duration::from_millis(200) {
             warn!(
                 "RenderPipeline breakdown: total={:?} collect={:?} sort={:?} terrain={:?} forward={:?} render_world_scene={} render_items={} model_missing={} deferred_loads={}/{}",

@@ -82,6 +82,7 @@ fn assert_unchanged_on_error(bytes: &[u8]) {
 
 #[test]
 fn failed_particle_load_keeps_live_owner_allocator_particles_and_order() {
+    crate::test_support::ensure_ambient_host();
     let bytes = encode(&mut populated());
     for end in [0, 1, 4, 8, bytes.len() / 2, bytes.len() - 1] {
         assert_unchanged_on_error(&bytes[..end]);
@@ -111,6 +112,7 @@ fn payload_with_second_entry(duplicate: bool) -> Vec<u8> {
 
 #[test]
 fn late_unknown_template_or_duplicate_id_cannot_partially_admit_a_particle_list() {
+    crate::test_support::ensure_ambient_host();
     assert_unchanged_on_error(&payload_with_second_entry(false));
     assert_unchanged_on_error(&payload_with_second_entry(true));
 }
@@ -137,6 +139,7 @@ fn saved_particle_payloads(manager: &mut ParticleSystemManager) -> Vec<Vec<u8>> 
 
 #[test]
 fn both_particle_decoders_admit_the_complete_native_payload_in_creation_order() {
+    crate::test_support::ensure_ambient_host();
     let mut source = populated();
     let particle_payloads = saved_particle_payloads(&mut source);
     let bytes = encode(&mut source);
@@ -177,6 +180,7 @@ fn both_particle_decoders_admit_the_complete_native_payload_in_creation_order() 
 
 #[test]
 fn native_load_receipt_covers_only_its_admitted_ids_and_live_namespace() {
+    crate::test_support::ensure_ambient_host();
     let bytes = encode(&mut populated());
     let mut destination = populated();
     let receipt = destination.restore_xfer_bytes(&bytes).unwrap().unwrap();
@@ -220,6 +224,7 @@ fn exhausted_particle_keys() -> ParticleSystemManager {
 
 #[test]
 fn both_particle_decoders_preserve_exhausted_key_bytes_and_future_interpolation() {
+    crate::test_support::ensure_ambient_host();
     let mut source = exhausted_particle_keys();
     let payloads = saved_particle_payloads(&mut source);
     let bytes = encode(&mut source);
@@ -248,6 +253,7 @@ fn both_particle_decoders_preserve_exhausted_key_bytes_and_future_interpolation(
 
 #[test]
 fn both_particle_decoders_reject_late_malformed_keys_without_admission() {
+    crate::test_support::ensure_ambient_host();
     let mut source = exhausted_particle_keys();
     let bytes = encode(&mut source);
     let payload = saved_particle_payloads(&mut source).pop().unwrap();

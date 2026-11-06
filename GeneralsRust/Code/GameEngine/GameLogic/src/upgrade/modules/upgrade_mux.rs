@@ -6,6 +6,24 @@
 //! Original C++ Authors: Johnson, Day, Smallwood, September 2002
 
 use super::super::{UpgradeMask, upgrade_mask_for_name};
+
+/// C++ Module.cpp:277-282 / 291-296 — unknown nonempty non-None names throw INI_INVALID_DATA.
+fn resolve_named_upgrade_mask(name: &str) -> UpgradeMask {
+    if name.is_empty() || name.eq_ignore_ascii_case("None") {
+        return UpgradeMask::none();
+    }
+    let center = super::super::center::get_upgrade_center();
+    let center = center
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    match center.mask_for_name(name) {
+        Some(mask) => mask,
+        None => panic!(
+            "An upgrade module references {name}, which is not an Upgrade (C++ INI_INVALID_DATA)"
+        ),
+    }
+}
+
 use crate::common::*;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
@@ -57,36 +75,32 @@ pub struct UpgradeMuxData {
 
 impl UpgradeMuxData {
     /// Get activation and conflicting masks (lazy compute)
-    /// Matches C++ UpgradeMuxData::getUpgradeActivationMasks
+    /// Matches C++ UpgradeMuxData::getUpgradeActivationMasks (Module.cpp:264-310).
     pub fn get_upgrade_activation_masks(&mut self) -> (UpgradeMask, UpgradeMask) {
-        // Use cached values if available
-        if let (Some(activation), Some(conflicting)) = (self.activation_mask, self.conflicting_mask)
+        // C++ recomputes while name vectors are still populated, then clears them.
+        if self.activation_upgrade_names.is_empty()
+            && self.conflicting_upgrade_names.is_empty()
         {
-            return (activation, conflicting);
+            return (
+                self.activation_mask.unwrap_or_else(UpgradeMask::none),
+                self.conflicting_mask.unwrap_or_else(UpgradeMask::none),
+            );
         }
 
-        // Compute activation mask
         let mut activation = UpgradeMask::none();
         for name in &self.activation_upgrade_names {
-            let mask = upgrade_mask_for_name(name.as_str());
-            activation |= mask;
+            activation |= resolve_named_upgrade_mask(name.as_str());
         }
-        for name in &self.trigger_upgrade_names {
-            let mask = upgrade_mask_for_name(name.as_str());
-            activation |= mask;
-        }
-
-        // Compute conflicting mask
         let mut conflicting = UpgradeMask::none();
         for name in &self.conflicting_upgrade_names {
-            let mask = upgrade_mask_for_name(name.as_str());
-            conflicting |= mask;
+            conflicting |= resolve_named_upgrade_mask(name.as_str());
         }
-
-        // Cache for next time
+        // C++ copies activation names into trigger list, then clears both vectors.
+        self.trigger_upgrade_names = self.activation_upgrade_names.clone();
+        self.activation_upgrade_names.clear();
+        self.conflicting_upgrade_names.clear();
         self.activation_mask = Some(activation);
         self.conflicting_mask = Some(conflicting);
-
         (activation, conflicting)
     }
 
@@ -573,15 +587,42 @@ mod tests {
     /// C++ UpgradeMux::testUpgradeConditions: ConflictsWith is not an always-off switch.
     #[test]
     fn conflicts_with_listed_does_not_block_empty_completed_mask() {
-        let data = UpgradeMuxData {
-            conflicting_upgrade_names: vec![AsciiString::from("Upgrade_HE")],
-            ..Default::default()
-        };
-        let mux = UpgradeMux::new(data);
-        assert!(
-            mux.test_upgrade_conditions(UpgradeMask::none()),
-            "C++ onDie only skips when object/player completed mask intersects ConflictsWith"
-        );
+        use game_engine::common::common_services::{CommonServices, with_common_services};
+        use std::sync::Arc;
+        let services = Arc::new(CommonServices::new());
+        with_common_services(&services, || {
+            let stores = Arc::new(crate::system::engine_stores::EngineStores::new_for_world());
+            crate::system::engine_stores::with_active_stores(&stores, || {
+                crate::upgrade::test_upgrade_mask("Upgrade_HE");
+                let data = UpgradeMuxData {
+                    conflicting_upgrade_names: vec![AsciiString::from("Upgrade_HE")],
+                    ..Default::default()
+                };
+                let mux = UpgradeMux::new(data);
+                assert!(
+                    mux.test_upgrade_conditions(UpgradeMask::none()),
+                    "C++ onDie only skips when object/player completed mask intersects ConflictsWith"
+                );
+            });
+        });
+    }
+
+    #[test]
+    #[test]
+    #[should_panic(expected = "which is not an Upgrade")]
+    fn unknown_upgrade_name_fails_on_first_mask_resolve() {
+        use game_engine::common::common_services::{CommonServices, with_common_services};
+        use std::sync::Arc;
+        let services = Arc::new(CommonServices::new());
+        with_common_services(&services, || {
+            let stores = Arc::new(crate::system::engine_stores::EngineStores::new_for_world());
+            crate::system::engine_stores::with_active_stores(&stores, || {
+                let mut data = UpgradeMuxData::default();
+                data.activation_upgrade_names
+                    .push(AsciiString::from("Upgrade_DefinitelyMissingForMux"));
+                let _ = data.get_upgrade_activation_masks();
+            });
+        });
     }
 
     #[test]

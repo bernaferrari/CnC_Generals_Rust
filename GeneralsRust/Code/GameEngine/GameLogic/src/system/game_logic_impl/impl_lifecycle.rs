@@ -6,6 +6,17 @@ thread_local! {
         const { std::cell::Cell::new(None) };
 }
 
+/// Deletion services backed by the GameLogic that is driving the destroy.
+struct GameLogicDeletionServices<'a> {
+    logic: &'a mut GameLogic,
+}
+
+impl crate::object::ObjectDeletionServices for GameLogicDeletionServices<'_> {
+    fn destroy_object(&mut self, object_id: ObjectID) {
+        self.logic.destroy_object(object_id);
+    }
+}
+
 impl GameLogic {
     /// Execute object cleanup services synchronously on the driving owner.
     fn apply_object_destroy_service(
@@ -28,6 +39,9 @@ impl GameLogic {
             }
             ObjectDestroyServiceAction::SendObjectDestroyed => {
                 self.send_object_destroyed(object_id);
+            }
+            ObjectDestroyServiceAction::DestroyObject(child) => {
+                self.destroy_object(child);
             }
         }
     }
@@ -104,7 +118,8 @@ impl GameLogic {
             self.event_queue.push(GameEvent::ObjectDestroyed(obj_id));
 
             // Remove from partition manager
-            if let Ok(mut ghost_manager) = crate::object::THE_W3D_GHOST_OBJECT_MANAGER.write() {
+            let __w3d_ghosts = crate::object::the_w3d_ghost_object_manager();
+            if let Ok(mut ghost_manager) = __w3d_ghosts.write() {
                 self.partition_manager
                     .detach_object_ghost(obj_id, &mut ghost_manager);
             }
@@ -196,7 +211,8 @@ impl GameLogic {
                     .get_draw_module_info()
                     .iter()
                     .any(|module| module.name.as_str().eq_ignore_ascii_case("W3DDefaultDraw"));
-            if let Ok(mut ghost_manager) = crate::object::THE_W3D_GHOST_OBJECT_MANAGER.write() {
+            let __w3d_ghosts = crate::object::the_w3d_ghost_object_manager();
+            if let Ok(mut ghost_manager) = __w3d_ghosts.write() {
                 self.partition_manager.attach_object_ghost(
                     object_id,
                     ghost_eligible,
@@ -464,7 +480,11 @@ impl GameLogic {
         // obj->onDestroy() then remove WALK_ON_TOP_OF_WALL from the pathfinder
         // and mark the control bar dirty for local special-power objects.
         // Do not split onDestroy across destroyObject / processDestroyList.
-        Object::on_destroy_from_handle_with_radar_services(&obj_arc, radar);
+        Object::on_destroy_from_handle_with_radar_services(
+            &obj_arc,
+            radar,
+            Some(&mut GameLogicDeletionServices { logic: self }),
+        );
         let (is_wall, has_special_power, is_local) = if let Ok(obj) = obj_arc.read() {
             (
                 obj.is_kind_of(KindOf::WalkOnTopOfWall),
@@ -722,10 +742,11 @@ impl GameLogic {
                 _ => crate::system::game_initialization::GameDifficulty::Normal,
             };
 
+            let __player_list_arc = crate::player::ThePlayerList();
             let num_players = if let Ok(sides_guard) = crate::sides_list::get_sides_list().read() {
                 let count = sides_guard.get_num_sides().max(1) as usize;
                 count.min(crate::system::player_init::MAX_PLAYER_COUNT)
-            } else if let Ok(player_list) = crate::player::ThePlayerList().read() {
+            } else if let Ok(player_list) = __player_list_arc.read() {
                 let count = player_list.iter().count();
                 if count > 0 {
                     count.min(crate::system::player_init::MAX_PLAYER_COUNT)
@@ -840,7 +861,8 @@ impl GameLogic {
 
     /// Get player by ID (for command executor)
     pub fn get_player(&self, player_id: u32) -> Option<Arc<RwLock<Player>>> {
-        if let Ok(player_list_guard) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(player_list_guard) = __player_list_arc.read() {
             for player_arc in player_list_guard.iter() {
                 if let Ok(player) = player_arc.read() {
                     if player.get_player_index() == player_id as Int {
@@ -907,7 +929,8 @@ impl GameLogic {
     /// Returns iterator yielding Arc<RwLock<Player>> for each player
     pub fn iter_players(&self) -> Vec<Arc<RwLock<Player>>> {
         let mut players = Vec::new();
-        if let Ok(player_list_guard) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(player_list_guard) = __player_list_arc.read() {
             for player_arc in player_list_guard.iter() {
                 players.push(Arc::clone(player_arc));
             }
@@ -917,7 +940,8 @@ impl GameLogic {
 
     pub fn clear_all_objects(&mut self) {
         self.destroy_all_objects_immediate();
-        if let Ok(mut ghost_manager) = crate::object::THE_W3D_GHOST_OBJECT_MANAGER.write() {
+        let __w3d_ghosts = crate::object::the_w3d_ghost_object_manager();
+            if let Ok(mut ghost_manager) = __w3d_ghosts.write() {
             self.partition_manager
                 .clear_ghost_objects(&mut ghost_manager);
         }
@@ -1212,7 +1236,8 @@ fn apply_challenge_the_player_relationships(is_challenge: bool) {
     if !is_challenge {
         return;
     }
-    let Ok(list) = player_list().read() else {
+    let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
         return;
     };
     let Some(local_arc) = list.get_local_player().cloned() else {

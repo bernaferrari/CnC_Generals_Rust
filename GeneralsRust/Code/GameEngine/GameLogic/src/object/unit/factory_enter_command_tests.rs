@@ -30,13 +30,27 @@ mod factory_native_command_button_tests;
 fn child(name: &str) -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        matches!(
+        let is_child = matches!(
             crate::test_process::run_bounded(
                 name.strip_prefix("gamelogic::").unwrap_or(name),
                 "GENERALS_ENTER_CAPACITY_CHILD",
             ),
             crate::test_process::TestProcess::Child
-        )
+        );
+        if is_child && game_engine::common::common_services::try_common_services().is_none() {
+            // The isolated child owns one game session: bind its Common
+            // services for ThingFactory / INI admission (no thread fallback).
+            game_engine::common::common_services::install_common_services(Arc::new(
+                game_engine::common::common_services::CommonServices::new(),
+            ));
+        }
+        if is_child && crate::system::engine_stores::try_active_services().is_none() {
+            // Core owner: these fixtures query the native AI runtime.
+            crate::system::engine_stores::install_active(
+                crate::system::engine_stores::new_for_world(),
+            );
+        }
+        is_child
     }
     #[cfg(target_arch = "wasm32")]
     {
@@ -250,7 +264,8 @@ fn factory_enter_hostile_full_container_issues_attack_in_same_update() {
     }
     definitions();
     {
-        let mut players = ThePlayerList().write().unwrap();
+        let __player_list_arc = ThePlayerList();
+        let mut players = __player_list_arc.write().unwrap();
         players.clear();
         for id in [0, 1] {
             let mut player = Player::new(id);
@@ -357,7 +372,8 @@ fn factory_enter_empty_hostile_target_does_not_attack() {
     }
     definitions();
     {
-        let mut players = ThePlayerList().write().unwrap();
+        let __player_list_arc = ThePlayerList();
+        let mut players = __player_list_arc.write().unwrap();
         players.clear();
         for id in [0, 1] {
             let mut player = Player::new(id);
@@ -417,7 +433,8 @@ fn factory_enter_allied_occupied_target_does_not_attack() {
     }
     definitions();
     {
-        let mut players = ThePlayerList().write().unwrap();
+        let __player_list_arc = ThePlayerList();
+        let mut players = __player_list_arc.write().unwrap();
         players.clear();
         for id in [0, 1] {
             let mut player = Player::new(id);
@@ -482,7 +499,8 @@ fn factory_enter_unarmed_hostile_occupied_target_does_not_attack() {
     }
     definitions();
     {
-        let mut players = ThePlayerList().write().unwrap();
+        let __player_list_arc = ThePlayerList();
+        let mut players = __player_list_arc.write().unwrap();
         players.clear();
         for id in [0, 1] {
             let mut player = Player::new(id);
@@ -821,7 +839,8 @@ fn native_enter_terminal_sink_error_preserves_borrowed_machine_and_runtime() {
     }
     definitions();
     {
-        let mut players = ThePlayerList().write().unwrap();
+        let __player_list_arc = ThePlayerList();
+        let mut players = __player_list_arc.write().unwrap();
         players.clear();
         for id in [0, 1] {
             let mut player = Player::new(id);
@@ -937,7 +956,8 @@ fn factory_enter_terminal_player_attack_honors_authored_command_filter() {
     }
     definitions();
     {
-        let mut players = ThePlayerList().write().unwrap();
+        let __player_list_arc = ThePlayerList();
+        let mut players = __player_list_arc.write().unwrap();
         players.clear();
         for id in [0, 1] {
             let mut player = Player::new(id);
@@ -1048,7 +1068,8 @@ fn factory_enter_filter_uses_actual_owner_with_locked_same_id_foreign_unit() {
     }
     definitions();
     {
-        let mut players = ThePlayerList().write().unwrap();
+        let __player_list_arc = ThePlayerList();
+        let mut players = __player_list_arc.write().unwrap();
         players.clear();
         for id in [0, 1] {
             let mut player = Player::new(id);
@@ -1187,7 +1208,8 @@ fn factory_enter_restored_hostile_occupancy_dispatches_in_same_update() {
     }
     definitions();
     {
-        let mut players = ThePlayerList().write().unwrap();
+        let __player_list_arc = ThePlayerList();
+        let mut players = __player_list_arc.write().unwrap();
         players.clear();
         for id in [0, 1] {
             let mut player = Player::new(id);

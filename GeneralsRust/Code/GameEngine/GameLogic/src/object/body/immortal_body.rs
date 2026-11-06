@@ -283,14 +283,21 @@ mod tests {
     use super::*;
 
     fn create_test_immortal_body() -> ImmortalBody {
-        let mut module_data = ActiveBodyModuleData::default();
-        module_data.max_health = 100.0;
-        module_data.initial_health = 100.0;
-        module_data.subdual_damage_cap = 50.0;
-        module_data.subdual_damage_heal_rate = 30;
-        module_data.subdual_damage_heal_amount = 10.0;
+        use std::sync::Arc;
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        let services = crate::system::engine_stores::new_world_services();
+        game_engine::common::common_services::with_common_services(&common, || {
+            crate::system::engine_stores::with_world_services(&services, || {
+                let mut module_data = ActiveBodyModuleData::default();
+                module_data.max_health = 100.0;
+                module_data.initial_health = 100.0;
+                module_data.subdual_damage_cap = 50.0;
+                module_data.subdual_damage_heal_rate = 30;
+                module_data.subdual_damage_heal_amount = 10.0;
 
-        ImmortalBody::new(module_data, 1)
+                ImmortalBody::new(module_data, 1)
+            })
+        })
     }
 
     #[test]
@@ -518,6 +525,32 @@ mod tests {
     }
 
     #[test]
+    fn set_max_health_fully_heal_clips_to_fractional_max_like_cpp() {
+        // hq-mry98 / C++ ImmortalBody.cpp:31-37 + ActiveBody.cpp:903-920:
+        // FullyHeal to max_health=0.5 from 100: Immortal pre-clamps delta so
+        // health would be 1, then ActiveBody high-caps to m_maxHealth (0.5).
+        use std::sync::Arc;
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        let services = crate::system::engine_stores::new_world_services();
+        game_engine::common::common_services::with_common_services(&common, || {
+            crate::system::engine_stores::with_world_services(&services, || {
+                let mut body = create_test_immortal_body();
+                assert_eq!(body.get_health(), 100.0);
+                assert!(
+                    body.set_max_health(0.5, MaxHealthChangeType::FullyHeal)
+                        .is_ok()
+                );
+                assert_eq!(body.get_max_health(), 0.5);
+                assert!(
+                    (body.get_health() - 0.5).abs() < 1e-5,
+                    "health={}",
+                    body.get_health()
+                );
+                assert!(body.get_health() <= body.get_max_health());
+            })
+        });
+    }
+
     fn set_max_health_add_current_cannot_drop_below_one() {
         // C++ setMaxHealth ADD_CURRENT_HEALTH_TOO uses internalChangeHealth
         // (ActiveBody.cpp:896), so ImmortalBody keeps the 1-HP floor.

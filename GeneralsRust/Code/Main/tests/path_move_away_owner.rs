@@ -86,8 +86,14 @@ fn move_away_uses_receiving_world_after_peer_restore() {
         expected
     );
     let builder = generals_main::save_load::SnapshotBuilder::new();
-    let snapshot = builder.create_world_snapshot(&world).unwrap();
-    builder.restore_from_snapshot(&snapshot, &mut peer).unwrap();
+    // GameLogic::new uninstalls WorldServices; snapshot create/restore needs a bind.
+    let services = gamelogic::system::engine_stores::new_world_services();
+    let snapshot = gamelogic::system::engine_stores::with_world_services(&services, || {
+        builder.create_world_snapshot(&world).unwrap()
+    });
+    gamelogic::system::engine_stores::with_world_services(&services, || {
+        builder.restore_from_snapshot(&snapshot, &mut peer).unwrap();
+    });
     assert_eq!(
         move_away(&peer, peer_small, peer_large, &mut peer_finder, &ground),
         expected

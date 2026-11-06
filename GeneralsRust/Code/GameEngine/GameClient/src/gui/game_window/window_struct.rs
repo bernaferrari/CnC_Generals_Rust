@@ -231,6 +231,41 @@ impl<'effects> WindowEventEffects<'effects> {
         }
     }
 
+    /// Stack-local effects for unit tests that do not drive a live GameClient.
+    ///
+    /// Admits a receiving `WindowManagerOwner` + manager, IME/UI, menus/main_menu,
+    /// and a default menu host/world so Shell/WND helpers that require the owned UI
+    /// tree (post-`with_scope` removal) do not panic on bare standalone effects.
+    /// Queued shell ops are drained before return so shell-map presentation applies.
+    pub fn with_standalone<R>(operation: impl FnOnce(&mut WindowEventEffects<'_>) -> R) -> R {
+        let mut messages = Vec::new();
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        let mut ime = crate::gui::ime_manager::ImeManager::new();
+        let mut ui = crate::core::subsystems::InGameUISubsystem::default();
+        let mut menu_manager = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut main_menu = crate::gui::shell::main_menu::MainMenu::new();
+        let mut menu_host = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
+        let mut script_display =
+            crate::core::script_action_handler::ScriptDisplayReceiver::default();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&owner);
+        effects.ime = Some(&mut ime);
+        effects.ui = Some(&mut ui);
+        effects.menus = Some(menu_manager.receiving_menus(
+            crate::core::game_client::ClientInputAuthority::StandaloneCore,
+        ));
+        effects.main_menu = Some(&mut main_menu);
+        effects.menu_host = Some(&mut menu_host);
+        effects.menu_world =
+            Some(crate::gui::campaign_launch_host_bridge::MenuWorldFacts::default());
+        effects.script_display = Some(&mut script_display);
+        let result = owner.with_manager(|manager| {
+            effects.with_receiving_manager(manager, |effects| operation(effects))
+        });
+        owner.complete_event_callbacks(&mut effects);
+        result
+    }
+
     pub(crate) fn queue_window_callback(&mut self, step: PendingWindowCallback) {
         self.pending_window_callbacks.push_back(step);
     }
@@ -912,6 +947,82 @@ impl<'effects> WindowEventEffects<'effects> {
             Err(panic) => std::panic::resume_unwind(panic),
         }
     }
+    /// Send a system message to `target`, reusing a lent `&mut` when the
+    /// target is already on this callback chain instead of re-borrowing the
+    /// RefCell (combo→edit→owner focus, PassMessagesToParentSystem, etc.).
+    pub(crate) fn send_system_message_to_rc(
+        &mut self,
+        target: &Rc<RefCell<GameWindow>>,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+    ) -> WindowMsgHandled {
+        let lent_index = self.lent_windows.iter().position(|window| {
+            std::ptr::eq(std::ptr::from_ref(*window), target.as_ptr())
+        });
+        let Some(index) = lent_index else {
+            return target
+                .borrow_mut()
+                .send_system_message(msg, data1, data2, self);
+        };
+        let mut lent = std::mem::take(&mut self.lent_windows);
+        let result = {
+            let (left, right) = lent.split_at_mut(index);
+            let (window, right) = right
+                .split_first_mut()
+                .expect("lent index points at a window");
+            let others: Vec<&mut GameWindow> = left
+                .iter_mut()
+                .map(|window| &mut **window)
+                .chain(right.iter_mut().map(|window| &mut **window))
+                .collect();
+            let mut local = WindowEventEffects {
+                cursor_mouse: self.cursor_mouse.as_deref_mut(),
+                control_bar_observation: self.control_bar_observation.clone(),
+                menu_audio: self
+                    .menu_audio
+                    .as_mut()
+                    .map(|audio| &mut **audio as &mut dyn crate::gui::menu_audio::MenuAudioEffects),
+                input_provenance: self.input_provenance,
+                payloads: std::mem::take(&mut self.payloads),
+                pending_window_callbacks: std::mem::take(&mut self.pending_window_callbacks),
+                diplomacy_world: self.diplomacy_world,
+                ui: self.ui.as_deref_mut(),
+                logic_frame: self.logic_frame,
+                client_frame: self.client_frame,
+                standalone_view: self.standalone_view.as_deref_mut(),
+                manager: self.manager.as_deref_mut(),
+                menus: self.menus.as_mut().map(|menus| menus.reborrow()),
+                ime: self.ime.as_deref_mut(),
+                window_manager_owner: self.window_manager_owner,
+                selected_window: self.selected_window.clone(),
+                lent_windows: others,
+                emitted_messages: &mut *self.emitted_messages,
+                pending_control_bar_clicks: self.pending_control_bar_clicks.as_deref_mut(),
+                campaign_manager: self.campaign_manager.as_deref_mut(),
+                menu_world: self.menu_world,
+                menu_host: self.menu_host.as_deref_mut(),
+                window_videos: self.window_videos.as_deref_mut(),
+                script_display: self.script_display.as_deref_mut(),
+                main_menu: self.main_menu.as_deref_mut(),
+                pending_main_menu_actions: Vec::new(),
+            };
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                window.send_system_message(msg, data1, data2, &mut local)
+            }));
+            self.payloads = std::mem::take(&mut local.payloads);
+            self.pending_window_callbacks = std::mem::take(&mut local.pending_window_callbacks);
+            self.pending_main_menu_actions
+                .append(&mut local.pending_main_menu_actions);
+            match result {
+                Ok(value) => value,
+                Err(panic) => std::panic::resume_unwind(panic),
+            }
+        };
+        self.lent_windows = lent;
+        result
+    }
+
     /// Borrow the supplied manager or this operation's explicit owner. Never
     /// discover an active tree or manufacture a replacement on reentry.
     pub fn with_manager<R>(
@@ -991,27 +1102,26 @@ impl<'effects> WindowEventEffects<'effects> {
             .map(|host| host.shell_map_settings())
     }
 
-    /// Shell.cpp queues ClearGameData before NewGame. It does not reset inline.
-    /// Keep those commands in this receiving stream and preserve their source order.
-    pub fn request_shell_map(&mut self, on: bool) {
+    /// Admit shell-map world commands into this receiving stream.
+    /// Returns `Some(enabled)` when the display-only presentation tail should run.
+    /// Returns `None` when C++ would no-op (no world facts / initial_file / already in shell game).
+    pub(crate) fn admit_shell_map_request(&mut self, on: bool) -> Option<bool> {
         use crate::gui::campaign_launch_host_bridge::MenuHostRequest;
         // C++ explicitly does nothing while no GameLogic exists. An absent
         // driving-world input never selects an ambient Core world.
-        let Some(facts) = self.menu_world else {
-            return;
-        };
+        let facts = self.menu_world?;
         let host = self
             .menu_host
             .as_deref_mut()
             .expect("Shell map requires receiving client host");
         let settings = host.shell_map_settings();
         if !settings.initial_file.is_empty() {
-            return;
+            return None;
         }
         let enabled = on && settings.enabled;
         let map = settings.map.clone();
         if enabled && facts.in_shell_game {
-            return;
+            return None;
         }
         if (enabled && facts.in_game) || (!enabled && facts.in_shell_game) {
             self.emitted_messages
@@ -1026,8 +1136,18 @@ impl<'effects> WindowEventEffects<'effects> {
             );
             self.emitted_messages.push(message);
         }
-        // MainMenuInit runs while Shell is borrowed. Apply its display-only
-        // tail at the existing receiving Shell callback boundary.
+        Some(enabled)
+    }
+
+    /// Shell.cpp queues ClearGameData before NewGame. It does not reset inline.
+    /// Keep those commands in this receiving stream and preserve their source order.
+    ///
+    /// Presentation is deferred onto the receiving Shell callback boundary because
+    /// MainMenuInit may call this while Shell is already borrowed.
+    pub fn request_shell_map(&mut self, on: bool) {
+        let Some(enabled) = self.admit_shell_map_request(on) else {
+            return;
+        };
         let owner = self
             .window_manager_owner
             .expect("Shell map requires receiving WindowManager");

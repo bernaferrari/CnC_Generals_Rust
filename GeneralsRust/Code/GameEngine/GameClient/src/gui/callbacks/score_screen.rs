@@ -71,8 +71,22 @@ struct ScoreGather {
     side_icon: String,
 }
 
+impl ScoreScreenState {
+    /// The lobby bound at ScoreScreenInit (owner-less unit fixtures resolve
+    /// the test lobby instead).
+    fn skirmish_lobby(
+        &self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::gui::skirmish_setup::SkirmishSetup>> {
+        self.skirmish_setup
+            .clone()
+            .unwrap_or_else(|| get_skirmish_setup(None))
+    }
+}
+
 #[derive(Default)]
 pub struct ScoreScreenState {
+    /// The receiving client's `TheSkirmishGameInfo`, bound at ScoreScreenInit.
+    skirmish_setup: Option<std::sync::Arc<std::sync::Mutex<crate::gui::skirmish_setup::SkirmishSetup>>>,
     residual_action: u8,
     parent_id: i32,
     button_ok_id: i32,
@@ -180,12 +194,15 @@ fn set_window_image(win: &Option<Rc<RefCell<GameWindow>>>, image_name: &str) {
     }
 }
 
-fn score_screen_music_from_game_info_slot(manager: Option<&CampaignManager>) -> String {
+fn score_screen_music_from_game_info_slot(
+    lobby: &std::sync::Mutex<crate::gui::skirmish_setup::SkirmishSetup>,
+    manager: Option<&CampaignManager>,
+) -> String {
     // C++ ScoreScreenUpdate: TheGameInfo slot template, FactionObserver if < 0.
     // Must not touch PlayerList — clearGameData runs before the first Update.
     game_engine::common::ini::ensure_player_templates_loaded();
     let store = game_engine::common::rts::player_template::get_player_template_store();
-    let template_index = score_screen_local_slot_template_index(manager);
+    let template_index = score_screen_local_slot_template_index(lobby, manager);
     let template = if template_index >= 0 {
         usize::try_from(template_index)
             .ok()
@@ -199,7 +216,10 @@ fn score_screen_music_from_game_info_slot(manager: Option<&CampaignManager>) -> 
         .unwrap_or_default()
 }
 
-fn score_screen_local_slot_template_index(manager: Option<&CampaignManager>) -> i32 {
+fn score_screen_local_slot_template_index(
+    lobby: &std::sync::Mutex<crate::gui::skirmish_setup::SkirmishSetup>,
+    manager: Option<&CampaignManager>,
+) -> i32 {
     let from_info = |game: &GameInfo| {
         if !game.is_in_game() {
             return None;
@@ -211,7 +231,7 @@ fn score_screen_local_slot_template_index(manager: Option<&CampaignManager>) -> 
         game.get_slot(slot_num as usize)
             .map(|slot| slot.get_player_template())
     };
-    if let Some(index) = from_info(get_skirmish_setup().game_info().game_info()) {
+    if let Some(index) = from_info(lobby.lock().unwrap_or_else(|e| e.into_inner()).game_info().game_info()) {
         return index;
     }
     manager
@@ -229,7 +249,9 @@ fn update_score_screen_music(effects: &mut WindowEventEffects<'_>) {
     let Some(audio) = TheAudio::get() else {
         return;
     };
-    let music_name = score_screen_music_from_game_info_slot(effects.campaign_manager.as_deref());
+    let lobby = get_skirmish_setup(effects.window_manager_owner);
+    let music_name =
+        score_screen_music_from_game_info_slot(&lobby, effects.campaign_manager.as_deref());
     if !music_name.is_empty() {
         audio.remove_audio_event(AHSV_STOP_THE_MUSIC_FADE);
         let mut event = gamelogic::common::audio::AudioEventRts::new(music_name);
@@ -388,16 +410,19 @@ fn init_single_player(effects: &mut WindowEventEffects<'_>) {
                 _ => CampaignDifficulty::Normal,
             });
         }
-    } else if let Ok(list) = ThePlayerList().read() {
-        if let Some(local_player) = list.get_local_player() {
-            if let Ok(player) = local_player.read() {
-                if let Some(manager) = effects.campaign_manager.as_deref_mut() {
-                    manager.set_rank_points(player.get_skill_points());
-                    manager.set_game_difficulty(match TheScriptEngine::get_global_difficulty() {
-                        0 => CampaignDifficulty::Easy,
-                        2 => CampaignDifficulty::Hard,
-                        _ => CampaignDifficulty::Normal,
-                    });
+    } else {
+        let __arc_bind = ThePlayerList();
+        if let Ok(list) = __arc_bind.read() {
+            if let Some(local_player) = list.get_local_player() {
+                if let Ok(player) = local_player.read() {
+                    if let Some(manager) = effects.campaign_manager.as_deref_mut() {
+                        manager.set_rank_points(player.get_skill_points());
+                        manager.set_game_difficulty(match TheScriptEngine::get_global_difficulty() {
+                            0 => CampaignDifficulty::Easy,
+                            2 => CampaignDifficulty::Hard,
+                            _ => CampaignDifficulty::Normal,
+                        });
+                    }
                 }
             }
         }
@@ -957,7 +982,9 @@ fn grab_multi_player_info(
         grab_multi_player_info_from_snapshot(state, receiving_manager, &players);
         return;
     }
-    let Ok(list) = ThePlayerList().read() else {
+    let __arc_bind = ThePlayerList();
+
+    let Ok(list) = __arc_bind.read() else {
         return;
     };
 
@@ -1178,6 +1205,7 @@ fn populate_snapshot_observer(
 }
 
 fn persist_snapshot_skirmish_honors(
+    game: &GameInfo,
     player: &ScoreScreenPlayerSnapshot,
     outcome: &ScoreScreenSkirmishOutcome,
     score: &game_engine::common::rts::score_keeper::ScoreKeeper,
@@ -1197,9 +1225,9 @@ fn persist_snapshot_skirmish_honors(
         stats.set_win_streak(stats.get_win_streak() + 1);
         let best = stats.get_best_win_streak().max(stats.get_win_streak());
         stats.set_best_win_streak(best);
-        update_skirmish_battle_honors(&mut stats, &player.side, score, end_frame);
+        update_skirmish_battle_honors(&mut stats, &player.side, score, end_frame, game);
         let mut challenge_medals = stats.get_challenge_medals();
-        update_challenge_medals(&mut challenge_medals);
+        update_challenge_medals(&mut challenge_medals, game);
         stats.set_challenge_medals(challenge_medals);
     } else {
         stats.set_losses(stats.get_losses() + 1);
@@ -1310,7 +1338,10 @@ fn populate_snapshot_player(
                 .get_user_data::<ScoreScreenAcademySnapshot>()
                 .and_then(|snapshot| snapshot.skirmish_outcome)
         }) {
+            let lobby = state.skirmish_lobby();
+            let lobby = lobby.lock().unwrap_or_else(|e| e.into_inner());
             persist_snapshot_skirmish_honors(
+                lobby.game_info().game_info(),
                 player,
                 &outcome,
                 score,
@@ -1333,7 +1364,9 @@ fn grab_single_player_info(
         );
         return;
     }
-    let Ok(list) = ThePlayerList().read() else {
+    let __arc_bind = ThePlayerList();
+
+    let Ok(list) = __arc_bind.read() else {
         return;
     };
     let Some(local_player_arc) = list.get_local_player() else {
@@ -1596,7 +1629,9 @@ fn leftover_players_are_allies(a: &Player, b: &Player) -> bool {
 }
 
 fn leftover_has_achieved_victory(local: &Player) -> bool {
-    let Ok(list) = ThePlayerList().read() else {
+    let __arc_bind = ThePlayerList();
+
+    let Ok(list) = __arc_bind.read() else {
         return false;
     };
     for player_arc in list.iter() {
@@ -1613,7 +1648,9 @@ fn leftover_has_achieved_victory(local: &Player) -> bool {
 }
 
 fn leftover_single_alliance_remaining(local: &Player) -> bool {
-    let Ok(list) = ThePlayerList().read() else {
+    let __arc_bind = ThePlayerList();
+
+    let Ok(list) = __arc_bind.read() else {
         return false;
     };
     let mut saw_local_alliance = false;
@@ -1674,6 +1711,7 @@ fn update_skirmish_battle_honors<S: SkirmishScoreMetrics>(
     side: &str,
     score: &S,
     end_frame: u32,
+    game: &GameInfo,
 ) {
     if stats.get_win_streak() >= 5 {
         stats.set_honors(BATTLE_HONOR_STREAK as i32);
@@ -1731,8 +1769,6 @@ fn update_skirmish_battle_honors<S: SkirmishScoreMetrics>(
         }
     }
 
-    let setup = get_skirmish_setup();
-    let game = setup.game_info().game_info();
     let mut num_easy = 0;
     let mut num_medium = 0;
     let mut num_brutal = 0;
@@ -1774,9 +1810,7 @@ fn update_skirmish_battle_honors<S: SkirmishScoreMetrics>(
     }
 }
 
-fn update_challenge_medals(medals: &mut i32) {
-    let setup = get_skirmish_setup();
-    let game = setup.game_info().game_info();
+fn update_challenge_medals(medals: &mut i32, game: &GameInfo) {
     if !game.is_skirmish() {
         return;
     }
@@ -1992,7 +2026,7 @@ fn score_end_frame(parent: &Option<Rc<RefCell<GameWindow>>>) -> u32 {
 // The native admission requires a bound completed-match snapshot. The
 // remaining standalone Core clock dependency is tracked separately (hq-6v2cq8).
 fn leftover_score_logic_frame() -> u32 {
-    crate::eva::eva_logic_frame()
+    TheGameLogic::get_frame()
 }
 
 fn leftover_academy_from_live_notify(player: &Player) -> gamelogic::player::AcademyStats {
@@ -2113,7 +2147,9 @@ fn populate_player_info(
     }
 
     if state.screen_type == ScoreScreenType::Skirmish && player.is_local_player() {
-        let setup = get_skirmish_setup();
+        let setup_handle = state.skirmish_lobby();
+
+        let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         let sandbox = setup.game_info().game_info().is_sandbox();
         let victory = TheVictoryConditions::is_local_allied_victory();
         let defeat = is_local_allied_defeat_like_cpp(player);
@@ -2133,9 +2169,10 @@ fn populate_player_info(
                 &player.get_side(),
                 score,
                 score_end_frame(&state.parent),
+                setup.game_info().game_info(),
             );
             let mut challenge_medals = stats.get_challenge_medals();
-            update_challenge_medals(&mut challenge_medals);
+            update_challenge_medals(&mut challenge_medals, setup.game_info().game_info());
             stats.set_challenge_medals(challenge_medals);
         } else {
             stats.set_losses(stats.get_losses() + 1);
@@ -2209,6 +2246,10 @@ pub fn score_screen_init(
     _user_data: Option<&mut dyn std::any::Any>,
     effects: &mut WindowEventEffects<'_>,
 ) {
+    {
+        let lobby = get_skirmish_setup(effects.window_manager_owner);
+        effects.score_screen_mut().skirmish_setup = Some(lobby);
+    }
     {
         let value = true;
         effects.score_screen_mut().play_music = value
@@ -2735,6 +2776,7 @@ mod tests {
 
     #[test]
     fn mission_save_description_formats_campaign_and_number_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         // C++ GameState.cpp:616-618 UnicodeString::format(GUI:MissionSave, label, n).
         assert_eq!(
             format_mission_save_description("%s Mission %d", "USA Campaign", 2),
@@ -2744,7 +2786,7 @@ mod tests {
             format_mission_save_description("GUI:AutoSave", "China", 1),
             "GUI:AutoSave China 1"
         );
-        let desc = current_mission_save_description();
+        let desc = current_mission_save_description(&crate::gui::campaign_manager::CampaignManager::new());
         assert!(
             !desc.contains("GUI:AutoSave") || desc.contains('1'),
             "between-mission save must not be bare GUI:AutoSave: {desc}"
@@ -2753,6 +2795,7 @@ mod tests {
 
     #[test]
     fn final_victory_movie_includes_challenge_campaigns_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let campaign = campaign_with_final_movie(true, "USACampaignVictory");
 
         assert_eq!(
@@ -2763,6 +2806,7 @@ mod tests {
 
     #[test]
     fn final_victory_movie_respects_empty_and_low_res_cases() {
+        crate::test_support::ensure_ambient_host();
         let empty = campaign_with_final_movie(true, "");
         let normal = campaign_with_final_movie(false, "ChinaCampaignVictory");
 
@@ -2772,21 +2816,23 @@ mod tests {
 
     #[test]
     fn esc_char_is_consumed_before_key_up_like_cpp() {
-        let window = GameWindow::new();
+        crate::test_support::ensure_ambient_host();
+        let mut window = GameWindow::new();
 
         assert_eq!(
-            score_screen_input(&window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0),
+            WindowEventEffects::with_standalone(|effects| score_screen_input(&mut window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0, effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            score_screen_input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0),
+            WindowEventEffects::with_standalone(|effects| score_screen_input(&mut window, WindowMessage::Char, b'A' as WindowMsgData, 0, effects)),
             WindowMsgHandled::Ignored
         );
     }
 
     #[test]
     fn score_screen_system_consumes_destroy_like_cpp() {
-        let window = GameWindow::new();
+        crate::test_support::ensure_ambient_host();
+        let mut window = GameWindow::new();
 
         let mut emitted_messages = Vec::new();
         let mut effects = WindowEventEffects {
@@ -2813,59 +2859,65 @@ mod tests {
             main_menu: None,
             menu_world: None,
             menu_host: None,
+            client_frame: None,
+            logic_frame: None,
+            ui: None,
             pending_main_menu_actions: Vec::new(),
         };
         assert_eq!(
-            score_screen_system(&window, WindowMessage::Destroy, 0, 0, &mut effects),
+            score_screen_system(&mut window, WindowMessage::Destroy, 0, 0, &mut effects),
             WindowMsgHandled::Handled
         );
     }
 
     #[test]
     fn start_next_campaign_game_appends_msg_new_game_like_cpp() {
+        crate::test_support::ensure_ambient_host();
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut campaign_manager = CampaignManager::new();
         let campaign = campaign_manager.new_campaign("testcampaign".to_string());
         campaign.first_mission = "m1".to_string();
         campaign.new_mission("m1".to_string()).map_name = "maps/m1.map".to_string();
         campaign_manager.set_campaign("testcampaign");
         let mut emitted_messages = Vec::new();
-        let mut effects = WindowEventEffects {
-            cursor_mouse: None,
-            control_bar_observation: None,
-            menu_audio: None,
-            input_provenance:
-                crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
-            standalone_view: None,
-            payloads: Default::default(),
-            pending_window_callbacks: Default::default(),
-            diplomacy_world: None,
-            menus: None,
-            ime: None,
-            manager: None,
-            script_display: None,
-            window_videos: None,
-            window_manager_owner: None,
-            selected_window: None,
-            lent_windows: Vec::new(),
-            emitted_messages: &mut emitted_messages,
-            pending_control_bar_clicks: None,
-            campaign_manager: Some(&mut campaign_manager),
-            main_menu: None,
-            menu_world: None,
-            menu_host: None,
-            pending_main_menu_actions: Vec::new(),
-        };
+        let mut menu_host = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
+        let mut effects = WindowEventEffects::new(&mut emitted_messages);
+        effects.window_manager_owner = Some(&owner);
+        effects.campaign_manager = Some(&mut campaign_manager);
+        effects.menu_world =
+            Some(crate::gui::campaign_launch_host_bridge::MenuWorldFacts::default());
+        effects.menu_host = Some(&mut menu_host);
         start_next_campaign_game(&mut effects);
-        assert!(
-            emitted_messages
-                .iter()
-                .any(|message| message.get_type() == &GameMessageType::NewGame),
+        // Ownership bridge: score screen queues StartCampaign on the receiving
+        // mailbox; Main drains it into MSG_NEW_GAME via campaign_message (same
+        // as ChallengeMenu). Direct emit was the pre-bridge path.
+        let requests = menu_host.take_requests();
+        let start = requests.into_iter().find_map(|request| match request {
+            crate::gui::campaign_launch_host_bridge::MenuHostRequest::StartCampaign {
+                descriptor,
+                source: crate::gui::campaign_launch_host_bridge::MenuLaunchSource::ScoreScreen,
+                ..
+            } => Some(descriptor),
+            _ => None,
+        });
+        let descriptor = start.expect("score screen must queue StartCampaign on host mailbox");
+        let message = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::campaign_message(
+            descriptor,
+        );
+        assert_eq!(
+            message.get_type(),
+            &GameMessageType::NewGame,
             "C++ startNextCampaignGame appends MSG_NEW_GAME, not prepare_new_game"
+        );
+        assert!(
+            emitted_messages.is_empty(),
+            "StartCampaign must not double-emit NewGame onto the effects stream"
         );
     }
 
     #[test]
     fn set_text_color_preserves_enabled_border_color_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let window = Rc::new(RefCell::new(GameWindow::new()));
         window
             .borrow_mut()
@@ -2880,11 +2932,13 @@ mod tests {
 
     #[test]
     fn score_screen_music_uses_cpp_fade_stop_sentinel() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(AHSV_STOP_THE_MUSIC_FADE, 0xFFFF_FFF1);
     }
 
     #[test]
     fn next_campaign_leaves_score_screen_with_immediate_pop_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         #[derive(Default)]
         struct TestShellActions {
             events: Vec<&'static str>,
@@ -2909,6 +2963,7 @@ mod tests {
 
     #[test]
     fn skirmish_honor_persist_skip_matches_cpp_sandbox_and_defeat() {
+        crate::test_support::ensure_ambient_host();
         // Sandbox or undecided + still active → skip.
         assert!(should_skip_skirmish_honor_persist(true, false, true, true));
         assert!(should_skip_skirmish_honor_persist(
@@ -2930,6 +2985,7 @@ mod tests {
 
     #[test]
     fn campaign_side_row_skips_neutral_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         use gamelogic::prelude::Relationship;
         assert!(include_in_campaign_side_row(true, Relationship::Allies));
         assert!(!include_in_campaign_side_row(true, Relationship::Enemies));
@@ -2941,6 +2997,7 @@ mod tests {
 
     #[test]
     fn skirmish_blitz_honors_the_bound_completed_frame() {
+        crate::test_support::ensure_ambient_host();
         fn bound(frame: u32) -> Option<Rc<RefCell<GameWindow>>> {
             let mut window = GameWindow::new();
             window.set_user_data(ScoreScreenAcademySnapshot {
@@ -2968,6 +3025,7 @@ mod tests {
 
     #[test]
     fn war_school_academy_advice_is_fed_from_leftover() {
+        crate::test_support::ensure_ambient_host();
         let mut stats = gamelogic::player::AcademyStats::new();
         let mut info = game_engine::common::rts::AcademyAdviceInfo::default();
         assert!(stats.calculate_academy_advice(&mut info));
@@ -3239,91 +3297,117 @@ pub fn drive_os_wnd_score_screen_emote_like_cpp(
 #[cfg(test)]
 mod os_wnd_tests {
     use super::*;
-    use crate::gui::with_window_manager;
 
-    fn install_named_button(name: &str, x: i32, y: i32) {
-        with_window_manager(|manager| {
-            let button = manager.create_window(None, x, y, 80, 24).expect(name);
+    fn with_fixture(operation: impl FnOnce(&mut WindowEventEffects<'_>)) {
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut messages = Vec::new();
+        let mut ui = crate::core::subsystems::InGameUISubsystem::default();
+        let mut ime = crate::gui::ime_manager::ImeManager::new();
+        let mut main_menu = crate::gui::shell::main_menu::MainMenu::new();
+        let mut menu_host = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
+        let mut script_display =
+            crate::core::script_action_handler::ScriptDisplayReceiver::default();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&owner);
+        effects.menus = Some(
+            menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
+        );
+        effects.ui = Some(&mut ui);
+        effects.ime = Some(&mut ime);
+        effects.main_menu = Some(&mut main_menu);
+        effects.menu_host = Some(&mut menu_host);
+        effects.menu_world =
+            Some(crate::gui::campaign_launch_host_bridge::MenuWorldFacts::default());
+        effects.script_display = Some(&mut script_display);
+        operation(&mut effects);
+    }
+
+    fn install_named_button(name: &str, x: i32, y: i32, effects: &mut WindowEventEffects<'_>) {
+        let owner = effects
+            .window_manager_owner
+            .expect("named button install requires receiving owner");
+        owner.with_manager(|manager| {
+            let button = manager.test_create_window(None, x, y, 80, 24).expect(name);
             button.borrow_mut().set_name(name);
-            let _ = button.borrow_mut().hide(false);
+            let _ = button.borrow_mut().hide_without_manager_side_effects(false);
         });
     }
 
     #[test]
     fn os_wnd_score_screen_continue_hits_button_then_latches_continue() {
-        install_named_button("ScoreScreen.wnd:ButtonContinue", 10, 10);
-        let _ = simulate_score_screen_set_finish_campaign(false);
-        assert!(
-            drive_os_wnd_score_screen_continue_like_cpp(),
-            "OS WND click on ButtonContinue must latch continue residual"
-        );
-        assert_eq!(
-            residual_score_screen_last_action(),
-            ResidualScoreScreenAction::Continue
-        );
-        assert!(!drive_os_wnd_score_screen_ok_like_cpp());
+        crate::test_support::ensure_ambient_host();
+        with_fixture(|effects| {
+            install_named_button("ScoreScreen.wnd:ButtonContinue", 10, 10, effects);
+            let _ = simulate_score_screen_set_finish_campaign(false, effects);
+            assert!(
+                drive_os_wnd_score_screen_continue_like_cpp(effects),
+                "OS WND click on ButtonContinue must latch continue residual"
+            );
+            assert_eq!(
+                residual_score_screen_last_action(effects),
+                ResidualScoreScreenAction::Continue
+            );
+            assert!(!drive_os_wnd_score_screen_ok_like_cpp(effects));
+        });
     }
 
     #[test]
     fn os_wnd_score_screen_ok_hits_button_then_latches_ok() {
-        install_named_button("ScoreScreen.wnd:ButtonOk", 10, 40);
-        assert!(
-            drive_os_wnd_score_screen_ok_like_cpp(),
-            "OS WND click on ButtonOk must latch ok residual"
-        );
-        assert_eq!(
-            residual_score_screen_last_action(),
-            ResidualScoreScreenAction::Ok
-        );
+        crate::test_support::ensure_ambient_host();
+        with_fixture(|effects| {
+            install_named_button("ScoreScreen.wnd:ButtonOk", 10, 40, effects);
+            assert!(
+                drive_os_wnd_score_screen_ok_like_cpp(effects),
+                "OS WND click on ButtonOk must latch ok residual"
+            );
+            assert_eq!(
+                residual_score_screen_last_action(effects),
+                ResidualScoreScreenAction::Ok
+            );
+        });
     }
 
     #[test]
     fn os_wnd_score_screen_continue_starts_next_usa_mission_like_cpp() {
+        crate::test_support::ensure_ambient_host();
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut messages = Vec::new();
+        let mut ui = crate::core::subsystems::InGameUISubsystem::default();
+        let mut ime = crate::gui::ime_manager::ImeManager::new();
+        let mut main_menu = crate::gui::shell::main_menu::MainMenu::new();
+        let mut menu_host = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
+        let mut script_display =
+            crate::core::script_action_handler::ScriptDisplayReceiver::default();
         let mut campaign_manager = CampaignManager::new();
         campaign_manager.init();
         campaign_manager.set_campaign("USA");
-        // Victory → next mission is already current when ScoreScreen Continue fires.
         let _ = campaign_manager.goto_next_mission();
         let current_map = campaign_manager.get_current_map().unwrap_or_default();
-        install_named_button("ScoreScreen.wnd:ButtonContinue", 10, 70);
-        let _ = simulate_score_screen_set_finish_campaign(false);
-        let mut emitted_messages = Vec::new();
-        let mut effects = WindowEventEffects {
-            cursor_mouse: None,
-            control_bar_observation: None,
-            menu_audio: None,
-            input_provenance:
-                crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
-            standalone_view: None,
-            payloads: Default::default(),
-            pending_window_callbacks: Default::default(),
-            diplomacy_world: None,
-            menus: None,
-            ime: None,
-            manager: None,
-            script_display: None,
-            window_videos: None,
-            selected_window: None,
-            lent_windows: Vec::new(),
-            window_manager_owner: None,
-            emitted_messages: &mut emitted_messages,
-            pending_control_bar_clicks: None,
-            campaign_manager: None,
-            main_menu: None,
-            menu_world: None,
-            menu_host: None,
-            pending_main_menu_actions: Vec::new(),
-        };
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&owner);
+        effects.menus = Some(
+            menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
+        );
+        effects.ui = Some(&mut ui);
+        effects.ime = Some(&mut ime);
+        effects.main_menu = Some(&mut main_menu);
+        effects.menu_host = Some(&mut menu_host);
+        effects.menu_world =
+            Some(crate::gui::campaign_launch_host_bridge::MenuWorldFacts::default());
+        effects.script_display = Some(&mut script_display);
+        effects.campaign_manager = Some(&mut campaign_manager);
+        install_named_button("ScoreScreen.wnd:ButtonContinue", 10, 70, &mut effects);
+        let _ = simulate_score_screen_set_finish_campaign(false, &mut effects);
         assert!(drive_os_wnd_score_screen_continue_like_cpp(&mut effects));
         assert_eq!(
-            residual_score_screen_last_action(),
+            residual_score_screen_last_action(&mut effects),
             ResidualScoreScreenAction::Continue
         );
         if current_map.is_empty() {
             return;
         }
-        // The effect-aware click path appends to the receiving message stream; the production
-        // callback emitter is exercised by the owning client input dispatch test.
         if let Some(data) = game_engine::common::ini::get_global_data() {
             let pending = data.read().pending_file.clone();
             if !pending.is_empty() {
@@ -3343,7 +3427,9 @@ mod owned_academy_snapshot_tests {
 
     #[test]
     fn actual_receiving_layouts_keep_independent_score_advice_and_end_frames() {
-        let make = |frame: u32, key: &str| {
+        crate::test_support::ensure_ambient_host();
+        let mut wm = crate::gui::window_manager::WindowManager::new();
+        let make = |frame: u32, key: &str, wm: &mut crate::gui::window_manager::WindowManager| {
             let parent = Rc::new(RefCell::new(GameWindow::new()));
             parent
                 .borrow_mut()
@@ -3378,11 +3464,11 @@ mod owned_academy_snapshot_tests {
             );
             // Same callback helper used after real ScoreScreen initialization;
             // no PlayerList or Core mode is published by this fixture.
-            populate_owned_academy_widgets(&layout);
+            populate_owned_academy_widgets(&layout, wm);
             (layout, parent, listbox)
         };
-        let (first_layout, first, first_list) = make(18000, "GUI:FirstAdvice");
-        let (second_layout, second, second_list) = make(700, "GUI:SecondAdvice");
+        let (first_layout, first, first_list) = make(18000, "GUI:FirstAdvice", &mut wm);
+        let (second_layout, second, second_list) = make(700, "GUI:SecondAdvice", &mut wm);
         assert_eq!(score_end_frame(&Some(first)), 18000);
         assert_eq!(score_end_frame(&Some(second)), 700);
         assert_eq!(
@@ -3412,7 +3498,7 @@ mod owned_academy_snapshot_tests {
             GameText::fetch("GUI:SecondAdvice")
         );
         // Re-initialization is replacement, not duplicate append.
-        populate_owned_academy_widgets(&first_layout);
+        populate_owned_academy_widgets(&first_layout, &mut wm);
         assert_eq!(
             first_list
                 .borrow_mut()
@@ -3429,7 +3515,7 @@ mod owned_academy_snapshot_tests {
             .clone();
         hidden.show_advice = false;
         bind_score_screen_snapshot(&second_layout, &hidden);
-        populate_owned_academy_widgets(&second_layout);
+        populate_owned_academy_widgets(&second_layout, &mut wm);
         assert!(
             second_list
                 .borrow_mut()

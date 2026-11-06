@@ -560,6 +560,10 @@ impl LocalizationManager {
 
     /// Validate format string syntax
     fn validate_format_string(&self, text: &str) -> Result<(), String> {
+        // Bare "{}" is never a valid named GameText placeholder.
+        if text.contains("{}") {
+            return Err("Empty parameter name".to_string());
+        }
         for captures in self.format_regex.captures_iter(text) {
             let param_name = captures.get(1).unwrap().as_str();
             if param_name.is_empty() {
@@ -1406,6 +1410,7 @@ mod tests {
 
     #[test]
     fn test_format_value_conversion() {
+        crate::test_support::ensure_ambient_host();
         let value: FormatValue = "test".into();
         match value {
             FormatValue::Text(s) => assert_eq!(s, "test"),
@@ -1415,6 +1420,7 @@ mod tests {
 
     #[test]
     fn test_plural_form_calculation() {
+        crate::test_support::ensure_ambient_host();
         let manager = LocalizationManager::new("english".to_string()).unwrap();
 
         // English simple pluralization
@@ -1425,6 +1431,7 @@ mod tests {
 
     #[test]
     fn test_custom_plural_expression() {
+        crate::test_support::ensure_ambient_host();
         let manager = LocalizationManager::new("english".to_string()).unwrap();
         let rule = PluralizationRule::Custom("n==1?0:1".to_string());
 
@@ -1434,6 +1441,7 @@ mod tests {
 
     #[test]
     fn test_format_string_validation() {
+        crate::test_support::ensure_ambient_host();
         let manager = LocalizationManager::new("english".to_string()).unwrap();
 
         assert!(manager.validate_format_string("Hello {name}!").is_ok());
@@ -1446,6 +1454,7 @@ mod tests {
 
     #[test]
     fn test_format_params_builder() {
+        crate::test_support::ensure_ambient_host();
         let params = FormatParams::new()
             .add("name", "Player")
             .add("score", 1000i64)

@@ -56,6 +56,7 @@ Every ported file should be explainable in terms of:
 - Remove self-referential residual/wave/honesty/hunt audit scaffolding while preserving real runtime behavior and executable behavioral tests. Do not introduce more source-string tables or tests that merely check their own constants.
 - Do not commit scratch reports, findings JSON, or probe output to the repo root. Put durable notes in the issue tracker.
 - Before opening a new issue, check that it blocks playing a skirmish faithfully or breaks instance isolation; prefer closing or updating an existing issue.
+- Do not create a new bead for a sub-gap of an existing survivor/focused tracker; add a checklist line (`id — gap — C++ ref`) to that survivor instead.
 
 ## Rendering and UI Rules
 - Exact draw dispatch matters more than prettier code.
@@ -88,6 +89,68 @@ Every ported file should be explainable in terms of:
 ## Scope
 - Non-network parity first.
 - Do not change multiplayer/network logic until non-network gameplay, rendering, UI, FX, terrain, audio, save/load, and startup shell behavior are fully ported and verified.
+
+## Sealed Modules
+
+Sealed modules are **done**. Do not edit them until the whole port is finished,
+except for a cross-module API change that requires an explicit unseal.
+
+Registry: `GeneralsRust/sealed_modules.toml`
+Gates: `scripts/check_sealed_modules.sh`, `tests/sealed_modules.rs`,
+`scripts/check_sealed_diff.sh <base>`.
+
+To touch a sealed path, the commit message must include:
+`Unseal: <path> — <reason>`
+where `<path>` is the GeneralsRust-relative sealed path (or a prefix of the
+touched file). Without that line, `check_sealed_diff.sh` fails.
+
+### Seal checklist (required before adding a `[[module]]` entry)
+
+Work **module by module**. For each module, compare it side by side with its
+C++ original under `GeneralsMD/Code/...`, apply 2026 Rust best practices, then
+seal it and do not return until the whole port is done.
+
+1. **Behavior matches C++** — read Rust and C++ side by side; note any intentional
+   deviations in the module's docs or the `note` field.
+2. **Zero process globals** — no mutable process statics / TLS game state; state
+   lives on the owning instance (engine / subsystem struct passed explicitly).
+   Truly immutable constant tables (no interior mutability) may remain.
+3. **No dead or stub code** — no `todo!` / `unimplemented!` / placeholder stubs
+   in production sources.
+4. **Clippy clean** for that module's package (or the narrowest package that
+   compiles it).
+5. **Tests check observable behavior**, not source-string audits.
+6. **Public API documented** (module- and pub-item docs where callers need them).
+
+After the checklist passes: add the `[[module]]` row to `sealed_modules.toml`,
+lower `scripts/globals_baseline.json` if globals fell, commit, and push.
+
+### Instance binding / allowlisted TLS
+
+`scripts/count_globals.sh` (and `GameClient/tests/globals_budget.rs`) keep every
+crate at **0** mutable process statics. The only intentional exceptions:
+
+**thread_local! ACTIVE_STACK / SCOPED_ACTIVE** (scoped Arc publish — not game
+state). Rust has no other way to bind a per-thread instance bag without a
+process-wide static; the payload is `Arc<…Services>`, not the simulation:
+
+| File | Stack | Holds |
+|------|-------|-------|
+| `Code/GameEngine/Common/src/common/common_services.rs` | `ACTIVE_STACK` | `Arc<CommonServices>` |
+| `Code/Main/src/main_services.rs` | `ACTIVE_STACK` | `Arc<MainServices>` |
+| `Code/GameEngine/GameLogic/src/system/engine_stores.rs` | `SCOPED_ACTIVE` | `PublishedOwner` → `WorldServices` / `EngineStores` |
+
+**Static allowlist (debug-only instrumentation, not game state):**
+
+| Name | Reason |
+|------|--------|
+| `CRC_DEBUG_BAG` | `cfg(feature=debug_crc)` instrumentation bag |
+| `PERF_GATHER_REGISTRY` | `cfg(feature=perf_timers)` instrumentation bag |
+
+Do **not** add TLS or process statics for gameplay. Put fields on the owning
+`CommonServices` / `WorldServices` / `MainServices` / `GameClient` / `AudioManager`
+instance. See `docs/instance_binding.md`.
+
 
 ## Standard for Completion
 A subsystem is not done because it "works".

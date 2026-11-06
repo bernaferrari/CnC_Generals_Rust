@@ -517,15 +517,24 @@ impl SubsystemInterface for LocalFileSystem {
     }
 }
 
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    pub static THE_LOCAL_FILE_SYSTEM: Rc<RefCell<LocalFileSystem>> =
-        Rc::new(RefCell::new(LocalFileSystem::new()));
+/// Run `body` with the instance local file system (C++ `TheLocalFileSystem`).
+pub fn with_local_file_system<R>(f: impl FnOnce(&mut LocalFileSystem) -> R) -> R {
+    let services = crate::common::common_services::common_services();
+    f(&mut services
+        .system
+        .local_file_system
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()))
 }
 
-/// Convenience function to access the global local file system
-pub fn get_local_file_system() -> Rc<RefCell<LocalFileSystem>> {
-    THE_LOCAL_FILE_SYSTEM.with(Rc::clone)
+pub fn get_local_file_system() -> std::sync::MutexGuard<'static, LocalFileSystem> {
+    let services = crate::common::common_services::common_services();
+    let guard = services
+        .system
+        .local_file_system
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    unsafe { std::mem::transmute(guard) }
 }
 
 #[cfg(test)]

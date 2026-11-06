@@ -216,9 +216,9 @@ pub(in super::super) fn fire_exit(
     source.clear_status(ObjectStatusMaskType::from_status(
         ObjectStatusTypes::IgnoringStealth,
     ));
-    if let Some((weapon, _)) = source.get_current_weapon() {
-        let frame = ai.world().ok_or("attack fire world missing")?.frame();
-        if weapon.get_status_at(frame) == WeaponStatus::PreAttack {
+    let frame = ai.world().ok_or("attack fire world missing")?.frame();
+    if let Some(weapon) = source.weapon_set.get_current_weapon_mut() {
+        if weapon.observe_status_at(frame) == WeaponStatus::PreAttack {
             source.cancel_pre_attack_for_current_weapon();
         }
     }

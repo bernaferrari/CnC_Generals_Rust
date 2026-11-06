@@ -750,9 +750,7 @@ impl GameLogic {
                     && let Some(producer) = self.objects.get_mut(&producer_id)
                     && producer.contains_spawn_behavior_child(id, child_birth)
                 {
-                    if crate::game_logic::host_base_defense::is_stinger_site_structure(
-                        &producer.template_name,
-                    ) {
+                    if producer.is_kind_of(crate::game_logic::KindOf::SpawnsAreTheWeapons) {
                         // C++ SpawnBehavior::onSpawnDeath appends one absolute
                         // replacement time before erasing the exact ID.
                         if let Some(spec) = Self::resolve_host_spawn_behavior_spec(producer) {
@@ -809,6 +807,9 @@ impl GameLogic {
         }
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.status.on_die_started = true;
+            if let Some(credit) = killer {
+                obj.deferred_destruction_credit = Some(credit);
+            }
         }
         if input.is_some()
             && self
@@ -995,7 +996,8 @@ impl GameLogic {
                 return Ok(());
             }
             // C++ SlowDeathBehavior residual: infantry/vehicles delay destroy + sink.
-            if self.try_begin_slow_death_instead_of_destroy(id, presentation_effects)? {
+            // deferred_destruction_credit was stamped at onDie start for final destroyObject.
+            if self.try_begin_slow_death_instead_of_destroy(id, input, presentation_effects)? {
                 return Ok(());
             }
             // C++ KeepObjectDie residual: leave rubble, do not DestroyDie-remove.
@@ -1181,6 +1183,31 @@ impl GameLogic {
         }
     }
 
+    /// C++ UpgradeDie::onDie for one authored module: remove that module's
+    /// own UpgradeToRemove from the live producer. The name-inferred residual
+    /// payload is marked consumed so it cannot remove a second time.
+    pub(in super::super::super) fn apply_authored_upgrade_die(
+        &mut self,
+        id: ObjectId,
+        upgrade: &str,
+    ) {
+        let Some(obj) = self.objects.get_mut(&id) else {
+            return;
+        };
+        if let Some(ud) = obj.upgrade_die.as_mut() {
+            ud.fired = true;
+        }
+        let Some(pid) = obj.producer_id.filter(|pid| self.objects.contains_key(pid)) else {
+            self.upgrade_die_reg.record_missing_producer();
+            return;
+        };
+        if self.remove_object_upgrade_with_receiving_rules(pid, upgrade) {
+            self.upgrade_die_reg.record_removal();
+        } else {
+            self.upgrade_die_reg.record_missing_upgrade();
+        }
+    }
+
     pub(in super::super::super) fn maybe_apply_dam_die(&mut self, id: ObjectId) {
         if self.dam_template_at(id) {
             self.apply_dam_die_enable_waveguides();
@@ -1210,6 +1237,7 @@ impl GameLogic {
     pub(in super::super::super) fn try_begin_slow_death_instead_of_destroy(
         &mut self,
         id: ObjectId,
+        input: Option<crate::game_logic::object::OnDieInput>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
         let frame = self.frame;
@@ -1301,6 +1329,7 @@ impl GameLogic {
         }
         if obj.begin_slow_death(
             frame,
+            input,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         ) {
             return Ok(true);

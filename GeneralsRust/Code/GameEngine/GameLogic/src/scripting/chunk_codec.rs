@@ -21,7 +21,7 @@ impl ScriptTemplateLookup {
         engine.script_template_lookup()
     }
 
-    pub(crate) fn from_keys(condition_keys: Vec<u32>, action_keys: Vec<u32>) -> Self {
+    pub fn from_keys(condition_keys: Vec<u32>, action_keys: Vec<u32>) -> Self {
         Self {
             condition_keys,
             action_keys,

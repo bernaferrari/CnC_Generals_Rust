@@ -40,6 +40,7 @@ fn host() -> gamelogic::helpers::HostFxObjectPose {
 
 #[test]
 fn authored_host_bonefx_keeps_receiving_services_and_immediate_nested_order() {
+    crate::test_support::ensure_ambient_host();
     let (events, observed) = channel();
     let mut catalog = FXListStore::new();
     let mut child = FXList::new();
@@ -109,6 +110,8 @@ fn authored_host_bonefx_keeps_receiving_services_and_immediate_nested_order() {
             find_list: &mut find,
             bone_transforms: &mut bones,
             position_visible: &mut visible,
+            create_light_pulse: &mut |_pulse| true,
+            play_fx_audio: &mut |_name, _pos| false,
         },
     );
     assert_eq!(
@@ -142,6 +145,7 @@ fn authored_host_bonefx_keeps_receiving_services_and_immediate_nested_order() {
 
 #[test]
 fn hidden_position_and_host_skip_all_receiving_callbacks() {
+    crate::test_support::ensure_ambient_host();
     let mut list = FXList::new();
     shake(&mut list, CameraShakeType::Normal);
     let mut shake = |_: &Coord3D, _| panic!("hidden shake");
@@ -154,6 +158,8 @@ fn hidden_position_and_host_skip_all_receiving_callbacks() {
         find_list: &mut find,
         bone_transforms: &mut bones,
         position_visible: &mut visible,
+        create_light_pulse: &mut |_pulse| true,
+        play_fx_audio: &mut |_name, _pos| false,
     };
     list.do_fx_pos_with_view(Some(&Coord3D::ZERO), None, 0.0, None, 0.0, &mut view);
     let mut hidden = host();
@@ -163,6 +169,7 @@ fn hidden_position_and_host_skip_all_receiving_callbacks() {
 
 #[test]
 fn same_id_receivers_keep_their_own_view_and_impulse_without_tactical_publication() {
+    crate::test_support::ensure_ambient_host();
     let mut list = FXList::new();
     shake(&mut list, CameraShakeType::Normal);
     let mut rules = game_engine::common::global_data::GlobalData::default();
@@ -197,6 +204,8 @@ fn same_id_receivers_keep_their_own_view_and_impulse_without_tactical_publicatio
                 find_list: &mut find,
                 bone_transforms: &mut bones,
                 position_visible: &mut visible,
+                create_light_pulse: &mut |_pulse| true,
+                play_fx_audio: &mut |_name, _pos| false,
             },
         );
     };
@@ -213,6 +222,7 @@ fn same_id_receivers_keep_their_own_view_and_impulse_without_tactical_publicatio
 
 #[test]
 fn terrain_scorch_host_nugget_uses_receiving_callback_at_authored_list_position() {
+    crate::test_support::ensure_ambient_host();
     let (events, observed) = channel();
     let mut list = FXList::new();
     marker(&mut list, "before", &events);
@@ -242,6 +252,8 @@ fn terrain_scorch_host_nugget_uses_receiving_callback_at_authored_list_position(
             find_list: &mut find,
             bone_transforms: &mut bones,
             position_visible: &mut visible,
+            create_light_pulse: &mut |_pulse| true,
+            play_fx_audio: &mut |_name, _pos| false,
         },
     );
     assert_eq!(

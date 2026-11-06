@@ -82,9 +82,6 @@ impl crate::game_logic::GameLogic {
                 .registered_values()
                 .filter(|object| {
                     object.is_tunnel_network_style_container()
-                        || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                            &object.template_name,
-                        )
                 })
                 .map(|object| {
                     (
@@ -393,6 +390,7 @@ impl GameClientFxRuntime for ObjectFxRuntime<'_, '_, '_, '_> {
                 speed,
                 radius,
                 object: None,
+                secondary_object: None,
             },
             FxSource::Objects { primary, .. } => {
                 let object = self
@@ -413,6 +411,7 @@ impl GameClientFxRuntime for ObjectFxRuntime<'_, '_, '_, '_> {
                     speed: 0.,
                     radius: 0.,
                     object,
+                    secondary_object: self.secondary,
                 }
             }
         }
@@ -470,6 +469,13 @@ impl GameClientFxRuntime for ObjectFxRuntime<'_, '_, '_, '_> {
                 &self.services.audio_policy,
             )
         } else {
+            // Headless / fixture path: retain C++ SoundFXNugget → TheAudio so
+            // pending_play_events stay observable without a receiving owner.
+            game_client::fx_list::submit_global_sound_fx(
+                name,
+                input.primary.as_ref(),
+                player,
+            );
             Ok(())
         }
     }

@@ -667,3 +667,49 @@ fn native_auto_acquire_getters_ignore_locked_foreign_owner() {
     drop(_foreign_unit_guard);
     super::super::super::super::registry::unregister_unit(fixture.source_id);
 }
+
+#[test]
+fn computer_sleep_mood_ignores_commands_except_move_even_if_sleeping() {
+    // C++ AIUpdate.cpp:2580-2584 isAllowedToRespondToAiCommands.
+    if !child(concat!(
+        module_path!(),
+        "::computer_sleep_mood_ignores_commands_except_move_even_if_sleeping"
+    )) {
+        return;
+    }
+    let fixture = MoodFixture::new("Yes");
+    fixture
+        .ai
+        .lock()
+        .unwrap()
+        .set_attitude(AIAttitudeType::Sleep)
+        .unwrap();
+    let source_before = fixture.ai.lock().unwrap().get_last_command_source();
+    let mut command =
+        AiCommandParams::new(AiCommandType::MoveToPosition, CommandSourceType::FromScript);
+    command.pos = Coord3D::new(50.0, 50.0, 0.0);
+    fixture
+        .ai
+        .lock()
+        .unwrap()
+        .execute_command(&command)
+        .unwrap();
+    assert_eq!(
+        fixture.ai.lock().unwrap().get_last_command_source(),
+        source_before,
+        "sleeping computer AI must ignore MoveToPosition"
+    );
+    assert_ne!(source_before, CommandSourceType::FromScript);
+    command.cmd = AiCommandType::MoveToPositionEvenIfSleeping;
+    fixture
+        .ai
+        .lock()
+        .unwrap()
+        .execute_command(&command)
+        .unwrap();
+    assert_eq!(
+        fixture.ai.lock().unwrap().get_last_command_source(),
+        CommandSourceType::FromScript,
+        "MoveToPositionEvenIfSleeping is the C++ exception"
+    );
+}

@@ -96,7 +96,12 @@ impl GameLogic {
         }
         let seed = scatter_seed_for_shot(attacker_id.0, target_id.0, self.frame);
         let offset = scatter_impact_offset(seed, scatter);
-        let impact = target_pos + offset;
+        let mut impact = target_pos + offset;
+        // C++ Weapon.cpp:990-995: fire at the ground (layer height) under the
+        // scattered XY, never at the victim's altitude.
+        if let Some(ground) = self.terrain_height_at(impact) {
+            impact.y = ground;
+        }
         let misses = scatter_misses_intended_target(scatter, seed, hit_r);
         (misses, impact, splash_r)
     }
@@ -1134,7 +1139,7 @@ impl GameLogic {
         let Some(u) = self.objects.get_mut(&unit_id) else {
             return false;
         };
-        if !u.can_move() {
+        if !u.is_mobile_for_ai_command() {
             return false;
         }
         u.is_blocked = false;
@@ -1145,18 +1150,13 @@ impl GameLogic {
         u.set_face_active(true);
         u.set_face_loco_frame(0);
         let _ = u.arm_face_locomotor_goal(target_pos);
-        let faced = !matches!(u.ai_state(), AIState::SpecialAbility | AIState::Capturing);
-        if faced {
-            u.target_location = None;
-
-            u.set_status_attacking(false);
-            u.set_status_force_attack(false);
-            u.set_ai_state(
-                AIState::FacingObject,
-                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-            );
-        }
-        {}
+        u.target_location = None;
+        u.set_status_attacking(false);
+        u.set_status_force_attack(false);
+        u.set_ai_state(
+            AIState::FacingObject,
+            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+        );
         true
     }
 
@@ -1165,7 +1165,7 @@ impl GameLogic {
         let Some(u) = self.objects.get_mut(&unit_id) else {
             return false;
         };
-        if !u.can_move() {
+        if !u.is_mobile_for_ai_command() {
             return false;
         }
         u.is_blocked = false;
@@ -1175,19 +1175,14 @@ impl GameLogic {
         u.set_face_active(true);
         u.set_face_loco_frame(0);
         let _ = u.arm_face_locomotor_goal(pos);
-        let faced = !matches!(u.ai_state(), AIState::SpecialAbility | AIState::Capturing);
-        if faced {
-            u.target = None;
-            u.target_location = None;
-
-            u.set_status_attacking(false);
-            u.set_status_force_attack(false);
-            u.set_ai_state(
-                AIState::FacingPosition,
-                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-            );
-        }
-        {}
+        u.target = None;
+        u.target_location = None;
+        u.set_status_attacking(false);
+        u.set_status_force_attack(false);
+        u.set_ai_state(
+            AIState::FacingPosition,
+            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+        );
         true
     }
 
@@ -1240,7 +1235,8 @@ impl GameLogic {
         victim_id: Option<ObjectId>,
         current_time: f32,
     ) -> bool {
-        let Some(u) = self.objects.get(&unit_id) else {
+        self.with_own_services_mut(|this| {
+        let Some(u) = this.objects.get(&unit_id) else {
             return false;
         };
         if !u.is_alive() {
@@ -1258,29 +1254,30 @@ impl GameLogic {
             let has =
                 u.weapon.is_some() || u.secondary_weapon.is_some() || u.tertiary_weapon.is_some();
             if has {
-                if let Some(uu) = self.objects.get_mut(&unit_id) {
+                if let Some(uu) = this.objects.get_mut(&unit_id) {
                     uu.leftover_choose_best_reset_primary_for_ground();
                 }
             }
             return has;
         };
-        let Some(v) = self.objects.get(&vid) else {
+        let Some(v) = this.objects.get(&vid) else {
             return false;
         };
         // Snapshot selection without holding mut borrow across get_mut.
         let slot =
-            u.select_combat_weapon_slot_with_solo_set(v, current_time, &self.solo_weapon_bonus_set);
+            u.select_combat_weapon_slot_with_solo_set(v, current_time, &this.solo_weapon_bonus_set);
         let Some(slot) = slot else {
             // Leftover chooseBest: no valid weapon → reset PRIMARY, return FALSE.
-            if let Some(uu) = self.objects.get_mut(&unit_id) {
+            if let Some(uu) = this.objects.get_mut(&unit_id) {
                 uu.set_active_weapon_slot(0);
             }
             return false;
         };
-        if let Some(uu) = self.objects.get_mut(&unit_id) {
+        if let Some(uu) = this.objects.get_mut(&unit_id) {
             uu.set_active_weapon_slot(slot);
         }
         true
+        })
     }
 
     /// C++ cannotPossiblyAttackObject state condition residual.
@@ -1316,9 +1313,21 @@ impl GameLogic {
                 };
                 (
                     u.target == Some(from_id),
-                    u.turret_target_id == Some(from_id),
+                    u.turret_ai.turret_target_id == Some(from_id),
                 )
             };
+            // C++ transferAttack (AIUpdate.cpp:4149-4151): the state machine
+            // goal object follows the transfer independently of currentVictim.
+            if self
+                .objects
+                .get(&id)
+                .is_some_and(|u| u.unit_ai_runtime.machine().goals.object == Some(from_id))
+            {
+                let to_pos = self.objects.get(&to_id).map(|o| o.get_position());
+                if let (Some(pos), Some(u)) = (to_pos, self.objects.get_mut(&id)) {
+                    u.unit_ai_runtime.set_machine_goal_object(Some((to_id, pos)));
+                }
+            }
             if !had_target && !had_turret {
                 continue;
             }
@@ -1335,17 +1344,17 @@ impl GameLogic {
                 // Turret aim residual stays host (not AI decision channel).
                 let initial_team = self.objects.get(&to_id).map(|victim| victim.team);
                 if let Some(u) = self.objects.get_mut(&id) {
-                    u.turret_target_id = Some(to_id);
+                    u.turret_ai.turret_target_id = Some(to_id);
                     u.turret_runtime.target_pos = None;
                     u.turret_runtime.victim_team = initial_team;
-                    u.turret_force_attacking = true;
+                    u.turret_ai.turret_force_attacking = true;
                     if matches!(
-                        u.turret_substate,
+                        u.turret_ai.turret_substate,
                         crate::game_logic::object::TurretSubState::Idle
                             | crate::game_logic::object::TurretSubState::Hold
                             | crate::game_logic::object::TurretSubState::Recenter
                     ) {
-                        u.turret_substate = crate::game_logic::object::TurretSubState::Aim;
+                        u.turret_ai.turret_substate = crate::game_logic::object::TurretSubState::Aim;
                     }
                 }
             }
@@ -1604,3 +1613,44 @@ mod physics_landing_phase_tests;
 #[cfg(test)]
 #[path = "physics/source_z_owner_tests.rs"]
 mod source_z_owner_tests;
+
+#[cfg(test)]
+mod instant_scatter_ground_tests {
+    use super::super::super::*;
+
+    /// C++ Weapon.cpp:990-995: after scatter, projectileDestination.z is
+    /// TheTerrainLogic->getLayerHeight at the scattered XY, not victim height.
+    #[test]
+    fn instant_scatter_impact_lands_on_terrain_not_victim_altitude() {
+        let mut logic = GameLogic::new();
+        logic.override_world_size(30., 30.);
+        let mut map = gamelogic::system::map_loader::MapData::new();
+        map.width = 4;
+        map.height = 4;
+        map.heightmap = vec![8; 16];
+        logic
+            .world_services
+            .terrain()
+            .write()
+            .unwrap()
+            .load_map_geometry(map);
+        let mut shooter = ThingTemplate::new("ScatterShooter");
+        shooter.set_primary_weapon_name("StrategyCenterGun");
+        shooter.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        logic.templates.insert("ScatterShooter".into(), shooter);
+        let mut air = ThingTemplate::new("ScatterAirTarget");
+        air.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        logic.templates.insert("ScatterAirTarget".into(), air);
+        let a = logic
+            .create_object("ScatterShooter", Team::USA, glam::Vec3::new(5., 0., 5.))
+            .expect("shooter");
+        let target_pos = glam::Vec3::new(15., 40., 15.);
+        let t = logic
+            .create_object("ScatterAirTarget", Team::GLA, target_pos)
+            .expect("target");
+        let (_, impact, _) = logic.resolve_instant_scatter_shot(a, t, 0, target_pos, None);
+        assert_ne!((impact.x, impact.z), (15., 15.), "scatter must offset XY");
+        assert_eq!(impact.y, logic.terrain_height_at(impact).unwrap());
+        assert_eq!(impact.y, 5.);
+    }
+}

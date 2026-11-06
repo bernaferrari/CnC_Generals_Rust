@@ -651,6 +651,7 @@ mod tests {
 
     #[test]
     fn test_command_button_creation() {
+        crate::test_support::ensure_ambient_host();
         let button = CommandButton::new(
             "build_barracks".into(),
             "Barracks".into(),
@@ -669,6 +670,7 @@ mod tests {
 
     #[test]
     fn test_button_cooldown() {
+        crate::test_support::ensure_ambient_host();
         let mut button = CommandButton::new(
             "nuke".into(),
             "Nuclear Missile".into(),
@@ -689,6 +691,7 @@ mod tests {
 
     #[test]
     fn test_button_state() {
+        crate::test_support::ensure_ambient_host();
         let mut button = CommandButton::new(
             "test".into(),
             "Test".into(),

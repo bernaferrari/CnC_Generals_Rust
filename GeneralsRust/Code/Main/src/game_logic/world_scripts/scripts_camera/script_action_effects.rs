@@ -59,11 +59,11 @@ impl GameLogic {
         }
     }
 
-    pub(super) fn apply_script_action_requests_with_effects(
-        &mut self,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        mut ui: crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    pub(super) fn apply_script_action_requests_with_effects(&mut self, interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>, mut ui: crate::game_logic::ScriptPresentationEffects<'_>) -> gamelogic::GameLogicResult<()> {
+        self.with_own_services_mut(|this| this.apply_script_action_requests_with_effects_bound(interpreter, ui))
+    }
+
+    fn apply_script_action_requests_with_effects_bound(&mut self, interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>, mut ui: crate::game_logic::ScriptPresentationEffects<'_>) -> gamelogic::GameLogicResult<()> {
         let Some(interpreter) = interpreter else {
             return self
                 .with_owned_script_engine(|engine, world| {

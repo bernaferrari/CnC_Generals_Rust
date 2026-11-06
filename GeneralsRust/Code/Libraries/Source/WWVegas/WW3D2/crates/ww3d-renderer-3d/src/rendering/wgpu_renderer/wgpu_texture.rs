@@ -265,12 +265,15 @@ impl WgpuTexture {
             copy_size,
         );
 
-        ww3d_engine::submit_recorded(
+        {
+            let local = ww3d_engine::FrameSubmitState::new();
+            ww3d_engine::submit_recorded(
+                &local,
             queue,
             ww3d_engine::FrameCommandPhase::Upload,
             encoder.finish(),
             ww3d_engine::OutOfFrameReason::StandaloneW3dRenderer,
-        );
+        );        }
         Ok(())
     }
 
@@ -304,12 +307,15 @@ impl WgpuTexture {
             );
         }
 
-        ww3d_engine::submit_recorded(
+        {
+            let local = ww3d_engine::FrameSubmitState::new();
+            ww3d_engine::submit_recorded(
+                &local,
             queue,
             ww3d_engine::FrameCommandPhase::Upload,
             encoder.finish(),
             ww3d_engine::OutOfFrameReason::StandaloneW3dRenderer,
-        );
+        );        }
         Ok(())
     }
 

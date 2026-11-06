@@ -105,12 +105,13 @@ impl CnCGameEngine {
     pub(super) fn gameplay_ui_active(&self) -> bool {
         #[cfg(feature = "game_client")]
         {
+            // Menu/shell transitions can run before InGameUI is installed.
             self.game_logic.script_input_enabled()
                 && self
                     .game_client
                     .in_game_ui_subsystem()
-                    .expect("receiving InGameUI initialized")
-                    .get_input_enabled()
+                    .map(|ui| ui.get_input_enabled())
+                    .unwrap_or(false)
         }
         #[cfg(not(feature = "game_client"))]
         {
@@ -176,14 +177,18 @@ impl CnCGameEngine {
         // Prefer presentation game_mode residual when installed.
         let game_info_context = match self.presentation_or_live_game_mode() {
             GameMode::Lan | GameMode::Multiplayer => Some({
-                let setup = game_client::gui::get_lan_setup();
+                let setup_handle = game_client::gui::get_lan_setup();
+
+                let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                 game_client::gui::load_screen::load_screen_init_context_from_game_info(
                     setup.game_info(),
                     self.game_client.challenge_generals(),
                 )
             }),
             GameMode::Skirmish => Some({
-                let setup = game_client::gui::get_skirmish_setup();
+                let setup_handle = self.game_client.skirmish_setup();
+
+                let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                 game_client::gui::load_screen::load_screen_init_context_from_game_info(
                     setup.game_info().game_info(),
                     self.game_client.challenge_generals(),
@@ -726,8 +731,10 @@ impl CnCGameEngine {
                 // Windowed InGame: materialise ControlBar.wnd into TheWindowManager
                 // only when the ControlBar parent gadget is missing. Leftover
                 // MainMenu/Skirmish window_count must not skip the load.
+                // Headless smoke hosts skip the live bar for speed; a golden
+                // capture presents exactly what a windowed player sees.
                 #[cfg(feature = "game_client")]
-                if !self.runtime_host_headless {
+                if !self.runtime_host_headless || self.golden_capture.is_some() {
                     if crate::gameplay_layout::control_bar_parent_is_live_with_owner(
                         &window_manager_owner,
                     ) {
@@ -781,7 +788,7 @@ impl CnCGameEngine {
         // ControlBarParent on TheWindowManager. Disk-probe Ready/miss must
         // not skip the archive resolver when the live parent is still gone.
         #[cfg(feature = "game_client")]
-        if !self.runtime_host_headless
+        if (!self.runtime_host_headless || self.golden_capture.is_some())
             && !crate::gameplay_layout::control_bar_parent_is_live_with_owner(&window_manager_owner)
         {
             let facts = self.receiving_menu_world_facts();
@@ -1229,10 +1236,26 @@ impl CnCGameEngine {
     ) -> StartupLoadState {
         let (sender, receiver) = mpsc::channel();
         let (worker_owner, worker_signal) = super::startup_worker_owner::worker_pair();
+        // Re-bind Common / World / Main services on the worker. TLS does not
+        // cross threads; INI registration and asset lookups panic without them.
+        let worker_common = game_engine::common::common_services::try_common_services();
+        let worker_world = gamelogic::system::engine_stores::try_active_services()
+            .unwrap_or_else(gamelogic::system::engine_stores::new_world_services);
+        let worker_main = crate::main_services::try_main_services();
         // The driving application already admitted these immutable paths before
         // Options IO. Carry that same Recorder input into the worker; later
         // match resets retain the directory and update only map/seed.
         thread::spawn(move || {
+            let _common_tls = worker_common.map(
+                game_engine::common::common_services::CommonServicesScope::from_services,
+            );
+            // install_services also publishes this world's CommonServices head.
+            gamelogic::system::engine_stores::install_services(std::sync::Arc::clone(&worker_world));
+            let _world_tls = worker_world;
+            let _main_tls = worker_main.as_ref().map(|services| {
+                crate::main_services::install_main_services(std::sync::Arc::clone(services));
+                std::sync::Arc::clone(services)
+            });
             Self::emit_startup_load_progress(&sender, 0.03, "Preparing startup archive access");
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
                 || -> std::result::Result<StartupPreparedLoadResult, String> {
@@ -1491,9 +1514,11 @@ impl CnCGameEngine {
                         if !loaded_any_ocl {
                             gamelogic::object_creation_list::store::ensure_default_object_creation_lists_loaded();
                         }
-                        let ocl_count = gamelogic::object_creation_list::get_object_creation_list_store()
-                            .as_ref()
-                            .map(|store| store.get_ocl_count())
+                        let ocl_cell = gamelogic::object_creation_list::get_object_creation_list_store();
+                        let ocl_count = ocl_cell
+                            .read()
+                            .ok()
+                            .and_then(|guard| guard.as_ref().map(|store| store.get_ocl_count()))
                             .unwrap_or(0);
                         if ocl_count == 0 {
                             warn!("ObjectCreationListStore bootstrap loaded 0 templates — continuing without OCL data");
@@ -2061,6 +2086,13 @@ impl CnCGameEngine {
                     )
                     .map_err(anyhow::Error::msg)?
                     .with_pristine_bones(self.application_assets.as_ref());
+                // C++ updates the load bar without a full present on every MapReader
+                // stage. Throttle GPU presents — under load each present was ~2–13s
+                // and dominated Lone Eagle "Fast legacy sync" stage timers.
+                let mut last_load_present = Instant::now()
+                    .checked_sub(std::time::Duration::from_secs(1))
+                    .unwrap_or_else(Instant::now);
+                let mut last_load_progress = -1.0f32;
                 let loaded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     game_logic.load_map_with_progress_and_native_checked(
                         &map_to_load,
@@ -2070,23 +2102,30 @@ impl CnCGameEngine {
                                 "Command & Conquer Generals Zero Hour - Loading {phase} ({:.0}%)",
                                 progress * 100.0
                             ));
+                            let progress_jumped = (progress - last_load_progress).abs() >= 0.02;
+                            let present_due = last_load_present.elapsed()
+                                >= std::time::Duration::from_millis(100);
                             if let Some(kind) = load_kind {
-                                let mut audio = menu_audio.lend(
-                                    audio_random,
-                                    audio_policy,
-                                    audio_locality,
-                                    audio_view,
-                                );
-                                let (mut load_owner, _default_pump) =
-                                    game_client.split_load_screen_services(&mut audio);
-                                Self::pump_cpp_load_screen_progress(
-                                    &mut pump,
-                                    kind,
-                                    progress,
-                                    load_owner.runtime_mut(),
-                                )?;
+                                if progress_jumped || present_due {
+                                    let mut audio = menu_audio.lend(
+                                        audio_random,
+                                        audio_policy,
+                                        audio_locality,
+                                        audio_view,
+                                    );
+                                    let (mut load_owner, _default_pump) =
+                                        game_client.split_load_screen_services(&mut audio);
+                                    Self::pump_cpp_load_screen_progress(
+                                        &mut pump,
+                                        kind,
+                                        progress,
+                                        load_owner.runtime_mut(),
+                                    )?;
+                                    last_load_present = Instant::now();
+                                    last_load_progress = progress;
+                                    window.request_redraw();
+                                }
                             }
-                            window.request_redraw();
                             Ok(())
                         },
                         Some(&mut attempt),

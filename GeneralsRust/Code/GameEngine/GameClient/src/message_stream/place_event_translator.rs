@@ -316,24 +316,30 @@ impl PlaceEventTranslator {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_support::with_receiving_ui;
+
     use super::*;
     use crate::message_stream::failure_message_for_can_make;
 
     #[test]
     fn special_power_routes_only_for_matching_source_and_template() {
-        TheInGameUI::place_build_available(Some("TestStructure".to_string()), Some(42));
-        TheInGameUI::set_pending_special_power(7, 11, 42);
+        crate::test_support::ensure_ambient_host();
+        with_receiving_ui(|ui| {
+        ui.place_build_available(Some("TestStructure".to_string()), Some(42));
+        ui.set_pending_special_power(7, 11, 42);
 
-        assert!(active_special_power_construction(42, "TestStructure").is_some());
-        assert!(active_special_power_construction(7, "TestStructure").is_none());
-        assert!(active_special_power_construction(42, "OtherStructure").is_none());
+        assert!(active_special_power_construction(42, "TestStructure", ui).is_some());
+        assert!(active_special_power_construction(7, "TestStructure", ui).is_none());
+        assert!(active_special_power_construction(42, "OtherStructure", ui).is_none());
 
-        TheInGameUI::clear_pending_special_power();
-        TheInGameUI::place_build_available(None, None);
+        ui.clear_pending_special_power();
+        ui.place_build_available(None, None);
+        });
     }
 
     #[test]
     fn can_make_failure_maps_to_expected_ui_messages() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             failure_message_for_can_make(BuildCanMakeType::NoMoney),
             Some("GUI:NotEnoughMoneyToBuild")

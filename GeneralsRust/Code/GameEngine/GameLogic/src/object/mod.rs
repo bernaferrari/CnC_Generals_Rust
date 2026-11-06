@@ -70,9 +70,9 @@ pub mod w3d_ghost_object_xfer;
 pub mod weapon_set;
 pub use crate::common::types::ObjectStatusTypes;
 pub use crate::template::ObjectTemplate;
-pub use ghost_object::{GhostObject, GhostObjectManager, THE_GHOST_OBJECT_MANAGER};
+pub use ghost_object::{GhostObject, GhostObjectManager, the_ghost_object_manager};
 pub use w3d_ghost_object::{
-    FrozenW3DGhostSceneEvent, FrozenW3DGhostSnapshot, THE_W3D_GHOST_OBJECT_MANAGER, W3DGhostObject,
+    FrozenW3DGhostSceneEvent, FrozenW3DGhostSnapshot, the_w3d_ghost_object_manager, W3DGhostObject,
     W3DGhostObjectManager, W3DGhostSnapshotKey, W3DRenderObjectSnapshot,
 };
 
@@ -482,7 +482,8 @@ impl<'a> ProductionQueueModuleKindMut<'a> {
                     if credits <= 0 {
                         return;
                     }
-                    if let Ok(list) = player_list().read() {
+                    let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                         if let Some(player_arc) = list.get_player(player_id as i32) {
                             if let Ok(mut player) = player_arc.write() {
                                 let facts =
@@ -507,7 +508,8 @@ impl<'a> ProductionQueueModuleKindMut<'a> {
                     if credits <= 0 {
                         return;
                     }
-                    if let Ok(list) = player_list().read() {
+                    let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                         if let Some(player_arc) = list.get_player(player_id as i32) {
                             if let Ok(mut player) = player_arc.write() {
                                 let facts =
@@ -532,7 +534,8 @@ impl<'a> ProductionQueueModuleKindMut<'a> {
                     if credits <= 0 {
                         return;
                     }
-                    if let Ok(list) = player_list().read() {
+                    let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                         if let Some(player_arc) = list.get_player(player_id as i32) {
                             if let Ok(mut player) = player_arc.write() {
                                 let facts =
@@ -569,7 +572,8 @@ impl<'a> ProductionQueueModuleKindMut<'a> {
                     if credits <= 0 {
                         return;
                     }
-                    if let Ok(list) = player_list().read() {
+                    let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                         if let Some(player_arc) = list.get_player(player_id as i32) {
                             if let Ok(mut player) = player_arc.write() {
                                 let facts =
@@ -734,7 +738,8 @@ impl<'a> ProductionBehaviorQueueKindMut<'a> {
                     if credits <= 0 {
                         return;
                     }
-                    if let Ok(list) = player_list().read() {
+                    let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                         if let Some(player_arc) = list.get_player(player_id as i32) {
                             if let Ok(mut player) = player_arc.write() {
                                 let facts =
@@ -760,7 +765,8 @@ impl<'a> ProductionBehaviorQueueKindMut<'a> {
                     if credits <= 0 {
                         return;
                     }
-                    if let Ok(list) = player_list().read() {
+                    let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                         if let Some(player_arc) = list.get_player(player_id as i32) {
                             if let Ok(mut player) = player_arc.write() {
                                 let facts =
@@ -786,7 +792,8 @@ impl<'a> ProductionBehaviorQueueKindMut<'a> {
                     if credits <= 0 {
                         return;
                     }
-                    if let Ok(list) = player_list().read() {
+                    let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                         if let Some(player_arc) = list.get_player(player_id as i32) {
                             if let Ok(mut player) = player_arc.write() {
                                 let facts =
@@ -1688,6 +1695,20 @@ impl UpdateModuleInterface for ModuleUpdateProxy {
                 return Ok(UpdateSleepTime::None);
             }
         }
+        // GenerateMinefieldBehavior.cpp:437-475: with match-lent services the
+        // upgrade swap destroys/places mines mid-update through GameLogic;
+        // scheduling-only contexts keep the legacy update_simple path.
+        if let Some(services) = context.owned_minefield_services() {
+            let minefield = self.entry.with_module(|module| {
+                module
+                    .as_any_mut()
+                    .downcast_mut::<crate::object::behavior::generate_minefield_behavior::GenerateMinefieldBehaviorModule>()
+                    .map(|minefield| minefield.behavior_mut().update_scheduled_owned(services))
+            });
+            if let Some(result) = minefield {
+                return result.map_err(|error| format!("{error:?}").into());
+            }
+        }
         // Radar completion commits under the installed entry borrow, then
         // publishes the model transition through the driving scheduler owner.
         let radar_complete = self.entry.with_module(|module| {
@@ -2086,6 +2107,16 @@ pub(crate) enum ObjectDestroyServiceAction {
     MarkTriggerAreasChanged,
     NotifyObjectCountChanged,
     SendObjectDestroyed,
+    /// C++ `TheGameLogic->destroyObject(child)` issued from a module
+    /// destructor; the driving owner appends the child to its destroy list.
+    DestroyObject(ObjectID),
+}
+
+/// Narrow deletion services the driving GameLogic hands to onDelete phases so
+/// a module can destroy a child object synchronously through that owner
+/// (C++ `TheGameLogic->destroyObject`) without any global world lookup.
+pub(crate) trait ObjectDeletionServices {
+    fn destroy_object(&mut self, object_id: ObjectID);
 }
 
 /// Runtime cleanup phase; save data continues to use the C++ status bits.

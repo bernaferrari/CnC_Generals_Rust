@@ -708,6 +708,7 @@ mod tests {
 
     #[test]
     fn test_rain_system() {
+        crate::test_support::ensure_ambient_host();
         let settings = WeatherSettings {
             weather_type: WeatherType::Rain,
             intensity: 0.5,
@@ -723,6 +724,7 @@ mod tests {
 
     #[test]
     fn test_snow_system() {
+        crate::test_support::ensure_ambient_host();
         let settings = WeatherSettings {
             weather_type: WeatherType::Snow,
             intensity: 0.7,
@@ -738,6 +740,7 @@ mod tests {
 
     #[test]
     fn test_dust_storm_system() {
+        crate::test_support::ensure_ambient_host();
         let settings = WeatherSettings {
             weather_type: WeatherType::DustStorm,
             intensity: 0.8,
@@ -756,6 +759,7 @@ mod tests {
 
     #[test]
     fn local_weather_visibility_does_not_change_retail_snow_or_peer() {
+        crate::test_support::ensure_ambient_host();
         if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
             module_path!(),
             "local_weather_visibility_does_not_change_retail_snow_or_peer",
@@ -786,6 +790,7 @@ mod tests {
 
     #[test]
     fn test_weather_transition() {
+        crate::test_support::ensure_ambient_host();
         let mut weather = WeatherSystem::new();
 
         weather.set_weather(WeatherType::Rain, 0.5);
@@ -803,6 +808,7 @@ mod tests {
 
     #[test]
     fn test_particle_lifecycle() {
+        crate::test_support::ensure_ambient_host();
         let spawn_pos = Vec3::new(0.0, 0.0, 100.0);
         let wind = Vec3::new(10.0, 0.0, 0.0);
 

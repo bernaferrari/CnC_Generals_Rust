@@ -4,6 +4,7 @@
 use super::super::*;
 
 mod admission;
+mod authored_shot;
 mod discharge;
 mod ground_target;
 mod object_hit;
@@ -33,6 +34,9 @@ enum CombatShotResult {
         u8,
         Option<super::super::world_combat::AcceptedWeaponDischarge>,
     ),
+    /// An authored WeaponTemplate shot already delivered and committed by the
+    /// shared shot operation (`authored_shot.rs`).
+    Delivered,
 }
 impl GameLogic {
     pub(crate) fn update_combat(
@@ -65,7 +69,7 @@ impl GameLogic {
                 CombatShotResult::Fired(slot, visual) => {
                     self.commit_combat_shot_with_effects(input, slot, visual, effects);
                 }
-                CombatShotResult::NoShot => {}
+                CombatShotResult::NoShot | CombatShotResult::Delivered => {}
             }
         }
 

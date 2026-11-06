@@ -41,7 +41,7 @@ async fn initialize_wgpu() -> ShdResult<WgpuContext> {
         .await
         .map_err(|_| ShdError::HardwareUnsupported("No suitable WGPU adapter found".to_string()))?;
 
-    let (device, queue) = ww3d_gpu::acquire_device(
+    let (device, queue) = ww3d_gpu::DeviceAuthority::new().acquire_device(
         &adapter,
         &wgpu::DeviceDescriptor {
             label: Some("WWShade WGPU Device"),

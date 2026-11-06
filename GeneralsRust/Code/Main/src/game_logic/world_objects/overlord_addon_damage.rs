@@ -9,7 +9,6 @@ use crate::game_logic::host_overlord_addon_damage::{
     overlord_addon_payload_template, portable_addon_installed,
     should_grant_stealth_to_portable_addon,
 };
-use crate::game_logic::host_overlord_addons::{is_emperor_template, is_helix_template};
 
 impl GameLogic {
     fn ensure_overlord_payload_template(&mut self, name: &str) {
@@ -68,14 +67,15 @@ impl GameLogic {
     ) -> Option<ObjectId> {
         let (kind, is_helix, team, pos, owner, existing, stealthed) = {
             let host = self.objects.get(&host_id)?;
-            let emperor = is_emperor_template(&host.template_name);
+            let emperor = host.authors_innate_propaganda_tower();
             let kind = installed_portable_addon_kind(
                 host.has_overlord_gattling_addon,
                 host.has_overlord_propaganda_addon,
                 host.overlord_bunker_slot_capacity(),
                 emperor,
             )?;
-            let is_helix = host.is_helix_transport || is_helix_template(&host.template_name);
+            // Authored HelixContain (C++ HelixContain module), not a template-name peel.
+            let is_helix = host.is_helix_transport;
             (
                 kind,
                 is_helix,
@@ -217,7 +217,7 @@ impl GameLogic {
                 host.has_overlord_gattling_addon,
                 host.has_overlord_propaganda_addon,
                 host.overlord_bunker_slot_capacity(),
-                is_emperor_template(&host.template_name),
+                host.authors_innate_propaganda_tower(),
             ) {
                 return;
             }
@@ -277,7 +277,7 @@ impl GameLogic {
                     obj.has_overlord_gattling_addon,
                     obj.has_overlord_propaganda_addon,
                     obj.overlord_bunker_slot_capacity(),
-                    is_emperor_template(&obj.template_name),
+                    obj.authors_innate_propaganda_tower(),
                 )
             })
             .map(|obj| obj.id)

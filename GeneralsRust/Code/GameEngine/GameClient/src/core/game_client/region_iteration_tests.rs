@@ -3,6 +3,7 @@ use super::*;
 
 #[test]
 fn public_region_iteration_preserves_factory_constructor_roster_and_inclusive_edges() {
+    crate::test_support::ensure_ambient_host();
     let mut client = GameClient::new().unwrap();
     let template = ThingTemplate::new();
     let mut all = Vec::new();

@@ -62,6 +62,7 @@ hot-reload = []
 compressed-assets = []
 
 [dependencies]
+flate2 = { workspace = true }
 generals_map = { path = "../GameEngine/Map" }
 rodio_compat = { workspace = true }
 bincode_legacy = { workspace = true }
@@ -358,6 +359,10 @@ path = "src/bin/window_test.rs"
 required-features = ["dev-tools"]
 
 [[bin]]
+name = "parallel_lone_eagle_gate"
+path = "src/bin/parallel_lone_eagle_gate.rs"
+
+[[bin]]
 name = "map_frame_gate"
 path = "src/bin/map_frame_gate.rs"
 
@@ -410,6 +415,10 @@ name = "ai_skirmish_gate"
 path = "src/bin/ai_skirmish_gate.rs"
 
 [[bin]]
+name = "ai_retail_skirmish_gate"
+path = "src/bin/ai_retail_skirmish_gate.rs"
+
+[[bin]]
 name = "shell_smoke_gate"
 path = "src/bin/shell_smoke_gate.rs"
 required-features = ["host-residuals"]
@@ -417,6 +426,38 @@ required-features = ["host-residuals"]
 [[bin]]
 name = "executable_smoke_gate"
 path = "src/bin/executable_smoke_gate.rs"
+
+[[bin]]
+name = "boot_shell_menu_gate"
+path = "src/bin/boot_shell_menu_gate.rs"
+
+[[bin]]
+name = "retail_skirmish_map_gate"
+path = "src/bin/retail_skirmish_map_gate.rs"
+
+[[bin]]
+name = "player_orders_gate"
+path = "src/bin/player_orders_gate.rs"
+
+[[bin]]
+name = "retail_save_load_gate"
+path = "src/bin/retail_save_load_gate.rs"
+
+[[bin]]
+name = "present_frame_gate"
+path = "src/bin/present_frame_gate.rs"
+
+[[bin]]
+name = "golden_capture"
+path = "src/bin/golden_capture.rs"
+
+[[bin]]
+name = "lone_eagle_bench"
+path = "src/bin/lone_eagle_bench.rs"
+
+[[bin]]
+name = "facility_cache_gate"
+path = "src/bin/facility_cache_gate.rs"
 
 [[example]]
 name = "telemetry_bridge"
@@ -429,6 +470,8 @@ path = "examples/run_exec_smoke.rs"
 
 [dev-dependencies]
 tempfile = {workspace = true}
+game_engine = { path = "../GameEngine/Common", features = ["test-ambient-services"] }
+gamelogic = { path = "../GameEngine/GameLogic", features = ["test-ambient-services"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Media", "Win32_UI_WindowsAndMessaging"] }

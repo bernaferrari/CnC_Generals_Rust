@@ -399,6 +399,8 @@ fn stinger_hive_damage_uses_receiving_roster_order_and_death_deadlines() {
     let peer_site = peer
         .create_object_for_player("GLAStingerSite", 1, Vec3::ZERO)
         .expect("peer Stinger admitted");
+    first.run_first_spawn_update_for_test();
+    peer.run_first_spawn_update_for_test();
     assert_eq!(site, peer_site, "worlds deliberately reuse object IDs");
     let first_roster = roster(&first, site);
     let peer_roster = roster(&peer, peer_site);
@@ -516,6 +518,7 @@ fn stinger_hive_damage_uses_receiving_roster_order_and_death_deadlines() {
     let active_source = active_body
         .create_object_for_player("HiveShooter", 1, Vec3::ZERO)
         .expect("ActiveBody test source admitted");
+    active_body.run_first_spawn_update_for_test();
     let active_children = roster(&active_body, active_site);
     let active_child_health = active_body
         .host_object(ObjectId(active_children[0]))
@@ -655,6 +658,8 @@ fn hive_damage_masks_follow_receiving_body_and_source() {
     let peer_site = peer
         .create_object_for_player("GLAStingerSite", 1, Vec3::ZERO)
         .unwrap();
+    first.run_first_spawn_update_for_test();
+    peer.run_first_spawn_update_for_test();
     let shooter = first
         .create_object_for_player("HiveShooter", 1, Vec3::ZERO)
         .unwrap();
@@ -703,4 +708,65 @@ fn hive_damage_masks_follow_receiving_body_and_source() {
         None,
     );
     assert_eq!(first.host_object(site).unwrap().health.current, 990.0);
+}
+
+#[test]
+fn hive_body_without_spawn_behavior_forwards_to_closest_contained_rider() {
+    use generals_main::game_logic::host_base_defense::HostHiveDamageClass;
+    // C++ HiveStructureBody.cpp:79-100: no SpawnBehavior interface but a
+    // Contain module forwards to getClosestRider (FROM_CENTER_2D, first wins
+    // ties) and swallows only when no rider remains. Selection is by the
+    // authored Body, not the template name.
+    let ini = "Object HiveRiderBunker\n KindOf = STRUCTURE SELECTABLE\n TransportSlotCount = 1\n Body = HiveStructureBody BunkerBody\n PropagateDamageTypesToSlavesWhenExisting = SMALL_ARMS\n SwallowDamageTypesIfSlavesNotExisting = SMALL_ARMS\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = TransportContain BunkerContain\n Slots = 5\n End\nEnd\nObject HiveRider\n KindOf = INFANTRY SELECTABLE\n TransportSlotCount = 1\n Body = ActiveBody RiderBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject HiveShooter\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody ShooterBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n";
+    let mut world = GameLogic::new();
+    world
+        .admit_object_ini_sources([("HiveRider.ini".into(), ini.to_string())])
+        .unwrap();
+    world.add_player(Player::new(1, Team::GLA, "Owner", true));
+    let bunker = world
+        .create_object_for_player("HiveRiderBunker", 1, Vec3::ZERO)
+        .unwrap();
+    let far = world
+        .create_object_for_player("HiveRider", 1, Vec3::new(-50.0, 0.0, 0.0))
+        .unwrap();
+    let near = world
+        .create_object_for_player("HiveRider", 1, Vec3::new(40.0, 0.0, 0.0))
+        .unwrap();
+    let shooter = world
+        .create_object_for_player("HiveShooter", 1, Vec3::new(100.0, 0.0, 0.0))
+        .unwrap();
+    for rider in [far, near] {
+        assert!(world.host_object_mut(bunker).unwrap().add_occupant(rider));
+    }
+    world.apply_host_hive_damage_from(
+        bunker,
+        30.0,
+        HostHiveDamageClass::PropagateToSlaves,
+        None,
+        Some(shooter),
+    );
+    assert_eq!(world.host_object(bunker).unwrap().health.current, 1000.0);
+    assert_eq!(world.host_object(near).unwrap().health.current, 70.0);
+    assert_eq!(world.host_object(far).unwrap().health.current, 100.0);
+    // Missing source falls through to the structure.
+    world.apply_host_hive_damage_from(
+        bunker,
+        10.0,
+        HostHiveDamageClass::PropagateToSlaves,
+        None,
+        None,
+    );
+    assert_eq!(world.host_object(bunker).unwrap().health.current, 990.0);
+    // An empty Contain with a resolved source swallows.
+    let empty = world
+        .create_object_for_player("HiveRiderBunker", 1, Vec3::ZERO)
+        .unwrap();
+    world.apply_host_hive_damage_from(
+        empty,
+        10.0,
+        HostHiveDamageClass::PropagateToSlaves,
+        None,
+        Some(shooter),
+    );
+    assert_eq!(world.host_object(empty).unwrap().health.current, 1000.0);
 }

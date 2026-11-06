@@ -387,4 +387,32 @@ mod tests {
         a.begin(10.0, false);
         assert!(!a.started_on_ground);
     }
+
+    /// hq-2qedt.41: C++ JetSlowDeathBehavior.cpp:133-144 grounded destroy is same frame;
+    /// airborne peer keeps authored DelayFinalBlowUpFromHitGround untouched.
+    #[test]
+    fn jet_ground_same_frame_destroy_isolated_from_airborne_peer_final_delay() {
+        let fx = HostJetSlowDeathFx { delay_final_frames: 7, ..Default::default() };
+        let mut ground = HostJetSlowDeathData::with_fx(fx.clone());
+        let mut air = HostJetSlowDeathData::with_fx(fx);
+        air.begin(50.0, false);
+        ground.begin(0.0, false);
+        assert!(ground.tick(1, 0.0).2, "grounded jet destroys same frame");
+        assert!(air.is_active() && !air.hit_ground && air.hit_ground_frame == 0);
+        let mut h = 50.0;
+        let mut hit = None;
+        for f in 1..400 {
+            let (dy, _, destroy) = air.tick(f, h);
+            h = (h + dy).max(0.0);
+            if hit.is_none() && air.hit_ground {
+                hit = Some(f);
+                assert!(!destroy);
+            }
+            if destroy {
+                assert_eq!(f - hit.unwrap(), 7, "authored final delay preserved");
+                return;
+            }
+        }
+        panic!("airborne peer never finished");
+    }
 }

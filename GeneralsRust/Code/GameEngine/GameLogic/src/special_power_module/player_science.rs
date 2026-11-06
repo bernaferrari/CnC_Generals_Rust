@@ -234,8 +234,6 @@ impl ScienceChecker {
     }
 }
 
-/// Global player science manager
-static PLAYER_SCIENCE_MANAGER: OnceLock<Arc<RwLock<PlayerScienceManager>>> = OnceLock::new();
 
 /// Manager for all player science systems
 #[derive(Debug)]
@@ -287,15 +285,12 @@ impl Default for PlayerScienceManager {
     }
 }
 
-/// Initialize global player science manager
-pub fn initialize_player_science() {
-    let _ =
-        PLAYER_SCIENCE_MANAGER.get_or_init(|| Arc::new(RwLock::new(PlayerScienceManager::new())));
-}
+pub fn initialize_player_science() {}
 
-/// Get global player science manager
 pub fn get_player_science_manager() -> Option<Arc<RwLock<PlayerScienceManager>>> {
-    PLAYER_SCIENCE_MANAGER.get().cloned()
+    Some(Arc::clone(
+        crate::system::engine_stores::active_services().player_science(),
+    ))
 }
 
 #[cfg(test)]

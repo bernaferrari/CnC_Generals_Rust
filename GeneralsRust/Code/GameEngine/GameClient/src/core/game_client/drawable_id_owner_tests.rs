@@ -9,6 +9,7 @@ fn register(client: &mut GameClient) -> DrawableId {
 
 #[test]
 fn actual_registration_uses_only_the_receiving_clients_counter() {
+    crate::test_support::ensure_ambient_host();
     let mut first = GameClient::new().unwrap();
     let mut peer = GameClient::new().unwrap();
     assert_eq!(register(&mut first), DrawableId(1));
@@ -27,6 +28,7 @@ fn actual_registration_uses_only_the_receiving_clients_counter() {
 
 #[test]
 fn detached_empty_save_and_failed_load_cannot_change_running_allocation() {
+    crate::test_support::ensure_ambient_host();
     if crate::core::game_client::global_boundary_fixture::run_in_private_child(
         module_path!(),
         "detached_empty_save_and_failed_load_cannot_change_running_allocation",
@@ -54,6 +56,7 @@ fn detached_empty_save_and_failed_load_cannot_change_running_allocation() {
 
 #[test]
 fn allocation_preserves_cpp_unsigned_increment() {
+    crate::test_support::ensure_ambient_host();
     let mut client = GameClient::new().unwrap();
     client.set_drawable_id_counter(u32::MAX);
     assert_eq!(client.alloc_drawable_id(), DrawableId(u32::MAX));
@@ -64,6 +67,7 @@ fn allocation_preserves_cpp_unsigned_increment() {
 
 #[test]
 fn detached_client_constructor_and_player_changes_do_not_publish_input_identity() {
+    crate::test_support::ensure_ambient_host();
     let mut running = Box::new(GameClient::new().unwrap());
     running.set_local_player_id(7);
     register_live_game_client(&mut running);

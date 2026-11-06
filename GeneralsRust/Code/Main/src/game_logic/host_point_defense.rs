@@ -190,6 +190,39 @@ pub fn is_combat_chinook_pdl_carrier(template_name: &str) -> bool {
     crate::game_logic::host_combat_chinook::is_combat_chinook_template(template_name)
 }
 
+/// Whether the object authors a `PointDefenseLaserUpdate` behavior module in its
+/// parsed INI definition (hq-2qedt.285). Combat Chinook PDL keys on this, not
+/// the `AirF_AmericaVehicleChinook` name.
+pub fn authors_point_defense_laser_update(object: &crate::game_logic::Object) -> bool {
+    object
+        .thing()
+        .template
+        .receiving_object_definition
+        .as_ref()
+        .is_some_and(|definition| {
+            definition.behavior_modules.iter().any(|module| {
+                module
+                    .class_name
+                    .eq_ignore_ascii_case("PointDefenseLaserUpdate")
+            })
+        })
+}
+
+/// Live carrier gate: Chinook hulls need an authored `PointDefenseLaserUpdate`
+/// module (hq-2qedt.285); other carriers keep their name residual.
+pub fn is_live_point_defense_carrier(object: &crate::game_logic::Object) -> bool {
+    if authors_point_defense_laser_update(object) {
+        return true;
+    }
+    let name = object.template_name.as_str();
+    if crate::game_logic::host_combat_chinook::is_chinook_hull_template(name)
+        && !name.eq_ignore_ascii_case("TestCombatChinook")
+    {
+        return false;
+    }
+    is_point_defense_carrier(name)
+}
+
 /// Whether template is a residual PointDefenseLaser carrier
 /// (Paladin / Avenger / King Raptor / Combat Chinook).
 ///

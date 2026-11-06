@@ -271,6 +271,8 @@ pub struct RenderInfoClass {
     pub fog: Option<FogSettings>,
     /// C++ D3DRS_ZBIAS consumed by extra-pass wireframe (ZBIAS 7).
     pub z_bias: i32,
+    /// Session WW3D context owned by the display/engine (multi-instance safe).
+    pub ww3d: Option<std::sync::Arc<ww3d_core::ww3d::Ww3dContext>>,
 }
 
 impl RenderInfoClass {
@@ -290,6 +292,7 @@ impl RenderInfoClass {
             override_stack: Vec::new(),
             fog: None,
             z_bias: 0,
+            ww3d: None,
         }
     }
 
@@ -693,7 +696,6 @@ pub struct MaterialInfoClass {
 pub type MaterialPassClass = crate::material_system::MaterialPassClass;
 
 /// Decal generator class
-static NEXT_LOGICAL_DECAL_ID: AtomicU32 = AtomicU32::new(1);
 
 /// Decal generator that mirrors the responsibilities of the original C++ `DecalGeneratorClass`.
 ///
@@ -735,7 +737,8 @@ impl DecalGeneratorClass {
 
         let projector_world = Mat4::IDENTITY;
         let world_to_projector = projector_world.inverse();
-        let logical_id = NEXT_LOGICAL_DECAL_ID.fetch_add(1, Ordering::Relaxed);
+        // Prefer with_material_in when a session runtime is available.
+        let logical_id = 0u32;
 
         Self {
             material_pass,

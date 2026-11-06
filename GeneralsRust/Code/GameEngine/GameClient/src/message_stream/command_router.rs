@@ -18,26 +18,40 @@ use gamelogic::common::{
 use super::game_message::{
     Coord3D, GameMessage, GameMessageArgumentType, GameMessageType, IRegion2D,
 };
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, Mutex};
 
 type HostCommandAuthority = dyn Fn(&[GameMessage]) + Send + Sync;
 
-static HOST_COMMAND_AUTHORITY: LazyLock<Mutex<Option<Arc<HostCommandAuthority>>>> =
-    LazyLock::new(|| Mutex::new(None));
-
-fn host_command_authority_slot() -> &'static Mutex<Option<Arc<HostCommandAuthority>>> {
-    &HOST_COMMAND_AUTHORITY
+#[cfg(test)]
+thread_local! {
+    static TEST_HOST_COMMAND_AUTHORITY: std::cell::RefCell<Option<Arc<HostCommandAuthority>>> =
+        const { std::cell::RefCell::new(None) };
 }
 
-/// Register the live Main command authority sink.
+/// Register the live Main command authority sink on the live GameClient
+/// (or cfg(test) TLS fallback when no client is published).
 ///
 /// C++ `RecorderClass::updatePlayback` (Recorder.cpp:415) appends file
 /// commands to `TheCommandList`; `GameLogic::processCommandList` then
 /// executes them. Rust AuthorityOnly skips the crate queue, so playback
 /// must also feed Main.
 pub fn set_host_command_authority(sink: Option<Arc<HostCommandAuthority>>) {
-    if let Ok(mut slot) = host_command_authority_slot().lock() {
-        *slot = sink;
+    if crate::core::game_client::with_live_game_client_mut(|client| {
+        client.set_host_command_authority(sink.clone());
+    })
+    .is_some()
+    {
+        return;
+    }
+    #[cfg(test)]
+    {
+        TEST_HOST_COMMAND_AUTHORITY.with(|slot| {
+            *slot.borrow_mut() = sink;
+        });
+    }
+    #[cfg(not(test))]
+    {
+        let _ = sink;
     }
 }
 
@@ -45,8 +59,17 @@ fn deliver_to_host_command_authority(messages: &[GameMessage]) {
     if messages.is_empty() {
         return;
     }
-    if let Ok(slot) = host_command_authority_slot().lock() {
-        if let Some(host) = slot.as_ref() {
+    let host = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.host_command_authority()
+    })
+    .flatten();
+    if let Some(host) = host {
+        host(messages);
+        return;
+    }
+    #[cfg(test)]
+    {
+        if let Some(host) = TEST_HOST_COMMAND_AUTHORITY.with(|slot| slot.borrow().clone()) {
             host(messages);
         }
     }
@@ -657,6 +680,7 @@ mod tests {
 
     #[test]
     fn convert_evacuate_without_location_uses_basic_command() {
+        crate::test_support::ensure_ambient_host();
         let msg = GameMessage::with_player(GameMessageType::Evacuate, 3);
         let command = convert_game_message(&msg).expect("evacuate should route");
 
@@ -668,6 +692,7 @@ mod tests {
 
     #[test]
     fn convert_evacuate_with_location_appends_location_argument() {
+        crate::test_support::ensure_ambient_host();
         let target = Coord3D::new(12.0, 34.0, 5.0);
         let msg = GameMessage::with_player(GameMessageType::EvacuateAtLocation(target), 7);
         let command = convert_game_message(&msg).expect("targeted evacuate should route");
@@ -686,6 +711,7 @@ mod tests {
 
     #[test]
     fn convert_queue_unit_create_preserves_production_id_argument() {
+        crate::test_support::ensure_ambient_host();
         let msg = GameMessage::with_player(GameMessageType::QueueUnitCreate(1234, 77), 3);
         let command = convert_game_message(&msg).expect("queue unit create should route");
 
@@ -704,6 +730,7 @@ mod tests {
 
     #[test]
     fn convert_special_power_override_destination_preserves_legacy_argument_layout() {
+        crate::test_support::ensure_ambient_host();
         let target = Coord3D::new(4.5, 8.25, 1.0);
         let msg = GameMessage::with_player(
             GameMessageType::DoSpecialPowerOverrideDestination(target, 11, 23),
@@ -738,6 +765,7 @@ mod tests {
 
     #[test]
     fn route_commands_delivers_set_replay_camera_to_host_authority() {
+        crate::test_support::ensure_ambient_host();
         // C++ Recorder.cpp:415 appends playback commands to TheCommandList;
         // AuthorityOnly must not drop them on the crate-only queue.
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -765,6 +793,7 @@ mod tests {
 
     #[test]
     fn route_commands_skips_frame_tick_without_queuing_or_warning() {
+        crate::test_support::ensure_ambient_host();
         // C++ CommandXlat.cpp:5151 treats MSG_FRAME_TICK as expected stream
         // bookkeeping: consumed by the translators, never a routed command.
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));

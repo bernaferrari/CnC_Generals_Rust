@@ -40,7 +40,7 @@ fn automatic_power_override_preserves_priority_and_scaffold_rules() {
     let position = Vec3::new(300.0, 0.0, 100.0);
     let scaffold = logic
         .create_object_under_construction("PowerPlan", Team::USA, position)
-        .expect("power scaffold");
+        .expect("power scaffold").expect("ObjectId");
     ai.add_layout_building("PowerPlan", position, 1);
     ai.building_queue[2].object_id = Some(scaffold);
     ai.building_queue[1].automatic_build = true;
@@ -195,7 +195,7 @@ fn actual_factory_energy_is_visible_to_hud_ai_and_radar_before_any_periodic_tick
             Vec3::new(300., 0., 300.),
             0.,
         )
-        .unwrap();
+        .unwrap().expect("ObjectId");
     ai.add_building("EnergyPriority", Vec3::new(100., 0., 100.), 1);
     ai.add_layout_building("AdmissionPower", Vec3::new(200., 0., 100.), 1);
     ai.building_queue[1].automatic_build = false;
@@ -265,7 +265,7 @@ fn nonzero_factory_energy_repeats_brownout_callback_but_zero_and_scaffold_do_not
         .unwrap();
     world
         .create_object_under_construction_for_player("AdmissionPower", 1, Vec3::ZERO, 0.)
-        .unwrap();
+        .unwrap().expect("ObjectId");
     assert!(!world.get_player(1).unwrap().has_radar());
     assert_eq!(world.get_player(1).unwrap().power_produced, 20);
     world
@@ -282,7 +282,7 @@ fn explicit_admission_excludes_disabled_positive_but_retains_disabled_signed_con
     let mut world = energy_admission_world();
     let scaffold = world
         .create_object_under_construction_for_player("AdmissionPower", 1, Vec3::ZERO, 0.)
-        .unwrap();
+        .unwrap().expect("ObjectId");
     let template = world
         .host_object(scaffold)
         .unwrap()
@@ -439,7 +439,7 @@ fn prepare_scripted_external_energy_with_nested(
     };
     let scaffold = world
         .create_object_under_construction_for_player("AdmissionPower", 1, Vec3::ZERO, 0.)
-        .unwrap();
+        .unwrap().expect("ObjectId");
     let mut factory = world.team_factory.lock().unwrap();
     let mut dict = Dict::new();
     dict.set_bool(key_team_executes_actions_on_create(), true);

@@ -2,7 +2,29 @@
 use super::*;
 use crate::game_logic::{ObjectId, Player};
 
+/// Same Common/World/Main bag binding as `direct_destroy_owner` and
+/// `health_owner_order` (hq-2qedt.73): `GameLogic::new` and the owned host
+/// boundary read all three process bags.
+fn bind_three_services() {
+    if game_engine::common::common_services::try_common_services().is_none() {
+        game_engine::common::common_services::install_common_services(std::sync::Arc::new(
+            game_engine::common::common_services::CommonServices::new(),
+        ));
+    }
+    if gamelogic::system::engine_stores::try_active_services().is_none() {
+        gamelogic::system::engine_stores::install_services(
+            gamelogic::system::engine_stores::new_world_services(),
+        );
+    }
+    if crate::main_services::try_main_services().is_none() {
+        crate::main_services::install_main_services(std::sync::Arc::new(
+            crate::main_services::MainServices::new(),
+        ));
+    }
+}
+
 fn admitted_world() -> (GameLogic, ObjectId) {
+    bind_three_services();
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "HealthOwner", true));
     ensure_template(&mut logic, "HealthEventOwnerTarget", 100.0);
@@ -34,7 +56,7 @@ fn another_world_boundary_cannot_consume_completed_body_damage() {
     // CPP ActiveBody changes HP before onDamage. At 40% health the default
     // yellow threshold selects Damaged, rather than the pristine pre-hit state.
     let (target, events) = owner.host_object_and_health_events_mut(id).unwrap();
-    assert!(!target.take_damage(60.0, events));
+    assert!(!target.take_damage(60.0, 0, events));
     assert_eq!(target.health.current, 40.0);
     assert_eq!(target.previous_health, 100.0);
     assert_eq!(

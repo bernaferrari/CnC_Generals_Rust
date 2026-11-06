@@ -19,7 +19,7 @@ use game_engine::common::rts::{SCIENCE_INVALID, ScienceType};
 impl Player {
     /// Reset rank state to defaults (matches C++ Player::resetRank)
     pub fn reset_rank_impl(&mut self) {
-        use crate::system::rank_info::the_rank_info_store;
+        use crate::system::rank_info::the_rank_info_store_arc;
 
         self.rank_level = 1;
         self.skill_points = 0;
@@ -32,7 +32,8 @@ impl Player {
             .unwrap_or(0);
         self.science_purchase_points = intrinsic_points;
 
-        if let Some(rank_store) = the_rank_info_store() {
+        let rank_arc = the_rank_info_store_arc();
+        if let Ok(rank_store) = rank_arc.read() {
             if let Some(next_rank) = rank_store.get_rank_info(2) {
                 self.level_up = next_rank.skill_points_needed;
             }
@@ -60,7 +61,7 @@ impl Player {
     /// # Returns
     /// Returns true if the rank actually changed
     pub fn set_rank_level_impl(&mut self, new_level: Int) -> Bool {
-        use crate::system::rank_info::the_rank_info_store;
+        use crate::system::rank_info::the_rank_info_store_arc;
 
         let mut new_level = new_level;
         let old_spp = self.science_purchase_points;
@@ -72,9 +73,11 @@ impl Player {
         }
 
         // Get rank count from the rank info store
-        if let Some(rank_store) = the_rank_info_store() {
+        let rank_arc = the_rank_info_store_arc();
+        if let Ok(rank_store) = rank_arc.read() {
             let rank_count = rank_store.get_rank_level_count() as Int;
-            if new_level > rank_count {
+            // Empty store (unit fixtures) must not clamp every rank to 0.
+            if rank_count > 0 && new_level > rank_count {
                 new_level = rank_count;
             }
         }
@@ -95,7 +98,8 @@ impl Player {
         }
 
         // Update level-up threshold for next level (C++ Player.cpp:2665-2681)
-        if let Some(rank_store) = the_rank_info_store() {
+        let rank_arc = the_rank_info_store_arc();
+        if let Ok(rank_store) = rank_arc.read() {
             // Set m_levelUp to the skill points needed for the next rank
             // If we're at max rank, set to INT_MAX
             if let Some(next_rank) = rank_store.get_rank_info((new_level + 1) as usize) {
@@ -165,7 +169,7 @@ impl Player {
     /// # Returns
     /// Returns true if the player gained or lost levels as a result
     pub fn add_skill_points_impl(&mut self, delta: Int) -> Bool {
-        use crate::system::rank_info::the_rank_info_store;
+        use crate::system::rank_info::the_rank_info_store_arc;
 
         // Apply skill points modifier (from upgrades, difficulty, etc.)
         // C++ Player.cpp:2439 - REAL_TO_INT_CEIL(m_skillPointsModifier * INT_TO_REAL(delta))
@@ -176,7 +180,8 @@ impl Player {
         }
 
         // Get level cap from rank info store and game logic (C++ Player.cpp:2444-2445)
-        let rank_store_guard = the_rank_info_store();
+        let rank_arc = the_rank_info_store_arc();
+        let rank_store_guard = rank_arc.read().ok();
         let point_cap = if let Some(ref rank_store) = rank_store_guard {
             // Cap at the lowest point of cap level, not highest
             let rank_count = rank_store.get_rank_level_count() as Int;
@@ -534,7 +539,7 @@ impl Player {
     ///
     /// C++ implementation is in Player.cpp lines 2478-2499.
     pub fn reset_sciences_impl(&mut self) {
-        use crate::system::rank_info::the_rank_info_store;
+        use crate::system::rank_info::the_rank_info_store_arc;
 
         // C++ Player.cpp:2480 - clear all sciences
         self.sciences.clear();
@@ -546,7 +551,8 @@ impl Player {
 
         // C++ Player.cpp:2485-2495
         // Add sciences granted by all ranks up to current level
-        if let Some(rank_store) = the_rank_info_store() {
+        let rank_arc = the_rank_info_store_arc();
+        if let Ok(rank_store) = rank_arc.read() {
             for level in 1..=self.rank_level {
                 if let Some(rank_info) = rank_store.get_rank_info(level as usize) {
                     for &science in &rank_info.sciences_granted {

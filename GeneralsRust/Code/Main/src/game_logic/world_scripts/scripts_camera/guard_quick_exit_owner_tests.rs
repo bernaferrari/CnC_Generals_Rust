@@ -450,7 +450,7 @@ fn actual_tunnel_sally_installs_and_suspends_owned_guard_overlay() {
     let mut tunnel = ThingTemplate::new("OwnedQuickExitTunnel");
     tunnel.add_kind_of(KindOf::Structure).set_health(1000.0);
     tunnel.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
-    tunnel.contain_module.slots = Some(crate::game_logic::host_tunnel_network::MAX_TUNNEL_CAPACITY);
+    tunnel.contain_module.slots = Some(10);
     owner.templates.insert(tunnel.name.clone(), tunnel);
     let tunnel = owner
         .create_object_for_player("OwnedQuickExitTunnel", 1, Vec3::new(200.0, 0.0, 200.0))
@@ -458,7 +458,7 @@ fn actual_tunnel_sally_installs_and_suspends_owned_guard_overlay() {
     owner
         .host_object_mut(tunnel)
         .unwrap()
-        .install_tunnel_network_residual();
+        .install_tunnel_network_residual(10);
     owner.host_object_mut(id).unwrap().close_enough_dist = Some(1.0);
     assert!(owner.unit_command_guard_object(id, tunnel));
     let unit = owner.host_object_mut(id).unwrap();

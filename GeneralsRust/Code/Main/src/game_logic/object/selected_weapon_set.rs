@@ -327,6 +327,9 @@ impl Object {
         u32::from(self.weapon_set_veteran)
             | (u32::from(self.weapon_set_elite) << 1)
             | (u32::from(self.weapon_set_hero) << 2)
+            // C++ WeaponSetUpgrade → setWeaponSetFlag(WEAPONSET_PLAYER_UPGRADE)
+            // → updateWeaponSet (hq-2qedt.247).
+            | (u32::from(self.weapon_set_player_upgrade) << 3)
             | (u32::from(self.weapon_set_mine_clearing_detail) << 8)
     }
 
@@ -407,6 +410,35 @@ impl Object {
             .projectile_name
             .as_deref()
     }
+    /// Authored WeaponSet row whose Conditions include PLAYER_UPGRADE (C++
+    /// WeaponSetUpgrade → WEAPONSET_PLAYER_UPGRADE → updateWeaponSet); slot name.
+    pub(in crate::game_logic) fn authored_player_upgrade_weapon_name(
+        &self,
+        slot: u8,
+    ) -> Option<&str> {
+        const PLAYER_UPGRADE: u32 = 1 << 3;
+        let rows = self.thing.template.selected_weapon_sets.as_ref()?;
+        let (_, row) = select_conditional_weapon_row(
+            &rows.conditional,
+            self.active_weapon_condition_mask() | PLAYER_UPGRADE,
+        )?;
+        if !row
+            .condition_alternatives
+            .iter()
+            .any(|mask| mask & PLAYER_UPGRADE != 0)
+        {
+            return None;
+        }
+        row.names.get(slot as usize)?.as_deref()
+    }
+    /// Authored PRIMARY identities (base template + PLAYER_UPGRADE row);
+    /// C++ upgrade modules key on authored data, not the template name.
+    pub(in crate::game_logic) fn authored_primary_weapon_names(&self) -> [Option<&str>; 2] {
+        [
+            self.thing.template.primary_weapon_name.as_deref(),
+            self.authored_player_upgrade_weapon_name(0),
+        ]
+    }
     pub(crate) fn selected_weapon_name(&self, slot: u8) -> Option<&str> {
         let row = self.selected_weapon_row()?;
         row.names.get(slot as usize)?.as_deref()
@@ -444,17 +476,20 @@ mod tests {
     fn matching_keeps_base_at_rookie_and_first_exact_tie_then_prefers_more_yes() {
         let base = conditional_row("base", vec![0]);
         let veteran = conditional_row("veteran", vec![1]);
-        let selected = select_conditional_weapon_row(&[base, veteran], 0);
+        let rows = [base, veteran];
+        let selected = select_conditional_weapon_row(&rows, 0);
         assert_eq!(selected.unwrap().1.names[0].as_deref(), Some("base"));
 
         let first = conditional_row("first", vec![1 | 2]);
         let tied_later = conditional_row("tied-later", vec![1 | 2]);
-        let selected = select_conditional_weapon_row(&[first, tied_later], 1);
+        let rows = [first, tied_later];
+        let selected = select_conditional_weapon_row(&rows, 1);
         assert_eq!(selected.unwrap().1.names[0].as_deref(), Some("first"));
 
         let one_yes = conditional_row("one-yes", vec![1]);
         let two_yes = conditional_row("two-yes", vec![1 | 2]);
-        let selected = select_conditional_weapon_row(&[one_yes, two_yes], 1 | 2);
+        let rows = [one_yes, two_yes];
+        let selected = select_conditional_weapon_row(&rows, 1 | 2);
         assert_eq!(selected.unwrap().1.names[0].as_deref(), Some("two-yes"));
     }
 
@@ -473,7 +508,8 @@ mod tests {
         let mask = object.active_weapon_condition_mask();
         assert_ne!(mask & 1, 0);
         assert_ne!(mask & (1 << 8), 0);
-        for unsupported in [3, 4, 5, 6, 7, 11] {
+        assert_ne!(mask & (1 << 3), 0, "PLAYER_UPGRADE selects its row");
+        for unsupported in [4, 5, 6, 7, 11] {
             assert_eq!(mask & (1 << unsupported), 0);
         }
     }

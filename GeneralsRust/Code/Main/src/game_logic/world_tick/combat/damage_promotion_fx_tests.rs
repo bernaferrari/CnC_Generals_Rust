@@ -108,7 +108,9 @@ End
 }
 impl Drop for RestoreDamageFx {
     fn drop(&mut self) {
-        let mut fx = get_damage_fx_store_mut().unwrap();
+        let Some(mut fx) = get_damage_fx_store_mut() else {
+            return;
+        };
         fx.remove_damage_fx(ROWS);
         if let Some(previous) = self.previous_rows.take() {
             fx.add_damage_fx(ROWS.into(), previous);

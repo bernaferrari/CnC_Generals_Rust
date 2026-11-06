@@ -456,8 +456,8 @@ impl ScriptEngine {
     }
 
     pub fn should_show_observer_quit_window(&self) -> bool {
-        let local_is_observer = crate::player::player_list()
-            .read()
+        let __player_list_arc = crate::player::player_list();
+            let local_is_observer = __player_list_arc.read()
             .ok()
             .and_then(|list| list.get_local_player().cloned())
             .and_then(|player| player.read().ok().map(|guard| guard.is_player_observer()))
@@ -466,8 +466,8 @@ impl ScriptEngine {
     }
 
     pub fn should_show_local_defeat_window(&self) -> bool {
-        let local_is_observer = crate::player::player_list()
-            .read()
+        let __player_list_arc = crate::player::player_list();
+            let local_is_observer = __player_list_arc.read()
             .ok()
             .and_then(|list| list.get_local_player().cloned())
             .and_then(|player| player.read().ok().map(|guard| guard.is_player_observer()))
@@ -1210,7 +1210,8 @@ impl ScriptEngine {
             return;
         };
 
-        let Ok(players) = crate::player::player_list().read() else {
+        let __player_list_arc = crate::player::player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return;
         };
         let Some(player_arc) = players.find_player_by_name(&reveal.player_name) else {
@@ -1251,7 +1252,8 @@ impl ScriptEngine {
             return;
         };
 
-        let Ok(players) = crate::player::player_list().read() else {
+        let __player_list_arc = crate::player::player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return;
         };
         let Some(player_arc) = players.find_player_by_name(&reveal.player_name) else {
@@ -2121,6 +2123,19 @@ impl ScriptEngine {
                 tail.objects_should_receive_difficulty_bonus;
             inner.current_track_name = tail.current_track_name.clone();
             inner.choose_victim_always_uses_normal = tail.choose_victim_always_uses_normal;
+            // hq-r9gaw / C++ ScriptEngine.cpp:9277-9286 — archive LOAD with
+            // saved FADE_NONE starts the standard Multiply fade-in intro.
+            // Core leftover Xfer already applies this; receiving restore must too.
+            if !standalone && matches!(inner.fade, TFade::None) {
+                inner.fade = TFade::Multiply;
+                inner.cur_fade_frame = 0;
+                inner.min_fade = 1.0;
+                inner.max_fade = 0.0;
+                inner.fade_frames_increase = 0;
+                inner.fade_frames_hold = 0;
+                inner.fade_frames_decrease = FRAMES_TO_FADE_IN_AT_START;
+                inner.cur_fade_value = 0.0;
+            }
         }
 
         if !standalone {

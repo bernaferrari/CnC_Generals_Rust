@@ -50,6 +50,9 @@ pub struct SupplyTruckAIUpdate {
     audio_system: Option<Arc<dyn AudioSystem>>,
     /// Upgrade system reference (optional)
     upgrade_system: Option<Arc<dyn UpgradeSystem>>,
+    /// C++ getObject(): the exact owning Object, bound at construction by the
+    /// factory. Standalone adapters leave it unbound.
+    owner: Option<std::sync::Weak<RwLock<Object>>>,
 }
 
 impl std::fmt::Debug for SupplyTruckAIUpdate {
@@ -100,7 +103,14 @@ impl SupplyTruckAIUpdate {
             player_index,
             audio_system: None,
             upgrade_system: None,
+            owner: None,
         }
+    }
+
+    /// Bind the exact owning Object (C++ `getObject()`), so Drawable
+    /// notifications never resolve a same-ID foreign Object by registry id.
+    pub fn bind_owner(&mut self, owner: &Arc<RwLock<Object>>) {
+        self.owner = Some(Arc::downgrade(owner));
     }
 
     /// Set audio system for voice events
@@ -118,6 +128,19 @@ impl SupplyTruckAIUpdate {
     }
 
     fn update_drawable_supply_status(&self) {
+        // C++ WorkerAIUpdate.cpp 1005-1015: getObject()->getDrawable().
+        if let Some(owner) = &self.owner {
+            let Some(owner) = owner.upgrade() else {
+                return;
+            };
+            let drawable = owner.read().ok().and_then(|guard| guard.get_drawable());
+            if let Some(drawable) = drawable {
+                if let Ok(mut draw_guard) = drawable.write() {
+                    draw_guard.update_supply_status(self.data.max_boxes, self.number_boxes);
+                }
+            }
+            return;
+        }
         // Wave 298: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
             return;
@@ -330,14 +353,26 @@ impl SupplyTruckAIUpdate {
         self.force_busy_state = force;
     }
 
-    /// Get action delay for a dock
-    /// Matches C++ SupplyTruckAIUpdate::getActionDelayForDock()
-    pub fn get_action_delay_for_dock(&self, is_warehouse: bool) -> u32 {
-        if is_warehouse {
+    /// C++ SupplyTruckAIUpdate::getActionDelayForDock — warehouse module,
+    /// else center module, else 0 for non-supply docks.
+    pub fn get_action_delay_for_dock_modules(
+        &self,
+        has_warehouse: bool,
+        has_center: bool,
+    ) -> u32 {
+        if has_warehouse {
             self.data.warehouse_delay
-        } else {
+        } else if has_center {
             self.data.center_delay
+        } else {
+            0
         }
+    }
+
+    /// Known supply-dock helper (warehouse vs center). Prefer
+    /// [`Self::get_action_delay_for_dock_modules`] at the Object boundary.
+    pub fn get_action_delay_for_dock(&self, is_warehouse: bool) -> u32 {
+        self.get_action_delay_for_dock_modules(is_warehouse, !is_warehouse)
     }
 
     /// Get warehouse scan distance
@@ -381,7 +416,7 @@ impl SupplyTruckAIInterface for SupplyTruckAIUpdate {
         dock_id: ObjectID,
     ) -> Result<u32, Box<dyn std::error::Error + Send + Sync>> {
         // Wave 298: empty dual-world → Ok(0).
-        if dual_world_registry_unavailable() {
+        if self.owner.is_none() && dual_world_registry_unavailable() {
             return Ok(0);
         }
 
@@ -390,14 +425,20 @@ impl SupplyTruckAIInterface for SupplyTruckAIUpdate {
         else {
             return Ok(0);
         };
-        let is_warehouse = dock.read().ok().map_or(false, |obj| {
-            obj.find_update_module("SupplyWarehouseDockUpdate")
+        let (has_warehouse, has_center) = dock.read().ok().map_or((false, false), |obj| {
+            let warehouse = obj
+                .find_update_module("SupplyWarehouseDockUpdate")
                 .is_some()
                 || obj
                     .module_by_name(&AsciiString::from("SupplyWarehouseDockUpdate"))
-                    .is_some()
+                    .is_some();
+            let center = obj.find_update_module("SupplyCenterDockUpdate").is_some()
+                || obj
+                    .module_by_name(&AsciiString::from("SupplyCenterDockUpdate"))
+                    .is_some();
+            (warehouse, center)
         });
-        Ok(self.get_action_delay_for_dock(is_warehouse))
+        Ok(self.get_action_delay_for_dock_modules(has_warehouse, has_center))
     }
 
     fn set_force_wanting_state(&mut self, enabled: bool) {
@@ -468,14 +509,20 @@ impl SupplyTruckAIInterface for WorkerAIUpdate {
         else {
             return Ok(0);
         };
-        let is_warehouse = dock.read().ok().map_or(false, |obj| {
-            obj.find_update_module("SupplyWarehouseDockUpdate")
+        let (has_warehouse, has_center) = dock.read().ok().map_or((false, false), |obj| {
+            let warehouse = obj
+                .find_update_module("SupplyWarehouseDockUpdate")
                 .is_some()
                 || obj
                     .module_by_name(&AsciiString::from("SupplyWarehouseDockUpdate"))
-                    .is_some()
+                    .is_some();
+            let center = obj.find_update_module("SupplyCenterDockUpdate").is_some()
+                || obj
+                    .module_by_name(&AsciiString::from("SupplyCenterDockUpdate"))
+                    .is_some();
+            (warehouse, center)
         });
-        Ok(self.get_action_delay_for_dock(is_warehouse))
+        Ok(self.get_action_delay_for_dock_modules(has_warehouse, has_center))
     }
 
     fn set_force_wanting_state(&mut self, enabled: bool) {

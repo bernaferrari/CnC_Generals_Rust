@@ -459,6 +459,9 @@ mod movement_footprint;
 mod pathfinder_clip;
 #[cfg(test)]
 mod searched_layer_tests;
+
+#[cfg(test)]
+mod path_node_layer_owner_tests;
 mod system_attack;
 mod system_requests;
 mod system_routes;
@@ -926,6 +929,10 @@ pub struct PathfindingSystem {
     cumulative_cells_allocated: i32,
     /// C++ `PATHFIND_CELLS_PER_FRAME` (test-overridable).
     pathfind_cells_per_frame: i32,
+    /// Layers parallel to the most recent successful find_path result.
+    /// Host Movement copies these into `path_layers` on install so updateGoal
+    /// uses the PathNode layer instead of re-deriving from geometry.
+    last_found_path_layers: Vec<u8>,
 }
 
 #[cfg(test)]

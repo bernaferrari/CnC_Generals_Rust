@@ -385,7 +385,7 @@ fn unit_move_notifies_tree_buffer_topple() {
         &mut crate::game_logic::ScriptPresentationEffects {
             terrain: Some(&mut visual),
             ..Default::default()
-        },
+},
     );
     assert_ne!(
         peer.tree_buffer_mut().trees()[peer_tree_ndx].topple_state,
@@ -856,31 +856,38 @@ fn path_extra_distance_unlatches_braking_before_the_raise() {
 #[test]
 fn explicit_goal_ignores_the_blocked_speed_cap() {
     let mut logic = GameLogic::new();
-    let mut tmpl = ThingTemplate::new("Truck");
-    tmpl.add_kind_of(KindOf::Vehicle);
-    let mut unit = Object::new(tmpl, ObjectId(9529), Team::USA);
-    unit.loco_appearance = LocomotorAppearance::WheelsFour;
-    unit.allow_invalid_position = true;
-    unit.locomotor_goal_type = LocoGoalType::PositionExplicit;
-    unit.is_blocked = true;
-    unit.num_frames_blocked = 5;
-    unit.cur_max_blocked_speed = 1.0;
-    unit.movement.max_speed = 40.0;
-    unit.movement.acceleration = 1.0e6;
-    unit.movement.velocity = Vec3::new(1.0, 0.0, 0.0);
-    unit.set_orientation(0.0);
-    unit.ground_height = 0.0;
-    unit.set_position(Vec3::ZERO);
-    unit.movement.target_position = Some(Vec3::new(40.0, 0.0, 0.0));
-    unit.set_status_moving(true);
-    logic.objects.insert(ObjectId(9529), unit);
-    logic.update_movement_for_test(&[ObjectId(9529)], 1.0 / 30.0);
-    let obj = logic.objects.get(&ObjectId(9529)).expect("truck");
-    let spd = obj.movement.velocity.length();
-    assert!(
-        spd > 10.0,
-        "an explicit goal must not stay at the blocked cap, spd={spd}"
-    );
+    logic.with_own_services_mut(|logic| {
+        let mut tmpl = ThingTemplate::new("Truck");
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let mut unit = Object::new(tmpl, ObjectId(9529), Team::USA);
+        unit.loco_appearance = LocomotorAppearance::WheelsFour;
+        unit.allow_invalid_position = true;
+        bind_fixture_locomotor(&mut unit, "HumveeLocomotor");
+        unit.locomotor_goal_type = LocoGoalType::PositionExplicit;
+        unit.is_blocked = true;
+        unit.num_frames_blocked = 5;
+        unit.cur_max_blocked_speed = 1.0;
+        unit.movement.max_speed = 40.0;
+        unit.movement.acceleration = 1.0e6;
+        unit.movement.velocity = Vec3::new(1.0, 0.0, 0.0);
+        unit.set_orientation(0.0);
+        unit.ground_height = 0.0;
+        unit.set_position(Vec3::ZERO);
+        unit.movement.target_position = Some(Vec3::new(40.0, 0.0, 0.0));
+        unit.set_status_moving(true);
+        logic.objects.insert(ObjectId(9529), unit);
+        logic.update_movement_for_test(&[ObjectId(9529)], 1.0 / 30.0);
+        let obj = logic.objects.get(&ObjectId(9529)).expect("truck");
+        let spd = obj.movement.velocity.length();
+        assert!(
+            spd > 10.0,
+            "an explicit goal must not stay at the blocked cap, spd={spd}"
+        );
+        assert!(
+            obj.cur_max_blocked_speed > 1_000.0,
+            "end-of-doLocomotor must still clear the blocked cap"
+        );
+    });
 }
 
 #[test]
@@ -1987,26 +1994,30 @@ fn airborne_approach_request_drops_the_approach_flag() {
 #[test]
 fn blocked_speed_cap_resets_after_the_move() {
     let mut logic = GameLogic::new();
-    let mut tmpl = ThingTemplate::new("Truck");
-    tmpl.add_kind_of(KindOf::Vehicle);
-    let mut unit = Object::new(tmpl, ObjectId(9527), Team::USA);
-    unit.loco_appearance = LocomotorAppearance::WheelsFour;
-    unit.allow_invalid_position = true;
-    unit.cur_max_blocked_speed = 4.0;
-    unit.movement.max_speed = 40.0;
-    unit.ground_height = 0.0;
+    logic.with_own_services_mut(|logic| {
+        let mut tmpl = ThingTemplate::new("Truck");
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let mut unit = Object::new(tmpl, ObjectId(9527), Team::USA);
+        unit.loco_appearance = LocomotorAppearance::WheelsFour;
+        unit.allow_invalid_position = true;
+        // C++ reset is inside `if (m_curLocomotor)`; bind a real set member.
+        bind_fixture_locomotor(&mut unit, "HumveeLocomotor");
+        unit.cur_max_blocked_speed = 4.0;
+        unit.movement.max_speed = 40.0;
+        unit.ground_height = 0.0;
 
-    unit.set_position(Vec3::ZERO);
-    unit.movement.target_position = Some(Vec3::new(40.0, 0.0, 0.0));
-    unit.set_status_moving(true);
-    logic.objects.insert(ObjectId(9527), unit);
-    logic.update_movement_for_test(&[ObjectId(9527)], 1.0 / 30.0);
-    let obj = logic.objects.get(&ObjectId(9527)).expect("truck");
-    assert!(
-        obj.cur_max_blocked_speed > 1_000.0,
-        "blocked speed cap must reset after the move, cap={}",
-        obj.cur_max_blocked_speed
-    );
+        unit.set_position(Vec3::ZERO);
+        unit.movement.target_position = Some(Vec3::new(40.0, 0.0, 0.0));
+        unit.set_status_moving(true);
+        logic.objects.insert(ObjectId(9527), unit);
+        logic.update_movement_for_test(&[ObjectId(9527)], 1.0 / 30.0);
+        let obj = logic.objects.get(&ObjectId(9527)).expect("truck");
+        assert!(
+            obj.cur_max_blocked_speed > 1_000.0,
+            "blocked speed cap must reset after the move, cap={}",
+            obj.cur_max_blocked_speed
+        );
+    });
 }
 
 #[test]
@@ -2015,17 +2026,17 @@ fn emp_unit_does_not_move_its_turret() {
     let mut logic = GameLogic::new();
     let id = ObjectId(9630);
     let mut unit = Object::new(ThingTemplate::new("Tank"), id, Team::USA);
-    unit.turret_enabled = true;
-    unit.turret_substate = TurretSubState::Recenter;
-    unit.turret_angle_deg = 40.0;
-    unit.turret_natural_angle_deg = 0.0;
-    unit.turret_turn_rate_rad = 1.0;
+    unit.turret_ai.turret_enabled = true;
+    unit.turret_ai.turret_substate = TurretSubState::Recenter;
+    unit.turret_ai.turret_angle_deg = 40.0;
+    unit.turret_ai.turret_natural_angle_deg = 0.0;
+    unit.turret_ai.turret_turn_rate_rad = 1.0;
     unit.status.disabled_emp = true;
     logic.objects.insert(id, unit);
     logic.tick_all_turret_state_machines(&[id], 0.0, 1);
     let obj = logic.objects.get(&id).expect("tank");
     assert!(
-        (obj.turret_angle_deg - 40.0).abs() < 0.01,
+        (obj.turret_ai.turret_angle_deg - 40.0).abs() < 0.01,
         "DISABLED_EMP must not run the turret"
     );
 }
@@ -3127,40 +3138,48 @@ fn arrival_arms_final_position_at_path_last_node() {
 #[test]
 fn leftover_goal_none_settles_final_position() {
     let mut logic = GameLogic::new();
-    let id = ObjectId(7003);
-    let mut unit = ranger_at(7003, Vec3::ZERO);
-    unit.do_final_position = true;
-    unit.final_position = Vec3::new(20.0, 0.0, 0.0);
-    logic.objects.insert(id, unit);
-    logic.update_movement_for_test(&[id], 1.0 / 30.0);
-    let obj = logic.objects.get(&id).expect("unit");
-    let step = 2.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL / 30.0;
-    assert!(
-        obj.do_final_position,
-        "far final position must keep leftover-settling"
-    );
-    assert!(
-        (obj.get_position().x - step).abs() < 1.0e-3,
-        "settle steps 2 cells/s, x={} expected {step}",
-        obj.get_position().x
-    );
+    logic.with_own_services_mut(|logic| {
+        let id = ObjectId(7003);
+        let mut unit = ranger_at(7003, Vec3::ZERO);
+        bind_fixture_locomotor(&mut unit, "BasicHumanLocomotor");
+        unit.do_final_position = true;
+        unit.final_position = Vec3::new(20.0, 0.0, 0.0);
+        unit.set_locomotor_goal_none();
+        logic.objects.insert(id, unit);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("unit");
+        let step = 2.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL / 30.0;
+        assert!(
+            obj.do_final_position,
+            "far final position must keep leftover-settling"
+        );
+        assert!(
+            (obj.get_position().x - step).abs() < 1.0e-3,
+            "settle steps 2 cells/s, x={} expected {step}",
+            obj.get_position().x
+        );
+    });
 
     let mut logic = GameLogic::new();
-    let mut unit = ranger_at(7004, Vec3::new(20.0, 0.0, 0.0));
-    unit.do_final_position = true;
-    unit.final_position = Vec3::new(20.1, 0.0, 0.0);
-    logic.objects.insert(ObjectId(7004), unit);
-    logic.update_movement_for_test(&[ObjectId(7004)], 1.0 / 30.0);
-    let obj = logic.objects.get(&ObjectId(7004)).expect("close");
-    assert!(
-        !obj.do_final_position,
-        "dSqr < 0.25 snaps and clears do_final_position"
-    );
-    assert!(
-        (obj.get_position().x - 20.1).abs() < 1.0e-4,
-        "close settle snaps to leftover final_position, x={}",
-        obj.get_position().x
-    );
+    logic.with_own_services_mut(|logic| {
+        let mut unit = ranger_at(7004, Vec3::new(20.0, 0.0, 0.0));
+        bind_fixture_locomotor(&mut unit, "BasicHumanLocomotor");
+        unit.do_final_position = true;
+        unit.final_position = Vec3::new(20.1, 0.0, 0.0);
+        unit.set_locomotor_goal_none();
+        logic.objects.insert(ObjectId(7004), unit);
+        logic.update_movement_for_test(&[ObjectId(7004)], 1.0 / 30.0);
+        let obj = logic.objects.get(&ObjectId(7004)).expect("close");
+        assert!(
+            !obj.do_final_position,
+            "dSqr < 0.25 snaps and clears do_final_position"
+        );
+        assert!(
+            (obj.get_position().x - 20.1).abs() < 1.0e-4,
+            "close settle snaps to leftover final_position, x={}",
+            obj.get_position().x
+        );
+    });
 }
 
 /// hq-99njb: blocked locoUpdate scrubs 2D motive when already at/above cap.

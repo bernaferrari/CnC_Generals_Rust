@@ -7,22 +7,13 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use windows::Win32::Foundation::{GetLastError, HINSTANCE, HWND};
 
 #[cfg(target_os = "windows")]
-pub static PROGRAM_INSTANCE: AtomicIsize = AtomicIsize::new(0);
-
-#[cfg(target_os = "windows")]
-pub static MAIN_WINDOW: AtomicIsize = AtomicIsize::new(0);
-
-#[cfg(target_os = "windows")]
-pub static GAME_IN_FOCUS: AtomicBool = AtomicBool::new(false);
-
-#[cfg(target_os = "windows")]
-pub fn set_game_in_focus(value: bool) {
-    GAME_IN_FOCUS.store(value, Ordering::Relaxed);
+pub fn set_game_in_focus(runtime: &crate::process_state::WwLibRuntime, value: bool) {
+    runtime.game_in_focus.store(value, Ordering::Relaxed);
 }
 
 #[cfg(target_os = "windows")]
-pub fn is_game_in_focus() -> bool {
-    GAME_IN_FOCUS.load(Ordering::Relaxed)
+pub fn is_game_in_focus(runtime: &crate::process_state::WwLibRuntime) -> bool {
+    runtime.game_in_focus.load(Ordering::Relaxed)
 }
 
 #[cfg(target_os = "windows")]
@@ -38,10 +29,10 @@ pub fn print_win32_error(win32_error: u32) {
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn set_game_in_focus(_value: bool) {}
+pub fn set_game_in_focus(_runtime: &crate::process_state::WwLibRuntime, _value: bool) {}
 
 #[cfg(not(target_os = "windows"))]
-pub fn is_game_in_focus() -> bool {
+pub fn is_game_in_focus(_runtime: &crate::process_state::WwLibRuntime) -> bool {
     false
 }
 

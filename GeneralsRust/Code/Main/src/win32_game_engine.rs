@@ -108,7 +108,7 @@ impl Win32GameEngine {
             })
             .await?;
 
-        let (device, queue) = ww3d_gpu::acquire_device(
+        let (device, queue) = ww3d_gpu::DeviceAuthority::new().acquire_device(
             &adapter,
             &wgpu::DeviceDescriptor {
                 required_features: wgpu::Features::empty(),
@@ -429,7 +429,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             self.render_game_objects(&mut render_pass);
         }
 
+        let submit_state = ww3d_engine::FrameSubmitState::new();
         ww3d_engine::submit_recorded(
+            &submit_state,
             &self.queue,
             ww3d_engine::FrameCommandPhase::Overlay,
             encoder.finish(),

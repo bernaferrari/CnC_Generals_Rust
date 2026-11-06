@@ -8,7 +8,6 @@
 //! Author: Colin Day, April 2002 (Converted to Rust)
 //! Desc:   Special Power INI database
 
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -467,31 +466,30 @@ impl Default for SpecialPowerStore {
     }
 }
 
-/// Global special power store instance
-static SPECIAL_POWER_STORE: OnceCell<RwLock<SpecialPowerStore>> = OnceCell::new();
+/// Initialize the global special power store
 
-fn special_power_store_cell() -> &'static RwLock<SpecialPowerStore> {
-    SPECIAL_POWER_STORE.get_or_init(|| RwLock::new(SpecialPowerStore::new()))
+/// Get a reference to the global special power store
+
+fn ini_special_power_cell() -> std::sync::Arc<std::sync::RwLock<SpecialPowerStore>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.special_power)
 }
 
 fn special_power_store_mut() -> RwLockWriteGuard<'static, SpecialPowerStore> {
-    special_power_store_cell()
-        .write()
-        .expect("SpecialPowerStore poisoned")
+    let cell = ini_special_power_cell();
+    let guard = cell.write().expect("SpecialPowerStore poisoned");
+    unsafe { std::mem::transmute(guard) }
 }
 
 fn special_power_store() -> RwLockReadGuard<'static, SpecialPowerStore> {
-    special_power_store_cell()
-        .read()
-        .expect("SpecialPowerStore poisoned")
+    let cell = ini_special_power_cell();
+    let guard = cell.read().expect("SpecialPowerStore poisoned");
+    unsafe { std::mem::transmute(guard) }
 }
 
-/// Initialize the global special power store
 pub fn initialize_special_power_store() {
-    let _ = special_power_store_cell();
+    let _ = ini_special_power_cell();
 }
 
-/// Get a reference to the global special power store
 pub fn get_special_power_store() -> Option<RwLockReadGuard<'static, SpecialPowerStore>> {
     Some(special_power_store())
 }

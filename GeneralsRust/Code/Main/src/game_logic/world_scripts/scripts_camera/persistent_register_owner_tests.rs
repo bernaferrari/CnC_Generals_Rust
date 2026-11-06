@@ -68,7 +68,7 @@ fn disable(owner: &mut GameLogic, value: bool) {
     });
 }
 fn remove(owner: &mut GameLogic, id: ObjectId) {
-    owner.destroy_object(id);
+    owner.destroy_object(id).unwrap();
     assert!(owner.objects.contains_key(&id));
     owner.process_destroy_list();
     assert!(!owner.objects.contains_key(&id));

@@ -55,13 +55,13 @@ impl GameLogic {
 
         let rocket_pod_ground = {
             use crate::game_logic::host_comanche_rocket_pods::{
-                UPGRADE_COMANCHE_ROCKET_PODS, is_comanche_template, rocket_pod_ground_fire_active,
+                COMANCHE_ROCKET_POD_WEAPON, UPGRADE_COMANCHE_ROCKET_PODS, rocket_pod_ground_fire_active,
             };
             self.objects
                 .get(&attacker_id)
                 .map(|a| {
                     rocket_pod_ground_fire_active(
-                        is_comanche_template(&a.template_name),
+                        a.weapon_name_for_slot(2) == Some(COMANCHE_ROCKET_POD_WEAPON),
                         a.has_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS)
                             || a.has_upgrade_tag("Upgrade_ComancheRocketPods"),
                         a.tertiary_weapon.is_some(),
@@ -99,12 +99,10 @@ impl GameLogic {
                 .objects
                 .get(&attacker_id)
                 .map(|attacker| {
-                    let name = attacker.template_name.to_ascii_lowercase();
-                    let spawns = name.contains("spawnsaretheweapons") || name.contains("stinger");
                     (
                         attacker.is_kind_of(crate::game_logic::KindOf::Immobile),
                         attacker.contained_by,
-                        spawns,
+                        attacker.is_kind_of(crate::game_logic::KindOf::SpawnsAreTheWeapons),
                     )
                 })
                 .unwrap_or((false, None, false));
@@ -179,26 +177,21 @@ impl GameLogic {
                 return CombatShotResult::NoShot;
             }
 
-            // Pitch window residual for ground fire.
-            {
-                let pitch_ok = if let Some(attacker) = self.objects.get(&attacker_id) {
-                    let wname = attacker.weapon_name_for_slot(ground_slot);
-                    let limits = attacker.selected_native_weapon_rule(ground_slot).map(|rule| crate::game_logic::weapon_bootstrap::HostTargetPitchLimits {
-                        min_pitch: crate::game_logic::weapon_bootstrap::normalize_pitch_radians(rule.min_target_pitch),
-                        max_pitch: crate::game_logic::weapon_bootstrap::normalize_pitch_radians(rule.max_target_pitch),
-                    }).unwrap_or_else(|| wname.map(crate::game_logic::weapon_bootstrap::host_target_pitch_limits_for_weapon_name).unwrap_or_default());
-                    crate::game_logic::weapon_bootstrap::is_pitch_within_limits(
-                        attacker.get_position(),
-                        target_location,
-                        &limits,
-                    )
-                } else {
-                    true
-                };
-                if !pitch_ok {
-                    return CombatShotResult::NoShot;
-                }
+            // C++ Weapon::fireWeapon(source, pos) fires the selected WeaponTemplate;
+            // every authored weapon shares the one shot delivery operation.
+            if self.slot_fires_authored_weapon(attacker_id, ground_slot) {
+                return self.fire_authored_ground_shot_with_effects(
+                    input,
+                    target_location,
+                    ground_slot,
+                    effects,
+                );
             }
+
+            // C++ has no pitch gate for ground-position fire:
+            // Weapon::isWithinTargetPitch(source, victim) is only reached
+            // for Object victims (WeaponSet.cpp:414 isAnyWithinTargetPitch,
+            // :842 chooseBestWeaponForTarget). hq-2qedt.49.
             let mut weapon_damage = self
                 .objects
                 .get(&attacker_id)
@@ -232,259 +225,29 @@ impl GameLogic {
             );
             shot = CombatShotResult::Fired(ground_slot, visual);
 
-            // Aurora dive bomb residual on force-attack-ground.
-            let aurora_ground_queued = {
-                use crate::game_logic::host_aurora_bomb::{
-                    aurora_bomb_kind_for_template, is_aurora_aircraft_template,
-                };
-                let aurora = self.objects.get(&attacker_id).and_then(|a| {
-                    if is_aurora_aircraft_template(&a.template_name) {
-                        Some(aurora_bomb_kind_for_template(&a.template_name))
-                    } else {
-                        None
-                    }
-                });
-                if let Some(kind) = aurora {
-                    let _ = self.queue_aurora_bomb_with_effects(
-                        kind,
-                        attacker_id,
-                        attacker_team,
-                        target_location,
-                        effects,
-                    );
-                    true
-                } else {
-                    false
-                }
-            };
-
-            if !aurora_ground_queued {
-                // GLA Rocket Buggy / SCUD residual ground force-fire AOE.
-                let buggy_ground = self
-                    .objects
-                    .get(&attacker_id)
-                    .map(|a| {
-                        crate::game_logic::host_rocket_buggy::is_rocket_buggy_template(
-                            &a.template_name,
-                        )
-                    })
-                    .unwrap_or(false);
-                let scud_ground = self
-                    .objects
-                    .get(&attacker_id)
-                    .map(|a| {
-                        crate::game_logic::host_scud_launcher::is_scud_launcher_template(
-                            &a.template_name,
-                        )
-                    })
-                    .unwrap_or(false);
-                let tomahawk_ground = self
-                    .objects
-                    .get(&attacker_id)
-                    .map(|a| {
-                        crate::game_logic::host_tomahawk::is_tomahawk_template(&a.template_name)
-                    })
-                    .unwrap_or(false);
-
-                if rocket_pod_ground {
-                    // Retail FIRE_WEAPON tertiary at position → scatter projectile + area.
-                    use crate::game_logic::host_comanche_rocket_pods::{
-                        ROCKET_POD_CLIP_SIZE, rocket_pod_scatter_impact,
-                    };
-                    let idx = {
-                        let shot = self
-                            .comanche_rocket_pod_shot_index
-                            .entry(attacker_id)
-                            .or_insert(0);
-                        let i = *shot;
-                        *shot = shot.saturating_add(1) % ROCKET_POD_CLIP_SIZE.max(1);
-                        i
-                    };
-                    let (sx, sy, sz) = rocket_pod_scatter_impact(
-                        target_location.x,
-                        target_location.y,
-                        target_location.z,
-                        idx,
-                    );
-                    let aim = Vec3::new(sx, sy, sz);
-                    let from = self
-                        .objects
-                        .get(&attacker_id)
-                        .map(|o| o.get_position())
-                        .unwrap_or(target_location);
-                    let _ = self.spawn_comanche_rocket_pod_projectile_with_effects(
-                        attacker_id,
-                        from,
-                        aim,
-                        idx,
-                        effects,
-                    );
-                    let (hits, _) = self.apply_comanche_rocket_pod_area_at_with_effects(
-                        target_location,
-                        Some(attacker_id),
-                        effects,
-                    );
-                    let _ = weapon_damage; // area residual owns damage
-                } else if buggy_ground {
-                    let from = self
-                        .objects
-                        .get(&attacker_id)
-                        .map(|a| a.get_position())
-                        .unwrap_or(target_location);
-                    let spawned = self
-                        .spawn_rocket_buggy_missile_projectile_with_effects(
-                            attacker_id,
-                            from,
-                            target_location,
-                            None,
-                            effects,
-                        )
-                        .is_some();
-                    let (hits, _) = if spawned {
-                        self.rocket_buggy_residual_fires =
-                            self.rocket_buggy_residual_fires.saturating_add(1);
-                        (1, false)
-                    } else {
-                        self.apply_rocket_buggy_residual_at_with_effects(
-                            target_location,
-                            Some(attacker_id),
-                            None,
-                            effects,
-                        )
-                    };
-                    let _ = weapon_damage;
-                } else if scud_ground {
-                    // Ground force-fire: stock uses primary explosive; Chem SCUD
-                    // residual uses anthrax primary (slot 0 toxin warhead).
-                    let toxin = {
-                        use crate::game_logic::host_scud_launcher::scud_toxin_warhead_for_slot;
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| scud_toxin_warhead_for_slot(&a.template_name, ground_slot))
-                            .unwrap_or(false)
-                    };
-                    let from = self
-                        .objects
-                        .get(&attacker_id)
-                        .map(|a| a.get_position())
-                        .unwrap_or(target_location);
-                    let spawned = self
-                        .spawn_scud_launcher_missile_projectile_with_effects(
-                            attacker_id,
-                            from,
-                            target_location,
-                            None,
-                            toxin,
-                            effects,
-                        )
-                        .is_some();
-                    let (hits, _) = if spawned {
-                        (1, false)
-                    } else {
-                        self.apply_scud_area_at_with_effects(
-                            target_location,
-                            Some(attacker_id),
-                            attacker_team,
-                            toxin,
-                            effects,
-                        )
-                    };
-                    let _ = weapon_damage;
-                } else if tomahawk_ground {
-                    let from = self
-                        .objects
-                        .get(&attacker_id)
-                        .map(|a| a.get_position())
-                        .unwrap_or(target_location);
-                    let spawned = self
-                        .spawn_tomahawk_missile_projectile_with_effects(
-                            attacker_id,
-                            from,
-                            target_location,
-                            None,
-                            effects,
-                        )
-                        .is_some();
-                    let (hits, _) = if spawned {
-                        self.tomahawk_residual_fires =
-                            self.tomahawk_residual_fires.saturating_add(1);
-                        (1, false)
-                    } else {
-                        self.apply_tomahawk_residual_at_with_effects(
-                            target_location,
-                            Some(attacker_id),
-                            None,
-                            effects,
-                        )
-                    };
-                    let _ = weapon_damage;
-                } else if let Some(ground_target_id) =
-                    self.find_ground_attack_victim(attacker_id, target_location, ground_slot)
-                {
-                    let ground_wname = self.objects.get(&attacker_id).and_then(|attacker| {
-                        attacker
-                            .weapon_name_for_slot(ground_slot)
-                            .map(str::to_owned)
-                    });
-                    let selected_rule = self
-                        .objects
-                        .get(&attacker_id)
-                        .and_then(|attacker| attacker.selected_native_weapon_rule(ground_slot));
-                    let damage_type = selected_rule.as_ref().map(|rule| crate::game_logic::host_armor_residual::map_store_damage_type(rule.damage_type))
-                        .or_else(|| ground_wname.as_deref()
-                        .map(
-                            crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name,
-                        )
-                        )
-                        // C++ WeaponTemplate ctor defaults m_damageType to
-                        // DAMAGE_EXPLOSION (Weapon.cpp:249); an unnamed host
-                        // weapon fires Explosion, not Bullet.
-                        .unwrap_or(crate::game_logic::combat::DamageType::Explosive);
-                    let context = crate::game_logic::object::DamageHitContext::new_selected(
-                        self.objects.get(&attacker_id),
-                        ground_wname.as_deref(),
-                        damage_type,
-                        selected_rule.as_deref(),
-                    );
-                    let _ = self.apply_owned_damage_with_effects(
-                        ground_target_id,
-                        weapon_damage,
-                        Some(attacker_id),
-                        damage_type,
-                        selected_rule.as_ref().map(|rule| crate::game_logic::host_usa_pilot::HostDeathType::from_store(rule.death_type))
-                            .unwrap_or_else(|| crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(damage_type)),
-                        None,
-                        &context,
-                     effects);
-                }
-
-                // Inferno Cannon residual: ground attack also seeds FireFieldSmall.
-                if !rocket_pod_ground && !buggy_ground && !scud_ground {
-                    use crate::game_logic::host_inferno_cannon::is_inferno_cannon_template;
-                    let is_inferno = self
-                        .objects
-                        .get(&attacker_id)
-                        .map(|a| is_inferno_cannon_template(&a.template_name))
-                        .unwrap_or(false);
-                    if is_inferno {
-                        let upgraded = self
-                            .objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                crate::game_logic::host_inferno_cannon::has_black_napalm_upgrade(
-                                    &a.applied_upgrades,
-                                )
-                            })
-                            .unwrap_or(false);
-                        let _ = self.spawn_inferno_fire_zone_with_effects(
-                            attacker_id,
-                            attacker_team,
-                            target_location,
-                            upgraded,
-                            effects,
-                        );
-                    }
-                }
+            // Unadmitted bare weapon (no WeaponTemplate): damage the nearest
+            // victim at the impact with C++ WeaponTemplate defaults
+            // (DAMAGE_EXPLOSION / DEATH_NORMAL, Weapon.cpp:249).
+            if let Some(ground_target_id) =
+                self.find_ground_attack_victim(attacker_id, target_location, ground_slot)
+            {
+                let damage_type = crate::game_logic::combat::DamageType::Explosive;
+                let context = crate::game_logic::object::DamageHitContext::new_selected(
+                    self.objects.get(&attacker_id),
+                    None,
+                    damage_type,
+                    None,
+                );
+                let _ = self.apply_owned_damage_with_effects(
+                    ground_target_id,
+                    weapon_damage,
+                    Some(attacker_id),
+                    damage_type,
+                    crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                    None,
+                    &context,
+                    effects,
+                );
             }
             // The common successful-shot finalizer owns ammo, temporary-slot
             // unlock, stealth disruption and accepted presentation/barrel commit

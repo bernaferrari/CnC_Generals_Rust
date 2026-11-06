@@ -209,7 +209,7 @@ fn under_construction_structure_blocks_path() {
             Team::USA,
             Vec3::new(80.0, 0.0, 80.0),
         )
-        .expect("scaffold");
+        .expect("scaffold").expect("ObjectId");
     let obj = logic.host_object(id).expect("placed");
     assert!(obj.status.under_construction);
     let placed = obj.get_position();
@@ -1416,6 +1416,140 @@ fn dozer_hack_reaches_live_astar() {
     );
 }
 
+
+/// hq-dtquay: dozerHack admits through enemy CELL_OBSTACLE only when seeker or
+/// obstacle is an undetected defector (C++ AIPathfind.cpp:6215 / Object.cpp:1548).
+#[test]
+fn pathfind_cluster_dozer_defector_obstacle_relationship() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+
+    fn wall_sys() -> PathfindingSystem {
+        let mut sys = PathfindingSystem::new(120.0, 80.0);
+        for y in 0..8 {
+            sys.grid
+                .set_cell_type(GridPos::new(5, y), PathfindCellType::Impassable);
+        }
+        sys
+    }
+    fn admit_dozer(objects: &mut HostObjectStore, id: u32, team: Team, player: u32) {
+        let mut dozer_t = ThingTemplate::new("AmericaDozer");
+        dozer_t.add_kind_of(KindOf::Dozer);
+        dozer_t.add_kind_of(KindOf::Vehicle);
+        let mut dozer = Object::new(dozer_t, ObjectId(id), team);
+        dozer.set_position(Vec3::new(20.0, 0.0, 35.0));
+        dozer.owner_player_id = Some(player);
+        objects.admit(dozer.id, dozer);
+    }
+    let start = Vec3::new(20.0, 0.0, 35.0);
+    let goal = Vec3::new(90.0, 0.0, 35.0);
+    let ground = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+
+    // Enemy obstacle blocks ordinary dozer.
+    {
+        let mut sys = wall_sys();
+        sys.grid.set_cell_obstacle_owned(
+            GridPos::new(5, 3),
+            false,
+            false,
+            21,
+            Some(2),
+            Some(Team::GLA),
+        );
+        let mut objects = HostObjectStore::new();
+        admit_dozer(&mut objects, 1, Team::USA, 0);
+        let mut enemy_t = ThingTemplate::new("GLABarracks");
+        enemy_t.add_kind_of(KindOf::Structure);
+        let mut enemy = Object::new(enemy_t, ObjectId(21), Team::GLA);
+        enemy.owner_player_id = Some(2);
+        objects.admit(enemy.id, enemy);
+        assert!(
+            sys.find_path_ex(start, goal, objects.read(), false, Some(ObjectId(1)), &ground)
+                .is_none(),
+            "enemy obstacle must block non-defector dozer"
+        );
+    }
+
+    // Seeker undetected defector may pass the same enemy obstacle.
+    {
+        let mut sys = wall_sys();
+        sys.grid.set_cell_obstacle_owned(
+            GridPos::new(5, 3),
+            false,
+            false,
+            21,
+            Some(2),
+            Some(Team::GLA),
+        );
+        let mut objects = HostObjectStore::new();
+        admit_dozer(&mut objects, 1, Team::USA, 0);
+        objects
+            .get_mut(&ObjectId(1))
+            .unwrap()
+            .begin_undetected_defection(0, 600, false);
+        assert!(
+            objects.get(&ObjectId(1)).unwrap().is_undetected_defector(),
+            "seeker must be undetected defector"
+        );
+        let mut enemy_t = ThingTemplate::new("GLABarracks");
+        enemy_t.add_kind_of(KindOf::Structure);
+        let mut enemy = Object::new(enemy_t, ObjectId(21), Team::GLA);
+        enemy.owner_player_id = Some(2);
+        objects.admit(enemy.id, enemy);
+        assert!(
+            sys.find_path_ex(start, goal, objects.read(), false, Some(ObjectId(1)), &ground)
+                .is_some(),
+            "undetected-defector seeker must dozerHack enemy obstacle"
+        );
+    }
+
+    // Obstacle undetected defector also grants passage.
+    {
+        let mut sys = wall_sys();
+        sys.grid.set_cell_obstacle_owned(
+            GridPos::new(5, 3),
+            false,
+            false,
+            21,
+            Some(2),
+            Some(Team::GLA),
+        );
+        let mut objects = HostObjectStore::new();
+        admit_dozer(&mut objects, 1, Team::USA, 0);
+        let mut enemy_t = ThingTemplate::new("GLABarracks");
+        enemy_t.add_kind_of(KindOf::Structure);
+        let mut enemy = Object::new(enemy_t, ObjectId(21), Team::GLA);
+        enemy.owner_player_id = Some(2);
+        enemy.begin_undetected_defection(0, 600, false);
+        objects.admit(enemy.id, enemy);
+        assert!(
+            sys.find_path_ex(start, goal, objects.read(), false, Some(ObjectId(1)), &ground)
+                .is_some(),
+            "undetected-defector obstacle must admit dozerHack"
+        );
+    }
+
+    // Stale obstacle id (no live object) must not grant passage.
+    {
+        let mut sys = wall_sys();
+        sys.grid.set_cell_obstacle_owned(
+            GridPos::new(5, 3),
+            false,
+            false,
+            99,
+            Some(2),
+            Some(Team::GLA),
+        );
+        let mut objects = HostObjectStore::new();
+        admit_dozer(&mut objects, 1, Team::USA, 0);
+        assert!(
+            sys.find_path_ex(start, goal, objects.read(), false, Some(ObjectId(1)), &ground)
+                .is_none(),
+            "missing obstacle object must not admit dozerHack"
+        );
+    }
+}
+
+
 /// hq-ugt0x: downhill-only is not hardcoded false on the live A* call.
 
 #[test]
@@ -1886,4 +2020,254 @@ fn obstacle_start_terrain_mapping_never_bridges_an_impassable_wall() {
     assert!(!grid.quick_path_exists_for(from, to, SURFACE_GROUND | SURFACE_WATER));
     assert!(!grid.quick_path_exists_for(from, to, SURFACE_GROUND | SURFACE_CLIFF));
     assert!(!grid.quick_path_exists_for(from, to, SURFACE_GROUND | SURFACE_RUBBLE));
+}
+
+/// Cluster proof for hq-985ts + hq-zjbin + hq-wbbbc2: one pass over
+/// clearCellForDiameter, grounded-aircraft UNIT_PRESENT, and human logical extent.
+#[test]
+fn pathfind_cluster_diameter_aircraft_human_extent() {
+    use crate::game_logic::{KindOf, Object, ObjectId, ObjectType, Team, ThingTemplate};
+
+    // hq-985ts — diameter clearance shrinks when an adjacent cell is blocked.
+    let mut g = open_grid(16, 16);
+    assert_eq!(g.clear_cell_for_diameter(false, GridPos::new(8, 8), 2), 2);
+    g.set_blocked(GridPos::new(7, 8), true);
+    assert_eq!(
+        g.clear_cell_for_diameter(false, GridPos::new(8, 8), 2),
+        1,
+        "blocked neighbor must reduce clearCellForDiameter"
+    );
+
+    // hq-zjbin — parked/taxiing aircraft never stamp UNIT_PRESENT.
+    let mut objects = HostObjectStore::new();
+    let mut tmpl = ThingTemplate::new("AmericaJetRaptor");
+    tmpl.add_kind_of(KindOf::Aircraft);
+    tmpl.add_kind_of(KindOf::Vehicle);
+    let mut jet = Object::new(tmpl, ObjectId(7), Team::USA);
+    jet.object_type = ObjectType::Aircraft;
+    jet.loco_appearance = LocomotorAppearance::Wings;
+    jet.cur_locomotor_name = Some("TestWingLocomotor".into());
+    jet.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_AIR;
+    jet.status.airborne_target = false;
+    jet.set_position(Vec3::new(55.0, 0.0, 55.0));
+    jet.owner_player_id = Some(0);
+    objects.admit(jet.id, jet);
+    g.update_dynamic_obstacles(
+        objects.read(),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
+    let center = g.world_to_grid(Vec3::new(55.0, 0.0, 55.0));
+    assert!(
+        !g.is_blocked(center),
+        "grounded aircraft must not stamp UNIT_PRESENT"
+    );
+
+    // hq-wbbbc2 — human adjustDestination stays inside m_logicalExtent.
+    let mut sys = PathfindingSystem::new(200.0, 200.0);
+    sys.grid
+        .set_logical_extent(GridPos::new(0, 0), GridPos::new(10, 10));
+    sys.grid.set_query_is_human(true);
+    let outside = sys.grid.adjust_destination_on_layer(
+        GridPos::new(15, 5),
+        SURFACE_GROUND,
+        false,
+        4,
+        Some(0),
+        0,
+        PathfindLayerEnum::Ground,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
+    if let Some(adj) = outside {
+        assert!(
+            sys.grid.in_logical_extent(adj),
+            "human adjust must not land outside m_logicalExtent"
+        );
+    }
+}
+
+/// Cluster proof for hq-8vmd8e (+ su78f overflow): pending max is PATHFIND_QUEUE_LEN-1.
+#[test]
+fn pathfind_cluster_reserved_slot_capacity_matches_cpp() {
+    assert_eq!(
+        MAX_PENDING_PATH_REQUESTS, 511,
+        "C++ admits while nextSlot != head over a 512-slot ring"
+    );
+    let mut sys = PathfindingSystem::new(100.0, 100.0);
+    let mk = |id: u32| PendingHostPath {
+        unit_id: ObjectId(id),
+        start: Vec3::ZERO,
+        destination: Vec3::new(id as f32, 0.0, 0.0),
+        waypoints: Vec::new(),
+        aircraft: false,
+        surfaces: SURFACE_GROUND,
+        is_crusher: false,
+        ignore_obstacle: None,
+        adjust_destinations: true,
+        follow_path_appends: Vec::new(),
+    };
+    for i in 1..=MAX_PENDING_PATH_REQUESTS as u32 {
+        assert!(sys.queue_path(mk(i)));
+    }
+    assert!(!sys.queue_path(mk(9000)));
+    assert_eq!(sys.pending_path_count(), 511);
+}
+/// Cluster proof for hq-ofskc + hq-edfif1: exact bridge-layer cell identity and
+/// line passability that reads the resolved deck cell, not pinched ground.
+#[test]
+fn pathfind_cluster_bridge_layer_identity_and_line_passable() {
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    let ground = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+    let mut g = open_grid(20, 12);
+    // Seed ground water under a future deck cell.
+    g.set_cell_type(GridPos::new(8, 5), PathfindCellType::Water);
+    g.set_cell_type(GridPos::new(9, 5), PathfindCellType::Impassable);
+    g.stamp_bridge_deck(
+        Vec3::new(50.0, 20.0, 40.0),
+        Vec3::new(50.0, 20.0, 60.0),
+        Vec3::new(150.0, 20.0, 40.0),
+        Vec3::new(150.0, 20.0, 60.0),
+        false,
+        &ground,
+    );
+    let deck_id = g.first_bridge_layer_id().expect("deck layer");
+    let deck = PathfindLayerEnum::from_u32(deck_id as u32);
+    assert_ne!(deck, PathfindLayerEnum::Ground);
+
+    let pos = GridPos::new(8, 5);
+    let (actual, ty) = g.path_cell_on_layer(pos, deck);
+    assert_eq!(actual, deck, "hq-ofskc: deck read must keep exact layer id");
+    assert_ne!(
+        ty,
+        PathfindCellType::Water,
+        "hq-ofskc: deck cell must not fall through to seeded ground Water"
+    );
+
+    // Missing peer layer falls back to ground Water without inventing Top.
+    let missing = PathfindLayerEnum::from_u32(deck_id as u32 + 1);
+    let (fb_layer, fb_ty) = g.path_cell_on_layer(pos, missing);
+    assert_eq!(fb_layer, PathfindLayerEnum::Ground);
+    assert_eq!(fb_ty, PathfindCellType::Water);
+
+    // hq-edfif1: line across deck over impassable ground stays passable on deck layer.
+    let ok = g.line_passable_on_layer(
+        GridPos::new(5, 5),
+        GridPos::new(12, 5),
+        SURFACE_GROUND,
+        false,
+        true,
+        None,
+        0,
+        false,
+        deck,
+    );
+    assert!(
+        ok,
+        "resolved deck line must clear ground Impassable via layer cells"
+    );
+}
+
+/// Cluster proof for hq-oapxl1: move-away search identity follows resolved
+/// bridge-layer getCell (object layer), not height-picked ground under the deck.
+#[test]
+fn pathfind_cluster_move_away_uses_resolved_bridge_layer() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    let ground = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+    let mut sys = PathfindingSystem::new(200.0, 120.0);
+    for x in 4..14 {
+        for y in 0..12 {
+            sys.grid
+                .set_cell_type(GridPos::new(x, y), PathfindCellType::Impassable);
+        }
+    }
+    sys.grid.stamp_bridge_deck(
+        Vec3::new(30.0, 20.0, 40.0),
+        Vec3::new(30.0, 20.0, 60.0),
+        Vec3::new(130.0, 20.0, 40.0),
+        Vec3::new(130.0, 20.0, 60.0),
+        false,
+        &ground,
+    );
+    let deck_id = sys.grid.first_bridge_layer_id().expect("deck");
+    let deck = PathfindLayerEnum::from_u32(deck_id as u32);
+    let from = Vec3::new(55.0, 0.0, 55.0);
+    let cell = sys.grid.world_to_grid(from);
+    let (resolved, _) = sys.grid.path_cell_on_layer(cell, deck);
+    assert_eq!(resolved, deck);
+
+    let mut objects = HostObjectStore::new();
+    let mut tmpl = ThingTemplate::new("BridgeMover");
+    tmpl.add_kind_of(KindOf::Vehicle);
+    let mut unit = Object::new(tmpl, ObjectId(1), Team::USA);
+    unit.set_position(from);
+    unit.pathfind_layer = deck_id;
+    unit.owner_player_id = Some(0);
+    objects.admit(unit.id, unit);
+
+    let avoided = vec![
+        Vec3::new(30.0, 0.0, 55.0),
+        from,
+        Vec3::new(120.0, 0.0, 55.0),
+    ];
+    let path = sys
+        .get_move_away_from_path(&avoided, None, &ground, objects.read(), ObjectId(1), ObjectId(1))
+        .expect("deck move-away must search on the bridge layer over impassable ground");
+    assert!(path.len() >= 2);
+    let dest = *path.last().unwrap();
+    let dest_cell = sys.grid.world_to_grid(dest);
+    let (dest_layer, _) = sys.grid.path_cell_on_layer(dest_cell, deck);
+    assert_eq!(
+        dest_layer, deck,
+        "yield dest must stay resolved on the deck, not fall to impassable ground"
+    );
+}
+
+/// Cluster proof for hq-bmxm81 (+ even-footprint half-cell shift used by move-away):
+/// C++ AIPathfind.cpp:10199-10231 shifts start index X by one cell for even diameters.
+#[test]
+fn pathfind_cluster_move_away_even_footprint_start_shift() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    let cell = 10.0;
+    let (radius, center_in_cell) = PathfindingGrid::radius_and_center(8.0, cell);
+    assert_eq!(radius, 1);
+    assert!(
+        !center_in_cell,
+        "8wu radius snaps to even 2-cell diameter (centerInCell false)"
+    );
+
+    let mut sys = PathfindingSystem::new(200.0, 200.0);
+    let from = Vec3::new(55.0, 0.0, 55.0);
+    let physical = sys.grid.world_to_grid(from);
+    let mut shifted = from;
+    shifted.x += cell * 0.5;
+    shifted.x += cell * 0.5; // matches get_move_away_from_path
+    let start_index = sys.grid.world_to_grid(shifted);
+    assert_ne!(
+        physical.x, start_index.x,
+        "even footprint must move the search index by a full cell in X"
+    );
+
+    let mut objects = HostObjectStore::new();
+    let mut tmpl = ThingTemplate::new("EvenCrusader");
+    tmpl.add_kind_of(KindOf::Vehicle);
+    let mut unit = Object::new(tmpl, ObjectId(1), Team::USA);
+    unit.set_position(from);
+    unit.selection_radius = 8.0;
+    unit.owner_player_id = Some(0);
+    objects.admit(unit.id, unit);
+    let avoided = vec![
+        Vec3::new(10.0, 0.0, 55.0),
+        from,
+        Vec3::new(150.0, 0.0, 55.0),
+    ];
+    let path = sys
+        .get_move_away_from_path(
+            &avoided,
+            None,
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+            objects.read(),
+            ObjectId(1),
+            ObjectId(1),
+        )
+        .expect("even-footprint move-away must still yield");
+    assert!(path.len() >= 2);
 }

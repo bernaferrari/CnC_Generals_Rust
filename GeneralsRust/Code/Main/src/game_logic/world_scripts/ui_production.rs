@@ -429,7 +429,7 @@ impl GameLogic {
         });
 
         // Pull fresh radar updates from GameLogic (typed) and turn them into HUD/radar pings.
-        for update in radar_notifier::drain() {
+        for update in radar_notifier::drain_on(&self.world_services) {
             let pos_world = Vec3::new(update.position.0, 0.0, update.position.1);
             match update.event_type {
                 RadarEventType::BaseAttacked => {
@@ -3377,7 +3377,20 @@ impl GameLogic {
     /// another template's unit prerequisites (`ThingTemplate::resolveNames`,
     /// ThingTemplate.cpp:1253-1272 via
     /// `ProductionPrerequisite::getAllPossibleBuildFacilityTemplates`).
-    pub(crate) fn build_facility_template_names(&self) -> std::collections::HashSet<String> {
+    pub fn invalidate_build_facility_template_names_cache(&self) {
+        *self.build_facility_template_names_cache.borrow_mut() = None;
+    }
+
+    pub fn build_facility_template_names(&self) -> std::sync::Arc<std::collections::HashSet<String>> {
+        if let Some(cached) = self.build_facility_template_names_cache.borrow().as_ref() {
+            return std::sync::Arc::clone(cached);
+        }
+        let names = std::sync::Arc::new(self.compute_build_facility_template_names());
+        *self.build_facility_template_names_cache.borrow_mut() = Some(std::sync::Arc::clone(&names));
+        names
+    }
+
+    fn compute_build_facility_template_names(&self) -> std::collections::HashSet<String> {
         const MAX_BF: usize = 32;
         let mut names = std::collections::HashSet::new();
         // Resolve the existing legacy factory's linked list once per census,
@@ -3439,3 +3452,7 @@ impl GameLogic {
 #[cfg(test)]
 #[path = "production_player_policy_owner_tests.rs"]
 mod production_player_policy_owner_tests;
+
+#[cfg(test)]
+#[path = "production_facility_cache_tests.rs"]
+mod production_facility_cache_tests;

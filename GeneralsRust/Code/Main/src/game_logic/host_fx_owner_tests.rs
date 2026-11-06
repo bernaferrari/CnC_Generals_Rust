@@ -153,7 +153,7 @@ fn dispatch(
         &mut crate::game_logic::ScriptPresentationEffects {
             audio: Some(&mut audio),
             ..Default::default()
-        }
+}
     ));
 }
 
@@ -321,7 +321,7 @@ fn object_fx_keeps_owned_pose_when_foreign_core_object_has_same_id() {
                     assert_visible(&events, primary, secondary, 40.0);
                 }
                 core.destroy_object(primary.0);
-                core.process_destroy_list().unwrap();
+                core.process_destroy_list();
                 assert!(
                     gamelogic::object::registry::OBJECT_REGISTRY
                         .get_object(primary.0)
@@ -567,7 +567,7 @@ fn authored_nested_bone_fx_borrows_same_session_impulse_and_world_visibility() {
         &mut crate::game_logic::ScriptPresentationEffects {
             view: Some(&mut view),
             ..Default::default()
-        }
+}
     ));
     assert_eq!(view.visits, vec![0, 1]);
     assert!(logic.session_view.impulse.intensity > 0.0);

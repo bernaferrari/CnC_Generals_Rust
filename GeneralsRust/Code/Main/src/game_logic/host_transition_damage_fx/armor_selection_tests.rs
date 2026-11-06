@@ -207,9 +207,9 @@ fn unsigned_throttle_wrap_uses_original_addition_and_original_comparison() {
 }
 
 #[test]
-fn consumed_hive_forwarding_and_swallow_do_not_emit_or_throttle_hull_armor_fx() {
+fn object_local_synthetic_hive_roster_does_not_consume_hull_damage() {
     isolated(
-        "consumed_hive_forwarding_and_swallow_do_not_emit_or_throttle_hull_armor_fx",
+        "object_local_synthetic_hive_roster_does_not_consume_hull_damage",
         || {
             use crate::game_logic::{DamageHitContext, HostHealthEvents};
             for forwarded in [true, false] {
@@ -251,16 +251,12 @@ fn consumed_hive_forwarding_and_swallow_do_not_emit_or_throttle_hull_armor_fx() 
                     &mut receive,
                 );
                 application.finish_standalone_with_body_fx(&mut hive, None, &false, &mut receive);
-                assert_eq!(hive.health.current, 100.);
-                assert_eq!(
-                    calls, 0,
-                    "consumed request does not reach the hive hull's ArmorFX"
-                );
-                assert_eq!(hive.last_damage_fx_done, None);
-                assert_eq!(hive.next_damage_fx_time, 0);
-                assert!(take_dispatched_armor_damage_fx().is_empty());
+                // OLD synthetic control (.97): the Object-local roster is not
+                // a HiveStructureBody owner; the hull takes the hit. Owned
+                // forwarding/swallow is GameLogic::try_owned_hive_structure_damage.
+                assert_eq!(hive.health.current, 95.);
                 let after: f32 = hive.hive_slaves.iter().map(|slave| slave.hp).sum();
-                assert_eq!(before - after, if forwarded { 5. } else { 0. });
+                assert_eq!(before, after);
             }
         },
     );

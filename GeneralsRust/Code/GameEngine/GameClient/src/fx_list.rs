@@ -5,6 +5,9 @@
 #[path = "fx_owned_light_scene.rs"]
 mod owned_light_scene;
 pub use owned_light_scene::DisplayLightScene;
+#[path = "fx_client_state.rs"]
+mod client_state;
+pub use client_state::{AudioHook, FxClientState, LightPulseHook};
 #[path = "fx_owned_sound.rs"]
 mod owned_sound;
 pub use owned_sound::{submit_sound_fx_owned, submit_sound_fx_with_policy};
@@ -22,7 +25,6 @@ mod view_services;
 pub use view_services::FxViewServices;
 use view_services::with_tactical_fx_view_services;
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
@@ -58,7 +60,7 @@ impl FXListManagerInterface for FXListManagerBridge {
             return;
         };
 
-        let Some(fx) = get_fx_list_store().find_fx_list(&name) else {
+        let Some(fx) = with_fx_list_store(|s| s.find_fx_list(&name)) else {
             log::debug!("FXListManager: FXList '{}' not found", name);
             return;
         };
@@ -80,7 +82,7 @@ impl FXListManagerInterface for FXListManagerBridge {
             return;
         };
 
-        let Some(fx) = get_fx_list_store().find_fx_list(&name) else {
+        let Some(fx) = with_fx_list_store(|s| s.find_fx_list(&name)) else {
             log::debug!("FXListManager: FXList '{}' not found", name);
             return;
         };
@@ -107,7 +109,7 @@ impl FXListManagerInterface for FXListManagerBridge {
             log::debug!("FXListManager: unknown FXList id {}", fx_list);
             return;
         };
-        let Some(fx) = get_fx_list_store().find_fx_list(&name) else {
+        let Some(fx) = with_fx_list_store(|s| s.find_fx_list(&name)) else {
             log::debug!("FXListManager: FXList '{}' not found", name);
             return;
         };
@@ -127,7 +129,7 @@ impl FXListManagerInterface for FXListManagerBridge {
             log::debug!("FXListManager: unknown FXList id {}", fx_list);
             return;
         };
-        let Some(fx) = get_fx_list_store().find_fx_list(&name) else {
+        let Some(fx) = with_fx_list_store(|s| s.find_fx_list(&name)) else {
             log::debug!("FXListManager: FXList '{}' not found", name);
             return;
         };
@@ -200,7 +202,7 @@ fn host_fx_obj_is_visible(object_id: u32) -> bool {
 }
 
 fn do_named_fx_obj(name: &str, primary_id: Option<u32>, secondary_id: Option<u32>) -> bool {
-    let Some(fx) = get_fx_list_store().find_fx_list(name) else {
+    let Some(fx) = with_fx_list_store(|s| s.find_fx_list(name)) else {
         return false;
     };
     let leftover_primary = primary_id.and_then(gamelogic::helpers::TheGameLogic::find_object_by_id);
@@ -352,26 +354,6 @@ fn to_message_coord(pos: &Coord3D) -> MessageCoord3D {
     }
 }
 
-type AudioHook = Box<dyn FnMut(&str, Option<MessageCoord3D>) + Send + Sync>;
-type LightPulseHook = Box<dyn FnMut(&DisplayLightPulse) + Send + Sync>;
-
-// THREAD: main thread only. Producers are FXList nugget execution on the game
-// thread and client init; consumers are the display/light tick and the host's
-// render pass on the same thread, so these slots live in one thread-local cell
-// block. (The decal/shake slots hold `Arc` handles so the owners elsewhere keep
-// their own share.) `FX_LIST_STORE` below stays a shared lock instead: its INI
-// block parser can also run on the host's startup worker thread.
-thread_local! {
-    static FX_AUDIO: RefCell<Option<AudioHook>> = const { RefCell::new(None) };
-    static FX_DECAL_MANAGER: RefCell<Option<Arc<Mutex<DecalManager>>>> =
-        const { RefCell::new(None) };
-    static FX_SHAKE_SYSTEM: RefCell<Option<Arc<Mutex<CameraShakeSystem>>>> =
-        const { RefCell::new(None) };
-    // Compatibility adapter only. Owned FX execution receives a scene directly.
-    static LEGACY_LIGHT_SCENE: RefCell<DisplayLightScene> = RefCell::new(DisplayLightScene::default());
-    static LIGHT_PULSE_HOOK: RefCell<Option<LightPulseHook>> = const { RefCell::new(None) };
-}
-
 /// C++ `TheDisplay->createLightPulse` request (W3DDisplay.cpp).
 #[derive(Debug, Clone, PartialEq)]
 pub struct DisplayLightPulse {
@@ -412,22 +394,18 @@ pub fn light_pulse_too_small(inner_radius: f32, outer_radius: f32) -> bool {
 }
 
 /// C++ `TheDisplay->createLightPulse(pos, color, innerRadius, outerRadius, increase, decay)`.
-/// Records the pulse and notifies an optional display hook (W3D scene).
-pub fn create_display_light_pulse(pulse: DisplayLightPulse) -> bool {
-    if !LEGACY_LIGHT_SCENE.with_borrow_mut(|scene| scene.create_pulse(pulse.clone())) {
-        return false;
-    }
-    // Release the scene before the original display callback can reenter FX.
-    LIGHT_PULSE_HOOK.with_borrow_mut(|hook| {
-        if let Some(hook) = hook.as_mut() {
-            hook(&pulse);
-        }
-    });
-    true
+/// Prefer [`FxClientState::create_display_light_pulse`] on the receiving client.
+pub fn create_display_light_pulse_on(fx: &mut FxClientState, pulse: DisplayLightPulse) -> bool {
+    fx.create_display_light_pulse(pulse)
 }
 
-pub fn scene_dynamic_lights() -> Vec<DisplayDynamicLight> {
-    LEGACY_LIGHT_SCENE.with_borrow(|scene| scene.lights().to_vec())
+/// Scene-local light pulse admission (tests / owned DisplayLightScene).
+pub fn create_display_light_pulse(scene: &mut DisplayLightScene, pulse: DisplayLightPulse) -> bool {
+    scene.create_pulse(pulse)
+}
+
+pub fn scene_dynamic_lights(scene: &DisplayLightScene) -> Vec<DisplayDynamicLight> {
+    scene.lights().to_vec()
 }
 
 /// C++ `Get_Far_Attenuation_Range(midRange, range)` then
@@ -500,12 +478,13 @@ pub fn do_the_dynamic_light(
 
 /// Light a vertex from the live `createLightPulse` scene list.
 pub fn do_the_dynamic_light_from_scene(
+    scene: &DisplayLightScene,
     vertex_xyz: [f32; 3],
     vertex_normal: [f32; 3],
     vertex_diffuse: u32,
 ) -> u32 {
     gamelogic::helpers::tick_scene_point_lights();
-    let mut lights = scene_dynamic_lights();
+    let mut lights = scene_dynamic_lights(scene);
     for light in gamelogic::helpers::scene_point_lights() {
         lights.push(DisplayDynamicLight {
             pos: light.pos,
@@ -532,57 +511,39 @@ pub fn do_the_dynamic_light_from_scene(
 }
 
 /// C++ `W3DDynamicLight::On_Frame_Update` fade (increase then decay range/color).
-pub fn tick_scene_dynamic_lights() {
-    LEGACY_LIGHT_SCENE.with_borrow_mut(DisplayLightScene::update);
+pub fn tick_scene_dynamic_lights(scene: &mut DisplayLightScene) {
+    scene.update();
 }
 
-pub fn clear_scene_dynamic_lights() {
-    LEGACY_LIGHT_SCENE.with_borrow_mut(DisplayLightScene::clear_lights);
+pub fn clear_scene_dynamic_lights(scene: &mut DisplayLightScene) {
+    scene.clear_lights();
 }
 
-pub fn drain_display_light_pulses() -> Vec<DisplayLightPulse> {
-    LEGACY_LIGHT_SCENE.with_borrow_mut(DisplayLightScene::drain_pulses)
+pub fn drain_display_light_pulses(scene: &mut DisplayLightScene) -> Vec<DisplayLightPulse> {
+    scene.drain_pulses()
 }
 
-pub fn register_light_pulse_hook(hook: LightPulseHook) {
-    LIGHT_PULSE_HOOK.with_borrow_mut(|slot| slot.replace(hook));
+pub fn register_light_pulse_hook(fx: &mut FxClientState, hook: LightPulseHook) {
+    fx.register_light_pulse_hook(hook);
 }
 
-pub fn register_fx_audio(mut hook: AudioHook) {
-    FX_AUDIO.with_borrow_mut(|slot| slot.replace(hook));
+pub fn register_fx_audio(fx: &mut FxClientState, hook: AudioHook) {
+    fx.register_audio(hook);
 }
 
-pub fn register_decal_manager(manager: Arc<Mutex<DecalManager>>) {
-    FX_DECAL_MANAGER.with_borrow_mut(|slot| slot.replace(manager));
+pub fn register_decal_manager(fx: &mut FxClientState, manager: Arc<Mutex<DecalManager>>) {
+    fx.register_decal_manager(manager);
 }
 
-pub fn get_decal_manager() -> Option<Arc<Mutex<DecalManager>>> {
-    FX_DECAL_MANAGER.with_borrow(Clone::clone)
+pub fn get_decal_manager(fx: &FxClientState) -> Option<Arc<Mutex<DecalManager>>> {
+    fx.decal_manager()
 }
 
-pub fn register_camera_shake_system(system: Arc<Mutex<CameraShakeSystem>>) {
-    FX_SHAKE_SYSTEM.with_borrow_mut(|slot| slot.replace(system));
-}
-
-/// Invoke the registered FX audio hook if present.
-/// Returns `true` when a hook was called (sound routed), `false` when silent.
-fn with_audio<F: FnOnce(&mut AudioHook)>(f: F) -> bool {
-    FX_AUDIO.with_borrow_mut(|slot| {
-        if let Some(ref mut hook) = *slot {
-            f(hook);
-            return true;
-        }
-        false
-    })
-}
-
-fn with_shake_system<F: FnOnce(&mut CameraShakeSystem)>(f: F) {
-    let Some(system) = FX_SHAKE_SYSTEM.with_borrow(Clone::clone) else {
-        return;
-    };
-    if let Ok(mut guard) = system.lock() {
-        f(&mut guard);
-    }
+pub fn register_camera_shake_system(
+    fx: &mut FxClientState,
+    system: Arc<Mutex<CameraShakeSystem>>,
+) {
+    fx.register_camera_shake_system(system);
 }
 
 fn fx_local_player_index() -> i32 {
@@ -640,6 +601,15 @@ fn controlling_player_index(primary: &Object) -> i32 {
 }
 
 /// C++ `SoundFXNugget::doFXObj` / `doFXPos` → `TheAudio->addAudioEvent`.
+/// Headless / fixture Sound path when no receiving NativeAudioEffects owner is loaned.
+pub fn submit_global_sound_fx(
+    sound_name: &str,
+    position: Option<&Coord3D>,
+    player_index: Option<i32>,
+) {
+    play_sound_fx_event(sound_name, position, player_index);
+}
+
 fn play_sound_fx_event(sound_name: &str, position: Option<&Coord3D>, player_index: Option<i32>) {
     use game_engine::common::audio::game_audio::{
         get_global_audio_manager, initialize_global_audio_manager,
@@ -833,26 +803,54 @@ impl Default for FXListStore {
     }
 }
 
-static FX_LIST_STORE: OnceLock<RwLock<FXListStore>> = OnceLock::new();
 static FX_LIST_PARSER_REGISTERED: OnceLock<()> = OnceLock::new();
 
-pub fn get_fx_list_store() -> std::sync::RwLockReadGuard<'static, FXListStore> {
-    FX_LIST_STORE
-        .get_or_init(|| RwLock::new(FXListStore::new()))
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
+// Test-only fallback when no live GameClient is bound. C++ `TheFXListStore`
+// is one persistent singleton; an ephemeral per-call store would drop every
+// `add_fx_list` in tests (hq-2qedt.39). Kept behind cfg(test) so production
+// stays free of process-wide TLS (globals budget).
+#[cfg(test)]
+thread_local! {
+    static TEST_FX_LIST_STORE: std::cell::RefCell<Option<std::sync::Arc<RwLock<FXListStore>>>> =
+        const { std::cell::RefCell::new(None) };
 }
 
-pub fn get_fx_list_store_mut() -> std::sync::RwLockWriteGuard<'static, FXListStore> {
-    FX_LIST_STORE
-        .get_or_init(|| RwLock::new(FXListStore::new()))
-        .write()
-        .unwrap_or_else(|e| e.into_inner())
+/// Handle to the FX catalog for this client (or a test/ephemeral fallback).
+pub fn fx_list_store_handle() -> std::sync::Arc<RwLock<FXListStore>> {
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_fx_list_store()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_FX_LIST_STORE.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| std::sync::Arc::new(RwLock::new(FXListStore::new())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        std::sync::Arc::new(RwLock::new(FXListStore::new()))
+    }
+}
+
+pub fn with_fx_list_store<R>(f: impl FnOnce(&FXListStore) -> R) -> R {
+    let handle = fx_list_store_handle();
+    let guard = handle.read().unwrap_or_else(|e| e.into_inner());
+    f(&*guard)
+}
+
+pub fn with_fx_list_store_mut<R>(f: impl FnOnce(&mut FXListStore) -> R) -> R {
+    let handle = fx_list_store_handle();
+    let mut guard = handle.write().unwrap_or_else(|e| e.into_inner());
+    f(&mut *guard)
 }
 
 /// C++ `SoundFXNugget::m_soundName` values authored inside `name`.
 pub fn sound_names_for_fx_list(name: &str) -> Vec<String> {
-    get_fx_list_store().sound_names(name)
+    with_fx_list_store(|s| s.sound_names(name))
 }
 
 pub fn init_fx_list_store() -> Result<(), Box<dyn std::error::Error>> {
@@ -921,7 +919,7 @@ fn parse_fx_list_definition(ini: &mut INI) -> INIResult<()> {
     // Compatibility parser publishes both legacy registries.
     let fx_list = FXList::from_definition(&definition);
     game_engine::common::ini::ini_fx_list::get_fx_list_store_mut().add_fx_list(definition);
-    get_fx_list_store_mut().add_fx_list(name, fx_list);
+    with_fx_list_store_mut(|s| { s.add_fx_list(name, fx_list); });
     Ok(())
 }
 
@@ -1062,6 +1060,7 @@ fn executable_nugget(
     }
 }
 
+#[derive(Clone)]
 struct SoundFXNugget {
     sound_name: String,
 }
@@ -1070,19 +1069,37 @@ impl FXNugget for SoundFXNugget {
     fn do_fx_pos(
         &self,
         primary: Option<&Coord3D>,
+        primary_mtx: Option<&Matrix3D>,
+        primary_speed: f32,
+        secondary: Option<&Coord3D>,
+        override_radius: f32,
+    ) {
+        with_tactical_fx_view_services(|view| {
+            self.do_fx_pos_with_view(
+                primary,
+                primary_mtx,
+                primary_speed,
+                secondary,
+                override_radius,
+                view,
+            );
+        });
+    }
+
+    fn do_fx_pos_with_view(
+        &self,
+        primary: Option<&Coord3D>,
         _primary_mtx: Option<&Matrix3D>,
         _primary_speed: f32,
         _secondary: Option<&Coord3D>,
         _override_radius: f32,
+        view: &mut FxViewServices<'_>,
     ) {
         // C++ SoundFXNugget::doFXPos: AudioEventRTS + TheAudio->addAudioEvent.
-        // Prefer registered GameClient audio hook; fall back to gameplay dispatch
-        // so FXList sound nuggets are not silent no-ops when hook is absent.
+        // Receiving FxViewServices owns TheAudio; fall back to gameplay dispatch
+        // when the live client has no hook installed.
         let position = primary.map(to_message_coord);
-        let routed = with_audio(|hook| {
-            hook(&self.sound_name, position);
-        });
-        if !routed {
+        if !(view.play_fx_audio)(&self.sound_name, position) {
             if let Some(pos) = primary {
                 game_engine::common::audio::gameplay_audio_dispatch::dispatch_positional_sound(
                     &self.sound_name,
@@ -1177,7 +1194,8 @@ impl FXNugget for TracerFXNugget {
         } else {
             self.speed
         };
-        let current_frame = gamelogic::helpers::TheGameLogic::get_frame();
+        let current_frame = crate::core::game_client::live_game_client_frame()
+            .unwrap_or_else(|| gamelogic::helpers::TheGameLogic::get_frame());
         let _ = spawn_tracer_drawable_like_cpp(
             &self.tracer_name,
             [primary.x, primary.y, primary.z],
@@ -1265,8 +1283,8 @@ impl LightPulseFXNugget {
     }
     /// C++ LightPulseFXNugget::doFXPos / doFXObj → TheDisplay->createLightPulse.
     /// Inner radius is always 1 (FXList.cpp:312/324).
-    fn emit_pulse(&self, pos: &Coord3D, outer_radius: f32) {
-        let _ = create_display_light_pulse(self.pulse_at(pos, outer_radius));
+    fn emit_pulse_on(&self, scene: &mut DisplayLightScene, pos: &Coord3D, outer_radius: f32) {
+        let _ = create_display_light_pulse(scene, self.pulse_at(pos, outer_radius));
     }
 }
 
@@ -1274,18 +1292,51 @@ impl FXNugget for LightPulseFXNugget {
     fn do_fx_pos(
         &self,
         primary: Option<&Coord3D>,
+        primary_mtx: Option<&Matrix3D>,
+        primary_speed: f32,
+        secondary: Option<&Coord3D>,
+        override_radius: f32,
+    ) {
+        // Receiving light scene is supplied via FxViewServices.
+        with_tactical_fx_view_services(|view| {
+            self.do_fx_pos_with_view(
+                primary,
+                primary_mtx,
+                primary_speed,
+                secondary,
+                override_radius,
+                view,
+            );
+        });
+    }
+
+    fn do_fx_pos_with_view(
+        &self,
+        primary: Option<&Coord3D>,
         _primary_mtx: Option<&Matrix3D>,
         _primary_speed: f32,
         _secondary: Option<&Coord3D>,
         _override_radius: f32,
+        view: &mut FxViewServices<'_>,
     ) {
         let Some(primary) = primary else {
             return;
         };
-        self.emit_pulse(primary, self.radius);
+        (view.create_light_pulse)(self.pulse_at(primary, self.radius));
     }
 
-    fn do_fx_obj(&self, primary: Option<&Object>, _secondary: Option<&Object>) {
+    fn do_fx_obj(&self, primary: Option<&Object>, secondary: Option<&Object>) {
+        with_tactical_fx_view_services(|view| {
+            self.do_fx_obj_with_view(primary, secondary, view);
+        });
+    }
+
+    fn do_fx_obj_with_view(
+        &self,
+        primary: Option<&Object>,
+        _secondary: Option<&Object>,
+        view: &mut FxViewServices<'_>,
+    ) {
         let Some(primary) = primary else {
             return;
         };
@@ -1294,19 +1345,30 @@ impl FXNugget for LightPulseFXNugget {
             radius =
                 primary.get_geometry_info().get_bounding_circle_radius() * self.bounding_circle_pct;
         }
-        self.emit_pulse(primary.get_position(), radius);
+        (view.create_light_pulse)(self.pulse_at(primary.get_position(), radius));
     }
 
     fn do_fx_obj_host(
         &self,
         primary: &gamelogic::helpers::HostFxObjectPose,
+        secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+    ) {
+        with_tactical_fx_view_services(|view| {
+            self.do_fx_obj_host_with_view(primary, secondary, view);
+        });
+    }
+
+    fn do_fx_obj_host_with_view(
+        &self,
+        primary: &gamelogic::helpers::HostFxObjectPose,
         _secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+        view: &mut FxViewServices<'_>,
     ) {
         let mut radius = self.radius;
         if self.bounding_circle_pct > 0.0 {
             radius = primary.bounding_circle_radius * self.bounding_circle_pct;
         }
-        self.emit_pulse(&primary.position, radius);
+        (view.create_light_pulse)(self.pulse_at(&primary.position, radius));
     }
 }
 
@@ -1775,9 +1837,11 @@ impl FXNugget for FXListAtBonePosFXNugget {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::message_stream::game_message::Coord3D as MessageCoord3D;
 
     #[test]
     fn dispatch_releases_catalog_guard_before_nugget_callbacks() {
+        crate::test_support::ensure_ambient_host();
         struct WritesCatalog;
         impl FXNugget for WritesCatalog {
             fn do_fx_pos(
@@ -1788,9 +1852,8 @@ mod tests {
                 _: Option<&Coord3D>,
                 _: f32,
             ) {
-                let mut store = FX_LIST_STORE
-                    .get()
-                    .unwrap()
+                let handle = fx_list_store_handle();
+                let mut store = handle
                     .try_write()
                     .expect("dispatch must release catalog read guard before callbacks");
                 store.add_fx_list("FX_CallbackAdmitted".into(), FXList::new());
@@ -1798,17 +1861,16 @@ mod tests {
         }
         let mut fx = FXList::new();
         fx.add_fx_nugget(Box::new(WritesCatalog));
-        get_fx_list_store_mut().add_fx_list("FX_CallbackSource".into(), fx);
+        with_fx_list_store_mut(|s| { s.add_fx_list("FX_CallbackSource".into(), fx); });
         assert!(do_named_fx_obj("FX_CallbackSource", None, None));
         assert!(
-            get_fx_list_store()
-                .find_fx_list("FX_CallbackAdmitted")
-                .is_some()
+            with_fx_list_store(|s| s.find_fx_list("FX_CallbackAdmitted")).is_some()
         );
     }
 
     #[test]
     fn shared_rules_feed_client_and_logic_without_consuming_rng() {
+        crate::test_support::ensure_ambient_host();
         use game_engine::common::ini::ini_fx_list::{
             Distribution, FXNugget as Rule, get_fx_list_store as authored_store,
         };
@@ -1846,18 +1908,16 @@ mod tests {
         assert_eq!((radius.minimum, radius.maximum), (3.0, 17.0));
         assert_eq!(height.distribution, Distribution::Gaussian);
         assert_eq!(
-            get_fx_list_store()
-                .find_fx_list("FX_SharedRulesAdapter")
-                .unwrap()
-                .nuggets
-                .len(),
+            with_fx_list_store(|s| s.find_fx_list("FX_SharedRulesAdapter").unwrap().nuggets.len()),
             3
         );
     }
 
     #[test]
     fn owned_catalog_lookup_survives_a_different_name_key_namespace() {
+        crate::test_support::ensure_ambient_host();
         let mut store = std::thread::spawn(|| {
+            crate::test_support::ensure_ambient_host();
             NameKeyGenerator::init();
             let mut store = FXListStore::new();
             store.add_fx_list("FX_ClientCatalogExisting".into(), FXList::new());
@@ -1866,6 +1926,7 @@ mod tests {
         .join()
         .unwrap();
         std::thread::spawn(move || {
+            crate::test_support::ensure_ambient_host();
             NameKeyGenerator::init();
             assert!(store.find_fx_list("FX_ClientCatalogMissing").is_none());
             let previous = store.find_fx_list("FX_ClientCatalogExisting").unwrap();
@@ -1882,6 +1943,7 @@ mod tests {
 
     #[test]
     fn runtime_fx_parser_accepts_retail_labeled_values() {
+        crate::test_support::ensure_ambient_host();
         use game_engine::common::ini::ini_fx_list::{FXNugget as Rule, parse_fx_nugget_definition};
         let fields = HashMap::from([("Color".into(), "R:255 G:128 B:0".into())]);
         let Rule::Tracer { color, .. } = parse_fx_nugget_definition("Tracer", &fields).unwrap()
@@ -1900,6 +1962,7 @@ mod tests {
 
     #[test]
     fn runtime_fx_parser_loads_complete_retail_file_when_present() {
+        crate::test_support::ensure_ambient_host();
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../../windows_game/extracted_big_files_v2/INI/FXList.ini");
         let Ok(source) = std::fs::read_to_string(&path) else {
@@ -1913,15 +1976,18 @@ mod tests {
         ini.with_inline_source(&source, |ini| ini.parse_current_file())
             .unwrap_or_else(|error| panic!("retail {} must parse: {error:?}", path.display()));
 
-        let store = get_fx_list_store();
-        let tank = store
-            .find_fx_list("WeaponFX_GenericTankGun")
-            .expect("known retail runtime FXList stored");
+        let tank = with_fx_list_store(|store| {
+            store
+                .find_fx_list("WeaponFX_GenericTankGun")
+                .expect("known retail runtime FXList stored")
+                .clone()
+        });
         assert!(tank.nuggets.len() >= 4);
     }
 
     #[test]
     fn fx_list_at_bone_pos_queries_cpp_current_client_bone_sequence() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             FXListAtBonePosFXNugget::client_bone_name("WeaponFireFXBone", 0),
             "WeaponFireFXBone"
@@ -1944,6 +2010,7 @@ mod tests {
 
     #[test]
     fn fx_list_at_bone_pos_empty_name_queries_no_bones() {
+        crate::test_support::ensure_ambient_host();
         let nugget = FXListAtBonePosFXNugget::default();
         assert!(nugget.bone_name.is_empty());
         assert!(nugget.orient_to_bone);
@@ -1951,12 +2018,14 @@ mod tests {
 
     #[test]
     fn fx_obj_is_visible_fail_closes_when_local_player_invalid() {
+        crate::test_support::ensure_ambient_host();
         let prev_player = gamelogic::player::player_list()
             .read()
             .ok()
             .map(|list| list.get_local_player_index())
             .unwrap_or(-1);
-        if let Ok(mut list) = gamelogic::player::player_list().write() {
+        let __arc_bind = gamelogic::player::player_list();
+if let Ok(mut list) = __arc_bind.write() {
             list.set_local_player_index(-1);
         }
         assert!(
@@ -1967,13 +2036,15 @@ mod tests {
             fx_local_player_index() < 0,
             "local player must be invalid for this gate"
         );
-        if let Ok(mut players) = gamelogic::player::player_list().write() {
+        let __arc_bind = gamelogic::player::player_list();
+if let Ok(mut players) = __arc_bind.write() {
             players.set_local_player_index(prev_player);
         }
     }
 
     #[test]
     fn sound_fx_nugget_do_fx_obj_sets_player_index_on_audio_event() {
+        crate::test_support::ensure_ambient_host();
         let mut event =
             game_engine::common::audio::audio_event_rts::AudioEventRts::with_event_name("UnitDie");
         event.set_player_index(3);
@@ -1986,6 +2057,7 @@ mod tests {
 
     #[test]
     fn ray_nugget_spawns_one_cpp_template_ray() {
+        crate::test_support::ensure_ambient_host();
         use crate::effects::ray_effect_system::{live_ray_effects, reset_ray_effects};
 
         reset_ray_effects();
@@ -2010,7 +2082,9 @@ mod tests {
 
     #[test]
     fn light_pulse_fx_nugget_creates_display_light_not_decal() {
-        let _ = drain_display_light_pulses();
+        crate::test_support::ensure_ambient_host();
+        let mut fx = FxClientState::default();
+        let _ = fx.drain_display_light_pulses();
         let nugget = LightPulseFXNugget {
             color: Vec3::new(1.0, 0.25, 0.0),
             radius: 50.0,
@@ -2023,15 +2097,39 @@ mod tests {
             y: 34.0,
             z: 5.0,
         };
-        clear_scene_dynamic_lights();
-        nugget.do_fx_pos(Some(&pos), None, 0.0, None, 0.0);
-        let pulses = drain_display_light_pulses();
+        fx.clear_scene_dynamic_lights();
+        {
+            let mut add_scorch = |_, _, _| {};
+            let mut shake = |_: &Coord3D, _| {};
+            let mut find_list = |_: &str| None;
+            let mut bones = |_, _: &str, _, _| Vec::new();
+            let mut visible = |_: Option<&Coord3D>| true;
+            let mut create_light_pulse = |pulse: DisplayLightPulse| fx.create_display_light_pulse(pulse);
+            let mut play_fx_audio = |_: &str, _: Option<MessageCoord3D>| false;
+            nugget.do_fx_pos_with_view(
+                Some(&pos),
+                None,
+                0.0,
+                None,
+                0.0,
+                &mut FxViewServices {
+                    add_scorch: &mut add_scorch,
+                    shake: &mut shake,
+                    find_list: &mut find_list,
+                    bone_transforms: &mut bones,
+                    position_visible: &mut visible,
+                    create_light_pulse: &mut create_light_pulse,
+                    play_fx_audio: &mut play_fx_audio,
+                },
+            );
+        }
+        let pulses = fx.drain_display_light_pulses();
         assert_eq!(
             pulses.len(),
             1,
             "FXList LightPulse must call TheDisplay createLightPulse"
         );
-        let lights = scene_dynamic_lights();
+        let lights = fx.scene_dynamic_lights();
         assert_eq!(
             lights.len(),
             1,
@@ -2058,9 +2156,11 @@ mod tests {
 
     #[test]
     fn scene_dynamic_lights_fade_like_cpp_w3d_dynamic_light() {
-        let _ = drain_display_light_pulses();
-        clear_scene_dynamic_lights();
-        assert!(create_display_light_pulse(DisplayLightPulse {
+        crate::test_support::ensure_ambient_host();
+        let mut fx = FxClientState::default();
+        let _ = fx.drain_display_light_pulses();
+        fx.clear_scene_dynamic_lights();
+        assert!(fx.create_display_light_pulse(DisplayLightPulse {
             pos: [1.0, 2.0, 3.0],
             color: [1.0, 0.5, 0.0],
             inner_radius: 1.0,
@@ -2068,39 +2168,41 @@ mod tests {
             increase_frames: 2,
             decay_frames: 3,
         }));
-        tick_scene_dynamic_lights();
-        let lights = scene_dynamic_lights();
+        fx.tick_scene_dynamic_lights();
+        let lights = fx.scene_dynamic_lights();
         assert_eq!(lights.len(), 1);
         assert!((lights[0].color[0] - 0.5).abs() < 1.0e-5);
         assert!((lights[0].far_atten_end - 25.5).abs() < 1.0e-4);
-        tick_scene_dynamic_lights();
-        let lights = scene_dynamic_lights();
+        fx.tick_scene_dynamic_lights();
+        let lights = fx.scene_dynamic_lights();
         assert!((lights[0].color[0] - 1.0).abs() < 1.0e-5);
         assert!((lights[0].far_atten_end - 51.0).abs() < 1.0e-4);
-        tick_scene_dynamic_lights();
-        let lights = scene_dynamic_lights();
+        fx.tick_scene_dynamic_lights();
+        let lights = fx.scene_dynamic_lights();
         assert!((lights[0].color[0] - (2.0 / 3.0)).abs() < 1.0e-5);
-        tick_scene_dynamic_lights();
-        let lights = scene_dynamic_lights();
+        fx.tick_scene_dynamic_lights();
+        let lights = fx.scene_dynamic_lights();
         assert!((lights[0].color[0] - (1.0 / 3.0)).abs() < 1.0e-5);
-        tick_scene_dynamic_lights();
+        fx.tick_scene_dynamic_lights();
         assert!(
-            scene_dynamic_lights().is_empty(),
+            fx.scene_dynamic_lights().is_empty(),
             "C++ disables the light when decay count hits 0"
         );
     }
 
     #[test]
     fn do_the_dynamic_light_matches_cpp_heightmap_far_atten() {
+        crate::test_support::ensure_ambient_host();
+        let mut fx = FxClientState::default();
         assert!(far_atten_factor(40.0, 10.0, 40.0).is_none());
         assert!(far_atten_factor(5.0, 0.05, 40.0).is_none());
         assert!((far_atten_factor(10.0, 10.0, 40.0).unwrap() - 1.0).abs() < 1e-5);
         assert!((far_atten_factor(20.0, 10.0, 40.0).unwrap() - (2.0 / 3.0)).abs() < 1e-5);
         assert!((far_atten_factor(5.0, 10.0, 40.0).unwrap() - 1.0).abs() < 1e-5);
 
-        let _ = drain_display_light_pulses();
-        clear_scene_dynamic_lights();
-        assert!(create_display_light_pulse(DisplayLightPulse {
+        let _ = fx.drain_display_light_pulses();
+        fx.clear_scene_dynamic_lights();
+        assert!(fx.create_display_light_pulse(DisplayLightPulse {
             pos: [0.0, 0.0, 0.0],
             color: [1.0, 0.0, 0.0],
             inner_radius: 10.0,
@@ -2108,7 +2210,7 @@ mod tests {
             increase_frames: 0,
             decay_frames: 0,
         }));
-        let lights = scene_dynamic_lights();
+        let lights = fx.scene_dynamic_lights();
         assert_eq!(lights[0].far_atten_start, 10.0);
         assert_eq!(lights[0].far_atten_end, 40.0);
 
@@ -2134,14 +2236,16 @@ mod tests {
         assert_eq!(out_of_range, 0xFF00_0000);
 
         let from_scene =
-            do_the_dynamic_light_from_scene([0.0, 0.0, 20.0], [0.0, 0.0, 1.0], 0xFF00_0000);
+            do_the_dynamic_light_from_scene(&fx.scene, [0.0, 0.0, 20.0], [0.0, 0.0, 1.0], 0xFF00_0000);
         assert_eq!(from_scene, ambient_only);
-        clear_scene_dynamic_lights();
+        fx.clear_scene_dynamic_lights();
     }
 
     #[test]
     fn light_pulse_fx_nugget_culls_sub_cell_radius_like_cpp() {
-        let _ = drain_display_light_pulses();
+        crate::test_support::ensure_ambient_host();
+        let mut fx = FxClientState::default();
+        let _ = fx.drain_display_light_pulses();
         let nugget = LightPulseFXNugget {
             color: Vec3::ONE,
             radius: 5.0,
@@ -2156,7 +2260,7 @@ mod tests {
         };
         nugget.do_fx_pos(Some(&pos), None, 0.0, None, 0.0);
         assert!(
-            drain_display_light_pulses().is_empty(),
+            fx.drain_display_light_pulses().is_empty(),
             "C++ skips pulses with inner+outer < 2*PATHFIND_CELL_SIZE_F+1"
         );
         assert!(light_pulse_too_small(1.0, 5.0));
@@ -2165,6 +2269,7 @@ mod tests {
 
     #[test]
     fn tracer_fx_nugget_do_fx_pos_calls_create_tracer_fx() {
+        crate::test_support::ensure_ambient_host();
         use crate::effects::tracer_fx::{
             bake_tracer_gpu_mesh, clear_tracer_fx, live_tracer_fx, lock_tracer_fx_tests,
             update_tracer_fx,
@@ -2248,7 +2353,9 @@ mod tests {
 
     #[test]
     fn fx_list_do_fx_pos_runs_light_pulse_nugget() {
-        let _ = drain_display_light_pulses();
+        crate::test_support::ensure_ambient_host();
+        let mut fx = FxClientState::default();
+        let _ = fx.drain_display_light_pulses();
         let nugget = LightPulseFXNugget {
             color: Vec3::new(0.2, 0.4, 0.8),
             radius: 40.0,
@@ -2263,13 +2370,40 @@ mod tests {
             y: 16.0,
             z: 1.0,
         };
+        // Public doFXPos stays fail-closed without CELLSHROUD_CLEAR.
         list.do_fx_pos(Some(&pos), None, 0.0, None, 0.0);
         assert!(
-            drain_display_light_pulses().is_empty(),
+            fx.drain_display_light_pulses().is_empty(),
             "FXList::doFXPos must skip LightPulse nuggets when the cell is not CELLSHROUD_CLEAR"
         );
-        nugget.do_fx_pos(Some(&pos), None, 0.0, None, 0.0);
-        let pulses = drain_display_light_pulses();
+        // Receiving FxClientState owns TheDisplay light scene (no process TLS).
+        {
+            let mut add_scorch = |_, _, _| {};
+            let mut shake = |_: &Coord3D, _| {};
+            let mut find_list = |_: &str| None;
+            let mut bones = |_, _: &str, _, _| Vec::new();
+            let mut visible = |_: Option<&Coord3D>| true;
+            let mut create_light_pulse =
+                |pulse: DisplayLightPulse| fx.create_display_light_pulse(pulse);
+            let mut play_fx_audio = |_: &str, _: Option<MessageCoord3D>| false;
+            nugget.do_fx_pos_with_view(
+                Some(&pos),
+                None,
+                0.0,
+                None,
+                0.0,
+                &mut FxViewServices {
+                    add_scorch: &mut add_scorch,
+                    shake: &mut shake,
+                    find_list: &mut find_list,
+                    bone_transforms: &mut bones,
+                    position_visible: &mut visible,
+                    create_light_pulse: &mut create_light_pulse,
+                    play_fx_audio: &mut play_fx_audio,
+                },
+            );
+        }
+        let pulses = fx.drain_display_light_pulses();
         assert_eq!(pulses.len(), 1);
         assert_eq!(pulses[0].outer_radius, 40.0);
         assert_eq!(pulses[0].pos, [-8.0, 16.0, 1.0]);
@@ -2277,16 +2411,18 @@ mod tests {
 
     #[test]
     fn fx_list_do_fx_pos_skips_audio_and_particles_on_unexplored_cell() {
+        crate::test_support::ensure_ambient_host();
         use std::sync::atomic::{AtomicU32, Ordering};
 
+        let mut fx = FxClientState::default();
         let played = Arc::new(AtomicU32::new(0));
         let hook_played = Arc::clone(&played);
-        register_fx_audio(Box::new(move |name, _pos| {
+        fx.register_audio(Box::new(move |name, _pos| {
             if name == "WeaponFireShrouded" {
                 hook_played.fetch_add(1, Ordering::SeqCst);
             }
         }));
-        let _ = drain_display_light_pulses();
+        let _ = fx.drain_display_light_pulses();
 
         let pos = Coord3D::new(50.0, 50.0, 0.0);
         let prev_player = gamelogic::player::player_list()
@@ -2301,22 +2437,25 @@ mod tests {
             *shroud = gamelogic::system::shroud_manager::ShroudManager::new();
             shroud.init_shroud_grid(500.0, 500.0);
         }
-        if let Ok(mut list) = gamelogic::player::player_list().write() {
-            list.set_local_player_index(0);
+        if let Ok(mut players) = gamelogic::player::player_list().write() {
+            players.set_local_player_index(0);
         }
 
-        let mut list = FXList::new();
-        list.add_fx_nugget(Box::new(SoundFXNugget {
+        let sound = SoundFXNugget {
             sound_name: "WeaponFireShrouded".to_string(),
-        }));
-        list.add_fx_nugget(Box::new(LightPulseFXNugget {
+        };
+        let light = LightPulseFXNugget {
             color: Vec3::ONE,
             radius: 40.0,
             bounding_circle_pct: 0.0,
             increase_frames: 2,
             decrease_frames: 4,
-        }));
+        };
+        let mut list = FXList::new();
+        list.add_fx_nugget(Box::new(sound.clone()));
+        list.add_fx_nugget(Box::new(light.clone()));
 
+        // Public doFXPos observes PartitionManager shroud; unexplored stays silent.
         list.do_fx_pos(Some(&pos), None, 0.0, None, 0.0);
         assert_eq!(
             played.load(Ordering::SeqCst),
@@ -2324,22 +2463,85 @@ mod tests {
             "unexplored CELLSHROUD_SHROUDED must not leak Sound nuggets"
         );
         assert!(
-            drain_display_light_pulses().is_empty(),
+            fx.drain_display_light_pulses().is_empty(),
             "unexplored CELLSHROUD_SHROUDED must not leak LightPulse/particle nuggets"
+        );
+        assert!(
+            !fx_pos_cell_is_clear(Some(&pos)),
+            "unexplored cell must report CELLSHROUD_SHROUDED"
         );
 
         {
             let shroud_handle = gamelogic::system::shroud_manager::get_shroud_manager();
             let mut shroud = shroud_handle.lock().expect("shroud");
+            // player_mask bit0 = local player 0
             shroud.do_shroud_reveal(&pos, 75.0, 1);
         }
-        list.do_fx_pos(Some(&pos), None, 0.0, None, 0.0);
+        assert!(
+            fx_pos_cell_is_clear(Some(&pos)),
+            "doShroudReveal must admit CELLSHROUD_CLEAR for the local player"
+        );
+
+        // Receiving FxClientState owns TheAudio / TheDisplay hooks (no process TLS).
+        {
+            let mut add_scorch = |_, _, _| {};
+            let mut shake = |_: &Coord3D, _| {};
+            let mut find_list = |_: &str| None;
+            let mut bones = |_, _: &str, _, _| Vec::new();
+            let mut visible = |_: Option<&Coord3D>| true;
+            let mut create_light_pulse = |_: DisplayLightPulse| false;
+            let mut play_fx_audio = |name: &str, pos: Option<MessageCoord3D>| {
+                fx.with_audio(|hook| hook(name, pos))
+            };
+            sound.do_fx_pos_with_view(
+                Some(&pos),
+                None,
+                0.0,
+                None,
+                0.0,
+                &mut FxViewServices {
+                    add_scorch: &mut add_scorch,
+                    shake: &mut shake,
+                    find_list: &mut find_list,
+                    bone_transforms: &mut bones,
+                    position_visible: &mut visible,
+                    create_light_pulse: &mut create_light_pulse,
+                    play_fx_audio: &mut play_fx_audio,
+                },
+            );
+        }
+        {
+            let mut add_scorch = |_, _, _| {};
+            let mut shake = |_: &Coord3D, _| {};
+            let mut find_list = |_: &str| None;
+            let mut bones = |_, _: &str, _, _| Vec::new();
+            let mut visible = |_: Option<&Coord3D>| true;
+            let mut create_light_pulse =
+                |pulse: DisplayLightPulse| fx.create_display_light_pulse(pulse);
+            let mut play_fx_audio = |_: &str, _: Option<MessageCoord3D>| false;
+            light.do_fx_pos_with_view(
+                Some(&pos),
+                None,
+                0.0,
+                None,
+                0.0,
+                &mut FxViewServices {
+                    add_scorch: &mut add_scorch,
+                    shake: &mut shake,
+                    find_list: &mut find_list,
+                    bone_transforms: &mut bones,
+                    position_visible: &mut visible,
+                    create_light_pulse: &mut create_light_pulse,
+                    play_fx_audio: &mut play_fx_audio,
+                },
+            );
+        }
         assert_eq!(
             played.load(Ordering::SeqCst),
             1,
             "CELLSHROUD_CLEAR must play Sound nuggets"
         );
-        assert_eq!(drain_display_light_pulses().len(), 1);
+        assert_eq!(fx.drain_display_light_pulses().len(), 1);
 
         if let Ok(mut players) = gamelogic::player::player_list().write() {
             players.set_local_player_index(prev_player);
@@ -2347,11 +2549,11 @@ mod tests {
         *gamelogic::system::shroud_manager::get_shroud_manager()
             .lock()
             .expect("shroud") = gamelogic::system::shroud_manager::ShroudManager::new();
-        register_fx_audio(Box::new(|_name, _pos| {}));
     }
 
     #[test]
     fn sound_fx_nugget_without_hook_routes_via_gameplay_dispatch_fallback() {
+        crate::test_support::ensure_ambient_host();
         // Residual: FXList SoundFX must not be a silent no-op when the GameClient
         // audio hook is absent — falls back to dispatch_positional_sound.
         let nugget = SoundFXNugget {
@@ -2373,7 +2575,9 @@ mod tests {
 
     #[test]
     fn light_pulse_host_radius_as_percent_uses_geometry() {
-        let _ = drain_display_light_pulses();
+        crate::test_support::ensure_ambient_host();
+        let mut fx = FxClientState::default();
+        let _ = fx.drain_display_light_pulses();
         let nugget = LightPulseFXNugget {
             color: Vec3::ONE,
             radius: 10.0,
@@ -2389,8 +2593,30 @@ mod tests {
             bounding_circle_radius: 25.0,
             is_shrouded: false,
         };
-        nugget.do_fx_obj_host(&pose, None);
-        let pulses = drain_display_light_pulses();
+        {
+            let mut add_scorch = |_, _, _| {};
+            let mut shake = |_: &Coord3D, _| {};
+            let mut find_list = |_: &str| None;
+            let mut bones = |_, _: &str, _, _| Vec::new();
+            let mut visible = |_: Option<&Coord3D>| true;
+            let mut create_light_pulse =
+                |pulse: DisplayLightPulse| fx.create_display_light_pulse(pulse);
+            let mut play_fx_audio = |_: &str, _: Option<MessageCoord3D>| false;
+            nugget.do_fx_obj_host_with_view(
+                &pose,
+                None,
+                &mut FxViewServices {
+                    add_scorch: &mut add_scorch,
+                    shake: &mut shake,
+                    find_list: &mut find_list,
+                    bone_transforms: &mut bones,
+                    position_visible: &mut visible,
+                    create_light_pulse: &mut create_light_pulse,
+                    play_fx_audio: &mut play_fx_audio,
+                },
+            );
+        }
+        let pulses = fx.drain_display_light_pulses();
         assert_eq!(pulses.len(), 1);
         assert!((pulses[0].outer_radius - 50.0).abs() < 0.01);
         assert_eq!(pulses[0].pos, [1.0, 2.0, 3.0]);

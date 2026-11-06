@@ -119,7 +119,7 @@ impl DynamicAudioSaveLoad {
         let mut serializer = AudioSaveSerializer::new(writer, Self::chunk_id())?;
         let mut chunk = ChunkWriter::new();
 
-        let global_scale = LogicalListener::global_scale();
+        let global_scale = scene.logical_global_scale();
         chunk.begin_chunk(CHUNKID_DYNAMIC_VARIABLES);
         chunk.begin_micro_chunk(VARID_LOGICAL_LISTENER_GLOBAL_SCALE);
         chunk.write_f32(global_scale);

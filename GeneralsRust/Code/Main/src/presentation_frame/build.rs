@@ -328,14 +328,16 @@ impl PresentationFrame {
     /// Build presentation and consume this world's completed health receipts.
     /// Pending accepted-shot cues stay with the world until publication.
     pub fn build_from_logic(logic: &mut GameLogic, local_player_id: u32) -> Self {
-        Self::build_from_logic_with_tint_update(
-            logic,
-            local_player_id,
-            None,
-            true,
-            Vec::new(),
-            super::camera_fade::FrameFade::Compatibility,
-        )
+        logic.with_own_services_mut(|logic| {
+            Self::build_from_logic_with_tint_update(
+                logic,
+                local_player_id,
+                None,
+                true,
+                Vec::new(),
+                super::camera_fade::FrameFade::Compatibility,
+            )
+        })
     }
 
     pub(super) fn build_from_logic_with_tint_update(
@@ -962,9 +964,17 @@ impl PresentationFrame {
                     .as_ref()
                     .map(|w| w.damage)
                     .unwrap_or(0.0),
-                turret_angle_deg: obj.turret_angle_deg,
-                turret_pitch_deg: obj.turret_pitch_deg,
-                turret_idle_scanning: obj.turret_idle_scanning,
+                turret_angle_deg: obj.turret_ai.turret_angle_deg,
+                turret_pitch_deg: obj.turret_ai.turret_pitch_deg,
+                alt_turret_angle_deg: obj
+                    .alt_turret_ai
+                    .as_ref()
+                    .map_or(0.0, |alt| alt.turret_angle_deg),
+                alt_turret_pitch_deg: obj
+                    .alt_turret_ai
+                    .as_ref()
+                    .map_or(0.0, |alt| alt.turret_pitch_deg),
+                turret_idle_scanning: obj.turret_ai.turret_idle_scanning,
                 weapon_bonus_enthusiastic: obj.weapon_bonus_enthusiastic,
                 weapon_bonus_subliminal: obj.weapon_bonus_subliminal,
                 weapon_bonus_horde: obj.weapon_bonus_horde,
@@ -1034,7 +1044,7 @@ impl PresentationFrame {
                 passengers_allowed_to_fire: obj.passengers_allowed_to_fire,
                 display_name: obj.name.clone(),
                 demo_suicided_detonating: obj.demo_suicided_detonating,
-                turret_holding: obj.turret_holding,
+                turret_holding: obj.turret_ai.turret_holding,
                 last_damage_source_host: obj.last_damage_source.map(|id| id.0).unwrap_or(0),
                 command_set_override: obj.command_set_override.clone().unwrap_or_default(),
                 command_set_name: obj

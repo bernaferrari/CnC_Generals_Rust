@@ -84,7 +84,7 @@ pub struct LiveControlBarEvents {
 }
 
 #[derive(Debug)]
-struct LegacyCoreControlBarIngress {
+pub(crate) struct LegacyCoreControlBarIngress {
     ui_dirty: bool,
     observer_look_at: i32,
 }
@@ -97,18 +97,42 @@ impl Default for LegacyCoreControlBarIngress {
     }
 }
 // Transitional standalone Core ingress only. Native UIs never register or
-// consume this old simulation hook; their events are owned by the actual UI.
+// consume this old simulation hook; their events are owned by the actual UI
+// (InGameUISubsystem.legacy_core_control_bar_ingress).
+#[cfg(test)]
 thread_local! {
-    static LEGACY_CORE_CONTROL_BAR_INGRESS: RefCell<LegacyCoreControlBarIngress> = RefCell::new(Default::default());
+    static TEST_LEGACY_CORE_CONTROL_BAR_INGRESS: RefCell<LegacyCoreControlBarIngress> =
+        RefCell::new(Default::default());
+}
+
+fn with_legacy_core_ingress_mut<R>(f: impl FnOnce(&mut LegacyCoreControlBarIngress) -> R) -> R {
+    let mut f = Some(f);
+    if let Some(Some(result)) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.in_game_ui_subsystem_mut().map(|ui| {
+            f.take().expect("legacy ingress")(&mut ui.legacy_core_control_bar_ingress)
+        })
+    }) {
+        return result;
+    }
+    #[cfg(test)]
+    {
+        return TEST_LEGACY_CORE_CONTROL_BAR_INGRESS.with(|slot| {
+            f.take().expect("legacy ingress")(&mut *slot.borrow_mut())
+        });
+    }
+    #[cfg(not(test))]
+    {
+        // No live client: discard (standalone Core without GameClient).
+        let mut discard = LegacyCoreControlBarIngress::default();
+        f.take().expect("legacy ingress")(&mut discard)
+    }
 }
 pub fn drain_live_control_bar_events(
     ui: &mut crate::core::subsystems::InGameUISubsystem,
 ) -> LiveControlBarEvents {
     let mut events = std::mem::take(&mut ui.control_bar_events);
     if !crate::gui::control_bar::host_control_bar_bridge_enabled(ui) {
-        LEGACY_CORE_CONTROL_BAR_INGRESS.with(|pending| {
-            events.ui_dirty |= std::mem::take(&mut pending.borrow_mut().ui_dirty);
-        });
+        events.ui_dirty |= std::mem::take(&mut ui.legacy_core_control_bar_ingress.ui_dirty);
     }
     events
 }
@@ -122,15 +146,18 @@ pub fn set_live_control_bar_observer_look_at(
     }
 }
 pub(crate) fn set_legacy_core_control_bar_observer_look_at(index: Option<i32>) {
-    LEGACY_CORE_CONTROL_BAR_INGRESS
-        .with(|pending| pending.borrow_mut().observer_look_at = index.unwrap_or(-1));
+    with_legacy_core_ingress_mut(|pending| {
+        pending.observer_look_at = index.unwrap_or(-1);
+    });
 }
 
 struct LiveControlBarUiHooks;
 
 impl gamelogic::control_bar::ControlBarUiHooks for LiveControlBarUiHooks {
     fn mark_ui_dirty(&self) {
-        LEGACY_CORE_CONTROL_BAR_INGRESS.with(|pending| pending.borrow_mut().ui_dirty = true);
+        with_legacy_core_ingress_mut(|pending| {
+            pending.ui_dirty = true;
+        });
     }
 
     fn on_player_science_purchase_points_changed(&self, _player_id: i32, _points: i32) {
@@ -154,6 +181,7 @@ mod live_control_bar_click_provenance_tests {
 
     #[test]
     fn deferred_click_snapshots_physical_origin_and_fails_closed_otherwise() {
+        crate::test_support::ensure_ambient_host();
         let unscoped = LiveControlBarClick::from_input(
             10,
             20,
@@ -430,6 +458,7 @@ mod load_screen_hook_tests {
     use std::rc::Rc;
     #[test]
     fn active_load_screen_hides_cursor_like_cpp_start_new_game() {
+        crate::test_support::ensure_ambient_host();
         let mut client = crate::core::game_client::GameClient::new().unwrap();
         client.init_input_subsystems().unwrap();
         set_mouse_cursor_visibility(client.input_mouse_mut().unwrap(), false);
@@ -448,6 +477,7 @@ mod load_screen_hook_tests {
 
     #[test]
     fn ending_active_load_screen_shows_cursor_like_cpp_start_new_game() {
+        crate::test_support::ensure_ambient_host();
         let mut client = crate::core::game_client::GameClient::new().unwrap();
         client.init_input_subsystems().unwrap();
         set_mouse_cursor_visibility(client.input_mouse_mut().unwrap(), false);
@@ -463,6 +493,7 @@ mod load_screen_hook_tests {
 
     #[test]
     fn save_load_completion_skips_fade_transition_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         clear_load_screen_presentation_pump();
         let pump_count = Rc::new(Cell::new(0usize));
         let captured = Rc::clone(&pump_count);
@@ -1326,8 +1357,7 @@ impl TheControlBar {
     /// Standalone Core audio compatibility only; actual receiving UI users
     /// read their control_bar_observer_look_at field instead.
     pub fn get_observer_look_at_player_index() -> Option<i32> {
-        let index =
-            LEGACY_CORE_CONTROL_BAR_INGRESS.with(|pending| pending.borrow().observer_look_at);
+        let index = with_legacy_core_ingress_mut(|pending| pending.observer_look_at);
         (index >= 0).then_some(index)
     }
 
@@ -1348,6 +1378,7 @@ mod in_game_ui_input_and_guard_hint_tests {
 
     #[test]
     fn set_input_enabled_false_clears_force_waypoint_shift_camera_modes() {
+        crate::test_support::ensure_ambient_host();
         // C++ InGameUI::setInputEnabled (InGameUI.cpp:3382-3409)
         let mut ui = crate::core::subsystems::InGameUISubsystem::default();
         ui.set_input_enabled(true);
@@ -1383,6 +1414,7 @@ mod in_game_ui_input_and_guard_hint_tests {
 
     #[test]
     fn trigger_double_click_attack_move_guard_hint_arms_11_frame_timer() {
+        crate::test_support::ensure_ambient_host();
         // C++ InGameUI::triggerDoubleClickAttackMoveGuardHint (InGameUI.cpp:1314-1318)
         let mut ui = crate::core::subsystems::InGameUISubsystem::default();
         ui.arm_double_click_attack_move_guard_hint(12.0, 24.0, 3.0);
@@ -1403,6 +1435,7 @@ mod receiving_control_bar_events_tests {
     use super::*;
     #[test]
     fn actual_ui_events_do_not_cross_peer_reset_or_drop() {
+        crate::test_support::ensure_ambient_host();
         let mut a = crate::core::subsystems::InGameUISubsystem::default();
         let mut b = crate::core::subsystems::InGameUISubsystem::default();
         a.admit_native_control_bar_transport();
@@ -1423,16 +1456,17 @@ mod receiving_control_bar_events_tests {
     }
     #[test]
     fn native_ui_never_consumes_standalone_dirty_or_observer_ingress() {
+        crate::test_support::ensure_ambient_host();
         let mut a = crate::core::subsystems::InGameUISubsystem::default();
         a.admit_native_control_bar_transport();
-        LEGACY_CORE_CONTROL_BAR_INGRESS.with(|state| {
-            state.borrow_mut().ui_dirty = true;
-            state.borrow_mut().observer_look_at = 7;
+        with_legacy_core_ingress_mut(|state| {
+            state.ui_dirty = true;
+            state.observer_look_at = 7;
         });
         assert!(!drain_live_control_bar_events(&mut a).ui_dirty);
         set_live_control_bar_observer_look_at(Some(2), &mut a);
         assert_eq!(a.control_bar_observer_look_at, Some(2));
         assert_eq!(TheControlBar::get_observer_look_at_player_index(), Some(7));
-        LEGACY_CORE_CONTROL_BAR_INGRESS.with(|state| *state.borrow_mut() = Default::default());
+        with_legacy_core_ingress_mut(|state| *state = Default::default());
     }
 }

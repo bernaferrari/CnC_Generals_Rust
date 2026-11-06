@@ -172,15 +172,19 @@ fn inactive_body_delivers_incoming_source_without_manufacturing_hit_history() {
         Some(incoming),
         0.0,
         DamageType::Unresistable,
-        HostDeathType::Normal
+        HostDeathType::Detonated,
     ));
     let object = owner.host_object(victim).unwrap();
+    // InactiveBody.cpp:77-84 — onDie(damageInfo) only; never stamps ActiveBody hit history.
     assert_eq!(object.last_damage_source, None);
     assert_eq!(object.last_damage_timestamp, None);
+    assert!(object.status.on_die_started);
+    assert_eq!(object.status.death_type, HostDeathType::Detonated);
+    // StructureToppleUpdate reads OnDieInput.source/direction from the lethal hit.
     let topple = object
         .structure_topple_data
         .as_ref()
-        .expect("inactive onDie forwards input");
+        .expect("inactive onDie forwards incoming damage context");
     assert!(topple.dir_x < -0.9);
     assert!(topple.dir_y.abs() < 0.4);
 }
@@ -298,4 +302,122 @@ fn retained_mark_adapter_does_not_fabricate_current_input_from_body_history() {
     assert!(object.back_crushed);
     assert_eq!(object.last_damage_info_type, Some(DamageType::Flame));
     assert_eq!(object.last_damage_source, Some(preferred));
+}
+
+#[test]
+fn authored_highlander_body_binds_from_module_not_template_name() {
+    // C++ HighlanderBody.cpp:33-34 is selected by the authored Body module,
+    // not by the template name. Unresistable still kills (unlike Immortal).
+    let mut owner = GameLogic::new();
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "incoming-highlander-owner.ini".to_string(),
+        format!(
+            "{}\n{}",
+            authored("PlainHighlanderWitness", "HighlanderBody", "INERT", ""),
+            authored("Tree01ActiveWitness", "ActiveBody", "INERT", "")
+        ),
+    )])
+    .unwrap();
+    owner.admit_receiving_module_content(content).unwrap();
+    let highlander = owner
+        .create_object("PlainHighlanderWitness", Team::USA, glam::Vec3::ZERO)
+        .unwrap();
+    let tree = owner
+        .create_object(
+            "Tree01ActiveWitness",
+            Team::USA,
+            glam::Vec3::new(200.0, 0.0, 0.0),
+        )
+        .unwrap();
+    assert!(!hit(
+        &mut owner,
+        highlander,
+        None,
+        500.0,
+        DamageType::Explosive,
+        HostDeathType::Normal
+    ));
+    assert_eq!(owner.host_object(highlander).unwrap().health.current, 1.0);
+    assert!(hit(
+        &mut owner,
+        highlander,
+        None,
+        500.0,
+        DamageType::Unresistable,
+        HostDeathType::Normal
+    ));
+    // Authored ActiveBody with a highlander-ish name must not clamp.
+    assert!(hit(
+        &mut owner,
+        tree,
+        None,
+        500.0,
+        DamageType::Explosive,
+        HostDeathType::Normal
+    ));
+}
+
+#[test]
+fn authored_body_subclass_binds_immortal_floor_not_template_name() {
+    // CPP ImmortalBody.cpp:31-37: the authored Body subclass owns the floor.
+    // A neutral-name ImmortalBody floors at 1; an ActiveBody whose name merely
+    // contains SupplyWarehouse dies like any ActiveBody.
+    let mut owner = GameLogic::new();
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "authored-immortal-subclass.ini".to_string(),
+        format!(
+            "{}\n{}",
+            authored("NeutralImmortalPeer", "ImmortalBody", "INERT", ""),
+            authored("SupplyWarehouseActivePeer", "ActiveBody", "INERT", "")
+        ),
+    )])
+    .unwrap();
+    owner.admit_receiving_module_content(content).unwrap();
+    let immortal = owner
+        .create_object("NeutralImmortalPeer", Team::USA, glam::Vec3::ZERO)
+        .unwrap();
+    let active = owner
+        .create_object("SupplyWarehouseActivePeer", Team::USA, glam::Vec3::new(200.0, 0.0, 0.0))
+        .unwrap();
+    assert!(!hit(&mut owner, immortal, None, 100.0, DamageType::Unresistable, HostDeathType::Detonated));
+    assert_eq!(owner.host_object(immortal).unwrap().health.current, 1.0);
+    assert!(!owner.host_object(immortal).unwrap().status.on_die_started);
+    assert!(!owner.apply_owned_kill(immortal, DamageType::Unresistable, HostDeathType::Detonated).unwrap().destroyed);
+    assert_eq!(owner.host_object(immortal).unwrap().health.current, 1.0);
+    hit(&mut owner, active, None, 100.0, DamageType::Unresistable, HostDeathType::Detonated);
+    let active_obj = owner.host_object(active);
+    assert!(active_obj.map_or(true, |o| o.health.current <= 0.0 || o.status.on_die_started));
+}
+
+#[test]
+fn authored_highlander_body_subclass_binds_floor_not_template_name() {
+    // CPP HighlanderBody.cpp:33-34: authored HighlanderBody clamps ordinary
+    // damage at 1 HP; DAMAGE_UNRESISTABLE still kills. An ActiveBody whose
+    // name merely looks like a NatureProp tree does not clamp.
+    let mut owner = GameLogic::new();
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "authored-highlander-subclass.ini".to_string(),
+        format!(
+            "{}\n{}",
+            authored("NeutralFloorPeer", "HighlanderBody", "INERT", ""),
+            authored("TreeActivePeer", "ActiveBody", "INERT", "")
+        ),
+    )])
+    .unwrap();
+    owner.admit_receiving_module_content(content).unwrap();
+    let highlander = owner
+        .create_object("NeutralFloorPeer", Team::USA, glam::Vec3::ZERO)
+        .unwrap();
+    let tree = owner
+        .create_object("TreeActivePeer", Team::USA, glam::Vec3::new(200.0, 0.0, 0.0))
+        .unwrap();
+    hit(&mut owner, highlander, None, 10_000.0, DamageType::Flame, HostDeathType::Normal);
+    assert_eq!(owner.host_object(highlander).unwrap().health.current, 1.0);
+    assert!(!owner.host_object(highlander).unwrap().status.on_die_started);
+    hit(&mut owner, highlander, None, 10_000.0, DamageType::Unresistable, HostDeathType::Detonated);
+    let h = owner.host_object(highlander);
+    assert!(h.map_or(true, |o| o.health.current <= 0.0 || o.status.on_die_started));
+    hit(&mut owner, tree, None, 10_000.0, DamageType::Flame, HostDeathType::Normal);
+    let t = owner.host_object(tree);
+    assert!(t.map_or(true, |o| o.health.current <= 0.0 || o.status.on_die_started));
 }

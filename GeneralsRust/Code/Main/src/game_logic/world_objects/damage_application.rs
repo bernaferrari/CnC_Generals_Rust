@@ -405,7 +405,7 @@ impl GameLogic {
         killer_team_override: Option<Team>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<OwnedDamageResult> {
-        self.apply_owned_damage_with_killer_team_and_after_fx_with_effects(
+        let result = self.apply_owned_damage_with_killer_team_and_after_fx_with_effects(
             victim_id,
             damage,
             source_id,
@@ -416,7 +416,25 @@ impl GameLogic {
             killer_team_override,
             |_, _| {},
             effects,
-        )
+        );
+        // C++ ActiveBody::attemptDamage DAMAGE_KILL_GARRISONED kills
+        // floor(amount) occupants synchronously inside the damage call
+        // (ActiveBody.cpp:421-460); the body only records the count.
+        if matches!(
+            damage_type,
+            crate::game_logic::combat::DamageType::KillGarrisoned
+        ) {
+            let source_team = source_id
+                .and_then(|id| self.objects.get(&id))
+                .map_or(Team::Neutral, |source| source.team);
+            let _ = self.flush_pending_kill_garrisoned_with_effects(
+                victim_id,
+                source_id,
+                source_team,
+                effects,
+            );
+        }
+        result
     }
 
     /// The observer runs at this same real synchronous DamageFX boundary;
@@ -493,8 +511,7 @@ impl GameLogic {
                     .iter()
                     .filter_map(|(id, player)| player.is_reserved_neutral().then_some(*id))
                     .min(),
-            )
-            .with_owned_hive_body();
+            );
         // C++ HiveStructureBody forwards the same DamageInfo synchronously to
         // the closest Object in SpawnBehavior::m_spawnIDs. Main owns that
         // relationship on the receiving parent; do the forwarding before the
@@ -1174,6 +1191,8 @@ impl GameLogic {
                     source: source_id,
                     damage_type,
                     death_type,
+                    actual_damage_dealt: application.actual_damage_dealt().unwrap_or(hp_lost),
+                    actual_damage_clipped: hp_lost,
                 },
                 context.topple_interpreter(),
                 effects,
@@ -1389,20 +1408,18 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<OwnedDamageResult> {
         use crate::game_logic::host_base_defense::{
-            HostHiveDamageClass, hive_damage_class_for_type, is_stinger_site_structure,
+            HostHiveDamageClass, hive_damage_class_for_type,
         };
 
-        let (template_name, position, team) = {
+        let (template_name, position, team, hive) = {
             let parent = self.objects.get(&victim_id)?;
             (
                 parent.template_name.clone(),
                 parent.get_position(),
                 parent.team,
+                parent.is_kind_of(crate::game_logic::KindOf::SpawnsAreTheWeapons),
             )
         };
-        if !is_stinger_site_structure(&template_name) {
-            return None;
-        }
         // HiveStructureBody delegates to SpawnBehavior only when the receiving
         // object actually has that interface. Name similarity alone is not
         // enough: otherwise this path would swallow damage C++ sends to the
@@ -1431,8 +1448,19 @@ impl GameLogic {
             // object definition. Preserve their legacy name-based fallback;
             // once a receiving definition exists, its effective Body class is
             // authoritative and an ActiveBody Stinger is not a HiveBody.
-            .unwrap_or(true);
-        if !authored_hive_body || !GameLogic::supports_spawn_behavior_child_roster(parent) {
+            // Programmatic templates keep the legacy Stinger-name gate; an
+            // admitted definition selects HiveStructureBody by its Body only.
+            .unwrap_or_else(|| is_stinger_site_structure(&template_name));
+        if !authored_hive_body {
+            return None;
+        }
+        // C++ HiveStructureBody.cpp:55-100: SpawnBehavior interface first,
+        // else the Contain module's riders; neither means ordinary Body.
+        let spawn_roster = GameLogic::supports_spawn_behavior_child_roster(parent);
+        if !spawn_roster
+            && parent.thing().template.contain_module.kind
+                == crate::game_logic::ContainModuleKind::None
+        {
             return None;
         }
         // The effective typed body belongs to this receiving template. A
@@ -1498,12 +1526,36 @@ impl GameLogic {
             return None;
         };
         let source_position = source.get_position();
-        let children = self
-            .objects
-            .get(&victim_id)
-            .map(|parent| parent.spawn_behavior_children())
-            .unwrap_or_default();
         let mut closest: Option<(ObjectId, f32)> = None;
+        if !spawn_roster {
+            // OpenContain::getClosestRider: FROM_CENTER_2D over m_containList,
+            // replacing only on a strictly closer rider.
+            let riders = self
+                .objects
+                .get(&victim_id)
+                .map(|parent| parent.contained_units())
+                .unwrap_or_default();
+            for rider_id in riders {
+                let Some(rider) = self.objects.get(&rider_id) else {
+                    continue;
+                };
+                let p = rider.get_position();
+                let dx = p.x - source_position.x;
+                let dz = p.z - source_position.z;
+                let distance = dx * dx + dz * dz;
+                if closest.is_none_or(|(_, best)| distance < best) {
+                    closest = Some((rider_id, distance));
+                }
+            }
+        }
+        let children = if spawn_roster {
+            self.objects
+                .get(&victim_id)
+                .map(|parent| parent.spawn_behavior_children())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         for (child_id, birth) in &children {
             let Some(child) = self.objects.get(child_id) else {
                 continue;
@@ -1783,6 +1835,11 @@ impl GameLogic {
             &mut (),
         );
 
+        // C++ Weapon::handleProjectileDetonation → fireWeaponTemplate with
+        // isProjectileDetonation: ProjectileDetonationFX/OCL run before Body
+        // damage (Weapon.cpp:889-949 then dealDamageInternal).
+        self.flush_projectile_impact_fx_with_effects(effects);
+
         for event in events {
             self.apply_owned_combat_damage_with_effects(&event, effects);
         }
@@ -1803,10 +1860,12 @@ impl GameLogic {
             damage_type,
             death_type,
             shooter_id,
+            damage_status_type,
             ..
         } = *event
         {
-            let context = DamageHitContext::new(self.objects.get(&shooter_id), None, damage_type);
+            let context = DamageHitContext::new(self.objects.get(&shooter_id), None, damage_type)
+                .with_damage_status(damage_status_type);
             let before = self
                 .objects
                 .get(&target_id)
@@ -1865,11 +1924,18 @@ impl GameLogic {
             damage_type,
             death_type,
             radius_weapon_name,
+            shooter_owner_player_id,
+            damage_status_type,
             ..
         } = event
         else {
             return;
         };
+        // Weapon.cpp:1434 — mask from the live source (projectile controller
+        // for moving detonations) before sourceID may become the launcher.
+        let source_player_mask = shooter_owner_player_id
+            .map(|pid| 1u32 << pid.min(31))
+            .unwrap_or(0);
         let (radius_damage_angle, damage_at_self) = if radius_weapon_name.is_empty() {
             (std::f32::consts::PI, false)
         } else if let Some(definitions) = &self.weapon_definitions {
@@ -1914,7 +1980,9 @@ impl GameLogic {
             let result = if damage > 0.0 {
                 let context =
                     DamageHitContext::new(self.objects.get(shooter_id), None, *damage_type)
-                        .with_shock_wave_force(shock);
+                        .with_damage_status(*damage_status_type)
+                        .with_shock_wave_force(shock)
+                        .with_source_player_mask(source_player_mask);
                 self.apply_owned_damage_with_effects(
                     victim_id,
                     damage,

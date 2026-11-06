@@ -297,7 +297,7 @@ mod tests {
         assert!(logic.host_object(id).unwrap().allow_invalid_position);
         {
             let (object, output) = logic.host_object_and_audio_events_mut(id).unwrap();
-            object.stop_moving(&mut crate::game_logic::ObjectAudio::record(output));
+            object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(output));
         }
         logic.finish_transport_return_phase(id);
         let owner = logic.host_object(id).unwrap();
@@ -324,14 +324,11 @@ mod tests {
         logic.set_fixture_object_contained_by(rider, Some(id));
         let origin = logic.host_object(id).unwrap().get_position();
         let destination = origin + Vec3::new(40.0, 0.0, 0.0);
-        assert_eq!(
-            CommandExecutor::new(&mut logic, 0).execute_move_to_and_evacuate(
+        assert!(matches!(CommandExecutor::new(&mut logic, 0).execute_move_to_and_evacuate(
                 &[id],
                 destination,
                 true
-            ),
-            CommandResult::Success
-        );
+            ), Ok(CommandResult::Success)));
         let mut saw_return = false;
         for _ in 0..3000 {
             logic.update_movement_for_test(&[id, rider], 1.0 / 30.0);
@@ -374,7 +371,7 @@ mod tests {
             let (owner, output) = logic.host_object_and_audio_events_mut(id).unwrap();
             owner.set_ai_state(
                 AIState::Moving,
-                &mut crate::game_logic::ObjectAudio::record(output),
+                &mut crate::game_logic::ObjectAudio::queue(output),
             );
             owner.last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
@@ -445,7 +442,7 @@ mod tests {
                 let (object, output) = source.host_object_and_audio_events_mut(id).unwrap();
                 object.set_ai_state(
                     AIState::Moving,
-                    &mut crate::game_logic::ObjectAudio::record(output),
+                    &mut crate::game_logic::ObjectAudio::queue(output),
                 );
             }
             if temporary {
@@ -510,7 +507,7 @@ mod tests {
                 ));
                 {
                     let (object, output) = receiving.host_object_and_audio_events_mut(id).unwrap();
-                    object.stop_moving(&mut crate::game_logic::ObjectAudio::record(output));
+                    object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(output));
                 }
                 receiving.finish_transport_return_phase(id);
                 assert!(receiving.host_object(id).unwrap().status.destroyed);
@@ -558,11 +555,9 @@ mod tests {
         );
         assert_eq!(owner.movement.path, path);
         assert!(logic.unit_command_set_pending_evacuate(id, true, true, true));
-        assert_eq!(
+        assert!(
             crate::command_executor::CommandExecutor::new(&mut logic, 0)
-                .execute_move_to_and_evacuate(&[id], Vec3::new(70.0, 0.0, 70.0), true),
-            crate::command_system::CommandResult::Success
-        );
+                .execute_move_to_and_evacuate(&[id], Vec3::new(70.0, 0.0, 70.0), true).is_ok_and(|r| r == crate::command_system::CommandResult::Success));
         assert_eq!(logic.host_object(id).unwrap().movement.path, path);
         assert_eq!(
             logic.host_object(id).unwrap().transport_return_state,

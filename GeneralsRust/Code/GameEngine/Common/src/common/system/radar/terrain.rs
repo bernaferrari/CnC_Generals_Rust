@@ -18,14 +18,27 @@ pub trait RadarTerrainPaintSource: Send + Sync {
     fn bridge_at(&self, world: &Coord3D) -> Option<RadarBridgeSample>;
 }
 
-static PAINT_SOURCE: OnceLock<Arc<dyn RadarTerrainPaintSource>> = OnceLock::new();
-
 pub fn register_radar_terrain_paint_source(source: Arc<dyn RadarTerrainPaintSource>) -> bool {
-    PAINT_SOURCE.set(source).is_ok()
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .system
+        .radar_paint_source
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if slot.is_some() {
+        return false;
+    }
+    *slot = Some(source);
+    true
 }
 
-fn paint_source() -> Option<&'static dyn RadarTerrainPaintSource> {
-    PAINT_SOURCE.get().map(|s| s.as_ref())
+fn paint_source() -> Option<Arc<dyn RadarTerrainPaintSource>> {
+    crate::common::common_services::common_services()
+        .system
+        .radar_paint_source
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 fn sample_world(radar: &RadarSystem, x: i32, y: i32) -> Option<Coord3D> {
@@ -60,7 +73,7 @@ impl RadarSystem {
 
     /// C++ `W3DRadar::buildTerrainTexture` software path.
     pub fn build_terrain_texture_cpp(&mut self) {
-        self.build_terrain_texture_with_source(paint_source(), self.water_radar_color);
+        self.build_terrain_texture_with_source(paint_source().as_deref(), self.water_radar_color);
     }
 
     /// Paint the supplied owner's frozen tiles/bridges and effective water definition.

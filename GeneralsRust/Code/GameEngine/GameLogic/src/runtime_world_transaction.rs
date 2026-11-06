@@ -21,36 +21,81 @@ use crate::team::{
     replace_pending_team_script_events_for_world_boundary,
     take_pending_team_script_events_for_world_boundary,
 };
-use std::cell::{Cell, RefCell};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 /// Singleton contents are process-global, so staging cannot run concurrently
 /// on two threads even though the side-effect marker itself is thread-local.
 /// The host normally owns this lock implicitly through its game thread; the
 /// explicit mutex also makes test/worker misuse serialize rather than swap two
 /// candidate worlds through the same wrappers.
-static WORLD_RUNTIME_TRANSACTION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-fn world_runtime_transaction_lock() -> &'static Mutex<()> {
-    WORLD_RUNTIME_TRANSACTION_LOCK.get_or_init(|| Mutex::new(()))
+/// RAII lock for host staging. Keeps the world's `Arc<Mutex<()>>` alive so the
+/// guard can be stored without a process-wide `'static` mutex.
+pub struct WorldRuntimeTransactionLock {
+    _arc: Arc<Mutex<()>>,
+    guard: Option<MutexGuard<'static, ()>>,
 }
 
-thread_local! {
-    /// Nested staging guards share one deferred callback queue.  Only the
-    /// outermost guard may take or discard it, so a helper which enters a
-    /// nested effect scope cannot accidentally execute stage callbacks early.
-    static WORLD_RUNTIME_STAGE_DEPTH: Cell<u32> = const { Cell::new(0) };
-    static DEFERRED_TEAM_FACTORY_EFFECTS: RefCell<Vec<TeamFactoryDeferredEffects>> =
-        RefCell::new(Vec::new());
+impl WorldRuntimeTransactionLock {
+    pub fn acquire() -> Self {
+        let arc = Arc::clone(
+            crate::system::engine_stores::active_services().runtime_transaction_lock(),
+        );
+        let guard = arc.lock().unwrap_or_else(|e| e.into_inner());
+        // SAFETY: `_arc` is stored in the same struct and outlives `guard`.
+        let guard: MutexGuard<'static, ()> = unsafe { std::mem::transmute(guard) };
+        Self {
+            _arc: arc,
+            guard: Some(guard),
+        }
+    }
+
+    pub fn try_acquire() -> Option<Self> {
+        let arc = Arc::clone(
+            crate::system::engine_stores::active_services().runtime_transaction_lock(),
+        );
+        let guard = arc.try_lock().ok()?;
+        let guard: MutexGuard<'static, ()> = unsafe { std::mem::transmute(guard) };
+        Some(Self {
+            _arc: arc,
+            guard: Some(guard),
+        })
+    }
+
+    pub fn is_free() -> bool {
+        crate::system::engine_stores::active_services()
+            .runtime_transaction_lock()
+            .try_lock()
+            .is_ok()
+    }
 }
 
-/// True while the current thread is constructing a candidate whole world.
+impl Drop for WorldRuntimeTransactionLock {
+    fn drop(&mut self) {
+        self.guard.take();
+    }
+}
+
+pub(crate) fn world_runtime_transaction_lock() -> WorldRuntimeTransactionLock {
+    WorldRuntimeTransactionLock::acquire()
+}
+
+fn staging_services() -> Arc<crate::system::engine_stores::WorldServices> {
+    crate::system::engine_stores::active_services()
+}
+
+/// True while the active world is constructing a candidate whole world.
 ///
-/// This is intentionally thread-local: the host owns world construction on a
-/// single game thread and unrelated worker threads must not inherit a staging
-/// world accidentally.
+/// Staging depth lives on the bound `WorldServices` instance so parallel
+/// game instances do not share a process-wide marker. The host still serializes
+/// singleton wrapper swaps through the process transaction lock.
 pub fn world_runtime_staging_active() -> bool {
-    WORLD_RUNTIME_STAGE_DEPTH.with(|depth| depth.get() != 0)
+    crate::system::engine_stores::try_active_services()
+        .is_some_and(|services| {
+            services
+                .staging_depth()
+                .load(std::sync::atomic::Ordering::Relaxed)
+                != 0
+        })
 }
 
 /// Hold a normal `TeamFactoryGuard` post-unlock callback until a candidate
@@ -67,7 +112,11 @@ pub(crate) fn defer_team_factory_effects_if_staging(
     if !world_runtime_staging_active() {
         return Err(effects);
     }
-    DEFERRED_TEAM_FACTORY_EFFECTS.with(|pending| pending.borrow_mut().push(effects));
+    staging_services()
+        .staging_deferred_team_effects()
+        .lock()
+        .expect("staging deferred team effects lock")
+        .push(effects);
     Ok(())
 }
 
@@ -81,22 +130,21 @@ pub struct WorldRuntimeStageScope {
 
 impl WorldRuntimeStageScope {
     pub fn enter() -> Self {
-        let outermost = WORLD_RUNTIME_STAGE_DEPTH.with(|depth| {
-            let prior = depth.get();
-            depth.set(
-                prior
-                    .checked_add(1)
-                    .expect("world runtime staging depth overflow"),
-            );
-            prior == 0
-        });
+        let services = staging_services();
+        let depth = services.staging_depth();
+        let prior = depth.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let outermost = prior == 0;
 
         if outermost {
             // A prior scope must have either committed or rolled back its
             // effects.  Do not silently discard a bug-produced payload here.
-            DEFERRED_TEAM_FACTORY_EFFECTS.with(|pending| {
-                debug_assert!(pending.borrow().is_empty());
-            });
+            debug_assert!(
+                services
+                    .staging_deferred_team_effects()
+                    .lock()
+                    .expect("staging deferred team effects lock")
+                    .is_empty()
+            );
         }
 
         Self {
@@ -110,27 +158,26 @@ impl WorldRuntimeStageScope {
             return Vec::new();
         }
         self.active = false;
-        let became_inactive = WORLD_RUNTIME_STAGE_DEPTH.with(|depth| {
-            let prior = depth.get();
-            debug_assert!(prior != 0, "unbalanced world runtime stage scope");
-            let next = prior.saturating_sub(1);
-            depth.set(next);
-            next == 0
-        });
+        let services = staging_services();
+        let depth = services.staging_depth();
+        let prior = depth.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        debug_assert!(prior != 0, "unbalanced world runtime stage scope");
+        let became_inactive = prior == 1;
 
         if !self.outermost || !became_inactive {
             return Vec::new();
         }
 
-        DEFERRED_TEAM_FACTORY_EFFECTS.with(|pending| {
-            let mut pending = pending.borrow_mut();
-            if keep_effects {
-                std::mem::take(&mut *pending)
-            } else {
-                pending.clear();
-                Vec::new()
-            }
-        })
+        let mut pending = services
+            .staging_deferred_team_effects()
+            .lock()
+            .expect("staging deferred team effects lock");
+        if keep_effects {
+            std::mem::take(&mut *pending)
+        } else {
+            pending.clear();
+            Vec::new()
+        }
     }
 
     /// Finish a successful stage and return its callbacks to the commit
@@ -176,7 +223,7 @@ fn validate_native_team_effects(effects: &[TeamFactoryDeferredEffects]) -> Resul
 #[must_use = "call execute_after_logic_commit after installing the staged host GameLogic"]
 pub struct CommittedRuntimeWorldEffects {
     team_factory_effects: Option<Vec<TeamFactoryDeferredEffects>>,
-    transaction_lock: Option<MutexGuard<'static, ()>>,
+    transaction_lock: Option<WorldRuntimeTransactionLock>,
 }
 
 impl CommittedRuntimeWorldEffects {

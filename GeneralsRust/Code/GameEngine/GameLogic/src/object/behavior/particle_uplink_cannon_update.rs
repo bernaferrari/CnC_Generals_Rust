@@ -1811,8 +1811,8 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(obj_guard) = obj_arc.read() {
-                let local_index = ThePlayerList()
-                    .read()
+                let __player_list_arc = ThePlayerList();
+                    let local_index = __player_list_arc.read()
                     .ok()
                     .map(|list| list.get_local_player_index())
                     .unwrap_or(-1);

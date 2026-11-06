@@ -6,8 +6,6 @@
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicI32, Ordering};
 
-/// C++ GameLogic::m_scriptHulkMaxLifetimeOverride (default -1 = unused).
-static HULK_MAX_LIFETIME_OVERRIDE: AtomicI32 = AtomicI32::new(-1);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct HostLifetimeUpdateData {
@@ -85,11 +83,11 @@ fn msec_to_frames(msec: u32) -> u32 {
 }
 
 pub fn set_hulk_max_lifetime_override(frames_or_sentinel: i32) {
-    HULK_MAX_LIFETIME_OVERRIDE.store(frames_or_sentinel, Ordering::Relaxed);
+    crate::main_services::main_services().hulk_max_lifetime_override.store(frames_or_sentinel, Ordering::Relaxed);
 }
 
 pub fn get_hulk_max_lifetime_override() -> i32 {
-    HULK_MAX_LIFETIME_OVERRIDE.load(Ordering::Relaxed)
+    crate::main_services::main_services().hulk_max_lifetime_override.load(Ordering::Relaxed)
 }
 
 /// C++ LifetimeUpdate.cpp:31-37 HULK override replaces Min/Max when != -1.

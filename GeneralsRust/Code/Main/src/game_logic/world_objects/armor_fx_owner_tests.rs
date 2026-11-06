@@ -48,7 +48,9 @@ fn install() -> Receiver<Observed> {
         });
         let mut list = game_client::fx_list::FXList::from_definition(&definition);
         list.add_fx_nugget(Box::new(Observe(name, sender.clone())));
-        game_client::fx_list::get_fx_list_store_mut().add_fx_list(name.into(), list);
+        game_client::fx_list::with_fx_list_store_mut(|s| {
+            s.add_fx_list(name.into(), list);
+        });
     }
     let mut definition = rules::DamageFX::new();
     for dt in [
@@ -79,7 +81,19 @@ fn install() -> Receiver<Observed> {
     receiver
 }
 fn world() -> GameLogic {
+    world_admitting(&[])
+}
+fn world_admitting(sources: &[(&str, &str)]) -> GameLogic {
     let mut world = GameLogic::new();
+    if !sources.is_empty() {
+        world
+            .admit_object_ini_sources(
+                sources
+                    .iter()
+                    .map(|(name, ini)| (name.to_string().into(), ini.to_string())),
+            )
+            .unwrap();
+    }
     world.admit_fx_definitions();
     if let Some(definitions) = rules::get_damage_fx_store() {
         world.damage_fx_definitions = definitions.clone();
@@ -108,18 +122,25 @@ fn world() -> GameLogic {
 
 #[test]
 fn same_name_damage_fx_uses_the_driving_worlds_definitions() {
-    let mut left = world();
-    let mut right = world();
-    for (world, time) in [(&mut left, 1000), (&mut right, 2000)] {
-        let source = format!("DamageFX {DEFINITION}\n ThrottleTime = SMALL_ARMS {time}\nEnd\n");
-        world.damage_fx_definitions = rules::DamageFXStore::new();
-        world.damage_fx_definitions.apply_source(&source).unwrap();
-        world.frame = 5;
-    }
-    hit(&mut left, 5.0, None, DamageType::Bullet);
-    hit(&mut right, 5.0, None, DamageType::Bullet);
-    assert_eq!(left.objects[&VICTIM].next_damage_fx_time, 35);
-    assert_eq!(right.objects[&VICTIM].next_damage_fx_time, 65);
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "same_name_damage_fx_uses_the_driving_worlds_definitions",
+        || {
+            let mut left = world();
+            let mut right = world();
+            for (world, time) in [(&mut left, 1000), (&mut right, 2000)] {
+                let source =
+                    format!("DamageFX {DEFINITION}\n ThrottleTime = SMALL_ARMS {time}\nEnd\n");
+                world.damage_fx_definitions = rules::DamageFXStore::new();
+                world.damage_fx_definitions.apply_source(&source).unwrap();
+                world.frame = 5;
+            }
+            hit(&mut left, 5.0, None, DamageType::Bullet);
+            hit(&mut right, 5.0, None, DamageType::Bullet);
+            assert_eq!(left.objects[&VICTIM].next_damage_fx_time, 35);
+            assert_eq!(right.objects[&VICTIM].next_damage_fx_time, 65);
+        },
+    );
 }
 fn reveal(world: &GameLogic) {
     let mut shroud = world.world_services.shroud().lock().unwrap();
@@ -412,6 +433,66 @@ fn native_residual_and_physics_armor_tails_use_their_receiving_services() {
             one(&events, VETERAN, Some(VICTIM));
             assert!(falling.objects[&VICTIM].health.current < 1000.);
             assert!(falling.session_view.impulse.intensity > 0.);
+        },
+    );
+}
+
+#[test]
+fn forwarded_hive_hit_runs_the_riders_own_armor_fx_and_kill_credit() {
+    // C++ HiveStructureBody.cpp:79-100 forwards the same DamageInfo to the
+    // closest rider's attemptDamage: the rider's ArmorFX (source rank,
+    // throttle) and kill credit run on the child, never on the hull.
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "forwarded_hive_hit_runs_the_riders_own_armor_fx_and_kill_credit",
+        || {
+            let _definitions = install();
+            // Admitted HiveStructureBody + Contain, no SpawnBehavior: the
+            // forwarded target is the real world-owned rider (VICTIM).
+            let ini = "Object HiveArmorBunker\n KindOf = STRUCTURE SELECTABLE\n Body = HiveStructureBody BunkerBody\n PropagateDamageTypesToSlavesWhenExisting = SMALL_ARMS\n SwallowDamageTypesIfSlavesNotExisting = SMALL_ARMS\n MaxHealth = 5000\n InitialHealth = 5000\n End\n Behavior = TransportContain BunkerContain\n Slots = 5\n End\nEnd\n";
+            let mut owner = world_admitting(&[("HiveArmorBunker.ini", ini)]);
+            owner.players.get_mut(&1).unwrap().alliance_team = 1;
+            owner.players.get_mut(&2).unwrap().alliance_team = 2;
+            let hive = owner
+                .create_object_for_player("HiveArmorBunker", 1, Vec3::new(7., 0., 11.))
+                .unwrap();
+            assert!(owner.host_object_mut(hive).unwrap().add_occupant(VICTIM));
+            let source = owner.objects.get_mut(&SOURCE).unwrap();
+            source.template_mut().is_trainable = true;
+            source.template_mut().veterancy_xp_thresholds = [1., 100000., 200000.];
+            let victim = owner.objects.get_mut(&VICTIM).unwrap();
+            victim.template_mut().experience_value = 100.;
+            victim.template_mut().experience_values = [100.; 4];
+            owner.frame = 77;
+            owner
+                .apply_owned_damage(
+                    hive,
+                    2000.,
+                    Some(SOURCE),
+                    DamageType::Bullet,
+                    HostDeathType::Normal,
+                    None,
+                    &DamageHitContext::default(),
+                )
+                .unwrap();
+            // The Observe nugget is not reachable once object content is
+            // admitted (FX list store rebuild), so the rider's ArmorFX is
+            // proven by its own DamageFX throttle stamp. 77 + 60 frames is
+            // the VETERAN-source 2000ms throttle: the rider's kill credit
+            // promoted SOURCE (threshold 1) before the rider's ArmorFX
+            // selected by source rank; Rookie would stamp 77 + 30.
+            assert_eq!(owner.objects[&hive].health.current, 5000.);
+            assert_eq!(owner.objects[&hive].next_damage_fx_time, 0);
+            assert_eq!(
+                owner.objects[&VICTIM].next_damage_fx_time, 137,
+                "rider's own DamageFX throttle stamped from the forwarded hit"
+            );
+            assert!(owner.objects[&VICTIM].kill_experience_awarded);
+            assert!(owner.objects[&VICTIM].status.on_die_started);
+            assert_eq!(
+                owner.objects[&SOURCE].experience.current, 100.,
+                "kill credit for the rider goes to the hive attacker"
+            );
         },
     );
 }

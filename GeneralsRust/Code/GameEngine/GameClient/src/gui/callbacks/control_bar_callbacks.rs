@@ -3,6 +3,8 @@
 //! Implements in-game control bar callbacks and radar input handling, matching
 //! the behavior of C++ ControlBarCallback.cpp.
 
+use std::cell::RefCell;
+use std::rc::Rc;
 use crate::display::view::{Point3, with_tactical_view};
 use crate::gui::callbacks::replay_controls::{
     hide_replay_controls, show_replay_controls, toggle_replay_controls,
@@ -242,7 +244,9 @@ fn selection_is_empty() -> bool {
 }
 
 fn selection_count() -> usize {
-    let Ok(list) = ThePlayerList().read() else {
+    let __arc_bind = ThePlayerList();
+
+    let Ok(list) = __arc_bind.read() else {
         return 0;
     };
     let local_index = list.get_local_player_index();
@@ -275,7 +279,7 @@ fn clear_local_selection() {
 }
 
 fn filter_beacon_edit_text(mut text: String) -> String {
-    get_language_filter().filter_line(&mut text);
+    get_language_filter().write().unwrap_or_else(|e| e.into_inner()).filter_line(&mut text);
     text
 }
 
@@ -1530,7 +1534,8 @@ mod tests {
         )
         .unwrap();
         let mut ui = crate::core::subsystems::InGameUISubsystem::default();
-        ui.admit_native_control_bar_transport();
+        // NativeHosted set_in_game_ui_subsystem admits the control-bar transport
+        // once; do not pre-admit or the assert fires.
         let mut radar = game_engine::common::system::radar::RadarSystem::new();
         radar.new_map_owned(
             game_engine::common::system::radar::Coord3D::new(0.0, 0.0, 0.0),
@@ -1556,8 +1561,22 @@ mod tests {
 
     use super::*;
 
+    struct OwnedViewport {
+        display: (u32, u32),
+        height: i32,
+    }
+    impl ControlBarViewport for OwnedViewport {
+        fn display_size(&self) -> (u32, u32) {
+            self.display
+        }
+        fn set_height_px(&mut self, height: i32) {
+            self.height = height;
+        }
+    }
+
     #[test]
     fn test_control_bar_callbacks() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_observation(test_observation(false, false, false), |effects| {
             effects.with_manager(|manager, effects| {
                 assert!(is_control_bar_visible(effects));
@@ -1575,6 +1594,7 @@ mod tests {
 
     #[test]
     fn callbacks_begin_with_owned_state() {
+        crate::test_support::ensure_ambient_host();
         let callbacks = ControlBarCallbacks::new();
         assert!(callbacks.is_visible());
         assert_eq!(callbacks.last_action, ResidualControlBarAction::None);
@@ -1582,6 +1602,7 @@ mod tests {
 
     #[test]
     fn client_callback_actions_are_independent() {
+        crate::test_support::ensure_ambient_host();
         let mut a = crate::core::GameClient::new().unwrap();
         let mut b = crate::core::GameClient::new().unwrap();
         let mut bar = ControlBar::new();
@@ -1644,6 +1665,8 @@ mod tests {
 
     #[test]
     fn owned_stage_and_visibility_write_receiving_integer_height_only() {
+        crate::test_support::ensure_ambient_host();
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut viewport = OwnedViewport {
             display: (801, 601),
             height: 601,
@@ -1655,66 +1678,95 @@ mod tests {
         let mut bar = ControlBar::new();
         let parent = std::rc::Rc::new(std::cell::RefCell::new(GameWindow::new()));
         let _ = parent.borrow_mut().set_position(17, 31);
-        bar.switch_control_bar_stage_owned(
-            ControlBarStage::Default,
-            &mut viewport,
-            false,
-            Some(&mut parent.borrow_mut()),
-        );
-        assert_eq!(viewport.height, 480);
-        bar.switch_control_bar_stage_owned(
-            ControlBarStage::Low,
-            &mut viewport,
-            false,
-            Some(&mut parent.borrow_mut()),
-        );
-        assert_eq!(viewport.height, 601);
-        assert_eq!(parent.borrow().get_position(), (17, 540));
-        bar.switch_control_bar_stage_owned(
-            ControlBarStage::Hidden,
-            &mut viewport,
-            false,
-            Some(&mut parent.borrow_mut()),
-        );
-        assert_eq!(viewport.height, 601);
-        assert!(parent.borrow().is_hidden());
-        bar.switch_control_bar_stage_owned(
-            ControlBarStage::Default,
-            &mut viewport,
-            true,
-            Some(&mut parent.borrow_mut()),
-        );
-        assert_eq!(bar.get_control_bar_stage(), ControlBarStage::Hidden);
-        bar.switch_control_bar_stage_owned(
-            ControlBarStage::Squished,
-            &mut viewport,
-            false,
-            Some(&mut parent.borrow_mut()),
-        );
-        assert_eq!(bar.get_control_bar_stage(), ControlBarStage::Hidden);
-        let mut callbacks = ControlBarCallbacks::new();
-        callbacks.show_control_bar_owned(
-            &mut bar,
-            &mut viewport,
-            Some(parent.clone()),
-            false,
-            true,
-        );
-        assert_eq!(viewport.height, 480);
-        assert!(!parent.borrow().is_hidden());
-        callbacks.hide_control_bar_owned(&mut bar, &mut viewport, Some(parent.clone()), true, true);
-        assert_eq!(viewport.height, 601);
-        assert!(parent.borrow().is_hidden());
-        callbacks.show_control_bar_owned(&mut bar, &mut viewport, None, false, true);
-        assert_eq!(
-            viewport.height, 601,
-            "missing parent cannot resize receiving view"
-        );
-        assert_eq!(peer.height, 555);
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            owner.with_manager(|manager| {
+                bar.switch_control_bar_stage_owned(
+                    ControlBarStage::Default,
+                    &mut viewport,
+                    false,
+                    Some(&mut parent.borrow_mut()),
+                    manager,
+                );
+                assert_eq!(viewport.height, 480);
+                bar.switch_control_bar_stage_owned(
+                    ControlBarStage::Low,
+                    &mut viewport,
+                    false,
+                    Some(&mut parent.borrow_mut()),
+                    manager,
+                );
+                assert_eq!(viewport.height, 601);
+                assert_eq!(parent.borrow().get_position(), (17, 540));
+                bar.switch_control_bar_stage_owned(
+                    ControlBarStage::Hidden,
+                    &mut viewport,
+                    false,
+                    Some(&mut parent.borrow_mut()),
+                    manager,
+                );
+                assert_eq!(viewport.height, 601);
+                assert!(parent.borrow().is_hidden());
+                bar.switch_control_bar_stage_owned(
+                    ControlBarStage::Default,
+                    &mut viewport,
+                    true,
+                    Some(&mut parent.borrow_mut()),
+                    manager,
+                );
+                assert_eq!(bar.get_control_bar_stage(), ControlBarStage::Hidden);
+                bar.switch_control_bar_stage_owned(
+                    ControlBarStage::Squished,
+                    &mut viewport,
+                    false,
+                    Some(&mut parent.borrow_mut()),
+                    manager,
+                );
+                assert_eq!(bar.get_control_bar_stage(), ControlBarStage::Hidden);
+                let mut callbacks = ControlBarCallbacks::new();
+                callbacks.show_control_bar_owned(
+                    &mut bar,
+                    &mut viewport,
+                    Some(parent.clone()),
+                    false,
+                    true,
+                    manager,
+                    effects,
+                );
+                assert_eq!(viewport.height, 480);
+                assert!(!parent.borrow().is_hidden());
+                callbacks.hide_control_bar_owned(
+                    &mut bar,
+                    &mut viewport,
+                    Some(parent.clone()),
+                    true,
+                    true,
+                    manager,
+                );
+                assert_eq!(viewport.height, 601);
+                assert!(parent.borrow().is_hidden());
+                callbacks.show_control_bar_owned(
+                    &mut bar,
+                    &mut viewport,
+                    None,
+                    false,
+                    true,
+                    manager,
+                    effects,
+                );
+                assert_eq!(
+                    viewport.height, 601,
+                    "missing parent cannot resize receiving view"
+                );
+                assert_eq!(peer.height, 555);
+            });
+        });
     }
 
     #[test]
     fn owned_window_animation_advances_only_receiving_manager_and_hides_after_reverse() {
+        crate::test_support::ensure_ambient_host();
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        let peer_owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut viewport = OwnedViewport {
             display: (800, 600),
             height: 600,
@@ -1731,54 +1783,69 @@ mod tests {
         let _ = peer.borrow_mut().set_position(20, 40);
         let mut callbacks = ControlBarCallbacks::new();
         let mut peer_callbacks = ControlBarCallbacks::new();
-        callbacks.show_control_bar_owned(
-            &mut bar,
-            &mut viewport,
-            Some(parent.clone()),
-            false,
-            false,
-        );
-        peer_callbacks.show_control_bar_owned(
-            &mut peer_bar,
-            &mut peer_viewport,
-            Some(peer.clone()),
-            false,
-            false,
-        );
-        let initial = parent.borrow().get_position();
-        assert_ne!(initial, (20, 40));
-        assert_eq!(peer.borrow().get_position(), initial);
+        let initial = crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            owner.with_manager(|manager| {
+                callbacks.show_control_bar_owned(
+                    &mut bar,
+                    &mut viewport,
+                    Some(parent.clone()),
+                    false,
+                    false,
+                    manager,
+                    effects,
+                );
+            });
+            peer_owner.with_manager(|manager| {
+                peer_callbacks.show_control_bar_owned(
+                    &mut peer_bar,
+                    &mut peer_viewport,
+                    Some(peer.clone()),
+                    false,
+                    false,
+                    manager,
+                    effects,
+                );
+            });
+            let initial = parent.borrow().get_position();
+            assert_ne!(initial, (20, 40));
+            assert_eq!(peer.borrow().get_position(), initial);
+            initial
+        });
         let now = std::time::Instant::now() + std::time::Duration::from_secs(1);
-        callbacks.update_window_animations_at(Some(parent.clone()), now);
-        assert_ne!(parent.borrow().get_position(), initial);
-        assert_eq!(peer.borrow().get_position(), initial);
-        for _ in 0..100 {
-            callbacks.update_window_animations_at(Some(parent.clone()), now);
-        }
-        assert_eq!(parent.borrow().get_position(), (20, 40));
-        assert!(!parent.borrow().is_hidden());
-        callbacks.hide_control_bar_owned(
-            &mut bar,
-            &mut viewport,
-            Some(parent.clone()),
-            true,
-            false,
-        );
-        assert!(
-            !parent.borrow().is_hidden(),
-            "reverse hides only after completion"
-        );
-        for _ in 0..100 {
-            callbacks.update_window_animations_at(Some(parent.clone()), now);
-        }
-        assert!(parent.borrow().is_hidden());
-        assert_eq!(peer.borrow().get_position(), initial);
-        assert!(!peer.borrow().is_hidden());
+        owner.with_manager(|manager| {
+            callbacks.update_window_animations_at(Some(parent.clone()), now, manager);
+            assert_ne!(parent.borrow().get_position(), initial);
+            assert_eq!(peer.borrow().get_position(), initial);
+            for _ in 0..100 {
+                callbacks.update_window_animations_at(Some(parent.clone()), now, manager);
+            }
+            assert_eq!(parent.borrow().get_position(), (20, 40));
+            assert!(!parent.borrow().is_hidden());
+            callbacks.hide_control_bar_owned(
+                &mut bar,
+                &mut viewport,
+                Some(parent.clone()),
+                true,
+                false,
+                manager,
+            );
+            assert!(
+                !parent.borrow().is_hidden(),
+                "reverse hides only after completion"
+            );
+            for _ in 0..100 {
+                callbacks.update_window_animations_at(Some(parent.clone()), now, manager);
+            }
+            assert!(parent.borrow().is_hidden());
+            assert_eq!(peer.borrow().get_position(), initial);
+            assert!(!peer.borrow().is_hidden());
+        });
     }
 
     #[test]
     fn beacon_edit_text_is_language_filtered() {
-        get_language_filter().set_words_for_test(["badword"]);
+        crate::test_support::ensure_ambient_host();
+        get_language_filter().write().unwrap_or_else(|e| e.into_inner()).set_words_for_test(["badword"]);
 
         let filtered = filter_beacon_edit_text("hold badword beacon".to_string());
 
@@ -1787,6 +1854,7 @@ mod tests {
 
     #[test]
     fn beacon_window_input_handles_escape_only() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_observation(test_observation(false, false, true), |effects| {
             let mut window = GameWindow::new();
             assert_eq!(
@@ -1814,6 +1882,7 @@ mod tests {
 
     #[test]
     fn radar_targeting_cursor_preserves_valid_pending_cursor() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             radar_targeting_cursor_name(Some("PARTICLE_UPLINK_CANNON")),
             "PARTICLE_UPLINK_CANNON"
@@ -1826,6 +1895,7 @@ mod tests {
 
     #[test]
     fn radar_targeting_cursor_falls_back_to_cross_for_missing_or_invalid_cursor() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(radar_targeting_cursor_name(None), "CROSS");
         assert_eq!(radar_targeting_cursor_name(Some("")), "CROSS");
         assert_eq!(radar_targeting_cursor_name(Some("BogusCursor")), "CROSS");
@@ -1833,6 +1903,7 @@ mod tests {
 
     #[test]
     fn beacon_text_submit_matches_cpp_multiplayer_single_selection_gate() {
+        crate::test_support::ensure_ambient_host();
         assert!(should_submit_beacon_text(true, 1));
         assert!(!should_submit_beacon_text(false, 1));
         assert!(!should_submit_beacon_text(true, 0));
@@ -1841,6 +1912,7 @@ mod tests {
 
     #[test]
     fn idle_worker_button_publishes_typed_host_request_when_bridge_enabled() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_observation(test_observation(false, false, true), |effects| {
             let mut window = GameWindow::new();
             assert_eq!(
@@ -1863,6 +1935,7 @@ mod tests {
 
     #[test]
     fn left_hud_host_request_captures_the_live_alternate_mouse_setting() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_observation(test_observation(false, false, true), |effects| {
             let window = left_hud_test_window(effects);
             let click = 42usize | (491usize << 16);
@@ -1886,6 +1959,7 @@ mod tests {
 
     #[test]
     fn held_middle_button_bypasses_left_hud_before_host_minimap_publication() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_observation(test_observation(false, true, false), |effects| {
             let window = left_hud_test_window(effects);
             let click = 42usize | (491usize << 16);

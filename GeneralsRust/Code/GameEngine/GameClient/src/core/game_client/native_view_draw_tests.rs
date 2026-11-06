@@ -19,6 +19,7 @@ fn objectless(client: &mut GameClient, position: [f32; 3]) -> DrawableId {
 
 #[test]
 fn native_view_bounds_match_asymmetric_overscan_and_map_extent() {
+    crate::test_support::ensure_ambient_host();
     let selected = NativeDrawView::from_ground_corners(
         [
             [10., 20., 0.],
@@ -41,6 +42,7 @@ fn native_view_bounds_match_asymmetric_overscan_and_map_extent() {
 
 #[test]
 fn native_view_region_includes_all_faces_and_corners_in_constructor_order() {
+    crate::test_support::ensure_ambient_host();
     let region = view([-2., -3., -4.], [5., 6., 7.]);
     let mut client = GameClient::new().unwrap();
     let mut admitted = Vec::new();
@@ -72,6 +74,7 @@ fn native_view_region_includes_all_faces_and_corners_in_constructor_order() {
 
 #[test]
 fn native_view_negative_bias_retains_inverted_empty_region_and_rejects_nonfinite() {
+    crate::test_support::ensure_ambient_host();
     let corners = [[0.; 3]; 4];
     let inverted = NativeDrawView::from_ground_corners(corners, [-100., -200.], [0., 0.]).unwrap();
     assert_eq!(inverted.region.lo, [25., 65., -999_999.]);
@@ -95,6 +98,7 @@ fn native_view_negative_bias_retains_inverted_empty_region_and_rejects_nonfinite
 
 #[test]
 fn native_view_uses_binding_basis_raw_position_and_keeps_same_id_peer_separate() {
+    crate::test_support::ensure_ambient_host();
     let mut client = GameClient::new().unwrap();
     let mut peer = GameClient::new().unwrap();
     let entry = super::tests::presentation_drawable_sync_for_test(
@@ -137,6 +141,7 @@ fn native_view_uses_binding_basis_raw_position_and_keeps_same_id_peer_separate()
 
 #[test]
 fn native_view_multiple_regions_preserve_overlap_and_hidden_objectless_nodes() {
+    crate::test_support::ensure_ambient_host();
     let mut client = GameClient::new().unwrap();
     let left = objectless(&mut client, [-5., 0., 0.]);
     let overlap = objectless(&mut client, [0., 0., 0.]);
@@ -161,6 +166,7 @@ fn native_view_multiple_regions_preserve_overlap_and_hidden_objectless_nodes() {
 
 #[test]
 fn native_view_large_factory_roster_filters_without_id_sort_or_hash_order() {
+    crate::test_support::ensure_ambient_host();
     let mut client = GameClient::new().unwrap();
     let mut expected = Vec::new();
     for ordinal in 0..64 {

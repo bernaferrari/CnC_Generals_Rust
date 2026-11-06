@@ -25,6 +25,7 @@ impl FXNugget for ObjectNugget {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn actual_bridge_consumes_host_visibility_without_selecting_ambient_world() {
+    crate::test_support::ensure_ambient_host();
     const MARKER: &str = "GENERALS_HOST_FX_VISIBILITY_OWNER_CHILD";
     const TEST: &str = "fx_list::host_visibility_owner_tests::actual_bridge_consumes_host_visibility_without_selecting_ambient_world";
     if std::env::var_os(MARKER).is_none() {
@@ -41,7 +42,7 @@ fn actual_bridge_consumes_host_visibility_without_selecting_ambient_world() {
     let (captured, observations) = mpsc::channel();
     let mut fx = FXList::new();
     fx.add_fx_nugget(Box::new(ObjectNugget(captured)));
-    get_fx_list_store_mut().add_fx_list(FX.into(), fx);
+    with_fx_list_store_mut(|s| s.add_fx_list(FX.into(), fx));
     let fx_id = NameKeyGenerator::name_to_key(FX) as FXListId;
     let mut pose = HostFxObjectPose {
         id: ID,

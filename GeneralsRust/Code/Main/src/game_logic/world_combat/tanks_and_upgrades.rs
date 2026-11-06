@@ -434,25 +434,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-            let _ = is_battlemaster_template(
-                &self
-                    .objects
-                    .get(&sid)
-                    .map(|o| o.template_name.clone())
-                    .unwrap_or_default(),
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact never spawns a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -462,11 +445,11 @@ impl GameLogic {
         use crate::game_logic::host_battlemaster::{
             has_fanaticism_upgrade, has_nationalism_upgrade, leftover_horde_fanaticism_bonus,
         };
-        use crate::game_logic::host_red_guard::{is_red_guard_template, red_guard_weapon};
+        use crate::game_logic::host_red_guard::red_guard_weapon;
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
-        if !is_red_guard_template(&obj.template_name) {
+        if !obj.authors_red_guard_machine_gun() {
             return;
         }
         let nationalism = has_nationalism_upgrade(&obj.applied_upgrades);
@@ -493,11 +476,11 @@ impl GameLogic {
             has_fanaticism_upgrade, has_nationalism_upgrade, leftover_horde_fanaticism_bonus,
         };
 
-        use crate::game_logic::host_tank_hunter::{is_tank_hunter_template, tank_hunter_weapon};
+        use crate::game_logic::host_tank_hunter::tank_hunter_weapon;
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
-        if !is_tank_hunter_template(&obj.template_name) {
+        if !obj.authors_tank_hunter_missile() {
             return;
         }
         let nationalism = has_nationalism_upgrade(&obj.applied_upgrades);
@@ -568,11 +551,10 @@ impl GameLogic {
     /// Apply Nationalism residual tag to a Red Guard (ROF stacks with horde when active).
     pub fn apply_red_guard_nationalism_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM;
-        use crate::game_logic::host_red_guard::is_red_guard_template;
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_red_guard_template(&obj.template_name) {
+        if !obj.authors_red_guard_machine_gun() {
             return false;
         }
         obj.applied_upgrades.insert(UPGRADE_NATIONALISM.to_string());
@@ -586,11 +568,10 @@ impl GameLogic {
     /// Apply Nationalism residual tag to a Tank Hunter (ROF stacks with horde when active).
     pub fn apply_tank_hunter_nationalism_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM;
-        use crate::game_logic::host_tank_hunter::is_tank_hunter_template;
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_tank_hunter_template(&obj.template_name) {
+        if !obj.authors_tank_hunter_missile() {
             return false;
         }
         obj.applied_upgrades.insert(UPGRADE_NATIONALISM.to_string());
@@ -651,12 +632,12 @@ impl GameLogic {
         use crate::game_logic::host_red_guard::{
             INFANTRY_HORDE_COUNT, INFANTRY_HORDE_RADIUS, INFANTRY_HORDE_RUB_OFF_RADIUS,
             INFANTRY_HORDE_UPDATE_FRAMES, counts_toward_infantry_horde,
-            is_china_infantry_horde_unit, is_red_guard_template,
-            leftover_infantry_is_horde_neighbor,
+            is_china_infantry_horde_unit, leftover_infantry_is_horde_neighbor,
         };
-        use crate::game_logic::host_tank_hunter::is_tank_hunter_template;
 
-        let horde_units: Vec<(ObjectId, Team, Option<u32>, LeftoverHordeScanUnit, String)> = self
+        // .5: authored nationalism weapon kind (1 Red Guard MG, 2 Tank Hunter launcher, 0 other) — hq-2qedt.262.
+        #[allow(clippy::type_complexity)]
+        let horde_units: Vec<(ObjectId, Team, Option<u32>, LeftoverHordeScanUnit, String, u8)> = self
             .objects
             .registered()
             .filter_map(|(id, o)| {
@@ -681,6 +662,13 @@ impl GameLogic {
                         alive: o.is_alive(),
                     },
                     o.template_name.clone(),
+                    if o.authors_red_guard_machine_gun() {
+                        1u8
+                    } else if o.authors_tank_hunter_missile() {
+                        2
+                    } else {
+                        0
+                    },
                 ))
             })
             .collect();
@@ -717,7 +705,7 @@ impl GameLogic {
         let draw_icon = self.get_draw_icon_ui();
         let frame = self.frame;
 
-        for (idx, (id, _team, _owner, _scan, name)) in horde_units.iter().enumerate() {
+        for (idx, (id, _team, _owner, _scan, name, kind)) in horde_units.iter().enumerate() {
             let scanned = membership[idx].in_horde;
             if let Some(obj) = self.objects.get_mut(id) {
                 let (due, init, last, next) = leftover_horde_take_wake(
@@ -740,18 +728,18 @@ impl GameLogic {
                 apply_evaluate_morale_bonus(obj);
                 obj.apply_horde_terrain_decal(was, now_horde, draw_icon);
                 if now_horde && !was {
-                    if is_red_guard_template(name) {
+                    if *kind == 1 {
                         red_grants = red_grants.saturating_add(1);
-                    } else if is_tank_hunter_template(name) {
+                    } else if *kind == 2 {
                         th_grants = th_grants.saturating_add(1);
                     } else if is_minigunner_template(name) {
                         mg_grants = mg_grants.saturating_add(1);
                     }
                 }
                 if now_horde != was || now_horde {
-                    if is_red_guard_template(name) {
+                    if *kind == 1 {
                         to_refresh_red.push(*id);
-                    } else if is_tank_hunter_template(name) {
+                    } else if *kind == 2 {
                         to_refresh_th.push(*id);
                     } else if is_minigunner_template(name) {
                         to_refresh_mg.push(*id);
@@ -779,128 +767,6 @@ impl GameLogic {
         for id in to_refresh_mg {
             self.refresh_minigunner_weapon(id);
         }
-    }
-
-    /// Apply Red Guard residual fire: bayonet one-shot vs close infantry, else gun damage.
-    pub(in super::super) fn apply_red_guard_residual_at(
-        &mut self,
-        impact: Vec3,
-        source: Option<ObjectId>,
-        intended_target: Option<ObjectId>,
-    ) -> (u32, bool) {
-        self.apply_red_guard_residual_at_with_effects(
-            impact,
-            source,
-            intended_target,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(in super::super) fn apply_red_guard_residual_at_with_effects(
-        &mut self,
-        impact: Vec3,
-        source: Option<ObjectId>,
-        intended_target: Option<ObjectId>,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (u32, bool) {
-        use crate::game_logic::host_red_guard::{
-            BAYONET_DAMAGE, BAYONET_DAMAGE_TYPE, BAYONET_FIRE_AUDIO, REDGUARD_DAMAGE,
-            REDGUARD_DAMAGE_TYPE, REDGUARD_DEATH_TYPE, REDGUARD_FIRE_AUDIO, distance_2d,
-            should_apply_bayonet_residual,
-        };
-
-        let source_team = source
-            .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
-            .unwrap_or(Team::Neutral);
-        let source_pos = source
-            .and_then(|sid| self.objects.get(&sid).map(|o| o.get_position()))
-            .unwrap_or(impact);
-
-        let Some(target_id) = intended_target else {
-            return (0, false);
-        };
-        let Some(target) = self.objects.get(&target_id) else {
-            return (0, false);
-        };
-        if !target.is_alive() {
-            return (0, false);
-        }
-        let target_pos = target.get_position();
-        let dist = distance_2d(source_pos.x, source_pos.z, target_pos.x, target_pos.z);
-        let target_is_infantry = target.is_kind_of(KindOf::Infantry);
-        let bayonet = should_apply_bayonet_residual(true, target_is_infantry, true, dist);
-        let damage = if bayonet {
-            BAYONET_DAMAGE
-        } else {
-            source
-                .and_then(|sid| self.objects.get(&sid))
-                .and_then(|o| o.weapon.as_ref().map(|w| w.damage))
-                .unwrap_or(REDGUARD_DAMAGE)
-        };
-
-        let mut hits = 0u32;
-        let mut any_destroyed = false;
-        if let Some(obj) = self.objects.get_mut(&target_id) {
-            let (dt_name, death_name) = if bayonet {
-                (BAYONET_DAMAGE_TYPE, REDGUARD_DEATH_TYPE)
-            } else {
-                (REDGUARD_DAMAGE_TYPE, REDGUARD_DEATH_TYPE)
-            };
-            let receiving_damage_target_id = obj.id;
-            let destroyed = self.apply_residual_damage_owned_with_effects(
-                receiving_damage_target_id,
-                damage,
-                source,
-                crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
-                    dt_name,
-                ),
-                crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
-                    death_name,
-                ),
-                None,
-                presentation_effects,
-            );
-            hits = 1;
-            if destroyed {
-                any_destroyed = true;
-                self.mark_object_for_destruction_with_effects(
-                    target_id,
-                    Some(source_team),
-                    presentation_effects,
-                );
-            }
-        }
-
-        self.red_guard_residual_fires = self.red_guard_residual_fires.saturating_add(1);
-        if bayonet {
-            self.red_guard_residual_bayonet_kills =
-                self.red_guard_residual_bayonet_kills.saturating_add(1);
-        }
-
-        let audio = if bayonet {
-            BAYONET_FIRE_AUDIO
-        } else {
-            REDGUARD_FIRE_AUDIO
-        };
-        self.queue_audio_event(
-            AudioEventRequest::new(audio)
-                .with_position(target_pos)
-                .with_priority(150),
-        );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(target_pos),
-                self.frame,
-                sid,
-                intended_target,
-            );
-        }
-
-        (hits, any_destroyed)
     }
 
     /// Apply Tank Hunter residual RPG fire (primary on intended + small splash radius).
@@ -1318,31 +1184,27 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact never spawns a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
 
+    /// True when the authored primary weapon is `GLARebelMachineGun` (hq-2qedt.243).
+    pub(in super::super) fn has_authored_rebel_machine_gun(obj: &Object) -> bool {
+        obj.authored_weapon_name_for_slot(0).is_some_and(|w| {
+            w.eq_ignore_ascii_case(crate::game_logic::host_gla_rebel::REBEL_MACHINE_GUN)
+        })
+    }
+
     /// Refresh GLA Rebel gun residual from current AP Bullets upgrade tag.
     pub(in super::super) fn refresh_rebel_weapon(&mut self, object_id: ObjectId) {
-        use crate::game_logic::host_gla_rebel::{
-            has_ap_bullets_upgrade, is_gla_rebel_template, rebel_weapon,
-        };
+        use crate::game_logic::host_gla_rebel::{has_ap_bullets_upgrade, rebel_weapon};
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
-        if !is_gla_rebel_template(&obj.template_name) {
+        // AP Bullets is a WeaponBonusUpgrade on the authored Rebel gun, not a chassis name.
+        if !Self::has_authored_rebel_machine_gun(obj) {
             return;
         }
         let ap = has_ap_bullets_upgrade(&obj.applied_upgrades);
@@ -1354,11 +1216,11 @@ impl GameLogic {
 
     /// Apply AP Bullets residual tag to a GLA Rebel (damage × 1.25).
     pub fn apply_rebel_ap_bullets_upgrade(&mut self, object_id: ObjectId) -> bool {
-        use crate::game_logic::host_gla_rebel::{UPGRADE_GLA_AP_BULLETS, is_gla_rebel_template};
+        use crate::game_logic::host_gla_rebel::UPGRADE_GLA_AP_BULLETS;
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_gla_rebel_template(&obj.template_name) {
+        if !Self::has_authored_rebel_machine_gun(obj) {
             return false;
         }
         obj.applied_upgrades
@@ -1947,6 +1809,7 @@ impl GameLogic {
         // Seed stream with launch point residual.
         self.projectile_streams.add_projectile(
             source_id,
+            0,
             DRAGON_FLAME_STREAM,
             start,
             intended,
@@ -2055,6 +1918,7 @@ impl GameLogic {
         for (sid, pos, intended, aim) in stream_pts {
             self.projectile_streams.add_projectile(
                 sid,
+                0,
                 DRAGON_FLAME_STREAM,
                 pos,
                 intended,
@@ -2177,6 +2041,7 @@ impl GameLogic {
         }
         self.projectile_streams.add_projectile(
             source_id,
+            0,
             TOXIN_STREAM_NAME,
             start,
             intended,
@@ -2289,6 +2154,7 @@ impl GameLogic {
         for (sid, pos, intended, aim) in stream_pts {
             self.projectile_streams.add_projectile(
                 sid,
+                0,
                 TOXIN_STREAM_NAME,
                 pos,
                 intended,

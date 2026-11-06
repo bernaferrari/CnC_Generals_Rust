@@ -23,6 +23,8 @@ pub struct FxObservation {
     pub speed: f32,
     pub radius: f32,
     pub object: Option<gamelogic::helpers::HostFxObjectPose>,
+    /// Full secondary host pose for extension / test FXNuggets (`do_fx_obj_host`).
+    pub secondary_object: Option<gamelogic::helpers::HostFxObjectPose>,
 }
 /// The driving world implements this facade. Each call ends its service borrow
 /// before the next nugget (or nested list) observes the world again.
@@ -85,10 +87,10 @@ fn execute_list(
         // C++ doFXObj rereads objects at the next callback; do not freeze a
         // NativeSlaveSource/object-store loan across this list's callbacks.
         let input = runtime.observe(source);
-        let nugget: &dyn std::any::Any = nugget.as_ref();
-        if let Some(sound) = nugget.downcast_ref::<SoundFXNugget>() {
+        let any: &dyn std::any::Any = nugget.as_ref();
+        if let Some(sound) = any.downcast_ref::<SoundFXNugget>() {
             runtime.sound(&sound.sound_name, &input)?;
-        } else if let Some(particle) = nugget.downcast_ref::<ParticleSystemWrapper>() {
+        } else if let Some(particle) = any.downcast_ref::<ParticleSystemWrapper>() {
             if input.primary.is_none() {
                 continue;
             }
@@ -108,7 +110,7 @@ fn execute_list(
                 input.matrix.map(|matrix| particle_fx_basis(&matrix))
             };
             runtime.particles(&particle.nugget, &input, matrix)?;
-        } else if let Some(light) = nugget.downcast_ref::<LightPulseFXNugget>() {
+        } else if let Some(light) = any.downcast_ref::<LightPulseFXNugget>() {
             if let Some(primary) = input.primary {
                 let radius = input
                     .object
@@ -118,11 +120,11 @@ fn execute_list(
                     });
                 runtime.light(light.pulse_at(&primary, radius))?;
             }
-        } else if let Some(shake) = nugget.downcast_ref::<ViewShakeFXNugget>() {
+        } else if let Some(shake) = any.downcast_ref::<ViewShakeFXNugget>() {
             if let Some(primary) = input.primary {
                 runtime.shake(primary, to_view_shake(shake.shake_type));
             }
-        } else if let Some(scorch) = nugget.downcast_ref::<TerrainScorchFXNugget>() {
+        } else if let Some(scorch) = any.downcast_ref::<TerrainScorchFXNugget>() {
             if let Some(primary) = input.primary {
                 let kind = if scorch.scorch < 0 {
                     (runtime.random_u32() % 4) as i32
@@ -131,7 +133,7 @@ fn execute_list(
                 };
                 runtime.scorch(primary, scorch.radius, kind);
             }
-        } else if let Some(tracer) = nugget.downcast_ref::<TracerFXNugget>() {
+        } else if let Some(tracer) = any.downcast_ref::<TracerFXNugget>() {
             if tracer.probability <= runtime.random_real(0., 1.) {
                 continue;
             }
@@ -153,7 +155,7 @@ fn execute_list(
                 decay_at: tracer.decay_at,
                 frame: runtime.frame(),
             })?;
-        } else if let Some(ray) = nugget.downcast_ref::<RayEffectFXNugget>() {
+        } else if let Some(ray) = any.downcast_ref::<RayEffectFXNugget>() {
             let (Some(primary), Some(secondary)) = (input.primary, input.secondary) else {
                 continue;
             };
@@ -162,7 +164,7 @@ fn execute_list(
                 primary: primary + ray.primary_offset,
                 secondary: secondary + ray.secondary_offset,
             })?;
-        } else if let Some(bone) = nugget.downcast_ref::<FXListAtBonePosFXNugget>() {
+        } else if let Some(bone) = any.downcast_ref::<FXListAtBonePosFXNugget>() {
             let Some(object) = input.object else {
                 continue;
             };
@@ -202,6 +204,19 @@ fn execute_list(
                     }
                 }
             }
+        } else if let Some(object) = input.object {
+            // C++ FXList walks every nugget via doFXObj. Typed contracts above
+            // cover production nuggets; extension/test FXNugget impls
+            // (ObserveList, …) still run through the trait.
+            nugget.do_fx_obj_host(&object, input.secondary_object.as_ref());
+        } else if input.primary.is_some() {
+            nugget.do_fx_pos(
+                input.primary.as_ref(),
+                input.matrix.as_ref(),
+                input.speed,
+                input.secondary.as_ref(),
+                input.radius,
+            );
         } else {
             return Err("FX nugget has no receiving execution contract".into());
         }

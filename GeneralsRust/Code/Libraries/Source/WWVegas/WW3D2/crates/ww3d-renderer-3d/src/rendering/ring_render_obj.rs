@@ -277,7 +277,7 @@ impl RingMesh {
 
 /// Shared ring mesh array for all LOD levels
 /// C++ Reference: ringobj.cpp line 146 (RingMeshArray)
-struct RingMeshArray {
+pub(crate) struct RingMeshArray {
     meshes: Vec<RingMesh>,
     costs: Vec<f32>,
 }
@@ -285,7 +285,7 @@ struct RingMeshArray {
 impl RingMeshArray {
     /// Generate all LOD levels
     /// C++ Reference: ringobj.cpp lines 367-390 (Generate_Shared_Mesh_Arrays)
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut meshes = Vec::with_capacity(RING_NUM_LOD);
         let mut costs = Vec::with_capacity(RING_NUM_LOD + 1);
 
@@ -326,16 +326,19 @@ impl RingMeshArray {
     }
 }
 
-// Thread-local storage for shared mesh arrays
-// C++ used global static arrays, we use thread-local for safety
-thread_local! {
-    static RING_MESH_ARRAY: std::cell::RefCell<Option<RingMeshArray>> = const { std::cell::RefCell::new(None) };
+fn with_ring_mesh_array<R>(
+    r3d: &crate::process_state::Renderer3dRuntime,
+    f: impl FnOnce(&mut Option<RingMeshArray>) -> R,
+) -> R {
+    f(&mut r3d
+        .ring_mesh_array
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()))
 }
 
 /// Initialize shared ring mesh arrays
-fn ensure_mesh_array_initialized() {
-    RING_MESH_ARRAY.with(|array| {
-        let mut array = array.borrow_mut();
+fn ensure_mesh_array_initialized(r3d: &crate::process_state::Renderer3dRuntime) {
+    with_ring_mesh_array(r3d, |array| {
         if array.is_none() {
             *array = Some(RingMeshArray::new());
         }
@@ -417,8 +420,8 @@ pub struct RingRenderSubmission {
 impl RingRenderObj {
     /// Create a new ring with default parameters
     /// C++ Reference: ringobj.cpp lines 168-197 (Constructor)
-    pub fn new() -> Self {
-        ensure_mesh_array_initialized();
+    pub fn new(r3d: &crate::process_state::Renderer3dRuntime) -> Self {
+        ensure_mesh_array_initialized(r3d);
 
         let mut ring = Self {
             name: String::new(),
@@ -450,7 +453,7 @@ impl RingRenderObj {
         };
 
         // Initialize LOD value array
-        ring.calculate_value_array(1.0);
+        ring.calculate_value_array(r3d, 1.0);
         ring.update_cached_box();
 
         ring
@@ -879,8 +882,8 @@ impl RingRenderObj {
 
     /// Get rendering cost (polygon count)
     /// C++ Reference: ringobj.cpp lines 985-988 (Get_Cost)
-    pub fn get_cost(&self) -> f32 {
-        self.get_num_polys() as f32
+    pub fn get_cost(&self, r3d: &crate::process_state::Renderer3dRuntime) -> f32 {
+        self.get_num_polys(r3d) as f32
     }
 
     /// Get LOD value at current level
@@ -897,14 +900,14 @@ impl RingRenderObj {
 
     /// Calculate LOD value array for a given screen area
     /// C++ Reference: ringobj.cpp lines 394-403 (calculate_value_array)
-    fn calculate_value_array(&mut self, screen_area: f32) {
+    fn calculate_value_array(&mut self, r3d: &crate::process_state::Renderer3dRuntime, screen_area: f32) {
         const AT_MIN_LOD: f32 = -1e30f32;
         const AT_MAX_LOD: f32 = 1e30f32;
 
         self.value[0] = AT_MIN_LOD;
 
-        RING_MESH_ARRAY.with(|array| {
-            if let Some(ref array) = *array.borrow() {
+        with_ring_mesh_array(r3d, |array| {
+            if let Some(ref array) = *array {
                 for lod in 1..=RING_NUM_LOD {
                     let polycount = array.get_cost(lod);
                     let benefit_factor = 1.0 - (0.5 / (polycount * polycount));
@@ -918,9 +921,9 @@ impl RingRenderObj {
 
     /// Get polygon count at current LOD
     /// C++ Reference: ringobj.cpp lines 449-452 (Get_Num_Polys)
-    pub fn get_num_polys(&self) -> usize {
-        RING_MESH_ARRAY.with(|array| {
-            if let Some(ref array) = *array.borrow() {
+    pub fn get_num_polys(&self, r3d: &crate::process_state::Renderer3dRuntime) -> usize {
+        with_ring_mesh_array(r3d, |array| {
+            if let Some(ref array) = *array {
                 array.get_cost(self.current_lod) as usize
             } else {
                 0
@@ -1048,13 +1051,12 @@ impl RingRenderObj {
     // === Rendering ===
 
     /// Prepare immutable draw submission data for backend renderers.
-    pub fn prepare_render_submission(&self) -> Option<RingRenderSubmission> {
+    pub fn prepare_render_submission(&self, r3d: &crate::process_state::Renderer3dRuntime) -> Option<RingRenderSubmission> {
         if self.current_lod == 0 {
             return None;
         }
 
-        RING_MESH_ARRAY.with(|array| {
-            let array = array.borrow();
+        with_ring_mesh_array(r3d, |array| {
             let mesh = array.as_ref()?.get_mesh(self.current_lod)?;
             Some(RingRenderSubmission {
                 world_transform: self.transform,
@@ -1069,7 +1071,7 @@ impl RingRenderObj {
 
     /// Render the ring
     /// C++ Reference: ringobj.cpp lines 671-737 (Render)
-    pub fn render(&mut self, frame_time_ms: f32) {
+    pub fn render(&mut self, r3d: &crate::process_state::Renderer3dRuntime, frame_time_ms: f32) {
         // Skip NULL LOD
         if self.current_lod == 0 {
             return;
@@ -1088,8 +1090,8 @@ impl RingRenderObj {
             self.outer_extent.y * self.outer_scale.y,
         );
 
-        RING_MESH_ARRAY.with(|array| {
-            if let Some(ref mut array) = *array.borrow_mut() {
+        with_ring_mesh_array(r3d, |array| {
+            if let Some(ref mut array) = *array {
                 if let Some(mesh) = array.get_mesh_mut(self.current_lod) {
                     mesh.scale(inner_scale, outer_scale);
                     mesh.set_tiling(self.texture_tile_count);
@@ -1097,15 +1099,15 @@ impl RingRenderObj {
             }
         });
 
-        if let Some(submission) = self.prepare_render_submission() {
+        if let Some(submission) = self.prepare_render_submission(r3d) {
             let _ = submission;
         }
     }
 
     /// Get vertex data for current LOD (for custom rendering)
-    pub fn get_vertex_data(&self) -> Option<(Vec<Vec3>, Vec<Vec3>, Vec<Vec2>, Vec<TriIndex>)> {
-        RING_MESH_ARRAY.with(|array| {
-            if let Some(ref array) = *array.borrow() {
+    pub fn get_vertex_data(&self, r3d: &crate::process_state::Renderer3dRuntime) -> Option<(Vec<Vec3>, Vec<Vec3>, Vec<Vec2>, Vec<TriIndex>)> {
+        with_ring_mesh_array(r3d, |array| {
+            if let Some(ref array) = *array {
                 if let Some(mesh) = array.get_mesh(self.current_lod) {
                     return Some((
                         mesh.vertices.clone(),
@@ -1122,7 +1124,9 @@ impl RingRenderObj {
 
 impl Default for RingRenderObj {
     fn default() -> Self {
-        Self::new()
+        // Tests/Default construct without a session; call `new(&r3d)` for LOD meshes.
+        let r3d = crate::process_state::Renderer3dRuntime::new();
+        Self::new(&r3d)
     }
 }
 
@@ -1132,7 +1136,8 @@ mod tests {
 
     #[test]
     fn test_ring_creation() {
-        let ring = RingRenderObj::new();
+        let r3d = crate::process_state::Renderer3dRuntime::new();
+        let ring = RingRenderObj::new(&r3d);
         assert_eq!(ring.get_name(), "");
         assert_eq!(ring.get_color(), Vec3::new(0.75, 0.75, 0.75));
         assert_eq!(ring.get_alpha(), 1.0);
@@ -1144,7 +1149,8 @@ mod tests {
 
     #[test]
     fn test_ring_properties() {
-        let mut ring = RingRenderObj::new();
+        let r3d = crate::process_state::Renderer3dRuntime::new();
+        let mut ring = RingRenderObj::new(&r3d);
 
         ring.set_name("TestRing");
         assert_eq!(ring.get_name(), "TestRing");
@@ -1164,7 +1170,8 @@ mod tests {
 
     #[test]
     fn test_ring_extents() {
-        let mut ring = RingRenderObj::new();
+        let r3d = crate::process_state::Renderer3dRuntime::new();
+        let mut ring = RingRenderObj::new(&r3d);
 
         ring.set_inner_extent(Vec2::new(0.25, 0.25));
         assert_eq!(ring.get_inner_extent(), Vec2::new(0.25, 0.25));
@@ -1175,7 +1182,8 @@ mod tests {
 
     #[test]
     fn test_ring_flags() {
-        let mut ring = RingRenderObj::new();
+        let r3d = crate::process_state::Renderer3dRuntime::new();
+        let mut ring = RingRenderObj::new(&r3d);
 
         assert_eq!(ring.get_flags(), 0);
 
@@ -1194,7 +1202,8 @@ mod tests {
 
     #[test]
     fn test_ring_animation_control() {
-        let mut ring = RingRenderObj::new();
+        let r3d = crate::process_state::Renderer3dRuntime::new();
+        let mut ring = RingRenderObj::new(&r3d);
 
         assert!(!ring.is_animating());
 
@@ -1210,7 +1219,8 @@ mod tests {
 
     #[test]
     fn test_ring_lod_system() {
-        let mut ring = RingRenderObj::new();
+        let r3d = crate::process_state::Renderer3dRuntime::new();
+        let mut ring = RingRenderObj::new(&r3d);
 
         assert_eq!(ring.get_lod_level(), RING_NUM_LOD);
         assert_eq!(ring.get_lod_count(), RING_NUM_LOD + 1);
@@ -1236,7 +1246,8 @@ mod tests {
 
     #[test]
     fn test_ring_transform() {
-        let mut ring = RingRenderObj::new();
+        let r3d = crate::process_state::Renderer3dRuntime::new();
+        let mut ring = RingRenderObj::new(&r3d);
 
         let pos = Vec3::new(10.0, 20.0, 30.0);
         ring.set_position(pos);
@@ -1249,7 +1260,8 @@ mod tests {
 
     #[test]
     fn test_ring_bounding_volumes() {
-        let ring = RingRenderObj::new();
+        let r3d = crate::process_state::Renderer3dRuntime::new();
+        let ring = RingRenderObj::new(&r3d);
 
         let sphere = ring.get_obj_space_bounding_sphere();
         assert_eq!(sphere.center, Vec3::ZERO);
@@ -1262,7 +1274,8 @@ mod tests {
 
     #[test]
     fn test_ring_scaling() {
-        let mut ring = RingRenderObj::new();
+        let r3d = crate::process_state::Renderer3dRuntime::new();
+        let mut ring = RingRenderObj::new(&r3d);
 
         ring.set_inner_scale(Vec2::ONE);
         ring.set_outer_scale(Vec2::ONE);
@@ -1281,7 +1294,8 @@ mod tests {
 
     #[test]
     fn test_ring_animation_channels() {
-        let mut ring = RingRenderObj::new();
+        let r3d = crate::process_state::Renderer3dRuntime::new();
+        let mut ring = RingRenderObj::new(&r3d);
 
         // Add color keyframes
         ring.get_color_channel_mut()
@@ -1302,6 +1316,7 @@ mod tests {
 
     #[test]
     fn test_ring_mesh_generation() {
+        let r3d = crate::process_state::Renderer3dRuntime::new();
         let mesh = RingMesh::new(1.0, 10);
         assert_eq!(mesh.slices, 10);
         assert_eq!(mesh.vertex_count, 22); // 10 * 2 + 2
@@ -1312,6 +1327,7 @@ mod tests {
 
     #[test]
     fn test_ring_mesh_scaling() {
+        let r3d = crate::process_state::Renderer3dRuntime::new();
         let mut mesh = RingMesh::new(1.0, 10);
 
         let inner_scale = Vec2::new(0.5, 0.5);
@@ -1328,6 +1344,7 @@ mod tests {
 
     #[test]
     fn test_ring_mesh_tiling() {
+        let r3d = crate::process_state::Renderer3dRuntime::new();
         let mut mesh = RingMesh::new(1.0, 10);
 
         mesh.set_tiling(10);
@@ -1342,6 +1359,7 @@ mod tests {
 
     #[test]
     fn test_ring_mesh_array_generation() {
+        let r3d = crate::process_state::Renderer3dRuntime::new();
         let array = RingMeshArray::new();
         assert_eq!(array.meshes.len(), RING_NUM_LOD);
         assert_eq!(array.costs.len(), RING_NUM_LOD + 1);
@@ -1354,7 +1372,8 @@ mod tests {
 
     #[test]
     fn test_ring_clone() {
-        let mut ring1 = RingRenderObj::new();
+        let r3d = crate::process_state::Renderer3dRuntime::new();
+        let mut ring1 = RingRenderObj::new(&r3d);
         ring1.set_name("Original");
         ring1.set_color(Vec3::new(1.0, 0.0, 0.0));
         ring1.set_alpha(0.5);
@@ -1367,7 +1386,8 @@ mod tests {
 
     #[test]
     fn test_ring_texture_tiling() {
-        let mut ring = RingRenderObj::new();
+        let r3d = crate::process_state::Renderer3dRuntime::new();
+        let mut ring = RingRenderObj::new(&r3d);
 
         ring.set_texture_tiling(10);
         assert_eq!(ring.get_texture_tiling(), 10);
@@ -1378,7 +1398,8 @@ mod tests {
 
     #[test]
     fn test_ring_animation_update() {
-        let mut ring = RingRenderObj::new();
+        let r3d = crate::process_state::Renderer3dRuntime::new();
+        let mut ring = RingRenderObj::new(&r3d);
 
         // Set up color animation
         ring.get_color_channel_mut()
@@ -1401,13 +1422,14 @@ mod tests {
 
     #[test]
     fn test_ring_lod_costs() {
-        let _ring = RingRenderObj::new();
+        let r3d = crate::process_state::Renderer3dRuntime::new();
+        let _ring = RingRenderObj::new(&r3d);
 
         // Test that higher LODs have higher costs
         let mut prev_cost = 0.0;
         for lod in 1..=RING_NUM_LOD {
-            RING_MESH_ARRAY.with(|array| {
-                if let Some(ref array) = *array.borrow() {
+            with_ring_mesh_array(&r3d, |array| {
+                if let Some(ref array) = *array {
                     let cost = array.get_cost(lod);
                     assert!(cost > prev_cost);
                     prev_cost = cost;
@@ -1418,13 +1440,14 @@ mod tests {
 
     #[test]
     fn test_ring_geometry_validation() {
-        let ring = RingRenderObj::new();
+        let r3d = crate::process_state::Renderer3dRuntime::new();
+        let ring = RingRenderObj::new(&r3d);
 
         // Set a specific LOD and get vertex data
         let mut test_ring = ring.clone();
         test_ring.set_lod_level(10);
 
-        if let Some((vertices, normals, uvs, triangles)) = test_ring.get_vertex_data() {
+        if let Some((vertices, normals, uvs, triangles)) = test_ring.get_vertex_data(&r3d) {
             // Verify vertex count
             assert!(!vertices.is_empty());
             assert_eq!(vertices.len(), normals.len());
@@ -1458,9 +1481,10 @@ mod tests {
 
     #[test]
     fn test_prepare_render_submission_returns_geometry_for_valid_lod() {
-        let mut ring = RingRenderObj::new();
+        let r3d = crate::process_state::Renderer3dRuntime::new();
+        let mut ring = RingRenderObj::new(&r3d);
         ring.set_lod_level(1);
-        let submission = ring.prepare_render_submission().expect("submission");
+        let submission = ring.prepare_render_submission(&r3d).expect("submission");
         assert!(submission.vertex_count > 0);
         assert!(submission.triangle_count > 0);
     }

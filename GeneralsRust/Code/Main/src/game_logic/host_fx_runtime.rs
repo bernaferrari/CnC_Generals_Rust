@@ -72,6 +72,19 @@ impl crate::game_logic::GameLogic {
     pub(crate) fn admit_fx_catalog(&mut self, catalog: game_client::fx_list::FXListStore) {
         self.session_view.fx.catalog = Some(catalog);
     }
+    /// Receiving-session FX catalog admission (ObjectFxRuntime reads only
+    /// `session_view.fx.catalog`). Like weapon snapshots, admission precedes
+    /// object creation so live objects never straddle two catalogs.
+    pub fn admit_receiving_fx_catalog(
+        &mut self,
+        catalog: game_client::fx_list::FXListStore,
+    ) -> Result<(), String> {
+        if !self.objects.registered_is_empty() {
+            return Err("FX catalog admission requires an empty receiving world".into());
+        }
+        self.admit_fx_baseline(catalog);
+        Ok(())
+    }
     pub(crate) fn fx_baseline(&self) -> Option<&game_client::fx_list::FXListStore> {
         self.session_view.fx.baseline.as_ref()
     }
@@ -119,7 +132,7 @@ impl crate::game_logic::GameLogic {
     #[cfg(test)]
     pub(crate) fn admit_fx_definitions(&mut self) {
         // Compatibility for older test fixtures; native startup admits an owner.
-        let catalog = game_client::fx_list::get_fx_list_store().clone();
+        let catalog = game_client::fx_list::with_fx_list_store(|s| s.clone());
         self.admit_fx_catalog(catalog);
     }
 }
@@ -169,6 +182,7 @@ impl GameClientFxRuntime for HostFxRuntime<'_, '_> {
                 speed,
                 radius,
                 object: None,
+                secondary_object: None,
             },
             FxSource::Objects { primary, secondary } => {
                 let player = self.world.local_player_id();
@@ -182,9 +196,16 @@ impl GameClientFxRuntime for HostFxRuntime<'_, '_> {
                             self.world.world_services.shroud(),
                         )
                     });
-                let secondary = secondary
+                let secondary_object = secondary
                     .and_then(|id| self.world.host_object(crate::game_logic::ObjectId(id)))
-                    .map(|object| host_to_leftover_coord(object.get_position()));
+                    .map(|object| {
+                        crate::game_logic::GameLogic::observe_host_fx_object(
+                            object,
+                            player,
+                            self.world.world_services.shroud(),
+                        )
+                    });
+                let secondary = secondary_object.map(|pose| pose.position);
                 FxObservation {
                     primary: object.map(|object| object.position),
                     matrix: object.map(|object| object.transform),
@@ -192,6 +213,7 @@ impl GameClientFxRuntime for HostFxRuntime<'_, '_> {
                     speed: 0.,
                     radius: 0.,
                     object,
+                    secondary_object,
                 }
             }
         }
@@ -240,6 +262,11 @@ impl GameClientFxRuntime for HostFxRuntime<'_, '_> {
             audio: &mut self.world.session_view.audio_random,
         };
         let Some(audio) = self.effects.audio.as_deref_mut() else {
+            game_client::fx_list::submit_global_sound_fx(
+                name,
+                input.primary.as_ref(),
+                player,
+            );
             return Ok(());
         };
         audio.submit_fx_sound(

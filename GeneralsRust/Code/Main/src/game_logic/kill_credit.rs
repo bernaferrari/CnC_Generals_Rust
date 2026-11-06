@@ -68,7 +68,8 @@ impl GameLogic {
                 if let Some(player) = self.players.get_mut(&owner) {
                     player.statistics.record_lost(&template, &score_kind, false);
                 }
-                gamelogic::player::notify_live_object_lost(owner, &template, false);
+                // hq-irfja2: receiving Player.statistics is canonical; do not
+                // publish into leftover Core PlayerList ScoreKeeper.
             }
         }
         if !enemy {
@@ -86,14 +87,7 @@ impl GameLogic {
                         .record_destroyed(&template, &score_kind, victim_owner, false);
                 }
             }
-            if let Some(victim_owner) = victim_owner {
-                gamelogic::player::notify_live_object_destroyed(
-                    owner,
-                    victim_owner,
-                    &template,
-                    false,
-                );
-            }
+            // hq-irfja2: destroyed history already on receiving statistics above.
         }
         if under_construction {
             return;

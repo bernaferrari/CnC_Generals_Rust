@@ -180,8 +180,8 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         }
 
-        let local_player_id = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let local_player_id = __player_list_arc.read()
             .ok()
             .map(|list| list.get_local_player_index())
             .unwrap_or(-1);

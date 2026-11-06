@@ -756,7 +756,7 @@ mod tests {
         let mut world = fixture_world();
         let scaffold = world
             .create_object_under_construction_for_player("ChinaMapPlant", 1, Vec3::ZERO, 0.)
-            .unwrap();
+            .unwrap().expect("ObjectId");
         let destination = world.host_default_team_id(2).unwrap();
         assert!(world.set_host_object_team(scaffold, destination));
         assert_eq!(

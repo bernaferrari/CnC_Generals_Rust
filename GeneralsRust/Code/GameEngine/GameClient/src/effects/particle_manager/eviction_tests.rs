@@ -80,6 +80,7 @@ fn inline_owner() -> ParticleSystemManager {
 
 #[test]
 fn particle_eviction_actual_interleaved_fifo_and_peer_isolation() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = inline_owner();
     let peer = inline_owner();
     assert_eq!(manager.particle_count(), 4);
@@ -107,6 +108,7 @@ fn particle_eviction_actual_interleaved_fifo_and_peer_isolation() {
 
 #[test]
 fn particle_eviction_leaves_last_rendered_field_observation_unchanged() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = interleaved();
     manager.field_particle_count = 43;
     assert_eq!(
@@ -121,6 +123,7 @@ fn particle_eviction_leaves_last_rendered_field_observation_unchanged() {
 
 #[test]
 fn particle_eviction_native_restore_admits_in_stream_order_and_failure_is_atomic() {
+    crate::test_support::ensure_ambient_host();
     let mut source = interleaved();
     let bytes = source.capture_xfer_bytes().unwrap();
     let mut restored = owner();
@@ -164,6 +167,7 @@ fn particle_eviction_native_restore_admits_in_stream_order_and_failure_is_atomic
 
 #[test]
 fn particle_eviction_priority_precedes_age_and_equal_cap_is_excluded() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = ParticleSystemManager::new();
     for (id, priority) in [
         (77, ParticlePriorityType::Critical),
@@ -194,6 +198,7 @@ fn particle_eviction_priority_precedes_age_and_equal_cap_is_excluded() {
 
 #[test]
 fn particle_eviction_controller_detaches_and_destroys_child_chain_until_normal_retirement() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = ParticleSystemManager::new();
     let mut parent = (*template("ControllerParent", ParticlePriorityType::Critical)).clone();
     parent.info_mut().attached_system_name = "ControllerChild".into();
@@ -258,6 +263,7 @@ fn particle_eviction_controller_detaches_and_destroys_child_chain_until_normal_r
 
 #[test]
 fn particle_eviction_admission_exhaustion_rejects_without_mutation() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = owner();
     manager.next_particle_ordinal = u64::MAX;
     let count = manager.find_particle_system(77).unwrap().particle_count();
@@ -283,6 +289,7 @@ fn particle_eviction_admission_exhaustion_rejects_without_mutation() {
 
 #[test]
 fn particle_eviction_missing_integration_id_leaves_receiver_unchanged() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = interleaved();
     let before = manager.capture_xfer_bytes().unwrap();
     let count = manager.particle_count();

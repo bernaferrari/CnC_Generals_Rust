@@ -3,7 +3,6 @@
 //! CPU-side parity port for `W3DDevice/GameLogic/W3DGhostObject.cpp`.
 
 use game_engine::common::game_common::MAX_PLAYER_COUNT;
-use once_cell::sync::Lazy;
 use std::sync::{Arc, RwLock};
 
 pub const INVALID_OBJECT_ID: u32 = u32::MAX;
@@ -213,20 +212,16 @@ pub type W3DGhostSnapshotCaptureSourceHook =
 pub type W3DGhostSnapshotCaptureHook =
     Arc<dyn Fn(u32) -> Option<W3DGhostSnapshotCapture> + Send + Sync>;
 
-static W3D_GHOST_SNAPSHOT_CAPTURE_HOOK: Lazy<RwLock<Option<W3DGhostSnapshotCaptureHook>>> =
-    Lazy::new(|| RwLock::new(None));
-static W3D_GHOST_SNAPSHOT_CAPTURE_SOURCE_HOOK: Lazy<
-    RwLock<Option<W3DGhostSnapshotCaptureSourceHook>>,
-> = Lazy::new(|| RwLock::new(None));
-
 pub fn register_w3d_ghost_snapshot_capture_hook(hook: Option<W3DGhostSnapshotCaptureHook>) {
-    if let Ok(mut slot) = W3D_GHOST_SNAPSHOT_CAPTURE_HOOK.write() {
+    let services = crate::system::engine_stores::active_services();
+    if let Ok(mut slot) = services.w3d_ghost_snapshot_capture_hook().write() {
         *slot = hook;
     }
 }
 
 pub fn capture_w3d_ghost_snapshot(object_id: u32) -> Option<W3DGhostSnapshotCapture> {
-    let hook = W3D_GHOST_SNAPSHOT_CAPTURE_HOOK.read().ok()?.clone()?;
+    let services = crate::system::engine_stores::active_services();
+    let hook = services.w3d_ghost_snapshot_capture_hook().read().ok()?.clone()?;
     hook(object_id)
 }
 
@@ -236,13 +231,16 @@ pub fn capture_w3d_ghost_snapshot(object_id: u32) -> Option<W3DGhostSnapshotCapt
 pub fn register_w3d_ghost_snapshot_capture_source_hook(
     hook: Option<W3DGhostSnapshotCaptureSourceHook>,
 ) {
-    if let Ok(mut slot) = W3D_GHOST_SNAPSHOT_CAPTURE_SOURCE_HOOK.write() {
+    let services = crate::system::engine_stores::active_services();
+    if let Ok(mut slot) = services.w3d_ghost_snapshot_capture_source_hook().write() {
         *slot = hook;
     }
 }
 
 pub fn capture_w3d_ghost_snapshot_source(object_id: u32) -> Option<W3DGhostSnapshotCaptureSource> {
-    let hook = W3D_GHOST_SNAPSHOT_CAPTURE_SOURCE_HOOK
+    let services = crate::system::engine_stores::active_services();
+    let hook = services
+        .w3d_ghost_snapshot_capture_source_hook()
         .read()
         .ok()?
         .clone()?;
@@ -824,8 +822,9 @@ pub const OBJECTSHROUD_FOGGED: u8 = crate::common::ObjectShroudStatus::Fogged as
 /// Active non-network W3D ghost scene owner used by the runtime hooks and Main
 /// render ingress. Keeping its scene queue separate from the generic
 /// Snapshotable manager preserves the C++ render payload without downcasts.
-pub static THE_W3D_GHOST_OBJECT_MANAGER: Lazy<Arc<RwLock<W3DGhostObjectManager>>> =
-    Lazy::new(|| Arc::new(RwLock::new(W3DGhostObjectManager::new())));
+pub fn the_w3d_ghost_object_manager() -> Arc<RwLock<W3DGhostObjectManager>> {
+    Arc::clone(crate::system::engine_stores::active_services().w3d_ghost_objects())
+}
 
 #[cfg(test)]
 mod tests {

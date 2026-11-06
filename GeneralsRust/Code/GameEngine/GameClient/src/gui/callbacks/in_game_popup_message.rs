@@ -184,7 +184,7 @@ pub fn in_game_popup_message_init(
             .borrow()
             .get_font()
             .map(|font| font.to_font_desc())
-            .and_then(|font| crate::gui::get_font_library().get_font(&font).ok())
+            .and_then(|font| crate::gui::get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&font).ok())
         {
             display.set_font(font);
         }
@@ -320,6 +320,7 @@ mod tests {
     }
     #[test]
     fn repeated_acknowledgement_is_published_once() {
+        crate::test_support::ensure_ambient_host();
         let mut state = active(9);
         let button = state.button_ok_id.unwrap();
         assert_eq!(
@@ -330,6 +331,7 @@ mod tests {
     }
     #[test]
     fn stale_keyboard_token_does_not_consume_replacement() {
+        crate::test_support::ensure_ambient_host();
         let mut state = active(1);
         let old = state.generation;
         state.begin_instance();
@@ -342,6 +344,7 @@ mod tests {
     }
     #[test]
     fn clients_own_independent_popup_generations() {
+        crate::test_support::ensure_ambient_host();
         let mut a = active(1);
         let b = active(2);
         a.begin_instance();

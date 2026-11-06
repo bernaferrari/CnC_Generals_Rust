@@ -8,14 +8,13 @@ fn admit_controls(
 ) -> ChatWindows {
     let mut create = |name: &str| {
         manager
-            .create_window_with_id(
+            .test_create_window_with_id(
                 None,
                 0,
                 0,
                 120,
                 20,
                 NameKeyGenerator::name_to_key(name) as i32,
-                effects,
             )
             .unwrap()
     };
@@ -39,6 +38,7 @@ fn admit_controls(
 
 #[test]
 fn same_window_ids_do_not_admit_a_peer_callback_or_reset_peer_state() {
+    crate::test_support::ensure_ambient_host();
     let mut first = MenuManager::new();
     let mut second = MenuManager::new();
     let mut first_manager = WindowManager::new();
@@ -89,6 +89,7 @@ fn same_window_ids_do_not_admit_a_peer_callback_or_reset_peer_state() {
 
 #[test]
 fn native_facts_are_required_and_never_fall_back_to_a_core_roster() {
+    crate::test_support::ensure_ambient_host();
     let mut owner = MenuManager::new();
     let mut messages = Vec::new();
     let mut effects = WindowEventEffects::new(&mut messages);

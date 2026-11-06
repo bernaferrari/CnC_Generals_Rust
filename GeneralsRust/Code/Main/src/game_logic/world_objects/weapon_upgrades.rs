@@ -187,8 +187,11 @@ impl GameLogic {
             SlaveDroneKind, is_slave_drone_master_template, slave_drone_conflicts_with_owned,
         };
 
-        let kind = SlaveDroneKind::from_upgrade_name(upgrade_name).unwrap_or(SlaveDroneKind::Scout);
-        let tag = kind.upgrade_name();
+        // C++ ObjectCreationUpgrade is keyed by the granted upgrade itself;
+        // no drone kind for an unknown upgrade (no Scout fallback).
+        let Some(kind) = SlaveDroneKind::from_upgrade_name(upgrade_name) else {
+            return 0;
+        };
 
         let masters: Vec<ObjectId> = self
             .objects
@@ -198,7 +201,6 @@ impl GameLogic {
                     && o.is_alive()
                     && !o.status.under_construction
                     && is_slave_drone_master_template(&o.template_name)
-                    && !o.has_upgrade_tag(tag)
                     && !o.has_upgrade_tag(upgrade_name)
                     && !slave_drone_conflicts_with_owned(
                         upgrade_name,
@@ -210,6 +212,11 @@ impl GameLogic {
 
         let mut n = 0u32;
         for mid in masters {
+            // C++ Object::giveUpgrade sets the bit before ObjectCreationUpgrade
+            // creates the drone (Object.cpp giveUpgrade -> updateUpgradeModules).
+            if let Some(m) = self.objects.get_mut(&mid) {
+                m.apply_upgrade_tag(upgrade_name);
+            }
             if self
                 .residual_attach_slave_drone_with_interpreter_and_effects(
                     mid,
@@ -219,48 +226,11 @@ impl GameLogic {
                 )
                 .is_some()
             {
-                if let Some(m) = self.objects.get_mut(&mid) {
-                    m.apply_upgrade_tag(upgrade_name);
-                    m.apply_upgrade_tag(tag);
-                }
                 n = n.saturating_add(1);
             }
         }
         // Player unlock residual for production UI / late builds.
-        let _ = self.apply_player_unlock_upgrade(recipients, upgrade_name, tag);
-        n
-    }
-
-    /// C++ Upgrade_AmericaChemicalSuits residual — ChemSuitHumanArmor on infantry.
-    pub(in super::super) fn apply_chemical_suits_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_upgrades::UPGRADE_AMERICA_CHEMICAL_SUITS;
-        let mut n = self.apply_player_unlock_upgrade(
-            recipients,
-            upgrade_name,
-            UPGRADE_AMERICA_CHEMICAL_SUITS,
-        );
-        for obj in self.objects.registered_values_mut() {
-            if !recipients.matches_object(obj) || !obj.is_alive() {
-                continue;
-            }
-            if !obj.is_kind_of(KindOf::Infantry) {
-                continue;
-            }
-            if obj.has_upgrade_tag(UPGRADE_AMERICA_CHEMICAL_SUITS)
-                || obj.has_upgrade_tag(upgrade_name)
-            {
-                continue;
-            }
-            obj.apply_upgrade_tag(upgrade_name);
-            obj.apply_upgrade_tag(UPGRADE_AMERICA_CHEMICAL_SUITS);
-            obj.applied_upgrades
-                .insert(UPGRADE_AMERICA_CHEMICAL_SUITS.to_string());
-            n = n.saturating_add(1);
-        }
+        let _ = self.apply_player_unlock_upgrade(recipients, upgrade_name, upgrade_name);
         n
     }
 
@@ -291,39 +261,6 @@ impl GameLogic {
         n
     }
 
-    /// C++ Upgrade_AmericaCountermeasures residual — tag aircraft for flare residual.
-    pub(in super::super) fn apply_countermeasures_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_upgrades::UPGRADE_AMERICA_COUNTERMEASURES;
-        let mut n = self.apply_player_unlock_upgrade(
-            recipients,
-            upgrade_name,
-            UPGRADE_AMERICA_COUNTERMEASURES,
-        );
-        for obj in self.objects.registered_values_mut() {
-            if !recipients.matches_object(obj) || !obj.is_alive() {
-                continue;
-            }
-            if !obj.is_kind_of(KindOf::Aircraft) {
-                continue;
-            }
-            if obj.has_upgrade_tag(UPGRADE_AMERICA_COUNTERMEASURES)
-                || obj.has_upgrade_tag(upgrade_name)
-            {
-                continue;
-            }
-            obj.apply_upgrade_tag(upgrade_name);
-            obj.apply_upgrade_tag(UPGRADE_AMERICA_COUNTERMEASURES);
-            obj.applied_upgrades
-                .insert(UPGRADE_AMERICA_COUNTERMEASURES.to_string());
-            n = n.saturating_add(1);
-        }
-        n
-    }
-
     /// Generic player-level upgrade unlock residual (mines / radar scan / flags).
     pub(in super::super) fn apply_player_unlock_upgrade(
         &mut self,
@@ -339,47 +276,6 @@ impl GameLogic {
             p.unlocked_sciences.insert(canonical.to_string());
             p.unlocked_sciences.insert(upgrade_name.to_string());
             n = n.saturating_add(1);
-        }
-        n
-    }
-
-    /// C++ Upgrade_GLAFortifiedStructure residual — +max health on GLA structures.
-    pub(in super::super) fn apply_fortified_structure_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_upgrades::{
-            FORTIFIED_STRUCTURE_ADD_MAX_HEALTH, UPGRADE_GLA_FORTIFIED_STRUCTURE,
-        };
-        let add = FORTIFIED_STRUCTURE_ADD_MAX_HEALTH;
-        let mut n = 0u32;
-        for obj in self.objects.registered_values_mut() {
-            if !recipients.matches_object(obj) || !obj.is_alive() {
-                continue;
-            }
-            if !obj.is_kind_of(KindOf::Structure) {
-                continue;
-            }
-            if obj.has_upgrade_tag(UPGRADE_GLA_FORTIFIED_STRUCTURE)
-                || obj.has_upgrade_tag(upgrade_name)
-            {
-                continue;
-            }
-            obj.apply_upgrade_tag(upgrade_name);
-            obj.apply_upgrade_tag(UPGRADE_GLA_FORTIFIED_STRUCTURE);
-            obj.max_health = (obj.max_health + add).max(1.0);
-            obj.health.maximum = (obj.health.maximum + add).max(1.0);
-            let new_hp = (obj.health.current + add).min(obj.health.maximum);
-            Self::write_object_health_authority_aware(obj, new_hp, &mut self.health_events);
-            n = n.saturating_add(1);
-        }
-        for p in self.players.values_mut() {
-            if recipients.matches_player(p) {
-                p.unlocked_sciences
-                    .insert(UPGRADE_GLA_FORTIFIED_STRUCTURE.to_string());
-                p.unlocked_sciences.insert(upgrade_name.to_string());
-            }
         }
         n
     }
@@ -477,177 +373,6 @@ impl GameLogic {
         n
     }
 
-    /// C++ Upgrade_AmericaDroneArmor residual — +max health on slave drones.
-    pub(in super::super) fn apply_drone_armor_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_slave_drones::{
-            SlaveDroneKind, UPGRADE_AMERICA_DRONE_ARMOR, drone_armor_add_max_health,
-            is_battle_drone_template, is_hellfire_drone_template, is_scout_drone_template,
-        };
-
-        let mut n = 0u32;
-        for obj in self.objects.registered_values_mut() {
-            if !recipients.matches_object(obj) || !obj.is_alive() {
-                continue;
-            }
-            let kind = if is_battle_drone_template(&obj.template_name) {
-                Some(SlaveDroneKind::Battle)
-            } else if is_hellfire_drone_template(&obj.template_name) {
-                Some(SlaveDroneKind::Hellfire)
-            } else if is_scout_drone_template(&obj.template_name) {
-                Some(SlaveDroneKind::Scout)
-            } else {
-                None
-            };
-            let Some(kind) = kind else {
-                continue;
-            };
-            if obj.has_upgrade_tag(UPGRADE_AMERICA_DRONE_ARMOR) || obj.has_upgrade_tag(upgrade_name)
-            {
-                continue;
-            }
-            let add = drone_armor_add_max_health(kind);
-            obj.apply_upgrade_tag(upgrade_name);
-            obj.apply_upgrade_tag(UPGRADE_AMERICA_DRONE_ARMOR);
-            obj.applied_upgrades
-                .insert(UPGRADE_AMERICA_DRONE_ARMOR.to_string());
-            obj.max_health = (obj.max_health + add).max(1.0);
-            obj.health.maximum = (obj.health.maximum + add).max(1.0);
-            let new_hp = (obj.health.current + add).min(obj.health.maximum);
-            Self::write_object_health_authority_aware(obj, new_hp, &mut self.health_events);
-            n = n.saturating_add(1);
-        }
-        for p in self.players.values_mut() {
-            if recipients.matches_player(p) {
-                p.unlocked_sciences
-                    .insert(UPGRADE_AMERICA_DRONE_ARMOR.to_string());
-                p.unlocked_sciences.insert(upgrade_name.to_string());
-            }
-        }
-        n
-    }
-
-    /// C++ Upgrade_ChinaAircraftArmor residual — +40 max health on MiGs.
-    pub(in super::super) fn apply_aircraft_armor_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_mig::{
-            UPGRADE_CHINA_AIRCRAFT_ARMOR, apply_mig_aircraft_armor_health, is_mig_template,
-        };
-
-        let mut n = 0u32;
-        for obj in self.objects.registered_values_mut() {
-            if !recipients.matches_object(obj) || !obj.is_alive() {
-                continue;
-            }
-            if !is_mig_template(&obj.template_name) {
-                continue;
-            }
-            if obj.has_upgrade_tag(UPGRADE_CHINA_AIRCRAFT_ARMOR)
-                || obj.has_upgrade_tag(upgrade_name)
-            {
-                continue;
-            }
-            obj.apply_upgrade_tag(upgrade_name);
-            obj.apply_upgrade_tag(UPGRADE_CHINA_AIRCRAFT_ARMOR);
-            obj.applied_upgrades
-                .insert(UPGRADE_CHINA_AIRCRAFT_ARMOR.to_string());
-            let mut max_h = obj.max_health;
-            let mut cur = obj.health.current;
-            let mut maximum = obj.health.maximum;
-            apply_mig_aircraft_armor_health(&mut max_h, &mut cur, &mut maximum);
-            obj.set_body_max_health(max_h);
-            Self::write_object_health_authority_aware(obj, cur, &mut self.health_events);
-            obj.health.maximum = maximum;
-            n = n.saturating_add(1);
-        }
-        for p in self.players.values_mut() {
-            if recipients.matches_player(p) {
-                p.unlocked_sciences
-                    .insert(UPGRADE_CHINA_AIRCRAFT_ARMOR.to_string());
-                p.unlocked_sciences.insert(upgrade_name.to_string());
-            }
-        }
-        n
-    }
-
-    /// C++ Upgrade_AmericaAdvancedTraining residual — 2× XP gain player unlock.
-    pub(in super::super) fn apply_advanced_training_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_unit_training::UPGRADE_AMERICA_ADVANCED_TRAINING;
-        let mut n = 0u32;
-        for p in self.players.values_mut() {
-            if !recipients.matches_player(p) {
-                continue;
-            }
-            p.unlocked_sciences
-                .insert(UPGRADE_AMERICA_ADVANCED_TRAINING.to_string());
-            p.unlocked_sciences.insert(upgrade_name.to_string());
-            n = n.saturating_add(1);
-        }
-        // Tag living USA combat units so XP path can read unit tags residual.
-        for obj in self.objects.registered_values_mut() {
-            if !recipients.matches_object(obj) || !obj.is_alive() {
-                continue;
-            }
-            if obj.is_kind_of(KindOf::Structure) {
-                continue;
-            }
-            if obj.has_upgrade_tag(UPGRADE_AMERICA_ADVANCED_TRAINING) {
-                continue;
-            }
-            obj.apply_upgrade_tag(upgrade_name);
-            obj.apply_upgrade_tag(UPGRADE_AMERICA_ADVANCED_TRAINING);
-            n = n.saturating_add(1);
-        }
-        n
-    }
-
-    /// C++ Upgrade_ChinaTacticalNukeMig residual — Nuke General MiG loadout.
-    pub(in super::super) fn apply_tactical_nuke_mig_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_mig::{UPGRADE_CHINA_TACTICAL_NUKE_MIG, is_nuke_mig_template};
-        let ids: Vec<ObjectId> = self
-            .objects
-            .registered()
-            .filter(|(_, o)| {
-                recipients.matches_object(o)
-                    && o.is_alive()
-                    && is_nuke_mig_template(&o.template_name)
-            })
-            .map(|(id, _)| *id)
-            .collect();
-        let mut n = 0u32;
-        for id in ids {
-            if self.apply_mig_tactical_nuke_upgrade(id) {
-                if let Some(o) = self.objects.get_mut(&id) {
-                    o.apply_upgrade_tag(upgrade_name);
-                    o.apply_upgrade_tag(UPGRADE_CHINA_TACTICAL_NUKE_MIG);
-                }
-                n = n.saturating_add(1);
-            }
-        }
-        for p in self.players.values_mut() {
-            if recipients.matches_player(p) {
-                p.unlocked_sciences
-                    .insert(UPGRADE_CHINA_TACTICAL_NUKE_MIG.to_string());
-                p.unlocked_sciences.insert(upgrade_name.to_string());
-            }
-        }
-        n
-    }
-
     /// C++ Upgrade_GLAAnthraxBeta residual — toxin tractor + SCUD + scud storm tier.
     pub(in super::super) fn apply_anthrax_beta_to_team(
         &mut self,
@@ -655,7 +380,7 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_scud_launcher::{
-            UPGRADE_GLA_ANTHRAX_BETA, is_scud_launcher_template,
+            UPGRADE_GLA_ANTHRAX_BETA, authors_scud_gun,
         };
         use crate::game_logic::host_toxin_tractor::is_toxin_tractor_template;
 
@@ -665,7 +390,7 @@ impl GameLogic {
                 continue;
             }
             let is_tt = is_toxin_tractor_template(&obj.template_name);
-            let is_scud = is_scud_launcher_template(&obj.template_name);
+            let is_scud = authors_scud_gun(obj.authored_primary_weapon_names());
             if !is_tt && !is_scud {
                 continue;
             }
@@ -694,7 +419,7 @@ impl GameLogic {
         recipients: UpgradeRecipients,
         upgrade_name: &str,
     ) -> u32 {
-        use crate::game_logic::host_scud_launcher::is_scud_launcher_template;
+        use crate::game_logic::host_scud_launcher::authors_scud_gun;
         use crate::game_logic::host_upgrades::UPGRADE_GLA_TOXIN_SHELLS;
 
         let mut n = 0u32;
@@ -702,7 +427,7 @@ impl GameLogic {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
-            if !is_scud_launcher_template(&obj.template_name) {
+            if !authors_scud_gun(obj.authored_primary_weapon_names()) {
                 continue;
             }
             if obj.has_upgrade_tag(UPGRADE_GLA_TOXIN_SHELLS) || obj.has_upgrade_tag(upgrade_name) {
@@ -725,280 +450,22 @@ impl GameLogic {
         n
     }
 
-    /// C++ Upgrade_GLAAPBullets residual — Rebel / Jarmen / Technical / Quad.
-    pub(in super::super) fn apply_ap_bullets_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_gla_rebel::is_gla_rebel_template;
-        use crate::game_logic::host_jarmen_kell::{
-            UPGRADE_GLA_AP_BULLETS, is_jarmen_kell_template,
-        };
-        use crate::game_logic::host_quad_cannon::is_quad_cannon_template;
-        use crate::game_logic::host_technical::is_technical_template;
-
-        let ids: Vec<(ObjectId, u8)> = self
-            .objects
-            .registered()
-            .filter(|(_, o)| recipients.matches_object(o) && o.is_alive())
-            .filter_map(|(id, o)| {
-                if is_jarmen_kell_template(&o.template_name) {
-                    Some((*id, 0u8))
-                } else if is_gla_rebel_template(&o.template_name) {
-                    Some((*id, 1))
-                } else if is_technical_template(&o.template_name) {
-                    Some((*id, 2))
-                } else if is_quad_cannon_template(&o.template_name) {
-                    Some((*id, 3))
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let mut n = 0u32;
-        for (id, kind) in ids {
-            match kind {
-                0 => {
-                    if self.apply_jarmen_kell_ap_bullets_upgrade(id) {
-                        if let Some(o) = self.objects.get_mut(&id) {
-                            o.apply_upgrade_tag(upgrade_name);
-                            o.apply_upgrade_tag(UPGRADE_GLA_AP_BULLETS);
-                        }
-                        n = n.saturating_add(1);
-                    }
-                }
-                1 => {
-                    if self.apply_rebel_ap_bullets_upgrade(id) {
-                        if let Some(o) = self.objects.get_mut(&id) {
-                            o.apply_upgrade_tag(upgrade_name);
-                            o.apply_upgrade_tag(UPGRADE_GLA_AP_BULLETS);
-                        }
-                        n = n.saturating_add(1);
-                    }
-                }
-                2 | 3 => {
-                    // Technical / Quad: tag residual; damage path reads applied_upgrades.
-                    if let Some(o) = self.objects.get_mut(&id) {
-                        if !o.has_upgrade_tag(UPGRADE_GLA_AP_BULLETS) {
-                            o.apply_upgrade_tag(upgrade_name);
-                            o.apply_upgrade_tag(UPGRADE_GLA_AP_BULLETS);
-                            o.applied_upgrades
-                                .insert(UPGRADE_GLA_AP_BULLETS.to_string());
-                            n = n.saturating_add(1);
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-        for p in self.players.values_mut() {
-            if recipients.matches_player(p) {
-                p.unlocked_sciences
-                    .insert(UPGRADE_GLA_AP_BULLETS.to_string());
-                p.unlocked_sciences.insert(upgrade_name.to_string());
-            }
-        }
-        n
-    }
-
-    /// C++ Upgrade_ChinaUraniumShells residual — Battlemaster / Overlord gun damage.
-    pub(in super::super) fn apply_uranium_shells_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_battlemaster::{
-            UPGRADE_CHINA_URANIUM_SHELLS, is_battlemaster_template,
-        };
-        use crate::game_logic::host_overlord_gun::is_overlord_gun_chassis;
-
-        let ids: Vec<(ObjectId, u8)> = self
-            .objects
-            .registered()
-            .filter(|(_, o)| recipients.matches_object(o) && o.is_alive())
-            .filter_map(|(id, o)| {
-                if is_battlemaster_template(&o.template_name) {
-                    Some((*id, 0u8))
-                } else if is_overlord_gun_chassis(&o.template_name) {
-                    Some((*id, 1))
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let mut n = 0u32;
-        for (id, kind) in ids {
-            let ok = match kind {
-                0 => self.apply_battlemaster_uranium_upgrade(id),
-                1 => self.apply_overlord_gun_uranium_upgrade(id),
-                _ => false,
-            };
-            if ok {
-                if let Some(o) = self.objects.get_mut(&id) {
-                    o.apply_upgrade_tag(upgrade_name);
-                    o.apply_upgrade_tag(UPGRADE_CHINA_URANIUM_SHELLS);
-                }
-                n = n.saturating_add(1);
-            }
-        }
-        for p in self.players.values_mut() {
-            if recipients.matches_player(p) {
-                p.unlocked_sciences
-                    .insert(UPGRADE_CHINA_URANIUM_SHELLS.to_string());
-                p.unlocked_sciences.insert(upgrade_name.to_string());
-            }
-        }
-        n
-    }
-
-    /// C++ Upgrade_ChinaBlackNapalm residual — MiG / Inferno / Dragon fire field.
-    pub(in super::super) fn apply_black_napalm_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_dragon_tank::is_dragon_tank_template;
-        use crate::game_logic::host_inferno_cannon::is_inferno_cannon_template;
-        use crate::game_logic::host_mig::is_mig_template;
-
-        let ids: Vec<(ObjectId, u8)> = self
-            .objects
-            .registered()
-            .filter(|(_, o)| recipients.matches_object(o) && o.is_alive())
-            .filter_map(|(id, o)| {
-                if is_mig_template(&o.template_name) {
-                    Some((*id, 0u8))
-                } else if is_inferno_cannon_template(&o.template_name) {
-                    Some((*id, 1))
-                } else if is_dragon_tank_template(&o.template_name) {
-                    Some((*id, 2))
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let mut n = 0u32;
-        for (id, kind) in ids {
-            let ok = match kind {
-                0 => self.apply_mig_black_napalm_upgrade(id),
-                1 => self.apply_inferno_black_napalm_upgrade(id),
-                2 => self.apply_dragon_black_napalm_upgrade(id),
-                _ => false,
-            };
-            if ok {
-                if let Some(o) = self.objects.get_mut(&id) {
-                    o.apply_upgrade_tag(upgrade_name);
-                    o.apply_upgrade_tag("Upgrade_ChinaBlackNapalm");
-                }
-                n = n.saturating_add(1);
-            }
-        }
-        for p in self.players.values_mut() {
-            if recipients.matches_player(p) {
-                p.unlocked_sciences
-                    .insert("Upgrade_ChinaBlackNapalm".to_string());
-                p.unlocked_sciences.insert(upgrade_name.to_string());
-            }
-        }
-        n
-    }
-
-    /// C++ Upgrade_GLAScorpionRocket residual — equip SECONDARY on all Scorpions.
-    pub(in super::super) fn apply_scorpion_rocket_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_scorpion::{UPGRADE_GLA_SCORPION_ROCKET, is_scorpion_template};
-        let ids: Vec<ObjectId> = self
-            .objects
-            .registered()
-            .filter(|(_, o)| {
-                recipients.matches_object(o)
-                    && o.is_alive()
-                    && is_scorpion_template(&o.template_name)
-            })
-            .map(|(id, _)| *id)
-            .collect();
-        let mut n = 0u32;
-        for id in ids {
-            if self.apply_scorpion_rocket_upgrade(id) {
-                if let Some(o) = self.objects.get_mut(&id) {
-                    o.apply_upgrade_tag(upgrade_name);
-                    o.apply_upgrade_tag(UPGRADE_GLA_SCORPION_ROCKET);
-                }
-                n = n.saturating_add(1);
-            }
-        }
-        n
-    }
-
-    /// C++ Upgrade_GLAAPRockets residual — AP damage on Scorpions (+ RPG if present).
-    /// C++ Upgrade_GLAAPRockets residual — Scorpion / RPG / Stinger AP.
-    pub(in super::super) fn apply_ap_rockets_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_base_defense::is_stinger_site_structure;
-        use crate::game_logic::host_rpg_trooper::is_rpg_trooper_template;
-        use crate::game_logic::host_scorpion::{UPGRADE_GLA_AP_ROCKETS, is_scorpion_template};
-
-        let ids: Vec<(ObjectId, u8)> = self
-            .objects
-            .registered()
-            .filter(|(_, o)| recipients.matches_object(o) && o.is_alive())
-            .filter_map(|(id, o)| {
-                if is_scorpion_template(&o.template_name) {
-                    Some((*id, 0u8))
-                } else if is_rpg_trooper_template(&o.template_name) {
-                    Some((*id, 1))
-                } else if is_stinger_site_structure(&o.template_name) {
-                    Some((*id, 2))
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let mut n = 0u32;
-        for (id, kind) in ids {
-            let ok = match kind {
-                0 => self.apply_scorpion_ap_rockets_upgrade(id),
-                1 => self.apply_rpg_trooper_ap_rockets_upgrade(id),
-                2 => self.apply_stinger_ap_rockets_upgrade(id),
-                _ => false,
-            };
-            if ok {
-                if let Some(o) = self.objects.get_mut(&id) {
-                    o.apply_upgrade_tag(upgrade_name);
-                    o.apply_upgrade_tag(UPGRADE_GLA_AP_ROCKETS);
-                }
-                n = n.saturating_add(1);
-            }
-        }
-        for p in self.players.values_mut() {
-            if recipients.matches_player(p) {
-                p.unlocked_sciences
-                    .insert(UPGRADE_GLA_AP_ROCKETS.to_string());
-                p.unlocked_sciences.insert(upgrade_name.to_string());
-            }
-        }
-        n
-    }
-
     /// C++ Upgrade_AmericaLaserMissiles residual — Raptor jet damage.
     pub(in super::super) fn apply_laser_missiles_to_team(
         &mut self,
         recipients: UpgradeRecipients,
         upgrade_name: &str,
     ) -> u32 {
-        use crate::game_logic::host_raptor::{UPGRADE_AMERICA_LASER_MISSILES, is_raptor_template};
+        use crate::game_logic::host_raptor::{
+            UPGRADE_AMERICA_LASER_MISSILES, authors_raptor_missile,
+        };
         let ids: Vec<ObjectId> = self
             .objects
             .registered()
             .filter(|(_, o)| {
-                recipients.matches_object(o) && o.is_alive() && is_raptor_template(&o.template_name)
+                recipients.matches_object(o)
+                    && o.is_alive()
+                    && authors_raptor_missile(o.authored_primary_weapon_names(), None)
             })
             .map(|(id, _)| *id)
             .collect();
@@ -1027,8 +494,6 @@ impl GameLogic {
             UPGRADE_NATIONALISM, is_battlemaster_template, is_china_horde_update_unit,
         };
         use crate::game_logic::host_minigunner::is_minigunner_template;
-        use crate::game_logic::host_red_guard::is_red_guard_template;
-        use crate::game_logic::host_tank_hunter::is_tank_hunter_template;
 
         let ids: Vec<(ObjectId, u8)> = self
             .objects
@@ -1037,9 +502,9 @@ impl GameLogic {
             .filter_map(|(id, o)| {
                 if is_battlemaster_template(&o.template_name) {
                     Some((*id, 0u8))
-                } else if is_red_guard_template(&o.template_name) {
+                } else if o.authors_red_guard_machine_gun() {
                     Some((*id, 1))
-                } else if is_tank_hunter_template(&o.template_name) {
+                } else if o.authors_tank_hunter_missile() {
                     Some((*id, 2))
                 } else if is_minigunner_template(&o.template_name) {
                     Some((*id, 3))
@@ -1121,59 +586,6 @@ impl GameLogic {
         for p in self.players.values_mut() {
             if recipients.matches_player(p) {
                 p.unlocked_sciences.insert(UPGRADE_FANATICISM.to_string());
-                p.unlocked_sciences.insert(upgrade_name.to_string());
-            }
-        }
-        n
-    }
-
-    /// C++ Upgrade_ChinaChainGuns residual — gattling/minigun damage ×1.25.
-    pub(in super::super) fn apply_chain_guns_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_base_defense::is_gattling_cannon_structure;
-        use crate::game_logic::host_gattling_tank::{
-            UPGRADE_CHINA_CHAIN_GUNS, is_gattling_tank_template,
-        };
-        use crate::game_logic::host_minigunner::is_minigunner_template;
-
-        let ids: Vec<(ObjectId, u8)> = self
-            .objects
-            .registered()
-            .filter(|(_, o)| recipients.matches_object(o) && o.is_alive())
-            .filter_map(|(id, o)| {
-                if is_minigunner_template(&o.template_name) {
-                    Some((*id, 0u8))
-                } else if is_gattling_tank_template(&o.template_name)
-                    || is_gattling_cannon_structure(&o.template_name)
-                {
-                    Some((*id, 1))
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let mut n = 0u32;
-        for (id, kind) in ids {
-            let ok = match kind {
-                0 => self.apply_minigunner_chain_guns_upgrade(id),
-                1 => self.apply_gattling_chain_guns_upgrade(id),
-                _ => false,
-            };
-            if ok {
-                if let Some(o) = self.objects.get_mut(&id) {
-                    o.apply_upgrade_tag(upgrade_name);
-                    o.apply_upgrade_tag(UPGRADE_CHINA_CHAIN_GUNS);
-                }
-                n = n.saturating_add(1);
-            }
-        }
-        for p in self.players.values_mut() {
-            if recipients.matches_player(p) {
-                p.unlocked_sciences
-                    .insert(UPGRADE_CHINA_CHAIN_GUNS.to_string());
                 p.unlocked_sciences.insert(upgrade_name.to_string());
             }
         }
@@ -1365,50 +777,6 @@ impl GameLogic {
         affected
     }
 
-    /// Apply Nuclear Tanks residual: death-weapon tag + nuclear locomotor speed.
-    pub(in super::super) fn apply_nuclear_tanks_unlock_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_nuclear_tanks::{
-            NUCLEAR_TANKS_UPGRADE_AUDIO, UPGRADE_CHINA_NUCLEAR_TANKS, has_nuclear_tanks_upgrade,
-            is_nuclear_tanks_eligible, nuclear_tanks_residual_speed,
-        };
-
-        let mut affected = 0u32;
-        for obj in self.objects.registered_values_mut() {
-            if !recipients.matches_object(obj) || !obj.is_alive() {
-                continue;
-            }
-            if !is_nuclear_tanks_eligible(&obj.template_name) {
-                continue;
-            }
-            let residual_speed = obj.thing().template.receiving_object_definition.is_none();
-            if has_nuclear_tanks_upgrade(&obj.applied_upgrades) || obj.has_upgrade_tag(upgrade_name)
-            {
-                // Refresh speed residual only.
-                if residual_speed {
-                    obj.movement.max_speed = nuclear_tanks_residual_speed(&obj.template_name);
-                }
-                continue;
-            }
-            if residual_speed {
-                obj.movement.max_speed = nuclear_tanks_residual_speed(&obj.template_name);
-            }
-            obj.apply_upgrade_tag(upgrade_name);
-            obj.apply_upgrade_tag(UPGRADE_CHINA_NUCLEAR_TANKS);
-            affected = affected.saturating_add(1);
-        }
-        if affected > 0 {
-            self.nuclear_tanks.record_upgrade_applied(affected);
-            self.queue_audio_event(
-                AudioEventRequest::new(NUCLEAR_TANKS_UPGRADE_AUDIO).with_priority(140),
-            );
-        }
-        affected
-    }
-
     /// Apply BoobyTrap residual unlock tag on GLA Rebel infantry.
     pub(in super::super) fn apply_booby_trap_unlock_to_team(
         &mut self,
@@ -1442,211 +810,6 @@ impl GameLogic {
         affected
     }
 
-    /// Equip FlashBang secondary on team rangers + apply upgrade tag.
-    pub(in super::super) fn apply_flashbang_unlock_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_upgrades::is_flashbang_unit_template;
-        use crate::game_logic::weapon_bootstrap::{
-            RANGER_SECONDARY_WEAPON, ensure_host_weapon_store,
-        };
-
-        ensure_host_weapon_store();
-        let secondary = ThingTemplate::weapon_from_store(RANGER_SECONDARY_WEAPON);
-        let mut affected = 0u32;
-        for obj in self.objects.registered_values_mut() {
-            if !recipients.matches_object(obj) || !obj.is_alive() {
-                continue;
-            }
-            if !is_flashbang_unit_template(&obj.template_name) {
-                continue;
-            }
-            if obj.secondary_weapon.is_none() {
-                if let Some(ref w) = secondary {
-                    let _ = obj.replace_weapon_set_slot(1, Some(w.clone()));
-                }
-            }
-            obj.apply_upgrade_tag(upgrade_name);
-            // Canonical retail name tag for ability checks.
-            obj.apply_upgrade_tag(crate::game_logic::host_upgrades::UPGRADE_AMERICA_FLASHBANG);
-            let _ = obj.set_weapon_set_flag(0, true);
-            affected = affected.saturating_add(1);
-        }
-        affected
-    }
-
-    /// Equip TOW secondary on team Humvees + apply upgrade tag.
-    pub(in super::super) fn apply_tow_unlock_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_upgrades::is_tow_unit_template;
-        use crate::game_logic::weapon_bootstrap::{
-            HUMVEE_SECONDARY_WEAPON, ensure_host_weapon_store,
-        };
-
-        ensure_host_weapon_store();
-        let secondary = ThingTemplate::weapon_from_store(HUMVEE_SECONDARY_WEAPON);
-        let mut affected = 0u32;
-        for obj in self.objects.registered_values_mut() {
-            if !recipients.matches_object(obj) || !obj.is_alive() {
-                continue;
-            }
-            if !is_tow_unit_template(&obj.template_name) {
-                continue;
-            }
-            if obj.secondary_weapon.is_none() {
-                if let Some(mut w) = secondary.clone() {
-                    // Residual: ground TOW + air tertiary capability (PreferredAgainst AIRCRAFT).
-                    // Damage boost vs air applied in combat path (HUMVEE_AIR_TOW_DAMAGE).
-                    w.can_target_air = true;
-                    w.range = w
-                        .range
-                        .max(crate::game_logic::host_humvee::HUMVEE_AIR_TOW_RANGE);
-                    let _ = obj.replace_weapon_set_slot(1, Some(w));
-                }
-            } else if let Some(w) = obj.secondary_weapon.as_mut() {
-                w.can_target_air = true;
-                w.range = w
-                    .range
-                    .max(crate::game_logic::host_humvee::HUMVEE_AIR_TOW_RANGE);
-            }
-            obj.apply_upgrade_tag(upgrade_name);
-            obj.apply_upgrade_tag(crate::game_logic::host_upgrades::UPGRADE_AMERICA_TOW);
-            let _ = obj.set_weapon_set_flag(0, true);
-            affected = affected.saturating_add(1);
-        }
-        affected
-    }
-
-    /// Apply Composite Armor MaxHealthUpgrade residual (+100 HP) to Crusader / Paladin.
-    pub(in super::super) fn apply_composite_armor_unlock_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_usa_tanks::{
-            UPGRADE_AMERICA_COMPOSITE_ARMOR, apply_composite_armor_health,
-            is_composite_armor_unit_template,
-        };
-
-        let mut affected = 0u32;
-        for obj in self.objects.registered_values_mut() {
-            if !recipients.matches_object(obj) || !obj.is_alive() {
-                continue;
-            }
-            if !is_composite_armor_unit_template(&obj.template_name) {
-                continue;
-            }
-            // Idempotent: skip if already tagged.
-            if obj.has_upgrade_tag(UPGRADE_AMERICA_COMPOSITE_ARMOR)
-                || obj.has_upgrade_tag(upgrade_name)
-            {
-                continue;
-            }
-            let live_maximum = obj.health.maximum > 0.0;
-            let mut max_h = obj.max_health;
-            let mut cur = obj.health.current;
-            let mut maximum = obj.health.maximum;
-            let before = cur;
-            apply_composite_armor_health(&mut max_h, &mut cur, &mut maximum);
-            if !live_maximum {
-                maximum = max_h;
-            }
-            obj.set_body_max_health(max_h);
-            {
-                obj.previous_health = before;
-            }
-            Self::write_object_health_authority_aware(obj, cur, &mut self.health_events);
-            obj.health.maximum = maximum;
-            if live_maximum && obj.health.maximum > 0.0 && obj.health.current > obj.health.maximum {
-                obj.internal_change_health(obj.health.maximum - obj.health.current);
-            }
-            self.health_events
-                .record_applied_heal(obj.id, obj.health.current);
-            obj.apply_upgrade_tag(upgrade_name);
-            obj.apply_upgrade_tag(UPGRADE_AMERICA_COMPOSITE_ARMOR);
-            affected = affected.saturating_add(1);
-        }
-        affected
-    }
-
-    /// Equip Neutron Shell secondary on team Nuke Cannons + apply upgrade tag.
-    pub(in super::super) fn apply_neutron_shells_unlock_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_neutron_shell::UPGRADE_CHINA_NEUTRON_SHELLS;
-        use crate::game_logic::host_upgrades::is_neutron_shell_unit_template;
-        use crate::game_logic::weapon_bootstrap::{
-            NUKE_CANNON_NEUTRON_WEAPON, ensure_host_weapon_store,
-        };
-
-        ensure_host_weapon_store();
-        let secondary = ThingTemplate::weapon_from_store(NUKE_CANNON_NEUTRON_WEAPON);
-        let mut affected = 0u32;
-        for obj in self.objects.registered_values_mut() {
-            if !recipients.matches_object(obj) || !obj.is_alive() {
-                continue;
-            }
-            if !is_neutron_shell_unit_template(&obj.template_name) {
-                continue;
-            }
-            if let Some(ref w) = secondary {
-                // Always re-bind neutron secondary residual so stats stay correct.
-                let _ = obj.replace_weapon_set_slot(1, Some(w.clone()));
-            }
-            obj.apply_upgrade_tag(upgrade_name);
-            obj.apply_upgrade_tag(UPGRADE_CHINA_NEUTRON_SHELLS);
-            affected = affected.saturating_add(1);
-        }
-        affected
-    }
-
-    /// Equip Comanche Rocket Pods tertiary + apply upgrade tag.
-    ///
-    /// Retail: WeaponSetUpgrade TriggeredBy = Upgrade_ComancheRocketPods unlocks
-    /// TERTIARY ComancheRocketPodWeapon.  SECONDARY remains the independent
-    /// ComancheAntiTankMissileWeapon slot.
-    pub(in super::super) fn apply_comanche_rocket_pods_unlock_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_comanche_rocket_pods::{
-            UPGRADE_COMANCHE_ROCKET_PODS, comanche_antitank_weapon, comanche_rocket_pod_weapon,
-            is_comanche_template,
-        };
-
-        let tertiary = comanche_rocket_pod_weapon();
-        let mut affected = 0u32;
-        for obj in self.objects.registered_values_mut() {
-            if !recipients.matches_object(obj) || !obj.is_alive() {
-                continue;
-            }
-            if !is_comanche_template(&obj.template_name) {
-                continue;
-            }
-            // Preserve the retail anti-tank SECONDARY.  Rebind it only when
-            // an older host object lacked that slot, never by guessing a
-            // substitute from the pod weapon.
-            if obj.secondary_weapon.is_none() {
-                let _ = obj.replace_weapon_set_slot(1, Some(comanche_antitank_weapon()));
-            }
-            let _ = obj.replace_weapon_set_slot(2, Some(tertiary.clone()));
-            obj.apply_upgrade_tag(upgrade_name);
-            obj.apply_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS);
-            // C++ WeaponSetUpgrade → setWeaponSetFlag(WEAPONSET_PLAYER_UPGRADE).
-            let _ = obj.set_weapon_set_flag(0, true);
-            affected = affected.saturating_add(1);
-        }
-        affected
-    }
-
     /// C++ `WeaponSetUpgrade` + `updateWeaponSet` for Sentry PLAYER_UPGRADE.
     /// Bind PRIMARY `SentryDroneGun`, stamp the retail tag, set flag 0.
     pub(in super::super) fn equip_sentry_drone_gun(obj: &mut Object) {
@@ -1661,71 +824,6 @@ impl GameLogic {
         }
         obj.apply_upgrade_tag(UPGRADE_AMERICA_SENTRY_DRONE_GUN);
         let _ = obj.set_weapon_set_flag(0, true);
-    }
-
-    /// Equip Sentry Drone Gun primary + apply upgrade tag.
-    ///
-    /// Retail: WeaponSetUpgrade TriggeredBy = Upgrade_AmericaSentryDroneGun unlocks
-    /// PRIMARY SentryDroneGun. Host residual binds primary weapon for auto-fire.
-    pub(in super::super) fn apply_sentry_drone_gun_unlock_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_sentry_drone::is_sentry_drone_template;
-
-        let mut affected = 0u32;
-        for obj in self.objects.registered_values_mut() {
-            if !recipients.matches_object(obj) || !obj.is_alive() {
-                continue;
-            }
-            if !is_sentry_drone_template(&obj.template_name) {
-                continue;
-            }
-            Self::equip_sentry_drone_gun(obj);
-            obj.apply_upgrade_tag(upgrade_name);
-            affected = affected.saturating_add(1);
-        }
-        affected
-    }
-
-    /// Tag team Stealth Fighters with Bunker Busters residual upgrade.
-    ///
-    /// C++ BunkerBusterBehavior checks player upgrade on missile detonation;
-    /// host residual tags carriers so combat can apply garrison kill + bunker mult.
-    pub(in super::super) fn apply_bunker_busters_unlock_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_bunker_buster::{
-            UPGRADE_AMERICA_BUNKER_BUSTERS, is_bunker_buster_carrier,
-        };
-        use crate::game_logic::weapon_bootstrap::{
-            STEALTH_JET_MISSILE_WEAPON, ensure_host_weapon_store,
-        };
-
-        ensure_host_weapon_store();
-        let primary = ThingTemplate::weapon_from_store(STEALTH_JET_MISSILE_WEAPON);
-        let mut affected = 0u32;
-        for obj in self.objects.registered_values_mut() {
-            if !recipients.matches_object(obj) || !obj.is_alive() {
-                continue;
-            }
-            if !is_bunker_buster_carrier(&obj.template_name) {
-                continue;
-            }
-            if let Some(ref w) = primary {
-                // Ensure residual anti-structure missile stats when store available.
-                if obj.weapon.is_none() {
-                    let _ = obj.replace_weapon_set_slot(0, Some(w.clone()));
-                }
-            }
-            obj.apply_upgrade_tag(upgrade_name);
-            obj.apply_upgrade_tag(UPGRADE_AMERICA_BUNKER_BUSTERS);
-            affected = affected.saturating_add(1);
-        }
-        affected
     }
 
     /// Tag capture-capable infantry so capture unlock is unit-observable.
@@ -1852,52 +950,6 @@ impl GameLogic {
             self.camo_netting_sub_object_show_count = self
                 .camo_netting_sub_object_show_count
                 .saturating_add(affected);
-        }
-        affected
-    }
-
-    /// Tag toxin combat units for Anthrax Gamma residual (Chem general).
-    ///
-    /// Fail-closed: not full WeaponSet PLAYER_UPGRADE module / particle gamma FX.
-    pub(in super::super) fn apply_anthrax_gamma_unlock_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_mines::{DemoTrapProfile, HostMineKind, is_demo_trap_template};
-        use crate::game_logic::host_toxin_tractor::{
-            UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT, is_toxin_tractor_template,
-        };
-        use crate::game_logic::host_upgrades::{
-            UPGRADE_CHEM_ANTHRAX_GAMMA, is_anthrax_gamma_unit_template,
-        };
-
-        let mut affected = 0u32;
-        for obj in self.objects.registered_values_mut() {
-            if !recipients.matches_object(obj) || !obj.is_alive() {
-                continue;
-            }
-            let demo_trap = is_demo_trap_template(&obj.template_name)
-                && obj.mine_data.as_ref().is_some_and(|md| {
-                    matches!(md.kind, HostMineKind::DemoTrap)
-                        && md.demo_trap_profile.spawns_poison()
-                });
-            if !is_anthrax_gamma_unit_template(&obj.template_name)
-                && !is_toxin_tractor_template(&obj.template_name)
-                && !demo_trap
-            {
-                continue;
-            }
-            if demo_trap {
-                if let Some(md) = obj.mine_data.as_mut() {
-                    md.demo_trap_profile = DemoTrapProfile::ChemGamma;
-                }
-            }
-            obj.apply_upgrade_tag(upgrade_name);
-            obj.apply_upgrade_tag(UPGRADE_CHEM_ANTHRAX_GAMMA);
-            obj.apply_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA);
-            obj.apply_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA_ALT);
-            affected = affected.saturating_add(1);
         }
         affected
     }
@@ -2144,5 +1196,142 @@ mod upgrade_lookup_admission_tests {
         assert!(world.objects[&registered].has_upgrade_tag(name));
         assert!(!world.objects[&raw_id].has_upgrade_tag(name));
         assert!(world.get_player(0).unwrap().has_unlocked_upgrade(name));
+    }
+}
+
+#[cfg(test)]
+mod authored_mig_gate_tests {
+    use super::UpgradeRecipients;
+    use crate::game_logic::*;
+
+    /// hq-2qedt.248: Black Napalm / Tactical Nuke MiG direct apply paths (vehicle_shells)
+    /// key on authored MiG missile PRIMARY, not template-name sniffing.
+    #[test]
+    fn mig_direct_upgrade_apply_keys_on_authored_missile_not_template_name() {
+        use crate::game_logic::host_mig::{
+            NAPALM_MISSILE_WEAPON, NUKE_MIG_MISSILE_WEAPON, UPGRADE_CHINA_BLACK_NAPALM,
+            UPGRADE_CHINA_TACTICAL_NUKE_MIG,
+        };
+        let mut gl = GameLogic::new();
+        for (tpl_name, primary) in [
+            ("ChinaJetMIG", "HumveeGun"),
+            ("Nuke_ChinaJetMIG", "HumveeGun"),
+            ("AuthoredAirframeX", NAPALM_MISSILE_WEAPON),
+            ("AuthoredAirframeN", NUKE_MIG_MISSILE_WEAPON),
+        ] {
+            let mut tpl = crate::game_logic::ThingTemplate::new(tpl_name);
+            tpl.add_kind_of(KindOf::Aircraft)
+                .set_health(300.0)
+                .set_primary_weapon_name(primary);
+            gl.templates.insert(tpl_name.to_string(), tpl);
+        }
+        let mk = |gl: &mut GameLogic, n: &str| {
+            gl.create_object(n, Team::China, Vec3::new(0.0, 0.0, 0.0))
+                .unwrap()
+        };
+        let named = mk(&mut gl, "ChinaJetMIG");
+        let named_n = mk(&mut gl, "Nuke_ChinaJetMIG");
+        let auth = mk(&mut gl, "AuthoredAirframeX");
+        let auth_n = mk(&mut gl, "AuthoredAirframeN");
+        for id in [named, auth, auth_n] {
+            let _ = gl.apply_mig_black_napalm_upgrade(id);
+        }
+        for id in [named_n, auth_n, auth] {
+            let _ = gl.apply_mig_tactical_nuke_upgrade(id);
+        }
+        let has =
+            |gl: &GameLogic, id, u: &str| gl.host_object(id).unwrap().applied_upgrades.contains(u);
+        assert!(!has(&gl, named, UPGRADE_CHINA_BLACK_NAPALM));
+        assert!(has(&gl, auth, UPGRADE_CHINA_BLACK_NAPALM));
+        assert!(!has(&gl, auth_n, UPGRADE_CHINA_BLACK_NAPALM));
+        assert!(!has(&gl, named_n, UPGRADE_CHINA_TACTICAL_NUKE_MIG));
+        assert!(has(&gl, auth_n, UPGRADE_CHINA_TACTICAL_NUKE_MIG));
+        assert!(!has(&gl, auth, UPGRADE_CHINA_TACTICAL_NUKE_MIG));
+    }
+
+    /// hq-2qedt.249: Laser Missiles (WeaponSetUpgrade) keys on authored Raptor missile
+    /// PRIMARY, not template-name sniffing (team + direct apply paths).
+    #[test]
+    fn raptor_laser_missiles_keys_on_authored_missile_not_template_name() {
+        use crate::game_logic::host_raptor::{
+            AIRF_RAPTOR_JET_MISSILE_WEAPON, RAPTOR_JET_MISSILE_WEAPON,
+            UPGRADE_AMERICA_LASER_MISSILES,
+        };
+        let mut gl = GameLogic::new();
+        for (tpl_name, primary) in [
+            ("AmericaJetRaptor", "HumveeGun"),
+            ("AuthoredAirframeR", RAPTOR_JET_MISSILE_WEAPON),
+            ("AuthoredAirframeK", AIRF_RAPTOR_JET_MISSILE_WEAPON),
+        ] {
+            let mut tpl = crate::game_logic::ThingTemplate::new(tpl_name);
+            tpl.add_kind_of(KindOf::Aircraft)
+                .set_health(160.0)
+                .set_primary_weapon_name(primary);
+            gl.templates.insert(tpl_name.to_string(), tpl);
+        }
+        let named = gl
+            .create_object("AmericaJetRaptor", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let auth = gl
+            .create_object("AuthoredAirframeR", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let king = gl
+            .create_object("AuthoredAirframeK", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        assert!(!gl.apply_raptor_laser_missiles_upgrade(named));
+        assert!(gl.apply_raptor_laser_missiles_upgrade(king));
+        let n = gl.apply_laser_missiles_to_team(
+            UpgradeRecipients::Team(Team::USA),
+            UPGRADE_AMERICA_LASER_MISSILES,
+        );
+        assert_eq!(n, 2);
+        let has = |gl: &GameLogic, id| {
+            gl.host_object(id)
+                .unwrap()
+                .applied_upgrades
+                .contains(UPGRADE_AMERICA_LASER_MISSILES)
+        };
+        assert!(!has(&gl, named));
+        assert!(has(&gl, auth));
+        assert!(has(&gl, king));
+    }
+
+    /// hq-2qedt.250: Anthrax Beta / Toxin Shells key on authored SCUD gun PRIMARY,
+    /// not template-name sniffing.
+    #[test]
+    fn scud_upgrades_key_on_authored_scud_gun_not_template_name() {
+        use crate::game_logic::host_scud_launcher::UPGRADE_GLA_ANTHRAX_BETA;
+        use crate::game_logic::host_upgrades::UPGRADE_GLA_TOXIN_SHELLS;
+        use crate::game_logic::weapon_bootstrap::SCUD_GUN_EXPLOSIVE;
+        let mut gl = GameLogic::new();
+        for (tpl_name, primary) in [
+            ("GLAVehicleScudLauncher", "HumveeGun"),
+            ("AuthoredRackS", SCUD_GUN_EXPLOSIVE),
+        ] {
+            let mut tpl = crate::game_logic::ThingTemplate::new(tpl_name);
+            tpl.add_kind_of(KindOf::Vehicle)
+                .set_health(200.0)
+                .set_primary_weapon_name(primary);
+            gl.templates.insert(tpl_name.to_string(), tpl);
+        }
+        let named = gl
+            .create_object("GLAVehicleScudLauncher", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let auth = gl
+            .create_object("AuthoredRackS", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        assert_eq!(
+            gl.apply_anthrax_beta_to_team(UpgradeRecipients::Team(Team::GLA), UPGRADE_GLA_ANTHRAX_BETA),
+            1
+        );
+        assert_eq!(
+            gl.apply_toxin_shells_to_team(UpgradeRecipients::Team(Team::GLA), UPGRADE_GLA_TOXIN_SHELLS),
+            1
+        );
+        let has = |gl: &GameLogic, id, u: &str| gl.host_object(id).unwrap().applied_upgrades.contains(u);
+        assert!(!has(&gl, named, UPGRADE_GLA_ANTHRAX_BETA));
+        assert!(has(&gl, auth, UPGRADE_GLA_ANTHRAX_BETA));
+        assert!(!has(&gl, named, UPGRADE_GLA_TOXIN_SHELLS));
+        assert!(has(&gl, auth, UPGRADE_GLA_TOXIN_SHELLS));
     }
 }

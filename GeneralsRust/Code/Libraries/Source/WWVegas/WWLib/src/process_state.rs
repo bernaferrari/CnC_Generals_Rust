@@ -1,0 +1,102 @@
+//! Owned WWLib session state (argv / mouse / iff / registry lock).
+//! Host constructs [`WwLibRuntime`] and passes `&` / `Arc` — no process LazyLock.
+use std::sync::atomic::{AtomicBool, AtomicIsize};
+use std::sync::{Arc, Mutex};
+
+use crate::fast_allocator::FastAllocatorGeneral;
+use crate::ffactory::{RawFileFactory, SimpleFileFactory};
+use crate::wwfile::WWFile;
+use crate::xmouse::Mouse;
+
+pub struct ArgvStorage {
+    pub argc: usize,
+    pub argv: Vec<String>,
+}
+
+impl ArgvStorage {
+    pub fn new() -> Self {
+        Self {
+            argc: 0,
+            argv: Vec::with_capacity(256),
+        }
+    }
+}
+
+pub struct WwLibRuntime {
+    pub registry_locked: Arc<AtomicBool>,
+    pub argv: Arc<Mutex<ArgvStorage>>,
+    pub mouse: Mutex<Option<Arc<dyn Mouse>>>,
+    pub iff_files: Mutex<Vec<Option<WWFile>>>,
+    pub iff_buffer: Mutex<Option<Vec<u8>>>,
+    pub simple_file_factory: Arc<SimpleFileFactory>,
+    pub writing_file_factory: Arc<RawFileFactory>,
+    pub game_in_focus: AtomicBool,
+    pub program_instance: AtomicIsize,
+    pub main_window: AtomicIsize,
+    pub general_allocator: Arc<FastAllocatorGeneral>,
+    /// HWND / HACCEL stored as isize for cross-platform session state.
+    pub modeless_dialogs: Mutex<Vec<isize>>,
+    pub accelerators: Mutex<Vec<(isize, isize)>>,
+    pub message_intercept_handler: Mutex<Option<usize>>,
+}
+
+impl Default for WwLibRuntime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl WwLibRuntime {
+    pub fn new() -> Self {
+        Self {
+            registry_locked: Arc::new(AtomicBool::new(false)),
+            argv: Arc::new(Mutex::new(ArgvStorage::new())),
+            mouse: Mutex::new(None),
+            iff_files: Mutex::new(Vec::new()),
+            iff_buffer: Mutex::new(None),
+            simple_file_factory: Arc::new(SimpleFileFactory::new()),
+            writing_file_factory: Arc::new(RawFileFactory),
+            game_in_focus: AtomicBool::new(false),
+            program_instance: AtomicIsize::new(0),
+            main_window: AtomicIsize::new(0),
+            general_allocator: Arc::new(FastAllocatorGeneral::new()),
+            modeless_dialogs: Mutex::new(Vec::new()),
+            accelerators: Mutex::new(Vec::new()),
+            message_intercept_handler: Mutex::new(None),
+        }
+    }
+}
+
+#[cfg(test)]
+mod independence_tests {
+    use super::*;
+    use std::sync::atomic::Ordering;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+
+    #[test]
+    fn two_wwlib_runtimes_on_two_threads_are_independent() {
+        let a = Arc::new(WwLibRuntime::new());
+        let b = Arc::new(WwLibRuntime::new());
+        assert!(!Arc::ptr_eq(&a, &b));
+        let barrier = Arc::new(Barrier::new(2));
+        let a2 = Arc::clone(&a);
+        let b2 = Arc::clone(&b);
+        let bar1 = Arc::clone(&barrier);
+        let bar2 = Arc::clone(&barrier);
+        let t1 = thread::spawn(move || {
+            a2.registry_locked.store(true, Ordering::SeqCst);
+            bar1.wait();
+            assert!(a2.registry_locked.load(Ordering::SeqCst));
+        });
+        let t2 = thread::spawn(move || {
+            b2.registry_locked.store(false, Ordering::SeqCst);
+            bar2.wait();
+            assert!(!b2.registry_locked.load(Ordering::SeqCst));
+        });
+        t1.join().unwrap();
+        t2.join().unwrap();
+        assert!(a.registry_locked.load(Ordering::SeqCst));
+        assert!(!b.registry_locked.load(Ordering::SeqCst));
+    }
+}

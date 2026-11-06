@@ -11,7 +11,6 @@
 use crate::common::ascii_string::AsciiString;
 use crate::common::ini::{FieldParse, INI, INIError};
 use crate::debug_assert_crash;
-use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -1195,19 +1194,14 @@ impl Default for TerrainRoads {
     }
 }
 
-/// Global terrain roads registry (thread-safe)
-static TERRAIN_ROADS: OnceCell<Arc<RwLock<TerrainRoads>>> = OnceCell::new();
-
 /// Ensure the terrain roads registry exists and return a handle to it
 pub fn initialize_terrain_roads() -> Arc<RwLock<TerrainRoads>> {
-    TERRAIN_ROADS
-        .get_or_init(|| Arc::new(RwLock::new(TerrainRoads::new())))
-        .clone()
+    Arc::clone(&crate::common::common_services::common_services().ini.terrain_roads)
 }
 
 /// Get the terrain roads registry if it has already been initialized
 pub fn get_terrain_roads() -> Option<Arc<RwLock<TerrainRoads>>> {
-    TERRAIN_ROADS.get().cloned()
+    Some(Arc::clone(&crate::common::common_services::common_services().ini.terrain_roads))
 }
 
 /// Parse a boolean value from string

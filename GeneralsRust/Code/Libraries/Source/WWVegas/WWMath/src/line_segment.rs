@@ -72,18 +72,20 @@ impl LineSegment {
 
     /// Set the line segment to random points within the given bounds
     pub fn set_random(&mut self, min: Vector3, max: Vector3) {
-        let mut frac = WWMath::random_float();
+                let mut rng = crate::WwMathRng::default();
+
+        let mut frac = WWMath::random_float(&mut rng);
         self.p0.x = min.x + frac * (max.x - min.x);
-        frac = WWMath::random_float();
+        frac = WWMath::random_float(&mut rng);
         self.p0.y = min.y + frac * (max.y - min.y);
-        frac = WWMath::random_float();
+        frac = WWMath::random_float(&mut rng);
         self.p0.z = min.z + frac * (max.z - min.z);
 
-        frac = WWMath::random_float();
+        frac = WWMath::random_float(&mut rng);
         self.p1.x = min.x + frac * (max.x - min.x);
-        frac = WWMath::random_float();
+        frac = WWMath::random_float(&mut rng);
         self.p1.y = min.y + frac * (max.y - min.y);
-        frac = WWMath::random_float();
+        frac = WWMath::random_float(&mut rng);
         self.p1.z = min.z + frac * (max.z - min.z);
 
         self.recalculate();

@@ -12,7 +12,7 @@ use crate::gui::callbacks::wol_game_setup_menu::refresh_map_selection_ui;
 use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
-    get_shell, show_shell_map_if_available, try_with_shell_mut, with_window_manager,
+    get_shell, show_shell_map_if_available, try_with_shell_mut,
     write_input_focus_response,
 };
 use crate::map_util::{
@@ -28,7 +28,7 @@ const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
-struct WolMapSelectState {
+pub(crate) struct WolMapSelectState {
     parent_id: i32,
     button_back_id: i32,
     button_ok_id: i32,
@@ -45,12 +45,38 @@ struct WolMapSelectState {
     raise_message_boxes: bool,
 }
 
+#[cfg(test)]
 thread_local! {
-    static WOL_MAP_SELECT_STATE: Rc<RefCell<WolMapSelectState>> = Rc::new(RefCell::new(WolMapSelectState::default()));
+    static TEST_WOL_MAP_SELECT_STATE: std::cell::OnceCell<Rc<RefCell<WolMapSelectState>>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn map_select_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<WolMapSelectState>> {
+    if let Some(owner) = owner {
+        return owner.wol_map_select_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().wol_map_select_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_WOL_MAP_SELECT_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(WolMapSelectState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(WolMapSelectState::default()))
+    }
 }
 
 fn map_select_state() -> Rc<RefCell<WolMapSelectState>> {
-    WOL_MAP_SELECT_STATE.with(Rc::clone)
+    map_select_state_on_owner(None)
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -110,7 +136,7 @@ fn position_start_buttons(state: &mut WolMapSelectState, meta: Option<&MapMetaDa
 
     for i in 0..MAX_SLOTS {
         let Some(button) =
-            with_window_manager(|manager| manager.get_window_by_id(state.start_position_ids[i]))
+            owner.with_manager(|manager| manager.get_window_by_id(state.start_position_ids[i]))
         else {
             continue;
         };
@@ -205,7 +231,7 @@ fn show_underlying_game_options(show: bool) {
         "ButtonStart",
         "StaticTextMapPreview",
     ];
-    with_window_manager(|manager| {
+    owner.with_manager(|manager| {
         for name in &gadgets {
             let id = name_to_id(&format!("{}{}", LAYOUT, name));
             if let Some(win) = manager.get_window_by_id(id) {
@@ -247,7 +273,7 @@ pub fn wol_map_select_menu_init(layout: &WindowLayout, _user_data: Option<&dyn s
             name_to_id(&format!("WOLMapSelectMenu.wnd:ButtonMapStartPosition{}", i));
     }
 
-    with_window_manager(|manager| {
+    owner.with_manager(|manager| {
         state.parent = manager.get_window_by_id(state.parent_id);
         state.listbox_map = manager.get_window_by_id(state.listbox_map_id);
         state.map_preview = manager.get_window_by_id(state.map_preview_id);
@@ -275,9 +301,9 @@ pub fn wol_map_select_menu_init(layout: &WindowLayout, _user_data: Option<&dyn s
     }
 
     let radio_system =
-        with_window_manager(|manager| manager.get_window_by_id(state.radio_system_maps_id));
+        owner.with_manager(|manager| manager.get_window_by_id(state.radio_system_maps_id));
     let radio_user =
-        with_window_manager(|manager| manager.get_window_by_id(state.radio_user_maps_id));
+        owner.with_manager(|manager| manager.get_window_by_id(state.radio_user_maps_id));
 
     if let Some(slot) = get_gamespy_info() {
         if let Ok(info) = slot.lock() {
@@ -310,7 +336,7 @@ pub fn wol_map_select_menu_init(layout: &WindowLayout, _user_data: Option<&dyn s
     show_underlying_game_options(false);
 
     if let Some(parent) = state.parent.as_ref() {
-        let _ = with_window_manager(|manager| manager.set_focus(Some(parent)));
+        let _ = owner.with_manager(|manager| manager.set_focus(Some(parent)));
     }
 
     layout.hide(false);

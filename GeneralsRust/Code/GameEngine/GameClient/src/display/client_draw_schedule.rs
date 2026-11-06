@@ -2,13 +2,15 @@
 //!
 //! Order: freeze → sync-time → updateViews (Drawable::draw) → particles → drawViews (GPU).
 
+#[path = "client_draw_schedule_state.rs"]
+mod schedule_state;
+pub use schedule_state::ClientDrawScheduleState;
+
 #[cfg(test)]
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU32, Ordering};
 
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::object::registry::OBJECT_REGISTRY;
-use ww3d_core::WW3D;
 
 use crate::core::game_client::live_game_client_frame;
 use crate::display::view::with_tactical_view_ref;
@@ -52,9 +54,15 @@ impl ViewAabb {
     }
 }
 
-static SYNC_TIME_MS: AtomicU32 = AtomicU32::new(0);
-static LAST_DISPLAY_CLIENT_FRAME: AtomicU32 = AtomicU32::new(u32::MAX);
-static LAST_CPU_PHASE_FRAME: AtomicU32 = AtomicU32::new(u32::MAX);
+fn with_draw_schedule<R>(f: impl FnOnce(&mut ClientDrawScheduleState) -> R) -> R {
+    let mut f = Some(f);
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        f.take().expect("draw schedule callback")(client.draw_schedule_mut())
+    }) {
+        return result;
+    }
+    f.take().expect("draw schedule callback")(&mut ClientDrawScheduleState::default())
+}
 #[cfg(test)]
 static PHASE_LOG: Mutex<Vec<ClientDrawPhase>> = Mutex::new(Vec::new());
 #[cfg(test)]
@@ -70,17 +78,23 @@ pub fn extra_freeze_from_engine() -> bool {
 }
 
 pub fn compute_w3d_display_freeze(extra_freeze: bool, client_frame: u32) -> bool {
-    let last = LAST_DISPLAY_CLIENT_FRAME.swap(client_frame, Ordering::SeqCst);
-    extra_freeze || last == client_frame
+    with_draw_schedule(|state| {
+        let last = state.swap_last_display_frame(client_frame);
+        extra_freeze || last == client_frame
+    })
 }
 
 pub fn advance_visual_sync(freeze_time: bool) -> u32 {
-    if !freeze_time {
-        let _ = SYNC_TIME_MS.fetch_add(W3D_FRAME_LENGTH_MS, Ordering::SeqCst);
-    }
-    let sync_time = SYNC_TIME_MS.load(Ordering::SeqCst);
-    WW3D::sync(sync_time);
-    WW3D::sync_time().saturating_sub(WW3D::previous_sync_time())
+    with_draw_schedule(|state| {
+        let previous = state.sync_time_ms;
+        let sync_time = state.advance_sync(freeze_time, W3D_FRAME_LENGTH_MS);
+        sync_time.wrapping_sub(previous)
+    })
+}
+
+/// Current visual sync clock (ms) owned by the live GameClient draw schedule.
+pub fn current_visual_sync_ms() -> u32 {
+    with_draw_schedule(|state| state.sync_time_ms)
 }
 
 pub fn should_draw_drawables(frame_time_ms: u32) -> bool {
@@ -119,7 +133,11 @@ pub fn run_dual_world_cpu_phases() {
         return;
     }
     let client_frame = live_game_client_frame().unwrap_or_else(TheGameLogic::get_frame);
-    if LAST_CPU_PHASE_FRAME.swap(client_frame, Ordering::SeqCst) == client_frame {
+    if with_draw_schedule(|state| {
+        let last = state.last_cpu_phase_frame;
+        state.last_cpu_phase_frame = client_frame;
+        last
+    }) == client_frame {
         return;
     }
     let freeze = compute_w3d_display_freeze(extra_freeze_from_engine(), client_frame);
@@ -252,11 +270,9 @@ pub fn take_draw_id_log() -> Vec<u32> {
 
 #[cfg(test)]
 pub fn reset_visual_sync_for_test() {
-    SYNC_TIME_MS.store(0, Ordering::SeqCst);
-    LAST_DISPLAY_CLIENT_FRAME.store(u32::MAX, Ordering::SeqCst);
-    LAST_CPU_PHASE_FRAME.store(u32::MAX, Ordering::SeqCst);
-    WW3D::sync(0);
-    WW3D::sync(0);
+    with_draw_schedule(|state| {
+        *state = ClientDrawScheduleState::default();
+    });
 }
 
 #[cfg(test)]
@@ -265,6 +281,7 @@ mod tests {
 
     #[test]
     fn draw_advance_skipped_when_visual_time_frozen() {
+        let _client = crate::test_support::park_live_game_client();
         reset_visual_sync_for_test();
         assert!(!compute_w3d_display_freeze(false, 10));
         assert_eq!(advance_visual_sync(false), W3D_FRAME_LENGTH_MS);
@@ -277,6 +294,7 @@ mod tests {
 
     #[test]
     fn physics_loco_advances_once_per_drawn_frame_in_region_order() {
+        let _client = crate::test_support::park_live_game_client();
         reset_visual_sync_for_test();
         let region = ViewAabb {
             lo: [0.0, 0.0, -10.0],
@@ -299,6 +317,7 @@ mod tests {
 
     #[test]
     fn particle_update_runs_after_client_transforms() {
+        crate::test_support::ensure_ambient_host();
         use std::cell::RefCell;
         let order = RefCell::new(Vec::new());
         let phases = run_scheduled_phases(
@@ -320,6 +339,7 @@ mod tests {
 
     #[test]
     fn rider_nested_draw_reenters_drawable_draw() {
+        crate::test_support::ensure_ambient_host();
         let mut draws = Vec::new();
         let phases = run_scheduled_phases(
             W3D_FRAME_LENGTH_MS,

@@ -106,6 +106,7 @@ fn capability_gaps(client: &GameClient) -> Vec<(DrawableId, usize, bool, bool, b
 
 #[test]
 fn valid_missing_native_capabilities_preserve_supported_emitters_and_particle_time() {
+    crate::test_support::ensure_ambient_host();
     let assets = static_asset();
     let mut client = GameClient::new().unwrap();
     let [supported, animated, tracks] = admit_mixed_drawables(&mut client);
@@ -158,6 +159,7 @@ fn valid_missing_native_capabilities_preserve_supported_emitters_and_particle_ti
 
 #[test]
 fn public_shell_missing_native_capabilities_reaches_actual_hud_and_existing_fx() {
+    crate::test_support::ensure_ambient_host();
     if crate::core::game_client::global_boundary_fixture::run_in_private_child(
         module_path!(),
         "public_shell_missing_native_capabilities_reaches_actual_hud_and_existing_fx",
@@ -180,9 +182,11 @@ fn public_shell_missing_native_capabilities_reaches_actual_hud_and_existing_fx()
         .replace(bridge);
     let mut manager = emitter_manager();
     let independent = admit_independent_particle(&mut manager, 37);
-    let previous_particles = get_particle_system_manager_mut().unwrap().replace(manager);
     let observed = (|| -> Result<_, String> {
         let mut client = GameClient::new().map_err(|error| error.to_string())?;
+        // Public shell owns DrawableWorld.particles and the client render bridge.
+        *client.render_bridge_mut().asset_manager_mut() = static_asset();
+        client.drawables.particles = Some(manager);
         client
             .window_manager_owner()
             .shell_handle()
@@ -201,13 +205,17 @@ fn public_shell_missing_native_capabilities_reaches_actual_hud_and_existing_fx()
                     logic_frame: 104,
                     client_frame: 37,
                 },
+                0,
             )
             .map_err(|error| error.to_string());
         let gaps = capability_gaps(&client);
         let hud = client.last_live_ingame_hud_draw();
         let (lifetime, supported_emitters) = {
-            let guard = get_particle_system_manager_mut().map_err(|error| error.to_string())?;
-            let manager = guard.as_ref().expect("actual public receiving manager");
+            let manager = client
+                .drawables
+                .particles
+                .as_ref()
+                .expect("actual public receiving manager");
             (
                 independent_lifetime(manager, independent),
                 manager
@@ -230,7 +238,6 @@ fn public_shell_missing_native_capabilities_reaches_actual_hud_and_existing_fx()
             tracks,
         ))
     })();
-    *get_particle_system_manager_mut().unwrap() = previous_particles;
     *crate::render_bridge::THE_RENDER_BRIDGE.lock().unwrap() = previous_bridge;
     let (result, gaps, hud, lifetime, supported_emitters, animated, tracks) = observed.unwrap();
     assert!(

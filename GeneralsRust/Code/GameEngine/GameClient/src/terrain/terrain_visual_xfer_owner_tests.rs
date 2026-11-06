@@ -32,6 +32,7 @@ fn terrain(raw: u8, enabled: bool) -> gamelogic::terrain::TerrainLogic {
 }
 #[test]
 fn owned_codec_pairs_logical_and_optional_native_values_without_live_effects() {
+    crate::test_support::ensure_ambient_host();
     let a = terrain(40, true);
     let b = terrain(90, false);
     let mark = ScorchMark {
@@ -82,6 +83,7 @@ fn owned_codec_pairs_logical_and_optional_native_values_without_live_effects() {
 }
 #[test]
 fn malformed_tail_and_trailing_bytes_fail_before_receiving_admission() {
+    crate::test_support::ensure_ambient_host();
     let a = terrain(40, false);
     let mark = ScorchMark {
         location: [10., 20., 3.],
@@ -114,6 +116,7 @@ fn malformed_tail_and_trailing_bytes_fail_before_receiving_admission() {
 
 #[test]
 fn historical_v1_v2_without_native_tail_preserve_explicit_absence() {
+    crate::test_support::ensure_ambient_host();
     let receiving = terrain(90, false);
     let v1 = prepare_terrain_visual_for_terrain(&receiving, &[1, 1, 0])
         .unwrap()
@@ -129,6 +132,7 @@ fn historical_v1_v2_without_native_tail_preserve_explicit_absence() {
 
 #[test]
 fn original_water_enabled_mismatch_is_rejected_against_receiving_map() {
+    crate::test_support::ensure_ambient_host();
     let source = terrain(40, true);
     let receiving = terrain(90, false);
     let bytes = capture_owned_terrain_visual_for_terrain(&source, None).unwrap();
@@ -143,6 +147,7 @@ fn original_water_enabled_mismatch_is_rejected_against_receiving_map() {
 
 #[test]
 fn actual_waveguide_configuration_uses_explicit_definitions_and_optional_delivery() {
+    crate::test_support::ensure_ambient_host();
     let mut definitions = game_engine::common::ini::ini_game_data::GlobalData::new();
     definitions.vertex_water_available_maps[0] = "owned_water.map".into();
     definitions.vertex_water_x_grid_cells[0] = 2;
@@ -182,6 +187,7 @@ fn actual_waveguide_configuration_uses_explicit_definitions_and_optional_deliver
 
 #[test]
 fn prepared_native_admission_changes_only_receiving_visual_and_preserves_absent_scorch_tail() {
+    crate::test_support::ensure_ambient_host();
     use crate::terrain::{HeightMap, terrain_visual::TerrainVisualImpl};
     let source = terrain(40, true);
     let mark = ScorchMark {
@@ -231,6 +237,7 @@ fn prepared_native_admission_changes_only_receiving_visual_and_preserves_absent_
 
 #[test]
 fn native_water_motion_is_captured_from_receiving_visual_without_changing_logical_only_codec() {
+    crate::test_support::ensure_ambient_host();
     use crate::terrain::terrain_visual::TerrainVisualImpl;
     let logical = terrain(40, true);
     let mut native = TerrainVisualImpl::new();
@@ -277,6 +284,7 @@ fn native_water_motion_is_captured_from_receiving_visual_without_changing_logica
 
 #[test]
 fn native_water_admission_and_recapture_preserves_complete_source_status_byte() {
+    crate::test_support::ensure_ambient_host();
     use crate::terrain::terrain_visual::TerrainVisualImpl;
     let mut logical = terrain(40, true);
     logical.water_grid_state_mut().mesh_motion.insert(

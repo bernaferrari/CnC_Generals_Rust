@@ -471,7 +471,8 @@ impl CrateCollide {
 
     fn is_human_player(&self, _player_id: PlayerId) -> bool {
         let index = _player_id.value() as PlayerIndex;
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return false;
         };
         let Some(player) = list.get_player(index) else {
@@ -490,7 +491,8 @@ impl CrateCollide {
         }
 
         let index = _player_id.value() as PlayerIndex;
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return false;
         };
         let Some(player) = list.get_player(index) else {

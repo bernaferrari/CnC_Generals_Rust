@@ -22,7 +22,7 @@ pub fn w3d_clock_draw(
     crate::gui::game_window::default_draw_callback(window, inst_data, draw_context);
 
     let datestr = Local::now().format("%H:%M:%S").to_string();
-    let font = get_font_library()
+    let font = get_font_library().lock().unwrap_or_else(|e| e.into_inner())
         .get_font(&FontDesc::new("Arial", 16, false))
         .ok();
     let text_width = font
@@ -511,8 +511,8 @@ pub fn w3d_right_hud_draw(
         crate::gui::game_window::default_draw_callback(window, inst_data, draw_context);
     }
     if std::env::var_os("GENERALS_RIGHTHUD_PROBE").is_some() {
-        static ONCE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-        if !ONCE.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        static ONCE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        if ONCE.set(()).is_ok() {
             let (x, y) = window.get_screen_position();
             let (w, h) = window.get_size();
             eprintln!(
@@ -604,6 +604,7 @@ mod tests {
 
     #[test]
     fn radar_layer_uv_puts_texture_origin_at_hud_bottom() {
+        crate::test_support::ensure_ambient_host();
         let uv = radar_layer_vflip_uv();
         assert!((uv.x - 0.0).abs() < f32::EPSILON);
         assert!((uv.y - 1.0).abs() < f32::EPSILON);

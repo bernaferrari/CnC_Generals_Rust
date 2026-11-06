@@ -192,7 +192,6 @@
 //! let (purchasable, potential) = store.get_purchasable_sciences(&player);
 //! ```
 
-use once_cell::sync::OnceCell;
 use std::any::Any;
 use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::fs::File;
@@ -1239,36 +1238,29 @@ impl Default for ScienceStore {
     }
 }
 
-/// Global science store instance
-///
-/// In the original C++, this was a global pointer.
-/// In Rust, we'd typically use a different pattern, but
-/// this maintains API compatibility.
-static SCIENCE_STORE: OnceCell<RwLock<ScienceStore>> = OnceCell::new();
-
 /// Get the global science store
-pub fn get_science_store() -> Option<RwLockReadGuard<'static, ScienceStore>> {
-    SCIENCE_STORE
-        .get()
-        .map(|store| store.read().expect("ScienceStore poisoned"))
-}
-
 /// Initialize the global science store
-pub fn init_science_store() {
-    if SCIENCE_STORE.get().is_none() {
-        let _ = SCIENCE_STORE.set(RwLock::new(ScienceStore::new()));
-    } else if let Some(store) = SCIENCE_STORE.get() {
-        if let Ok(mut guard) = store.write() {
-            *guard = ScienceStore::new();
-        }
-    }
+/// Get a mutable guard to the global science store.
+
+fn rts_science_cell() -> std::sync::Arc<std::sync::RwLock<ScienceStore>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.rts_science)
 }
 
-/// Get a mutable guard to the global science store.
+pub fn get_science_store() -> Option<RwLockReadGuard<'static, ScienceStore>> {
+    let cell = rts_science_cell();
+    let guard = cell.read().ok()?;
+    Some(unsafe { std::mem::transmute(guard) })
+}
+
+pub fn init_science_store() {
+    let cell = rts_science_cell();
+    *cell.write().expect("ScienceStore poisoned") = ScienceStore::new();
+}
+
 pub fn get_science_store_mut() -> Option<RwLockWriteGuard<'static, ScienceStore>> {
-    SCIENCE_STORE
-        .get()
-        .map(|store| store.write().expect("ScienceStore poisoned"))
+    let cell = rts_science_cell();
+    let guard = cell.write().ok()?;
+    Some(unsafe { std::mem::transmute(guard) })
 }
 
 /// Subsystem responsible for loading and maintaining the global science store.
@@ -2143,6 +2135,38 @@ mod tests {
             SCIENCE_INVALID
         );
         assert_eq!(store.get_internal_name_for_science(SCIENCE_INVALID), "");
+    }
+
+    #[test]
+    fn science_store_keeps_prior_entries_across_multiple_ingestions() {
+        use crate::common::common_services::{CommonServices, with_common_services};
+        use std::sync::Arc;
+
+        let common = Arc::new(CommonServices::new());
+        with_common_services(&common, || {
+            init_science_store();
+            {
+                let mut store = get_science_store_mut().expect("live science store");
+                store.ingest_definition(ScienceDefinition {
+                    name: "SCIENCE_AccumRoot".into(),
+                    cost: Some(1),
+                    ..Default::default()
+                });
+                store.ingest_definition(ScienceDefinition {
+                    name: "SCIENCE_AccumChild".into(),
+                    cost: Some(2),
+                    prereq_names: Some(vec!["SCIENCE_AccumRoot".into()]),
+                    ..Default::default()
+                });
+            }
+            let store = get_science_store().expect("live science store");
+            let root = store.get_science_from_internal_name("SCIENCE_AccumRoot");
+            let child = store.get_science_from_internal_name("SCIENCE_AccumChild");
+            assert_ne!(root, SCIENCE_INVALID);
+            assert_ne!(child, SCIENCE_INVALID);
+            assert_ne!(root, child);
+            assert_eq!(store.get_science_purchase_cost(child), 2);
+        });
     }
 
     /// Test display names and descriptions

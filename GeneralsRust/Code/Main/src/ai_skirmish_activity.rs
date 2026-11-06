@@ -13,7 +13,7 @@
 //! Wave 956: host_object/host_objects authority dual-read seal.
 //! Wave 958: host_object dual-read seal (tests + residual).
 use crate::ai::AIDifficulty;
-use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
 use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 use glam::Vec3;
 use std::path::{Path, PathBuf};
@@ -384,6 +384,157 @@ pub fn format_ai_activity_report(r: &AiSkirmishActivityResult) -> String {
     )
 }
 
+
+/// Combined P0 hq-x1j4u.9.5 residual: retail map load + Medium AI activity +
+/// a concurrent human move order on the same GameLogic instance.
+#[derive(Debug, Clone)]
+pub struct AiRetailSkirmishOrdersResult {
+    pub map_loaded: bool,
+    pub map_identity: String,
+    pub ai: AiLoadMapActivityResult,
+    pub human_unit_id: Option<crate::game_logic::ObjectId>,
+    pub human_order_issued: bool,
+    pub human_order_visible: bool,
+    pub status: String,
+}
+
+/// Load a retail skirmish map, run Medium AI, and issue a human move mid-run.
+///
+/// Skips productivity claims when the retail `.map` is absent (`map_loaded=false`).
+pub fn run_ai_retail_skirmish_with_player_orders(frames: u32) -> AiRetailSkirmishOrdersResult {
+    let (map_identity, map_path) = resolve_skirmish_map_path();
+    let config = golden_skirmish_config(&map_identity);
+    let mut logic = GameLogic::new();
+    let config_applied = apply_skirmish_config(&mut logic, &config).is_ok();
+    logic.ensure_ai_faction_templates(Team::USA);
+    logic.ensure_ai_faction_templates(Team::GLA);
+    ensure_human_templates(&mut logic);
+
+    let map_loaded = if let Some(ref path) = map_path {
+        let s = path.to_string_lossy();
+        logic.load_map(&s) || logic.load_map(&map_identity)
+    } else {
+        false
+    };
+    if !map_loaded {
+        logic.rebind_host_ai_after_map_load();
+    }
+
+    let cash_after_load = logic
+        .get_player(1)
+        .map(|p| p.effective_supplies())
+        .unwrap_or(0);
+    let cash_ok = cash_after_load >= 1_000;
+
+    let _ = logic.create_object("HumanCC", Team::USA, Vec3::new(-100.0, 0.0, -100.0));
+    let human_unit_id =
+        logic.create_object("HumanRanger", Team::USA, Vec3::new(-90.0, 0.0, -90.0));
+    seed_gla_skirmish_start(&mut logic);
+
+    let difficulty_medium = matches!(logic.host_ai_difficulty(1), Some(AIDifficulty::Medium));
+    let ai_active = logic.is_host_ai_active(1);
+
+    let half = (frames.max(2) / 2).max(1);
+    let frame_before = logic.get_frame();
+    for _ in 0..half {
+        logic.update();
+    }
+
+    // Concurrent player order while AI continues.
+    let mut human_order_issued = false;
+    let mut pos_before = None;
+    if let Some(id) = human_unit_id {
+        pos_before = logic.host_object(id).map(|o| o.get_position());
+        logic.select_objects(0, vec![id]);
+        logic.command_move(0, Vec3::new(-40.0, 0.0, -40.0));
+        human_order_issued = true;
+    }
+
+    for _ in 0..half {
+        logic.update();
+    }
+    let frames_advanced = logic.get_frame().saturating_sub(frame_before);
+
+    let mut human_order_visible = false;
+    if let (Some(id), Some(before)) = (human_unit_id, pos_before) {
+        if let Some(after) = logic.host_object(id).map(|o| o.get_position()) {
+            let dx = after.x - before.x;
+            let dz = after.z - before.z;
+            human_order_visible = (dx * dx + dz * dz) > 1.0
+                || logic
+                    .host_object(id)
+                    .map(|o| o.ai_state() != AIState::Idle)
+                    .unwrap_or(false);
+        }
+    }
+
+    let activity_count = logic.host_ai_activity_count();
+    let ai_structures = count_ai_structures(&logic);
+    let ai_units_or_queue = count_ai_units_or_queue(&logic);
+    let productive = activity_count >= 1
+        && (ai_structures >= 2 || ai_units_or_queue >= 1 || activity_count >= 2);
+
+    let ai = AiLoadMapActivityResult {
+        config_applied,
+        map_loaded,
+        map_identity: map_identity.clone(),
+        cash_after_load,
+        cash_ok,
+        ai_active,
+        difficulty_medium,
+        frames_advanced,
+        activity_count,
+        ai_structures,
+        ai_units_or_queue,
+        productive,
+        status: if config_applied
+            && map_loaded
+            && cash_ok
+            && ai_active
+            && difficulty_medium
+            && frames_advanced > 0
+            && productive
+        {
+            "success".into()
+        } else {
+            "partial".into()
+        },
+    };
+
+    let status = if ai.status == "success" && human_order_issued && human_order_visible {
+        "success".into()
+    } else if !map_loaded {
+        "map_missing".into()
+    } else {
+        "partial".into()
+    };
+
+    AiRetailSkirmishOrdersResult {
+        map_loaded,
+        map_identity,
+        ai,
+        human_unit_id,
+        human_order_issued,
+        human_order_visible,
+        status,
+    }
+}
+
+pub fn format_ai_retail_skirmish_orders_report(r: &AiRetailSkirmishOrdersResult) -> String {
+    format!(
+        "map_loaded={} map={} ai_status={} activity={} structures={} units_or_queue={} human_order_issued={} human_order_visible={} status={}",
+        r.map_loaded,
+        r.map_identity,
+        r.ai.status,
+        r.ai.activity_count,
+        r.ai.ai_structures,
+        r.ai.ai_units_or_queue,
+        r.human_order_issued,
+        r.human_order_visible,
+        r.status
+    )
+}
+
 pub fn format_ai_load_map_report(r: &AiLoadMapActivityResult) -> String {
     format!(
         "config_applied={} map_loaded={} map={} cash={} cash_ok={} ai_active={} medium={} frames={} activity={} structures={} units_or_queue={} productive={} status={}",
@@ -597,6 +748,26 @@ mod tests {
                 && (after_more > after_first || structs_more > 1 || units_more >= 1),
             "AI must remain productive: act {after_first}->{after_more} structs {structs_first}->{structs_more} units={units_more}"
         );
+    }
+
+    #[test]
+    fn medium_ai_and_human_orders_on_retail_skirmish_map() {
+        let result = run_ai_retail_skirmish_with_player_orders(180);
+        if !result.map_loaded {
+            eprintln!(
+                "skip: retail map missing — {}",
+                format_ai_retail_skirmish_orders_report(&result)
+            );
+            return;
+        }
+        assert_eq!(
+            result.status,
+            "success",
+            "{}",
+            format_ai_retail_skirmish_orders_report(&result)
+        );
+        assert!(result.ai.productive);
+        assert!(result.human_order_issued && result.human_order_visible);
     }
 
     #[test]

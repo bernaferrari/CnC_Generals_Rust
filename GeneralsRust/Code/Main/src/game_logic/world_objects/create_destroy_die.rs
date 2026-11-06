@@ -15,6 +15,12 @@ mod incoming_death_owner_tests;
 #[cfg(test)]
 #[path = "create_destroy_die/checked_factory_tests.rs"]
 mod checked_factory_tests;
+#[cfg(test)]
+#[path = "create_destroy_die/mine_typed_admission_tests.rs"]
+mod mine_typed_admission_tests;
+#[cfg(test)]
+#[path = "create_destroy_die/assisted_targeting_admission_tests.rs"]
+mod assisted_targeting_admission_tests;
 mod construction;
 mod death;
 mod factory_init;
@@ -44,6 +50,7 @@ struct HostSpawnBehaviorSpec {
     one_shot: bool,
     spawned_require_spawner: bool,
     slaves_have_free_will: bool,
+    initial_burst: i32,
 }
 
 /// C++ `MAX_SPAWN_POINTS` (`SpawnPointProductionExitUpdate.h:20`).
@@ -483,8 +490,7 @@ impl GameLogic {
 
     fn is_stinger_soldier_template(name: &str) -> bool {
         let n = name.to_ascii_lowercase();
-        (n.contains("stingersoldier") || n.contains("stinger_soldier"))
-            && !crate::game_logic::host_base_defense::is_stinger_site_structure(name)
+        n.contains("stingersoldier") || n.contains("stinger_soldier")
     }
 
     fn resolve_host_spawn_behavior_spec(object: &Object) -> Option<HostSpawnBehaviorSpec> {
@@ -501,7 +507,7 @@ impl GameLogic {
         {
             return Self::authored_spawn_behavior_template(template);
         }
-        Self::fallback_spawn_behavior_spec(template_name)
+        Self::fallback_spawn_behavior_spec(template, template_name)
     }
 
     pub(crate) fn supported_spawn_behavior_child_template(
@@ -536,10 +542,6 @@ impl GameLogic {
         &self,
         parent_template_name: &str,
     ) -> Result<Option<u32>, ()> {
-        use crate::game_logic::host_base_defense::is_stinger_site_structure;
-        if !is_stinger_site_structure(parent_template_name) {
-            return Ok(None);
-        }
         let (name, template) =
             if let Some((name, template)) = self.templates.get_key_value(parent_template_name) {
                 (name, template)
@@ -556,6 +558,10 @@ impl GameLogic {
                 }
                 first
             };
+        // C++ Stinger hive identity is the authored SPAWNS_ARE_THE_WEAPONS bit.
+        if !template.is_kind_of(KindOf::SpawnsAreTheWeapons) {
+            return Ok(None);
+        }
         let Some(spec) = Self::resolve_host_spawn_behavior_template(template, name) else {
             return Ok(None);
         };
@@ -616,6 +622,7 @@ impl GameLogic {
             one_shot: data.is_one_shot_data,
             spawned_require_spawner: data.spawned_require_spawner,
             slaves_have_free_will: data.slaves_have_free_will,
+            initial_burst: data.initial_burst,
         })
     }
 
@@ -628,7 +635,10 @@ impl GameLogic {
             .is_some_and(|spec| !spec.slaves_have_free_will)
     }
 
-    fn fallback_spawn_behavior_spec(template_name: &str) -> Option<HostSpawnBehaviorSpec> {
+    fn fallback_spawn_behavior_spec(
+        template: &ThingTemplate,
+        template_name: &str,
+    ) -> Option<HostSpawnBehaviorSpec> {
         use crate::game_logic::host_tunnel_network::{
             TUNNEL_NETWORK_SPAWN_NUMBER, general_prefixed_spawn_template,
             tunnel_network_has_oneshot_spawn, tunnel_network_spawn_template_for,
@@ -641,9 +651,11 @@ impl GameLogic {
                 one_shot: true,
                 spawned_require_spawner: false,
                 slaves_have_free_will: false,
+                initial_burst: 0,
             });
         }
-        if crate::game_logic::host_base_defense::is_stinger_site_structure(template_name) {
+        // C++ Stinger Site hive: authored KINDOF_SPAWNS_ARE_THE_WEAPONS (hq-2qedt.259).
+        if template.is_kind_of(KindOf::SpawnsAreTheWeapons) {
             return Some(HostSpawnBehaviorSpec {
                 spawn_template: general_prefixed_spawn_template(
                     template_name,
@@ -655,6 +667,7 @@ impl GameLogic {
                 one_shot: false,
                 spawned_require_spawner: true,
                 slaves_have_free_will: false,
+                initial_burst: 0,
             });
         }
         None
@@ -932,6 +945,27 @@ impl GameLogic {
         }
         if spec.one_shot {
             self.spawn_oneshot_spawn_behavior_checked(object_id, &spec, interpreter, ui)?;
+        } else if self.host_object(object_id).is_some_and(|object| {
+            crate::game_logic::host_base_defense::is_stinger_site_structure(&object.template_name)
+        }) {
+            // C++ SpawnBehavior::update first pass (SpawnBehavior.cpp:176-248):
+            // build completion spawns nothing; the first update seeds the
+            // ordered replacement list (runtimeProduced or list index) and the
+            // per-frame drain spawns each entry where currentTime > time.
+            let live = self.count_spawn_behavior_children(object_id, &spec.spawn_template, true);
+            if let Some(object) = self.host_object_mut(object_id) {
+                if live == 0 && object.spawn_behavior_replacement_times().is_empty() {
+                    let runtime_produced = object.producer_id.is_some();
+                    for due in gamelogic::object::behavior::spawn_behavior::initial_burst_replacement_times(
+                        0,
+                        spec.spawn_number as i32,
+                        spec.initial_burst,
+                        runtime_produced,
+                    ) {
+                        object.enqueue_spawn_behavior_replacement(due.max(0) as u32);
+                    }
+                }
+            }
         } else {
             let _created = self.spawn_missing_hive_world_soldiers_with_effects_checked(
                 object_id,
@@ -940,11 +974,10 @@ impl GameLogic {
                 ui,
                 None,
             )?;
-            if self.host_object(object_id).is_some_and(|object| {
-                crate::game_logic::host_base_defense::is_stinger_site_structure(
-                    &object.template_name,
-                )
-            }) {
+            if self
+                .host_object(object_id)
+                .is_some_and(|object| object.is_kind_of(KindOf::SpawnsAreTheWeapons))
+            {
                 let live =
                     self.count_spawn_behavior_children(object_id, &spec.spawn_template, true);
                 if live < spec.spawn_number
@@ -1102,9 +1135,7 @@ impl GameLogic {
             (
                 parent.get_position(),
                 parent.get_orientation(),
-                crate::game_logic::host_base_defense::is_stinger_site_structure(
-                    &parent.template_name,
-                ),
+                parent.is_kind_of(KindOf::SpawnsAreTheWeapons),
                 collect_world_spawn_point_bones(parent),
                 used_slots,
             )
@@ -1187,6 +1218,16 @@ impl GameLogic {
         Ok(created)
     }
 
+    /// Test fixture: run the C++ SpawnBehavior first update for every Stinger
+    /// site so build-complete fixtures observe their initial roster.
+    #[doc(hidden)]
+    pub fn run_first_spawn_update_for_test(&mut self) {
+        let saved = self.frame;
+        self.frame = saved.max(crate::game_logic::host_base_defense::STINGER_SPAWN_NUMBER as u32 + 1);
+        self.update_stinger_hive_world_soldiers();
+        self.frame = saved;
+    }
+
     /// Advance each Stinger's ordered SpawnBehavior replacement deadlines.
     pub(crate) fn update_stinger_hive_world_soldiers(&mut self) {
         self.update_stinger_hive_world_soldiers_with_effects(&mut Default::default())
@@ -1196,13 +1237,12 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        use crate::game_logic::host_base_defense::is_stinger_site_structure;
         let frame = self.frame;
         let sites: Vec<ObjectId> = self
             .objects
             .registered()
             .filter_map(|(id, object)| {
-                if is_stinger_site_structure(&object.template_name) && object.is_alive() {
+                if object.is_kind_of(KindOf::SpawnsAreTheWeapons) && object.is_alive() {
                     Some(*id)
                 } else {
                     None
@@ -1256,11 +1296,12 @@ impl GameLogic {
         }
     }
 
-    /// C++ SpawnBehavior::computeAggregateStates — higher rank wins both ways.
-    fn sync_spawn_behavior_veterancy(&mut self, parent_id: ObjectId, spawn_template: &str) {
-        use crate::game_logic::host_slave_drones::synced_spawn_veterancy;
-
-        let Some(parent_level) = self
+    /// C++ SpawnBehavior::computeAggregateStates (SpawnBehavior.cpp:855-897):
+    /// `vetLevel` is captured once, then each spawn in roster order is compared
+    /// to that captured rank; the lower side gets the exact
+    /// `ExperienceTracker::setVeterancyLevel(level)` with default feedback.
+    pub(super) fn sync_spawn_behavior_veterancy(&mut self, parent_id: ObjectId, spawn_template: &str) {
+        let Some(vet_level) = self
             .host_object(parent_id)
             .filter(|o| o.is_alive())
             .map(|o| o.experience.level)
@@ -1276,43 +1317,21 @@ impl GameLogic {
             .filter(|object| object.is_alive() && !object.status.effectively_dead)
             .map(|object| (object.id, object.experience.level))
             .collect();
-        let mut high = parent_level;
-        for (_, level) in &children {
-            let (next, _) = synced_spawn_veterancy(high, *level);
-            high = next;
-        }
-        if high != parent_level {
-            let health_bonus = self.veterancy_health_bonus;
-            let _ = self.host_object_mut(parent_id);
-            self.with_object_veterancy_feedback_and_locomotors(
-                parent_id,
-                |parent, audio, feedback, locomotors| {
-                    parent.set_min_veterancy_level_with_health_bonus_table(
-                        high,
-                        &health_bonus,
-                        audio,
-                        feedback,
-                        locomotors,
-                    )
-                },
-            );
-        }
-        for (id, level) in children {
-            if level != high {
-                let health_bonus = self.veterancy_health_bonus;
-                let _ = self.host_object_mut(id);
-                self.with_object_veterancy_feedback_and_locomotors(
-                    id,
-                    |child, audio, feedback, locomotors| {
-                        child.set_min_veterancy_level_with_health_bonus_table(
-                            high,
-                            &health_bonus,
-                            audio,
-                            feedback,
-                            locomotors,
-                        )
-                    },
-                );
+        let rank = crate::game_logic::host_unit_training::veterancy_rank;
+        for (child_id, spawn_level) in children {
+            let (target, level) = if rank(spawn_level) > rank(vet_level) {
+                (parent_id, spawn_level)
+            } else if rank(spawn_level) < rank(vet_level) {
+                (child_id, vet_level)
+            } else {
+                continue;
+            };
+            if let Err(error) = self.set_exact_veterancy_level_with_upgrade_callback(
+                target,
+                level,
+                &mut Default::default(),
+            ) {
+                log::error!("{error}");
             }
         }
     }
@@ -1409,16 +1428,18 @@ impl GameLogic {
         team: Team,
         position: Vec3,
     ) -> Option<ObjectId> {
-        let owner_player_id = self.unique_player_id_for_team(team);
-        let id = self.create_object_with_owner(
-            template_name,
-            team,
-            owner_player_id,
-            position,
-            FactoryCreationPurpose::AtCreation,
-        )?;
-        self.apply_cash_bounty_on_object_created(id);
-        Some(id)
+        self.with_own_services_mut(|this| {
+            let owner_player_id = this.unique_player_id_for_team(team);
+            let id = this.create_object_with_owner(
+                template_name,
+                team,
+                owner_player_id,
+                position,
+                FactoryCreationPurpose::AtCreation,
+            )?;
+            this.apply_cash_bounty_on_object_created(id);
+            Some(id)
+        })
     }
 
     pub(crate) fn create_object_with_script_effects(
@@ -1452,22 +1473,24 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
-        let owner_player_id = self.unique_player_id_for_team(team);
-        let Some(id) = self.create_object_with_initial_team_and_ui_checked(
-            template_name,
-            team,
-            owner_player_id,
-            position,
-            FactoryCreationPurpose::AtCreation,
-            None,
-            interpreter,
-            ui,
-        )?
-        else {
-            return Ok(None);
-        };
-        self.apply_cash_bounty_on_object_created(id);
-        Ok(Some(id))
+        self.with_own_services_mut(|this| {
+            let owner_player_id = this.unique_player_id_for_team(team);
+            let Some(id) = this.create_object_with_initial_team_and_ui_checked(
+                template_name,
+                team,
+                owner_player_id,
+                position,
+                FactoryCreationPurpose::AtCreation,
+                None,
+                interpreter,
+                ui,
+            )?
+            else {
+                return Ok(None);
+            };
+            this.apply_cash_bounty_on_object_created(id);
+            Ok(Some(id))
+        })
     }
 
     /// Create an object for a specific controlling player while retaining the
@@ -1478,13 +1501,15 @@ impl GameLogic {
         owner_player_id: u32,
         position: Vec3,
     ) -> Option<ObjectId> {
-        self.create_object_for_player_with_effects(
-            template_name,
-            owner_player_id,
-            position,
-            None,
-            &mut Default::default(),
-        )
+        self.with_own_services_mut(|this| {
+            this.create_object_for_player_with_effects(
+                template_name,
+                owner_player_id,
+                position,
+                None,
+                &mut Default::default(),
+            )
+        })
     }
 
     pub(crate) fn create_object_for_player_with_effects(
@@ -1518,28 +1543,30 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
-        let Some(player) = self.players.get(&owner_player_id) else {
-            return Ok(None);
-        };
-        let team = player.team;
-        if team == Team::Neutral {
-            return Ok(None);
-        }
-        let Some(id) = self.create_object_with_initial_team_and_ui_checked(
-            template_name,
-            team,
-            Some(owner_player_id),
-            position,
-            FactoryCreationPurpose::AtCreation,
-            None,
-            interpreter,
-            ui,
-        )?
-        else {
-            return Ok(None);
-        };
-        self.apply_cash_bounty_on_object_created(id);
-        Ok(Some(id))
+        self.with_own_services_mut(|this| {
+            let Some(player) = this.players.get(&owner_player_id) else {
+                return Ok(None);
+            };
+            let team = player.team;
+            if team == Team::Neutral {
+                return Ok(None);
+            }
+            let Some(id) = this.create_object_with_initial_team_and_ui_checked(
+                template_name,
+                team,
+                Some(owner_player_id),
+                position,
+                FactoryCreationPurpose::AtCreation,
+                None,
+                interpreter,
+                ui,
+            )?
+            else {
+                return Ok(None);
+            };
+            this.apply_cash_bounty_on_object_created(id);
+            Ok(Some(id))
+        })
     }
 
     /// Weapon.cpp creates a projectile on the firing controller's default
@@ -2250,6 +2277,35 @@ impl GameLogic {
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         birth_out: Option<&mut Option<(ObjectId, std::sync::Weak<()>)>>,
     ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+        // Bind World+Main for Object birth (asset manager / squish / NameKey).
+        // Nested with outer create_object wraps is fine (same Arc stack).
+        self.with_own_services_mut(|this| {
+            this.create_object_with_initial_team_and_ui_birth_checked_inner(
+                template_name,
+                team,
+                owner_player_id,
+                position,
+                creation_purpose,
+                initial_team,
+                interpreter,
+                ui,
+                birth_out,
+            )
+        })
+    }
+
+    fn create_object_with_initial_team_and_ui_birth_checked_inner(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        owner_player_id: Option<u32>,
+        position: Vec3,
+        creation_purpose: FactoryCreationPurpose,
+        initial_team: Option<(&str, u32, bool)>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        birth_out: Option<&mut Option<(ObjectId, std::sync::Weak<()>)>>,
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
         if let Some(error) = self.object_retirement_error() {
             return Err(error);
         }
@@ -2590,46 +2646,67 @@ impl GameLogic {
             }
 
             // Constructor data precedes player upgrade application in initObject.
-            if let Some(mine_data) = crate::game_logic::host_mines::residual_data_for_template(
-                template_name,
-                self.frame,
-                false,
-            ) {
-                // A captured Object's declared modules are authoritative. A
-                // name containing "mine" does not install an unrequested module.
-                let authored = object
-                    .thing()
-                    .template
-                    .receiving_object_definition
-                    .as_ref()
-                    .is_none_or(|definition| {
-                        let class = match mine_data.kind {
-                            crate::game_logic::host_mines::HostMineKind::LandMine => {
-                                "MinefieldBehavior"
-                            }
-                            crate::game_logic::host_mines::HostMineKind::DemoTrap => {
-                                "DemoTrapUpdate"
-                            }
-                            crate::game_logic::host_mines::HostMineKind::TimedDemoCharge
-                            | crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge => {
-                                "StickyBombUpdate"
-                            }
-                        };
-                        definition
-                            .behavior_modules
-                            .iter()
-                            .any(|module| module.class_name.eq_ignore_ascii_case(class))
-                    });
-                if authored {
-                    object.mine_data = Some(mine_data);
+            // C++ AssistedTargetingUpdate.cpp:74-75: authored slot/clip from the
+            // admitted module; retail Patriot residual only when unadmitted.
+            object.assisted_targeting = match object
+                .thing()
+                .template
+                .receiving_object_definition
+                .as_ref()
+            {
+                Some(definition) => {
+                    crate::game_logic::host_base_defense::HostAssistedTargetingData::from_modules(
+                        &definition.behavior_modules,
+                    )
                 }
+                None => crate::game_logic::host_base_defense::is_patriot_battery_structure(
+                    template_name,
+                )
+                .then_some(
+                    crate::game_logic::host_base_defense::HostAssistedTargetingData::RETAIL_PATRIOT,
+                ),
+            };
+            // Typed admission: a captured Object's declared mine module selects
+            // and parameterizes the runtime; name residual only when unbound.
+            let mine_data = match object
+                .thing()
+                .template
+                .receiving_object_definition
+                .as_ref()
+            {
+                Some(definition) => crate::game_logic::host_mines::admitted_data_for_modules(
+                    &definition.behavior_modules,
+                    template_name,
+                    self.frame,
+                    false,
+                ),
+                None => crate::game_logic::host_mines::residual_data_for_template(
+                    template_name,
+                    self.frame,
+                    false,
+                ),
+            };
+            if let Some(mine_data) = mine_data {
+                object.mine_data = Some(mine_data);
             }
 
             // Host residual: GLA Battle Bus TransportContain Slots=8 + passenger fire.
             if crate::game_logic::host_battle_bus::is_battle_bus_template(template_name) {
                 object.install_battle_bus_transport();
             }
-            if crate::game_logic::host_highlander_body::is_highlander_body_template(template_name) {
+            // C++ HighlanderBody.cpp:33-34 is the authored Body module only
+            // (hq-2qedt combat4); no template-name peel.
+            let highlander = object
+                .thing()
+                .template
+                .receiving_object_definition
+                .as_ref()
+                .is_some_and(|definition| {
+                    definition.behavior_modules.iter().any(|module| {
+                        module.class_name.eq_ignore_ascii_case("HighlanderBody")
+                    })
+                });
+            if highlander {
                 object.install_highlander_body();
             }
             object.install_deploy_style_if_needed();
@@ -2687,39 +2764,39 @@ impl GameLogic {
             if object.smart_bomb_target_homing.is_some() {
                 self.smart_bomb_target_homing_reg.record_install();
             }
-            if let Some(up) =
-                crate::game_logic::host_upgrade_die::upgrade_to_remove_for_template(template_name)
-            {
+            // C++ ModuleFactory binds UpgradeDie from the Object's authored
+            // module data (UpgradeDieModuleData::m_upgradeName); no name sniff.
+            let authored_upgrade_die = object
+                .thing()
+                .template
+                .native_die_declarations
+                .as_deref()
+                .and_then(|declarations| {
+                    declarations.iter().find_map(|declaration| match &declaration.kind {
+                        crate::game_logic::native_die_definition::NativeDieKind::Upgrade {
+                            upgrade_to_remove,
+                        } => Some(upgrade_to_remove.clone()),
+                        _ => None,
+                    })
+                });
+            if let Some(up) = authored_upgrade_die {
                 object.install_upgrade_die(up);
             }
 
-            // Host residual: GLA Technical TransportContain Slots=5 (infantry passengers)
-            // + PRIMARY TechnicalMachineGunWeapon residual (salvage tiers swap later).
+            // Host residual: GLA Technical TransportContain Slots=5 (infantry passengers).
+            // PRIMARY binds from the authored WeaponSet above (C++
+            // WeaponSet::updateWeaponSet), not a template-name peel (hq-2qedt.143).
             // Fail-closed: not chassis reskin / PassengersAllowedToFire.
             if crate::game_logic::host_technical::is_technical_template(template_name) {
-                use crate::game_logic::host_technical::{
-                    TechnicalWeaponTier, technical_weapon_for_tier,
-                };
                 object.install_technical_transport();
-                // Force residual MG when template lacked primary_weapon_name (Weapon::default path).
-                object.weapon = Some(technical_weapon_for_tier(TechnicalWeaponTier::Base));
             }
 
-            // Host residual: China Battlemaster PRIMARY BattleMasterTankGun residual.
-            // Fail-closed: Uranium/horde/nationalism applied via refresh_battlemaster_weapon.
-            if crate::game_logic::host_battlemaster::is_battlemaster_template(template_name) {
-                use crate::game_logic::host_battlemaster::battlemaster_weapon;
-                object.weapon = Some(battlemaster_weapon(false, false, false));
-            }
+            // China Battlemaster PRIMARY binds from the authored WeaponSet above (C++
+            // WeaponSet::updateWeaponSet), not a template-name peel (hq-2qedt.144).
+            // Uranium/horde/nationalism stay on refresh_battlemaster_weapon.
 
-            // Host residual: GLA Marauder PRIMARY MarauderTankGun residual (salvage tiers).
-            // Fail-closed: not full SalvageCrate W3D turret subobject matrix.
-            if crate::game_logic::host_marauder::is_marauder_template(template_name) {
-                use crate::game_logic::host_marauder::{
-                    MarauderWeaponTier, marauder_weapon_for_tier,
-                };
-                object.weapon = Some(marauder_weapon_for_tier(MarauderWeaponTier::Base));
-            }
+            // GLA Marauder PRIMARY binds from the authored WeaponSet above (C++
+            // WeaponSet::updateWeaponSet), not a template-name peel (hq-2qedt.145).
 
             // Host residual: GLA Combat Cycle RiderChangeContain Slots=1 + rider weapon.
             // Fail-closed: not full STATUS_RIDER death OCL / scuttle / stealth matrix.
@@ -2730,50 +2807,34 @@ impl GameLogic {
                     template_name,
                 );
                 object.combat_cycle_rider = rider.as_u8();
-                object.weapon =
-                    crate::game_logic::host_combat_cycle::combat_cycle_weapon_for_rider(rider);
+                // PRIMARY binds from the authored WeaponSet above (C++
+                // WeaponSet::updateWeaponSet), not a rider name peel (hq-2qedt.148).
             }
 
-            // Host residual: GLA Tunnel Network TunnelContain (shared MaxTunnelCapacity=10)
-            // + PRIMARY TunnelNetworkGun / sneak TunnelNetworkGunDUMMY
-            // + StealthDetectorUpdate DetectionRange 150 / DetectionRate 500ms.
-            // Fail-closed: not GuardTunnelNetwork AI / CaveSystem / heal matrix.
-            // Sneak-attack tunnels have no StealthDetectorUpdate in retail INI.
-            if crate::game_logic::host_tunnel_network::is_tunnel_network_template(template_name) {
-                object.install_tunnel_network_residual();
-                object.weapon = Some(
-                    crate::game_logic::host_tunnel_network::tunnel_network_primary_weapon(
-                        template_name,
-                    ),
-                );
-                if crate::game_logic::host_tunnel_network::tunnel_network_spawn_is_detector(
-                    template_name,
-                ) {
-                    object.set_detector_state(
-                        true,
-                        crate::game_logic::host_tunnel_network::TUNNEL_NETWORK_DETECTION_RANGE,
-                        crate::game_logic::host_tunnel_network::TUNNEL_NETWORK_DETECTION_RATE_FRAMES,
-                    );
-                }
+            // C++ StealthDetectorUpdate is an authored module: every template
+            // declaring it detects with its own data (StealthDetectorUpdate.cpp).
+            object.install_authored_stealth_detector();
+
+            // C++ TunnelContain: entrances share the player's TunnelTracker whose
+            // capacity is GameData MaxTunnelCapacity (TunnelTracker.cpp:81-84).
+            if object.thing().template.contain_module.kind.is_tunnel_contain() {
+                let capacity = usize::try_from(self.tunnel_network.capacity()).unwrap_or(0);
+                object.install_tunnel_network_residual(capacity);
             }
 
-            if crate::game_logic::host_cave_system::is_cave_template(template_name)
-                || object
-                    .thing()
-                    .template
-                    .contain_module
-                    .kind
-                    .is_cave_contain()
-            {
+            if object.thing().template.contain_module.kind.is_cave_contain() {
                 let cave_index = object.thing().template.contain_module.cave_index;
-                object.install_cave_contain_residual(cave_index);
+                let capacity = usize::try_from(self.cave_system.capacity()).unwrap_or(0);
+                object.install_cave_contain_residual(cave_index, capacity);
             }
 
             // Host residual: AirF Combat Chinook TransportContain Slots=8 + passenger fire.
             // Regular AmericaVehicleChinook: same slots + ChinookAI, no passenger fire.
-            if crate::game_logic::host_combat_chinook::is_combat_chinook_template(template_name) {
+            if crate::game_logic::host_combat_chinook::is_authored_combat_chinook(
+                &object.thing().template,
+            ) {
                 object.install_combat_chinook_transport();
-            } else if crate::game_logic::host_combat_chinook::is_regular_chinook_template(
+            } else if crate::game_logic::host_combat_chinook::is_chinook_hull_template(
                 template_name,
             ) {
                 object.install_chinook_transport();
@@ -2798,21 +2859,9 @@ impl GameLogic {
                 crate::game_logic::host_troop_crawler::is_troop_crawler_template(template_name);
             if is_troop_crawler_spawn {
                 object.install_troop_crawler_transport();
-                object.weapon =
-                    Some(crate::game_logic::host_troop_crawler::troop_crawler_assault_weapon());
-                if crate::game_logic::host_troop_crawler::troop_crawler_spawn_is_detector(
-                    template_name,
-                ) {
-                    object.is_detector = true;
-
-                    if let Some(range) =
-                        crate::game_logic::host_troop_crawler::troop_crawler_detection_range(
-                            template_name,
-                        )
-                    {
-                        object.detection_range = range;
-                    }
-                }
+                // PRIMARY binds from the authored WeaponSet above (C++
+                // WeaponSet::updateWeaponSet from ThingTemplate), not a
+                // template-name host table (hq-2qedt.141).
                 // VisionRange residual (175) for effective_detection_range fallback.
                 object.template_mut().sight_range = object
                     .thing()
@@ -2827,46 +2876,34 @@ impl GameLogic {
                 // OverlordContain style: portable slot reserved; bunker residual separate.
                 object.overlord_bunker_capacity = Some(0);
             }
-            if crate::game_logic::host_overlord_addons::is_helix_template(template_name) {
-                // Host residual: Helix PRIMARY HelixMinigunWeapon (always retained with addons).
-                // Fail-closed: not full ChinookAIUpdate / COMANCHE_VULCAN Stinger matrix.
-                object.weapon = Some(crate::game_logic::host_helix_minigun::helix_minigun_weapon());
-            }
-            if crate::game_logic::host_overlord_addons::is_emperor_template(template_name) {
+            // Helix PRIMARY binds from the authored WeaponSet above (C++
+            // WeaponSet::updateWeaponSet from ThingTemplate), not a
+            // template-name host table (hq-2qedt.139).
+            // Emperor innate propaganda keyed on authored PropagandaTowerBehavior
+            // (hq-2qedt.256), not is_emperor_template name peel.
+            let emperor_spawn = object.authors_innate_propaganda_tower();
+            if emperor_spawn {
                 // Innate PropagandaTowerBehavior AffectsSelf residual.
                 object.has_overlord_propaganda_addon = true;
 
                 object.overlord_bunker_capacity = Some(0);
             }
-            let emperor_spawn =
-                crate::game_logic::host_overlord_addons::is_emperor_template(template_name);
-            let helix_spawn =
-                crate::game_logic::host_overlord_addons::is_helix_template(template_name);
 
             // Host residual: America Humvee TransportContain Slots=5 + passenger fire.
             // Fail-closed: not multi-exit-path / drone ObjectCreationUpgrade matrix.
             if crate::game_logic::host_humvee::is_humvee_template(template_name) {
                 object.install_humvee_transport();
             }
+            // Humvee PRIMARY binds from the authored WeaponSet above (C++
+            // WeaponSet::updateWeaponSet); no create-time name peel (hq-2qedt.140).
 
-            // Host residual: America Avenger designator primary + air laser secondary.
-            // Fail-closed: not portable laser turret OverlordContain passenger.
-            if crate::game_logic::host_avenger::is_avenger_template(template_name) {
-                object.weapon = Some(crate::game_logic::host_avenger::avenger_designator_weapon());
-                object.secondary_weapon =
-                    Some(crate::game_logic::host_avenger::avenger_air_laser_weapon());
-            }
+            // USA Avenger PRIMARY/SECONDARY bind from the authored WeaponSet
+            // above (C++ WeaponSet::updateWeaponSet from ThingTemplate), not a
+            // template-name host table (hq-2qedt.138).
 
             // Host residual: America Sentry Drone StealthDetectorUpdate (DetectionRange 225).
             // Always detector from spawn; gun is PLAYER_UPGRADE residual.
             if crate::game_logic::host_sentry_drone::sentry_spawn_is_detector(template_name) {
-                object.is_detector = true;
-
-                if let Some(range) =
-                    crate::game_logic::host_sentry_drone::sentry_detection_range(template_name)
-                {
-                    object.detection_range = range;
-                }
                 // C++ StealthUpdate ctor: m_stealthAllowedFrame = now + StealthDelay.
                 // InnateStealth only sets CAN_STEALTH, not STEALTHED (StealthUpdate.cpp:110-137).
                 // AmericaVehicleSentryDrone StealthDelay 2000ms = 60f.
@@ -2888,13 +2925,6 @@ impl GameLogic {
             // DetectionRange unset → VisionRange 200; stays stealthed while attacking;
             // uncloaks only while MOVING (StealthForbiddenConditions = MOVING).
             if crate::game_logic::host_pathfinder::pathfinder_spawn_is_detector(template_name) {
-                object.is_detector = true;
-
-                if let Some(range) =
-                    crate::game_logic::host_pathfinder::pathfinder_detection_range(template_name)
-                {
-                    object.detection_range = range;
-                }
                 object.set_status_stealthed(true);
                 object.innate_stealth = true;
                 object.is_pathfinder_unit = true;
@@ -2909,13 +2939,12 @@ impl GameLogic {
             // Heroes wait StealthDelay (Burton/Kell 60f, Lotus/Saboteur/Hijacker 75f).
             {
                 use crate::game_logic::host_colonel_burton::is_colonel_burton_template;
-                use crate::game_logic::host_hero_abilities::is_black_lotus_template;
                 use crate::game_logic::host_jarmen_kell::is_jarmen_kell_template;
                 use crate::game_logic::host_radar_stealth_vision_residual::hero_stealth_delay_frames_residual;
                 let n = template_name.to_ascii_lowercase();
                 let is_hero_stealth = is_colonel_burton_template(template_name)
                     || is_jarmen_kell_template(template_name)
-                    || is_black_lotus_template(template_name)
+                    || object.thing().template.capture_power == crate::game_logic::CapturePowerKind::BlackLotus
                     || n.contains("saboteur")
                     || n.contains("hijacker");
                 if is_hero_stealth {
@@ -2929,126 +2958,45 @@ impl GameLogic {
                 }
             }
 
-            // Host residual: GLA Stinger Site SPAWNS_ARE_THE_WEAPONS dual ground/AA +
-            // HiveStructureBody / SpawnBehavior. The admitted child roster is
-            // the only live source for slave identity and occupancy.
-            if crate::game_logic::host_base_defense::is_stinger_site_structure(template_name) {
-                use crate::game_logic::host_base_defense::{
-                    stinger_air_weapon, stinger_ground_weapon, stinger_has_ap_rockets,
-                };
-                if crate::game_logic::host_base_defense::stinger_site_spawn_is_detector(
-                    template_name,
-                ) {
-                    let range = crate::game_logic::host_base_defense::stinger_detection_range(
-                        template_name,
-                    )
-                    .unwrap_or(crate::game_logic::host_base_defense::STINGER_SITE_DETECTION_RANGE);
-                    object.set_detector_state(
-                        true,
-                        range,
-                        crate::game_logic::host_base_defense::STINGER_SITE_DETECTION_RATE_FRAMES,
-                    );
-                }
-            }
+            // Patriot PRIMARY/SECONDARY(assist)/TERTIARY(AA) bind from the authored
+            // WeaponSet above (C++ WeaponSet::updateWeaponSet), no host override.
 
-            // C++ GLAInfantryStingerSoldier ModuleTag_16 leftover: DetectionRange 200 /
-            // DetectionRate 500ms. Live soldiers must scan; residual hive slots do not.
-            if crate::game_logic::host_base_defense::stinger_soldier_spawn_is_detector(
-                template_name,
-            ) {
-                let range =
-                    crate::game_logic::host_base_defense::stinger_detection_range(template_name)
-                        .unwrap_or(
-                            crate::game_logic::host_base_defense::STINGER_SOLDIER_DETECTION_RANGE,
-                        );
-                object.set_detector_state(
-                    true,
-                    range,
-                    crate::game_logic::host_base_defense::STINGER_SOLDIER_DETECTION_RATE_FRAMES,
-                );
-            }
+            // USA Crusader / Paladin (incl. Lazr_) PRIMARY binds from the
+            // authored WeaponSet above (C++ WeaponSet::updateWeaponSet), not a
+            // usa_tanks template-name peel (hq-2qedt.104).
 
-            // Host residual: USA Patriot dual ground/AA secondary.
-            // Laser General residual uses Lazr_Patriot* damage (40/35) via template.
-            // Fail-closed: not full AssistedTargetingModule assist clips / RequestAssistRange.
-            if crate::game_logic::host_base_defense::is_patriot_battery_structure(template_name) {
-                use crate::game_logic::host_base_defense::{
-                    patriot_air_weapon_for_template, patriot_ground_weapon_for_template,
-                };
-                object.weapon = Some(patriot_ground_weapon_for_template(template_name));
-                object.secondary_weapon = Some(patriot_air_weapon_for_template(template_name));
-            }
+            // USA Tomahawk PRIMARY binds from the authored WeaponSet above
+            // (C++ WeaponSet::updateWeaponSet from ThingTemplate), not a
+            // template-name host table (hq-2qedt.102).
 
-            // Host residual: USA Crusader / Paladin PRIMARY tank gun
-            // (Laser General Lazr_* → Lazr_CrusaderTankGun / Lazr_PaladinTankGun).
-            // Fail-closed: not full LaserName beam drawable / shell lob matrix.
-            if crate::game_logic::host_usa_tanks::is_crusader_template(template_name)
-                || crate::game_logic::host_usa_tanks::is_paladin_template(template_name)
-            {
-                object.weapon = Some(
-                    crate::game_logic::host_usa_tanks::usa_tank_gun_weapon_for_template(
-                        template_name,
-                    ),
-                );
-            }
+            // America Fire Base PRIMARY howitzer binds from the authored
+            // WeaponSet above (C++ WeaponSet::updateWeaponSet), not a
+            // template-name peel (hq-2qedt.105). SPAWNS_ARE_THE_WEAPONS /
+            // garrison HiveStructure matrix stays out of scope.
 
-            // Host residual: USA Tomahawk PRIMARY dual-radius missile.
-            // TomahawkMissile projectile lob residual closed (MissileAI peels + impact).
-            if crate::game_logic::host_tomahawk::is_tomahawk_template(template_name) {
-                use crate::game_logic::host_tomahawk::tomahawk_weapon;
-                object.weapon = Some(tomahawk_weapon());
-            }
+            // USA Stealth Fighter PRIMARY binds from the authored WeaponSet
+            // above (C++ WeaponSet::updateWeaponSet from ThingTemplate), not a
+            // template-name host table (hq-2qedt.110).
 
-            // Host residual: America Fire Base PRIMARY howitzer.
-            // Fail-closed: not full SPAWNS_ARE_THE_WEAPONS / garrison HiveStructure matrix.
-            if crate::game_logic::host_fire_base::is_fire_base_template(template_name) {
-                use crate::game_logic::host_fire_base::fire_base_weapon;
-                object.weapon = Some(fire_base_weapon());
-            }
+            // USA Comanche PRIMARY/SECONDARY bind from the authored WeaponSet
+            // above (C++ WeaponSet::updateWeaponSet from ThingTemplate), not a
+            // template-name host table (hq-2qedt.109).
 
-            // Host residual: USA Stealth Fighter PRIMARY jet missiles.
-            // Fail-closed: not full RETURN_TO_BASE ClipReload / science production matrix.
-            if crate::game_logic::host_stealth_fighter::is_stealth_fighter_template(template_name) {
-                use crate::game_logic::host_stealth_fighter::stealth_fighter_weapon;
-                object.weapon = Some(stealth_fighter_weapon());
-            }
+            // Battle Drone PRIMARY binds from the authored WeaponSet above
+            // (C++ WeaponSet::updateWeaponSet), not a template-name peel
+            // (hq-2qedt.130).
 
-            if crate::game_logic::host_comanche_rocket_pods::is_comanche_template(template_name) {
-                use crate::game_logic::host_comanche_rocket_pods::{
-                    comanche_antitank_weapon, comanche_cannon_weapon,
-                };
-                object.weapon = Some(comanche_cannon_weapon());
-                object.secondary_weapon = Some(comanche_antitank_weapon());
-                object.tertiary_weapon = None;
-            }
+            // China Red Guard PRIMARY binds from the authored WeaponSet above
+            // (C++ WeaponSet::updateWeaponSet), not a template-name peel
+            // (hq-2qedt.131).
 
-            // Host residual: USA Battle Drone PRIMARY machine gun.
-            // Fail-closed: not full SlavedUpdate repair arm weld FX matrix.
-            if crate::game_logic::host_slave_drones::is_battle_drone_template(template_name) {
-                use crate::game_logic::host_slave_drones::battle_drone_weapon;
-                object.weapon = Some(battle_drone_weapon());
-            }
+            // China Tank Hunter PRIMARY binds from the authored WeaponSet above
+            // (C++ WeaponSet::updateWeaponSet), not a template-name peel
+            // (hq-2qedt.132).
 
-            // Host residual: China Red Guard PRIMARY machine gun residual.
-            // Fail-closed: bayonet residual applied at fire-time for close infantry.
-            if crate::game_logic::host_red_guard::is_red_guard_template(template_name) {
-                use crate::game_logic::host_red_guard::red_guard_weapon;
-                object.weapon = Some(red_guard_weapon(false, false));
-            }
-
-            // Host residual: China Tank Hunter PRIMARY RPG residual (AA + ground + splash).
-            // Fail-closed: not full ScatterRadiusVsInfantry / projectile exhaust FX matrix.
-            if crate::game_logic::host_tank_hunter::is_tank_hunter_template(template_name) {
-                use crate::game_logic::host_tank_hunter::tank_hunter_weapon;
-                object.weapon = Some(tank_hunter_weapon(false, false));
-            }
-
-            // Host residual: Colonel Burton PRIMARY sniper residual.
-            // Fail-closed: knife residual applied at fire-time for close infantry.
-            if crate::game_logic::host_colonel_burton::is_colonel_burton_template(template_name) {
-                use crate::game_logic::host_colonel_burton::burton_sniper_weapon;
-                object.weapon = Some(burton_sniper_weapon());
-            }
+            // Colonel Burton PRIMARY binds from the authored WeaponSet above
+            // (C++ WeaponSet::updateWeaponSet), not a template-name peel
+            // (hq-2qedt.133). Knife residual stays at fire-time.
 
             // C++ VeterancyGainCreate.cpp:68-71 — IsPilot companion StartingLevel
             // still goes through ExperienceTracker::setMinVeterancyLevel (trainable
@@ -3093,23 +3041,15 @@ impl GameLogic {
             // Laser is AutoChooseSources SECONDARY NONE (special-only).
             if crate::game_logic::host_missile_defender::is_missile_defender_template(template_name)
             {
-                use crate::game_logic::host_missile_defender::{
-                    missile_defender_laser_guided_weapon, missile_defender_primary_weapon,
-                };
-                object.weapon = Some(missile_defender_primary_weapon());
+                // PRIMARY binds from the authored WeaponSet above (C++
+                // WeaponSet::updateWeaponSet), not a template-name peel (hq-2qedt.146).
+                use crate::game_logic::host_missile_defender::missile_defender_laser_guided_weapon;
                 object.secondary_weapon = Some(missile_defender_laser_guided_weapon());
                 object.template_mut().apply_retail_button_only_auto_choose();
             }
 
             // Host residual: America Scout Drone StealthDetectorUpdate (VisionRange 150).
             if crate::game_logic::host_slave_drones::scout_spawn_is_detector(template_name) {
-                object.is_detector = true;
-
-                if let Some(range) =
-                    crate::game_logic::host_slave_drones::scout_detection_range(template_name)
-                {
-                    object.detection_range = range;
-                }
                 // Sensor drone: strip kind-based default gun if no explicit primary.
                 // Reuse sentry_had_explicit_primary (same template fields, captured pre-move).
                 if !sentry_had_explicit_primary {
@@ -3137,7 +3077,7 @@ impl GameLogic {
                 );
             }
 
-            object.ensure_fire_weapon_when_damaged();
+            object.ensure_fire_weapon_when_damaged_at(self.frame);
             object.ensure_transition_damage_fx();
             object.ensure_fx_list_die();
             object.ensure_create_object_die();
@@ -3246,14 +3186,13 @@ impl GameLogic {
             if emperor_spawn {
                 self.overlord_addons.record_propaganda_install();
             }
-            let _ = helix_spawn;
 
             // C++ VeterancyGainCreate.cpp:63-65 controlling player only, then
             // PlayerTemplate fallback. Ally training science must not veteran
             // another same-team player's units.
             {
                 use crate::game_logic::host_unit_training::{
-                    normalize_identity, unit_training_level_for_template, veterancy_rank,
+                    normalize_identity, unit_training_level_for_object, veterancy_rank,
                 };
                 let sciences: Vec<String> = owner_player_id
                     .and_then(|player_id| self.players.get(&player_id))
@@ -3291,7 +3230,11 @@ impl GameLogic {
                                     locomotors,
                                 );
                             } else if let Some((kind, level)) =
-                                unit_training_level_for_template(template_name, &sciences)
+                                unit_training_level_for_object(
+                                    template_name,
+                                    obj.authored_weapon_name_for_slot(0),
+                                    &sciences,
+                                )
                             {
                                 if obj.set_min_veterancy_level_with_health_bonus_table(
                                     level,
@@ -3406,10 +3349,7 @@ impl GameLogic {
                         is_china_vehicle_horde_unit,
                     };
                     use crate::game_logic::host_minigunner::is_minigunner_template;
-                    use crate::game_logic::host_red_guard::{
-                        is_china_infantry_horde_unit, is_red_guard_template,
-                    };
-                    use crate::game_logic::host_tank_hunter::is_tank_hunter_template;
+                    use crate::game_logic::host_red_guard::is_china_infantry_horde_unit;
 
                     let horde_unit = is_china_infantry_horde_unit(template_name)
                         || is_china_vehicle_horde_unit(template_name);
@@ -3436,9 +3376,16 @@ impl GameLogic {
                                     obj.apply_upgrade_tag(UPGRADE_FANATICISM);
                                 }
                             }
-                            if is_red_guard_template(template_name) {
+                            let (authored_rg, authored_th) = self
+                                .objects
+                                .get(&id)
+                                .map(|o| {
+                                    (o.authors_red_guard_machine_gun(), o.authors_tank_hunter_missile())
+                                })
+                                .unwrap_or((false, false));
+                            if authored_rg {
                                 self.refresh_red_guard_weapon(id);
-                            } else if is_tank_hunter_template(template_name) {
+                            } else if authored_th {
                                 self.refresh_tank_hunter_weapon(id);
                             } else if is_minigunner_template(template_name) {
                                 self.refresh_minigunner_weapon(id);
@@ -3667,9 +3614,6 @@ impl GameLogic {
         // C++ TunnelContain::onObjectCreated / onBuildComplete → onTunnelCreated.
         if let Some(obj) = self.objects.get_mut(&object_id) {
             if obj.is_tunnel_network_style_container()
-                || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                    &obj.template_name,
-                )
             {
                 let player_id = obj.tunnel_system_key();
                 self.tunnel_network.on_tunnel_created(player_id, object_id);

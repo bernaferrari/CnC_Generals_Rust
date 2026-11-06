@@ -433,6 +433,57 @@ fn inherit_uses_named_team_proto_not_faction() {
 }
 
 #[test]
+fn create_inherits_authored_team_attack_priority_profile() {
+    // hq-uwty0: C++ Object.cpp:442-448 reads AttackPriorityName from the
+    // named Team prototype before onObjectCreated callbacks — never invents
+    // a faction-default priority set.
+    use crate::game_logic::{
+        AttackPriorityInfo, KindOf, Object, ObjectId, Team, ThingTemplate,
+    };
+    use gamelogic::common::well_known_keys::key_team_aggressiveness;
+    use gamelogic::common::{AsciiString, Dict};
+
+    let mut logic = GameLogic::new();
+    logic.add_player(crate::game_logic::Player::new(
+        1,
+        Team::USA,
+        "PlyrAmerica",
+        true,
+    ));
+    {
+        let mut factory = logic.team_factory.lock().expect("own TeamFactory");
+        let mut named = Dict::new();
+        named.set_int(key_team_aggressiveness(), 0);
+        let _ = factory.init_team(
+            AsciiString::from("AmericaTeamPrioInherit"),
+            AsciiString::from("PlyrAmerica"),
+            false,
+            Some(&named),
+        );
+        assert!(factory.set_team_prototype_attack_priority_name(
+            "AmericaTeamPrioInherit",
+            "AuthoredHuntPrio",
+        ));
+    }
+    logic.register_attack_priority_set(AttackPriorityInfo::new("AuthoredHuntPrio"));
+
+    let mut t = ThingTemplate::new("AmericaRangerPrioInherit");
+    t.add_kind_of(KindOf::Infantry);
+    let id = ObjectId(4102);
+    let mut o = Object::new(t, id, Team::USA);
+    o.team_instance_name = "AmericaTeamPrioInherit".into();
+    logic.objects.insert(id, o);
+
+    logic.inherit_team_ai_defaults(id);
+    assert_eq!(
+        logic.objects[&id].attack_priority_set.as_deref(),
+        Some("AuthoredHuntPrio"),
+        "named team proto AttackPriorityName must win; no invented faction default"
+    );
+}
+
+
+#[test]
 fn set_unit_attitude_affects_mood_matrix() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     let mut logic = GameLogic::new();
@@ -1095,15 +1146,15 @@ fn transfer_attack_retargets_attackers() {
             AIState::Attacking,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        o.turret_enabled = true;
-        o.turret_target_id = Some(from);
-        o.turret_substate = TurretSubState::Aim;
+        o.turret_ai.turret_enabled = true;
+        o.turret_ai.turret_target_id = Some(from);
+        o.turret_ai.turret_substate = TurretSubState::Aim;
         o
     });
     let n = logic.transfer_attack(from, to);
     assert!(n >= 1);
     assert_eq!(logic.objects[&atk].target, Some(to));
-    assert_eq!(logic.objects[&atk].turret_target_id, Some(to));
+    assert_eq!(logic.objects[&atk].turret_ai.turret_target_id, Some(to));
 }
 
 #[test]
@@ -2503,6 +2554,46 @@ fn private_attack_object_sets_target_and_shots() {
 }
 
 #[test]
+fn private_attack_object_installs_max_shots_after_attack_enter() {
+    // hq-k5dc3: AIUpdate.cpp:3412-3416 installs maxShotsToFire *after*
+    // setState(AI_ATTACK_OBJECT) because AttackState::onEnter resets it.
+    // An explicit 0 must survive entry instead of becoming unlimited.
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+    use glam::Vec3;
+    let mut logic = GameLogic::new();
+    let mut at = ThingTemplate::new("PA0");
+    at.add_kind_of(KindOf::Infantry);
+    let aid = ObjectId(1131);
+    logic.objects.insert(aid, {
+        let mut o = Object::new(at, aid, Team::USA);
+        o.set_position(Vec3::ZERO);
+        o.weapon = Some(Weapon {
+            range: 100.0,
+            damage: 10.0,
+            can_target_ground: true,
+            ..Default::default()
+        });
+        o
+    });
+    let mut vt = ThingTemplate::new("PV0");
+    vt.add_kind_of(KindOf::Infantry);
+    let vid = ObjectId(1132);
+    logic.objects.insert(vid, {
+        let mut o = Object::new(vt, vid, Team::GLA);
+        o.set_position(Vec3::new(5.0, 0.0, 0.0));
+        o
+    });
+    assert!(
+        logic
+            .private_attack_object(aid, vid, 0)
+            .expect("valid private attack fixture")
+    );
+    let a = logic.objects.get(&aid).unwrap();
+    assert_eq!(a.target, Some(vid));
+    assert_eq!(a.max_shots_to_fire, 0);
+}
+
+#[test]
 fn request_object_path_sets_target() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
@@ -3188,4 +3279,131 @@ fn stick_to_ground_snaps_when_not_falling() {
     let mut health_events = crate::game_logic::HostHealthEvents::default();
     let _ = o.tick_physics_motion_step(0, 0.0, &mut health_events);
     assert!((o.get_position().y - 0.0).abs() < 1e-4);
+}
+
+/// C++ PartitionFilterRepulsor::allow (PartitionManager.cpp:4985-5022):
+/// Relationship (not team label) must be ENEMIES, KINDOF_INERT rejects,
+/// structures only if able-to-attack. hq-2qedt.48.
+#[test]
+fn repulsor_filter_rejects_inert_and_uses_relationship_not_team_like_cpp() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+    use gamelogic::common::Relationship;
+    let mut logic = GameLogic::new();
+    logic.set_enable_repulsors(true);
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "P0", true));
+    logic.add_player(crate::game_logic::Player::new(1, Team::GLA, "P1", false));
+    logic.get_player_mut(0).unwrap().set_map_relationship(1, Relationship::Enemies);
+    logic.get_player_mut(1).unwrap().set_map_relationship(0, Relationship::Enemies);
+
+    let mut ct = ThingTemplate::new("RepVictim");
+    ct.add_kind_of(KindOf::Infantry);
+    ct.add_kind_of(KindOf::CanBeRepulsed);
+    let me = ObjectId(4801);
+    let mut o = Object::new(ct, me, Team::USA);
+    o.owner_player_id = Some(0);
+    logic.objects.insert(me, o);
+
+    let armed = |name: &str, id: ObjectId, team: Team, kinds: &[KindOf]| {
+        let mut t = ThingTemplate::new(name);
+        for k in kinds {
+            t.add_kind_of(*k);
+        }
+        let mut o = Object::new(t, id, team);
+        o.owner_player_id = Some(1);
+        o.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
+        o.weapon = Some(Weapon {
+            range: 40.0,
+            ..Default::default()
+        });
+        o
+    };
+
+    // Enemy INERT able-to-attack object must not repulse.
+    let inert = ObjectId(4802);
+    logic.objects.insert(
+        inert,
+        armed("RepInert", inert, Team::GLA, &[KindOf::Infantry, KindOf::Inert]),
+    );
+    assert!(logic.objects[&inert].can_attack());
+    assert_eq!(
+        logic.object_relationship(&logic.objects[&me], &logic.objects[&inert]),
+        Relationship::Enemies
+    );
+    assert!(
+        logic.find_closest_repulsor(me, 300.0).is_none(),
+        "KINDOF_INERT enemy must not repulse (PartitionManager.cpp:5011)"
+    );
+    logic.objects.remove(&inert);
+
+    // Enemy by relationship though sharing the Team label → repulses.
+    let same_label = ObjectId(4803);
+    logic.objects.insert(
+        same_label,
+        armed("RepSameLabel", same_label, Team::USA, &[KindOf::Infantry]),
+    );
+    assert_eq!(
+        logic.find_closest_repulsor(me, 300.0).map(|(id, _)| id),
+        Some(same_label),
+        "relationship ENEMIES, not team label, gates repulse"
+    );
+    logic.objects.remove(&same_label);
+
+    // Unarmed enemy structure does not repulse.
+    let mut st = ThingTemplate::new("RepBldg");
+    st.add_kind_of(KindOf::Structure);
+    let bldg = ObjectId(4804);
+    let mut b = Object::new(st, bldg, Team::GLA);
+    b.owner_player_id = Some(1);
+    b.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
+    logic.objects.insert(bldg, b);
+    assert!(logic.find_closest_repulsor(me, 300.0).is_none());
+}
+
+#[test]
+fn private_face_uses_cpp_is_mobile_gate_not_can_move() {
+    use crate::game_logic::{AIState, KindOf, Object, ObjectAudio, ObjectId, Team, ThingTemplate};
+    use glam::Vec3;
+    let mut logic = GameLogic::new();
+    let mut vt = ThingTemplate::new("FgV");
+    vt.add_kind_of(KindOf::Infantry);
+    let vid = ObjectId(1391);
+    logic.objects.insert(vid, {
+        let mut o = Object::new(vt, vid, Team::GLA);
+        o.set_position(Vec3::new(0.0, 0.0, 10.0));
+        o
+    });
+    let mk = |id: u32, kind: KindOf| {
+        let mut t = ThingTemplate::new("FgA");
+        t.add_kind_of(kind);
+        let mut o = Object::new(t, ObjectId(id), Team::USA);
+        o.set_position(Vec3::ZERO);
+        o
+    };
+    // Deployed infantry: can_move()==false, C++ isMobile()==true -> faces.
+    let dep = ObjectId(1392);
+    let mut o = mk(1392, KindOf::Infantry);
+    o.set_status_deployed(true);
+    assert!(!o.can_move() && o.is_mobile_for_ai_command());
+    logic.objects.insert(dep, o);
+    assert!(logic.private_face_object(dep, vid));
+    assert_eq!(logic.objects[&dep].ai_state(), AIState::FacingObject);
+    assert!(logic.private_face_position(dep, Vec3::new(5.0, 0.0, 0.0)));
+    assert_eq!(logic.objects[&dep].ai_state(), AIState::FacingPosition);
+    // Capturing: C++ privateFace* does not refuse.
+    let cap = ObjectId(1393);
+    logic.objects.insert(cap, mk(1393, KindOf::Infantry));
+    {
+        let GameLogic { objects, queued_audio_events, .. } = &mut logic;
+        objects
+            .get_mut(&cap)
+            .unwrap()
+            .set_ai_state(AIState::Capturing, &mut ObjectAudio::queue(queued_audio_events));
+    }
+    assert!(logic.private_face_object(cap, vid));
+    assert_eq!(logic.objects[&cap].ai_state(), AIState::FacingObject);
+    // KINDOF_IMMOBILE still refused.
+    let imm = ObjectId(1394);
+    logic.objects.insert(imm, mk(1394, KindOf::Immobile));
+    assert!(!logic.private_face_object(imm, vid));
+    assert!(!logic.private_face_position(imm, Vec3::ONE));
 }

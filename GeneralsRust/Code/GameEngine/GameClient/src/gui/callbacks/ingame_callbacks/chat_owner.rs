@@ -51,7 +51,8 @@ fn chat_world(
     }
     // Explicitly bounded old Core adapter. Native never discovers Core players.
     // Passing an owned Core roster remains a separate Core-world source migration.
-    let list = ThePlayerList()
+    let __pl = ThePlayerList();
+    let list = __pl
         .read()
         .map_err(|_| missing_context("Core player owner is unavailable"))?;
     let local = list
@@ -392,8 +393,15 @@ fn toggle_selected(
         let chat_type = get_in_game_chat_type(effects);
         let mask = facts.player_mask(&chat_type);
         let mut filtered = text;
-        get_language_filter().filter_line(&mut filtered);
-        if let Some(network) = game_network::get_network() {
+        get_language_filter().write().unwrap_or_else(|e| e.into_inner()).filter_line(&mut filtered);
+        #[cfg(not(feature = "network"))]
+        let network = effects
+            .window_manager_owner
+            .map(|owner| owner.network_compat())
+            .and_then(game_network::get_network);
+        #[cfg(feature = "network")]
+        let network = game_network::get_network();
+        if let Some(network) = network {
             let _ = pollster::block_on(network.send_chat_message(filtered.clone(), mask as u8));
         } else {
             warn!("send_chat ignored; network not initialized");

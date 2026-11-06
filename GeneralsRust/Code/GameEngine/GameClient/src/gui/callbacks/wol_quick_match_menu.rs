@@ -23,7 +23,7 @@ use crate::gui::callbacks::wol_welcome_menu::populate_player_info_windows;
 use crate::gui::gadgets::{ComboBox, ComboBoxItem, ListBox, ListBoxItemData};
 use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, get_shell,
-    with_window_manager, write_input_focus_response,
+    write_input_focus_response,
 };
 
 use crate::map_util::get_map_cache_manager;
@@ -59,7 +59,7 @@ const KEY_STATE_UP: usize = 0x0001;
 const MAX_DISCONNECTS: [i32; 5] = [0, 5, 10, 25, 50];
 
 #[derive(Default)]
-struct WolQuickMatchState {
+pub(crate) struct WolQuickMatchState {
     parent_id: i32,
     button_back_id: i32,
     button_start_id: i32,
@@ -108,12 +108,38 @@ struct WolQuickMatchState {
     next_screen: Option<String>,
 }
 
+#[cfg(test)]
 thread_local! {
-    static WOL_QUICKMATCH_STATE: Rc<RefCell<WolQuickMatchState>> = Rc::new(RefCell::new(WolQuickMatchState::default()));
+    static TEST_WOL_QUICKMATCH_STATE: std::cell::OnceCell<Rc<RefCell<WolQuickMatchState>>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn quickmatch_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<WolQuickMatchState>> {
+    if let Some(owner) = owner {
+        return owner.wol_quick_match_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().wol_quick_match_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_WOL_QUICKMATCH_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(WolQuickMatchState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(WolQuickMatchState::default()))
+    }
 }
 
 fn quickmatch_state() -> Rc<RefCell<WolQuickMatchState>> {
-    WOL_QUICKMATCH_STATE.with(Rc::clone)
+    quickmatch_state_on_owner(None)
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -176,7 +202,7 @@ fn set_window_enabled(window: &Option<Rc<RefCell<GameWindow>>>, enabled: bool) {
 
 fn set_window_hidden(window: &Option<Rc<RefCell<GameWindow>>>, hidden: bool) {
     if let Some(window) = window.as_ref() {
-        let _ = window.borrow_mut().hide(hidden);
+        let _ = window.borrow_mut().hide_without_manager_side_effects(hidden);
     }
 }
 
@@ -195,7 +221,7 @@ fn hide_info_gadgets(state: &WolQuickMatchState, hide: bool) {
     let parent_stats_id = name_to_id("WOLQuickMatchMenu.wnd:ParentStats");
     if let Some(parent) = state.parent.as_ref() {
         if let Some(win) = parent.borrow().find_child_by_id(parent_stats_id) {
-            let _ = win.borrow_mut().hide(hide);
+            let _ = win.borrow_mut().hide_without_manager_side_effects(hide);
         }
     }
 }
@@ -204,7 +230,7 @@ fn hide_options_gadgets(state: &WolQuickMatchState, hide: bool) {
     let parent_options_id = name_to_id("WOLQuickMatchMenu.wnd:ParentOptions");
     if let Some(parent) = state.parent.as_ref() {
         if let Some(win) = parent.borrow().find_child_by_id(parent_options_id) {
-            let _ = win.borrow_mut().hide(hide);
+            let _ = win.borrow_mut().hide_without_manager_side_effects(hide);
         }
     }
 
@@ -861,7 +887,7 @@ pub fn wol_quick_match_menu_init(layout: &WindowLayout, _user_data: Option<&dyn 
     state.combo_box_side_id = name_to_id("WOLQuickMatchMenu.wnd:ComboBoxSide");
     state.combo_box_color_id = name_to_id("WOLQuickMatchMenu.wnd:ComboBoxColor");
 
-    with_window_manager(|manager| {
+    owner.with_manager(|manager| {
         state.parent = manager.get_window_by_id(state.parent_id);
     });
 
@@ -942,7 +968,7 @@ pub fn wol_quick_match_menu_init(layout: &WindowLayout, _user_data: Option<&dyn 
     enable_options_gadgets(&state, true);
     layout.hide(false);
     if let Some(parent) = state.parent.as_ref() {
-        with_window_manager(|manager| {
+        owner.with_manager(|manager| {
             let _ = manager.set_focus(Some(parent));
         });
     }
@@ -1021,7 +1047,7 @@ pub fn wol_quick_match_menu_init(layout: &WindowLayout, _user_data: Option<&dyn 
     update_local_player_stats();
     update_start_button(&state);
 
-    with_window_manager(|manager| manager.transition_set_group("WOLQuickMatchMenuFade", false));
+    owner.with_manager(|manager| manager.transition_set_group("WOLQuickMatchMenuFade", false));
     reset_the_nat();
     if TheGameLogic::get_frame() == 1 {
         signal_ui_interaction(SHELL_SCRIPT_HOOK_GENERALS_ONLINE_ENTERED_FROM_GAME);
@@ -1079,7 +1105,7 @@ pub fn wol_quick_match_menu_shutdown(layout: &WindowLayout, user_data: Option<&d
     }
 
     get_shell().reverse_animate_window();
-    with_window_manager(|manager| manager.transition_reverse("WOLQuickMatchMenuFade"));
+    owner.with_manager(|manager| manager.transition_reverse("WOLQuickMatchMenuFade"));
     raise_gs_message_box();
 }
 
@@ -1091,7 +1117,7 @@ pub fn wol_quick_match_menu_update(
     let state_slot = quickmatch_state();
     let mut state = state_slot.borrow_mut();
     let shell_finished = get_shell().is_anim_finished();
-    let transitions_finished = with_window_manager(|manager| manager.transitions_finished());
+    let transitions_finished = owner.with_manager(|manager| manager.transitions_finished());
     if state.is_shutting_down && shell_finished && transitions_finished {
         shutdown_complete(layout);
         return;
@@ -1152,7 +1178,7 @@ pub fn wol_quick_match_menu_update(
                             saw_important = true;
                             let reason_key =
                                 format!("GUI:GSDisconReason{}", resp.discon_reason as i32);
-                            if let Some(listbox_window) = with_window_manager(|manager| {
+                            if let Some(listbox_window) = owner.with_manager(|manager| {
                                 manager.get_window_by_id(name_to_id(
                                     "ScoreScreen.wnd:ListboxChatWindowScoreScreen",
                                 ))
@@ -1533,7 +1559,7 @@ pub fn wol_quick_match_menu_system(
             let button_options_id = name_to_id("WOLQuickMatchMenu.wnd:ButtonOptions");
             if control_id == button_options_id {
                 if let Some(win) =
-                    with_window_manager(|manager| manager.get_window_by_id(button_options_id))
+                    owner.with_manager(|manager| manager.get_window_by_id(button_options_id))
                 {
                     if is_info_shown(&state) {
                         hide_info_gadgets(&state, true);
@@ -1876,11 +1902,13 @@ mod tests {
 
     #[test]
     fn max_disconnects_table_matches_cpp_wol_quick_match() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(MAX_DISCONNECTS, [0, 5, 10, 25, 50]);
     }
 
     #[test]
     fn combo_item_data_round_trips_signed_template_ids() {
+        crate::test_support::ensure_ambient_host();
         let item = ComboBoxItem::new(1, "Random").with_data(PLAYERTEMPLATE_RANDOM);
         assert_eq!(item.data, Some(PLAYERTEMPLATE_RANDOM as usize));
         assert_eq!(item.data.unwrap() as i32, PLAYERTEMPLATE_RANDOM);

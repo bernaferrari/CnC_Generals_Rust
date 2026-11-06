@@ -34,7 +34,7 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
 }
 fn observe(world: &mut GameLogic, id: ObjectId, frame: u32) {
     let (actor, audio) = world.host_object_and_audio_events_mut(id).unwrap();
-    actor.tick_temporary_move_overlay(frame, &mut crate::game_logic::ObjectAudio::record(audio));
+    actor.tick_temporary_move_overlay(frame, &mut crate::game_logic::ObjectAudio::queue(audio));
 }
 fn bytes(world: &GameLogic, id: ObjectId) -> Vec<u8> {
     serde_json::to_vec(
@@ -207,7 +207,7 @@ fn actual_nested_attack_completion_resumes_existing_guard_body_and_goals() {
     assert_eq!(child.parent_state(), Some(before.ai_state));
     assert_eq!(child.goals.object, Some(enemy));
     let (actor, audio) = world.host_object_and_audio_events_mut(id).unwrap();
-    actor.stop_attack(&mut crate::game_logic::ObjectAudio::record(audio));
+    actor.stop_attack(&mut crate::game_logic::ObjectAudio::queue(audio));
     let after = world
         .host_object(id)
         .unwrap()
@@ -241,13 +241,9 @@ fn expired_but_unobserved_actual_overlay_saves_and_resumes_on_receiving_owner() 
     let before = bytes(&source, id);
     let peer_before = bytes(&peer, peer_id);
     let factory = crate::save_load::snapshot::SnapshotBuilder::new();
-    let mut snapshot = factory.create_world_snapshot(&source).unwrap();
-    let mut wire = std::io::Cursor::new(Vec::new());
-    snapshot.xfer(&mut XferSave::new(&mut wire)).unwrap();
-    let mut decoded = crate::save_load::snapshot::WorldSnapshot::default();
-    decoded
-        .xfer(&mut XferLoad::new(std::io::Cursor::new(wire.into_inner())))
-        .unwrap();
+    let snapshot = factory.create_world_snapshot(&source).unwrap();
+    let decoded: crate::save_load::snapshot::WorldSnapshot =
+        bincode_legacy::deserialize(&bincode_legacy::serialize(&snapshot).unwrap()).unwrap();
     factory
         .restore_from_snapshot(&decoded, &mut receiving)
         .unwrap();

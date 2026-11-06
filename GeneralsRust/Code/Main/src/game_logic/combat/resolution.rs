@@ -336,8 +336,20 @@ impl CombatSystem {
         // firing owner accepted the shot. A moving detonation's self-position
         // rule is resolved later from this world's effective weapon content.
         let primary_victim = projectile.target_id;
+        // Launch-time source_team is authoritative when set. Fixture/direct
+        // fire_projectile_ex paths leave Neutral; fall back to the live launcher
+        // so radius relationship masks still match C++ getRelationship.
+        let launcher_team = live.map(|o| o.team).unwrap_or(projectile.source_team);
+        let shooter_team = if moving_projectile
+            && projectile.source_team != crate::game_logic::Team::Neutral
+        {
+            projectile.source_team
+        } else {
+            launcher_team
+        };
         DamageEvent::Area {
             position,
+            damage_status_type: projectile.damage_status_type,
             damage: projectile.damage,
             damage_type: projectile.damage_type,
             death_type: projectile.death_type,
@@ -350,11 +362,7 @@ impl CombatSystem {
             shock_wave_radius: projectile.shock_wave_radius,
             shock_wave_taper_off: projectile.shock_wave_taper_off,
             radius_damage_affects: projectile.radius_damage_affects,
-            shooter_team: if moving_projectile {
-                projectile.source_team
-            } else {
-                live.map(|o| o.team).unwrap_or(projectile.source_team)
-            },
+            shooter_team,
             shooter_owner_player_id: if moving_projectile {
                 projectile.source_owner_player_id
             } else {
@@ -665,13 +673,15 @@ impl CombatSystem {
                     damage_type,
                     death_type,
                     shooter_id,
+                    damage_status_type,
                     ..
                 } => {
                     let context = crate::game_logic::object::DamageHitContext::new(
                         objects.get(shooter_id),
                         None,
                         *damage_type,
-                    );
+                    )
+                    .with_damage_status(*damage_status_type);
                     if let Some(target) = objects.get_mut(target_id) {
                         let before = target.health.current;
                         let destroyed = target.take_damage_with_context(
@@ -709,6 +719,7 @@ impl CombatSystem {
                     damage,
                     damage_type,
                     death_type,
+                    damage_status_type,
                     radius,
                     secondary_damage,
                     secondary_radius,
@@ -733,7 +744,8 @@ impl CombatSystem {
                         objects.get(shooter_id),
                         None,
                         *damage_type,
-                    );
+                    )
+                    .with_damage_status(*damage_status_type);
                     let primary_r = *radius;
                     let secondary_r = (*secondary_radius).max(0.0);
                     let dual = secondary_r > primary_r + 1e-3 && *secondary_damage > 0.0;
@@ -760,10 +772,13 @@ impl CombatSystem {
                             continue;
                         }
                         let is_primary = *primary_victim == Some(*vid);
-                        let kills_self = *radius_source_present && (*radius_damage_affects
-                            & crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF)
-                            != 0
-                            && *vid == *radius_source_id;
+                        // C++ WEAPON_KILLS_SELF destroys the firing Object
+                        // (launcher), never the transient projectile identity.
+                        let kills_self = *radius_source_present
+                            && (*radius_damage_affects
+                                & crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF)
+                                != 0
+                            && *vid == *shooter_id;
                         if *radius_source_present && !is_primary && !kills_self {
                             let airborne = obj.is_significantly_above_terrain();
                             let same_tmpl =
@@ -954,6 +969,7 @@ impl CombatSystem {
             .map(|c| c.source_veterancy)
             .unwrap_or(crate::game_logic::VeterancyLevel::Rookie);
         proj.historic_weapon_key = p.historic_weapon_key.clone();
+        proj.damage_status_type = p.damage_status_type;
         proj.historic_bonus_time_frames = p.historic_bonus_time_frames;
         proj.historic_bonus_count = p.historic_bonus_count;
         proj.historic_bonus_radius = p.historic_bonus_radius;
@@ -985,6 +1001,7 @@ impl CombatSystem {
                 damage_type: proj.damage_type,
                 death_type: proj.death_type,
                 shooter_id: proj.shooter_id,
+                damage_status_type: proj.damage_status_type,
             });
         }
         if !proj.detonation_fx_name.is_empty() || !proj.detonation_ocl_name.is_empty() {
@@ -1132,7 +1149,7 @@ pub(crate) fn victim_splash_sphere_radius(obj: &Object) -> f32 {
 }
 
 /// Leftover `WeaponTemplate::radius_damage_angle`. Missing name / store miss → C++ PI (full circle).
-fn leftover_radius_damage_angle(weapon_name: &str) -> f32 {
+pub(crate) fn leftover_radius_damage_angle(weapon_name: &str) -> f32 {
     if weapon_name.is_empty() {
         return std::f32::consts::PI;
     }
@@ -1148,7 +1165,7 @@ fn leftover_radius_damage_angle(weapon_name: &str) -> f32 {
 
 /// Leftover `deal_damage_internal` cone (Weapon.cpp:1393-1408).
 /// `allowed_angle < PI` gates splash to the source facing cone; missing source skips the victim.
-fn leftover_radius_damage_cone_allows(
+pub(crate) fn leftover_radius_damage_cone_allows(
     allowed_angle: f32,
     source_pos: Option<Vec3>,
     source_dir_xz: Option<(f32, f32)>,

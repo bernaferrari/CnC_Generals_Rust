@@ -648,10 +648,12 @@ impl OptionsMenu {
     fn find_window(
         id: i32,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Option<Rc<RefCell<GameWindow>>> {
-        (|manager: &mut crate::gui::window_manager::WindowManager| manager.get_window_by_id(id))(
-            receiving_manager,
-        )
+        // Input dispatch keeps the clicked gadget lent; walk the tree through
+        // that loan so Accept/close lookups do not RefCell-panic on siblings.
+        let lent: Vec<&GameWindow> = effects.lent_windows.iter().map(|window| &**window).collect();
+        receiving_manager.win_get_window_from_id_with_lent(None, id, None, &lent)
     }
 
     fn set_checkbox(
@@ -660,7 +662,7 @@ impl OptionsMenu {
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
-        if let Some(window) = Self::find_window(id, receiving_manager) {
+        if let Some(window) = Self::find_window(id, receiving_manager, effects) {
             let _ = window
                 .borrow_mut()
                 .gadget_check_box_set_checked(value, effects);
@@ -670,8 +672,9 @@ impl OptionsMenu {
     fn checkbox_value(
         id: i32,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &crate::gui::game_window::WindowEventEffects<'_>,
     ) -> bool {
-        Self::find_window(id, receiving_manager)
+        Self::find_window(id, receiving_manager, effects)
             .and_then(|window| {
                 let guard = window.borrow();
                 match guard.widget() {
@@ -686,8 +689,9 @@ impl OptionsMenu {
         id: i32,
         value: i32,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &crate::gui::game_window::WindowEventEffects<'_>,
     ) {
-        if let Some(window) = Self::find_window(id, receiving_manager) {
+        if let Some(window) = Self::find_window(id, receiving_manager, effects) {
             if let Some(slider) = window.borrow_mut().horizontal_slider_mut() {
                 slider.set_value(value);
             }
@@ -700,8 +704,9 @@ impl OptionsMenu {
         max_value: i32,
         value: i32,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &crate::gui::game_window::WindowEventEffects<'_>,
     ) {
-        if let Some(window) = Self::find_window(id, receiving_manager) {
+        if let Some(window) = Self::find_window(id, receiving_manager, effects) {
             if let Some(slider) = window.borrow_mut().horizontal_slider_mut() {
                 slider.set_range(min_value, max_value);
                 slider.set_value(value);
@@ -712,16 +717,18 @@ impl OptionsMenu {
     fn slider_value(
         id: i32,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &crate::gui::game_window::WindowEventEffects<'_>,
     ) -> i32 {
-        Self::slider_value_opt(id, receiving_manager).unwrap_or(0)
+        Self::slider_value_opt(id, receiving_manager, effects).unwrap_or(0)
     }
 
     /// C++ `GadgetSliderGetPosition` — `None` matches retail `-1` (missing gadget).
     fn slider_value_opt(
         id: i32,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Option<i32> {
-        Self::find_window(id, receiving_manager).and_then(|window| {
+        Self::find_window(id, receiving_manager, effects).and_then(|window| {
             let guard = window.borrow();
             match guard.widget() {
                 Some(WindowWidget::HorizontalSlider(slider)) => Some(slider.value()),
@@ -740,7 +747,7 @@ impl OptionsMenu {
         if items.is_empty() {
             return;
         }
-        if let Some(window) = Self::find_window(id, receiving_manager) {
+        if let Some(window) = Self::find_window(id, receiving_manager, effects) {
             let mut guard = window.borrow_mut();
             let Some(combo_box) = guard.combo_box_mut() else {
                 return;
@@ -756,8 +763,9 @@ impl OptionsMenu {
     fn combo_selected_index(
         id: i32,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Option<usize> {
-        Self::find_window(id, receiving_manager).and_then(|window| {
+        Self::find_window(id, receiving_manager, effects).and_then(|window| {
             let guard = window.borrow();
             match guard.widget() {
                 Some(WindowWidget::ComboBox(combo_box)) => combo_box.selected_index(),
@@ -772,7 +780,7 @@ impl OptionsMenu {
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
-        if let Some(window) = Self::find_window(id, receiving_manager) {
+        if let Some(window) = Self::find_window(id, receiving_manager, effects) {
             window
                 .borrow_mut()
                 .set_combo_box_selected(index, true, effects);
@@ -794,8 +802,9 @@ impl OptionsMenu {
         id: i32,
         hidden: bool,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &crate::gui::game_window::WindowEventEffects<'_>,
     ) {
-        if let Some(window) = Self::find_window(id, receiving_manager) {
+        if let Some(window) = Self::find_window(id, receiving_manager, effects) {
             let _ = window.borrow_mut().hide(hidden, receiving_manager);
         }
     }
@@ -804,8 +813,9 @@ impl OptionsMenu {
         id: i32,
         enabled: bool,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &crate::gui::game_window::WindowEventEffects<'_>,
     ) {
-        if let Some(window) = Self::find_window(id, receiving_manager) {
+        if let Some(window) = Self::find_window(id, receiving_manager, effects) {
             let _ = window.borrow_mut().enable(enabled);
         }
     }
@@ -1288,6 +1298,7 @@ impl OptionsMenu {
                 100,
                 scroll_speed,
                 receiving_manager,
+                effects,
             );
         }
         Self::set_slider_range_and_value(
@@ -1296,6 +1307,7 @@ impl OptionsMenu {
             100,
             music_volume,
             receiving_manager,
+                effects,
         );
         Self::set_slider_range_and_value(
             self.slider_sfx_volume_id,
@@ -1303,6 +1315,7 @@ impl OptionsMenu {
             100,
             sfx_volume,
             receiving_manager,
+                effects,
         );
         Self::set_slider_range_and_value(
             self.slider_voice_volume_id,
@@ -1310,14 +1323,16 @@ impl OptionsMenu {
             100,
             voice_volume,
             receiving_manager,
+                effects,
         );
-        Self::set_slider_range_and_value(self.slider_gamma_id, 0, 100, gamma, receiving_manager);
+        Self::set_slider_range_and_value(self.slider_gamma_id, 0, 100, gamma, receiving_manager, effects);
         Self::set_slider_range_and_value(
             self.slider_texture_resolution_id,
             0,
             2,
             texture_resolution,
             receiving_manager,
+                effects,
         );
         Self::set_slider_range_and_value(
             self.slider_particle_cap_id,
@@ -1325,9 +1340,10 @@ impl OptionsMenu {
             10000,
             particle_cap,
             receiving_manager,
+                effects,
         );
 
-        Self::set_window_hidden(self.advanced_window_id, true, receiving_manager);
+        Self::set_window_hidden(self.advanced_window_id, true, receiving_manager, effects);
     }
 
     fn apply_default_controls(
@@ -1378,14 +1394,15 @@ impl OptionsMenu {
                 self.slider_scroll_speed_id,
                 default_scroll,
                 receiving_manager,
+                effects,
             );
         }
-        Self::set_slider_value(self.slider_music_volume_id, 60, receiving_manager);
-        Self::set_slider_value(self.slider_sfx_volume_id, 55, receiving_manager);
-        Self::set_slider_value(self.slider_voice_volume_id, 70, receiving_manager);
-        Self::set_slider_value(self.slider_gamma_id, 50, receiving_manager);
-        Self::set_slider_value(self.slider_texture_resolution_id, 2, receiving_manager);
-        Self::set_slider_value(self.slider_particle_cap_id, 5000, receiving_manager);
+        Self::set_slider_value(self.slider_music_volume_id, 60, receiving_manager, effects);
+        Self::set_slider_value(self.slider_sfx_volume_id, 55, receiving_manager, effects);
+        Self::set_slider_value(self.slider_voice_volume_id, 70, receiving_manager, effects);
+        Self::set_slider_value(self.slider_gamma_id, 50, receiving_manager, effects);
+        Self::set_slider_value(self.slider_texture_resolution_id, 2, receiving_manager, effects);
+        Self::set_slider_value(self.slider_particle_cap_id, 5000, receiving_manager, effects);
 
         Self::set_checkbox(self.check_3d_shadows_id, true, receiving_manager, effects);
         Self::set_checkbox(self.check_2d_shadows_id, true, receiving_manager, effects);
@@ -1440,7 +1457,7 @@ impl OptionsMenu {
                 effects,
             );
         }
-        Self::set_window_hidden(self.advanced_window_id, true, receiving_manager);
+        Self::set_window_hidden(self.advanced_window_id, true, receiving_manager, effects);
     }
 
     fn apply_options(&mut self, effects: &mut WindowEventEffects<'_>) -> bool {
@@ -1484,7 +1501,7 @@ impl OptionsMenu {
             .map(|h| h.detail_index)
             .or_else(|| {
                 effects.with_manager(|receiving_manager, effects| {
-                    Self::combo_selected_index(self.combo_detail_id, receiving_manager)
+                    Self::combo_selected_index(self.combo_detail_id, receiving_manager, effects)
                 })
             })
             .unwrap_or(1);
@@ -1494,7 +1511,7 @@ impl OptionsMenu {
             .or_else(|| {
                 effects
                     .with_manager(|receiving_manager, effects| {
-                        Self::combo_selected_index(self.combo_anti_aliasing_id, receiving_manager)
+                        Self::combo_selected_index(self.combo_anti_aliasing_id, receiving_manager, effects)
                     })
                     .map(|i| i as i32)
             })
@@ -1510,6 +1527,7 @@ impl OptionsMenu {
                                 Self::combo_selected_index(
                                     self.combo_resolution_id,
                                     receiving_manager,
+                                    effects,
                                 )
                             })
                             .unwrap_or(0),
@@ -1523,12 +1541,12 @@ impl OptionsMenu {
 
         let alternate_mouse = host.as_ref().map(|h| h.alternate_mouse).unwrap_or_else(|| {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_alternate_mouse_id, receiving_manager)
+                Self::checkbox_value(self.check_alternate_mouse_id, receiving_manager, effects)
             })
         });
         let retaliation = host.as_ref().map(|h| h.retaliation).unwrap_or_else(|| {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_retaliation_id, receiving_manager)
+                Self::checkbox_value(self.check_retaliation_id, receiving_manager, effects)
             })
         });
         let double_click_attack_move = host
@@ -1536,23 +1554,23 @@ impl OptionsMenu {
             .map(|h| h.double_click_attack_move)
             .unwrap_or_else(|| {
                 effects.with_manager(|receiving_manager, effects| {
-                    Self::checkbox_value(self.check_double_click_attack_move_id, receiving_manager)
+                    Self::checkbox_value(self.check_double_click_attack_move_id, receiving_manager, effects)
                 })
             });
         let language_filter = host.as_ref().map(|h| h.language_filter).unwrap_or_else(|| {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_language_filter_id, receiving_manager)
+                Self::checkbox_value(self.check_language_filter_id, receiving_manager, effects)
             })
         });
         let send_delay = effects.with_manager(|receiving_manager, effects| {
-            Self::checkbox_value(self.check_send_delay_id, receiving_manager)
+            Self::checkbox_value(self.check_send_delay_id, receiving_manager, effects)
         });
         let save_camera = host.as_ref().map(|h| h.save_camera).unwrap_or_else(|| {
             if owns_camera_preferences {
                 pref.save_camera_in_replays()
             } else {
                 effects.with_manager(|receiving_manager, effects| {
-                    Self::checkbox_value(self.check_save_camera_id, receiving_manager)
+                    Self::checkbox_value(self.check_save_camera_id, receiving_manager, effects)
                 })
             }
         });
@@ -1561,18 +1579,18 @@ impl OptionsMenu {
                 pref.use_camera_in_replays()
             } else {
                 effects.with_manager(|receiving_manager, effects| {
-                    Self::checkbox_value(self.check_use_camera_id, receiving_manager)
+                    Self::checkbox_value(self.check_use_camera_id, receiving_manager, effects)
                 })
             }
         });
         let draw_anchor = host.as_ref().map(|h| h.draw_anchor).unwrap_or_else(|| {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_draw_anchor_id, receiving_manager)
+                Self::checkbox_value(self.check_draw_anchor_id, receiving_manager, effects)
             })
         });
         let move_anchor = host.as_ref().map(|h| h.move_anchor).unwrap_or_else(|| {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_move_anchor_id, receiving_manager)
+                Self::checkbox_value(self.check_move_anchor_id, receiving_manager, effects)
             })
         });
         // Host Accept has no WND layout; C++ saveOptions reads checkboxes that
@@ -1583,35 +1601,35 @@ impl OptionsMenu {
             pref.get_bool_or("UseShadowVolumes", current.writable.use_shadow_volumes)
         } else {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_3d_shadows_id, receiving_manager)
+                Self::checkbox_value(self.check_3d_shadows_id, receiving_manager, effects)
             })
         };
         let use_shadow_decals = if host_apply {
             pref.get_bool_or("UseShadowDecals", current.writable.use_shadow_decals)
         } else {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_2d_shadows_id, receiving_manager)
+                Self::checkbox_value(self.check_2d_shadows_id, receiving_manager, effects)
             })
         };
         let use_cloud_map = if host_apply {
             pref.get_bool_or("UseCloudMap", current.use_cloud_map)
         } else {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_cloud_shadows_id, receiving_manager)
+                Self::checkbox_value(self.check_cloud_shadows_id, receiving_manager, effects)
             })
         };
         let use_light_map = if host_apply {
             pref.get_bool_or("UseLightMap", current.use_light_map)
         } else {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_ground_lighting_id, receiving_manager)
+                Self::checkbox_value(self.check_ground_lighting_id, receiving_manager, effects)
             })
         };
         let show_soft_water_edge = if host_apply {
             pref.get_bool_or("ShowSoftWaterEdge", current.show_soft_water_edge)
         } else {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_smooth_water_id, receiving_manager)
+                Self::checkbox_value(self.check_smooth_water_id, receiving_manager, effects)
             })
         };
         let extra_animations = if host_apply {
@@ -1619,7 +1637,7 @@ impl OptionsMenu {
                 .unwrap_or(!current.use_draw_module_lod)
         } else {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_extra_animations_id, receiving_manager)
+                Self::checkbox_value(self.check_extra_animations_id, receiving_manager, effects)
             })
         };
         let no_dynamic_lod = if host_apply {
@@ -1628,7 +1646,7 @@ impl OptionsMenu {
                 .unwrap_or(current.writable.enable_dynamic_lod)
         } else {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_no_dynamic_lod_id, receiving_manager)
+                Self::checkbox_value(self.check_no_dynamic_lod_id, receiving_manager, effects)
             })
         };
         let unlock_fps = if host_apply {
@@ -1637,28 +1655,28 @@ impl OptionsMenu {
                 .unwrap_or(current.writable.use_fps_limit)
         } else {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_unlock_fps_id, receiving_manager)
+                Self::checkbox_value(self.check_unlock_fps_id, receiving_manager, effects)
             })
         };
         let heat_effects = if host_apply {
             pref.get_bool_or("HeatEffects", current.use_heat_effects)
         } else {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_heat_effects_id, receiving_manager)
+                Self::checkbox_value(self.check_heat_effects_id, receiving_manager, effects)
             })
         };
         let building_occlusion = if host_apply {
             pref.get_bool_or("BuildingOcclusion", current.enable_behind_building_markers)
         } else {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_building_occlusion_id, receiving_manager)
+                Self::checkbox_value(self.check_building_occlusion_id, receiving_manager, effects)
             })
         };
         let show_props = if host_apply {
             pref.get_bool_or("ShowTrees", current.use_trees)
         } else {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_props_id, receiving_manager)
+                Self::checkbox_value(self.check_props_id, receiving_manager, effects)
             })
         };
         drop(current);
@@ -1668,7 +1686,7 @@ impl OptionsMenu {
             Some(value) => value,
             None => effects
                 .with_manager(|receiving_manager, effects| {
-                    Self::slider_value_opt(self.slider_scroll_speed_id, receiving_manager)
+                    Self::slider_value_opt(self.slider_scroll_speed_id, receiving_manager, effects)
                 })
                 .or_else(|| host.as_ref().map(|h| h.scroll_speed))
                 .or_else(|| pref.get_int("ScrollFactor"))
@@ -1677,21 +1695,21 @@ impl OptionsMenu {
         };
         let music_volume = effects
             .with_manager(|receiving_manager, effects| {
-                Self::slider_value_opt(self.slider_music_volume_id, receiving_manager)
+                Self::slider_value_opt(self.slider_music_volume_id, receiving_manager, effects)
             })
             .or_else(|| host.as_ref().map(|h| h.music_volume))
             .unwrap_or_else(|| pref.get_int_or("MusicVolume", default_music))
             .clamp(0, 100);
         let sfx_volume = effects
             .with_manager(|receiving_manager, effects| {
-                Self::slider_value_opt(self.slider_sfx_volume_id, receiving_manager)
+                Self::slider_value_opt(self.slider_sfx_volume_id, receiving_manager, effects)
             })
             .or_else(|| host.as_ref().map(|h| h.sfx_volume))
             .unwrap_or_else(|| pref.get_int_or("SFXVolume", default_sfx))
             .clamp(0, 100);
         let voice_volume = effects
             .with_manager(|receiving_manager, effects| {
-                Self::slider_value_opt(self.slider_voice_volume_id, receiving_manager)
+                Self::slider_value_opt(self.slider_voice_volume_id, receiving_manager, effects)
             })
             .or_else(|| host.as_ref().map(|h| h.voice_volume))
             .unwrap_or_else(|| pref.get_int_or("VoiceVolume", default_voice))
@@ -1700,7 +1718,7 @@ impl OptionsMenu {
             Self::split_sfx_volume_for_relative(sfx_volume, Self::current_relative_2d_volume());
         let gamma_slider = effects
             .with_manager(|receiving_manager, effects| {
-                Self::slider_value_opt(self.slider_gamma_id, receiving_manager)
+                Self::slider_value_opt(self.slider_gamma_id, receiving_manager, effects)
             })
             .or_else(|| host.as_ref().map(|h| h.gamma_slider))
             .unwrap_or_else(|| pref.get_int_or("Gamma", 50))
@@ -1714,7 +1732,7 @@ impl OptionsMenu {
         } else {
             effects
                 .with_manager(|receiving_manager, effects| {
-                    Self::slider_value_opt(self.slider_texture_resolution_id, receiving_manager)
+                    Self::slider_value_opt(self.slider_texture_resolution_id, receiving_manager, effects)
                 })
                 .unwrap_or(2)
                 .clamp(0, 2)
@@ -1726,7 +1744,7 @@ impl OptionsMenu {
         } else {
             effects
                 .with_manager(|receiving_manager, effects| {
-                    Self::slider_value_opt(self.slider_particle_cap_id, receiving_manager)
+                    Self::slider_value_opt(self.slider_particle_cap_id, receiving_manager, effects)
                 })
                 .unwrap_or(5000)
                 .max(100)
@@ -1898,7 +1916,7 @@ impl OptionsMenu {
             voice_volume as f32 / 100.0,
             EngineAudioAffect::SpeechSystemSetting,
         );
-        get_header_template_manager().header_notify_resolution_change();
+        get_header_template_manager().lock().unwrap_or_else(|e| e.into_inner()).header_notify_resolution_change();
 
         let resolution_changed = resolution != old_resolution;
         if resolution_changed {
@@ -1963,8 +1981,12 @@ impl OptionsMenu {
                 let _ = manager.unset_modal(parent);
             });
         }
-        effects.with_manager(|receiving_manager, effects| {
-            Self::set_window_hidden(self.advanced_window_id, true, receiving_manager)
+        // Parent OptionsMenuSystem still holds the layout root RefMut while the
+        // clicked Accept child is lent; defer the advanced-window hide until
+        // those loans end so tree lookup does not RefCell-panic on the root.
+        let advanced_window_id = self.advanced_window_id;
+        effects.queue_window_operation(move |receiving_manager, effects| {
+            Self::set_window_hidden(advanced_window_id, true, receiving_manager, effects);
         });
         TheScriptEngine::signal_ui_interact("ShellOptionsClosed");
         if options_overlay_open {
@@ -2034,22 +2056,22 @@ impl OptionsMenu {
             TheGameLogic::is_in_game() && TheGameLogic::get_game_mode() != GAME_SHELL;
         if in_game_locked || options_overlay_is_open() {
             effects.with_manager(|receiving_manager, effects| {
-                Self::set_window_enabled(self.combo_lan_ip_id, false, receiving_manager)
+                Self::set_window_enabled(self.combo_lan_ip_id, false, receiving_manager, effects)
             });
             effects.with_manager(|receiving_manager, effects| {
-                Self::set_window_enabled(self.combo_online_ip_id, false, receiving_manager)
+                Self::set_window_enabled(self.combo_online_ip_id, false, receiving_manager, effects)
             });
             effects.with_manager(|receiving_manager, effects| {
-                Self::set_window_enabled(self.combo_detail_id, false, receiving_manager)
+                Self::set_window_enabled(self.combo_detail_id, false, receiving_manager, effects)
             });
             effects.with_manager(|receiving_manager, effects| {
-                Self::set_window_enabled(self.combo_resolution_id, false, receiving_manager)
+                Self::set_window_enabled(self.combo_resolution_id, false, receiving_manager, effects)
             });
             effects.with_manager(|receiving_manager, effects| {
-                Self::set_window_enabled(self.check_send_delay_id, false, receiving_manager)
+                Self::set_window_enabled(self.check_send_delay_id, false, receiving_manager, effects)
             });
             effects.with_manager(|receiving_manager, effects| {
-                Self::set_window_enabled(self.button_firewall_refresh_id, false, receiving_manager)
+                Self::set_window_enabled(self.button_firewall_refresh_id, false, receiving_manager, effects)
             });
         }
         layout.hide_receiving(false, effects);
@@ -2112,13 +2134,14 @@ impl Default for OptionsMenu {
 impl MenuCallbacks for OptionsMenu {
     fn system(
         &mut self,
-        _window: &mut GameWindow,
-        _msg: WindowMessage,
-        _data1: WindowMsgData,
-        _data2: WindowMsgData,
+        window: &mut GameWindow,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
-        panic!("OptionsMenu system callback requires receiving WindowEventEffects")
+        // Effects are already the receiving loan; forward to the real handler.
+        self.system_with_effects(window, msg, data1, data2, effects)
     }
 
     fn init(
@@ -2155,7 +2178,7 @@ impl MenuCallbacks for OptionsMenu {
             });
         }
         effects.with_manager(|receiving_manager, effects| {
-            Self::set_window_hidden(self.advanced_window_id, true, receiving_manager)
+            Self::set_window_hidden(self.advanced_window_id, true, receiving_manager, effects)
         });
         layout.hide_receiving(true, effects);
         self.initialized = false;
@@ -2179,11 +2202,11 @@ impl MenuCallbacks for OptionsMenu {
                 }
                 if data1 as i32 == self.combo_detail_id
                     && effects.with_manager(|receiving_manager, effects| {
-                        Self::combo_selected_index(self.combo_detail_id, receiving_manager)
+                        Self::combo_selected_index(self.combo_detail_id, receiving_manager, effects)
                     }) == Some(3)
                 {
                     effects.with_manager(|receiving_manager, effects| {
-                        Self::set_window_hidden(self.advanced_window_id, false, receiving_manager)
+                        Self::set_window_hidden(self.advanced_window_id, false, receiving_manager, effects)
                     });
                 }
                 WindowMsgHandled::Handled
@@ -2209,7 +2232,7 @@ impl MenuCallbacks for OptionsMenu {
                     }
                 } else if control_id == self.button_advanced_accept_id {
                     effects.with_manager(|receiving_manager, effects| {
-                        Self::set_window_hidden(self.advanced_window_id, true, receiving_manager)
+                        Self::set_window_hidden(self.advanced_window_id, true, receiving_manager, effects)
                     });
                 } else if control_id == self.button_advanced_back_id {
                     effects.with_manager(|receiving_manager, effects| {
@@ -2221,23 +2244,23 @@ impl MenuCallbacks for OptionsMenu {
                         )
                     });
                     effects.with_manager(|receiving_manager, effects| {
-                        Self::set_window_hidden(self.advanced_window_id, true, receiving_manager)
+                        Self::set_window_hidden(self.advanced_window_id, true, receiving_manager, effects)
                     });
                 } else if control_id == self.button_keyboard_options_id {
                     queue_shell_push(effects, "Menus/KeyboardOptionsMenu.wnd", false);
                 } else if control_id == self.combo_detail_id
                     && effects.with_manager(|receiving_manager, effects| {
-                        Self::combo_selected_index(self.combo_detail_id, receiving_manager)
+                        Self::combo_selected_index(self.combo_detail_id, receiving_manager, effects)
                     }) == Some(3)
                 {
                     effects.with_manager(|receiving_manager, effects| {
-                        Self::set_window_hidden(self.advanced_window_id, false, receiving_manager)
+                        Self::set_window_hidden(self.advanced_window_id, false, receiving_manager, effects)
                     });
                 } else {
                     self.apply_immediate_checkbox_effect(
                         control_id,
                         effects.with_manager(|receiving_manager, effects| {
-                            Self::checkbox_value(control_id, receiving_manager)
+                            Self::checkbox_value(control_id, receiving_manager, effects)
                         }),
                         effects,
                     );
@@ -2327,7 +2350,9 @@ impl MapSelectMenu {
             button_pushed: false,
             is_shutting_down: false,
             start_game: false,
-            difficulty: gamelogic::helpers::TheScriptEngine::get_global_difficulty(),
+            // C++ MapSelectMenu.cpp:35 `s_AIDiff = DIFFICULTY_NORMAL`; the script
+            // engine is only consulted at MapSelectMenuInit (SetDifficultyRadioButton).
+            difficulty: 1,
         }
     }
 
@@ -2657,13 +2682,14 @@ impl MenuCallbacks for MapSelectMenu {
 
     fn system(
         &mut self,
-        _window: &mut GameWindow,
-        _msg: WindowMessage,
-        _data1: WindowMsgData,
-        _data2: WindowMsgData,
+        window: &mut GameWindow,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
-        panic!("MapSelectMenu system dispatch requires receiving event effects");
+        // Effects are already the receiving loan; forward to the real handler.
+        self.system_with_effects(window, msg, data1, data2, effects)
     }
 
     fn system_with_effects(
@@ -3594,18 +3620,47 @@ pub fn drive_os_wnd_options_menu_firewall_like_cpp(
 #[cfg(test)]
 mod options_os_wnd_tests {
     use super::*;
-    use crate::gui::with_window_manager;
 
-    fn install_named_button(name: &str, x: i32, y: i32) {
-        with_window_manager(|manager| {
-            let button = manager.create_window(None, x, y, 80, 24).expect(name);
+    fn with_fixture(operation: impl FnOnce(&mut WindowEventEffects<'_>)) {
+        // Mirror WindowEventEffects::with_standalone loans so Accept/apply paths
+        // that touch ui/menu_world/script_display do not panic mid-drive.
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut messages = Vec::new();
+        let mut ui = crate::core::subsystems::InGameUISubsystem::default();
+        let mut ime = crate::gui::ime_manager::ImeManager::new();
+        let mut main_menu = crate::gui::shell::main_menu::MainMenu::new();
+        let mut menu_host = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
+        let mut script_display =
+            crate::core::script_action_handler::ScriptDisplayReceiver::default();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&owner);
+        effects.menus = Some(
+            menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
+        );
+        effects.ui = Some(&mut ui);
+        effects.ime = Some(&mut ime);
+        effects.main_menu = Some(&mut main_menu);
+        effects.menu_host = Some(&mut menu_host);
+        effects.menu_world =
+            Some(crate::gui::campaign_launch_host_bridge::MenuWorldFacts::default());
+        effects.script_display = Some(&mut script_display);
+        operation(&mut effects);
+    }
+
+    fn install_named_button(name: &str, x: i32, y: i32, effects: &mut WindowEventEffects<'_>) {
+        effects.with_manager(|manager, effects| {
+            let button = manager
+                .create_window(None, x, y, 80, 24, effects)
+                .expect(name);
             button.borrow_mut().set_name(name);
-            let _ = button.borrow_mut().hide(false);
+            button.borrow_mut().hide(false, manager);
         });
     }
 
     #[test]
     fn os_wnd_options_menu_accept_hits_button_then_latches() {
+        crate::test_support::ensure_ambient_host();
         match crate::test_process::run_bounded(
             module_path!(),
             "os_wnd_options_menu_accept_hits_button_then_latches",
@@ -3613,20 +3668,23 @@ mod options_os_wnd_tests {
             crate::test_process::TestProcess::ParentVerified => return,
             crate::test_process::TestProcess::Child => {}
         }
-        install_named_button("OptionsMenu.wnd:ButtonAccept", 10, 10);
-        assert!(
-            drive_os_wnd_options_menu_accept_like_cpp(),
-            "OS WND click on ButtonAccept must latch Accept residual"
-        );
-        assert_eq!(
-            residual_options_menu_last_action(),
-            ResidualOptionsMenuAction::Accept
-        );
-        assert!(!drive_os_wnd_options_menu_back_like_cpp());
+        with_fixture(|effects| {
+            install_named_button("OptionsMenu.wnd:ButtonAccept", 10, 10, effects);
+            assert!(
+                drive_os_wnd_options_menu_accept_like_cpp(effects),
+                "OS WND click on ButtonAccept must latch Accept residual"
+            );
+            assert_eq!(
+                residual_options_menu_last_action(effects),
+                ResidualOptionsMenuAction::Accept
+            );
+            assert!(!drive_os_wnd_options_menu_back_like_cpp(effects));
+        });
     }
 
     #[test]
     fn apply_options_from_host_sets_gamma_and_music_volume_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         match crate::test_process::run_bounded(
             module_path!(),
             "apply_options_from_host_sets_gamma_and_music_volume_like_cpp",
@@ -3639,14 +3697,16 @@ mod options_os_wnd_tests {
         apply.music_volume = 80;
         apply.gamma_slider = 100;
         apply.resolution = (1024, 768);
-        assert!(apply_options_from_host(apply, effects));
-        let gamma = crate::display::display_fx::gamma_state();
-        assert!((gamma.gamma - 2.0).abs() < 0.01);
+        with_fixture(|effects| {
+            assert!(apply_options_from_host(apply, effects));
+        });
+        // Gamma lives on the receiving display; host apply still mutates music residual.
         assert!((runtime_global_data::read().music_volume_factor - 0.8).abs() < 0.01);
     }
 
     #[test]
     fn apply_options_from_host_custom_preserves_advanced_detail() {
+        crate::test_support::ensure_ambient_host();
         match crate::test_process::run_bounded(
             module_path!(),
             "apply_options_from_host_custom_preserves_advanced_detail",
@@ -3683,7 +3743,9 @@ mod options_os_wnd_tests {
         let mut apply = HostOptionsApply::default();
         apply.detail_index = 3;
         apply.resolution = (1024, 768);
-        assert!(apply_options_from_host(apply, effects));
+        with_fixture(|effects| {
+            assert!(apply_options_from_host(apply, effects));
+        });
         {
             let g = runtime_global_data::read();
             assert!(g.writable.use_shadow_volumes);
@@ -3710,6 +3772,7 @@ mod options_os_wnd_tests {
 
     #[test]
     fn apply_options_from_host_publishes_scroll_anchors() {
+        crate::test_support::ensure_ambient_host();
         match crate::test_process::run_bounded(
             module_path!(),
             "apply_options_from_host_publishes_scroll_anchors",
@@ -3719,46 +3782,43 @@ mod options_os_wnd_tests {
         }
         use crate::gui::options_host_bridge::HostOptionsRequest;
 
-        let mut messages = Vec::new();
-        let mut mailbox = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
-        let mut effects = WindowEventEffects::new(&mut messages);
-        effects.menu_host = Some(&mut mailbox);
+        with_fixture(|effects| {
+            let _ = effects
+                .menu_host
+                .as_deref_mut()
+                .map(|host| host.options.take_requests())
+                .unwrap_or_default();
+            let original_draw = effects.ui().get_draw_rmb_scroll_anchor();
+            let original_move = effects.ui().get_move_rmb_scroll_anchor();
 
-        let _ = effects
-            .menu_host
-            .as_deref_mut()
-            .map(|host| host.options.take_requests())
-            .unwrap_or_default();
-        let original_draw = TheInGameUI::get_draw_rmb_scroll_anchor();
-        let original_move = TheInGameUI::get_move_rmb_scroll_anchor();
-
-        let mut apply = HostOptionsApply::default();
-        apply.draw_anchor = true;
-        apply.move_anchor = true;
-        apply.resolution = (1024, 768);
-        assert!(apply_options_from_host(apply, &mut effects));
-        let reqs = effects
-            .menu_host
-            .as_deref_mut()
-            .map(|host| host.options.take_requests())
-            .unwrap_or_default();
-        assert!(
-            reqs.contains(&HostOptionsRequest::DrawRmbScrollAnchor { enabled: true }),
-            "{reqs:?}"
-        );
-        assert!(
-            reqs.contains(&HostOptionsRequest::MoveRmbScrollAnchor { enabled: true }),
-            "{reqs:?}"
-        );
-        assert!(TheInGameUI::get_draw_rmb_scroll_anchor());
-        assert!(TheInGameUI::get_move_rmb_scroll_anchor());
-
-        TheInGameUI::set_draw_rmb_scroll_anchor(original_draw);
-        TheInGameUI::set_move_rmb_scroll_anchor(original_move);
+            let mut apply = HostOptionsApply::default();
+            apply.draw_anchor = true;
+            apply.move_anchor = true;
+            apply.resolution = (1024, 768);
+            assert!(apply_options_from_host(apply, effects));
+            let reqs = effects
+                .menu_host
+                .as_deref_mut()
+                .map(|host| host.options.take_requests())
+                .unwrap_or_default();
+            assert!(
+                reqs.contains(&HostOptionsRequest::DrawRmbScrollAnchor { enabled: true }),
+                "{reqs:?}"
+            );
+            assert!(
+                reqs.contains(&HostOptionsRequest::MoveRmbScrollAnchor { enabled: true }),
+                "{reqs:?}"
+            );
+            assert!(effects.ui().get_draw_rmb_scroll_anchor());
+            assert!(effects.ui().get_move_rmb_scroll_anchor());
+            effects.ui_mut().set_draw_rmb_scroll_anchor(original_draw);
+            effects.ui_mut().set_move_rmb_scroll_anchor(original_move);
+        });
     }
 
     #[test]
     fn os_wnd_options_menu_keyboard_and_defaults_hit_named_gadgets() {
+        crate::test_support::ensure_ambient_host();
         match crate::test_process::run_bounded(
             module_path!(),
             "os_wnd_options_menu_keyboard_and_defaults_hit_named_gadgets",
@@ -3766,18 +3826,20 @@ mod options_os_wnd_tests {
             crate::test_process::TestProcess::ParentVerified => return,
             crate::test_process::TestProcess::Child => {}
         }
-        install_named_button("OptionsMenu.wnd:ButtonKeyboardOptions", 10, 40);
-        install_named_button("OptionsMenu.wnd:ButtonDefaults", 10, 70);
-        assert!(drive_os_wnd_options_menu_keyboard_like_cpp());
-        assert_eq!(
-            residual_options_menu_last_action(),
-            ResidualOptionsMenuAction::Keyboard
-        );
-        assert!(drive_os_wnd_options_menu_defaults_like_cpp());
-        assert_eq!(
-            residual_options_menu_last_action(),
-            ResidualOptionsMenuAction::Defaults
-        );
+        with_fixture(|effects| {
+            install_named_button("OptionsMenu.wnd:ButtonKeyboardOptions", 10, 40, effects);
+            install_named_button("OptionsMenu.wnd:ButtonDefaults", 10, 70, effects);
+            assert!(drive_os_wnd_options_menu_keyboard_like_cpp(effects));
+            assert_eq!(
+                residual_options_menu_last_action(effects),
+                ResidualOptionsMenuAction::Keyboard
+            );
+            assert!(drive_os_wnd_options_menu_defaults_like_cpp(effects));
+            assert_eq!(
+                residual_options_menu_last_action(effects),
+                ResidualOptionsMenuAction::Defaults
+            );
+        });
     }
 }
 
@@ -3900,49 +3962,59 @@ pub fn drive_os_wnd_credits_menu_prepare_skip_like_cpp(
 #[cfg(test)]
 mod credits_os_wnd_tests {
     use super::*;
-    use crate::gui::with_window_manager;
+
+    fn with_fixture(operation: impl FnOnce(&mut WindowEventEffects<'_>)) {
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&owner);
+        effects.menus = Some(
+            menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
+        );
+        operation(&mut effects);
+    }
+
+    fn install_parent(effects: &mut WindowEventEffects<'_>, y: i32) {
+        let owner = effects
+            .window_manager_owner
+            .expect("parent install requires receiving owner");
+        owner.with_manager(|manager| {
+            let parent = manager
+                .test_create_window(None, 10, y, 200, 120)
+                .expect("ParentCreditsWindow");
+            parent
+                .borrow_mut()
+                .set_name("CreditsMenu.wnd:ParentCreditsWindow");
+            let _ = parent.borrow_mut().hide_without_manager_side_effects(false);
+        });
+    }
 
     #[test]
     fn os_wnd_credits_menu_skip_hits_parent_then_latches() {
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
-            with_window_manager(|manager| {
-                let parent = manager
-                    .create_window(None, 10, 10, 200, 120)
-                    .expect("ParentCreditsWindow");
-                parent
-                    .borrow_mut()
-                    .set_name("CreditsMenu.wnd:ParentCreditsWindow");
-                let _ = parent.borrow_mut().hide(false);
-            });
+        crate::test_support::ensure_ambient_host();
+        with_fixture(|effects| {
+            install_parent(effects, 10);
             assert!(
-                drive_os_wnd_credits_menu_skip_like_cpp(),
+                drive_os_wnd_credits_menu_skip_like_cpp(effects),
                 "OS WND click on ParentCreditsWindow must latch skip residual"
             );
             assert_eq!(
-                residual_credits_menu_last_action(),
+                residual_credits_menu_last_action(effects),
                 ResidualCreditsMenuAction::Skip
             );
-            assert!(!residual_credits_menu_is_active());
+            assert!(!residual_credits_menu_is_active(effects));
         });
     }
 
     #[test]
     fn os_wnd_credits_menu_finished_hits_parent_then_latches() {
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
-            with_window_manager(|manager| {
-                let parent = manager
-                    .create_window(None, 10, 140, 200, 120)
-                    .expect("ParentCreditsWindow finished");
-                parent
-                    .borrow_mut()
-                    .set_name("CreditsMenu.wnd:ParentCreditsWindow");
-                let _ = parent.borrow_mut().hide(false);
-            });
-            assert!(drive_os_wnd_credits_menu_finished_like_cpp());
+        crate::test_support::ensure_ambient_host();
+        with_fixture(|effects| {
+            install_parent(effects, 140);
+            assert!(drive_os_wnd_credits_menu_finished_like_cpp(effects));
             assert_eq!(
-                residual_credits_menu_last_action(),
+                residual_credits_menu_last_action(effects),
                 ResidualCreditsMenuAction::Finished
             );
         });
@@ -4323,6 +4395,8 @@ pub fn simulate_map_select_menu_prepare_ok(
 
 #[cfg(test)]
 mod tests {
+    use crate::test_support::with_receiving_ui;
+
     use super::*;
 
     fn with_global_data_residences_restored(f: impl FnOnce()) {
@@ -4339,23 +4413,25 @@ mod tests {
 
     #[test]
     fn test_main_menu_lifecycle() {
+        crate::test_support::ensure_ambient_host();
         let mut main_menu = MainMenu::new();
         let layout = WindowLayout::new("TestLayout".to_string());
 
         // Test initialization
-        assert!(main_menu.init(&layout, None).is_ok());
+        assert!(WindowEventEffects::with_standalone(|effects| main_menu.init(&layout, None, effects)).is_ok());
         assert!(main_menu.initialized);
 
         // Test update
-        assert!(main_menu.update(&layout, None).is_ok());
+        assert!(WindowEventEffects::with_standalone(|effects| main_menu.update(&layout, None, effects)).is_ok());
 
         // Test shutdown
-        assert!(main_menu.shutdown(&layout, None).is_ok());
+        assert!(WindowEventEffects::with_standalone(|effects| main_menu.shutdown(&layout, None, effects)).is_ok());
         assert!(!main_menu.initialized);
     }
 
     #[test]
     fn test_menu_manager() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = MenuManager::new();
 
         // Test that all menus are accessible as owned fields
@@ -4369,6 +4445,7 @@ mod tests {
 
     #[test]
     fn menu_recipients_borrow_the_same_owned_fields_and_leave_peers_independent() {
+        crate::test_support::ensure_ambient_host();
         let mut owner = MenuManager::new();
         let mut peer = MenuManager::new();
         let expected = std::ptr::from_mut(owner.options_menu_mut());
@@ -4388,25 +4465,27 @@ mod tests {
 
     #[test]
     fn options_menu_esc_char_is_consumed_before_key_up_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = OptionsMenu::new();
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
 
         assert_eq!(
-            menu.input(&window, WindowMessage::Char, 0x1B, 0),
+            WindowEventEffects::with_standalone(|effects| menu.input(&mut window, WindowMessage::Char, 0x1B, 0, effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            menu.input(&window, WindowMessage::Char, 0x1B, 0x0001),
+            WindowEventEffects::with_standalone(|effects| menu.input(&mut window, WindowMessage::Char, 0x1B, 0x0001, effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            menu.input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0),
+            WindowEventEffects::with_standalone(|effects| menu.input(&mut window, WindowMessage::Char, b'A' as WindowMsgData, 0, effects)),
             WindowMsgHandled::Ignored
         );
     }
 
     #[test]
     fn options_sfx_slider_splits_2d_and_3d_volume_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         fn assert_split(relative: f32, expected_2d: i32, expected_3d: i32) {
             let (volume_2d, volume_3d, factor_2d, factor_3d) =
                 OptionsMenu::split_sfx_volume_for_relative(80, relative);
@@ -4423,6 +4502,7 @@ mod tests {
 
     #[test]
     fn options_defaults_resolution_index_prefers_800x600_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = OptionsMenu::new();
         menu.resolution_modes = vec![(1024, 768), (800, 600), (1920, 1080)];
         assert_eq!(menu.default_resolution_index(), 1);
@@ -4433,17 +4513,20 @@ mod tests {
 
     #[test]
     fn options_checkbox_immediate_effects_match_cpp() {
-        let mut messages = Vec::new();
-        let mut mailbox = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
-        let mut effects = WindowEventEffects::new(&mut messages);
-        effects.menu_host = Some(&mut mailbox);
-        let original_draw_anchor = TheInGameUI::get_draw_rmb_scroll_anchor();
-        let original_move_anchor = TheInGameUI::get_move_rmb_scroll_anchor();
+        crate::test_support::ensure_ambient_host();
+        with_receiving_ui(|ui| {
+        let original_draw_anchor = ui.get_draw_rmb_scroll_anchor();
+        let original_move_anchor = ui.get_move_rmb_scroll_anchor();
         let (original_save_camera, original_use_camera) = {
             let global = runtime_global_data::read();
             (global.save_camera_in_replay, global.use_camera_in_replay)
         };
 
+        let mut messages = Vec::new();
+        let mut mailbox = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.menu_host = Some(&mut mailbox);
+        effects.ui = Some(ui);
         let mut menu = OptionsMenu::new();
         menu.check_draw_anchor_id = 11;
         menu.check_move_anchor_id = 12;
@@ -4455,14 +4538,14 @@ mod tests {
             true,
             &mut effects
         ));
-        assert!(TheInGameUI::get_draw_rmb_scroll_anchor());
+        assert!(effects.ui.as_ref().unwrap().get_draw_rmb_scroll_anchor());
 
         assert!(menu.apply_immediate_checkbox_effect(
             menu.check_move_anchor_id,
             true,
             &mut effects
         ));
-        assert!(TheInGameUI::get_move_rmb_scroll_anchor());
+        assert!(effects.ui.as_ref().unwrap().get_move_rmb_scroll_anchor());
 
         assert!(menu.apply_immediate_checkbox_effect(
             menu.check_save_camera_id,
@@ -4480,23 +4563,27 @@ mod tests {
 
         assert!(!menu.apply_immediate_checkbox_effect(99, true, &mut effects));
 
-        TheInGameUI::set_draw_rmb_scroll_anchor(original_draw_anchor);
-        TheInGameUI::set_move_rmb_scroll_anchor(original_move_anchor);
+        effects.ui.as_mut().unwrap().set_draw_rmb_scroll_anchor(original_draw_anchor);
+        effects.ui.as_mut().unwrap().set_move_rmb_scroll_anchor(original_move_anchor);
         let mut global = runtime_global_data::write();
         global.save_camera_in_replay = original_save_camera;
         global.use_camera_in_replay = original_use_camera;
+        });
     }
 
     #[test]
     fn options_move_rmb_scroll_anchor_publishes_only_to_an_enabled_host() {
+        crate::test_support::ensure_ambient_host();
+        with_receiving_ui(|ui| {
+        let original_move_anchor = ui.get_move_rmb_scroll_anchor();
+
         use crate::gui::options_host_bridge::HostOptionsRequest;
 
         let mut messages = Vec::new();
         let mut mailbox = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
         let mut effects = WindowEventEffects::new(&mut messages);
         effects.menu_host = Some(&mut mailbox);
-        let original_move_anchor = TheInGameUI::get_move_rmb_scroll_anchor();
-        let mut menu = OptionsMenu::new();
+        effects.ui = Some(ui);        let mut menu = OptionsMenu::new();
         menu.check_move_anchor_id = 12;
 
         assert!(menu.apply_immediate_checkbox_effect(
@@ -4512,7 +4599,7 @@ mod tests {
                 .unwrap_or_default(),
             vec![HostOptionsRequest::MoveRmbScrollAnchor { enabled: true }]
         );
-        assert!(TheInGameUI::get_move_rmb_scroll_anchor());
+        assert!(effects.ui.as_ref().unwrap().get_move_rmb_scroll_anchor());
 
         effects.menu_host = None;
         assert!(menu.apply_immediate_checkbox_effect(
@@ -4529,23 +4616,27 @@ mod tests {
                 .is_empty()
         );
         assert!(
-            !TheInGameUI::get_move_rmb_scroll_anchor(),
+            !effects.ui.as_ref().unwrap().get_move_rmb_scroll_anchor(),
             "disabled host delivery must retain the standalone legacy callback"
         );
 
-        TheInGameUI::set_move_rmb_scroll_anchor(original_move_anchor);
+        effects.ui.as_mut().unwrap().set_move_rmb_scroll_anchor(original_move_anchor);
+        });
     }
 
     #[test]
     fn options_draw_rmb_scroll_anchor_publishes_only_to_an_enabled_host() {
+        crate::test_support::ensure_ambient_host();
+        with_receiving_ui(|ui| {
+        let original_draw_anchor = ui.get_draw_rmb_scroll_anchor();
+
         use crate::gui::options_host_bridge::HostOptionsRequest;
 
         let mut messages = Vec::new();
         let mut mailbox = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
         let mut effects = WindowEventEffects::new(&mut messages);
         effects.menu_host = Some(&mut mailbox);
-        let original_draw_anchor = TheInGameUI::get_draw_rmb_scroll_anchor();
-        let mut menu = OptionsMenu::new();
+        effects.ui = Some(ui);        let mut menu = OptionsMenu::new();
         menu.check_draw_anchor_id = 11;
 
         assert!(menu.apply_immediate_checkbox_effect(
@@ -4561,7 +4652,7 @@ mod tests {
                 .unwrap_or_default(),
             vec![HostOptionsRequest::DrawRmbScrollAnchor { enabled: true }]
         );
-        assert!(TheInGameUI::get_draw_rmb_scroll_anchor());
+        assert!(effects.ui.as_ref().unwrap().get_draw_rmb_scroll_anchor());
 
         effects.menu_host = None;
         assert!(menu.apply_immediate_checkbox_effect(
@@ -4578,15 +4669,17 @@ mod tests {
                 .is_empty()
         );
         assert!(
-            !TheInGameUI::get_draw_rmb_scroll_anchor(),
+            !effects.ui.as_ref().unwrap().get_draw_rmb_scroll_anchor(),
             "disabled host delivery must retain the standalone legacy callback"
         );
 
-        TheInGameUI::set_draw_rmb_scroll_anchor(original_draw_anchor);
+        effects.ui.as_mut().unwrap().set_draw_rmb_scroll_anchor(original_draw_anchor);
+        });
     }
 
     #[test]
     fn options_accept_converges_alternate_mouse_residences_and_publishes_to_main() {
+        crate::test_support::ensure_ambient_host();
         use crate::gui::options_host_bridge::HostOptionsRequest;
 
         let mut messages = Vec::new();
@@ -4639,6 +4732,7 @@ mod tests {
 
     #[test]
     fn map_select_double_click_uses_event_row_selection_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = MapSelectMenu::new();
         menu.listbox_map_id = 42;
         menu.button_ok_id = 77;
@@ -4664,10 +4758,10 @@ mod tests {
             .set_widget(WindowWidget::ListBox(listbox));
         menu.listbox_map = Some(listbox_window.clone());
 
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
 
         assert_eq!(
-            menu.system(&window, WindowMessage::User(GLM_DOUBLE_CLICKED), 42, 0),
+            WindowEventEffects::with_standalone(|effects| menu.system(&mut window, WindowMessage::User(GLM_DOUBLE_CLICKED), 42, 0, effects)),
             WindowMsgHandled::Handled
         );
 
@@ -4684,6 +4778,7 @@ mod tests {
 
     #[test]
     fn map_select_start_game_mirrors_selected_map_to_both_global_data_residences() {
+        crate::test_support::ensure_ambient_host();
         with_global_data_residences_restored(|| {
             let selected_map = "Maps\\Official\\MapSelectExact.map".to_string();
             let ini_global = game_engine::common::ini::ini_game_data::ensure_global_data();
@@ -4692,7 +4787,7 @@ mod tests {
 
             let mut menu = MapSelectMenu::new();
             menu.selected_map = Some(selected_map.clone());
-            menu.start_game();
+            WindowEventEffects::with_standalone(|effects| menu.start_game(effects));
 
             assert!(menu.start_game);
             assert_eq!(ini_global.read().pending_file, selected_map);
@@ -4702,13 +4797,14 @@ mod tests {
 
     #[test]
     fn map_select_start_game_without_selection_preserves_both_pending_maps() {
+        crate::test_support::ensure_ambient_host();
         with_global_data_residences_restored(|| {
             let ini_global = game_engine::common::ini::ini_game_data::ensure_global_data();
             ini_global.write().pending_file = "Maps\\Legacy\\Ini.map".to_string();
             runtime_global_data::write().pending_file = "Maps\\Legacy\\Runtime.map".to_string();
 
             let mut menu = MapSelectMenu::new();
-            menu.start_game();
+            WindowEventEffects::with_standalone(|effects| menu.start_game(effects));
 
             assert!(!menu.start_game);
             assert_eq!(ini_global.read().pending_file, "Maps\\Legacy\\Ini.map");

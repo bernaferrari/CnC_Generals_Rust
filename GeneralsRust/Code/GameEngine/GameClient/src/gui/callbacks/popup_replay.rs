@@ -450,6 +450,7 @@ pub fn popup_replay_system(
 #[cfg(test)]
 mod tests {
     use super::*;
+use crate::gui::game_window::WindowEventEffects;
     use crate::gui::WindowWidget;
     use crate::gui::gadgets::{ListBox, TextEntry};
     use std::cell::RefCell;
@@ -457,34 +458,43 @@ mod tests {
 
     #[test]
     fn popup_replay_esc_char_is_consumed_before_key_up_like_cpp() {
-        let window = GameWindow::new();
+        crate::test_support::ensure_ambient_host();
+        let mut window = GameWindow::new();
 
         assert_eq!(
-            popup_replay_input(&window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0),
+            WindowEventEffects::with_standalone(|effects| popup_replay_input(&mut window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0, effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            popup_replay_input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0),
+            WindowEventEffects::with_standalone(|effects| popup_replay_input(&mut window, WindowMessage::Char, b'A' as WindowMsgData, 0, effects)),
             WindowMsgHandled::Ignored
         );
     }
 
     #[test]
     fn popup_replay_system_consumes_lifecycle_messages_like_cpp() {
-        let window = GameWindow::new();
-
+        crate::test_support::ensure_ambient_host();
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut wm = crate::gui::window_manager::WindowManager::new();
+        let mut window = GameWindow::new();
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.menus = Some(menus.receiving_menus(
+            crate::core::game_client::ClientInputAuthority::NativeHosted,
+        ));
         assert_eq!(
-            popup_replay_system(&window, WindowMessage::Create, 0, 0),
+            popup_replay_system(&mut window, WindowMessage::Create, 0, 0, &mut wm, &mut effects),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            popup_replay_system(&window, WindowMessage::Destroy, 0, 0),
+            popup_replay_system(&mut window, WindowMessage::Destroy, 0, 0, &mut wm, &mut effects),
             WindowMsgHandled::Handled
         );
     }
 
     #[test]
     fn popup_replay_last_replay_replaces_row_label_without_duplicate() {
+        crate::test_support::ensure_ambient_host();
         let rows = ["00000000", "Custom"]
             .into_iter()
             .map(|entry| replay_display_name_for_popup(entry, "00000000"))
@@ -499,6 +509,7 @@ mod tests {
 
     #[test]
     fn popup_replay_system_handles_glm_selected_listbox_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let listbox_id = 101;
         let text_entry_id = 102;
 
@@ -526,9 +537,15 @@ mod tests {
             .unwrap()
             .set_text("unchanged");
 
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut wm = crate::gui::window_manager::WindowManager::new();
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.menus = Some(menus.receiving_menus(
+            crate::core::game_client::ClientInputAuthority::NativeHosted,
+        ));
         {
-            let state_handle = popup_replay_state();
-            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+            let state = effects.popup_replay_mut();
             *state = PopupReplayState::default();
             state.listbox_games = listbox_id;
             state.text_entry_replay_name = text_entry_id;
@@ -536,13 +553,15 @@ mod tests {
             state.text_entry_window = Some(text_entry_window.clone());
         }
 
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
         assert_eq!(
             popup_replay_system(
-                &window,
+                &mut window,
                 WindowMessage::User(GLM_SELECTED),
                 listbox_id as WindowMsgData,
                 1,
+                &mut wm,
+                &mut effects,
             ),
             WindowMsgHandled::Handled
         );
@@ -559,6 +578,7 @@ mod tests {
 
     #[test]
     fn popup_replay_negative_listbox_row_keeps_text_entry_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let listbox_id = 101;
         let text_entry_id = 102;
 
@@ -585,9 +605,15 @@ mod tests {
             .unwrap()
             .set_text("unchanged");
 
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut wm = crate::gui::window_manager::WindowManager::new();
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.menus = Some(menus.receiving_menus(
+            crate::core::game_client::ClientInputAuthority::NativeHosted,
+        ));
         {
-            let state_handle = popup_replay_state();
-            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+            let state = effects.popup_replay_mut();
             *state = PopupReplayState::default();
             state.listbox_games = listbox_id;
             state.text_entry_replay_name = text_entry_id;
@@ -595,13 +621,15 @@ mod tests {
             state.text_entry_window = Some(text_entry_window.clone());
         }
 
-        let window = GameWindow::new();
+        let mut window = GameWindow::new();
         assert_eq!(
             popup_replay_system(
-                &window,
+                &mut window,
                 WindowMessage::User(GLM_SELECTED),
                 listbox_id as WindowMsgData,
                 (-1isize) as WindowMsgData,
+                &mut wm,
+                &mut effects,
             ),
             WindowMsgHandled::Handled
         );

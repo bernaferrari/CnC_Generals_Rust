@@ -26,7 +26,7 @@ const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
-struct PopupPlayerInfoState {
+pub(crate) struct PopupPlayerInfoState {
     parent_id: i32,
     listbox_info_id: i32,
     button_close_id: i32,
@@ -47,13 +47,41 @@ struct PopupPlayerInfoState {
     raise_message_box: bool,
 }
 
+#[cfg(test)]
 thread_local! {
-    static POPUP_STATE: Rc<RefCell<PopupPlayerInfoState>> = Rc::new(RefCell::new(PopupPlayerInfoState::default()));
+    static TEST_POPUP_STATE: std::cell::OnceCell<Rc<RefCell<PopupPlayerInfoState>>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn popup_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<PopupPlayerInfoState>> {
+    if let Some(owner) = owner {
+        return owner.popup_player_info_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().popup_player_info_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_POPUP_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(PopupPlayerInfoState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        // No owner / live client: ephemeral scratch (standalone residual without a client).
+        Rc::new(RefCell::new(PopupPlayerInfoState::default()))
+    }
 }
 
 fn popup_state() -> Rc<RefCell<PopupPlayerInfoState>> {
-    POPUP_STATE.with(Rc::clone)
+    popup_state_on_owner(None)
 }
+
 
 fn name_to_id(name: &str) -> i32 {
     NameKeyGenerator::name_to_key(name) as i32
@@ -100,7 +128,7 @@ pub fn popup_player_info_init(
     _user_data: Option<&dyn std::any::Any>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let state_slot = popup_state();
+    let state_slot = popup_state_on_owner(effects.window_manager_owner);
     let mut state = state_slot.borrow_mut();
     state.parent_id = name_to_id("PopupPlayerInfo.wnd:PopupParent");
     state.button_close_id = name_to_id("PopupPlayerInfo.wnd:ButtonClose");
@@ -145,7 +173,7 @@ pub fn popup_player_info_init(
         let _ = button.borrow_mut().hide(!is_local);
     }
     if let Some(button) = state.button_delete_account.as_ref() {
-        let _ = button.borrow_mut().hide(true);
+        let _ = button.borrow_mut().hide_without_manager_side_effects(true);
     }
     if let Some(check) = state.checkbox_asian.as_ref() {
         let _ = check.borrow_mut().hide(!is_local);
@@ -169,7 +197,7 @@ pub fn popup_player_info_shutdown(
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
     layout.hide(true);
-    let state_slot = popup_state();
+    let state_slot = popup_state_on_owner(effects.window_manager_owner);
     let mut state = state_slot.borrow_mut();
     state.parent = None;
     state.is_overlay_active = false;
@@ -198,7 +226,7 @@ pub fn popup_player_info_input(
         return WindowMsgHandled::Handled;
     }
     let (parent, button_id) = {
-        let slot = popup_state();
+        let slot = popup_state_on_owner(effects.window_manager_owner);
         let state = slot.borrow();
         (state.parent.clone(), state.button_close_id)
     };
@@ -213,7 +241,7 @@ pub fn popup_player_info_system(
     data2: WindowMsgData,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    let state_slot = popup_state();
+    let state_slot = popup_state_on_owner(effects.window_manager_owner);
     let mut state = state_slot.borrow_mut();
 
     match msg {

@@ -274,7 +274,7 @@ fn exclusive_dozer_does_not_stack_build_rate() {
     logic.players.get_mut(&0).expect("player").power_produced = 10;
     let sid = logic
         .create_object_under_construction("TestBuilding", Team::USA, glam::Vec3::ZERO)
-        .expect("scaffold");
+        .expect("scaffold").expect("ObjectId");
     if let Some(o) = logic.host_object_mut(sid) {
         o.template_mut().build_time = 10.0;
         o.construction_percent = 0.0;
@@ -285,7 +285,7 @@ fn exclusive_dozer_does_not_stack_build_rate() {
     let d2 = logic
         .create_object("TestDozer", Team::USA, glam::Vec3::new(3.0, 0.0, 0.0))
         .expect("dozer2");
-    assert!(logic.resume_construction(&[d1], sid));
+    assert_eq!(logic.resume_construction(&[d1], sid).expect("result"), true);
     if let Some((d, attack_events)) = logic.host_object_and_attack_events_mut(d2) {
         d.set_target(
             Some(sid),
@@ -330,7 +330,7 @@ fn under_construction_starts_at_one_hp_and_gains_linearly() {
     logic.get_player_mut(0).unwrap().power_produced = 100;
     let sid = logic
         .create_object_under_construction("TestBuilding", Team::USA, glam::Vec3::ZERO)
-        .expect("scaffold");
+        .expect("scaffold").expect("ObjectId");
     let max_hp = logic
         .host_object(sid)
         .map(|o| o.health.maximum)
@@ -354,7 +354,7 @@ fn under_construction_starts_at_one_hp_and_gains_linearly() {
     let did = logic
         .create_object("TestDozer", Team::USA, glam::Vec3::new(2.0, 0.0, 0.0))
         .expect("dozer");
-    assert!(logic.resume_construction(&[did], sid));
+    assert_eq!(logic.resume_construction(&[did], sid).expect("result"), true);
     logic.update_construction(&[sid], 1.0);
     let after = logic
         .host_object(sid)
@@ -866,7 +866,7 @@ fn dozer_dock_plays_under_construction_loop_and_stops_on_complete() {
             ensure_test_player_for_team(&mut logic, Team::USA);
             let sid = logic
                 .create_object_under_construction("TestBuilding", Team::USA, glam::Vec3::ZERO)
-                .expect("scaffold");
+                .expect("scaffold").expect("ObjectId");
             if let Some(o) = logic.host_object_mut(sid) {
                 o.template_mut().build_time = 10.0;
                 o.construction_percent = 0.0;
@@ -874,7 +874,7 @@ fn dozer_dock_plays_under_construction_loop_and_stops_on_complete() {
             let did = logic
                 .create_object("TestDozer", Team::USA, glam::Vec3::new(2.0, 0.0, 0.0))
                 .expect("dozer");
-            assert!(logic.resume_construction(&[did], sid));
+            assert_eq!(logic.resume_construction(&[did], sid).expect("result"), true);
             logic.queued_audio_events.clear();
             logic.update_construction(&[sid], 1.0);
             assert!(
@@ -925,14 +925,14 @@ fn construction_audio_fixture(logic: &mut GameLogic, pos: glam::Vec3) -> ObjectI
     ensure_test_player_for_team(logic, Team::USA);
     let site = logic
         .create_object_under_construction("TestBuilding", Team::USA, pos)
-        .expect("construction site");
+        .expect("construction site").expect("ObjectId");
     let object = logic.host_object_mut(site).unwrap();
     object.template_mut().build_time = 10.0;
     object.construction_percent = 0.0;
     let dozer = logic
         .create_object("TestDozer", Team::USA, pos + glam::Vec3::new(2.0, 0.0, 0.0))
         .expect("builder");
-    assert!(logic.resume_construction(&[dozer], site));
+    assert_eq!(logic.resume_construction(&[dozer], site).expect("result"), true);
     logic.queued_audio_events.clear();
     site
 }
@@ -1141,7 +1141,7 @@ fn construction_audio_restore_and_direct_removal_stop_outgoing_owner_loop() {
                     && !destination.queued_audio_events[0].stop
             );
             destination.queued_audio_events.clear();
-            destination.destroy_object(site);
+            destination.destroy_object(site).unwrap();
             destination.process_destroy_list();
             assert!(destination.host_object(site).is_none());
             assert!(

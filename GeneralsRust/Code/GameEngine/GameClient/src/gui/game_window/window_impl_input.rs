@@ -1357,11 +1357,11 @@ impl GameWindow {
                     }
                     if !self.owner_is_self {
                         if let Some(owner) = self.get_owner() {
-                            let _ = owner.borrow_mut().send_system_message(
+                            let _ = effects.send_system_message_to_rc(
+                                &owner,
                                 WindowMessage::User(GGM_FOCUS_CHANGE),
                                 data1,
                                 self.id as WindowMsgData,
-                                effects,
                             );
                         }
                     }
@@ -1491,16 +1491,35 @@ impl GameWindow {
                         .remove(WindowState::SELECTED | WindowState::HILITED);
                 }
                 let window_id = self.id;
-                effects.with_manager(|manager, effects| {
-                    let window = manager
-                        .get_window_by_id_with_selected(window_id, Some(self))
-                        .expect("focused window must belong to receiving manager");
-                    crate::gui::ime_manager::attach_or_detach_for_focus(
-                        effects.ime_mut(),
-                        window,
-                        focused,
-                    );
-                });
+                // Look the focused window up without with_manager: an outer
+                // with_manager may already hold the only &mut manager loan.
+                if let Some(ime) = effects.ime.as_deref_mut() {
+                    let lent: Vec<&GameWindow> =
+                        effects.lent_windows.iter().map(|window| &**window).collect();
+                    let window = if let Some(manager) = effects.manager.as_deref() {
+                        manager.win_get_window_from_id_with_lent(
+                            None,
+                            window_id,
+                            Some(self),
+                            &lent,
+                        )
+                    } else {
+                        effects.window_manager_owner.and_then(|owner| {
+                            owner.try_with_manager_ref(|manager| {
+                                manager.win_get_window_from_id_with_lent(
+                                    None,
+                                    window_id,
+                                    Some(self),
+                                    &lent,
+                                )
+                            })
+                        })
+                        .flatten()
+                    };
+                    if let Some(window) = window {
+                        crate::gui::ime_manager::attach_or_detach_for_focus(ime, window, focused);
+                    }
+                }
             } else if matches!(
                 self.widget,
                 Some(WindowWidget::PushButton(_))
@@ -1519,11 +1538,11 @@ impl GameWindow {
             if matches!(self.widget, Some(WindowWidget::ComboBox(_))) {
                 if !self.owner_is_self {
                     if let Some(owner) = self.get_owner() {
-                        let _ = owner.borrow_mut().send_system_message(
+                        let _ = effects.send_system_message_to_rc(
+                            &owner,
                             WindowMessage::User(GGM_FOCUS_CHANGE),
                             data1,
                             self.id as WindowMsgData,
-                            effects,
                         );
                     }
                 }
@@ -1533,12 +1552,17 @@ impl GameWindow {
                             effects,
                             WindowMsgPayload::Bool(false),
                             |effects, token| {
-                                edit_box.borrow_mut().send_system_message(
-                                    WindowMessage::InputFocus,
-                                    data1,
-                                    token,
-                                    effects,
-                                )
+                                // Edit-child focus looks the child up on the
+                                // manager and walks this combo parent; lend self
+                                // so the lookup does not re-borrow the RefCell.
+                                effects.with_lent_window(self, |effects| {
+                                    edit_box.borrow_mut().send_system_message(
+                                        WindowMessage::InputFocus,
+                                        data1,
+                                        token,
+                                        effects,
+                                    )
+                                })
                             },
                         );
                     }
@@ -1549,11 +1573,11 @@ impl GameWindow {
 
             if !self.owner_is_self {
                 if let Some(owner) = self.get_owner() {
-                    let _ = owner.borrow_mut().send_system_message(
+                    let _ = effects.send_system_message_to_rc(
+                        &owner,
                         WindowMessage::User(GGM_FOCUS_CHANGE),
                         data1,
                         self.id as WindowMsgData,
-                        effects,
                     );
                 }
             }

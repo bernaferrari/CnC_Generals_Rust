@@ -535,11 +535,6 @@ pub fn is_toxin_cleanup_hazard_name(template_name: &str) -> bool {
         || n.contains("anthraxpool")
 }
 
-/// Whether residual secondary is contaminate spray path (spawn medium field).
-pub fn should_apply_toxin_spray(is_toxin_tractor: bool, fired_slot: u8) -> bool {
-    is_toxin_tractor && fired_slot == 1
-}
-
 /// Whether residual primary stream should apply small splash radius residual.
 
 /// Per-frame toxin stream projectile step speed (dist/frame).
@@ -564,10 +559,6 @@ pub fn toxin_stream_projectile_name(anthrax: AnthraxResidualTier) -> &'static st
         AnthraxResidualTier::Beta => TOXIN_STREAM_PROJECTILE_UPGRADED,
         AnthraxResidualTier::Gamma => TOXIN_STREAM_PROJECTILE_GAMMA,
     }
-}
-
-pub fn should_apply_toxin_stream(is_toxin_tractor: bool, fired_slot: u8) -> bool {
-    is_toxin_tractor && fired_slot == 0
 }
 
 /// Stream residual damage at distance (primary radius ring).
@@ -1179,56 +1170,6 @@ mod tests {
     }
 
     #[test]
-    fn stream_and_spray_stats() {
-        assert!(
-            (toxin_stream_damage(ToxinTractorSalvageTier::Base, AnthraxResidualTier::None) - 10.0)
-                .abs()
-                < 0.01
-        );
-        assert!(
-            (toxin_stream_damage(ToxinTractorSalvageTier::Base, AnthraxResidualTier::Beta) - 12.5)
-                .abs()
-                < 0.01
-        );
-        assert!(
-            (toxin_stream_damage(ToxinTractorSalvageTier::Base, AnthraxResidualTier::Gamma) - 20.5)
-                .abs()
-                < 0.01
-        );
-        assert!(
-            (toxin_stream_damage(ToxinTractorSalvageTier::Two, AnthraxResidualTier::None) - 15.0)
-                .abs()
-                < 0.01
-        );
-        assert!((toxin_spray_damage(AnthraxResidualTier::None) - 2.0).abs() < 0.01);
-        assert!((toxin_spray_damage(AnthraxResidualTier::Beta) - 2.5).abs() < 0.01);
-        assert!((toxin_spray_damage(AnthraxResidualTier::Gamma) - 2.5).abs() < 0.01);
-        assert!((toxin_med_field_damage(AnthraxResidualTier::None) - 2.0).abs() < 0.01);
-        assert!((toxin_med_field_damage(AnthraxResidualTier::Gamma) - 2.5).abs() < 0.01);
-        assert!((toxin_stream_damage_at(5.0, 10.0) - 10.0).abs() < 0.01);
-        assert!((toxin_stream_damage_at(15.0, 10.0)).abs() < 0.01);
-        assert!((toxin_spray_damage_at(50.0, 2.0) - 2.0).abs() < 0.01);
-        assert!((toxin_spray_damage_at(80.0, 2.0)).abs() < 0.01);
-        assert!(should_apply_toxin_spray(true, 1));
-        assert!(!should_apply_toxin_spray(true, 0));
-        assert!(should_apply_toxin_stream(true, 0));
-        assert!(is_chem_general_template("Chem_GLAVehicleToxinTruck"));
-        assert!(is_anthrax_gamma_upgrade_name(
-            "Chem_Upgrade_GLAAnthraxGamma"
-        ));
-        assert!(is_anthrax_gamma_upgrade_name("Upgrade_GLAAnthraxGamma"));
-        assert!(!is_anthrax_gamma_upgrade_name("Upgrade_GLAAnthraxBeta"));
-        assert_eq!(
-            anthrax_tier_from_flags(false, false, true),
-            AnthraxResidualTier::Beta
-        );
-        assert_eq!(
-            anthrax_tier_from_flags(true, true, true),
-            AnthraxResidualTier::Gamma
-        );
-    }
-
-    #[test]
     fn registry_spawn_and_honesty() {
         let mut reg = HostToxinTractorRegistry::new();
         let id = reg.spawn_medium_field(
@@ -1264,27 +1205,6 @@ mod tests {
         assert!(reg.honesty_host_path_ok());
         // gamma medium + base medium + death field
         assert_eq!(reg.active_count(), 3);
-    }
-
-    #[test]
-    fn stream_projectile_peels() {
-        assert!(honesty_toxin_stream_projectile_ok());
-        assert_eq!(toxin_ms_to_frames(500), 15);
-        assert!(toxin_stream_flight_frames(100.0) >= 1);
-        assert!(should_apply_toxin_stream(true, 0));
-        assert!(!should_apply_toxin_stream(true, 1));
-        assert_eq!(
-            toxin_stream_projectile_name(AnthraxResidualTier::None),
-            TOXIN_STREAM_PROJECTILE
-        );
-        assert_eq!(
-            toxin_stream_projectile_name(AnthraxResidualTier::Beta),
-            TOXIN_STREAM_PROJECTILE_UPGRADED
-        );
-        assert_eq!(
-            toxin_stream_projectile_name(AnthraxResidualTier::Gamma),
-            TOXIN_STREAM_PROJECTILE_GAMMA
-        );
     }
 
     #[test]

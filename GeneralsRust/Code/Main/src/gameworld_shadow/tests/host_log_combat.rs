@@ -686,7 +686,7 @@ fn host_guard_is_canonical_and_shadow_only_observes() {
             .world()
             .entity(entity)
             .unwrap()
-            .active_guard_position(),
+            .guard_position,
         Some([3.0, 0.0, 5.0])
     );
     assert_eq!(
@@ -694,7 +694,7 @@ fn host_guard_is_canonical_and_shadow_only_observes() {
         tid.0
     );
     let copy = shadow.world_mut().world_mut().entity_mut(entity).unwrap();
-    copy.set_guard_position_data(None);
+    copy.guard_position = None;
     copy.guard_target_host = 0;
     assert_eq!(
         logic.host_object(oid).unwrap().active_guard_position(),
@@ -718,7 +718,7 @@ fn host_guard_is_canonical_and_shadow_only_observes() {
             .world()
             .entity(entity)
             .unwrap()
-            .active_guard_position(),
+            .guard_position,
         None
     );
     assert_eq!(shadow.world().entity(entity).unwrap().guard_target_host, 0);
@@ -886,10 +886,10 @@ fn canonical_turret_is_projected_from_receiving_owner() {
 
     {
         let o = logic.host_object_mut(oid).expect("o");
-        o.turret_angle_deg = 33.0;
-        o.turret_pitch_deg = 12.0;
-        o.turret_holding = true;
-        o.turret_idle_scanning = false;
+        o.turret_ai.turret_angle_deg = 33.0;
+        o.turret_ai.turret_pitch_deg = 12.0;
+        o.turret_ai.turret_holding = true;
+        o.turret_ai.turret_idle_scanning = false;
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -914,9 +914,9 @@ fn canonical_turret_is_projected_from_receiving_owner() {
     shadow.sync_from_host(&logic);
 
     let o = logic.host_objects().lookup(&oid).expect("o");
-    assert!((o.turret_angle_deg - 33.0).abs() < 1e-3);
-    assert!((o.turret_pitch_deg - 12.0).abs() < 1e-3);
-    assert!(o.turret_holding);
+    assert!((o.turret_ai.turret_angle_deg - 33.0).abs() < 1e-3);
+    assert!((o.turret_ai.turret_pitch_deg - 12.0).abs() < 1e-3);
+    assert!(o.turret_ai.turret_holding);
 }
 
 #[test]

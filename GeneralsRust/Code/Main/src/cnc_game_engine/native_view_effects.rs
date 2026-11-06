@@ -81,7 +81,7 @@ impl<'a> NativeRendererViewEffects<'a> {
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(self),
                         ..Default::default()
-                    },
+},
                 )
                 .map_err(|error| error.to_string())?;
         }
@@ -90,7 +90,7 @@ impl<'a> NativeRendererViewEffects<'a> {
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(self),
                     ..Default::default()
-                },
+},
             )
             .map_err(|error| error.to_string())?;
         Ok(())

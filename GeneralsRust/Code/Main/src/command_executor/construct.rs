@@ -37,6 +37,7 @@ impl<'a> CommandExecutor<'a> {
         location: Vec3,
         orientation: f32,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         Ok(self.execute_build_with_placement(
             units,
             template_name,
@@ -54,6 +55,7 @@ impl<'a> CommandExecutor<'a> {
         orientation: f32,
         collision_candidates: &HashSet<ObjectId>,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         Ok(self.execute_build_with_placement(
             &[builder],
             template_name,
@@ -231,6 +233,7 @@ impl<'a> CommandExecutor<'a> {
         location: Vec3,
         orientation: f32,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         Ok(self.execute_build(units, template_name, location, orientation)?)
     }
 
@@ -239,6 +242,7 @@ impl<'a> CommandExecutor<'a> {
         object_id: ObjectId,
         player_id: u32,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         let (template_name, base_supplies, reconstructing) = {
             let Some(obj) = self.game_logic.host_object(object_id) else {
                 return Ok(CommandResult::InvalidTarget);
@@ -296,6 +300,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         // C++ MSG_RESUME_CONSTRUCTION / groupResumeConstruction residual.
         if self.game_logic.resume_construction(units, target_id)? {
             // C++ CommandXlat.cpp:449-456 MSG_RESUME_CONSTRUCTION → VoiceBuildResponse.

@@ -13,8 +13,11 @@ pub(super) fn admit_retail_production_energy_rules(logic: &mut GameLogic) {
 
 // Child module of game_logic.rs via `#[path]`.
 
-pub(super) static HOST_STATE_RESIDUAL_TEST_ENV_LOCK: std::sync::Mutex<()> =
-    std::sync::Mutex::new(());
+pub(super) fn host_state_residual_test_env_lock() -> &'static std::sync::Mutex<()> {
+    let services = crate::main_services::main_services();
+    let lock = &services.host_state_residual_test_env_lock;
+    unsafe { std::mem::transmute(lock) }
+}
 
 /// Install a tall ridge through the pathfinding-grid mid X cells so
 /// `is_clear_line_of_sight_terrain` fails between low endpoints on either side.
@@ -367,6 +370,8 @@ pub(super) fn ensure_test_tunnel_network_template(game_logic: &mut GameLogic) {
         return;
     }
     let mut tunnel = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    tunnel.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     tunnel
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::Selectable)
@@ -379,7 +384,7 @@ pub(super) fn ensure_test_tunnel_network_template(game_logic: &mut GameLogic) {
     // walks the OpenContain ExitStart/End path instead of the Idle drop, and
     // occupants stay DISABLED_HELD per TunnelContain::isGarrisonable FALSE.
     tunnel.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
-    tunnel.contain_module.slots = Some(crate::game_logic::host_tunnel_network::MAX_TUNNEL_CAPACITY);
+    tunnel.contain_module.slots = Some(10);
     game_logic
         .templates
         .insert("GLATunnelNetwork".to_string(), tunnel);
@@ -395,7 +400,7 @@ pub(super) fn create_test_tunnel_network(game_logic: &mut GameLogic, pos: Vec3) 
         // The authored TunnelContain kind already marks the template
         // tunnel-style; install unconditionally so the entrance carries the
         // shared MaxTunnelCapacity building_data pool residual.
-        obj.install_tunnel_network_residual();
+        obj.install_tunnel_network_residual(10);
     }
     id
 }
@@ -421,6 +426,7 @@ pub(super) fn ensure_test_combat_chinook_template(game_logic: &mut GameLogic) {
         .add_kind_of(KindOf::Attackable)
         .set_health(350.0)
         .set_cost(1200, 0);
+    crate::game_logic::host_combat_chinook::author_combat_chinook_contain(&mut chinook);
     game_logic
         .templates
         .insert("AirF_AmericaVehicleChinook".to_string(), chinook);
@@ -503,7 +509,11 @@ pub(super) fn ensure_test_troop_crawler_template(game_logic: &mut GameLogic) {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(240.0)
-        .set_cost(1400, 0);
+        .set_cost(1400, 0)
+        // Retail WeaponSet PRIMARY (hq-2qedt.191: object_hit keys on it).
+        .set_primary_weapon_name(crate::game_logic::host_troop_crawler::TROOP_CRAWLER_ASSAULT_WEAPON)
+        // Authored WeaponSet PRIMARY (hq-2qedt.141: no create-time name peel).
+        .set_primary_weapon(crate::game_logic::host_troop_crawler::troop_crawler_assault_weapon());
     crawler.sight_range = 175.0;
     game_logic
         .templates
@@ -522,6 +532,14 @@ pub(super) fn create_test_troop_crawler(game_logic: &mut GameLogic, pos: Vec3) -
             obj.install_troop_crawler_transport();
         }
     }
+    // Mapless stand-in for the retail StealthDetectorUpdate module
+    // (DetectionRange 175 / DetectionRate 500ms) this hand-built template lacks.
+    author_test_stealth_detector(
+        game_logic,
+        id,
+        crate::game_logic::host_troop_crawler::TROOP_CRAWLER_DETECTION_RANGE,
+        15,
+    );
     // A started transport fixture includes its first due TransportContain
     // update. Factory-only timing tests use create_object directly instead.
     game_logic.frame = game_logic.frame.max(1);
@@ -1016,4 +1034,32 @@ pub(super) fn author_superweapon_special_power_module(
             starts_paused: false,
             scripted_special_power_only: false,
         });
+}
+
+/// Mapless fixtures have no admitted module list; this stands in for an
+/// authored `StealthDetectorUpdate` (range, DetectionRate frames) including
+/// its constructor scan stagger. Production detectors come only from the
+/// authored module (`Object::install_authored_stealth_detector`).
+pub(super) fn author_test_stealth_detector(
+    game_logic: &mut GameLogic,
+    id: ObjectId,
+    range: f32,
+    rate_frames: u32,
+) {
+    let frame = game_logic.frame;
+    if let Some(obj) = game_logic.host_object_mut(id) {
+        obj.set_detector_state(true, range, rate_frames);
+        obj.apply_stealth_detector_ctor_stagger(frame);
+    }
+}
+
+/// One combat frame as the simulation tick runs it: direct combat, then the
+/// WeaponSpeed-delayed damage and projectile impacts the authored shot
+/// operation scheduled (C++ WeaponStore::update / ProjectileUpdate).
+pub(super) fn step_authored_combat(game_logic: &mut GameLogic, ids: &[ObjectId]) {
+    game_logic
+        .update_combat(ids, LOGIC_FRAME_TIMESTEP)
+        .expect("combat frame");
+    game_logic.apply_owned_projectileless_delayed_damage();
+    let _ = game_logic.update_owned_projectile_impacts(LOGIC_FRAME_TIMESTEP);
 }

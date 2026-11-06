@@ -621,17 +621,28 @@ mod source_background_tests {
         let directory = tempfile::tempdir().unwrap();
         let mut receiving = game_client::gui::window_manager::WindowManager::new();
         let missing = directory.path().join("SourceMissingBlankWindow-501.wnd");
-        assert!(
-            create_source_background_layout(&mut receiving, missing.to_str().unwrap()).is_err()
-        );
-        assert_eq!(receiving.window_count(), 0);
-        let empty = directory.path().join("SourceEmptyBlankWindow-501.wnd");
-        std::fs::write(&empty, "FILE_VERSION = 2;\n").unwrap();
-        assert!(matches!(
-            create_source_background_layout(&mut receiving, empty.to_str().unwrap()),
-            Err(game_client::gui::game_window::WindowError::InvalidParameter)
-        ));
-        assert_eq!(receiving.window_count(), 0);
-        assert_eq!(receiving.root_window_count(), 0);
+        game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            assert!(
+                create_source_background_layout(
+                    &mut receiving,
+                    missing.to_str().unwrap(),
+                    effects,
+                )
+                .is_err()
+            );
+            assert_eq!(receiving.window_count(), 0);
+            let empty = directory.path().join("SourceEmptyBlankWindow-501.wnd");
+            std::fs::write(&empty, "FILE_VERSION = 2;\n").unwrap();
+            assert!(matches!(
+                create_source_background_layout(
+                    &mut receiving,
+                    empty.to_str().unwrap(),
+                    effects,
+                ),
+                Err(game_client::gui::game_window::WindowError::InvalidParameter)
+            ));
+            assert_eq!(receiving.window_count(), 0);
+            assert_eq!(receiving.root_window_count(), 0);
+        });
     }
 }

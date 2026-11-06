@@ -528,6 +528,11 @@ impl CnCGameEngine {
         } else {
             None
         };
+        // A golden capture stops logic exactly on its freeze frame.
+        let step_budget = match self.golden_remaining_logic_steps() {
+            Some(remaining) => Some(step_budget.unwrap_or(1).min(remaining)),
+            None => step_budget,
+        };
         // The observer only copies completed Main state at each fixed step.
         let mut observer_slot = self.gameworld_shadow.take();
         let result =
@@ -1252,11 +1257,16 @@ impl CnCGameEngine {
         pending: &mut crate::command_system::ReplayPendingState,
     ) -> Result<(), String> {
         client
-            .pump_message_stream_to_receiving_owner(pending.recorder_owned(), &mut |messages| {
-                pending
-                    .receive_client_messages(messages)
-                    .map_err(game_client::core::GameClientError::InvalidOperation)
-            })
+            .pump_message_stream_to_receiving_owner(
+                pending.recorder_owned(),
+                &mut |messages| {
+                    pending
+                        .receive_client_messages(messages)
+                        .map_err(game_client::core::GameClientError::InvalidOperation)
+                },
+                0,
+                0,
+            )
             .map_err(|error| error.to_string())
     }
 
@@ -1966,7 +1976,10 @@ impl CnCGameEngine {
         let Some(pres) = self.last_presentation_frame.as_ref() else {
             return Ok(());
         };
-        crate::game_logic::refresh_host_fx_object_poses_from_presentation(pres);
+        crate::game_logic::refresh_host_fx_object_poses_from_presentation_on(
+            &self.game_logic.world_services,
+            pres,
+        );
 
         let logic_frame = pres.frame.0;
         let host_epoch = self.host_direct_visual_world_epoch;

@@ -513,9 +513,6 @@ pub struct MetaMapRec {
     pub action_name: String,
 }
 
-/// MetaMap (CommandMap) storage singleton
-static META_MAP: OnceLock<RwLock<MetaMap>> = OnceLock::new();
-
 /// MetaMap structure holding all key bindings
 #[derive(Debug, Clone, Default)]
 pub struct MetaMap {
@@ -628,18 +625,31 @@ fn parse_display_name(ini: &mut INI, target: &mut MetaMapRec, _tokens: &[&str]) 
 }
 
 /// Initialize the MetaMap singleton
-pub fn init_meta_map() {
-    META_MAP.get_or_init(|| RwLock::new(MetaMap::new()));
-}
 
 /// Get a read reference to the MetaMap
-pub fn get_meta_map() -> Option<std::sync::RwLockReadGuard<'static, MetaMap>> {
-    META_MAP.get()?.read().ok()
+/// Get a write reference to the MetaMap
+
+fn ini_meta_map_cell() -> std::sync::Arc<std::sync::RwLock<MetaMap>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.meta_map)
 }
 
-/// Get a write reference to the MetaMap
+
+pub fn init_meta_map() {
+    let _ = ini_meta_map_cell();
+}
+
+
+pub fn get_meta_map() -> Option<std::sync::RwLockReadGuard<'static, MetaMap>> {
+    let cell = ini_meta_map_cell();
+    let guard = cell.read().ok()?;
+    Some(unsafe { std::mem::transmute(guard) })
+}
+
+
 pub fn get_meta_map_mut() -> Option<std::sync::RwLockWriteGuard<'static, MetaMap>> {
-    META_MAP.get()?.write().ok()
+    let cell = ini_meta_map_cell();
+    let guard = cell.write().ok()?;
+    Some(unsafe { std::mem::transmute(guard) })
 }
 
 /// Parse a CommandMap definition block

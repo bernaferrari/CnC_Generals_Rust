@@ -21,6 +21,7 @@ fn client_with_bone(x: f32) -> GameClient {
 
 #[test]
 fn current_bone_query_resolves_only_the_supplied_same_id_client() {
+    crate::test_support::ensure_ambient_host();
     let mut first = client_with_bone(11.0);
     let mut peer = client_with_bone(22.0);
     let first_bones = first.query_current_client_bone_positions(73, "WeaponFireFXBone", 1, 4);

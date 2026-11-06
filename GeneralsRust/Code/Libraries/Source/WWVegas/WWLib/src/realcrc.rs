@@ -64,3 +64,37 @@ pub fn crc_stringi(string: &str, crc: u32) -> u32 {
     }
     crc ^ 0xFFFF_FFFF
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_memory_crc_is_zero_seeded() {
+        assert_eq!(crc_memory(&[], 0), 0);
+    }
+
+    #[test]
+    fn string_and_memory_agree() {
+        let s = "Generals";
+        assert_eq!(crc_string(s, 0), crc_memory(s.as_bytes(), 0));
+    }
+
+    #[test]
+    fn case_insensitive_differs_from_sensitive() {
+        let a = crc_string("AbC", 0);
+        let b = crc_stringi("abc", 0);
+        let c = crc_string("abc", 0);
+        assert_eq!(b, crc_stringi("ABC", 0));
+        assert_ne!(a, c); // sensitive path sees case
+        assert_eq!(crc_stringi("AbC", 0), b);
+    }
+
+    #[test]
+    fn chaining_matches_concat() {
+        let left = crc_memory(b"ab", 0);
+        let chained = crc_memory(b"cd", left);
+        let whole = crc_memory(b"abcd", 0);
+        assert_eq!(chained, whole);
+    }
+}

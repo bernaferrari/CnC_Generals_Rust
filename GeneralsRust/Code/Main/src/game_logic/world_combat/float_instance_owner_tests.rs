@@ -58,6 +58,14 @@ impl crate::game_logic::NativeViewEffects for Receiving {
     ) -> Result<(), String> {
         Err("recording view cannot create".into())
     }
+
+    fn body_visual_changed(
+        &mut self,
+        _: &crate::game_logic::NativeBodyVisualChange,
+        _: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
+    ) -> Result<bool, String> {
+        Ok(false)
+    }
 }
 fn fixture() -> (GameLogic, ObjectId) {
     let mut parser = crate::assets::IniParser::new();
@@ -107,7 +115,7 @@ fn source_float_update_uses_receiving_instance_and_no_same_id_peer() {
         .update_float_update_with_effects(&mut crate::game_logic::ScriptPresentationEffects {
             view: Some(&mut recipient),
             ..Default::default()
-        })
+})
         .unwrap();
     let data = world
         .objects
@@ -138,7 +146,7 @@ fn source_float_missing_receiving_birth_is_reported() {
             .update_float_update_with_effects(&mut crate::game_logic::ScriptPresentationEffects {
                 view: Some(&mut recipient),
                 ..Default::default()
-            })
+})
             .is_err()
     );
     assert!(recipient.calls.is_empty());

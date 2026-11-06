@@ -309,6 +309,11 @@ impl CnCGameEngine {
         // Bind the application owner before publishing compatibility paths or
         // registering any subsystem; later engines must use this same root.
         application_services.admit_user_data_root(application_paths.root())?;
+        // GameLogic ambient TLS hooks must exist before ObjectCreationListStore
+        // (and later subsystems) / early WeaponStore init touch WorldServices.
+        // ensure_world_ambient installs a bootstrap bag (also publishes its
+        // CommonServices for NameKey); the match-owned bag replaces it later.
+        crate::game_logic::ensure_world_ambient();
         // Publish that accepted root around callbacks that still read common preferences.
         let mut subsystem_manager = crate::subsystem_manager::SubsystemManager::new();
         application_paths
@@ -411,39 +416,35 @@ impl CnCGameEngine {
         engine_config.width = surface_w;
         engine_config.height = surface_h;
         let size = winit::dpi::LogicalSize::new(surface_w, surface_h);
-        if runtime_host_headless {
-            if let Err(err) = ww3d_engine::init_headless(engine_config).await {
-                if !matches!(err, EngineError::AlreadyInitialised) {
-                    return Err(anyhow::anyhow!(
-                        "Failed to initialize WW3D headless engine: {err:?}"
-                    ));
-                }
-            }
-        } else if let Err(err) = ww3d_engine::init_with_window(window.clone(), engine_config).await
-        {
-            if !matches!(err, EngineError::AlreadyInitialised) {
-                return Err(anyhow::anyhow!("Failed to initialize WW3D engine: {err:?}"));
-            }
-        }
+        let ww3d = if runtime_host_headless {
+            ww3d_engine::init_headless(engine_config)
+                .await
+                .map_err(|err| anyhow::anyhow!("Failed to initialize WW3D headless engine: {err:?}"))?
+        } else {
+            ww3d_engine::init_with_window(window.clone(), engine_config)
+                .await
+                .map_err(|err| anyhow::anyhow!("Failed to initialize WW3D engine: {err:?}"))?
+        };
 
         // Initialize C++ SAGE equivalent graphics system
         info!("🎨 Initializing GraphicsSystem (C++ SAGE equivalent)...");
         let graphics_timer = InitTimer::new("✅ GraphicsSystem initialized");
-        let device =
-            ww3d_engine::device().map_err(|e| anyhow::anyhow!("WW3D device unavailable: {e:?}"))?;
-        let queue =
-            ww3d_engine::queue().map_err(|e| anyhow::anyhow!("WW3D queue unavailable: {e:?}"))?;
-        let color_format = ww3d_engine::color_format()
-            .map_err(|e| anyhow::anyhow!("WW3D color format unavailable: {e:?}"))?;
-        let depth_format = ww3d_engine::depth_format()
-            .map_err(|e| anyhow::anyhow!("WW3D depth format unavailable: {e:?}"))?;
+        let (device, queue, color_format, depth_format) = {
+            let eng = ww3d.lock();
+            (
+                eng.device(),
+                eng.queue(),
+                eng.color_format(),
+                eng.depth_format(),
+            )
+        };
         let graphics_system = GraphicsSystem::new(device, queue, color_format, depth_format)?;
         graphics_timer.finish();
 
         // Initialize render pipeline
         info!("🔧 Initializing RenderPipeline (C++ SAGE equivalent)...");
         let pipeline_timer = InitTimer::new("✅ RenderPipeline initialized");
-        let mut render_pipeline = RenderPipeline::initialize(&graphics_system)?;
+        let mut render_pipeline = RenderPipeline::initialize(ww3d.clone(), &graphics_system)?;
         pipeline_timer.finish();
 
         // C++ parity: BIG archives MUST be initialized BEFORE asset manager so textures/INI can be read
@@ -812,6 +813,14 @@ impl CnCGameEngine {
                 .await
                 .map_err(anyhow::Error::msg)?;
         game_logic.admit_max_beacons_per_player(max_beacons_per_player);
+        // TheMultiplayerSettings (GameEngine.cpp:399) belongs to this game
+        // instance. Skirmish admission runs under the world's own
+        // CommonServices, so hand the authored palette to the world
+        // explicitly instead of relying on whichever services were active
+        // during startup parsing.
+        game_logic.multiplayer_definitions = Some(std::sync::Arc::new(
+            game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(Clone::clone),
+        ));
 
         let startup_load_state = if build_map_cache || audio_startup_requires_quit {
             StartupLoadState::Complete
@@ -950,6 +959,7 @@ impl CnCGameEngine {
             command_line,
 
             // C++ SAGE equivalent rendering subsystems
+            ww3d,
             graphics_system,
             render_pipeline,
 
@@ -1122,6 +1132,8 @@ impl CnCGameEngine {
             camera_rotate_right_held: false,
             camera_zoom_in_held: false,
             camera_zoom_out_held: false,
+            meta_force_attack_held: false,
+            meta_force_move_held: false,
             camera_tracking_selection: false,
             replay_fast_forward,
             diplomacy_panel: crate::ui::DiplomacyPanel::new(),
@@ -1156,6 +1168,7 @@ impl CnCGameEngine {
 
             active_menu_shell_hook: None,
             runtime_host_headless,
+            golden_capture: super::golden_capture::GoldenCapture::from_env(),
             runtime_host_active,
             runtime_host_base_ui_screen: None,
             runtime_host_ui_screen_override: None,

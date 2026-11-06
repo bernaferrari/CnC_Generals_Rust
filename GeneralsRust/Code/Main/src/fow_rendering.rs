@@ -56,9 +56,22 @@ fn shroud_runtime_active(
 /// Serialize remaining legacy fixtures which still mutate engine singletons.
 #[cfg(test)]
 pub fn shroud_test_isolation_lock() -> &'static std::sync::Mutex<()> {
-    use std::sync::{Mutex, OnceLock};
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+    // Prefer the active MainServices lock; fall back to a test-only module
+    // mutex when tests have not yet installed MainServices.
+    if let Some(services) = crate::main_services::try_main_services() {
+        let lock = &services.fow_test_lock;
+        return unsafe { std::mem::transmute(lock) };
+    }
+    shroud_test_lock_fallback::mutex()
+}
+
+#[cfg(test)]
+mod shroud_test_lock_fallback {
+    use std::sync::Mutex;
+    static FALLBACK: Mutex<()> = Mutex::new(());
+    pub(super) fn mutex() -> &'static Mutex<()> {
+        &FALLBACK
+    }
 }
 
 /// Frozen per-object visibility consumed by rendering.

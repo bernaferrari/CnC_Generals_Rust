@@ -13,20 +13,20 @@ impl OclNativeStageHarness {
     fn new() -> Self {
         #[cfg(feature = "game_client")]
         {
-            ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+            let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
                 width: 32,
                 height: 32,
                 ..Default::default()
             })
             .unwrap();
             let graphics = GraphicsSystem::new(
-                ww3d_engine::device().unwrap(),
-                ww3d_engine::queue().unwrap(),
-                ww3d_engine::color_format().unwrap(),
-                ww3d_engine::depth_format().unwrap(),
+                engine.lock().device(),
+                engine.lock().queue(),
+                engine.lock().color_format(),
+                engine.lock().depth_format(),
             )
             .unwrap();
-            let pipeline = RenderPipeline::initialize(&graphics).unwrap();
+            let pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
             Self { graphics, pipeline }
         }
         #[cfg(not(feature = "game_client"))]
@@ -64,8 +64,6 @@ impl OclNativeStageHarness {
     }
     fn finish(self) {
         drop(self);
-        #[cfg(feature = "game_client")]
-        ww3d_engine::shutdown().unwrap();
     }
 }
 fn list(model: &str) -> String {
@@ -259,6 +257,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                     info(),
                     None,
                     None,
+                    None,
                     None, // no paired TerrainVisual in this direct staging fixture
                     "ocl",
                     GameMode::Skirmish,
@@ -283,12 +282,16 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                         power_bar_baseline: source.power_bar_baseline(),
                         body_auto_particle_baseline: source.body_auto_particle_baseline(),
                         session_sell_percentage: 1.0,
-                    },
+                                max_beacons_per_player: 0,
+            static_lod_level: None,
+            dynamic_debris_skip_mask: 0,
+},
                     &source.weapon_definition_base,
                     &source.projectile_definitions,
                     &active.ocl_application_definitions(),
                     source.ai_definitions.baseline(),
                     source.production_energy_baseline(),
+                    source.combat_system.historic_damage_limit(),
                     source.physics_rules_baseline(),
                     source.effective_terrain_definitions(),
                     active.current_armor_definitions(),
@@ -340,6 +343,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                         info(),
                         None,
                         None,
+                        None,
                         None, // no paired TerrainVisual in this direct staging fixture
                         "ocl",
                         GameMode::Skirmish,
@@ -364,12 +368,16 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                             power_bar_baseline: source.power_bar_baseline(),
                             body_auto_particle_baseline: source.body_auto_particle_baseline(),
                             session_sell_percentage: 1.0,
-                        },
+                                    max_beacons_per_player: 0,
+            static_lod_level: None,
+            dynamic_debris_skip_mask: 0,
+},
                         &source.weapon_definition_base,
                         &source.projectile_definitions,
                         &active.ocl_application_definitions(),
                         source.ai_definitions.baseline(),
                         source.production_energy_baseline(),
+                        source.combat_system.historic_damage_limit(),
                         source.physics_rules_baseline(),
                         source.effective_terrain_definitions(),
                         active.current_armor_definitions(),
@@ -451,12 +459,16 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                             power_bar_baseline: source.power_bar_baseline(),
                             body_auto_particle_baseline: source.body_auto_particle_baseline(),
                             session_sell_percentage: 1.0,
-                        },
+                                    max_beacons_per_player: 0,
+            static_lod_level: None,
+            dynamic_debris_skip_mask: 0,
+},
                         &source.weapon_definition_base,
                         &source.projectile_definitions,
                         &active.ocl_application_definitions(),
                         source.ai_definitions.baseline(),
                         source.production_energy_baseline(),
+                        source.combat_system.historic_damage_limit(),
                         source.physics_rules_baseline(),
                         source.effective_terrain_definitions(),
                         active.current_armor_definitions(),

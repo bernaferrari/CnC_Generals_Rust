@@ -3,39 +3,52 @@ use super::*;
 #[test]
 #[ignore = "requires a native GPU; run explicitly with --include-ignored"]
 fn callbacks_run_once_in_order_on_the_driving_thread_even_after_errors() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 16,
         height: 16,
         ..Default::default()
     })
     .expect("headless engine");
-    let mut renderer = WgpuMainRenderer::from_engine(Default::default()).expect("renderer");
-    WW3D::with_renderer(|backend| {
-        assert!(backend.is_sorting_enabled());
-        assert!(backend.are_static_sort_lists_enabled());
-        assert!(backend.are_decals_enabled());
-        Ok(())
-    })
-    .expect("registered backend")
-    .expect("initial switches");
-    for enabled in [false, true] {
-        WW3D::enable_sorting(enabled).expect("sorting switch");
-        WW3D::set_static_sort_lists_enabled(enabled).expect("static sorting switch");
-        WW3D::set_decals_enabled(enabled).expect("decal switch");
-        WW3D::with_renderer(|backend| {
-            assert_eq!(backend.is_sorting_enabled(), enabled);
-            assert_eq!(backend.are_static_sort_lists_enabled(), enabled);
-            assert_eq!(backend.are_decals_enabled(), enabled);
+    let mut renderer = WgpuMainRenderer::from_engine(engine.clone(), Default::default()).expect("renderer");
+    renderer
+        .ww3d
+        .with_renderer(|backend| {
+            assert!(backend.is_sorting_enabled());
+            assert!(backend.are_static_sort_lists_enabled());
+            assert!(backend.are_decals_enabled());
             Ok(())
         })
         .expect("registered backend")
-        .expect("switch getters");
+        .expect("initial switches");
+    for enabled in [false, true] {
+        renderer
+            .ww3d
+            .enable_sorting(enabled)
+            .expect("sorting switch");
+        renderer
+            .ww3d
+            .set_static_sort_lists_enabled(enabled)
+            .expect("static sorting switch");
+        renderer
+            .ww3d
+            .set_decals_enabled(enabled)
+            .expect("decal switch");
+        renderer
+            .ww3d
+            .with_renderer(|backend| {
+                assert_eq!(backend.is_sorting_enabled(), enabled);
+                assert_eq!(backend.are_static_sort_lists_enabled(), enabled);
+                assert_eq!(backend.are_decals_enabled(), enabled);
+                Ok(())
+            })
+            .expect("registered backend")
+            .expect("switch getters");
     }
     let calls = Arc::new(Mutex::new(Vec::new()));
     let driver = std::thread::current().id();
     for index in 0..2 {
         let pre_calls = calls.clone();
-        renderer.enqueue_pre_scene_callback(move |_| {
+        renderer.enqueue_frame_work(FramePhase::Terrain, move |_| {
             pre_calls
                 .lock()
                 .unwrap()
@@ -43,7 +56,7 @@ fn callbacks_run_once_in_order_on_the_driving_thread_even_after_errors() {
             Ok(())
         });
         let post_calls = calls.clone();
-        renderer.enqueue_post_frame_callback(move |_| {
+        renderer.enqueue_frame_work(FramePhase::Overlay2D, move |_| {
             post_calls
                 .lock()
                 .unwrap()
@@ -78,7 +91,7 @@ fn callbacks_run_once_in_order_on_the_driving_thread_even_after_errors() {
         "callbacks are consumed once"
     );
     let calls_after_error = calls.clone();
-    renderer.enqueue_pre_scene_callback(move |_| {
+    renderer.enqueue_frame_work(FramePhase::Terrain, move |_| {
         calls_after_error
             .lock()
             .unwrap()
@@ -87,10 +100,11 @@ fn callbacks_run_once_in_order_on_the_driving_thread_even_after_errors() {
             "expected pre-scene failure".into(),
         ))
     });
-    renderer
-        .enqueue_pre_scene_callback(|_| panic!("pre-scene failure must stop later pre callbacks"));
+    renderer.enqueue_frame_work(FramePhase::Terrain, |_| {
+        panic!("pre-scene failure must stop later pre callbacks")
+    });
     let calls_after_error = calls.clone();
-    renderer.enqueue_post_frame_callback(move |_| {
+    renderer.enqueue_frame_work(FramePhase::Overlay2D, move |_| {
         calls_after_error.lock().unwrap().push((
             "post after error",
             0,
@@ -104,7 +118,7 @@ fn callbacks_run_once_in_order_on_the_driving_thread_even_after_errors() {
         &calls.lock().unwrap()[4..],
         &[("pre error", 0, driver), ("post after error", 0, driver)]
     );
-    assert!(!ww3d_engine::frame_is_active(), "failed frame still ends");
+    assert!(!ww3d_engine::frame_is_active(&engine.lock().frame_submit_state().lock()), "failed frame still ends");
     drop(renderer);
-    ww3d_engine::shutdown().expect("shutdown");
+    drop(engine);
 }

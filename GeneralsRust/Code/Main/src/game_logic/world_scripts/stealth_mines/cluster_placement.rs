@@ -235,7 +235,15 @@ mod tests {
         ) -> Option<&mut game_client::effects::particle_manager::ParticleSystemManager> {
             Some(&mut self.particles)
         }
+    
+    fn body_visual_changed(
+        &mut self,
+        _: &crate::game_logic::NativeBodyVisualChange,
+        _: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
+    ) -> Result<bool, String> {
+        Ok(false)
     }
+}
 
     struct OrderedAudio(Arc<Mutex<Vec<&'static str>>>);
     impl crate::game_logic::NativeAudioEffects for OrderedAudio {
@@ -348,7 +356,7 @@ mod tests {
             view: Some(&mut view),
             audio: Some(&mut audio),
             ..Default::default()
-        };
+};
         world
             .update_cluster_mines_flights_with_effects(&mut effects)
             .unwrap();
@@ -403,7 +411,7 @@ mod tests {
             view: Some(&mut view),
             audio: Some(&mut audio),
             ..Default::default()
-        };
+};
         let ids = world.place_cluster_mines_unvaried_with_effects(
             Team::China,
             Vec3::new(200., 0., 200.),
@@ -465,7 +473,7 @@ mod tests {
             view: Some(&mut view),
             audio: Some(&mut audio),
             ..Default::default()
-        };
+};
         let ids = world.place_cluster_mines_unvaried_with_effects(
             Team::China,
             Vec3::new(200., 0., 200.),

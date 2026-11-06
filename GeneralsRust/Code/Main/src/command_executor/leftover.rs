@@ -23,6 +23,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         surrendered: bool,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         let mut any = false;
         for &unit_id in units {
             // Wave 233: surrender via GameLogic authority API.
@@ -151,6 +152,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         let mut any = false;
         for &unit_id in units {
             let Some((alive, name, is_infantry, has_deploy_style_metadata)) =
@@ -231,6 +233,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         let (target_pos, target_alive, target_is_resource) =
             match self.game_logic.host_object(target_id) {
                 Some(target) => (
@@ -297,6 +300,7 @@ impl<'a> CommandExecutor<'a> {
     }
 
     pub(super) fn execute_return_to_base(&mut self, units: &[ObjectId]) -> CommandResult {
+        let _bind = self.bind_services();
         let mut any = false;
         for &unit_id in units {
             // Freeze the command player at the physical UI boundary.  The
@@ -323,6 +327,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         let mut any = false;
         for &unit_id in units {
             let Some(unit) = self.game_logic.host_object(unit_id) else {
@@ -415,6 +420,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         enabled: bool,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         let mut any = false;
         for &unit_id in units {
             // Wave 233: mine-clearing detail via GameLogic authority API.
@@ -443,6 +449,7 @@ impl<'a> CommandExecutor<'a> {
         name: &str,
         duration_frames: i32,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         // Wave 233: emoticon via GameLogic unit_command_set_emoticon.
         let mut any = false;
         for &unit_id in units {
@@ -462,6 +469,7 @@ impl<'a> CommandExecutor<'a> {
 
     /// C++ AIGroup::groupGoProne residual.
     pub(crate) fn execute_go_prone(&mut self, units: &[ObjectId]) -> CommandResult {
+        let _bind = self.bind_services();
         // Wave 233: go-prone via GameLogic unit_command_go_prone.
         // Retail infantry prone window residual (~2s).
         const PRONE_SECS: f32 = 2.0;
@@ -482,6 +490,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         use crate::game_logic::host_mines::{DOZER_MINE_CLEAR_SCAN_RANGE, is_mine_clearer};
         let mut any = false;
         for &unit_id in units {
@@ -574,6 +583,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         // C++ ActionManager::canRepairObject + DozerAIUpdate::privateRepair.
         let (
             target_pos,
@@ -687,6 +697,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         // C++ ActionManager::canGetRepairedAt: vehicle → authored
         // KINDOF_REPAIR_PAD, aircraft → authored KINDOF_FS_AIRFIELD.  The
         // host BuildingType is name-derived and cannot authorize this path.
@@ -797,6 +808,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         let (
             target_pos,
             target_alive,
@@ -867,6 +879,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         location: Vec3,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         let mut applied = false;
         for &unit_id in units {
             // Wave 233: rally point via GameLogic authority API.
@@ -886,6 +899,7 @@ impl<'a> CommandExecutor<'a> {
     }
 
     pub(crate) fn execute_cheer(&mut self, units: &[ObjectId]) -> CommandResult {
+        let _bind = self.bind_services();
         // Wave 232: cheer last-writes via GameLogic unit_command_cheer.
         // C++ AIGroup::groupCheer:
         // setSpecialModelConditionState(SPECIAL_CHEERING, LOGICFRAMES_PER_SECOND * 3)
@@ -916,6 +930,7 @@ impl<'a> CommandExecutor<'a> {
         location: Vec3,
         text: &str,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         // C++ GameLogicDispatch.cpp:1582-1671 MSG_PLACE_BEACON.
         let Some(player) = self.game_logic.get_player(player_id) else {
             return CommandResult::InvalidCommand;
@@ -1017,6 +1032,7 @@ impl<'a> CommandExecutor<'a> {
         player_id: u32,
         selected: &[ObjectId],
     ) -> CommandResult {
+        let _bind = self.bind_services();
         // C++ GameLogicDispatch.cpp:1675-1727 MSG_REMOVE_BEACON:
         // owner destroys selected beacon objects; local non-owner hides them.
         // Retail is strictly selection-driven: empty / non-beacon selection is a no-op.
@@ -1059,6 +1075,7 @@ impl<'a> CommandExecutor<'a> {
         selected: &[ObjectId],
         text: &str,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         // C++ GameLogicDispatch.cpp:1731-1758 MSG_SET_BEACON_TEXT.
         let mut any = false;
         for &id in selected {
@@ -1091,6 +1108,7 @@ impl<'a> CommandExecutor<'a> {
         player_index: u32,
         enabled: bool,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         // C++ GameLogicDispatch.cpp:603-614 MSG_ENABLE_RETALIATION_MODE.
         if self.game_logic.get_player(player_index).is_none() {
             return CommandResult::InvalidCommand;
@@ -1105,6 +1123,7 @@ impl<'a> CommandExecutor<'a> {
         player_id: u32,
         transfer_to_ally: bool,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         // C++ GameLogicDispatch.cpp:1762-1797 MSG_SELF_DESTRUCT.
         if self.game_logic.get_player(player_id).is_none() {
             return CommandResult::InvalidCommand;
@@ -1562,6 +1581,165 @@ impl GameLogic {
 
     /// C++ idle `isBuildMostImportant` / `isRepairMostImportant` (DozerAIUpdate.cpp:1314).
     /// Call only while the dozer is Idle. Returns true if a pending task was resumed.
+    pub fn dozer_idle_resume_pending_build(&mut self, dozer_id: ObjectId) -> bool {
+        if self.worker_is_acting_as_supply_truck(dozer_id) {
+            return false;
+        }
+        let Some(obj) = self.objects.get(&dozer_id) else {
+            return false;
+        };
+        if !matches!(obj.ai_state(), AIState::Idle) {
+            return false;
+        }
+        if !obj.is_alive() || !obj.can_construct() {
+            return false;
+        }
+        // Drop dead / finished slots so getMostRecentCommand matches C++.
+        let build_id = obj.dozer_task_build_target();
+        let repair_id = obj.dozer_task_repair_target();
+        if let Some(tid) = build_id {
+            let keep = self.objects.get(&tid).is_some_and(|t| {
+                t.is_alive() && t.is_kind_of(KindOf::Structure) && t.status.under_construction
+            });
+            if !keep {
+                self.dozer_internal_task_complete(dozer_id, false);
+            }
+        }
+        if let Some(tid) = repair_id {
+            let keep = self.objects.get(&tid).is_some_and(|t| {
+                t.is_alive()
+                    && !t.status.effectively_dead
+                    && t.is_kind_of(KindOf::Structure)
+                    && !t.is_kind_of(KindOf::Bridge)
+                    && !t.is_kind_of(KindOf::BridgeTower)
+                    && !t.is_rebuild_hole
+                    && !t.status.under_construction
+                    && t.health.current < t.health.maximum
+            });
+            if !keep {
+                self.dozer_internal_task_complete(dozer_id, true);
+            }
+        }
+        let Some((is_repair, tid)) = self.dozer_most_recent_pending_task(dozer_id) else {
+            return false;
+        };
+        let (dozer_pos, st_pos, st_radius, airborne, stored_dock) = {
+            let d = self.objects.get(&dozer_id);
+            let dpos = d.map(|d| d.get_position()).unwrap_or(glam::Vec3::ZERO);
+            let airborne =
+                d.is_some_and(|d| d.is_kind_of(KindOf::Aircraft) || d.status.airborne_target);
+            let stored = d.and_then(|d| d.dozer_dock_action());
+            let (spos, srad) = self
+                .objects
+                .get(&tid)
+                .map(|s| (s.get_position(), s.selection_radius))
+                .unwrap_or((glam::Vec3::ZERO, 0.0));
+            (dpos, spos, srad, airborne, stored)
+        };
+        if is_repair {
+            let approach = self.find_good_build_or_repair_position(
+                dozer_pos,
+                st_pos,
+                st_radius,
+                airborne,
+                airborne.then_some(tid),
+                Some(dozer_id),
+            );
+            let dozer_radius = self
+                .objects
+                .get(&dozer_id)
+                .map(|dozer| dozer.selection_radius)
+                .unwrap_or(0.0);
+            let at_dock = crate::game_logic::host_repair::dozer_within_action_dock(
+                dozer_pos,
+                dozer_radius,
+                approach,
+            );
+            if let Some(dozer) = self.objects.get_mut(&dozer_id) {
+                dozer.target = Some(tid);
+                dozer.idle_since_frame = 0;
+                if at_dock {
+                    dozer.movement.path.clear();
+                    dozer.movement.current_path_index = 0;
+                    dozer.movement.target_position = None;
+                    dozer.waiting_for_path = false;
+                    dozer.set_status_moving(false);
+                    dozer.set_locomotor_goal_none();
+                }
+            }
+            let _ = self.set_ai_state_decision_aware_with_effects(
+                dozer_id,
+                AIState::Repairing,
+                &mut crate::game_logic::ScriptPresentationEffects::default(),
+            );
+            if !at_dock {
+                self.path_approach_with_state_ignoring(
+                    dozer_id,
+                    approach,
+                    AIState::Repairing,
+                    Some(tid),
+                );
+            }
+            return true;
+        }
+        let snapped = stored_dock.unwrap_or_else(|| {
+            self.find_good_build_or_repair_position(
+                dozer_pos,
+                st_pos,
+                st_radius,
+                airborne,
+                airborne.then_some(tid),
+                Some(dozer_id),
+            )
+        });
+        if let Some(dozer) = self.objects.get_mut(&dozer_id) {
+            dozer.target = Some(tid);
+            dozer.idle_since_frame = 0;
+            if dozer.dozer_dock_action().is_none() {
+                dozer.set_dozer_dock_action(Some(snapped));
+            }
+            if crate::game_logic::host_repair::dozer_within_action_dock(
+                dozer_pos,
+                dozer.selection_radius,
+                snapped,
+            ) {
+                dozer.movement.path.clear();
+                dozer.movement.current_path_index = 0;
+                dozer.movement.target_position = None;
+                dozer.waiting_for_path = false;
+                dozer.set_status_moving(false);
+                dozer.set_locomotor_goal_none();
+            }
+        }
+        let _ = self.set_ai_state_decision_aware_with_effects(
+            dozer_id,
+            AIState::Constructing,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        );
+
+        let dozer_radius = self
+            .objects
+            .get(&dozer_id)
+            .map(|dozer| dozer.selection_radius)
+            .unwrap_or(0.0);
+        if !crate::game_logic::host_repair::dozer_within_action_dock(
+            dozer_pos,
+            dozer_radius,
+            snapped,
+        ) {
+            self.path_approach_with_state_ignoring(
+                dozer_id,
+                snapped,
+                AIState::Constructing,
+                Some(tid),
+            );
+        }
+        if let Some(st) = self.objects.get_mut(&tid) {
+            st.set_under_construction_model_conditions(true);
+            st.builder_id = Some(dozer_id);
+        }
+        true
+    }
 
     /// C++ `Player::update` (`Player.cpp:708-724`): once per second, if the
     /// local client Auto-Retaliate flag differs from the logical flag, post
@@ -1828,12 +2006,23 @@ impl GameLogic {
         dozer_id: ObjectId,
     ) -> gamelogic::GameLogicResult<bool> {
         use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
-        let Some(task) = self.objects.get(&dozer_id).map(|o| o.dozer_tasks.current) else {
+        let Some((task, ai)) = self
+            .objects
+            .get(&dozer_id)
+            .map(|o| (o.dozer_tasks.current, o.ai_state()))
+        else {
             return Ok(false);
         };
-        if task == DozerTask::Invalid {
-            return Ok(false);
-        }
+        // Primary reset parks current=Invalid until the next pick. A unit still
+        // in Constructing/Repairing AI is mid-entered for cancelTask purposes.
+        let task = match task {
+            DozerTask::Invalid => match ai {
+                AIState::Constructing => DozerTask::Build,
+                AIState::Repairing => DozerTask::Repair,
+                _ => return Ok(false),
+            },
+            other => other,
+        };
         self.dozer_cancel_task_owned(dozer_id, task)
     }
     pub(crate) fn dozer_cancel_task_owned(

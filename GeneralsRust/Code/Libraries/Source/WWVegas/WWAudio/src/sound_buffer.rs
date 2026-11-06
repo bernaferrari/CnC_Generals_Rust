@@ -1,5 +1,8 @@
 //! Sound buffer handling mirroring WWAudio SoundBuffer.cpp/.h.
 
+use crate::process_state::WwAudioRuntime;
+use std::sync::Arc;
+
 use crate::error::{Error, Result};
 use crate::utils::MMSLockClass;
 use std::fs::File;
@@ -7,7 +10,7 @@ use std::io::{Read, Seek, SeekFrom};
 
 const WAVE_FORMAT_IMA_ADPCM: u32 = 0x0011;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone)]
 pub struct SoundBufferClass {
     buffer: Vec<u8>,
     length: u32,
@@ -17,6 +20,7 @@ pub struct SoundBufferClass {
     bits: u32,
     channels: u32,
     sound_type: u32,
+    audio: Arc<WwAudioRuntime>,
 }
 
 impl SoundBufferClass {
@@ -30,6 +34,7 @@ impl SoundBufferClass {
             bits: 0,
             channels: 0,
             sound_type: WAVE_FORMAT_IMA_ADPCM,
+            audio: Arc::new(WwAudioRuntime::new()),
         }
     }
 
@@ -81,7 +86,7 @@ impl SoundBufferClass {
     }
 
     pub fn load_from_reader<R: Read + Seek>(&mut self, reader: &mut R) -> Result<bool> {
-        let _lock = MMSLockClass::new();
+        let _lock = MMSLockClass::new(Arc::clone(&self.audio));
         self.free_buffer();
 
         reader.seek(SeekFrom::Start(0))?;
@@ -99,7 +104,7 @@ impl SoundBufferClass {
     }
 
     pub fn load_from_memory(&mut self, mem_buffer: &[u8]) -> Result<bool> {
-        let _lock = MMSLockClass::new();
+        let _lock = MMSLockClass::new(Arc::clone(&self.audio));
         self.free_buffer();
         self.set_filename("unknown.wav");
 
@@ -119,7 +124,7 @@ impl SoundBufferClass {
     }
 
     fn determine_stats(&mut self, buffer: &[u8]) -> Result<()> {
-        let _lock = MMSLockClass::new();
+        let _lock = MMSLockClass::new(Arc::clone(&self.audio));
 
         self.duration_ms = 0;
         self.rate = 0;
@@ -212,7 +217,7 @@ fn parse_wav_header(buffer: &[u8]) -> Option<(u32, u32, u32, u32, u32)> {
     ))
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone)]
 pub struct StreamSoundBufferClass {
     base: SoundBufferClass,
 }
@@ -232,7 +237,7 @@ impl StreamSoundBufferClass {
     }
 
     pub fn load_from_reader<R: Read + Seek>(&mut self, reader: &mut R) -> Result<bool> {
-        let _lock = MMSLockClass::new();
+        let _lock = MMSLockClass::new(Arc::clone(&self.base.audio));
         self.base.free_buffer();
 
         reader.seek(SeekFrom::Start(0))?;
@@ -261,5 +266,18 @@ impl StreamSoundBufferClass {
 
     pub fn base_mut(&mut self) -> &mut SoundBufferClass {
         &mut self.base
+    }
+}
+
+
+impl Default for SoundBufferClass {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Default for StreamSoundBufferClass {
+    fn default() -> Self {
+        Self::new()
     }
 }

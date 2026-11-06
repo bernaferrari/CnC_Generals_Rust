@@ -6,7 +6,6 @@
 
 use std::cell::RefCell;
 use std::f32::consts::PI;
-use std::sync::atomic::{AtomicU32, Ordering};
 
 use game_engine::common::ini::get_global_data;
 use serde::{Deserialize, Serialize};
@@ -61,18 +60,37 @@ const DEFAULT_CAMERA_HEIGHT: f32 = 200.0;
 const DEFAULT_CAMERA_PITCH_DEG: f32 = 37.5;
 pub const LETTER_BOX_FADE_TIME_MS: f32 = 1000.0;
 
-thread_local! {
-    static DISPLAY_LETTER_BOXED: Cell<bool> = const { Cell::new(false) };
-}
-
 /// C++ `TheDisplay->isLetterBoxed()` as seen by `W3DView::buildCameraTransform`.
 pub fn set_display_letter_boxed(enabled: bool) {
-    DISPLAY_LETTER_BOXED.with(|flag| flag.set(enabled));
+    #[cfg(test)]
+    {
+        TEST_LETTER_BOXED.with(|flag| flag.set(enabled));
+        return;
+    }
+    #[cfg(not(test))]
+    {
+        let _ = crate::core::game_client::with_live_game_client_mut(|client| {
+            client.display_letter_boxed = enabled;
+        });
+    }
 }
 
 /// C++ `TheDisplay->isLetterBoxed()`.
 pub fn is_display_letter_boxed() -> bool {
-    DISPLAY_LETTER_BOXED.with(|flag| flag.get())
+    #[cfg(test)]
+    {
+        return TEST_LETTER_BOXED.with(|flag| flag.get());
+    }
+    #[cfg(not(test))]
+    {
+        crate::core::game_client::with_live_game_client_mut(|client| client.display_letter_boxed)
+            .unwrap_or(false)
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_LETTER_BOXED: Cell<bool> = const { Cell::new(false) };
 }
 
 fn ground_height_at(x: f32, y: f32) -> f32 {
@@ -758,8 +776,9 @@ fn parabolic_ease(t: f32) -> f32 {
 impl View {
     /// Create a new view with default settings
     pub fn new() -> Self {
-        static NEXT_ID: AtomicU32 = AtomicU32::new(1);
-        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        // Per-client tactical view is the C++ singleton; tests may construct
+        // additional Views with the same id without process-wide sequencing.
+        let id = 1u32;
 
         Self {
             id,
@@ -2143,8 +2162,27 @@ impl View {
     }
 }
 
+fn with_hint_model_cache<R>(f: impl FnOnce(&mut HintModelCache) -> R) -> R {
+    #[cfg(test)]
+    {
+        return TEST_HINT_MODELS.with(|cache| f(&mut cache.borrow_mut()));
+    }
+    #[cfg(not(test))]
+    {
+        if crate::core::game_client::live_game_client_frame().is_some() {
+            return crate::core::game_client::with_live_game_client_mut(|client| {
+                f(&mut client.hint_model_cache)
+            })
+            .expect("live client frame implies registered client");
+        }
+        let mut ephemeral = HintModelCache::default();
+        f(&mut ephemeral)
+    }
+}
+
+#[cfg(test)]
 thread_local! {
-    static HINT_MODELS: RefCell<HintModelCache> = RefCell::new(HintModelCache::default());
+    static TEST_HINT_MODELS: RefCell<HintModelCache> = RefCell::new(HintModelCache::default());
 }
 
 #[derive(Default)]
@@ -2213,8 +2251,7 @@ fn draw_move_hint_and_locater_models(
         .map(|hint| Point3::new(hint.end.x, hint.end.y, hint.end.z))
         .collect();
 
-    HINT_MODELS.with(|cache| {
-        let mut cache = cache.borrow_mut();
+    with_hint_model_cache(|cache| {
         while cache.move_hints.len() < live.len() {
             let pos = live[cache.move_hints.len()];
             cache
@@ -2240,8 +2277,7 @@ fn draw_move_hint_and_locater_models(
             let dx = (end.x - start.x) as f32;
             let dy = (end.y - start.y) as f32;
             let show_arrow = (dx * dx + dy * dy).sqrt() >= 5.0;
-            HINT_MODELS.with(|cache| {
-                let mut cache = cache.borrow_mut();
+            with_hint_model_cache(|cache| {
                 if cache.locater_anchor.is_none() {
                     cache.locater_anchor =
                         Some(spawn_world_model("Locater01", start_world, "LOOP"));
@@ -2269,8 +2305,7 @@ fn draw_move_hint_and_locater_models(
             });
         }
     } else {
-        HINT_MODELS.with(|cache| {
-            let cache = cache.borrow();
+        with_hint_model_cache(|cache| {
             if let Some(id) = cache.locater_anchor {
                 hide_or_move_model(id, None);
             }
@@ -2430,15 +2465,15 @@ pub fn draw_live_command_markers(
         return;
     }
     if std::env::var_os("GENERALS_RIGHTHUD_PROBE").is_some() {
-        static ONCE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-        if !ONCE.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
             for (screen, kind, elapsed) in &hints {
                 eprintln!(
                     "[RHUDPROBE] command marker type={kind:?} screen=({},{}) elapsed={elapsed}",
                     screen.x, screen.y
                 );
             }
-        }
+        });
     }
     let segments = 16;
     let tau = std::f32::consts::TAU;
@@ -2472,22 +2507,40 @@ pub fn draw_live_command_markers(
         }
     }
 }
+/// Access the receiving client's tactical view (legacy `TheTacticalView`).
+pub fn with_tactical_view<R>(f: impl FnOnce(&mut View) -> R) -> R {
+    // Unit tests keep the historical free-API TLS so ambient live-slot fixtures
+    // do not steal TheTacticalView. Production routes through the live client.
+    #[cfg(test)]
+    {
+        return TEST_TACTICAL_VIEW.with(|view| f(&mut view.borrow_mut()));
+    }
+    #[cfg(not(test))]
+    {
+        if crate::core::game_client::live_game_client_frame().is_some() {
+            return crate::core::game_client::with_live_game_client_mut(|client| {
+                f(&mut client.tactical_view)
+            })
+            .expect("live client frame implies registered client");
+        }
+        let mut ephemeral = View::new();
+        ephemeral.init();
+        f(&mut ephemeral)
+    }
+}
+
+/// Access the receiving client's tactical view immutably.
+pub fn with_tactical_view_ref<R>(f: impl FnOnce(&View) -> R) -> R {
+    with_tactical_view(|view| f(view))
+}
+
+#[cfg(test)]
 thread_local! {
-    static THE_TACTICAL_VIEW: RefCell<View> = {
+    static TEST_TACTICAL_VIEW: RefCell<View> = {
         let mut view = View::new();
         view.init();
         RefCell::new(view)
     };
-}
-
-/// Access the global tactical view (legacy `TheTacticalView` equivalent).
-pub fn with_tactical_view<R>(f: impl FnOnce(&mut View) -> R) -> R {
-    THE_TACTICAL_VIEW.with(|view| f(&mut view.borrow_mut()))
-}
-
-/// Access the global tactical view immutably.
-pub fn with_tactical_view_ref<R>(f: impl FnOnce(&View) -> R) -> R {
-    THE_TACTICAL_VIEW.with(|view| f(&view.borrow()))
 }
 
 impl Default for View {
@@ -3103,6 +3156,7 @@ mod tests {
 
     #[test]
     fn test_view_creation() {
+        crate::test_support::ensure_ambient_host();
         let view = View::new();
         assert!(view.id() > 0);
         assert_eq!(view.width(), 0);
@@ -3111,6 +3165,7 @@ mod tests {
 
     #[test]
     fn test_view_initialization() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
 
@@ -3125,6 +3180,7 @@ mod tests {
 
     #[test]
     fn test_angle_and_pitch_limits() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
 
         // Test pitch limiting
@@ -3142,6 +3198,7 @@ mod tests {
 
     #[test]
     fn test_zoom_limits() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.min_zoom = 0.2;
@@ -3174,6 +3231,7 @@ mod tests {
 
     #[test]
     fn test_position_and_look_at() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.set_position(&Point3::new(0.0, 0.0, 12.0));
@@ -3193,6 +3251,7 @@ mod tests {
 
     #[test]
     fn test_view_location_save_restore() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
 
@@ -3226,6 +3285,7 @@ mod tests {
 
     #[test]
     fn test_3d_camera_position_calculation() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
 
@@ -3245,6 +3305,7 @@ mod tests {
 
     #[test]
     fn test_projection_mode_switching() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         assert_eq!(view.projection_mode(), ProjectionMode::Perspective);
 
@@ -3254,6 +3315,7 @@ mod tests {
 
     #[test]
     fn test_move_camera_to_animated_ends_at_look_at_position() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
 
@@ -3271,6 +3333,7 @@ mod tests {
 
     #[test]
     fn test_move_camera_along_waypoint_path_reaches_last_waypoint() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
 
@@ -3294,6 +3357,7 @@ mod tests {
 
     #[test]
     fn test_camera_mod_final_time_multiplier_speeds_waypoint_path() {
+        crate::test_support::ensure_ambient_host();
         let path = vec![
             Point3::new(100.0, 120.0, 0.0),
             Point3::new(260.0, 260.0, 0.0),
@@ -3302,28 +3366,38 @@ mod tests {
         let start_x = path[0].x;
         let start_y = path[0].y;
 
+        // C++ `cameraModFinalTimeMultiplier` only retimes the *last* waypoint.
+        // The first update still samples multiplier 1.0; after enough frames the
+        // lerp into the final segment makes the accelerated path pull ahead.
         let mut normal = View::new();
         normal.init();
         normal.move_camera_along_waypoint_path(&path, 1000, 0, true, 0.0, 0.0);
-        normal.update_view();
-        let normal_dx = normal.position().x - start_x;
-        let normal_dy = normal.position().y - start_y;
-        let normal_distance = (normal_dx * normal_dx + normal_dy * normal_dy).sqrt();
 
         let mut accelerated = View::new();
         accelerated.init();
         accelerated.move_camera_along_waypoint_path(&path, 1000, 0, true, 0.0, 0.0);
         accelerated.camera_mod_final_time_multiplier(3);
-        accelerated.update_view();
+
+        for _ in 0..20 {
+            normal.update_view();
+            accelerated.update_view();
+        }
+        let normal_dx = normal.position().x - start_x;
+        let normal_dy = normal.position().y - start_y;
+        let normal_distance = (normal_dx * normal_dx + normal_dy * normal_dy).sqrt();
         let fast_dx = accelerated.position().x - start_x;
         let fast_dy = accelerated.position().y - start_y;
         let fast_distance = (fast_dx * fast_dx + fast_dy * fast_dy).sqrt();
 
-        assert!(fast_distance > normal_distance);
+        assert!(
+            fast_distance > normal_distance,
+            "final-time multiplier must advance farther after several frames: fast={fast_distance} normal={normal_distance}"
+        );
     }
 
     #[test]
     fn test_camera_mod_freeze_time_clears_after_scripted_movement_finishes() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.camera_mod_freeze_time();
@@ -3347,6 +3421,7 @@ mod tests {
 
     #[test]
     fn test_camera_mod_freeze_angle_stops_rotation_progress() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.rotate_camera(0.5, 1000, 0.0, 0.0);
@@ -3363,6 +3438,7 @@ mod tests {
 
     #[test]
     fn test_wireframe_mode_applies_with_frame_delay() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
 
@@ -3396,6 +3472,7 @@ mod tests {
 
     #[test]
     fn test_camera_commands_zero_duration_apply_immediately() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
 
@@ -3433,6 +3510,7 @@ mod tests {
 
     #[test]
     fn test_camera_transition_frame_thresholds_match_cpp_division() {
+        crate::test_support::ensure_ambient_host();
         // C++ parity: frame count uses integer division by frame length with minimum 1.
         assert_eq!(ms_to_frames(1), 1);
         assert_eq!(ms_to_frames(33), 1);
@@ -3443,6 +3521,7 @@ mod tests {
 
     #[test]
     fn test_rotate_camera_34ms_finishes_in_one_update() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.set_angle(0.0);
@@ -3458,6 +3537,7 @@ mod tests {
 
     #[test]
     fn test_set_default_view_does_not_mutate_current_camera_immediately() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.set_angle(0.35);
@@ -3481,6 +3561,7 @@ mod tests {
 
     #[test]
     fn test_shake_overflow_clamps_to_cpp_constant() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.set_position(&Point3::origin());
@@ -3502,6 +3583,7 @@ mod tests {
 
     #[test]
     fn tick_impulse_shake_seeds_and_decays_offset() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.set_position(&Point3::origin());
@@ -3517,6 +3599,7 @@ mod tests {
 
     #[test]
     fn test_camera_mod_final_zoom_uses_remaining_movement_time() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
 
@@ -3537,6 +3620,7 @@ mod tests {
 
     #[test]
     fn test_camera_mod_final_pitch_uses_remaining_movement_time() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
 
@@ -3556,6 +3640,7 @@ mod tests {
 
     #[test]
     fn test_camera_mod_look_toward_only_applies_while_path_active() {
+        crate::test_support::ensure_ambient_host();
         let mut idle = View::new();
         idle.init();
         idle.set_angle(0.33);
@@ -3586,6 +3671,7 @@ mod tests {
 
     #[test]
     fn test_camera_mod_final_move_to_retargets_path_endpoint() {
+        crate::test_support::ensure_ambient_host();
         let path = vec![
             Point3::new(100.0, 120.0, 0.0),
             Point3::new(260.0, 260.0, 0.0),
@@ -3619,7 +3705,40 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn authored_look_toward_retarget_resets_cur_frame_and_start() {
+        crate::test_support::ensure_ambient_host();
+        let mut view = View::new();
+        view.init();
+        view.set_position(&Point3::new(100.0, 100.0, 0.0));
+        view.set_angle(0.0);
+        view.rotate_camera_toward_position(&Point3::new(200.0, 100.0, 0.0), 1000, 0.0, 0.0, false);
+        let first = view.rotate_camera_toward.clone().expect("toward active");
+        assert_eq!(first.cur_frame, 0);
+        // Advance mid-transition.
+        for _ in 0..5 {
+            view.update_view();
+        }
+        let mid = view.rotate_camera_toward.clone().expect("still active");
+        assert!(mid.cur_frame > 0, "transition must advance before retarget");
+        let mid_start = mid.start_angle;
+        // Authored retarget must restart like C++ lookTowardPosition, not preserve frame.
+        view.rotate_camera_toward_position(&Point3::new(100.0, 300.0, 0.0), 1000, 0.0, 0.0, false);
+        let retarget = view.rotate_camera_toward.clone().expect("retarget active");
+        assert_eq!(retarget.cur_frame, 0, "authored retarget resets curFrame");
+        assert_ne!(
+            retarget.end_angle, mid.end_angle,
+            "retarget aims at the new position"
+        );
+        assert_eq!(
+            retarget.start_angle, view.angle,
+            "retarget start is the live camera angle at admission"
+        );
+        let _ = mid_start;
+    }
+
     fn test_camera_mod_look_toward_applies_to_active_move_transition() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.set_angle(0.0);
@@ -3635,6 +3754,7 @@ mod tests {
 
     #[test]
     fn test_reset_camera_animated_targets_w3d_pitch_endpoint() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.set_fx_pitch(0.25);
@@ -3652,6 +3772,7 @@ mod tests {
 
     #[test]
     fn test_camera_locking() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
 
         assert_eq!(view.camera_lock_id(), None);
@@ -3665,6 +3786,7 @@ mod tests {
 
     #[test]
     fn test_field_of_view_limits() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
 
         // Test FOV limiting
@@ -3681,6 +3803,7 @@ mod tests {
 
     #[test]
     fn test_basic_vector_math() {
+        crate::test_support::ensure_ambient_host();
         let v1 = Vector3::new(1.0, 0.0, 0.0);
         let v2 = Vector3::new(0.0, 1.0, 0.0);
 
@@ -3695,6 +3818,7 @@ mod tests {
 
     #[test]
     fn test_point_vector_operations() {
+        crate::test_support::ensure_ambient_host();
         let p1 = Point3::new(1.0, 2.0, 3.0);
         let p2 = Point3::new(4.0, 5.0, 6.0);
         let v = Vector3::new(1.0, 1.0, 1.0);
@@ -3708,6 +3832,7 @@ mod tests {
 
     #[test]
     fn init_height_for_map_rebuilds_camera_offset_from_ground() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.set_position(&Point3::new(10.0, 20.0, 0.0));
@@ -3718,6 +3843,7 @@ mod tests {
 
     #[test]
     fn real_zoom_mode_changes_field_of_view() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.set_zoom_limited(false);
@@ -3734,6 +3860,7 @@ mod tests {
 
     #[test]
     fn slave_mode_attaches_until_named_object_missing() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.camera_enable_slave_mode("MissingCameraBone", "CAMERABONE");
@@ -3744,6 +3871,7 @@ mod tests {
 
     #[test]
     fn screen_to_terrain_returns_finite_point() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.look_at(&Point3::new(100.0, 200.0, 0.0));
@@ -3755,6 +3883,7 @@ mod tests {
 
     #[test]
     fn pick_drawable_skips_when_view_uninitialized() {
+        crate::test_support::ensure_ambient_host();
         let view = View::new();
         assert!(
             view.pick_drawable(
@@ -3879,5 +4008,37 @@ impl ViewTrait for View {
 
     fn set_position(&mut self, pos: Point3) {
         self.set_position(&pos);
+    }
+
+}
+
+#[cfg(test)]
+mod tactical_view_ownership_tests {
+    use super::*;
+    use std::sync::{Arc, Barrier};
+
+    #[test]
+    fn tactical_view_two_threads_do_not_share_state() {
+        let barrier = Arc::new(Barrier::new(2));
+        let mut joins = Vec::new();
+        for thread_idx in 0..2 {
+            let barrier = Arc::clone(&barrier);
+            joins.push(std::thread::spawn(move || {
+                crate::test_support::ensure_ambient_host();
+                barrier.wait();
+                let x = 10.0 + thread_idx as f32;
+                with_tactical_view(|view| {
+                    view.set_position(&Point3::new(x, 0.0, 0.0));
+                });
+                let got = with_tactical_view_ref(|view| view.position().x);
+                assert!(
+                    (got - x).abs() < 0.01,
+                    "thread {thread_idx} expected {x} got {got}"
+                );
+            }));
+        }
+        for j in joins {
+            j.join().unwrap();
+        }
     }
 }

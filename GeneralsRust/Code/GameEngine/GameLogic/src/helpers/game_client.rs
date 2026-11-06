@@ -278,6 +278,19 @@ pub(crate) struct ClientVisualState {
     pub(crate) next_point_light: std::sync::atomic::AtomicU64,
     pub(crate) terrain_trees: Mutex<HashMap<u32, TerrainTreeRegistration>>,
     pub(crate) weapon_recoils: Mutex<Vec<(ObjectID, f32, f32)>>,
+    /// Presentation FX object poses for this world/session only.
+    pub(crate) host_fx_poses: Mutex<HashMap<ObjectID, HostFxObjectPose>>,
+    /// GameClient terrain-water callbacks for this world/session only.
+    pub(crate) water_hooks: Mutex<crate::terrain_water::VisualWaterHooks>,
+    pub(crate) terrain_visual_raw_height: Mutex<Option<fn(i32, i32, i32)>>,
+    pub(crate) terrain_visual_lighting_changed: Mutex<Option<fn()>>,
+    pub(crate) terrain_visual_add_prop: Mutex<Option<fn(u32, [f32; 3], f32, f32, &str)>>,
+    pub(crate) terrain_visual_pending_props: Mutex<Vec<(u32, [f32; 3], f32, f32, String)>>,
+    /// Leftover `addWaterVelocity` impulses queued for this world only.
+    pub(crate) water_velocity_impulses: Mutex<Vec<(Real, Real, Real, Real, UnsignedInt)>>,
+    pub(crate) texture_aspect_hook: Mutex<Option<fn(&str) -> Option<Real>>>,
+    pub(crate) preload_asset_hook: Mutex<Option<fn(&str)>>,
+    pub(crate) receives_dynamic_lights_hook: Mutex<Option<fn(ObjectID, bool)>>,
 }
 
 impl Default for ClientVisualState {
@@ -290,6 +303,16 @@ impl Default for ClientVisualState {
             next_point_light: std::sync::atomic::AtomicU64::new(1),
             terrain_trees: Mutex::new(HashMap::new()),
             weapon_recoils: Mutex::new(Vec::new()),
+            host_fx_poses: Mutex::new(HashMap::new()),
+            water_hooks: Mutex::new(crate::terrain_water::VisualWaterHooks::default()),
+            terrain_visual_raw_height: Mutex::new(None),
+            terrain_visual_lighting_changed: Mutex::new(None),
+            terrain_visual_add_prop: Mutex::new(None),
+            terrain_visual_pending_props: Mutex::new(Vec::new()),
+            water_velocity_impulses: Mutex::new(Vec::new()),
+            texture_aspect_hook: Mutex::new(None),
+            preload_asset_hook: Mutex::new(None),
+            receives_dynamic_lights_hook: Mutex::new(None),
         }
     }
 }
@@ -536,8 +559,8 @@ pub struct TheGameClient;
 
 impl TheGameClient {
     pub fn get() -> Option<&'static Self> {
-        static CLIENT: OnceLock<TheGameClient> = OnceLock::new();
-        Some(CLIENT.get_or_init(|| TheGameClient))
+        static CLIENT: TheGameClient = TheGameClient;
+        Some(&CLIENT)
     }
 
     /// Synchronize the client frame counter with the logic frame.
@@ -629,7 +652,7 @@ impl TheGameClient {
         Self::create_drawable_in(&crate::system::engine_stores::active_services(), template)
     }
 
-    fn create_drawable_in(
+    pub fn create_drawable_in(
         stores: &Arc<crate::system::engine_stores::WorldServices>,
         template: &dyn crate::common::ThingTemplate,
     ) -> u32 {
@@ -812,7 +835,7 @@ impl TheGameClient {
         Self::destroy_drawable_in(&crate::system::engine_stores::active_services(), id);
     }
 
-    fn destroy_drawable_in(stores: &Arc<crate::system::engine_stores::WorldServices>, id: u32) {
+    pub fn destroy_drawable_in(stores: &Arc<crate::system::engine_stores::WorldServices>, id: u32) {
         let visuals = stores.client_visuals();
         let mut map = visuals.drawables.lock().unwrap();
         let removed_drawable = map

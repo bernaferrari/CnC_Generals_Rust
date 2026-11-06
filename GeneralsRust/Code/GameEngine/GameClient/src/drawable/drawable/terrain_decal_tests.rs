@@ -119,6 +119,7 @@ fn fade(drawable: &BasicDrawable) -> (TerrainDecalType, f32, f32, f32) {
 
 #[test]
 fn receiving_decal_setter_flushes_before_first_draw_and_equal_type_is_inert() {
+    crate::test_support::ensure_ambient_host();
     let (mut client, id) = receiver(true);
     let (mut peer, peer_id) = receiver(true);
     assert_eq!(id, peer_id);
@@ -148,6 +149,7 @@ fn receiving_decal_setter_flushes_before_first_draw_and_equal_type_is_inert() {
 
 #[test]
 fn receiving_decal_size_flushes_and_routes_to_first_actual_draw() {
+    crate::test_support::ensure_ambient_host();
     let (mut client, id) = receiver(true);
     let events = probes(basic(&mut client, id), 2);
     basic(&mut client, id).set_terrain_decal_size(4., 7.);
@@ -170,6 +172,7 @@ fn receiving_decal_size_flushes_and_routes_to_first_actual_draw() {
 
 #[test]
 fn receiving_no_draw_decal_fade_is_frozen_including_actual_cu_only() {
+    crate::test_support::ensure_ambient_host();
     for cu in [false, true] {
         for rate in [-0.2, 0.4] {
             let (mut client, id) = receiver(cu);
@@ -239,6 +242,7 @@ fn receiving_no_draw_decal_fade_is_frozen_including_actual_cu_only() {
 
 #[test]
 fn receiving_first_draw_decal_fade_preserves_callbacks_crossings_and_expiry_phase() {
+    crate::test_support::ensure_ambient_host();
     let (mut client, id) = receiver(true);
     let first = basic(&mut client, id);
     first.set_terrain_decal(TerrainDecalType::ShadowTexture);
@@ -317,6 +321,7 @@ impl Read for ObservedReader {
 }
 #[test]
 fn native_decal_load_calls_setter_at_enum_position_then_continues() {
+    crate::test_support::ensure_ambient_host();
     let (mut source, id) = receiver(true);
     let (mut restored, restored_id) = receiver(true);
     let (mut peer, peer_id) = receiver(true);
@@ -390,6 +395,7 @@ fn native_decal_load_calls_setter_at_enum_position_then_continues() {
 
 #[test]
 fn decal_target_exact_float_changes_preserve_cpp_rate_rule() {
+    crate::test_support::ensure_ambient_host();
     let mut first = BasicDrawable::new(DrawableId(9001));
     let peer = BasicDrawable::new(DrawableId(9001));
     first.set_terrain_decal_fade_target(0.5, 0.1);

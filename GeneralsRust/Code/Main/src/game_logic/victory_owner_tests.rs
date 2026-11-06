@@ -87,7 +87,10 @@ impl Drop for ForeignRoster {
     fn drop(&mut self) {
         *gamelogic::player::ThePlayerList()
             .write()
-            .unwrap_or_else(|e| e.into_inner()) = self.previous.take().unwrap();
+            .unwrap_or_else(|e| e.into_inner()) = match self.previous.take() {
+                Some(prev) => prev,
+                None => return,
+            };
     }
 }
 
@@ -131,7 +134,7 @@ fn admitted_match() -> (GameLogic, [ObjectId; 2]) {
 fn destroy_armies(world: &mut GameLogic, ids: [ObjectId; 2]) {
     for id in ids {
         let (object, health_events) = world.host_object_and_health_events_mut(id).unwrap();
-        assert!(object.take_damage_from_immediate(1_000_000.0, None, health_events));
+        assert!(object.take_damage_from_immediate(1_000_000.0, None, 0, health_events));
         assert!(world.host_object(id).unwrap().status.destroyed);
     }
 }

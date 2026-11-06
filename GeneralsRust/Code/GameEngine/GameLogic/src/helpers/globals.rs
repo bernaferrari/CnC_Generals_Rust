@@ -80,8 +80,6 @@ pub trait GamePauseHooks: Send + Sync {
     fn on_game_pause_state_changed(&self, paused: Bool);
 }
 
-static GAME_PAUSE_HOOKS: OnceLock<Arc<dyn GamePauseHooks>> = OnceLock::new();
-
 /// Borrowed receiving-client callbacks for the synchronous map-load operation.
 ///
 /// These hooks are passed down the active GameLogic call stack; they are never
@@ -121,46 +119,88 @@ pub trait ObserverAudioViewHooks: Send + Sync {
     fn get_3d_camera_position(&self) -> Option<(Real, Real, Real)>;
 }
 
-static OBSERVER_AUDIO_LOCALITY_HOOKS: OnceLock<Arc<dyn ObserverAudioLocalityHooks>> =
-    OnceLock::new();
-static OBSERVER_AUDIO_VIEW_HOOKS: OnceLock<Arc<dyn ObserverAudioViewHooks>> = OnceLock::new();
-
 pub fn register_game_pause_hooks(hooks: Arc<dyn GamePauseHooks>) -> bool {
-    GAME_PAUSE_HOOKS.set(hooks).is_ok()
+    let Some(services) = crate::system::engine_stores::try_active_services() else {
+        return false;
+    };
+    *services
+        .game_pause_hooks()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(hooks);
+    true
 }
 
-fn game_pause_hooks() -> Option<&'static Arc<dyn GamePauseHooks>> {
-    GAME_PAUSE_HOOKS.get()
+fn game_pause_hooks() -> Option<Arc<dyn GamePauseHooks>> {
+    let services = crate::system::engine_stores::try_active_services()?;
+    services
+        .game_pause_hooks()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 pub fn register_observer_audio_locality_hooks(hooks: Arc<dyn ObserverAudioLocalityHooks>) -> bool {
-    OBSERVER_AUDIO_LOCALITY_HOOKS.set(hooks).is_ok()
+    let Some(services) = crate::system::engine_stores::try_active_services() else {
+        return false;
+    };
+    *services
+        .observer_audio_locality_hooks()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(hooks);
+    true
 }
 
-fn observer_audio_locality_hooks() -> Option<&'static Arc<dyn ObserverAudioLocalityHooks>> {
-    OBSERVER_AUDIO_LOCALITY_HOOKS.get()
+fn observer_audio_locality_hooks() -> Option<Arc<dyn ObserverAudioLocalityHooks>> {
+    let services = crate::system::engine_stores::try_active_services()?;
+    services
+        .observer_audio_locality_hooks()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 pub fn register_observer_audio_view_hooks(hooks: Arc<dyn ObserverAudioViewHooks>) -> bool {
-    OBSERVER_AUDIO_VIEW_HOOKS.set(hooks).is_ok()
+    let Some(services) = crate::system::engine_stores::try_active_services() else {
+        return false;
+    };
+    *services
+        .observer_audio_view_hooks()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(hooks);
+    true
 }
 
-fn observer_audio_view_hooks() -> Option<&'static Arc<dyn ObserverAudioViewHooks>> {
-    OBSERVER_AUDIO_VIEW_HOOKS.get()
+fn observer_audio_view_hooks() -> Option<Arc<dyn ObserverAudioViewHooks>> {
+    let services = crate::system::engine_stores::try_active_services()?;
+    services
+        .observer_audio_view_hooks()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 use game_engine::common::system::scene_submission::{
     SceneLineDesc, SceneLineId, SceneModelDesc, SceneProjectileStreamDesc, SceneSubmission,
 };
 
-static SCENE_SUBMISSION: OnceLock<Arc<dyn SceneSubmission>> = OnceLock::new();
-
 pub fn register_scene_submission(impl_: Arc<dyn SceneSubmission>) -> bool {
-    SCENE_SUBMISSION.set(impl_).is_ok()
+    let Some(services) = crate::system::engine_stores::try_active_services() else {
+        return false;
+    };
+    *services
+        .scene_submission()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(impl_);
+    true
 }
 
-fn get_scene_submission() -> Option<&'static Arc<dyn SceneSubmission>> {
-    SCENE_SUBMISSION.get()
+fn get_scene_submission() -> Option<Arc<dyn SceneSubmission>> {
+    let services = crate::system::engine_stores::try_active_services()?;
+    services
+        .scene_submission()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 pub fn submit_scene_line(drawable_id: u32, desc: &SceneLineDesc) -> Option<SceneLineId> {
@@ -255,11 +295,14 @@ impl TheGlobalData {
     /// Prison bounty floating text color (matches GlobalData::m_prisonBountyTextColor).
     pub fn get_prison_bounty_text_color(&self) -> crate::common::Color {
         let data = get_engine_global_data().unwrap_or_else(ensure_engine_global_data);
-        let color = data.read().prison_bounty_text_color;
-        crate::common::Color::rgb(
+        let guard = data.read();
+        let (color, alpha) = (guard.prison_bounty_text_color, guard.prison_bounty_text_alpha);
+        // GameMakeColor(r, g, b, a): the authored alpha is part of the value.
+        crate::common::Color::new(
             (color.r.clamp(0.0, 1.0) * 255.0) as u8,
             (color.g.clamp(0.0, 1.0) * 255.0) as u8,
             (color.b.clamp(0.0, 1.0) * 255.0) as u8,
+            alpha,
         )
     }
 

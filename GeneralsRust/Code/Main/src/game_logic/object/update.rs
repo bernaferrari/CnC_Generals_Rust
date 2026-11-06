@@ -1532,17 +1532,13 @@ impl Object {
 
         let previous = self.experience.level;
         let thresholds = self.thing.template.veterancy_xp_thresholds;
+        // C++ ExperienceTracker.cpp:65-78: no-op unless promoting; on promotion
+        // XP is assigned the template minimum for the new level.
         if rank(level) <= rank(previous) {
-            // Still seed XP if level already matches but XP is below threshold.
-            let seed = xp_seed(previous, thresholds);
-            if self.experience.current < seed {
-                self.experience.current = seed;
-            }
             return false;
         }
         self.experience.level = level;
-        let seed = xp_seed(level, thresholds);
-        self.experience.current = self.experience.current.max(seed);
+        self.experience.current = xp_seed(level, thresholds);
         self.apply_veterancy_bonuses_impl(
             previous,
             level,

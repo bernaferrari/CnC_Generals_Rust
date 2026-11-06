@@ -1,7 +1,7 @@
 //! Mouse cursor interface (ported from WWLib xmouse.h).
 
 use crate::trect::TRect;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MouseState {
@@ -30,18 +30,14 @@ pub trait Mouse: Send + Sync {
     fn convert_coordinate(&self, x: &mut i32, y: &mut i32);
 }
 
-static MOUSE_CURSOR: OnceLock<Mutex<Option<Arc<dyn Mouse>>>> = OnceLock::new();
-
-pub fn set_mouse_cursor(cursor: Option<Arc<dyn Mouse>>) {
-    let lock = MOUSE_CURSOR.get_or_init(|| Mutex::new(None));
-    *lock.lock().unwrap() = cursor;
+pub fn set_mouse_cursor(runtime: &crate::process_state::WwLibRuntime, cursor: Option<Arc<dyn Mouse>>) {
+    *runtime.mouse.lock().unwrap() = cursor;
 }
 
-pub fn with_mouse_cursor<F, R>(f: F) -> Option<R>
+pub fn with_mouse_cursor<F, R>(runtime: &crate::process_state::WwLibRuntime, f: F) -> Option<R>
 where
     F: FnOnce(&dyn Mouse) -> R,
 {
-    let lock = MOUSE_CURSOR.get_or_init(|| Mutex::new(None));
-    let guard = lock.lock().unwrap();
+    let guard = runtime.mouse.lock().unwrap();
     guard.as_ref().map(|cursor| f(cursor.as_ref()))
 }

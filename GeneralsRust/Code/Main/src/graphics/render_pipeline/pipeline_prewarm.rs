@@ -436,8 +436,8 @@ impl RenderPipeline {
         tree_cpu_completed: bool,
         tree_receipt: Option<&game_client::terrain::TreeCpuDrawReceipt>,
     ) -> Result<()> {
-        static LOGGED_ZERO_TERRAIN_CHUNKS: AtomicBool = AtomicBool::new(false);
-        static LOGGED_NONZERO_TERRAIN_CHUNKS: AtomicBool = AtomicBool::new(false);
+        static LOGGED_ZERO_TERRAIN_CHUNKS: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        static LOGGED_NONZERO_TERRAIN_CHUNKS: std::sync::OnceLock<()> = std::sync::OnceLock::new();
 
         let snow_min_height = self
             .presentation_frame
@@ -489,6 +489,9 @@ impl RenderPipeline {
             let terrain_update_elapsed = terrain_update_started.elapsed();
 
             let chunk_count = terrain_visual.chunk_draw_count();
+            self.debug_last_terrain_chunks = chunk_count;
+            self.debug_last_terrain_visible_chunks = terrain_visual.debug_visible_chunk_count();
+            self.debug_last_terrain_total_chunks = terrain_visual.debug_total_chunk_count();
             let terrain_total_elapsed = terrain_pass_started.elapsed();
             if terrain_total_elapsed >= PROFILE_STEP_LOG_THRESHOLD
                 || terrain_render_elapsed >= PROFILE_STEP_LOG_THRESHOLD
@@ -505,16 +508,19 @@ impl RenderPipeline {
                 );
             }
             if chunk_count == 0 {
-                if !LOGGED_ZERO_TERRAIN_CHUNKS.swap(true, Ordering::Relaxed) {
+                if LOGGED_ZERO_TERRAIN_CHUNKS.set(()).is_ok() {
                     warn!("Terrain visual updated but no visible chunks were selected for drawing");
                 }
-            } else if !LOGGED_NONZERO_TERRAIN_CHUNKS.swap(true, Ordering::Relaxed) {
+            } else if LOGGED_NONZERO_TERRAIN_CHUNKS.set(()).is_ok() {
                 info!(
                     "Terrain visual selected {} visible chunks for drawing",
                     chunk_count
                 );
             }
         } else {
+            self.debug_last_terrain_chunks = 0;
+            self.debug_last_terrain_visible_chunks = 0;
+            self.debug_last_terrain_total_chunks = 0;
             return Ok(());
         }
 
@@ -524,7 +530,8 @@ impl RenderPipeline {
         // backbuffer. Clear BLACK like C++ Begin_Render, not fog peach.
         let clear_color = self.terrain_clear_color();
         let (vp_x, vp_y, vp_w, vp_h) = self.tactical_viewport.pixel_rect();
-        self.forward_pass.renderer.enqueue_scoped_pre_scene_pass(
+        self.forward_pass.renderer.enqueue_scoped_native_pass(
+            ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::Terrain,
             ww3d_renderer_3d::rendering::wgpu_main_renderer::ScopedNativePass::TerrainGround,
         );
 

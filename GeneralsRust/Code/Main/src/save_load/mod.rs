@@ -416,20 +416,40 @@ impl SaveLoadManager {
 use std::sync::{Arc, Mutex, OnceLock};
 
 // THREAD: process-wide save directory owner, shared with the save/load UI.
-static SAVE_LOAD_MANAGER: OnceLock<Arc<Mutex<SaveLoadManager>>> = OnceLock::new();
+fn save_load_manager_slot() -> std::sync::MutexGuard<'static, Option<Arc<Mutex<SaveLoadManager>>>> {
+    let services = crate::main_services::main_services();
+    let guard = services
+        .save_load_manager
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    unsafe { std::mem::transmute(guard) }
+}
 
 /// Initialize the global save/load system
 pub fn init_save_load_system() -> SaveLoadResult<()> {
-    let manager_arc =
-        SAVE_LOAD_MANAGER.get_or_init(|| Arc::new(Mutex::new(SaveLoadManager::new())));
+    let services = crate::main_services::main_services();
+    let mut slot = services
+        .save_load_manager
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if slot.is_none() {
+        *slot = Some(Arc::new(Mutex::new(SaveLoadManager::new())));
+    }
+    let manager_arc = slot.as_ref().expect("save_load").clone();
+    drop(slot);
     let mut manager = manager_arc.lock().unwrap_or_else(|e| e.into_inner());
     manager.init()
 }
 
 /// Get the global save/load manager
 pub fn get_save_load_manager() -> Option<Arc<Mutex<SaveLoadManager>>> {
-    SAVE_LOAD_MANAGER.get().cloned()
+    crate::main_services::main_services()
+        .save_load_manager
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
+
 
 const CHUNK_GAME_STATE_TOKEN: &str = "CHUNK_GameState";
 

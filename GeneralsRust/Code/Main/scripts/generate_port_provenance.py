@@ -25,6 +25,7 @@ import tempfile
 from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
 from pathlib import Path
+import tomllib
 from typing import Iterable, Sequence
 
 from cpp_definition_inventory import PARSER_ID, extract_cpp_definition_inventory
@@ -399,6 +400,79 @@ def classify_rust_file(path: Path, content: str) -> str:
     return "implementation"
 
 
+def _cargo_target_paths(manifest: Path, crate: Path) -> set[Path]:
+    """Resolve [[bin/test/example/bench]] and [lib] target paths from Cargo.toml."""
+    roots: set[Path] = set()
+    try:
+        data = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    except Exception:
+        data = {}
+
+    def add_rel(rel: str) -> None:
+        path = (crate / rel).resolve()
+        if path.is_file():
+            roots.add(path)
+
+    lib = data.get("lib")
+    if isinstance(lib, dict):
+        add_rel(lib.get("path") or "src/lib.rs")
+    elif (crate / "src/lib.rs").is_file():
+        # Implicit library target when src/lib.rs exists.
+        roots.add((crate / "src/lib.rs").resolve())
+
+    package_name = None
+    if isinstance(data.get("package"), dict):
+        package_name = data["package"].get("name")
+
+    bins = data.get("bin") or []
+    if isinstance(bins, dict):
+        bins = [bins]
+    explicit_bin = False
+    for entry in bins:
+        if not isinstance(entry, dict):
+            continue
+        explicit_bin = True
+        if entry.get("path"):
+            add_rel(entry["path"])
+        elif entry.get("name"):
+            add_rel(f"src/bin/{entry['name']}.rs")
+            add_rel(f"src/bin/{entry['name']}/main.rs")
+    if not explicit_bin and (crate / "src/main.rs").is_file():
+        roots.add((crate / "src/main.rs").resolve())
+    # Package-named binary default when src/<pkg>.rs exists without [[bin]].
+    if (
+        not explicit_bin
+        and package_name
+        and (crate / "src" / f"{package_name}.rs").is_file()
+        and (crate / "src/main.rs").is_file() is False
+        and (crate / "src/lib.rs").is_file() is False
+    ):
+        add_rel(f"src/{package_name}.rs")
+
+    for section, default_dir in (
+        ("test", "tests"),
+        ("example", "examples"),
+        ("bench", "benches"),
+    ):
+        entries = data.get(section) or []
+        if isinstance(entries, dict):
+            entries = [entries]
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("path"):
+                add_rel(entry["path"])
+            elif entry.get("name"):
+                add_rel(f"{default_dir}/{entry['name']}.rs")
+                add_rel(f"{default_dir}/{entry['name']}/main.rs")
+
+    # Conventional auto-target directories Cargo also scans.
+    for directory in (crate / "src/bin", crate / "tests", crate / "examples", crate / "benches"):
+        if directory.is_dir():
+            roots.update(path.resolve() for path in directory.rglob("*.rs") if path.is_file())
+    return roots
+
+
 def cargo_roots(rust_repo_root: Path) -> list[Path]:
     roots: set[Path] = set()
     for manifest in sorted(rust_repo_root.rglob("Cargo.toml")):
@@ -413,12 +487,7 @@ def cargo_roots(rust_repo_root: Path) -> list[Path]:
                 continue
         except ValueError:
             pass
-        for conventional in (crate / "src/lib.rs", crate / "src/main.rs"):
-            if conventional.is_file():
-                roots.add(conventional.resolve())
-        for directory in (crate / "src/bin", crate / "tests", crate / "examples"):
-            if directory.is_dir():
-                roots.update(path.resolve() for path in directory.rglob("*.rs"))
+        roots.update(_cargo_target_paths(manifest, crate))
     return sorted(roots)
 
 

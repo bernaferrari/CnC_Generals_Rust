@@ -68,7 +68,9 @@ fn format_template(template: &str, values: &[String]) -> String {
 }
 
 fn resolve_local_player() -> Option<Arc<std::sync::RwLock<Player>>> {
-    let list = player_list().read().ok()?;
+    let __arc_bind = player_list();
+
+    let list = __arc_bind.read().ok()?;
     list.get_local_player().cloned()
 }
 
@@ -163,13 +165,18 @@ fn update_description_window(
         return;
     };
 
-    let mut win_ref = win.borrow_mut();
-    let (width, height) = win_ref.get_size();
+    // Measure under a short-lived borrow. Hierarchy lookups and set_size must
+    // not run while any tree window is already mutably (or immutably) held —
+    // get_window_by_id walks roots with window.borrow().
+    let (width, height, font) = {
+        let win_ref = win.borrow();
+        (win_ref.get_size().0, win_ref.get_size().1, win_ref.get_font().cloned())
+    };
     let mut display_manager = get_display_string_manager();
     let display = display_manager.new_display_string();
-    if let Some(font) = win_ref.get_font() {
+    if let Some(font) = font.as_ref() {
         let font_desc = font.to_font_desc();
-        if let Ok(font_ref) = crate::gui::get_font_library().get_font(&font_desc) {
+        if let Ok(font_ref) = crate::gui::get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&font_desc) {
             display.borrow_mut().set_font(font_ref);
         }
     }
@@ -184,14 +191,18 @@ fn update_description_window(
         return;
     };
 
-    let mut parent_ref = parent.borrow_mut();
-    let (parent_width, parent_height) = parent_ref.get_size();
+    let (parent_width, parent_height, parent_x, parent_y) = {
+        let parent_ref = parent.borrow();
+        let (w, h) = parent_ref.get_size();
+        let (x, y) = parent_ref.get_position();
+        (w, h, x, y)
+    };
     let mut adjusted_diff = diff;
     if parent_height + adjusted_diff < 102 {
         adjusted_diff = 102 - parent_height;
     }
-    let (parent_x, parent_y) = parent_ref.get_position();
-    parent_ref
+    parent
+        .borrow_mut()
         .set_size(parent_width, parent_height + adjusted_diff, effects)
         .ok();
 
@@ -200,7 +211,8 @@ fn update_description_window(
         let (cur_x, cur_y) = marker.borrow().get_screen_position();
         let base = state.base_marker_pos.get_or_insert((cur_x, cur_y));
         let offset = (cur_x - base.0, cur_y - base.1);
-        parent_ref
+        parent
+            .borrow_mut()
             .set_position(
                 parent_x,
                 (parent_y - adjusted_diff) + (offset.1 - state.last_marker_offset.1),
@@ -208,16 +220,20 @@ fn update_description_window(
             .ok();
         state.last_marker_offset = offset;
     } else {
-        parent_ref
+        parent
+            .borrow_mut()
             .set_position(parent_x, parent_y - adjusted_diff)
             .ok();
     }
 
-    let (desc_width, desc_height) = win_ref.get_size();
-    win_ref
-        .set_size(desc_width, desc_height + adjusted_diff, effects)
-        .ok();
-    let _ = win_ref.set_text(description);
+    let (desc_width, desc_height) = win.borrow().get_size();
+    {
+        let mut win_ref = win.borrow_mut();
+        win_ref
+            .set_size(desc_width, desc_height + adjusted_diff, effects)
+            .ok();
+        let _ = win_ref.set_text(description);
+    }
 }
 
 fn leftover_append_line(description: &mut String, extra: &str) {
@@ -270,7 +286,9 @@ fn resolve_command_button_from_source(
 }
 
 fn leftover_first_selected_object_id() -> Option<u32> {
-    let list = player_list().read().ok()?;
+    let __arc_bind = player_list();
+
+    let list = __arc_bind.read().ok()?;
     let index = list.get_local_player_index();
     if index < 0 {
         return None;
@@ -679,7 +697,8 @@ fn populate_layout_for_command(
                 let _ = win.borrow_mut().show();
                 let _ = win.borrow_mut().set_text(&cost);
             } else {
-                let _ = win.borrow_mut().hide(true, manager);
+                let _ = win.borrow_mut().hide_without_manager_side_effects(true);
+                manager.window_hiding(&win);
             }
         }
     }
@@ -734,7 +753,8 @@ fn populate_layout_for_window(
             let _ = win.borrow_mut().set_text(&name);
         }
         if let Some(win) = manager.get_window_by_id(cost_id) {
-            let _ = win.borrow_mut().hide(true, manager);
+            let _ = win.borrow_mut().hide_without_manager_side_effects(true);
+            manager.window_hiding(&win);
         }
     }
 
@@ -994,11 +1014,13 @@ pub fn update_build_tooltip_layout(
 #[cfg(test)]
 mod presentation_can_make_popup_tests {
     use super::*;
+use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn host_popup_shows_bound_denials_without_legacy_player() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        { // was owner.with_scope
 
                 // C++ ControlBarPopupDescription.cpp:318-354 appends the selected
                 // producer's CanMake denial to this command's actual description.
@@ -1032,13 +1054,13 @@ mod presentation_can_make_popup_tests {
                         .is_kind_of(gamelogic::common::types::KindOf::Structure)
                 );
                 let mut owned_windows = None;
-                with_window_manager(|wm| {
-                    wm.destroy_all_windows();
-                    let parent = wm.create_window(None, 0, 0, 500, 150).unwrap();
+                owner.with_manager(|wm| {
+                    WindowEventEffects::with_standalone(|effects| wm.destroy_all_windows(effects));
+                    let parent = wm.test_create_window(None, 0, 0, 500, 150).unwrap();
                     parent.borrow_mut().set_id(NameKeyGenerator::name_to_key(
                         "ControlBarPopupDescription.wnd:Parent",
                     ) as i32);
-                    let description = wm.create_window(Some(&parent), 0, 0, 480, 120).unwrap();
+                    let description = wm.test_create_window(Some(&parent), 0, 0, 480, 120).unwrap();
                     description
                         .borrow_mut()
                         .set_id(NameKeyGenerator::name_to_key(
@@ -1090,15 +1112,15 @@ mod presentation_can_make_popup_tests {
                         ..LiveCommandButton::default()
                     });
                     let (command, frozen_status) = resolve_command_button(&command_window).unwrap();
-                    with_window_manager(|manager| {
-                        populate_layout_for_command(
+                    owner.with_manager(|manager| {
+                        WindowEventEffects::with_standalone(|effects| populate_layout_for_command(
                             &layout,
                             &command,
                             frozen_status,
                             &mut TooltipState::default(),
                             manager,
                             UpgradeTooltipSource::Standalone,
-                        )
+                        effects))
                     });
                     let text = description.borrow().get_text().to_owned();
                     if let Some(key) = key {
@@ -1111,7 +1133,7 @@ mod presentation_can_make_popup_tests {
                     }
                 }
 
-        });
+        }
     }
 }
 

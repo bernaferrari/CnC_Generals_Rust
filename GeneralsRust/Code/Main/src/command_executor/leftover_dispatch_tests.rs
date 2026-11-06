@@ -66,7 +66,7 @@ fn switch_weapons_locks_button_slot() {
     let result = CommandExecutor::new(&mut logic, 0)
         .execute_command(command(0, CommandType::SwitchWeapons { slot: 1 }, vec![id]))
         .expect("exec");
-    assert_eq!(result, CommandResult::Success);
+    assert!(result == CommandResult::Success);
     let unit = logic.host_object(id).expect("obj");
     assert_eq!(unit.weapon_lock_slot, 1);
     assert_eq!(unit.active_weapon_slot, 1);
@@ -94,7 +94,7 @@ fn enable_retaliation_reaches_host_player() {
             vec![],
         ))
         .expect("exec");
-    assert_eq!(result, CommandResult::Success);
+    assert!(result == CommandResult::Success);
     assert!(
         logic
             .get_player(0)
@@ -109,6 +109,7 @@ fn leftover_dispatch_tick_posts_enable_retaliation() {
     logic
         .get_players_mut()
         .insert(0, Player::new(0, Team::USA, "P0", true));
+    assert!(logic.select_local_player(Some(0)));
     logic.frame = 30;
     game_engine::common::global_data::write().client_retaliation_mode_enabled = true;
     logic.leftover_dispatch_tick();
@@ -148,7 +149,7 @@ fn self_destruct_transfers_to_living_ally() {
             vec![],
         ))
         .expect("exec");
-    assert_eq!(result, CommandResult::Success);
+    assert!(result == CommandResult::Success);
     assert!(!logic.get_player(0).unwrap().is_alive);
     assert_eq!(logic.host_object(id).unwrap().owner_player_id, Some(1));
     assert_eq!(logic.get_player(0).unwrap().effective_supplies(), 0);
@@ -170,7 +171,7 @@ fn self_destruct_without_ally_wipes_cash() {
             vec![],
         ))
         .expect("exec");
-    assert_eq!(result, CommandResult::Success);
+    assert!(result == CommandResult::Success);
     assert!(!logic.get_player(0).unwrap().is_alive);
     assert_eq!(logic.get_player(0).unwrap().effective_supplies(), 0);
 }
@@ -223,7 +224,7 @@ fn place_beacon_spawns_world_object_and_respects_cap() {
             vec![],
         ))
         .expect("exec");
-    assert_eq!(result, CommandResult::Success);
+    assert!(result == CommandResult::Success);
     let beacons: Vec<_> = logic
         .host_objects()
         .registered()
@@ -248,7 +249,7 @@ fn place_beacon_spawns_world_object_and_respects_cap() {
                 vec![],
             ))
             .expect("exec");
-        assert_eq!(r, CommandResult::Success);
+        assert!(r == CommandResult::Success);
     }
     let overflow = CommandExecutor::new(&mut logic, 0)
         .execute_command(command(
@@ -292,7 +293,7 @@ fn set_beacon_text_updates_selected_caption() {
             vec![id],
         ))
         .expect("exec");
-    assert_eq!(result, CommandResult::Success);
+    assert!(result == CommandResult::Success);
     assert_eq!(host_beacon_caption(&logic, id).as_deref(), Some("go"));
 }
 
@@ -306,6 +307,7 @@ fn enemy_place_hides_drawable_and_skips_host_beacons() {
     enemy.alliance_team = 2;
     logic.get_players_mut().insert(1, enemy);
     logic.get_players_mut().get_mut(&0).unwrap().alliance_team = 1;
+    assert!(logic.select_local_player(Some(0)));
     let result = CommandExecutor::new(&mut logic, 1)
         .execute_command(command(
             1,
@@ -316,7 +318,7 @@ fn enemy_place_hides_drawable_and_skips_host_beacons() {
             vec![],
         ))
         .expect("exec");
-    assert_eq!(result, CommandResult::Success);
+    assert!(result == CommandResult::Success);
     let id = logic
         .host_objects()
         .registered()
@@ -356,7 +358,7 @@ fn remove_beacon_empty_selection_is_noop_and_silent() {
     let result = CommandExecutor::new(&mut logic, 0)
         .execute_command(command(0, CommandType::RemoveBeacon, vec![]))
         .expect("exec");
-    assert_eq!(result, CommandResult::InvalidCommand);
+    assert!(result == CommandResult::InvalidCommand);
     let after = logic
         .host_objects()
         .registered_values()
@@ -392,7 +394,7 @@ fn remove_selected_beacon_is_silent() {
     let result = CommandExecutor::new(&mut logic, 0)
         .execute_command(command(0, CommandType::RemoveBeacon, vec![id]))
         .expect("exec");
-    assert_eq!(result, CommandResult::Success);
+    assert!(result == CommandResult::Success);
     assert_eq!(logic.queued_audio_events.len(), audio_before);
     assert!(logic.host_object(id).is_none() || !logic.host_object(id).unwrap().is_alive());
 }
@@ -486,6 +488,7 @@ fn repair_mid_build_keeps_pending_build_and_idle_resumes() {
         sc.builder_id = Some(dozer);
     }
     damage_for_fixture(&mut logic, damaged, 200.0);
+    assert!(logic.dozer_new_task_build(dozer, scaffold).expect("park BUILD"));
     {
         let dz = logic.host_object_mut(dozer).expect("dz");
         dz.target = Some(scaffold);
@@ -493,7 +496,12 @@ fn repair_mid_build_keeps_pending_build_and_idle_resumes() {
             AIState::Constructing,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
+        // Mid-build: primary has entered BUILD even though newTask resets current.
+        dz.dozer_tasks.enter_primary_task(
+            gamelogic::object::update::ai_update::dozer_ai_update::DozerTask::Build,
+        );
     }
+    logic.frame = 11; // REPAIR must outrank same-frame BUILD for getMostRecentCommand
     let result = CommandExecutor::new(&mut logic, 0)
         .execute_command(command(
             0,
@@ -501,17 +509,34 @@ fn repair_mid_build_keeps_pending_build_and_idle_resumes() {
             vec![dozer],
         ))
         .expect("exec");
-    assert_eq!(result, CommandResult::Success);
+    assert!(result == CommandResult::Success);
+    {
+        let dz = logic.host_object(dozer).expect("dz");
+        // newTask parks REPAIR and keeps BUILD; primary pick enters on Idle update.
+        assert_eq!(
+            dz.dozer_task_build_target(),
+            Some(scaffold),
+            "REPAIR must keep BUILD pending"
+        );
+        assert_eq!(dz.dozer_task_repair_target(), Some(damaged));
+    }
+    if let Some((dz, _)) = logic.host_object_and_partition_mut(dozer) {
+        dz.clear_target(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
+        dz.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+    }
+    assert!(
+        logic.dozer_idle_resume_pending_build(dozer),
+        "idle isRepairMostImportant must resume parked REPAIR first"
+    );
     {
         let dz = logic.host_object(dozer).expect("dz");
         assert_eq!(dz.ai_state(), AIState::Repairing);
         assert_eq!(dz.target, Some(damaged));
-        assert_eq!(
-            dz.dozer_task_build_target,
-            Some(scaffold),
-            "REPAIR must keep BUILD pending"
-        );
-        assert_eq!(dz.dozer_task_repair_target, Some(damaged));
+        assert_eq!(dz.dozer_task_build_target(), Some(scaffold));
+        assert_eq!(dz.dozer_task_repair_target(), Some(damaged));
     }
     logic.dozer_internal_task_complete(dozer, true);
     if let Some((dz, partition)) = logic.host_object_and_partition_mut(dozer) {
@@ -528,7 +553,7 @@ fn repair_mid_build_keeps_pending_build_and_idle_resumes() {
     let dz = logic.host_object(dozer).expect("dz");
     assert_eq!(dz.ai_state(), AIState::Constructing);
     assert_eq!(dz.target, Some(scaffold));
-    assert_eq!(dz.dozer_task_build_target, Some(scaffold));
+    assert_eq!(dz.dozer_task_build_target(), Some(scaffold));
 }
 
 #[test]
@@ -577,11 +602,11 @@ fn same_frame_build_repair_tie_resumes_build() {
     {
         let dz = logic.host_object(dozer).expect("dz");
         assert_eq!(
-            dz.dozer_task_build_order_frame,
-            dz.dozer_task_repair_order_frame
+            dz.dozer_tasks.requests[0].order_frame,
+            dz.dozer_tasks.requests[1].order_frame
         );
-        assert_eq!(dz.dozer_task_build_target, Some(scaffold));
-        assert_eq!(dz.dozer_task_repair_target, Some(damaged));
+        assert_eq!(dz.dozer_task_build_target(), Some(scaffold));
+        assert_eq!(dz.dozer_task_repair_target(), Some(damaged));
     }
     if let Some((dz, partition)) = logic.host_object_and_partition_mut(dozer) {
         dz.clear_target(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
@@ -641,7 +666,7 @@ fn idle_resumes_parked_repair_when_most_recent() {
     let dz = logic.host_object(dozer).expect("dz");
     assert_eq!(dz.ai_state(), AIState::Repairing);
     assert_eq!(dz.target, Some(damaged));
-    assert_eq!(dz.dozer_task_repair_target, Some(damaged));
+    assert_eq!(dz.dozer_task_repair_target(), Some(damaged));
 }
 
 #[test]
@@ -763,11 +788,12 @@ fn player_stop_cancels_current_build_so_idle_does_not_resume() {
     let result = CommandExecutor::new(&mut logic, 0)
         .execute_command(command(0, CommandType::Stop, vec![dozer]))
         .expect("exec");
-    assert_eq!(result, CommandResult::Success);
+    assert!(result == CommandResult::Success);
     {
         let dz = logic.host_object(dozer).expect("dz");
         assert_eq!(
-            dz.dozer_task_build_target, None,
+            dz.dozer_task_build_target(),
+            None,
             "hq-msoee: player Stop must cancel current BUILD slot"
         );
     }
@@ -796,32 +822,58 @@ fn player_stop_cancels_current_build_so_idle_does_not_resume() {
 fn execute_build_records_build_slot_and_docks_off_center() {
     // hq-gkpuk: C++ construct:1717 newTask BUILD.
     // hq-6gy32: C++ findGoodBuildOrRepairPosition half majorRadius + ignoreObstacle.
-    use crate::game_logic::ThingTemplate;
     let mut logic = GameLogic::new();
     logic.frame = 12;
-    let mut player = Player::new(0, Team::USA, "P0", true);
+    let mut player = Player::new(0, Team::USA, "P0", true).with_script_identity("P0");
     player.resources.supplies = 100_000;
-    logic.get_players_mut().insert(0, player);
-    let mut dozer_tpl = ThingTemplate::new("AmericaVehicleDozerSlot");
-    dozer_tpl
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Dozer)
-        .add_kind_of(KindOf::Worker)
-        .set_health(300.0);
+    logic.add_player(player);
+    assert!(logic.select_local_player(Some(0)));
     logic
-        .templates
-        .insert("AmericaVehicleDozerSlot".into(), dozer_tpl);
-    let mut bld = ThingTemplate::new("AmericaBarracksSlot");
-    bld.add_kind_of(KindOf::Structure)
-        .set_cost(50, 0)
-        .set_health(500.0);
-    logic.templates.insert("AmericaBarracksSlot".into(), bld);
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "dozer-build-slot.ini".into(),
+                "Object AmericaVehicleDozerSlot
+KindOf = VEHICLE DOZER SELECTABLE
+Body = ActiveBody Body
+MaxHealth = 300
+InitialHealth = 300
+End
+Behavior = DozerAIUpdate DozerTaskSource
+RepairHealthPercentPerSecond = 2
+End
+End
+Object AmericaBarracksSlot
+KindOf = STRUCTURE
+BuildCost = 50
+BuildTime = 10
+Body = ActiveBody Body
+MaxHealth = 500
+InitialHealth = 500
+End
+End
+".into(),
+            )])
+            .expect("authored content"),
+        )
+        .expect("admit");
+    logic
+        .admit_fixture_command_action_source(
+            "CommandButton FixtureDozerBuildButtonSlot
+ Command = DOZER_CONSTRUCT
+ Object = AmericaBarracksSlot
+End
+CommandSet FixtureDozerBuildSetSlot
+ 1 = FixtureDozerBuildButtonSlot
+End
+",
+        )
+        .expect("admit command catalog");
     let dozer = logic
         .create_object_for_player("AmericaVehicleDozerSlot", 0, Vec3::new(200.0, 0.0, 0.0))
         .expect("dozer");
-    if let Some((dz, partition)) = logic.host_object_and_partition_mut(dozer) {
+    if let Some(dz) = logic.host_object_mut(dozer) {
         dz.selection_radius = 8.0;
+        dz.command_set_override = Some("FixtureDozerBuildSetSlot".into());
     }
     let site = Vec3::new(0.0, 0.0, 0.0);
     let result = CommandExecutor::new(&mut logic, 0)
@@ -834,7 +886,7 @@ fn execute_build_records_build_slot_and_docks_off_center() {
             vec![dozer],
         ))
         .expect("exec");
-    assert_eq!(result, CommandResult::Success);
+    assert!(result == CommandResult::Success);
     let scaffold = logic
         .host_objects()
         .registered()
@@ -844,11 +896,21 @@ fn execute_build_records_build_slot_and_docks_off_center() {
     {
         let dz = logic.host_object(dozer).expect("dz");
         assert_eq!(
-            dz.dozer_task_build_target,
+            dz.dozer_task_build_target(),
             Some(scaffold),
             "hq-gkpuk: new construct must write BUILD slot"
         );
-        assert!(dz.dozer_task_build_order_frame >= 12);
+        assert!(dz.dozer_tasks.requests[0].order_frame >= 12);
+    }
+    // Primary Idle → enter BUILD → Pick/Move. Two AI ticks match C++ machine.
+    for frame in [13u32, 14] {
+        logic.frame = frame;
+        logic
+            .update_ai(&[dozer], 1.0 / 30.0)
+            .expect("dozer primary/action ticks");
+    }
+    {
+        let dz = logic.host_object(dozer).expect("dz");
         assert_eq!(dz.target, Some(scaffold));
         // C++ DozerAIUpdate.cpp:499-507 — newTask BUILD walks to the dock
         // (AI_MOVE) and flips to Constructing only on arrival; a dozer placed
@@ -950,11 +1012,11 @@ fn gather_cancels_build_and_blocks_idle_resume_while_supply() {
             vec![worker],
         ))
         .expect("exec");
-    assert_eq!(result, CommandResult::Success);
+    assert!(result == CommandResult::Success);
     {
         let w = logic.host_object(worker).expect("w");
         assert!(
-            w.dozer_task_build_target.is_none(),
+            w.dozer_task_build_target().is_none(),
             "hq-5nio2: gather must cancel current BUILD"
         );
         assert_eq!(w.ai_state(), AIState::Gathering);
@@ -1015,7 +1077,7 @@ fn new_task_snaps_action_dock_off_pad_via_find_position_around() {
     logic.dozer_new_task_build(dozer, pad);
     let dock = logic
         .host_object(dozer)
-        .and_then(|d| d.dozer_dock_action)
+        .and_then(|d| d.dozer_dock_action())
         .expect("ACTION dock");
     let seed = crate::game_logic::host_repair::dozer_repair_approach_position(
         glam::Vec3::new(200.0, 0.0, 0.0),
@@ -1113,7 +1175,7 @@ fn replacing_build_task_retains_both_scaffold_builder_ids() {
             Vec3::new(40.0, 0.0, 20.0),
             0.0,
         )
-        .expect("first real scaffold");
+        .expect("first real scaffold").expect("ObjectId");
     let second = logic
         .create_object_under_construction_for_player(
             "BuildRetargetScaffold",
@@ -1121,32 +1183,32 @@ fn replacing_build_task_retains_both_scaffold_builder_ids() {
             Vec3::new(80.0, 0.0, 20.0),
             0.0,
         )
-        .expect("second real scaffold");
+        .expect("second real scaffold").expect("ObjectId");
     logic.frame = 5;
     logic.dozer_new_task_build(dozer, first);
-    let first_dock = logic.host_object(dozer).unwrap().dozer_dock_action;
+    let first_dock = logic.host_object(dozer).unwrap().dozer_dock_action();
     assert!(first_dock.is_some());
     logic.frame = 6;
     logic.dozer_new_task_build(dozer, second);
     assert_eq!(logic.host_object(first).unwrap().builder_id, Some(dozer));
     assert_eq!(logic.host_object(second).unwrap().builder_id, Some(dozer));
     let active = logic.host_object(dozer).unwrap();
-    assert_eq!(active.dozer_task_build_target, Some(second));
-    assert_eq!(active.dozer_task_build_order_frame, 6);
-    let second_dock = active.dozer_dock_action;
+    assert_eq!(active.dozer_task_build_target(), Some(second));
+    assert_eq!(active.dozer_tasks.requests[0].order_frame, 6);
+    let second_dock = active.dozer_dock_action();
     assert!(second_dock.is_some());
     assert_ne!(second_dock, first_dock);
     logic.frame = 7;
     logic.dozer_new_task_build(dozer, second);
     let repeated = logic.host_object(dozer).unwrap();
-    assert_eq!(repeated.dozer_task_build_target, Some(second));
-    assert_eq!(repeated.dozer_task_build_order_frame, 7);
-    assert_eq!(repeated.dozer_dock_action, second_dock);
+    assert_eq!(repeated.dozer_task_build_target(), Some(second));
+    assert_eq!(repeated.dozer_tasks.requests[0].order_frame, 7);
+    assert_eq!(repeated.dozer_dock_action(), second_dock);
     logic.dozer_internal_task_complete(dozer, false);
     let completed = logic.host_object(dozer).unwrap();
-    assert_eq!(completed.dozer_task_build_target, None);
-    assert_eq!(completed.dozer_task_build_order_frame, 0);
-    assert_eq!(completed.dozer_dock_action, None);
+    assert_eq!(completed.dozer_task_build_target(), None);
+    assert_eq!(completed.dozer_tasks.requests[0].order_frame, 0);
+    assert_eq!(completed.dozer_dock_action(), None);
     assert_eq!(logic.host_object(first).unwrap().builder_id, Some(dozer));
     assert_eq!(logic.host_object(second).unwrap().builder_id, Some(dozer));
 }

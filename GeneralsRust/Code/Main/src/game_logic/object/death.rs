@@ -487,16 +487,29 @@ impl Object {
     pub fn begin_slow_death(
         &mut self,
         current_frame: u32,
+        input: Option<crate::game_logic::object::OnDieInput>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
+        // C++ SlowDeathBehavior.cpp:163-164: Int(dealt - clipped) / maxHealth.
+        let overkill_fraction = input.map_or(0.0, |input| {
+            let overkill = (input.actual_damage_dealt - input.actual_damage_clipped) as i32;
+            overkill as f32 / self.health.maximum
+        });
         let template = &self.thing.template;
         let ini = if let Some(definition) = template.receiving_object_definition.as_deref() {
             crate::game_logic::host_slow_death::slow_death_ini_for_definition(definition)
         } else {
-            template
-                .authored_slow_death
-                .as_ref()
-                .and_then(|modules| modules.first().cloned())
+            template.authored_slow_death.as_ref().and_then(|modules| {
+                crate::game_logic::host_slow_death::select_slow_death_ini(
+                    modules,
+                    self.status.death_type,
+                    crate::game_logic::host_fx_list_die::leftover_veterancy_from_host(
+                        self.experience.level,
+                    ),
+                    self.object_status_mask_for_queries(),
+                    overkill_fraction,
+                )
+            })
         };
         let Some(ini) = ini else {
             return self
@@ -1011,6 +1024,17 @@ impl Object {
             )
         {
             self.fire_weapon_when_damaged = Some(cfg);
+        }
+    }
+
+    /// Object creation: attach FWWD and run its ctor reloadAmmo at `frame`.
+    pub fn ensure_fire_weapon_when_damaged_at(&mut self, frame: u32) {
+        let fresh = self.fire_weapon_when_damaged.is_none();
+        self.ensure_fire_weapon_when_damaged();
+        if fresh {
+            if let Some(fw) = self.fire_weapon_when_damaged.as_mut() {
+                fw.apply_ctor_reload_ammo(frame);
+            }
         }
     }
 

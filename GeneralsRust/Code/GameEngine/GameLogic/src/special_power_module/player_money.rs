@@ -146,8 +146,6 @@ pub enum TransactionType {
     Hack,
 }
 
-/// Global player money manager
-static PLAYER_MONEY_MANAGER: OnceLock<Arc<RwLock<PlayerMoneyManager>>> = OnceLock::new();
 
 /// Manager for all player money systems
 #[derive(Debug)]
@@ -320,14 +318,12 @@ impl Default for PlayerMoneyManager {
     }
 }
 
-/// Initialize global player money manager
-pub fn initialize_player_money() {
-    let _ = PLAYER_MONEY_MANAGER.get_or_init(|| Arc::new(RwLock::new(PlayerMoneyManager::new())));
-}
+pub fn initialize_player_money() {}
 
-/// Get global player money manager
 pub fn get_player_money_manager() -> Option<Arc<RwLock<PlayerMoneyManager>>> {
-    PLAYER_MONEY_MANAGER.get().cloned()
+    Some(Arc::clone(
+        crate::system::engine_stores::active_services().player_money(),
+    ))
 }
 
 #[cfg(test)]

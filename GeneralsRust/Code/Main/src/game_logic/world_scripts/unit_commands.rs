@@ -2102,14 +2102,14 @@ impl GameLogic {
                         | crate::game_logic::host_deploy_style::HostDeployStyleState::Undeploying
                 )
             );
-            let has_turret = unit.turret_enabled || unit.turret_turn_rate_rad > 0.0;
+            let has_turret = unit.turret_ai.turret_enabled || unit.turret_ai.turret_turn_rate_rad > 0.0;
             let turret_natural =
                 crate::game_logic::host_deploy_style::leftover_host_turret_is_in_natural_position(
                     unit.status.under_construction,
-                    unit.turret_angle_deg,
-                    unit.turret_pitch_deg,
-                    unit.turret_natural_angle_deg,
-                    unit.turret_natural_pitch_deg,
+                    unit.turret_ai.turret_angle_deg,
+                    unit.turret_ai.turret_pitch_deg,
+                    unit.turret_ai.turret_natural_angle_deg,
+                    unit.turret_ai.turret_natural_pitch_deg,
                 );
             let transitioned = {
                 let Some(style) = unit.deploy_style.as_mut() else {
@@ -2152,12 +2152,12 @@ impl GameLogic {
                     .as_ref()
                     .is_some_and(|ds| ds.is_aligning_turrets());
                 if aligning {
-                    unit.turret_substate = crate::game_logic::object::TurretSubState::Recenter;
-                    unit.turret_idle_recentering = true;
-                    unit.turret_target_id = None;
+                    unit.turret_ai.turret_substate = crate::game_logic::object::TurretSubState::Recenter;
+                    unit.turret_ai.turret_idle_recentering = true;
+                    unit.turret_ai.turret_target_id = None;
                     unit.turret_runtime.target_pos = None;
                     unit.turret_runtime.victim_team = None;
-                    unit.turret_holding = false;
+                    unit.turret_ai.turret_holding = false;
                 } else {
                     // C++ setMyState(UNDEPLOY) clears OBJECT_STATUS_DEPLOYED
                     // before the pack timer elapses.
@@ -2835,9 +2835,7 @@ impl GameLogic {
             is_kell_snipe_transfer_rider, transfer_next_shot_last_fire_time,
         };
         let Some(bike_fire) = self.objects.get(&container_id).and_then(|c| {
-            if !c.is_combat_cycle_style_container()
-                && !crate::game_logic::host_combat_cycle::is_combat_cycle_template(&c.template_name)
-            {
+            if !c.is_combat_cycle_style_container() {
                 return None;
             }
             c.secondary_weapon
@@ -2958,11 +2956,13 @@ impl GameLogic {
         id: ObjectId,
         container_id: ObjectId,
     ) -> bool {
-        self.unit_command_exit_via_open_contain_with_effects(
-            id,
-            container_id,
-            &mut Default::default(),
-        )
+        self.with_own_services_mut(|this| {
+            this.unit_command_exit_via_open_contain_with_effects(
+                id,
+                container_id,
+                &mut Default::default(),
+            )
+        })
     }
 
     pub(crate) fn unit_command_exit_via_open_contain_with_effects(
@@ -3832,7 +3832,7 @@ mod tests {
             .expect("rally factory");
         let obj = logic.host_object_mut(id).expect("factory mut");
         obj.building_data = Some(BuildingData::new(BuildingType::WarFactory));
-        obj.thing_mut().template.production_exit_metadata = Some(ProductionExitMetadata {
+        obj.template_mut().production_exit_metadata = Some(ProductionExitMetadata {
             style: ProductionExitStyle::Default,
             unit_create_point: [0.0; 3],
             natural_rally_point: [0.0; 3],
@@ -3895,8 +3895,8 @@ mod tests {
     fn production_exit_interface_keeps_priority_over_open_contain() {
         let (mut logic, id) = rally_factory_logic();
         let object = logic.host_object_mut(id).expect("factory");
-        object.thing_mut().template.contain_module.kind = ContainModuleKind::Transport;
-        object.thing_mut().template.contain_module.slots = Some(4);
+        object.template_mut().contain_module.kind = ContainModuleKind::Transport;
+        object.template_mut().contain_module.slots = Some(4);
         let dest = glam::Vec3::new(40.0, 0.0, 12.0);
 
         assert!(logic.unit_command_set_rally_point(id, dest));
@@ -3978,7 +3978,7 @@ mod tests {
         let hunter = logic.objects.get(&hunter_id).expect("hunter after tick");
         assert!(!hunter.is_hunting());
         assert!(
-            !matches!(hunter.ai_state, AIState::Patrolling),
+            !matches!(hunter.ai_state(), AIState::Patrolling),
             "Hunt must not resume after the player attack finishes; got {:?}",
             hunter.ai_state()
         );
@@ -4009,7 +4009,7 @@ mod tests {
         let hunter = logic.objects.get(&hunter_id).expect("hunter after tick");
         assert!(!hunter.is_hunting());
         assert!(
-            !matches!(hunter.ai_state, AIState::Patrolling),
+            !matches!(hunter.ai_state(), AIState::Patrolling),
             "Hunt must not resume after the player move finishes; got {:?}",
             hunter.ai_state()
         );

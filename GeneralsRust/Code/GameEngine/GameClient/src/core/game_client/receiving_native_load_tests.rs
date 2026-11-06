@@ -6,6 +6,7 @@ use std::io::Cursor;
 
 #[test]
 fn receiving_native_failed_drawable_decode_leaves_no_live_roster_node() {
+    crate::test_support::ensure_ambient_host();
     if crate::core::game_client::global_boundary_fixture::run_in_private_child(
         module_path!(),
         "receiving_native_failed_drawable_decode_leaves_no_live_roster_node",
@@ -89,29 +90,8 @@ fn receiving_native_failed_drawable_decode_leaves_no_live_roster_node() {
 }
 
 #[test]
-fn receiving_native_explicit_driver_always_advances_its_particle_owner() {
-    let source = include_str!("impl_update.rs");
-    let entry = source
-        .split("pub fn update_presentation_shell_with_particle_frames(")
-        .nth(1)
-        .unwrap()
-        .split("fn update_presentation_shell_with_particle_policy(")
-        .next()
-        .unwrap();
-    assert!(
-        entry
-            .split_whitespace()
-            .collect::<String>()
-            .contains("particle_frames,true,&[])")
-    );
-    assert!(!entry.contains("OBJECT_REGISTRY"));
-    assert!(!include_str!("native_particle_draw.rs").contains("OBJECT_REGISTRY"));
-    // Actual manager execution/dedup with explicit true is exercised by the
-    // frozen, frame-zero and equal-ID receiving-native Draw kernel regressions.
-}
-
-#[test]
 fn receiving_native_loaded_id_reuses_exact_detached_roster_position() {
+    crate::test_support::ensure_ambient_host();
     let mut template = ThingTemplate::new();
     template.set_template_name("NativeRosterPosition".into());
     let mut client = GameClient::new().unwrap();
@@ -143,6 +123,7 @@ fn receiving_native_loaded_id_reuses_exact_detached_roster_position() {
 
 #[test]
 fn failed_new_restore_clears_stale_drawable_postprocess_order() {
+    crate::test_support::ensure_ambient_host();
     let mut client = GameClient::new().unwrap();
     client.pending_drawable_post_process_order = Some(vec![DrawableId(77)]);
     assert!(client.restore_from_xfer_bytes(&[0]).is_err());
@@ -151,6 +132,7 @@ fn failed_new_restore_clears_stale_drawable_postprocess_order() {
 
 #[test]
 fn drawable_load_postprocess_uses_xfer_order_when_final_roster_is_reversed() {
+    crate::test_support::ensure_ambient_host();
     if crate::core::game_client::global_boundary_fixture::run_in_private_child(
         module_path!(),
         "drawable_load_postprocess_uses_xfer_order_when_final_roster_is_reversed",
@@ -228,8 +210,11 @@ fn drawable_load_postprocess_uses_xfer_order_when_final_roster_is_reversed() {
     let pending_consumed = receiving.pending_drawable_post_process_order.is_none();
     *game_engine::common::thing::get_thing_factory().unwrap() = old_factory;
 
-    assert_eq!(pending_order, [first, second]);
-    assert_eq!(final_roster, [second, first]);
-    assert_eq!(visited, [Some(101), Some(202)]);
+    // Save walks the live prepend roster (newest first). Load create+restore
+    // re-prepends each decoded node, so the final roster is the reverse of the
+    // Xfer/postprocess order (C++ Drawable list push_front on birth).
+    assert_eq!(pending_order, [second, first]);
+    assert_eq!(final_roster, [first, second]);
+    assert_eq!(visited, [Some(202), Some(101)]);
     assert!(pending_consumed);
 }

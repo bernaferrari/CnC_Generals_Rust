@@ -304,7 +304,7 @@ fn host_construction_completes_without_coupled_shadow() {
     }
     let id = game_logic
         .create_object_under_construction("TestBarracks", Team::USA, Vec3::new(40.0, 0.0, 40.0))
-        .expect("uc barracks");
+        .expect("uc barracks").expect("ObjectId");
     // C++ DozerAIUpdate.cpp:511-517 — only a dozer docked at the ACTION dock
     // advances construction percent; author the retail builder fixture.
     ensure_test_dozer_template(&mut game_logic);
@@ -329,7 +329,7 @@ fn host_construction_completes_without_coupled_shadow() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         dozer.status.moving = false;
-        dozer.dozer_dock_action = Some(dozer.get_position());
+        dozer.set_dozer_dock_action(Some(dozer.get_position()));
     }
     assert!(
         game_logic
@@ -360,7 +360,7 @@ fn host_construction_completes_when_sole_tick_unmapped() {
     // Production keeps construction authority default-off (host GameLogic is
     // the sole writer, C++ single-store); the sole-tick contract under test
     // opts in via `GameLogic::set_construction_authority(true)`.
-    let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
+    let _env_guard = host_state_residual_test_env_lock()
         .lock()
         .unwrap_or_else(|e| e.into_inner());
 
@@ -382,7 +382,7 @@ fn host_construction_completes_when_sole_tick_unmapped() {
         // there; the sole-tick contract under test is position-independent.
         let id = game_logic
             .create_object_under_construction("TestBarracks", Team::USA, Vec3::ZERO)
-            .expect("uc barracks");
+            .expect("uc barracks").expect("ObjectId");
         // C++ DozerAIUpdate.cpp:511-517 — even the unmapped sole-tick fail-open
         // path is dozer-driven; author the retail builder fixture.
         ensure_test_dozer_template(&mut game_logic);
@@ -407,7 +407,7 @@ fn host_construction_completes_when_sole_tick_unmapped() {
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             dozer.status.moving = false;
-            dozer.dozer_dock_action = Some(dozer.get_position());
+            dozer.set_dozer_dock_action(Some(dozer.get_position()));
         }
 
         for _ in 0..80 {
@@ -503,8 +503,8 @@ fn explicit_final_destroy_preserves_producer_queue_refund_to_owner() {
             .status
             .on_die_started
     );
-    game_logic.destroy_object(barracks_id);
-    game_logic.destroy_object(barracks_id);
+    game_logic.destroy_object(barracks_id).unwrap();
+    game_logic.destroy_object(barracks_id).unwrap();
     assert_eq!(
         game_logic
             .objects_to_destroy

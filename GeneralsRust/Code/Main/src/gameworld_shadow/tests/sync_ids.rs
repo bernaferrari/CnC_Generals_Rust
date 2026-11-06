@@ -650,10 +650,10 @@ fn sync_from_host_copies_entity_combat_bonus_residual() {
         obj.demo_suicided_detonating = true;
         obj.hive_slave_count = 3;
         obj.hive_slave_hp = 40.0;
-        obj.turret_angle_deg = 45.0;
-        obj.turret_pitch_deg = 15.0;
-        obj.turret_idle_scanning = true;
-        obj.turret_holding = true;
+        obj.turret_ai.turret_angle_deg = 45.0;
+        obj.turret_ai.turret_pitch_deg = 15.0;
+        obj.turret_ai.turret_idle_scanning = true;
+        obj.turret_ai.turret_holding = true;
         obj.ai_attitude = 2;
         obj.last_damage_source = Some(src);
         obj.command_set_override = Some("Command_ChinaTankOverlord".into());

@@ -28,7 +28,7 @@ fn projection(world: &GameLogic, id: ObjectId) -> GuardObservation {
     let unit = world.host_object(id).unwrap();
     GuardObservation {
         state: unit.ai_state().clone(),
-        anchor: unit.active_guard_position(),
+        anchor: unit.guard_position(),
         guard_target: unit.active_guard_target(),
         mode: unit.guard_mode,
         source: unit.last_command_source,
@@ -64,7 +64,7 @@ fn guard_enters_driving_object_at_current_position_with_normal_script_order() {
         Some("BasicHumanLocomotor")
     );
     assert_eq!(unit.jet_ai.cur_locomotor_set.as_deref(), Some("SET_NORMAL"));
-    assert_eq!(unit.active_guard_position(), Some(position));
+    assert_eq!(unit.guard_position(), Some(position));
     assert_eq!(unit.active_guard_target(), None);
     assert_eq!(unit.guard_mode, GuardMode::Normal);
     assert_eq!(unit.ai_state(), AIState::GuardingArea);
@@ -119,7 +119,7 @@ fn guard_reentry_replaces_previous_object_area_and_route() {
     world.frame = 100;
     guard(&mut world, "NamedUnit");
     let unit = world.host_object(id).unwrap();
-    assert_eq!(unit.active_guard_position(), Some(position));
+    assert_eq!(unit.guard_position(), Some(position));
     assert_eq!(unit.active_guard_target(), None);
     assert_eq!(unit.active_guard_area(), None);
     assert_eq!(unit.guard_mode, GuardMode::Normal);
@@ -200,7 +200,7 @@ fn guard_missing_exact_name_and_absent_ai_are_inert() {
     guard(&mut world, "NamedUnit");
     let unit = world.host_object(id).unwrap();
     assert_eq!(unit.formation_id, 19);
-    assert_eq!(unit.active_guard_position(), None);
+    assert_eq!(unit.guard_position(), None);
     assert_eq!(
         unit.cur_locomotor_name.as_deref(),
         Some("RedguardLocomotor")
@@ -249,7 +249,7 @@ fn guard_rejected_admission_keeps_formation_and_selects_normal() {
         let unit = world.host_object(id).unwrap();
         assert_eq!(unit.formation_id, 19);
         assert_eq!(unit.jet_ai.cur_locomotor_set.as_deref(), Some("SET_NORMAL"));
-        assert_eq!(unit.active_guard_position(), None);
+        assert_eq!(unit.guard_position(), None);
         assert_eq!(
             unit.last_command_source,
             crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI
@@ -271,7 +271,7 @@ fn guard_sleep_gate_uses_controller_instead_of_locality() {
         let unit = world.host_object(id).unwrap();
         assert_eq!(unit.formation_id, 19);
         assert_eq!(unit.jet_ai.cur_locomotor_set.as_deref(), Some("SET_NORMAL"));
-        assert_eq!(unit.active_guard_position().is_some(), human);
+        assert_eq!(unit.guard_position().is_some(), human);
     }
 }
 
@@ -294,7 +294,7 @@ fn guard_exits_old_hunt_and_attack_submachine() {
     unit.status.attacking = true;
     unit.status.ignoring_stealth = true;
     unit.leech_range_active_primary = true;
-    unit.turret_enabled = true;
+    unit.turret_ai.turret_enabled = true;
     unit.set_turret_target_object(Some(target), true);
     guard(&mut world, "NamedUnit");
     let unit = world.host_object(id).unwrap();
@@ -305,7 +305,7 @@ fn guard_exits_old_hunt_and_attack_submachine() {
     assert!(!unit.status.attacking);
     assert!(!unit.status.ignoring_stealth);
     assert!(!unit.leech_range_active_primary);
-    assert_eq!(unit.turret_target_id, None);
+    assert_eq!(unit.turret_ai.turret_target_id, None);
 }
 
 #[test]
@@ -337,7 +337,7 @@ fn guard_this_object_uses_only_the_supplied_owned_id() {
         world
             .host_object(id)
             .unwrap()
-            .active_guard_position()
+            .guard_position()
             .is_some()
     );
     assert_eq!(
@@ -396,7 +396,7 @@ fn guard_disabled_masks_reject_after_script_preparation() {
         let unit = world.host_object(id).unwrap();
         assert_eq!(unit.formation_id, 19);
         assert_eq!(unit.jet_ai.cur_locomotor_set.as_deref(), Some("SET_NORMAL"));
-        assert_eq!(unit.active_guard_position(), None);
+        assert_eq!(unit.guard_position(), None);
         assert_eq!(
             unit.last_command_source,
             crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI
@@ -422,7 +422,7 @@ fn canonical_guard_command_movement_and_save_ignore_poisoned_shadow_and_same_id_
     shadow.sync_from_host(&owner);
     let entity = shadow.entity_for_host(id).unwrap();
     let copy = shadow.world_mut().world_mut().entity_mut(entity).unwrap();
-    copy.set_guard_position_data(Some([900.0, 0.0, 900.0]));
+    copy.guard_position = Some([900.0, 0.0, 900.0]);
     copy.guard_target_host = peer_id.0;
     copy.guard_radius = 999.0;
     let builder = crate::save_load::SnapshotBuilder::new();
@@ -470,7 +470,7 @@ fn canonical_guard_command_movement_and_save_ignore_poisoned_shadow_and_same_id_
             .world()
             .entity(entity)
             .unwrap()
-            .active_guard_position(),
+            .guard_position,
         anchor.map(|p| [p.x, p.y, p.z])
     );
     peer.reset();

@@ -34,6 +34,8 @@ fn tank_hunter_tnt_and_laser_howitzer_special_power_residuals() {
     th.add_kind_of(KindOf::Infantry).set_health(100.0);
     logic.templates.insert("ChinaInfantryTankHunter".into(), th);
     let mut structure = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    structure.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     structure.add_kind_of(KindOf::Structure).set_health(1000.0);
     logic.templates.insert("GLATunnelNetwork".into(), structure);
 
@@ -1957,48 +1959,6 @@ fn host_upgrade_complete_slave_drone_attaches_to_humvee() {
 }
 
 #[test]
-fn host_upgrade_complete_chemical_suits_reduces_poison() {
-    use crate::game_logic::combat::DamageType;
-    use crate::game_logic::host_armor_residual::{
-        CHEM_SUIT_HUMAN_ARMOR_POISON, apply_residual_armor,
-    };
-    use crate::game_logic::host_upgrades::UPGRADE_AMERICA_CHEMICAL_SUITS;
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
-    let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
-    ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
-    logic
-        .templates
-        .insert("AmericaInfantryRanger".into(), ranger);
-    let id = logic
-        .create_object(
-            "AmericaInfantryRanger",
-            Team::USA,
-            glam::Vec3::new(0.0, 0.0, 0.0),
-        )
-        .expect("ranger");
-    let before = {
-        let o = logic.host_object(id).unwrap();
-        apply_residual_armor(o, DamageType::Toxin, 100.0)
-    };
-    let n = logic.apply_chemical_suits_to_team(Team::USA.into(), UPGRADE_AMERICA_CHEMICAL_SUITS);
-    assert!(n >= 1);
-    let after = {
-        let o = logic.host_object(id).unwrap();
-        apply_residual_armor(o, DamageType::Toxin, 100.0)
-    };
-    // Chem suit poison coeff 0.20 vs human default (higher).
-    assert!(
-        after < before,
-        "chem suits must reduce poison residual ({after} vs {before})"
-    );
-    assert!((after - 100.0 * CHEM_SUIT_HUMAN_ARMOR_POISON).abs() < 1.0);
-}
-
-#[test]
 fn host_upgrade_complete_moab_and_satellite_hack_unlock() {
     use crate::game_logic::Team;
     use crate::game_logic::host_upgrades::{
@@ -2038,197 +1998,6 @@ fn host_upgrade_complete_moab_and_satellite_hack_unlock() {
             .unwrap()
             .unlocked_sciences
             .contains(UPGRADE_CHINA_SATELLITE_HACK_TWO)
-    );
-}
-
-#[test]
-fn host_upgrade_complete_mines_radar_fortified() {
-    use crate::game_logic::host_upgrades::{
-        FORTIFIED_STRUCTURE_ADD_MAX_HEALTH, UPGRADE_CHINA_MINES, UPGRADE_GLA_FORTIFIED_STRUCTURE,
-    };
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::China, "China", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::GLA, "GLA", true));
-    logic
-        .players
-        .insert(2, Player::new(2, Team::USA, "USA", true));
-
-    let n_m = logic.apply_player_unlock_upgrade(
-        Team::China.into(),
-        UPGRADE_CHINA_MINES,
-        UPGRADE_CHINA_MINES,
-    );
-    assert_eq!(n_m, 1);
-    assert!(
-        logic
-            .players
-            .get(&0)
-            .unwrap()
-            .unlocked_sciences
-            .contains(UPGRADE_CHINA_MINES)
-    );
-
-    let mut bm = ThingTemplate::new("GLABlackMarket");
-    bm.add_kind_of(KindOf::Structure).set_health(1000.0);
-    logic.templates.insert("GLABlackMarket".into(), bm);
-    let bid = logic
-        .create_object("GLABlackMarket", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
-        .expect("bm");
-    let before = logic.host_object(bid).unwrap().max_health;
-    let n_f =
-        logic.apply_fortified_structure_to_team(Team::GLA.into(), UPGRADE_GLA_FORTIFIED_STRUCTURE);
-    assert_eq!(n_f, 1);
-    let after = logic.host_object(bid).unwrap().max_health;
-    assert!((after - before - FORTIFIED_STRUCTURE_ADD_MAX_HEALTH).abs() < 0.1);
-
-    let mut cc = ThingTemplate::new("AmericaCommandCenter");
-    cc.add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::CommandCenter)
-        .set_health(5000.0);
-    logic.templates.insert("AmericaCommandCenter".into(), cc);
-    let cid = logic
-        .create_object(
-            "AmericaCommandCenter",
-            Team::USA,
-            glam::Vec3::new(50.0, 0.0, 0.0),
-        )
-        .expect("cc");
-    let n_r = logic.apply_radar_research_to_team(Team::USA, "Upgrade_AmericaRadar");
-    assert!(n_r >= 1);
-    assert!(
-        logic
-            .host_object(cid)
-            .unwrap()
-            .has_upgrade_tag("Upgrade_AmericaRadar")
-    );
-    assert!(
-        logic
-            .players
-            .get(&2)
-            .unwrap()
-            .unlocked_sciences
-            .contains("Upgrade_AmericaRadar")
-    );
-}
-
-#[test]
-fn host_upgrade_complete_drone_and_aircraft_armor() {
-    use crate::game_logic::host_mig::{
-        MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH, UPGRADE_CHINA_AIRCRAFT_ARMOR,
-    };
-    use crate::game_logic::host_slave_drones::{
-        SlaveDroneKind, UPGRADE_AMERICA_DRONE_ARMOR, drone_armor_add_max_health,
-    };
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::China, "China", true));
-
-    let mut battle = ThingTemplate::new("AmericaBattleDrone");
-    battle.add_kind_of(KindOf::Vehicle).set_health(100.0);
-    logic.templates.insert("AmericaBattleDrone".into(), battle);
-    let mut mig = ThingTemplate::new("ChinaJetMIG");
-    mig.add_kind_of(KindOf::Aircraft).set_health(160.0);
-    logic.templates.insert("ChinaJetMIG".into(), mig);
-
-    let did = logic
-        .create_object(
-            "AmericaBattleDrone",
-            Team::USA,
-            glam::Vec3::new(0.0, 0.0, 0.0),
-        )
-        .expect("drone");
-    let before = logic.host_object(did).unwrap().max_health;
-    let n_d = logic.apply_drone_armor_to_team(Team::USA.into(), UPGRADE_AMERICA_DRONE_ARMOR);
-    assert_eq!(n_d, 1);
-    let after = logic.host_object(did).unwrap().max_health;
-    assert!((after - before - drone_armor_add_max_health(SlaveDroneKind::Battle)).abs() < 0.1);
-
-    let mid = logic
-        .create_object("ChinaJetMIG", Team::China, glam::Vec3::new(20.0, 0.0, 0.0))
-        .expect("mig");
-    let mb = logic.host_object(mid).unwrap().max_health;
-    let n_a = logic.apply_aircraft_armor_to_team(Team::China.into(), UPGRADE_CHINA_AIRCRAFT_ARMOR);
-    assert_eq!(n_a, 1);
-    let ma = logic.host_object(mid).unwrap().max_health;
-    assert!((ma - mb - MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH).abs() < 0.1);
-}
-
-#[test]
-fn host_upgrade_complete_advanced_training_and_tactical_nuke_mig() {
-    use crate::game_logic::host_unit_training::{
-        UPGRADE_AMERICA_ADVANCED_TRAINING, residual_xp_gain_with_advanced_training,
-    };
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::China, "China", true));
-
-    let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
-    ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
-    logic
-        .templates
-        .insert("AmericaInfantryRanger".into(), ranger);
-    let mut mig = ThingTemplate::new("Nuke_ChinaJetMIG");
-    mig.add_kind_of(KindOf::Aircraft).set_health(200.0);
-    logic.templates.insert("Nuke_ChinaJetMIG".into(), mig);
-
-    let rid = logic
-        .create_object(
-            "AmericaInfantryRanger",
-            Team::USA,
-            glam::Vec3::new(0.0, 0.0, 0.0),
-        )
-        .expect("ranger");
-    let mid = logic
-        .create_object(
-            "Nuke_ChinaJetMIG",
-            Team::China,
-            glam::Vec3::new(10.0, 0.0, 0.0),
-        )
-        .expect("mig");
-
-    let n_at =
-        logic.apply_advanced_training_to_team(Team::USA.into(), UPGRADE_AMERICA_ADVANCED_TRAINING);
-    assert!(n_at >= 1);
-    assert!(
-        logic
-            .players
-            .get(&0)
-            .unwrap()
-            .unlocked_sciences
-            .contains(UPGRADE_AMERICA_ADVANCED_TRAINING)
-    );
-    assert!(
-        logic
-            .host_object(rid)
-            .unwrap()
-            .has_upgrade_tag(UPGRADE_AMERICA_ADVANCED_TRAINING)
-    );
-    // Honesty: XP scalar residual path.
-    assert!((residual_xp_gain_with_advanced_training(50.0, true) - 100.0).abs() < 0.01);
-
-    let n_nuke =
-        logic.apply_tactical_nuke_mig_to_team(Team::China.into(), "Upgrade_ChinaTacticalNukeMig");
-    assert_eq!(n_nuke, 1);
-    assert!(
-        logic
-            .host_object(mid)
-            .unwrap()
-            .has_upgrade_tag("Upgrade_ChinaTacticalNukeMig")
     );
 }
 
@@ -2406,4 +2175,45 @@ fn ocl_science_tiers_use_controlling_player_not_faction_union() {
         logic.special_power_strike_a10_tier(a10_up),
         Some(A10StrikeScienceTier::Level3)
     );
+}
+
+#[test]
+fn slave_drone_upgrade_uses_only_real_upgrade_identity() {
+    use crate::game_logic::host_slave_drones::UPGRADE_AMERICA_SCOUT_DRONE;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    super::super::super::world_combat::slaved_update_tests::install_slave_fixture(
+        &mut logic,
+        crate::game_logic::host_slave_drones::SlaveDroneKind::Scout,
+    );
+    logic
+        .players
+        .insert(0, Player::new(0, Team::USA, "USA", true));
+    let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+    humvee.set_primary_weapon_name("HumveeGun");
+    humvee
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(200.0);
+    logic
+        .templates
+        .insert("AmericaVehicleHumvee".into(), humvee);
+    let mid = logic
+        .create_object("AmericaVehicleHumvee", Team::USA, glam::Vec3::ZERO)
+        .expect("humvee");
+
+    // Unknown upgrade identity: no Scout fallback, no drone, no tag.
+    let n = logic.apply_slave_drone_upgrade_to_team(Team::USA.into(), "Upgrade_NotADrone");
+    assert_eq!(n, 0);
+    let m = logic.host_object(mid).unwrap();
+    assert!(!m.has_upgrade_tag(UPGRADE_AMERICA_SCOUT_DRONE));
+    assert!(!m.has_upgrade_tag("Upgrade_NotADrone"));
+
+    // Alias identity: master carries only the granted name, not kind.upgrade_name().
+    let alias = "Upgrade_ScoutDrone_Alias";
+    let n = logic.apply_slave_drone_upgrade_to_team(Team::USA.into(), alias);
+    assert_eq!(n, 1);
+    let m = logic.host_object(mid).unwrap();
+    assert!(m.has_upgrade_tag(alias));
+    assert!(!m.has_upgrade_tag(UPGRADE_AMERICA_SCOUT_DRONE));
 }

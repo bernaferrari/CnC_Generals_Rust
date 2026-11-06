@@ -358,6 +358,7 @@ impl GameLogic {
         template_name: &str,
     ) -> Option<(
         Option<std::sync::Arc<gamelogic::weapon::WeaponTemplate>>,
+        Option<String>,
         Option<gamelogic::effects::FXList>,
     )> {
         use game_engine::common::thing::module::ModuleData;
@@ -382,6 +383,7 @@ impl GameLogic {
                 )?;
                 Some((
                     data.geometry_based_damage_weapon_template.clone(),
+                    data.geometry_based_damage_weapon_name.clone(),
                     data.geometry_based_damage_fx.clone(),
                 ))
             })
@@ -1059,16 +1061,20 @@ impl GameLogic {
         else {
             return 0;
         };
-        let Some((authored_weapon, damage_fx)) =
+        let Some((authored_weapon, authored_weapon_name, damage_fx)) =
             self.booby_trap_detonation_data(&charge_template_name)
         else {
             log::error!("Selected BoobyTrap charge lacks typed StickyBombUpdate data");
             return 0;
         };
-        let weapon_was_authored = authored_weapon.is_some();
-        let weapon = authored_weapon.and_then(|authored| match self.weapon_definitions.as_ref() {
-            Some(catalog) => catalog.get(&authored.name.to_ascii_lowercase()).cloned(),
-            None => Some(authored),
+        // C++ INI::parseWeaponTemplate keeps the authored name; rebind it to
+        // the receiving Weapon.ini catalog even if parse had no bound store.
+        let authored_name = authored_weapon_name
+            .or_else(|| authored_weapon.as_ref().map(|w| w.name.to_string()));
+        let weapon_was_authored = authored_name.is_some();
+        let weapon = authored_name.and_then(|name| match self.weapon_definitions.as_ref() {
+            Some(catalog) => catalog.get(&name.to_ascii_lowercase()).cloned(),
+            None => authored_weapon.clone(),
         });
         if weapon_was_authored && weapon.is_none() {
             log::error!("Selected StickyBombUpdate weapon is missing from receiving Weapon.ini");

@@ -426,7 +426,8 @@ impl StealthUpdate {
         let Some(self_player) = obj.get_controlling_player() else {
             return;
         };
-        let Ok(list) = crate::player::player_list().read() else {
+        let __player_list_arc = crate::player::player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return;
         };
         for player in list.iter() {
@@ -705,14 +706,8 @@ impl StealthUpdate {
                     return Ok(());
                 }
 
-                let template_name = object_guard.get_template_name().to_ascii_lowercase();
-                let matches_template = template_name.contains("blackmarket")
-                    || template_name.contains("black_market")
-                    || template_name.contains("black-market");
-                let matches_kind = object_guard.is_kind_of(KindOf::CashGenerator)
-                    && template_name.contains("market");
-
-                if matches_template || matches_kind {
+                // C++ StealthUpdate.cpp:157-175 isBlackMarket — KindOf, not name.
+                if object_guard.is_kind_of(KindOf::FsBlackMarket) {
                     has_black_market = true;
                 }
 

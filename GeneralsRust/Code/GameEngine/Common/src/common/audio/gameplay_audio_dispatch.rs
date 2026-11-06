@@ -6,7 +6,7 @@
 //! Matches the C++ pattern where `TheAudio->AddAudioEvent()` is called from
 //! gameplay code and the AudioManager routes it to the sound device.
 
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
 // Callback trait
@@ -30,28 +30,42 @@ pub trait GameplayAudioDispatch: Send + Sync {
 // Global registration
 // ---------------------------------------------------------------------------
 
-static DISPATCH: OnceLock<Arc<dyn GameplayAudioDispatch>> = OnceLock::new();
-
 /// Register the concrete audio dispatch backend.
 ///
 /// Returns `false` if a backend was already registered.
 pub fn register_gameplay_audio_dispatch(dispatch: Arc<dyn GameplayAudioDispatch>) -> bool {
-    DISPATCH.set(dispatch).is_ok()
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .system
+        .gameplay_audio_dispatch
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let first = slot.is_none();
+    *slot = Some(dispatch);
+    first
 }
 
 /// Replace the current dispatch backend (used during tests or hot-swap).
 pub fn set_gameplay_audio_dispatch(dispatch: Arc<dyn GameplayAudioDispatch>) {
-    // OnceLock doesn't support clearing, so we use a different strategy:
-    // We just try to set, and if it's already set, we can't change it.
-    // For production this is fine - registration happens once at startup.
-    let _ = DISPATCH.set(dispatch);
+    let services = crate::common::common_services::common_services();
+    *services
+        .system
+        .gameplay_audio_dispatch
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(dispatch);
 }
 
 fn with_dispatch<F, R>(f: F) -> Option<R>
 where
     F: FnOnce(&dyn GameplayAudioDispatch) -> R,
 {
-    DISPATCH.get().map(|d| f(d.as_ref()))
+    let d = crate::common::common_services::common_services()
+        .system
+        .gameplay_audio_dispatch
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
+    d.map(|d| f(d.as_ref()))
 }
 
 // ---------------------------------------------------------------------------

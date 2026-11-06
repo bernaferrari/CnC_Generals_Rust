@@ -309,7 +309,8 @@ impl CommandLineArgs {
                     }
                     "userdata" => {}
                     "runtime_host" | "runtime-host" | "gpui_control" | "gpui-control"
-                    | "gpui_status" | "gpui-status" | "gpui_frame" | "gpui-frame" => {}
+                    | "gpui_status" | "gpui-status" | "gpui_frame" | "gpui-frame"
+                    | "gpui_capture_interval_ms" | "gpui-capture-interval-ms" => {}
                     _ => {
                         // Unknown option, log but don't fail
                         warn!("Unknown command line option: {}", option);
@@ -416,6 +417,7 @@ impl CommandLineArgs {
                 | "gpui_control"
                 | "gpui_status"
                 | "gpui_frame"
+                | "gpui_capture_interval_ms"
         )
     }
 
@@ -696,17 +698,17 @@ impl CommandLineArgs {
     }
 }
 
-/// Global command line arguments
-static COMMAND_LINE_ARGS: std::sync::LazyLock<std::sync::Mutex<Option<CommandLineArgs>>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
-
 /// Initialize command line parsing system
 pub fn initialize_command_line() -> Result<CommandLineArgs> {
     let args = CommandLineArgs::parse()?;
 
-    // Store globally for access by other systems
+    // Store on MainServices for access by other systems
     {
-        let mut global_args = COMMAND_LINE_ARGS.lock().unwrap_or_else(|e| e.into_inner());
+        let services = crate::main_services::main_services();
+        let mut global_args = services
+            .command_line_args
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *global_args = Some(args.clone());
     }
 
@@ -716,7 +718,8 @@ pub fn initialize_command_line() -> Result<CommandLineArgs> {
 
 /// Get the global command line arguments
 pub fn get_command_line_args() -> Option<CommandLineArgs> {
-    COMMAND_LINE_ARGS
+    crate::main_services::main_services()
+        .command_line_args
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone()

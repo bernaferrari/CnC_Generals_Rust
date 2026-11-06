@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn native_mirror_observer_admits_creation_and_both_transform_phases_before_first_draw() {
+    crate::test_support::ensure_ambient_host();
     let mut client = GameClient::new().unwrap();
     let mut entry = tests::presentation_drawable_sync_for_test(
         42,
@@ -16,6 +17,7 @@ fn native_mirror_observer_admits_creation_and_both_transform_phases_before_first
     let mut phases = Vec::new();
     let result = client
         .sync_presentation_drawables_observed([entry.clone()], 321, |event| match event {
+            PresentationDrawableMutation::TerrainPropAdded { .. } => {}
             PresentationDrawableMutation::Creating {
                 initial_transform,
                 sync_ms,

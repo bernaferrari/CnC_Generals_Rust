@@ -8,7 +8,6 @@
 
 use glam::{Mat4, Vec3};
 use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
 
 /// Live GameClient `TerrainVisualImpl` hooks (registered from GameClient).
 #[derive(Clone, Copy, Default)]
@@ -60,17 +59,23 @@ impl Default for WaterGridState {
     }
 }
 
-static WATER_HOOKS: LazyLock<Mutex<VisualWaterHooks>> =
-    LazyLock::new(|| Mutex::new(VisualWaterHooks::default()));
-
 pub fn register_visual_water_hooks(new_hooks: VisualWaterHooks) {
-    if let Ok(mut slot) = WATER_HOOKS.lock() {
-        *slot = new_hooks;
-    }
+    let services = crate::system::engine_stores::active_services();
+    *services
+        .client_visuals()
+        .water_hooks
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = new_hooks;
 }
 
 fn with_hooks<R>(f: impl FnOnce(&VisualWaterHooks) -> R) -> Option<R> {
-    WATER_HOOKS.lock().ok().map(|h| f(&h))
+    let services = crate::system::engine_stores::active_services();
+    let hooks = services
+        .client_visuals()
+        .water_hooks
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    Some(f(&hooks))
 }
 
 // Retained engine adapters resolve the driving service; constructors never publish it.

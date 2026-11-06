@@ -26,7 +26,6 @@ use game_engine::common::ini::ini_locomotor::{
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Once;
 
 /// Retail SET_NORMAL locomotor names used by host golden / skirmish unit templates.
 pub const BASIC_HUMAN_LOCOMOTOR: &str = "BasicHumanLocomotor";
@@ -189,7 +188,6 @@ pub(crate) const DEFAULT_HOST_BRAKING: f32 = LOCO_BIGNUM * LOGIC_FPS * LOGIC_FPS
 
 // Default definitions must finish loading before another reader can admit an actor.
 // Later explicit archive overlays still use the existing Common store.
-static HOST_DEFAULT_LOCOMOTORS: Once = Once::new();
 
 /// Host-facing movement stats resolved from a LocomotorTemplate (dist/sec, rads/sec).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -315,13 +313,13 @@ pub struct HostCompleteLocomotorSet {
 ///
 /// Returns how many templates were added by this call (seed + filesystem load).
 pub fn ensure_host_locomotor_store() -> usize {
+    // Idempotent: seed_missing / chinook helpers only fill gaps. Avoid Once —
+    // a prior panic inside call_once poisoned the process for later tests.
+    let mut store = get_locomotor_store_mut();
     let mut added = 0;
-    HOST_DEFAULT_LOCOMOTORS.call_once(|| {
-        let mut store = get_locomotor_store_mut();
-        added += try_load_locomotor_ini_from_disk(&mut store);
-        added += seed_missing_host_locomotors(&mut store);
-        added += ensure_chinook_helix_slide_into_place(&mut store);
-    });
+    added += try_load_locomotor_ini_from_disk(&mut store);
+    added += seed_missing_host_locomotors(&mut store);
+    added += ensure_chinook_helix_slide_into_place(&mut store);
     added
 }
 
@@ -351,9 +349,8 @@ pub fn locomotor_name_for_unit(template_name: &str) -> Option<&'static str> {
     if crate::game_logic::host_angry_mob::is_angry_mob_nexus_template(template_name) {
         return Some(ANGRY_MOB_NEXUS_LOCOMOTOR);
     }
-    if template_name.contains("AngryMob") {
-        return Some(BASIC_HUMAN_LOCOMOTOR);
-    }
+    // Member AngryMob templates must author Locomotor= like C++; do not invent
+    // BasicHumanLocomotor from a "AngryMob" name peel.
     match template_name {
         // USA infantry (AmericaInfantryRanger → BasicHumanLocomotor)
         "USA_Ranger" | "GoldenRanger" | "AmericaInfantryRanger" => Some(BASIC_HUMAN_LOCOMOTOR),
@@ -2104,39 +2101,42 @@ mod tests {
 
     #[test]
     fn chinook_helix_seed_binds_slide_into_place_time() {
-        let _ = ensure_chinook_helix_slide_into_place(&mut get_locomotor_store_mut());
-        for name in [CHINOOK_LOCOMOTOR, HELIX_LOCOMOTOR] {
-            let binding = resolve_host_locomotor_binding(name)
-                .unwrap_or_else(|| panic!("{name} must resolve"));
-            assert!(
-                (binding.ultra_accurate_slide_factor - 3.0).abs() < 1e-6,
-                "{name} SlideIntoPlaceTime 100 msec → 3 frames, got {}",
-                binding.ultra_accurate_slide_factor
-            );
-            assert_eq!(
-                binding.appearance,
-                crate::game_logic::LocomotorAppearance::Hover,
-                "{name} retail appearance is HOVER"
-            );
-        }
+        let common = std::sync::Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, || {
+            let _ = ensure_chinook_helix_slide_into_place(&mut get_locomotor_store_mut());
+            for name in [CHINOOK_LOCOMOTOR, HELIX_LOCOMOTOR] {
+                let binding = resolve_host_locomotor_binding(name)
+                    .unwrap_or_else(|| panic!("{name} must resolve"));
+                assert!(
+                    (binding.ultra_accurate_slide_factor - 3.0).abs() < 1e-6,
+                    "{name} SlideIntoPlaceTime 100 msec → 3 frames, got {}",
+                    binding.ultra_accurate_slide_factor
+                );
+                assert_eq!(
+                    binding.appearance,
+                    crate::game_logic::LocomotorAppearance::Hover,
+                    "{name} retail appearance is HOVER"
+                );
+            }
 
-        let mut logic = crate::game_logic::GameLogic::new();
-        let mut chinook = ThingTemplate::new("AmericaVehicleChinook");
-        chinook
-            .add_kind_of(KindOf::Aircraft)
-            .set_locomotor_name(CHINOOK_LOCOMOTOR);
-        logic
-            .templates
-            .insert("AmericaVehicleChinook".to_string(), chinook);
-        let id = logic
-            .create_object("AmericaVehicleChinook", Team::USA, Vec3::new(0.0, 0.0, 0.0))
-            .expect("create Chinook");
-        let obj = logic.objects.get(&id).expect("chinook");
-        assert!(
-            (obj.ultra_accurate_slide_factor - 3.0).abs() < 1e-6,
-            "create_object must stamp Chinook slide factor, got {}",
-            obj.ultra_accurate_slide_factor
-        );
+            let mut logic = crate::game_logic::GameLogic::new();
+            let mut chinook = ThingTemplate::new("AmericaVehicleChinook");
+            chinook
+                .add_kind_of(KindOf::Aircraft)
+                .set_locomotor_name(CHINOOK_LOCOMOTOR);
+            logic
+                .templates
+                .insert("AmericaVehicleChinook".to_string(), chinook);
+            let id = logic
+                .create_object("AmericaVehicleChinook", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+                .expect("create Chinook");
+            let obj = logic.objects.get(&id).expect("chinook");
+            assert!(
+                (obj.ultra_accurate_slide_factor - 3.0).abs() < 1e-6,
+                "create_object must stamp Chinook slide factor, got {}",
+                obj.ultra_accurate_slide_factor
+            );
+        });
     }
 
     #[test]
@@ -2349,6 +2349,51 @@ mod mixed_source_rate_admission_tests {
 }
 
 #[cfg(test)]
+
+#[cfg(test)]
+mod aircraft_taxi_seed_retail_tests {
+    use super::*;
+
+    /// hq-z0oio: seed uses retail BasicJetTaxiLocomotor (TREADS/50/100/180),
+    /// never invented AirplaneTaxiingLocomotor / WHEELS.
+    #[test]
+    fn basic_jet_taxi_seed_matches_retail_locomotor_ini() {
+        assert_eq!(AIRPLANE_TAXIING_LOCOMOTOR, "BasicJetTaxiLocomotor");
+        assert_eq!(RAPTOR_TAXIING_LOCOMOTOR, "BasicJetTaxiLocomotor");
+        let mut store = LocomotorStore::new();
+        let added = seed_exact_aircraft_set_switch_locomotors(&mut store);
+        assert!(added >= 1, "seed must install BasicJetTaxiLocomotor");
+        let taxi = store
+            .find_template(AIRPLANE_TAXIING_LOCOMOTOR)
+            .expect("BasicJetTaxiLocomotor present");
+        assert_eq!(taxi.appearance, SourceLocomotorAppearance::Treads);
+        // Common template is per-frame; host binding keeps retail dist/sec values.
+        let binding = host_locomotor_binding_from_template(taxi).expect("bind taxi");
+        assert!((binding.movement.max_speed - 50.0).abs() < 0.01);
+        assert!((binding.movement.acceleration - 100.0).abs() < 0.01);
+        // INI TurnRate is degrees/sec; host binding stores radians/sec.
+        let expected_turn = 180.0_f32.to_radians();
+        assert!(
+            (binding.movement.turn_rate - expected_turn).abs() < 0.01,
+            "turn_rate={}, expected rad/sec {}",
+            binding.movement.turn_rate,
+            expected_turn
+        );
+        assert_eq!(
+            binding.appearance,
+            crate::game_logic::LocomotorAppearance::Treads
+        );
+        assert!(
+            store.find_template("AirplaneTaxiingLocomotor").is_none(),
+            "must not invent AirplaneTaxiingLocomotor"
+        );
+        assert!(
+            store.find_template("RaptorTaxiingLocomotor").is_none(),
+            "must not invent RaptorTaxiingLocomotor"
+        );
+    }
+}
+
 mod source_zero_speed_admission_tests {
     use super::*;
     #[test]
@@ -2383,7 +2428,9 @@ mod source_zero_speed_admission_tests {
         assert_eq!(object.movement.max_speed, 0.);
         assert_eq!(object.movement.acceleration, 0.);
         assert_eq!(object.movement.turn_rate, 0.);
-        assert_eq!(object.max_lift, 0.);
+        // C++ Locomotor ctor keeps m_maxLift = BIGNUM; getMaxLift uses template lift.
+        assert_eq!(object.max_lift, DEFAULT_HOST_LIFT_CAP);
+        assert_eq!(object.get_max_lift(), 0.);
     }
     #[test]
     fn source_damaged_zero_is_not_omitted_negative_sentinel() {

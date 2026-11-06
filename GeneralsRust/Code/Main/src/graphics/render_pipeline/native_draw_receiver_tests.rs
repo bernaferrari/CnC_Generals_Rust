@@ -174,24 +174,18 @@ fn eye(
 #[test]
 #[ignore = "requires native WGPU; run explicit isolated receiver acceptance"]
 fn real_receiver_owns_constructor_dirty_setters_and_peer_reset_lifetimes_before_draw() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
     })
     .expect("native receiver acceptance requires a headless device");
-    struct EngineScope;
-    impl Drop for EngineScope {
-        fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
-        }
-    }
-    let _scope = EngineScope;
+    let _engine_scope = engine.clone();
     let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     // Production canonicalization preserves authored case; the cache is an
@@ -200,8 +194,8 @@ fn real_receiver_owns_constructor_dirty_setters_and_peer_reset_lifetimes_before_
         crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
         model(),
     );
-    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
-    let mut peer_pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
+    let mut peer_pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut client = GameClient::new().unwrap();
     let mut peer_client = GameClient::new().unwrap();
     let mut a = GameLogic::new();

@@ -710,22 +710,21 @@ impl Default for SpecialPowerStore {
     }
 }
 
-static SPECIAL_POWER_STORE: OnceLock<RwLock<SpecialPowerStore>> = OnceLock::new();
 
-fn special_power_store_cell() -> &'static RwLock<SpecialPowerStore> {
-    SPECIAL_POWER_STORE.get_or_init(|| RwLock::new(SpecialPowerStore::new()))
+fn rts_special_power_cell() -> std::sync::Arc<std::sync::RwLock<SpecialPowerStore>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.rts_special_power)
 }
 
 pub fn get_special_power_store() -> RwLockReadGuard<'static, SpecialPowerStore> {
-    special_power_store_cell()
-        .read()
-        .expect("SpecialPowerStore poisoned")
+    let cell = rts_special_power_cell();
+    let guard = cell.read().expect("SpecialPowerStore poisoned");
+    unsafe { std::mem::transmute(guard) }
 }
 
 pub fn get_special_power_store_mut() -> RwLockWriteGuard<'static, SpecialPowerStore> {
-    special_power_store_cell()
-        .write()
-        .expect("SpecialPowerStore poisoned")
+    let cell = rts_special_power_cell();
+    let guard = cell.write().expect("SpecialPowerStore poisoned");
+    unsafe { std::mem::transmute(guard) }
 }
 
 pub fn reset_special_power_store() {

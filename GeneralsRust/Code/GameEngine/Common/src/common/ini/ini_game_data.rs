@@ -9,7 +9,6 @@
 use crate::common::global_data as runtime_global_data;
 use crate::common::ini::ini::{INI, INIError, INIResult};
 use crate::common::user_preferences::UserPreferences;
-use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -1144,21 +1143,23 @@ impl GlobalData {
     }
 }
 
-/// Global GlobalData instance (matches C++ TheWritableGlobalData/TheGlobalData)
-static WRITABLE_GLOBAL_DATA: OnceCell<Arc<RwLock<GlobalData>>> = OnceCell::new();
-
-/// Ensure the global data instance exists and return a handle to it
+/// Ensure the instance GlobalData exists and return a handle to it.
 pub fn ensure_global_data() -> Arc<RwLock<GlobalData>> {
-    WRITABLE_GLOBAL_DATA
-        .get_or_init(|| {
-            let mut data = GlobalData::new();
-            data.init();
-            Arc::new(RwLock::new(data))
-        })
-        .clone()
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .system
+        .global_data
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if slot.is_none() {
+        let mut data = GlobalData::new();
+        data.init();
+        *slot = Some(Arc::new(RwLock::new(data)));
+    }
+    slot.as_ref().expect("global_data").clone()
 }
 
-/// Initialize the global data instance
+/// Initialize the instance GlobalData.
 pub fn init_global_data() {
     let global_data = ensure_global_data();
     let mut data = global_data.write();
@@ -1166,9 +1167,14 @@ pub fn init_global_data() {
     data.init();
 }
 
-/// Get a handle to the global data (read-only or mutable via locks)
+/// Get a handle to the instance GlobalData (read-only or mutable via locks).
 pub fn get_global_data() -> Option<Arc<RwLock<GlobalData>>> {
-    WRITABLE_GLOBAL_DATA.get().cloned()
+    crate::common::common_services::common_services()
+        .system
+        .global_data
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 /// INI parsing function (matches C++ interface)
@@ -1993,6 +1999,7 @@ fn apply_to_runtime_global_data(data: &GlobalData, runtime: &mut runtime_global_
         data.prison_bounty_text_color.g,
         data.prison_bounty_text_color.b,
     ];
+    runtime.prison_bounty_text_alpha = data.prison_bounty_text_alpha;
     runtime.special_power_view_object_name = data.special_power_view_object_name.clone();
     runtime.standard_public_bones = data.standard_public_bones.clone();
     runtime.show_metrics = data.show_metrics;
@@ -2382,6 +2389,20 @@ mod tests {
         .unwrap();
         assert_eq!(data.hot_key_text_alpha, 32);
         assert_eq!(data.prison_bounty_text_alpha, 255);
+        let mut alpha_ini = INI::new();
+        alpha_ini
+            .with_inline_source(
+                "GameData\n PrisonBountyTextColor = R:1 G:2 B:3 A:77\nEnd\n",
+                |ini| {
+                    ini.read_line()?;
+                    parse_game_data_block(ini, &mut data)
+                },
+            )
+            .unwrap();
+        assert_eq!(data.prison_bounty_text_alpha, 77);
+        let mut alpha_runtime = runtime_global_data::GlobalData::default();
+        apply_to_runtime_global_data(&data, &mut alpha_runtime);
+        assert_eq!(alpha_runtime.prison_bounty_text_alpha, 77);
         assert_eq!(
             data.hot_key_text_color,
             RGBColor::new(64.0 / 255.0, 128.0 / 255.0, 1.0)

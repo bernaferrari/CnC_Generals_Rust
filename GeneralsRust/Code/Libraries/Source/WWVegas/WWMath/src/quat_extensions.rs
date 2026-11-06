@@ -62,12 +62,14 @@ impl QuatExtensions for Quat {
 
     /// Create a random quaternion with uniform distribution
     fn random() -> Quat {
+        let mut rng = crate::WwMathRng::default();
+
         use crate::WWMath;
 
         // Use Marsaglia's method for uniform quaternion distribution
-        let u1 = WWMath::unit_random();
-        let u2 = WWMath::unit_random();
-        let u3 = WWMath::unit_random();
+        let u1 = WWMath::unit_random(&mut rng);
+        let u2 = WWMath::unit_random(&mut rng);
+        let u3 = WWMath::unit_random(&mut rng);
 
         let sqrt1_u1 = (1.0_f32 - u1).sqrt();
         let sqrt_u1 = u1.sqrt();

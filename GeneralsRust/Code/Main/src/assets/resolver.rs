@@ -4,9 +4,8 @@
 //! Search roots and negative lookups therefore share the lifetime of the live
 //! asset set instead of being process-global mutable state.
 
-#[cfg(test)]
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Mutex, OnceLock};
 use std::path::{Component, Path, PathBuf};
 
 #[derive(Debug, Clone, Default)]
@@ -15,6 +14,8 @@ pub struct LiveAssetResolver {
     missing_keys: HashSet<String>,
     #[cfg(test)]
     miss_probes: HashMap<String, usize>,
+    /// Instance-owned mesh-resolve honesty + missing-W3D diagnostics.
+    pub mesh_resolve: crate::assets::mesh_asset_resolve::MeshResolveState,
 }
 
 impl LiveAssetResolver {
@@ -118,43 +119,79 @@ impl LiveAssetResolver {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
+fn resolver_case_insensitive_dir_index(search_dir: &Path) -> Option<HashMap<String, PathBuf>> {
+    let key = search_dir.to_string_lossy().to_ascii_lowercase();
+    let services = crate::main_services::main_services();
+    {
+        let guard = services
+            .resolver_dir_index
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(hit) = guard.get(&key) {
+            return Some(hit.clone());
+        }
+    }
+    let mut index = HashMap::new();
+    for entry in std::fs::read_dir(search_dir).ok()? {
+        let entry = entry.ok()?;
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        index.entry(name).or_insert_with(|| entry.path());
+    }
+    let mut guard = services
+        .resolver_dir_index
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if guard.len() > 4096 {
+        guard.clear();
+    }
+    guard.insert(key, index.clone());
+    Some(index)
+}
+
 fn resolve_existing_path_case_insensitive(path: &Path) -> Option<PathBuf> {
     if path.exists() {
         return Some(path.to_path_buf());
     }
-    let mut resolved = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::Prefix(prefix) => resolved.push(prefix.as_os_str()),
-            Component::RootDir => resolved.push(component.as_os_str()),
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if !resolved.pop() {
-                    return None;
+    // Case-insensitive volumes (macOS APFS default): exists() already folds
+    // case. Skip the per-component read_dir walk on negative lookups — that
+    // walk dominated Lone Eagle/ShellMap spawn under load (opendir/stat).
+    #[cfg(target_os = "macos")]
+    {
+        return None;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let mut resolved = PathBuf::new();
+        for component in path.components() {
+            match component {
+                Component::Prefix(prefix) => resolved.push(prefix.as_os_str()),
+                Component::RootDir => resolved.push(component.as_os_str()),
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    if !resolved.pop() {
+                        return None;
+                    }
+                }
+                Component::Normal(part) => {
+                    let search_dir = if resolved.as_os_str().is_empty() {
+                        Path::new(".")
+                    } else {
+                        resolved.as_path()
+                    };
+                    let direct = search_dir.join(part);
+                    if direct.exists() {
+                        resolved = direct;
+                        continue;
+                    }
+                    let part_key = part.to_string_lossy().to_ascii_lowercase();
+                    let index = resolver_case_insensitive_dir_index(search_dir)?;
+                    resolved = index.get(&part_key)?.clone();
                 }
             }
-            Component::Normal(part) => {
-                let search_dir = if resolved.as_os_str().is_empty() {
-                    Path::new(".")
-                } else {
-                    resolved.as_path()
-                };
-                let part = part.to_string_lossy();
-                let matched = std::fs::read_dir(search_dir)
-                    .ok()?
-                    .filter_map(Result::ok)
-                    .find_map(|entry| {
-                        entry
-                            .file_name()
-                            .to_string_lossy()
-                            .eq_ignore_ascii_case(&part)
-                            .then(|| entry.path())
-                    })?;
-                resolved = matched;
-            }
         }
+        resolved.exists().then_some(resolved)
     }
-    resolved.exists().then_some(resolved)
 }
 
 pub(crate) fn default_asset_roots() -> Vec<PathBuf> {

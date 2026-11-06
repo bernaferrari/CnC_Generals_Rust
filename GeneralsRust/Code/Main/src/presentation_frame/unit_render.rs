@@ -170,6 +170,10 @@ pub struct UnitRenderInput {
     /// Frozen host primary-turret pitch (degrees), consumed only by an exact
     /// source-authored HLOD `TurretPitch` pivot.
     pub turret_pitch_deg: f32,
+    /// Frozen host TURRET_ALT yaw/pitch (degrees) for exact `AltTurret` /
+    /// `AltTurretPitch` pivots; 0 when the object has no alt TurretAI.
+    pub alt_turret_angle_deg: f32,
+    pub alt_turret_pitch_deg: f32,
     pub selected: bool,
     pub selection_radius: f32,
     /// C++ Drawable selection flash envelope residual frames remaining.
@@ -442,6 +446,8 @@ impl UnitRenderInput {
             terrain_decal_opacity: ro.terrain_decal_opacity,
             turret_angle_deg: ro.turret_angle_deg,
             turret_pitch_deg: ro.turret_pitch_deg,
+            alt_turret_angle_deg: ro.alt_turret_angle_deg,
+            alt_turret_pitch_deg: ro.alt_turret_pitch_deg,
             selection_flash_color: ro.selection_flash_color,
 
             selected: ro.selected,

@@ -57,12 +57,10 @@ impl FXList {
     }
 
     fn fx_manager()
-    -> Result<&'static dyn FXListManagerInterface, Box<dyn std::error::Error + Send + Sync>> {
-        crate::helpers::get_fx_list_manager()
-            .map(|mgr| mgr.as_ref())
-            .ok_or_else(|| {
-                io::Error::new(io::ErrorKind::Other, "FXListManager not registered").into()
-            })
+    -> Result<std::sync::Arc<dyn FXListManagerInterface>, Box<dyn std::error::Error + Send + Sync>> {
+        crate::helpers::get_fx_list_manager().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::Other, "FXListManager not registered").into()
+        })
     }
 
     /// Execute a visual effect on an object with an optional source object.

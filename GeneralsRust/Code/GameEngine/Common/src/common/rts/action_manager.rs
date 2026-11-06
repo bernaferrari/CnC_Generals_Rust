@@ -221,29 +221,21 @@ pub trait ObjectDataProvider: Send + Sync {
 // GLOBAL DATA PROVIDER
 // ================================================================================================
 
-// Global data provider instance (set by GameLogic at startup).
-//
-// In C++, ActionManager accessed Object* pointers directly. In Rust,
-// the Common crate cannot depend on GameLogic, so we inject an
-// `ObjectDataProvider` through this global. GameLogic sets it during
-// initialization via `set_object_data_provider()`.
-//
-// Stored as a thread-local `RefCell<Option<Arc<...>>>` so GameLogic can install a
-// provider that reads `OBJECT_REGISTRY` / GameLogic objects, and tests can set/clear
-// a mock without `static mut`.
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static OBJECT_DATA_PROVIDER: RefCell<Option<Arc<dyn ObjectDataProvider + Send + Sync>>> =
-        const { RefCell::new(None) };
-}
+// Object data provider lives on CommonServices (was process OBJECT_DATA_PROVIDER bag).
+// GameLogic installs via `set_object_data_provider` under a published CommonServices.
 
 fn write_provider(
     provider: Option<Arc<dyn ObjectDataProvider + Send + Sync>>,
 ) -> Option<Arc<dyn ObjectDataProvider + Send + Sync>> {
-    OBJECT_DATA_PROVIDER.with_borrow_mut(|slot| std::mem::replace(slot, provider))
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .object_data_provider
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    std::mem::replace(&mut *slot, provider)
 }
 
-/// Install the global object data provider. Called during GameLogic init.
+/// Install the object data provider on the published CommonServices.
 ///
 /// Replacing an existing provider is allowed (tests, GameLogic reset).
 pub fn set_object_data_provider(provider: Arc<dyn ObjectDataProvider + Send + Sync>) {
@@ -262,7 +254,12 @@ pub fn object_data_provider_is_set() -> bool {
 
 /// Clone the installed provider, if any. Borrow is not held across queries.
 fn get_provider() -> Option<Arc<dyn ObjectDataProvider + Send + Sync>> {
-    OBJECT_DATA_PROVIDER.with_borrow(|slot| slot.clone())
+    let services = crate::common::common_services::common_services();
+    services
+        .object_data_provider
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 // ================================================================================================
@@ -1241,6 +1238,11 @@ impl Object {
 
 #[cfg(test)]
 mod tests {
+    fn with_services<R>(f: impl FnOnce() -> R) -> R {
+        let services = std::sync::Arc::new(crate::common::common_services::CommonServices::new());
+        crate::common::common_services::with_common_services(&services, f)
+    }
+
     use super::*;
 
     struct MockObjectDataProvider;
@@ -1407,112 +1409,118 @@ mod tests {
 
     #[test]
     fn test_object_null_without_provider() {
-        // Without a data provider registered, is_null returns true (fallback)
-        // since the provider can't validate the handle. The provider slot is
-        // thread-local, so each test thread sees its own isolated state.
-        clear_object_data_provider();
-        let obj = Object::from_id(1);
-        assert!(obj.is_null());
-        assert!(!object_data_provider_is_set());
+        with_services(|| {
+            // Without a data provider registered, is_null returns true (fallback)
+            // since the provider can't validate the handle. The provider slot is
+            // thread-local, so each test thread sees its own isolated state.
+            clear_object_data_provider();
+            let obj = Object::from_id(1);
+            assert!(obj.is_null());
+            assert!(!object_data_provider_is_set());
+            });
     }
 
     #[test]
     fn test_object_fallback_defaults_without_provider() {
-        // Without a provider, all methods return safe fallback values.
-        clear_object_data_provider();
-        let obj = Object::from_id(99);
-        assert_eq!(obj.get_relationship(&obj), Relationship::Neutral);
-        assert!(obj.is_effectively_dead());
-        assert!(!obj.is_mobile());
-        assert!(!obj.test_status_under_construction());
-        assert!(!obj.test_status_sold());
-        assert!(!obj.is_kind_of_vehicle());
-        assert!(!obj.is_kind_of_aircraft());
-        assert!(!obj.is_kind_of_infantry());
-        assert!(!obj.is_kind_of_pow_truck());
-        assert!(!obj.is_kind_of_structure());
-        assert!(!obj.is_kind_of_dozer());
-        assert!(!obj.is_kind_of_repair_pad());
-        assert!(!obj.is_kind_of_airfield());
-        assert!(!obj.is_kind_of_heal_pad());
-        assert!(!obj.is_kind_of_bridge());
-        assert!(!obj.is_kind_of_bridge_tower());
-        assert!(!obj.is_kind_of_rebuild_hole());
-        assert!(!obj.is_above_terrain());
-        assert_eq!(obj.get_health(), 100.0);
-        assert_eq!(obj.get_max_health(), 100.0);
-        assert_eq!(obj.get_controlling_player_id(), 0);
-        assert_eq!(obj.get_controlling_player_type(), PlayerType::Human);
-        assert_eq!(
-            obj.get_shrouded_status_for_player(0),
-            ObjectShroudStatus::Clear
-        );
-        assert!(!obj.has_supply_truck_ai());
-        assert!(!obj.is_supply_warehouse());
-        assert!(!obj.is_supply_center());
-        assert_eq!(obj.get_warehouse_boxes(), 0);
-        assert_eq!(obj.get_supply_boxes(), 0);
-        assert!(!obj.is_available_for_supplying());
-        assert!(!obj.has_dock_update_interface());
-        assert!(!obj.is_railed_transport_dock());
-        assert!(!obj.is_contained());
-        assert!(!obj.is_surrendered());
-        assert_eq!(obj.get_surrendered_player_index(), None);
-        assert!(!obj.has_contain_module());
-        assert_eq!(obj.get_apparent_controlling_player(0), None);
+        with_services(|| {
+            // Without a provider, all methods return safe fallback values.
+            clear_object_data_provider();
+            let obj = Object::from_id(99);
+            assert_eq!(obj.get_relationship(&obj), Relationship::Neutral);
+            assert!(obj.is_effectively_dead());
+            assert!(!obj.is_mobile());
+            assert!(!obj.test_status_under_construction());
+            assert!(!obj.test_status_sold());
+            assert!(!obj.is_kind_of_vehicle());
+            assert!(!obj.is_kind_of_aircraft());
+            assert!(!obj.is_kind_of_infantry());
+            assert!(!obj.is_kind_of_pow_truck());
+            assert!(!obj.is_kind_of_structure());
+            assert!(!obj.is_kind_of_dozer());
+            assert!(!obj.is_kind_of_repair_pad());
+            assert!(!obj.is_kind_of_airfield());
+            assert!(!obj.is_kind_of_heal_pad());
+            assert!(!obj.is_kind_of_bridge());
+            assert!(!obj.is_kind_of_bridge_tower());
+            assert!(!obj.is_kind_of_rebuild_hole());
+            assert!(!obj.is_above_terrain());
+            assert_eq!(obj.get_health(), 100.0);
+            assert_eq!(obj.get_max_health(), 100.0);
+            assert_eq!(obj.get_controlling_player_id(), 0);
+            assert_eq!(obj.get_controlling_player_type(), PlayerType::Human);
+            assert_eq!(
+                obj.get_shrouded_status_for_player(0),
+                ObjectShroudStatus::Clear
+            );
+            assert!(!obj.has_supply_truck_ai());
+            assert!(!obj.is_supply_warehouse());
+            assert!(!obj.is_supply_center());
+            assert_eq!(obj.get_warehouse_boxes(), 0);
+            assert_eq!(obj.get_supply_boxes(), 0);
+            assert!(!obj.is_available_for_supplying());
+            assert!(!obj.has_dock_update_interface());
+            assert!(!obj.is_railed_transport_dock());
+            assert!(!obj.is_contained());
+            assert!(!obj.is_surrendered());
+            assert_eq!(obj.get_surrendered_player_index(), None);
+            assert!(!obj.has_contain_module());
+            assert_eq!(obj.get_apparent_controlling_player(0), None);
+            });
     }
 
     #[test]
     fn test_object_queries_reach_installed_provider() {
-        clear_object_data_provider();
-        let live = Object::from_id(42);
-        let other = Object::from_id(1);
-        assert!(live.is_null());
-        assert!(live.is_effectively_dead());
-        assert!(!live.is_mobile());
+        with_services(|| {
+            clear_object_data_provider();
+            let live = Object::from_id(42);
+            let other = Object::from_id(1);
+            assert!(live.is_null());
+            assert!(live.is_effectively_dead());
+            assert!(!live.is_mobile());
 
-        set_object_data_provider(Arc::new(MockObjectDataProvider));
-        assert!(object_data_provider_is_set());
+            set_object_data_provider(Arc::new(MockObjectDataProvider));
+            assert!(object_data_provider_is_set());
 
-        assert!(!live.is_null());
-        assert!(other.is_null());
-        assert!(!live.is_effectively_dead());
-        assert!(live.is_mobile());
-        assert_eq!(live.get_relationship(&other), Relationship::Allies);
-        assert_eq!(live.get_team_relationship(0), Relationship::Enemies);
-        assert!(live.is_kind_of_vehicle());
-        assert!(!live.is_kind_of_infantry());
-        assert!(live.is_above_terrain());
-        assert_eq!(live.get_health(), 50.0);
-        assert_eq!(live.get_max_health(), 200.0);
-        assert_eq!(live.get_controlling_player_id(), 7);
-        assert_eq!(live.get_controlling_player_type(), PlayerType::Computer);
-        assert_eq!(
-            live.get_shrouded_status_for_player(0),
-            ObjectShroudStatus::Fogged
-        );
-        assert!(live.has_supply_truck_ai());
-        assert!(live.is_supply_warehouse());
-        assert!(!live.is_supply_center());
-        assert_eq!(live.get_warehouse_boxes(), 3);
-        assert_eq!(live.get_supply_boxes(), 1);
-        assert!(live.is_available_for_supplying());
-        assert!(live.has_dock_update_interface());
-        assert!(live.is_railed_transport_dock());
-        assert!(live.is_contained());
-        assert!(live.is_surrendered());
-        assert_eq!(live.get_surrendered_player_index(), Some(2));
-        assert!(live.has_contain_module());
-        assert_eq!(live.get_apparent_controlling_player(0), Some(9));
+            assert!(!live.is_null());
+            assert!(other.is_null());
+            assert!(!live.is_effectively_dead());
+            assert!(live.is_mobile());
+            assert_eq!(live.get_relationship(&other), Relationship::Allies);
+            assert_eq!(live.get_team_relationship(0), Relationship::Enemies);
+            assert!(live.is_kind_of_vehicle());
+            assert!(!live.is_kind_of_infantry());
+            assert!(live.is_above_terrain());
+            assert_eq!(live.get_health(), 50.0);
+            assert_eq!(live.get_max_health(), 200.0);
+            assert_eq!(live.get_controlling_player_id(), 7);
+            assert_eq!(live.get_controlling_player_type(), PlayerType::Computer);
+            assert_eq!(
+                live.get_shrouded_status_for_player(0),
+                ObjectShroudStatus::Fogged
+            );
+            assert!(live.has_supply_truck_ai());
+            assert!(live.is_supply_warehouse());
+            assert!(!live.is_supply_center());
+            assert_eq!(live.get_warehouse_boxes(), 3);
+            assert_eq!(live.get_supply_boxes(), 1);
+            assert!(live.is_available_for_supplying());
+            assert!(live.has_dock_update_interface());
+            assert!(live.is_railed_transport_dock());
+            assert!(live.is_contained());
+            assert!(live.is_surrendered());
+            assert_eq!(live.get_surrendered_player_index(), Some(2));
+            assert!(live.has_contain_module());
+            assert_eq!(live.get_apparent_controlling_player(0), Some(9));
 
-        clear_object_data_provider();
-        assert!(!object_data_provider_is_set());
-        assert!(live.is_null());
-        assert!(live.is_effectively_dead());
-        assert!(!live.is_mobile());
-        assert_eq!(live.get_relationship(&other), Relationship::Neutral);
-        assert_eq!(live.get_health(), 100.0);
-        assert_eq!(live.get_max_health(), 100.0);
+            clear_object_data_provider();
+            assert!(!object_data_provider_is_set());
+            assert!(live.is_null());
+            assert!(live.is_effectively_dead());
+            assert!(!live.is_mobile());
+            assert_eq!(live.get_relationship(&other), Relationship::Neutral);
+            assert_eq!(live.get_health(), 100.0);
+            assert_eq!(live.get_max_health(), 100.0);
+            });
     }
 
     #[test]

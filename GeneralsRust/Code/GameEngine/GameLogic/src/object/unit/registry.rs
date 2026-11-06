@@ -43,26 +43,33 @@ impl UnitRegistry {
     }
 }
 
-static UNIT_REGISTRY: Lazy<StdRwLock<UnitRegistry>> = Lazy::new(|| {
-    StdRwLock::new(UnitRegistry {
+fn unit_registry() -> Arc<StdRwLock<UnitRegistry>> {
+    Arc::clone(
+        crate::system::engine_stores::active_services()
+            .unit_registry(),
+    )
+}
+
+pub fn new_unit_registry() -> Arc<StdRwLock<UnitRegistry>> {
+    Arc::new(StdRwLock::new(UnitRegistry {
         units: std::collections::HashMap::new(),
-    })
-});
+    }))
+}
 
 pub fn register_unit(id: ObjectID, unit: &Arc<RwLock<Unit>>) {
-    if let Ok(mut g) = UNIT_REGISTRY.write() {
+    if let Ok(mut g) = unit_registry().write() {
         g.register(id, unit);
     }
 }
 
 pub fn unregister_unit(id: ObjectID) {
-    if let Ok(mut g) = UNIT_REGISTRY.write() {
+    if let Ok(mut g) = unit_registry().write() {
         g.unregister(id);
     }
 }
 
 pub(super) fn get_unit_arc(id: ObjectID) -> Option<Arc<RwLock<Unit>>> {
-    UNIT_REGISTRY.write().ok().and_then(|mut g| g.get(id))
+    unit_registry().write().ok().and_then(|mut g| g.get(id))
 }
 
 /// `AIUpdate::getCurrentVictim` reads the unit, not the AI mutex.

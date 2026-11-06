@@ -299,18 +299,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(160),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                None,
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact uses ProjectileDetonateFX, never a muzzle flash.
 
         (hits, any_destroyed)
     }
@@ -2406,17 +2396,19 @@ impl GameLogic {
         )
     }
 
-    pub(in super::super) fn update_fire_spread_with_effects(
+    pub(crate) fn update_fire_spread_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::host_fire_spread::fire_spread_center_3d_distance;
 
         let frame = self.frame as u32;
+        // C++ GameLogic::update runs due Flammable/FireSpread updates without
+        // an isEffectivelyDead check; only physically destroyed objects stop.
         let ids: Vec<ObjectId> = self
             .objects
             .registered()
-            .filter(|(_, o)| o.is_alive() && o.has_fire_spread())
+            .filter(|(_, o)| !o.status.destroyed && o.has_fire_spread())
             .map(|(id, _)| *id)
             .collect();
         if ids.is_empty() {
@@ -2548,8 +2540,10 @@ impl GameLogic {
                         self.objects
                             .registered()
                             .filter(|(candidate_id, object)| {
+                                // C++ PartitionFilterFlammable has no death
+                                // check; only destroyed objects left the partition.
                                 **candidate_id != id
-                                    && object.is_alive()
+                                    && !object.status.destroyed
                                     && object
                                         .fire_spread
                                         .as_ref()

@@ -163,18 +163,38 @@ pub fn lookup_command_map_name_usable(
     mod_state: u32,
     usable_mask: u32,
 ) -> Option<String> {
+    lookup_command_map_name_usable_transition(key, mod_state, usable_mask, Transition::Down)
+}
+
+/// C++ MetaEvent walks TheMetaMap for KEY_UP as well as KEY_DOWN so END_* metas fire.
+pub fn lookup_command_map_name_usable_transition(
+    key: u32,
+    mod_state: u32,
+    usable_mask: u32,
+    transition: Transition,
+) -> Option<String> {
     ensure_meta_map_loaded();
     with_meta_map_ref(|map| {
         map.iter()
             .find(|record| {
                 record.key == key
                     && record.mod_state == mod_state
-                    && record.transition == Transition::Down
+                    && record.transition == transition
                     && (record.usable_in & usable_mask) != 0
             })
             .map(|record| record.name.clone())
     })
 }
+
+/// KEY_UP remaps (END_CAMERA_*, END_FORCEATTACK, END_FORCEMOVE).
+pub fn lookup_command_map_name_usable_up(
+    key: u32,
+    mod_state: u32,
+    usable_mask: u32,
+) -> Option<String> {
+    lookup_command_map_name_usable_transition(key, mod_state, usable_mask, Transition::Up)
+}
+
 
 pub const COMMAND_MAP_USABLE_SHELL: u32 = COMMANDUSABLE_SHELL;
 pub const COMMAND_MAP_USABLE_GAME: u32 = COMMANDUSABLE_GAME;
@@ -208,31 +228,34 @@ fn command_map_labels_match(stored: &str, query: &str) -> bool {
 pub fn apply_toggle_lower_details(ui: &mut crate::message_stream::ReceivingUi<'_>) -> Option<bool> {
     let global_data = get_global_data()?;
     let mut global = global_data.write();
-    LOWER_DETAIL_TOGGLE_STATE.with_borrow_mut(|state| {
-        if state.is_low_details {
-            global.use_shadow_volumes = state.old_use_shadow_volumes;
-            global.use_light_map = state.old_use_light_map;
-            global.use_cloud_map = state.old_use_cloud_map;
-            global.max_particle_count = state.old_max_particle_count;
-            TheGameLogic::set_show_behind_building_markers(state.old_show_behind_building_markers);
-            ui.message("GUI:ReturnGraphicsToPreviousSettings");
-        } else {
-            state.old_use_shadow_volumes = global.use_shadow_volumes;
-            global.use_shadow_volumes = false;
-            state.old_use_light_map = global.use_light_map;
-            global.use_light_map = false;
-            state.old_use_cloud_map = global.use_cloud_map;
-            global.use_cloud_map = false;
-            state.old_show_behind_building_markers =
-                TheGameLogic::get_show_behind_building_markers();
-            TheGameLogic::set_show_behind_building_markers(false);
-            state.old_max_particle_count = global.max_particle_count;
-            global.max_particle_count = DROPPED_MAX_PARTICLE_COUNT;
-            ui.message("GUI:DetailsSetToLowest");
-        }
-        state.is_low_details = !state.is_low_details;
-        Some(state.is_low_details)
-    })
+    let state = &mut ui.state.meta_demo.lower_detail_toggle;
+    let message;
+    if state.is_low_details {
+        global.use_shadow_volumes = state.old_use_shadow_volumes;
+        global.use_light_map = state.old_use_light_map;
+        global.use_cloud_map = state.old_use_cloud_map;
+        global.max_particle_count = state.old_max_particle_count;
+        TheGameLogic::set_show_behind_building_markers(state.old_show_behind_building_markers);
+        message = "GUI:ReturnGraphicsToPreviousSettings";
+    } else {
+        state.old_use_shadow_volumes = global.use_shadow_volumes;
+        global.use_shadow_volumes = false;
+        state.old_use_light_map = global.use_light_map;
+        global.use_light_map = false;
+        state.old_use_cloud_map = global.use_cloud_map;
+        global.use_cloud_map = false;
+        state.old_show_behind_building_markers =
+            TheGameLogic::get_show_behind_building_markers();
+        TheGameLogic::set_show_behind_building_markers(false);
+        state.old_max_particle_count = global.max_particle_count;
+        global.max_particle_count = DROPPED_MAX_PARTICLE_COUNT;
+        message = "GUI:DetailsSetToLowest";
+    }
+    state.is_low_details = !state.is_low_details;
+    let now_low = state.is_low_details;
+    drop(global);
+    ui.message(message);
+    Some(now_low)
 }
 
 pub fn update_command_map_entry(
@@ -509,6 +532,7 @@ mod command_map_parity_tests {
 
     #[test]
     fn display_name_and_description_use_parse_and_translate_label() {
+        crate::test_support::ensure_ambient_host();
         // C++ MetaEvent.cpp:337-339 INI::parseAndTranslateLabel.
         let raw = "GUI:CommandMapMissingLabelForTest";
         let translated = translate_command_map_label(raw);
@@ -521,11 +545,11 @@ mod command_map_parity_tests {
 
     #[test]
     fn lookup_command_map_name_sees_options_remaps() {
+        crate::test_support::ensure_ambient_host();
         // C++ MetaEventTranslator walks TheMetaMap after Keyboard Options writes.
         ensure_meta_map_loaded();
-        {
-            let mut guard = get_meta_map().write().unwrap_or_else(|e| e.into_inner());
-            guard.add_record(MetaMapRec {
+        with_meta_map(|map| {
+            map.add_record(MetaMapRec {
                 name: "TOGGLE_LOWER_DETAILS".to_string(),
                 meta: None,
                 key: 0x4C,
@@ -536,7 +560,7 @@ mod command_map_parity_tests {
                 description: String::new(),
                 display_name: "Lower Details".to_string(),
             });
-        }
+        });
         assert_eq!(
             lookup_command_map_name(0x4C, 0).as_deref(),
             Some("TOGGLE_LOWER_DETAILS")

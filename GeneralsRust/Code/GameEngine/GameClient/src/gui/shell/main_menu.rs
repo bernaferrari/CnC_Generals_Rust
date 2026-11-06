@@ -455,6 +455,17 @@ pub struct MainMenu {
     first_time_running_game: bool,
 }
 
+#[cfg(not(feature = "network"))]
+fn network_compat<'a>(
+    effects: &crate::gui::game_window::WindowEventEffects<'a>,
+) -> &'a crate::game_network_compat::NetworkCompatState {
+    effects
+        .window_manager_owner
+        .expect("main menu network stub requires WindowManagerOwner")
+        .network_compat()
+}
+
+
 impl MainMenu {
     fn hide_receiving_window_with_lent(
         manager: &mut crate::gui::window_manager::WindowManager,
@@ -849,13 +860,20 @@ impl MainMenu {
         log::info!("MainMenuInit: layout shown and dropdown hide attempted");
 
         // Map-cache rebuild off the main thread (was a multi-minute stall).
-        std::thread::spawn(|| {
+        // CommonServices is TLS — re-bind the parent's publish on the worker or
+        // update_cache panics in get_map_cache / global_data_arc.
+        let map_cache_common =
+            game_engine::common::common_services::try_common_services();
+        std::thread::spawn(move || {
+            let _common_tls = map_cache_common.map(
+                game_engine::common::common_services::CommonServicesScope::from_services,
+            );
             if let Ok(mut map_cache) = get_map_cache_manager().lock() {
                 map_cache.update_cache();
             }
         });
 
-        if get_peer_message_queue()
+        if get_peer_message_queue(network_compat(effects))
             .and_then(|queue| queue.lock().ok().map(|queue| !queue.is_connected()))
             .unwrap_or(false)
         {
@@ -948,7 +966,7 @@ impl MainMenu {
             state.just_entered = false;
         }
 
-        if let Ok(mut manager_guard) = download_manager().lock() {
+        if let Ok(mut manager_guard) = download_manager(network_compat(effects)).lock() {
             let should_update = manager_guard
                 .as_ref()
                 .map(|manager| !manager.is_done())
@@ -1353,6 +1371,21 @@ impl MainMenu {
         effects: &mut WindowEventEffects<'_>,
         selected: Option<&mut crate::gui::game_window::GameWindow>,
     ) {
+        // When the receiving manager is already loaned (gadget callback under
+        // with_manager), queue onto the same owner so complete_event_callbacks
+        // drains the transition after the nested borrow ends.
+        if effects.manager.is_none() {
+            let owner = effects
+                .window_manager_owner
+                .expect("WND operation requires receiving manager");
+            if owner.try_with_manager(|_| ()).is_none() {
+                let group = group.to_string();
+                effects.queue_window_operation(move |manager, _effects| {
+                    manager.transition_set_group(&group, immediate, None);
+                });
+                return;
+            }
+        }
         effects.with_manager(|manager, effects| {
             let mut lent: Vec<_> = effects
                 .lent_windows
@@ -1521,7 +1554,7 @@ impl MainMenu {
     }
 
     fn start_downloading_patches(effects: &mut WindowEventEffects<'_>) {
-        let has_queued_downloads = download_manager()
+        let has_queued_downloads = download_manager(network_compat(effects))
             .lock()
             .ok()
             .and_then(|guard| {
@@ -1552,7 +1585,7 @@ impl MainMenu {
 
         effects.with_main_menu(|menu, effects| menu.handle_canceled_download(false, effects, None));
 
-        if let Ok(mut guard) = download_manager().lock() {
+        if let Ok(mut guard) = download_manager(network_compat(effects)).lock() {
             if let Some(manager) = guard.as_mut() {
                 let _ = manager.download_next_queued_file();
             }
@@ -1595,6 +1628,18 @@ impl MainMenu {
         effects: &mut WindowEventEffects<'_>,
         selected: Option<&mut crate::gui::game_window::GameWindow>,
     ) {
+        if effects.manager.is_none() {
+            let owner = effects
+                .window_manager_owner
+                .expect("WND operation requires receiving manager");
+            if owner.try_with_manager(|_| ()).is_none() {
+                let group = group.to_string();
+                effects.queue_window_operation(move |manager, _effects| {
+                    manager.transition_reverse(&group, None);
+                });
+                return;
+            }
+        }
         effects.with_manager(|manager, effects| {
             let mut lent: Vec<_> = effects
                 .lent_windows
@@ -1611,6 +1656,18 @@ impl MainMenu {
         effects: &mut WindowEventEffects<'_>,
         selected: Option<&mut crate::gui::game_window::GameWindow>,
     ) {
+        if effects.manager.is_none() {
+            let owner = effects
+                .window_manager_owner
+                .expect("WND operation requires receiving manager");
+            if owner.try_with_manager(|_| ()).is_none() {
+                let group = group.to_string();
+                effects.queue_window_operation(move |manager, _effects| {
+                    manager.transition_remove(&group, skip_pending, None);
+                });
+                return;
+            }
+        }
         effects.with_manager(|manager, effects| {
             let mut lent: Vec<_> = effects
                 .lent_windows
@@ -2880,7 +2937,7 @@ impl MainMenu {
             global.x_resolution = new_disp_settings.x_res;
             global.y_resolution = new_disp_settings.y_res;
         }
-        get_header_template_manager().header_notify_resolution_change();
+        get_header_template_manager().lock().unwrap_or_else(|e| e.into_inner()).header_notify_resolution_change();
 
         let mut prefs = UserPreferences::new();
         let _ = prefs.load("Options.ini");
@@ -3834,7 +3891,9 @@ pub fn dispatch_os_click_named_window(name: &str, effects: &mut WindowEventEffec
         .expect("named click requires receiving window owner");
     owner.record_widget_tree_click_used(false);
 
-    let Some((x, y)) = owner.with_manager(|manager| {
+    // Use the receiving effects manager loan. `with_standalone` already holds
+    // `owner.with_manager`, so a second owner borrow_mut panics (RefCell).
+    let Some((x, y)) = effects.with_manager(|manager, _effects| {
         let window = manager.find_window_by_name(name)?;
         let (sx, sy, w, h) = {
             let guard = window.borrow();
@@ -3858,8 +3917,29 @@ pub fn dispatch_os_click_named_window(name: &str, effects: &mut WindowEventEffec
 
     let data = (((y as u32) << 16) | ((x as u32) & 0xFFFF)) as WindowMsgData;
     // Named dispatch and live OS mouse share the same sticky nav latch.
-    let _ = note_os_wnd_widget_tree_hit(owner, x, y);
-    let (down, up) = owner.with_manager(|manager| {
+    // Prefer the effects loan — owner try_borrow is None while standalone holds it.
+    let hit = effects.with_manager_ref(|manager| {
+        manager
+            .get_window_under_cursor(x, y, false)
+            .is_some_and(|window| match window.try_borrow() {
+                Ok(guard) => {
+                    if guard.is_hidden() || !guard.is_enabled() {
+                        return false;
+                    }
+                    if let Some(layout) = guard.get_layout() {
+                        if layout.borrow().is_hidden() {
+                            return false;
+                        }
+                    }
+                    true
+                }
+                Err(_) => false,
+            })
+    });
+    if hit {
+        owner.record_widget_tree_navigation();
+    }
+    let (down, up) = effects.with_manager(|manager, effects| {
         let down = manager.process_mouse_event_with_delta_and_message_sink(
             WindowMessage::LeftDown,
             x,

@@ -111,7 +111,7 @@ impl FireWeaponUpdate {
         };
 
         // Weapon is reloading
-        if weapon.get_status() != crate::weapon::WeaponStatus::ReadyToFire {
+        if weapon.peek_status_at(crate::helpers::TheGameLogic::get_frame()) != crate::weapon::WeaponStatus::ReadyToFire {
             return false;
         }
 

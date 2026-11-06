@@ -26,9 +26,11 @@ pub struct NetworkBridgeHandle;
 
 #[cfg(not(feature = "network"))]
 impl NetworkBridgeHandle {
-    pub fn install() -> Option<Self> {
+    pub fn install(_runtime: &mut crate::gui::load_screen::LoadScreenRuntime) -> Option<Self> {
         None
     }
+
+    pub fn uninstall_hooks(_runtime: &mut crate::gui::load_screen::LoadScreenRuntime) {}
 
     pub fn new() -> Option<Self> {
         None
@@ -55,6 +57,7 @@ mod tests {
 
     #[test]
     fn network_command_classifier_matches_command_messages_in_default_build() {
+        crate::test_support::ensure_ambient_host();
         assert!(is_network_command_message(&GameMessageType::DoMoveTo(
             Coord3D::default()
         )));

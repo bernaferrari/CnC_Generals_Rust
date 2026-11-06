@@ -68,7 +68,6 @@ pub mod physics;
 pub mod player;
 pub mod polygon_trigger;
 pub mod resource;
-pub mod resource_world;
 pub mod special_power;
 pub mod squad;
 pub mod stealth;

@@ -11,7 +11,6 @@
 //! Rust port: 2025
 
 use crate::common::ini::ini::{FieldParse, INI, INIError, INIResult};
-use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 
@@ -269,43 +268,53 @@ impl MouseSettings {
 // Global storage
 // ============================================================================
 
-/// Global mouse settings singleton
-static MOUSE_SETTINGS: OnceCell<RwLock<MouseSettings>> = OnceCell::new();
-
 /// Global cursor info collection
-static CURSOR_INFO_MAP: OnceCell<RwLock<HashMap<String, CursorInfo>>> = OnceCell::new();
-
 /// Initialize the global mouse settings
-pub fn init_global_mouse_settings() {
-    let _ = MOUSE_SETTINGS.get_or_init(|| RwLock::new(MouseSettings::new()));
-    let _ = CURSOR_INFO_MAP.get_or_init(|| RwLock::new(HashMap::new()));
-}
 
 /// Get a read reference to the global mouse settings
-pub fn get_mouse_settings() -> Option<parking_lot::RwLockReadGuard<'static, MouseSettings>> {
-    MOUSE_SETTINGS.get().map(|lock| lock.read())
-}
-
 /// Get a write reference to the global mouse settings
-pub fn get_mouse_settings_mut() -> Option<parking_lot::RwLockWriteGuard<'static, MouseSettings>> {
-    MOUSE_SETTINGS.get().map(|lock| lock.write())
+/// Get cursor info by name
+
+fn ini_mouse_cell() -> std::sync::Arc<parking_lot::RwLock<MouseSettings>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.mouse)
 }
 
-/// Get cursor info by name
-pub fn get_cursor_info(
-    name: &str,
-) -> Option<parking_lot::RwLockReadGuard<'static, HashMap<String, CursorInfo>>> {
-    let guard = CURSOR_INFO_MAP.get()?.read();
-    // Return the guard directly - caller can look up the cursor
-    drop(guard);
-    CURSOR_INFO_MAP.get().map(|lock| lock.read())
+pub fn init_global_mouse_settings() {
+    let _ = ini_mouse_cell();
+    let _ = crate::common::common_services::common_services().ini.cursor_info;
+}
+
+pub fn get_mouse_settings() -> Option<parking_lot::RwLockReadGuard<'static, MouseSettings>> {
+    let cell = ini_mouse_cell();
+    let guard = cell.read();
+    Some(unsafe { std::mem::transmute(guard) })
+}
+
+pub fn get_mouse_settings_mut() -> Option<parking_lot::RwLockWriteGuard<'static, MouseSettings>> {
+    let cell = ini_mouse_cell();
+    let guard = cell.write();
+    Some(unsafe { std::mem::transmute(guard) })
 }
 
 /// Add or update cursor info
+
+pub fn get_cursor_info(
+    name: &str,
+) -> Option<parking_lot::RwLockReadGuard<'static, HashMap<String, CursorInfo>>> {
+    let _ = name;
+    let cell = std::sync::Arc::clone(
+        &crate::common::common_services::common_services().ini.cursor_info,
+    );
+    let guard = cell.read();
+    Some(unsafe { std::mem::transmute(guard) })
+}
+
 pub fn add_cursor_info(name: String, info: CursorInfo) {
-    if let Some(map) = CURSOR_INFO_MAP.get() {
-        map.write().insert(name, info);
-    }
+    crate::common::common_services::common_services()
+        .ini
+        .cursor_info
+        .write()
+        .insert(name, info);
 }
 
 // ============================================================================

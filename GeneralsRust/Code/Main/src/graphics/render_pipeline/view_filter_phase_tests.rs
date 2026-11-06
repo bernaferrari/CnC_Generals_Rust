@@ -6,28 +6,22 @@ use game_client::display::view_filter::ViewFilterState;
 #[test]
 #[ignore = "requires native WGPU; run explicit, isolated GPU acceptance"]
 fn borrowed_filter_finishes_on_current_renderer_frame_and_peak_is_not_replayed() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
     })
     .expect("native filter acceptance requires a headless device");
-    struct EngineScope;
-    impl Drop for EngineScope {
-        fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
-        }
-    }
-    let _scope = EngineScope;
-    let mut renderer = WgpuMainRenderer::from_engine(WgpuMainRendererConfig::default()).unwrap();
+    let _engine_scope = engine.clone();
+    let mut renderer = WgpuMainRenderer::from_engine(engine.clone(), WgpuMainRendererConfig::default()).unwrap();
     let graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
-    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut logic = crate::game_logic::GameLogic::new();
     let presentation =
         Rc::new(crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0));
@@ -44,12 +38,12 @@ fn borrowed_filter_finishes_on_current_renderer_frame_and_peak_is_not_replayed()
             let resources = &mut pipeline.view_filter_resources;
             if logic_frame > 1 || offer > 0 {
                 assert!(
-                    resources.has_scene_capture_for(32, 32, ww3d_engine::color_format().unwrap()),
+                    resources.has_scene_capture_for(32, 32, engine.lock().color_format()),
                     "ordinary production frame handoff must retain the prior capture"
                 );
             }
             let skip_scene = filter.skip_render()
-                && resources.has_scene_capture_for(32, 32, ww3d_engine::color_format().unwrap());
+                && resources.has_scene_capture_for(32, 32, engine.lock().color_format());
             renderer.begin_frame().unwrap();
             let before = completions;
             let mut finish = |frame: &mut ww3d_engine::RenderFrame| {
@@ -106,7 +100,7 @@ fn borrowed_filter_finishes_on_current_renderer_frame_and_peak_is_not_replayed()
         !pipeline.view_filter_resources.has_scene_capture_for(
             32,
             32,
-            ww3d_engine::color_format().unwrap()
+            engine.lock().color_format()
         ),
         "world replacement must invalidate another world's capture"
     );

@@ -143,7 +143,9 @@ impl Drawable {
             let id = normalize_drawable_id(counter);
             let next = next_drawable_id_value(id);
             set_runtime_drawable_id_counter(next);
-            LOCAL_NEXT_DRAWABLE_ID.store(next, Ordering::Relaxed);
+            crate::system::engine_stores::active_services()
+            .session_flags()
+            .next_drawable_id.store(next, Ordering::Relaxed);
             return id;
         }
 
@@ -154,16 +156,22 @@ impl Drawable {
     pub fn get_drawable_id_counter() -> DrawableID {
         if let Some(counter) = get_runtime_drawable_id_counter() {
             let normalized = normalize_drawable_id(counter);
-            LOCAL_NEXT_DRAWABLE_ID.store(normalized, Ordering::Relaxed);
+            crate::system::engine_stores::active_services()
+            .session_flags()
+            .next_drawable_id.store(normalized, Ordering::Relaxed);
             return normalized;
         }
-        normalize_drawable_id(LOCAL_NEXT_DRAWABLE_ID.load(Ordering::Relaxed))
+        normalize_drawable_id(crate::system::engine_stores::active_services()
+            .session_flags()
+            .next_drawable_id.load(Ordering::Relaxed))
     }
 
     /// Set the next drawable-id counter value.
     pub fn set_drawable_id_counter(next_drawable_id: DrawableID) {
         let normalized = normalize_drawable_id(next_drawable_id);
-        LOCAL_NEXT_DRAWABLE_ID.store(normalized, Ordering::Relaxed);
+        crate::system::engine_stores::active_services()
+            .session_flags()
+            .next_drawable_id.store(normalized, Ordering::Relaxed);
         set_runtime_drawable_id_counter(normalized);
     }
 

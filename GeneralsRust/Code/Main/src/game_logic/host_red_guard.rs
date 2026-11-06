@@ -194,6 +194,11 @@ pub fn is_red_guard_template(template_name: &str) -> bool {
     n.contains("redguard") || n.contains("red_guard") || n == "china_soldier" || n == "testredguard"
 }
 
+/// Authored Red Guard PRIMARY weapon (hq-2qedt.262).
+pub fn is_red_guard_machine_gun_weapon(weapon_name: &str) -> bool {
+    weapon_name.eq_ignore_ascii_case(REDGUARD_MACHINE_GUN)
+}
+
 /// Whether residual unit participates in China infantry HordeUpdate residual
 /// (Red Guard + Tank Hunter share KindOf INFANTRY horde params).
 ///
@@ -356,9 +361,10 @@ pub fn leftover_infantry_is_horde_neighbor(template_name: &str) -> bool {
     is_china_infantry_horde_unit(template_name)
 }
 
-/// Whether residual fire should apply Red Guard residual path (gun honesty).
-pub fn should_apply_red_guard_residual(is_red_guard: bool) -> bool {
-    is_red_guard
+/// Authored WeaponTemplate identity for the Red Guard residual (gun or bayonet slot).
+pub fn is_red_guard_weapon_name(weapon_name: &str) -> bool {
+    weapon_name.eq_ignore_ascii_case(REDGUARD_MACHINE_GUN)
+        || weapon_name.eq_ignore_ascii_case(REDGUARD_BAYONET)
 }
 
 /// Re-export nationalism tag helper for call sites.

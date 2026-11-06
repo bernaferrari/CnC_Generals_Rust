@@ -17,6 +17,7 @@
 use super::texture_mapper::TextureMapperType;
 use glam::Vec3;
 use std::sync::atomic::{AtomicU32, Ordering};
+
 use std::sync::{Arc, OnceLock};
 
 /// Maximum number of texture stages supported
@@ -219,8 +220,8 @@ impl VertexMaterialClass {
     ///
     /// C++ Reference: vertmaterial.h line 111 (VertexMaterialClass constructor)
     pub fn new() -> Self {
-        static NEXT_ID: AtomicU32 = AtomicU32::new(1);
-        let unique_id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        // Prefer [`Self::new_in`] when a session runtime is available.
+        let unique_id = 0u32;
 
         Self {
             name: String::new(),
@@ -246,13 +247,17 @@ impl VertexMaterialClass {
     /// Clone the material
     ///
     /// C++ Reference: vertmaterial.h line 116 (Clone method)
-    pub fn clone_material(&self) -> Self {
+    pub fn clone_material(&self, r3d: &crate::process_state::Renderer3dRuntime) -> Self {
         let mut cloned = self.clone();
-        cloned.unique_id = {
-            static NEXT_ID: AtomicU32 = AtomicU32::new(1);
-            NEXT_ID.fetch_add(1, Ordering::Relaxed)
-        };
+        cloned.unique_id = r3d.next_vertex_material_id.fetch_add(1, Ordering::Relaxed);
         cloned
+    }
+
+    /// Allocate a session-unique material id.
+    pub fn new_in(r3d: &crate::process_state::Renderer3dRuntime) -> Self {
+        let mut m = Self::new();
+        m.unique_id = r3d.next_vertex_material_id.fetch_add(1, Ordering::Relaxed);
+        m
     }
 
     // ========================================================================
@@ -623,10 +628,8 @@ impl VertexMaterialClass {
     /// Make this material unique by generating a new ID
     ///
     /// C++ Reference: vertmaterial.h line 243
-    pub fn make_unique(&mut self) {
-        static NEXT_ID: AtomicU32 = AtomicU32::new(1000);
-        let unique_id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-        self.unique_id = unique_id;
+    pub fn make_unique(&mut self, r3d: &crate::process_state::Renderer3dRuntime) {
+        self.unique_id = r3d.next_vertex_material_id.fetch_add(1, Ordering::Relaxed);
         self.crc_dirty = true;
     }
 
@@ -1000,7 +1003,8 @@ mod tests {
         original.set_shininess(64.0);
         original.set_diffuse_rgb(1.0, 0.0, 0.0);
 
-        let cloned = original.clone_material();
+        let r3d = crate::process_state::Renderer3dRuntime::new();
+        let cloned = original.clone_material(&r3d);
         assert_eq!(cloned.get_name(), "Original");
         assert_eq!(cloned.get_shininess(), 64.0);
         assert_eq!(cloned.get_diffuse(), Vec3::new(1.0, 0.0, 0.0));
@@ -1014,7 +1018,8 @@ mod tests {
         let mut material1 = VertexMaterialClass::new();
         let id1 = material1.get_unique_id();
 
-        material1.make_unique();
+        let r3d = crate::process_state::Renderer3dRuntime::new();
+        material1.make_unique(&r3d);
         let id2 = material1.get_unique_id();
 
         assert_ne!(id1, id2);

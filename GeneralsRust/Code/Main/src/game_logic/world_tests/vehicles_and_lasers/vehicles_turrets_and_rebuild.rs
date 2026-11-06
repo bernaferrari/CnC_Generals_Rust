@@ -436,9 +436,9 @@ fn turret_sm_aim_to_fire_when_aligned() {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
         o.set_orientation(0.0);
-        o.turret_enabled = true;
-        o.turret_angle_deg = 0.0;
-        o.turret_turn_rate_rad = 1.0;
+        o.turret_ai.turret_enabled = true;
+        o.turret_ai.turret_angle_deg = 0.0;
+        o.turret_ai.turret_turn_rate_rad = 1.0;
         o.weapon = Some(Weapon {
             damage: 10.0,
             range: 100.0,
@@ -458,10 +458,10 @@ fn turret_sm_aim_to_fire_when_aligned() {
         o
     });
     logic.set_turret_target_object(aid, Some(vid), false);
-    assert_eq!(logic.objects[&aid].turret_substate, TurretSubState::Aim);
+    assert_eq!(logic.objects[&aid].turret_ai.turret_substate, TurretSubState::Aim);
     let r = logic.tick_turret_state_machine(aid, 10.0, 1);
     assert_eq!(r, AttackAimResult::Success);
-    assert_eq!(logic.objects[&aid].turret_substate, TurretSubState::Fire);
+    assert_eq!(logic.objects[&aid].turret_ai.turret_substate, TurretSubState::Fire);
 }
 
 #[test]
@@ -477,10 +477,10 @@ fn turret_sm_fire_returns_to_aim() {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
         o.set_orientation(0.0);
-        o.turret_enabled = true;
-        o.turret_angle_deg = 0.0;
-        o.turret_substate = TurretSubState::Fire;
-        o.turret_target_id = Some(ObjectId(2104));
+        o.turret_ai.turret_enabled = true;
+        o.turret_ai.turret_angle_deg = 0.0;
+        o.turret_ai.turret_substate = TurretSubState::Fire;
+        o.turret_ai.turret_target_id = Some(ObjectId(2104));
         o.weapon = Some(Weapon {
             damage: 10.0,
             range: 100.0,
@@ -500,7 +500,7 @@ fn turret_sm_fire_returns_to_aim() {
         o
     });
     let _ = logic.tick_turret_state_machine(aid, 10.0, 1);
-    assert_eq!(logic.objects[&aid].turret_substate, TurretSubState::Aim);
+    assert_eq!(logic.objects[&aid].turret_ai.turret_substate, TurretSubState::Aim);
 }
 
 #[test]
@@ -514,13 +514,13 @@ fn turret_sm_clear_target_holds_then_recenters() {
     let aid = ObjectId(2105);
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
-        o.turret_enabled = true;
-        o.turret_angle_deg = 45.0;
-        o.turret_natural_angle_deg = 0.0;
-        o.turret_turn_rate_rad = 1.0;
-        o.turret_recenter_frames = 5;
-        o.turret_substate = TurretSubState::Aim;
-        o.turret_target_id = Some(ObjectId(99));
+        o.turret_ai.turret_enabled = true;
+        o.turret_ai.turret_angle_deg = 45.0;
+        o.turret_ai.turret_natural_angle_deg = 0.0;
+        o.turret_ai.turret_turn_rate_rad = 1.0;
+        o.turret_ai.turret_recenter_frames = 5;
+        o.turret_ai.turret_substate = TurretSubState::Aim;
+        o.turret_ai.turret_target_id = Some(ObjectId(99));
         o.weapon = Some(Weapon {
             range: 50.0,
             ..Default::default()
@@ -528,27 +528,27 @@ fn turret_sm_clear_target_holds_then_recenters() {
         o
     });
     logic.set_turret_target_object(aid, None, false);
-    assert_eq!(logic.objects[&aid].turret_substate, TurretSubState::Hold);
-    assert!(logic.objects[&aid].turret_holding);
+    assert_eq!(logic.objects[&aid].turret_ai.turret_substate, TurretSubState::Hold);
+    assert!(logic.objects[&aid].turret_ai.turret_holding);
     // Hold not elapsed
     let _ = logic.tick_turret_state_machine(aid, 0.0, 102);
-    assert_eq!(logic.objects[&aid].turret_substate, TurretSubState::Hold);
+    assert_eq!(logic.objects[&aid].turret_ai.turret_substate, TurretSubState::Hold);
     // Hold elapsed → Recenter
     let _ = logic.tick_turret_state_machine(aid, 0.0, 200);
     assert_eq!(
-        logic.objects[&aid].turret_substate,
+        logic.objects[&aid].turret_ai.turret_substate,
         TurretSubState::Recenter
     );
     // Recenter to natural
     for f in 201..220 {
         let r = logic.tick_turret_state_machine(aid, 0.0, f);
-        if logic.objects[&aid].turret_substate == TurretSubState::Idle {
+        if logic.objects[&aid].turret_ai.turret_substate == TurretSubState::Idle {
             assert_eq!(r, AttackAimResult::Success);
             break;
         }
     }
-    assert_eq!(logic.objects[&aid].turret_substate, TurretSubState::Idle);
-    assert!(logic.objects[&aid].turret_angle_deg.abs() < 1.0);
+    assert_eq!(logic.objects[&aid].turret_ai.turret_substate, TurretSubState::Idle);
+    assert!(logic.objects[&aid].turret_ai.turret_angle_deg.abs() < 1.0);
 }
 
 #[test]
@@ -563,9 +563,9 @@ fn turret_sm_fire_oor_returns_to_aim() {
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
-        o.turret_enabled = true;
-        o.turret_substate = TurretSubState::Fire;
-        o.turret_target_id = Some(ObjectId(2107));
+        o.turret_ai.turret_enabled = true;
+        o.turret_ai.turret_substate = TurretSubState::Fire;
+        o.turret_ai.turret_target_id = Some(ObjectId(2107));
         o.weapon = Some(Weapon {
             range: 30.0,
             ..Default::default()
@@ -581,7 +581,7 @@ fn turret_sm_fire_oor_returns_to_aim() {
         o
     });
     let _ = logic.tick_turret_state_machine(aid, 10.0, 1);
-    assert_eq!(logic.objects[&aid].turret_substate, TurretSubState::Aim);
+    assert_eq!(logic.objects[&aid].turret_ai.turret_substate, TurretSubState::Aim);
 }
 
 #[test]
@@ -594,9 +594,9 @@ fn set_turret_target_object_enters_aim() {
     let aid = ObjectId(2001);
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
-        o.turret_enabled = true;
-        o.turret_angle_deg = 0.0;
-        o.turret_turn_rate_rad = 0.5; // fast for test
+        o.turret_ai.turret_enabled = true;
+        o.turret_ai.turret_angle_deg = 0.0;
+        o.turret_ai.turret_turn_rate_rad = 0.5; // fast for test
         o.weapon = Some(Weapon {
             range: 100.0,
             ..Default::default()
@@ -611,12 +611,12 @@ fn set_turret_target_object_enters_aim() {
         o
     });
     logic.set_turret_target_object(aid, Some(vid), false);
-    assert_eq!(logic.objects[&aid].turret_target_id, Some(vid));
-    assert_eq!(logic.objects[&aid].turret_substate, TurretSubState::Aim);
+    assert_eq!(logic.objects[&aid].turret_ai.turret_target_id, Some(vid));
+    assert_eq!(logic.objects[&aid].turret_ai.turret_substate, TurretSubState::Aim);
     assert!(logic.objects[&aid].is_trying_to_aim_at_target(vid));
     logic.set_turret_target_object(aid, None, false);
-    assert!(logic.objects[&aid].turret_target_id.is_none());
-    assert_eq!(logic.objects[&aid].turret_substate, TurretSubState::Hold);
+    assert!(logic.objects[&aid].turret_ai.turret_target_id.is_none());
+    assert_eq!(logic.objects[&aid].turret_ai.turret_substate, TurretSubState::Hold);
 }
 
 #[test]
@@ -631,10 +631,10 @@ fn tick_turret_aim_aligns_toward_target() {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
         o.set_orientation(0.0);
-        o.turret_enabled = true;
-        o.turret_angle_deg = 0.0;
+        o.turret_ai.turret_enabled = true;
+        o.turret_ai.turret_angle_deg = 0.0;
         // Slow turn so first tick Continues if target is behind... use front.
-        o.turret_turn_rate_rad = 0.02;
+        o.turret_ai.turret_turn_rate_rad = 0.02;
         o.weapon = Some(Weapon {
             range: 200.0,
             ..Default::default()
@@ -667,9 +667,9 @@ fn tick_turret_aim_continues_while_turning() {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
         o.set_orientation(0.0);
-        o.turret_enabled = true;
-        o.turret_angle_deg = 0.0;
-        o.turret_turn_rate_rad = 0.02; // ~1.1 deg/frame
+        o.turret_ai.turret_enabled = true;
+        o.turret_ai.turret_angle_deg = 0.0;
+        o.turret_ai.turret_turn_rate_rad = 0.02; // ~1.1 deg/frame
         o.weapon = Some(Weapon {
             range: 200.0,
             ..Default::default()
@@ -688,7 +688,7 @@ fn tick_turret_aim_continues_while_turning() {
     logic.set_turret_target_object(aid, Some(vid), false);
     let r = logic.tick_turret_aim(aid, 1.0);
     assert_eq!(r, AttackAimResult::Continue);
-    assert!(logic.objects[&aid].turret_rotating);
+    assert!(logic.objects[&aid].turret_ai.turret_rotating);
 }
 
 #[test]
@@ -712,9 +712,9 @@ fn turret_move_loop_plays_authored_event_and_stops() {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
         o.set_orientation(0.0);
-        o.turret_enabled = true;
-        o.turret_angle_deg = 0.0;
-        o.turret_turn_rate_rad = 0.02;
+        o.turret_ai.turret_enabled = true;
+        o.turret_ai.turret_angle_deg = 0.0;
+        o.turret_ai.turret_turn_rate_rad = 0.02;
         o.weapon = Some(Weapon {
             range: 200.0,
             ..Default::default()
@@ -732,7 +732,7 @@ fn turret_move_loop_plays_authored_event_and_stops() {
     logic.set_turret_target_object(aid, Some(vid), false);
     let r = logic.tick_turret_state_machine(aid, 1.0, 1);
     assert_eq!(r, crate::game_logic::AttackAimResult::Continue);
-    assert!(logic.objects[&aid].turret_rotating);
+    assert!(logic.objects[&aid].turret_ai.turret_rotating);
     assert!(
         logic.queued_audio_events.iter().any(|e| {
             e.event_type == "RangerTurretMoveLoop"
@@ -754,11 +754,11 @@ fn turret_move_loop_plays_authored_event_and_stops() {
 
     logic.queued_audio_events.clear();
     if let Some(u) = logic.objects.get_mut(&aid) {
-        u.turret_turn_rate_rad = 10.0;
+        u.turret_ai.turret_turn_rate_rad = 10.0;
     }
     let _ = logic.tick_turret_state_machine(aid, 1.0, 2);
     assert!(
-        !logic.objects[&aid].turret_rotating,
+        !logic.objects[&aid].turret_ai.turret_rotating,
         "fast turn should snap and clear rotating"
     );
     assert!(
@@ -785,9 +785,9 @@ fn turret_move_loop_missing_unit_sound_stays_silent() {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
         o.set_orientation(0.0);
-        o.turret_enabled = true;
-        o.turret_angle_deg = 0.0;
-        o.turret_turn_rate_rad = 0.02;
+        o.turret_ai.turret_enabled = true;
+        o.turret_ai.turret_angle_deg = 0.0;
+        o.turret_ai.turret_turn_rate_rad = 0.02;
         o.weapon = Some(Weapon {
             range: 200.0,
             ..Default::default()
@@ -804,7 +804,7 @@ fn turret_move_loop_missing_unit_sound_stays_silent() {
     });
     logic.set_turret_target_object(aid, Some(vid), false);
     let _ = logic.tick_turret_state_machine(aid, 1.0, 1);
-    assert!(logic.objects[&aid].turret_rotating);
+    assert!(logic.objects[&aid].turret_ai.turret_rotating);
     assert!(
         logic.queued_audio_events.iter().all(|e| {
             e.event_type != "TurretMoveLoop" && e.event_type != "SilentTurretTurretMoveLoop"
@@ -1073,13 +1073,13 @@ fn turn_turret_towards_angle_snaps_within_rate() {
     let mut t = ThingTemplate::new("Snap");
     t.add_kind_of(KindOf::Vehicle);
     let mut o = Object::new(t, ObjectId(2007), Team::USA);
-    o.turret_enabled = true;
-    o.turret_angle_deg = 0.0;
-    o.turret_turn_rate_rad = 0.5;
+    o.turret_ai.turret_enabled = true;
+    o.turret_ai.turret_angle_deg = 0.0;
+    o.turret_ai.turret_turn_rate_rad = 0.5;
     // desired 0.1 rad — within rate → snap success
     assert!(o.turn_turret_towards_angle_rad(0.1, 1.0, 0.035));
-    assert!((o.turret_angle_deg.to_radians() - 0.1).abs() < 1e-4);
-    assert!(!o.turret_rotating);
+    assert!((o.turret_ai.turret_angle_deg.to_radians() - 0.1).abs() < 1e-4);
+    assert!(!o.turret_ai.turret_rotating);
 }
 
 #[test]
@@ -1205,7 +1205,7 @@ fn want_to_squish_honors_ally_computer_and_dont_auto_crush() {
             o.crushable_level = 0;
         } else {
             o.crusher_level = 1;
-            o.turret_enabled = true;
+            o.turret_ai.turret_enabled = true;
             o.weapon = Some(Weapon {
                 range: 50.0,
                 ..Default::default()
@@ -1932,7 +1932,7 @@ fn mixed_selection_hijack_skips_rebel() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         exec.execute_hijack(&[hijacker, rebel], tank)
     };
-    assert_eq!(result, CommandResult::Success);
+    assert!(matches!(result, Ok(CommandResult::Success)));
     assert!(matches!(
         logic.pending_special_abilities.get(&hijacker),
         Some(PendingSpecialAbility::Hijack { target_id }) if *target_id == tank
@@ -1976,7 +1976,7 @@ fn mixed_selection_carbomb_skips_rebel() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         exec.execute_convert_carbomb(&[terrorist, rebel], car)
     };
-    assert_eq!(result, CommandResult::Success);
+    assert!(matches!(result, Ok(CommandResult::Success)));
     assert!(matches!(
         logic.pending_special_abilities.get(&terrorist),
         Some(PendingSpecialAbility::CarBomb { target_id }) if *target_id == car
@@ -2187,6 +2187,8 @@ fn reconstructing_death_transfers_attackers_back_to_hole() {
         .players
         .insert(1, Player::new(1, Team::USA, "USA", true));
     let mut st = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    st.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     st.add_kind_of(KindOf::Structure).set_health(1000.0);
     st.set_rebuild_hole_expose("GLAHoleTunnelNetwork", 0.0);
     logic.templates.insert("GLATunnelNetwork".into(), st);
@@ -2262,6 +2264,8 @@ fn rebuild_hole_transfers_sticky_bombs_to_reconstruction() {
         .players
         .insert(0, Player::new(0, Team::GLA, "GLA", true));
     let mut st = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    st.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     st.add_kind_of(KindOf::Structure).set_health(1000.0);
     st.set_rebuild_hole_expose("GLAHoleTunnelNetwork", 0.0);
     logic.templates.insert("GLATunnelNetwork".into(), st);
@@ -2388,6 +2392,8 @@ fn gla_structure_death_spawns_rebuild_hole_and_reconstructs() {
         .players
         .insert(0, Player::new(0, Team::GLA, "GLA", true));
     let mut st = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    st.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     st.add_kind_of(KindOf::Structure).set_health(1000.0);
     st.set_rebuild_hole_expose("GLAHoleTunnelNetwork", 0.0);
     logic.templates.insert("GLATunnelNetwork".into(), st);
@@ -2477,6 +2483,8 @@ fn rebuild_hole_transfers_script_name_and_skips_defeated_player() {
         .players
         .insert(0, Player::new(0, Team::GLA, "GLA", true));
     let mut st = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    st.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     st.add_kind_of(KindOf::Structure).set_health(1000.0);
     st.set_rebuild_hole_expose("GLAHoleTunnelNetwork", 0.0);
     logic.templates.insert("GLATunnelNetwork".into(), st);
@@ -2504,6 +2512,8 @@ fn rebuild_hole_transfers_script_name_and_skips_defeated_player() {
     defeated.is_alive = false;
     dead.players.insert(0, defeated);
     let mut st2 = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    st2.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     st2.add_kind_of(KindOf::Structure).set_health(1000.0);
     st2.set_rebuild_hole_expose("GLAHoleTunnelNetwork", 0.0);
     dead.templates.insert("GLATunnelNetwork".into(), st2);
@@ -2623,6 +2633,8 @@ fn rebuild_hole_complete_transfers_script_name() {
         .players
         .insert(0, Player::new(0, Team::GLA, "GLA", true));
     let mut st = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    st.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     st.add_kind_of(KindOf::Structure).set_health(1000.0);
     st.set_rebuild_hole_expose("GLAHoleTunnelNetwork", 0.0);
     logic.templates.insert("GLATunnelNetwork".into(), st);

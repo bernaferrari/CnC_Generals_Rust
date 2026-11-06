@@ -80,12 +80,7 @@ impl BezFwdIterator {
             self.bez_seg.control_points()[3].z,
         );
 
-        // The Bezier basis matrix for transformations
-        let bez_basis_matrix = super::bezier_segment::Matrix4x4::new(
-            -1.0, 3.0, -3.0, 1.0, 3.0, -6.0, 3.0, 0.0, -3.0, 3.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0,
-        );
-
-        // Transform coordinate vectors with the Bezier basis matrix
+        let bez_basis_matrix = BezierSegment::basis_matrix();
         let c_vec = [
             bez_basis_matrix.transform(&px),
             bez_basis_matrix.transform(&py),
@@ -94,17 +89,16 @@ impl BezFwdIterator {
 
         self.curr_point = self.bez_seg.control_points()[0];
 
-        // Calculate forward differences for x, y, z components
-        for i in 0..3 {
-            let a = c_vec[i].x;
-            let b = c_vec[i].y;
-            let c = c_vec[i].z;
+        // Calculate forward differences for x, y, z components (C++ walks i = 2..0).
+        for (i, coeff) in c_vec.iter().enumerate() {
+            let a = coeff.x;
+            let b = coeff.y;
+            let c = coeff.z;
 
             let (p_d, p_dd, p_ddd) = match i {
                 0 => (&mut self.dq.x, &mut self.ddq.x, &mut self.dddq.x),
                 1 => (&mut self.dq.y, &mut self.ddq.y, &mut self.dddq.y),
-                2 => (&mut self.dq.z, &mut self.ddq.z, &mut self.dddq.z),
-                _ => unreachable!(),
+                _ => (&mut self.dq.z, &mut self.ddq.z, &mut self.dddq.z),
             };
 
             *p_d = a * d3 + b * d2 + c * d;

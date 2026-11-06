@@ -8,7 +8,7 @@ use crate::gamespy_overlay::{GameSpyOverlayType, check_reopen_player_info, close
 use crate::gui::callbacks::online_callback_support::packed_ui_color;
 use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, get_shell,
-    with_window_manager, write_input_focus_response,
+    write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::preferences::GameSpyMiscPreferences;
@@ -18,7 +18,7 @@ use game_network::gamespy::persistent_storage_thread::{
 };
 
 #[derive(Default)]
-struct WolLocaleSelectState {
+pub(crate) struct WolLocaleSelectState {
     parent_id: i32,
     button_ok_id: i32,
     listbox_locale_id: i32,
@@ -27,12 +27,38 @@ struct WolLocaleSelectState {
     listbox_locale: Option<Rc<RefCell<GameWindow>>>,
 }
 
+#[cfg(test)]
 thread_local! {
-    static WOL_LOCALE_SELECT_STATE: Rc<RefCell<WolLocaleSelectState>> = Rc::new(RefCell::new(WolLocaleSelectState::default()));
+    static TEST_WOL_LOCALE_SELECT_STATE: std::cell::OnceCell<Rc<RefCell<WolLocaleSelectState>>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn wol_locale_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<WolLocaleSelectState>> {
+    if let Some(owner) = owner {
+        return owner.wol_locale_select_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().wol_locale_select_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_WOL_LOCALE_SELECT_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(WolLocaleSelectState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(WolLocaleSelectState::default()))
+    }
 }
 
 fn wol_locale_state() -> Rc<RefCell<WolLocaleSelectState>> {
-    WOL_LOCALE_SELECT_STATE.with(Rc::clone)
+    wol_locale_state_on_owner(None)
 }
 
 pub fn wol_locale_select_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
@@ -44,7 +70,7 @@ pub fn wol_locale_select_init(layout: &WindowLayout, _user_data: Option<&dyn std
     state.listbox_locale_id =
         NameKeyGenerator::name_to_key("PopupLocaleSelect.wnd:ListBoxLocaleSelect") as i32;
 
-    with_window_manager(|manager| {
+    owner.with_manager(|manager| {
         state.parent = manager.get_window_by_id(state.parent_id);
         state.button_ok = manager.get_window_by_id(state.button_ok_id);
         state.listbox_locale = manager.get_window_by_id(state.listbox_locale_id);
@@ -70,7 +96,7 @@ pub fn wol_locale_select_init(layout: &WindowLayout, _user_data: Option<&dyn std
     layout.hide(false);
 
     if let Some(parent) = state.parent.as_ref() {
-        with_window_manager(|manager| {
+        owner.with_manager(|manager| {
             let _ = manager.set_focus(Some(parent));
             let _ = manager.set_modal(parent.clone());
         });

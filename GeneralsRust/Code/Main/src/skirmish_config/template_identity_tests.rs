@@ -12,43 +12,46 @@ fn authored_skirmish_template_resolution_survives_a_foreign_key_namespace() {
     )) {
         return;
     }
-    use game_engine::common::ini::INI;
+    use game_engine::common::common_services::CommonServicesScope;
+    use game_engine::common::ini::INILoadType;
     use game_engine::common::name_key_generator::NameKeyGenerator;
-    use game_engine::common::rts::player_template::{
-        PlayerTemplateStore, get_player_template_store, get_player_template_store_mut,
-    };
+    use game_engine::common::rts::player_template::PlayerTemplateStore;
     // Common integration fixture contains unchanged retail blocks, not
     // synthetic starting-building records.
     const AUTHORED: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../GameEngine/Common/tests/fixtures/hq_gleoa_player_templates.ini"
     ));
-    struct RestoreStore(Option<PlayerTemplateStore>);
-    impl Drop for RestoreStore {
-        fn drop(&mut self) {
-            *get_player_template_store_mut() = self.0.take().unwrap();
-        }
-    }
-    let _restore = RestoreStore(Some(std::mem::replace(
-        &mut *get_player_template_store_mut(),
-        PlayerTemplateStore::new(),
-    )));
-    let civilian_key = std::thread::spawn(|| {
+    // Thread 1: parse into an owned store (own NameKey namespace) and record the
+    // numeric key FactionCivilian received under a fresh CommonServices NameKey.
+    let (civilian_key, store) = std::thread::spawn(|| {
+        let _scope = CommonServicesScope::new();
         NameKeyGenerator::init();
         let key = NameKeyGenerator::name_to_key("FactionCivilian");
-        INI::new()
-            .with_inline_source(AUTHORED, |ini| ini.parse_current_file())
+        let mut store = PlayerTemplateStore::new_owned();
+        store
+            .apply_source(AUTHORED, INILoadType::Overwrite)
             .expect("actual Common authored INI parse");
-        assert_eq!(get_player_template_store().len(), 6);
-        key
+        assert_eq!(store.len(), 6);
+        (key, store)
     })
     .join()
     .unwrap();
+    // Thread 2: foreign NameKey namespace where FactionAmerica reuses the prior
+    // civilian key id; resolution uses the explicit owned store, not TLS.
     std::thread::spawn(move || {
+        use game_engine::common::rts::player_template::get_player_template_store_mut;
+        let _scope = CommonServicesScope::new();
+        // Scope publish interns UpgradeCenter NameKeys; reset so this thread's
+        // first allocation matches the producer thread's post-init civilian key.
+        NameKeyGenerator::init();
         assert_eq!(
             NameKeyGenerator::name_to_key("FactionAmerica"),
             civilian_key
         );
+        // Publish the owned catalog into this thread's CommonServices so
+        // base_faction / exact_template_name resolve against authored rows.
+        *get_player_template_store_mut() = store.clone();
         let selection = SkirmishPlayerTemplateSelection::base_faction("USA");
         assert_eq!(
             selection,
@@ -58,29 +61,29 @@ fn authored_skirmish_template_resolution_survives_a_foreign_key_namespace() {
             },
             "explicit USA selection must retain its authored identity"
         );
-        let (identity, team) = resolve_exact_skirmish_template("FactionAmerica", 2)
+        let (identity, team) = resolve_exact_skirmish_template_in("FactionAmerica", 2, &store)
             .expect("real Main indexed resolution/validation");
         assert_eq!(team, Team::USA);
         assert_eq!(
-            identity.resolve().unwrap().get_starting_building(),
+            identity.resolve_in(&store).unwrap().get_starting_building(),
             "AmericaCommandCenter"
         );
         assert!(
-            resolve_exact_skirmish_template("FactionAmerica", 0).is_err(),
+            resolve_exact_skirmish_template_in("FactionAmerica", 0, &store).is_err(),
             "stale name/index pair rejected"
         );
         assert!(
-            resolve_exact_skirmish_template("FactionCivilian", 0)
+            resolve_exact_skirmish_template_in("FactionCivilian", 0, &store)
                 .unwrap_err()
                 .contains("no Skirmish StartingBuilding")
         );
         assert_eq!(
-            resolve_exact_skirmish_template("FactionObserver", 1)
+            resolve_exact_skirmish_template_in("FactionObserver", 1, &store)
                 .unwrap()
                 .1,
             Team::Neutral
         );
-        let candidates = random_skirmish_template_candidates(false);
+        let candidates = random_skirmish_template_candidates_in(false, &store);
         assert!(
             candidates
                 .iter()

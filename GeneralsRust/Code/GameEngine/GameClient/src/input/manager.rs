@@ -576,6 +576,7 @@ mod tests {
 
     #[test]
     fn test_input_manager_creation() {
+        crate::test_support::ensure_ambient_host();
         let manager = InputManager::new();
         assert!(manager.is_enabled());
         assert_eq!(manager.event_queue_size(), 0);
@@ -584,6 +585,7 @@ mod tests {
 
     #[test]
     fn test_input_manager_with_config() {
+        crate::test_support::ensure_ambient_host();
         let mut config = InputConfig::default();
         config.keyboard_enabled = false;
         config.mouse_sensitivity = 2.0;
@@ -595,6 +597,7 @@ mod tests {
 
     #[test]
     fn test_action_callbacks() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = InputManager::new();
         let action_triggered = Arc::new(Mutex::new(false));
         let action_triggered_clone = action_triggered.clone();
@@ -613,6 +616,7 @@ mod tests {
 
     #[test]
     fn test_event_queue_management() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = InputManager::new();
 
         // Test adding events
@@ -642,6 +646,7 @@ mod tests {
 
     #[test]
     fn test_focus_loss_clears_held_keyboard_and_mouse_state() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = InputManager::new();
         let now = Instant::now();
 
@@ -667,6 +672,7 @@ mod tests {
 
     #[test]
     fn test_enable_disable() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = InputManager::new();
 
         manager.set_enabled(false);
@@ -678,6 +684,7 @@ mod tests {
 
     #[test]
     fn test_stats_tracking() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = InputManager::new();
 
         // Initial stats should be clean

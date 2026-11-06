@@ -416,26 +416,32 @@ impl Default for ObjectCreationListStore {
     }
 }
 
-/// Global singleton store
-/// Matches C++ extern ObjectCreationListStore *TheObjectCreationListStore (ObjectCreationList.h:197)
-static GLOBAL_STORE: RwLock<Option<ObjectCreationListStore>> = RwLock::new(None);
+fn ocl_store_cell() -> std::sync::Arc<std::sync::RwLock<Option<ObjectCreationListStore>>> {
+    std::sync::Arc::clone(crate::system::engine_stores::active_services().ocl_store())
+}
 
-/// Initialize the global store
+/// Initialize the per-world store
 pub fn init_object_creation_list_store() {
-    let mut store = GLOBAL_STORE.write().unwrap();
+    let cell = ocl_store_cell();
+    let mut store = cell.write().unwrap();
     *store = Some(ObjectCreationListStore::new());
 }
 
-/// Get reference to global store
-pub fn get_object_creation_list_store()
--> std::sync::RwLockReadGuard<'static, Option<ObjectCreationListStore>> {
-    GLOBAL_STORE.read().unwrap()
+/// Get Arc to the active world's OCL store cell.
+pub fn get_object_creation_list_store_arc()
+-> std::sync::Arc<std::sync::RwLock<Option<ObjectCreationListStore>>> {
+    ocl_store_cell()
 }
 
-/// Get mutable reference to global store
+/// Compatibility: callers that expected a 'static guard should switch to the Arc API.
+pub fn get_object_creation_list_store()
+-> std::sync::Arc<std::sync::RwLock<Option<ObjectCreationListStore>>> {
+    ocl_store_cell()
+}
+
 pub fn get_object_creation_list_store_mut()
--> std::sync::RwLockWriteGuard<'static, Option<ObjectCreationListStore>> {
-    GLOBAL_STORE.write().unwrap()
+-> std::sync::Arc<std::sync::RwLock<Option<ObjectCreationListStore>>> {
+    ocl_store_cell()
 }
 
 fn parse_bool_token(value: &str) -> Option<bool> {
@@ -1441,10 +1447,14 @@ pub fn load_object_creation_lists_from_str(content: &str) -> Result<usize, Strin
 
     let count_loaded = parsed.len();
 
-    if get_object_creation_list_store().as_ref().is_none() {
-        init_object_creation_list_store();
+    {
+        let cell = get_object_creation_list_store();
+        if cell.read().expect("ocl store").as_ref().is_none() {
+            init_object_creation_list_store();
+        }
     }
-    let mut store_guard = get_object_creation_list_store_mut();
+    let store_cell = get_object_creation_list_store_mut();
+    let mut store_guard = store_cell.write().expect("ocl store write");
     let store = store_guard
         .as_mut()
         .ok_or_else(|| "ObjectCreationListStore not initialized".to_string())?;
@@ -1491,9 +1501,11 @@ fn default_ocl_paths() -> Vec<PathBuf> {
 pub fn ensure_default_object_creation_lists_loaded() {
     static OCL_STORE_INITIALIZED: OnceLock<()> = OnceLock::new();
     OCL_STORE_INITIALIZED.get_or_init(|| {
-        if get_object_creation_list_store()
-            .as_ref()
-            .map(|store| store.get_ocl_count() > 0)
+        let cell = get_object_creation_list_store();
+        if cell
+            .read()
+            .ok()
+            .and_then(|g| g.as_ref().map(|store| store.get_ocl_count() > 0))
             .unwrap_or(false)
         {
             return;
@@ -1589,7 +1601,8 @@ mod tests {
     #[test]
     fn test_global_store_init() {
         init_object_creation_list_store();
-        let store = get_object_creation_list_store();
+        let store_cell = get_object_creation_list_store();
+        let store = store_cell.read().unwrap();
         assert!(store.is_some());
     }
 
@@ -1608,7 +1621,8 @@ End
         let count = load_object_creation_lists_from_str(data).expect("failed to parse OCL");
         assert_eq!(count, 1);
 
-        let store = get_object_creation_list_store();
+        let store_cell = get_object_creation_list_store();
+        let store = store_cell.read().unwrap();
         let ocl = store
             .as_ref()
             .and_then(|s| s.find_object_creation_list("OCL_Test"))
@@ -1672,7 +1686,8 @@ End
             load_object_creation_lists_from_str(data).expect("failed to parse advanced OCL");
         assert_eq!(count, 1);
 
-        let store = get_object_creation_list_store();
+        let store_cell = get_object_creation_list_store();
+        let store = store_cell.read().unwrap();
         let ocl = store
             .as_ref()
             .and_then(|s| s.find_object_creation_list("OCL_Advanced"))
@@ -1734,7 +1749,8 @@ End
             load_object_creation_lists_from_str(data).expect("failed to parse mixed OCL headers");
         assert_eq!(count, 1);
 
-        let store = get_object_creation_list_store();
+        let store_cell = get_object_creation_list_store();
+        let store = store_cell.read().unwrap();
         let ocl = store
             .as_ref()
             .and_then(|s| s.find_object_creation_list("OCL_AllNuggetHeaders"))
@@ -1861,7 +1877,8 @@ End
         let count_b = load_object_creation_lists_from_str(b).expect("load B failed");
         assert_eq!(count_b, 1);
 
-        let store = get_object_creation_list_store();
+        let store_cell = get_object_creation_list_store();
+        let store = store_cell.read().unwrap();
         let store = store.as_ref().expect("store missing");
         assert!(store.find_object_creation_list("OCL_A").is_some());
         assert!(store.find_object_creation_list("OCL_B").is_some());
@@ -1890,7 +1907,8 @@ End
         load_object_creation_lists_from_str(first).expect("first load failed");
         load_object_creation_lists_from_str(second).expect("second load failed");
 
-        let store = get_object_creation_list_store();
+        let store_cell = get_object_creation_list_store();
+        let store = store_cell.read().unwrap();
         let ocl = store
             .as_ref()
             .and_then(|s| s.find_object_creation_list("OCL_Reload"))

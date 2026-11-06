@@ -37,7 +37,7 @@ fn begin(world: &mut GameLogic, id: ObjectId) -> Option<u32> {
     let mut audio = SessionAudio::default();
     let object = world.host_object_mut(id).unwrap();
     object
-        .begin_slow_death(10, &mut ObjectAudio::queue(&mut audio))
+        .begin_slow_death(10, None, &mut ObjectAudio::queue(&mut audio))
         .then(|| object.slow_death.as_ref().unwrap().destroy_at_frame)
 }
 

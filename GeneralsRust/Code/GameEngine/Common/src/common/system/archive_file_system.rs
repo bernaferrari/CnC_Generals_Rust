@@ -9,7 +9,6 @@
 //! Modernized archive file system facade that unifies BIG archive handling
 //! while retaining the high-level semantics of the original C++ subsystem.
 
-use once_cell::sync::OnceCell;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
@@ -221,25 +220,36 @@ impl ArchiveFileSystem {
     }
 }
 
-/// Global archive file system instance (mirrors the original singleton pattern).
-static ARCHIVE_FILE_SYSTEM: OnceCell<Mutex<ArchiveFileSystem>> = OnceCell::new();
-
-/// Initialize the global archive file system singleton.
+/// Initialize the archive file system for the published CommonServices instance.
 pub fn init_archive_file_system() {
-    if ARCHIVE_FILE_SYSTEM.get().is_none() {
-        let _ = ARCHIVE_FILE_SYSTEM.set(Mutex::new(ArchiveFileSystem::new()));
-    } else if let Some(cell) = ARCHIVE_FILE_SYSTEM.get() {
-        if let Ok(mut guard) = cell.lock() {
-            *guard = ArchiveFileSystem::new();
-        }
-    }
+    let services = crate::common::common_services::common_services();
+    *services
+        .system
+        .archive_file_system
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = ArchiveFileSystem::new();
+    services
+        .system
+        .archive_file_system_ready
+        .store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
-/// Fetch a mutable reference to the global archive file system.
+/// Fetch a mutable reference to the instance archive file system.
 pub fn get_archive_file_system() -> Option<MutexGuard<'static, ArchiveFileSystem>> {
-    ARCHIVE_FILE_SYSTEM
-        .get()
-        .map(|cell| cell.lock().expect("ArchiveFileSystem mutex poisoned"))
+    let services = crate::common::common_services::common_services();
+    if !services
+        .system
+        .archive_file_system_ready
+        .load(std::sync::atomic::Ordering::SeqCst)
+    {
+        return None;
+    }
+    let guard = services
+        .system
+        .archive_file_system
+        .lock()
+        .expect("ArchiveFileSystem mutex poisoned");
+    Some(unsafe { std::mem::transmute(guard) })
 }
 
 #[cfg(test)]

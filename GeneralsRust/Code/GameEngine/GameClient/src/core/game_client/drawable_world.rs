@@ -12,23 +12,27 @@ use super::*;
 pub struct DrawableWorld {
     pub(super) auxiliary_identity: std::sync::Arc<()>,
     pub(super) state: DrawableState,
-    pub(super) particles: crate::effects::particle_manager::ParticleSystemManager,
+    pub(crate) particles: Option<crate::effects::particle_manager::ParticleSystemManager>,
 }
 impl DrawableWorld {
     pub fn new() -> Self {
         Self {
             auxiliary_identity: std::sync::Arc::new(()),
             state: DrawableState::new(),
-            particles: crate::effects::particle_manager::ParticleSystemManager::new(),
+            particles: Some(crate::effects::particle_manager::ParticleSystemManager::new()),
         }
     }
     pub fn particle_systems(&self) -> &crate::effects::particle_manager::ParticleSystemManager {
-        &self.particles
+        self.particles
+            .as_ref()
+            .expect("DrawableWorld particle manager")
     }
     pub fn particle_systems_mut(
         &mut self,
     ) -> &mut crate::effects::particle_manager::ParticleSystemManager {
-        &mut self.particles
+        self.particles
+            .as_mut()
+            .expect("DrawableWorld particle manager")
     }
 }
 impl std::ops::Deref for DrawableWorld {
@@ -45,7 +49,10 @@ impl std::ops::DerefMut for DrawableWorld {
 /// Drawable-only loan permits particle callbacks to borrow the same world's
 /// manager without taking either owner out of its lifetime.
 pub struct DrawableState {
-    pub(super) light_scene: crate::fx_list::DisplayLightScene,
+    pub(super) fx: crate::fx_list::FxClientState,
+    pub(super) tracers: crate::effects::tracer_fx::TracerFxState,
+    pub(super) beacons: crate::system::beacon_display::BeaconDisplayState,
+    pub(super) rays: crate::effects::ray_effect_system::RayFxState,
     pub(super) next_drawable_id: DrawableId,
     pub(super) ray_effects: crate::effects::ray_effect_registry::RayEffectSystem,
     /// C++ GameClient.cpp480 prepends each newly constructed Drawable.
@@ -70,7 +77,10 @@ pub struct DrawableState {
 impl DrawableState {
     pub fn new() -> Self {
         Self {
-            light_scene: Default::default(),
+            fx: Default::default(),
+            tracers: Default::default(),
+            beacons: Default::default(),
+            rays: Default::default(),
             next_drawable_id: DrawableId(1),
             ray_effects: Default::default(),
             native_drawable_order: Vec::new(),
@@ -271,26 +281,359 @@ impl Default for DrawableWorld {
 
 impl GameClient {
     pub fn particle_systems(&self) -> &crate::effects::particle_manager::ParticleSystemManager {
-        &self.drawables.particles
+        self.drawables
+            .particles
+            .as_ref()
+            .expect("GameClient particle manager")
     }
     pub fn particle_systems_mut(
         &mut self,
     ) -> &mut crate::effects::particle_manager::ParticleSystemManager {
-        &mut self.drawables.particles
+        self.drawables
+            .particles
+            .as_mut()
+            .expect("GameClient particle manager")
     }
 }
 
 impl NativeDrawableOwner<'_> {
     pub fn create_light_pulse(&mut self, pulse: crate::fx_list::DisplayLightPulse) -> bool {
-        let admitted = self.drawables.light_scene.create_pulse(pulse);
+        let admitted = self.drawables.fx.create_display_light_pulse(pulse);
         // The native scene consumes the light directly; legacy pulse receipts
         // are not another growing writable presentation stream.
-        self.drawables.light_scene.drain_pulses();
+        self.drawables.fx.drain_display_light_pulses();
         admitted
     }
 }
 impl GameClient {
     pub fn dynamic_lights(&self) -> &[crate::fx_list::DisplayDynamicLight] {
-        self.drawables.light_scene.lights()
+        self.drawables.fx.scene.lights()
+    }
+
+    pub fn fx(&self) -> &crate::fx_list::FxClientState {
+        &self.drawables.fx
+    }
+
+    pub fn fx_mut(&mut self) -> &mut crate::fx_list::FxClientState {
+        &mut self.drawables.fx
+    }
+
+    pub fn script_runtime(&self) -> &crate::core::script_action_runtime::ScriptActionRuntime {
+        &self.script_runtime
+    }
+
+    pub fn script_runtime_mut(
+        &mut self,
+    ) -> &mut crate::core::script_action_runtime::ScriptActionRuntime {
+        &mut self.script_runtime
+    }
+
+    pub fn tracers(&self) -> &crate::effects::tracer_fx::TracerFxState {
+        &self.drawables.tracers
+    }
+
+    pub fn tracers_mut(&mut self) -> &mut crate::effects::tracer_fx::TracerFxState {
+        &mut self.drawables.tracers
+    }
+
+    pub fn beacons(&self) -> &crate::system::beacon_display::BeaconDisplayState {
+        &self.drawables.beacons
+    }
+
+    pub fn beacons_mut(&mut self) -> &mut crate::system::beacon_display::BeaconDisplayState {
+        &mut self.drawables.beacons
+    }
+
+    pub fn draw_schedule_mut(
+        &mut self,
+    ) -> &mut crate::display::client_draw_schedule::ClientDrawScheduleState {
+        &mut self.draw_schedule
+    }
+
+    pub fn rays_mut(&mut self) -> &mut crate::effects::ray_effect_system::RayFxState {
+        &mut self.drawables.rays
+    }
+
+    pub fn ensure_mapped_image_collection(
+        &mut self,
+    ) -> std::sync::Arc<parking_lot::RwLock<crate::display::image::ImageCollection>> {
+        self.mapped_image_collection
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(parking_lot::RwLock::new(
+                    crate::display::image::ImageCollection::new(),
+                ))
+            })
+            .clone()
+    }
+
+    /// Returns true the first time `key` is seen for this client (log it).
+    pub fn note_startup_shell_image_log(&mut self, key: &str) -> bool {
+        self.startup_shell_image_reported.insert(key.to_string())
+    }
+
+    pub fn ensure_fx_list_store(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::RwLock<crate::fx_list::FXListStore>> {
+        self.fx_list_store
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::RwLock::new(crate::fx_list::FXListStore::new()))
+            })
+            .clone()
+    }
+
+    pub fn ensure_weather_setting(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::RwLock<crate::snow::WeatherSetting>> {
+        self.weather_setting
+            .get_or_insert_with(|| {
+                let initial = game_engine::common::ini::ini_weather::get_weather_setting()
+                    .map(|common| crate::snow::WeatherSetting::from_common(&common))
+                    .unwrap_or_default();
+                std::sync::Arc::new(std::sync::RwLock::new(initial))
+            })
+            .clone()
+    }
+
+
+    pub fn ensure_draw_group_info(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::RwLock<crate::draw_group_info::DrawGroupInfo>> {
+        self.draw_group_info
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::RwLock::new(
+                    crate::draw_group_info::DrawGroupInfo::default(),
+                ))
+            })
+            .clone()
+    }
+
+    pub fn ensure_game_text_store(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::RwLock<crate::game_text::GameText>> {
+        self.game_text_store
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::RwLock::new(crate::game_text::GameText::default()))
+            })
+            .clone()
+    }
+
+    pub fn ensure_global_language_data(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::RwLock<crate::global_language::GlobalLanguageData>> {
+        self.global_language_data
+            .get_or_insert_with(|| {
+                let mut data = crate::global_language::GlobalLanguageData::default();
+                data.init();
+                std::sync::Arc::new(std::sync::RwLock::new(data))
+            })
+            .clone()
+    }
+
+    pub fn ensure_language_filter(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::RwLock<crate::language_filter::LanguageFilter>> {
+        self.language_filter
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::RwLock::new(
+                    crate::language_filter::LanguageFilter::new(),
+                ))
+            })
+            .clone()
+    }
+
+    pub fn ensure_smudge_manager(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::system::smudge::SmudgeManager>> {
+        self.smudge_manager
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::system::smudge::SmudgeManager::new(),
+                ))
+            })
+            .clone()
+    }
+
+
+    pub fn ensure_translator_presentation_residual(
+        &mut self,
+    ) -> std::sync::Arc<
+        std::sync::RwLock<crate::presentation_translator_residual::TranslatorPresentationResidual>,
+    > {
+        self.translator_presentation_residual
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::RwLock::new(
+                    crate::presentation_translator_residual::TranslatorPresentationResidual::default(),
+                ))
+            })
+            .clone()
+    }
+
+    pub fn ensure_mouse(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::input::mouse::Mouse>> {
+        self.mouse
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::Mutex::new(crate::input::mouse::Mouse::new()))
+            })
+            .clone()
+    }
+
+    pub fn ensure_lan_setup(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::gui::lan_setup::LanSetup>> {
+        self.lan_setup
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::gui::lan_setup::LanSetup::default(),
+                ))
+            })
+            .clone()
+    }
+
+    /// This client's `TheSkirmishGameInfo` lobby (owned by its UI tree).
+    pub fn skirmish_setup(
+        &self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::gui::skirmish_setup::SkirmishSetup>> {
+        // `TheSkirmishGameInfo` lives on this client's UI tree so window
+        // handlers reach it through their `WindowManagerOwner` loan.
+        self.window_manager_owner.skirmish_setup()
+    }
+
+
+    pub fn set_host_command_authority(
+        &mut self,
+        sink: Option<
+            std::sync::Arc<
+                dyn Fn(&[crate::message_stream::game_message::GameMessage]) + Send + Sync,
+            >,
+        >,
+    ) {
+        self.host_command_authority = sink;
+    }
+
+    pub fn host_command_authority(
+        &self,
+    ) -> Option<
+        std::sync::Arc<dyn Fn(&[crate::message_stream::game_message::GameMessage]) + Send + Sync>,
+    > {
+        self.host_command_authority.clone()
+    }
+
+    pub fn ensure_font_library(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::gui::font::FontLibrary>> {
+        self.font_library
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::gui::font::FontLibrary::new(),
+                ))
+            })
+            .clone()
+    }
+
+    pub fn next_fx_id(&self) -> u64 {
+        self.fx_next_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn next_render_bridge_line_id(&self) -> u64 {
+        self.render_bridge_next_line_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn win_draw_image_commands(&self) -> &std::sync::atomic::AtomicUsize {
+        &self.win_draw_image_commands
+    }
+
+    pub fn shipped_ui_draw_commands(&self) -> &std::sync::atomic::AtomicUsize {
+        &self.shipped_ui_draw_commands
+    }
+
+    pub fn text_entry_draw_cnt(&self) -> &std::sync::atomic::AtomicU8 {
+        &self.text_entry_draw_cnt
+    }
+
+    pub fn next_asset_id(&self) -> u64 {
+        self.asset_id_counter
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn next_device_id(&self) -> u64 {
+        self.device_id_counter
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn ensure_header_template_manager(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::gui::header_template::HeaderTemplateManager>> {
+        self.header_template_manager
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::gui::header_template::HeaderTemplateManager::new(),
+                ))
+            })
+            .clone()
+    }
+
+    pub fn ensure_snow_manager(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::snow::SnowManager>> {
+        self.snow_manager
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::Mutex::new(crate::snow::SnowManager::new()))
+            })
+            .clone()
+    }
+
+    pub fn snow_manager_opt(
+        &self,
+    ) -> Option<std::sync::Arc<std::sync::Mutex<crate::snow::SnowManager>>> {
+        self.snow_manager.clone()
+    }
+
+    pub fn ensure_supply_and_tech_images(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::map_util::TechAndSupplyImages>> {
+        self.supply_and_tech_images
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::map_util::TechAndSupplyImages::default(),
+                ))
+            })
+            .clone()
+    }
+
+    pub fn ensure_map_cache_manager(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::map_util::MapCache>> {
+        self.map_cache_manager
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::Mutex::new(crate::map_util::MapCache::new()))
+            })
+            .clone()
+    }
+
+    pub fn ensure_video_player_slot(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::Mutex<Option<crate::video_player::VideoPlayer>>> {
+        self.video_player_slot
+            .get_or_insert_with(|| std::sync::Arc::new(std::sync::Mutex::new(None)))
+            .clone()
+    }
+
+    pub fn video_player_slot_opt(
+        &self,
+    ) -> Option<std::sync::Arc<std::sync::Mutex<Option<crate::video_player::VideoPlayer>>>> {
+        self.video_player_slot.clone()
+    }
+
+    pub fn ensure_video_stream_provider_slot(
+        &mut self,
+    ) -> std::sync::Arc<
+        std::sync::Mutex<Option<std::sync::Arc<dyn crate::video_player::VideoStreamProvider>>>,
+    > {
+        self.video_stream_provider_slot
+            .get_or_insert_with(|| std::sync::Arc::new(std::sync::Mutex::new(None)))
+            .clone()
     }
 }

@@ -1,45 +1,29 @@
-//! Utility helpers mirroring WWAudio Utils.h/.cpp.
+use crate::process_state::WwAudioRuntime;
+use std::sync::Arc;
 
-use std::cell::Cell;
-
-thread_local! {
-    /// Recursion depth of the Miles-style lock held on this thread.
-    static MSS_LOCK_DEPTH: Cell<u32> = const { Cell::new(0) };
-}
-
-/// RAII lock matching MMSLockClass behavior.
-///
-/// The C++ original guards Miles Sound System calls with a reentrant
-/// CRITICAL_SECTION that is only ever taken while loading sound data, so the
-/// Rust port models it as a per-thread recursion counter. Unlike a global
-/// lock this is safely reentrant (C++ CRITICAL_SECTION semantics), which
-/// matters because `SoundBufferClass::load_from_reader` acquires the lock and
 /// then calls `determine_stats`, which takes it again.
 pub struct MMSLockClass {
-    _guard: MMSLockGuard,
+    runtime: Arc<WwAudioRuntime>,
 }
-
-/// Marker proving the depth counter was incremented.
-struct MMSLockGuard;
 
 impl MMSLockClass {
-    pub fn new() -> Self {
-        MSS_LOCK_DEPTH.with(|depth| depth.set(depth.get() + 1));
-        Self {
-            _guard: MMSLockGuard,
+    pub fn new(runtime: Arc<WwAudioRuntime>) -> Self {
+        {
+            let mut depth = runtime.mss_lock_depth.lock().unwrap_or_else(|p| p.into_inner());
+            *depth += 1;
         }
-    }
-}
-
-impl Default for MMSLockClass {
-    fn default() -> Self {
-        Self::new()
+        Self { runtime }
     }
 }
 
 impl Drop for MMSLockClass {
     fn drop(&mut self) {
-        MSS_LOCK_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
+        let mut depth = self
+            .runtime
+            .mss_lock_depth
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        *depth = depth.saturating_sub(1);
     }
 }
 

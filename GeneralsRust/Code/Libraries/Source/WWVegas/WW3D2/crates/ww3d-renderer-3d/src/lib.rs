@@ -54,6 +54,8 @@ pub mod math_utilities {
 }
 // DX8 re-exports removed; WGPU is the renderer path
 pub mod config;
+pub mod process_state;
+pub use process_state::Renderer3dRuntime;
 pub mod lod_system;
 pub mod material_system;
 pub mod render_object_system;
@@ -77,8 +79,8 @@ use std::sync::{Arc, Mutex};
 
 pub use crate::core::error::{Error, RendererResult};
 pub use ww3d_assets::AssetManager;
-pub use ww3d_core::errors::{W3DError, W3DResult};
-pub use ww3d_core::ww3d::WW3D;
+pub use ww3d_core::ww3d::Ww3dContext;
+use ww3d_core::errors::{W3DError, W3DResult};
 
 const FRAME_UNIFORM_ARENA_SIZE: usize = 512 * 1024;
 const FRAME_IN_FLIGHT: usize = 3;
@@ -93,7 +95,8 @@ pub use rendering::camera_system::frustum::{
 };
 pub use rendering::camera_system::viewport::ViewportClass;
 pub use rendering::mesh_system::*;
-pub use ww3d_core::*;
+use ww3d_core::*;
+pub use ww3d_core::w3d_format;
 pub use ww3d_geometry::*;
 // THE_DX8_MESH_RENDERER removed with DX8 path
 pub use lod_system::*;
@@ -254,6 +257,10 @@ pub struct Renderer {
 
     /// Animation frame coordinator - synchronizes all animation systems
     animation_coordinator: animation_synchronization::AnimationFrameCoordinator,
+    /// Session WW3D context (owned by display/WgpuMainRenderer).
+    ww3d: Option<std::sync::Arc<Ww3dContext>>,
+    /// Session renderer-3d runtime (config/sort/texture/id state).
+    renderer_3d: Option<std::sync::Arc<crate::process_state::Renderer3dRuntime>>,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -270,6 +277,27 @@ unsafe impl Send for Renderer {}
 unsafe impl Sync for Renderer {}
 
 impl Renderer {
+    pub fn set_ww3d(&mut self, ww3d: std::sync::Arc<Ww3dContext>) {
+        self.ww3d = Some(ww3d);
+    }
+
+    pub fn set_renderer_3d(
+        &mut self,
+        r3d: std::sync::Arc<crate::process_state::Renderer3dRuntime>,
+    ) {
+        self.frame_graph.renderer_3d = Some(std::sync::Arc::clone(&r3d));
+        self.mesh_render_manager.renderer_3d = Some(std::sync::Arc::clone(&r3d));
+        self.renderer_3d = Some(r3d);
+    }
+
+    pub fn renderer_3d(&self) -> Option<&crate::process_state::Renderer3dRuntime> {
+        self.renderer_3d.as_deref()
+    }
+
+    pub fn ww3d(&self) -> Option<&Ww3dContext> {
+        self.ww3d.as_deref()
+    }
+
     /// Create a new renderer with GPU integration
     pub fn new(gpu_device: std::sync::Arc<ww3d_gpu::device::GpuDevice>) -> Self {
         let pipeline_manager = ww3d_gpu::pipeline::PipelineManager::new(gpu_device.clone());
@@ -302,18 +330,20 @@ impl Renderer {
             pending_attachments: Vec::new(),
             pending_shadow_caster_submissions: Vec::new(),
             animation_coordinator: animation_synchronization::AnimationFrameCoordinator::new(),
+            ww3d: None,
+            renderer_3d: None,
         }
     }
 
     /// Execute a closure with mutable access to the active renderer.
-    pub fn with_active_mut<F, R>(f: F) -> RendererResult<R>
+    pub fn with_active_mut<F, R>(ww3d: &Ww3dContext, f: F) -> RendererResult<R>
     where
         F: FnOnce(&mut Renderer) -> RendererResult<R>,
     {
-        let renderer = WW3D::get_current_renderer()
+        let renderer = ww3d.get_current_renderer()
             .ok_or_else(|| Error::NotInitialized("renderer not active".to_string()))?;
         let binding = renderer.handle();
-        let mut backend_guard = binding.borrow_mut();
+        let mut backend_guard = binding.lock().unwrap_or_else(|p| p.into_inner());
 
         let handle = backend_guard
             .as_any_mut()
@@ -332,11 +362,11 @@ impl Renderer {
     }
 
     /// Backwards-compatible alias used by legacy call sites.
-    pub fn with_global_mut<F, R>(f: F) -> RendererResult<R>
+    pub fn with_global_mut<F, R>(ww3d: &Ww3dContext, f: F) -> RendererResult<R>
     where
         F: FnOnce(&mut Renderer) -> RendererResult<R>,
     {
-        Self::with_active_mut(f)
+        Self::with_active_mut(ww3d, f)
     }
 
     /// Prepare renderer state for a new frame.
@@ -349,6 +379,8 @@ impl Renderer {
                 (self.frame_uniform_index + 1) % self.frame_uniform_arenas.len();
             self.frame_uniform_arenas[self.frame_uniform_index].reset();
         }
+        // Arena-backed cached bind groups die with the arena reset above.
+        self.mesh_render_manager.begin_frame_caches();
         Ok(())
     }
 
@@ -529,6 +561,33 @@ impl Renderer {
         Ok(())
     }
 
+    /// Apply the camera's (tactical) viewport and matching scissor to `pass`.
+    /// C++ dx8wrapper Set_Viewport is device state shared by every scene draw,
+    /// so each scene pass must reuse the same rect for depth to line up.
+    fn apply_camera_viewport(
+        camera: Option<&rendering::camera_system::CameraClass>,
+        pass: &mut wgpu::RenderPass<'_>,
+        (aw, ah): (u32, u32),
+    ) {
+        let Some(camera) = camera else {
+            return;
+        };
+        if aw == 0 || ah == 0 {
+            return;
+        }
+        let vp = camera.get_viewport();
+        let x0 = vp.min.x * aw as f32;
+        let y0 = vp.min.y * ah as f32;
+        let vw = ((vp.max.x - vp.min.x) * aw as f32).max(1.0);
+        let vh = ((vp.max.y - vp.min.y) * ah as f32).max(1.0);
+        pass.set_viewport(x0, y0, vw, vh, 0.0, 1.0);
+        let sx = (x0 as u32).min(aw - 1);
+        let sy = (y0 as u32).min(ah - 1);
+        let sw = (vw as u32).clamp(1, aw - sx);
+        let sh = (vh as u32).clamp(1, ah - sy);
+        pass.set_scissor_rect(sx, sy, sw, sh);
+    }
+
     /// Record the queued meshes into the provided command encoder and render targets.
     pub fn render_with_targets(
         &mut self,
@@ -562,7 +621,7 @@ impl Renderer {
         let node = self.frame_graph.node_mut(FrameGraphPass::Main);
         let context = FrameGraphPassContext::from_render_info(FrameGraphPass::Main, info);
         node.set_context(context);
-        let _static_flush_guard = rendering::mesh_system::StaticSortManager::begin_flush();
+        let _static_flush_guard = self.renderer_3d.as_ref().map(|r| rendering::mesh_system::StaticSortManager::begin_flush(std::sync::Arc::clone(r)));
         let mut non_mesh_static = node.ingest_static_sort_entries();
         let prepared = node.prepare(camera_pos);
         self.pending_shadow_caster_submissions =
@@ -644,22 +703,7 @@ impl Renderer {
             // here; rendering full-attachment while the terrain writes a
             // frac-height sub-rect makes every mesh fragment compare against
             // the WRONG ROW of terrain depth (units vanish behind terrain).
-            if let Some(camera) = self.camera.as_ref() {
-                let (aw, ah) = (targets.size.0, targets.size.1);
-                if aw > 0 && ah > 0 {
-                    let vp = camera.get_viewport();
-                    let x0 = vp.min.x * aw as f32;
-                    let y0 = vp.min.y * ah as f32;
-                    let vw = ((vp.max.x - vp.min.x) * aw as f32).max(1.0);
-                    let vh = ((vp.max.y - vp.min.y) * ah as f32).max(1.0);
-                    render_pass.set_viewport(x0, y0, vw, vh, 0.0, 1.0);
-                    let sx = (x0 as u32).min(aw - 1);
-                    let sy = (y0 as u32).min(ah - 1);
-                    let sw = (vw as u32).clamp(1, aw - sx);
-                    let sh = (vh as u32).clamp(1, ah - sy);
-                    render_pass.set_scissor_rect(sx, sy, sw, sh);
-                }
-            }
+            Self::apply_camera_viewport(self.camera.as_ref(), &mut render_pass, targets.size);
 
             mesh_manager.render_pass(
                 &mut render_pass,
@@ -670,7 +714,65 @@ impl Renderer {
             )
         };
         render_result?;
-        if ww3d_gpu::sorting_renderer_stats().batch_count > 0 {
+
+        for render_obj in non_mesh_static.drain(..) {
+            render_obj.render(info)?;
+        }
+        if let Some(r3d) = self.renderer_3d.as_ref() { rendering::mesh_system::StaticSortManager::flush_static_sort_list(r3d); }
+        Ok(())
+    }
+
+    /// Render the queued meshes using the engine frame lifecycle.
+    pub fn render_frame(
+        &mut self,
+        frame: &mut ww3d_engine::RenderFrame,
+        clear_color: Option<wgpu::Color>,
+        render_info: Option<&RendererRenderInfoClass>,
+    ) -> RendererResult<()> {
+        let color_view = frame.color_view_arc();
+        let depth_view = frame.depth_view_arc();
+        let depth_ref = depth_view.as_deref();
+        let timing = frame.timing;
+        let animation_input = AnimationFrameInput::new(
+            timing.delta_seconds(),
+            Some(timing.total_seconds()),
+            Some(timing.frame_number),
+        );
+        let size = frame.size();
+        let result = self.render_with_targets(
+            RenderTargets {
+                encoder: frame.encoder(),
+                color_view: color_view.as_ref(),
+                depth_view: depth_ref,
+                size,
+            },
+            clear_color,
+            render_info,
+            Some(animation_input),
+        );
+        for _ in 0..=self.mesh_render_manager.last_cascade_passes() {
+            frame.note_render_pass();
+        }
+        result
+    }
+
+    /// Record this renderer's sorted translucent batches (C++
+    /// `SortingRendererClass::Flush`) into `frame` with loaded attachments.
+    pub fn render_sorted_frame(&mut self, frame: &mut ww3d_engine::RenderFrame) -> RendererResult<()> {
+        if self.mesh_render_manager.sorted_batch_count() == 0 {
+            return Ok(());
+        }
+        let color_view = frame.color_view_arc();
+        let depth_view = frame.depth_view_arc();
+        let size = frame.size();
+        frame.note_render_pass();
+        let targets = RenderTargets {
+            encoder: frame.encoder(),
+            color_view: color_view.as_ref(),
+            depth_view: depth_view.as_deref(),
+            size,
+        };
+        {
             let mut sort_pass = targets
                 .encoder
                 .begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -698,44 +800,13 @@ impl Renderer {
                     timestamp_writes: None,
                     multiview_mask: None,
                 });
-            ww3d_gpu::flush_sorting_renderer(&mut sort_pass);
+            // The sorting flush draws through the same tactical viewport as
+            // the mesh flush (it used to cover the full attachment).
+            Self::apply_camera_viewport(self.camera.as_ref(), &mut sort_pass, targets.size);
+            self.mesh_render_manager.flush_sorted(&mut sort_pass);
         }
 
-        for render_obj in non_mesh_static.drain(..) {
-            render_obj.render(info)?;
-        }
-        rendering::mesh_system::StaticSortManager::flush_static_sort_list();
         Ok(())
-    }
-
-    /// Render the queued meshes using the engine frame lifecycle.
-    pub fn render_frame(
-        &mut self,
-        frame: &mut ww3d_engine::RenderFrame,
-        clear_color: Option<wgpu::Color>,
-        render_info: Option<&RendererRenderInfoClass>,
-    ) -> RendererResult<()> {
-        let color_view = frame.color_view_arc();
-        let depth_view = frame.depth_view_arc();
-        let depth_ref = depth_view.as_deref();
-        let timing = frame.timing;
-        let animation_input = AnimationFrameInput::new(
-            timing.delta_seconds(),
-            Some(timing.total_seconds()),
-            Some(timing.frame_number),
-        );
-        let size = frame.size();
-        self.render_with_targets(
-            RenderTargets {
-                encoder: frame.encoder(),
-                color_view: color_view.as_ref(),
-                depth_view: depth_ref,
-                size,
-            },
-            clear_color,
-            render_info,
-            Some(animation_input),
-        )
     }
 
     /// Handle post-render cleanup tasks
@@ -750,10 +821,14 @@ impl Renderer {
         }
 
         self.mesh_render_manager.ensure_model(&mesh_model)?;
-        let sorting = rendering::mesh_system::DX8FVFCategoryContainer::sorting_for_mesh(
-            mesh_model.flags,
-            mesh_model.sort_level,
-        );
+        let sorting = match self.renderer_3d.as_ref() {
+            Some(r3d) => rendering::mesh_system::DX8FVFCategoryContainer::sorting_for_mesh(
+                r3d,
+                mesh_model.flags,
+                mesh_model.sort_level,
+            ),
+            None => false,
+        };
         self.mesh_render_manager.ensure_sorting_container(sorting);
         self.registered_mesh_models.insert(key, mesh_model);
 
@@ -927,6 +1002,7 @@ impl Renderer {
         })?;
         let mut render_info = RendererRenderInfoClass::new(Arc::new(camera.clone()));
         render_info.viewport = *camera.get_viewport();
+        render_info.ww3d = self.ww3d.clone();
         if let Some(environment) = self.light_environment.clone() {
             render_info.set_lighting_environment(environment);
         }

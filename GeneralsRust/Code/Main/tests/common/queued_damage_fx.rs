@@ -71,12 +71,12 @@ pub fn install(rows: &str) -> mpsc::Receiver<Observation> {
         // These identities are unique across every fixture in this binary.
         // No reset or global observer replacement is involved.
         let compiled = FXList::from_definition(&definition);
-        game_client::fx_list::get_fx_list_store_mut().add_fx_list(name.clone(), compiled);
+        game_client::fx_list::with_fx_list_store_mut(|s| {
+            s.add_fx_list(name.clone(), compiled);
+        });
         let sounds = game_client::fx_list::sound_names_for_fx_list(&name);
         assert_eq!(sounds, vec![format!("Sound_{rows}_{level}")]);
-        let compiled = game_client::fx_list::get_fx_list_store()
-            .find_fx_list(&name)
-            .unwrap();
+        let compiled = game_client::fx_list::with_fx_list_store(|s| s.find_fx_list(&name)).unwrap();
         let mut observed = FXList::new();
         observed.add_fx_nugget(Box::new(ObservedList {
             list: name.clone(),
@@ -84,7 +84,37 @@ pub fn install(rows: &str) -> mpsc::Receiver<Observation> {
             sounds,
             events: events.clone(),
         }));
-        game_client::fx_list::get_fx_list_store_mut().add_fx_list(name, observed);
+        game_client::fx_list::with_fx_list_store_mut(|s| {
+            s.add_fx_list(name, observed);
+        });
     }
     receiver
+}
+
+/// Production ObjectFxRuntime resolves lists from the receiving session's
+/// catalog, not the thread-local client store `install` wrote into.
+pub fn admit_into(world: &mut generals_main::game_logic::GameLogic) {
+    let catalog = game_client::fx_list::with_fx_list_store(|s| s.clone());
+    world.admit_receiving_fx_catalog(catalog).unwrap();
+}
+
+/// Test-thread owner (hq-2qedt.23): bind CommonServices / WorldServices /
+/// MainServices on this thread before the fixture admits weapons, mirroring
+/// the hq-2qedt.20 world-test helper.
+pub fn bind_test_world() {
+    if game_engine::common::common_services::try_common_services().is_none() {
+        game_engine::common::common_services::install_common_services(Arc::new(
+            game_engine::common::common_services::CommonServices::new(),
+        ));
+    }
+    if gamelogic::system::engine_stores::try_active_services().is_none() {
+        gamelogic::system::engine_stores::install_services(
+            gamelogic::system::engine_stores::new_world_services(),
+        );
+    }
+    if generals_main::main_services::try_main_services().is_none() {
+        generals_main::main_services::install_main_services(Arc::new(
+            generals_main::main_services::MainServices::new(),
+        ));
+    }
 }

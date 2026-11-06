@@ -403,6 +403,12 @@ impl XferData for Movement {
         xfer.xfer_f32(&mut self.turn_rate_damaged)?;
         xfer.xfer_marker_label("Path")?;
         xfer_vec_vec3(xfer, &mut self.path)?;
+        xfer.xfer_marker_label("PathLayers")?;
+        xfer_vec_u8(xfer, &mut self.path_layers)?;
+        if self.path_layers.len() != self.path.len() {
+            // Length mismatch cannot be authoritative PathNode identity.
+            self.path_layers.clear();
+        }
         xfer.xfer_marker_label("CurrentPathIndex")?;
         let mut idx = self.current_path_index as u32;
         xfer.xfer_u32(&mut idx)?;

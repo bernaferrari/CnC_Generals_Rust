@@ -1067,15 +1067,51 @@ impl Snapshotable for ModuleFactory {
     }
 }
 
-/// Global module factory singleton
-static MODULE_FACTORY: Mutex<Option<ModuleFactory>> = Mutex::new(None);
+/// Guard that keeps the owning `Arc<Mutex<_>>` alive for the lock duration.
+pub struct ModuleFactoryGuard {
+    _owner: Arc<Mutex<Option<ModuleFactory>>>,
+    guard: Option<std::sync::MutexGuard<'static, Option<ModuleFactory>>>,
+}
 
-/// Get the global module factory instance
-pub fn get_module_factory() -> Result<
-    std::sync::MutexGuard<'static, Option<ModuleFactory>>,
-    std::sync::PoisonError<std::sync::MutexGuard<'static, Option<ModuleFactory>>>,
-> {
-    MODULE_FACTORY.lock()
+impl ModuleFactoryGuard {
+    fn from_arc(owner: Arc<Mutex<Option<ModuleFactory>>>) -> Result<Self, std::sync::PoisonError<()>> {
+        let locked = owner.lock().map_err(|_| std::sync::PoisonError::new(()))?;
+        // SAFETY: `owner` is stored in Self and dropped after `guard` (see Drop).
+        let guard: std::sync::MutexGuard<'static, Option<ModuleFactory>> =
+            unsafe { std::mem::transmute(locked) };
+        Ok(Self {
+            _owner: owner,
+            guard: Some(guard),
+        })
+    }
+}
+
+impl Drop for ModuleFactoryGuard {
+    fn drop(&mut self) {
+        self.guard.take();
+    }
+}
+
+impl std::ops::Deref for ModuleFactoryGuard {
+    type Target = Option<ModuleFactory>;
+    fn deref(&self) -> &Self::Target {
+        self.guard.as_deref().expect("ModuleFactoryGuard dropped")
+    }
+}
+
+impl std::ops::DerefMut for ModuleFactoryGuard {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.guard.as_deref_mut().expect("ModuleFactoryGuard dropped")
+    }
+}
+
+fn active_module_factory_slot() -> Arc<Mutex<Option<ModuleFactory>>> {
+    Arc::clone(&crate::common::common_services::common_services().module_factory)
+}
+
+/// Get the module factory instance on the published CommonServices bag.
+pub fn get_module_factory() -> Result<ModuleFactoryGuard, std::sync::PoisonError<()>> {
+    ModuleFactoryGuard::from_arc(active_module_factory_slot())
 }
 
 /// Initialize the retained compatibility factory in place. Like C++ init(),
@@ -1095,7 +1131,7 @@ pub fn apply_module_overrides_to_existing_templates() -> Result<(), String> {
     Ok(())
 }
 
-/// Shutdown the global module factory
+/// Shutdown the module factory on the published CommonServices bag.
 pub fn shutdown_module_factory() {
     if let Ok(mut factory_guard) = get_module_factory() {
         *factory_guard = None;

@@ -289,7 +289,6 @@ impl CnCGameEngine {
                 replay_frame,
             })?;
         if decision.sync {
-            WW3D::sync(decision.sync_time_ms);
             self.render_pipeline
                 .observe_animation_sync(decision.sync_time_ms);
         }

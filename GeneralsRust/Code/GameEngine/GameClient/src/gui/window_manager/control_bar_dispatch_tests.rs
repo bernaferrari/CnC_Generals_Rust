@@ -35,7 +35,7 @@ fn wnd() -> (
     let parent_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ControlBarParent") as i32;
     let button_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonLarge") as i32;
     let parent = manager
-        .create_window_with_id(None, 0, 100, 200, 100, parent_id)
+        .test_create_window_with_id(None, 0, 100, 200, 100, parent_id)
         .unwrap();
     manager.bind_window_callbacks(
         &mut parent.borrow_mut(),
@@ -45,7 +45,7 @@ fn wnd() -> (
         },
     );
     let button = manager
-        .create_window_with_id(Some(&parent), 10, 10, 40, 20, button_id)
+        .test_create_window_with_id(Some(&parent), 10, 10, 40, 20, button_id)
         .unwrap();
     button
         .borrow_mut()
@@ -74,6 +74,7 @@ fn click(
     let (x, y) = button.borrow().get_screen_position();
     let (x, y) = (x + 5, y + 5);
     let data = (((y as u32) << 16) | ((x as u32) & 0xffff)) as WindowMsgData;
+    let mut emitted_messages = Vec::new();
     let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
@@ -95,11 +96,16 @@ fn click(
         game_ending: false,
         tooltips_disabled: false,
         cursor_mouse: None,
-        emitted_messages: None,
+        emitted_messages: Some(&mut emitted_messages),
             campaign_manager: None,
             window_manager_owner: None,
 
-        main_menu: None,
+                    client_frame: None,
+            logic_frame: None,
+            ui: None,
+            menu_world: None,
+            menu_host: None,
+            main_menu: None,
     };
     for message in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
         assert_eq!(
@@ -110,6 +116,7 @@ fn click(
 }
 #[test]
 fn wnd_large_button_synchronously_changes_only_receiving_bar_before_update() {
+    crate::test_support::ensure_ambient_host();
     let (mut a, parent_a, button_a) = wnd();
     let (mut b, parent_b, button_b) = wnd();
     assert_eq!(button_a.borrow().get_id(), button_b.borrow().get_id());
@@ -156,6 +163,7 @@ fn wnd_large_button_synchronously_changes_only_receiving_bar_before_update() {
 }
 #[test]
 fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
+    crate::test_support::ensure_ambient_host();
     let (mut manager, parent, button) = wnd();
     let mut bar = ControlBar::new();
     let mut viewport = Viewport {
@@ -164,8 +172,9 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
         view_height: 482,
         writes: Vec::new(),
     };
-    manager.set_focus(Some(&button)).unwrap();
+    manager.test_set_focus(Some(&button)).unwrap();
     {
+        let mut emitted_messages = Vec::new();
         let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
@@ -187,10 +196,15 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
             game_ending: true,
             tooltips_disabled: false,
             cursor_mouse: None,
-            emitted_messages: None,
+            emitted_messages: Some(&mut emitted_messages),
             campaign_manager: None,
             window_manager_owner: None,
 
+                        client_frame: None,
+            logic_frame: None,
+            ui: None,
+            menu_world: None,
+            menu_host: None,
             main_menu: None,
         };
         for state in [0x02, 0x01] {
@@ -200,6 +214,7 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
     assert!(viewport.writes.is_empty());
     assert_eq!(bar.get_control_bar_stage(), ControlBarStage::Default);
     {
+        let mut emitted_messages = Vec::new();
         let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
@@ -221,10 +236,15 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
             game_ending: false,
             tooltips_disabled: false,
             cursor_mouse: None,
-            emitted_messages: None,
+            emitted_messages: Some(&mut emitted_messages),
             campaign_manager: None,
             window_manager_owner: None,
 
+                        client_frame: None,
+            logic_frame: None,
+            ui: None,
+            menu_world: None,
+            menu_host: None,
             main_menu: None,
         };
         for state in [0x02, 0x01] {
@@ -233,6 +253,7 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
     }
     assert!(viewport.writes.is_empty());
     {
+        let mut emitted_messages = Vec::new();
         let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
@@ -254,10 +275,15 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
             game_ending: false,
             tooltips_disabled: false,
             cursor_mouse: None,
-            emitted_messages: None,
+            emitted_messages: Some(&mut emitted_messages),
             campaign_manager: None,
             window_manager_owner: None,
 
+                        client_frame: None,
+            logic_frame: None,
+            ui: None,
+            menu_world: None,
+            menu_host: None,
             main_menu: None,
         };
         for state in [0x02, 0x01] {
@@ -271,13 +297,14 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
 
 #[test]
 fn wnd_large_button_captures_authored_marker_with_borrowed_offset_parent() {
+    crate::test_support::ensure_ambient_host();
     let schemes = game_engine::common::ini::ensure_control_bar_scheme_manager();
     schemes.write().clear();
     let (mut manager, parent, button) = wnd();
     parent.borrow_mut().set_position(23, 117).unwrap();
     let marker_id = NameKeyGenerator::name_to_key("ControlBar.wnd:BackgroundMarker") as i32;
     let marker = manager
-        .create_window_with_id(Some(&parent), 6, 144, 4, 4, marker_id)
+        .test_create_window_with_id(Some(&parent), 6, 144, 4, 4, marker_id)
         .unwrap();
     assert_eq!(marker.borrow().get_screen_position(), (29, 261));
     let mut bar = ControlBar::new();
@@ -307,6 +334,7 @@ fn wnd_large_button_captures_authored_marker_with_borrowed_offset_parent() {
 
 #[test]
 fn wnd_restoring_default_applies_receiving_context_visibility_before_parent_borrow() {
+    crate::test_support::ensure_ambient_host();
     let (mut manager, parent, button) = wnd();
     let (mut peer, _, _) = wnd();
     let mut windows = Vec::new();
@@ -322,13 +350,13 @@ fn wnd_restoring_default_applies_receiving_context_visibility_before_parent_borr
         let full_name = format!("ControlBar.wnd:{name}");
         let id = NameKeyGenerator::name_to_key(&full_name) as i32;
         let actual = manager
-            .create_window_with_id(Some(&parent), 0, 0, 1, 1, id)
+            .test_create_window_with_id(Some(&parent), 0, 0, 1, 1, id)
             .unwrap();
         actual.borrow_mut().set_name(&full_name);
-        actual.borrow_mut().hide(initially_hidden).unwrap();
-        let foreign = peer.create_window_with_id(None, 0, 0, 1, 1, id).unwrap();
+        actual.borrow_mut().hide_without_manager_side_effects(initially_hidden).unwrap();
+        let foreign = peer.test_create_window_with_id(None, 0, 0, 1, 1, id).unwrap();
         foreign.borrow_mut().set_name(&full_name);
-        foreign.borrow_mut().hide(initially_hidden).unwrap();
+        foreign.borrow_mut().hide_without_manager_side_effects(initially_hidden).unwrap();
         windows.push((actual, foreign, initially_hidden, final_hidden));
     }
     let mut bar = ControlBar::new();
@@ -352,6 +380,7 @@ fn wnd_restoring_default_applies_receiving_context_visibility_before_parent_borr
 
 #[test]
 fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
+    crate::test_support::ensure_ambient_host();
     use crate::gui::control_bar::control_bar_observer::{
         NativeObserverPlayer, NativeObserverRoster,
     };
@@ -393,7 +422,7 @@ fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
     other.admit_observer_button_owned(Some(7), &peer);
     let mut manager = WindowManager::new();
     let parent = manager
-        .create_window_with_id(None, 0, 0, 200, 100, 42)
+        .test_create_window_with_id(None, 0, 0, 200, 100, 42)
         .unwrap();
     manager.bind_window_callbacks(
         &mut parent.borrow_mut(),
@@ -404,7 +433,7 @@ fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
     );
     let id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonPlayer0") as i32;
     let button = manager
-        .create_window_with_id(Some(&parent), 0, 0, 40, 20, id)
+        .test_create_window_with_id(Some(&parent), 0, 0, 40, 20, id)
         .unwrap();
     // A stale/foreign userdata identity must not override authored slot0.
     button.borrow_mut().set_user_data(13_i32);
@@ -431,6 +460,7 @@ fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
         writes: Vec::new(),
     };
     {
+        let mut emitted_messages = Vec::new();
         let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
@@ -452,21 +482,33 @@ fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
             game_ending: false,
             tooltips_disabled: false,
             cursor_mouse: None,
-            emitted_messages: None,
+            emitted_messages: Some(&mut emitted_messages),
             campaign_manager: None,
             window_manager_owner: None,
 
+                        client_frame: None,
+            logic_frame: None,
+            ui: None,
+            menu_world: None,
+            menu_host: None,
             main_menu: None,
         };
         // Actual gadget consumes down/up and selected native notification.
         for message in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
-            let _ = manager.send_input_selected(&button, message, 0, 0, false, Some(&mut context));
+            let _ = manager.send_input_selected(&button, message, 0, 0, false, &mut context);
         }
     }
     assert_eq!(bar.observer_target_owned(&roster), Some(7));
     assert_eq!(other.observer_target_owned(&peer), Some(7));
-    bar.update_owned_with_observers(std::time::Duration::from_millis(33), &roster)
+    crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+        bar.update_owned_with_observers(
+            std::time::Duration::from_millis(33),
+            &roster,
+            &mut manager,
+            effects,
+        )
         .unwrap();
+    });
     assert_eq!(
         bar.observer_target_owned(&roster),
         Some(7),
@@ -474,7 +516,7 @@ fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
     );
     let cancel_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonCancel") as i32;
     let cancel = manager
-        .create_window_with_id(Some(&parent), 0, 0, 40, 20, cancel_id)
+        .test_create_window_with_id(Some(&parent), 0, 0, 40, 20, cancel_id)
         .unwrap();
     cancel
         .borrow_mut()
@@ -493,6 +535,7 @@ fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
         },
     );
     {
+        let mut emitted_messages = Vec::new();
         let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
@@ -514,14 +557,19 @@ fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
             game_ending: false,
             tooltips_disabled: false,
             cursor_mouse: None,
-            emitted_messages: None,
+            emitted_messages: Some(&mut emitted_messages),
             campaign_manager: None,
             window_manager_owner: None,
 
+                        client_frame: None,
+            logic_frame: None,
+            ui: None,
+            menu_world: None,
+            menu_host: None,
             main_menu: None,
         };
         for message in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
-            let _ = manager.send_input_selected(&cancel, message, 0, 0, false, Some(&mut context));
+            let _ = manager.send_input_selected(&cancel, message, 0, 0, false, &mut context);
         }
     }
     assert_eq!(

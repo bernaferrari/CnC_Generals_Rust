@@ -125,15 +125,16 @@ mod owned_tests {
 
     #[test]
     fn replay_visibility_uses_receiving_manager_and_explicit_mode() {
+        crate::test_support::ensure_ambient_host();
         let mut owner = WindowManager::new();
         let mut peer = WindowManager::new();
         let id = NameKeyGenerator::name_to_key(PARENT_REPLAY_CONTROL) as i32;
         let parent = owner
-            .create_window_with_id(None, 0, 0, 100, 40, id)
+            .test_create_window_with_id(None, 0, 0, 100, 40, id)
             .unwrap();
-        let peer_parent = peer.create_window_with_id(None, 0, 0, 100, 40, id).unwrap();
-        let _ = parent.borrow_mut().hide(true);
-        let _ = peer_parent.borrow_mut().hide(true);
+        let peer_parent = peer.test_create_window_with_id(None, 0, 0, 100, 40, id).unwrap();
+        let _ = parent.borrow_mut().hide_without_manager_side_effects(true);
+        let _ = peer_parent.borrow_mut().hide_without_manager_side_effects(true);
         show_replay_controls_owned(&mut owner, true);
         assert!(!parent.borrow().is_hidden());
         assert!(peer_parent.borrow().is_hidden());
@@ -156,6 +157,7 @@ mod owned_tests {
 
     #[test]
     fn missing_replay_control_is_not_created_by_visibility_callbacks() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = WindowManager::new();
         let id = NameKeyGenerator::name_to_key(PARENT_REPLAY_CONTROL) as i32;
         show_replay_controls_owned(&mut manager, true);
@@ -165,25 +167,26 @@ mod owned_tests {
     }
     #[test]
     fn authored_replay_callbacks_are_stateless_on_receiving_windows() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = WindowManager::new();
         let window = manager
-            .create_window_with_id(None, 0, 0, 100, 40, 91)
+            .test_create_window_with_id(None, 0, 0, 100, 40, 91)
             .unwrap();
-        let window = window.borrow();
+        let mut window = window.borrow_mut();
         assert_eq!(
-            replay_control_input(&window, WindowMessage::GadgetSelected, 0, 0),
+            replay_control_input(&mut window, WindowMessage::GadgetSelected, 0, 0),
             WindowMsgHandled::Ignored
         );
         assert_eq!(
-            replay_control_system(&window, WindowMessage::GadgetSelected, 0, 0),
+            replay_control_system(&mut window, WindowMessage::GadgetSelected, 0, 0),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            replay_control_system(&window, WindowMessage::Destroy, 0, 0),
+            replay_control_system(&mut window, WindowMessage::Destroy, 0, 0),
             WindowMsgHandled::Ignored
         );
         assert_eq!(
-            replay_control_input(&window, WindowMessage::Destroy, 0, 0),
+            replay_control_input(&mut window, WindowMessage::Destroy, 0, 0),
             WindowMsgHandled::Ignored
         );
     }

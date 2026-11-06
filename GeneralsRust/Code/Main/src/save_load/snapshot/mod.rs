@@ -124,7 +124,7 @@ mod object_module_xfer_persist;
 mod object_xfer_persist;
 mod point_defense_persist;
 mod power_plant_rods_persist;
-mod projectile_stream_persist;
+pub(crate) mod projectile_stream_persist;
 mod score_keeper_persist;
 mod stealth_detector_persist;
 mod stealth_grant_persist;

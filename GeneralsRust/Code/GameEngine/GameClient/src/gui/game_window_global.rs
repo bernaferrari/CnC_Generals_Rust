@@ -1,7 +1,5 @@
 //! GameWindow global helpers for drawing and font lookup.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use glam::Vec2;
 
 use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
@@ -15,18 +13,33 @@ use super::window_manager::WindowManager;
 
 /// Visible `win_draw_image` submits (textured or untextured fill).
 /// Tests can read this when UIRenderer/GPU is not bound.
-static WIN_DRAW_IMAGE_COMMANDS: AtomicUsize = AtomicUsize::new(0);
-
+///
+/// Counter lives on the live GameClient (C++ TheDisplay path). Without a
+/// published client the count is zero and increments are no-ops — no process
+/// FALLBACK AtomicUsize.
 pub fn win_draw_image_queued_count() -> usize {
-    WIN_DRAW_IMAGE_COMMANDS.load(Ordering::Relaxed)
+    crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .win_draw_image_commands()
+            .load(std::sync::atomic::Ordering::Relaxed)
+    })
+    .unwrap_or(0)
 }
 
 pub fn reset_win_draw_image_queued_count() {
-    WIN_DRAW_IMAGE_COMMANDS.store(0, Ordering::Relaxed);
+    let _ = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .win_draw_image_commands()
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+    });
 }
 
 fn note_win_draw_image_command() {
-    WIN_DRAW_IMAGE_COMMANDS.fetch_add(1, Ordering::Relaxed);
+    let _ = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .win_draw_image_commands()
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    });
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -826,7 +839,7 @@ impl WindowManager {
     pub fn win_font_height(&self, font: &GameFont) -> i32 {
         // C++ winFontHeight returns GameFont::height — the glyph atlas cell
         // (Get_Char_Height, W3DGameFont.cpp:71), not the point size.
-        super::font::get_font_library()
+        super::font::get_font_library().lock().unwrap_or_else(|e| e.into_inner())
             .get_font(&font.to_font_desc())
             .map(|resolved| resolved.height)
             .unwrap_or_else(|_| super::font::font_pixel_size(font.size))
@@ -850,7 +863,7 @@ impl WindowManager {
     /// Find a font by name.
     pub fn win_find_font(&self, font_name: &str, point_size: i32, bold: bool) -> Option<GameFont> {
         let desc = FontDesc::new(font_name, point_size, bold);
-        if get_font_library().get_font(&desc).is_ok() {
+        if get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&desc).is_ok() {
             Some(GameFont {
                 name: font_name.to_string(),
                 size: point_size,
@@ -868,6 +881,7 @@ mod overlay_tests {
 
     #[test]
     fn missing_transparent_overlay_does_not_queue_opaque_base_placeholder() {
+        let _client = crate::test_support::park_live_game_client();
         let name = "MissingCameoOverlayPolicyTest";
         get_mapped_image_collection()
             .write()
@@ -876,14 +890,14 @@ mod overlay_tests {
         let image = manager.win_find_image(name).expect("mapped metadata");
 
         reset_win_draw_image_queued_count();
-        manager.win_draw_transparent_overlay_image(&image, 0, 0, 64, 64);
+        { let mut __dc = crate::gui::window_draw_context::WindowDrawContext::new(None, Default::default()); manager.win_draw_transparent_overlay_image(&image, 0, 0, 64, 64, &mut __dc); }
         assert_eq!(
             win_draw_image_queued_count(),
             0,
             "missing overlay pixels must leave the base cameo visible"
         );
 
-        manager.win_draw_image(&image, 0, 0, 64, 64, WIN_COLOR_UNDEFINED);
+        { let mut __dc = crate::gui::window_draw_context::WindowDrawContext::new(None, Default::default()); manager.win_draw_image(&image, 0, 0, 64, 64, WIN_COLOR_UNDEFINED, &mut __dc); }
         assert_eq!(
             win_draw_image_queued_count(),
             1,
@@ -895,7 +909,7 @@ mod overlay_tests {
 fn create_display_string(font: &GameFont, text: &str, max_width: i32) -> DisplayStringHandle {
     let mut manager = DisplayStringManager::new();
     let mut display = manager.new_display_string();
-    if let Ok(font_ref) = get_font_library().get_font(&font.to_font_desc()) {
+    if let Ok(font_ref) = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&font.to_font_desc()) {
         display.borrow_mut().set_font(font_ref);
     }
     display.borrow_mut().set_text(text.to_string());

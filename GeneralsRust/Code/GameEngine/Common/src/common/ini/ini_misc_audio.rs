@@ -8,7 +8,6 @@
 use crate::common::audio::AudioEventRts as EngineAudioEventRts;
 use crate::common::audio::game_audio::{get_global_audio_manager, initialize_global_audio_manager};
 use crate::common::ini::ini::{FieldParse, INI, INIError, INIResult};
-use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -680,13 +679,9 @@ audio_event_parser!(
 audio_event_parser!(parse_aircraft_wheel_screech, aircraft_wheel_screech);
 
 /// Global MiscAudio instance (thread-safe)
-static MISC_AUDIO: OnceCell<Arc<RwLock<MiscAudio>>> = OnceCell::new();
-
 /// Ensure the misc audio collection exists and return a handle to it
 pub fn ensure_misc_audio() -> Arc<RwLock<MiscAudio>> {
-    MISC_AUDIO
-        .get_or_init(|| Arc::new(RwLock::new(MiscAudio::new())))
-        .clone()
+    Arc::clone(&crate::common::common_services::common_services().ini.misc_audio)
 }
 
 /// Initialize (or reinitialize) the global misc audio
@@ -697,7 +692,7 @@ pub fn init_global_misc_audio() {
 
 /// Get a handle to the global misc audio if initialized
 pub fn get_misc_audio() -> Option<Arc<RwLock<MiscAudio>>> {
-    MISC_AUDIO.get().cloned()
+    Some(Arc::clone(&crate::common::common_services::common_services().ini.misc_audio))
 }
 
 /// INI parsing function for MiscAudio definition (matches C++ interface)

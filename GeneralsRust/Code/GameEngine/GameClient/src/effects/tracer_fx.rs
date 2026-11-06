@@ -6,7 +6,6 @@
 //! - `W3DTracerDraw.cpp` Line3D from (0,0,0)→(length,0,0), opacity decay,
 //!   local-X translation by speed each frame
 
-use std::cell::RefCell;
 use std::sync::{Mutex, OnceLock};
 
 use gamelogic::object::draw::{DrawModule, TracerDrawInterface};
@@ -47,6 +46,12 @@ struct TracerStore {
     tracers: Vec<TracerFxInstance>,
 }
 
+impl Default for TracerStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TracerStore {
     fn new() -> Self {
         Self {
@@ -56,20 +61,14 @@ impl TracerStore {
     }
 }
 
-// THREAD: main thread only — tracers are spawned by FXList nuggets on the game
-// thread and rendered by the same thread's draw pass.
-thread_local! {
-    static TRACERS: RefCell<TracerStore> = RefCell::new(TracerStore::new());
-}
+/// Serializes tests that touch the per-client tracer store.
+#[cfg(test)]
+static TRACER_FX_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
-fn with_tracers<R>(f: impl FnOnce(&mut TracerStore) -> R) -> R {
-    TRACERS.with_borrow_mut(f)
-}
-
-/// Serializes tests that touch the per-thread tracer store.
+#[cfg(test)]
 pub fn lock_tracer_fx_tests() -> std::sync::MutexGuard<'static, ()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+    TRACER_FX_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
         .lock()
         .unwrap_or_else(|e| e.into_inner())
 }
@@ -240,6 +239,12 @@ struct TracerDrawableStore {
     drawables: Vec<LiveTracerDrawable>,
 }
 
+impl Default for TracerDrawableStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TracerDrawableStore {
     fn new() -> Self {
         Self {
@@ -249,14 +254,72 @@ impl TracerDrawableStore {
     }
 }
 
-thread_local! {
-    static TRACER_DRAWABLES: RefCell<TracerDrawableStore> =
-        RefCell::new(TracerDrawableStore::new());
+/// Per-client tracer instances + drawable stand-ins (was process TLS).
+#[derive(Default)]
+pub struct TracerFxState {
+    tracers: TracerStore,
+    drawables: TracerDrawableStore,
+}
+
+impl TracerFxState {
+    pub fn clear(&mut self) {
+        self.tracers.tracers.clear();
+        self.drawables.drawables.clear();
+    }
+
+    pub fn live_tracers(&self) -> Vec<TracerFxInstance> {
+        self.tracers.tracers.clone()
+    }
+
+    pub fn live_drawables(&self) -> Vec<LiveTracerDrawable> {
+        self.drawables.drawables.clone()
+    }
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static TEST_TRACER_STORE: std::cell::RefCell<TracerStore> =
+        std::cell::RefCell::new(TracerStore::new());
+    static TEST_TRACER_DRAWABLES: std::cell::RefCell<TracerDrawableStore> =
+        std::cell::RefCell::new(TracerDrawableStore::new());
+}
+
+fn with_tracers<R>(f: impl FnOnce(&mut TracerStore) -> R) -> R {
+    let mut f = Some(f);
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        f.take().expect("tracer callback")(&mut client.tracers_mut().tracers)
+    }) {
+        return result;
+    }
+    #[cfg(test)]
+    {
+        return TEST_TRACER_STORE.with(|slot| f.take().expect("tracer callback")(&mut slot.borrow_mut()));
+    }
+    #[cfg(not(test))]
+    {
+        f.take().expect("tracer callback")(&mut TracerStore::new())
+    }
 }
 
 fn with_tracer_drawables<R>(f: impl FnOnce(&mut TracerDrawableStore) -> R) -> R {
-    TRACER_DRAWABLES.with_borrow_mut(f)
+    let mut f = Some(f);
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        f.take().expect("tracer drawable callback")(&mut client.tracers_mut().drawables)
+    }) {
+        return result;
+    }
+    #[cfg(test)]
+    {
+        return TEST_TRACER_DRAWABLES.with(|slot| {
+            f.take().expect("tracer drawable callback")(&mut slot.borrow_mut())
+        });
+    }
+    #[cfg(not(test))]
+    {
+        f.take().expect("tracer drawable callback")(&mut TracerDrawableStore::new())
+    }
 }
+
 
 pub fn live_tracer_drawables() -> Vec<LiveTracerDrawable> {
     with_tracer_drawables(|store| store.drawables.clone())
@@ -546,6 +609,7 @@ mod tests {
 
     #[test]
     fn fxlist_tracer_nugget_create_tracer_fx_gpu_mesh_after_n_frames_matches_cpp() {
+        crate::test_support::ensure_ambient_host();
         let _guard = lock_tracer_fx_tests();
         clear_tracer_fx();
 
@@ -682,6 +746,7 @@ mod tests {
 
     #[test]
     fn tracer_fx_zero_nugget_speed_uses_primary_speed_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let _guard = lock_tracer_fx_tests();
         clear_tracer_fx();
         let mut nugget = TracerFXNugget::new("GenericTracer".to_string());
@@ -720,6 +785,7 @@ mod tests {
 
     #[test]
     fn spawn_tracer_drawable_like_cpp_applies_w3d_tracer_draw_local_x() {
+        crate::test_support::ensure_ambient_host();
         let _guard = lock_tracer_fx_tests();
         clear_tracer_fx();
         let primary = [10.0_f32, 20.0, 30.0];

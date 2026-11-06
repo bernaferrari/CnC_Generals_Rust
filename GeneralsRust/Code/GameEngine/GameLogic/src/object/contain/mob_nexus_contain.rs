@@ -400,11 +400,15 @@ impl MobNexusContain {
         rider.clear_disabled(DisabledType::Held);
 
         if !self.module_data.exit_bone.is_empty() {
-            if let Some(bone_pos) = self.with_owner_object(|owner| {
-                let (_, bone_pos, _) =
-                    owner.get_single_logical_bone_position(&self.module_data.exit_bone);
-                bone_pos
-            }) {
+            // C++ only moves the rider when the ExitBone is actually found.
+            if let Some(bone_pos) = self
+                .with_owner_object(|owner| {
+                    let (found, bone_pos, _) =
+                        owner.get_single_logical_bone_position(&self.module_data.exit_bone);
+                    found.then_some(bone_pos)
+                })
+                .flatten()
+            {
                 let _ = rider.set_position(&bone_pos);
             }
         }
@@ -439,11 +443,16 @@ impl MobNexusContain {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
-        if self.module_data.scatter_nearby_on_exit {
-            let _ = self.base.scatter_to_nearby_position(&mut rider);
-        }
+        let scatter_ai = if self.module_data.scatter_nearby_on_exit {
+            self.base.scatter_to_nearby_position(&mut rider)?
+        } else {
+            None
+        };
         self.extra_slots_in_use -= (slot_count as i32) - 1;
         drop(rider);
+        if let Some((ai, dest)) = scatter_ai {
+            self.base.apply_scatter_ai_followup(&ai, &dest);
+        }
 
         if self.base.get_contain_count() == 0 {
             if let Some(drawable) = self
@@ -831,10 +840,11 @@ impl Snapshotable for MobNexusContain {
 
 impl ContainModuleInterface for MobNexusContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| {
             return self.is_valid_container_for(&*obj_guard, true);
-        });
-        false
+            })
+            .unwrap_or(false)
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
@@ -1158,8 +1168,68 @@ mod tests {
         (physics, record)
     }
 
+    /// Object admission and `Object::drop` read the active Core stores
+    /// (WorldServices + TheAI); without them a dropped fixture object
+    /// double-panics and aborts the test binary (hq-2qedt.69).
+    fn with_fixture_services(body: fn()) {
+        let _lock = crate::test_sync::lock();
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, || {
+            let stores = crate::system::engine_stores::new_for_world();
+            crate::system::engine_stores::with_active_stores(&stores, body)
+        });
+    }
+
+    #[test]
+    fn missing_exit_bone_preserves_rider_position_like_cpp() {
+        // C++ MobNexusContain.cpp:215-226 moves the rider only when the
+        // drawable reports exactly one pristine ExitBone position.
+        let _lock = crate::test_sync::lock();
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        let services = crate::system::engine_stores::new_world_services();
+        game_engine::common::common_services::with_common_services(&common, || {
+            crate::system::engine_stores::with_world_services(&services, missing_exit_bone_body)
+        });
+    }
+
+    fn missing_exit_bone_body() {
+        let owner_id = 91_440_031;
+        let rider_id = 91_440_032;
+        let owner = test_object("MobNexusNoBoneOwner", owner_id);
+        let rider = test_object("MobNexusNoBoneRider", rider_id);
+        let _ = owner
+            .write()
+            .expect("owner")
+            .set_position(&Coord3D::new(100.0, 50.0, 0.0));
+        let _ = rider
+            .write()
+            .expect("rider")
+            .set_position(&Coord3D::new(5.0, 6.0, 0.0));
+        let mut data = MobNexusContainModuleData::default();
+        data.exit_bone = "ExitStart".to_string();
+        // Isolate the ExitBone step from the scatter move that follows it.
+        data.scatter_nearby_on_exit = false;
+        let mut nexus = MobNexusContain::new(Arc::downgrade(&owner), &data).expect("nexus");
+
+        nexus.on_removing(rider_id).expect("missing bone removal");
+
+        let pos = *rider.read().expect("rider").get_position();
+        assert_eq!((pos.x, pos.y), (5.0, 6.0));
+
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(owner_id);
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(rider_id);
+        // Object::drop needs the Core AI runtime, which this fixture lacks.
+        std::mem::forget(nexus);
+        std::mem::forget(owner);
+        std::mem::forget(rider);
+    }
+
     #[test]
     fn on_removing_scales_exit_pitch_by_center_of_mass() {
+        with_fixture_services(on_removing_scales_exit_pitch_by_center_of_mass_body);
+    }
+
+    fn on_removing_scales_exit_pitch_by_center_of_mass_body() {
         let owner_id = 91_440_011;
         let rider_id = 91_440_012;
         let _registered = Registered(vec![owner_id, rider_id]);
@@ -1187,6 +1257,10 @@ mod tests {
 
     #[test]
     fn on_removing_same_physics_scales_pitch_without_nesting() {
+        with_fixture_services(on_removing_same_physics_scales_pitch_without_nesting_body);
+    }
+
+    fn on_removing_same_physics_scales_pitch_without_nesting_body() {
         let owner_id = 91_440_021;
         let rider_id = 91_440_022;
         let _registered = Registered(vec![owner_id, rider_id]);
@@ -1212,6 +1286,10 @@ mod tests {
 
     #[test]
     fn on_removing_without_parent_physics_leaves_pitch() {
+        with_fixture_services(on_removing_without_parent_physics_leaves_pitch_body);
+    }
+
+    fn on_removing_without_parent_physics_leaves_pitch_body() {
         let owner_id = 91_440_031;
         let rider_id = 91_440_032;
         let _registered = Registered(vec![owner_id, rider_id]);

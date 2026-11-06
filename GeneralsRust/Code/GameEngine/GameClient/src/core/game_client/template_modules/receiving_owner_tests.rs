@@ -81,6 +81,7 @@ fn module_data(client: &mut GameClient) -> (Vec<String>, f32, u32) {
 #[test]
 fn actual_authored_native_modules_keep_receiving_data_tags_and_namespace_with_foreign_factory_held()
 {
+    crate::test_support::ensure_ambient_host();
     let mut first_catalog = catalog("");
     let mut peer_catalog = catalog("PeerNamespacePrefix");
     let first = admit(
@@ -148,6 +149,7 @@ fn actual_authored_native_modules_keep_receiving_data_tags_and_namespace_with_fo
 
 #[test]
 fn actual_authored_empty_native_template_does_not_infer_draw_from_tank_identity() {
+    crate::test_support::ensure_ambient_host();
     let mut content = catalog("");
     let plan = admit(&mut content, "KindOf = VEHICLE");
     let mut receiver = GameClient::new().unwrap();
@@ -181,6 +183,7 @@ fn actual_authored_empty_native_template_does_not_infer_draw_from_tank_identity(
 #[test]
 fn actual_model_parser_allocates_turret_transition_then_tag_in_receiving_namespace_and_rolls_back_rejection()
  {
+    crate::test_support::ensure_ambient_host();
     for index in 0..12 {
         NameKeyGenerator::name_to_key(&format!("UnrelatedCompatibility{index}"));
     }
@@ -231,6 +234,7 @@ fn actual_model_parser_allocates_turret_transition_then_tag_in_receiving_namespa
 
 #[test]
 fn actual_authored_native_lod_and_shrub_sway_filter_use_receiving_policy() {
+    crate::test_support::ensure_ambient_host();
     let mut content = catalog("");
     let plan = admit(
         &mut content,
@@ -295,6 +299,7 @@ fn ambient_content(
 
 #[test]
 fn actual_same_name_receiving_ambient_rebinds_exact_plan_and_never_falls_back_on_absence() {
+    crate::test_support::ensure_ambient_host();
     use gamelogic::common::types::BodyDamageType;
     fn event(client: &mut GameClient, damage: BodyDamageType) -> Option<String> {
         let id = client.get_drawable_for_object(42).unwrap();
@@ -396,6 +401,7 @@ fn actual_same_name_receiving_ambient_rebinds_exact_plan_and_never_falls_back_on
 
 #[test]
 fn actual_receiving_ambient_damage_ignores_same_id_foreign_core_body() {
+    crate::test_support::ensure_ambient_host();
     const CHILD: &str = "GENERALS_RECEIVING_AMBIENT_DAMAGE_CHILD";
     if std::env::var_os(CHILD).is_none() {
         use std::io::Read;
@@ -571,6 +577,7 @@ fn actual_receiving_ambient_damage_ignores_same_id_foreign_core_body() {
 
 #[test]
 fn authored_science_uses_received_player_and_definition_identity_with_foreign_factory_held() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::rts::science::{ScienceInfo, ScienceNameFacts, ScienceStore};
     use gamelogic::object::draw::w3d_science_model_draw::ReceivingSciencePlayer;
     fn required_science(client: &mut GameClient) -> (i32, Option<bool>) {
@@ -818,6 +825,7 @@ fn authored_science_uses_received_player_and_definition_identity_with_foreign_fa
 
 #[test]
 fn receiving_night_restamp_uses_session_bits_but_compatibility_and_snow_remain_client_owned() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::bit_flags::{ModelConditionFlags, create_model_condition_flags};
     let content = ambient_content("LightingOwner", "SoundAmbient = NoSound");
     let plan = content.admitted_template("AmericaTankCrusader").unwrap();

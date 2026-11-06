@@ -4,8 +4,7 @@
 //! that are used throughout the WWMath library, converted from the original C++ wwmath.h.
 
 use std::f32;
-use std::sync::LazyLock;
-use std::sync::Mutex;
+use std::sync::OnceLock;
 
 /// Mathematical constants from the original WWMath library
 pub const EPSILON: f32 = 0.0001f32;
@@ -26,16 +25,34 @@ pub const DEG_TO_RAD: f32 = PI / 180.0f32;
 pub const ARC_TABLE_SIZE: usize = 1024;
 pub const SIN_TABLE_SIZE: usize = 1024;
 
-/// Lookup tables for fast trigonometry
-static FAST_ACOS_TABLE: LazyLock<Mutex<Vec<f32>>> =
-    LazyLock::new(|| Mutex::new(vec![0.0; ARC_TABLE_SIZE]));
-static FAST_ASIN_TABLE: LazyLock<Mutex<Vec<f32>>> =
-    LazyLock::new(|| Mutex::new(vec![0.0; ARC_TABLE_SIZE]));
-static FAST_SIN_TABLE: LazyLock<Mutex<Vec<f32>>> =
-    LazyLock::new(|| Mutex::new(vec![0.0; SIN_TABLE_SIZE]));
-static FAST_INV_SIN_TABLE: LazyLock<Mutex<Vec<f32>>> =
-    LazyLock::new(|| Mutex::new(vec![0.0; SIN_TABLE_SIZE]));
-static INITIALIZED: LazyLock<Mutex<bool>> = LazyLock::new(|| Mutex::new(false));
+/// Lookup tables for fast trigonometry (immutable after first init).
+struct TrigTables {
+    acos: Vec<f32>,
+    asin: Vec<f32>,
+    sin: Vec<f32>,
+    inv_sin: Vec<f32>,
+}
+
+static TRIG_TABLES: OnceLock<TrigTables> = OnceLock::new();
+
+/// MSVC-style LCG state for `WWMath::Random_Float` (owned; not a process global).
+#[derive(Debug, Clone, Copy)]
+pub struct WwMathRng {
+    state: u32,
+}
+
+impl WwMathRng {
+    /// C++ `srand`-equivalent seed. Default seed `1` matches the old TLS initial state.
+    pub const fn new(seed: u32) -> Self {
+        Self { state: if seed == 0 { 1 } else { seed } }
+    }
+}
+
+impl Default for WwMathRng {
+    fn default() -> Self {
+        Self::new(1)
+    }
+}
 
 /// Collection of mathematical utility functions
 pub struct WWMath;
@@ -54,42 +71,53 @@ impl WWMath {
 
     /// Initialize the WWMath subsystem and precompute lookup tables
     pub fn init() {
-        let mut initialized = INITIALIZED.lock().unwrap();
-        if *initialized {
-            return;
+        let _ = Self::trig_tables();
+    }
+
+    fn build_trig_tables() -> TrigTables {
+        let mut acos = vec![0.0; ARC_TABLE_SIZE];
+        let mut asin = vec![0.0; ARC_TABLE_SIZE];
+        for a in 0..ARC_TABLE_SIZE {
+            let cv = (a as f32 - ARC_TABLE_SIZE as f32 / 2.0)
+                * (1.0 / (ARC_TABLE_SIZE as f32 / 2.0));
+            acos[a] = cv.acos();
+            asin[a] = cv.asin();
         }
 
-        // Initialize arc tables
-        {
-            let mut acos_table = FAST_ACOS_TABLE.lock().unwrap();
-            let mut asin_table = FAST_ASIN_TABLE.lock().unwrap();
-
-            for a in 0..ARC_TABLE_SIZE {
-                let cv = (a as f32 - ARC_TABLE_SIZE as f32 / 2.0)
-                    * (1.0 / (ARC_TABLE_SIZE as f32 / 2.0));
-                acos_table[a] = cv.acos();
-                asin_table[a] = cv.asin();
-            }
+        let mut sin = vec![0.0; SIN_TABLE_SIZE];
+        let mut inv_sin = vec![0.0; SIN_TABLE_SIZE];
+        for a in 0..SIN_TABLE_SIZE {
+            let cv = a as f32 * 2.0 * PI / SIN_TABLE_SIZE as f32;
+            sin[a] = cv.sin();
+            inv_sin[a] = if a > 0 { 1.0 / sin[a] } else { FLOAT_MAX };
         }
 
-        // Initialize sin tables
-        {
-            let mut sin_table = FAST_SIN_TABLE.lock().unwrap();
-            let mut inv_sin_table = FAST_INV_SIN_TABLE.lock().unwrap();
-
-            for a in 0..SIN_TABLE_SIZE {
-                let cv = a as f32 * 2.0 * PI / SIN_TABLE_SIZE as f32;
-                sin_table[a] = cv.sin();
-
-                if a > 0 {
-                    inv_sin_table[a] = 1.0 / sin_table[a];
-                } else {
-                    inv_sin_table[a] = FLOAT_MAX;
-                }
-            }
+        TrigTables {
+            acos,
+            asin,
+            sin,
+            inv_sin,
         }
+    }
 
-        *initialized = true;
+    fn trig_tables() -> &'static TrigTables {
+        TRIG_TABLES.get_or_init(Self::build_trig_tables)
+    }
+
+    fn acos_table() -> &'static [f32] {
+        Self::trig_tables().acos.as_slice()
+    }
+
+    fn asin_table() -> &'static [f32] {
+        Self::trig_tables().asin.as_slice()
+    }
+
+    fn sin_table() -> &'static [f32] {
+        Self::trig_tables().sin.as_slice()
+    }
+
+    fn inv_sin_table() -> &'static [f32] {
+        Self::trig_tables().inv_sin.as_slice()
     }
 
     /// Shutdown the WWMath subsystem
@@ -335,18 +363,18 @@ impl WWMath {
     }
 
     /// Generate a random float between 0 and 1
-    pub fn random_float() -> f32 {
-        Self::random_float_improved()
+    pub fn random_float(rng: &mut WwMathRng) -> f32 {
+        Self::random_float_improved(rng)
     }
 
     /// Generate a random float between 0 and 1 (inclusive of 0, exclusive of 1)
-    pub fn unit_random() -> f32 {
-        Self::random_float_improved()
+    pub fn unit_random(rng: &mut WwMathRng) -> f32 {
+        Self::random_float_improved(rng)
     }
 
     /// Generate a random float in a range
-    pub fn random_float_range(min: f32, max: f32) -> f32 {
-        Self::random_float() * (max - min) + min
+    pub fn random_float_range(min: f32, max: f32, rng: &mut WwMathRng) -> f32 {
+        Self::random_float(rng) * (max - min) + min
     }
 
     /// Convert float to byte (0-255)
@@ -382,7 +410,7 @@ impl WWMath {
         let idx0 = idx0 & (SIN_TABLE_SIZE - 1);
         let idx1 = idx1 & (SIN_TABLE_SIZE - 1);
 
-        let sin_table = FAST_SIN_TABLE.lock().unwrap();
+        let sin_table = Self::sin_table();
         (1.0 - frac) * sin_table[idx0] + frac * sin_table[idx1]
     }
 
@@ -393,8 +421,16 @@ impl WWMath {
 
     /// Fast table-based inverse sine function
     pub fn fast_inv_sin(val: f32) -> f32 {
-        // For now, fall back to division to avoid precision issues near 0
-        1.0 / Self::fast_sin(val)
+        Self::ensure_initialized();
+        let index = val * SIN_TABLE_SIZE as f32 / (2.0 * PI);
+        let idx = Self::float_to_int_floor(index) as usize & (SIN_TABLE_SIZE - 1);
+        // Near 0 the table stores FLOAT_MAX; fall back to division for that bin.
+        let table_val = Self::inv_sin_table()[idx];
+        if table_val >= FLOAT_MAX * 0.5 {
+            1.0 / Self::fast_sin(val)
+        } else {
+            table_val
+        }
     }
 
     /// Fast table-based inverse cosine function
@@ -425,7 +461,7 @@ impl WWMath {
             return Self::acos(val);
         }
 
-        let acos_table = FAST_ACOS_TABLE.lock().unwrap();
+        let acos_table = Self::acos_table();
         (1.0 - frac) * acos_table[idx0] + frac * acos_table[idx1]
     }
 
@@ -452,7 +488,7 @@ impl WWMath {
             return Self::asin(val);
         }
 
-        let asin_table = FAST_ASIN_TABLE.lock().unwrap();
+        let asin_table = Self::asin_table();
         (1.0 - frac) * asin_table[idx0] + frac * asin_table[idx1]
     }
 
@@ -487,28 +523,18 @@ impl WWMath {
     }
 
     /// Better random number generator matching C++ `WWMath::Random_Float`.
-    pub fn random_float_improved() -> f32 {
-        use std::cell::RefCell;
-
-        thread_local! {
-            static RNG_STATE: RefCell<u32> = const { RefCell::new(1) };
-        }
-
-        RNG_STATE.with(|state| {
-            let mut s = state.borrow_mut();
-            let (next, bits) = Self::extract_msvc_rand_12bit(*s);
-            *s = next;
-            (bits as f32) / 0xFFF as f32
-        })
+    ///
+    /// C++ used process `rand()` state. Rust takes an explicit [`WwMathRng`] so
+    /// parallel game instances do not share a mutable process global.
+    pub fn random_float_improved(rng: &mut WwMathRng) -> f32 {
+        let (next, bits) = Self::extract_msvc_rand_12bit(rng.state);
+        rng.state = next;
+        (bits as f32) / 0xFFF as f32
     }
 
     /// Ensure lookup tables are initialized
     fn ensure_initialized() {
-        let initialized = INITIALIZED.lock().unwrap();
-        if !*initialized {
-            drop(initialized);
-            Self::init();
-        }
+        Self::init();
     }
 
     /// Convert float to its bit representation as int
@@ -1039,7 +1065,8 @@ mod tests {
     fn test_random_generation() {
         // Test that random values are in expected range
         for _ in 0..100 {
-            let val = WWMath::random_float_improved();
+            let mut rng = WwMathRng::default();
+            let val = WWMath::random_float_improved(&mut rng);
             assert!(
                 val >= 0.0 && val <= 1.0,
                 "Random value out of range: {}",
@@ -1050,7 +1077,8 @@ mod tests {
         let min = 5.0;
         let max = 10.0;
         for _ in 0..100 {
-            let val = WWMath::random_float_range(min, max);
+            let mut rng = WwMathRng::default();
+            let val = WWMath::random_float_range(min, max, &mut rng);
             assert!(
                 val >= min && val <= max,
                 "Random range value out of bounds: {}",

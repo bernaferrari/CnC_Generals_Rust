@@ -10,7 +10,6 @@
 //!
 //! Matches C++ Locomotor.h and Locomotor.cpp field parse table
 
-use once_cell::sync::OnceCell;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -552,23 +551,24 @@ impl Default for LocomotorStore {
     }
 }
 
-/// Global locomotor store
-static LOCOMOTOR_STORE: OnceCell<RwLock<LocomotorStore>> = OnceCell::new();
-
 /// Get the global locomotor store
-pub fn get_locomotor_store() -> RwLockReadGuard<'static, LocomotorStore> {
-    LOCOMOTOR_STORE
-        .get_or_init(|| RwLock::new(LocomotorStore::new()))
-        .read()
-        .unwrap()
-}
 
 /// Get mutable access to the global locomotor store
+
+fn ini_locomotor_cell() -> std::sync::Arc<std::sync::RwLock<LocomotorStore>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.locomotor)
+}
+
+pub fn get_locomotor_store() -> RwLockReadGuard<'static, LocomotorStore> {
+    let cell = ini_locomotor_cell();
+    let guard = cell.read().expect("LocomotorStore poisoned");
+    unsafe { std::mem::transmute(guard) }
+}
+
 pub fn get_locomotor_store_mut() -> RwLockWriteGuard<'static, LocomotorStore> {
-    LOCOMOTOR_STORE
-        .get_or_init(|| RwLock::new(LocomotorStore::new()))
-        .write()
-        .unwrap()
+    let cell = ini_locomotor_cell();
+    let guard = cell.write().expect("LocomotorStore poisoned");
+    unsafe { std::mem::transmute(guard) }
 }
 
 fn parse_cpp_bool(field_name: &str, value: &str) -> LocomotorResult<bool> {

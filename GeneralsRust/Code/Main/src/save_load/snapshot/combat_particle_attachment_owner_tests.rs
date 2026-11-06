@@ -26,6 +26,7 @@ fn world_and_manager(delay: u32) -> (GameLogic, ParticleSystemManager, ObjectId,
             PARTICLE,
             CombatParticleKind::ParticleSysBone,
             None,
+            &mut (),
         )
         .unwrap();
     let mut manager = ParticleSystemManager::new();
@@ -54,7 +55,7 @@ fn update(world: &mut GameLogic, manager: &mut ParticleSystemManager, frame: u32
     });
 }
 fn physical_remove(world: &mut GameLogic, id: ObjectId) {
-    world.destroy_object(id);
+    world.destroy_object(id).unwrap();
     world.process_destroy_list();
     assert!(world.host_object(id).is_none());
     assert!(!world.has_pending_object_removals());

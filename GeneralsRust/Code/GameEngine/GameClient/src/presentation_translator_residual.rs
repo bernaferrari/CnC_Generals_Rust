@@ -6,8 +6,6 @@
 
 use std::sync::RwLock;
 
-use once_cell::sync::Lazy;
-
 /// Thin catalog entry for translator residual queries.
 #[derive(Debug, Clone)]
 pub struct TranslatorCatalogEntry {
@@ -84,22 +82,49 @@ pub struct TranslatorPresentationResidual {
     pub catalog: Vec<TranslatorCatalogEntry>,
 }
 
-static RESIDUAL: Lazy<RwLock<TranslatorPresentationResidual>> =
-    Lazy::new(|| RwLock::new(TranslatorPresentationResidual::default()));
+#[cfg(test)]
+thread_local! {
+    static TEST_RESIDUAL: std::cell::RefCell<
+        Option<std::sync::Arc<RwLock<TranslatorPresentationResidual>>>,
+    > = const { std::cell::RefCell::new(None) };
+}
+
+fn residual_handle() -> std::sync::Arc<RwLock<TranslatorPresentationResidual>> {
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_translator_presentation_residual()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_RESIDUAL.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| {
+                    std::sync::Arc::new(RwLock::new(TranslatorPresentationResidual::default()))
+                })
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        std::sync::Arc::new(RwLock::new(TranslatorPresentationResidual::default()))
+    }
+}
 
 /// Stamp host presentation residual used by message-stream translators.
 pub fn set_translator_presentation_residual(
     local_team_name: impl Into<String>,
     catalog: Vec<TranslatorCatalogEntry>,
 ) {
-    if let Ok(mut guard) = RESIDUAL.write() {
+    let residual = residual_handle();
+    if let Ok(mut guard) = residual.write() {
         guard.local_team_name = local_team_name.into();
         guard.catalog = catalog;
     }
 }
 
 pub fn translator_local_team_name() -> String {
-    RESIDUAL
+    residual_handle()
         .read()
         .ok()
         .map(|g| g.local_team_name.clone())
@@ -107,7 +132,7 @@ pub fn translator_local_team_name() -> String {
 }
 
 pub fn translator_catalog_entry(object_id: u32) -> Option<TranslatorCatalogEntry> {
-    RESIDUAL
+    residual_handle()
         .read()
         .ok()
         .and_then(|g| g.catalog.iter().find(|e| e.object_id == object_id).cloned())
@@ -115,7 +140,7 @@ pub fn translator_catalog_entry(object_id: u32) -> Option<TranslatorCatalogEntry
 
 /// Wave 1005: dual-world residual — stamped presentation catalog size.
 pub fn translator_catalog_len() -> usize {
-    RESIDUAL.read().ok().map(|g| g.catalog.len()).unwrap_or(0)
+    residual_handle().read().ok().map(|g| g.catalog.len()).unwrap_or(0)
 }
 
 pub fn translator_catalog_has_kind(object_id: u32, kind_name: &str) -> bool {
@@ -170,7 +195,8 @@ pub fn with_translator_catalog<F, R>(f: F) -> R
 where
     F: FnOnce(&[TranslatorCatalogEntry]) -> R,
 {
-    let guard = RESIDUAL.read().ok();
+    let residual = residual_handle();
+    let guard = residual.read().ok();
     match guard {
         Some(g) => f(&g.catalog),
         None => f(&[]),

@@ -111,7 +111,7 @@ fn return_to_base_blocks_fire_until_rearm() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(1));
     assert!(jet.fire_at(
@@ -120,7 +120,7 @@ fn return_to_base_blocks_fire_until_rearm() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(0));
     assert!(jet.needs_return_to_base_rearm());
@@ -130,7 +130,7 @@ fn return_to_base_blocks_fire_until_rearm() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(!Object::weapon_ready_named(
         jet.weapon.as_ref().unwrap(),
@@ -146,7 +146,7 @@ fn return_to_base_blocks_fire_until_rearm() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(1));
 }
@@ -306,7 +306,7 @@ fn empty_jet_circles_last_airfield_not_own_pos() {
     assert!(!jet.is_at_jet_producer_location(80.0));
     assert!(jet.enter_circling_dead_airfield(
         1,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(jet.jet_circling_dead_airfield());
     jet.leave_circling_dead_airfield();
@@ -1220,7 +1220,7 @@ fn stunned_off_map_cliff_water_kills_without_loco() {
     assert!(o.test_stunned_unit_for_destruction(
         0,
         &mut health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(o.status.destroyed);
     assert_eq!(
@@ -1238,7 +1238,7 @@ fn stunned_off_map_cliff_water_kills_without_loco() {
     assert!(c.test_stunned_unit_for_destruction(
         0,
         &mut health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(c.status.destroyed);
 
@@ -1251,7 +1251,7 @@ fn stunned_off_map_cliff_water_kills_without_loco() {
     assert!(w.test_stunned_unit_for_destruction(
         0,
         &mut health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(w.status.destroyed);
 
@@ -1265,7 +1265,7 @@ fn stunned_off_map_cliff_water_kills_without_loco() {
     assert!(!h.test_stunned_unit_for_destruction(
         0,
         &mut health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(!h.status.destroyed);
     h.cell_is_underwater = false;
@@ -1274,7 +1274,7 @@ fn stunned_off_map_cliff_water_kills_without_loco() {
     assert!(!h.test_stunned_unit_for_destruction(
         0,
         &mut health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
 }
 
@@ -1293,7 +1293,7 @@ fn stunned_ai_less_debris_keeps_tumbling_on_cliff_water() {
     assert!(!debris.test_stunned_unit_for_destruction(
         0,
         &mut health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(!debris.status.destroyed);
 
@@ -1302,7 +1302,7 @@ fn stunned_ai_less_debris_keeps_tumbling_on_cliff_water() {
     assert!(!debris.test_stunned_unit_for_destruction(
         0,
         &mut health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(!debris.status.destroyed);
 
@@ -1317,7 +1317,7 @@ fn stunned_ai_less_debris_keeps_tumbling_on_cliff_water() {
     assert!(!crate_obj.test_stunned_unit_for_destruction(
         0,
         &mut health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(!crate_obj.status.destroyed);
 
@@ -1327,7 +1327,7 @@ fn stunned_ai_less_debris_keeps_tumbling_on_cliff_water() {
     assert!(debris.test_stunned_unit_for_destruction(
         0,
         &mut health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(debris.status.destroyed);
 
@@ -1341,7 +1341,7 @@ fn stunned_ai_less_debris_keeps_tumbling_on_cliff_water() {
     assert!(off.test_stunned_unit_for_destruction(
         0,
         &mut health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(off.status.destroyed);
 }
@@ -1517,7 +1517,7 @@ fn shock_bounce_keep_flip_before_stun_test() {
             -0.1,
             0.0,
             &mut health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
         ) > 0.0
     );
     assert!(
@@ -1874,7 +1874,7 @@ fn bounce_damps_pitch_roll_rates_not_zero() {
             -0.1,
             0.0,
             &mut health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
         ) > 0.0
     );
     assert!((s.shock_yaw_rate - 0.7).abs() < 1e-5);
@@ -1936,10 +1936,47 @@ fn jet_stop_idle_timer_sneaky_and_lockon() {
     use crate::game_logic::object::{
         HostJetPendingResume, JetAiTickAction, STEALTH_FIGHTER_LOCKON_TIME_FRAMES,
     };
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
     use glam::Vec3;
 
-    let mut aurora_t = ThingTemplate::new("AmericaJetAurora");
+    // Authored Aurora JetAI fields (AmericaAir.ini) — not template-name invent.
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "USA", true));
+    let aurora_ini = "Object AmericaJetAurora
+KindOf = AIRCRAFT CAN_ATTACK SELECTABLE
+Body = ActiveBody Body
+MaxHealth = 80
+InitialHealth = 80
+End
+Behavior = JetAIUpdate JetAI
+    SneakyOffsetWhenAttacking = -20.0
+    AttackLocomotorType = SET_SUPERSONIC
+    AttackLocomotorPersistTime = 100
+    AttackersMissPersistTime = 2000
+    ReturnForAmmoLocomotorType = SET_SLUGGISH
+    ReturnToBaseIdleTime = 10000
+End
+Locomotor = SET_NORMAL AuroraJetLocomotor
+Locomotor = SET_SUPERSONIC AuroraJetSupersonicLocomotor
+Locomotor = SET_SLUGGISH AuroraJetSluggishLocomotor
+Locomotor = SET_TAXIING BasicJetTaxiLocomotor
+End
+";
+    world
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "aurora-jet-ai.ini".into(),
+                aurora_ini.into(),
+            )])
+            .unwrap(),
+        )
+        .unwrap();
+    assert!(world.ensure_host_spawn_template("AmericaJetAurora"));
+    let mut aurora_t = world
+        .templates
+        .get("AmericaJetAurora")
+        .cloned()
+        .expect("aurora template");
     aurora_t.add_kind_of(KindOf::Aircraft);
     let mut aurora = Object::new(aurora_t, ObjectId(1), Team::USA);
     aurora.set_position(Vec3::new(0.0, 50.0, 0.0));
@@ -2190,7 +2227,8 @@ fn jet_lockon_rearms_after_targeter_removed() {
     use crate::game_logic::object::STEALTH_FIGHTER_LOCKON_TIME_FRAMES;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut sf_t = ThingTemplate::new("AmericaJetStealthFighter");
-    sf_t.add_kind_of(KindOf::Aircraft);
+    sf_t.add_kind_of(KindOf::Aircraft)
+        .set_primary_weapon_name("StealthJetMissileWeapon");
     let mut sf = Object::new(sf_t, ObjectId(2), Team::USA);
     sf.add_jet_targeter(ObjectId(9), true, 100);
     assert!(sf.is_temporarily_preventing_aim_success(100));
@@ -2890,4 +2928,54 @@ fn bind_blocking_fixture_locomotor(object: &mut Object, name: &str) {
     object.locomotor_set_names = vec![name.to_owned()];
     apply_host_locomotor_binding(object, &binding);
     assert!(crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(object));
+}
+
+fn authored_lockon_stealth_fighter_template() -> crate::game_logic::ThingTemplate {
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "authored_lockon_jet.ini".into(),
+        r#"
+Object AuthoredLockonJet
+  KindOf = VEHICLE AIRCRAFT
+  Body = ActiveBody ModuleTag_Body
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+  Behavior = JetAIUpdate ModuleTag_AI
+    LockonTime = 1500
+    LockonCursor = LockonCursor
+  End
+End
+"#
+        .into(),
+    )])
+    .expect("authored lockon jet");
+    let mut world = crate::game_logic::GameLogic::new();
+    world
+        .admit_receiving_module_content(content)
+        .expect("receiving lockon jet");
+    world.templates["AuthoredLockonJet"].clone()
+}
+
+/// hq-2qedt.129: C++ JetAIUpdateModuleData::m_lockonTime defaults to 0
+/// (JetAIUpdate.cpp:1640); only authored `LockonTime` arms lockon.
+#[test]
+fn jet_lockon_time_comes_from_authored_jet_ai_not_template_name() {
+    use crate::game_logic::object::STEALTH_FIGHTER_LOCKON_TIME_FRAMES;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let authored = Object::new(
+        authored_lockon_stealth_fighter_template(),
+        ObjectId(1),
+        Team::USA,
+    );
+    assert_eq!(
+        authored.jet_lockon_time_frames(),
+        STEALTH_FIGHTER_LOCKON_TIME_FRAMES
+    );
+    assert_eq!(authored.jet_lockon_cursor_name(), Some("LockonCursor"));
+
+    let mut named_t = ThingTemplate::new("AmericaJetStealthFighter");
+    named_t.add_kind_of(KindOf::Aircraft);
+    let named = Object::new(named_t, ObjectId(2), Team::USA);
+    assert_eq!(named.jet_lockon_time_frames(), 0, "no name-sniff lockon");
+    assert_eq!(named.jet_lockon_cursor_name(), None);
 }

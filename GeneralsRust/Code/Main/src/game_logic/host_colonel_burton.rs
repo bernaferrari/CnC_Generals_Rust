@@ -304,11 +304,6 @@ pub fn distance_2d(ax: f32, az: f32, bx: f32, bz: f32) -> f32 {
     (dx * dx + dz * dz).sqrt()
 }
 
-/// Whether residual fire should apply Burton residual path (sniper/knife honesty).
-pub fn should_apply_burton_residual(is_burton: bool) -> bool {
-    is_burton
-}
-
 /// Legal residual fire target.
 pub fn is_legal_burton_target(
     is_alive: bool,
@@ -523,15 +518,6 @@ mod tests {
         assert!(!should_apply_burton_knife_residual(true, false, true, 1.0));
         assert!(!should_apply_burton_knife_residual(false, true, true, 1.0));
         assert!(!should_apply_burton_knife_residual(true, true, false, 1.0));
-    }
-
-    #[test]
-    fn legal_and_apply() {
-        assert!(should_apply_burton_residual(true));
-        assert!(!should_apply_burton_residual(false));
-        assert!(is_legal_burton_target(true, false, false, true));
-        assert!(!is_legal_burton_target(false, false, false, true));
-        assert!(!is_legal_burton_target(true, true, false, true));
     }
 
     #[test]

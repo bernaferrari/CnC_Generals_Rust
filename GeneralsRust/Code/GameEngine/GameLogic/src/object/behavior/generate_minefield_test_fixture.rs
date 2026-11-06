@@ -27,7 +27,7 @@ impl MinefieldFixture {
     pub fn new(id: u32) -> Self {
         let template = format!("OwnedMinefieldFixtureMine{id}");
         let mut definitions = ThingFactory::new();
-        assert_eq!(definitions.load_ini_text(&format!("Object {template}\n KindOf = MINE\n Geometry = CYLINDER\n GeometryMajorRadius = 3.0\n GeometryMinorRadius = 3.0\n GeometryHeight = 1.0\nEnd\nObject OwnedMinefieldSource\n Geometry = CYLINDER\n GeometryMajorRadius = 20.0\n GeometryMinorRadius = 20.0\n GeometryHeight = 1.0\nEnd\nObject OwnedMinefieldStructure\n KindOf = STRUCTURE\n Geometry = CYLINDER\n GeometryMajorRadius = 4.0\n GeometryMinorRadius = 4.0\n GeometryHeight = 4.0\nEnd\n")), 3);
+        assert_eq!(definitions.load_ini_text(&format!("Object {template}\n KindOf = MINE\n Geometry = CYLINDER\n GeometryMajorRadius = 3.0\n GeometryMinorRadius = 3.0\n GeometryHeight = 1.0\nEnd\nObject OwnedMinefieldSource\n Geometry = CYLINDER\n GeometryMajorRadius = 20.0\n GeometryMinorRadius = 20.0\n GeometryHeight = 1.0\nEnd\nObject OwnedMinefieldStructure\n KindOf = STRUCTURE\n Geometry = CYLINDER\n GeometryMajorRadius = 4.0\n GeometryMinorRadius = 4.0\n GeometryHeight = 4.0\nEnd\nObject OwnedMinefieldBoxStructure\n KindOf = STRUCTURE\n Geometry = BOX\n GeometryMajorRadius = 20.0\n GeometryMinorRadius = 2.0\n GeometryHeight = 4.0\nEnd\n")), 4);
         let mut map = crate::system::map_loader::MapData::new();
         map.width = 64;
         map.height = 64;
@@ -166,6 +166,9 @@ impl MinefieldFixture {
     pub fn spawn_structure(&mut self, position: Coord3D) -> u32 {
         self.spawn("OwnedMinefieldStructure", position, 0.0)
     }
+    pub fn spawn_box_structure(&mut self, position: Coord3D, orientation: f32) -> u32 {
+        self.spawn("OwnedMinefieldBoxStructure", position, orientation)
+    }
     pub fn assert_real_mines(&self, behavior: &GenerateMinefieldBehavior) -> Vec<u32> {
         let ids = behavior.get_mine_list();
         assert!(
@@ -239,7 +242,7 @@ impl MinefieldPlacement for MinefieldFixture {
         position: &Coord3D,
         skip: f32,
     ) -> BehaviorResult<u32> {
-        let (_, radius) = self.preflight(owner, template)?;
+        self.preflight(owner, template)?;
         let mut highest = *position;
         highest.z = 99999.0;
         if self.terrain.get_highest_layer_for_destination(&highest)
@@ -255,17 +258,24 @@ impl MinefieldPlacement for MinefieldFixture {
         let orientation = self
             .random
             .next_real(-std::f32::consts::PI, std::f32::consts::PI);
-        let query = crate::object::collide::Coord3D::new(position.x, position.y, position.z);
-        for id in self
-            .collision
-            .query_objects_in_radius(&query, radius * (1.0 - skip))
-        {
-            if self.scheduler.find_object_by_id(id).is_some_and(|actor| {
-                actor
-                    .read()
-                    .unwrap()
-                    .is_kind_of(crate::common::KindOf::Structure)
-            }) {
+        // C++ GenerateMinefieldBehavior.cpp:187-197 via iteratePotentialCollisions.
+        let query = mine_structure_query_geometry(
+            &self.definition(template).get_template_geometry_info(),
+            skip,
+        );
+        let max_dist = query.get_bounding_sphere_radius() * 1.1;
+        for id in self.scheduler.get_all_object_ids().to_vec() {
+            let actor = self.scheduler.find_object_by_id(id).unwrap();
+            let them = actor.read().unwrap();
+            let geometry = them.get_geometry_info();
+            let other = them.get_position();
+            let center_z = (geometry.bounds().min.z + geometry.bounds().max.z) * 0.5;
+            let (dx, dy, dz) = (other.x - position.x, other.y - position.y, other.z + center_z - position.z);
+            let boundary = ((dx * dx + dy * dy + dz * dz).sqrt() - geometry.get_bounding_sphere_radius()).max(0.0);
+            if boundary <= max_dist
+                && mine_would_collide(position, &query, orientation, other, &geometry, them.get_orientation())
+                && them.is_kind_of(crate::common::KindOf::Structure)
+            {
                 return Err(BehaviorError::NoSpaceAvailable);
             }
         }
@@ -381,17 +391,183 @@ fn same_id_minefields_create_and_clear_only_the_supplied_match() {
     assert!(peer.get_statistics().is_generated);
 }
 
+#[derive(Debug, Default)]
+struct OwnedGenFxRecorder {
+    calls: std::sync::Mutex<usize>,
+}
+impl crate::common::FXListManagerInterface for OwnedGenFxRecorder {
+    fn do_fx_pos(&self, fx: crate::common::FXListId, _: &crate::common::Coord3D, _: Option<&glam::Mat4>) {
+        assert_eq!(fx, game_engine::common::name_key_generator::NameKeyGenerator::name_to_key("AuthoredMineFX") as crate::common::FXListId);
+        *self.calls.lock().unwrap() += 1;
+    }
+    fn do_fx_obj(&self, _: crate::common::FXListId, _: crate::common::ThingId) {}
+    fn do_fx_for_object(&self, _: crate::common::FXListId, _: &Object) {}
+    fn do_fx_for_host_objects(&self, _: crate::common::FXListId, _: &crate::helpers::HostFxObjectPose, _: Option<&crate::helpers::HostFxObjectPose>) {}
+}
+
 #[test]
-fn unsupported_generation_fx_rejects_before_creation_or_generation() {
-    let mut fixture = MinefieldFixture::new(98_106);
+fn owned_place_mines_plays_generation_fx_once_after_placement() {
+    // GenerateMinefieldBehavior.cpp:431: genFX fires once after the mines exist.
+    let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+    game_engine::common::common_services::with_common_services(&common, || {
+        let stores = Arc::new(crate::system::engine_stores::EngineStores::new_for_world());
+        crate::system::engine_stores::with_active_stores(&stores, || {
+            let recorder = Arc::new(OwnedGenFxRecorder::default());
+            assert!(crate::helpers::register_fx_list_manager(recorder.clone()));
+            let mut fixture = MinefieldFixture::new(98_106);
+            let mut behavior = fixture.behavior(false);
+            behavior.config.generation_fx = Some("AuthoredMineFX".into());
+            let before = fixture.scheduler.get_all_object_ids().len();
+            behavior.place_mines_owned(&mut fixture).expect("owned place with genFX");
+            assert!(fixture.scheduler.get_all_object_ids().len() > before, "mines placed");
+            assert!(behavior.get_statistics().is_generated);
+            assert_eq!(*recorder.calls.lock().unwrap(), 1, "gen FX fires once");
+        })
+    });
+}
+
+#[test]
+fn missing_owner_errors_with_generated_flag_already_set() {
+    // GenerateMinefieldBehavior.cpp:349-361 sets m_generated before resolving
+    // the mine template/owner, so a failed placement never retries.
+    let services = std::sync::Arc::new(game_engine::common::common_services::CommonServices::new());
+    game_engine::common::common_services::with_common_services(&services, || {
+    let mut fixture = MinefieldFixture::new(98_107);
     let mut behavior = fixture.behavior(false);
-    behavior.config.generation_fx = Some("AuthoredMineFX".into());
+    behavior.object_id = 0xDEAD_BEEF;
     let before = fixture.scheduler.get_all_object_ids().to_vec();
     assert!(matches!(
         behavior.place_mines_owned(&mut fixture),
-        Err(BehaviorError::ServiceUnavailable(_))
+        Err(BehaviorError::ObjectNotFound { .. })
     ));
+    assert!(behavior.get_statistics().is_generated);
     assert_eq!(fixture.scheduler.get_all_object_ids(), before);
-    assert!(!behavior.get_statistics().is_generated);
-    assert_eq!(behavior.get_statistics().mine_count, 0);
+    assert!(matches!(
+        behavior.place_mines_owned(&mut fixture),
+        Err(BehaviorError::MinefieldAlreadyGenerated)
+    ));
+    });
+}
+
+#[test]
+fn emp_upgrade_destroys_old_mines_immediately_then_places_upgraded() {
+    let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+    game_engine::common::common_services::with_common_services(&common, || {
+        let stores = Arc::new(crate::system::engine_stores::EngineStores::new_for_world());
+        crate::system::engine_stores::with_active_stores(&stores, emp_upgrade_body)
+    });
+}
+
+fn emp_upgrade_body() {
+    let mut fixture = MinefieldFixture::new(98_133);
+    let mut behavior = fixture.behavior(false);
+    behavior.config.mine_name_upgraded = Some(fixture.template.clone());
+    behavior.place_mines_owned(&mut fixture).unwrap();
+    let old = fixture.assert_real_mines(&behavior);
+    assert_eq!(
+        behavior.update_upgrade_owned(false, &mut fixture).unwrap(),
+        UpdateSleepTime::None
+    );
+    assert_eq!(behavior.get_mine_list(), old);
+    assert_eq!(
+        behavior.update_upgrade_owned(true, &mut fixture).unwrap(),
+        UpdateSleepTime::None
+    );
+    // C++ GenerateMinefieldBehavior.cpp:456-464: destroyObject is synchronous,
+    // so every old mine is already DESTROYED in the same update.
+    for id in &old {
+        assert!(
+            fixture
+                .scheduler
+                .find_object_by_id(*id)
+                .unwrap()
+                .read()
+                .unwrap()
+                .is_destroyed(),
+            "old mine {id} must be destroyed in the upgrade update"
+        );
+    }
+    let new = fixture.assert_real_mines(&behavior);
+    assert!(new.iter().all(|id| !old.contains(id)));
+    assert!(behavior.get_statistics().is_upgraded);
+    assert_eq!(
+        behavior.update_upgrade_owned(true, &mut fixture).unwrap(),
+        UpdateSleepTime::Forever
+    );
+}
+
+#[test]
+fn oriented_structure_footprint_rejects_mine_off_structure_center() {
+    let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+    game_engine::common::common_services::with_common_services(&common, || {
+        let stores = Arc::new(crate::system::engine_stores::EngineStores::new_for_world());
+        crate::system::engine_stores::with_active_stores(&stores, oriented_footprint_body)
+    });
+}
+
+fn oriented_footprint_body() {
+    // GenerateMinefieldBehavior.cpp:183-197: oriented, shrunk mine footprint
+    // vs the structure's oriented box, not structure-center-in-radius.
+    let mut fixture = MinefieldFixture::new(98_134);
+    let template = fixture.template.clone();
+    let along = Coord3D::new(192.0, 192.0, 3.0);
+    fixture.spawn_box_structure(along, 0.0);
+    // 15 ft from the box center along its 20 ft half-length: under the box.
+    assert!(matches!(
+        fixture.place(fixture.id, &template, &Coord3D::new(207.0, 192.0, 3.0), 0.33),
+        Err(BehaviorError::NoSpaceAvailable)
+    ));
+    // Same offset across a box rotated 90 degrees: clear of the footprint.
+    let across = Coord3D::new(192.0, 320.0, 3.0);
+    fixture.spawn_box_structure(across, std::f32::consts::FRAC_PI_2);
+    assert!(
+        fixture
+            .place(fixture.id, &template, &Coord3D::new(207.0, 320.0, 3.0), 0.33)
+            .is_ok()
+    );
+}
+
+#[derive(Debug, Default)]
+struct GenFxRecorder {
+    mines_at_fx: std::sync::Mutex<Vec<usize>>,
+}
+impl crate::common::FXListManagerInterface for GenFxRecorder {
+    fn do_fx_pos(&self, fx: crate::common::FXListId, _: &crate::common::Coord3D, _: Option<&glam::Mat4>) {
+        assert_eq!(fx, game_engine::common::name_key_generator::NameKeyGenerator::name_to_key("LegacyMineGenFX") as crate::common::FXListId);
+        let mines = crate::object_manager::get_object_manager().read().unwrap().get_object_count();
+        self.mines_at_fx.lock().unwrap().push(mines);
+    }
+    fn do_fx_obj(&self, _: crate::common::FXListId, _: crate::common::ThingId) {}
+    fn do_fx_for_object(&self, _: crate::common::FXListId, _: &Object) {}
+    fn do_fx_for_host_objects(&self, _: crate::common::FXListId, _: &crate::helpers::HostFxObjectPose, _: Option<&crate::helpers::HostFxObjectPose>) {}
+}
+
+#[test]
+fn legacy_place_mines_plays_generation_fx_after_mines_exist() {
+    let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+    game_engine::common::common_services::with_common_services(&common, || {
+        let stores = Arc::new(crate::system::engine_stores::EngineStores::new_for_world());
+        crate::system::engine_stores::with_active_stores(&stores, legacy_gen_fx_body)
+    });
+}
+
+fn legacy_gen_fx_body() {
+    // GenerateMinefieldBehavior.cpp:431: FXList::doFXObj(m_genFX) runs after
+    // every mine of the field has been created.
+    let fixture = MinefieldFixture::new(98_135);
+    {
+        let mut guard = game_engine::common::thing::thing_factory::get_thing_factory().unwrap();
+        let factory = guard.get_or_insert_with(ThingFactory::new);
+        assert_eq!(factory.load_ini_text(&format!("Object {}\n KindOf = MINE\n Geometry = CYLINDER\n GeometryMajorRadius = 3.0\n GeometryMinorRadius = 3.0\n GeometryHeight = 1.0\nEnd\n", fixture.template)), 1);
+    }
+    let owner = fixture.factory.get_object(fixture.id).unwrap().get_base_object().unwrap();
+    crate::object::registry::OBJECT_REGISTRY.register_object(fixture.id, &owner);
+    let recorder = Arc::new(GenFxRecorder::default());
+    assert!(crate::helpers::register_fx_list_manager(recorder.clone()));
+    let mut behavior = fixture.behavior(false);
+    behavior.config.generation_fx = Some("LegacyMineGenFX".into());
+    behavior.place_mines().expect("legacy place_mines");
+    let mines = behavior.get_mine_list();
+    assert!(!mines.is_empty(), "legacy path creates real mines");
+    assert_eq!(*recorder.mines_at_fx.lock().unwrap(), vec![mines.len()], "gen FX fires once, after all mines exist");
 }

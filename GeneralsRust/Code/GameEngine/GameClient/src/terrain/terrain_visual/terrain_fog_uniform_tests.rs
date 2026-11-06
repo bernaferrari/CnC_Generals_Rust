@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn terrain_fog_uniform_layout_and_receiving_inputs_match_wgsl() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(std::mem::size_of::<TerrainUniforms>(), 256);
     assert_eq!(std::mem::offset_of!(TerrainUniforms, time), 208);
     assert_eq!(std::mem::offset_of!(TerrainUniforms, fog_color), 224);
@@ -33,6 +34,7 @@ fn terrain_fog_uniform_layout_and_receiving_inputs_match_wgsl() {
 #[test]
 #[ignore = "requires a serialized native GPU"]
 fn actual_terrain_shader_pixels_use_only_receiving_enabled_fog_range() {
+    crate::test_support::ensure_ambient_host();
     let instance = wgpu::Instance::default();
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::LowPower,

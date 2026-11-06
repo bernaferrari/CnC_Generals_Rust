@@ -5,7 +5,7 @@
 
 use glam::{Mat3, Mat4 as GlamMat4, Vec3};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 use thiserror::Error;
 
@@ -332,6 +332,8 @@ pub struct ParticleSystemManager {
     runtime_owner: Arc<()>,
     random_state: game_engine::common::random_value::RandomState,
     definitions_admitted: bool,
+    /// Template id → name for the GameLogic particle bridge.
+    template_id_map: std::sync::Mutex<HashMap<u32, String>>,
     pub(crate) templates: HashMap<String, Arc<ParticleSystemTemplate>>,
     active_systems: HashMap<ParticleSystemId, Box<ParticleSystem>>,
     /// C++ keeps `m_allParticleSystemList` in creation order. The lookup map
@@ -419,6 +421,7 @@ impl ParticleSystemManager {
             runtime_owner: Arc::new(()),
             random_state: Default::default(),
             definitions_admitted: false,
+            template_id_map: std::sync::Mutex::new(HashMap::new()),
             templates: HashMap::new(),
             active_systems: HashMap::new(),
             active_system_order: Vec::new(),
@@ -447,9 +450,38 @@ impl ParticleSystemManager {
     /// GameClient FX name win over the narrow host/preset fallback path.
     fn load_retail_particle_templates(&mut self) -> Result<usize, ParticleSystemError> {
         let parser = ParticleSystemINIParser::default();
-        parser
-            .load_particle_system_definitions("Data/INI/ParticleSystem.ini", self)
-            .map_err(|error| ParticleSystemError::ResourceLoadFailed(error.to_string()))
+        let mut candidates = vec![
+            std::path::PathBuf::from("Data/INI/ParticleSystem.ini"),
+            std::path::PathBuf::from("windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
+            std::path::PathBuf::from("../windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
+            std::path::PathBuf::from("../../windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
+            std::path::PathBuf::from("../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
+            std::path::PathBuf::from("../../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
+        ];
+        if let Ok(root) = std::env::var("GENERALS_ASSETS_DIR") {
+            let root = std::path::PathBuf::from(root);
+            candidates.push(root.join("Data/INI/ParticleSystem.ini"));
+            // Retail install env often lacks loose INI; sibling extracted BIG does.
+            candidates.push(root.join("../extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"));
+        }
+        let mut last_error = None;
+        for path in candidates {
+            match parser.load_particle_system_definitions(&path, self) {
+                Ok(count) => return Ok(count),
+                Err(error) => last_error = Some(error),
+            }
+        }
+        // C++ loads ParticleSystem.ini from the install; headless/unit fixtures often
+        // have no archive mount. Leave an empty retail base and let map overlays /
+        // registry overlays populate the manager rather than fail the whole shell.
+        log::warn!(
+            "ParticleSystem.ini unavailable ({}); admitting empty retail particle base",
+            last_error
+                .as_ref()
+                .map(|error| error.to_string())
+                .unwrap_or_else(|| "Cannot open file".into()),
+        );
+        Ok(0)
     }
 
     /// Complete explicit content admission for a manager populated by a local
@@ -1375,13 +1407,43 @@ impl SubsystemInterface for ParticleSystemManager {
 // Import ParticleSystem from particle_system module
 pub use crate::effects::particle_system::ParticleSystem;
 
-/// Global particle system manager instance
-pub static PARTICLE_SYSTEM_MANAGER: RwLock<Option<ParticleSystemManager>> = RwLock::new(None);
+/// Process-free particle slot. Production routes through the live client's
+/// `DrawableWorld.particles`; tests keep a TLS Option for swap fixtures.
+#[cfg(test)]
+std::thread_local! {
+    static TEST_PARTICLE_SLOT: std::cell::RefCell<Option<ParticleSystemManager>> =
+        std::cell::RefCell::new(None);
+}
 
-static PARTICLE_TEMPLATE_ID_MAP: OnceLock<RwLock<HashMap<u32, String>>> = OnceLock::new();
+pub fn with_particle_system_slot_mut<R>(
+    f: impl FnOnce(&mut Option<ParticleSystemManager>) -> R,
+) -> Result<R, ParticleSystemError> {
+    #[cfg(test)]
+    {
+        return Ok(TEST_PARTICLE_SLOT.with(|slot| f(&mut slot.borrow_mut())));
+    }
+    #[cfg(not(test))]
+    {
+        if crate::core::game_client::live_game_client_frame().is_none() {
+            return Err(ParticleSystemError::InitializationFailed(
+                "no live GameClient particle slot".to_string(),
+            ));
+        }
+        crate::core::game_client::with_live_game_client_mut(|client| {
+            f(&mut client.drawables.particles)
+        })
+        .ok_or_else(|| {
+            ParticleSystemError::InitializationFailed(
+                "live GameClient particle slot unavailable".to_string(),
+            )
+        })
+    }
+}
 
-fn template_id_map() -> &'static RwLock<HashMap<u32, String>> {
-    PARTICLE_TEMPLATE_ID_MAP.get_or_init(|| RwLock::new(HashMap::new()))
+pub fn with_particle_system_slot<R>(
+    f: impl FnOnce(&Option<ParticleSystemManager>) -> R,
+) -> Result<R, ParticleSystemError> {
+    with_particle_system_slot_mut(|slot| f(&*slot))
 }
 
 #[derive(Debug)]
@@ -1423,7 +1485,7 @@ impl gamelogic::common::types::ParticleSystemManagerInterface for ParticleSystem
         let manager = manager_guard.as_ref()?;
         let template = manager.find_template(name)?;
         let id = NameKeyGenerator::name_to_key(template.name());
-        if let Ok(mut map) = template_id_map().write() {
+        if let Ok(mut map) = manager.template_id_map.lock() {
             map.insert(id, template.name().to_string());
         }
         Some(id)
@@ -1437,10 +1499,7 @@ impl gamelogic::common::types::ParticleSystemManagerInterface for ParticleSystem
             return None;
         };
         let manager = manager_guard.as_mut()?;
-        let name = template_id_map()
-            .read()
-            .ok()
-            .and_then(|map| map.get(&template_id).cloned())?;
+        let name = manager.template_id_map.lock().ok()?.get(&template_id).cloned()?;
         let template = manager.find_template(&name)?;
         manager.create_particle_system(&template, true).ok()
     }
@@ -1454,10 +1513,7 @@ impl gamelogic::common::types::ParticleSystemManagerInterface for ParticleSystem
             return None;
         };
         let manager = manager_guard.as_mut()?;
-        let name = template_id_map()
-            .read()
-            .ok()
-            .and_then(|map| map.get(&template_id).cloned())?;
+        let name = manager.template_id_map.lock().ok()?.get(&template_id).cloned()?;
         let template = manager.find_template(&name)?;
         manager
             .create_attached_particle_system(&template, object_id, true)
@@ -1798,12 +1854,8 @@ fn overlay_common_particle_system(
     }
 }
 
-/// Initialize the global particle system manager
+/// Initialize the particle system manager on the live client (or test TLS slot).
 pub fn initialize_particle_system_manager() -> Result<(), ParticleSystemError> {
-    let mut manager_guard = PARTICLE_SYSTEM_MANAGER.write().map_err(|_| {
-        ParticleSystemError::InitializationFailed("Failed to acquire write lock".to_string())
-    })?;
-
     let mut manager = ParticleSystemManager::new();
     if let Err(error) = manager.load_retail_particle_templates() {
         // This is deliberately non-fatal just like C++'s optional asset path:
@@ -1811,7 +1863,9 @@ pub fn initialize_particle_system_manager() -> Result<(), ParticleSystemError> {
         // retry once the virtual file system has mounted the retail archives.
         log::warn!("Failed to load retail ParticleSystem.ini: {error}");
     }
-    *manager_guard = Some(manager);
+    with_particle_system_slot_mut(|slot| {
+        *slot = Some(manager);
+    })?;
     game_engine::common::ini::register_particle_system_live_overlay(overlay_common_particle_system);
     Ok(())
 }
@@ -1829,20 +1883,51 @@ pub fn register_particle_system_manager_bridge() {
         gamelogic::helpers::register_particle_system_manager(Arc::new(ParticleSystemManagerBridge));
 }
 
-/// Get reference to the global particle system manager
-pub fn get_particle_system_manager()
--> Result<std::sync::RwLockReadGuard<'static, Option<ParticleSystemManager>>, ParticleSystemError> {
-    PARTICLE_SYSTEM_MANAGER.read().map_err(|_| {
-        ParticleSystemError::InitializationFailed("Failed to acquire read lock".to_string())
-    })
+/// Take-guard over the particle slot (live `DrawableWorld.particles` or test TLS).
+/// Prefer `with_particle_system_slot_mut` when the borrow can stay scoped.
+pub struct ParticleSlotGuard {
+    slot: Option<ParticleSystemManager>,
 }
 
-/// Get mutable reference to the global particle system manager
-pub fn get_particle_system_manager_mut()
--> Result<std::sync::RwLockWriteGuard<'static, Option<ParticleSystemManager>>, ParticleSystemError>
-{
-    PARTICLE_SYSTEM_MANAGER.write().map_err(|_| {
-        ParticleSystemError::InitializationFailed("Failed to acquire write lock".to_string())
+impl std::ops::Deref for ParticleSlotGuard {
+    type Target = Option<ParticleSystemManager>;
+    fn deref(&self) -> &Self::Target {
+        &self.slot
+    }
+}
+
+impl std::ops::DerefMut for ParticleSlotGuard {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.slot
+    }
+}
+
+impl Drop for ParticleSlotGuard {
+    fn drop(&mut self) {
+        let taken = self.slot.take();
+        let _ = with_particle_system_slot_mut(|slot| {
+            // Only restore when the fixture still owns the slot (nested takes
+            // leave None here and the outer guard's Drop writes last).
+            if slot.is_none() {
+                *slot = taken;
+            } else if taken.is_some() {
+                // Nested get_* while an outer guard is live — prefer the
+                // outer owner's value and drop this inner snapshot.
+                drop(taken);
+            }
+        });
+    }
+}
+
+/// Get reference to the particle slot. Prefer `with_particle_system_slot`.
+pub fn get_particle_system_manager() -> Result<ParticleSlotGuard, ParticleSystemError> {
+    get_particle_system_manager_mut()
+}
+
+/// Get mutable reference to the particle slot (take-guard).
+pub fn get_particle_system_manager_mut() -> Result<ParticleSlotGuard, ParticleSystemError> {
+    with_particle_system_slot_mut(|slot| ParticleSlotGuard {
+        slot: slot.take(),
     })
 }
 
@@ -1852,12 +1937,14 @@ mod tests {
 
     #[test]
     fn test_particle_priority_ordering() {
+        crate::test_support::ensure_ambient_host();
         assert!(ParticlePriorityType::AlwaysRender > ParticlePriorityType::WeaponExplosion);
         assert!(ParticlePriorityType::Critical > ParticlePriorityType::Constant);
     }
 
     #[test]
     fn test_random_variable_sampling() {
+        crate::test_support::ensure_ambient_host();
         let var = GameClientRandomVariable::new(1.0, 5.0);
 
         for _ in 0..100 {
@@ -1868,6 +1955,7 @@ mod tests {
 
     #[test]
     fn test_template_creation() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let template = manager.new_template("TestExplosion".to_string());
 
@@ -1880,6 +1968,7 @@ mod tests {
 
     #[test]
     fn attach_particle_system_to_object_helper_records_parent_object_id() {
+        crate::test_support::ensure_ambient_host();
         let _ = initialize_particle_system_manager();
         register_particle_system_manager_bridge();
         {
@@ -1911,6 +2000,7 @@ mod tests {
 
     #[test]
     fn preload_assets_matches_cpp_particle_texture_filter() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
 
         let mut particle = ParticleSystemTemplate::new("TextureParticle".to_string());
@@ -1943,6 +2033,7 @@ mod tests {
 
     #[test]
     fn remove_oldest_particles_culls_real_low_priority_particles() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let mut template = ParticleSystemTemplate::new("Dust".to_string());
         template.info_mut().priority = ParticlePriorityType::DustTrail;
@@ -1978,6 +2069,7 @@ mod tests {
 
     #[test]
     fn can_create_particle_preserves_exact_cap_and_rejects_after_excess_eviction() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         manager.set_fallback_particle_limits(2, 2);
 
@@ -2037,6 +2129,7 @@ mod tests {
     /// without ParticleSystems.ini (fail-closed: not full W3D GPU parity).
     #[test]
     fn manager_update_emits_then_integrates_newborn_same_frame() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let mut template = ParticleSystemTemplate::new("BurstNow".to_string());
         {
@@ -2081,6 +2174,7 @@ mod tests {
 
     #[test]
     fn create_preset_system_at_registers_combat_death_and_muzzle_entries() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         assert_eq!(manager.active_system_count(), 0);
 
@@ -2116,6 +2210,7 @@ mod tests {
     /// system only after leftover particles die.
     #[test]
     fn destroy_particle_system_keeps_updating_until_particles_die() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let mut template = ParticleSystemTemplate::new("FadeOut".to_string());
         {
@@ -2175,6 +2270,7 @@ mod tests {
 
     #[test]
     fn live_particle_system_xfer_keeps_mid_flight_explosion() {
+        crate::test_support::ensure_ambient_host();
         let _ = initialize_particle_system_manager();
         let template_name = format!("LiveSaveBurst_{}", std::process::id());
         let system_id = {
@@ -2220,6 +2316,7 @@ mod tests {
 
     #[test]
     fn visible_box_cull_marks_offscreen_and_caps_batch() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let template = manager.new_template("CullBox".to_string());
         let system_id = manager.create_particle_system(&template, false).unwrap();
@@ -2252,6 +2349,7 @@ mod tests {
 
     #[test]
     fn field_particle_count_is_on_screen_area_effect_only() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let mut template = manager.new_template("FieldCap".to_string());
         {
@@ -2292,6 +2390,7 @@ mod tests {
     /// (C++ ParticleSys.cpp:2059 `m_isDestroyed && !m_systemParticlesHead`).
     #[test]
     fn destroy_empty_system_removed_on_next_update() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let template = manager.new_template("EmptyFade".to_string());
         let system_id = manager.create_particle_system(&template, false).unwrap();

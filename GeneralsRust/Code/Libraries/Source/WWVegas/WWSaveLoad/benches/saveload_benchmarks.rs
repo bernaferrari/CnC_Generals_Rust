@@ -36,7 +36,7 @@ impl Persist for BenchmarkObject {
     }
 
     fn get_factory(&self) -> Arc<dyn PersistFactory> {
-        Arc::new(SimplePersistFactory::<BenchmarkObject>::new(0x12340000))
+        Arc::new(SimplePersistFactory::<BenchmarkObject>::new(0x12340000, ww_save_load::new_save_load_system()))
     }
 
     fn get_remap_id(&self) -> RemapId {
@@ -183,7 +183,7 @@ impl ChunkLoad for BenchmarkChunkLoad {
 
 fn benchmark_save_single_object(c: &mut Criterion) {
     let obj = BenchmarkObject::new(12345, 42);
-    let factory = SimplePersistFactory::<BenchmarkObject>::new(0x12340000);
+    let factory = SimplePersistFactory::<BenchmarkObject>::new(0x12340000, ww_save_load::new_save_load_system());
 
     c.bench_function("save_single_object", |b| {
         b.iter(|| {
@@ -195,7 +195,7 @@ fn benchmark_save_single_object(c: &mut Criterion) {
 
 fn benchmark_load_single_object(c: &mut Criterion) {
     let obj = BenchmarkObject::new(12345, 42);
-    let factory = SimplePersistFactory::<BenchmarkObject>::new(0x12340000);
+    let factory = SimplePersistFactory::<BenchmarkObject>::new(0x12340000, ww_save_load::new_save_load_system());
 
     // Create saved data
     let mut chunk_save = BenchmarkChunkSave::new();
@@ -246,7 +246,7 @@ fn benchmark_save_load_system_registration(c: &mut Criterion) {
             // Register 100 factories
             for i in 0..100 {
                 let factory =
-                    Arc::new(SimplePersistFactory::<BenchmarkObject>::new(0x12340000 + i));
+                    Arc::new(SimplePersistFactory::<BenchmarkObject>::new(0x12340000 + i, ww_save_load::new_save_load_system()));
                 system.register_persist_factory(factory);
             }
 
@@ -262,7 +262,7 @@ fn benchmark_save_multiple_objects(c: &mut Criterion) {
     let objects: Vec<BenchmarkObject> = (0..1000)
         .map(|i| BenchmarkObject::new(i, i as u64))
         .collect();
-    let factory = SimplePersistFactory::<BenchmarkObject>::new(0x12340000);
+    let factory = SimplePersistFactory::<BenchmarkObject>::new(0x12340000, ww_save_load::new_save_load_system());
 
     c.bench_function("save_1000_objects", |b| {
         b.iter(|| {

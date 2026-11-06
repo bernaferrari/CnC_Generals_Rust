@@ -6,7 +6,7 @@ use std::rc::Rc;
 use crate::gui::callbacks::online_callback_support::dispatch_esc_gadget_selected;
 use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, get_shell,
-    with_window_manager, write_input_focus_response,
+    write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 
@@ -14,19 +14,45 @@ const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
-struct WolMessageWindowState {
+pub(crate) struct WolMessageWindowState {
     parent_id: i32,
     button_cancel_id: i32,
     parent: Option<Rc<RefCell<GameWindow>>>,
     button_cancel: Option<Rc<RefCell<GameWindow>>>,
 }
 
+#[cfg(test)]
 thread_local! {
-    static WOL_MESSAGE_WINDOW_STATE: Rc<RefCell<WolMessageWindowState>> = Rc::new(RefCell::new(WolMessageWindowState::default()));
+    static TEST_WOL_MESSAGE_WINDOW_STATE: std::cell::OnceCell<Rc<RefCell<WolMessageWindowState>>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn wol_message_window_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<WolMessageWindowState>> {
+    if let Some(owner) = owner {
+        return owner.wol_message_window_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().wol_message_window_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_WOL_MESSAGE_WINDOW_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(WolMessageWindowState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(WolMessageWindowState::default()))
+    }
 }
 
 fn wol_message_window_state() -> Rc<RefCell<WolMessageWindowState>> {
-    WOL_MESSAGE_WINDOW_STATE.with(Rc::clone)
+    wol_message_window_state_on_owner(None)
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -37,14 +63,14 @@ pub fn wol_message_window_init(layout: &WindowLayout, _user_data: Option<&dyn st
     let parent_id = name_to_id("WOLMessageWindow.wnd:WOLMessageWindowParent");
     let button_cancel_id = name_to_id("WOLMessageWindow.wnd:ButtonCancel");
 
-    let parent = with_window_manager(|manager| manager.get_window_by_id(parent_id as i32));
+    let parent = owner.with_manager(|manager| manager.get_window_by_id(parent_id as i32));
     let button_cancel =
-        with_window_manager(|manager| manager.get_window_by_id(button_cancel_id as i32));
+        owner.with_manager(|manager| manager.get_window_by_id(button_cancel_id as i32));
 
     layout.hide(false);
 
     if let Some(parent) = parent.as_ref() {
-        let _ = with_window_manager(|manager| manager.set_focus(Some(parent)));
+        let _ = owner.with_manager(|manager| manager.set_focus(Some(parent)));
     }
 
     let state_slot = wol_message_window_state();

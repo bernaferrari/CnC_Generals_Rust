@@ -10,7 +10,9 @@ fn power_observation(
     let global = get_global_data()?;
     let rules =
         game_engine::common::ini::ini_game_data::PowerBarRules::from_global_data(&global.read());
-    let list = ThePlayerList().read().ok()?;
+    let __arc_bind = ThePlayerList();
+
+    let list = __arc_bind.read().ok()?;
     let player_arc = TheControlBar::get_observer_look_at_player_index()
         .and_then(|index| {
             if index >= 0 {
@@ -274,8 +276,8 @@ pub fn w3d_power_draw(
         return;
     }
     if std::env::var_os("GENERALS_RIGHTHUD_PROBE").is_some() {
-        static ONCE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-        if !ONCE.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        static ONCE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        if ONCE.set(()).is_ok() {
             eprintln!(
                 "[RHUDPROBE] w3d_power_draw consumption={consumption} production={production} power_range={power_range} needle={needle} center={} slider={}",
                 center_name, "PowerBarSlider",
@@ -315,6 +317,7 @@ mod receiving_power_context_tests {
 
     #[test]
     fn same_player_identity_can_draw_from_two_receiving_contexts() {
+        crate::test_support::ensure_ambient_host();
         let mut first = WindowDrawContext::default();
         first.receiving_power = Some(Some(ReceivingPowerObservation {
             production: 81,

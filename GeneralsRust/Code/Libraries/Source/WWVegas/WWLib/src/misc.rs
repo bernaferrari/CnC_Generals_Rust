@@ -1,8 +1,6 @@
 //! Miscellaneous helpers and globals (ported from WWLib misc.h).
 
 use crate::palette::PaletteClass;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, OnceLock};
 
 #[cfg(target_os = "windows")]
 use windows::core::HRESULT;
@@ -17,38 +15,107 @@ pub const VIDEO_BANK_SWITCHED: u32 = 8;
 pub const VIDEO_COLOR_FILL: u32 = 16;
 pub const VIDEO_NO_HARDWARE_ASSIST: u32 = 32;
 
-static CURRENT_PALETTE: OnceLock<Mutex<[u8; 768]>> = OnceLock::new();
-static DEBUG_WINDOWED: AtomicBool = AtomicBool::new(false);
-static SURFACES_RESTORED: AtomicBool = AtomicBool::new(false);
-
-pub fn current_palette() -> [u8; 768] {
-    *CURRENT_PALETTE
-        .get_or_init(|| Mutex::new([0u8; 768]))
-        .lock()
-        .unwrap()
+/// Instance-owned WWLib misc video/display state (C++ file-statics).
+#[derive(Debug, Clone)]
+pub struct MiscVideoState {
+    pub current_palette: [u8; 768],
+    pub debug_windowed: bool,
+    pub surfaces_restored: bool,
+    pub audio_focus_loss_function: Option<fn()>,
 }
 
-pub fn set_current_palette(palette: [u8; 768]) {
-    *CURRENT_PALETTE
-        .get_or_init(|| Mutex::new([0u8; 768]))
-        .lock()
-        .unwrap() = palette;
+impl Default for MiscVideoState {
+    fn default() -> Self {
+        Self {
+            current_palette: [0u8; 768],
+            debug_windowed: false,
+            surfaces_restored: false,
+            audio_focus_loss_function: None,
+        }
+    }
 }
 
-pub fn debug_windowed() -> bool {
-    DEBUG_WINDOWED.load(Ordering::Relaxed)
+impl MiscVideoState {
+    pub fn current_palette(&self) -> [u8; 768] {
+        self.current_palette
+    }
+
+    pub fn set_current_palette(&mut self, palette: [u8; 768]) {
+        self.current_palette = palette;
+    }
+
+    pub fn debug_windowed(&self) -> bool {
+        self.debug_windowed
+    }
+
+    pub fn set_debug_windowed(&mut self, value: bool) {
+        self.debug_windowed = value;
+    }
+
+    pub fn surfaces_restored(&self) -> bool {
+        self.surfaces_restored
+    }
+
+    pub fn set_surfaces_restored(&mut self, value: bool) {
+        self.surfaces_restored = value;
+    }
+
+    pub fn set_audio_focus_loss_function(&mut self, func: Option<fn()>) {
+        self.audio_focus_loss_function = func;
+    }
+
+    pub fn trigger_audio_focus_loss(&self) {
+        if let Some(func) = self.audio_focus_loss_function {
+            func();
+        }
+    }
+
+    pub fn set_palette(&mut self, pal: &PaletteClass, time: i32, callback: Option<fn()>) {
+        let bytes = pal.as_bytes();
+        let mut buffer = [0u8; 768];
+        let len = bytes.len().min(buffer.len());
+        buffer[..len].copy_from_slice(&bytes[..len]);
+        self.set_current_palette(buffer);
+
+        if time > 0 {
+            delay(time);
+        }
+        if let Some(cb) = callback {
+            cb();
+        }
+    }
+
+    pub fn set_palette_raw(&mut self, palette: &[u8]) {
+        let mut buffer = [0u8; 768];
+        let len = palette.len().min(buffer.len());
+        buffer[..len].copy_from_slice(&palette[..len]);
+        self.set_current_palette(buffer);
+    }
 }
 
-pub fn set_debug_windowed(value: bool) {
-    DEBUG_WINDOWED.store(value, Ordering::Relaxed);
+/// Compatibility free helpers — prefer [`MiscVideoState`] on the owning application.
+pub fn current_palette(state: &MiscVideoState) -> [u8; 768] {
+    state.current_palette()
 }
 
-pub fn surfaces_restored() -> bool {
-    SURFACES_RESTORED.load(Ordering::Relaxed)
+pub fn set_current_palette(state: &mut MiscVideoState, palette: [u8; 768]) {
+    state.set_current_palette(palette);
 }
 
-pub fn set_surfaces_restored(value: bool) {
-    SURFACES_RESTORED.store(value, Ordering::Relaxed);
+pub fn debug_windowed(state: &MiscVideoState) -> bool {
+    state.debug_windowed()
+}
+
+pub fn set_debug_windowed(state: &mut MiscVideoState, value: bool) {
+    state.set_debug_windowed(value);
+}
+
+pub fn surfaces_restored(state: &MiscVideoState) -> bool {
+    state.surfaces_restored()
+}
+
+pub fn set_surfaces_restored(state: &mut MiscVideoState, value: bool) {
+    state.set_surfaces_restored(value);
 }
 
 pub fn prep_direct_draw() {}
@@ -73,26 +140,17 @@ pub fn get_video_hardware_capabilities() -> u32 {
 
 pub fn wait_vert_blank() {}
 
-pub fn set_palette(pal: &PaletteClass, time: i32, callback: Option<fn()>) {
-    let bytes = pal.as_bytes();
-    let mut buffer = [0u8; 768];
-    let len = bytes.len().min(buffer.len());
-    buffer[..len].copy_from_slice(&bytes[..len]);
-    set_current_palette(buffer);
-
-    if time > 0 {
-        delay(time);
-    }
-    if let Some(cb) = callback {
-        cb();
-    }
+pub fn set_palette(
+    state: &mut MiscVideoState,
+    pal: &PaletteClass,
+    time: i32,
+    callback: Option<fn()>,
+) {
+    state.set_palette(pal, time, callback);
 }
 
-pub fn set_palette_raw(palette: &[u8]) {
-    let mut buffer = [0u8; 768];
-    let len = palette.len().min(buffer.len());
-    buffer[..len].copy_from_slice(&palette[..len]);
-    set_current_palette(buffer);
+pub fn set_palette_raw(state: &mut MiscVideoState, palette: &[u8]) {
+    state.set_palette_raw(palette);
 }
 
 pub fn delay(duration: i32) {
@@ -106,10 +164,6 @@ pub fn vsync() {
     wait_vert_blank();
 }
 
-pub static AUDIO_FOCUS_LOSS_FUNCTION: Mutex<Option<fn()>> = Mutex::new(None);
-
-pub fn trigger_audio_focus_loss() {
-    if let Some(func) = *AUDIO_FOCUS_LOSS_FUNCTION.lock().unwrap() {
-        func();
-    }
+pub fn trigger_audio_focus_loss(state: &MiscVideoState) {
+    state.trigger_audio_focus_loss();
 }

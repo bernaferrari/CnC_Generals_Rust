@@ -975,7 +975,6 @@ impl DrawableModuleHandle {
     }
 }
 
-static LOCAL_NEXT_DRAWABLE_ID: AtomicU32 = AtomicU32::new(1);
 
 fn normalize_drawable_id(id: DrawableID) -> DrawableID {
     if id == 0 { 1 } else { id }
@@ -988,10 +987,14 @@ fn next_drawable_id_value(current: DrawableID) -> DrawableID {
 
 fn allocate_local_drawable_id() -> DrawableID {
     loop {
-        let observed = LOCAL_NEXT_DRAWABLE_ID.load(Ordering::Relaxed);
+        let observed = crate::system::engine_stores::active_services()
+            .session_flags()
+            .next_drawable_id.load(Ordering::Relaxed);
         let current = normalize_drawable_id(observed);
         let next = next_drawable_id_value(current);
-        if LOCAL_NEXT_DRAWABLE_ID
+        if crate::system::engine_stores::active_services()
+            .session_flags()
+            .next_drawable_id
             .compare_exchange(observed, next, Ordering::Relaxed, Ordering::Relaxed)
             .is_ok()
         {

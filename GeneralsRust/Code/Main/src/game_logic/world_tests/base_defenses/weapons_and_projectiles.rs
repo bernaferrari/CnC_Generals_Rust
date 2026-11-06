@@ -348,246 +348,6 @@ fn king_raptor_residual_skips_regular_raptor() {
 }
 
 #[test]
-fn comanche_rocket_pods_residual_upgrade_and_area_attack() {
-    use crate::command_system::{CommandType, GameCommand};
-    use crate::game_logic::host_comanche_rocket_pods::{
-        COMANCHE_AT_PRIMARY_DAMAGE, COMANCHE_PRIMARY_WEAPON, COMANCHE_ROCKET_POD_WEAPON,
-        UPGRADE_COMANCHE_ROCKET_PODS, is_comanche_template,
-    };
-    use crate::game_logic::host_upgrades::HostUpgradeKind;
-    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
-
-    ensure_host_weapon_store();
-
-    let mut game_logic = GameLogic::new();
-    let mut player = Player::new(0, Team::USA, "USA", true);
-    player.resources.supplies = 10_000;
-    game_logic.add_player(player);
-    ensure_test_tank_template(&mut game_logic);
-    ensure_test_infantry_template(&mut game_logic);
-    ensure_test_barracks_template(&mut game_logic);
-
-    let mut comanche_tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleComanche");
-    comanche_tpl
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Aircraft)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(220.0)
-        .set_primary_weapon_name(COMANCHE_PRIMARY_WEAPON)
-        .set_tertiary_weapon_name(COMANCHE_ROCKET_POD_WEAPON);
-    // Host residual binds anti-tank secondary at spawn; the real upgrade adds
-    // rocket pods as a separate tertiary slot.
-    game_logic
-        .templates
-        .insert("AmericaVehicleComanche".to_string(), comanche_tpl);
-
-    let producer_id = game_logic
-        .create_object("TestBarracks", Team::USA, Vec3::new(-40.0, 0.0, 0.0))
-        .expect("producer");
-
-    let comanche_id = game_logic
-        .create_object(
-            "AmericaVehicleComanche",
-            Team::USA,
-            Vec3::new(0.0, 0.0, 0.0),
-        )
-        .expect("comanche");
-    {
-        let c = game_logic.host_object(comanche_id).expect("comanche");
-        assert!(is_comanche_template(&c.template_name));
-        assert!(
-            c.weapon.is_some(),
-            "comanche must spawn with primary cannon residual"
-        );
-        let sec = c
-            .secondary_weapon
-            .as_ref()
-            .expect("antitank residual secondary");
-        assert!(
-            (sec.damage - COMANCHE_AT_PRIMARY_DAMAGE).abs() < 0.01,
-            "pre-upgrade secondary is anti-tank residual (~50), got {}",
-            sec.damage
-        );
-        assert!(
-            !c.has_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS),
-            "pre-upgrade comanche must lack rocket pods tag"
-        );
-    }
-
-    // Place two enemies near impact (within secondary splash radius 40).
-    let tank_id = game_logic
-        .create_object("TestTank", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
-        .expect("tank");
-    let infantry_id = game_logic
-        .create_object("TestInfantry", Team::GLA, Vec3::new(110.0, 0.0, 0.0))
-        .expect("infantry");
-
-    game_logic.queue_command(GameCommand {
-        command_type: CommandType::QueueUpgrade {
-            upgrade_name: UPGRADE_COMANCHE_ROCKET_PODS.to_string(),
-        },
-        player_id: 0,
-        command_id: 1,
-        timestamp: std::time::SystemTime::now(),
-        selected_units: vec![producer_id],
-        modifier_keys: crate::command_system::ModifierKeys::default(),
-    });
-    game_logic.process_commands();
-
-    assert!(
-        game_logic
-            .host_upgrades()
-            .honesty_queue_ok(HostUpgradeKind::ComancheRocketPods),
-        "comanche rocket pods upgrade must queue residual"
-    );
-
-    // Retail Upgrade_ComancheRocketPods BuildTime 40.0s / BuildCost 800
-    // (INIZH Data/INI/Object/Hulk.ini:130798, FactionUnit.ini:131745) now
-    // resolves onto the producer PRODUCTION_UPGRADE queue
-    // (execute_queue_upgrade -> resolve_upgrade_build_time_secs), so research
-    // needs the full retail frames; the single-update residual assumed the
-    // no-INI fallback.  C++ ProductionUpdate owns the timer on the producer.
-    for _ in 0..HostUpgradeKind::ComancheRocketPods.retail_research_frames() {
-        game_logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
-    }
-
-    assert!(
-        game_logic
-            .host_upgrades()
-            .honesty_complete_ok(HostUpgradeKind::ComancheRocketPods),
-        "comanche rocket pods upgrade must complete residual"
-    );
-    {
-        let c = game_logic.host_object(comanche_id).expect("comanche");
-        assert!(
-            c.has_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS),
-            "comanche must receive rocket pods upgrade tag"
-        );
-        assert!(
-            c.secondary_weapon.is_some(),
-            "comanche must preserve anti-tank secondary after upgrade"
-        );
-        let sec = c.secondary_weapon.as_ref().unwrap();
-        // The comanche SECONDARY comes from the host residual layer
-        // (comanche_antitank_weapon, create_destroy_die.rs spawn residual),
-        // which carries the authored retail AttackRange 200
-        // (Weapon.ini:130143) verbatim — unlike ThingTemplate::weapon_from_store,
-        // whose C++ Weapon.cpp:437-451 RATIONALIZE_ATTACK_RANGE bind (−¼
-        // pathfind cell) does not apply on this residual path.
-        assert!(
-            (sec.range - 200.0).abs() < 1.0,
-            "anti-tank range residual 200, got {}",
-            sec.range
-        );
-        assert!(
-            (sec.damage - COMANCHE_AT_PRIMARY_DAMAGE).abs() < 1.0,
-            "anti-tank primary damage residual 50, got {}",
-            sec.damage
-        );
-        let tertiary = c
-            .tertiary_weapon
-            .as_ref()
-            .expect("comanche must equip rocket pods tertiary after upgrade");
-        // Retail ComancheRocketPodWeapon lives only in Object/AmericaAir.ini
-        // (not the bootstrap's Weapon.ini), so the unlock equips the host
-        // residual (comanche_rocket_pod_weapon) with the authored AttackRange
-        // 200; weapon_from_store's −¼-cell rationalize never applies here.
-        assert!(
-            (tertiary.range - 200.0).abs() < 1.0,
-            "rocket pods range residual 200, got {}",
-            tertiary.range
-        );
-        assert!(
-            (tertiary.damage - 30.0).abs() < 1.0,
-            "rocket pods primary damage residual 30, got {}",
-            tertiary.damage
-        );
-    }
-
-    // Fire the explicit tertiary at tank through the same player-command path
-    // used by a retail FIRE_WEAPON TERTIARY order.  The upgrade tick above may
-    // already have started an auto-acquired nested attack; this command must
-    // replace that state rather than letting it consume PRIMARY/SECONDARY.
-    {
-        let (c, fixture_partition_c) = game_logic
-            .host_object_and_partition_mut(comanche_id)
-            .expect("comanche");
-        if let Some(w) = c.tertiary_weapon.as_mut() {
-            w.last_fire_time = -100.0;
-            w.reload_time = 0.1;
-            w.min_range = 0.0;
-        }
-        if let Some(w) = c.weapon.as_mut() {
-            w.last_fire_time = 0.0;
-            w.reload_time = 1000.0; // primary reloading
-        }
-        c.set_position_with_partition_owner(
-            Vec3::new(80.0, 0.0, 0.0),
-            0,
-            &mut Default::default(),
-            fixture_partition_c,
-        );
-    }
-    assert!(game_logic.unit_command_select_weapon_slot(comanche_id, 2));
-    assert!(game_logic.unit_command_fire_weapon(comanche_id, Some(tank_id), None, -1));
-    {
-        let c = game_logic.host_object(comanche_id).expect("comanche");
-        assert_eq!(c.weapon_lock_type, WeaponLockType::LockedTemporarily);
-        assert_eq!(c.weapon_lock_slot, 2);
-        assert!(!c.status.is_aiming_weapon);
-        assert!(!c.status.is_firing_weapon);
-    }
-
-    let tank_hp_before = game_logic
-        .host_object(tank_id)
-        .map(|t| t.health.current)
-        .unwrap_or(0.0);
-    let inf_hp_before = game_logic
-        .host_object(infantry_id)
-        .map(|t| t.health.current)
-        .unwrap_or(0.0);
-
-    game_logic.set_current_frame(90);
-    game_logic.update_combat(&[comanche_id, tank_id, infantry_id], LOGIC_FRAME_TIMESTEP);
-
-    assert!(
-        game_logic.honesty_comanche_rocket_pod_ok(),
-        "rocket pods area attack residual honesty must fire (attacks={} proj={} slot={:?} tertiary={:?})",
-        game_logic.comanche_rocket_pod_residual_area_attacks(),
-        game_logic.comanche_rocket_pod_projectiles_spawned,
-        game_logic
-            .host_object(comanche_id)
-            .map(|c| c.active_weapon_slot),
-        game_logic
-            .host_object(comanche_id)
-            .and_then(|c| c.tertiary_weapon.as_ref().map(|w| w.damage)),
-    );
-    assert!(
-        game_logic.comanche_rocket_pod_residual_units_hit() >= 1,
-        "rocket pods residual must hit at least the aim target"
-    );
-
-    let tank_hp_after = game_logic
-        .host_object(tank_id)
-        .map(|t| t.health.current)
-        .unwrap_or(0.0);
-    let inf_hp_after = game_logic
-        .host_object(infantry_id)
-        .map(|t| t.health.current)
-        .unwrap_or(0.0);
-    assert!(
-        tank_hp_after < tank_hp_before,
-        "tank in rocket pod core must take damage (before={tank_hp_before} after={tank_hp_after})"
-    );
-    // Infantry 10 units from tank impact (~100): secondary ring residual.
-    assert!(
-        inf_hp_after < inf_hp_before,
-        "infantry in rocket pod secondary radius must take splash (before={inf_hp_before} after={inf_hp_after})"
-    );
-}
-
-#[test]
 fn comanche_rocket_pods_primary_does_not_area_attack() {
     use crate::game_logic::host_comanche_rocket_pods::{
         COMANCHE_ANTITANK_WEAPON, COMANCHE_PRIMARY_WEAPON, COMANCHE_ROCKET_POD_WEAPON,
@@ -652,83 +412,6 @@ fn comanche_rocket_pods_primary_does_not_area_attack() {
         game_logic.comanche_rocket_pod_residual_area_attacks(),
         0,
         "primary fire must not increment rocket pod area counter"
-    );
-}
-
-#[test]
-fn comanche_rocket_pods_ground_fire_area_residual() {
-    use crate::game_logic::host_comanche_rocket_pods::{
-        COMANCHE_ANTITANK_WEAPON, COMANCHE_PRIMARY_WEAPON, COMANCHE_ROCKET_POD_WEAPON,
-        UPGRADE_COMANCHE_ROCKET_PODS,
-    };
-
-    let mut game_logic = GameLogic::new();
-    ensure_test_tank_template(&mut game_logic);
-    let _ = super::weapon_bootstrap::ensure_host_weapon_store();
-
-    let mut comanche_tpl = crate::game_logic::ThingTemplate::new("TestComanche");
-    comanche_tpl
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Aircraft)
-        .add_kind_of(KindOf::Attackable)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(220.0)
-        .set_primary_weapon_name(COMANCHE_PRIMARY_WEAPON)
-        .set_secondary_weapon_name(COMANCHE_ANTITANK_WEAPON)
-        .set_tertiary_weapon_name(COMANCHE_ROCKET_POD_WEAPON);
-    game_logic
-        .templates
-        .insert("TestComanche".to_string(), comanche_tpl);
-
-    let comanche_id = game_logic
-        .create_object("TestComanche", Team::USA, Vec3::new(0.0, 0.0, 0.0))
-        .expect("comanche");
-    let tank_id = game_logic
-        .create_object("TestTank", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
-        .expect("tank");
-
-    {
-        let c = game_logic.host_object_mut(comanche_id).unwrap();
-        c.tertiary_weapon =
-            Some(crate::game_logic::host_comanche_rocket_pods::comanche_rocket_pod_weapon());
-        c.apply_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS);
-        assert!(c.set_weapon_lock(2, WeaponLockType::LockedPermanently));
-        c.set_force_attack(true);
-        c.set_target_location(
-            Some(Vec3::new(100.0, 0.0, 0.0)),
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        c.set_ai_state(
-            AIState::AttackingGround,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        c.set_status_attacking(true);
-        if let Some(w) = c.tertiary_weapon.as_mut() {
-            w.last_fire_time = -10.0;
-            w.reload_time = 0.1;
-            w.min_range = 0.0;
-        }
-    }
-
-    let tank_hp_before = game_logic
-        .host_object(tank_id)
-        .map(|t| t.health.current)
-        .unwrap_or(0.0);
-
-    game_logic.set_current_frame(30);
-    game_logic.update_combat(&[comanche_id, tank_id], LOGIC_FRAME_TIMESTEP);
-
-    assert!(
-        game_logic.honesty_comanche_rocket_pod_ok(),
-        "ground FIRE_WEAPON residual must apply rocket pods area"
-    );
-    let tank_hp_after = game_logic
-        .host_object(tank_id)
-        .map(|t| t.health.current)
-        .unwrap_or(0.0);
-    assert!(
-        tank_hp_after < tank_hp_before,
-        "ground rocket pods residual must damage tank at aim pos"
     );
 }
 
@@ -893,228 +576,6 @@ fn rocket_buggy_residual_long_range_splash() {
     assert!(
         inf_hp_after < inf_hp_before,
         "infantry in secondary splash radius must take residual (before={inf_hp_before} after={inf_hp_after})"
-    );
-}
-
-#[test]
-fn quad_cannon_residual_anti_air_and_multi_barrel() {
-    use crate::game_logic::host_quad_cannon::{
-        QUAD_AIR_DAMAGE, QUAD_AIR_RANGE, QUAD_CANNON_GUN, QUAD_CANNON_GUN_AIR, QUAD_GROUND_DAMAGE,
-        QUAD_GROUND_RANGE, QuadCannonBarrelTier, is_quad_cannon_template,
-    };
-    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
-
-    ensure_host_weapon_store();
-
-    let mut game_logic = GameLogic::new();
-    ensure_test_tank_template(&mut game_logic);
-    ensure_test_infantry_template(&mut game_logic);
-
-    let mut quad_tpl = crate::game_logic::ThingTemplate::new("GLAVehicleQuadCannon");
-    quad_tpl
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(220.0)
-        .set_primary_weapon_name(QUAD_CANNON_GUN)
-        .set_secondary_weapon_name(QUAD_CANNON_GUN_AIR);
-    game_logic
-        .templates
-        .insert("GLAVehicleQuadCannon".to_string(), quad_tpl);
-
-    let mut aircraft_tpl = crate::game_logic::ThingTemplate::new("TestAircraft");
-    aircraft_tpl
-        .add_kind_of(KindOf::Aircraft)
-        // C++ WeaponSet::getVictimAntiMask classifies an airborne aircraft
-        // through its VEHICLE KindOf.  Retail aircraft carry both flags; this
-        // focused fixture must do the same or the anti-mask correctly fails
-        // closed before Quad Cannon can select its AA slot.
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Attackable)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(100.0);
-    game_logic
-        .templates
-        .insert("TestAircraft".to_string(), aircraft_tpl);
-
-    let quad_id = game_logic
-        .create_object("GLAVehicleQuadCannon", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
-        .expect("quad");
-    {
-        let q = game_logic.host_object(quad_id).expect("quad");
-        assert!(is_quad_cannon_template(&q.template_name));
-        let prim = q.weapon.as_ref().expect("ground gun");
-        assert!((prim.damage - QUAD_GROUND_DAMAGE).abs() < 0.01);
-        assert!(
-            (prim.range - QUAD_GROUND_RANGE).abs() < 1.0,
-            "quad ground authored range"
-        );
-        let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
-        assert!(q.is_within_attack_range_at_distance(0, QUAD_GROUND_RANGE - under));
-        assert!(!q.is_within_attack_range_at_distance(0, QUAD_GROUND_RANGE - under + 0.01));
-        assert!(prim.can_target_ground);
-        assert!(
-            !prim.can_target_air,
-            "ground gun residual must not target air"
-        );
-        let sec = q.secondary_weapon.as_ref().expect("aa gun");
-        assert!((sec.damage - QUAD_AIR_DAMAGE).abs() < 0.01);
-        assert!(
-            (sec.range - QUAD_AIR_RANGE).abs() < 1.0,
-            "quad air authored range"
-        );
-        assert!(q.is_within_attack_range_at_distance(1, QUAD_AIR_RANGE - under));
-        assert!(!q.is_within_attack_range_at_distance(1, QUAD_AIR_RANGE - under + 0.01));
-        assert!(sec.can_target_air, "aa gun residual must target air");
-        assert!(
-            !sec.can_target_ground,
-            "aa gun residual must not target ground"
-        );
-    }
-
-    // Model partially consumed cursors before the direct residual replaces
-    // both concrete Weapon instances.  Unlike a template condition swap, the
-    // host residual has no new template name for `ensure_*` to compare.
-    {
-        let q = game_logic.host_object_mut(quad_id).expect("quad");
-        q.weapon_barrel_states[0] = crate::game_logic::object::WeaponBarrelState::new(2, 4, None);
-        q.weapon_barrel_states[0].current_barrel = 2;
-        q.weapon_barrel_states[0].shots_left_on_barrel = 1;
-        q.weapon_barrel_states[1] = crate::game_logic::object::WeaponBarrelState::new(3, 2, None);
-        q.weapon_barrel_states[1].current_barrel = 1;
-        q.weapon_barrel_states[1].shots_left_on_barrel = 2;
-    }
-
-    // Multi-barrel salvage tier residual (crate upgrade two → fastest fire).
-    assert!(game_logic.apply_quad_cannon_barrel_tier(quad_id, QuadCannonBarrelTier::Two));
-    assert!(
-        game_logic.quad_cannon_residual_barrel_upgrades() > 0,
-        "multi-barrel residual honesty must record tier apply"
-    );
-    {
-        let q = game_logic.host_object(quad_id).expect("quad");
-        let prim = q.weapon.as_ref().expect("upgraded ground");
-        // UpgradeTwo ground damage residual 8, delay 1 frame → reload ~1/30.
-        assert!((prim.damage - 8.0).abs() < 0.01);
-        assert!(prim.reload_time <= 0.05 + 0.01);
-        let sec = q.secondary_weapon.as_ref().expect("upgraded aa");
-        assert!(sec.can_target_air);
-        assert!(!sec.can_target_ground);
-        assert_eq!(
-            (
-                q.weapon_barrel_states[0].current_barrel,
-                q.weapon_barrel_states[0].shots_left_on_barrel,
-            ),
-            (0, 1),
-            "direct PRIMARY replacement must discard its old barrel cursor"
-        );
-        assert_eq!(
-            (
-                q.weapon_barrel_states[1].current_barrel,
-                q.weapon_barrel_states[1].shots_left_on_barrel,
-            ),
-            (0, 1),
-            "direct SECONDARY replacement must discard its old barrel cursor"
-        );
-    }
-
-    let aircraft_id = game_logic
-        .create_object("TestAircraft", Team::USA, Vec3::new(200.0, 50.0, 0.0))
-        .expect("aircraft");
-    {
-        let (a, fixture_partition_a) = game_logic
-            .host_object_and_partition_mut(aircraft_id)
-            .unwrap();
-        a.status.airborne_target = true;
-        a.set_position_with_partition_owner(
-            Vec3::new(200.0, 50.0, 0.0),
-            0,
-            &mut Default::default(),
-            fixture_partition_a,
-        );
-    }
-
-    let ground_tank = game_logic
-        .create_object("TestTank", Team::USA, Vec3::new(80.0, 0.0, 0.0))
-        .expect("tank");
-
-    // Fire AA at aircraft (secondary residual).
-    {
-        let (q, attack_events) = game_logic
-            .host_object_and_attack_events_mut(quad_id)
-            .unwrap();
-        q.attack_target(
-            aircraft_id,
-            attack_events,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        if let Some(w) = q.secondary_weapon.as_mut() {
-            w.last_fire_time = -10.0;
-            w.reload_time = 0.1;
-        }
-        if let Some(w) = q.weapon.as_mut() {
-            w.last_fire_time = 0.0;
-            w.reload_time = 1000.0; // ground reloading
-        }
-    }
-
-    let air_hp_before = game_logic
-        .host_object(aircraft_id)
-        .map(|a| a.health.current)
-        .unwrap_or(0.0);
-
-    game_logic.set_current_frame(30);
-    game_logic.update_combat(&[quad_id, aircraft_id, ground_tank], LOGIC_FRAME_TIMESTEP);
-
-    assert!(
-        game_logic.honesty_quad_cannon_aa_ok(),
-        "quad cannon AA residual honesty must fire secondary vs airborne"
-    );
-    let air_hp_after = game_logic
-        .host_object(aircraft_id)
-        .map(|a| a.health.current)
-        .unwrap_or(0.0);
-    assert!(
-        air_hp_after < air_hp_before,
-        "airborne target must take AA residual damage (before={air_hp_before} after={air_hp_after})"
-    );
-
-    // Ground fire residual against tank.
-    {
-        let (q, attack_events) = game_logic
-            .host_object_and_attack_events_mut(quad_id)
-            .unwrap();
-        q.attack_target(
-            ground_tank,
-            attack_events,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        if let Some(w) = q.weapon.as_mut() {
-            w.last_fire_time = -10.0;
-            w.reload_time = 0.1;
-        }
-        if let Some(w) = q.secondary_weapon.as_mut() {
-            w.last_fire_time = 0.0;
-            w.reload_time = 1000.0;
-        }
-    }
-    let tank_hp_before = game_logic
-        .host_object(ground_tank)
-        .map(|t| t.health.current)
-        .unwrap_or(0.0);
-    game_logic.set_current_frame(60);
-    game_logic.update_combat(&[quad_id, aircraft_id, ground_tank], LOGIC_FRAME_TIMESTEP);
-    assert!(
-        game_logic.quad_cannon_residual_ground_fires() > 0,
-        "quad ground residual honesty must fire primary vs ground"
-    );
-    let tank_hp_after = game_logic
-        .host_object(ground_tank)
-        .map(|t| t.health.current)
-        .unwrap_or(0.0);
-    assert!(
-        tank_hp_after < tank_hp_before,
-        "ground tank must take quad primary residual"
     );
 }
 
@@ -2583,7 +2044,10 @@ fn scorpion_missile_projectile_flies_and_impacts() {
 
     let mut logic = GameLogic::new();
     let mut sc = ThingTemplate::new("GLATankScorpion");
-    sc.add_kind_of(KindOf::Vehicle).set_health(200.0);
+    // hq-2qedt.180: splash keys on the authored slot weapon, not the name.
+    sc.add_kind_of(KindOf::Vehicle)
+        .set_health(200.0)
+        .set_secondary_weapon_name(crate::game_logic::host_scorpion::SCORPION_MISSILE_WEAPON);
     logic.templates.insert("GLATankScorpion".into(), sc);
     let mut tank = ThingTemplate::new("TestTank");
     tank.add_kind_of(KindOf::Vehicle)
@@ -2839,5 +2303,130 @@ fn technical_rpg_missile_projectile_flies_and_impacts() {
             .registered_values()
             .any(|o| o.technical_rpg_missile_projectile && o.is_alive()),
         "rpg missile should detonate"
+    );
+}
+
+/// hq-2qedt.285: Combat Chinook PDL carrier keyed on authored
+/// `PointDefenseLaserUpdate` module, not the `AirF_AmericaVehicleChinook` name.
+fn combat_chinook_pdl_world(author_pdl: bool) -> GameLogic {
+    let mut game_logic = GameLogic::new();
+    let mut chinook = crate::game_logic::ThingTemplate::new("AirF_AmericaVehicleChinook");
+    chinook
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(350.0);
+    crate::game_logic::host_combat_chinook::author_combat_chinook_contain(&mut chinook);
+    let pdl = if author_pdl {
+        "  Behavior = PointDefenseLaserUpdate ModuleTag_PDL\n    WeaponTemplate = AirF_PointDefenseLaser\n  End\n"
+    } else {
+        ""
+    };
+    let mut parser = crate::assets::IniParser::new();
+    parser
+        .parse_ini_content(
+            &format!("Object AirF_AmericaVehicleChinook\n  KindOf = VEHICLE AIRCRAFT\n{pdl}End\n"),
+            "combat-chinook-pdl.ini",
+        )
+        .unwrap();
+    let definition = parser
+        .get_definition("AirF_AmericaVehicleChinook")
+        .unwrap()
+        .clone();
+    game_logic
+        .templates
+        .insert("AirF_AmericaVehicleChinook".to_string(), chinook);
+    let mut missile_tpl = crate::game_logic::ThingTemplate::new("TestMissile");
+    missile_tpl
+        .add_kind_of(KindOf::Projectile)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(50.0);
+    game_logic
+        .templates
+        .insert("TestMissile".to_string(), missile_tpl);
+    let chinook_id = game_logic
+        .create_object("AirF_AmericaVehicleChinook", Team::USA, Vec3::ZERO)
+        .expect("combat chinook");
+    game_logic
+        .host_object_mut(chinook_id)
+        .expect("combat chinook")
+        .template_mut()
+        .receiving_object_definition = Some(std::sync::Arc::new(definition));
+    game_logic
+        .create_object("TestMissile", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
+        .expect("missile");
+    game_logic
+}
+
+#[test]
+fn combat_chinook_pdl_carrier_requires_authored_point_defense_module() {
+    let mut without = combat_chinook_pdl_world(false);
+    without.frame = 1;
+    without.update_point_defense_intercept();
+    assert!(
+        !without.honesty_point_defense_intercept_ok(),
+        "AirF_AmericaVehicleChinook name without PointDefenseLaserUpdate must not intercept"
+    );
+
+    let mut with = combat_chinook_pdl_world(true);
+    with.frame = 1;
+    with.update_point_defense_intercept();
+    assert!(
+        with.honesty_point_defense_intercept_ok(),
+        "authored PointDefenseLaserUpdate Combat Chinook must intercept"
+    );
+}
+
+/// hq-2qedt.278: AP Rockets (WeaponBonusUpgrade) keys on the authored
+/// TunnelDefenderRocketWeapon, not the template name.
+#[test]
+fn rpg_trooper_ap_rockets_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::host_rpg_trooper::{
+        TUNNEL_DEFENDER_ROCKET_WEAPON, UPGRADE_GLA_AP_ROCKETS, is_rpg_trooper_template,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("GLAInfantryRocketCloneTrooper");
+    tpl.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0)
+        .set_primary_weapon_name(TUNNEL_DEFENDER_ROCKET_WEAPON);
+    game_logic
+        .templates
+        .insert("GLAInfantryRocketCloneTrooper".to_string(), tpl);
+    let mut bare = crate::game_logic::ThingTemplate::new("TestRPGTrooper");
+    bare.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0);
+    game_logic
+        .templates
+        .insert("TestRPGTrooper".to_string(), bare);
+
+    let authored = game_logic
+        .create_object("GLAInfantryRocketCloneTrooper", Team::GLA, Vec3::ZERO)
+        .expect("authored");
+    let named = game_logic
+        .create_object("TestRPGTrooper", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
+        .expect("named");
+    assert!(!is_rpg_trooper_template("GLAInfantryRocketCloneTrooper"));
+    assert!(is_rpg_trooper_template("TestRPGTrooper"));
+
+    assert!(
+        game_logic.apply_rpg_trooper_ap_rockets_upgrade(authored),
+        "authored TunnelDefenderRocketWeapon must take AP Rockets"
+    );
+    assert!(
+        game_logic
+            .host_object(authored)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_GLA_AP_ROCKETS)
+    );
+    assert!(
+        !game_logic.apply_rpg_trooper_ap_rockets_upgrade(named),
+        "name-matching template without authored weapon must not take AP Rockets"
     );
 }

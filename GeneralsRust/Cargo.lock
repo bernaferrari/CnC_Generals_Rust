@@ -4335,14 +4335,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "game_engine_device_archive"
-version = "0.1.0"
-dependencies = [
- "game-client-rust",
- "game_engine_device",
-]
-
-[[package]]
 name = "game_network"
 version = "0.1.0"
 dependencies = [
@@ -4509,6 +4501,7 @@ dependencies = [
  "crossbeam",
  "env_logger",
  "fastrand 2.5.0",
+ "flate2",
  "font8x8",
  "futures",
  "game-client-rust",
@@ -15365,23 +15358,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ww3d-compat"
-version = "0.1.0"
-dependencies = [
- "ww3d-animation",
- "ww3d-assets",
- "ww3d-collision",
- "ww3d-core",
- "ww3d-effects",
- "ww3d-geometry",
- "ww3d-gpu",
- "ww3d-particles",
- "ww3d-render-2d",
- "ww3d-renderer-3d",
- "ww3d-scene",
-]
-
-[[package]]
 name = "ww3d-core"
 version = "0.1.0"
 dependencies = [
@@ -15391,24 +15367,6 @@ dependencies = [
  "once_cell",
  "slotmap",
  "thiserror 2.0.20",
-]
-
-[[package]]
-name = "ww3d-effects"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bytemuck",
- "configparser",
- "glam 0.33.7",
- "pollster 1.0.1",
- "rand 0.10.2",
- "thiserror 2.0.20",
- "tokio",
- "wgpu",
- "winit 0.30.13",
- "ww3d-core",
- "ww3d-renderer-3d",
 ]
 
 [[package]]
@@ -15425,24 +15383,6 @@ dependencies = [
  "wgpu",
  "ww3d-core",
  "ww3d-gpu",
-]
-
-[[package]]
-name = "ww3d-game"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "glam 0.33.7",
- "tokio",
- "wgpu",
- "winit 0.30.13",
- "ww3d-assets",
- "ww3d-engine",
- "ww3d-geometry",
- "ww3d-gpu",
- "ww3d-particles",
- "ww3d-physics",
- "ww3d-renderer-3d",
 ]
 
 [[package]]
@@ -15592,20 +15532,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ww3d2-validation"
-version = "0.1.0"
-dependencies = [
- "criterion",
- "regex",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
- "ww3d-assets",
- "ww3d-core",
- "ww3d-renderer-3d",
-]
-
-[[package]]
 name = "ww3d_core"
 version = "0.1.0"
 dependencies = [
@@ -15713,8 +15639,8 @@ dependencies = [
 name = "wwutil"
 version = "0.1.0"
 dependencies = [
- "math_utilities",
- "wwlib-rust",
+ "chrono",
+ "fastrand 2.5.0",
 ]
 
 [[package]]

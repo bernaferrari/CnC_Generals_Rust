@@ -6,7 +6,6 @@
 use super::ini::{FieldParse, INI, INIError, INILoadType, INIResult, LookupListRec};
 use crate::common::ini::ini_misc_audio::AudioEventRTS;
 use crate::common::rts::{SCIENCE_INVALID, ScienceType, WeaponSlotType, get_science_store};
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -24,6 +23,7 @@ pub struct CommandButtonOptions {
     pub check_like: bool,
     pub toggle_image_on_selection: bool,
     pub must_be_stopped: bool,
+    pub can_use_waypoints: bool,
     pub cancel_like: bool,
     pub need_upgrade: bool,
     pub reverse_button_order: bool,
@@ -143,6 +143,7 @@ impl Default for CommandButtonOptions {
             check_like: false,
             toggle_image_on_selection: false,
             must_be_stopped: false,
+            can_use_waypoints: false,
             cancel_like: false,
             need_upgrade: false,
             reverse_button_order: false,
@@ -553,38 +554,43 @@ impl Default for ControlBar {
     }
 }
 
-/// Global control bar instance (simulating TheControlBar)
-static CONTROL_BAR: OnceCell<RwLock<ControlBar>> = OnceCell::new();
-
-fn control_bar_cell() -> &'static RwLock<ControlBar> {
-    CONTROL_BAR.get_or_init(|| RwLock::new(ControlBar::new()))
-}
-
 fn control_bar_read() -> RwLockReadGuard<'static, ControlBar> {
-    control_bar_cell().read().expect("ControlBar poisoned")
+    let cell = ini_control_bar_cell();
+    let guard = cell.read().expect("ControlBar poisoned");
+    unsafe { std::mem::transmute(guard) }
 }
-
 fn control_bar_write() -> RwLockWriteGuard<'static, ControlBar> {
-    control_bar_cell().write().expect("ControlBar poisoned")
+    let cell = ini_control_bar_cell();
+    let guard = cell.write().expect("ControlBar poisoned");
+    unsafe { std::mem::transmute(guard) }
 }
-
 /// Initialize the global control bar
-pub fn initialize_control_bar() {
-    let _ = control_bar_cell();
-}
 
 /// Get a reference to the global control bar
-pub fn get_control_bar() -> Option<RwLockReadGuard<'static, ControlBar>> {
-    Some(control_bar_read())
-}
-
 /// Get a mutable reference to the global control bar
-pub fn get_control_bar_mut() -> Option<RwLockWriteGuard<'static, ControlBar>> {
-    Some(control_bar_write())
-}
-
 /// Parse command button definition from INI file
 /// This is the main entry point called by the INI parser
+
+fn ini_control_bar_cell() -> std::sync::Arc<std::sync::RwLock<ControlBar>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.control_bar)
+}
+
+pub fn initialize_control_bar() {
+    let _ = ini_control_bar_cell();
+}
+
+pub fn get_control_bar() -> Option<RwLockReadGuard<'static, ControlBar>> {
+    let cell = ini_control_bar_cell();
+    let guard = cell.read().ok()?;
+    Some(unsafe { std::mem::transmute(guard) })
+}
+
+pub fn get_control_bar_mut() -> Option<RwLockWriteGuard<'static, ControlBar>> {
+    let cell = ini_control_bar_cell();
+    let guard = cell.write().ok()?;
+    Some(unsafe { std::mem::transmute(guard) })
+}
+
 pub fn parse_command_button_definition(ini: &mut INI) -> INIResult<()> {
     ControlBar::parse_command_button_definition(ini)
 }
@@ -871,6 +877,7 @@ impl CommandButtonOptions {
             check_like: has_command_option(bits, "CHECK_LIKE"),
             toggle_image_on_selection: false,
             must_be_stopped: has_command_option(bits, "MUST_BE_STOPPED"),
+            can_use_waypoints: has_command_option(bits, "CAN_USE_WAYPOINTS"),
             cancel_like: false,
             need_upgrade: has_command_option(bits, "NEED_UPGRADE"),
             reverse_button_order: false,

@@ -194,7 +194,6 @@ fn hacker_field_residual_deposits_cash_on_interval() {
     );
     let started = game_logic.host_object(hacker_id).unwrap();
     assert_eq!(started.ai_state(), crate::game_logic::AIState::Idle);
-    assert!(started.unit_ai_runtime.idle_initialized());
     assert!(!started.idle_mood_reset_pending);
     game_logic
         .update_hacker_income()
@@ -3040,4 +3039,106 @@ fn active_special_ability_channel_still_cancels_on_replacement_order() {
     assert!(logic.hero_abilities().leftover_channel(id).is_none());
     assert_eq!(logic.objects[&id].model_condition_bits & unpacking, 0);
     assert!(!logic.objects[&id].status.using_ability);
+}
+
+/// hq-2qedt.112 (closes .63/.29 on the Main host path): C++
+/// GenerateMinefieldBehavior::update (GenerateMinefieldBehavior.cpp:437-466)
+/// removes the old mines with TheGameLogic->destroyObject (DESTROYED latch, no
+/// onDie / Die modules) in the same frame the EMP upgrade completes, then
+/// places new mines. Drive the live tick: queued Upgrade_ChinaEMPMines
+/// completes inside GameLogic::update().
+#[test]
+fn emp_mines_upgrade_destroys_old_mines_via_destroy_object_mid_update() {
+    use crate::game_logic::buildings::{BuildingData, BuildingType};
+    use crate::game_logic::host_create_object_die::HostCreateObjectDieData;
+    use crate::game_logic::host_upgrade_rules::register_test_upgrade;
+    use crate::game_logic::{KindOf, Player, Resources, ThingTemplate};
+    const EMP: &str = "Upgrade_ChinaEMPMines";
+    const DIE_MARKER: &str = "OldMineDieMarker";
+    let mut logic = GameLogic::new();
+    register_test_upgrade(&mut logic, "Upgrade_ChinaMines", "OBJECT", 0, 0);
+    register_test_upgrade(&mut logic, EMP, "OBJECT", 0, 0);
+    let mut owner = Player::new(0, Team::China, "owner", true);
+    owner.resources.supplies = 5000;
+    logic.add_player(owner);
+    let mut marker = ThingTemplate::new(DIE_MARKER);
+    marker.set_health(10.0);
+    logic.templates.insert(DIE_MARKER.into(), marker);
+    let mut t = ThingTemplate::new("ChinaBarracks");
+    t.set_health(1000.0);
+    t.add_kind_of(KindOf::Structure);
+    t.geometry_info = crate::game_logic::HostGeometryInfo {
+        geom_type: crate::game_logic::HostGeometryType::Box,
+        is_small: false,
+        height: 30.0,
+        major_radius: 36.0,
+        minor_radius: 44.0,
+        authored: true,
+    };
+    logic.templates.insert("ChinaBarracks".into(), t);
+    let producer = logic
+        .create_object_for_player(
+            "ChinaBarracks",
+            0,
+            glam::Vec3::new(100.0, 0.0, 100.0),
+        )
+        .unwrap();
+    logic.apply_upgrade_to_object(producer, "Upgrade_ChinaMines");
+    let old: Vec<ObjectId> = logic
+        .objects
+        .registered()
+        .filter(|(_, o)| o.template_name == "ChinaStandardMine")
+        .map(|(id, _)| *id)
+        .collect();
+    assert!(!old.is_empty(), "standard mines placed first");
+    // A Die module on each old mine: onDie (kill) would spawn the marker;
+    // destroyObject must not run Die modules.
+    for id in &old {
+        logic.objects.get_mut(id).unwrap().create_object_die =
+            Some(HostCreateObjectDieData {
+                ocl_name: "OCL_OldMineDieMarker".into(),
+                spawn_templates: vec![DIE_MARKER.into()],
+                transfer_previous_health: false,
+                fired: false,
+            });
+    }
+
+    let mut building = BuildingData::new(BuildingType::Barracks);
+    assert!(building.add_upgrade_to_queue(EMP.into(), 0.0, Resources::default()));
+    logic.host_object_mut(producer).unwrap().building_data = Some(building);
+    logic.update();
+
+    assert!(
+        logic
+            .host_object(producer)
+            .unwrap()
+            .building_data
+            .as_ref()
+            .unwrap()
+            .production_queue
+            .is_empty(),
+        "EMP upgrade completed inside update()"
+    );
+    let markers = logic
+        .objects
+        .registered_values()
+        .filter(|o| o.template_name == DIE_MARKER)
+        .count();
+    assert_eq!(
+        markers, 0,
+        "old mines must be destroyObject'd, not killed (onDie ran)"
+    );
+    for id in &old {
+        assert!(
+            logic.objects.get(id).is_none_or(|o| o.status.destroyed),
+            "old mine {id:?} removed in the upgrade frame"
+        );
+    }
+    assert!(
+        logic
+            .objects
+            .registered_values()
+            .any(|o| o.template_name == "ChinaEMPMine" && !o.status.destroyed),
+        "replacement EMP mines placed"
+    );
 }

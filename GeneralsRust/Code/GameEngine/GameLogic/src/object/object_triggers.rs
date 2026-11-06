@@ -700,8 +700,18 @@ impl Object {
     }
 
     /// Returns true if the object is currently treated as airborne.
+    /// C++ Object.cpp:3336 — current AI locomotor legal AIR surfaces, never
+    /// the AirborneTarget altitude/status bit.
     pub fn is_using_airborne_locomotor(&self) -> bool {
-        self.is_airborne_target()
+        self.get_ai_update_interface()
+            .and_then(|ai| {
+                ai.lock().ok().map(|guard| {
+                    crate::object::contain::transport_contain::selected_locomotor_is_airborne(
+                        &*guard,
+                    )
+                })
+            })
+            .unwrap_or(false)
     }
 
     /// Set object position

@@ -206,6 +206,24 @@ pub fn player_has_unit_training_science(
     })
 }
 
+/// Object-aware training residual: Technical keys on the authored PRIMARY
+/// weapon (TechnicalMachineGun/Cannon/RPGWeapon), not the template name.
+pub fn unit_training_level_for_object(
+    template_name: &str,
+    authored_primary_weapon: Option<&str>,
+    unlocked_sciences: &[String],
+) -> Option<(UnitTrainingScience, VeterancyLevel)> {
+    use crate::game_logic::host_technical::is_technical_weapon_name;
+    if authored_primary_weapon.is_some_and(is_technical_weapon_name) {
+        let kind = UnitTrainingScience::Technical;
+        if player_has_unit_training_science(unlocked_sciences, kind) {
+            return Some((kind, kind.starting_level()));
+        }
+        return None;
+    }
+    unit_training_level_for_template(template_name, unlocked_sciences)
+}
+
 /// Resolve residual starting level for a template given player sciences.
 ///
 /// Fail-closed: name residual + science match only (not full INI module matrix).
@@ -218,7 +236,6 @@ pub fn unit_training_level_for_template(
     use crate::game_logic::host_minigunner::is_minigunner_template;
     use crate::game_logic::host_neutron_shell::is_nuke_cannon_template;
     use crate::game_logic::host_red_guard::is_red_guard_template;
-    use crate::game_logic::host_technical::is_technical_template;
 
     // Infantry General MiniGunner uses Infa_SCIENCE_RedGuardTraining → ELITE.
     // Fail-closed: stock SCIENCE_RedGuardTraining does not train MiniGunner.
@@ -254,13 +271,6 @@ pub fn unit_training_level_for_template(
         return None;
     }
 
-    if is_technical_template(template_name) {
-        let kind = UnitTrainingScience::Technical;
-        if player_has_unit_training_science(unlocked_sciences, kind) {
-            return Some((kind, kind.starting_level()));
-        }
-        return None;
-    }
 
     // SCIENCE_GattlingTankTraining residual (StartingLevel VETERAN).
     // Stock ChinaTankGattling omits the module; host residual still grants when
@@ -769,7 +779,12 @@ mod tests {
 
         let sciences = vec![SCIENCE_TECHNICAL_TRAINING.to_string()];
         assert_eq!(
-            unit_training_level_for_template("GLAVehicleTechnical", &sciences).map(|(_, l)| l),
+            unit_training_level_for_object(
+                "GLAVehicleTechnical",
+                Some(crate::game_logic::host_technical::TECHNICAL_MACHINE_GUN),
+                &sciences
+            )
+            .map(|(_, l)| l),
             Some(VeterancyLevel::Veteran)
         );
 

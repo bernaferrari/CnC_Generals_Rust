@@ -48,8 +48,21 @@ impl ScriptEngine {
     const MAX_PLAYER_COUNT: usize = crate::common::MAX_PLAYER_COUNT;
 
     pub fn new() -> GameLogicResult<Self> {
+        // Prefer the published world; otherwise allocate a private owner so unit
+        // tests never touch a process-wide bag.
+        let services = crate::system::engine_stores::try_active_services()
+            .unwrap_or_else(crate::system::engine_stores::new_world_services);
+        Self::new_with_services(&services)
+    }
+
+    /// Build on `services` so instance ids stay on the owning world.
+    pub fn new_with_services(
+        services: &std::sync::Arc<crate::system::engine_stores::WorldServices>,
+    ) -> GameLogicResult<Self> {
         let mut engine = Self {
-            instance_id: NEXT_SCRIPT_ENGINE_INSTANCE_ID
+            instance_id: services
+                .session_flags()
+                .next_script_engine_instance_id
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             subroutine_call_depth: Cell::new(0),
             inner: std::cell::RefCell::new(ScriptEngineInner {
@@ -205,8 +218,8 @@ impl ScriptEngine {
     fn standalone_team_player(id: TeamID) -> Option<String> {
         let team = get_team_factory().lock().ok()?.find_team_by_id(id)?;
         let player_id = team.read().ok()?.get_controlling_player_id()?;
-        let player = crate::player::player_list()
-            .read()
+        let __player_list_arc = crate::player::player_list();
+            let player = __player_list_arc.read()
             .ok()?
             .get_player(player_id as i32)
             .cloned()?;

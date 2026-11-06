@@ -124,7 +124,9 @@ fn internet_session_is_sandbox() -> bool {
 fn session_is_sandbox() -> bool {
     match TheGameLogic::get_game_mode() {
         GAME_LAN => {
-            let setup = get_lan_setup();
+            let setup_handle = get_lan_setup();
+
+            let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             setup.game_info().is_sandbox()
         }
         GAME_INTERNET => internet_session_is_sandbox(),
@@ -340,6 +342,7 @@ mod tests {
 
     #[test]
     fn restart_from_save_uses_pristine_map_name_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let old_pristine = {
             let game_state = get_game_state();
             game_state.get_pristine_map_name().to_string()
@@ -438,11 +441,12 @@ fn toggle_quit_menu_with_selected(
                 .borrow()
                 .run_shutdown_with_effects(Some(&mut immediate as &mut dyn std::any::Any), effects);
             owner.with_shell_mut(|shell| shell.finish_options_shutdown_receipt(&layout, immediate));
-            effects.with_manager(|manager, _effects| {
-                layout.borrow().hide_with_manager_and_selected(
+            effects.with_manager(|manager, effects| {
+                layout.borrow().hide_with_manager_and_lent(
                     manager,
                     true,
                     selected.as_deref_mut(),
+                    &mut effects.lent_windows,
                 );
             });
         }
@@ -453,7 +457,14 @@ fn toggle_quit_menu_with_selected(
     if let Some(layout) = popup.filter(|layout| !layout.borrow().is_hidden()) {
         if !send_back_button_selection("PopupSaveLoad.wnd:ButtonBack", effects, selected.as_deref())
         {
-            effects.with_manager(|manager, _| layout.borrow_mut().hide(manager, true));
+            effects.with_manager(|manager, effects| {
+                layout.borrow().hide_with_manager_and_lent(
+                    manager,
+                    true,
+                    selected.as_deref_mut(),
+                    &mut effects.lent_windows,
+                );
+            });
         }
         effects.with_quit_menu(|state| state.save_load_layout = None);
         return QuitMenuToggleResult::ClosedInterveningLayout;
@@ -497,11 +508,14 @@ fn toggle_quit_menu_with_selected(
             // menu painted over the resumed match (ButtonReturn resumed the
             // world while the panel stayed on screen). Force the net retail
             // end state: every layout window hidden immediately.
-            effects.with_manager(|manager, _effects| {
-                layout.borrow().hide_with_manager_and_selected(
+            // ButtonReturn stays lent from input dispatch while QuitMenuSystem
+            // selected is the parent root — thread lent through hide.
+            effects.with_manager(|manager, effects| {
+                layout.borrow().hide_with_manager_and_lent(
                     manager,
                     true,
                     selected.as_deref_mut(),
+                    &mut effects.lent_windows,
                 )
             });
         }
@@ -1120,11 +1134,25 @@ mod os_wnd_tests {
         drive_os_wnd_popup_save_load_save_like_cpp, live_popup_save_load_window_present,
     };
     fn with_fixture(operation: impl FnOnce(&mut WindowEventEffects<'_>)) {
+        // Mirror WindowEventEffects::with_standalone loans for quit/save-load paths.
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
         let mut messages = Vec::new();
+        let mut ui = crate::core::subsystems::InGameUISubsystem::default();
+        let mut ime = crate::gui::ime_manager::ImeManager::new();
+        let mut main_menu = crate::gui::shell::main_menu::MainMenu::new();
+        let mut menu_host = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
+        let mut script_display =
+            crate::core::script_action_handler::ScriptDisplayReceiver::default();
         let mut effects = WindowEventEffects::new(&mut messages);
         effects.window_manager_owner = Some(&owner);
+        effects.ui = Some(&mut ui);
+        effects.ime = Some(&mut ime);
+        effects.main_menu = Some(&mut main_menu);
+        effects.menu_host = Some(&mut menu_host);
+        effects.menu_world =
+            Some(crate::gui::campaign_launch_host_bridge::MenuWorldFacts::default());
+        effects.script_display = Some(&mut script_display);
         effects.menus = Some(
             menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
         );
@@ -1143,6 +1171,7 @@ mod os_wnd_tests {
 
     #[test]
     fn os_wnd_quit_menu_exit_hits_button_then_latches() {
+        crate::test_support::ensure_ambient_host();
         with_fixture(|effects| {
             install_named_button("QuitMenu.wnd:ButtonExit", 10, 10, effects);
             assert!(
@@ -1159,6 +1188,7 @@ mod os_wnd_tests {
 
     #[test]
     fn os_wnd_quit_menu_return_and_options_hit_named_gadgets() {
+        crate::test_support::ensure_ambient_host();
         with_fixture(|effects| {
             install_named_button("QuitMenu.wnd:ButtonReturn", 10, 40, effects);
             install_named_button("QuitMenu.wnd:ButtonOptions", 10, 70, effects);
@@ -1177,6 +1207,7 @@ mod os_wnd_tests {
 
     #[test]
     fn os_wnd_quit_menu_prepare_exit_hits_exit_then_confirms() {
+        crate::test_support::ensure_ambient_host();
         with_fixture(|effects| {
             install_named_button("QuitMenu.wnd:ButtonExit", 10, 100, effects);
             assert!(drive_os_wnd_quit_menu_prepare_exit_like_cpp(effects));
@@ -1190,6 +1221,7 @@ mod os_wnd_tests {
 
     #[test]
     fn retail_quit_save_load_click_creates_initialized_popup_layout() {
+        crate::test_support::ensure_ambient_host();
         with_fixture(|effects| {
             effects.with_manager(|manager, effects| manager.reset(effects));
             assert!(
@@ -1269,6 +1301,7 @@ mod os_wnd_tests {
 
     #[test]
     fn retail_quit_menu_toggle_tracks_live_wnd_visibility() {
+        crate::test_support::ensure_ambient_host();
         with_fixture(|effects| {
             // This is intentionally the production toggle, not the residual
             // `simulate_quit_menu_*` latch.  It parses the retail QuitMenu.wnd,
@@ -1309,6 +1342,7 @@ mod receiving_script_ending_tests {
     use super::*;
     #[test]
     fn receiving_quit_ending_suppresses_before_window_or_pause_changes() {
+        crate::test_support::ensure_ambient_host();
         let mut menus = super::super::menu_callbacks::MenuManager::new();
         let mut messages = Vec::new();
         let mut effects = WindowEventEffects::new(&mut messages);
@@ -1325,6 +1359,7 @@ mod receiving_script_ending_tests {
 
     #[test]
     fn quit_state_and_residuals_are_instance_owned() {
+        crate::test_support::ensure_ambient_host();
         let mut a = super::super::menu_callbacks::MenuManager::new();
         let mut b = super::super::menu_callbacks::MenuManager::new();
         let mut messages_a = Vec::new();

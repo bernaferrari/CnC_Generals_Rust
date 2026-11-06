@@ -733,6 +733,7 @@ mod tests {
 
     #[test]
     fn test_tabcontrol_creation() {
+        crate::test_support::ensure_ambient_host();
         let tab_control = TabControl::new(1, 10, 20, 400, 300);
         assert_eq!(tab_control.tabs().len(), 0);
         assert_eq!(tab_control.selected_tab(), None);
@@ -740,6 +741,7 @@ mod tests {
 
     #[test]
     fn test_add_tabs() {
+        crate::test_support::ensure_ambient_host();
         let mut tab_control = TabControl::new(1, 10, 20, 400, 300);
         tab_control.add_tab(Tab::new(1, "Tab 1"));
         tab_control.add_tab(Tab::new(2, "Tab 2"));
@@ -750,6 +752,7 @@ mod tests {
 
     #[test]
     fn test_select_tab() {
+        crate::test_support::ensure_ambient_host();
         let mut tab_control = TabControl::new(1, 10, 20, 400, 300);
         tab_control.add_tab(Tab::new(1, "Tab 1"));
         tab_control.add_tab(Tab::new(2, "Tab 2"));
@@ -760,6 +763,7 @@ mod tests {
 
     #[test]
     fn left_down_switches_tabs_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut tab_control = TabControl::new(1, 10, 20, 400, 300);
         tab_control.set_tab_data(TabControlData {
             tab_edge: TP_TOP_SIDE,
@@ -789,6 +793,7 @@ mod tests {
 
     #[test]
     fn left_down_on_active_or_blank_tab_area_is_handled_without_switch_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut tab_control = TabControl::new(1, 10, 20, 400, 300);
         tab_control.set_tab_data(TabControlData {
             tab_edge: TP_TOP_SIDE,
@@ -825,6 +830,7 @@ mod tests {
 
     #[test]
     fn tabcontrol_render_commands_cover_tab_geometry_states_text_and_icon() {
+        crate::test_support::ensure_ambient_host();
         let theme = GadgetTheme::default();
         let mut disabled_panes = [false; NUM_TAB_PANES];
         disabled_panes[2] = true;
@@ -930,6 +936,7 @@ mod tests {
 
     #[test]
     fn tabcontrol_render_commands_cover_data_only_right_edge_focus_and_hidden() {
+        crate::test_support::ensure_ambient_host();
         let theme = GadgetTheme::default();
         let mut tab_control = TabControl::new(1, 10, 20, 240, 180);
         tab_control.set_tab_data(TabControlData {

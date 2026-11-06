@@ -170,7 +170,7 @@ fn thrust_tree_sound_is_at_receiving_physics_euler_not_locomotor_force() {
             terrain: Some(&mut terrain),
             audio: Some(&mut audio),
             ..Default::default()
-        }
+}
     ));
     assert!(audio.0.is_empty());
     assert_eq!(world.objects.get(&id).unwrap().get_position(), start);
@@ -179,7 +179,7 @@ fn thrust_tree_sound_is_at_receiving_physics_euler_not_locomotor_force() {
             terrain: Some(&mut terrain),
             audio: Some(&mut audio),
             ..Default::default()
-        },
+},
     );
     assert_eq!(audio.0, ["ThrustTreeSound"]);
     assert_eq!(

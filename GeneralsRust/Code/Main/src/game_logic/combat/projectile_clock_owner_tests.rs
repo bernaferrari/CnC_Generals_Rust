@@ -92,12 +92,14 @@ fn same_ids_use_receiving_collision_clock_and_exact_expiry() {
 fn normal_save_preserves_sneaky_collision_expiry_without_peer_retiming() {
     let (mut original, shooter, _) = receiving_world(109);
     let builder = crate::save_load::SnapshotBuilder::new();
-    let snapshot = builder.create_world_snapshot(&original).unwrap();
+    let snapshot = original
+        .with_own_services(|| builder.create_world_snapshot(&original))
+        .unwrap();
     let bytes = bincode_legacy::serialize(&snapshot).unwrap();
     let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
     let (mut restored, _, _) = receiving_world(700);
-    builder
-        .restore_from_snapshot(&decoded, &mut restored)
+    restored
+        .with_own_services_mut(|restored| builder.restore_from_snapshot(&decoded, restored))
         .unwrap();
     for world in [&mut original, &mut restored] {
         world.frame = 109;
@@ -119,24 +121,26 @@ fn factory_installs_active_three_slot_deadlines_and_restores_saved_frames() {
         template.set_secondary_weapon_name(name);
         template.set_tertiary_weapon_name(name);
         template.set_mine_clearing_primary_weapon_name(name);
-        assert!(
-            template.resolve_primary_weapon(frame).is_some(),
-            "actual PRIMARY catalog admission"
-        );
-        assert!(
-            template.resolve_secondary_weapon(frame).is_some(),
-            "actual SECONDARY catalog admission"
-        );
-        assert!(
-            template.resolve_tertiary_weapon(frame).is_some(),
-            "actual TERTIARY catalog admission"
-        );
-        assert!(
-            template
-                .resolve_mine_clearing_primary_weapon(frame)
-                .is_some(),
-            "actual MINE_CLEARING catalog admission"
-        );
+        world.with_own_services(|| {
+            assert!(
+                template.resolve_primary_weapon(frame).is_some(),
+                "actual PRIMARY catalog admission"
+            );
+            assert!(
+                template.resolve_secondary_weapon(frame).is_some(),
+                "actual SECONDARY catalog admission"
+            );
+            assert!(
+                template.resolve_tertiary_weapon(frame).is_some(),
+                "actual TERTIARY catalog admission"
+            );
+            assert!(
+                template
+                    .resolve_mine_clearing_primary_weapon(frame)
+                    .is_some(),
+                "actual MINE_CLEARING catalog admission"
+            );
+        });
         world.templates.insert(template.name.clone(), template);
         let id = world
             .create_object("OwnedClockFourSlots", Team::USA, Vec3::ZERO)
@@ -165,12 +169,14 @@ fn factory_installs_active_three_slot_deadlines_and_restores_saved_frames() {
     assert_eq!(deadlines(&owner, id), [100; 3]);
     assert_eq!(deadlines(&peer, peer_id), [700; 3]);
     let builder = crate::save_load::SnapshotBuilder::new();
-    let snapshot = builder.create_world_snapshot(&owner).unwrap();
+    let snapshot = owner
+        .with_own_services(|| builder.create_world_snapshot(&owner))
+        .unwrap();
     let bytes = bincode_legacy::serialize(&snapshot).unwrap();
     let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
     let (mut restored, _) = factory(900);
-    builder
-        .restore_from_snapshot(&decoded, &mut restored)
+    restored
+        .with_own_services_mut(|restored| builder.restore_from_snapshot(&decoded, restored))
         .unwrap();
     assert_eq!(deadlines(&restored, id), [100; 3]);
 }

@@ -230,6 +230,30 @@ impl MapMetaData {
 
 /// Field parsing functions for MapMetaDataReader
 
+
+fn ini_map_cache_cell() -> std::sync::Arc<std::sync::RwLock<MapCache>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.map_cache)
+}
+
+
+pub fn init_global_map_cache() {
+    let _ = ini_map_cache_cell();
+}
+
+
+pub fn get_map_cache() -> Option<std::sync::RwLockReadGuard<'static, MapCache>> {
+    let cell = ini_map_cache_cell();
+    let guard = cell.read().ok()?;
+    Some(unsafe { std::mem::transmute(guard) })
+}
+
+
+pub fn get_map_cache_mut() -> Option<std::sync::RwLockWriteGuard<'static, MapCache>> {
+    let cell = ini_map_cache_cell();
+    let guard = cell.write().ok()?;
+    Some(unsafe { std::mem::transmute(guard) })
+}
+
 /// Parse supply position coordinate
 pub fn parse_supply_position_coord3d(
     _ini: &mut INI,
@@ -649,42 +673,36 @@ pub fn quoted_printable_to_unicode_string(input: &str) -> UnicodeString {
     UnicodeString::from_string(qp_to_unicode(input))
 }
 
-/// Global map cache instance
-static MAP_CACHE: OnceCell<RwLock<MapCache>> = OnceCell::new();
 type GameTextProvider = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
-static GAME_TEXT_PROVIDER: OnceCell<GameTextProvider> = OnceCell::new();
 
 pub fn set_game_text_provider(provider: GameTextProvider) -> bool {
-    GAME_TEXT_PROVIDER.set(provider).is_ok()
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .ini
+        .game_text_provider
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if slot.is_some() {
+        return false;
+    }
+    *slot = Some(provider);
+    true
 }
 
-fn lookup_game_text(tag: &str) -> Option<String> {
-    GAME_TEXT_PROVIDER
-        .get()
-        .and_then(|provider| (provider)(tag))
+pub(crate) fn lookup_game_text(tag: &str) -> Option<String> {
+    let services = crate::common::common_services::common_services();
+    let slot = services
+        .ini
+        .game_text_provider
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    slot.as_ref().and_then(|provider| (provider)(tag))
 }
 
 /// Initialize the global map cache
-pub fn init_global_map_cache() {
-    if MAP_CACHE.get().is_none() {
-        let _ = MAP_CACHE.set(RwLock::new(MapCache::new()));
-    }
-}
 
 /// Get reference to global map cache
-pub fn get_map_cache() -> Option<RwLockReadGuard<'static, MapCache>> {
-    MAP_CACHE
-        .get()
-        .map(|cache| cache.read().expect("MapCache poisoned"))
-}
-
 /// Get mutable reference to global map cache
-pub fn get_map_cache_mut() -> Option<RwLockWriteGuard<'static, MapCache>> {
-    MAP_CACHE
-        .get()
-        .map(|cache| cache.write().expect("MapCache poisoned"))
-}
-
 fn parse_map_cache_metadata(ini: &mut INI) -> Result<(String, MapMetaData), String> {
     let tokens = ini.get_line_tokens();
     let name = tokens
@@ -1005,7 +1023,12 @@ mod tests {
     }
 
     const SINK_CALLBACK_FIXTURE: &str = "sinkcallbackvisible.map";
-    static SINK_CALLBACK_CACHE: OnceCell<RwLock<MapCache>> = OnceCell::new();
+    struct SinkCallbackCacheSlot(OnceCell<RwLock<MapCache>>);
+    impl std::ops::Deref for SinkCallbackCacheSlot {
+        type Target = OnceCell<RwLock<MapCache>>;
+        fn deref(&self) -> &Self::Target { &self.0 }
+    }
+    static SINK_CALLBACK_CACHE: SinkCallbackCacheSlot = SinkCallbackCacheSlot(OnceCell::new());
 
     #[test]
     fn borrowed_sink_commits_each_map_before_next_block_callback() {
@@ -1035,7 +1058,7 @@ mod tests {
             "MapCacheSinkLockProbe",
             inspect_cache_before_unrelated_block,
         );
-        let target = SINK_CALLBACK_CACHE.get_or_init(|| RwLock::new(MapCache::new()));
+        let target = SINK_CALLBACK_CACHE.0.get_or_init(|| RwLock::new(MapCache::new()));
         target.write().expect("test cache").clear();
         let mut sink = |filename, metadata| {
             target

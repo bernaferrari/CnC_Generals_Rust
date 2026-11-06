@@ -6,7 +6,6 @@ use game_network::{
     ExecutedFrame, FrameListener, NetCommandType, commands::CommandPayload, get_network,
 };
 use log::{debug, warn};
-use once_cell::sync::Lazy;
 
 use crate::gui::callbacks::ingame_callbacks::push_network_chat_message;
 use crate::gui::load_screen::{
@@ -24,14 +23,35 @@ pub struct NetworkProgressState {
     pub last_command: NetCommandType,
 }
 
-static NETWORK_PROGRESS: Lazy<Mutex<HashMap<u8, NetworkProgressState>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+/// Progress map owned by the installed bridge (shared with the frame listener).
+fn empty_progress() -> Arc<Mutex<HashMap<u8, NetworkProgressState>>> {
+    Arc::new(Mutex::new(HashMap::new()))
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_NETWORK_PROGRESS: std::cell::RefCell<Option<Arc<Mutex<HashMap<u8, NetworkProgressState>>>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+fn publish_progress_for_get(map: &Arc<Mutex<HashMap<u8, NetworkProgressState>>>) {
+    #[cfg(test)]
+    {
+        TEST_NETWORK_PROGRESS.with(|slot| {
+            *slot.borrow_mut() = Some(Arc::clone(map));
+        });
+    }
+    let _ = map;
+}
 
 pub fn get_network_progress(player_id: u8) -> Option<NetworkProgressState> {
-    NETWORK_PROGRESS
-        .lock()
-        .ok()
-        .and_then(|map| map.get(&player_id).cloned())
+    #[cfg(test)]
+    {
+        if let Some(map) = TEST_NETWORK_PROGRESS.with(|slot| slot.borrow().clone()) {
+            return map.lock().ok().and_then(|m| m.get(&player_id).cloned());
+        }
+    }
+    None
 }
 
 /// Handle returned when the bridge is installed.  Dropping this handle will
@@ -39,23 +59,27 @@ pub fn get_network_progress(player_id: u8) -> Option<NetworkProgressState> {
 pub struct NetworkBridgeHandle {
     network: Arc<game_network::NetworkInterface>,
     listener_id: game_network::FrameListenerId,
+    progress: Arc<Mutex<HashMap<u8, NetworkProgressState>>>,
 }
 
 impl NetworkBridgeHandle {
     /// Attempt to install the bridge. Returns `None` when the networking layer
     /// has not been initialised (e.g. single-player or early startup).
-    pub fn install() -> Option<Self> {
+    pub fn install(runtime: &mut crate::gui::load_screen::LoadScreenRuntime) -> Option<Self> {
         let network = get_network()?;
+        let progress = empty_progress();
+        publish_progress_for_get(&progress);
+        let progress_for_listener = Arc::clone(&progress);
 
-        let listener: FrameListener = Arc::new(|frame: &ExecutedFrame| {
-            handle_executed_frame(frame);
+        let listener: FrameListener = Arc::new(move |frame: &ExecutedFrame| {
+            handle_executed_frame(frame, &progress_for_listener);
         });
 
         let listener_id = network.register_frame_listener(listener);
         debug!("Registered network frame listener with id {}", listener_id);
 
         let liteupdate_network = Arc::clone(&network);
-        register_map_transfer_liteupdate_hook(move |_mouse| {
+        register_map_transfer_liteupdate_hook(runtime, move |_mouse| {
             if let Err(err) = pollster::block_on(liteupdate_network.update()) {
                 warn!("Map transfer liteupdate failed: {err}");
             }
@@ -65,7 +89,14 @@ impl NetworkBridgeHandle {
         Some(Self {
             network,
             listener_id,
+            progress,
         })
+    }
+
+    /// Clear the map-transfer liteupdate hook owned by `runtime` (call before drop).
+    pub fn uninstall_hooks(runtime: &mut crate::gui::load_screen::LoadScreenRuntime) {
+        clear_map_transfer_liteupdate_hook(runtime);
+        debug!("Cleared map-transfer liteupdate hook");
     }
 }
 
@@ -82,12 +113,13 @@ impl Drop for NetworkBridgeHandle {
                 self.listener_id
             );
         }
-        clear_map_transfer_liteupdate_hook();
-        debug!("Cleared map-transfer liteupdate hook");
     }
 }
 
-fn handle_executed_frame(frame: &ExecutedFrame) {
+fn handle_executed_frame(
+    frame: &ExecutedFrame,
+    progress_map: &Arc<Mutex<HashMap<u8, NetworkProgressState>>>,
+) {
     for command in &frame.commands {
         match command.command_type {
             NetCommandType::GameCommand => {
@@ -112,7 +144,7 @@ fn handle_executed_frame(frame: &ExecutedFrame) {
             | NetCommandType::LoadComplete
             | NetCommandType::TimeoutStart => {
                 if let CommandPayload::Progress(progress) = &command.payload {
-                    if let Ok(mut map) = NETWORK_PROGRESS.lock() {
+                    if let Ok(mut map) = progress_map.lock() {
                         map.insert(
                             command.player_id,
                             NetworkProgressState {

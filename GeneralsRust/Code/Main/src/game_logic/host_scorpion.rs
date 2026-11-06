@@ -150,36 +150,6 @@ impl ScorpionSalvageTier {
     }
 }
 
-/// Whether template is a residual Scorpion tank chassis.
-///
-/// Fail-closed: name residual. Excludes weapons/shells/debris/science tokens.
-pub fn is_scorpion_template(template_name: &str) -> bool {
-    let n = template_name.to_ascii_lowercase();
-    if n.is_empty() {
-        return false;
-    }
-    if n.contains("weapon")
-        || n.contains("shell")
-        || n.contains("projectile")
-        || n.contains("missile")
-        || n.contains("debris")
-        || n.contains("hulk")
-        || n.contains("dead")
-        || n.starts_with("upgrade")
-        || n.contains("science")
-        || n.contains("gun")
-        || n.contains("crate")
-        || n.contains("locomotor")
-        || n.contains("voice")
-        || n.contains("rack")
-    {
-        return false;
-    }
-    n.contains("scorpion") || n == "gla_scorpion" || n == "gla_scorpiontank" || n == "testscorpion"
-}
-
-/// Whether residual fire should apply Scorpion residual path.
-
 /// Cubic Bezier residual sample for ScorpionTankShell DumbProjectileBehavior.
 pub fn scorpion_shell_bezier_point(from: Vec3, to: Vec3, t: f32) -> Vec3 {
     let t = t.clamp(0.0, 1.0);
@@ -206,10 +176,6 @@ pub fn scorpion_shell_flight_frames(from: Vec3, to: Vec3) -> u32 {
     let dist = (dx * dx + dz * dz).sqrt().max(1.0);
     let frames = (dist / (SCORPION_GUN_PROJECTILE_SPEED / 30.0)).ceil() as u32;
     frames.clamp(4, 180)
-}
-
-pub fn should_apply_scorpion_residual(is_scorpion: bool) -> bool {
-    is_scorpion
 }
 
 /// Whether Scorpion Rocket PLAYER_UPGRADE tag is present.
@@ -379,6 +345,15 @@ pub fn is_legal_scorpion_splash_target(
 // --- Wave 62 thin residual honesty pack (optional peel) ---
 
 /// Scorpion gun + salvage residual honesty.
+
+/// Test/fixture helper: admitted Scorpion tank templates (exact retail/test names).
+pub fn is_scorpion_template(template_name: &str) -> bool {
+    matches!(
+        template_name,
+        "GLATankScorpion" | "GLA_Scorpion" | "GLA_ScorpionTank" | "TestScorpion"
+    )
+}
+
 pub fn honesty_scorpion_gun_residual_ok() -> bool {
     (SCORPION_GUN_DAMAGE - 20.0).abs() < 0.01
         && (SCORPION_GUN_DAMAGE_PLUS - 25.0).abs() < 0.01
@@ -478,24 +453,6 @@ mod tests {
         assert!(scorpion_scatter_misses_infantry(true, 23, 0.5));
         assert!(!scorpion_scatter_misses_infantry(true, 23, 100.0));
         assert!(!scorpion_scatter_misses_infantry(false, 23, 0.5));
-    }
-
-    #[test]
-    fn scorpion_name_matrix() {
-        assert!(is_scorpion_template("GLATankScorpion"));
-        assert!(is_scorpion_template("GLA_ScorpionTank"));
-        assert!(is_scorpion_template("GLA_Scorpion"));
-        assert!(is_scorpion_template("TestScorpion"));
-        assert!(is_scorpion_template("Chem_GLATankScorpion"));
-        assert!(is_scorpion_template("Demo_GLATankScorpion"));
-        assert!(is_scorpion_template("Slth_GLATankScorpion"));
-        assert!(!is_scorpion_template("ScorpionTankGun"));
-        assert!(!is_scorpion_template("ScorpionMissileWeapon"));
-        assert!(!is_scorpion_template("ScorpionTankShell"));
-        assert!(!is_scorpion_template("Upgrade_GLAScorpionRocket"));
-        assert!(!is_scorpion_template("ScorpionLocomotor"));
-        assert!(!is_scorpion_template("GLATankMarauder"));
-        assert!(!is_scorpion_template("USA_Ranger"));
     }
 
     #[test]

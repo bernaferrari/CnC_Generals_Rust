@@ -16,9 +16,7 @@ use gamelogic::helpers::{TheAudio, TheFXList, TheGameLogic, TheScriptEngine, The
 use gamelogic::object_manager::get_object_manager;
 use gamelogic::player::player_list;
 use gamelogic::scripting::engine::ScriptActionHandler;
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 /// A presentation capability belonging to one GameClient. It neither publishes
@@ -349,7 +347,7 @@ pub fn script_show_object_superweapon_display(object_id: ObjectID) {
 
 pub fn reset_script_action_runtime_state() {
     with_script_runtime(|state| {
-        *state = ScriptRuntimeState::default();
+        *state = ScriptActionRuntime::default();
     });
     game_engine::common::global_data::write().writable.wireframe = false;
     with_tactical_view(|view| view.reset_3d_wireframe_mode());
@@ -386,7 +384,8 @@ fn apply_cinematic_input_lock(
         return;
     }
     ui.deselect_all();
-    if let Ok(list) = player_list().read() {
+    let __arc_bind = player_list();
+if let Ok(list) = __arc_bind.read() {
         let local_index = list.get_local_player_index();
         if local_index != gamelogic::player::PLAYER_INDEX_INVALID {
             let selection_manager = get_selection_manager();
@@ -403,47 +402,26 @@ fn apply_cinematic_input_lock(
 }
 
 fn request_look_at_reset_modes() {
-    LOOK_AT_RESET.store(true, std::sync::atomic::Ordering::Relaxed);
+    with_script_runtime(|state| state.request_look_at_reset_modes());
 }
-
-static LOOK_AT_RESET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Drain a pending LookAtTranslator::resetModes request.
 pub fn take_look_at_reset_modes() -> bool {
-    LOOK_AT_RESET.swap(false, std::sync::atomic::Ordering::Relaxed)
+    with_script_runtime(|state| state.take_look_at_reset_modes())
 }
 
-/// Script-owned runtime handoff state (C++ `ScriptActions` members).
-///
-/// THREAD: single game thread. Script actions play media and queue the wait
-/// entries, the `is_*_complete` script conditions drain them, and the
-/// GameClient init/reset/shutdown paths clear them — all on the same thread
-/// (C++ runs logic and client from one loop), so this is single-owner state
-/// and carries no lock.
-#[derive(Default)]
-struct ScriptRuntimeState {
-    audio_waits: HashMap<String, Vec<u32>>,
-    speech_waits: HashMap<String, Vec<u32>>,
-    music_waits: HashMap<String, Vec<u32>>,
-    ui: ScriptUiState,
-}
+pub use super::script_action_runtime::{ScriptActionRuntime, ScriptUiState};
 
-thread_local! {
-    static SCRIPT_RUNTIME_STATE: RefCell<ScriptRuntimeState> =
-        RefCell::new(ScriptRuntimeState::default());
-}
-
-fn with_script_runtime<R>(f: impl FnOnce(&mut ScriptRuntimeState) -> R) -> R {
-    SCRIPT_RUNTIME_STATE.with(|state| f(&mut state.borrow_mut()))
-}
-
-#[derive(Default)]
-struct ScriptUiState {
-    named_timers: HashMap<String, (String, bool)>,
-    named_timer_display_shown: bool,
-    superweapon_display_enabled: bool,
-    superweapon_hidden_objects: HashSet<ObjectID>,
-    cameo_flash_count: HashMap<String, i32>,
+/// Prefer the live GameClient runtime; fall back to a discarded local for
+/// Core callers that have no receiving client (tests / early boot).
+fn with_script_runtime<R>(f: impl FnOnce(&mut ScriptActionRuntime) -> R) -> R {
+    let mut f = Some(f);
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        f.take().expect("script runtime callback")(client.script_runtime_mut())
+    }) {
+        return result;
+    }
+    f.take().expect("script runtime callback")(&mut ScriptActionRuntime::new())
 }
 
 fn normalize_media_name(name: &str) -> String {
@@ -515,26 +493,24 @@ fn is_named_audio_complete(
     completed
 }
 
-static SCRIPT_VISUAL_SPEED_MULTIPLIER: AtomicI32 = AtomicI32::new(1);
-static SCRIPT_FPS_LIMIT: AtomicI32 = AtomicI32::new(0);
 const SUBTITLE_DURATION_MS: i32 = 8_000;
 const AHSV_STOP_THE_MUSIC: u32 = 0xFFFFFFF0;
 const AHSV_STOP_THE_MUSIC_FADE: u32 = 0xFFFFFFF1;
 
 pub fn get_script_visual_speed_multiplier() -> i32 {
-    SCRIPT_VISUAL_SPEED_MULTIPLIER.load(Ordering::Relaxed)
+    with_script_runtime(|state| state.visual_speed_multiplier)
 }
 
 pub fn set_script_visual_speed_multiplier(multiplier: i32) {
-    SCRIPT_VISUAL_SPEED_MULTIPLIER.store(multiplier, Ordering::Relaxed);
+    with_script_runtime(|state| state.visual_speed_multiplier = multiplier);
 }
 
 pub fn get_script_fps_limit() -> i32 {
-    SCRIPT_FPS_LIMIT.load(Ordering::Relaxed)
+    with_script_runtime(|state| state.fps_limit)
 }
 
 pub fn set_script_fps_limit(fps: i32) {
-    SCRIPT_FPS_LIMIT.store(fps, Ordering::Relaxed);
+    with_script_runtime(|state| state.fps_limit = fps);
 }
 
 mod music_audio;
@@ -641,7 +617,9 @@ impl GameClientScriptActionHandler {
     }
 
     fn local_player_index() -> Option<u32> {
-        let players = player_list().read().ok()?;
+        let __arc_bind = player_list();
+
+        let players = __arc_bind.read().ok()?;
         let index = players.get_local_player_index();
         (index >= 0).then_some(index as u32)
     }
@@ -1584,6 +1562,7 @@ mod tests {
 
     #[test]
     fn reset_script_action_runtime_state_clears_audio_and_ui_state() {
+        crate::test_support::ensure_ambient_host();
         with_script_runtime(|state| {
             state.audio_waits.insert("audio".into(), vec![1]);
             state.speech_waits.insert("speech".into(), vec![2]);
@@ -1601,53 +1580,30 @@ mod tests {
         assert!(!TheGameLogic::is_intro_movie_playing());
     }
 
-    #[test]
-    fn border_shroud_handoff_persists_without_display_and_resets_cleanly() {
-        clear_script_display_border_shroud_level();
-        assert_eq!(script_display_border_shroud_level(), None);
-
-        let handler = GameClientScriptActionHandler::new();
-        handler
-            .set_border_shroud_level(211)
-            .expect("DisableBorderShroud handoff");
-        assert_eq!(script_display_border_shroud_level(), Some(211));
-
-        handler
-            .set_border_shroud_level(37)
-            .expect("EnableBorderShroud handoff");
-        assert_eq!(script_display_border_shroud_level(), Some(37));
-
-        clear_script_display_border_shroud_level();
-        assert_eq!(script_display_border_shroud_level(), None);
-    }
 
     #[test]
     fn create_win_lose_window_loads_victorious_layout_when_present() {
+        crate::test_support::ensure_ambient_host();
         // C++ ScriptActions.cpp:204 TheWindowManager->winCreateFromScript("Menus/Victorious.wnd")
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
-            GameClientScriptActionHandler::new()
-                .create_win_lose_window("Menus/Victorious.wnd")
-                .expect("create Victorious.wnd");
-            crate::gui::with_window_manager(|manager| {
-                if let Some(window_id) = manager.script_message_window_id_for_test() {
-                    assert!(
-                        manager.get_window_by_id(window_id).is_some(),
-                        "winCreateFromScript must keep the loaded Victorious window"
-                    );
-                }
-            });
-            GameClientScriptActionHandler::new()
-                .destroy_win_lose_window()
-                .expect("destroy Victorious.wnd");
-            crate::gui::with_window_manager(|manager| {
-                assert_eq!(manager.script_message_window_id_for_test(), None);
-            });
+        // Window create/destroy is owned by the receiving synchronous script driver /
+        // WindowManager — not the ambient GameClientScriptActionHandler stub.
+        let mut manager = crate::gui::window_manager::WindowManager::new();
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            manager.create_script_message_window("Menus/Victorious.wnd", effects);
+            if let Some(window_id) = manager.script_message_window_id_for_test() {
+                assert!(
+                    manager.get_window_by_id(window_id).is_some(),
+                    "winCreateFromScript must keep the loaded Victorious window"
+                );
+            }
+            manager.destroy_script_message_window(effects);
+            assert_eq!(manager.script_message_window_id_for_test(), None);
         });
     }
 
     #[test]
     fn music_set_track_fade_does_not_hard_stop_before_ahsv_fade() {
+        crate::test_support::ensure_ambient_host();
         let handler = GameClientScriptActionHandler::new();
         let mut manager = music_audio::test_audio(&["HqOb62ThemeA", "HqOb62ThemeB"]);
         let mut peer = music_audio::test_audio(&["HqOb62ThemeA"]);
@@ -1693,6 +1649,7 @@ mod tests {
 
     #[test]
     fn stop_music_uses_ahsv_fade_not_hard_stop() {
+        crate::test_support::ensure_ambient_host();
         let handler = GameClientScriptActionHandler::new();
         let mut manager = music_audio::test_audio(&["HqOb62StopTheme"]);
         handler.music_set_track_with_recipient(

@@ -118,6 +118,9 @@ windows = { workspace = true, features = [
 gilrs = { workspace = true, optional = true }
 device_query = { workspace = true, optional = true }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { workspace = true }
+
 # Cross-platform dependencies
 gpu-alloc = { workspace = true }
 

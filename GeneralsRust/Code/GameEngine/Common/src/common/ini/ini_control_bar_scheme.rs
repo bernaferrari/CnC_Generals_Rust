@@ -1793,14 +1793,9 @@ impl Default for ControlBarSchemeManager {
     }
 }
 
-/// Global control bar scheme manager instance (thread-safe)
-static CONTROL_BAR_SCHEME_MANAGER: OnceCell<Arc<RwLock<ControlBarSchemeManager>>> = OnceCell::new();
-
 /// Ensure the control bar scheme manager exists and return a handle to it
 pub fn ensure_control_bar_scheme_manager() -> Arc<RwLock<ControlBarSchemeManager>> {
-    CONTROL_BAR_SCHEME_MANAGER
-        .get_or_init(|| Arc::new(RwLock::new(ControlBarSchemeManager::new())))
-        .clone()
+    Arc::clone(&crate::common::common_services::common_services().ini.control_bar_scheme)
 }
 
 /// Initialize (or reinitialize) the global control bar scheme manager
@@ -1824,7 +1819,7 @@ fn load_control_bar_scheme_files() {
 
 /// Get the control bar scheme manager if it has been initialized
 pub fn get_control_bar_scheme_manager() -> Option<Arc<RwLock<ControlBarSchemeManager>>> {
-    CONTROL_BAR_SCHEME_MANAGER.get().cloned()
+    Some(Arc::clone(&crate::common::common_services::common_services().ini.control_bar_scheme))
 }
 
 /// Parse control bar scheme definition from INI file
@@ -1867,6 +1862,9 @@ mod tests {
     }
 
     fn parse_scheme_fixture(name: &str, image_layers: &[i32]) -> ControlBarScheme {
+        use crate::common::common_services::{CommonServices, with_common_services};
+        use std::sync::Arc;
+
         let root = tempfile::tempdir().unwrap();
         let mut source = format!("ControlBarScheme {name}\n");
         for (index, layer) in image_layers.iter().enumerate() {
@@ -1878,14 +1876,17 @@ mod tests {
         let path = root.path().join("ControlBarScheme.ini");
         std::fs::write(&path, source).unwrap();
 
-        let mut ini = INI::new();
-        ini.load(&path, INILoadType::Overwrite).unwrap();
-        get_control_bar_scheme_manager()
-            .unwrap()
-            .read()
-            .find_scheme(name)
-            .unwrap()
-            .clone()
+        let common = Arc::new(CommonServices::new());
+        with_common_services(&common, || {
+            let mut ini = INI::new();
+            ini.load(&path, INILoadType::Overwrite).unwrap();
+            get_control_bar_scheme_manager()
+                .unwrap()
+                .read()
+                .find_scheme(name)
+                .unwrap()
+                .clone()
+        })
     }
 
     #[test]

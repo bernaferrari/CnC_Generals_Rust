@@ -113,8 +113,6 @@ pub struct ParticleBatch {
     pub texture_name: String,
     /// Particle vertices
     pub vertices: Vec<ParticleVertex>,
-    /// GPU vertex buffer
-    pub vertex_buffer: Option<wgpu::Buffer>,
     /// Needs buffer update
     pub dirty: bool,
 }
@@ -271,7 +269,6 @@ impl ParticleBatch {
             shader_type,
             texture_name,
             vertices: Vec::with_capacity(MAX_PARTICLES_PER_BATCH),
-            vertex_buffer: None,
             dirty: true,
         }
     }
@@ -364,22 +361,6 @@ impl ParticleBatch {
         self.vertices.clear();
         self.dirty = true;
     }
-
-    /// Update GPU buffer
-    pub fn update_buffer(&mut self, device: &wgpu::Device) {
-        if !self.dirty || self.vertices.is_empty() {
-            return;
-        }
-
-        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Particle Vertex Buffer"),
-            contents: bytemuck::cast_slice(&self.vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
-        self.vertex_buffer = Some(buffer);
-        self.dirty = false;
-    }
 }
 
 mod particle_quad;
@@ -442,7 +423,8 @@ pub fn system_is_heat_smudge(system: &ParticleSystem) -> bool {
 
 /// C++ `doParticles` start: `setSmudgeCountLastFrame(0)` then one `addSmudgeSet`.
 pub fn begin_particle_heat_smudge_frame() {
-    let Ok(mut manager) = get_smudge_manager().lock() else {
+    let __smudge = get_smudge_manager();
+    let Ok(mut manager) = __smudge.lock() else {
         return;
     };
     manager.set_smudge_count_last_frame(0);
@@ -459,7 +441,8 @@ pub fn feed_system_heat_smudges(system: &ParticleSystem) -> usize {
     let use_heat = game_engine::common::global_data::read_safe()
         .map(|data| data.use_heat_effects)
         .unwrap_or(true);
-    let Ok(mut manager) = get_smudge_manager().lock() else {
+    let __smudge = get_smudge_manager();
+    let Ok(mut manager) = __smudge.lock() else {
         return 0;
     };
     if !manager.get_hardware_support() || !use_heat {
@@ -591,6 +574,9 @@ pub struct ParticleRenderer {
     /// equal texture/shader systems through a `HashMap`, because alpha and
     /// additive composition are order-visible.
     batches: Vec<ParticleBatch>,
+    /// Persistent instance buffer shared by every batch of a frame (one
+    /// `write_buffer` per frame instead of one new buffer per batch).
+    instance_buffer: Option<wgpu::Buffer>,
 
     /// Default texture for particles without specific texture
     default_texture: wgpu::Texture,
@@ -611,6 +597,8 @@ pub struct ParticleRenderer {
 #[derive(Debug, Default)]
 pub struct ParticleRenderStats {
     pub particles_rendered: usize,
+    /// Source point-group count for diagnostics (C++ getOnScreenParticleCount).
+    pub source_particle_count: usize,
     pub batches_rendered: usize,
     pub draw_calls: usize,
     pub gpu_memory_used: usize,
@@ -620,6 +608,7 @@ pub struct ParticleRenderStats {
 impl ParticleRenderStats {
     fn reset_frame_counters(&mut self) {
         self.particles_rendered = 0;
+        self.source_particle_count = 0;
         self.batches_rendered = 0;
         self.draw_calls = 0;
         self.render_time_ms = 0.0;
@@ -1274,6 +1263,7 @@ impl ParticleRenderer {
             unavailable_textures: HashSet::new(),
 
             batches: Vec::new(),
+            instance_buffer: None,
 
             default_texture,
             default_bind_group,
@@ -1285,6 +1275,46 @@ impl ParticleRenderer {
 
             stats: ParticleRenderStats::default(),
         })
+    }
+
+    /// Copy all batch vertices into the persistent instance buffer (growing it
+    /// when needed) and return each batch's byte range (`None` = empty batch).
+    fn upload_batch_instances(&mut self) -> Vec<Option<std::ops::Range<u64>>> {
+        let byte_len = |n: usize| u64::try_from(n).unwrap_or(u64::MAX);
+        let total: u64 = self
+            .batches
+            .iter()
+            .map(|batch| byte_len(std::mem::size_of_val(batch.vertices.as_slice())))
+            .sum();
+        if total == 0 {
+            return vec![None; self.batches.len()];
+        }
+        let capacity = self.instance_buffer.as_ref().map_or(0, wgpu::Buffer::size);
+        if capacity < total {
+            self.instance_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Particle Instance Buffer"),
+                size: total.next_power_of_two().max(64 * 1024),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }));
+        }
+        let mut bytes = Vec::with_capacity(usize::try_from(total).unwrap_or(0));
+        let ranges = self
+            .batches
+            .iter()
+            .map(|batch| {
+                if batch.vertices.is_empty() {
+                    return None;
+                }
+                let start = byte_len(bytes.len());
+                bytes.extend_from_slice(bytemuck::cast_slice(&batch.vertices));
+                Some(start..byte_len(bytes.len()))
+            })
+            .collect();
+        if let Some(buffer) = self.instance_buffer.as_ref() {
+            self.queue.write_buffer(buffer, 0, &bytes);
+        }
+        ranges
     }
 
     /// Render all particle systems
@@ -1312,6 +1342,7 @@ impl ParticleRenderer {
         let start_time = std::time::Instant::now();
         self.stats.reset_frame_counters();
         self.stats.particles_rendered = prepared.particles_rendered;
+        self.stats.source_particle_count = prepared.source_particle_count;
         self.queue.write_buffer(
             &self.uniform_buffer,
             0,
@@ -1338,10 +1369,9 @@ impl ParticleRenderer {
             self.ensure_authored_texture_loaded(&texture_name);
         }
 
-        // Update GPU buffers for batches
-        for batch in &mut self.batches {
-            batch.update_buffer(&self.device);
-        }
+        // Upload every batch into one persistent instance buffer; each batch
+        // draws its own contiguous range.
+        let instance_ranges = self.upload_batch_instances();
 
         // Render batches
         {
@@ -1378,10 +1408,14 @@ impl ParticleRenderer {
             let mut rendered_batches = 0usize;
 
             // Render each batch
-            for batch in &self.batches {
-                if batch.vertices.is_empty() || batch.vertex_buffer.is_none() {
+            for (batch, instances) in self.batches.iter().zip(&instance_ranges) {
+                let Some((instance_buffer, instances)) = self
+                    .instance_buffer
+                    .as_ref()
+                    .zip(instances.as_ref())
+                else {
                     continue;
-                }
+                };
 
                 // Select pipeline based on shader type
                 match batch.shader_type {
@@ -1408,7 +1442,7 @@ impl ParticleRenderer {
                 render_pass.set_bind_group(1, texture_bind_group, &[]);
 
                 // Set particle data
-                render_pass.set_vertex_buffer(1, batch.vertex_buffer.as_ref().unwrap().slice(..));
+                render_pass.set_vertex_buffer(1, instance_buffer.slice(instances.clone()));
 
                 // Draw instanced
                 render_pass.draw(0..4, 0..batch.vertices.len() as u32);
@@ -2108,6 +2142,7 @@ mod tests {
 
     #[test]
     fn decal_batches_flush_at_each_original_texture_or_type_boundary() {
+        crate::test_support::ensure_ambient_host();
         let mut groups = Vec::new();
         let vertex = |stamp| DecalVertex {
             position: [stamp, 0.0, 0.0],
@@ -2159,6 +2194,7 @@ mod tests {
 
     #[test]
     fn test_particle_vertex_layout() {
+        crate::test_support::ensure_ambient_host();
         // Test that ParticleVertex is correctly sized and aligned
         assert_eq!(std::mem::size_of::<ParticleVertex>(), 64);
         assert_eq!(std::mem::align_of::<ParticleVertex>(), 4);
@@ -2173,12 +2209,14 @@ mod tests {
 
     #[test]
     fn test_particle_batch() {
+        crate::test_support::ensure_ambient_host();
         let mut batch = ParticleBatch::new(ParticleShaderType::Alpha, "test.tga".to_string());
         assert_eq!(batch.vertices.len(), 0);
         assert!(batch.dirty);
     }
     #[test]
     fn streak_system_emits_polyline_segments_in_creation_order() {
+        crate::test_support::ensure_ambient_host();
         let mut system = test_system(ParticleType::Streak, 0);
         let mut first = ParticleInfo::default();
         first.position = Vec3::new(0.0, 0.0, 2.0);
@@ -2210,6 +2248,7 @@ mod tests {
 
     #[test]
     fn ground_aligned_particles_disable_camera_billboard() {
+        crate::test_support::ensure_ambient_host();
         let mut template = ParticleSystemTemplate::new("ground".to_string());
         template.info_mut().particle_type = ParticleType::Particle;
         template.info_mut().is_ground_aligned = true;
@@ -2225,6 +2264,7 @@ mod tests {
     /// Host is Y-up, so the live collect path must emit world-XZ quads.
     #[test]
     fn collect_system_particles_emits_world_xz_quads_when_ground_aligned() {
+        crate::test_support::ensure_ambient_host();
         let mut template = ParticleSystemTemplate::new("ground".to_string());
         template.info_mut().particle_type = ParticleType::Particle;
         template.info_mut().is_ground_aligned = true;
@@ -2267,6 +2307,7 @@ mod tests {
 
     #[test]
     fn volume_particle_emits_default_depth_layers() {
+        crate::test_support::ensure_ambient_host();
         let system = test_system(ParticleType::VolumeParticle, 0);
         let mut info = ParticleInfo::default();
         info.position = Vec3::new(0.0, 0.0, 3.0);
@@ -2293,8 +2334,10 @@ mod tests {
 
     #[test]
     fn particle_stats_frame_reset_preserves_gpu_memory() {
+        crate::test_support::ensure_ambient_host();
         let mut stats = ParticleRenderStats {
             particles_rendered: 17,
+            source_particle_count: 17,
             batches_rendered: 3,
             draw_calls: 3,
             gpu_memory_used: 4096,
@@ -2304,6 +2347,7 @@ mod tests {
         stats.reset_frame_counters();
 
         assert_eq!(stats.particles_rendered, 0);
+        assert_eq!(stats.source_particle_count, 0);
         assert_eq!(stats.batches_rendered, 0);
         assert_eq!(stats.draw_calls, 0);
         assert_eq!(stats.gpu_memory_used, 4096);
@@ -2328,6 +2372,7 @@ mod tests {
 
     #[test]
     fn particle_type_name_smud_matches_cpp_dword_prefix() {
+        crate::test_support::ensure_ambient_host();
         assert!(particle_type_name_is_smud("SMUD"));
         assert!(particle_type_name_is_smud("SMUDGE RESERVED"));
         assert!(particle_type_name_is_smud("SMUDjetExhaust.tga"));
@@ -2339,6 +2384,7 @@ mod tests {
 
     #[test]
     fn smud_prefix_system_feeds_smudge_manager_not_sprites() {
+        crate::test_support::ensure_ambient_host();
         let _guard = HEAT_SMUDGE_TEST_LOCK.lock();
         begin_particle_heat_smudge_frame();
 
@@ -2380,6 +2426,7 @@ mod tests {
 
     #[test]
     fn heat_effects_off_skips_smudge_insert_and_sprites() {
+        crate::test_support::ensure_ambient_host();
         let _guard = HEAT_SMUDGE_TEST_LOCK.lock();
         let previous = game_engine::common::global_data::read().use_heat_effects;
         game_engine::common::global_data::write().use_heat_effects = false;
@@ -2406,6 +2453,7 @@ mod tests {
 
     #[test]
     fn smudge_type_without_smud_prefix_does_not_take_heat_path() {
+        crate::test_support::ensure_ambient_host();
         let mut system = smudge_named_system("HeatHaze.tga", ParticleType::Smudge);
         system.push_particle(live_particle(4.0, 5.0, 6.0, 2.5, 0.55));
 
@@ -2417,6 +2465,7 @@ mod tests {
 
     #[test]
     fn ordinary_particle_does_not_feed_heat_smudges() {
+        crate::test_support::ensure_ambient_host();
         let _guard = HEAT_SMUDGE_TEST_LOCK.lock();
         begin_particle_heat_smudge_frame();
 
@@ -2440,6 +2489,7 @@ mod tests {
 
     #[test]
     fn multiply_blend_is_dest_times_src_not_subtract_to_black() {
+        crate::test_support::ensure_ambient_host();
         let blend = particle_multiply_color_blend();
         assert_eq!(blend.src_factor, wgpu::BlendFactor::Zero);
         assert_eq!(blend.dst_factor, wgpu::BlendFactor::Src);
@@ -2464,6 +2514,7 @@ mod tests {
     }
     #[test]
     fn prepared_particle_frame_keeps_real_manager_order_culling_and_peer_identity() {
+        crate::test_support::ensure_ambient_host();
         let _guard = HEAT_SMUDGE_TEST_LOCK.lock();
         fn owner(x: f32) -> ParticleSystemManager {
             let mut manager = ParticleSystemManager::new();
@@ -2528,6 +2579,7 @@ mod tests {
     }
     #[test]
     fn prepared_particle_frame_freezes_smud_values_before_another_preparation() {
+        crate::test_support::ensure_ambient_host();
         let _guard = HEAT_SMUDGE_TEST_LOCK.lock();
         let mut system = smudge_named_system("SMUDGE RESERVED", ParticleType::Smudge);
         system.push_particle(live_particle(4.0, 5.0, 6.0, 2.5, 0.55));

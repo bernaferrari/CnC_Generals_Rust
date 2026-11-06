@@ -180,6 +180,7 @@ impl<'a> NativeUiDraw<'a> {
         }
         if renderer.queued_draw_command_count() > 0 {
             let color = frame.color_view_arc();
+            frame.note_render_pass();
             let mut pass = frame
                 .encoder()
                 .begin_render_pass(&wgpu::RenderPassDescriptor {

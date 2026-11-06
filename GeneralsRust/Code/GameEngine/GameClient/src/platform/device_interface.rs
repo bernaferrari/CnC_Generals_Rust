@@ -18,8 +18,14 @@ pub struct DeviceId(pub u64);
 impl DeviceId {
     pub fn new() -> Self {
         use std::sync::atomic::{AtomicU64, Ordering};
-        static COUNTER: AtomicU64 = AtomicU64::new(1);
-        DeviceId(COUNTER.fetch_add(1, Ordering::Relaxed))
+        let id = crate::core::game_client::with_live_game_client_mut(|client| client.next_device_id())
+            .unwrap_or_else(|| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(1)
+            });
+        DeviceId(id)
     }
 }
 
@@ -407,6 +413,7 @@ mod tests {
 
     #[test]
     fn test_device_id_generation() {
+        crate::test_support::ensure_ambient_host();
         let id1 = DeviceId::new();
         let id2 = DeviceId::new();
         assert_ne!(id1, id2);
@@ -416,12 +423,14 @@ mod tests {
 
     #[test]
     fn test_device_status_equality() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(DeviceStatus::Available, DeviceStatus::Available);
         assert_ne!(DeviceStatus::Available, DeviceStatus::InUse);
     }
 
     #[test]
     fn test_display_adapter_info_creation() {
+        crate::test_support::ensure_ambient_host();
         let info = DisplayAdapterInfo {
             name: "Test GPU".to_string(),
             vendor: "Test Vendor".to_string(),

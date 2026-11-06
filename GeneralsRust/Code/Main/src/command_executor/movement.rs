@@ -132,12 +132,9 @@ impl<'a> CommandExecutor<'a> {
         false
     }
 
-    /// C++ `KINDOF_PRODUCED_AT_HELIPAD` — host KindOf bank does not retain the
-    /// bit, so reuse the existing helicopter template detector.
+    /// C++ `KINDOF_PRODUCED_AT_HELIPAD` — authored KindOf bit (hq-mzd8i).
     fn is_produced_at_helipad(unit: &crate::game_logic::object::Object) -> bool {
-        crate::game_logic::host_helicopter_slow_death::is_helicopter_slow_death_template(
-            &unit.template_name,
-        )
+        unit.is_kind_of(crate::game_logic::KindOf::ProducedAtHelipad)
     }
 
     /// C++ `getHelicopterOffset` (`AIGroup.cpp:1799-1826`). Ground plane is XZ.
@@ -215,6 +212,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         destination: Vec3,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         self.execute_group_move_to_position(units, destination, true)
     }
 
@@ -226,6 +224,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         destination: Vec3,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         self.execute_group_move_to_position(units, destination, false)
     }
 
@@ -426,6 +425,7 @@ impl<'a> CommandExecutor<'a> {
         destination: Vec3,
         waypoints: &[Vec3],
     ) -> CommandResult {
+        let _bind = self.bind_services();
         self.execute_move_to_with_voice(units, destination, waypoints, true)
     }
 
@@ -437,6 +437,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         destination: Vec3,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         let result = self.execute_move_to_with_voice(units, destination, &[], false);
         if matches!(result, CommandResult::Success) {
             self.play_salvage_or_move_voice(units);
@@ -656,12 +657,7 @@ impl<'a> CommandExecutor<'a> {
             if !(o.is_mobile() || o.can_attack()) {
                 continue;
             }
-            let name = o.template_name.to_ascii_lowercase();
-            let produced_at_helipad = name.contains("heli")
-                || name.contains("chinook")
-                || name.contains("comanche")
-                || name.contains("helix");
-            if produced_at_helipad {
+            if Self::is_produced_at_helipad(o) {
                 return false;
             }
             if o.is_kind_of(crate::game_logic::KindOf::Aircraft) && o.status.airborne_target {
@@ -828,12 +824,10 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
             // Airborne fixed-wing: C++ disables tighten.
+            // C++ AIGroup: fixed-wing airborne cancels tighten; helipad KindOf does not.
             if o.is_kind_of(crate::game_logic::KindOf::Aircraft)
                 && o.status.airborne_target
-                && !o.template_name.to_ascii_lowercase().contains("heli")
-                && !o.template_name.to_ascii_lowercase().contains("chinook")
-                && !o.template_name.to_ascii_lowercase().contains("comanche")
-                && !o.template_name.to_ascii_lowercase().contains("helix")
+                && !Self::is_produced_at_helipad(o)
             {
                 return false;
             }
@@ -875,6 +869,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         destination: Vec3,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         // Wave 232: tighten last-writes via GameLogic unit_command_tighten_to.
         if !destination.x.is_finite() || !destination.z.is_finite() {
             return CommandResult::InvalidLocation;
@@ -935,6 +930,7 @@ impl<'a> CommandExecutor<'a> {
         exact: bool,
         as_team: bool,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         // `exact` → assign_unit_path_exact (C++ AIFollowWaypointPathExactState).
         if waypoints.is_empty() {
             return Ok(CommandResult::InvalidLocation);
@@ -1359,6 +1355,7 @@ impl<'a> CommandExecutor<'a> {
         destination: Vec3,
         max_shots: i32,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         // Wave 232: attack-move last-writes via GameLogic unit_command_attack_move_to_ex.
         // C++ AIGroup::groupAttackMoveToPosition (`AIGroup.cpp:2260-2273`):
         // every member gets the identical `pos` — no column/formation spread.
@@ -1418,6 +1415,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         destination: Vec3,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         // Wave 232: force-move via GameLogic unit_command_force_move_to.
         self.apply_group_desired_speed(units, self.group_is_stamped_formation(units));
         let goals = self.group_move_destinations(units, destination);
@@ -1452,6 +1450,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         destination: Vec3,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         // C++ groupMoveToPosition(addWaypoint=true): clamp first, then
         // isFormation=false / skip column packing / clear formation /
         // computeIndividualDestination. Held/immobile/no-AI members are
@@ -1496,6 +1495,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         destination: Vec3,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         // Wave 232: formation move via unit_command_force_move_to.
         if !destination.x.is_finite() || !destination.z.is_finite() {
             return Ok(CommandResult::InvalidLocation);
@@ -1575,10 +1575,12 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         path: &[Vec3],
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         self.execute_follow_waypoint_path(units, path, false, false)
     }
 
     pub(crate) fn execute_patrol(&mut self, units: &[ObjectId]) -> CommandResult {
+        let _bind = self.bind_services();
         // Wave 232: patrol last-writes via GameLogic unit_command_patrol.
         let mut any = false;
         for &unit_id in units {
@@ -1602,6 +1604,7 @@ impl<'a> CommandExecutor<'a> {
     }
 
     pub(crate) fn execute_scatter(&mut self, units: &[ObjectId]) -> CommandResult {
+        let _bind = self.bind_services();
         // Wave 232: scatter last-writes via GameLogic unit_command_move_to_moving,
         // which runs assign_unit_path (path_to_goal_with_state machinery) per
         let mut movers: Vec<(ObjectId, Vec3, f32)> = Vec::new();

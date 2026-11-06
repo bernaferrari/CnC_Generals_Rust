@@ -1145,6 +1145,7 @@ mod tests {
 
     #[test]
     fn test_validation_issue_creation() {
+        crate::test_support::ensure_ambient_host();
         let issue = ValidationIssue {
             issue_type: ValidationIssueType::ChecksumMismatch,
             severity: ValidationSeverity::Error,

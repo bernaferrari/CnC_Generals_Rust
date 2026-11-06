@@ -11,6 +11,11 @@ pub(super) fn world() -> (GameLogic, ObjectId, ObjectId) {
     let mut world = GameLogic::new();
     world.world_min = Vec3::ZERO;
     world.world_max = Vec3::splat(1000.0);
+    world
+        .admit_locomotor_definitions(
+            crate::game_logic::locomotor_bootstrap::default_host_locomotor_store(),
+        )
+        .expect("owned locomotor baseline");
     world.add_player(
         Player::new(1, Team::USA, "NamedOwner", true).with_script_identity("NamedOwner"),
     );
@@ -118,11 +123,14 @@ pub(super) fn execute(world: &mut GameLogic, actions: &[(ScriptActionType, &str,
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();
-    engine
-        .update_with_driver(
-            gamelogic::scripting::executor::ScriptContext::at_frame(world.frame),
-            &mut HostScriptExecutionDriver::new(world),
-        )
-        .unwrap();
+    let services = world.world_services.clone();
+    gamelogic::system::engine_stores::with_world_services(&services, || {
+        engine
+            .update_with_driver(
+                gamelogic::scripting::executor::ScriptContext::at_frame(world.frame),
+                &mut HostScriptExecutionDriver::new(world),
+            )
+            .unwrap();
+    });
     engine.get_counter("NamedObserved").unwrap().value
 }

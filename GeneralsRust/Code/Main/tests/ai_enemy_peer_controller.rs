@@ -91,7 +91,6 @@ fn selected_enemy(peer_is_skirmish: bool) -> Option<u32> {
     manager.add_ai_player(2, Team::USA, AIDifficulty::Medium);
     let owner = manager.ai_players.get_mut(&1).unwrap();
     owner.base_center = Vec3::ZERO;
-    owner.enemy_check_time = -5.0;
     owner.next_building_time = f32::MAX;
     owner.next_team_time = f32::MAX;
     owner.next_team_queue_time = f32::MAX;

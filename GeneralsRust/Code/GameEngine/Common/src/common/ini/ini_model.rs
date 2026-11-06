@@ -8,7 +8,6 @@
 
 use crate::common::ini::ini::INI;
 use crate::common::resource_manager::ResourceManager;
-use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -829,18 +828,9 @@ impl ModelManager {
     }
 }
 
-/// Global model manager instance (thread-safe)
-static MODEL_MANAGER: OnceCell<Arc<RwLock<ModelManager>>> = OnceCell::new();
-
 /// Ensure the model manager exists and return a handle to it
 pub fn ensure_model_manager() -> Arc<RwLock<ModelManager>> {
-    MODEL_MANAGER
-        .get_or_init(|| {
-            let mut manager = ModelManager::new();
-            manager.init();
-            Arc::new(RwLock::new(manager))
-        })
-        .clone()
+    Arc::clone(&crate::common::common_services::common_services().ini.model_manager)
 }
 
 /// Initialize (or reinitialize) the global model manager
@@ -851,7 +841,7 @@ pub fn init_global_model_manager() {
 
 /// Get a handle to the model manager if it has been initialized
 pub fn get_model_manager() -> Option<Arc<RwLock<ModelManager>>> {
-    MODEL_MANAGER.get().cloned()
+    Some(Arc::clone(&crate::common::common_services::common_services().ini.model_manager))
 }
 
 /// INI parsing function for Model definition (matches C++ interface)

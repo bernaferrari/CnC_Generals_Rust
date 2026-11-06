@@ -102,7 +102,8 @@ fn adjust_local_selection_veterancy(delta: i32) {
 
 fn clear_local_player_selection() {
     let local_player_id = get_local_player_id();
-    if let Ok(mut manager) = get_selection_manager().write() {
+    let __arc_bind = get_selection_manager();
+if let Ok(mut manager) = __arc_bind.write() {
         if manager.get_player_selection_ref(local_player_id).is_none() {
             manager.initialize_player(local_player_id);
         }
@@ -113,7 +114,9 @@ fn clear_local_player_selection() {
 }
 
 fn local_player_side_name() -> Option<String> {
-    let list = ThePlayerList().read().ok()?;
+    let __arc_bind = ThePlayerList();
+
+    let list = __arc_bind.read().ok()?;
     let index = list.get_local_player_index();
     if index == PLAYER_INDEX_INVALID || index < 0 {
         return None;
@@ -124,7 +127,9 @@ fn local_player_side_name() -> Option<String> {
 }
 
 fn local_player_index_u32() -> Option<u32> {
-    let list = ThePlayerList().read().ok()?;
+    let __arc_bind = ThePlayerList();
+
+    let list = __arc_bind.read().ok()?;
     let index = list.get_local_player_index();
     if index == PLAYER_INDEX_INVALID || index < 0 {
         return None;
@@ -178,7 +183,9 @@ fn set_local_player_index_with_refresh(
     ui: &mut crate::core::subsystems::InGameUISubsystem,
 ) {
     {
-        let Ok(mut list) = ThePlayerList().write() else {
+        let __arc_bind = ThePlayerList();
+
+        let Ok(mut list) = __arc_bind.write() else {
             return;
         };
         list.set_local_player_index(index);
@@ -191,7 +198,9 @@ fn set_local_player_index_with_refresh(
 }
 
 fn switch_to_next_non_neutral_player(ui: &mut crate::core::subsystems::InGameUISubsystem) -> bool {
-    let Ok(mut list) = ThePlayerList().write() else {
+    let __arc_bind = ThePlayerList();
+
+    let Ok(mut list) = __arc_bind.write() else {
         return false;
     };
 
@@ -245,7 +254,9 @@ fn switch_local_player_between_sides(
     side_b: &str,
     ui: &mut crate::core::subsystems::InGameUISubsystem,
 ) -> bool {
-    let Ok(list) = ThePlayerList().read() else {
+    let __arc_bind = ThePlayerList();
+
+    let Ok(list) = __arc_bind.read() else {
         return false;
     };
 

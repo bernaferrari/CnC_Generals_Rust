@@ -5,7 +5,6 @@
 
 use crate::result::{ProfileResultInterface, ResultFunctionRegistry};
 use crate::{Profile, ProfileError, ProfileResult};
-use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::sync::Mutex;
@@ -39,22 +38,21 @@ struct ResultFactory {
 }
 
 /// Global command interface state
-struct CommandInterfaceState {
-    result_factories: Mutex<HashMap<String, ResultFactory>>,
-    registered_result_functions: Mutex<Vec<Box<dyn ProfileResultInterface>>>,
+pub(crate) struct CommandInterfaceState {
+    pub(crate) result_factories: Mutex<HashMap<String, ResultFactory>>,
+    pub(crate) registered_result_functions: Mutex<Vec<Box<dyn ProfileResultInterface>>>,
 }
 
-static COMMAND_STATE: Lazy<CommandInterfaceState> = Lazy::new(|| {
-    let mut state = CommandInterfaceState {
-        result_factories: Mutex::new(HashMap::new()),
-        registered_result_functions: Mutex::new(Vec::new()),
-    };
-
-    // Register default result functions
-    ProfileCmdInterface::register_default_result_functions(&mut state);
-
-    state
-});
+impl CommandInterfaceState {
+    pub(crate) fn new_session() -> Self {
+        let mut state = Self {
+            result_factories: Mutex::new(HashMap::new()),
+            registered_result_functions: Mutex::new(Vec::new()),
+        };
+        ProfileCmdInterface::register_default_result_functions(&mut state);
+        state
+    }
+}
 
 /// Main profile command interface - equivalent to C++ ProfileCmdInterface
 pub struct ProfileCmdInterface;
@@ -67,11 +65,12 @@ impl ProfileCmdInterface {
     /// * `description` - Description and usage information
     /// * `factory_fn` - Factory function to create the result interface
     pub fn add_result_function(
+        session: &crate::WwDebugSession,
         name: &str,
         description: &str,
         factory_fn: ResultFactoryFn,
     ) -> ProfileResult<()> {
-        let state = &*COMMAND_STATE;
+        let state = &session.command;
         let mut factories = state.result_factories.lock().unwrap();
 
         // Don't add duplicates
@@ -92,8 +91,8 @@ impl ProfileCmdInterface {
     }
 
     /// Execute result functions (typically called on program exit)
-    pub fn run_result_functions() {
-        let state = &*COMMAND_STATE;
+    pub fn run_result_functions(session: &crate::WwDebugSession) {
+        let state = &session.command;
         let mut result_functions = state.registered_result_functions.lock().unwrap();
 
         // If no result functions registered, add default CSV output
@@ -105,7 +104,7 @@ impl ProfileCmdInterface {
 
         // Execute all result functions
         for result_fn in result_functions.drain(..) {
-            result_fn.write_results();
+            result_fn.write_results(session);
         }
     }
 
@@ -120,6 +119,7 @@ impl ProfileCmdInterface {
     /// # Returns
     /// `true` if command was recognized and handled, `false` otherwise
     pub fn execute<W: Write>(
+        session: &crate::WwDebugSession,
         writer: &mut W,
         cmd: &str,
         cmd_mode: CommandMode,
@@ -129,11 +129,11 @@ impl ProfileCmdInterface {
 
         match cmd {
             "help" => Self::handle_help_command(writer, normal_mode, args),
-            "result" => Self::handle_result_command(writer, normal_mode, args),
-            "caller" => Self::handle_caller_command(writer, normal_mode, args),
-            "clear" => Self::handle_clear_command(writer, normal_mode, args),
-            "add" => Self::handle_add_command(writer, normal_mode, args),
-            "view" => Self::handle_view_command(writer, normal_mode, args),
+            "result" => Self::handle_result_command(session, writer, normal_mode, args),
+            "caller" => Self::handle_caller_command(session, writer, normal_mode, args),
+            "clear" => Self::handle_clear_command(session, writer, normal_mode, args),
+            "add" => Self::handle_add_command(session, writer, normal_mode, args),
+            "view" => Self::handle_view_command(session, writer, normal_mode, args),
             _ => Ok(false), // Unknown command
         }
     }
@@ -226,11 +226,12 @@ impl ProfileCmdInterface {
 
     /// Handle the "result" command
     fn handle_result_command<W: Write>(
+        session: &crate::WwDebugSession,
         writer: &mut W,
         normal_mode: bool,
         args: &[&str],
     ) -> ProfileResult<bool> {
-        let state = &*COMMAND_STATE;
+        let state = &session.command;
 
         if args.is_empty() {
             // List available result functions
@@ -279,21 +280,22 @@ impl ProfileCmdInterface {
 
     /// Handle the "caller" command
     fn handle_caller_command<W: Write>(
+        session: &crate::WwDebugSession,
         writer: &mut W,
         normal_mode: bool,
         args: &[&str],
     ) -> ProfileResult<bool> {
         #[cfg(feature = "function-level")]
         {
-            let mut record_caller = Profile::func_level().is_caller_tracking_enabled();
+            let mut record_caller = Profile::func_level(session).is_caller_tracking_enabled();
 
             if !args.is_empty() {
                 if args[0].starts_with('+') {
                     record_caller = true;
-                    Profile::func_level().set_caller_tracking(true);
+                    Profile::func_level(session).set_caller_tracking(true);
                 } else if args[0].starts_with('-') {
                     record_caller = false;
-                    Profile::func_level().set_caller_tracking(false);
+                    Profile::func_level(session).set_caller_tracking(false);
                 }
             }
 
@@ -322,6 +324,7 @@ impl ProfileCmdInterface {
 
     /// Handle the "clear" command
     fn handle_clear_command<W: Write>(
+        session: &crate::WwDebugSession,
         writer: &mut W,
         _normal_mode: bool,
         args: &[&str],
@@ -329,9 +332,9 @@ impl ProfileCmdInterface {
         let pattern = args.first().unwrap_or(&"*");
 
         if *pattern == "*" {
-            Profile::clear_patterns();
+            Profile::clear_patterns(session);
         } else {
-            Profile::clear_patterns_matching(pattern);
+            Profile::clear_patterns_matching(session, pattern);
         }
 
         Ok(true)
@@ -339,6 +342,7 @@ impl ProfileCmdInterface {
 
     /// Handle the "add" command
     fn handle_add_command<W: Write>(
+        session: &crate::WwDebugSession,
         writer: &mut W,
         _normal_mode: bool,
         args: &[&str],
@@ -350,7 +354,7 @@ impl ProfileCmdInterface {
             let pattern = args[1];
 
             let is_active = mode.starts_with('+');
-            Profile::add_pattern(pattern, is_active)?;
+            Profile::add_pattern(session, pattern, is_active)?;
         }
 
         Ok(true)
@@ -358,11 +362,12 @@ impl ProfileCmdInterface {
 
     /// Handle the "view" command
     fn handle_view_command<W: Write>(
+        session: &crate::WwDebugSession,
         writer: &mut W,
         _normal_mode: bool,
         _args: &[&str],
     ) -> ProfileResult<bool> {
-        for (is_active, pattern) in Profile::get_patterns() {
+        for (is_active, pattern) in Profile::get_patterns(session) {
             writeln!(writer, "{} {}", if is_active { "+" } else { "-" }, pattern)?;
         }
         Ok(true)
@@ -434,6 +439,7 @@ pub trait ProfileCommandExecutor {
     /// Execute a profile command with this writer
     fn execute_profile_command(
         &mut self,
+        session: &crate::WwDebugSession,
         cmd: &str,
         cmd_mode: CommandMode,
         args: &[&str],
@@ -443,32 +449,35 @@ pub trait ProfileCommandExecutor {
 impl<W: Write> ProfileCommandExecutor for W {
     fn execute_profile_command(
         &mut self,
+        session: &crate::WwDebugSession,
         cmd: &str,
         cmd_mode: CommandMode,
         args: &[&str],
     ) -> ProfileResult<bool> {
-        ProfileCmdInterface::execute(self, cmd, cmd_mode, args)
+        ProfileCmdInterface::execute(session, self, cmd, cmd_mode, args)
     }
 }
 
 /// Convenience function for executing commands with stdout
 pub fn execute_command_with_stdout(
+    session: &crate::WwDebugSession,
     cmd: &str,
     cmd_mode: CommandMode,
     args: &[&str],
 ) -> ProfileResult<bool> {
     let mut stdout = io::stdout();
-    ProfileCmdInterface::execute(&mut stdout, cmd, cmd_mode, args)
+    ProfileCmdInterface::execute(session, &mut stdout, cmd, cmd_mode, args)
 }
 
 /// Convenience function for executing commands and returning output as string
 pub fn execute_command_to_string(
+    session: &crate::WwDebugSession,
     cmd: &str,
     cmd_mode: CommandMode,
     args: &[&str],
 ) -> ProfileResult<(bool, String)> {
     let mut output = Vec::new();
-    let handled = ProfileCmdInterface::execute(&mut output, cmd, cmd_mode, args)?;
+    let handled = ProfileCmdInterface::execute(session, &mut output, cmd, cmd_mode, args)?;
     let output_str = String::from_utf8(output)
         .map_err(|_| ProfileError::PatternError("Invalid UTF-8 in command output".to_string()))?;
     Ok((handled, output_str))
@@ -507,6 +516,7 @@ impl ProfileCommandParser {
     /// `true` if command was handled, `false` if unknown
     pub fn execute_command_line<W: Write>(
         writer: &mut W,
+        session: &crate::WwDebugSession,
         line: &str,
         cmd_mode: CommandMode,
     ) -> ProfileResult<bool> {
@@ -515,7 +525,7 @@ impl ProfileCommandParser {
             return Ok(false);
         }
 
-        ProfileCmdInterface::execute(writer, cmd, cmd_mode, &args)
+        ProfileCmdInterface::execute(session, writer, cmd, cmd_mode, &args)
     }
 }
 
@@ -534,7 +544,7 @@ mod tests {
     #[test]
     fn test_help_command() {
         let mut output = Vec::new();
-        let result = ProfileCmdInterface::execute(&mut output, "help", CommandMode::Normal, &[]);
+        let result = ProfileCmdInterface::execute(&crate::WwDebugSession::new(), &mut output, "help", CommandMode::Normal, &[]);
 
         assert!(result.is_ok());
         assert!(result.unwrap());
@@ -548,7 +558,7 @@ mod tests {
     fn test_help_result_command() {
         let mut output = Vec::new();
         let result =
-            ProfileCmdInterface::execute(&mut output, "help", CommandMode::Normal, &["result"]);
+            ProfileCmdInterface::execute(&crate::WwDebugSession::new(), &mut output, "help", CommandMode::Normal, &["result"]);
 
         assert!(result.is_ok());
         assert!(result.unwrap());
@@ -561,7 +571,7 @@ mod tests {
     #[test]
     fn test_result_command_list() {
         let mut output = Vec::new();
-        let result = ProfileCmdInterface::execute(&mut output, "result", CommandMode::Normal, &[]);
+        let result = ProfileCmdInterface::execute(&crate::WwDebugSession::new(), &mut output, "result", CommandMode::Normal, &[]);
 
         assert!(result.is_ok());
         assert!(result.unwrap());
@@ -575,8 +585,7 @@ mod tests {
     #[test]
     fn test_result_command_add() {
         let mut output = Vec::new();
-        let result = ProfileCmdInterface::execute(
-            &mut output,
+        let result = ProfileCmdInterface::execute(&crate::WwDebugSession::new(), &mut output,
             "result",
             CommandMode::Normal,
             &["csv_file", "test_output.csv"],
@@ -592,8 +601,7 @@ mod tests {
     #[test]
     fn test_result_command_unknown() {
         let mut output = Vec::new();
-        let result = ProfileCmdInterface::execute(
-            &mut output,
+        let result = ProfileCmdInterface::execute(&crate::WwDebugSession::new(), &mut output,
             "result",
             CommandMode::Normal,
             &["unknown_function"],
@@ -610,7 +618,7 @@ mod tests {
     fn test_add_command() {
         let mut output = Vec::new();
         let result =
-            ProfileCmdInterface::execute(&mut output, "add", CommandMode::Normal, &["+", "test.*"]);
+            ProfileCmdInterface::execute(&crate::WwDebugSession::new(), &mut output, "add", CommandMode::Normal, &["+", "test.*"]);
 
         assert!(result.is_ok());
         assert!(result.unwrap());
@@ -619,7 +627,7 @@ mod tests {
     #[test]
     fn test_add_command_insufficient_args() {
         let mut output = Vec::new();
-        let result = ProfileCmdInterface::execute(&mut output, "add", CommandMode::Normal, &["+"]);
+        let result = ProfileCmdInterface::execute(&crate::WwDebugSession::new(), &mut output, "add", CommandMode::Normal, &["+"]);
 
         assert!(result.is_ok());
         assert!(result.unwrap());
@@ -631,7 +639,7 @@ mod tests {
     #[test]
     fn test_unknown_command() {
         let mut output = Vec::new();
-        let result = ProfileCmdInterface::execute(&mut output, "unknown", CommandMode::Normal, &[]);
+        let result = ProfileCmdInterface::execute(&crate::WwDebugSession::new(), &mut output, "unknown", CommandMode::Normal, &[]);
 
         assert!(result.is_ok());
         assert!(!result.unwrap()); // Should return false for unknown commands
@@ -640,7 +648,7 @@ mod tests {
     #[test]
     fn test_command_mode_script() {
         let mut output = Vec::new();
-        let result = ProfileCmdInterface::execute(&mut output, "help", CommandMode::Script, &[]);
+        let result = ProfileCmdInterface::execute(&crate::WwDebugSession::new(), &mut output, "help", CommandMode::Script, &[]);
 
         assert!(result.is_ok());
         assert!(result.unwrap());
@@ -670,6 +678,7 @@ mod tests {
         let mut output = Vec::new();
         let result = ProfileCommandParser::execute_command_line(
             &mut output,
+            &crate::WwDebugSession::new(),
             "help result",
             CommandMode::Normal,
         );
@@ -684,7 +693,7 @@ mod tests {
 
     #[test]
     fn test_execute_command_to_string() {
-        let result = execute_command_to_string("help", CommandMode::Normal, &[]);
+        let result = execute_command_to_string(&crate::WwDebugSession::new(), "help", CommandMode::Normal, &[]);
         assert!(result.is_ok());
 
         let (handled, output) = result.unwrap();
@@ -695,7 +704,7 @@ mod tests {
     #[test]
     fn test_profile_command_executor_trait() {
         let mut cursor = Cursor::new(Vec::new());
-        let result = cursor.execute_profile_command("help", CommandMode::Normal, &[]);
+        let result = cursor.execute_profile_command(&crate::WwDebugSession::new(), "help", CommandMode::Normal, &[]);
 
         assert!(result.is_ok());
         assert!(result.unwrap());

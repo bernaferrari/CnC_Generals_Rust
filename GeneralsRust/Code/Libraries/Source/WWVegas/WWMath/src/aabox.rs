@@ -117,13 +117,15 @@ impl AABox {
         min_extent: f32,
         max_extent: f32,
     ) {
-        self.center.x = min_center + WWMath::random_float() * (max_center - min_center);
-        self.center.y = min_center + WWMath::random_float() * (max_center - min_center);
-        self.center.z = min_center + WWMath::random_float() * (max_center - min_center);
+                let mut rng = crate::WwMathRng::default();
 
-        self.extent.x = min_extent + WWMath::random_float() * (max_extent - min_extent);
-        self.extent.y = min_extent + WWMath::random_float() * (max_extent - min_extent);
-        self.extent.z = min_extent + WWMath::random_float() * (max_extent - min_extent);
+        self.center.x = min_center + WWMath::random_float(&mut rng) * (max_center - min_center);
+        self.center.y = min_center + WWMath::random_float(&mut rng) * (max_center - min_center);
+        self.center.z = min_center + WWMath::random_float(&mut rng) * (max_center - min_center);
+
+        self.extent.x = min_extent + WWMath::random_float(&mut rng) * (max_extent - min_extent);
+        self.extent.y = min_extent + WWMath::random_float(&mut rng) * (max_extent - min_extent);
+        self.extent.z = min_extent + WWMath::random_float(&mut rng) * (max_extent - min_extent);
     }
 
     /// Get the minimum corner of the box

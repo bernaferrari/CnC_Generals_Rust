@@ -118,7 +118,7 @@ fn queue(world: &mut GameLogic, id: ObjectId, death: bool) {
             )
             .unwrap();
     } else {
-        world.destroy_object(id);
+        world.destroy_object(id).unwrap();
     }
     assert!(
         world.objects.contains_key(&id),
@@ -144,7 +144,7 @@ fn physical_callback_loses_lookup_but_keeps_owned_identity_for_both_destroy_rout
                     .process_destroy_list_with_effects_checked(&mut ScriptPresentationEffects {
                         view: Some(&mut probe),
                         ..Default::default()
-                    })
+})
                     .unwrap();
                 assert_eq!(probe.calls, 1);
                 assert!(owner.objects.get(&id).is_none());
@@ -171,7 +171,7 @@ fn failed_owned_retirement_is_not_live_or_retried_and_cannot_advance_save_create
                 let mut effects = ScriptPresentationEffects {
                     view: Some(&mut probe),
                     ..Default::default()
-                };
+};
                 let first = owner
                     .process_destroy_list_with_effects_checked(&mut effects)
                     .unwrap_err()
@@ -327,7 +327,7 @@ fn colliding_admission_preserves_pending_old_lifetime_until_one_native_retiremen
             .process_destroy_list_with_effects_checked(&mut ScriptPresentationEffects {
                 view: Some(&mut probe),
                 ..Default::default()
-            })
+})
             .unwrap();
         assert_eq!(probe.calls, 1);
         assert!(owner.objects.get(&id).is_none());
@@ -369,7 +369,7 @@ fn bulk_clear_requires_receiving_owner_before_mutation_and_retires_once() {
         .clear_all_objects_with_effects_checked(&mut ScriptPresentationEffects {
             view: Some(&mut probe),
             ..Default::default()
-        })
+})
         .unwrap();
     assert_eq!(probe.calls, 1);
     assert!(owner.objects.registered_is_empty());
@@ -381,7 +381,7 @@ fn bulk_clear_requires_receiving_owner_before_mutation_and_retires_once() {
         .clear_all_objects_with_effects_checked(&mut ScriptPresentationEffects {
             view: Some(&mut probe),
             ..Default::default()
-        })
+})
         .unwrap();
     assert_eq!(probe.calls, 1);
 }
@@ -398,7 +398,7 @@ fn bulk_clear_failed_native_destructor_never_resets_or_retries_old_identity() {
             .clear_all_objects_with_effects_checked(&mut ScriptPresentationEffects {
                 view: Some(&mut probe),
                 ..Default::default()
-            })
+})
             .is_err()
     );
     assert_eq!(probe.calls, 1);
@@ -410,7 +410,7 @@ fn bulk_clear_failed_native_destructor_never_resets_or_retries_old_identity() {
             .clear_all_objects_with_effects_checked(&mut ScriptPresentationEffects {
                 view: Some(&mut probe),
                 ..Default::default()
-            })
+})
             .is_err()
     );
     assert_eq!(probe.calls, 1);
@@ -515,7 +515,7 @@ fn reset_callbacks_see_empty_id_lookup_while_registered_objects_remain_ordered()
         .reset_with_effects_checked(&mut ScriptPresentationEffects {
             view: Some(&mut probe),
             ..Default::default()
-        })
+})
         .unwrap();
     assert!(probe.observed_nested_child);
     assert!(owner.host_object(first).is_none());
@@ -602,7 +602,7 @@ fn checked_reset_drains_only_receiving_world_before_reusing_object_ids() {
                     .reset_with_effects_checked(&mut ScriptPresentationEffects {
                         view: Some(&mut peer_receiver),
                         ..Default::default()
-                    })
+})
                     .is_err()
             );
             assert_eq!(peer_receiver.calls, 0);
@@ -630,7 +630,7 @@ fn checked_reset_drains_only_receiving_world_before_reusing_object_ids() {
                     .reset_with_effects_checked(&mut ScriptPresentationEffects {
                         view: Some(&mut receiver),
                         ..Default::default()
-                    })
+})
                     .unwrap();
                 assert_eq!(receiver.calls, 1);
                 assert!(
@@ -660,7 +660,7 @@ fn checked_reset_drains_only_receiving_world_before_reusing_object_ids() {
                 .reset_with_effects_checked(&mut ScriptPresentationEffects {
                     view: Some(&mut next_receiver),
                     ..Default::default()
-                })
+})
                 .unwrap();
             assert_eq!(next_receiver.calls, 1, "each birth is retired exactly once");
             assert!(!peer.objects[&peer_id].status.destroyed);
@@ -758,7 +758,7 @@ fn bulk_retirement_preserves_prior_queue_then_registration_and_containment_order
         .push(child);
     owner.set_fixture_object_contained_by(child, Some(parent));
     assert_eq!(owner.objects.ordered_ids(), &[last, parent, child, queued]);
-    owner.destroy_object(queued);
+    owner.destroy_object(queued).unwrap();
     let mut probe = OrderedProbe {
         calls: Vec::new(),
         parent,
@@ -768,7 +768,7 @@ fn bulk_retirement_preserves_prior_queue_then_registration_and_containment_order
         .destroy_all_objects_immediate_with_effects_checked(&mut ScriptPresentationEffects {
             view: Some(&mut probe),
             ..Default::default()
-        })
+})
         .unwrap();
     assert_eq!(
         probe.calls,
@@ -854,7 +854,7 @@ fn bridge_actor_deletion_refresh_never_resurrects_or_allocates_a_span() {
     let original_slots = owner.pathfinding_system.grid.admitted_bridge_states();
     assert_eq!(original_slots.len(), 1);
     assert_eq!(original_slots[0].1, id.0);
-    owner.destroy_object(id);
+    owner.destroy_object(id).unwrap();
     owner
         .process_destroy_list_with_effects_checked(&mut Default::default())
         .unwrap();

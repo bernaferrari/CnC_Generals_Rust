@@ -349,7 +349,7 @@ fn usa_base_position(logic: &GameLogic) -> Vec3 {
         .find(|o| {
             o.team == Team::USA
                 && o.is_alive()
-                && (o.is_kind_of(KindOf::CommandCenter) || o.template_name.contains("Command"))
+                && o.is_kind_of(KindOf::CommandCenter)
         })
         .map(|o| o.get_position())
         .or_else(|| {
@@ -740,11 +740,11 @@ fn resolve_map_gather_target(logic: &mut GameLogic, base: Vec3) -> (Option<Objec
         return (Some(id), true);
     }
 
-    // 2) Map SupplyDock / SupplyPile / PileSmal by retail name (may lack Harvestable).
+    // 2) Map SupplyDock / SupplyPile by authored KindOf::SupplySource (not name peels).
     let map_supply_name = logic
         .host_objects()
         .registered_values()
-        .find(|o| o.is_alive() && is_retail_supply_source_name(&o.template_name))
+        .find(|o| o.is_alive() && o.is_kind_of(KindOf::SupplySource))
         .map(|o| o.id);
     if let Some(id) = map_supply_name {
         ensure_object_gatherable(logic, id);
@@ -767,13 +767,11 @@ fn resolve_map_gather_target(logic: &mut GameLogic, base: Vec3) -> (Option<Objec
 }
 
 fn is_barracks_object(o: &crate::game_logic::object::Object) -> bool {
+    // C++ FS_BARRACKS / KindOf — retail name helper is not a C++ factory gate.
     o.team == Team::USA
         && o.is_alive()
         && o.is_constructed()
-        && (is_retail_barracks_name(&o.template_name)
-            || o.template_name == "Barracks"
-            || o.template_name.contains("Barracks")
-            || o.is_kind_of(KindOf::FSBarracks))
+        && o.is_kind_of(KindOf::FSBarracks)
 }
 
 /// Ensure USA retail templates are buildable on the host slice:
@@ -1075,11 +1073,8 @@ fn golden_allow_teleport_pull() -> bool {
 
 /// Materialize `host_damage_log` into host HP/destroy flags.
 ///
-/// Under a coupled GameWorld damage-authority context (`GameLogic::
-/// set_damage_authority(true)`, default off), `take_damage` logs
-/// intent only and freezes host HP until a GameWorld shadow writeback. Golden
-/// map-world combat is host-only (no dual shadow session), so without this
-/// drain the primary enemy never appears dead and `fought`/`victory` stay false.
+/// `take_damage` commits HP synchronously and records the applied event; this
+/// drain only clears the log and routes reported kills (never re-subtracts).
 fn materialize_host_damage_log(logic: &mut GameLogic) {
     let events = logic.health_events.drain_damage();
     if events.is_empty() {
@@ -1090,12 +1085,12 @@ fn materialize_host_damage_log(logic: &mut GameLogic) {
         let Some(obj) = logic.host_object_mut(e.target) else {
             continue;
         };
-        if e.destroyed || e.amount + 1e-3 >= obj.health.current {
-            obj.health.current = 0.0;
+        // hq-9nnkc: take_damage already committed this delta synchronously
+        // (C++ ActiveBody::internalChangeHealth). Never subtract it again; only
+        // route a body-reported kill to destruction.
+        if e.destroyed && !obj.status.destroyed {
             obj.status.destroyed = true;
             destroy_ids.push(e.target);
-        } else if e.amount > 0.0 {
-            obj.health.current = (obj.health.current - e.amount).max(0.0);
         }
     }
     for id in destroy_ids {
@@ -1308,8 +1303,7 @@ fn fight_enemies_with_rangers(
                     .min_by(|a, b| {
                         let rank = |o: &crate::game_logic::Object| {
                             let structure = o.is_kind_of(KindOf::Structure)
-                                || o.is_kind_of(KindOf::CommandCenter)
-                                || o.template_name.contains("Command");
+                                || o.is_kind_of(KindOf::CommandCenter);
                             let dist = horiz_distance(o.get_position(), centroid);
                             (!structure, dist) // structures first (false < true)
                         };
@@ -2064,9 +2058,7 @@ fn run_map_world_skirmish(
         constructed = run_until(logic, 300, |g| {
             g.host_objects().registered_values().any(|o| {
                 is_barracks_object(o)
-                    && (o.template_name == *bname
-                        || o.template_name.contains("Barracks")
-                        || o.is_kind_of(KindOf::FSBarracks))
+                    && (o.template_name == *bname || o.is_kind_of(KindOf::FSBarracks))
             })
         })?;
         if constructed {
@@ -2792,6 +2784,32 @@ pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
 mod tests {
     use super::*;
 
+    /// hq-9nnkc: take_damage already committed the delta (C++
+    /// ActiveBody::internalChangeHealth); draining the log must not subtract it again.
+    #[test]
+    fn materialize_host_damage_log_does_not_replay_committed_damage() {
+        let mut logic = GameLogic::new();
+        logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Owner", true));
+        let mut template = crate::game_logic::ThingTemplate::new("HqNnkcVehicle");
+        template
+            .add_kind_of(crate::game_logic::KindOf::Vehicle)
+            .set_health(100.0);
+        logic.templates.insert(template.name.clone(), template);
+        let id = logic
+            .create_object("HqNnkcVehicle", Team::USA, Vec3::ZERO)
+            .expect("object");
+        logic.health_events.clear_damage();
+        {
+            let (object, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
+            object.take_damage(10.0, 0, health_events);
+        }
+        assert_eq!(logic.host_object(id).unwrap().health.current, 90.0);
+        materialize_host_damage_log(&mut logic);
+        let object = logic.host_object(id).unwrap();
+        assert_eq!(object.health.current, 90.0, "committed damage replayed");
+        assert!(!object.status.destroyed);
+    }
+
     #[test]
 
     fn host_construct_after_load_map_residual() {
@@ -2830,7 +2848,7 @@ mod tests {
         // Simulate host construct: create under construction via legal path.
         let id = logic.create_object_under_construction(&bname, Team::USA, site);
         assert!(
-            id.is_some(),
+            id.is_ok(),
             "host construct residual must place {bname} at {site:?} lbc={}",
             logic.legal_build_code_at_for_builder(Team::USA, site, &bname, Some(dozer))
         );

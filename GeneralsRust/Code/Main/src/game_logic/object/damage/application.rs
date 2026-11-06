@@ -453,7 +453,7 @@ impl DamageAfterFx {
             &mut crate::game_logic::ScriptPresentationEffects {
                 partition: Some(partition),
                 ..Default::default()
-            },
+},
         )
     }
 

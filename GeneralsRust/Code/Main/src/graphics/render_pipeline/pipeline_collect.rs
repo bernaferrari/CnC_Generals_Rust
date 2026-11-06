@@ -595,6 +595,7 @@ impl RenderPipeline {
                                 &authored_primary_turret,
                                 u.turret_angle_deg,
                                 u.turret_pitch_deg,
+                                (u.alt_turret_angle_deg, u.alt_turret_pitch_deg),
                                 &weapon_controls,
                             );
                             self.install_native_draw_pose(
@@ -605,7 +606,7 @@ impl RenderPipeline {
                                 world_matrix,
                                 animation_binding.clone(),
                                 installed_controls,
-                                authored_primary_turret.has_primary_bone()
+                                authored_primary_turret.has_any_turret_bone()
                                     || weapon_controls
                                         .iter()
                                         .any(|control| control.recoil_pivot_index.is_some()),
@@ -633,6 +634,7 @@ impl RenderPipeline {
                                         &authored_primary_turret,
                                         u.turret_angle_deg,
                                         u.turret_pitch_deg,
+                                        (u.alt_turret_angle_deg, u.alt_turret_pitch_deg),
                                         &weapon_controls,
                                         &authored_subobject_visibility,
                                         u.world_is_night,
@@ -688,6 +690,7 @@ impl RenderPipeline {
                                     &authored_primary_turret,
                                     u.turret_angle_deg,
                                     u.turret_pitch_deg,
+                                    (u.alt_turret_angle_deg, u.alt_turret_pitch_deg),
                                     &weapon_controls,
                                 );
                             let has_source_aggregate_attachments = aggregate_poses
@@ -764,6 +767,7 @@ impl RenderPipeline {
                                         &authored_primary_turret,
                                         u.turret_angle_deg,
                                         u.turret_pitch_deg,
+                                        (u.alt_turret_angle_deg, u.alt_turret_pitch_deg),
                                         &weapon_controls,
                                     )
                                 else {
@@ -1388,9 +1392,9 @@ impl RenderPipeline {
             resolve_mesh_for_model_key,
         };
 
-        static STARTUP_MODEL_TRACE_COUNT: AtomicUsize = AtomicUsize::new(0);
+        let startup_model_trace_count = &crate::main_services::main_services().startup_model_trace_count;
         let trace_this_attempt = !allow_sync_model_loads
-            && STARTUP_MODEL_TRACE_COUNT
+            && startup_model_trace_count
                 .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
                     (count < 64).then_some(count + 1)
                 })
@@ -2203,7 +2207,8 @@ impl RenderPipeline {
             }
             let (vp_x, vp_y, vp_w, vp_h) = self.tactical_viewport.pixel_rect();
             if self.native_terrain.is_some() {
-                self.forward_pass.renderer.enqueue_scoped_post_frame_pass(
+                self.forward_pass.renderer.enqueue_scoped_native_pass(
+                    ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::StaticSort,
                     ww3d_renderer_3d::rendering::wgpu_main_renderer::ScopedNativePass::TerrainWater,
                 );
             }

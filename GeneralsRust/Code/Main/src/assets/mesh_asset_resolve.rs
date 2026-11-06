@@ -31,8 +31,6 @@ use crate::release_candidate;
 use glam::{Mat4, Vec3};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Mutex, OnceLock};
 
 /// Sentinel model name for the diagnostic placeholder cube (matches GraphicsSystem).
 pub const PLACEHOLDER_MODEL_KEY: &str = "__fallback_cube__";
@@ -63,56 +61,36 @@ pub const W3D_SEARCH_ROOT_RESIDUALS: &[&str] = &[
 /// Minimum residual roots required for honesty (W3DZH + English + tools + Art).
 pub const W3D_SEARCH_ROOT_MIN_COUNT: usize = 7;
 
-static RESOLVE_LOADED: AtomicUsize = AtomicUsize::new(0);
-static RESOLVE_PLACEHOLDER: AtomicUsize = AtomicUsize::new(0);
-static RESOLVE_MISSING: AtomicUsize = AtomicUsize::new(0);
-static LAST_PLACEHOLDER_KEYS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
-
-/// Honesty counters for mesh resolve outcomes (production + tests).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct MeshResolveHonesty {
+/// Instance-owned mesh-resolve honesty + missing-W3D diagnostics.
+#[derive(Debug, Default, Clone)]
+pub struct MeshResolveState {
     pub loaded: usize,
     pub placeholder: usize,
     pub missing: usize,
+    pub last_placeholder_keys: Vec<String>,
+    pub missing_assets: crate::release_candidate::MissingAssetDiagnostics,
 }
 
-impl MeshResolveHonesty {
-    pub fn snapshot() -> Self {
-        Self {
-            loaded: RESOLVE_LOADED.load(Ordering::Relaxed),
-            placeholder: RESOLVE_PLACEHOLDER.load(Ordering::Relaxed),
-            missing: RESOLVE_MISSING.load(Ordering::Relaxed),
+impl MeshResolveState {
+    pub fn honesty(&self) -> MeshResolveHonesty {
+        MeshResolveHonesty {
+            loaded: self.loaded,
+            placeholder: self.placeholder,
+            missing: self.missing,
         }
     }
 
-    pub fn reset_for_tests() {
-        RESOLVE_LOADED.store(0, Ordering::Relaxed);
-        RESOLVE_PLACEHOLDER.store(0, Ordering::Relaxed);
-        RESOLVE_MISSING.store(0, Ordering::Relaxed);
-        if let Some(lock) = LAST_PLACEHOLDER_KEYS.get() {
-            if let Ok(mut v) = lock.lock() {
-                v.clear();
-            }
-        }
+    pub fn reset(&mut self) {
+        self.loaded = 0;
+        self.placeholder = 0;
+        self.missing = 0;
+        self.last_placeholder_keys.clear();
+        self.missing_assets = Default::default();
     }
 
-    /// True when at least one real mesh load was recorded.
-    pub fn honesty_loaded_ok(&self) -> bool {
-        self.loaded > 0
-    }
-
-    /// True when a missing-asset path recorded a placeholder (honest, not silent).
-    pub fn honesty_placeholder_ok(&self) -> bool {
-        self.placeholder > 0
-    }
-}
-
-fn note_placeholder_key(model_key: &str) {
-    let lock = LAST_PLACEHOLDER_KEYS.get_or_init(|| Mutex::new(Vec::new()));
-    if let Ok(mut v) = lock.lock() {
-        // Ring buffer residual: drop oldest when at capacity; skip duplicates.
+    fn note_placeholder_key(&mut self, model_key: &str) {
+        let v = &mut self.last_placeholder_keys;
         if let Some(pos) = v.iter().position(|k| k == model_key) {
-            // Move existing key to the newest end (recency residual).
             let existing = v.remove(pos);
             v.push(existing);
             return;
@@ -124,12 +102,29 @@ fn note_placeholder_key(model_key: &str) {
     }
 }
 
+/// Honesty counters snapshot for mesh resolve outcomes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MeshResolveHonesty {
+    pub loaded: usize,
+    pub placeholder: usize,
+    pub missing: usize,
+}
+
+impl MeshResolveHonesty {
+    /// True when at least one real mesh load was recorded.
+    pub fn honesty_loaded_ok(&self) -> bool {
+        self.loaded > 0
+    }
+
+    /// True when a missing-asset path recorded a placeholder (honest, not silent).
+    pub fn honesty_placeholder_ok(&self) -> bool {
+        self.placeholder > 0
+    }
+}
+
 /// Recent model keys that fell back to the placeholder cube (ring residual).
-pub fn recent_placeholder_model_keys() -> Vec<String> {
-    LAST_PLACEHOLDER_KEYS
-        .get()
-        .and_then(|lock| lock.lock().ok().map(|v| v.clone()))
-        .unwrap_or_default()
+pub fn recent_placeholder_model_keys(state: &MeshResolveState) -> Vec<String> {
+    state.last_placeholder_keys.clone()
 }
 
 /// Honesty: placeholder last-keys ring buffer residual is operational.
@@ -1284,12 +1279,12 @@ pub fn resolve_mesh_for_model_key(
 ) -> MeshResolveResult {
     let key = remap_model_key_alias(model_key);
     if key.is_empty() {
-        return resolve_mesh_without_asset(&key, use_placeholder);
+        return resolve_mesh_without_asset(&key, use_placeholder, &mut manager.mesh_resolve);
     }
 
     if key == PLACEHOLDER_MODEL_KEY {
-        RESOLVE_PLACEHOLDER.fetch_add(1, Ordering::Relaxed);
-        note_placeholder_key(key.as_str());
+        manager.mesh_resolve.placeholder += 1;
+        manager.mesh_resolve.note_placeholder_key(key.as_str());
         return MeshResolveResult::Placeholder {
             requested_key: key,
             model: create_placeholder_mesh_model(),
@@ -1298,7 +1293,7 @@ pub fn resolve_mesh_for_model_key(
     }
 
     if let Some(model) = try_load_w3d_from_asset_manager(manager, &key) {
-        RESOLVE_LOADED.fetch_add(1, Ordering::Relaxed);
+        manager.mesh_resolve.loaded += 1;
         return MeshResolveResult::Loaded {
             model_key: key,
             model,
@@ -1306,7 +1301,7 @@ pub fn resolve_mesh_for_model_key(
         };
     }
 
-    resolve_mesh_without_asset(&key, use_placeholder)
+    resolve_mesh_without_asset(&key, use_placeholder, &mut manager.mesh_resolve)
 }
 
 /// Standalone resolver path used by asset tests that deliberately do not own
@@ -1321,34 +1316,38 @@ fn resolve_mesh_for_model_key_with_resolver(
     let key = remap_model_key_alias(model_key);
     if key.is_empty() || key == PLACEHOLDER_MODEL_KEY {
         if key == PLACEHOLDER_MODEL_KEY {
-            RESOLVE_PLACEHOLDER.fetch_add(1, Ordering::Relaxed);
-            note_placeholder_key(&key);
+            resolver.mesh_resolve.placeholder += 1;
+            resolver.mesh_resolve.note_placeholder_key(&key);
             return MeshResolveResult::Placeholder {
                 requested_key: key,
                 model: create_placeholder_mesh_model(),
                 reason: "explicit placeholder key".into(),
             };
         }
-        return resolve_mesh_without_asset(&key, use_placeholder);
+        return resolve_mesh_without_asset(&key, use_placeholder, &mut resolver.mesh_resolve);
     }
     if let Some((model, path)) = try_load_w3d_from_filesystem(&key, resolver) {
-        RESOLVE_LOADED.fetch_add(1, Ordering::Relaxed);
+        resolver.mesh_resolve.loaded += 1;
         return MeshResolveResult::Loaded {
             model_key: key,
             model,
             source_path: Some(path),
         };
     }
-    resolve_mesh_without_asset(&key, use_placeholder)
+    resolve_mesh_without_asset(&key, use_placeholder, &mut resolver.mesh_resolve)
 }
 
-fn resolve_mesh_without_asset(key: &str, use_placeholder: bool) -> MeshResolveResult {
+fn resolve_mesh_without_asset(
+    key: &str,
+    use_placeholder: bool,
+    state: &mut MeshResolveState,
+) -> MeshResolveResult {
     if key.is_empty() {
-        RESOLVE_MISSING.fetch_add(1, Ordering::Relaxed);
-        release_candidate::note_missing_w3d_model("<empty>");
+        state.missing += 1;
+        state.missing_assets.note_missing_w3d("<empty>");
         return if use_placeholder {
-            RESOLVE_PLACEHOLDER.fetch_add(1, Ordering::Relaxed);
-            note_placeholder_key("<empty>");
+            state.placeholder += 1;
+            state.note_placeholder_key("<empty>");
             MeshResolveResult::Placeholder {
                 requested_key: String::new(),
                 model: create_placeholder_mesh_model(),
@@ -1361,11 +1360,11 @@ fn resolve_mesh_without_asset(key: &str, use_placeholder: bool) -> MeshResolveRe
             }
         };
     }
-    RESOLVE_MISSING.fetch_add(1, Ordering::Relaxed);
-    release_candidate::note_missing_w3d_model(key);
+    state.missing += 1;
+    state.missing_assets.note_missing_w3d(key);
     if use_placeholder {
-        RESOLVE_PLACEHOLDER.fetch_add(1, Ordering::Relaxed);
-        note_placeholder_key(key);
+        state.placeholder += 1;
+        state.note_placeholder_key(key);
         MeshResolveResult::Placeholder {
             requested_key: key.to_string(),
             model: create_placeholder_mesh_model(),
@@ -1413,7 +1412,7 @@ mod tests {
             "absent residual key must stay fail-closed missing"
         );
         assert_eq!(
-            release_candidate::missing_w3d_warn_count(key),
+            resolver.mesh_resolve.missing_assets.missing_w3d_warn_count(key),
             1,
             "first failed resolution emits exactly one MISSING_ASSET warn"
         );
@@ -1425,7 +1424,7 @@ mod tests {
         assert!(resolver.miss_cached(key));
         assert_eq!(resolver.miss_probe_count(key), 1);
         assert_eq!(
-            release_candidate::missing_w3d_warn_count(key),
+            resolver.mesh_resolve.missing_assets.missing_w3d_warn_count(key),
             1,
             "repeat resolution must not warn again"
         );
@@ -1530,10 +1529,10 @@ mod tests {
 
     #[test]
     fn placeholder_mesh_has_geometry_and_honesty() {
-        let before = MeshResolveHonesty::snapshot();
         let mut resolver = super::super::resolver::LiveAssetResolver::new(
             super::super::resolver::default_asset_roots(),
         );
+        let before = resolver.mesh_resolve.honesty();
         let result = resolve_mesh_for_model_key_with_resolver(
             "__no_such_unit_mesh_xyz__",
             true,
@@ -1542,7 +1541,7 @@ mod tests {
         assert!(result.is_placeholder(), "expected placeholder for missing");
         assert!(result.mesh_count() > 0, "placeholder must have mesh tris");
         assert_eq!(result.model().unwrap().name, PLACEHOLDER_MODEL_KEY);
-        let after = MeshResolveHonesty::snapshot();
+        let after = resolver.mesh_resolve.honesty();
         assert!(
             after.placeholder > before.placeholder,
             "placeholder must flip honesty counter"
@@ -1551,7 +1550,7 @@ mod tests {
             after.missing > before.missing,
             "missing note must also count"
         );
-        let keys = recent_placeholder_model_keys();
+        let keys = recent_placeholder_model_keys(&resolver.mesh_resolve);
         assert!(
             keys.iter()
                 .any(|k| k.to_ascii_lowercase().contains("no_such_unit")),
@@ -1561,10 +1560,10 @@ mod tests {
 
     #[test]
     fn missing_without_placeholder_is_honest_missing() {
-        let before = MeshResolveHonesty::snapshot();
         let mut resolver = super::super::resolver::LiveAssetResolver::new(
             super::super::resolver::default_asset_roots(),
         );
+        let before = resolver.mesh_resolve.honesty();
         let result = resolve_mesh_for_model_key_with_resolver(
             "__definitely_missing_mesh__",
             false,
@@ -1572,7 +1571,7 @@ mod tests {
         );
         assert!(result.is_missing());
         assert!(result.model().is_none());
-        let after = MeshResolveHonesty::snapshot();
+        let after = resolver.mesh_resolve.honesty();
         assert!(
             after.missing > before.missing,
             "missing path must increment honesty"
@@ -1584,11 +1583,11 @@ mod tests {
 
     #[test]
     fn usa_ranger_loads_mesh_when_assets_present_or_skips() {
-        let before = MeshResolveHonesty::snapshot();
         let key = "airanger_s";
         let mut resolver = super::super::resolver::LiveAssetResolver::new(
             super::super::resolver::default_asset_roots(),
         );
+        let before = resolver.mesh_resolve.honesty();
         if !mesh_asset_available(key, &mut resolver) {
             // Graceful skip when ZH extract / sample W3D not on disk.
             eprintln!("skip: airanger_s W3D not available in workspace");
@@ -1610,7 +1609,7 @@ mod tests {
             result.mesh_count() > 0,
             "loaded USA Ranger mesh must have geometry"
         );
-        let after = MeshResolveHonesty::snapshot();
+        let after = resolver.mesh_resolve.honesty();
         assert!(
             after.loaded > before.loaded,
             "loaded honesty must increment when assets present"
@@ -1757,16 +1756,16 @@ mod tests {
             "placeholder_key_ring_buffer_residual",
             || {
                 assert!(honesty_placeholder_key_ring_ok());
-                MeshResolveHonesty::reset_for_tests();
                 // Fill beyond capacity → ring drops oldest.
                 let mut resolver = super::super::resolver::LiveAssetResolver::new(
                     super::super::resolver::default_asset_roots(),
                 );
+                resolver.mesh_resolve.reset();
                 for i in 0..(PLACEHOLDER_KEY_RING_CAPACITY + 4) {
                     let key = format!("__ring_placeholder_{i}__");
                     let _ = resolve_mesh_for_model_key_with_resolver(&key, true, &mut resolver);
                 }
-                let keys = recent_placeholder_model_keys();
+                let keys = recent_placeholder_model_keys(&resolver.mesh_resolve);
                 assert!(
                     keys.len() <= PLACEHOLDER_KEY_RING_CAPACITY,
                     "ring must cap at {PLACEHOLDER_KEY_RING_CAPACITY}, got {}",

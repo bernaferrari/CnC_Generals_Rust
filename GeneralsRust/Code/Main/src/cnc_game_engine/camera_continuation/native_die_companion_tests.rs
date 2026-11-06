@@ -61,8 +61,9 @@ fn native_die_camera_companion_archive_restores_view_height_and_receipts_without
             let (sender, events) = std::sync::mpsc::channel();
             let mut list = game_client::fx_list::FXList::from_definition(&definition);
             list.add_fx_nugget(Box::new(Observe(sender)));
-            game_client::fx_list::get_fx_list_store_mut()
-                .add_fx_list("FX_NativeCompanionDie".into(), list);
+            game_client::fx_list::with_fx_list_store_mut(|s| {
+                s.add_fx_list("FX_NativeCompanionDie".into(), list);
+            });
             let (mut source, id) = world();
             let (mut receiving, same_id) = world();
             let (mut peer, peer_id) = world();

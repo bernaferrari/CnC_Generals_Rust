@@ -322,7 +322,7 @@ impl GameMessageTranslator for LookAtTranslator {
     }
 }
 impl LookAtTranslator {
-    fn translate_with_client(
+    pub(crate) fn translate_with_client(
         &mut self,
         msg: &GameMessage,
         client: game_engine::common::message_stream::TranslatorClientObservation,
@@ -543,10 +543,13 @@ impl LookAtTranslator {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_support::with_receiving_ui;
+
     use super::*;
 
     #[test]
     fn mouse_move_recency_matches_cpp_one_second_window() {
+        crate::test_support::ensure_ambient_host();
         let mut translator = LookAtTranslator::new();
         translator.last_mouse_move_frame = 100;
 
@@ -556,6 +559,7 @@ mod tests {
 
     #[test]
     fn mouse_move_recency_resets_when_frame_counter_rewinds() {
+        crate::test_support::ensure_ambient_host();
         let mut translator = LookAtTranslator::new();
         translator.last_mouse_move_frame = 100;
 
@@ -565,6 +569,7 @@ mod tests {
 
     #[test]
     fn reset_modes_clears_scroll_rotate_pitch_fov() {
+        crate::test_support::ensure_ambient_host();
         let mut translator = LookAtTranslator::new();
         translator.is_scrolling = true;
         translator.is_rotating = true;
@@ -579,10 +584,30 @@ mod tests {
         assert_eq!(translator.scroll_type, ScrollType::None);
     }
 
+    fn test_camera() -> impl FnMut(CameraInputAction, &mut crate::message_stream::ReceivingUi<'_>) -> CameraInputObservation {
+        |action, _ui| {
+            match action {
+                CameraInputAction::ClearTracking => {
+                    with_tactical_view(|view| {
+                        view.set_camera_lock(None);
+                        view.set_camera_lock_drawable(None);
+                    });
+                }
+                CameraInputAction::SetMouseLock(value) => {
+                    with_tactical_view(|view| view.set_mouse_lock(value));
+                }
+                _ => {}
+            }
+            CameraInputObservation::default()
+        }
+    }
+
     #[test]
     fn set_scrolling_locks_mouse_and_stop_restores_prev_cursor() {
-        TheInGameUI::set_scrolling(false);
-        TheInGameUI::set_mouse_cursor(MouseCursor::Waypoint);
+        crate::test_support::ensure_ambient_host();
+        with_receiving_ui(|ui| {
+        ui.set_scrolling(false);
+        ui.set_mouse_cursor(MouseCursor::Waypoint);
         with_tactical_view(|view| {
             view.set_mouse_lock(false);
             view.set_camera_lock(Some(42));
@@ -590,11 +615,12 @@ mod tests {
         });
 
         let mut translator = LookAtTranslator::new();
-        translator.set_scrolling(ScrollType::Rmb);
+        let mut camera = test_camera();
+        translator.set_scrolling(ScrollType::Rmb, ui, &mut camera);
 
         assert!(translator.is_scrolling);
         assert_eq!(translator.scroll_type, ScrollType::Rmb);
-        assert!(TheInGameUI::is_scrolling());
+        assert!(ui.is_scrolling());
         assert!(with_tactical_view_ref(|view| view.is_mouse_locked()));
         assert_eq!(translator.prev_cursor, MouseCursor::Waypoint);
         // C++ InGameUI::setScrolling(TRUE) clears lock + drawable.
@@ -604,35 +630,57 @@ mod tests {
             None
         );
 
-        TheInGameUI::set_mouse_cursor(MouseCursor::Scroll);
-        translator.stop_scrolling();
+        ui.set_mouse_cursor(MouseCursor::Scroll);
+        translator.stop_scrolling(ui, &mut camera);
 
         assert!(!translator.is_scrolling);
         assert_eq!(translator.scroll_type, ScrollType::None);
-        assert!(!TheInGameUI::is_scrolling());
+        assert!(!ui.is_scrolling());
         assert!(!with_tactical_view_ref(|view| view.is_mouse_locked()));
-        assert_eq!(TheInGameUI::get_mouse_cursor(), MouseCursor::Waypoint);
+        assert_eq!(ui.get_mouse_cursor(), MouseCursor::Waypoint);
+        });
     }
 
     #[test]
     fn mmb_click_thresholds_match_cpp() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(MMB_CLICK_DURATION_FRAMES, 5);
         assert_eq!(MMB_CLICK_PIXEL_OFFSET, 5);
     }
 
     #[test]
     fn wheel_falls_through_to_stop_scrolling() {
-        TheInGameUI::set_mouse_cursor(MouseCursor::Selecting);
+        crate::test_support::ensure_ambient_host();
+        with_receiving_ui(|ui| {
+        ui.set_mouse_cursor(MouseCursor::Selecting);
         let mut translator = LookAtTranslator::new();
-        translator.set_scrolling(ScrollType::Rmb);
-        let _ =
-            translator.translate_game_message(&GameMessage::new(GameMessageType::RawMouseWheel(1)));
+        let mut camera = test_camera();
+        translator.set_scrolling(ScrollType::Rmb, ui, &mut camera);
+        let mut receiving = crate::message_stream::ReceivingUi::new(ui, 1, 1);
+        let client = game_engine::common::message_stream::TranslatorClientObservation {
+            frame: 1,
+            logic_frame: 1,
+            game_mode: 0,
+            shell_active: false,
+            time_of_day: 0,
+            weather_is_snowy: false,
+            force_models_to_follow_time_of_day: false,
+            force_models_to_follow_weather: false,
+        };
+        let _ = translator.translate_with_client(
+            &GameMessage::new(GameMessageType::RawMouseWheel(1)),
+            client,
+            &mut receiving,
+            &mut camera,
+        );
         assert!(!translator.is_scrolling);
         assert_eq!(translator.scroll_type, ScrollType::None);
+        });
     }
 
     #[test]
     fn frame_tick_emits_set_replay_camera_for_skirmish_when_save_flag() {
+        crate::test_support::ensure_ambient_host();
         // C++ LookAtXlat.cpp:459-467 appends camera to this source pass only.
         let previous = global_data::read().save_camera_in_replay;
         global_data::write().save_camera_in_replay = true;

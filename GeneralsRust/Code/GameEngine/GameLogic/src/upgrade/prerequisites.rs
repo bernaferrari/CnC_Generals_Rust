@@ -331,20 +331,14 @@ impl Default for TechTree {
     }
 }
 
-static TECH_TREE: OnceLock<RwLock<TechTree>> = OnceLock::new();
-
-pub fn get_tech_tree() -> Option<RwLockReadGuard<'static, TechTree>> {
-    TECH_TREE
-        .get_or_init(|| RwLock::new(TechTree::new()))
-        .read()
-        .ok()
+pub fn get_tech_tree() -> Option<std::sync::Arc<RwLock<TechTree>>> {
+    Some(std::sync::Arc::clone(
+        crate::system::engine_stores::active_services().tech_tree(),
+    ))
 }
 
-pub fn get_tech_tree_mut() -> Option<RwLockWriteGuard<'static, TechTree>> {
-    TECH_TREE
-        .get_or_init(|| RwLock::new(TechTree::new()))
-        .write()
-        .ok()
+pub fn get_tech_tree_mut() -> Option<std::sync::Arc<RwLock<TechTree>>> {
+    get_tech_tree()
 }
 
 // Mock-based tests removed to avoid mocks in fidelity-critical code.

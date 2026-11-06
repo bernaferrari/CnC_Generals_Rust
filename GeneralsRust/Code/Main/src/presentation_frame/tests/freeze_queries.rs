@@ -2046,7 +2046,7 @@ fn construction_completion_refreshes_owned_control_bar_without_another_tick() {
         logic.templates.insert("OwnedFactory".into(), template);
         let id = logic
             .create_object_under_construction("OwnedFactory", Team::USA, Vec3::ZERO)
-            .unwrap();
+            .unwrap().expect("ObjectId");
         logic.host_object_mut(id).unwrap().selected = true;
         logic.get_player_mut(0).unwrap().selected_objects = vec![id];
         (logic, id)

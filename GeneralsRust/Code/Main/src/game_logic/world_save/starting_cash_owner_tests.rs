@@ -108,9 +108,14 @@ fn game_info_conversion_preserves_zero_and_unsigned_cash() {
         "game_info_conversion_preserves_zero_and_unsigned_cash",
         || {
             crate::skirmish_config::lobby_definition_tests::admit_slot_definitions();
+            let lobby = std::sync::Arc::new(std::sync::Mutex::new(
+                game_client::gui::skirmish_setup::SkirmishSetup::default(),
+            ));
             for cash in [0, u32::MAX] {
                 {
-                    let mut setup = game_client::gui::get_skirmish_setup();
+                    let setup_handle = std::sync::Arc::clone(&lobby);
+
+                    let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                     setup.set_selected_map(String::new());
                     let info = setup.game_info_mut().game_info_mut();
                     info.reset();
@@ -121,7 +126,7 @@ fn game_info_conversion_preserves_zero_and_unsigned_cash() {
                     slot.set_player_template(-1);
                 }
                 let config =
-                    crate::skirmish_config::config_from_client_skirmish_setup(None).unwrap();
+                    crate::skirmish_config::config_from_client_skirmish_setup(&lobby.lock().unwrap(), None).unwrap();
                 assert_eq!(
                     config.rules.starting_cash as u32, cash,
                     "GameInfo cash is present even when zero"

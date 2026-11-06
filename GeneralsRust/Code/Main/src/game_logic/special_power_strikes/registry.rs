@@ -886,6 +886,7 @@ impl HostSpecialPowerStrikeRegistry {
             id,
             kind,
             manual_drive_settings: ParticleManualDriveSettings::default(),
+            swath_settings: ParticleSwathSettings::default(),
             source_object,
             source_team,
             target_position,

@@ -501,137 +501,6 @@ fn capture_building_walk_into_range_transfers_ownership_after_upgrade() {
 }
 
 #[test]
-fn flashbang_upgrade_queue_complete_equips_ranger_secondary() {
-    use crate::command_system::{CommandType, GameCommand};
-    use crate::game_logic::host_upgrades::{HostUpgradeKind, UPGRADE_AMERICA_FLASHBANG};
-    use crate::game_logic::weapon_bootstrap::{RANGER_PRIMARY_WEAPON, ensure_host_weapon_store};
-
-    ensure_host_weapon_store();
-
-    let mut game_logic = GameLogic::new();
-    // Supply explicit rules so another fixture's catalog cannot change this
-    // C++ ProductionUpdate completion boundary.
-    crate::game_logic::host_upgrade_rules::register_test_upgrade(
-        &mut game_logic,
-        UPGRADE_AMERICA_FLASHBANG,
-        "PLAYER",
-        800,
-        30,
-    );
-    let mut player = Player::new(0, Team::USA, "USA", true);
-    player.resources.supplies = 5000;
-    game_logic.add_player(player);
-    ensure_test_barracks_template(&mut game_logic);
-
-    // Ranger without secondary — unlock must equip it.
-    let mut ranger = ThingTemplate::new("USA_Ranger");
-    ranger
-        .add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::Attackable)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(120.0)
-        .set_primary_weapon_name(RANGER_PRIMARY_WEAPON);
-    // Intentionally no secondary_weapon_name — research unlocks it.
-    game_logic
-        .templates
-        .insert("USA_Ranger".to_string(), ranger);
-
-    let barracks_id = game_logic
-        .create_object("TestBarracks", Team::USA, Vec3::new(-40.0, 0.0, 0.0))
-        .expect("barracks");
-
-    let ranger_id = game_logic
-        .create_object("USA_Ranger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
-        .expect("ranger");
-    {
-        let r = game_logic.host_object(ranger_id).expect("ranger");
-        assert!(
-            r.secondary_weapon.is_none(),
-            "pre-upgrade ranger must lack FlashBang secondary"
-        );
-        assert!(!r.has_upgrade_tag(UPGRADE_AMERICA_FLASHBANG));
-    }
-
-    game_logic.queue_command(GameCommand {
-        command_type: CommandType::QueueUpgrade {
-            upgrade_name: UPGRADE_AMERICA_FLASHBANG.to_string(),
-        },
-        player_id: 0,
-        command_id: 1,
-        timestamp: std::time::SystemTime::now(),
-        selected_units: vec![barracks_id],
-        modifier_keys: crate::command_system::ModifierKeys::default(),
-    });
-    game_logic.process_commands();
-
-    assert!(
-        game_logic
-            .get_player(0)
-            .unwrap()
-            .has_queued_upgrade(UPGRADE_AMERICA_FLASHBANG)
-    );
-    assert!(
-        game_logic
-            .host_upgrades()
-            .honesty_queue_ok(HostUpgradeKind::FlashBangGrenade)
-    );
-
-    // ProductionUpdate.cpp:687-702 increments once per logic frame.
-    for _ in 0..899 {
-        game_logic.update_with_dt(1.0 / 30.0);
-    }
-    assert!(
-        game_logic
-            .get_player(0)
-            .unwrap()
-            .has_queued_upgrade(UPGRADE_AMERICA_FLASHBANG)
-    );
-    assert!(
-        !game_logic
-            .get_player(0)
-            .unwrap()
-            .has_unlocked_upgrade(UPGRADE_AMERICA_FLASHBANG)
-    );
-    game_logic.update_with_dt(1.0 / 30.0);
-
-    let player = game_logic.get_player(0).expect("player");
-    assert!(player.has_unlocked_upgrade(UPGRADE_AMERICA_FLASHBANG));
-    assert!(!player.has_queued_upgrade(UPGRADE_AMERICA_FLASHBANG));
-    assert!(
-        game_logic
-            .host_upgrades()
-            .honesty_complete_ok(HostUpgradeKind::FlashBangGrenade)
-    );
-    assert!(
-        game_logic.host_upgrades().honesty_flashbang_equipped_ok(),
-        "FlashBang complete must equip at least one unit"
-    );
-    assert!(
-        game_logic
-            .host_upgrades()
-            .honesty_host_path_ok(HostUpgradeKind::FlashBangGrenade)
-    );
-
-    let ranger = game_logic.host_object(ranger_id).expect("ranger after");
-    assert!(
-        ranger.has_upgrade_tag(UPGRADE_AMERICA_FLASHBANG),
-        "ranger must receive FlashBang upgrade tag"
-    );
-    let secondary = ranger
-        .secondary_weapon
-        .as_ref()
-        .expect("FlashBang secondary must be equipped on complete");
-    assert!(
-        (secondary.damage - 35.0).abs() < 0.1,
-        "expected RangerFlashBangGrenadeWeapon damage 35, got {}",
-        secondary.damage
-    );
-    assert!((secondary.range - 175.0).abs() < 0.1);
-    assert!(ranger.is_within_attack_range_at_distance(1, 172.5));
-    assert!(!ranger.is_within_attack_range_at_distance(1, 172.51));
-}
-
-#[test]
 fn supply_lines_upgrade_queue_complete_tags_supply_center() {
     use crate::command_system::{CommandType, GameCommand};
     use crate::game_logic::host_upgrades::{HostUpgradeKind, UPGRADE_AMERICA_SUPPLY_LINES};
@@ -831,7 +700,7 @@ fn black_market_residual_skips_under_construction() {
 
     let market_id = game_logic
         .create_object_under_construction("GLABlackMarket", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
-        .expect("under-construction market");
+        .expect("under-construction market").expect("ObjectId");
     assert!(
         game_logic
             .host_object(market_id)

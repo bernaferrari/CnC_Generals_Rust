@@ -97,6 +97,23 @@ impl BorrowedAiWorld<'_> {
         owner: &Arc<RwLock<Object>>,
         damage: &mut DamageInfo,
     ) -> Result<f32, String> {
+        if damage.input.damage_type == crate::damage::DamageType::KillPilot {
+            return self.attempt_kill_pilot_owned(owner, damage);
+        }
+        // CPP HiveStructureBody::attemptDamage runs before StructureBody.
+        match self.hive_redirect_owned(owner, damage)? {
+            Some(HiveOwnedRedirect::Rider(rider)) => {
+                return self.attempt_damage_owned(&rider, damage);
+            }
+            Some(HiveOwnedRedirect::Swallow) => {
+                damage.sync_from_input();
+                damage.output.actual_damage_dealt = 0.0;
+                damage.output.actual_damage_clipped = 0.0;
+                damage.output.no_effect = true;
+                return Ok(0.0);
+            }
+            None => {}
+        }
         let PreparedDamage {
             id,
             body,
@@ -132,7 +149,9 @@ impl BorrowedAiWorld<'_> {
             return Ok(damage.output.actual_damage_dealt);
         }
         // Neither the Object nor its Body is borrowed across callbacks.
-        if outcome.damaged {
+        // CPP ActiveBody.cpp:573-583: setAttackedBy runs for any amount > 0,
+        // before the m_currentHealth < m_prevHealth onDamage gate.
+        if outcome.applied {
             if let (Some(victim), Some(source)) = (&controller, self.object(outcome.last_source)) {
                 let source_controller = {
                     let source = source
@@ -151,6 +170,8 @@ impl BorrowedAiWorld<'_> {
                         .set_attacked_by_at(index as Int, self.services.frame);
                 }
             }
+        }
+        if outcome.damaged {
             for (handle, proxy) in auto_heals.into_iter().zip(proxies) {
                 let wake = handle.with_module(|module| {
                     module
@@ -210,6 +231,111 @@ impl BorrowedAiWorld<'_> {
         *damage = candidate;
         Ok(damage.output.actual_damage_dealt)
     }
+    /// C++ ActiveBody.cpp:365-418 DAMAGE_KILLPILOT on the borrowed owner:
+    /// vehicles become DISABLED_UNMANNED, deselected, idled and neutral;
+    /// alreadyHandled, no modifier, no hull HP. Moving RiderChangeContain bikes are
+    /// scored and killed; stationary bikes evacuate and the rider is scored/killed.
+    fn attempt_kill_pilot_owned(
+        &mut self,
+        owner: &Arc<RwLock<Object>>,
+        damage: &mut DamageInfo,
+    ) -> Result<f32, String> {
+        let mut object = owner.try_write().map_err(|_| "damage owner unavailable")?;
+        if !self
+            .object(object.get_id())
+            .is_some_and(|actual| Arc::ptr_eq(&actual, owner))
+        {
+            return Err("foreign damage owner".into());
+        }
+        if object.is_effectively_dead() {
+            return Err("native damage actor family not admitted".into());
+        }
+        object
+            .get_body_module()
+            .ok_or("damage body absent")?
+            .try_lock()
+            .map_err(|_| "damage body unavailable")?
+            .assess_owned_native_damage(damage)
+            .map_err(|error| error.to_string())?;
+        if object.is_kind_of(KindOf::Vehicle) {
+            let rider_change = match object.get_contain() {
+                Some(contain) => contain
+                    .try_lock()
+                    .map_err(|_| "damage contain unavailable")?
+                    .is_rider_change_contain(),
+                None => false,
+            };
+            if rider_change {
+                // CPP ActiveBody.cpp:376-385 (hq-2qedt.58): a moving bike is
+                // scored to the damager, then obj->kill() (sourceless kill).
+                let ai = object
+                    .get_ai_update_interface()
+                    .ok_or("rider-change KillPilot needs AI")?;
+                let moving = ai
+                    .try_lock()
+                    .map_err(|_| "damage ai unavailable")?
+                    .is_moving();
+                if !moving {
+                    // CPP ActiveBody.cpp:386-418: aiEvacuateInstantly, then
+                    // damager->scoreTheKill(rider) and rider->kill().
+                    let contain = object.get_contain().ok_or("damage contain absent")?;
+                    drop(object);
+                    let riders = contain
+                        .try_lock()
+                        .map_err(|_| "damage contain unavailable")?
+                        .get_contained_objects()
+                        .to_vec();
+                    for rider_id in &riders {
+                        contain
+                            .try_lock()
+                            .map_err(|_| "damage contain unavailable")?
+                            .remove_from_contain_with_world(*rider_id, false, self)?;
+                    }
+                    if let Some(rider) = riders.first().and_then(|id| self.object(*id)) {
+                        let mut kill = Self::physics_resting_kill_damage(&rider)?;
+                        self.validate_damage_owned(&rider, &kill)?;
+                        self.validate_native_kill_score(&rider, damage.input.source_id)?;
+                        self.score_native_kill(&rider, damage.input.source_id);
+                        self.attempt_damage_owned(&rider, &mut kill)?;
+                    }
+                    damage.sync_from_input();
+                    damage.output.actual_damage_dealt = 0.0;
+                    damage.output.actual_damage_clipped = 0.0;
+                    return Ok(0.0);
+                }
+                drop(object);
+                let mut kill = Self::physics_resting_kill_damage(owner)?;
+                self.validate_damage_owned(owner, &kill)?;
+                self.validate_native_kill_score(owner, damage.input.source_id)?;
+                self.score_native_kill(owner, damage.input.source_id);
+                self.attempt_damage_owned(owner, &mut kill)?;
+                crate::object::body::active_body::record_neutral_vehicle_sniped();
+                damage.sync_from_input();
+                damage.output.actual_damage_dealt = 0.0;
+                damage.output.actual_damage_clipped = 0.0;
+                return Ok(0.0);
+            }
+            object.set_disabled_unmanned();
+            object.deselect_all();
+            // CPP ActiveBody aiIdle: the AI reads its owner Object, so the
+            // write guard must be released first (else RwLock self-deadlock).
+            let ai = object.get_ai_update_interface();
+            drop(object);
+            if let Some(ai) = ai {
+                ai.try_lock()
+                    .map_err(|_| "damage ai unavailable")?
+                    .ai_idle()
+                    .map_err(|error| error.to_string())?;
+            }
+            let mut object = owner.try_write().map_err(|_| "damage owner unavailable")?;
+            object.set_team_to_neutral();
+            crate::object::body::active_body::record_neutral_vehicle_sniped();
+        }
+        damage.sync_from_input();
+        damage.output.actual_damage_dealt = 0.0;
+        damage.output.actual_damage_clipped = 0.0;
+        Ok(0.0)
+    }
     /// Validate all current damage/death callbacks without changing health,
     /// scheduling, presentation or the session random stream. Landing uses
     /// this before integrating, then prepares again at the original hit point.
@@ -219,6 +345,71 @@ impl BorrowedAiWorld<'_> {
         damage: &DamageInfo,
     ) -> Result<(), String> {
         self.prepare_damage_owned(owner, damage).map(|_| ())
+    }
+
+    /// CPP HiveStructureBody.cpp attemptDamage: a propagated type goes to
+    /// SpawnBehavior::getClosestSlave, else OpenContain::getClosestRider
+    /// (FROM_CENTER_2D from the shooter); with none, a swallowed type is eaten.
+    fn hive_redirect_owned(
+        &self,
+        owner: &Arc<RwLock<Object>>,
+        damage: &DamageInfo,
+    ) -> Result<Option<HiveOwnedRedirect>, String> {
+        let flags = {
+            let object = owner.try_read().map_err(|_| "damage owner unavailable")?;
+            let Some(body) = object.get_body_module() else {
+                return Ok(None);
+            };
+            let flags = body
+                .try_lock()
+                .map_err(|_| "damage body unavailable")?
+                .hive_redirect_flags(damage.input.damage_type);
+            flags
+        };
+        // Only a HiveStructureBody propagating this damage type consults its
+        // spawn/contain modules (HiveStructureBody.cpp attemptDamage); every
+        // other body must not touch unrelated module entries here.
+        let Some((propagate, swallow)) = flags else {
+            return Ok(None);
+        };
+        if !propagate {
+            return Ok(None);
+        }
+        let (slaves, contain) = {
+            let object = owner.try_read().map_err(|_| "damage owner unavailable")?;
+            (
+                object.with_spawn_behavior_full_interface(|spawn| spawn.slave_ids()),
+                object.get_contain(),
+            )
+        };
+        // C++ checks spawn first, then contain; a missing shooter falls through.
+        let riders = match (slaves, contain) {
+            (Some(slaves), _) => slaves,
+            (None, Some(contain)) => contain
+                .try_lock()
+                .map_err(|_| "hive contain unavailable")?
+                .get_contained_objects()
+                .to_vec(),
+            (None, None) => return Ok(None),
+        };
+        let Some(shooter) = self.object(damage.input.source_id) else {
+            return Ok(None);
+        };
+        let pos = *shooter.read().map_err(|_| "hive shooter poisoned")?.get_position();
+        let mut closest: Option<(f32, Arc<RwLock<Object>>)> = None;
+        for id in riders {
+            let Some(rider) = self.object(id) else { continue };
+            let p = *rider.read().map_err(|_| "hive rider poisoned")?.get_position();
+            let distance = (p.x - pos.x).powi(2) + (p.y - pos.y).powi(2);
+            if closest.as_ref().is_none_or(|(best, _)| *best > distance) {
+                closest = Some((distance, rider));
+            }
+        }
+        Ok(match closest {
+            Some((_, rider)) => Some(HiveOwnedRedirect::Rider(rider)),
+            None if swallow => Some(HiveOwnedRedirect::Swallow),
+            None => None,
+        })
     }
 
     fn prepare_damage_owned(
@@ -345,4 +536,9 @@ impl BorrowedAiWorld<'_> {
             observations,
         })
     }
+}
+
+enum HiveOwnedRedirect {
+    Rider(Arc<RwLock<Object>>),
+    Swallow,
 }

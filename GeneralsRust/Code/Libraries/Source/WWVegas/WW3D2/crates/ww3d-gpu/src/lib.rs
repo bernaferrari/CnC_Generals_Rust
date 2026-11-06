@@ -46,10 +46,7 @@ pub use caps::*;
 pub use command::*;
 pub use device::MemoryType;
 pub use device::{DeviceBuffer, GpuDevice, MemoryStats};
-pub use device_authority::{
-    SharedGpuDevice, acquire_device, adopt_device, is_device_acquired, request_device,
-    shared_device,
-};
+pub use device_authority::{DeviceAuthority, SharedGpuDevice};
 pub use dynamic_buffer::*;
 pub use fvf::*;
 pub use pipeline::*;
@@ -267,7 +264,8 @@ impl GpuContext {
             .await
             .map_err(|_| GpuError::NoAdapter)?;
 
-        let (device, queue) = request_device(
+        let authority = DeviceAuthority::new();
+        let (device, queue) = authority.request_device(
             &adapter,
             &wgpu::DeviceDescriptor {
                 required_features: wgpu::Features::empty(),
@@ -511,24 +509,6 @@ impl FrameTimer {
         self.frame_count = 0;
         self.total_time = std::time::Duration::ZERO;
     }
-}
-
-/// Global GPU context instance
-static GPU_CONTEXT: std::sync::OnceLock<GpuContext> = std::sync::OnceLock::new();
-/// Initialize global GPU context. Second call hard-fails (engine `AlreadyInitialised` style).
-pub async fn init_gpu_context() -> Result<(), GpuError> {
-    if GPU_CONTEXT.get().is_some() {
-        return Err(GpuError::AlreadyInitialised);
-    }
-    let context = GpuContext::init().await?;
-    GPU_CONTEXT
-        .set(context)
-        .map_err(|_| GpuError::AlreadyInitialised)
-}
-
-/// Get global GPU context
-pub fn get_gpu_context() -> Option<&'static GpuContext> {
-    GPU_CONTEXT.get()
 }
 
 /// GPU error types

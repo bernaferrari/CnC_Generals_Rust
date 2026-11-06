@@ -588,16 +588,84 @@ fn convert_parameter_type(value: u32) -> LoaderResult<ParameterType> {
         .ok_or_else(|| configuration_error(format!("Unknown ParameterType value {}", value)))
 }
 
+/// C++ Scripts.cpp:1660-1686 casts the stored ordinal then rematches by name.
+/// An out-of-range ordinal must not reject the chunk before name rematch.
 fn convert_condition_type(value: u32) -> LoaderResult<ConditionType> {
-    ConditionType::from_u32(value)
-        .ok_or_else(|| configuration_error(format!("Unknown ConditionType value {}", value)))
+    Ok(ConditionType::from_u32(value).unwrap_or(ConditionType::ConditionFalse))
 }
 
+/// C++ Scripts.cpp:2418-2450: out-of-range action ordinal rematches by name, else NO_OP.
 fn convert_action_type(value: u32) -> LoaderResult<ScriptActionType> {
-    ScriptActionType::from_u32(value)
-        .ok_or_else(|| configuration_error(format!("Unknown ScriptActionType value {}", value)))
+    Ok(ScriptActionType::from_u32(value).unwrap_or(ScriptActionType::NoOp))
 }
 
 fn configuration_error(message: impl Into<String>) -> GameLogicError {
     GameLogicError::Configuration(message.into())
+}
+
+
+
+#[cfg(test)]
+mod out_of_range_ordinal_rematch_tests {
+    use super::*;
+    use gamelogic::scripting::chunk_codec::ScriptTemplateLookup;
+    use std::sync::Arc;
+
+    fn with_name_keys<T>(f: impl FnOnce() -> T) -> T {
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, f)
+    }
+
+    #[test]
+    fn out_of_range_condition_ordinal_rematches_valid_name() {
+        with_name_keys(|| {
+            let name = "Condition_Counter";
+            let key = NameKeyGenerator::name_to_key(name);
+            // Index 0 = False, 1 = Counter.
+            let templates = ScriptTemplateLookup::from_keys(vec![0, key], vec![0, key]);
+            let mut toc = HashMap::new();
+            toc.insert(42, name.to_string());
+            let mut data = Vec::new();
+            data.extend_from_slice(&999i32.to_le_bytes());
+            data.extend_from_slice(&(42i32 << 8).to_le_bytes());
+            data.extend_from_slice(&0i32.to_le_bytes());
+            let condition = parse_condition(&data, &toc, 4, &templates).expect("parse");
+            assert_eq!(condition.condition_type, ConditionType::Counter);
+        });
+    }
+
+    #[test]
+    fn out_of_range_condition_ordinal_without_name_match_becomes_false() {
+        with_name_keys(|| {
+            let templates = ScriptTemplateLookup::from_keys(vec![1, 2], vec![]);
+            let mut toc = HashMap::new();
+            toc.insert(7, "Missing_Template".to_string());
+            let mut data = Vec::new();
+            data.extend_from_slice(&999i32.to_le_bytes());
+            data.extend_from_slice(&(7i32 << 8).to_le_bytes());
+            data.extend_from_slice(&0i32.to_le_bytes());
+            let condition = parse_condition(&data, &toc, 4, &templates).expect("parse");
+            assert_eq!(condition.condition_type, ConditionType::ConditionFalse);
+        });
+    }
+
+    #[test]
+    fn out_of_range_action_ordinal_rematches_valid_name() {
+        with_name_keys(|| {
+            let name = "Action_SetFlag";
+            let key = NameKeyGenerator::name_to_key(name);
+            let set_flag = ScriptActionType::SetFlag as usize;
+            let mut keys = vec![0u32; set_flag + 1];
+            keys[set_flag] = key;
+            let templates = ScriptTemplateLookup::from_keys(vec![], keys);
+            let mut toc = HashMap::new();
+            toc.insert(9, name.to_string());
+            let mut data = Vec::new();
+            data.extend_from_slice(&999i32.to_le_bytes());
+            data.extend_from_slice(&(9i32 << 8).to_le_bytes());
+            data.extend_from_slice(&0i32.to_le_bytes());
+            let action = parse_script_action(&data, &toc, 2, &templates).expect("parse");
+            assert_eq!(action.action_type, ScriptActionType::SetFlag);
+        });
+    }
 }

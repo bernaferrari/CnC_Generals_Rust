@@ -31,19 +31,50 @@ pub trait RadarDataSink: Send + Sync {
     fn set_radar_data(&self, object_id: u32, present: bool);
 }
 
-static OBJECT_PROVIDER: OnceLock<Arc<dyn RadarObjectProvider>> = OnceLock::new();
-static DATA_SINK: OnceLock<Arc<dyn RadarDataSink>> = OnceLock::new();
-
 pub fn register_radar_object_provider(provider: Arc<dyn RadarObjectProvider>) -> bool {
-    OBJECT_PROVIDER.set(provider).is_ok()
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .system
+        .radar_object_provider
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if slot.is_some() {
+        return false;
+    }
+    *slot = Some(provider);
+    true
 }
 
 pub fn register_radar_data_sink(sink: Arc<dyn RadarDataSink>) -> bool {
-    DATA_SINK.set(sink).is_ok()
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .system
+        .radar_data_sink
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if slot.is_some() {
+        return false;
+    }
+    *slot = Some(sink);
+    true
 }
 
-fn data_sink() -> Option<&'static dyn RadarDataSink> {
-    DATA_SINK.get().map(|s| s.as_ref())
+fn data_sink() -> Option<Arc<dyn RadarDataSink>> {
+    crate::common::common_services::common_services()
+        .system
+        .radar_data_sink
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
+}
+
+fn object_provider() -> Option<Arc<dyn RadarObjectProvider>> {
+    crate::common::common_services::common_services()
+        .system
+        .radar_object_provider
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 /// C++ `Radar::addObject` color selection.
@@ -96,7 +127,7 @@ impl RadarSystem {
 
     /// Rebuild lists from the registered world-object provider.
     pub fn sync_objects_from_provider(&mut self) {
-        let Some(provider) = OBJECT_PROVIDER.get() else {
+        let Some(provider) = object_provider() else {
             return;
         };
         let live = provider.collect_objects();

@@ -399,6 +399,7 @@ mod tests {
 
     #[test]
     fn test_diplomacy_callbacks() {
+        crate::test_support::ensure_ambient_host();
         let mut diplomacy = DiplomacyCallbacks::new();
         let mut manager = crate::gui::window_manager::WindowManager::new();
 
@@ -418,6 +419,7 @@ mod tests {
 
     #[test]
     fn briefing_history_tracks_unique_labels_and_reset_clears() {
+        crate::test_support::ensure_ambient_host();
         let mut diplomacy = DiplomacyCallbacks::new();
         let mut manager = crate::gui::window_manager::WindowManager::new();
 
@@ -443,6 +445,7 @@ mod tests {
 
     #[test]
     fn test_player_info_management() {
+        crate::test_support::ensure_ambient_host();
         let mut diplomacy = DiplomacyCallbacks::new();
         let mut manager = crate::gui::window_manager::WindowManager::new();
 
@@ -473,6 +476,7 @@ mod tests {
 
     #[test]
     fn test_diplomatic_relationships() {
+        crate::test_support::ensure_ambient_host();
         let mut diplomacy = DiplomacyCallbacks::new();
         let mut manager = crate::gui::window_manager::WindowManager::new();
 
@@ -506,6 +510,7 @@ mod tests {
 
     #[test]
     fn test_mute_functionality() {
+        crate::test_support::ensure_ambient_host();
         let mut diplomacy = DiplomacyCallbacks::new();
         let mut manager = crate::gui::window_manager::WindowManager::new();
 
@@ -531,6 +536,7 @@ mod tests {
 
     #[test]
     fn test_alliance_requests() {
+        crate::test_support::ensure_ambient_host();
         let mut diplomacy = DiplomacyCallbacks::new();
         let mut manager = crate::gui::window_manager::WindowManager::new();
 
@@ -579,6 +585,7 @@ mod tests {
 
     #[test]
     fn test_player_status_types() {
+        crate::test_support::ensure_ambient_host();
         use PlayerStatus::*;
 
         let statuses = vec![Active, Defeated, Disconnected, Observer];
@@ -826,12 +833,13 @@ mod os_wnd_tests {
                     .create_window(None, x, y, 80, 24, effects)
                     .expect(name);
                 button.borrow_mut().set_name(name);
-                let _ = button.borrow_mut().hide(false);
+                let _ = button.borrow_mut().hide_without_manager_side_effects(false);
             })
         });
     }
     #[test]
     fn os_wnd_diplomacy_ingame_and_hide_hit_named_gadgets() {
+        crate::test_support::ensure_ambient_host();
         let mut client = crate::core::game_client::GameClient::new().unwrap();
         install_named_button(&mut client, "Diplomacy.wnd:InGameParent", 10, 10);
         install_named_button(&mut client, "Diplomacy.wnd:RadioButtonInGame", 10, 40);
@@ -857,6 +865,7 @@ mod os_wnd_tests {
 
     #[test]
     fn os_wnd_diplomacy_mute_hits_button_mute_slot() {
+        crate::test_support::ensure_ambient_host();
         let mut client = crate::core::game_client::GameClient::new().unwrap();
         install_named_button(&mut client, "Diplomacy.wnd:ButtonMute0", 10, 100);
         assert!(client.with_window_event_effects(None, |effects| {

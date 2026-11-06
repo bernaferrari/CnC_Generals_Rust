@@ -11,7 +11,6 @@
 
 use crate::common::ini::ini::{FieldParse, INI, INIError, INIResult};
 use crate::common::user_preferences::UserPreferences;
-use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use std::sync::Arc;
 
@@ -729,14 +728,9 @@ pub const FIELD_PARSE_TABLE: &[FieldParse<AudioSettings>] = &[
     },
 ];
 
-/// Global AudioSettings instance (thread-safe)
-static AUDIO_SETTINGS: OnceCell<Arc<RwLock<AudioSettings>>> = OnceCell::new();
-
 /// Ensure the audio settings exist and return a handle to it
 pub fn ensure_audio_settings() -> Arc<RwLock<AudioSettings>> {
-    AUDIO_SETTINGS
-        .get_or_init(|| Arc::new(RwLock::new(AudioSettings::new())))
-        .clone()
+    Arc::clone(&crate::common::common_services::common_services().ini.audio_settings)
 }
 
 /// Initialize (or reinitialize) the global audio settings
@@ -747,19 +741,21 @@ pub fn init_global_audio_settings() {
 
 /// Get a handle to the global audio settings if initialized
 pub fn get_audio_settings() -> Option<Arc<RwLock<AudioSettings>>> {
-    AUDIO_SETTINGS.get().cloned()
+    Some(Arc::clone(&crate::common::common_services::common_services().ini.audio_settings))
 }
 
 /// Get a read guard to the global audio settings
 pub fn get_audio_settings_read() -> Option<parking_lot::RwLockReadGuard<'static, AudioSettings>> {
-    AUDIO_SETTINGS.get().map(|arc| arc.read())
+    let cell = ensure_audio_settings();
+    let guard = cell.read();
+    Some(unsafe { std::mem::transmute(guard) })
 }
-
 /// Get a write guard to the global audio settings
 pub fn get_audio_settings_write() -> Option<parking_lot::RwLockWriteGuard<'static, AudioSettings>> {
-    AUDIO_SETTINGS.get().map(|arc| arc.write())
+    let cell = ensure_audio_settings();
+    let guard = cell.write();
+    Some(unsafe { std::mem::transmute(guard) })
 }
-
 /// INI parsing function for AudioSettings definition (matches C++ INI::parseAudioSettingsDefinition)
 ///
 /// This is the main entry point for parsing AudioSettings definitions from INI files.

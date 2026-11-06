@@ -11,6 +11,7 @@ fn visible_particle() -> Particle {
 
 #[test]
 fn particle_retail_green_lower_clamp_reads_already_clamped_red() {
+    crate::test_support::ensure_ambient_host();
     // ParticleSys.cpp:430-444 clamps RED first; GREEN's lower test then
     // reads that clamped RED, while GREEN's upper test reads GREEN.
     for (before, expected) in [
@@ -27,6 +28,7 @@ fn particle_retail_green_lower_clamp_reads_already_clamped_red() {
 
 #[test]
 fn particle_retail_emitter_angle_preserves_axis_and_zero_vector_branches() {
+    crate::test_support::ensure_ambient_host();
     use std::f32::consts::{PI, TAU};
     // ParticleSys.cpp:3390-3420 returns PI/0, rather than +/-PI/2, at
     // exact orthogonality to (0,1), and returns zero for a zero vector.
@@ -60,6 +62,7 @@ fn particle_retail_emitter_angle_preserves_axis_and_zero_vector_branches() {
 
 #[test]
 fn particle_retail_emitter_angle_uses_signed_acos_away_from_axes() {
+    crate::test_support::ensure_ambient_host();
     use std::f32::consts::{FRAC_PI_4, PI};
     for (direction, expected) in [
         (Vec3::new(1.0, 1.0, 0.0), PI + FRAC_PI_4),
@@ -77,6 +80,7 @@ fn particle_retail_emitter_angle_uses_signed_acos_away_from_axes() {
 
 #[test]
 fn particle_exhausted_color_keys_are_safe_without_invented_terminal_color() {
+    crate::test_support::ensure_ambient_host();
     for target in [MAX_KEYFRAMES, MAX_KEYFRAMES + 1, usize::MAX] {
         let mut particle = visible_particle();
         particle.color_target_key = target;

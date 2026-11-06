@@ -7,7 +7,8 @@ use super::super::xfer_load::XferLoad;
 use super::super::xfer_save::XferSave;
 use super::game_state_map::GameStateMap;
 use super::{
-    notify_clear_game_data, notify_get_campaign_snapshot, notify_get_mission_start_args,
+    notify_clear_game_data, notify_fetch_game_text, notify_get_campaign_snapshot,
+    notify_get_mission_start_args, notify_message_box_ok, notify_post_ui_message,
     notify_save_lock_ghost_objects,
 };
 use crate::common::game_engine::get_game_engine;
@@ -66,21 +67,33 @@ const DEEP_CRC_LOGIC_ONLY_BLOCK_NAMES: &[&str] = &[
 type PartitionUpdateFn = dyn Fn() + Send + Sync + 'static;
 type WorldDictMapNameFn = dyn Fn() -> Option<String> + Send + Sync + 'static;
 
-struct PostLoadHooks {
-    partition_update: Option<Box<PartitionUpdateFn>>,
-    world_dict_map_name: Option<Box<WorldDictMapNameFn>>,
+pub(crate) struct PostLoadHooks {
+    pub partition_update: Option<Box<PartitionUpdateFn>>,
+    pub world_dict_map_name: Option<Box<WorldDictMapNameFn>>,
 }
 
-static POST_LOAD_HOOKS: std::sync::Mutex<PostLoadHooks> = std::sync::Mutex::new(PostLoadHooks {
-    partition_update: None,
-    world_dict_map_name: None,
-});
+impl Default for PostLoadHooks {
+    fn default() -> Self {
+        Self {
+            partition_update: None,
+            world_dict_map_name: None,
+        }
+    }
+}
+
+fn post_load_hooks() -> std::sync::Arc<std::sync::Mutex<PostLoadHooks>> {
+    std::sync::Arc::clone(
+        &crate::common::common_services::common_services()
+            .system
+            .post_load_hooks,
+    )
+}
 
 /// Register `ThePartitionManager->update()` (GameState.cpp:1529).
 /// Must run after snapshot post-process and before the script engine's first run.
 /// Production wires this from GameLogic `install_save_game_counter_integration`.
 pub fn register_partition_manager_update(update_fn: impl Fn() + Send + Sync + 'static) {
-    if let Ok(mut hooks) = POST_LOAD_HOOKS.lock() {
+    if let Ok(mut hooks) = post_load_hooks().lock() {
         hooks.partition_update = Some(Box::new(update_fn));
     }
 }
@@ -89,13 +102,13 @@ pub fn register_partition_manager_update(update_fn: impl Fn() + Send + Sync + 's
 pub fn register_world_dict_map_name(
     lookup_fn: impl Fn() -> Option<String> + Send + Sync + 'static,
 ) {
-    if let Ok(mut hooks) = POST_LOAD_HOOKS.lock() {
+    if let Ok(mut hooks) = post_load_hooks().lock() {
         hooks.world_dict_map_name = Some(Box::new(lookup_fn));
     }
 }
 
 fn world_dict_map_label() -> Option<String> {
-    POST_LOAD_HOOKS
+    post_load_hooks()
         .lock()
         .ok()
         .and_then(|hooks| {
@@ -108,7 +121,7 @@ fn world_dict_map_label() -> Option<String> {
 }
 
 fn notify_partition_manager_update() {
-    if let Ok(hooks) = POST_LOAD_HOOKS.lock() {
+    if let Ok(hooks) = post_load_hooks().lock() {
         if let Some(update_fn) = hooks.partition_update.as_ref() {
             update_fn();
         }
@@ -772,6 +785,8 @@ impl GameState {
         // Open save file
         let mut xfer_save = XferSave::new();
         if let Err(_) = xfer_save.open(filepath.to_str().unwrap_or("").to_string()) {
+            // C++ GameState.cpp:548 — TheInGameUI->message("GUI:Error")
+            notify_post_ui_message("GUI:Error");
             eprintln!("Error opening file '{:?}'", filepath);
             return Ok(SaveCode::Error);
         }
@@ -794,13 +809,25 @@ impl GameState {
                     eprintln!("Error closing save file: {:?}", close_err);
                     return Ok(SaveCode::Error);
                 }
-                println!("Game saved successfully");
+                // C++ GameState.cpp:596-597 — fetch GUI:GameSaveComplete then message(msg)
+                let complete = notify_fetch_game_text("GUI:GameSaveComplete");
+                notify_post_ui_message(&complete);
                 Ok(SaveCode::Ok)
             }
             Err(e) => {
                 if let Err(close_err) = xfer_save.close() {
                     eprintln!("Error closing save file: {:?}", close_err);
                 }
+                // C++ GameState.cpp:575-584 — MessageBoxOk(GUI:Error, format ErrorSavingGame)
+                let title = notify_fetch_game_text("GUI:Error");
+                let err_fmt = notify_fetch_game_text("GUI:ErrorSavingGame");
+                let path_display = filepath.display().to_string();
+                let body = if err_fmt.contains("%s") {
+                    err_fmt.replacen("%s", &path_display, 1)
+                } else {
+                    format!("{err_fmt} {path_display}")
+                };
+                notify_message_box_ok(&title, &body);
                 eprintln!("Error saving game: {:?}", e);
                 Ok(SaveCode::Error)
             }
@@ -961,7 +988,8 @@ impl GameState {
     /// `GUI:MissionSave` and formats it with the campaign name label plus
     /// `currentMissionNumber+1`.
     pub fn mission_save(&mut self) -> Result<SaveCode, XferStatus> {
-        let (campaign_side, mission_number, _) =
+        // C++ GameState.cpp:606-621 — fetch GUI:MissionSave and campaign name label.
+        let (campaign_name_label, mission_number, _) =
             notify_get_campaign_snapshot().unwrap_or_else(|| {
                 (
                     self.game_info.campaign_side.clone(),
@@ -970,16 +998,32 @@ impl GameState {
                 )
             });
         let mission_number = mission_number.saturating_add(1);
-        let campaign_label = if campaign_side.is_empty() {
+        let label_key = if campaign_name_label.is_empty() {
             self.game_info.campaign_side.clone()
         } else {
-            campaign_side
+            campaign_name_label
         };
-        // Common cannot fetch GameText; callers with GameClient (ScoreScreen,
-        // live host) pass the localized `GUI:MissionSave` string. The English
-        // retail token is `%s Mission %d`.
+        let campaign_label = if label_key.is_empty() {
+            String::new()
+        } else {
+            let fetched = notify_fetch_game_text(&label_key);
+            if fetched.is_empty() || fetched == label_key || fetched.starts_with("MISSING:") {
+                label_key
+            } else {
+                fetched
+            }
+        };
+        let format = {
+            let fetched = notify_fetch_game_text("GUI:MissionSave");
+            if fetched.is_empty() || fetched.starts_with("MISSING:") || fetched == "GUI:MissionSave"
+            {
+                "%s Mission %d".to_string()
+            } else {
+                fetched
+            }
+        };
         let description =
-            format_mission_save_description("%s Mission %d", &campaign_label, mission_number);
+            format_mission_save_description(&format, &campaign_label, mission_number);
         self.save_game(
             String::new(),
             description,
@@ -1436,7 +1480,12 @@ mod tests {
 
     include!("load_fixup_tests.rs");
 
-    static HOOK_TEST_LOCK: Mutex<()> = Mutex::new(());
+    struct HookTestLockSlot(Mutex<()>);
+    impl std::ops::Deref for HookTestLockSlot {
+        type Target = Mutex<()>;
+        fn deref(&self) -> &Self::Target { &self.0 }
+    }
+    static HOOK_TEST_LOCK: HookTestLockSlot = HookTestLockSlot(Mutex::new(()));
 
     // NOTE: registered snapshots require `Send`, so these shared test counters use
     // `Arc<AtomicU32>` for Send-safe shared observation; Cell is not Sync.
@@ -1610,7 +1659,7 @@ mod tests {
 
     #[test]
     fn save_game_refreshes_map_label_from_runtime_map_name() {
-        let _guard = HOOK_TEST_LOCK.lock().expect("hook test lock");
+        let _guard = HOOK_TEST_LOCK.0.lock().expect("hook test lock");
         register_world_dict_map_name(|| None);
 
         let save_dir = unique_temp_save_dir("map_label_refresh");
@@ -1644,7 +1693,7 @@ mod tests {
 
     #[test]
     fn registered_snapshot_blocks_replace_placeholders_and_round_trip() {
-        let _guard = HOOK_TEST_LOCK.lock().expect("hook test lock");
+        let _guard = HOOK_TEST_LOCK.0.lock().expect("hook test lock");
         let save_dir = unique_temp_save_dir("snapshot_bridge");
         let pristine_map = save_dir.with_extension("map");
         fs::write(&pristine_map, b"snapshot fixture map").unwrap();
@@ -1778,7 +1827,7 @@ mod tests {
     /// C++ GameState.cpp:1528-1529 — PartitionManager->update after snapshot post-process.
     #[test]
     fn post_process_load_invokes_partition_manager_update() {
-        let _guard = HOOK_TEST_LOCK.lock().expect("hook test lock");
+        let _guard = HOOK_TEST_LOCK.0.lock().expect("hook test lock");
         use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
         let calls = Arc::new(AtomicUsize::new(0));
         let observed = Arc::clone(&calls);
@@ -1798,7 +1847,7 @@ mod tests {
     /// C++ GameState.cpp:1587-1609 — world-dict mapName wins over the map filename leaf.
     #[test]
     fn map_label_prefers_world_dict_map_name() {
-        let _guard = HOOK_TEST_LOCK.lock().expect("hook test lock");
+        let _guard = HOOK_TEST_LOCK.0.lock().expect("hook test lock");
         crate::common::ini::ini_game_data::init_global_data();
         if let Some(global) = crate::common::ini::ini_game_data::get_global_data() {
             global.write().map_name = "Maps\\Skirmish\\FrozenValley.map".to_string();
@@ -1855,7 +1904,7 @@ mod tests {
     /// C++ GameState.cpp:696-701 — failed load calls clearGameData + reset.
     #[test]
     fn load_game_failure_clears_game_data() {
-        let _guard = HOOK_TEST_LOCK.lock().expect("hook test lock");
+        let _guard = HOOK_TEST_LOCK.0.lock().expect("hook test lock");
         let clears = Arc::new(AtomicUsize::new(0));
         let observed = Arc::clone(&clears);
         register_save_load_mission_hooks(
@@ -1884,6 +1933,48 @@ mod tests {
 
         register_save_load_mission_hooks(None, None);
         let _ = fs::remove_dir_all(save_dir);
+    }
+
+    #[test]
+    fn mission_save_fetches_gui_mission_save_format() {
+        use super::super::{
+            register_save_game_ui_hooks, register_save_load_campaign_hooks,
+        };
+        use crate::common::common_services::{CommonServices, with_common_services};
+        use std::sync::{Arc, Mutex};
+        let _guard = HOOK_TEST_LOCK.0.lock().expect("hook test lock");
+        let services = Arc::new(CommonServices::new());
+        with_common_services(&services, || {
+            let posts = Arc::new(Mutex::new(Vec::<String>::new()));
+            let posts2 = Arc::clone(&posts);
+            register_save_game_ui_hooks(
+                Some(Arc::new(|key: &str| match key {
+                    "GUI:MissionSave" => "%s Mission %d".into(),
+                    "Campaign:USA" => "USA Campaign".into(),
+                    "GUI:GameSaveComplete" => "Game Saved".into(),
+                    other => other.to_string(),
+                })),
+                Some(Arc::new(move |msg: &str| {
+                    posts2.lock().unwrap().push(msg.to_string());
+                })),
+                None,
+            );
+            register_save_load_campaign_hooks(Some(Arc::new(|| {
+                Some(("Campaign:USA".into(), 1, "maps/usa.map".into()))
+            })));
+            let dir = tempfile::tempdir().unwrap();
+            let mut gs = GameState::new(dir.path().to_path_buf());
+            let code = gs.mission_save().expect("mission_save");
+            assert_eq!(code, SaveCode::Ok);
+            assert_eq!(gs.game_info.description, "USA Campaign Mission 2");
+            let posted = posts.lock().unwrap().clone();
+            assert!(
+                posted.iter().any(|m| m == "Game Saved"),
+                "expected GameSaveComplete post, got {posted:?}"
+            );
+            register_save_game_ui_hooks(None, None, None);
+            register_save_load_campaign_hooks(None);
+        });
     }
 
     #[test]

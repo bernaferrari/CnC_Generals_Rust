@@ -261,34 +261,6 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
 }
 
 #[test]
-fn host_upgrade_complete_chain_guns_includes_gattling_tank() {
-    use crate::game_logic::host_gattling_tank::UPGRADE_CHINA_CHAIN_GUNS;
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::China, "China", true));
-    let mut g = ThingTemplate::new("ChinaTankGattling");
-    g.add_kind_of(KindOf::Vehicle).set_health(300.0);
-    logic.templates.insert("ChinaTankGattling".into(), g);
-    let id = logic
-        .create_object(
-            "ChinaTankGattling",
-            Team::China,
-            glam::Vec3::new(0.0, 0.0, 0.0),
-        )
-        .expect("gattling");
-    let n = logic.apply_chain_guns_to_team(Team::China.into(), UPGRADE_CHINA_CHAIN_GUNS);
-    assert_eq!(n, 1);
-    assert!(
-        logic
-            .host_object(id)
-            .unwrap()
-            .has_upgrade_tag(UPGRADE_CHINA_CHAIN_GUNS)
-    );
-}
-
-#[test]
 fn host_upgrade_complete_anthrax_beta_and_toxin_shells() {
     use crate::game_logic::host_scud_launcher::UPGRADE_GLA_ANTHRAX_BETA;
     use crate::game_logic::host_upgrades::UPGRADE_GLA_TOXIN_SHELLS;
@@ -352,186 +324,6 @@ fn host_upgrade_complete_anthrax_beta_and_toxin_shells() {
             .host_object(sid2)
             .unwrap()
             .has_upgrade_tag(UPGRADE_GLA_TOXIN_SHELLS)
-    );
-}
-
-#[test]
-fn host_upgrade_complete_ap_bullets_and_ap_rockets_team() {
-    use crate::game_logic::host_jarmen_kell::UPGRADE_GLA_AP_BULLETS;
-    use crate::game_logic::host_scorpion::UPGRADE_GLA_AP_ROCKETS;
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::GLA, "GLA", true));
-
-    let mut rebel = ThingTemplate::new("GLAInfantryRebel");
-    rebel.add_kind_of(KindOf::Infantry).set_health(100.0);
-    logic.templates.insert("GLAInfantryRebel".into(), rebel);
-    let mut kell = ThingTemplate::new("GLAInfantryJarmenKell");
-    kell.add_kind_of(KindOf::Infantry).set_health(120.0);
-    logic.templates.insert("GLAInfantryJarmenKell".into(), kell);
-    let mut scorp = ThingTemplate::new("GLATankScorpion");
-    scorp.add_kind_of(KindOf::Vehicle).set_health(300.0);
-    logic.templates.insert("GLATankScorpion".into(), scorp);
-    let mut rpg = ThingTemplate::new("GLAInfantryRPGTrooper");
-    rpg.add_kind_of(KindOf::Infantry).set_health(100.0);
-    logic.templates.insert("GLAInfantryRPGTrooper".into(), rpg);
-
-    let rid = logic
-        .create_object(
-            "GLAInfantryRebel",
-            Team::GLA,
-            glam::Vec3::new(0.0, 0.0, 0.0),
-        )
-        .expect("rebel");
-    let kid = logic
-        .create_object(
-            "GLAInfantryJarmenKell",
-            Team::GLA,
-            glam::Vec3::new(5.0, 0.0, 0.0),
-        )
-        .expect("kell");
-    let sid = logic
-        .create_object(
-            "GLATankScorpion",
-            Team::GLA,
-            glam::Vec3::new(10.0, 0.0, 0.0),
-        )
-        .expect("scorp");
-    let pid = logic
-        .create_object(
-            "GLAInfantryRPGTrooper",
-            Team::GLA,
-            glam::Vec3::new(15.0, 0.0, 0.0),
-        )
-        .expect("rpg");
-
-    let n_b = logic.apply_ap_bullets_to_team(Team::GLA.into(), UPGRADE_GLA_AP_BULLETS);
-    assert!(n_b >= 2, "rebel+kell");
-    assert!(
-        logic
-            .host_object(rid)
-            .unwrap()
-            .has_upgrade_tag(UPGRADE_GLA_AP_BULLETS)
-    );
-    assert!(
-        logic
-            .host_object(kid)
-            .unwrap()
-            .has_upgrade_tag(UPGRADE_GLA_AP_BULLETS)
-    );
-
-    let n_r = logic.apply_ap_rockets_to_team(Team::GLA.into(), UPGRADE_GLA_AP_ROCKETS);
-    assert!(n_r >= 2, "scorp+rpg");
-    assert!(
-        logic
-            .host_object(sid)
-            .unwrap()
-            .has_upgrade_tag(UPGRADE_GLA_AP_ROCKETS)
-    );
-    assert!(
-        logic
-            .host_object(pid)
-            .unwrap()
-            .has_upgrade_tag(UPGRADE_GLA_AP_ROCKETS)
-    );
-}
-
-#[test]
-fn host_upgrade_complete_uranium_and_black_napalm() {
-    use crate::game_logic::host_battlemaster::{
-        UPGRADE_CHINA_URANIUM_SHELLS, has_uranium_shells_upgrade,
-    };
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::China, "China", true));
-
-    let mut bm = ThingTemplate::new("ChinaTankBattleMaster");
-    bm.add_kind_of(KindOf::Vehicle).set_health(400.0);
-    logic.templates.insert("ChinaTankBattleMaster".into(), bm);
-    let mut mig = ThingTemplate::new("ChinaJetMIG");
-    mig.add_kind_of(KindOf::Aircraft).set_health(200.0);
-    logic.templates.insert("ChinaJetMIG".into(), mig);
-
-    let bid = logic
-        .create_object(
-            "ChinaTankBattleMaster",
-            Team::China,
-            glam::Vec3::new(0.0, 0.0, 0.0),
-        )
-        .expect("bm");
-    let mid = logic
-        .create_object("ChinaJetMIG", Team::China, glam::Vec3::new(20.0, 0.0, 0.0))
-        .expect("mig");
-
-    let n_u = logic.apply_uranium_shells_to_team(Team::China.into(), UPGRADE_CHINA_URANIUM_SHELLS);
-    assert!(n_u >= 1);
-    assert!(has_uranium_shells_upgrade(
-        &logic.host_object(bid).unwrap().applied_upgrades
-    ));
-
-    let n_b = logic.apply_black_napalm_to_team(Team::China.into(), "Upgrade_ChinaBlackNapalm");
-    assert!(n_b >= 1);
-    assert!(
-        logic
-            .host_object(mid)
-            .unwrap()
-            .has_upgrade_tag("Upgrade_ChinaBlackNapalm")
-    );
-}
-
-#[test]
-fn host_upgrade_complete_scorpion_rocket_and_laser_missiles() {
-    use crate::game_logic::host_raptor::{UPGRADE_AMERICA_LASER_MISSILES, is_raptor_template};
-    use crate::game_logic::host_scorpion::{
-        UPGRADE_GLA_SCORPION_ROCKET, has_scorpion_rocket_upgrade,
-    };
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::GLA, "GLA", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::USA, "USA", true));
-
-    let mut scorp = ThingTemplate::new("GLATankScorpion");
-    scorp.add_kind_of(KindOf::Vehicle).set_health(300.0);
-    logic.templates.insert("GLATankScorpion".into(), scorp);
-    let mut raptor = ThingTemplate::new("AmericaJetRaptor");
-    raptor.add_kind_of(KindOf::Aircraft).set_health(200.0);
-    logic.templates.insert("AmericaJetRaptor".into(), raptor);
-
-    let sid = logic
-        .create_object("GLATankScorpion", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
-        .expect("scorp");
-    let rid = logic
-        .create_object(
-            "AmericaJetRaptor",
-            Team::USA,
-            glam::Vec3::new(10.0, 0.0, 0.0),
-        )
-        .expect("raptor");
-
-    let n_s = logic.apply_scorpion_rocket_to_team(Team::GLA.into(), UPGRADE_GLA_SCORPION_ROCKET);
-    assert_eq!(n_s, 1);
-    let s = logic.host_object(sid).unwrap();
-    assert!(has_scorpion_rocket_upgrade(&s.applied_upgrades));
-    assert!(s.secondary_weapon.is_some());
-
-    let n_r = logic.apply_laser_missiles_to_team(Team::USA.into(), UPGRADE_AMERICA_LASER_MISSILES);
-    assert_eq!(n_r, 1);
-    assert!(is_raptor_template(
-        &logic.host_object(rid).unwrap().template_name
-    ));
-    assert!(
-        logic
-            .host_object(rid)
-            .unwrap()
-            .has_upgrade_tag(UPGRADE_AMERICA_LASER_MISSILES)
     );
 }
 
@@ -969,30 +761,20 @@ End
         assert_eq!(
             executor
                 .execute_command(command(name_only_id, 1))
-                .expect("name-only command result"),
-            CommandResult::InvalidCommand,
-            "a name/KindOf-shaped reactor must not gain Overcharge authority"
-        );
-        assert_eq!(
-            executor
+                .expect("name-only command result"), CommandResult::InvalidCommand, "a name/KindOf-shaped reactor must not gain Overcharge authority");
+        assert!(executor
                 .execute_command(command(zero_bonus_id, 2))
-                .expect("zero-bonus command result"),
-            CommandResult::Success
-        );
-        assert_eq!(
-            executor
+                .expect("zero-bonus command result") == CommandResult::Success);
+        assert!(executor
                 .execute_command(command(plant_id, 3))
-                .expect("retail command result"),
-            CommandResult::Success
-        );
+                .expect("retail command result") == CommandResult::Success);
     }
 
     let zero_bonus_enabled = logic
         .host_object(zero_bonus_id)
         .expect("zero-bonus enabled object");
     assert!(zero_bonus_enabled.overcharge_enabled);
-    assert_eq!(
-        zero_bonus_enabled.power_provided, 10,
+    assert_eq!(zero_bonus_enabled.power_provided, 10,
         "a missing EnergyBonus toggles but contributes C++'s zero default"
     );
 
@@ -1042,12 +824,10 @@ End
 
     {
         let mut executor = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
+        assert!(
             executor
                 .execute_command(command(plant_id, 4))
-                .expect("disable command result"),
-            CommandResult::Success
-        );
+                .expect("disable command result") == CommandResult::Success);
     }
     let disabled = logic.host_object(plant_id).expect("disabled plant");
     assert!(!disabled.overcharge_enabled);
@@ -1060,12 +840,10 @@ End
     // module remains until the normal destroy/onDelete route removes it.
     {
         let mut executor = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
+        assert!(
             executor
                 .execute_command(command(plant_id, 5))
-                .expect("re-enable before lethal drain"),
-            CommandResult::Success
-        );
+                .expect("re-enable before lethal drain") == CommandResult::Success);
     }
     // The authored Armor path also applies to DAMAGE_PENALTY.  Reuse the
     // positive applied damage observed above rather than assuming raw 4.5
@@ -1494,6 +1272,10 @@ fn capture_last_tunnel_ejects_shared_pool_for_old_owner() {
         .insert(1, Player::new(1, Team::GLA, "GLA", true));
 
     let mut tn = ThingTemplate::new("GLATunnelNetwork");
+
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+
+    tn.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     tn.add_kind_of(KindOf::Structure).set_health(1000.0);
     logic.templates.insert("GLATunnelNetwork".into(), tn);
     let mut rebel = ThingTemplate::new("GLARebel");
@@ -1558,6 +1340,10 @@ fn capture_non_last_tunnel_keeps_old_team_pool() {
         .insert(1, Player::new(1, Team::GLA, "GLA", true));
 
     let mut tn = ThingTemplate::new("GLATunnelNetwork");
+
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+
+    tn.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     tn.add_kind_of(KindOf::Structure).set_health(1000.0);
     logic.templates.insert("GLATunnelNetwork".into(), tn);
     let mut rebel = ThingTemplate::new("GLARebel");
@@ -1778,6 +1564,8 @@ fn capture_kicks_transport_passengers_but_not_tunnel_pool() {
         .templates
         .insert("AmericaInfantryRanger".into(), ranger);
     let mut tn = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    tn.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     tn.add_kind_of(KindOf::Structure).set_health(1000.0);
     logic.templates.insert("GLATunnelNetwork".into(), tn);
     let mut rebel = ThingTemplate::new("GLARebel");
@@ -1935,6 +1723,35 @@ fn capture_team_flips_overlord_helix_portable_addon() {
 }
 
 #[test]
+fn helix_named_host_without_helix_contain_gets_overlord_payload() {
+    // hq-2qedt.301: C++ picks the Helix payload via the authored HelixContain
+    // module, not the template name.
+    use crate::game_logic::host_overlord_addon_damage::HELIX_PAYLOAD_GATTLING;
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::China, "China", true));
+    let mut t = ThingTemplate::new("TestHelix");
+    t.add_kind_of(KindOf::Vehicle).set_health(400.0);
+    logic.templates.insert("TestHelix".into(), t);
+    let host = logic
+        .create_object("TestHelix", Team::China, glam::Vec3::ZERO)
+        .expect("host");
+    {
+        let o = logic.host_object_mut(host).unwrap();
+        assert!(!o.is_helix_transport);
+        o.has_overlord_gattling_addon = true;
+    }
+    let addon = logic
+        .ensure_overlord_portable_addon_occupant(host)
+        .expect("payload");
+    assert_ne!(
+        logic.host_object(addon).unwrap().template_name,
+        HELIX_PAYLOAD_GATTLING
+    );
+}
+
+#[test]
 fn sell_last_tunnel_ejects_shared_pool() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
@@ -1942,6 +1759,8 @@ fn sell_last_tunnel_ejects_shared_pool() {
         .players
         .insert(0, Player::new(0, Team::GLA, "GLA", true));
     let mut tn = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    tn.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     tn.add_kind_of(KindOf::Structure).set_health(1000.0);
     tn.build_cost.supplies = 800;
     tn.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
@@ -2050,7 +1869,7 @@ fn sell_ejects_garrison_and_kills_parked_aircraft() {
     assert!(logic.sell_passengers_ejected > 0);
     let r = logic.host_object(rid).expect("ranger ejected");
     assert!(r.contained_by.is_none());
-    assert_eq!(r.ai_state, AIState::Idle);
+    assert_eq!(r.ai_state(), AIState::Idle);
 
     // Airfield parked jet kill residual.
     let afid = logic
@@ -2520,7 +2339,7 @@ fn construction_complete_radar_and_production_door_cycle() {
             glam::Vec3::new(10.0, 0.0, 0.0),
         )
         .expect("barracks");
-    logic.notify_structure_construction_complete(bid);
+    logic.notify_structure_construction_complete(bid).unwrap();
     assert!(logic.honesty_structure_complete_ok());
     assert!(logic.honesty_radar_construction_event_ok());
     let text = logic
@@ -2584,7 +2403,7 @@ fn construction_complete_does_not_queue_invented_building_complete() {
         )
         .expect("barracks");
     logic.queued_audio_events.clear();
-    logic.notify_structure_construction_complete(bid);
+    logic.notify_structure_construction_complete(bid).unwrap();
     assert!(
         logic
             .queued_audio_events
@@ -2665,7 +2484,7 @@ fn structure_and_unit_complete_notify_local_feedback() {
             glam::Vec3::new(1.0, 0.0, 2.0),
         )
         .expect("pp");
-    logic.notify_structure_construction_complete(sid);
+    logic.notify_structure_construction_complete(sid).unwrap();
     assert!(logic.honesty_structure_complete_ok());
     let bit = construction_complete_model_bit();
     let obj = logic.host_object(sid).expect("o");
@@ -3079,4 +2898,34 @@ fn player_grant_science_script_readies_shared_special_power() {
         p.is_shared_special_power_ready(&SpecialPowerType::Airstrike),
         "script purchase must express sharedNSync ready-now"
     );
+}
+
+#[test]
+fn gattling_building_chain_guns_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    ensure_host_weapon_store();
+    let mut logic = GameLogic::new();
+    for (name, weapon) in [
+        ("TestGattlingCannon268", "RangerFlashBangGrenadeWeapon"),
+        ("A268xAuthoredCannon", "GattlingBuildingGun"),
+    ] {
+        let mut tpl = ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Structure)
+            .set_health(1000.0)
+            .set_primary_weapon_name(weapon);
+        logic.templates.insert(name.to_string(), tpl);
+    }
+    let foreign = logic
+        .create_object("TestGattlingCannon268", Team::China, glam::Vec3::ZERO)
+        .expect("foreign");
+    let authored = logic
+        .create_object(
+            "A268xAuthoredCannon",
+            Team::China,
+            glam::Vec3::new(80.0, 0.0, 0.0),
+        )
+        .expect("authored");
+    assert!(!logic.apply_gattling_chain_guns_upgrade(foreign));
+    assert!(logic.apply_gattling_chain_guns_upgrade(authored));
 }

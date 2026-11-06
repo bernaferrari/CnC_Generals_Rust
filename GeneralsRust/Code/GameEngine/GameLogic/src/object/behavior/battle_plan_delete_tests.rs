@@ -41,7 +41,8 @@ impl Army {
         let player = Arc::new(RwLock::new(Player::new(0)));
         let enemy_player = Arc::new(RwLock::new(Player::new(1)));
         {
-            let mut list = player_list().write().unwrap();
+            let __player_list_arc = player_list();
+        let mut list = __player_list_arc.write().unwrap();
             list.add_player(player.clone());
             list.add_player(enemy_player.clone());
         }
@@ -353,4 +354,68 @@ fn battle_plan_applies_nearest_scalar_below_one_like_cpp() {
         scalar,
         WeaponBonusConditionFlags::BATTLEPLAN_HOLDTHELINE,
     );
+}
+
+fn battle_plan_world_with_vision(
+    parent_id: ObjectID,
+    vision_id: ObjectID,
+) -> (
+    crate::GameLogic,
+    Arc<RwLock<GameObject>>,
+    Arc<RwLock<GameObject>>,
+) {
+    let mut logic = crate::GameLogic::new();
+    let parent = Arc::new(RwLock::new(GameObject::new_test(parent_id, 100.0)));
+    let vision = Arc::new(RwLock::new(GameObject::new_test(vision_id, 100.0)));
+    let mut module = super::tests::make_module(parent.clone(), Some(1));
+    module.behavior.vision_object_id = Some(vision_id);
+    let data: Arc<dyn EngineModuleData> = module.module_data.clone();
+    parent.write().unwrap().modules.push(Arc::new(ModuleEntry::new(
+        "BattlePlanUpdate".into(),
+        "ModuleTag_Plan".into(),
+        ModuleInterfaceType::UPDATE,
+        data,
+        Box::new(module),
+    )));
+    logic.register_object(vision.clone()).unwrap();
+    logic.register_object(parent.clone()).unwrap();
+    (logic, parent, vision)
+}
+
+#[test]
+fn owner_destroy_destroys_vision_object_through_driving_world_only() {
+    let _lock = test_isolation_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+    game_engine::common::common_services::with_common_services(&common, || {
+        let stores = Arc::new(crate::system::engine_stores::EngineStores::new_for_world());
+        crate::system::engine_stores::with_active_stores(&stores, || {
+            vision_destroy_body();
+        });
+    });
+}
+
+fn vision_destroy_body() {
+    let (mut world_a, parent_a, vision_a) = battle_plan_world_with_vision(0x00B0_7401, 0x00B0_7402);
+    // A second world reuses the very same IDs and must stay untouched.
+    let (_world_b, parent_b, vision_b) = battle_plan_world_with_vision(0x00B0_7401, 0x00B0_7402);
+
+    world_a.destroy_object(0x00B0_7401);
+
+    assert!(parent_a.read().unwrap().is_destroyed());
+    assert!(
+        vision_a.read().unwrap().is_destroyed(),
+        "C++ onDelete destroys the vision object synchronously"
+    );
+    assert!(!parent_b.read().unwrap().is_destroyed());
+    assert!(!vision_b.read().unwrap().is_destroyed());
+
+    world_a.cleanup_dead_objects().unwrap();
+    assert!(
+        world_a.find_object_by_id(0x00B0_7401).is_none()
+            && world_a.find_object_by_id(0x00B0_7402).is_none(),
+        "both drain in one cleanup pass"
+    );
+    assert!(!vision_b.read().unwrap().is_destroyed());
 }

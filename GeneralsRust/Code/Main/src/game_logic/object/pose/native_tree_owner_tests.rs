@@ -63,7 +63,7 @@ fn borrowed_pose_tree_callback_uses_receiving_frame_source_coordinates_and_prece
         &mut ScriptPresentationEffects {
             terrain: Some(&mut receiver),
             ..Default::default()
-        },
+},
     );
     assert_eq!(receiver.moves.len(), 1);
     let (unit, frame) = receiver.moves[0];
@@ -93,7 +93,7 @@ fn equal_integer_pose_changes_do_not_notify_but_transform_translation_notifies_i
     let mut effects = ScriptPresentationEffects {
         terrain: Some(&mut receiver),
         ..Default::default()
-    };
+};
     mover.set_position_with_effects(Vec3::new(0.9, 10.0, 0.9), 41, &mut effects);
     mover.set_transform_matrix_with_effects(
         Mat4::from_translation(Vec3::new(1.1, 10.0, 0.9)),
@@ -124,7 +124,7 @@ fn cpp_tree_move_kindof_gates_include_inert_and_projectile_combinations_without_
             &mut ScriptPresentationEffects {
                 terrain: Some(&mut receiver),
                 ..Default::default()
-            },
+},
         );
         assert_eq!(receiver.moves.len(), expected, "authored kinds={kinds:?}");
     }

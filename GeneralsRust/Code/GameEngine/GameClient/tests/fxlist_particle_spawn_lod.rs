@@ -59,9 +59,10 @@ fn fxlist_particle_nugget_trait_apply_spawns_and_honors_delay_and_orient() {
 #[test]
 fn fxlist_light_pulse_nugget_creates_display_pulse() {
     use game_client_rust::effects::fxlist_integration::LightPulseFXNugget;
-    use game_client_rust::fx_list::drain_display_light_pulses;
+    use game_client_rust::fx_list::{drain_display_light_pulses, DisplayLightScene};
 
-    let _ = drain_display_light_pulses();
+    let mut scene = DisplayLightScene::default();
+    let _ = drain_display_light_pulses(&mut scene);
     let nugget = LightPulseFXNugget {
         color: [0.8, 0.1, 0.1],
         radius: 60.0,
@@ -87,7 +88,7 @@ fn fxlist_light_pulse_nugget_creates_display_pulse() {
         0.0,
         &mut ctx,
     );
-    let pulses = drain_display_light_pulses();
+    let pulses = drain_display_light_pulses(&mut scene);
     assert_eq!(pulses.len(), 1);
     assert_eq!(pulses[0].inner_radius, 1.0);
     assert_eq!(pulses[0].outer_radius, 60.0);

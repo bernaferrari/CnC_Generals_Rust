@@ -155,7 +155,11 @@ impl ScriptAction for SetObjectExperienceAction {
     }
 }
 
-/// Create Explosion Action - Matches C++ explosion creation
+/// Create Explosion Action - NON-RETAIL host API (hq-2qedt.14).
+///
+/// There is no C++ `ScriptActions` counterpart. This only plays an FX list at a
+/// position; the optional `damage` parameter is used purely as the FX radius and
+/// never applies damage to objects.
 pub(super) struct CreateExplosionAction;
 
 #[async_trait]
@@ -172,7 +176,7 @@ impl ScriptAction for CreateExplosionAction {
         let damage = get_float_param_optional(parameters, "damage").unwrap_or(0.0);
 
         log::info!(
-            "Creating explosion '{}' at ({}, {}, {}) with damage {}",
+            "CreateExplosionAction (non-retail, FX only): '{}' at ({}, {}, {}) fx radius {}",
             explosion_type,
             x,
             y,
@@ -201,7 +205,7 @@ impl ScriptAction for CreateExplosionAction {
     }
 
     fn description(&self) -> &str {
-        "Creates an explosion effect at the specified location"
+        "Non-retail host API: plays an explosion FX list (no damage; `damage` is FX radius)"
     }
 
     fn required_parameters(&self) -> Vec<String> {

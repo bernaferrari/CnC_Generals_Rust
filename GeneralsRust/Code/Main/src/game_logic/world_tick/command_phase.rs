@@ -235,11 +235,10 @@ impl GameLogic {
             dt,
             ..
         } = pending.phase;
-        let stores = std::sync::Arc::clone(&self.world_services);
         let random = self.logic_random.clone();
         let outcome = game_engine::common::random_value::with_session_random(&random, || {
-            gamelogic::system::engine_stores::with_world_services(&stores, || {
-                self.with_host_logic_step(|world| {
+            self.with_own_services_mut(|this| {
+                this.with_host_logic_step(|world| {
                     match world.dispatch_native_command_batch(
                         remaining, &mut ui, dt, source_now, object_ids,
                     ) {

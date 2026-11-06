@@ -33,7 +33,7 @@ pub struct WorldAnimationEntry {
 }
 
 #[derive(Debug, Default)]
-struct InGameUIState {
+pub(crate) struct InGameUIState {
     displayed_max_warning: bool,
     floating_texts: Vec<FloatingTextEntry>,
     world_animations: Vec<WorldAnimationEntry>,
@@ -60,8 +60,9 @@ struct SuperweaponEntry {
     ready_frame: UnsignedInt,
 }
 
-static IN_GAME_UI_STATE: Lazy<RwLock<InGameUIState>> =
-    Lazy::new(|| RwLock::new(InGameUIState::default()));
+fn in_game_ui_state() -> std::sync::Arc<crate::system::engine_stores::WorldServices> {
+    crate::system::engine_stores::active_services()
+}
 
 /// TheInGameUI singleton - in-game user interface (matching C++ TheInGameUI)
 pub struct TheInGameUI;
@@ -73,13 +74,15 @@ impl TheInGameUI {
             guard.set_selected(true);
             guard.flash_as_selected();
         }
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             state.last_selection_frame = TheGameLogic::get_frame();
         }
 
         let object_id = drawable.get_object_id();
         if object_id != INVALID_ID {
-            if let Ok(list) = crate::player::player_list().read() {
+            let __player_list_arc = crate::player::player_list();
+        if let Ok(list) = __player_list_arc.read() {
                 let local_index = list.get_local_player_index();
                 if local_index != crate::player::PLAYER_INDEX_INVALID {
                     let selection_manager = crate::commands::selection::get_selection_manager();
@@ -102,13 +105,15 @@ impl TheInGameUI {
         if let Ok(mut guard) = drawable.write() {
             guard.set_selected(false);
         }
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             state.last_selection_frame = TheGameLogic::get_frame();
         }
 
         let object_id = drawable.get_object_id();
         if object_id != INVALID_ID {
-            if let Ok(list) = crate::player::player_list().read() {
+            let __player_list_arc = crate::player::player_list();
+        if let Ok(list) = __player_list_arc.read() {
                 let local_index = list.get_local_player_index();
                 if local_index != crate::player::PLAYER_INDEX_INVALID {
                     let selection_manager = crate::commands::selection::get_selection_manager();
@@ -128,7 +133,8 @@ impl TheInGameUI {
 
     /// Set displayed maximum warning.
     pub fn set_displayed_max_warning(show: bool) {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             state.displayed_max_warning = show;
         }
     }
@@ -139,7 +145,8 @@ impl TheInGameUI {
         position: &Coord3D,
         color: crate::common::Color,
     ) -> Result<(), GameError> {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             state.floating_texts.push(FloatingTextEntry {
                 text: text.to_string(),
                 position: *position,
@@ -157,7 +164,8 @@ impl TheInGameUI {
         duration_seconds: Real,
         z_rise_per_second: Real,
     ) {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             state.world_animations.push(WorldAnimationEntry {
                 animation_name: animation_name.to_string(),
                 position: *position,
@@ -170,7 +178,8 @@ impl TheInGameUI {
     }
 
     pub fn take_world_animations() -> Vec<WorldAnimationEntry> {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             return std::mem::take(&mut state.world_animations);
         }
         Vec::new()
@@ -179,7 +188,8 @@ impl TheInGameUI {
     /// Display a message to the player.
     /// Matches C++ InGameUI message display functionality
     pub fn display_message(message: &str) {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             state.messages.push(message.to_string());
         }
         log::info!("UI Message: {}", message);
@@ -187,7 +197,8 @@ impl TheInGameUI {
     /// Drain displayed UI messages (C++ `TheInGameUI->message` output; the HUD
     /// consumes these, tests and hosts use this to observe/clear them).
     pub fn drain_displayed_messages() -> Vec<String> {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             std::mem::take(&mut state.messages)
         } else {
             Vec::new()
@@ -231,7 +242,8 @@ impl TheInGameUI {
         template: &SpecialPowerTemplate,
         ready_frame: UnsignedInt,
     ) {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             state.superweapons.retain(|entry| {
                 !(entry.player_index == player_index
                     && entry.object_id == object_id
@@ -252,7 +264,8 @@ impl TheInGameUI {
     /// strip against this each frame, mirroring the C++ same-process
     /// `m_superweapons` map (addSuperweapon / removeSuperweapon).
     pub fn superweapon_entries() -> Vec<(Int, String, ObjectID, UnsignedInt)> {
-        if let Ok(state) = IN_GAME_UI_STATE.read() {
+        let __ui = in_game_ui_state();
+        if let Ok(state) = __ui.in_game_ui().read() {
             return state
                 .superweapons
                 .iter()
@@ -275,7 +288,8 @@ impl TheInGameUI {
         object_id: ObjectID,
         template: &SpecialPowerTemplate,
     ) {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             state.superweapons.retain(|entry| {
                 !(entry.player_index == player_index
                     && entry.object_id == object_id
@@ -287,21 +301,24 @@ impl TheInGameUI {
 
     /// Remove a worker from the idle worker UI list.
     pub fn remove_idle_worker(object: &crate::object::Object, player_index: Int) {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             state.idle_workers.remove(object.get_id(), player_index);
         }
     }
 
     /// Add a worker to the idle worker UI list.
     pub fn add_idle_worker(object: &crate::object::Object, player_index: Int) {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             state.idle_workers.add(object.get_id(), player_index);
         }
     }
 
     /// Drain pending idle worker add/remove events (matches InGameUI idle worker bookkeeping).
     pub fn take_idle_worker_events() -> Vec<IdleWorkerEvent> {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             return state.idle_workers.take();
         }
         Vec::new()
@@ -310,7 +327,8 @@ impl TheInGameUI {
     /// C++ parity: InGameUI::clearPopupMessageData().
     /// Sets a flag consumed by GameClient's popup handler.
     pub fn request_popup_message_clear() {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             state.popup_clear_requested = true;
         }
     }
@@ -318,7 +336,8 @@ impl TheInGameUI {
     /// Consume and return whether a popup clear was requested.
     /// Called by GameClient's popup handler each frame.
     pub fn consume_popup_clear_request() -> bool {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             return std::mem::take(&mut state.popup_clear_requested);
         }
         false
@@ -327,14 +346,16 @@ impl TheInGameUI {
     /// C++ ScriptActions::doDisableInput / doEnableInput.
     /// `true` = disable (teardown), `false` = enable (restore mouse).
     pub fn request_cinematic_input_lock(disable: bool) {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             state.cinematic_input_lock = Some(disable);
         }
     }
 
     /// Consume a pending cinematic input-lock request.
     pub fn take_cinematic_input_lock() -> Option<bool> {
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             return state.cinematic_input_lock.take();
         }
         None
@@ -345,7 +366,8 @@ impl TheInGameUI {
         if old_player < 0 || new_player < 0 {
             return;
         }
-        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+        let __ui = in_game_ui_state();
+        if let Ok(mut state) = __ui.in_game_ui().write() {
             for entry in &mut state.superweapons {
                 if entry.object_id == object_id && entry.player_index == old_player {
                     entry.player_index = new_player;
@@ -359,10 +381,9 @@ pub struct TheRadar;
 
 impl TheRadar {
     pub fn get() -> Option<&'static Self> {
-        static RADAR: OnceLock<TheRadar> = OnceLock::new();
-        let radar = RADAR.get_or_init(|| TheRadar);
+        static RADAR: TheRadar = TheRadar;
         ensure_radar_event_feedback_registered();
-        Some(radar)
+        Some(&RADAR)
     }
 
     pub fn create_event(
@@ -519,16 +540,20 @@ impl TheRadar {
 /// C++ `TheControlBar->triggerRadarAttackGlow()` leftover + live consume hook.
 pub struct TheControlBar;
 
-static RADAR_ATTACK_GLOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
 impl TheControlBar {
     pub fn trigger_radar_attack_glow() {
-        RADAR_ATTACK_GLOW.store(true, std::sync::atomic::Ordering::SeqCst);
+        crate::system::engine_stores::active_services()
+            .session_flags()
+            .radar_attack_glow
+            .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Consume a pending glow request (ControlBar::update).
     pub fn take_radar_attack_glow() -> bool {
-        RADAR_ATTACK_GLOW.swap(false, std::sync::atomic::Ordering::SeqCst)
+        crate::system::engine_stores::active_services()
+            .session_flags()
+            .radar_attack_glow
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
     }
 }
 
@@ -599,36 +624,35 @@ impl TheTacticalView {
 /// Terrain visual effects bridge (matching C++ TheTerrainVisual).
 pub struct TheTerrainVisual;
 
-static TERRAIN_VISUAL_RAW_HEIGHT: std::sync::LazyLock<Mutex<Option<fn(i32, i32, i32)>>> =
-    std::sync::LazyLock::new(|| Mutex::new(None));
-static TERRAIN_VISUAL_LIGHTING_CHANGED: std::sync::LazyLock<Mutex<Option<fn()>>> =
-    std::sync::LazyLock::new(|| Mutex::new(None));
-static TERRAIN_VISUAL_ADD_PROP: std::sync::LazyLock<
-    Mutex<Option<fn(u32, [f32; 3], f32, f32, &str)>>,
-> = std::sync::LazyLock::new(|| Mutex::new(None));
-static TERRAIN_VISUAL_PENDING_PROPS: std::sync::LazyLock<
-    Mutex<Vec<(u32, [f32; 3], f32, f32, String)>>,
-> = std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
+fn terrain_visuals() -> Arc<crate::system::engine_stores::WorldServices> {
+    crate::system::engine_stores::active_services()
+}
 
 /// Register the live GameClient `W3DTerrainVisual::setRawMapHeight` hook.
 pub fn register_terrain_visual_raw_height_hook(hook: Option<fn(i32, i32, i32)>) {
-    if let Ok(mut slot) = TERRAIN_VISUAL_RAW_HEIGHT.lock() {
-        *slot = hook;
-    }
+    *terrain_visuals()
+        .client_visuals()
+        .terrain_visual_raw_height
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = hook;
 }
 
 /// Register the live GameClient `staticLightingChanged` hook.
 pub fn register_terrain_visual_lighting_changed_hook(hook: Option<fn()>) {
-    if let Ok(mut slot) = TERRAIN_VISUAL_LIGHTING_CHANGED.lock() {
-        *slot = hook;
-    }
+    *terrain_visuals()
+        .client_visuals()
+        .terrain_visual_lighting_changed
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = hook;
 }
 
 /// Register the live GameClient `TheTerrainRenderObject->addProp` hook.
 pub fn register_terrain_visual_add_prop_hook(hook: Option<fn(u32, [f32; 3], f32, f32, &str)>) {
-    if let Ok(mut slot) = TERRAIN_VISUAL_ADD_PROP.lock() {
-        *slot = hook;
-    }
+    *terrain_visuals()
+        .client_visuals()
+        .terrain_visual_add_prop
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = hook;
 }
 
 impl TheTerrainVisual {
@@ -639,19 +663,27 @@ impl TheTerrainVisual {
 
     /// C++ `W3DTerrainVisual::setRawMapHeight` — playable-grid coords.
     pub fn set_raw_map_height(&self, x: i32, y: i32, height: i32) {
-        if let Ok(slot) = TERRAIN_VISUAL_RAW_HEIGHT.lock() {
-            if let Some(hook) = *slot {
-                hook(x, y, height);
-            }
+        let services = terrain_visuals();
+        let slot = services
+            .client_visuals()
+            .terrain_visual_raw_height
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if let Some(hook) = *slot {
+            hook(x, y, height);
         }
     }
 
     /// C++ `HeightMapRenderObjClass::staticLightingChanged`.
     pub fn static_lighting_changed(&self) {
-        if let Ok(slot) = TERRAIN_VISUAL_LIGHTING_CHANGED.lock() {
-            if let Some(hook) = *slot {
-                hook();
-            }
+        let services = terrain_visuals();
+        let slot = services
+            .client_visuals()
+            .terrain_visual_lighting_changed
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if let Some(hook) = *slot {
+            hook();
         }
     }
 
@@ -668,43 +700,51 @@ impl TheTerrainVisual {
             return;
         }
         let location = [position.x, position.y, position.z];
+        let visuals = terrain_visuals();
         let mut forwarded = false;
-        if let Ok(slot) = TERRAIN_VISUAL_ADD_PROP.lock() {
+        {
+            let slot = visuals
+                .client_visuals()
+                .terrain_visual_add_prop
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
             if let Some(hook) = *slot {
                 hook(drawable_id, location, angle, scale, model_name);
                 forwarded = true;
             }
         }
         if !forwarded {
-            if let Ok(mut pending) = TERRAIN_VISUAL_PENDING_PROPS.lock() {
-                pending.push((drawable_id, location, angle, scale, model_name.to_string()));
-            }
+            visuals
+                .client_visuals()
+                .terrain_visual_pending_props
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .push((drawable_id, location, angle, scale, model_name.to_string()));
         }
     }
 
     /// Drain props queued before the GameClient terrain hook was registered.
     pub fn take_pending_props(&self) -> Vec<(u32, [f32; 3], f32, f32, String)> {
-        TERRAIN_VISUAL_PENDING_PROPS
+        terrain_visuals()
+            .client_visuals()
+            .terrain_visual_pending_props
             .lock()
             .map(|mut pending| pending.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|_| Vec::new())
     }
 
     pub fn add_water_velocity(&self, _x: Real, _y: Real, _velocity: Real, _preferred_height: Real) {
         let frame = TheGameLogic::get_frame();
-        let mut impulses = WATER_VELOCITY_IMPULSES
+        let services = terrain_visuals();
+        let mut impulses = services
+            .client_visuals()
+            .water_velocity_impulses
             .lock()
-            .expect("Water impulse lock poisoned");
+            .unwrap_or_else(|p| p.into_inner());
         if impulses.len() >= MAX_WATER_VELOCITY_IMPULSES {
             impulses.remove(0);
         }
-        impulses.push(WaterVelocityImpulse {
-            x: _x,
-            y: _y,
-            velocity: _velocity,
-            preferred_height: _preferred_height,
-            frame,
-        });
+        impulses.push((_x, _y, _velocity, _preferred_height, frame));
 
         log::debug!(
             "Water velocity impulse at ({:.1}, {:.1}) v={:.2} h={:.2} frame={}",
@@ -718,22 +758,19 @@ impl TheTerrainVisual {
 
     /// Drain leftover `addWaterVelocity` impulses into live `TerrainVisualImpl`.
     pub fn take_water_velocity_impulses(&self) -> Vec<(Real, Real, Real, Real)> {
-        WATER_VELOCITY_IMPULSES
+        terrain_visuals()
+            .client_visuals()
+            .water_velocity_impulses
             .lock()
             .map(|mut impulses| {
                 impulses
                     .drain(..)
-                    .map(|impulse| {
-                        (
-                            impulse.x,
-                            impulse.y,
-                            impulse.velocity,
-                            impulse.preferred_height,
-                        )
+                    .map(|(x, y, velocity, preferred_height, _frame)| {
+                        (x, y, velocity, preferred_height)
                     })
                     .collect()
             })
-            .unwrap_or_default()
+            .unwrap_or_else(|_| Vec::new())
     }
 
     /// C++ `TheTerrainVisual->enableWaterGrid`.
@@ -777,19 +814,84 @@ impl TheTerrainVisual {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
-struct WaterVelocityImpulse {
-    x: Real,
-    y: Real,
-    velocity: Real,
-    preferred_height: Real,
-    frame: UnsignedInt,
+#[cfg(test)]
+mod terrain_visual_ownership_tests {
+    use super::*;
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+    use std::sync::{Arc, Barrier, Mutex};
+    use std::thread;
+
+    #[test]
+    fn parallel_worlds_keep_independent_pending_props() {
+        let barrier = Arc::new(Barrier::new(2));
+        let results = Arc::new(Mutex::new(Vec::new()));
+        let mut handles = Vec::new();
+        for (seed, name) in [(11u32, "alpha"), (22u32, "beta")] {
+            let barrier = Arc::clone(&barrier);
+            let results = Arc::clone(&results);
+            let name = name.to_string();
+            handles.push(thread::spawn(move || {
+                let services = new_world_services();
+                with_world_services(&services, || {
+                    barrier.wait();
+                    TheTerrainVisual.add_prop(
+                        seed,
+                        Coord3D::new(seed as f32, 0.0, 0.0),
+                        0.0,
+                        1.0,
+                        &name,
+                    );
+                    barrier.wait();
+                    let pending = TheTerrainVisual.take_pending_props();
+                    results.lock().unwrap().push((seed, pending));
+                });
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        let mut got = results.lock().unwrap();
+        got.sort_by_key(|(seed, _)| *seed);
+        assert_eq!(got[0].1.len(), 1);
+        assert_eq!(got[0].1[0].0, 11);
+        assert_eq!(got[0].1[0].4, "alpha");
+        assert_eq!(got[1].1.len(), 1);
+        assert_eq!(got[1].1[0].0, 22);
+        assert_eq!(got[1].1[0].4, "beta");
+    }
+
+    #[test]
+    fn parallel_worlds_keep_independent_water_impulses() {
+        let barrier = Arc::new(Barrier::new(2));
+        let results = Arc::new(Mutex::new(Vec::new()));
+        let mut handles = Vec::new();
+        for seed in [3.0_f32, 9.0_f32] {
+            let barrier = Arc::clone(&barrier);
+            let results = Arc::clone(&results);
+            handles.push(thread::spawn(move || {
+                let services = new_world_services();
+                with_world_services(&services, || {
+                    barrier.wait();
+                    TheTerrainVisual.add_water_velocity(seed, 0.0, 1.0, 2.0);
+                    barrier.wait();
+                    let drained = TheTerrainVisual.take_water_velocity_impulses();
+                    results.lock().unwrap().push((seed, drained));
+                });
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        let mut got = results.lock().unwrap();
+        got.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        assert_eq!(got[0].1.len(), 1);
+        assert_eq!(got[0].1[0].0, 3.0);
+        assert_eq!(got[1].1.len(), 1);
+        assert_eq!(got[1].1[0].0, 9.0);
+    }
 }
 
 const MAX_WATER_VELOCITY_IMPULSES: usize = 128;
-static WATER_VELOCITY_IMPULSES: Lazy<Mutex<Vec<WaterVelocityImpulse>>> =
-    Lazy::new(|| Mutex::new(Vec::new()));
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EvaEvent {
@@ -849,26 +951,31 @@ pub enum EvaEvent {
 }
 
 #[derive(Debug, Default)]
-struct EvaState {
-    enabled: bool,
-    queued: Vec<EvaEvent>,
+pub(crate) struct EvaState {
+    pub(crate) enabled: bool,
+    pub(crate) queued: Vec<EvaEvent>,
+}
+
+impl EvaState {
+    pub(crate) fn new_enabled() -> Self {
+        Self {
+            enabled: true,
+            queued: Vec::new(),
+        }
+    }
 }
 
 pub struct TheEva;
 
 impl TheEva {
-    fn state() -> &'static Mutex<EvaState> {
-        static EVA_STATE: OnceLock<Mutex<EvaState>> = OnceLock::new();
-        EVA_STATE.get_or_init(|| {
-            Mutex::new(EvaState {
-                enabled: true,
-                queued: Vec::new(),
-            })
-        })
+    fn state_arc() -> std::sync::Arc<std::sync::Mutex<EvaState>> {
+        std::sync::Arc::clone(
+            crate::system::engine_stores::active_services().eva(),
+        )
     }
 
     pub fn set_should_play(event: EvaEvent) -> Result<(), GameError> {
-        let state = Self::state();
+        let state = Self::state_arc();
         let mut guard = state.lock().map_err(|_| GameError::LockError)?;
         // C++ Eva.cpp:339-345 latches the flag regardless of m_enabled; the
         // disabled update (Eva.cpp:267-269) returns before the flag clear, so
@@ -879,7 +986,7 @@ impl TheEva {
     }
 
     pub fn set_enabled(enabled: bool) -> Result<(), GameError> {
-        let state = Self::state();
+        let state = Self::state_arc();
         let mut guard = state.lock().map_err(|_| GameError::LockError)?;
         guard.enabled = enabled;
         if !enabled {
@@ -889,18 +996,67 @@ impl TheEva {
     }
 
     pub fn is_enabled() -> Result<bool, GameError> {
-        let state = Self::state();
+        let state = Self::state_arc();
         let guard = state.lock().map_err(|_| GameError::LockError)?;
         Ok(guard.enabled)
     }
 
     pub fn drain_events() -> Result<Vec<EvaEvent>, GameError> {
-        let state = Self::state();
+        let state = Self::state_arc();
         let mut guard = state.lock().map_err(|_| GameError::LockError)?;
         let drained = guard.queued.drain(..).collect();
         Ok(drained)
     }
 }
+
+
+#[cfg(test)]
+mod in_game_ui_eva_ownership_tests {
+    use super::*;
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+    use std::sync::{Arc, Barrier, Mutex};
+    use std::thread;
+
+    #[test]
+    fn parallel_worlds_keep_independent_in_game_ui_and_eva() {
+        let barrier = Arc::new(Barrier::new(2));
+        let results = Arc::new(Mutex::new(Vec::new()));
+        let mut handles = Vec::new();
+        for seed in [0i32, 1i32] {
+            let barrier = Arc::clone(&barrier);
+            let results = Arc::clone(&results);
+            handles.push(thread::spawn(move || {
+                let services = new_world_services();
+                with_world_services(&services, || {
+                    TheInGameUI::display_message(&format!("msg-{seed}"));
+                    TheEva::set_should_play(EvaEvent::LowPower).unwrap();
+                    if seed == 1 {
+                        TheEva::set_enabled(false).unwrap();
+                    }
+                    barrier.wait();
+                    let msgs = TheInGameUI::drain_displayed_messages();
+                    let enabled = TheEva::is_enabled().unwrap();
+                    let drained = TheEva::drain_events().unwrap();
+                    results.lock().unwrap().push((seed, msgs, enabled, drained.len()));
+                    barrier.wait();
+                });
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        let mut got = results.lock().unwrap();
+        got.sort_by_key(|(s, _, _, _)| *s);
+        assert_eq!(got[0].1, vec!["msg-0".to_string()]);
+        assert!(got[0].2);
+        assert_eq!(got[0].3, 1);
+        assert_eq!(got[1].1, vec!["msg-1".to_string()]);
+        assert!(!got[1].2);
+        // disabled clears queue on set_enabled(false)
+        assert_eq!(got[1].3, 0);
+    }
+}
+
 
 /// TheScriptEngine singleton facade for minimal global script state.
 /// Legacy callbacks follow the engine driving the synchronous operation.
@@ -917,7 +1073,7 @@ impl TheScriptEngine {
         // This atomic is the standalone bootstrap adapter. A live callback
         // changes only its driving engine, never another game's bootstrap.
         if !crate::scripting::engine::is_script_engine_active() {
-            GLOBAL_DIFFICULTY.store(difficulty, Ordering::Relaxed);
+            store_global_difficulty(difficulty);
         }
         let mapped = match difficulty {
             0 => crate::player::GameDifficulty::Easy,
@@ -938,7 +1094,7 @@ impl TheScriptEngine {
             })
             .unwrap_or(crate::player::GameDifficulty::Normal as Int);
         }
-        GLOBAL_DIFFICULTY.load(Ordering::Relaxed)
+        load_global_difficulty()
     }
 
     pub fn signal_ui_interact(hook_name: &str) {
@@ -995,41 +1151,41 @@ pub struct TheVictoryConditions;
 
 impl TheVictoryConditions {
     pub fn set_local_allied_victory(victory: Bool) {
-        LOCAL_ALLIED_VICTORY.store(victory, Ordering::Relaxed);
+        store_local_allied_victory(victory);
     }
 
     pub fn is_local_allied_victory() -> Bool {
-        LOCAL_ALLIED_VICTORY.load(Ordering::Relaxed)
+        load_local_allied_victory()
     }
 
     pub fn set_local_allied_defeat(defeat: Bool) {
-        LOCAL_ALLIED_DEFEAT.store(defeat, Ordering::Relaxed);
+        store_local_allied_defeat(defeat);
     }
 
     pub fn set_single_alliance_remaining(remaining: Bool) {
-        SINGLE_ALLIANCE_REMAINING.store(remaining, Ordering::Relaxed);
+        store_single_alliance_remaining(remaining);
     }
 
     pub fn is_single_alliance_remaining() -> Bool {
-        SINGLE_ALLIANCE_REMAINING.load(Ordering::Relaxed)
+        load_single_alliance_remaining()
     }
 
     pub fn set_victory_flags_from_live(from_live: Bool) {
-        VICTORY_FLAGS_FROM_LIVE.store(from_live, Ordering::Relaxed);
+        store_victory_flags_from_live(from_live);
     }
 
     pub fn set_local_player_defeated(defeated: Bool) {
-        LOCAL_PLAYER_DEFEATED.store(defeated, Ordering::Relaxed);
+        store_local_player_defeated(defeated);
     }
 
     /// C++ `VictoryConditions::isLocalAlliedDefeat`: last alliance standing
     /// (or observer when that latch is set). Not "all my allies are dead".
     pub fn is_local_allied_defeat() -> Bool {
-        if LOCAL_ALLIED_VICTORY.load(Ordering::Relaxed) {
+        if load_local_allied_victory() {
             return false;
         }
-        if VICTORY_FLAGS_FROM_LIVE.load(Ordering::Relaxed) {
-            return LOCAL_ALLIED_DEFEAT.load(Ordering::Relaxed);
+        if load_victory_flags_from_live() {
+            return load_local_allied_defeat();
         }
         leftover_player_list_is_local_allied_defeat()
     }
@@ -1039,7 +1195,7 @@ impl TheVictoryConditions {
         if leftover_local_player_is_observer() {
             return false;
         }
-        if LOCAL_PLAYER_DEFEATED.load(Ordering::Relaxed) {
+        if load_local_player_defeated() {
             return true;
         }
         leftover_local_player_is_individually_defeated()
@@ -1062,7 +1218,8 @@ fn leftover_players_are_allies(a: &crate::player::Player, b: &crate::player::Pla
 
 /// C++ `isLocalAlliedDefeat` from leftover PlayerList `is_defeated`.
 fn leftover_player_list_is_local_allied_defeat() -> bool {
-    let Ok(list) = crate::player::ThePlayerList().read() else {
+    let __player_list_arc = crate::player::ThePlayerList();
+        let Ok(list) = __player_list_arc.read() else {
         return false;
     };
     let Some(local_arc) = list.get_local_player().cloned() else {
@@ -1114,7 +1271,8 @@ fn leftover_player_list_is_local_allied_defeat() -> bool {
 }
 
 fn leftover_local_player_is_observer() -> bool {
-    let Ok(list) = crate::player::ThePlayerList().read() else {
+    let __player_list_arc = crate::player::ThePlayerList();
+        let Ok(list) = __player_list_arc.read() else {
         return false;
     };
     list.get_local_player()
@@ -1123,7 +1281,8 @@ fn leftover_local_player_is_observer() -> bool {
 }
 
 fn leftover_local_player_is_individually_defeated() -> bool {
-    let Ok(list) = crate::player::ThePlayerList().read() else {
+    let __player_list_arc = crate::player::ThePlayerList();
+        let Ok(list) = __player_list_arc.read() else {
         return false;
     };
     list.get_local_player()

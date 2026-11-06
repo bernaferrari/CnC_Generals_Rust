@@ -76,6 +76,7 @@ fn direct(client: &mut GameClient, epoch: u64, position: [f32; 3]) -> NativeMate
 
 #[test]
 fn native_views_filter_actual_factory_draws_and_repeat_overlap_without_touching_peer() {
+    crate::test_support::ensure_ambient_host();
     let assets = static_asset();
     let mut client = GameClient::new().unwrap();
     let mut peer = GameClient::new().unwrap();
@@ -261,6 +262,7 @@ fn native_views_filter_actual_factory_draws_and_repeat_overlap_without_touching_
 
 #[test]
 fn native_views_empty_view_list_does_not_advance_draw_or_install_emitters() {
+    crate::test_support::ensure_ambient_host();
     let assets = static_asset();
     let mut client = GameClient::new().unwrap();
     let id = authored(&mut client, Vector3::new(0., 0., 0.), false);
@@ -287,6 +289,7 @@ fn native_views_empty_view_list_does_not_advance_draw_or_install_emitters() {
 
 #[test]
 fn public_split_shell_defers_draw_and_rejects_changed_client_frame() {
+    crate::test_support::ensure_ambient_host();
     let mut client = GameClient::new().unwrap();
     client.window_manager_owner().shell_handle().init().unwrap();
     client.initialized = true;
@@ -300,7 +303,7 @@ fn public_split_shell_defers_draw_and_rejects_changed_client_frame() {
         client_frame: 37,
     };
     let prepared = client
-        .begin_presentation_shell_with_material_frames(0., frames, &[])
+        .begin_presentation_shell_with_material_frames(0., frames, &[], 0)
         .unwrap();
     assert!(prepared.display_requested());
     assert_eq!(
@@ -326,7 +329,7 @@ fn public_split_shell_defers_draw_and_rejects_changed_client_frame() {
     );
     assert_eq!(client.get_frame(), 37);
     let prepared = client
-        .begin_presentation_shell_with_material_frames(0., frames, &[])
+        .begin_presentation_shell_with_material_frames(0., frames, &[], 0)
         .unwrap();
     client.set_frame(38);
     assert!(
@@ -347,6 +350,7 @@ fn public_split_shell_defers_draw_and_rejects_changed_client_frame() {
 
 #[test]
 fn split_shell_rejects_equal_frame_peer_reset_and_superseded_operation() {
+    crate::test_support::ensure_ambient_host();
     let mut client = GameClient::new().unwrap();
     let mut peer = GameClient::new().unwrap();
     client.window_manager_owner().shell_handle().init().unwrap();
@@ -364,7 +368,7 @@ fn split_shell_rejects_equal_frame_peer_reset_and_superseded_operation() {
         update_particles: false,
     };
     let foreign = client
-        .begin_presentation_shell_with_material_frames(0., frames, &[])
+        .begin_presentation_shell_with_material_frames(0., frames, &[], 0)
         .unwrap();
     assert!(
         peer.finish_presentation_shell_with_native_views(foreign, &[], &[], phase)
@@ -372,10 +376,10 @@ fn split_shell_rejects_equal_frame_peer_reset_and_superseded_operation() {
         "equal frame is not receiving Client identity"
     );
     let stale = client
-        .begin_presentation_shell_with_material_frames(0., frames, &[])
+        .begin_presentation_shell_with_material_frames(0., frames, &[], 0)
         .unwrap();
     let current = client
-        .begin_presentation_shell_with_material_frames(0., frames, &[])
+        .begin_presentation_shell_with_material_frames(0., frames, &[], 0)
         .unwrap();
     assert!(
         client
@@ -386,7 +390,7 @@ fn split_shell_rejects_equal_frame_peer_reset_and_superseded_operation() {
         .finish_presentation_shell_with_native_views(current, &[], &[], phase)
         .unwrap();
     let before_reset = client
-        .begin_presentation_shell_with_material_frames(0., frames, &[])
+        .begin_presentation_shell_with_material_frames(0., frames, &[], 0)
         .unwrap();
     client.invalidate_presentation_drawable_world();
     assert!(
@@ -396,7 +400,7 @@ fn split_shell_rejects_equal_frame_peer_reset_and_superseded_operation() {
         "reset invalidates even an equal-frame continuation"
     );
     let fresh = client
-        .begin_presentation_shell_with_material_frames(0., frames, &[])
+        .begin_presentation_shell_with_material_frames(0., frames, &[], 0)
         .unwrap();
     client
         .finish_presentation_shell_with_native_views(fresh, &[], &[], phase)
@@ -405,6 +409,7 @@ fn split_shell_rejects_equal_frame_peer_reset_and_superseded_operation() {
 
 #[test]
 fn failed_map_discard_requires_particles_before_unlink_and_preserves_peer() {
+    crate::test_support::ensure_ambient_host();
     let assets = static_asset();
     let mut client = GameClient::new().unwrap();
     let mut peer = GameClient::new().unwrap();
@@ -480,6 +485,7 @@ fn failed_map_discard_requires_particles_before_unlink_and_preserves_peer() {
 
 #[test]
 fn failed_constructor_retirement_selects_only_its_actual_drawable() {
+    crate::test_support::ensure_ambient_host();
     let assets = static_asset();
     let mut client = GameClient::new().unwrap();
     let failed = authored(&mut client, Vector3::new(0., 0., 0.), false);
@@ -544,21 +550,13 @@ fn failed_constructor_retirement_selects_only_its_actual_drawable() {
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn client_chunk_replacement_retires_actual_manager_before_roster_clear() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "client_chunk_replacement_retires_actual_manager_before_roster_clear",
     ) {
         return;
     }
-    use crate::effects::particle_manager::get_particle_system_manager_mut;
-    struct Restore(Option<ParticleSystemManager>);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            *get_particle_system_manager_mut().unwrap() = self.0.take();
-        }
-    }
-    let prior = get_particle_system_manager_mut().unwrap().take();
-    let _restore = Restore(prior);
     let bytes = GameClient::new().unwrap().capture_xfer_bytes().unwrap();
     assert!(
         !bytes.is_empty(),
@@ -591,6 +589,9 @@ fn client_chunk_replacement_retires_actual_manager_before_roster_clear() {
         )
         .unwrap();
     assert_eq!(receiver(&mut client, id).native_state_particle_count(), 1);
+    // Receiving manager lives on DrawableWorld after ownership move. Absence
+    // must reject restore before roster unlink (same gate as map-attempt clear).
+    let held = client.drawables.particles.take();
     assert!(
         client.restore_from_xfer_bytes(&bytes).is_err(),
         "missing actual receiving manager rejects before unlink"
@@ -602,11 +603,16 @@ fn client_chunk_replacement_retires_actual_manager_before_roster_clear() {
             .all_particle_systems()
             .all(|system| !system.is_destroyed())
     );
-    *get_particle_system_manager_mut().unwrap() = Some(manager);
+    // Install the manager that actually owns the admitted emitters.
+    drop(held);
+    client.drawables.particles = Some(manager);
     client.restore_from_xfer_bytes(&bytes).unwrap();
     assert!(client.find_drawable_by_id(id).is_none());
-    let installed = get_particle_system_manager_mut().unwrap();
-    let installed = installed.as_ref().unwrap();
+    let installed = client
+        .drawables
+        .particles
+        .as_ref()
+        .expect("client particle manager");
     assert_eq!(installed.runtime_owner(), actual_owner);
     assert!(
         installed.system_count() > 0,
@@ -624,13 +630,14 @@ fn client_chunk_replacement_retires_actual_manager_before_roster_clear() {
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn native_retirement_releases_particle_guard_before_actual_module_drop() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "native_retirement_releases_particle_guard_before_actual_module_drop",
     ) {
         return;
     }
-    use crate::effects::particle_manager::{PARTICLE_SYSTEM_MANAGER, get_particle_system_manager_mut};
+    use crate::effects::particle_manager::{get_particle_system_manager_mut, with_particle_system_slot_mut};
     use std::sync::atomic::{AtomicBool, Ordering};
     #[derive(Debug)]
     struct DropProbe(Arc<AtomicBool>);
@@ -643,7 +650,7 @@ fn native_retirement_releases_particle_guard_before_actual_module_drop() {
         fn drop(&mut self) {
             // Nonblocking: OLD records false instead of hanging the test.
             self.0.store(
-                PARTICLE_SYSTEM_MANAGER.try_write().is_ok(),
+                with_particle_system_slot_mut(|slot| slot.is_some()).unwrap_or(false),
                 Ordering::SeqCst,
             );
         }
@@ -654,8 +661,11 @@ fn native_retirement_releases_particle_guard_before_actual_module_drop() {
             *get_particle_system_manager_mut().unwrap() = self.0.take();
         }
     }
+    // Free-API TLS sentinel: DropProbe checks the take-guard was released
+    // before module Drop (same signal the old RwLock try_write probed).
     let prior = get_particle_system_manager_mut().unwrap().take();
     let _restore = Restore(prior);
+    *get_particle_system_manager_mut().unwrap() = Some(ParticleSystemManager::new());
     for selected_only in [true, false] {
         let assets = static_asset();
         let mut client = GameClient::new().unwrap();
@@ -687,7 +697,8 @@ fn native_retirement_releases_particle_guard_before_actual_module_drop() {
         receiver(&mut client, id)
             .get_draw_modules_mut()
             .push(Box::new(DropProbe(Arc::clone(&unlocked))));
-        *get_particle_system_manager_mut().unwrap() = Some(manager);
+        // Owning slot on DrawableWorld — retirement mutates this manager.
+        client.drawables.particles = Some(manager);
         NativeParticleRetirementService
             .retire(
                 &mut client.drawables.borrow_native(),
@@ -697,16 +708,26 @@ fn native_retirement_releases_particle_guard_before_actual_module_drop() {
         assert!(client.find_drawable_by_id(id).is_none());
         assert!(
             unlocked.load(Ordering::SeqCst),
-            "native module Drop must reacquire the actual manager lock"
+            "native module Drop must run after particle take-guard release"
         );
-        let manager = get_particle_system_manager_mut().unwrap();
-        let manager = manager.as_ref().unwrap();
-        assert_eq!(manager.runtime_owner(), actual_owner);
-        assert!(manager.system_count() > 0);
-        assert!(
-            manager
-                .all_particle_systems()
-                .all(|system| system.is_destroyed())
-        );
+        let manager = client
+            .drawables
+            .particles
+            .as_ref()
+            .expect("client particle manager");
+        if selected_only {
+            // Selected retirement keeps the manager namespace and marks systems
+            // destroyed in place.
+            assert_eq!(manager.runtime_owner(), actual_owner);
+            assert!(manager.system_count() > 0);
+            assert!(
+                manager
+                    .all_particle_systems()
+                    .all(|system| system.is_destroyed())
+            );
+        } else {
+            // Full clear renews the runtime owner after particle retirement.
+            assert_eq!(manager.system_count(), 0);
+        }
     }
 }

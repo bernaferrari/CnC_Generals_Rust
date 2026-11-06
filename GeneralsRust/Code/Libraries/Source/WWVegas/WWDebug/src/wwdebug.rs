@@ -1,5 +1,3 @@
-use once_cell::sync::OnceCell;
-use std::sync::Mutex;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DebugType {
@@ -14,16 +12,16 @@ pub type AssertPrintFunc = fn(&str);
 pub type TriggerFunc = fn(i32) -> bool;
 pub type ProfileFunc = fn(&str);
 
-struct DebugHandlers {
-    message: Option<PrintFunc>,
-    assert: Option<AssertPrintFunc>,
-    trigger: Option<TriggerFunc>,
-    profile_start: Option<ProfileFunc>,
-    profile_stop: Option<ProfileFunc>,
+pub(crate) struct DebugHandlers {
+    pub(crate) message: Option<PrintFunc>,
+    pub(crate) assert: Option<AssertPrintFunc>,
+    pub(crate) trigger: Option<TriggerFunc>,
+    pub(crate) profile_start: Option<ProfileFunc>,
+    pub(crate) profile_stop: Option<ProfileFunc>,
 }
 
 impl DebugHandlers {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             message: None,
             assert: None,
@@ -34,10 +32,7 @@ impl DebugHandlers {
     }
 }
 
-fn handlers() -> &'static Mutex<DebugHandlers> {
-    static HANDLERS: OnceCell<Mutex<DebugHandlers>> = OnceCell::new();
-    HANDLERS.get_or_init(|| Mutex::new(DebugHandlers::new()))
-}
+
 
 #[allow(non_snake_case)]
 pub fn Convert_System_Error_To_String(error_id: i32, buffer: &mut [u8]) {
@@ -57,65 +52,65 @@ pub fn Get_Last_System_Error() -> i32 {
 }
 
 #[allow(non_snake_case)]
-pub fn WWDebug_Install_Message_Handler(func: Option<PrintFunc>) -> Option<PrintFunc> {
-    let mut handlers = handlers().lock().expect("debug handler lock poisoned");
+pub fn WWDebug_Install_Message_Handler(session: &crate::WwDebugSession, func: Option<PrintFunc>) -> Option<PrintFunc> {
+    let mut handlers = session.handlers.lock().expect("debug handler lock poisoned");
     let previous = handlers.message;
     handlers.message = func;
     previous
 }
 
 #[allow(non_snake_case)]
-pub fn WWDebug_Install_Assert_Handler(func: Option<AssertPrintFunc>) -> Option<AssertPrintFunc> {
-    let mut handlers = handlers().lock().expect("debug handler lock poisoned");
+pub fn WWDebug_Install_Assert_Handler(session: &crate::WwDebugSession, func: Option<AssertPrintFunc>) -> Option<AssertPrintFunc> {
+    let mut handlers = session.handlers.lock().expect("debug handler lock poisoned");
     let previous = handlers.assert;
     handlers.assert = func;
     previous
 }
 
 #[allow(non_snake_case)]
-pub fn WWDebug_Install_Trigger_Handler(func: Option<TriggerFunc>) -> Option<TriggerFunc> {
-    let mut handlers = handlers().lock().expect("debug handler lock poisoned");
+pub fn WWDebug_Install_Trigger_Handler(session: &crate::WwDebugSession, func: Option<TriggerFunc>) -> Option<TriggerFunc> {
+    let mut handlers = session.handlers.lock().expect("debug handler lock poisoned");
     let previous = handlers.trigger;
     handlers.trigger = func;
     previous
 }
 
 #[allow(non_snake_case)]
-pub fn WWDebug_Install_Profile_Start_Handler(func: Option<ProfileFunc>) -> Option<ProfileFunc> {
-    let mut handlers = handlers().lock().expect("debug handler lock poisoned");
+pub fn WWDebug_Install_Profile_Start_Handler(session: &crate::WwDebugSession, func: Option<ProfileFunc>) -> Option<ProfileFunc> {
+    let mut handlers = session.handlers.lock().expect("debug handler lock poisoned");
     let previous = handlers.profile_start;
     handlers.profile_start = func;
     previous
 }
 
 #[allow(non_snake_case)]
-pub fn WWDebug_Install_Profile_Stop_Handler(func: Option<ProfileFunc>) -> Option<ProfileFunc> {
-    let mut handlers = handlers().lock().expect("debug handler lock poisoned");
+pub fn WWDebug_Install_Profile_Stop_Handler(session: &crate::WwDebugSession, func: Option<ProfileFunc>) -> Option<ProfileFunc> {
+    let mut handlers = session.handlers.lock().expect("debug handler lock poisoned");
     let previous = handlers.profile_stop;
     handlers.profile_stop = func;
     previous
 }
 
-fn dispatch_message(kind: DebugType, message: &str) {
-    let handlers = handlers().lock().expect("debug handler lock poisoned");
+fn dispatch_message(session: &crate::WwDebugSession, kind: DebugType, message: &str) {
+    let handlers = session.handlers.lock().expect("debug handler lock poisoned");
     if let Some(handler) = handlers.message {
         handler(kind, message);
     }
 }
 
 #[allow(non_snake_case)]
-pub fn WWDebug_Printf(message: &str) {
-    dispatch_message(DebugType::Information, message);
+pub fn WWDebug_Printf(session: &crate::WwDebugSession, message: &str) {
+    dispatch_message(session, DebugType::Information, message);
 }
 
 #[allow(non_snake_case)]
-pub fn WWDebug_Printf_Warning(message: &str) {
-    dispatch_message(DebugType::Warning, message);
+pub fn WWDebug_Printf_Warning(session: &crate::WwDebugSession, message: &str) {
+    dispatch_message(session, DebugType::Warning, message);
 }
 
 #[allow(non_snake_case)]
-pub fn WWDebug_Printf_Error(message: &str) {
-    dispatch_message(DebugType::Error, message);
+pub fn WWDebug_Printf_Error(session: &crate::WwDebugSession, message: &str) {
+    dispatch_message(session, DebugType::Error, message);
 }
 
 #[macro_export]
@@ -140,9 +135,9 @@ macro_rules! wwdebug_printf_error {
 }
 
 #[allow(non_snake_case)]
-pub fn WWDebug_Assert_Fail(expr: &str, file: &str, line: i32) {
+pub fn WWDebug_Assert_Fail(session: &crate::WwDebugSession, expr: &str, file: &str, line: i32) {
     let message = format!("{file} ({line}) Assert: {expr}\n");
-    let handlers = handlers().lock().expect("debug handler lock poisoned");
+    let handlers = session.handlers.lock().expect("debug handler lock poisoned");
     if let Some(assert_handler) = handlers.assert {
         assert_handler(&message);
         return;
@@ -155,9 +150,9 @@ pub fn WWDebug_Assert_Fail(expr: &str, file: &str, line: i32) {
 }
 
 #[allow(non_snake_case)]
-pub fn WWDebug_Assert_Fail_Print(expr: &str, file: &str, line: i32, string: &str) {
+pub fn WWDebug_Assert_Fail_Print(session: &crate::WwDebugSession, expr: &str, file: &str, line: i32, string: &str) {
     let message = format!("{file} ({line}) Assert: {expr} {string}\n");
-    let handlers = handlers().lock().expect("debug handler lock poisoned");
+    let handlers = session.handlers.lock().expect("debug handler lock poisoned");
     if let Some(assert_handler) = handlers.assert {
         assert_handler(&message);
         return;
@@ -170,8 +165,8 @@ pub fn WWDebug_Assert_Fail_Print(expr: &str, file: &str, line: i32, string: &str
 }
 
 #[allow(non_snake_case)]
-pub fn WWDebug_Check_Trigger(trigger_num: i32) -> bool {
-    let handlers = handlers().lock().expect("debug handler lock poisoned");
+pub fn WWDebug_Check_Trigger(session: &crate::WwDebugSession, trigger_num: i32) -> bool {
+    let handlers = session.handlers.lock().expect("debug handler lock poisoned");
     if let Some(trigger_handler) = handlers.trigger {
         return trigger_handler(trigger_num);
     }
@@ -179,16 +174,16 @@ pub fn WWDebug_Check_Trigger(trigger_num: i32) -> bool {
 }
 
 #[allow(non_snake_case)]
-pub fn WWDebug_Profile_Start(title: &str) {
-    let handlers = handlers().lock().expect("debug handler lock poisoned");
+pub fn WWDebug_Profile_Start(session: &crate::WwDebugSession, title: &str) {
+    let handlers = session.handlers.lock().expect("debug handler lock poisoned");
     if let Some(handler) = handlers.profile_start {
         handler(title);
     }
 }
 
 #[allow(non_snake_case)]
-pub fn WWDebug_Profile_Stop(title: &str) {
-    let handlers = handlers().lock().expect("debug handler lock poisoned");
+pub fn WWDebug_Profile_Stop(session: &crate::WwDebugSession, title: &str) {
+    let handlers = session.handlers.lock().expect("debug handler lock poisoned");
     if let Some(handler) = handlers.profile_stop {
         handler(title);
     }

@@ -536,7 +536,8 @@ impl Default for OpenContainModuleData {
             damage_percentage_to_units: 0.0,
             is_burned_death_to_units: true,
             door_open_time: 1,
-            allow_inside_kind_of: 0,
+            // C++ OpenContain.cpp:58 clears then flips the mask: everything is allowed.
+            allow_inside_kind_of: KindOfMaskType::MAX,
             forbid_inside_kind_of: 0,
             weapon_bonus_passed_to_passengers: false,
             allow_allies_inside: true,
@@ -1681,7 +1682,12 @@ impl OpenContain {
     }
 
     /// C++ OpenContain::scatterToNearbyPosition.
-    pub fn scatter_to_nearby_position(&self, rider: &mut Object) -> GameResult<()> {
+    /// Pose the rider for a death scatter. Returns AI follow-up that must run
+    /// **after** the caller releases the Object write (hq-on6u2 / OpenContain.cpp:679-709).
+    pub fn scatter_to_nearby_position(
+        &self,
+        rider: &mut Object,
+    ) -> GameResult<Option<(std::sync::Arc<std::sync::Mutex<dyn crate::modules::AIUpdateInterface>>, Coord3D)>> {
         let Some((min_radius, container_pos, layer)) = self.with_object(|owner| {
             (
                 owner.get_geometry_info().get_bounding_circle_radius(),
@@ -1689,7 +1695,7 @@ impl OpenContain {
                 owner.get_layer(),
             )
         }) else {
-            return Ok(());
+            return Ok(None);
         };
 
         let angle =
@@ -1706,17 +1712,25 @@ impl OpenContain {
         }
         let _ = rider.set_orientation(angle);
         if let Some(ai) = rider.get_ai() {
+            // Park at container center under Object write; AI move runs after release.
             let _ = rider.set_position(&container_pos);
-            if let Ok(mut ai_guard) = ai.try_lock() {
-                let _ = ai_guard.ignore_obstacle(Some(self.get_object_id()));
-                let _ = ai_guard.ai_move_to_position(&pos);
-            } else {
-                let _ = rider.set_position(&pos);
-            }
+            Ok(Some((ai, pos)))
         } else {
             let _ = rider.set_position(&pos);
+            Ok(None)
         }
-        Ok(())
+    }
+
+    /// Run ignoreObstacle + aiMoveToPosition after the rider Object write is released.
+    pub fn apply_scatter_ai_followup(
+        &self,
+        ai: &std::sync::Arc<std::sync::Mutex<dyn crate::modules::AIUpdateInterface>>,
+        dest: &Coord3D,
+    ) {
+        if let Ok(mut ai_guard) = ai.try_lock() {
+            let _ = ai_guard.ignore_obstacle(Some(self.get_object_id()));
+            let _ = ai_guard.ai_move_to_position(dest);
+        }
     }
 
     /// Handle death event — C++ OpenContain::onDie (lines 833-851)

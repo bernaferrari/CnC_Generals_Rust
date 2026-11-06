@@ -74,6 +74,8 @@ pub struct SceneManagerClass {
     release_list: Vec<usize>,
     /// C++ `Visibility_Checked`.
     visibility_checked: bool,
+    /// Session renderer-3d runtime for lighting LOD / shared state.
+    renderer_3d: Option<std::sync::Arc<crate::process_state::Renderer3dRuntime>>,
 }
 
 impl SceneManagerClass {
@@ -99,6 +101,7 @@ impl SceneManagerClass {
             light_list: Vec::new(),
             release_list: Vec::new(),
             visibility_checked: false,
+            renderer_3d: None,
         }
     }
 
@@ -187,8 +190,10 @@ impl SceneManagerClass {
             }
         }
 
+        let r3d_tmp = crate::process_state::Renderer3dRuntime::new();
+        let r3d = self.renderer_3d.as_deref().unwrap_or(&r3d_tmp);
         self.light_environment
-            .rebuild(glam::Vec3::ZERO, self.ambient_light);
+            .rebuild(r3d, glam::Vec3::ZERO, self.ambient_light);
         self.light_environment
             .pre_render_update(rinfo.camera.transform_matrix());
         rinfo.set_lighting_environment(self.light_environment.clone());

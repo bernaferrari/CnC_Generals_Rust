@@ -4,7 +4,6 @@
 //! It maintains a global registry of all available shader types and handles
 //! factory registration, lookup, and shader instance creation.
 
-use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -36,12 +35,9 @@ pub struct ShdDefManager {
 }
 
 /// Global shader definition manager instance
-static GLOBAL_MANAGER: Lazy<RwLock<ShdDefManager>> =
-    Lazy::new(|| RwLock::new(ShdDefManager::new()));
-
 impl ShdDefManager {
     /// Create a new shader definition manager
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             factories_by_id: HashMap::new(),
             factories_by_name: HashMap::new(),
@@ -53,23 +49,19 @@ impl ShdDefManager {
     ///
     /// This adds the factory to the global registry, making it available
     /// for shader creation and enumeration.
-    pub fn register_factory(factory: Arc<dyn ShdDefFactory>) -> ShdResult<()> {
-        let mut manager = GLOBAL_MANAGER
-            .write()
-            .map_err(|_| ShdError::InvalidConfig("Failed to acquire manager lock".to_string()))?;
-
+    pub fn register_factory(&mut self, factory: Arc<dyn ShdDefFactory>) -> ShdResult<()> {
         let class_id = factory.get_class_id();
         let name = factory.get_display_name().to_string();
 
         // Check for duplicate registrations
-        if manager.factories_by_id.contains_key(&class_id) {
+        if self.factories_by_id.contains_key(&class_id) {
             return Err(ShdError::InvalidConfig(format!(
                 "Factory with class ID {} already registered",
                 class_id
             )));
         }
 
-        if manager.factories_by_name.contains_key(&name) {
+        if self.factories_by_name.contains_key(&name) {
             return Err(ShdError::InvalidConfig(format!(
                 "Factory with name '{}' already registered",
                 name
@@ -82,22 +74,18 @@ impl ShdDefManager {
             class_id,
         };
 
-        manager.factories_by_id.insert(class_id, entry.clone());
-        manager.factories_by_name.insert(name, entry.clone());
-        manager.factory_list.push(entry);
+        self.factories_by_id.insert(class_id, entry.clone());
+        self.factories_by_name.insert(name, entry.clone());
+        self.factory_list.push(entry);
 
         Ok(())
     }
 
     /// Unregister a shader definition factory by class ID
-    pub fn unregister_factory(class_id: u32) -> ShdResult<()> {
-        let mut manager = GLOBAL_MANAGER
-            .write()
-            .map_err(|_| ShdError::InvalidConfig("Failed to acquire manager lock".to_string()))?;
-
-        if let Some(entry) = manager.factories_by_id.remove(&class_id) {
-            manager.factories_by_name.remove(&entry.name);
-            manager.factory_list.retain(|e| e.class_id != class_id);
+    pub fn unregister_factory(&mut self, class_id: u32) -> ShdResult<()> {
+        if let Some(entry) = self.factories_by_id.remove(&class_id) {
+            self.factories_by_name.remove(&entry.name);
+            self.factory_list.retain(|e| e.class_id != class_id);
             Ok(())
         } else {
             Err(ShdError::ResourceNotFound(format!(
@@ -108,13 +96,8 @@ impl ShdDefManager {
     }
 
     /// Find a factory by class ID
-    pub fn find_factory_by_id(class_id: u32) -> ShdResult<Arc<dyn ShdDefFactory>> {
-        let manager = GLOBAL_MANAGER
-            .read()
-            .map_err(|_| ShdError::InvalidConfig("Failed to acquire manager lock".to_string()))?;
-
-        manager
-            .factories_by_id
+    pub fn find_factory_by_id(&self, class_id: u32) -> ShdResult<Arc<dyn ShdDefFactory>> {
+        self.factories_by_id
             .get(&class_id)
             .map(|entry| entry.factory.clone())
             .ok_or_else(|| {
@@ -123,19 +106,15 @@ impl ShdDefManager {
     }
 
     /// Find a factory by name (case-insensitive)
-    pub fn find_factory_by_name(name: &str) -> ShdResult<Arc<dyn ShdDefFactory>> {
-        let manager = GLOBAL_MANAGER
-            .read()
-            .map_err(|_| ShdError::InvalidConfig("Failed to acquire manager lock".to_string()))?;
-
+    pub fn find_factory_by_name(&self, name: &str) -> ShdResult<Arc<dyn ShdDefFactory>> {
         // First try exact match
-        if let Some(entry) = manager.factories_by_name.get(name) {
+        if let Some(entry) = self.factories_by_name.get(name) {
             return Ok(entry.factory.clone());
         }
 
         // Then try case-insensitive search
         let name_lower = name.to_lowercase();
-        for entry in &manager.factory_list {
+        for entry in &self.factory_list {
             if entry.name.to_lowercase() == name_lower {
                 return Ok(entry.factory.clone());
             }
@@ -148,13 +127,8 @@ impl ShdDefManager {
     }
 
     /// Get all registered factories
-    pub fn get_all_factories() -> ShdResult<Vec<Arc<dyn ShdDefFactory>>> {
-        let manager = GLOBAL_MANAGER
-            .read()
-            .map_err(|_| ShdError::InvalidConfig("Failed to acquire manager lock".to_string()))?;
-
-        Ok(manager
-            .factory_list
+    pub fn get_all_factories(&self) -> ShdResult<Vec<Arc<dyn ShdDefFactory>>> {
+        Ok(self.factory_list
             .iter()
             .map(|entry| entry.factory.clone())
             .collect())
@@ -163,15 +137,10 @@ impl ShdDefManager {
     /// Get factories filtered by superclass (base class) ID
     ///
     /// This allows enumeration of specific types of shaders (e.g., all bump mapping shaders)
-    pub fn get_factories_by_superclass(
-        superclass_id: u32,
+    pub fn get_factories_by_superclass(&self, superclass_id: u32,
     ) -> ShdResult<Vec<Arc<dyn ShdDefFactory>>> {
-        let manager = GLOBAL_MANAGER
-            .read()
-            .map_err(|_| ShdError::InvalidConfig("Failed to acquire manager lock".to_string()))?;
-
         let mut filtered = Vec::new();
-        for entry in &manager.factory_list {
+        for entry in &self.factory_list {
             let class_id = entry.class_id;
             // Check if this class ID belongs to the requested superclass
             // This is a simplified check - in a real implementation you might have
@@ -185,37 +154,27 @@ impl ShdDefManager {
     }
 
     /// Create a shader definition instance by class ID
-    pub fn create_shader_definition(class_id: u32) -> ShdResult<Box<dyn ShdDefClass>> {
-        let factory = Self::find_factory_by_id(class_id)?;
+    pub fn create_shader_definition(&self, class_id: u32) -> ShdResult<Box<dyn ShdDefClass>> {
+        let factory = self.find_factory_by_id(class_id)?;
         factory.create_definition(class_id)
     }
 
     /// Get the number of registered factories
-    pub fn get_factory_count() -> ShdResult<usize> {
-        let manager = GLOBAL_MANAGER
-            .read()
-            .map_err(|_| ShdError::InvalidConfig("Failed to acquire manager lock".to_string()))?;
-        Ok(manager.factory_list.len())
+    pub fn get_factory_count(&self) -> ShdResult<usize> {
+        Ok(self.factory_list.len())
     }
 
     /// Check if a factory with the given class ID is registered
-    pub fn has_factory(class_id: u32) -> ShdResult<bool> {
-        let manager = GLOBAL_MANAGER
-            .read()
-            .map_err(|_| ShdError::InvalidConfig("Failed to acquire manager lock".to_string()))?;
-        Ok(manager.factories_by_id.contains_key(&class_id))
+    pub fn has_factory(&self, class_id: u32) -> ShdResult<bool> {
+        Ok(self.factories_by_id.contains_key(&class_id))
     }
 
     /// Clear all registered factories (primarily for testing)
     #[cfg(test)]
-    pub fn clear_all_factories() -> ShdResult<()> {
-        let mut manager = GLOBAL_MANAGER
-            .write()
-            .map_err(|_| ShdError::InvalidConfig("Failed to acquire manager lock".to_string()))?;
-
-        manager.factories_by_id.clear();
-        manager.factories_by_name.clear();
-        manager.factory_list.clear();
+    pub fn clear_all_factories(&mut self) -> ShdResult<()> {
+        self.factories_by_id.clear();
+        self.factories_by_name.clear();
+        self.factory_list.clear();
 
         Ok(())
     }
@@ -248,7 +207,7 @@ impl ShaderSerializer {
     }
 
     /// Load a shader definition from binary format
-    pub fn load_shader(data: &[u8]) -> ShdResult<Box<dyn ShdDefClass>> {
+    pub fn load_shader(manager: &ShdDefManager, data: &[u8]) -> ShdResult<Box<dyn ShdDefClass>> {
         if data.len() < 12 {
             return Err(ShdError::FormatError(
                 "Invalid shader data format".to_string(),
@@ -285,7 +244,7 @@ impl ShaderSerializer {
         offset += 4;
 
         // Create shader definition instance
-        let mut shader_def = ShdDefManager::create_shader_definition(class_id)?;
+        let mut shader_def = manager.create_shader_definition(class_id)?;
 
         // Read shader definition data chunk
         if offset + 8 > data.len() {
@@ -410,17 +369,24 @@ mod tests {
     }
 
     fn setup_test() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        struct LockSlot(std::sync::OnceLock<std::sync::Mutex<()>>);
+        impl std::ops::Deref for LockSlot {
+            type Target = std::sync::OnceLock<std::sync::Mutex<()>>;
+            fn deref(&self) -> &Self::Target { &self.0 }
+        }
+        static LOCK: LockSlot = LockSlot(std::sync::OnceLock::new());
         let guard = LOCK
             .get_or_init(|| std::sync::Mutex::new(()))
             .lock()
             .expect("wwshade manager test lock");
-        let _ = ShdDefManager::clear_all_factories();
+        let mut manager = ShdDefManager::new();
+        let _ = manager.clear_all_factories();
         guard
     }
 
     #[test]
     fn test_factory_registration() {
+        let mut manager = ShdDefManager::new();
         let _lock = setup_test();
 
         let factory = Arc::new(MockFactory {
@@ -428,16 +394,17 @@ mod tests {
             name: "TestFactory".to_string(),
         });
 
-        assert!(ShdDefManager::register_factory(factory.clone()).is_ok());
-        assert_eq!(ShdDefManager::get_factory_count().unwrap(), 1);
-        assert!(ShdDefManager::has_factory(100).unwrap());
+        assert!(manager.register_factory(factory.clone()).is_ok());
+        assert_eq!(manager.get_factory_count().unwrap(), 1);
+        assert!(manager.has_factory(100).unwrap());
 
         // Test duplicate registration fails
-        assert!(ShdDefManager::register_factory(factory).is_err());
+        assert!(manager.register_factory(factory).is_err());
     }
 
     #[test]
     fn test_factory_lookup() {
+        let mut manager = ShdDefManager::new();
         let _lock = setup_test();
 
         let factory = Arc::new(MockFactory {
@@ -445,27 +412,28 @@ mod tests {
             name: "LookupTest".to_string(),
         });
 
-        assert!(ShdDefManager::register_factory(factory).is_ok());
+        assert!(manager.register_factory(factory).is_ok());
 
         // Test lookup by ID
-        let found_factory = ShdDefManager::find_factory_by_id(200).unwrap();
+        let found_factory = manager.find_factory_by_id(200).unwrap();
         assert_eq!(found_factory.get_class_id(), 200);
 
         // Test lookup by name
-        let found_factory = ShdDefManager::find_factory_by_name("LookupTest").unwrap();
+        let found_factory = manager.find_factory_by_name("LookupTest").unwrap();
         assert_eq!(found_factory.get_display_name(), "LookupTest");
 
         // Test case-insensitive name lookup
-        let found_factory = ShdDefManager::find_factory_by_name("lookuptest").unwrap();
+        let found_factory = manager.find_factory_by_name("lookuptest").unwrap();
         assert_eq!(found_factory.get_display_name(), "LookupTest");
 
         // Test non-existent lookups
-        assert!(ShdDefManager::find_factory_by_id(999).is_err());
-        assert!(ShdDefManager::find_factory_by_name("NonExistent").is_err());
+        assert!(manager.find_factory_by_id(999).is_err());
+        assert!(manager.find_factory_by_name("NonExistent").is_err());
     }
 
     #[test]
     fn test_shader_creation() {
+        let mut manager = ShdDefManager::new();
         let _lock = setup_test();
 
         let factory = Arc::new(MockFactory {
@@ -473,15 +441,16 @@ mod tests {
             name: "CreationTest".to_string(),
         });
 
-        assert!(ShdDefManager::register_factory(factory).is_ok());
+        assert!(manager.register_factory(factory).is_ok());
 
-        let shader_def = ShdDefManager::create_shader_definition(300).unwrap();
+        let shader_def = manager.create_shader_definition(300).unwrap();
         assert_eq!(shader_def.get_class_id(), 300);
         assert_eq!(shader_def.get_name(), "MockShader_300");
     }
 
     #[test]
     fn test_factory_unregistration() {
+        let mut manager = ShdDefManager::new();
         let _lock = setup_test();
 
         let factory = Arc::new(MockFactory {
@@ -489,18 +458,19 @@ mod tests {
             name: "UnregisterTest".to_string(),
         });
 
-        assert!(ShdDefManager::register_factory(factory).is_ok());
-        assert!(ShdDefManager::has_factory(400).unwrap());
+        assert!(manager.register_factory(factory).is_ok());
+        assert!(manager.has_factory(400).unwrap());
 
-        assert!(ShdDefManager::unregister_factory(400).is_ok());
-        assert!(!ShdDefManager::has_factory(400).unwrap());
+        assert!(manager.unregister_factory(400).is_ok());
+        assert!(!manager.has_factory(400).unwrap());
 
         // Test unregistering non-existent factory
-        assert!(ShdDefManager::unregister_factory(999).is_err());
+        assert!(manager.unregister_factory(999).is_err());
     }
 
     #[test]
     fn test_serialization() {
+        let mut manager = ShdDefManager::new();
         let _lock = setup_test();
 
         let factory = Arc::new(MockFactory {
@@ -508,16 +478,16 @@ mod tests {
             name: "SerializationTest".to_string(),
         });
 
-        assert!(ShdDefManager::register_factory(factory).is_ok());
+        assert!(manager.register_factory(factory).is_ok());
 
-        let shader_def = ShdDefManager::create_shader_definition(500).unwrap();
+        let shader_def = manager.create_shader_definition(500).unwrap();
 
         // Test save
         let saved_data = ShaderSerializer::save_shader(shader_def.as_ref()).unwrap();
         assert!(!saved_data.is_empty());
 
         // Test load
-        let loaded_shader = ShaderSerializer::load_shader(&saved_data).unwrap();
+        let loaded_shader = ShaderSerializer::load_shader(&manager, &saved_data).unwrap();
         assert_eq!(loaded_shader.get_class_id(), 500);
     }
 }

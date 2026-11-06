@@ -63,19 +63,21 @@ impl GameLogic {
         }
     }
 
-    pub(in super::super) fn update_ai(
+    pub(crate) fn update_ai(
         &mut self,
         object_ids: &[ObjectId],
         dt: f32,
     ) -> gamelogic::GameLogicResult<()> {
-        self.update_ai_with_effects(
-            object_ids,
-            dt,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
+        self.with_own_services_mut(|this| {
+            this.update_ai_with_effects(
+                object_ids,
+                dt,
+                &mut crate::game_logic::ScriptPresentationEffects::default(),
+            )
+        })
     }
 
-    pub(in super::super) fn update_ai_with_effects(
+    pub(crate) fn update_ai_with_effects(
         &mut self,
         object_ids: &[ObjectId],
         dt: f32,
@@ -898,7 +900,17 @@ impl GameLogic {
                 if final_death_destroy {
                     // CPP SlowDeath/JetSlowDeath/HelicopterSlowDeath finish with
                     // destroyObject; they must not re-enter the onDie latch.
-                    self.destroy_object_with_effects(object_id, presentation_effects)?;
+                    // Preserve the team admitted at lethal for DestructionEvent.killer
+                    // (scoreTheKill already ran; destroy_list fallback still needs credit).
+                    let credit = self
+                        .objects
+                        .get(&object_id)
+                        .and_then(|object| object.deferred_destruction_credit);
+                    self.request_object_destruction_with_effects(
+                        object_id,
+                        credit,
+                        presentation_effects,
+                    )?;
                 } else {
                     // Topple and HeightDie trigger damage/kill. Preserve the
                     // existing structure completion policy separately.
@@ -1008,9 +1020,11 @@ impl GameLogic {
                         && obj.is_constructed()
                         && obj.is_alive() =>
                 {
-                    let is_production_building = obj.template_name.contains("Barracks")
-                        || obj.template_name.contains("WarFactory")
-                        || obj.template_name.contains("ArmsDealer");
+                    // C++ production factories are KINDOF_FS_FACTORY kinds /
+                    // WarFactory/Barracks FS flags — not name peels.
+                    let is_production_building = obj.is_kind_of(KindOf::FSBarracks)
+                        || obj.is_kind_of(KindOf::FSWarFactory)
+                        || obj.is_kind_of(KindOf::FSAirfield);
                     (obj.team, is_production_building)
                 }
                 _ => continue,

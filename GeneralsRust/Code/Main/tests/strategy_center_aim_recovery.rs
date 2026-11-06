@@ -56,7 +56,7 @@ fn live_goal_becoming_stealthed_clears_mood_and_reacquires() {
     }
     let source = logic.host_object(center).unwrap();
     assert_eq!(source.owner_player_id, Some(0));
-    assert!(source.is_constructed() && source.turret_enabled && source.can_attack());
+    assert!(source.is_constructed() && source.turret_ai.turret_enabled && source.can_attack());
     assert_eq!(source.weapon.as_ref().unwrap().damage, 200.0);
     assert!(!source.is_detector);
     let hidden = logic
@@ -65,9 +65,9 @@ fn live_goal_becoming_stealthed_clears_mood_and_reacquires() {
     assert_eq!(logic.player_relationship(0, 1), Relationship::Enemies);
     logic.update();
     let acquired = logic.host_object(center).unwrap();
-    assert!(acquired.turret_mood_target);
+    assert!(acquired.turret_ai.turret_mood_target);
     assert_eq!(acquired.target, Some(hidden));
-    assert_eq!(acquired.turret_target_id, Some(hidden));
+    assert_eq!(acquired.turret_ai.turret_target_id, Some(hidden));
     assert_eq!(acquired.weapon_discharge_marker().sequence, 0);
     assert!(logic.host_object(hidden).unwrap().is_alive());
     assert!(
@@ -102,14 +102,14 @@ fn live_goal_becoming_stealthed_clears_mood_and_reacquires() {
     println!(
         "STRATEGY_RECOVERY_CLEAR {}",
         json!({"next_frame":logic.get_frame(),
-        "target":cleared.target.map(|id|id.0),"turret_target":cleared.turret_target_id.map(|id|id.0),
-        "mood":cleared.turret_mood_target,"ai":format!("{:?}",cleared.ai_state),
+        "target":cleared.target.map(|id|id.0),"turret_target":cleared.turret_ai.turret_target_id.map(|id|id.0),
+        "mood":cleared.turret_ai.turret_mood_target,"ai":format!("{:?}",cleared.ai_state()),
         "hidden_alive":logic.host_object(hidden).unwrap().is_alive(),
         "hidden_stealthed":logic.host_object(hidden).unwrap().is_effectively_stealthed()})
     );
-    assert!(cleared.target.is_none() && cleared.turret_target_id.is_none());
-    assert!(!cleared.turret_mood_target);
-    assert_eq!(cleared.ai_state, AIState::Idle);
+    assert!(cleared.target.is_none() && cleared.turret_ai.turret_target_id.is_none());
+    assert!(!cleared.turret_ai.turret_mood_target);
+    assert_eq!(cleared.ai_state(), AIState::Idle);
     assert_eq!(cleared.weapon_discharge_marker().sequence, 0);
     assert!(logic.battle_plans().turret_mood_target_clear_count() >= 1);
 
@@ -132,9 +132,9 @@ fn live_goal_becoming_stealthed_clears_mood_and_reacquires() {
         logic.update();
         let source = logic.host_object(center).unwrap();
         let victim = logic.host_object(replacement).unwrap();
-        if source.turret_mood_target
+        if source.turret_ai.turret_mood_target
             && source.target == Some(replacement)
-            && source.turret_target_id == Some(replacement)
+            && source.turret_ai.turret_target_id == Some(replacement)
         {
             reacquired = true;
         }
@@ -146,9 +146,9 @@ fn live_goal_becoming_stealthed_clears_mood_and_reacquires() {
         }
         println!(
             "STRATEGY_RECOVERY_TRACE {}",
-            json!({"frame":frame,"mood":source.turret_mood_target,
-            "target":source.target.map(|id|id.0),"turret_target":source.turret_target_id.map(|id|id.0),
-            "yaw":source.turret_angle_deg,"substate":format!("{:?}",source.turret_substate),
+            json!({"frame":frame,"mood":source.turret_ai.turret_mood_target,
+            "target":source.target.map(|id|id.0),"turret_target":source.turret_ai.turret_target_id.map(|id|id.0),
+            "yaw":source.turret_ai.turret_angle_deg,"substate":format!("{:?}",source.turret_ai.turret_substate),
             "sequence":source.weapon_discharge_marker().sequence,"replacement_health":victim.health.current,
             "hidden_health":logic.host_object(hidden).unwrap().health.current})
         );

@@ -28,6 +28,7 @@ impl<'a> CommandExecutor<'a> {
         create_new: bool,
         units: &[ObjectId],
     ) -> CommandResult {
+        let _bind = self.bind_services();
         // Selection is controlled by player identity; faction equality is not
         // ownership in a same-faction skirmish.
         if self.game_logic.get_player(player_id).is_none() {
@@ -58,6 +59,7 @@ impl<'a> CommandExecutor<'a> {
     }
 
     pub(super) fn execute_destroy_group(&mut self, player_id: u32, team_id: u32) -> CommandResult {
+        let _bind = self.bind_services();
         let Some(player) = self.game_logic.get_player_mut(player_id) else {
             return CommandResult::InvalidCommand;
         };
@@ -75,6 +77,7 @@ impl<'a> CommandExecutor<'a> {
         player_id: u32,
         units: &[ObjectId],
     ) -> CommandResult {
+        let _bind = self.bind_services();
         if let Some(player) = self.game_logic.get_player_mut(player_id) {
             for &unit_id in units {
                 player.selected_objects.retain(|&id| id != unit_id);
@@ -86,6 +89,7 @@ impl<'a> CommandExecutor<'a> {
     }
 
     pub(super) fn execute_view_command_center(&mut self) -> CommandResult {
+        let _bind = self.bind_services();
         if let Some(position) = self
             .game_logic
             .player_command_center_position(self.current_player_id)

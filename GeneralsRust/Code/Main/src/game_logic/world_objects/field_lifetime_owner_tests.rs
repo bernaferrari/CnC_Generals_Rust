@@ -35,7 +35,7 @@ fn install_expiry_witness() -> std::sync::mpsc::Receiver<gamelogic::helpers::Hos
     let (send, receive) = std::sync::mpsc::channel();
     let mut fx = game_client::fx_list::FXList::new();
     fx.add_fx_nugget(Box::new(ExpiryWitness(send)));
-    game_client::fx_list::get_fx_list_store_mut().add_fx_list("OwnedFieldExpiryWitness".into(), fx);
+    game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list("OwnedFieldExpiryWitness".into(), fx); });
     receive
 }
 

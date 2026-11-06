@@ -49,9 +49,13 @@ pub struct GameClient {
     pub(crate) campaign_manager: crate::gui::campaign_manager::CampaignManager,
     pub(crate) menu_host: crate::gui::campaign_launch_host_bridge::MenuHostMailbox,
     pub(crate) script_display: crate::core::script_action_handler::ScriptDisplayReceiver,
+    pub(crate) script_runtime: crate::core::script_action_runtime::ScriptActionRuntime,
+    pub(crate) draw_schedule: crate::display::client_draw_schedule::ClientDrawScheduleState,
     pub(crate) main_menu: crate::gui::shell::main_menu::MainMenu,
     pub(crate) menu_manager: crate::gui::callbacks::menu_callbacks::MenuManager,
     message_stream: crate::message_stream::message_stream::MessageStream,
+    /// Parsed CommandMap / MetaEvent key bindings (C++ TheMetaMap).
+    pub(crate) meta_map: crate::message_stream::meta_event::MetaMap,
     /// Fixed at inert construction; never inferred from a global registry.
     input_authority: ClientInputAuthority,
     /// C++ shell-game load-screen first-load latch for this receiving client.
@@ -70,6 +74,47 @@ pub struct GameClient {
     command_hints: crate::gui::command_hints::CommandHintState,
     owned_world_animations: OwnedWorldAnimations,
     receiving_ui_images: Option<crate::display::image::ImageCollection>,
+    mapped_image_collection: Option<std::sync::Arc<parking_lot::RwLock<crate::display::image::ImageCollection>>>,
+    fx_list_store: Option<std::sync::Arc<std::sync::RwLock<crate::fx_list::FXListStore>>>,
+    weather_setting: Option<std::sync::Arc<std::sync::RwLock<crate::snow::WeatherSetting>>>,
+    snow_manager: Option<std::sync::Arc<std::sync::Mutex<crate::snow::SnowManager>>>,
+    draw_group_info: Option<std::sync::Arc<std::sync::RwLock<crate::draw_group_info::DrawGroupInfo>>>,
+    game_text_store: Option<std::sync::Arc<std::sync::RwLock<crate::game_text::GameText>>>,
+    global_language_data: Option<std::sync::Arc<std::sync::RwLock<crate::global_language::GlobalLanguageData>>>,
+    language_filter: Option<std::sync::Arc<std::sync::RwLock<crate::language_filter::LanguageFilter>>>,
+    smudge_manager: Option<std::sync::Arc<std::sync::Mutex<crate::system::smudge::SmudgeManager>>>,
+    header_template_manager: Option<std::sync::Arc<std::sync::Mutex<crate::gui::header_template::HeaderTemplateManager>>>,
+    translator_presentation_residual: Option<std::sync::Arc<std::sync::RwLock<crate::presentation_translator_residual::TranslatorPresentationResidual>>>,
+    mouse: Option<std::sync::Arc<std::sync::Mutex<crate::input::mouse::Mouse>>>,
+    lan_setup: Option<std::sync::Arc<std::sync::Mutex<crate::gui::lan_setup::LanSetup>>>,
+    host_command_authority: Option<std::sync::Arc<dyn Fn(&[crate::message_stream::game_message::GameMessage]) + Send + Sync>>,
+    font_library: Option<std::sync::Arc<std::sync::Mutex<crate::gui::font::FontLibrary>>>,
+    /// C++ `TheTacticalView` — owned per receiving client.
+    pub(crate) tactical_view: crate::display::view::View,
+    /// Move/locator hint drawable cache for this client's tactical view.
+    pub(crate) hint_model_cache: crate::display::view::HintModelCache,
+    /// C++ `TheDisplay->isLetterBoxed()` as seen by W3DView::buildCameraTransform.
+    pub(crate) display_letter_boxed: bool,
+    /// Per-frame unit shadow casters + GUI-thread GPU pipelines for this client.
+    pub(crate) shadow_pass: crate::display::shadow_pass::ShadowPassState,
+    /// Resolved terrain texture path caches for this client.
+    pub(crate) terrain_texture_caches: crate::terrain::textures::TerrainTextureCaches,
+    /// C++ `TheTerrainVisual` GPU impl — owned per receiving client (was process lazy_static).
+    pub(crate) terrain_visual_gpu: std::sync::Arc<
+        std::sync::Mutex<Option<crate::terrain::terrain_visual::TerrainVisualImpl>>,
+    >,
+    fx_next_id: std::sync::atomic::AtomicU64,
+    render_bridge_next_line_id: std::sync::atomic::AtomicU64,
+    win_draw_image_commands: std::sync::atomic::AtomicUsize,
+    shipped_ui_draw_commands: std::sync::atomic::AtomicUsize,
+    text_entry_draw_cnt: std::sync::atomic::AtomicU8,
+    asset_id_counter: std::sync::atomic::AtomicU64,
+    device_id_counter: std::sync::atomic::AtomicU64,
+    supply_and_tech_images: Option<std::sync::Arc<std::sync::Mutex<crate::map_util::TechAndSupplyImages>>>,
+    map_cache_manager: Option<std::sync::Arc<std::sync::Mutex<crate::map_util::MapCache>>>,
+    video_player_slot: Option<std::sync::Arc<std::sync::Mutex<Option<crate::video_player::VideoPlayer>>>>,
+    video_stream_provider_slot: Option<std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<dyn crate::video_player::VideoStreamProvider>>>>>,
+    startup_shell_image_reported: std::collections::HashSet<String>,
     /// DrawIconUI admitted from the driving Main session before native draw.
     receiving_draw_icon_ui: bool,
     snow: crate::snow::SnowManager,
@@ -114,9 +159,17 @@ pub struct GameClient {
     /// Drawable inventory for this receiving GameClient. The process-global
     /// manager remains only for standalone compatibility callers.
     drawable_manager: crate::drawable::DrawableManager,
+    /// Wave 984 host residual: flash contained presentation drawables on select.
+    host_contained_flash_queue: Vec<u32>,
+    /// C++ TheAnim2DCollection residual.
+    client_anim2d_instances: std::sync::Arc<parking_lot::Mutex<crate::system::anim2_d::Anim2DCollection>>,
+
+    /// Stable identity of this client's live-slot registration (0 = none). It
+    /// travels with the value across moves, unlike its address.
+    pub(crate) live_slot_token: u64,
 
     // Drawable management
-    drawables: drawable_world::DrawableWorld,
+    pub(crate) drawables: drawable_world::DrawableWorld,
     /// Drawable snapshot IDs in successful native Xfer visitation order.
     /// `None` means no completed restore is awaiting Drawable postprocessing.
     pub(crate) pending_drawable_post_process_order:

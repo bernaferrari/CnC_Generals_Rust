@@ -835,6 +835,14 @@ impl PresentationFrame {
                 obj.turret_pitch_deg = ent.turret_pitch_deg;
                 dirty = true;
             }
+            if (obj.alt_turret_angle_deg - ent.alt_turret_angle_deg).abs() > 1e-3 {
+                obj.alt_turret_angle_deg = ent.alt_turret_angle_deg;
+                dirty = true;
+            }
+            if (obj.alt_turret_pitch_deg - ent.alt_turret_pitch_deg).abs() > 1e-3 {
+                obj.alt_turret_pitch_deg = ent.alt_turret_pitch_deg;
+                dirty = true;
+            }
             if obj.turret_idle_scanning != ent.turret_idle_scanning {
                 obj.turret_idle_scanning = ent.turret_idle_scanning;
                 dirty = true;
@@ -1753,6 +1761,8 @@ impl PresentationFrame {
             // Wave 490: turret presentation from GW entity.
             turret_angle_deg: ent.turret_angle_deg,
             turret_pitch_deg: ent.turret_pitch_deg,
+            alt_turret_angle_deg: ent.alt_turret_angle_deg,
+            alt_turret_pitch_deg: ent.alt_turret_pitch_deg,
             turret_idle_scanning: ent.turret_idle_scanning,
             weapon_bonus_enthusiastic: ent.weapon_bonus_enthusiastic,
             weapon_bonus_subliminal: ent.weapon_bonus_subliminal,

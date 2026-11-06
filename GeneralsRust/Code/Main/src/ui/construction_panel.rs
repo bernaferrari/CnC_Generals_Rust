@@ -1093,7 +1093,7 @@ mod tests {
     fn test_placement_preview() {
         let mut preview = PlacementPreview::default();
         assert!(!preview.is_active());
-        preview.start("AmericaBarracks", "Barracks", 500);
+        preview.start("AmericaBarracks", "Barracks", 500, 0.0, (0.0, 0.0));
         assert!(preview.is_active());
         assert_eq!(preview.template_name, "AmericaBarracks");
         assert_eq!(preview.cost, 500);

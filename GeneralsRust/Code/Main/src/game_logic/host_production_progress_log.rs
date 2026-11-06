@@ -45,8 +45,16 @@ pub struct HostProductionProgressEvent {
     pub exit_delay_only: bool,
 }
 
-thread_local! {
-    static LOG: RefCell<Vec<HostProductionProgressEvent>> = RefCell::new(Vec::new());
+
+
+
+fn with_log_mut<R>(f: impl FnOnce(&mut Vec<HostProductionProgressEvent>) -> R) -> R {
+    let services = crate::main_services::main_services();
+    let mut log = services
+        .host_production_progress_log
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    f(&mut log)
 }
 
 pub fn record(
@@ -78,8 +86,8 @@ pub fn record_with_exit_state(
     exit_state: ProductionExitRuntimeState,
     power_factor: f32,
 ) {
-    LOG.with(|log| {
-        log.borrow_mut().push(HostProductionProgressEvent {
+    with_log_mut(|log| {
+        log.push(HostProductionProgressEvent {
             producer,
             items,
             exit_delay_remaining: exit_delay_remaining.max(0.0),
@@ -95,8 +103,8 @@ pub fn record_with_exit_state(
 
 /// Wave 477: sole-tick residual — publish host power factor without queue stomp.
 pub fn record_power_factor_only(producer: ObjectId, power_factor: f32) {
-    LOG.with(|log| {
-        log.borrow_mut().push(HostProductionProgressEvent {
+    with_log_mut(|log| {
+        log.push(HostProductionProgressEvent {
             producer,
             items: Vec::new(),
             exit_delay_remaining: 0.0,
@@ -112,8 +120,8 @@ pub fn record_power_factor_only(producer: ObjectId, power_factor: f32) {
 
 /// Wave 480: sole-tick residual — arm factory exit delay after a unit exits.
 pub fn record_exit_delay_only(producer: ObjectId, exit_delay_remaining: f32) {
-    LOG.with(|log| {
-        log.borrow_mut().push(HostProductionProgressEvent {
+    with_log_mut(|log| {
+        log.push(HostProductionProgressEvent {
             producer,
             items: Vec::new(),
             exit_delay_remaining: exit_delay_remaining.max(0.0),
@@ -135,8 +143,8 @@ pub fn record_exit_runtime_only(
     exit_delay_remaining: f32,
     exit_state: ProductionExitRuntimeState,
 ) {
-    LOG.with(|log| {
-        log.borrow_mut().push(HostProductionProgressEvent {
+    with_log_mut(|log| {
+        log.push(HostProductionProgressEvent {
             producer,
             items: Vec::new(),
             exit_delay_remaining: exit_delay_remaining.max(0.0),
@@ -151,13 +159,13 @@ pub fn record_exit_runtime_only(
 }
 
 pub fn drain() -> Vec<HostProductionProgressEvent> {
-    LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
+    with_log_mut(std::mem::take)
 }
 
 pub fn clear() {
-    LOG.with(|log| log.borrow_mut().clear());
+    with_log_mut(|log| log.clear());
 }
 
 pub fn len() -> usize {
-    LOG.with(|log| log.borrow().len())
+    with_log_mut(|log| log.len())
 }

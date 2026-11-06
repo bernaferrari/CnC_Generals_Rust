@@ -95,7 +95,7 @@ mod tests {
         };
         object.parachute_attachments = Some(state.clone());
         let modules =
-            super::super::entity_lifecycle_inventory::collect_module_states(&object).unwrap();
+            super::super::entity_lifecycle_inventory::collect_module_states(&object, None).unwrap();
         let mut loaded = Object::new(
             ThingTemplate::new("SourceParaCache"),
             ObjectId(44),

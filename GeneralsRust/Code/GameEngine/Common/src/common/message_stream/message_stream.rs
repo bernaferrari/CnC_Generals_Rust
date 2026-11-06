@@ -73,28 +73,32 @@ pub enum GameMessageDisposition {
     DestroyMessage,
 }
 
-type CommandListAppendFn = dyn Fn(Vec<GameMessage>) + Send + Sync + 'static;
-
-static COMMAND_LIST_APPEND_FN: std::sync::Mutex<Option<Box<CommandListAppendFn>>> =
-    std::sync::Mutex::new(None);
+/// Append sink for survivors of `propagateMessages` (was process COMMAND_LIST_APPEND_FN).
+pub type CommandListAppendFn = dyn Fn(Vec<GameMessage>) + Send + Sync + 'static;
 
 /// Register the live `TheCommandList::appendMessageList` sink.
 /// C++ `MessageStream::propagateMessages` (MessageStream.cpp:1086) transfers
 /// survivors to `TheCommandList` after every translator pass.
 pub fn register_command_list_append(append_fn: impl Fn(Vec<GameMessage>) + Send + Sync + 'static) {
-    if let Ok(mut slot) = COMMAND_LIST_APPEND_FN.lock() {
-        *slot = Some(Box::new(append_fn));
-    }
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .command_list_append
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    *slot = Some(Box::new(append_fn));
 }
 
 fn deliver_surviving_messages_to_command_list(messages: &[GameMessage]) {
     if messages.is_empty() {
         return;
     }
-    if let Ok(slot) = COMMAND_LIST_APPEND_FN.lock() {
-        if let Some(append_fn) = slot.as_ref() {
-            append_fn(messages.to_vec());
-        }
+    let services = crate::common::common_services::common_services();
+    let slot = services
+        .command_list_append
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if let Some(append_fn) = slot.as_ref() {
+        append_fn(messages.to_vec());
     }
 }
 
@@ -1000,6 +1004,23 @@ mod tests {
         assert!(stream_contains_message_type(&GameMessageType::Invalid).unwrap());
         assert!(!stream_contains_message_type(&GameMessageType::NewGame).unwrap());
     }
+    #[test]
+    fn meta_demo_instant_quit_appends_to_stream_like_winmain() {
+        // hq-x14su / C++ WinMain.cpp:361,373 append MSG_META_DEMO_INSTANT_QUIT.
+        // Platform push_message maps MetaInstantQuit -> MetaDemoInstantQuit via
+        // append_message_to_stream; this proves the stream receives it.
+        let stream = get_message_stream();
+        {
+            let mut guard = stream.write().unwrap();
+            *guard = MessageStream::new();
+        }
+        assert!(append_message_to_stream(GameMessageType::MetaDemoInstantQuit).is_ok());
+        assert!(
+            stream_contains_message_type(&GameMessageType::MetaDemoInstantQuit).unwrap(),
+            "close/session-end must deliver MetaDemoInstantQuit onto the stream"
+        );
+    }
+
 
     #[test]
     fn test_message_insertion() {
@@ -1186,9 +1207,14 @@ mod tests {
             return;
         }
         use std::sync::Mutex;
-        static DELIVERED: Mutex<Vec<GameMessageType>> = Mutex::new(Vec::new());
+        struct DeliveredSlot(Mutex<Vec<GameMessageType>>);
+        impl std::ops::Deref for DeliveredSlot {
+            type Target = Mutex<Vec<GameMessageType>>;
+            fn deref(&self) -> &Self::Target { &self.0 }
+        }
+        static DELIVERED: DeliveredSlot = DeliveredSlot(Mutex::new(Vec::new()));
         {
-            let mut delivered = DELIVERED.lock().unwrap();
+            let mut delivered = DELIVERED.0.lock().unwrap();
             delivered.clear();
         }
         register_command_list_append(|messages| {
@@ -1202,7 +1228,7 @@ mod tests {
         stream.append_message(GameMessageType::Invalid);
         let _ = stream.propagate_messages().unwrap();
 
-        let delivered = DELIVERED.lock().unwrap().clone();
+        let delivered = DELIVERED.0.lock().unwrap().clone();
         assert_eq!(delivered, vec![GameMessageType::Invalid]);
         register_command_list_append(|_| {});
     }

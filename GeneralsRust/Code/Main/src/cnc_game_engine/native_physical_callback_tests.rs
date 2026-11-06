@@ -85,24 +85,17 @@ impl NativeViewEffects for DestructionProbe<'_, '_> {
 #[test]
 #[ignore = "requires native WGPU; explicit isolated physical callback acceptance"]
 fn actual_native_destructor_observes_unregistered_object_and_terminal_service_failure() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        let mut graphics = GraphicsSystem::new(
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     graphics.cache_model(
@@ -110,8 +103,8 @@ fn actual_native_destructor_observes_unregistered_object_and_terminal_service_fa
         model("CameraModel", 0.),
     );
     for fail in [false, true] {
-        let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
-        let mut peer_pipeline = RenderPipeline::initialize(&graphics).unwrap();
+        let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
+        let mut peer_pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
         let mut client = GameClient::new().unwrap();
         let mut peer_client = GameClient::new().unwrap();
         let mut world = physical_retirement_world();
@@ -183,7 +176,7 @@ fn actual_native_destructor_observes_unregistered_object_and_terminal_service_fa
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(runtime),
                         ..Default::default()
-                    },
+},
                 );
             },
         );
@@ -214,7 +207,7 @@ fn actual_native_destructor_observes_unregistered_object_and_terminal_service_fa
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut probe),
                     ..Default::default()
-                },
+},
             );
             assert_eq!(probe.calls, 1);
             assert_eq!(result.is_err(), fail);
@@ -246,7 +239,7 @@ fn actual_native_destructor_observes_unregistered_object_and_terminal_service_fa
                             &mut crate::game_logic::ScriptPresentationEffects {
                                 view: Some(&mut probe),
                                 ..Default::default()
-                            }
+}
                         )
                         .is_err()
                 );
@@ -301,7 +294,7 @@ fn actual_native_destructor_observes_unregistered_object_and_terminal_service_fa
                                 &mut crate::game_logic::ScriptPresentationEffects {
                                     view: Some(&mut *runtime),
                                     ..Default::default()
-                                }
+}
                             )
                             .is_err(),
                         "terminal session cannot admit another factory operation"
@@ -329,13 +322,13 @@ fn actual_native_destructor_observes_unregistered_object_and_terminal_service_fa
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 );
                 peer.process_destroy_list_with_effects_checked(
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             },
@@ -363,14 +356,14 @@ fn actual_native_destructor_observes_unregistered_object_and_terminal_service_fa
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 );
                 fresh
                     .process_destroy_list_with_effects_checked(
                         &mut crate::game_logic::ScriptPresentationEffects {
                             view: Some(&mut *runtime),
                             ..Default::default()
-                        },
+},
                     )
                     .unwrap();
             },
@@ -435,33 +428,26 @@ fn actual_team_creation_panic_retains_exact_team_partial_native_life_and_peer() 
     use gamelogic::scripting::core::{
         Parameter, ParameterType, Script, ScriptAction, ScriptActionType, ScriptList,
     };
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        let mut graphics = GraphicsSystem::new(
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     graphics.cache_model(
         crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
         model("CameraModel", 0.),
     );
-    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut client = GameClient::new().unwrap();
-    let mut peer_pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut peer_pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut peer_client = GameClient::new().unwrap();
     let mut world = physical_retirement_world();
     let mut peer = physical_retirement_world();
@@ -542,7 +528,7 @@ fn actual_team_creation_panic_retains_exact_team_partial_native_life_and_peer() 
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut service),
                         ..Default::default()
-                    },
+},
                 )
             }));
             assert!(result.is_err());
