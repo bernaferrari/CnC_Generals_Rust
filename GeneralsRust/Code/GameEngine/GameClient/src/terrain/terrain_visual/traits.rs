@@ -243,7 +243,20 @@ impl TerrainVisualImpl {
                 None => self.update_tree_meshes(),
             }
         }
-        self.time += 1.0 / 30.0;
+        // C++ W3DDisplay::draw: syncTime += TheW3DFrameLengthInMsec only when
+        // the client frame advanced and time is not frozen/paused. Without a
+        // frame observation (standalone client views) every draw is a frame.
+        match motion {
+            Some(motion) => {
+                if !motion.paused && self.last_animation_frame != Some(motion.frame) {
+                    if self.last_animation_frame.is_some() {
+                        self.time += 1.0 / 30.0;
+                    }
+                    self.last_animation_frame = Some(motion.frame);
+                }
+            }
+            None => self.time += 1.0 / 30.0,
+        }
 
         let view_proj = *projection_matrix * *view_matrix;
         let camera_inverse = view_matrix.inverse();
@@ -439,6 +452,8 @@ impl TreeGpuVertex {
 #[derive(Debug, Clone, Copy)]
 pub struct TerrainVisualMotion {
     pub paused: bool,
+    /// Logic frame of the observation (see `TerrainVisualImpl::time`).
+    pub frame: u32,
     pub breeze: crate::terrain::BreezeInfo,
     pub gravity: f32,
 }
@@ -470,18 +485,35 @@ impl TerrainVisualImpl {
 
         let water_started = std::time::Instant::now();
         self.water_system.update()?;
-        match motion {
-            Some(motion) => self.simulate_water_grid_with_gravity(motion.gravity),
-            None => self.simulate_water_grid(1.0 / 30.0),
+        // C++ runs W3DTerrainVisual::update once per GameClient::update (one
+        // client frame, which keeps running while the game is paused). The
+        // port draws more often than that, so a client frame is a new logic
+        // frame, or any draw while paused. The water grid itself only steps
+        // when the logic frame changed (W3DWater.cpp lastLogicFrame check).
+        let (client_frame, new_logic_frame) = match motion {
+            Some(motion) => {
+                let new_frame = self.last_water_frame != Some(motion.frame);
+                self.last_water_frame = Some(motion.frame);
+                (new_frame || motion.paused, new_frame)
+            }
+            None => (true, true),
+        };
+        if new_logic_frame {
+            match motion {
+                Some(motion) => self.simulate_water_grid_with_gravity(motion.gravity),
+                None => self.simulate_water_grid(1.0 / 30.0),
+            }
         }
-        // C++ WaterRenderObjClass::update (W3DWater.cpp:1201) accumulates
-        // m_riverVOrigin without wrapping; the wave phases (sin(25v + x),
-        // cos(11v)) would visibly pop on every wrap.
-        self.overlay.river_v_origin += 0.002;
-        // C++ rebuilds the trapezoid/river vertex buffers every draw with the
-        // current phase; rebake so polygon water actually scrolls/wobbles.
-        if let Some(device) = self.device.clone() {
-            let _ = self.sync_polygon_water_meshes(device.as_ref());
+        if client_frame {
+            // C++ WaterRenderObjClass::update (W3DWater.cpp:1201) accumulates
+            // m_riverVOrigin without wrapping; the wave phases (sin(25v + x),
+            // cos(11v)) would visibly pop on every wrap.
+            self.overlay.river_v_origin += 0.002;
+            // C++ rebuilds the trapezoid/river vertex buffers every draw with
+            // the current phase; rebake so polygon water scrolls/wobbles.
+            if let Some(device) = self.device.clone() {
+                let _ = self.sync_polygon_water_meshes(device.as_ref());
+            }
         }
         self.overlay.cloud_map.update(1000.0 / 30.0);
         // C++ GameClient.cpp:560 is the only SnowManager::UPDATE; TerrainVisual
@@ -595,6 +627,7 @@ mod native_motion_owner_tests {
         let mut first = water_owner();
         let mut second = water_owner();
         let motion = |gravity| TerrainVisualMotion {
+            frame: 0,
             paused: false,
             gravity,
             breeze: Default::default(),

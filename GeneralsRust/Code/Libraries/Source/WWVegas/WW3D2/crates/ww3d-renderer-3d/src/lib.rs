@@ -648,15 +648,10 @@ impl Renderer {
             current
         };
         let mesh_manager = &mut self.mesh_render_manager;
-        // C++ W3DDisplay.cpp:1840 TheW3DProjectedShadowManager->updateRenderTargetTextures()
-        // DoShadows walks scene casters; if the dedicated shadow queue is empty
-        // (live lights default casts_shadows=false), fill from opaque meshes.
-        let cascade_casters = if prepared.shadow_casters.is_empty() {
-            &prepared.opaque
-        } else {
-            &prepared.shadow_casters
-        };
-        mesh_manager.update_and_fill_live_cascade(targets.encoder, info, cascade_casters);
+        // C++ has no shadow map: W3D meshes are lit by ambient + lights only;
+        // unit shadows are stencil volumes / projected decals drawn over the
+        // frame (W3DShadowManager). The former live cascade (4 depth passes
+        // and a PCF term in opaque.wgsl) is gone (renderer plan R9 / G8).
 
         let load_op = clear_color
             .map(wgpu::LoadOp::Clear)
@@ -750,9 +745,7 @@ impl Renderer {
             render_info,
             Some(animation_input),
         );
-        for _ in 0..=self.mesh_render_manager.last_cascade_passes() {
-            frame.note_render_pass();
-        }
+        frame.note_render_pass();
         result
     }
 

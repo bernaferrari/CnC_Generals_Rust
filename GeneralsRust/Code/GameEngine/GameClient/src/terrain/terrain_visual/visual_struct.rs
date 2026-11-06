@@ -113,6 +113,10 @@ pub struct TerrainVisualImpl {
     fog_end: f32,
     /// Accumulated time for simple day/night effects
     time: f32,
+    /// Last logic frame that advanced `time` (C++ syncTime freeze rule).
+    last_animation_frame: Option<u32>,
+    /// Last logic frame the water update ran for (one client frame each).
+    last_water_frame: Option<u32>,
 
     /// WGPU rendering resources
     device: Option<Arc<wgpu::Device>>,

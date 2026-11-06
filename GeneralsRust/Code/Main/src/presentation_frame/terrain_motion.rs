@@ -4,6 +4,9 @@ use super::*;
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PresentationTerrainMotion {
     pub paused: bool,
+    /// Logic frame this observation was taken on (drives the C++ W3DDisplay
+    /// `syncTime` step: one frame length per new frame, frozen when paused).
+    pub frame: u32,
     pub gravity: f32,
     pub breeze: Option<PresentationTreeBreeze>,
 }
@@ -20,6 +23,7 @@ impl Default for PresentationTerrainMotion {
     fn default() -> Self {
         Self {
             paused: false,
+            frame: 0,
             gravity: -1.0,
             breeze: None,
         }
@@ -41,6 +45,7 @@ impl PresentationTerrainMotion {
         });
         Self {
             paused: logic.is_paused() || engine.is_some_and(|engine| engine.is_time_frozen()),
+            frame: logic.get_frame(),
             gravity: logic.physics_definitions.effective.gravity,
             breeze,
         }
@@ -54,6 +59,7 @@ impl PresentationTerrainMotion {
             .ok_or("native terrain requires its receiving ScriptEngine observation")?;
         Ok(game_client::terrain::terrain_visual::TerrainVisualMotion {
             paused: self.paused,
+            frame: self.frame,
             gravity: self.gravity,
             breeze: game_client::terrain::BreezeInfo {
                 breeze_version: info.version,

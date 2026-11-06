@@ -686,8 +686,8 @@ impl DrawableDrawPipeline {
         self.failed_textures.clear();
     }
 
-    /// Upload decoded RGBA8 pixels as `Rgba8UnormSrgb` (the lane's sRGB
-    /// contract) and cache the resulting bind group under `key`.
+    /// Upload decoded RGBA8 pixels as `Rgba8Unorm` (gamma-space, renderer
+    /// plan R8) and cache the resulting bind group under `key`.
     fn upload_texture_pixels(&mut self, key: &str, pixels: &DecodedTexturePixels) -> bool {
         if pixels.rgba.is_empty() || pixels.width == 0 || pixels.height == 0 {
             return false;

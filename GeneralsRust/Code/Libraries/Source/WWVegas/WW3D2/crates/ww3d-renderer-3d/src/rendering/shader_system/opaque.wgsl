@@ -566,94 +566,10 @@ fn luminance(color: vec3<f32>) -> f32 {
     return dot(color, vec3<f32>(0.2126, 0.7152, 0.0722));
 }
 
-/// Projected / contact shadow for the live forward pass.
-///
-/// Used when the cascade map is empty (`cascade_shadow.params.w < 0.5`).
-/// Blob discs remain the last-resort overlay fallback.
-fn sample_projected_shadow(world_pos: vec3<f32>, world_normal: vec3<f32>) -> f32 {
-    var sun_dir = vec3<f32>(0.35, -0.85, 0.35);
-    if lighting.light_meta.x >= 1.0 {
-        let light = lighting.lights[0];
-        if length(light.direction.xyz) > 0.001 {
-            sun_dir = safe_normalize(light.direction.xyz);
-        }
-    }
-    let n_dot_l = max(dot(world_normal, -sun_dir), 0.0);
-    // Height-aware contact: darken near the planted pose so meshes do not hover.
-    let ground_contact = clamp(1.0 - world_pos.y * 0.08, 0.35, 1.0);
-    let lit = mix(0.45, 1.0, n_dot_l);
-    return clamp(lit * ground_contact, 0.35, 1.0);
-}
-
-fn cascade_view_proj(index: i32) -> mat4x4<f32> {
-    if index <= 0 {
-        return cascade_shadow.view_proj0;
-    }
-    if index == 1 {
-        return cascade_shadow.view_proj1;
-    }
-    if index == 2 {
-        return cascade_shadow.view_proj2;
-    }
-    return cascade_shadow.view_proj3;
-}
-
-/// 3x3 PCF sample of the live cascade depth array.
-fn sample_csm_pcf(world_pos: vec3<f32>) -> f32 {
-    let cascade_count = i32(clamp(cascade_shadow.params.x, 1.0, 4.0));
-    var cascade_index = cascade_count - 1;
-    let view_depth = length(world_pos - camera.eye_position.xyz);
-    for (var i = 0; i < cascade_count; i = i + 1) {
-        if view_depth <= cascade_shadow.splits[i] {
-            cascade_index = i;
-            break;
-        }
-    }
-
-    let light_clip = cascade_view_proj(cascade_index) * vec4<f32>(world_pos, 1.0);
-    if abs(light_clip.w) < 1e-5 {
-        return 1.0;
-    }
-    var shadow_coord = light_clip.xyz / light_clip.w;
-    shadow_coord = vec3<f32>(
-        shadow_coord.x * 0.5 + 0.5,
-        -shadow_coord.y * 0.5 + 0.5,
-        shadow_coord.z
-    );
-    if shadow_coord.x < 0.0 || shadow_coord.x > 1.0
-        || shadow_coord.y < 0.0 || shadow_coord.y > 1.0
-        || shadow_coord.z < 0.0 || shadow_coord.z > 1.0
-    {
-        return 1.0;
-    }
-
-    let texel = max(cascade_shadow.params.y, 1.0 / 1024.0);
-    let bias = cascade_shadow.params.z;
-    // textureSampleCompare array index must be an integer scalar (naga/wgpu reject f32).
-    let layer: i32 = cascade_index;
-    var accum = 0.0;
-    for (var y = -1; y <= 1; y = y + 1) {
-        for (var x = -1; x <= 1; x = x + 1) {
-            let uv = shadow_coord.xy + vec2<f32>(f32(x), f32(y)) * texel;
-            accum = accum + textureSampleCompare(
-                cascade_shadow_map,
-                cascade_shadow_sampler,
-                uv,
-                layer,
-                shadow_coord.z - bias
-            );
-        }
-    }
-    return accum / 9.0;
-}
-
-/// Live shadow: CSM/PCF when the map is filled, else projected contact.
+/// W3D mesh lighting has no shadow term (C++ shadows are stencil volumes and
+/// projected decals composited over the frame), so lights are never occluded.
 fn sample_live_shadow(world_pos: vec3<f32>, world_normal: vec3<f32>) -> f32 {
-    let projected = sample_projected_shadow(world_pos, world_normal);
-    if cascade_shadow.params.w < 0.5 {
-        return projected;
-    }
-    return sample_csm_pcf(world_pos);
+    return 1.0;
 }
 
 fn safe_normalize(value: vec3<f32>) -> vec3<f32> {
