@@ -740,34 +740,6 @@
       "constructs": 1,
       "undocumented": 0
     },
-    "Code/Main/src/bin/ai_retail_skirmish_gate.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/Main/src/bin/boot_shell_menu_gate.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/Main/src/bin/lone_eagle_bench.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/Main/src/bin/player_orders_gate.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/Main/src/bin/present_frame_gate.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Main/src/bin/retail_save_load_gate.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/Main/src/bin/retail_skirmish_map_gate.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
     "Code/Main/src/cnc_game_engine/selection_hud.rs": {
       "constructs": 4,
       "undocumented": 0
@@ -818,10 +790,6 @@
     },
     "Code/Main/src/win_main.rs": {
       "constructs": 18,
-      "undocumented": 0
-    },
-    "Code/Main/tests/common/retail_gate.rs": {
-      "constructs": 1,
       "undocumented": 0
     },
     "Code/Main/tests/crc_validation_test.rs": {
