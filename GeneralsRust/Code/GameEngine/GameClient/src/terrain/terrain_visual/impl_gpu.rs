@@ -239,6 +239,7 @@ impl TerrainVisualImpl {
                         chunk_base_colors,
                     );
                 let mut vertex_weights = Vec::with_capacity(gpu_vertices.len());
+                let mut cell_flips: Vec<bool> = Vec::with_capacity(gpu_vertices.len());
                 for (vertex, center) in gpu_vertices.iter().zip(&cell_centers) {
                     let position =
                         Vec3::new(vertex.position[0], vertex.position[1], vertex.position[2]);
@@ -322,7 +323,10 @@ impl TerrainVisualImpl {
                                     // flat 50/50 painted band-shaped 50%
                                     // stripes on every blend edge.
                                     let alpha = blend
-                                        .map(|flags| directional_blend_alpha(flags, frac_x, frac_y))
+                                        .map(|flags| {
+                                            cpp_blend_corner_alpha(flags).0
+                                                [cell_corner(frac_x, frac_y)]
+                                        })
                                         .unwrap_or(0.5);
                                     TextureWeights::blend_two(a, b, (1.0 - alpha).clamp(0.0, 1.0))
                                 }
@@ -361,6 +365,24 @@ impl TerrainVisualImpl {
                     };
 
                     vertex_weights.push(blended);
+                    // C++ getAlphaUVData needFlip: split this cell along its
+                    // other diagonal so diagonal blends follow the edge.
+                    cell_flips.push(
+                        tile_sample
+                            .as_ref()
+                            .and_then(|sample| sample.1)
+                            .is_some_and(|blend| cpp_blend_corner_alpha(blend).1),
+                    );
+                }
+                let mut chunk_indices = chunk_indices;
+                for (cell, quad) in chunk_indices.chunks_exact_mut(6).enumerate() {
+                    if cell_flips.get(cell * 4).copied().unwrap_or(false)
+                        && quad[3] == quad[0]
+                        && quad[4] == quad[2]
+                    {
+                        let base = quad[0];
+                        quad.copy_from_slice(&[base, base + 1, base + 3, base + 1, base + 2, base + 3]);
+                    }
                 }
 
                 // Bound slot per weight. The fragment shader reads the slots
@@ -2632,57 +2654,82 @@ fn height_map_cell_at_world(hm: &HeightMap, world_x: f32, world_z: f32) -> (i32,
 /// art (the diagonal alpha halves across the cell, flipped covers invert);
 /// `longDiagonal` doubles the gradient so the blend spans the whole cell.
 /// `customBlendEdgeClass >= 0` disables the alpha blend entirely (C++ :2023).
-fn directional_blend_alpha(
-    blend: &crate::terrain::textures::BlendTileInfo,
-    fx: f32,
-    fy: f32,
-) -> f32 {
-    if blend.custom_blend_edge_class >= 0 {
-        return 0.0;
+/// Cell corner (C++ vertex order 0..3: (x0,y0), (x1,y0), (x1,y1), (x0,y1))
+/// of a vertex at fraction `(fx, fy)` inside its cell.
+fn cell_corner(fx: f32, fy: f32) -> usize {
+    match (fx > 0.5, fy > 0.5) {
+        (false, false) => 0,
+        (true, false) => 1,
+        (true, true) => 2,
+        (false, true) => 3,
     }
-    let inverted = blend.inverted & 0x1 != 0;
-    let flipped = blend.inverted & 0x2 != 0;
-    let (fx, fy) = if flipped {
-        (1.0 - fx, 1.0 - fy)
-    } else {
-        (fx, fy)
-    };
-    let mut alpha = 0.0_f32;
+}
+
+/// C++ `WorldHeightMap::getAlphaUVData` (WorldHeightMap.cpp:2042-2134): the
+/// blend layer's per-corner alpha (0..1) and whether the cell's triangles
+/// are split along the other diagonal (`needFlip`).
+fn cpp_blend_corner_alpha(blend: &crate::terrain::textures::BlendTileInfo) -> ([f32; 4], bool) {
+    use crate::terrain::textures::{FLIPPED_MASK, INVERTED_MASK};
+    let inverted = blend.inverted & INVERTED_MASK != 0;
+    let mut alpha = [0u8; 4];
+    let mut flip = false;
     if blend.horiz != 0 {
-        // C++ :2062-2070 — half-plane across X; inverted covers the x0 edge.
-        alpha = alpha.max(if inverted { 1.0 - fx } else { fx });
+        flip = blend.inverted & FLIPPED_MASK != 0;
+        if inverted {
+            alpha[0] = 255;
+            alpha[3] = 255;
+        } else {
+            alpha[1] = 255;
+            alpha[2] = 255;
+        }
     }
     if blend.vert != 0 {
-        // C++ :2071-2079 — half-plane across Z; inverted covers the z0 edge.
-        alpha = alpha.max(if inverted { 1.0 - fy } else { fy });
+        flip = blend.inverted & FLIPPED_MASK != 0;
+        if inverted {
+            alpha[0] = 255;
+            alpha[1] = 255;
+        } else {
+            alpha[2] = 255;
+            alpha[3] = 255;
+        }
     }
     if blend.right_diagonal != 0 {
-        // C++ :2080-2096 — triangle to corner 1 (inverted) or 2.
-        let tri = if inverted {
-            (fx + (1.0 - fy) - 1.0).clamp(0.0, 1.0)
+        if inverted {
+            alpha[1] = 255;
+            if blend.long_diagonal != 0 {
+                alpha[0] = 255;
+                alpha[2] = 255;
+            }
         } else {
-            (fx + fy - 1.0).clamp(0.0, 1.0)
-        };
-        alpha = alpha.max(if blend.long_diagonal != 0 {
-            (tri * 2.0).min(1.0)
-        } else {
-            tri
-        });
+            flip = true;
+            alpha[2] = 255;
+            if blend.long_diagonal != 0 {
+                alpha[1] = 255;
+                alpha[3] = 255;
+            }
+        }
     }
     if blend.left_diagonal != 0 {
-        // C++ :2097-2114 — triangle to corner 0 (inverted) or 3.
-        let tri = if inverted {
-            (1.0 - fx - fy).clamp(0.0, 1.0)
+        if inverted {
+            flip = true;
+            alpha[0] = 255;
+            if blend.long_diagonal != 0 {
+                alpha[1] = 255;
+                alpha[3] = 255;
+            }
         } else {
-            (fy - fx).clamp(0.0, 1.0)
-        };
-        alpha = alpha.max(if blend.long_diagonal != 0 {
-            (tri * 2.0).min(1.0)
-        } else {
-            tri
-        });
+            alpha[3] = 255;
+            if blend.long_diagonal != 0 {
+                alpha[0] = 255;
+                alpha[2] = 255;
+            }
+        }
     }
-    alpha.clamp(0.0, 1.0)
+    if blend.custom_blend_edge_class >= 0 {
+        alpha = [0; 4];
+        flip = false;
+    }
+    (alpha.map(|a| f32::from(a) / 255.0), flip)
 }
 
 fn unique_bound_texture_ids(
@@ -3052,102 +3099,37 @@ mod splat_texture_class_tests {
         );
     }
 }
-mod directional_blend_alpha_tests {
+#[cfg(test)]
+mod cpp_blend_corner_alpha_tests {
     use super::*;
     use crate::terrain::textures::{BlendTileInfo, FLIPPED_MASK, INVERTED_MASK};
 
-    fn blend() -> BlendTileInfo {
+    #[test]
+    fn horizontal_and_vertical_blends_cover_one_edge() {
         let mut b = BlendTileInfo::new();
-        // Parsed maps write -1 when no custom edge is authored
-        // (map_terrain.rs:176-177); customBlendEdgeClass >= 0 means
-        // "custom edge, no alpha blend" (C++ WorldHeightMap.cpp:2023-2027).
-        b.custom_blend_edge_class = -1;
-        b
-    }
-
-    /// Corner fractions: corner 0=(0,0), 1=(1,0), 2=(1,1), 3=(0,1).
-    #[test]
-    fn horiz_blend_covers_one_x_edge_like_cpp() {
-        crate::test_support::ensure_ambient_host();
-        // C++ :2062-2070 — uninverted horiz sets alpha[1]=alpha[2]=255 (the
-        // x1 edge); inverted sets alpha[0]=alpha[3]=255 (the x0 edge).
-        let mut b = blend();
         b.horiz = 1;
-        assert_eq!(directional_blend_alpha(&b, 1.0, 0.0), 1.0);
-        assert_eq!(directional_blend_alpha(&b, 1.0, 1.0), 1.0);
-        assert_eq!(directional_blend_alpha(&b, 0.0, 0.0), 0.0);
-        b.inverted = INVERTED_MASK as u8;
-        assert_eq!(directional_blend_alpha(&b, 0.0, 0.0), 1.0);
-        assert_eq!(directional_blend_alpha(&b, 0.0, 1.0), 1.0);
-        assert_eq!(directional_blend_alpha(&b, 1.0, 0.5), 0.0);
+        assert_eq!(cpp_blend_corner_alpha(&b), ([0.0, 1.0, 1.0, 0.0], false));
+        b.inverted = INVERTED_MASK | FLIPPED_MASK;
+        assert_eq!(cpp_blend_corner_alpha(&b), ([1.0, 0.0, 0.0, 1.0], true));
+        let mut v = BlendTileInfo::new();
+        v.vert = 1;
+        assert_eq!(cpp_blend_corner_alpha(&v), ([0.0, 0.0, 1.0, 1.0], false));
     }
 
     #[test]
-    fn vert_blend_covers_one_z_edge_like_cpp() {
-        crate::test_support::ensure_ambient_host();
-        // C++ :2071-2079 — uninverted vert sets alpha[2]=alpha[3]=255.
-        let mut b = blend();
-        b.vert = 1;
-        assert_eq!(directional_blend_alpha(&b, 0.0, 1.0), 1.0);
-        assert_eq!(directional_blend_alpha(&b, 1.0, 0.0), 0.0);
-        b.inverted = INVERTED_MASK as u8;
-        assert_eq!(directional_blend_alpha(&b, 1.0, 0.0), 1.0);
-        assert_eq!(directional_blend_alpha(&b, 0.5, 1.0), 0.0);
-    }
-
-    #[test]
-    fn diagonal_blends_ramp_across_the_cell() {
-        crate::test_support::ensure_ambient_host();
-        // C++ :2080-2096 — uninverted right diagonal covers corner 2.
-        let mut b = blend();
-        b.right_diagonal = 1;
-        assert_eq!(directional_blend_alpha(&b, 1.0, 1.0), 1.0);
-        assert_eq!(directional_blend_alpha(&b, 0.0, 0.0), 0.0);
-        assert!((directional_blend_alpha(&b, 1.0, 0.0) - 0.0).abs() < 1.0e-6);
-        // C++ :2081-2085 — inverted right diagonal covers corner 1.
-        b.inverted = INVERTED_MASK as u8;
-        assert_eq!(directional_blend_alpha(&b, 1.0, 0.0), 1.0);
-        assert_eq!(directional_blend_alpha(&b, 0.0, 1.0), 0.0);
-        // C++ :2097-2114 — left diagonal covers corner 3 (or 0 inverted).
-        let mut l = blend();
+    fn diagonals_flip_the_cell_like_cpp() {
+        let mut r = BlendTileInfo::new();
+        r.right_diagonal = 1;
+        assert_eq!(cpp_blend_corner_alpha(&r), ([0.0, 0.0, 1.0, 0.0], true));
+        r.long_diagonal = 1;
+        assert_eq!(cpp_blend_corner_alpha(&r), ([0.0, 1.0, 1.0, 1.0], true));
+        let mut l = BlendTileInfo::new();
         l.left_diagonal = 1;
-        assert_eq!(directional_blend_alpha(&l, 0.0, 1.0), 1.0);
-        assert_eq!(directional_blend_alpha(&l, 1.0, 0.0), 0.0);
-        l.inverted = INVERTED_MASK as u8;
-        assert_eq!(directional_blend_alpha(&l, 0.0, 0.0), 1.0);
-    }
-
-    #[test]
-    fn long_diagonal_widens_the_ramp_across_the_cell() {
-        crate::test_support::ensure_ambient_host();
-        let mut b = blend();
-        b.right_diagonal = 1;
-        let plain = directional_blend_alpha(&b, 0.75, 0.5);
-        b.long_diagonal = 1;
-        let long = directional_blend_alpha(&b, 0.75, 0.5);
-        assert!((plain - 0.25).abs() < 1.0e-6);
-        assert!((long - 0.5).abs() < 1.0e-6);
-    }
-
-    #[test]
-    fn flipped_blends_swap_the_axes_before_evaluating() {
-        crate::test_support::ensure_ambient_host();
-        // FLIPPED_MASK (TileData.h:28) mirrors the cell before the table.
-        let mut b = blend();
-        b.horiz = 1;
-        b.inverted = FLIPPED_MASK as u8;
-        // Flipped (fx,fy)=(0.2,0.8) evaluates (0.8,0.2): uninverted → fx=0.8.
-        assert!((directional_blend_alpha(&b, 0.2, 0.8) - 0.8).abs() < 1.0e-6);
-    }
-
-    #[test]
-    fn custom_edge_class_disables_the_alpha_blend() {
-        crate::test_support::ensure_ambient_host();
-        // C++ :2023-2027 — customBlendEdgeClass >= 0: no alpha, no flip.
-        let mut b = blend();
-        b.horiz = 1;
-        b.right_diagonal = 1;
-        b.custom_blend_edge_class = 3;
-        assert_eq!(directional_blend_alpha(&b, 1.0, 1.0), 0.0);
+        l.inverted = INVERTED_MASK;
+        assert_eq!(cpp_blend_corner_alpha(&l), ([1.0, 0.0, 0.0, 0.0], true));
+        l.custom_blend_edge_class = 2;
+        assert_eq!(cpp_blend_corner_alpha(&l), ([0.0; 4], false));
+        assert_eq!(cell_corner(1.0, 0.0), 1);
+        assert_eq!(cell_corner(0.0, 1.0), 3);
     }
 }
