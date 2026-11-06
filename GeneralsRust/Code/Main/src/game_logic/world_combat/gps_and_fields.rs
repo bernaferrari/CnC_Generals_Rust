@@ -1037,15 +1037,13 @@ impl GameLogic {
         dt: f32,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        use crate::game_logic::host_overlord_addons::{
-            is_overlord_propaganda_source, overlord_propaganda_heal_amount,
-        };
+        use crate::game_logic::host_overlord_addons::overlord_propaganda_heal_amount;
         use crate::game_logic::host_propaganda::{
             HOST_PROPAGANDA_DELAY_BETWEEN_UPDATES_FRAMES, HOST_PROPAGANDA_TOWER_RADIUS,
             PROPAGANDA_PULSE_FX, PROPAGANDA_UPGRADED_PULSE_FX, UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
             host_has_any_damage_weapon, in_propaganda_radius_2d, is_legal_propaganda_target,
-            is_portable_propaganda_structure, is_propaganda_score_kind, is_propaganda_tower,
-            is_subliminal_upgrade_active, propaganda_applies_weapon_bonus, propaganda_heal_amount,
+            is_propaganda_score_kind, is_propaganda_tower, is_subliminal_upgrade_active,
+            propaganda_applies_weapon_bonus, propaganda_heal_amount,
             propaganda_source_suppressed, should_play_propaganda_pulse_fx,
         };
         use gamelogic::common::Relationship;
@@ -1071,12 +1069,9 @@ impl GameLogic {
         let mut inactive: Vec<ObjectId> = Vec::new();
         let mut towers: Vec<TowerSnap> = Vec::new();
         for (id, obj) in self.objects.registered() {
-            let is_source = is_propaganda_tower(&obj.template_name)
-                || obj.has_overlord_propaganda_residual()
-                || is_overlord_propaganda_source(
-                    obj.has_overlord_propaganda_addon,
-                    &obj.template_name,
-                );
+            let is_source = obj.authors_behavior_module("PropagandaTowerBehavior")
+                || (obj.thing().template.receiving_object_definition.is_none()
+                    && is_propaganda_tower(&obj.template_name));
             if !is_source {
                 continue;
             }
@@ -1089,19 +1084,19 @@ impl GameLogic {
                 obj.contained_by.is_some(),
                 container_nested,
                 obj.is_kind_of(KindOf::Vehicle),
-                is_portable_propaganda_structure(&obj.template_name),
+                obj.is_kind_of(KindOf::PortableStructure),
             );
             if !obj.is_alive()
                 || obj.status.under_construction
                 || obj.construction_percent + 0.001 < 1.0
                 || obj.status.sold
-                || obj.is_disabled()
+                || obj.has_disabled_type_except_held()
                 || suppressed
             {
                 inactive.push(*id);
                 continue;
             }
-            let overlord_style = obj.has_overlord_propaganda_residual()
+            let overlord_style = obj.is_kind_of(KindOf::PortableStructure)
                 || obj.authors_innate_propaganda_tower();
             let controlling = obj.owner_player_id.and_then(|pid| {
                 self.players

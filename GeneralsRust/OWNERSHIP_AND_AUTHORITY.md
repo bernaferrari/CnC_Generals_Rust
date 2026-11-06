@@ -15,6 +15,20 @@ adding a science wakes only modules requiring that science. Both paths only
 raise the controlling player's existing bounty. C++ references are
 RadarUpgrade.cpp, CashBountyPower.cpp and Player.cpp::addScience.
 
+## Authored Overlord and Helix riders
+
+ObjectCreationUpgrade and its receiving OCL create the actual portable object;
+the hull no longer synthesizes a bunker, weapon or propaganda source from an
+upgrade name. Overlord contain queries redirect to the contained rider's real
+module, including presentation capacity and roster. The rider owns its weapon,
+propaganda behavior and body damage. Helix containment holds its passengers;
+its portable rider may still fire, while nested containment forbids firing.
+PassengersFireUpgrade participates in authored UpgradeMux order and its
+execution marker persists with the object's upgrade snapshot. The lifecycle
+record carries the physical rider identity and redirection phase and rejects
+the former boolean-based payload. C++ references are OverlordContain.cpp,
+HelixContain.cpp, PassengersFireUpgrade.cpp and Object.cpp::isAbleToAttack.
+
 ## Accepted shots and delayed-damage ownership (2026-10-04)
 
 The driving `GameLogic.combat_system` owns accepted shots and materialized

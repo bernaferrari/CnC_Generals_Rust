@@ -396,13 +396,12 @@ impl<'a> CommandExecutor<'a> {
 
             // C++ uses the owner's position for every passenger when location
             // is absent, and invokes passengers before slaves and the owner.
-            let may_fire = self.game_logic.host_object(unit_id).is_some_and(|owner| {
+            let contain_owner = self.game_logic.redirected_containment_owner(unit_id);
+            let may_fire = self.game_logic.host_object(contain_owner).is_some_and(|owner| {
                 if owner.is_garrison_contain() {
                     !owner.is_subdued_disabled()
                 } else {
                     owner.passengers_allowed_to_fire
-                        || crate::game_logic::host_passengers_fire_upgrade::overlord_bunker_passengers_may_fire(
-                            owner.overlord_bunker_slot_capacity(), owner.contained_by.is_some())
                 }
             });
             if may_fire {

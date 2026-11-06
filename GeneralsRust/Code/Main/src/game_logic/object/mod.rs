@@ -1266,20 +1266,6 @@ pub struct Object {
     /// Fail-closed: not multi-door / air-transport path parity.
     pub max_transport: usize,
 
-    /// Host residual: China Overlord / BattleBunker infantry capacity.
-    ///
-    /// C++ OverlordContain holds one PORTABLE_STRUCTURE (BattleBunker), then
-    /// redirects infantry contain queries into the bunker's TransportContain
-    /// (INI `Slots = 5`). Host residual collapses that redirect into a single
-    /// capacity on the tank:
-    /// - `None` — not an overlord-style container (normal vehicle residual)
-    /// - `Some(0)` — overlord-style without BattleBunker residual (reject enter)
-    /// - `Some(n)` — BattleBunker residual active with `n` infantry slots
-    ///
-    /// Fail-closed: not full OverlordContain redirect / portable-structure spawn /
-    /// GattlingCannon / PropagandaTower payload matrix.
-    pub overlord_bunker_capacity: Option<usize>,
-
     /// Host residual: C++ OpenContain `m_passengersAllowedToFire`.
     /// When true, Docked infantry may residual-fire from the container origin
     /// (GLA Battle Bus / Humvee-style fire-from-transport).
@@ -2386,27 +2372,6 @@ pub struct Object {
     /// when the nested attack goes idle.
     #[serde(default)]
     pub attack_move_command_src: Option<u32>,
-
-    /// Host residual: Overlord / Helix portable GattlingCannon addon installed
-    /// (`Upgrade_ChinaOverlordGattlingCannon` / Helix equivalent). Equips AA
-    /// secondary + passenger ground gattling residual on primary fire.
-    /// Fail-closed: not full portable-structure passenger object spawn.
-    #[serde(default)]
-    pub has_overlord_gattling_addon: bool,
-
-    /// Host residual: Overlord / Helix portable PropagandaTower addon installed
-    /// (`Upgrade_ChinaOverlordPropagandaTower` / Helix equivalent). Emperor tanks
-    /// spawn with this true (innate PropagandaTowerBehavior AffectsSelf).
-    /// Fail-closed: not full portable tower object / PulseFX.
-    #[serde(default)]
-    pub has_overlord_propaganda_addon: bool,
-
-    /// C++ OverlordContain/HelixContain onBodyDamageStateChange setDamageState
-    /// on the portable addon. Live addons are flags, so this holds the mirrored
-    /// DAMAGED/REALLYDAMAGED visual state (never RUBBLE).
-    #[serde(default)]
-    pub overlord_addon_body_damage_state:
-        crate::game_logic::host_enum_table_residual::HostBodyDamageType,
 
     /// CPP OverlordContain redirection phase, saved independently of occupancy.
     #[serde(default)]

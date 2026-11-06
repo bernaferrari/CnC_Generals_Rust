@@ -140,9 +140,39 @@ fn retail_helix_contain_inside_source_ocl_attaches_in_each_receiving_world() {
         let payload = world.host_object(child).unwrap();
         assert_eq!(host.overlord_portable_occupant, Some(child));
         assert_eq!(payload.contained_by, Some(source));
+        assert!(payload.status.disabled_held, "HelixContain holds its portable rider");
         assert!(!host.is_enclosing_container_for(payload));
         assert_eq!(payload.template_name, "ChinaTankOverlordGattlingCannon");
     }
+}
+
+#[test]
+fn held_helix_rider_fires_its_own_weapon_without_passenger_upgrade() {
+    let (mut world, helix) = helix_portable_world(Vec3::ZERO);
+    let rider = world.execute_parsed_weapon_ocl_at(
+        "OCL_HelixGattlingCannon", Some(helix), Team::China,
+        VeterancyLevel::Rookie, 0.0, Vec3::ZERO, Vec3::ZERO,
+    )[0];
+    {
+        let object = world.host_object_mut(rider).unwrap();
+        assert!(object.status.disabled_held);
+        let mut weapon = crate::game_logic::Weapon::default();
+        weapon.last_fire_time = -10.0;
+        weapon.reload_time = 0.1;
+        weapon.range = 150.0;
+        weapon.damage = 10.0;
+        object.weapon = Some(weapon);
+    }
+    let mut victim = ThingTemplate::new("HelixRiderTarget");
+    victim.add_kind_of(crate::game_logic::KindOf::Infantry)
+        .add_kind_of(crate::game_logic::KindOf::Attackable).set_health(100.0);
+    world.templates.insert(victim.name.clone(), victim);
+    let target = world.create_object("HelixRiderTarget", Team::USA, Vec3::new(20.0, 0.0, 0.0)).unwrap();
+    let before = world.host_object(target).unwrap().health.current;
+    world.set_current_frame(30);
+    world.try_transport_passenger_residual_fire(rider);
+    assert!(world.host_object(target).unwrap().health.current < before);
+    assert!(!world.host_object(helix).unwrap().passengers_allowed_to_fire);
 }
 
 #[test]

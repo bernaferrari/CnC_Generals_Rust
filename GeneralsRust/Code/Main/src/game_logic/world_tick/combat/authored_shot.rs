@@ -82,6 +82,7 @@ impl GameLogic {
                 rates,
                 &self.logic_random,
                 projectile_team_id,
+                false,
             )
         };
         let Some((fired_slot, shot)) = prepared else {

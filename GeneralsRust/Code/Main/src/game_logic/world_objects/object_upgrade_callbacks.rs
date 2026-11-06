@@ -20,10 +20,22 @@ struct AuthoredCostModifierUpgrade {
     data: gamelogic::object::upgrade::cost_modifier_upgrade::CostModifierUpgradeModuleData,
 }
 
+struct AuthoredPassengersFireUpgrade {
+    source_index: usize,
+    data: gamelogic::object::upgrade::passengers_fire_upgrade::PassengersFireUpgradeModuleData,
+}
+
+impl AuthoredPassengersFireUpgrade {
+    fn executed_key(&self) -> String {
+        format!("PassengersFireUpgrade#{}", self.source_index)
+    }
+}
+
 enum AuthoredOrderedUpgrade {
     ObjectCreation(AuthoredObjectCreationUpgrade),
     StatusBits(AuthoredStatusBitsUpgrade),
     CostModifier(AuthoredCostModifierUpgrade),
+    PassengersFire(AuthoredPassengersFireUpgrade),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -38,6 +50,7 @@ impl AuthoredOrderedUpgrade {
             Self::ObjectCreation(module) => module.source_index,
             Self::StatusBits(module) => module.source_index,
             Self::CostModifier(module) => module.source_index,
+            Self::PassengersFire(module) => module.source_index,
         }
     }
 }
@@ -265,14 +278,6 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         origin: UpgradeGrantOrigin,
     ) -> gamelogic::GameLogicResult<()> {
-        use crate::game_logic::host_overlord_addons::{
-            is_bunker_addon_upgrade, is_gattling_addon_upgrade, is_overlord_family_host,
-            is_propaganda_addon_upgrade,
-        };
-
-        let mut installed_gattling = false;
-        let mut installed_propaganda = false;
-        let mut installed_bunker = false;
         let mut satellite_hack_activate = None;
         let Some((identity, status_upgrade_first_give, object_birth)) =
             self.objects.get(&object_id).map(|object| {
@@ -406,29 +411,6 @@ impl GameLogic {
             if !unpaused.is_empty() {
                 self.upgrade_module_residuals.record_unpause(upgrade);
             }
-            if is_overlord_family_host(&obj.template_name) {
-                if is_gattling_addon_upgrade(upgrade) {
-                    obj.install_overlord_gattling_addon();
-                    installed_gattling = true;
-                } else if is_propaganda_addon_upgrade(upgrade) {
-                    obj.install_overlord_propaganda_addon();
-                    installed_propaganda = true;
-                } else if is_bunker_addon_upgrade(upgrade) {
-                    // C++ ChinaTankOverlordBattleBunker TransportContain.Slots = 5.
-                    // Helix bunker also uses Slots residual 5 (ChinaHelixBattleBunker).
-                    obj.install_overlord_battle_bunker(5);
-                    // C++ PassengersFireUpgrade TriggeredBy Upgrade_ChinaHelixBattleBunker.
-                    use crate::game_logic::host_passengers_fire_upgrade::should_enable_passengers_fire;
-                    if should_enable_passengers_fire(upgrade, &obj.template_name)
-                        || obj.is_helix_transport
-                    {
-                        obj.passengers_allowed_to_fire = true;
-
-                        self.passengers_fire_upgrade_reg.record_apply(1);
-                    }
-                    installed_bunker = true;
-                }
-            }
         }
 
         // C++ PowerPlantUpgrade::upgradeImplementation (authored module).
@@ -439,19 +421,6 @@ impl GameLogic {
         // C++ SpyVisionUpdate::upgradeImplementation — activate on upgrade.
         if let Some(spec) = satellite_hack_activate {
             let _ = self.activate_satellite_hack_spy_vision(object_id, spec);
-        }
-        if installed_gattling {
-            self.overlord_addons.record_gattling_install();
-        }
-        if installed_propaganda {
-            self.overlord_addons.record_propaganda_install();
-        }
-        if installed_gattling || installed_propaganda || installed_bunker {
-            self.ensure_overlord_portable_addon_occupant_with_interpreter_and_effects(
-                object_id,
-                interpreter,
-                presentation_effects,
-            );
         }
 
         // C++ GenerateMinefieldBehavior::upgradeImplementation residual.
@@ -612,6 +581,14 @@ impl GameLogic {
                         AuthoredCostModifierUpgrade { source_index, state_index, data: data.clone() }
                     ));
                 }
+                if module.name.as_str().eq_ignore_ascii_case("PassengersFireUpgrade") {
+                    let data = module.data.as_any().downcast_ref::<
+                        gamelogic::object::upgrade::passengers_fire_upgrade::PassengersFireUpgradeModuleData,
+                    >()?;
+                    return Some(AuthoredOrderedUpgrade::PassengersFire(
+                        AuthoredPassengersFireUpgrade { source_index, data: data.clone() }
+                    ));
+                }
                 None
             })
             .collect();
@@ -690,6 +667,11 @@ impl GameLogic {
                         .copied()
                         .unwrap_or(false),
                 ),
+                AuthoredOrderedUpgrade::PassengersFire(module) => (
+                    &module.data.upgrade_mux_data,
+                    self.objects.get(&object_id)
+                        .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
+                ),
             };
             if already_executed || !self.upgrade_mux_would_run(mux, key_mask) {
                 continue;
@@ -762,6 +744,16 @@ impl GameLogic {
                     }
                     Ok(())
                 }
+                AuthoredOrderedUpgrade::PassengersFire(_) => {
+                    let owner = self.redirected_containment_owner(object_id);
+                    if let Some(contain) = self.objects.get_mut(&owner) {
+                        if contain.thing().template.contain_module.kind != crate::game_logic::ContainModuleKind::None {
+                            contain.passengers_allowed_to_fire = true;
+                            self.passengers_fire_upgrade_reg.record_apply(1);
+                        }
+                    }
+                    Ok(())
+                }
                 AuthoredOrderedUpgrade::ObjectCreation(module) => {
                     let ocl_name = module
                         .data
@@ -819,6 +811,9 @@ impl GameLogic {
                             {
                                 *executed = true;
                             }
+                        }
+                        AuthoredOrderedUpgrade::PassengersFire(module) => {
+                            object.applied_upgrades.insert(module.executed_key());
                         }
                     }
                 }
@@ -925,6 +920,9 @@ impl GameLogic {
                 AuthoredOrderedUpgrade::CostModifier(module) => {
                     self.upgrade_activation_mask(&module.data.upgrade_mux_data)
                 }
+                AuthoredOrderedUpgrade::PassengersFire(module) => {
+                    self.upgrade_activation_mask(&module.data.upgrade_mux_data)
+                }
             })
             .collect();
         let mut tags_to_remove = self
@@ -1009,6 +1007,9 @@ impl GameLogic {
                             {
                                 *executed = false;
                             }
+                        }
+                        Some(AuthoredOrderedUpgrade::PassengersFire(module)) => {
+                            object.applied_upgrades.remove(&module.executed_key());
                         }
                         None => {}
                     }
@@ -1171,6 +1172,7 @@ impl GameLogic {
 #[cfg(test)]
 mod object_creation_upgrade_birth_tests {
     use super::*;
+    use glam::Vec3;
 
     const UPGRADE: &str = "Upgrade_AmericaScoutDrone";
     const SECOND_UPGRADE: &str = "Upgrade_ObjectCreationUpgradeSecondTrigger";
@@ -1192,6 +1194,52 @@ mod object_creation_upgrade_birth_tests {
             world.upgrade_definitions.parse_upgrade_definition(ini)
         })
         .expect("object upgrade definition should admit");
+    }
+
+    #[test]
+    fn authored_passenger_fire_upgrade_requires_its_combined_trigger_mask() {
+        let mut world = GameLogic::new();
+        world.add_player(crate::game_logic::Player::new(0, Team::China, "Owner", true));
+        admit_object_upgrade(&mut world, "Upgrade_TestFireA");
+        admit_object_upgrade(&mut world, "Upgrade_TestFireB");
+        world.admit_object_ini_sources([(
+            "PassengerFireUpgrade.ini".into(),
+            "Object AuthoredHelix\nKindOf = VEHICLE AIRCRAFT\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = HelixContain Contain\nSlots = 5\nEnd\nBehavior = PassengersFireUpgrade Fire\nTriggeredBy = Upgrade_TestFireA Upgrade_TestFireB\nRequiresAllTriggers = Yes\nEnd\nEnd\nObject NamedHelixWithoutUpgrade\nKindOf = VEHICLE AIRCRAFT\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = HelixContain Contain\nSlots = 5\nEnd\nEnd\n".into(),
+        )]).unwrap();
+        let source = world.create_object_for_player("AuthoredHelix", 0, Vec3::ZERO).unwrap();
+        let peer = world.create_object_for_player("NamedHelixWithoutUpgrade", 0, Vec3::ZERO).unwrap();
+        world.apply_upgrade_to_object(source, "Upgrade_TestFireA");
+        assert!(!world.host_object(source).unwrap().passengers_allowed_to_fire);
+        world.apply_upgrade_to_object(source, "Upgrade_TestFireB");
+        assert!(world.host_object(source).unwrap().passengers_allowed_to_fire);
+        world.apply_upgrade_to_object(peer, "Upgrade_TestFireA");
+        world.apply_upgrade_to_object(peer, "Upgrade_TestFireB");
+        assert!(!world.host_object(peer).unwrap().passengers_allowed_to_fire);
+    }
+
+    #[test]
+    fn passenger_fire_upgrade_follows_ocl_declaration_order() {
+        for fire_first in [true, false] {
+            let mut world = GameLogic::new();
+            world.add_player(crate::game_logic::Player::new(0, Team::China, "Owner", true));
+            admit_object_upgrade(&mut world, "Upgrade_TestOrdered");
+            world.admit_object_creation_list_sources([
+                "ObjectCreationList OCL_OrderedRider\nCreateObject\nObjectNames = OrderedRider\nCount = 1\nContainInsideSourceObject = Yes\nEnd\nEnd\n".into(),
+            ]).unwrap();
+            let fire = "Behavior = PassengersFireUpgrade Fire\nTriggeredBy = Upgrade_TestOrdered\nEnd\n";
+            let create = "Behavior = ObjectCreationUpgrade Create\nTriggeredBy = Upgrade_TestOrdered\nUpgradeObject = OCL_OrderedRider\nEnd\n";
+            let modules = if fire_first { format!("{fire}{create}") } else { format!("{create}{fire}") };
+            world.admit_object_ini_sources([(
+                "OrderedContain.ini".into(),
+                format!("Object OrderedHull\nKindOf = VEHICLE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = OverlordContain Contain\nSlots = 1\nAllowInsideKindOf = PORTABLE_STRUCTURE\nEnd\n{modules}End\nObject OrderedRider\nKindOf = PORTABLE_STRUCTURE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = TransportContain Contain\nSlots = 5\nEnd\nEnd\n"),
+            )]).unwrap();
+            let hull = world.create_object_for_player("OrderedHull", 0, Vec3::ZERO).unwrap();
+            world.apply_upgrade_to_object(hull, "Upgrade_TestOrdered");
+            let object = world.host_object(hull).unwrap();
+            let rider = object.overlord_portable_occupant.expect("authored OCL rider");
+            assert_eq!(object.passengers_allowed_to_fire, fire_first);
+            assert_eq!(world.host_object(rider).unwrap().passengers_allowed_to_fire, !fire_first);
+        }
     }
 
     fn world(triggers: &str, ocl_name: &str, child_name: Option<&str>) -> (GameLogic, ObjectId) {

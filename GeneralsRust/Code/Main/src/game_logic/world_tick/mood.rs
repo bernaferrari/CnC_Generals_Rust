@@ -1001,13 +1001,10 @@ impl GameLogic {
         // infantry-only — Combat Chinook vehicle riders never shoot out.
         if let Some(cid) = source.contained_by {
             if let Some(container) = self.objects.get(&cid) {
-                let bunker_may = crate::game_logic::host_passengers_fire_upgrade::overlord_bunker_passengers_may_fire(
-                    container.overlord_bunker_slot_capacity(),
-                    container.contained_by.is_some(),
-                );
                 if (container.passengers_allowed_to_fire
-                    || bunker_may
                     || container.is_combat_chinook_style_container())
+                    && !(container.is_overlord_style_container()
+                        && source.is_kind_of(KindOf::PortableStructure))
                     && !gamelogic::object::contain::transport_contain_passenger_kind_allowed_to_fire(
                         source.is_kind_of(KindOf::Infantry),
                     )
@@ -1401,15 +1398,11 @@ impl GameLogic {
         attack_type: AbleToAttackType,
     ) -> Option<CanAttackResult> {
         let members = {
-            let source = self.objects.get(&source_id)?;
-            let bunker_may =
-                crate::game_logic::host_passengers_fire_upgrade::overlord_bunker_passengers_may_fire(
-                    source.overlord_bunker_slot_capacity(),
-                    source.contained_by.is_some(),
-                );
+            let owner = self.redirected_containment_owner(source_id);
+            let source = self.objects.get(&owner)?;
             // C++ GarrisonContain::isPassengerAllowedToFire — always, unless SUBDUED.
             let garrison_may = source.is_garrison_contain() && !source.is_subdued();
-            if !source.passengers_allowed_to_fire && !bunker_may && !garrison_may {
+            if !source.passengers_allowed_to_fire && !garrison_may {
                 return None;
             }
             source.contained_units()

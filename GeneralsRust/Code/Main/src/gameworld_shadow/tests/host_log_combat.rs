@@ -259,46 +259,45 @@ fn canonical_overlord_projects_without_writeback() {
         t.set_health(400.0);
         t.add_kind_of(KindOf::Selectable);
         t.add_kind_of(KindOf::Vehicle);
+        t.contain_module.kind = crate::game_logic::ContainModuleKind::Transport;
+        t.contain_module.is_overlord_contain = true;
+        t.contain_module.slots = Some(1);
         logic.templates.insert("OlU".into(), t);
     }
     let oid = logic
         .create_object("OlU", Team::China, glam::Vec3::new(21.0, 0.0, 21.0))
         .expect("id");
 
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.has_overlord_gattling_addon = true;
-        o.has_overlord_propaganda_addon = false;
-        o.overlord_bunker_capacity = Some(4);
-        o.is_helix_transport = true;
-    }
+    let mut bunker = ThingTemplate::new("ShadowPortableBunker");
+    bunker.add_kind_of(KindOf::PortableStructure).set_health(100.0);
+    bunker.contain_module.kind = crate::game_logic::ContainModuleKind::Transport;
+    bunker.contain_module.slots = Some(4);
+    logic.templates.insert(bunker.name.clone(), bunker);
+    let rider = logic.create_object("ShadowPortableBunker", Team::China, glam::Vec3::ZERO).unwrap();
+    logic.attach_overlord_portable_occupant(oid, rider);
+    logic.host_object_mut(oid).unwrap().is_helix_transport = true;
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
-        e.has_overlord_gattling_addon = false;
-        e.has_overlord_propaganda_addon = true;
         e.overlord_bunker_capacity = u16::MAX;
         e.is_helix_transport = false;
     }
 
     shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).expect("e");
-    assert!(e.has_overlord_gattling_addon && !e.has_overlord_propaganda_addon);
     assert_eq!(e.overlord_bunker_capacity, 4);
     assert!(e.is_helix_transport);
 
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
-        e.has_overlord_gattling_addon = true;
-        e.has_overlord_propaganda_addon = false;
         e.overlord_bunker_capacity = 4;
         e.is_helix_transport = true;
     }
     shadow.sync_from_host(&logic);
 
     let o = logic.host_objects().lookup(&oid).expect("o");
-    assert!(o.has_overlord_gattling_addon && !o.has_overlord_propaganda_addon);
-    assert_eq!(o.overlord_bunker_capacity, Some(4));
+    assert_eq!(o.overlord_portable_occupant, Some(rider));
+    assert_eq!(logic.host_object(rider).unwrap().transport_capacity(), 4);
     assert!(o.is_helix_transport);
 }
 

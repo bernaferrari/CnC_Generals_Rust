@@ -48,8 +48,8 @@ fn main_only_todo_groups_round_trip_when_present() {
     src.continuous_fire_level = 2;
     src.subdual_damage = 25.0;
     src.subdual_heal_amount = 1.5;
-    src.has_overlord_gattling_addon = true;
-    src.overlord_bunker_capacity = Some(5);
+    src.overlord_redirection_active = true;
+    src.overlord_portable_occupant = Some(ObjectId(5));
 
     let envelope = src
         .entity_lifecycle_envelope()
@@ -106,8 +106,21 @@ fn main_only_todo_groups_round_trip_when_present() {
     assert_eq!(dst.model_condition_bits, 0x20);
     assert_eq!(dst.continuous_fire_level, 2);
     assert_eq!(dst.subdual_damage, 25.0);
-    assert!(dst.has_overlord_gattling_addon);
-    assert_eq!(dst.overlord_bunker_capacity, Some(5));
+    assert!(dst.overlord_redirection_active);
+    assert_eq!(dst.overlord_portable_occupant, Some(ObjectId(5)));
+}
+
+#[test]
+fn legacy_addon_flag_payload_is_not_interpreted_as_rider_state() {
+    let mut source = test_object();
+    source.overlord_redirection_active = true;
+    source.overlord_portable_occupant = Some(ObjectId(5));
+    let mut envelope = source.entity_lifecycle_envelope().unwrap();
+    let payload = &mut envelope.module_states.iter_mut()
+        .find(|module| module.tag == TAG_OVERLORD_ADDON).unwrap().payload;
+    payload[0] = 1; // first byte of the old boolean-based record
+    let mut target = test_object();
+    assert!(target.entity_apply_lifecycle_envelope(&envelope).is_err());
 }
 
 #[test]

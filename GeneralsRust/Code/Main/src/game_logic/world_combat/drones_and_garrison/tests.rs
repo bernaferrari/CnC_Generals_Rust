@@ -3,7 +3,7 @@ use super::firepoints::{
     HELIX_OCCUPANT_FIRE_HEIGHT, garrison_occupant_fire_point, open_contain_exit_path,
     transport_passenger_fire_origin,
 };
-use crate::game_logic::{AIState, GameLogic, KindOf, Player, Team, ThingTemplate};
+use crate::game_logic::{AIState, ContainModuleKind, GameLogic, KindOf, Player, Team, ThingTemplate};
 use glam::Vec3;
 
 /// C++ NeutonBlastBehavior.cpp:124-127 — unmanned vehicles are aiIdle'd
@@ -93,6 +93,15 @@ fn overlord_bunker_infantry_residual_fire_without_helix_flag() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(1100.0);
+    overlord.contain_module.kind = ContainModuleKind::Transport;
+    overlord.contain_module.is_overlord_contain = true;
+    overlord.contain_module.slots = Some(1);
+    let mut bunker = ThingTemplate::new("AuthoredBunkerRider");
+    bunker.add_kind_of(KindOf::PortableStructure).set_health(100.0);
+    bunker.contain_module.kind = ContainModuleKind::Transport;
+    bunker.contain_module.slots = Some(5);
+    bunker.contain_module.passengers_allowed_to_fire = true;
+    logic.templates.insert(bunker.name.clone(), bunker);
     logic
         .templates
         .insert("ChinaTankOverlord".to_string(), overlord);
@@ -113,21 +122,20 @@ fn overlord_bunker_infantry_residual_fire_without_helix_flag() {
     let tank = logic
         .create_object("ChinaTankOverlord", Team::China, Vec3::new(0.0, 0.0, 0.0))
         .expect("overlord");
-    {
-        let o = logic.host_object_mut(tank).unwrap();
-        o.install_overlord_battle_bunker(5);
-        o.passengers_allowed_to_fire = false;
-    }
+    let bunker = logic
+        .create_object("AuthoredBunkerRider", Team::China, Vec3::ZERO)
+        .expect("bunker");
+    logic.attach_overlord_portable_occupant(tank, bunker);
     let rider = logic
         .create_object("ChinaRedguard", Team::China, Vec3::new(0.0, 0.0, 0.0))
         .expect("rider");
     {
-        let o = logic.host_object_mut(tank).unwrap();
+        let o = logic.host_object_mut(bunker).unwrap();
         assert!(o.add_occupant(rider), "bunker must accept infantry");
     }
     {
         let r = logic.host_object_mut(rider).unwrap();
-        r.contained_by = Some(tank);
+        r.contained_by = Some(bunker);
         r.set_ai_state(
             AIState::Docked,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
@@ -154,8 +162,8 @@ fn overlord_bunker_infantry_residual_fire_without_helix_flag() {
         "bunker infantry must fire (before={hp_before} after={hp_after})"
     );
     assert!(
-        logic.host_object(tank).unwrap().passengers_allowed_to_fire,
-        "live bunker fire sets passengers_allowed_to_fire"
+        logic.host_object(bunker).unwrap().passengers_allowed_to_fire,
+        "authored bunker allows passengers to fire"
     );
 }
 

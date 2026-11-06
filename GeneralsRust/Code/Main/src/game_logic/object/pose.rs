@@ -1602,7 +1602,6 @@ impl Object {
                 self.visual_draw_state_revision.saturating_add(1).max(1);
         }
         self.model_condition_bits = bits;
-        self.sync_overlord_addon_body_damage();
     }
 
     pub(crate) fn exit_ai_dead_model_condition(&mut self) {

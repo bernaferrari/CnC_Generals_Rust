@@ -332,6 +332,7 @@ fn deferred_ammo_commit_matches_cpp_private_fire_order() {
             rates,
             &random,
             None,
+            false,
         )
         .expect("prepared deferred shot");
     assert_eq!(slot, 1);

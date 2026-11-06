@@ -394,6 +394,13 @@ fn overlord_gattling_independent_acquire_not_stacked_primary() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(1100.0);
+    overlord.contain_module.kind = crate::game_logic::ContainModuleKind::Transport;
+    overlord.contain_module.is_overlord_contain = true;
+    overlord.contain_module.slots = Some(1);
+    overlord.contain_module.passengers_allowed_to_fire = true;
+    let mut turret = ThingTemplate::new("AuthoredPortableGun");
+    turret.add_kind_of(KindOf::PortableStructure).set_health(100.0);
+    logic.templates.insert(turret.name.clone(), turret);
     logic
         .templates
         .insert("ChinaTankOverlord".to_string(), overlord);
@@ -408,25 +415,26 @@ fn overlord_gattling_independent_acquire_not_stacked_primary() {
     let tank = logic
         .create_object("ChinaTankOverlord", Team::China, Vec3::new(0.0, 0.0, 0.0))
         .expect("overlord");
+    let turret = logic
+        .create_object("AuthoredPortableGun", Team::China, Vec3::ZERO)
+        .expect("portable gun");
+    logic.attach_overlord_portable_occupant(tank, turret);
     {
-        let o = logic.host_object_mut(tank).unwrap();
-        o.install_overlord_gattling_addon();
-        o.set_ai_state(
-            AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        o.target = None;
-        if let Some(w) = o.weapon_slot_mut(1) {
-            w.last_fire_time = -10.0;
-            w.reload_time = 0.1;
-        }
+        let o = logic.host_object_mut(turret).unwrap();
+        o.set_ai_state(AIState::Idle, &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
+        let mut weapon = crate::game_logic::Weapon::default();
+        weapon.last_fire_time = -10.0;
+        weapon.reload_time = 0.1;
+        weapon.range = 150.0;
+        weapon.damage = 10.0;
+        o.weapon = Some(weapon);
     }
     let victim = logic
         .create_object("UsaRanger", Team::USA, Vec3::new(20.0, 0.0, 0.0))
         .expect("victim");
     let hp_before = logic.host_object(victim).unwrap().health.current;
     logic.set_current_frame(30);
-    logic.try_overlord_gattling_addon_independent_fire(tank);
+    logic.try_transport_passenger_residual_fire(turret);
     let hp_after = logic.host_object(victim).unwrap().health.current;
     let dealt = hp_before - hp_after;
     assert!(
@@ -434,7 +442,7 @@ fn overlord_gattling_independent_acquire_not_stacked_primary() {
             < 0.2,
         "independent gattling deals 10 not stacked primary+10, dealt={dealt}"
     );
-    assert!(logic.overlord_addons.gattling_ground_fires > 0);
+    assert!(logic.host_object(tank).unwrap().target.is_none());
 }
 
 #[test]

@@ -844,10 +844,16 @@ mod live_upgrade_mux_tests {
         // C++ OBJECT upgrade giveUpgrade is producer-only (hq-w4syv).
         let mut logic = GameLogic::new();
         add_player(&mut logic, 1, Team::China);
-        let mut t = ThingTemplate::new("ChinaTankOverlord");
-        t.set_health(1000.0);
-        t.add_kind_of(KindOf::Vehicle);
-        logic.templates.insert("ChinaTankOverlord".into(), t);
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(
+            &mut logic, UPGRADE_OVERLORD_BUNKER, "OBJECT", 0, 1,
+        );
+        logic.admit_object_creation_list_sources([
+            "ObjectCreationList OCL_TestBunker\nCreateObject\nObjectNames = TestPortableBunker\nCount = 1\nContainInsideSourceObject = Yes\nEnd\nEnd\n".into(),
+        ]).unwrap();
+        logic.admit_object_ini_sources([(
+            "TestBunkerUpgrade.ini".into(),
+            format!("Object ChinaTankOverlord\nKindOf = VEHICLE\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nBehavior = OverlordContain Contain\nSlots = 1\nAllowInsideKindOf = PORTABLE_STRUCTURE\nEnd\nBehavior = ObjectCreationUpgrade BunkerUpgrade\nTriggeredBy = {UPGRADE_OVERLORD_BUNKER}\nUpgradeObject = OCL_TestBunker\nEnd\nEnd\nObject TestPortableBunker\nKindOf = PORTABLE_STRUCTURE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = TransportContain Bunker\nSlots = 5\nAllowInsideKindOf = INFANTRY\nEnd\nEnd\n"),
+        )]).unwrap();
 
         let a = logic
             .create_object_for_player("ChinaTankOverlord", 1, Vec3::new(0.0, 0.0, 0.0))
@@ -860,16 +866,10 @@ mod live_upgrade_mux_tests {
 
         let producer = logic.host_object(a).expect("producer");
         let other = logic.host_object(b).expect("other");
-        assert_eq!(
-            producer.overlord_bunker_slot_capacity(),
-            5,
-            "producer bunker must install"
-        );
-        assert_eq!(
-            other.overlord_bunker_slot_capacity(),
-            0,
-            "sibling Overlord must not receive the object upgrade"
-        );
+        let rider_id = producer.overlord_portable_occupant.expect("producer bunker");
+        assert_eq!(logic.host_object(rider_id).unwrap().transport_capacity(), 5);
+        assert!(other.overlord_portable_occupant.is_none(),
+            "sibling Overlord must not receive the object upgrade");
     }
 
     /// Author one RadarUpgrade (RadarUpgrade.cpp:72-96) triggered by

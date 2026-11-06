@@ -1568,9 +1568,6 @@ fn capture_kicks_transport_passengers_but_not_tunnel_pool() {
 #[test]
 fn capture_team_flips_overlord_helix_portable_addon() {
     // hq-96958: C++ OverlordContain.cpp:227-235 / HelixContain.cpp:217-222.
-    use crate::game_logic::host_overlord_addons::{
-        UPGRADE_HELIX_GATTLING, UPGRADE_OVERLORD_GATTLING,
-    };
     let mut logic = GameLogic::new();
     logic
         .players
@@ -1581,6 +1578,12 @@ fn capture_team_flips_overlord_helix_portable_addon() {
 
     let mut ov = ThingTemplate::new("ChinaTankOverlord");
     ov.add_kind_of(KindOf::Vehicle).set_health(1100.0);
+    ov.contain_module.kind = crate::game_logic::ContainModuleKind::Transport;
+    ov.contain_module.is_overlord_contain = true;
+    ov.contain_module.slots = Some(1);
+    let mut portable = ThingTemplate::new("CapturePortableRider");
+    portable.add_kind_of(KindOf::PortableStructure).set_health(100.0);
+    logic.templates.insert(portable.name.clone(), portable);
     logic.templates.insert("ChinaTankOverlord".into(), ov);
     let overlord = logic
         .create_object(
@@ -1589,11 +1592,9 @@ fn capture_team_flips_overlord_helix_portable_addon() {
             glam::Vec3::new(0.0, 0.0, 0.0),
         )
         .expect("overlord");
-    logic.apply_upgrade_to_object(overlord, UPGRADE_OVERLORD_GATTLING);
-    let addon = logic
-        .host_object(overlord)
-        .and_then(|o| o.overlord_portable_occupant)
-        .expect("portable spawned");
+    let addon = logic.create_object("CapturePortableRider", Team::China, Vec3::ZERO)
+        .expect("portable rider");
+    logic.attach_overlord_portable_occupant(overlord, addon);
     assert_eq!(logic.host_object(addon).unwrap().team, Team::China);
 
     // Capture already flipped host owner (on_capture_object_residual).
@@ -1629,17 +1630,16 @@ fn capture_team_flips_overlord_helix_portable_addon() {
     hx.add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Aircraft)
         .set_health(400.0);
+    hx.contain_module.kind = crate::game_logic::ContainModuleKind::Transport;
+    hx.contain_module.is_helix_contain = true;
+    hx.contain_module.slots = Some(5);
     logic.templates.insert("ChinaHelix".into(), hx);
     let helix = logic
         .create_object("ChinaHelix", Team::China, glam::Vec3::new(40.0, 0.0, 0.0))
         .expect("helix");
-    if let Some(o) = logic.host_object_mut(helix) {
-        o.install_helix_transport();
-    }
-    logic.apply_upgrade_to_object(helix, UPGRADE_HELIX_GATTLING);
-    let helix_addon = logic
-        .overlord_helix_portable_occupant_id(helix)
+    let helix_addon = logic.create_object("CapturePortableRider", Team::China, Vec3::new(40.0, 0.0, 0.0))
         .expect("helix portable");
+    logic.attach_overlord_portable_occupant(helix, helix_addon);
     if let Some((o, ownership_events, fixture_partition_o)) =
         logic.host_object_ownership_partition_mut(helix)
     {
@@ -1657,10 +1657,8 @@ fn capture_team_flips_overlord_helix_portable_addon() {
 }
 
 #[test]
-fn helix_named_host_without_helix_contain_gets_overlord_payload() {
-    // hq-2qedt.301: C++ picks the Helix payload via the authored HelixContain
-    // module, not the template name.
-    use crate::game_logic::host_overlord_addon_damage::HELIX_PAYLOAD_GATTLING;
+fn helix_named_host_without_authored_contain_does_not_create_payload() {
+    // A hull name alone cannot create or contain an unauthored portable rider.
     let mut logic = GameLogic::new();
     logic
         .players
@@ -1671,18 +1669,9 @@ fn helix_named_host_without_helix_contain_gets_overlord_payload() {
     let host = logic
         .create_object("TestHelix", Team::China, glam::Vec3::ZERO)
         .expect("host");
-    {
-        let o = logic.host_object_mut(host).unwrap();
-        assert!(!o.is_helix_transport);
-        o.has_overlord_gattling_addon = true;
-    }
-    let addon = logic
-        .ensure_overlord_portable_addon_occupant(host)
-        .expect("payload");
-    assert_ne!(
-        logic.host_object(addon).unwrap().template_name,
-        HELIX_PAYLOAD_GATTLING
-    );
+    assert!(!logic.host_object(host).unwrap().is_helix_transport);
+    logic.apply_upgrade_to_object(host, "Upgrade_ChinaHelixGattlingCannon");
+    assert!(logic.host_object(host).unwrap().overlord_portable_occupant.is_none());
 }
 
 #[test]

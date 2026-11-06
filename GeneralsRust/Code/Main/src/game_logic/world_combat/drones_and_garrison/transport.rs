@@ -26,12 +26,9 @@ impl GameLogic {
         let Some(attacker) = self.objects.get(&passenger_id) else {
             return;
         };
-        if !attacker.is_alive() || attacker.weapon.is_none() {
+        if !attacker.is_alive() {
             return;
         }
-        let Some(weapon) = attacker.weapon.as_ref() else {
-            return;
-        };
 
         let container_id = attacker.container_id();
         let Some(cid) = container_id else {
@@ -62,14 +59,11 @@ impl GameLogic {
             return;
         }
         let nested = container.contained_by.is_some() && outer.is_none();
-        let bunker_slots = container.overlord_bunker_slot_capacity();
-        let bunker_may =
-            crate::game_logic::host_passengers_fire_upgrade::overlord_bunker_passengers_may_fire(
-                bunker_slots,
-                nested,
-            );
-        // C++ OpenContain::isPassengerAllowedToFire residual + Overlord bunker peel.
-        if !container.passengers_allowed_to_fire && !bunker_may {
+        // HelixContain lets its portable rider fire independently of the
+        // ordinary passenger flag. OverlordContain delegates to that flag.
+        let helix_rider = container.is_helix_transport
+            && container.overlord_portable_occupant == Some(passenger_id);
+        if !container.passengers_allowed_to_fire && !helix_rider {
             return;
         }
         if nested {
@@ -78,9 +72,12 @@ impl GameLogic {
         // C++ TransportContain::isPassengerAllowedToFire (TransportContain.cpp:576-578):
         // leftover helper — only infantry fire out. Vehicles ride silent
         // (Combat Chinook AllowInsideKindOf = INFANTRY VEHICLE).
-        if !gamelogic::object::contain::transport_contain_passenger_kind_allowed_to_fire(
-            attacker.is_kind_of(KindOf::Infantry),
-        ) {
+        if !((container.is_overlord_style_container() || helix_rider)
+            && attacker.is_kind_of(KindOf::PortableStructure))
+            && !gamelogic::object::contain::transport_contain_passenger_kind_allowed_to_fire(
+                attacker.is_kind_of(KindOf::Infantry),
+            )
+        {
             return;
         }
 
@@ -88,10 +85,7 @@ impl GameLogic {
         let is_combat_chinook = container.is_combat_chinook_style_container();
         let is_listening_outpost = container.is_listening_outpost_style_container();
         let team = attacker.team;
-        let range_bonus = self.receiving_weapon_bonus_fields_for_slot(attacker, 0).1;
-        let range = weapon.range * range_bonus;
-        let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
-        let range = (range - under).max(0.0);
+        let portable_rider = attacker.is_kind_of(KindOf::PortableStructure);
         let passenger_index = container
             .contained_units()
             .iter()
@@ -103,13 +97,50 @@ impl GameLogic {
                 .unwrap_or(container),
             passenger_index,
         );
-        if bunker_may {
-            if let Some(c) = self.objects.get_mut(&cid) {
-                if !c.passengers_allowed_to_fire {
-                    c.passengers_allowed_to_fire = true;
+        if portable_rider {
+            let mut best = None;
+            for (&id, target) in self.objects.registered() {
+                if id == passenger_id || id == cid || !target.is_alive()
+                    || target.team == team || target.team == Team::Neutral
+                    || target.is_effectively_stealthed()
+                    || !(target.is_kind_of(KindOf::Attackable)
+                        || target.is_kind_of(KindOf::Structure)
+                        || target.is_kind_of(KindOf::Infantry)
+                        || target.is_kind_of(KindOf::Vehicle)
+                        || target.is_kind_of(KindOf::Aircraft))
+                {
+                    continue;
+                }
+                let Some(slot) = attacker.select_combat_weapon_slot_with_solo_set(
+                    target, current_time, &self.solo_weapon_bonus_set,
+                ) else {
+                    continue;
+                };
+                let Some(weapon) = attacker.weapon_slot(slot) else {
+                    continue;
+                };
+                let range = (attacker.effective_weapon_range_for_slot_with_solo_set(
+                    slot, weapon.range, &self.solo_weapon_bonus_set,
+                ) - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25).max(0.0);
+                let distance = fire_pos.distance(target.get_position());
+                if distance <= range && best.is_none_or(|(_, d, _)| distance < d) {
+                    best = Some((id, distance, slot));
                 }
             }
+            if let Some((target, _, slot)) = best {
+                self.fire_owned_passive_weapon_with_effects(
+                    passenger_id, target, slot, fire_pos, presentation_effects,
+                );
+            }
+            return;
         }
+
+        let Some(weapon) = attacker.weapon.as_ref() else {
+            return;
+        };
+        let range_bonus = self.receiving_weapon_bonus_fields_for_slot(attacker, 0).1;
+        let range = (weapon.range * range_bonus
+            - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25).max(0.0);
 
         // Pure residual acquire query (fire decision choice phase).
         let candidates: Vec<_> = self

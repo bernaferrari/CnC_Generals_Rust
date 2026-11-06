@@ -188,11 +188,7 @@ fn present_groups(
         ),
         (
             TAG_OVERLORD_ADDON,
-            object.has_overlord_gattling_addon
-                || object.has_overlord_propaganda_addon
-                || object.is_helix_transport
-                || object.overlord_bunker_capacity.is_some()
-                || object.overlord_portable_occupant.is_some()
+            object.is_helix_transport || object.overlord_portable_occupant.is_some()
                 || object.overlord_redirection_active,
         ),
     ];

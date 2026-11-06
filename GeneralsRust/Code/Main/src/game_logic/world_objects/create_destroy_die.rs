@@ -2870,24 +2870,6 @@ impl GameLogic {
                     .max(crate::game_logic::host_troop_crawler::TROOP_CRAWLER_VISION_RANGE);
             }
 
-            // Host residual: China Overlord / Helix / Emperor portable addons + transport.
-            // Fail-closed: not full OverlordContain / HelixContain portable-structure spawn.
-            if crate::game_logic::host_overlord_addons::is_overlord_tank_template(template_name) {
-                // OverlordContain style: portable slot reserved; bunker residual separate.
-                object.overlord_bunker_capacity = Some(0);
-            }
-            // Helix PRIMARY binds from the authored WeaponSet above (C++
-            // WeaponSet::updateWeaponSet from ThingTemplate), not a
-            // template-name host table (hq-2qedt.139).
-            // Emperor innate propaganda keyed on authored PropagandaTowerBehavior
-            // (hq-2qedt.256), not is_emperor_template name peel.
-            let emperor_spawn = object.authors_innate_propaganda_tower();
-            if emperor_spawn {
-                // Innate PropagandaTowerBehavior AffectsSelf residual.
-                object.has_overlord_propaganda_addon = true;
-
-                object.overlord_bunker_capacity = Some(0);
-            }
 
             // Host residual: America Humvee TransportContain Slots=5 + passenger fire.
             // Fail-closed: not multi-exit-path / drone ObjectCreationUpgrade matrix.
@@ -3182,10 +3164,6 @@ impl GameLogic {
                 ui,
             )?;
             verify_factory_birth!();
-            // Residual honesty: Emperor innate propaganda counts as install on spawn.
-            if emperor_spawn {
-                self.overlord_addons.record_propaganda_install();
-            }
 
             // C++ VeterancyGainCreate.cpp:63-65 controlling player only, then
             // PlayerTemplate fallback. Ally training science must not veteran

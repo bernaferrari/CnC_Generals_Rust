@@ -920,8 +920,6 @@ pub struct RenderableObject {
     pub is_listening_outpost_transport: bool,
     pub is_troop_crawler_transport: bool,
     pub is_helix_transport: bool,
-    pub has_overlord_gattling_addon: bool,
-    pub has_overlord_propaganda_addon: bool,
     pub is_battle_bus_transport: bool,
     pub is_technical_transport: bool,
     pub is_combat_cycle_transport: bool,

@@ -782,7 +782,6 @@ impl Object {
             player_who_entered: None,
 
             max_transport: authored_transport_slots,
-            overlord_bunker_capacity: None,
             passengers_allowed_to_fire: authored_passengers_allowed_to_fire,
             armed_riders_upgrade_weapon_set: false,
             weapon_set_player_upgrade: false,
@@ -983,12 +982,8 @@ impl Object {
             command_button_hunt: None,
             last_command_source: crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI,
             attack_move_command_src: None,
-            has_overlord_gattling_addon: false,
-            overlord_addon_body_damage_state:
-                crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             overlord_redirection_active: false,
             overlord_portable_occupant: None,
-            has_overlord_propaganda_addon: false,
             is_helix_transport: authored_helix_contain,
             command_set_override: None,
             demo_suicided_detonating: false,
@@ -1616,7 +1611,6 @@ impl Object {
             player_who_entered: None,
 
             max_transport: 0,
-            overlord_bunker_capacity: None,
             passengers_allowed_to_fire: false,
             armed_riders_upgrade_weapon_set: false,
             weapon_set_player_upgrade: false,
@@ -1815,12 +1809,8 @@ impl Object {
             command_button_hunt: None,
             last_command_source: crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI,
             attack_move_command_src: None,
-            overlord_addon_body_damage_state:
-                crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             overlord_redirection_active: false,
             overlord_portable_occupant: None,
-            has_overlord_gattling_addon: false,
-            has_overlord_propaganda_addon: false,
             is_helix_transport: false,
             command_set_override: None,
             demo_suicided_detonating: false,
