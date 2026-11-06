@@ -531,46 +531,47 @@ pub struct BufferUsage;
 
 impl BufferUsage {
     /// Vertex buffer usage
-    pub fn vertex() -> wgpu::BufferUsages {
-        wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST
+    pub const fn vertex() -> wgpu::BufferUsages {
+        VERTEX
     }
 
     /// Index buffer usage
-    pub fn index() -> wgpu::BufferUsages {
-        wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST
+    pub const fn index() -> wgpu::BufferUsages {
+        INDEX
     }
 
     /// Uniform buffer usage
-    pub fn uniform() -> wgpu::BufferUsages {
-        wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST
+    pub const fn uniform() -> wgpu::BufferUsages {
+        UNIFORM
     }
 
     /// Storage buffer usage
-    pub fn storage() -> wgpu::BufferUsages {
-        wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC
+    pub const fn storage() -> wgpu::BufferUsages {
+        STORAGE
     }
 
     /// Staging buffer usage
-    pub fn staging() -> wgpu::BufferUsages {
-        wgpu::BufferUsages::COPY_SRC
-            | wgpu::BufferUsages::COPY_DST
-            | wgpu::BufferUsages::MAP_READ
-            | wgpu::BufferUsages::MAP_WRITE
+    pub const fn staging() -> wgpu::BufferUsages {
+        STAGING
     }
 }
 
-lazy_static::lazy_static! {
-    /// Vertex buffer usage constant
-    pub static ref VERTEX: wgpu::BufferUsages = BufferUsage::vertex();
-    /// Index buffer usage constant
-    pub static ref INDEX: wgpu::BufferUsages = BufferUsage::index();
-    /// Uniform buffer usage constant
-    pub static ref UNIFORM: wgpu::BufferUsages = BufferUsage::uniform();
-    /// Storage buffer usage constant
-    pub static ref STORAGE: wgpu::BufferUsages = BufferUsage::storage();
-    /// Staging buffer usage constant
-    pub static ref STAGING: wgpu::BufferUsages = BufferUsage::staging();
-}
+/// Vertex buffer usage constant
+pub const VERTEX: wgpu::BufferUsages = wgpu::BufferUsages::VERTEX.union(wgpu::BufferUsages::COPY_DST);
+/// Index buffer usage constant
+pub const INDEX: wgpu::BufferUsages = wgpu::BufferUsages::INDEX.union(wgpu::BufferUsages::COPY_DST);
+/// Uniform buffer usage constant
+pub const UNIFORM: wgpu::BufferUsages =
+    wgpu::BufferUsages::UNIFORM.union(wgpu::BufferUsages::COPY_DST);
+/// Storage buffer usage constant
+pub const STORAGE: wgpu::BufferUsages = wgpu::BufferUsages::STORAGE
+    .union(wgpu::BufferUsages::COPY_DST)
+    .union(wgpu::BufferUsages::COPY_SRC);
+/// Staging buffer usage constant
+pub const STAGING: wgpu::BufferUsages = wgpu::BufferUsages::COPY_SRC
+    .union(wgpu::BufferUsages::COPY_DST)
+    .union(wgpu::BufferUsages::MAP_READ)
+    .union(wgpu::BufferUsages::MAP_WRITE);
 
 #[cfg(test)]
 mod tests {

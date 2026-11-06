@@ -15407,7 +15407,6 @@ dependencies = [
  "bitflags 2.13.2",
  "bytemuck",
  "glam 0.33.7",
- "lazy_static",
  "log",
  "parking_lot",
  "raw-window-handle 0.6.2",
