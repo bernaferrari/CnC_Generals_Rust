@@ -88,7 +88,7 @@ impl Default for EngineConfig {
             color_format: None,
             surface_usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             enable_depth: true,
-            depth_format: wgpu::TextureFormat::Depth32Float,
+            depth_format: ww3d_gpu::SCENE_DEPTH_FORMAT,
             sample_count: 1,
             features: wgpu::Features::empty(),
             limits: wgpu::Limits {
@@ -2101,17 +2101,22 @@ fn write_screenshot_png(
 }
 
 fn unique_temp_path(path: &Path) -> PathBuf {
-    // pid + monotonic nanos identify files; no process counter owned here.
+    // pid + nanos + a per-call nonce. Clock nanos alone collide between
+    // threads (and coarse clocks); std's RandomState draws fresh keys per
+    // call (seeded per thread, then incremented), so hashing a fixed value
+    // with it yields a distinct nonce without a process counter.
+    use std::hash::BuildHasher;
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
+    let nonce = std::collections::hash_map::RandomState::new().hash_one(stamp);
     let pid = std::process::id();
     let base_name = path
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("ww3d-screenshot");
-    let temp_name = format!(".{base_name}.{pid}.{stamp}.tmp");
+    let temp_name = format!(".{base_name}.{pid}.{stamp}.{nonce:016x}.tmp");
     path.with_file_name(temp_name)
 }
 

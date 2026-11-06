@@ -260,7 +260,7 @@ impl OcclusionOverlayRenderer {
         let queue = eng.queue();
         let depth_format = eng
             .depth_format()
-            .unwrap_or(wgpu::TextureFormat::Depth32Float);
+            .unwrap_or(ww3d_gpu::SCENE_DEPTH_FORMAT);
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("occluded_player_color_shader"),

@@ -50,6 +50,17 @@ pub fn use_shadow_decals() -> bool {
         .unwrap_or(true)
 }
 
+/// C++ `TheGlobalData->m_useShadowVolumes` (Options "3D Shadows"), read the
+/// same way as [`use_shadow_decals`].
+pub fn use_shadow_volumes() -> bool {
+    if let Ok(runtime) = crate::common::global_data::read_safe() {
+        return runtime.writable.use_shadow_volumes;
+    }
+    get_global_data()
+        .map(|global| global.read().use_shadow_volumes)
+        .unwrap_or(true)
+}
+
 fn sync_writable_shadow_decals(use_volumes: bool, use_decals: bool) {
     if let Ok(mut runtime) = crate::common::global_data::write_safe() {
         runtime.writable.use_shadow_volumes = use_volumes;

@@ -243,6 +243,17 @@ impl RenderPassResources {
         self.buffers.push(buffer);
     }
 
+    fn set_bind_group_with_offsets(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        slot: u32,
+        bind_group: Arc<wgpu::BindGroup>,
+        offsets: &[u32],
+    ) {
+        render_pass.set_bind_group(slot, bind_group.as_ref(), offsets);
+        self.bind_groups.push(bind_group);
+    }
+
     fn set_bind_group(
         &mut self,
         render_pass: &mut wgpu::RenderPass<'_>,
@@ -299,6 +310,12 @@ pub struct MeshRenderManager {
     decal_queue: Vec<Arc<MeshClass>>,
     fvf_containers: Vec<Arc<DX8FVFCategoryContainer>>,
     live_csm: crate::rendering::shadow_system::live_cascade_shadow::LiveCascadeShadowMap,
+    /// Shared model bind groups keyed by pipeline + arena pages (R5).
+    model_groups: crate::rendering::wgpu_renderer::wgpu_material_binds::ModelGroupCache,
+    /// Stencil shadow volumes for SHADOW_VOLUME casters (created on first use).
+    shadow_volumes: Option<super::shadow_volume::ShadowVolumeRenderer>,
+    /// Silhouette quads drawn by the last shadow pass (frame stats).
+    last_shadow_volume_quads: u32,
 
     /// Frozen presentation texture installed for the current frame. The
     /// dedicated rigid/skinned draw pipeline is intentionally separate work;
@@ -366,7 +383,7 @@ impl MeshRenderManager {
             pipeline_mgr,
             pass_texture_provider: None,
             color_format: wgpu::TextureFormat::Bgra8Unorm,
-            depth_format: Some(wgpu::TextureFormat::Depth32Float),
+            depth_format: Some(ww3d_gpu::SCENE_DEPTH_FORMAT),
             fallback_textures,
             default_sampler,
             empty_vertex_color_buffer,
@@ -374,6 +391,9 @@ impl MeshRenderManager {
             decal_queue: Vec::new(),
             fvf_containers: Vec::new(),
             live_csm,
+            model_groups: Default::default(),
+            shadow_volumes: None,
+            last_shadow_volume_quads: 0,
 
             projected_shroud: None,
         }
@@ -604,10 +624,37 @@ impl MeshRenderManager {
         render_info: &RenderInfoClass,
         arena: &mut FrameUniformArena,
     ) -> W3dResult<()> {
+        self.render_pass_with_shadow_volumes(
+            render_pass,
+            opaque_meshes,
+            &[],
+            blended_meshes,
+            render_info,
+            arena,
+        )
+    }
+
+    /// Opaque meshes, then the stencil shadow volumes of `shadow_casters`
+    /// (C++ `DoShadows` stencil slot), then blended meshes. The pass's depth
+    /// attachment must carry a stencil aspect cleared to zero when casters
+    /// are given.
+    pub fn render_pass_with_shadow_volumes(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        opaque_meshes: &[Arc<MeshClass>],
+        shadow_casters: &[Arc<MeshClass>],
+        blended_meshes: &[Arc<MeshClass>],
+        render_info: &RenderInfoClass,
+        arena: &mut FrameUniformArena,
+    ) -> W3dResult<()> {
         let mut pass_resources = RenderPassResources::default();
+        self.last_shadow_volume_quads = 0;
         let result = (|| {
             for mesh in opaque_meshes {
                 self.render_mesh(mesh, render_info, render_pass, arena, &mut pass_resources)?;
+            }
+            if !shadow_casters.is_empty() && self.stencil_available() {
+                self.record_shadow_volumes(render_pass, shadow_casters, render_info);
             }
             for mesh in blended_meshes {
                 self.render_mesh(mesh, render_info, render_pass, arena, &mut pass_resources)?;
@@ -618,6 +665,41 @@ impl MeshRenderManager {
         // per page) before anyone can submit the recorded pass.
         arena.flush(self.gpu_device.as_ref());
         result
+    }
+
+    /// Whether the scene depth format has the stencil the shadow pass needs.
+    pub fn stencil_available(&self) -> bool {
+        self.depth_format
+            .is_some_and(|format| format.has_stencil_aspect())
+    }
+
+    /// Silhouette quads drawn by the last shadow pass.
+    pub fn last_shadow_volume_quads(&self) -> u32 {
+        self.last_shadow_volume_quads
+    }
+
+    fn record_shadow_volumes(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        casters: &[Arc<MeshClass>],
+        render_info: &RenderInfoClass,
+    ) {
+        let Some(depth_format) = self.depth_format else {
+            return;
+        };
+        let device = self.gpu_device.wgpu_device();
+        let color_format = self.color_format;
+        let volumes = self.shadow_volumes.get_or_insert_with(|| {
+            super::shadow_volume::ShadowVolumeRenderer::new(device, color_format, depth_format)
+        });
+        self.last_shadow_volume_quads = volumes.record(
+            device,
+            self.gpu_device.queue(),
+            render_pass,
+            casters,
+            render_info.camera.get_cached_view_projection_matrix(),
+            sun_direction(render_info),
+        );
     }
 
     /// Select the lighting environment owned by this MeshClass when one has
@@ -788,6 +870,7 @@ impl MeshRenderManager {
             Some(1.0),
             Some(1.0),
             Some(&self.live_csm),
+            &mut self.model_groups,
         )?;
 
         resources.set_pipeline(render_pass, Arc::clone(&pipeline));
@@ -798,7 +881,12 @@ impl MeshRenderManager {
         resources.set_bind_group(render_pass, 0, Arc::clone(&camera_binds.bind_group));
         resources.retain_buffer(Arc::clone(&model_binds.model_buffer));
         resources.retain_buffer(Arc::clone(&model_binds.lighting_buffer));
-        resources.set_bind_group(render_pass, 1, Arc::clone(&model_binds.bind_group));
+        resources.set_bind_group_with_offsets(
+            render_pass,
+            1,
+            Arc::clone(&model_binds.bind_group),
+            &model_binds.offsets,
+        );
 
         if prepared.is_skinned {
             let identity_palette = [Mat4::IDENTITY];
@@ -1015,6 +1103,7 @@ impl MeshRenderManager {
             Some(visibility_falloff),
             Some(is_explored),
             Some(&self.live_csm),
+            &mut self.model_groups,
         )?;
 
         resources.set_pipeline(render_pass, Arc::clone(&pipeline));
@@ -1028,8 +1117,14 @@ impl MeshRenderManager {
 
         resources.retain_buffer(Arc::clone(&model_binds.model_buffer));
         resources.retain_buffer(Arc::clone(&model_binds.lighting_buffer));
-        resources.set_bind_group(render_pass, 1, Arc::clone(&model_binds.bind_group));
+        resources.set_bind_group_with_offsets(
+            render_pass,
+            1,
+            Arc::clone(&model_binds.bind_group),
+            &model_binds.offsets,
+        );
         sorted_groups.push(Arc::clone(&model_binds.bind_group));
+        let model_offsets = model_binds.offsets.to_vec();
 
         let next_slot = 3u32;
         if prepared.is_skinned {
@@ -1126,7 +1221,16 @@ impl MeshRenderManager {
             let origin = mesh.transform.w_axis.truncate();
             let camera = render_info.camera.get_position();
             let distance = (origin - camera).length();
-            self.enqueue_sorted_material_pass(prepared, pass, &pipeline, sorted_groups, distance);
+            // Group 1 (model) is the only dynamic-offset group.
+            let offsets = vec![Vec::new(), model_offsets];
+            self.enqueue_sorted_material_pass(
+                prepared,
+                pass,
+                &pipeline,
+                sorted_groups,
+                offsets,
+                distance,
+            );
         } else {
             self.issue_draw_call(prepared, pass, render_pass, &mesh.name);
         }
@@ -1145,6 +1249,7 @@ impl MeshRenderManager {
         pass: &MaterialPassClass,
         pipeline: &Arc<wgpu::RenderPipeline>,
         bind_groups: Vec<Arc<wgpu::BindGroup>>,
+        bind_group_offsets: Vec<Vec<u32>>,
         distance: f32,
     ) {
         let pass_index = pass.get_pass_index();
@@ -1179,6 +1284,7 @@ impl MeshRenderManager {
             distance,
             Arc::clone(pipeline),
             bind_groups,
+            bind_group_offsets,
             wgpu::IndexFormat::Uint32,
         );
     }
@@ -1550,38 +1656,15 @@ impl MeshRenderManager {
 
         let device = self.gpu_device.wgpu_device();
         let queue = self.gpu_device.queue();
-        let gpu_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(&format!("MeshManager Pass Texture {}", texture.get_name())),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu_format,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &gpu_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
+        // Full mip chain (C++ DDS chains / D3DX mips; renderer plan R7).
+        let gpu_texture = ww3d_gpu::mips::create_rgba8_texture_with_mips(
+            device,
+            queue,
+            &format!("MeshManager Pass Texture {}", texture.get_name()),
+            wgpu_format,
+            width,
+            height,
             &pixels[..expected],
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(width * 4),
-                rows_per_image: Some(height),
-            },
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
         );
         let view = Arc::new(gpu_texture.create_view(&wgpu::TextureViewDescriptor::default()));
 
@@ -2575,4 +2658,21 @@ mod bind_cache_reuse_tests {
         assert_eq!(second.misses, 2, "{second:?}");
         assert_eq!(second.hits, 3 * lookups_per_draw - 2);
     }
+}
+
+/// Direction the first enabled directional light travels (C++ volumetric
+/// shadows use `TheGlobalData->m_terrainLightPos[0]`, the sun).
+fn sun_direction(render_info: &RenderInfoClass) -> glam::Vec3 {
+    render_info
+        .lighting
+        .as_ref()
+        .and_then(|environment| {
+            environment.lights.iter().find(|light| {
+                light.enabled
+                    && light.light_type == crate::rendering::lighting_system::LightType::Directional
+                    && light.direction.length_squared() > 1e-6
+            })
+        })
+        .map(|light| light.direction)
+        .unwrap_or(glam::Vec3::new(0.35, -0.85, 0.35))
 }

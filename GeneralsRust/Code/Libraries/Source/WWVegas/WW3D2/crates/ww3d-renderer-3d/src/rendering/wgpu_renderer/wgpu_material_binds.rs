@@ -22,7 +22,14 @@ pub struct ModelBinds {
     pub model_buffer: Arc<wgpu::Buffer>,
     pub lighting_buffer: Arc<wgpu::Buffer>,
     pub bind_group: Arc<wgpu::BindGroup>,
+    /// Dynamic offsets of the model and lighting uniforms in their arena pages.
+    pub offsets: [u32; 2],
 }
+
+/// Model bind groups shared across draws (renderer plan R5): one per
+/// (pipeline, model arena page, lighting arena page); each draw only
+/// changes the dynamic offsets.
+pub type ModelGroupCache = std::collections::HashMap<(usize, usize, usize), Arc<wgpu::BindGroup>>;
 
 #[derive(Debug, Clone)]
 pub struct BonesBinds {
@@ -233,6 +240,7 @@ impl WgpuMaterialBinds {
         visibility_falloff: Option<f32>,
         is_explored: Option<f32>,
         live_csm: Option<&LiveCascadeShadowMap>,
+        group_cache: &mut ModelGroupCache,
     ) -> Result<ModelBinds> {
         let normal_matrix = model.inverse().transpose();
         let stage_mask_u32 = texture_stage_mask as u32;
@@ -264,48 +272,71 @@ impl WgpuMaterialBinds {
         let model_slice = arena.allocate(gpu, bytemuck::bytes_of(&model_uniform), 256)?;
         let lighting_slice = arena.allocate(gpu, bytemuck::bytes_of(&lighting_uniform), 256)?;
 
-        let dummy_csm;
-        let csm = match live_csm {
-            Some(existing) => existing,
+        let key = (
+            pipeline as *const wgpu::RenderPipeline as usize,
+            Arc::as_ptr(&model_slice.buffer) as usize,
+            Arc::as_ptr(&lighting_slice.buffer) as usize,
+        );
+        let model_size = std::num::NonZeroU64::new(std::mem::size_of::<ModelUniform>() as u64);
+        let lighting_size =
+            std::num::NonZeroU64::new(std::mem::size_of_val(&lighting_uniform) as u64);
+        let bind_group = match group_cache.get(&key) {
+            Some(group) => Arc::clone(group),
             None => {
-                dummy_csm = LiveCascadeShadowMap::dummy(gpu.wgpu_device());
-                &dummy_csm
+                let dummy_csm;
+                let csm = match live_csm {
+                    Some(existing) => existing,
+                    None => {
+                        dummy_csm = LiveCascadeShadowMap::dummy(gpu.wgpu_device());
+                        &dummy_csm
+                    }
+                };
+                let group = Arc::new(gpu.wgpu_device().create_bind_group(
+                    &wgpu::BindGroupDescriptor {
+                        label: Some("Model BG"),
+                        layout: &pipeline.get_bind_group_layout(slot),
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                                    buffer: model_slice.buffer.as_ref(),
+                                    offset: 0,
+                                    size: model_size,
+                                }),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                                    buffer: lighting_slice.buffer.as_ref(),
+                                    offset: 0,
+                                    size: lighting_size,
+                                }),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource: csm.uniform_buffer.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 3,
+                                resource: wgpu::BindingResource::TextureView(&csm.view),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 4,
+                                resource: wgpu::BindingResource::Sampler(&csm.sampler),
+                            },
+                        ],
+                    },
+                ));
+                group_cache.insert(key, Arc::clone(&group));
+                group
             }
         };
-
-        let bind_group = gpu
-            .wgpu_device()
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Model BG"),
-                layout: &pipeline.get_bind_group_layout(slot),
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::Buffer(model_slice.as_binding()),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Buffer(lighting_slice.as_binding()),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: csm.uniform_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::TextureView(&csm.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: wgpu::BindingResource::Sampler(&csm.sampler),
-                    },
-                ],
-            });
 
         Ok(ModelBinds {
             model_buffer: Arc::clone(&model_slice.buffer),
             lighting_buffer: Arc::clone(&lighting_slice.buffer),
-            bind_group: Arc::new(bind_group),
+            bind_group,
+            offsets: [model_slice.offset as u32, lighting_slice.offset as u32],
         })
     }
 

@@ -399,6 +399,7 @@ impl ForwardPass {
         let color_texture = frame.color_texture().clone();
         let encoder = frame.encoder();
 
+        renderer.begin_effects_frame();
         if let Some(prepared) = prepared_particles.as_ref() {
             renderer.preload_authored_textures(prepared.preloaded_texture_assets());
         }
@@ -748,7 +749,9 @@ impl ForwardPass {
                             continue;
                         }
                         // Queue mesh for rendering
-                        if let Err(e) = renderer.queue_mesh(mesh) {
+                        if let Err(e) =
+                            renderer.queue_mesh_with_shadow(mesh, item.casts_volume_shadow)
+                        {
                             error!("Failed to queue mesh for item {}: {e:?}", item.object_id);
                             error_count += 1;
                             // Continue processing other items instead of failing entire frame

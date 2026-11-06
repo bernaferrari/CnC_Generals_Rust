@@ -420,6 +420,9 @@ pub struct RenderableObject {
     /// C++ `Drawable::setShadowsEnabled` residual.
     #[serde(default = "default_shadows_enabled")]
     pub shadows_enabled: bool,
+    /// Template `Shadow` bits (C++ `ObjectShadowType`, SHADOW_VOLUME etc.).
+    #[serde(default)]
+    pub shadow_type_bits: u32,
     /// C++ `Drawable` terrain-decal type residual.
     #[serde(default = "default_terrain_decal_none")]
     pub terrain_decal_type: u8,

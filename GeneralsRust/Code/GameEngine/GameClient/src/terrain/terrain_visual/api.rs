@@ -3,41 +3,46 @@
 // Re-export the main implementation
 pub use TerrainVisualImpl as TerrainVisualSystem;
 
-/// Published live-client terrain visual Arc (C++ `TheTerrainVisual` pointer).
-/// Each GameClient owns its Arc; only the registered live client is published.
-static PUBLISHED_TERRAIN_VISUAL: std::sync::Mutex<
-    Option<std::sync::Arc<parking_lot::Mutex<Option<TerrainVisualImpl>>>>,
-> = std::sync::Mutex::new(None);
+type PublishedTerrainVisual = std::sync::Arc<parking_lot::Mutex<Option<TerrainVisualImpl>>>;
 
-pub(crate) fn publish_terrain_visual(
-    visual: std::sync::Arc<parking_lot::Mutex<Option<TerrainVisualImpl>>>,
-) {
-    *PUBLISHED_TERRAIN_VISUAL
-        .lock()
-        .unwrap_or_else(|e| e.into_inner()) = Some(visual);
+/// The live client's terrain visual (C++ `TheTerrainVisual`), published on
+/// this game instance's CommonServices rather than a process static.
+pub(crate) fn publish_terrain_visual(visual: PublishedTerrainVisual) {
+    if let Some(services) = game_engine::common::common_services::try_common_services() {
+        *services
+            .system
+            .terrain_visual_any
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(visual);
+    }
 }
 
-pub(crate) fn unpublish_terrain_visual(
-    visual: &std::sync::Arc<parking_lot::Mutex<Option<TerrainVisualImpl>>>,
-) {
-    let mut slot = PUBLISHED_TERRAIN_VISUAL
+pub(crate) fn unpublish_terrain_visual(visual: &PublishedTerrainVisual) {
+    let Some(services) = game_engine::common::common_services::try_common_services() else {
+        return;
+    };
+    let mut slot = services
+        .system
+        .terrain_visual_any
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    if slot
-        .as_ref()
-        .is_some_and(|published| std::sync::Arc::ptr_eq(published, visual))
-    {
+    let same = slot.as_ref().is_some_and(|published| {
+        std::sync::Arc::as_ptr(published) as *const () == std::sync::Arc::as_ptr(visual) as *const ()
+    });
+    if same {
         *slot = None;
     }
 }
 
-fn published_terrain_visual() -> Option<
-    std::sync::Arc<parking_lot::Mutex<Option<TerrainVisualImpl>>>,
-> {
-    PUBLISHED_TERRAIN_VISUAL
+fn published_terrain_visual() -> Option<PublishedTerrainVisual> {
+    let services = game_engine::common::common_services::try_common_services()?;
+    let any = services
+        .system
+        .terrain_visual_any
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .clone()
+        .clone()?;
+    any.downcast::<parking_lot::Mutex<Option<TerrainVisualImpl>>>().ok()
 }
 
 /// Mutate the live/published terrain visual (preferred over `get_terrain_visual`).

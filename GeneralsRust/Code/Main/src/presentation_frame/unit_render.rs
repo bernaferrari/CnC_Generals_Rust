@@ -157,6 +157,8 @@ pub struct UnitRenderInput {
     pub topple_dir_y: f32,
     /// C++ `Drawable::setShadowsEnabled` residual (false while toppling).
     pub shadows_enabled: bool,
+    /// Template `Shadow` bits (C++ `ObjectShadowType`).
+    pub shadow_type_bits: u32,
     /// C++ `Drawable::m_terrainDecalType` residual.
     pub terrain_decal_type: u8,
     /// C++ `Drawable::setTerrainDecalSize` residual (major axis).
@@ -441,6 +443,7 @@ impl UnitRenderInput {
             topple_dir_x: ro.topple_dir_x,
             topple_dir_y: ro.topple_dir_y,
             shadows_enabled: ro.shadows_enabled,
+            shadow_type_bits: ro.shadow_type_bits,
             terrain_decal_type: ro.terrain_decal_type,
             terrain_decal_size: ro.terrain_decal_size,
             terrain_decal_opacity: ro.terrain_decal_opacity,

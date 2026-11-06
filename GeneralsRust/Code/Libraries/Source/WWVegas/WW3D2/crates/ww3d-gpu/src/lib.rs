@@ -18,7 +18,13 @@
 //! - Shadow mapping
 //! - Pipeline caching for optimal performance
 
+/// Depth-stencil format of the scene target and of every pipeline that draws
+/// into it: C++ renders on a D3DFMT_D24S8 back buffer and the stencil holds
+/// the volumetric shadow counts (W3DVolumetricShadow / W3DShadowManager).
+pub const SCENE_DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24PlusStencil8;
+
 pub mod adapter;
+pub mod mips;
 pub mod blend_modes;
 pub mod buffer;
 pub mod caps;

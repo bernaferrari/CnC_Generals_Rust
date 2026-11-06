@@ -468,7 +468,7 @@ impl SelectionRenderer {
                 conservative: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
+                format: ww3d_gpu::SCENE_DEPTH_FORMAT,
                 depth_write_enabled: Some(true),
                 depth_compare: Some(wgpu::CompareFunction::LessEqual),
                 stencil: wgpu::StencilState::default(),
@@ -812,6 +812,24 @@ fn blob_disc_ground_y(
         .unwrap_or(crate::presentation_frame::PRESENTATION_DEFAULT_GROUND_HEIGHT)
 }
 
+fn casts_volume(u: &crate::presentation_frame::UnitRenderInput) -> bool {
+    u.shadow_type_bits & crate::game_logic::host_enum_table_residual::SHADOW_VOLUME != 0
+}
+
+/// Objects whose meshes cast stencil shadow volumes this frame (live,
+/// shadows enabled, not fogged or shrouded, template `SHADOW_VOLUME`).
+pub(crate) fn volume_shadow_caster_ids(
+    frame: &crate::presentation_frame::PresentationFrame,
+) -> std::collections::HashSet<crate::game_logic::ObjectId> {
+    frame
+        .unit_render_inputs()
+        .iter()
+        .filter(|u| !u.destroyed && u.shadows_enabled && blob_shadow_visible_through_shroud(u))
+        .filter(|u| casts_volume(u))
+        .map(|u| u.id)
+        .collect()
+}
+
 /// Collect blob discs from a `PresentationFrame` snapshot.
 ///
 /// Identity fields come only from the immutable snapshot — not a live re-read
@@ -824,10 +842,13 @@ pub fn collect_blob_shadows_from_presentation(
     if !game_engine::common::game_lod::use_shadow_decals() {
         return Vec::new();
     }
+    let volumes = game_engine::common::game_lod::use_shadow_volumes();
     frame
         .unit_render_inputs()
         .iter()
         .filter(|u| !u.destroyed && u.shadows_enabled && blob_shadow_visible_through_shroud(u))
+        // SHADOW_VOLUME objects cast a stencil volume instead when 3D shadows are on.
+        .filter(|u| !(volumes && casts_volume(u)))
         .map(|u| {
             // Retail blob sizing: DECAL family uses the authored ShadowSize world
             // extent (infantry 14x14); VOLUME-family ShadowSizeX is a sun-elevation
@@ -1681,8 +1702,7 @@ mod presentation_selection_tests {
     #[test]
     fn blob_casters_collect_for_volume_units_with_positive_radius() {
         // Retail Crusader-class units author SHADOW_VOLUME (a C++ stencil
-        // volume). The stencil pass is structurally skipped (Depth32Float), so
-        // the collector must still yield a blob caster with a positive radius.
+        // volume): a volume caster with 3D shadows on, a blob disc without.
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("VolBlobMap");
         apply_skirmish_config(&mut logic, &cfg).expect("config");
@@ -1700,11 +1720,23 @@ mod presentation_selection_tests {
         }
 
         let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+        let set_volumes = |on: bool| {
+            if let Ok(mut runtime) = game_engine::common::global_data::write_safe() {
+                runtime.writable.use_shadow_volumes = on;
+            }
+        };
+        // 3D shadows on: the unit casts a stencil volume, not a disc.
+        set_volumes(true);
+        assert!(collect_blob_shadows_from_presentation(&snap).is_empty());
+        assert!(volume_shadow_caster_ids(&snap).contains(&id));
+        // 3D shadows off: the 2D blob disc stands in.
+        set_volumes(false);
         let blobs = collect_blob_shadows_from_presentation(&snap);
+        set_volumes(true);
         assert_eq!(
             blobs.len(),
             1,
-            "SHADOW_VOLUME unit must still cast a blob disc"
+            "with 3D shadows off a SHADOW_VOLUME unit casts a blob disc"
         );
         assert!(
             blobs[0].radius > 0.0,

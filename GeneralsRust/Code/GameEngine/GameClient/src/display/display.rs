@@ -200,7 +200,7 @@ impl Display {
             graphics.device_arc(),
             graphics.queue_arc(),
             surface_format,
-            wgpu::TextureFormat::Depth32Float,
+            ww3d_gpu::SCENE_DEPTH_FORMAT,
         ) {
             Ok(renderer) => Some(Mutex::new(renderer)),
             Err(err) => {
@@ -310,7 +310,7 @@ impl Display {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Depth32Float,
+            format: ww3d_gpu::SCENE_DEPTH_FORMAT,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         })
@@ -1161,7 +1161,7 @@ impl Display {
                 [camera_pos.x, camera_pos.y, camera_pos.z],
                 light_pos,
                 self.graphics.config().format,
-                wgpu::TextureFormat::Depth32Float,
+                ww3d_gpu::SCENE_DEPTH_FORMAT,
                 // Legacy Display::draw path: keep its full-attachment default.
                 (0.0, 0.0),
                 drawable_manager.as_deref(),

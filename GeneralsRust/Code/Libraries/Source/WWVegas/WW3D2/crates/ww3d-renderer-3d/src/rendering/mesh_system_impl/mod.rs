@@ -81,6 +81,7 @@ mod model;
 mod model_collision;
 mod render_manager;
 mod render_obj;
+mod shadow_volume;
 mod skin_deform;
 mod static_sort;
 

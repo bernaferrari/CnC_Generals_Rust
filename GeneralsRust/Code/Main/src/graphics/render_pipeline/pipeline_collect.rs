@@ -2185,6 +2185,22 @@ impl RenderPipeline {
     /// Sort render items for optimal rendering - equivalent to C++ RenderPipeline::SortRenderItems()
     pub(super) fn sort_render_items(&mut self) {
         self.render_items.sort_by(Self::compare_render_items);
+        self.mark_volume_shadow_casters();
+    }
+
+    /// C++ W3DModelDraw adds a W3DVolumetricShadow for `Shadow = SHADOW_VOLUME`
+    /// templates when 3D shadows are on; fogged/shrouded objects cast none
+    /// (`setFullyObscuredByShroud` -> `enableShadowInvisible`).
+    fn mark_volume_shadow_casters(&mut self) {
+        let casters: std::collections::HashSet<crate::game_logic::ObjectId> =
+            match (game_engine::common::game_lod::use_shadow_volumes(), self.presentation_frame.as_ref()) {
+                (true, Some(frame)) => crate::graphics::selection_renderer::volume_shadow_caster_ids(frame),
+                _ => Default::default(),
+            };
+        for item in &mut self.render_items {
+            item.casts_volume_shadow = item.render_pass == RenderPass::ForwardOpaque
+                && casters.contains(&item.object_id);
+        }
     }
 
     /// Execute water rendering pass - equivalent to C++ RenderPipeline::ExecuteWaterPass()

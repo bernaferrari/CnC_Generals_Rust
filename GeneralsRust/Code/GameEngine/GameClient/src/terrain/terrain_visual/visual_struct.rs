@@ -10,8 +10,7 @@
 /// against the live attachment, so a pipeline authored with
 /// `Depth24PlusStencil8` fatals on first use ("Render pipeline targets are
 /// incompatible with render pass"). Keep the formats identical.
-pub(super) const TERRAIN_PIPELINES_DEPTH_FORMAT: wgpu::TextureFormat =
-    wgpu::TextureFormat::Depth32Float;
+pub(super) const TERRAIN_PIPELINES_DEPTH_FORMAT: wgpu::TextureFormat = ww3d_gpu::SCENE_DEPTH_FORMAT;
 
 /// Main terrain visual implementation matching C++ TerrainVisual
 enum TerrainDefinitionOwner {
