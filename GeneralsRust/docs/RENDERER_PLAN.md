@@ -27,18 +27,25 @@ then `target/debug/golden_capture <out.png> --scene shell|lone-eagle --frame N
 (800x600 headless; see `Code/Main/src/cnc_game_engine/golden_capture.rs`). Each
 capture writes `<out>.stats.txt` with the last frame's counters. Captures of the
 same binary are byte-identical run to run (verified 2-3x for both scenes).
+The terrain clock and water scroll used to advance per draw call, so frozen
+shell captures differed run to run on the sea; they now step once per client
+frame like C++ (`W3DDisplay::draw` syncTime, `WaterRenderObjClass::update`),
+see `ecbfce083`.
 
 | Step | State | Evidence |
 |---|---|---|
 | prerequisite | done | `drive_frame` self-deadlocked on the WW3D mutex on the first Menu frame (lock temporary in a `match` scrutinee); the shell then failed on object-less drawables (`missing native material observation`). Both fixed, so headless/windowed runs get past the menu again. |
-| R0 | done | `RenderFrameStats` (wgpu HAL counters sampled at begin_render and before submit, recorded passes, record CPU time) published as `render_frame_stats=`; `Engine::set_fixed_clock`; frame encoder created only after a successful acquire; golden freeze/capture mode + `golden_capture` bin; `count_globals.sh` / `check_sealed_modules.sh` count `lazy_static! { static ref }` (baseline 1 -> 35, now 31). |
+| R0 | done | `RenderFrameStats` (wgpu HAL counters sampled at begin_render and before submit, recorded passes, record CPU time) published as `render_frame_stats=`; `Engine::set_fixed_clock`; frame encoder created only after a successful acquire; golden freeze/capture mode + `golden_capture` bin; `count_globals.sh` / `check_sealed_modules.sh` count `lazy_static! { static ref }` (baseline 1 -> 35, now 30). |
 | R1 | done | GameClient `w3d/{renderer,device,post_processing}` + shaders, WgpuWrapper legacy backend, ww3d-gpu PIPELINE_CACHE/DYNAMIC_BUFFERS/SHADER_CONSTANTS/GPU_CONTEXT, second ShaderClass pipeline cache, GraphicsSystem uniform/material GPU state, `.bak*`, archive crate out of the workspace. ~16.8k lines removed. renderer-3d unit tests compile again (were 60 errors). |
 | R2 | done | `SortingRenderer` owned per `MeshRenderManager`; two-renderer isolation test. Golden-R identical. |
 | R3 | done | `FramePhase` + `FRAME_SCHEDULE` replace the FIFO callback queues; first commit encodes the old runtime order. Golden-R identical (shell + Lone Eagle). |
 | R4 | done | Schedule in `RTS3DScene::Flush` order; sorting flush uses the tactical viewport. Lone Eagle: unit/building ground shadows become visible (2716 px in the base area); shell: 28 px. Ground overlays (selection circles, order lines) are no longer recorded before the terrain clear. |
-| R5 | partial | Per-manager `MeshBindCache`: texture-stage and vertex-color bind groups reused across frames, samplers shared by state, texture views by texture, camera/UV groups once per pipeline per frame (UV uniform moved into the frame arena). Shared BGL scheme + dynamic offsets not done: model groups are still one per draw. |
-| R6 | partial | Particle batches share one persistent instance buffer (one `write_buffer` per frame). Weather/tracer/heat-haze/decal/shadow/water/terrain rebake buffers still per frame. |
-| R7-R13 | open | see table in section 4. Command-buffer exhaustion (hq-sjaur7) not reproduced; encoder-after-acquire removes one candidate. |
+| R5 | partial | Per-manager `MeshBindCache`: texture-stage and vertex-color bind groups reused across frames, samplers shared by state, texture views by texture, camera/UV groups once per pipeline per frame. `FrameUniformArena` stages allocations in a CPU mirror and `MeshRenderManager::render_pass` uploads them with one `write_buffer` per page (`1eff7fead`; a write per allocation made wgpu allocate a staging buffer per draw). The projected-shroud UV group uses the cached arena group too. Not done: shared BGL scheme + dynamic offsets, so model groups are still one bind group per draw (no buffers). |
+| R6 | partial | Particle batches share one persistent instance buffer. Selection circles / order lines append into grow-only buffers with one write per frame and one draw per list (`1eff7fead`). Terrain chunk meshes and polygon water only rebuild on geometry/frame change. Still per call when active: weather, tracers, heat haze, decals, shadow-pass buffers, dynamic-light chunk rebakes. |
+| R7 | open | No mip chains, DXT still CPU-decoded to RGBA8. |
+| R8 | done | Gamma space like DX8 (`f5e2784da`): surface prefers `Bgra8Unorm`, every colour texture/target is `*Unorm`, `image_format_to_wgpu` and the mesh upload treat sRGB tags as Unorm. Visible: lit/modulated colours and UI fills are no longer washed out (the radar letterbox line, C++ 50/50/50, was 122/122/122 and is now 50/50/50). |
+| R9 | partial | The live CSM (4 depth passes, per-caster buffers, PCF/"contact" term in opaque.wgsl) is deleted (`ecbfce083`); W3D meshes are lit by ambient + lights only, as in C++. Not done: `Depth24PlusStencil8` + stencil shadow volumes from silhouettes (`W3DVolumetricShadow`); SHADOW_VOLUME units still get the blob-disc stand-in. The cascade bindings remain in the mesh BGL until the R5 shared layout lands. |
+| R10-R13 | open | see table in section 4. `THE_RENDER_BRIDGE` is gone (`8829c2867`): the per-world GameLogic scene-submission sink (`LiveClientSceneSubmission`) and the W3D ghost-capture hook reach the receiving client's own `RenderBridge`. Command-buffer exhaustion (hq-sjaur7) not reproduced; encoder-after-acquire removes one candidate. |
 
 Frame stats, 800x600 debug build, steady frozen frame (created per frame):
 
@@ -50,6 +57,17 @@ Frame stats, 800x600 debug build, steady frozen frame (created per frame):
 | Lone Eagle frame 90 | R0-R4 | 554 | 453 | 63 | 46-48 |
 | Lone Eagle frame 90 | R5 cache (no sampler cache) | 182 | 269 | 63 | 40 |
 | Lone Eagle frame 90 | R5 + sampler/view cache | 119 | 269 | 0 | 37 |
+| ShellMapMD step 60 | + gamma space, no CSM, terrain cells | 168 | 330 | 0 | 34 |
+| ShellMapMD step 60 | + staged arena, overlay ring | 168 | 6 | 0 | 29-34 |
+| Lone Eagle frame 90 | + terrain cells (32-cell chunks) | 21 | 269 | 0 | 28-29 |
+| Lone Eagle frame 90 | + no CSM | -23 | 180 | 0 | 22 |
+| Lone Eagle frame 90 | + staged arena, overlay ring | -23 | 46 | 0 | 20 |
+
+Render passes per frame: shell 8 -> 4, Lone Eagle 10 -> 6 (CSM depth passes
+gone). "bind groups" is a live-count delta, so it goes negative when cached
+groups age out in the same frame. "buffers" counts every HAL buffer, including
+the staging buffers wgpu allocates for `queue.write_buffer`, which is why
+batching writes moved it.
 
 Cross-build nondeterminism (the 28-pixel ShellMapMD ship spot): fixed in
 `dbeb197ae`. The frame graph broke sort ties with the mesh `Arc` address and
@@ -68,11 +86,23 @@ Not a bug: the red grid frame and yellow rectangle on the shell menu are the
 authored `MainMenu.wnd:MainMenuRuler` art, faded in by the WindowTransitions
 system after `MainMenuInit` hides it (same as C++).
 
-Open render items: thin terrain seams on some chunk rows (chunk grid is not
-cell-aligned), at most 4 terrain classes bound for the visible set, radar
-minimap black in frozen captures, `THE_RENDER_BRIDGE` global (needs the
-GameLogic scene-submission sink to become per-instance first), R5 shared
-BGLs/dynamic offsets, R6 remaining per-frame buffers, R7-R13.
+| Terrain seams along chunk rows: 64-unit chunks (not a multiple of the 10-unit cell) tessellated by LOD resampled the height field twice (T-junction cracks, mid-cell quads). Now C++ `VERTEX_BUFFER_TILE_LENGTH` 32-cell chunks, one quad per cell at the exact sample heights, map-wide normals, no LOD | `9b869dc02` | Lone Eagle grid lines gone |
+| Only 4 terrain classes bound, and the shader ignored `blend_indices` (weight i sampled slot i). Now 16 class slots, slot read flat per cell (slot-sorted union over the cell's corners) | `9b869dc02` | Lone Eagle snow/gravel/grass layout visible instead of one grey class |
+| Every cell row cut the tile: C++ `getUVForNdx` vertical quadrant and the class-block row order (`updateTileTexturePositions` stores row j at width-j-1) were both flipped | `9b869dc02` | continuous tiles |
+
+Radar "black in frozen captures" is not a bug: the terrain texture is
+complete (16384 non-black cells) and the shroud is 481 clear / 15903
+shrouded cells at Lone Eagle frame 90, i.e. only the start area is explored,
+which is what C++ draws. The revealed patch, units and view trapezoid render
+correctly. The radar shroud revision now only moves on a real cell change,
+so the resident shroud texture is not re-uploaded every frame.
+
+Open render items: stencil shadow volumes (R9), R5 shared BGLs/dynamic
+offsets, R6 remaining per-call buffers (weather/tracers/heat haze/decals,
+shadow pass), R7 mips/BC, R10 per-triangle sorting, R11 UI batching, R12
+pass merging, R13 remaining globals (`PUBLISHED_TERRAIN_VISUAL`, shadow-pass
+live-client access, `set_live_renderer_3d`). Terrain blend edges between
+classes still step per cell where C++ uses its extra-blend alpha tiles.
 
 ---
 
