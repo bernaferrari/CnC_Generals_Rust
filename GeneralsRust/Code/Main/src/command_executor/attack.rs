@@ -211,7 +211,6 @@ impl<'a> CommandExecutor<'a> {
         ordered.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
         let mut extra_passengers: Vec<ObjectId> = Vec::new();
-        let mut hive_containers: Vec<ObjectId> = Vec::new();
         for &(unit_id, _) in &ordered {
             let Some(unit) = self.game_logic.host_object(unit_id) else {
                 continue;
@@ -232,18 +231,6 @@ impl<'a> CommandExecutor<'a> {
                     }
                 }
             }
-            if unit.hive_slave_count > 0 {
-                hive_containers.push(unit_id);
-            }
-        }
-
-        for hive_id in hive_containers {
-            if let Some(site) = self.game_logic.host_object_mut(hive_id) {
-                let _ = crate::game_logic::host_base_defense::order_hive_slaves_to_attack_target(
-                    &mut site.hive_slaves,
-                    target_id.0,
-                );
-            }
         }
 
         let mut any_attacker = false;
@@ -263,6 +250,33 @@ impl<'a> CommandExecutor<'a> {
             }
         }
         for (unit_id, _) in ordered {
+            // SpawnBehavior::orderSlavesToAttackTarget always uses force
+            // attack, even when the group's own order is not forced.
+            let children = self
+                .game_logic
+                .host_object(unit_id)
+                .filter(|owner| GameLogic::spawn_behavior_orders_slaves(owner))
+                .map(|owner| owner.spawn_behavior_children())
+                .unwrap_or_default();
+            for (child_id, birth) in children {
+                let admitted = self
+                    .game_logic
+                    .host_object(unit_id)
+                    .zip(self.game_logic.host_object(child_id))
+                    .is_some_and(|(owner, child)| {
+                        owner.spawn_behavior_child_birth_matches(child_id, &birth, child)
+                            && child.has_ai_update_interface()
+                    });
+                if admitted
+                    && self.game_logic.unit_command_force_attack_with_effects(
+                        child_id,
+                        target_id,
+                        &mut self.ui,
+                    )?
+                {
+                    any_attacker = true;
+                }
+            }
             if unit_id == target_id {
                 continue;
             }
@@ -450,7 +464,6 @@ impl<'a> CommandExecutor<'a> {
                 .filter(|owner| GameLogic::spawn_behavior_orders_slaves(owner))
                 .map(|owner| owner.spawn_behavior_children())
                 .unwrap_or_default();
-            let has_roster = !children.is_empty();
             for (child_id, birth) in children {
                 let admitted = self
                     .game_logic
@@ -466,28 +479,6 @@ impl<'a> CommandExecutor<'a> {
                         .unit_command_attack_position(child_id, attack_pos, max_shots)?
                 {
                     any = true;
-                }
-            }
-            // Older residual-only Stinger instances still use their local hive
-            // projection until their physical spawn roster has been admitted.
-            if !has_roster
-                && self.game_logic.host_object(unit_id).is_some_and(|unit| {
-                    unit.hive_slave_count > 0 || unit.hive_slaves.iter().any(|slave| slave.alive)
-                })
-                && self
-                    .game_logic
-                    .host_object(unit_id)
-                    .is_some_and(GameLogic::spawn_behavior_orders_slaves)
-            {
-                if let Some(site) = self.game_logic.host_object_mut(unit_id) {
-                    let n =
-                        crate::game_logic::host_base_defense::order_hive_slaves_to_attack_position(
-                            &mut site.hive_slaves,
-                            attack_pos,
-                        );
-                    if n > 0 {
-                        any = true;
-                    }
                 }
             }
 

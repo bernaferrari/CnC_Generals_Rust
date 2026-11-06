@@ -350,6 +350,41 @@ fn team_attack_orders_only_spawned_slaves_without_free_will() {
         Some(parent_position)
     );
     assert_eq!(owner.host_object(locked).unwrap().max_shots_to_fire, 7);
+    let snapshot = generals_main::save_load::SnapshotBuilder::new()
+        .create_world_snapshot(&owner)
+        .unwrap();
+    let (mut restored, _, _, _, _) = setup(&path);
+    generals_main::save_load::SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    generals_main::command_executor::CommandExecutor::new(&mut restored, 1)
+        .execute_command(GameCommand {
+            command_type: CommandType::AttackObject { target_id: target },
+            player_id: 1,
+            command_id: 3,
+            timestamp: UNIX_EPOCH,
+            selected_units: parents.clone(),
+            modifier_keys: ModifierKeys::default(),
+        })
+        .unwrap();
+    assert_eq!(restored.host_object(locked).unwrap().target, Some(target));
+    assert!(restored.host_object(locked).unwrap().force_attack);
+    assert_eq!(restored.host_object(free).unwrap().target, None);
+    generals_main::command_executor::CommandExecutor::new(&mut owner, 1)
+        .execute_command(GameCommand {
+            command_type: CommandType::ForceAttackObject { target_id: target },
+            player_id: 1,
+            command_id: 3,
+            timestamp: UNIX_EPOCH,
+            selected_units: parents,
+            modifier_keys: ModifierKeys::default(),
+        })
+        .unwrap();
+    assert_eq!(owner.host_object(locked).unwrap().target, Some(target));
+    assert!(owner.host_object(locked).unwrap().force_attack);
+    assert_eq!(owner.host_object(free).unwrap().target, None);
+    assert_eq!(peer.host_object(locked).unwrap().target, None);
+    assert_eq!(peer.host_object(free).unwrap().target, None);
 }
 
 #[test]

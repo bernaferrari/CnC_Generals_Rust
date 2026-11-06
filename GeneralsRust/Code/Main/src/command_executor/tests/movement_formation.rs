@@ -1239,13 +1239,11 @@ fn attack_position_own_location_and_max_shots() {
 }
 
 #[test]
-fn attack_ground_orders_locked_hive_slaves() {
-    // C++ AIGroup::groupAttackPosition: !doSlavesHaveFreedom →
-    // orderSlavesToAttackPosition before aiAttackPosition.
+fn attack_ground_does_not_order_synthetic_hive_without_spawn_roster() {
+    // A display-only hive projection is not SpawnBehavior's ObjectID roster.
     use super::CommandExecutor;
-    use crate::command_system::CommandResult;
     use crate::game_logic::host_base_defense::init_stinger_hive_slave_roster;
-    use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate, Weapon};
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate, Weapon};
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
@@ -1271,23 +1269,10 @@ fn attack_ground_orders_locked_hive_slaves() {
         });
     }
     let dest = Vec3::new(40.0, 0.0, 12.0);
-    {
-        let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(
-            exec.execute_attack_ground(&[site], Some(dest), -1).unwrap() == CommandResult::Success);
-    }
+    let mut exec = CommandExecutor::new(&mut logic, 0);
+    let _ = exec.execute_attack_ground(&[site], Some(dest), -1).unwrap();
     let s = logic.host_object(site).unwrap();
-    assert_eq!(s.ai_state(), AIState::AttackingGround);
-    assert!(
-        s.hive_slaves.iter().filter(|sl| sl.alive).all(|sl| {
-            sl.ai_attacking
-                && sl.attack_target_id == 0
-                && sl
-                    .attack_ground
-                    .is_some_and(|p| (p[0] - dest.x).abs() < 0.01 && (p[2] - dest.z).abs() < 0.01)
-        }),
-        "locked hive slaves must receive orderSlavesToAttackPosition"
-    );
+    assert!(s.hive_slaves.iter().all(|slave| !slave.ai_attacking));
 }
 
 #[test]
