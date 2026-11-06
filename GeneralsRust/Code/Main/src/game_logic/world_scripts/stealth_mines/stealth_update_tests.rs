@@ -61,6 +61,28 @@ fn stealth_constructor_consumes_one_receiving_client_random_draw() {
 }
 
 #[test]
+fn stealth_constructor_random_streams_are_world_owned() {
+    let definition = object("Cloaked", "INFANTRY", &stealth_module("InnateStealth = Yes\n"));
+    let mut first = world(std::slice::from_ref(&definition));
+    let mut second = world(&[definition]);
+    first.seed_fx_random(0x1234);
+    second.seed_fx_random(0x1234);
+    let unchanged = second.session_view.client_random.seed_words();
+
+    let first_id = first.create_object("Cloaked", Team::GLA, Vec3::ZERO).unwrap();
+    first.create_object("Cloaked", Team::GLA, Vec3::ZERO).unwrap();
+    assert_eq!(second.session_view.client_random.seed_words(), unchanged);
+
+    let second_id = second.create_object("Cloaked", Team::GLA, Vec3::ZERO).unwrap();
+    assert_eq!(first_id, second_id);
+    assert_eq!(
+        first.host_object(first_id).unwrap().camo_opacity_pulse_phase,
+        second.host_object(second_id).unwrap().camo_opacity_pulse_phase
+    );
+    assert_ne!(first.session_view.client_random.seed_words(), second.session_view.client_random.seed_words());
+}
+
+#[test]
 fn authored_stealth_delay_gates_the_first_cloak() {
     // 1000 ms -> 30 logic frames (parseDurationUnsignedInt).
     let mut world = world(&[
