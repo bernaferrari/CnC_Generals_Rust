@@ -34,6 +34,8 @@ pub struct RenderBatch {
     pub wgpu_pipeline: Option<Arc<wgpu::RenderPipeline>>,
     /// Bind groups
     pub bind_groups: Vec<Arc<wgpu::BindGroup>>,
+    /// Dynamic offsets per bind group (empty = none), parallel to `bind_groups`.
+    pub bind_group_offsets: Vec<Vec<u32>>,
     /// Index width. C++ sorting buffers are 16-bit unless a caller overrides this.
     pub index_format: wgpu::IndexFormat,
 }
@@ -74,6 +76,7 @@ impl RenderBatch {
             pipeline: None,
             wgpu_pipeline: None,
             bind_groups: Vec::new(),
+            bind_group_offsets: Vec::new(),
             index_format: wgpu::IndexFormat::Uint16,
         }
     }
@@ -181,6 +184,7 @@ impl SortingRenderer {
         distance: f32,
         pipeline: Arc<wgpu::RenderPipeline>,
         bind_groups: Vec<Arc<wgpu::BindGroup>>,
+        bind_group_offsets: Vec<Vec<u32>>,
         index_format: wgpu::IndexFormat,
     ) {
         let mut batch = RenderBatch::new(
@@ -194,6 +198,7 @@ impl SortingRenderer {
         );
         batch.wgpu_pipeline = Some(pipeline);
         batch.bind_groups = bind_groups;
+        batch.bind_group_offsets = bind_group_offsets;
         batch.index_format = index_format;
         self.add_batch(batch);
     }
@@ -285,7 +290,12 @@ impl SortingRenderer {
 
             // Set bind groups
             for (index, bind_group) in batch.bind_groups.iter().enumerate() {
-                render_pass.set_bind_group(index as u32, bind_group.as_ref(), &[]);
+                let offsets = batch
+                    .bind_group_offsets
+                    .get(index)
+                    .map(Vec::as_slice)
+                    .unwrap_or(&[]);
+                render_pass.set_bind_group(index as u32, bind_group.as_ref(), offsets);
             }
 
             // Draw indexed

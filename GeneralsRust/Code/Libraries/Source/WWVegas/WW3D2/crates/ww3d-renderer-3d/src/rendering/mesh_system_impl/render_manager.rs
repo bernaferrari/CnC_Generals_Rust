@@ -243,6 +243,17 @@ impl RenderPassResources {
         self.buffers.push(buffer);
     }
 
+    fn set_bind_group_with_offsets(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        slot: u32,
+        bind_group: Arc<wgpu::BindGroup>,
+        offsets: &[u32],
+    ) {
+        render_pass.set_bind_group(slot, bind_group.as_ref(), offsets);
+        self.bind_groups.push(bind_group);
+    }
+
     fn set_bind_group(
         &mut self,
         render_pass: &mut wgpu::RenderPass<'_>,
@@ -299,6 +310,8 @@ pub struct MeshRenderManager {
     decal_queue: Vec<Arc<MeshClass>>,
     fvf_containers: Vec<Arc<DX8FVFCategoryContainer>>,
     live_csm: crate::rendering::shadow_system::live_cascade_shadow::LiveCascadeShadowMap,
+    /// Shared model bind groups keyed by pipeline + arena pages (R5).
+    model_groups: crate::rendering::wgpu_renderer::wgpu_material_binds::ModelGroupCache,
     /// Stencil shadow volumes for SHADOW_VOLUME casters (created on first use).
     shadow_volumes: Option<super::shadow_volume::ShadowVolumeRenderer>,
     /// Silhouette quads drawn by the last shadow pass (frame stats).
@@ -378,6 +391,7 @@ impl MeshRenderManager {
             decal_queue: Vec::new(),
             fvf_containers: Vec::new(),
             live_csm,
+            model_groups: Default::default(),
             shadow_volumes: None,
             last_shadow_volume_quads: 0,
 
@@ -856,6 +870,7 @@ impl MeshRenderManager {
             Some(1.0),
             Some(1.0),
             Some(&self.live_csm),
+            &mut self.model_groups,
         )?;
 
         resources.set_pipeline(render_pass, Arc::clone(&pipeline));
@@ -866,7 +881,12 @@ impl MeshRenderManager {
         resources.set_bind_group(render_pass, 0, Arc::clone(&camera_binds.bind_group));
         resources.retain_buffer(Arc::clone(&model_binds.model_buffer));
         resources.retain_buffer(Arc::clone(&model_binds.lighting_buffer));
-        resources.set_bind_group(render_pass, 1, Arc::clone(&model_binds.bind_group));
+        resources.set_bind_group_with_offsets(
+            render_pass,
+            1,
+            Arc::clone(&model_binds.bind_group),
+            &model_binds.offsets,
+        );
 
         if prepared.is_skinned {
             let identity_palette = [Mat4::IDENTITY];
@@ -1083,6 +1103,7 @@ impl MeshRenderManager {
             Some(visibility_falloff),
             Some(is_explored),
             Some(&self.live_csm),
+            &mut self.model_groups,
         )?;
 
         resources.set_pipeline(render_pass, Arc::clone(&pipeline));
@@ -1096,8 +1117,14 @@ impl MeshRenderManager {
 
         resources.retain_buffer(Arc::clone(&model_binds.model_buffer));
         resources.retain_buffer(Arc::clone(&model_binds.lighting_buffer));
-        resources.set_bind_group(render_pass, 1, Arc::clone(&model_binds.bind_group));
+        resources.set_bind_group_with_offsets(
+            render_pass,
+            1,
+            Arc::clone(&model_binds.bind_group),
+            &model_binds.offsets,
+        );
         sorted_groups.push(Arc::clone(&model_binds.bind_group));
+        let model_offsets = model_binds.offsets.to_vec();
 
         let next_slot = 3u32;
         if prepared.is_skinned {
@@ -1194,7 +1221,16 @@ impl MeshRenderManager {
             let origin = mesh.transform.w_axis.truncate();
             let camera = render_info.camera.get_position();
             let distance = (origin - camera).length();
-            self.enqueue_sorted_material_pass(prepared, pass, &pipeline, sorted_groups, distance);
+            // Group 1 (model) is the only dynamic-offset group.
+            let offsets = vec![Vec::new(), model_offsets];
+            self.enqueue_sorted_material_pass(
+                prepared,
+                pass,
+                &pipeline,
+                sorted_groups,
+                offsets,
+                distance,
+            );
         } else {
             self.issue_draw_call(prepared, pass, render_pass, &mesh.name);
         }
@@ -1213,6 +1249,7 @@ impl MeshRenderManager {
         pass: &MaterialPassClass,
         pipeline: &Arc<wgpu::RenderPipeline>,
         bind_groups: Vec<Arc<wgpu::BindGroup>>,
+        bind_group_offsets: Vec<Vec<u32>>,
         distance: f32,
     ) {
         let pass_index = pass.get_pass_index();
@@ -1247,6 +1284,7 @@ impl MeshRenderManager {
             distance,
             Arc::clone(pipeline),
             bind_groups,
+            bind_group_offsets,
             wgpu::IndexFormat::Uint32,
         );
     }
