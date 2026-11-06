@@ -89,7 +89,7 @@
       "undocumented": 1
     },
     "Code/GameEngine/Common/src/memory/allocator.rs": {
-      "constructs": 30,
+      "constructs": 26,
       "undocumented": 0
     },
     "Code/GameEngine/Common/src/memory/generation.rs": {
@@ -137,7 +137,7 @@
       "undocumented": 0
     },
     "Code/GameEngine/GameClient/src/core/subsystems.rs": {
-      "constructs": 3,
+      "constructs": 2,
       "undocumented": 0
     },
     "Code/GameEngine/GameClient/src/display/display_fx.rs": {
@@ -149,10 +149,6 @@
       "undocumented": 0
     },
     "Code/GameEngine/GameClient/src/drawable/drawable_draw_pipeline.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameClient/src/effects/particle_renderer.rs": {
       "constructs": 2,
       "undocumented": 0
     },
@@ -214,14 +210,6 @@
     },
     "Code/GameEngine/GameEngineDevice/src/video/video_device.rs": {
       "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameEngineDevice/src/w3_d_device/common/system/w3_d_function_lexicon.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameEngineDevice/src/w3_d_device/common/w3_d_function_lexicon.rs": {
-      "constructs": 1,
       "undocumented": 0
     },
     "Code/GameEngine/GameEngineDevice/src/w3d/w3d_c_api/decl.rs": {
@@ -592,10 +580,6 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-scene/src/render_object_ext.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
     "Code/Libraries/Source/WWVegas/WWAudio/src/aud_source.rs": {
       "constructs": 5,
       "undocumented": 0
@@ -633,10 +617,6 @@
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WWDebug/src/debug_io_ods.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWDebug/src/lib.rs": {
       "constructs": 1,
       "undocumented": 0
     },
