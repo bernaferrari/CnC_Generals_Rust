@@ -216,6 +216,17 @@ impl Object {
         })
     }
 
+    /// The Overlord gun residual belongs to the authored PRIMARY weapon,
+    /// regardless of the template carrying it.
+    pub(in crate::game_logic) fn authors_overlord_tank_gun(&self) -> bool {
+        use crate::game_logic::host_overlord_gun::{OVERLORD_TANK_GUN, TANK_OVERLORD_TANK_GUN};
+        self.authored_weapon_name_for_slot(0).is_some_and(|name| {
+            [OVERLORD_TANK_GUN, TANK_OVERLORD_TANK_GUN]
+                .iter()
+                .any(|gun| name.eq_ignore_ascii_case(gun))
+        })
+    }
+
     /// Whether the authored PRIMARY is the MiniGunner gattling gun.
     pub fn authors_minigunner_gun(&self) -> bool {
         self.authored_weapon_name_for_slot(0).is_some_and(|name| {

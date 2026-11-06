@@ -220,26 +220,17 @@ impl GameLogic {
         (hits, any_destroyed)
     }
 
-    /// Apply Uranium Shells residual tag + rebind Overlord / Emperor main gun.
+    /// Apply the Uranium Shells tag to a carrier of the authored Overlord gun.
     pub fn apply_overlord_gun_uranium_upgrade(&mut self, object_id: ObjectId) -> bool {
-        use crate::game_logic::host_overlord_gun::{
-            UPGRADE_CHINA_URANIUM_SHELLS, has_uranium_shells_upgrade, is_overlord_gun_chassis,
-            overlord_gun_weapon,
-        };
+        use crate::game_logic::host_overlord_gun::UPGRADE_CHINA_URANIUM_SHELLS;
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_overlord_gun_chassis(&obj.template_name) {
+        if !obj.authors_overlord_tank_gun() {
             return false;
         }
         obj.applied_upgrades
             .insert(UPGRADE_CHINA_URANIUM_SHELLS.to_string());
-        let uranium = has_uranium_shells_upgrade(&obj.applied_upgrades);
-        let mut w = overlord_gun_weapon(uranium);
-        if let Some(old) = obj.weapon.as_ref() {
-            w.last_fire_time = old.last_fire_time;
-        }
-        obj.weapon = Some(w);
         self.overlord_gun_residual_uranium_upgrades = self
             .overlord_gun_residual_uranium_upgrades
             .saturating_add(1);
@@ -274,7 +265,7 @@ impl GameLogic {
         use crate::game_logic::host_overlord_gun::{
             OVERLORD_DAMAGE_TYPE, OVERLORD_DEATH_TYPE, OVERLORD_FIRE_AUDIO,
             OVERLORD_SECONDARY_RADIUS, has_uranium_shells_upgrade,
-            is_legal_overlord_gun_splash_target, is_overlord_gun_chassis, overlord_damage_at,
+            is_legal_overlord_gun_splash_target, overlord_damage_at,
             overlord_scatter_aim, overlord_scatter_misses_infantry,
         };
 
@@ -285,7 +276,7 @@ impl GameLogic {
             let Some(obj) = self.objects.get(&sid) else {
                 return (0, false);
             };
-            if !is_overlord_gun_chassis(&obj.template_name) {
+            if !obj.authors_overlord_tank_gun() {
                 return (0, false);
             }
             (obj.team, has_uranium_shells_upgrade(&obj.applied_upgrades))

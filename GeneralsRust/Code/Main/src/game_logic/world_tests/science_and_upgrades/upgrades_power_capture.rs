@@ -1675,6 +1675,26 @@ fn helix_named_host_without_authored_contain_does_not_create_payload() {
 }
 
 #[test]
+fn helix_containment_is_authored_not_inferred_from_name_or_weapon() {
+    let mut logic = GameLogic::new();
+    for (name, contain) in [("CustomFlyingCarrier", true), ("ChinaVehicleHelix", false)] {
+        let mut template = ThingTemplate::new(name);
+        template.add_kind_of(KindOf::Vehicle).add_kind_of(KindOf::Aircraft)
+            .set_health(400.0).set_primary_weapon_name("HelixMinigunWeapon");
+        if contain {
+            template.contain_module.kind = crate::game_logic::ContainModuleKind::Transport;
+            template.contain_module.is_helix_contain = true;
+            template.contain_module.slots = Some(1);
+        }
+        logic.templates.insert(name.into(), template);
+    }
+    let authored = logic.create_object("CustomFlyingCarrier", Team::China, Vec3::ZERO).unwrap();
+    let named = logic.create_object("ChinaVehicleHelix", Team::China, Vec3::ZERO).unwrap();
+    assert!(logic.host_object(authored).unwrap().is_helix_transport);
+    assert!(!logic.host_object(named).unwrap().is_helix_transport);
+}
+
+#[test]
 fn sell_last_tunnel_ejects_shared_pool() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();

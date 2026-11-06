@@ -265,7 +265,6 @@ fn parse_turret_module(module: &BehaviorModuleDefinition) -> TurretSpawnSpec {
 fn turret_spawn_from_name_honesty(template_name: &str) -> TurretSpawnSpec {
     use crate::game_logic::host_base_defense::{
         is_gattling_cannon_structure, is_patriot_battery_structure};
-    use crate::game_logic::host_battlemaster::BATTLE_MASTER_TURRET_TURN_RATE;
     use crate::game_logic::host_gattling_tank::is_gattling_tank_template;
     use crate::game_logic::host_humvee::{
         HUMVEE_TURRET_RECENTER_FRAMES, HUMVEE_TURRET_TURN_RATE, is_humvee_template,
@@ -281,7 +280,6 @@ fn turret_spawn_from_name_honesty(template_name: &str) -> TurretSpawnSpec {
         STRATEGY_CENTER_TURRET_TURN_RATE_DEG_PER_SEC, is_strategy_center_template,
     };
     use crate::game_logic::host_technical::{TECHNICAL_TURRET_TURN_RATE, is_technical_template};
-    use crate::game_logic::host_tunnel_network::TUNNEL_NETWORK_TURRET_TURN_RATE;
     use crate::game_logic::host_usa_tanks::USA_TANK_TURRET_TURN_RATE;
 
     if is_strategy_center_template(template_name) {
@@ -323,17 +321,6 @@ fn turret_spawn_from_name_honesty(template_name: &str) -> TurretSpawnSpec {
         return spec;
     }
 
-    if is_usa_tank_name(template_name) {
-        return TurretSpawnSpec::enabled_with_turn_rate(USA_TANK_TURRET_TURN_RATE);
-    }
-
-    if is_battlemaster_name(template_name) {
-        return TurretSpawnSpec::enabled_with_turn_rate(BATTLE_MASTER_TURRET_TURN_RATE);
-    }
-
-    if is_tunnel_network_name(template_name) {
-        return TurretSpawnSpec::enabled_with_turn_rate(TUNNEL_NETWORK_TURRET_TURN_RATE);
-    }
 
     if is_gattling_cannon_structure(template_name) || is_gattling_tank_template(template_name) {
         let mut spec = TurretSpawnSpec::enabled_with_turn_rate(USA_TANK_TURRET_TURN_RATE);
@@ -365,37 +352,6 @@ fn turret_spawn_from_name_honesty(template_name: &str) -> TurretSpawnSpec {
     TurretSpawnSpec::absent()
 }
 
-fn is_usa_tank_name(template_name: &str) -> bool {
-    let n = alnum_lower(template_name);
-    if n.is_empty()
-        || n.contains("weapon")
-        || n.contains("shell")
-        || n.contains("projectile")
-        || n.contains("upgrade")
-        || n.contains("science")
-    {
-        return false;
-    }
-    n.contains("crusader")
-        || n.contains("paladin")
-        || n == "testtank"
-        || (n.contains("tank")
-            && (n.contains("america") || n.contains("usa"))
-            && !n.contains("humvee"))
-}
-
-fn is_battlemaster_name(template_name: &str) -> bool {
-    let n = alnum_lower(template_name);
-    n.contains("battlemaster") && !n.contains("weapon") && !n.contains("shell")
-}
-
-fn is_tunnel_network_name(template_name: &str) -> bool {
-    let n = alnum_lower(template_name);
-    if n.contains("weapon") || n.contains("gun") || n.contains("hole") {
-        return false;
-    }
-    n.contains("tunnelnetwork")
-}
 
 fn is_quad_cannon_name(template_name: &str) -> bool {
     let n = alnum_lower(template_name);
@@ -539,8 +495,9 @@ mod tests {
             "hand-built templates without admitted turret facts stay absent"
         );
         assert!(!spec.enabled);
-        // Explicit honesty path remains available for residual callers.
-        assert!(turret_spawn_for_template("AmericaTankCrusader").has_turret);
+        assert!(!turret_spawn_for_template("AmericaTankCrusader").has_turret);
+        assert!(!turret_spawn_for_template("ChinaTankBattleMaster").has_turret);
+        assert!(!turret_spawn_for_template("GLATunnelNetwork").has_turret);
     }
 
     #[test]

@@ -2464,11 +2464,7 @@ mod tests {
 
     #[test]
     fn turret_only_spawns_on_units_that_author_one() {
-        use crate::game_logic::host_strategy_center::{
-            STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG, STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
-            STRATEGY_CENTER_TURRET_TURN_RATE_DEG_PER_SEC,
-        };
-        use crate::game_logic::host_usa_tanks::USA_TANK_TURRET_TURN_RATE;
+        use crate::assets::{BehaviorModuleDefinition, ObjectDefinition};
 
         let ranger = Object::new(
             ThingTemplate::new("AmericaInfantryRanger"),
@@ -2486,37 +2482,28 @@ mod tests {
         );
         assert!(!dozer.turret_ai.turret_enabled);
 
-        let crusader = Object::new(
-            ThingTemplate::new("AmericaTankCrusader"),
-            ObjectId(3),
-            Team::USA,
-        );
-        assert!(crusader.turret_ai.turret_enabled);
-        assert!((crusader.turret_ai.turret_angle_deg).abs() < 0.01);
-        assert!((crusader.turret_ai.turret_pitch_deg).abs() < 0.01);
-        assert!(
-            (crusader.turret_ai.turret_turn_rate_rad
-                - turret_deg_per_sec_to_rad_per_frame(USA_TANK_TURRET_TURN_RATE))
-            .abs()
-                < 1e-5
-        );
+        for name in ["AmericaTankCrusader", "ChinaTankBattleMaster", "GLATunnelNetwork"] {
+            let object = Object::new(ThingTemplate::new(name), ObjectId(3), Team::USA);
+            assert!(!object.turret_ai.turret_enabled);
+        }
 
-        let sc = Object::new(
-            ThingTemplate::new("AmericaStrategyCenter"),
-            ObjectId(4),
-            Team::USA,
-        );
-        assert!(!sc.turret_ai.turret_enabled, "InitiallyDisabled until Bombardment");
-        assert!((sc.turret_ai.turret_angle_deg - STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG).abs() < 0.01);
-        assert!((sc.turret_ai.turret_pitch_deg - STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG).abs() < 0.01);
-        assert!(
-            (sc.turret_ai.turret_turn_rate_rad
-                - turret_deg_per_sec_to_rad_per_frame(
-                    STRATEGY_CENTER_TURRET_TURN_RATE_DEG_PER_SEC
-                ))
-            .abs()
-                < 1e-5
-        );
+        let mut definition = ObjectDefinition::new("CustomCarrier".into());
+        definition.behavior_modules.push(BehaviorModuleDefinition {
+            class_name: "AIUpdateInterface".into(),
+            module_tag: None,
+            attributes: [
+                ("TurretTurnRate".into(), "75".into()),
+                ("RecenterTime".into(), "3000".into()),
+                ("AllowsPitch".into(), "Yes".into()),
+            ].into(),
+        });
+        let mut template = ThingTemplate::new("CustomCarrier");
+        template.receiving_object_definition = Some(std::sync::Arc::new(definition));
+        let object = Object::new(template, ObjectId(4), Team::USA);
+        assert!(object.turret_ai.turret_enabled);
+        assert!((object.turret_ai.turret_turn_rate_rad - turret_deg_per_sec_to_rad_per_frame(75.0)).abs() < 1e-5);
+        assert_eq!(object.turret_ai.turret_recenter_frames, 90);
+        assert!(object.turret_runtime.allows_pitch);
     }
 
     #[test]

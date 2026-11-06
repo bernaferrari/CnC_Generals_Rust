@@ -104,6 +104,31 @@ fn battlemaster_refresh_recipient_keys_on_authored_primary_not_name() {
     assert!(!has_uranium(named));
 }
 
+#[test]
+fn overlord_uranium_recipient_uses_authored_primary_without_rebinding() {
+    use crate::game_logic::host_overlord_gun::{OVERLORD_TANK_GUN, TANK_OVERLORD_TANK_GUN};
+    let mut logic = GameLogic::new();
+    for (name, gun) in [
+        ("CustomGunCarrier", OVERLORD_TANK_GUN),
+        ("CustomGeneralCarrier", TANK_OVERLORD_TANK_GUN),
+        ("ChinaTankOverlord", "RangerFlashBangGrenadeWeapon"),
+    ] {
+        let mut template = crate::game_logic::ThingTemplate::new(name);
+        template.add_kind_of(KindOf::Vehicle).set_health(400.0).set_primary_weapon_name(gun);
+        logic.templates.insert(name.to_owned(), template);
+    }
+    for name in ["CustomGunCarrier", "CustomGeneralCarrier"] {
+        let id = logic.create_object(name, Team::China, Vec3::ZERO).unwrap();
+        let mut custom = crate::game_logic::Weapon::default();
+        custom.damage = 37.0;
+        logic.host_object_mut(id).unwrap().weapon = Some(custom);
+        assert!(logic.apply_overlord_gun_uranium_upgrade(id));
+        assert_eq!(logic.host_object(id).unwrap().weapon.as_ref().unwrap().damage, 37.0);
+    }
+    let named = logic.create_object("ChinaTankOverlord", Team::China, Vec3::ZERO).unwrap();
+    assert!(!logic.apply_overlord_gun_uranium_upgrade(named));
+}
+
 /// hq-2qedt.145: GLA Marauder PRIMARY binds from the authored WeaponSet at
 /// create (C++ WeaponSet::updateWeaponSet), not a template-name peel.
 #[test]
