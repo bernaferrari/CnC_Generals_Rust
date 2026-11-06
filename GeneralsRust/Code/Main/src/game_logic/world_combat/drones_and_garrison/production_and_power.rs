@@ -220,7 +220,6 @@ impl GameLogic {
         // (SpecialPowerCreate.cpp:36-53) arms them at construction
         // completion via notify_structure_construction_complete.
         use crate::command_system::SpecialPowerType as P;
-        use crate::game_logic::host_upgrade_module_residuals::power_starts_paused;
         let hacker_disable = self
             .objects
             .get(&object_id)
@@ -291,26 +290,6 @@ impl GameLogic {
                 if !already(&planned, &power) {
                     planned.push((power, None, false, true));
                 }
-            }
-        }
-
-        let name = obj.template_name.to_ascii_lowercase();
-        if power_starts_paused(&P::RadarScan)
-            && (name.contains("radarvan") || name.contains("radar_van"))
-            && !already(&planned, &P::RadarScan)
-        {
-            planned.push((P::RadarScan, None, false, true));
-        }
-        let helix_bomb_planned =
-            already(&planned, &P::HelixNapalmBomb) || already(&planned, &P::HelixNukeBomb);
-        if name.contains("helix") && !helix_bomb_planned {
-            let power = if name.contains("nuke") {
-                P::HelixNukeBomb
-            } else {
-                P::HelixNapalmBomb
-            };
-            if power_starts_paused(&power) {
-                planned.push((power, None, false, true));
             }
         }
 
