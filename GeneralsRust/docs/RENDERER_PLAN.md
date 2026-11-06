@@ -45,10 +45,10 @@ see `ecbfce083`.
 | R7 | partial | Full 2x2 box-filtered mip chains for mesh pass textures (`cb2171626`). Open: BC upload (DXT still CPU-decoded to RGBA8, device created without `TEXTURE_COMPRESSION_BC`, `TextureClass` keeps no DDS blocks or authored DDS mips). |
 | R8 | done | Gamma space like DX8 (`f5e2784da`): surface prefers `Bgra8Unorm`, every colour texture/target is `*Unorm`, `image_format_to_wgpu` and the mesh upload treat sRGB tags as Unorm. Visible: lit/modulated colours and UI fills are no longer washed out (the radar letterbox line, C++ 50/50/50, was 122/122/122 and is now 50/50/50). |
 | R9 | done | Live CSM deleted (`ecbfce083`). `Depth24PlusStencil8` + stencil volumes from welded-edge silhouettes for SHADOW_VOLUME objects, drawn in the mesh flush between opaque and blended meshes, then the 0x7fa0a0a0 multiply (`7772919c9`). The old shadow-pass box prisms read from `OBJECT_REGISTRY` are deleted (`8b5f104ad`). Skinned casters do not cast volumes yet. |
-| R10 | partial | Mesh sorting now pools triangles by view-space centroid and emits sorted index runs per node. This is unverified: skinned meshes use bind-pose positions rather than C++ software-skinned positions; particles and other native sorting producers are not pooled with meshes; C++ first orders nodes by bounding-sphere center and uses an unstable sort for larger pools, so equal-depth order can differ. |
+| R10 | partial | Mesh sorting pools triangles by view-space centroid and emits sorted index runs per node. Focused sorting tests pass, and the shell and Lone Eagle captures match the pre-change images. Parity gaps remain: skinned meshes use bind-pose positions rather than C++ software-skinned positions; particles and other sorting producers are not pooled with meshes; equal-depth ordering can differ from C++. |
 | R11 | partial | Consecutive UI draws with equal pipeline, texture and scissor merge into one draw (`cf92f27eb`). Open: glyph atlas (each string is still its own texture). |
-| R12 | partial | Shared scene-pass changes are present in `5e9c8d02b`, but are not verified here. That commit touches sealed `Code/Main/src/graphics/render_pipeline/pipeline_execute.rs` without its required `Unseal:` commit-message line; resolve provenance before integration. Pass-count instrumentation does not count every pass. |
-| R13 | partial | `THE_RENDER_BRIDGE` is gone; published terrain visual remains on `CommonServices`; buffer-usage constants and shadow-pass inputs were migrated. Options texture LOD now borrows the receiving renderer rather than publishing a type-erased renderer handle. The changes are unverified; no renderer module is sealed, and full instance isolation is not established. |
+| R12 | partial | A shared scene pass merges compatible terrain, water, mesh and effect draws. Shell and Lone Eagle captures match the pre-change images; reported passes fell from 4 to 2 and 6 to 2 respectively. Full pass-count coverage still needs verification. The integrated commit includes the required unseal justification. |
+| R13 | partial | `THE_RENDER_BRIDGE` is gone; published terrain visual remains on `CommonServices`; buffer-usage constants and shadow-pass inputs were migrated. Options texture LOD borrows the receiving renderer rather than publishing a type-erased renderer handle. No renderer module is sealed, and full instance isolation is not established. |
 
 Frame stats, 800x600 debug build, steady frozen frame (created per frame):
 
@@ -102,10 +102,9 @@ which is what C++ draws. The revealed patch, units and view trapezoid render
 correctly. The radar shroud revision now only moves on a real cell change,
 so the resident shroud texture is not re-uploaded every frame.
 
-Open render items: R7 BC upload, R10 sorting parity gaps and verification,
-R11 glyph atlas, R12 pass merging verification and commit provenance, R13
-sealing and remaining instance isolation, R6 dynamic-light chunk rebakes,
-and skinned shadow-volume casters.
+Open render items: R7 BC upload, R10 sorting parity gaps, R11 glyph atlas,
+R12 full pass-count coverage, R13 sealing and remaining instance isolation,
+R6 dynamic-light chunk rebakes, and skinned shadow-volume casters.
 
 ---
 
