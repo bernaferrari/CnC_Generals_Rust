@@ -274,6 +274,20 @@ impl LegacyProjectileFlightResiduals {
     }
 }
 
+/// `a10_strike_missile` from either projectile-flight payload layout, or `None`
+/// when the module is not a projectile-flight record.
+pub(crate) fn projectile_module_a10_missile(tag: &str, payload: &[u8]) -> Option<Result<bool, String>> {
+    use super::entity_lifecycle_tags::{TAG_PROJECTILE_FLIGHT, TAG_PROJECTILE_FLIGHT_V2};
+    let decoded = if tag == TAG_PROJECTILE_FLIGHT_V2 {
+        bincode_legacy::deserialize::<ProjectileFlightResiduals>(payload).map(|r| r.a10_strike_missile)
+    } else if tag == TAG_PROJECTILE_FLIGHT {
+        bincode_legacy::deserialize::<LegacyProjectileFlightResiduals>(payload).map(|r| r.a10_strike_missile)
+    } else {
+        return None;
+    };
+    Some(decoded.map_err(|e| e.to_string()))
+}
+
 #[cfg(test)]
 mod legacy_decode_tests {
     use super::*;

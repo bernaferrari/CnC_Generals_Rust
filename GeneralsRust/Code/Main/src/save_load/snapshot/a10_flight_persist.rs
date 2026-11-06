@@ -411,11 +411,14 @@ fn validate_registry(
             .module_states
             .iter()
             .any(|module| module.tag == "A10StrikeTransport");
-        let has_missile = envelope.module_states.iter().find(|module| module.tag == "ProjectileFlightResiduals")
-            .map(|module| bincode_legacy::deserialize::<crate::game_logic::object::entity_lifecycle_projectiles::ProjectileFlightResiduals>(&module.payload)
-                .map(|residual| residual.a10_strike_missile)
-                .map_err(|error| corrupted(format!("projectile lifecycle decode: {error}"))))
-            .transpose()?.unwrap_or(false);
+        let has_missile = match envelope
+            .module_states
+            .iter()
+            .find_map(|module| crate::game_logic::object::entity_lifecycle_projectiles::projectile_module_a10_missile(&module.tag, &module.payload))
+        {
+            Some(flag) => flag.map_err(|error| corrupted(format!("projectile lifecycle decode: {error}")))?,
+            None => false,
+        };
         if has_transport
             && !registry
                 .transport_bindings
@@ -551,13 +554,13 @@ fn validate_registry(
             let envelope = envelopes
                 .get(&actor.0)
                 .ok_or_else(|| corrupted("bound A10 missile envelope missing"))?;
-            let module = envelope
+            let is_a10_missile = envelope
                 .module_states
                 .iter()
-                .find(|module| module.tag == "ProjectileFlightResiduals")
-                .ok_or_else(|| corrupted("bound A10 missile residual missing"))?;
-            let residual: crate::game_logic::object::entity_lifecycle_projectiles::ProjectileFlightResiduals = bincode_legacy::deserialize(&module.payload).map_err(|e| corrupted(format!("A10 missile residual decode: {e}")))?;
-            if !residual.a10_strike_missile {
+                .find_map(|module| crate::game_logic::object::entity_lifecycle_projectiles::projectile_module_a10_missile(&module.tag, &module.payload))
+                .ok_or_else(|| corrupted("bound A10 missile residual missing"))?
+                .map_err(|e| corrupted(format!("A10 missile residual decode: {e}")))?;
+            if !is_a10_missile {
                 return Err(corrupted(
                     "A10 missile binding points at another projectile role",
                 ));
@@ -592,14 +595,13 @@ fn snapshot_has_a10_actor(
         {
             return Ok(true);
         }
-        if let Some(module) = envelope
-            .module_states
-            .iter()
-            .find(|module| module.tag == "ProjectileFlightResiduals")
-        {
-            let residual: crate::game_logic::object::entity_lifecycle_projectiles::ProjectileFlightResiduals =
-                bincode_legacy::deserialize(&module.payload).map_err(|error| corrupted(format!("projectile lifecycle decode: {error}")))?;
-            if residual.a10_strike_missile {
+        if let Some(flag) = envelope.module_states.iter().find_map(|module| {
+            crate::game_logic::object::entity_lifecycle_projectiles::projectile_module_a10_missile(
+                &module.tag,
+                &module.payload,
+            )
+        }) {
+            if flag.map_err(|error| corrupted(format!("projectile lifecycle decode: {error}")))? {
                 return Ok(true);
             }
         }
