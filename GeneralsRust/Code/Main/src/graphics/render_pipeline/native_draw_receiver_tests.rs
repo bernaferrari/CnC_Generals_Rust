@@ -420,3 +420,92 @@ fn actual_client_transform_observer_preserves_each_matrix_with_one_frozen_source
     assert_ne!(observations[2], observations[3]);
     assert_eq!(state.native_drawable_transform, observations[3]);
 }
+
+#[test]
+#[ignore = "requires native WGPU; run explicit isolated receiver acceptance"]
+fn same_named_w3d_receivers_keep_distinct_owned_models_and_caches() {
+    use std::sync::{Arc, Mutex};
+
+    fn source_bytes(x: f32) -> Vec<u8> {
+        let mut bytes = crate::assets::models::tests::visibility_hlod_fixture();
+        let original = b"NOT_A_MESH_NAME";
+        let offset = bytes.windows(original.len()).position(|window| window == original).unwrap();
+        bytes[offset..offset + 16].fill(0);
+        bytes[offset..offset + 6].copy_from_slice(b"CAMERA");
+        // W3dPivotStruct: fixed name[16], parent u32, then translation.
+        bytes[offset + 20..offset + 24].copy_from_slice(&x.to_le_bytes());
+        bytes
+    }
+
+    let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+    game_engine::common::common_services::with_common_services(&common, || {
+        let scope_world = GameLogic::new();
+        scope_world.with_own_services(|| {
+            let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+                width: 32,
+                height: 32,
+                ..Default::default()
+            }).expect("native receiver acceptance requires a headless device");
+            let device = engine.lock().device();
+            let queue = engine.lock().queue();
+            let (color_format, depth_format) = {
+                let engine = engine.lock();
+                (engine.color_format(), engine.depth_format())
+            };
+            let first_root = tempfile::tempdir().unwrap();
+            let second_root = tempfile::tempdir().unwrap();
+            for (root, x) in [(&first_root, 3.0), (&second_root, 13.0)] {
+                let directory = root.path().join("Art/W3D");
+                std::fs::create_dir_all(&directory).unwrap();
+                std::fs::write(directory.join("CameraModel.w3d"), source_bytes(x)).unwrap();
+            }
+            let make_manager = |root: &std::path::Path| {
+                let mut manager = crate::assets::AssetManager::new().unwrap();
+                pollster::block_on(manager.init(device.as_ref(), queue.as_ref())).unwrap();
+                manager.archive_file_system_mut().set_local_search_roots([root.to_path_buf()]);
+                Arc::new(Mutex::new(manager))
+            };
+            let first_assets = make_manager(first_root.path());
+            let second_assets = make_manager(second_root.path());
+            // A resident model must win over a later disk change for this
+            // manager, without becoming the other receiver's same-name art.
+            first_assets.lock().unwrap().load_w3d_model("CameraModel").unwrap();
+            std::fs::write(first_root.path().join("Art/W3D/CameraModel.w3d"), source_bytes(23.0)).unwrap();
+            let mut first_graphics = GraphicsSystem::new(
+                device.clone(), queue.clone(), color_format, depth_format,
+            ).unwrap();
+            let mut second_graphics = GraphicsSystem::new(
+                device.clone(), queue.clone(), color_format, depth_format,
+            ).unwrap();
+            let mut first_pipeline = RenderPipeline::initialize(engine.clone(), &first_graphics).unwrap();
+            let mut second_pipeline = RenderPipeline::initialize(engine.clone(), &second_graphics).unwrap();
+            first_pipeline.bind_application_assets(Arc::clone(&first_assets));
+            second_pipeline.bind_application_assets(Arc::clone(&second_assets));
+            let mut first_client = GameClient::new().unwrap();
+            let mut second_client = GameClient::new().unwrap();
+            let mut first_world = GameLogic::new();
+            let mut second_world = GameLogic::new();
+            first_world.bind_application_assets(Arc::clone(&first_assets));
+            second_world.bind_application_assets(Arc::clone(&second_assets));
+            const DRAW_ONLY: &str = "Draw = W3DModelDraw First\n DefaultConditionState\n Model = CameraModel\n End\nEnd\n";
+            admit(&mut first_world, DRAW_ONLY, 0.);
+            admit(&mut second_world, DRAW_ONLY, 0.);
+            let first_source = source(&mut first_world);
+            let second_source = source(&mut second_world);
+            sync(&mut first_client, &mut first_pipeline, &mut first_graphics, &first_source, 0);
+            let first_pose = eye(&mut first_pipeline, &mut first_graphics, &first_source, "CAMERA").unwrap();
+            sync(&mut second_client, &mut second_pipeline, &mut second_graphics, &second_source, 0);
+            let second_pose = eye(&mut second_pipeline, &mut second_graphics, &second_source, "CAMERA").unwrap();
+            assert_ne!(first_pose, second_pose);
+            assert_eq!(eye(&mut first_pipeline, &mut first_graphics, &first_source, "CAMERA").unwrap(), first_pose);
+
+            let key = crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel");
+            let first_model = first_graphics.get_model(&key).expect("first receiver cached model");
+            let second_model = second_graphics.get_model(&key).expect("second receiver cached model");
+            assert_eq!(first_model.hierarchy.as_ref().unwrap().pivots[1].translation[0], 3.0);
+            assert_eq!(second_model.hierarchy.as_ref().unwrap().pivots[1].translation[0], 13.0);
+            assert_eq!(first_assets.lock().unwrap().get_cached_model("CameraModel").unwrap().hierarchy.unwrap().pivots[1].translation[0], 3.0);
+            assert_eq!(second_assets.lock().unwrap().get_cached_model("CameraModel").unwrap().hierarchy.unwrap().pivots[1].translation[0], 13.0);
+        });
+    });
+}

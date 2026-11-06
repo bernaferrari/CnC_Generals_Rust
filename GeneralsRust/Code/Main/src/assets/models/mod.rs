@@ -59,4 +59,4 @@ pub use w3d_primitive_protos::{W3dBoxProto, W3dNullProto, W3dRingProto, W3dSpher
 pub use w3d_proto_registry::{W3dExtraPrototypeKind, extra_prototypes};
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

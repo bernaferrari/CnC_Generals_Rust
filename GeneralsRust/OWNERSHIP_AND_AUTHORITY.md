@@ -2706,6 +2706,8 @@ presentation model/condition/transition consumers use that receiving owner
 rather than selecting an ambient manager. Presentation frames retain the owner
 for the existing late compatibility lookups; this is not yet a fully frozen
 asset-content snapshot. The interleaved same-object-name frame regression
-exercises differing authored model mappings, but distinct same-name W3D
-payloads through an actual renderer, native/WASM execution, and save/load
-evidence remain required before closing hq-8d70a.
+exercises differing authored model mappings. An ignored native-WGPU receiver
+regression uses two real same-name W3D files, interleaves actual GameClient
+admission and camera-pose reads, and checks both managers' and renderers' caches,
+including a resident-model-over-disk-change case. The new regression and
+native/WASM and save/load gates remain unexecuted for hq-8d70a.

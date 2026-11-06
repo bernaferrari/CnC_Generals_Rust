@@ -290,7 +290,7 @@ fn rigid_hmodel_fixture(version: u32, nodes: &[(u32, &str, u16)]) -> Vec<u8> {
     .concat()
 }
 
-fn visibility_hlod_fixture() -> Vec<u8> {
+pub(crate) fn visibility_hlod_fixture() -> Vec<u8> {
     let mut hierarchy_header = Vec::with_capacity(36);
     hierarchy_header.extend_from_slice(&W3D_CURRENT_HTREE_VERSION.to_le_bytes());
     hierarchy_header.extend_from_slice(&fixed_name("VIS_HIER", W3D_NAME_LEN));
