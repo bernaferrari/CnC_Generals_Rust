@@ -35,6 +35,8 @@ const MAX_SLOTS: usize = 8;
 /// This replaces Arc<Mutex> with zero-overhead RefCell
 #[derive(Default)]
 pub(crate) struct LanGameOptionsState {
+    /// The owning UI tree's `TheLANGameInfo` lobby, bound at owner construction.
+    setup: Option<std::sync::Arc<std::sync::Mutex<crate::gui::lan_setup::LanSetup>>>,
     parent_id: i32,
     button_start_id: i32,
     button_back_id: i32,
@@ -59,10 +61,32 @@ pub(crate) struct LanGameOptionsState {
     selected_map: Option<String>,
 }
 
+impl LanGameOptionsState {
+    /// Menu statics bound to their owner's LAN lobby.
+    pub(crate) fn for_setup(
+        setup: std::sync::Arc<std::sync::Mutex<crate::gui::lan_setup::LanSetup>>,
+    ) -> Self {
+        Self {
+            setup: Some(setup),
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn setup_handle(&self) -> std::sync::Arc<std::sync::Mutex<crate::gui::lan_setup::LanSetup>> {
+        std::sync::Arc::clone(
+            self.setup
+                .as_ref()
+                .expect("LAN options state is bound to its owner's lobby"),
+        )
+    }
+}
+
 #[cfg(test)]
 thread_local! {
     static TEST_LAN_GAME_OPTIONS: RefCell<LanGameOptionsState> =
-        RefCell::new(LanGameOptionsState::default());
+        RefCell::new(LanGameOptionsState::for_setup(
+            crate::gui::lan_setup::test_lan_setup_handle(),
+        ));
     static TEST_LAN_MAP_SELECT_LAYOUT: RefCell<Option<Rc<RefCell<WindowLayout>>>> =
         const { RefCell::new(None) };
 }
@@ -88,7 +112,7 @@ fn with_state_on_owner<R>(
     }
     #[cfg(not(test))]
     {
-        f.take().expect("lan")(&mut LanGameOptionsState::default())
+        panic!("LAN options menu requires a WindowManagerOwner or live GameClient");
     }
 }
 
@@ -241,7 +265,7 @@ fn update_map_start_spots(
         return;
     };
     let max_players = meta.num_players.max(0);
-    let setup_handle = get_lan_setup();
+    let setup_handle = state.setup_handle();
 
     let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     let info = setup.game_info();
@@ -303,10 +327,10 @@ fn update_map_preview(
     }
 }
 
-fn sync_map_metadata(map_name: &str) {
+fn sync_map_metadata(state: &LanGameOptionsState, map_name: &str) {
     let cache = get_map_cache_manager();
     let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
-    let setup_handle = get_lan_setup();
+    let setup_handle = state.setup_handle();
 
     let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     let info = setup.game_info_mut();
@@ -322,7 +346,7 @@ fn sync_map_metadata(map_name: &str) {
 fn sync_map_to_game_info(state: &LanGameOptionsState) {
     if let Some(map) = state.selected_map.as_ref() {
         {
-            let setup_handle = get_lan_setup();
+            let setup_handle = state.setup_handle();
 
             let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             let info = setup.game_info_mut();
@@ -330,7 +354,7 @@ fn sync_map_to_game_info(state: &LanGameOptionsState) {
             info.reset_start_spots();
             info.adjust_slots_for_map();
         }
-        sync_map_metadata(map);
+        sync_map_metadata(state, map);
     }
 }
 
@@ -390,7 +414,7 @@ pub(crate) fn destroy_lan_map_select_overlay(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    with_lan_map_select_layout(|layout| {
+    with_lan_map_select_layout_on_owner(effects.window_manager_owner, |layout| {
         let Some(layout) = layout.take() else {
             return;
         };
@@ -404,9 +428,9 @@ pub(crate) fn refresh_lan_game_options_from_setup(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     owner: &crate::gui::window_manager::WindowManagerOwner,
 ) {
-    with_state(|state| {
+    with_state_on_owner(Some(owner), |state| {
         let selected_map = {
-            let setup_handle = get_lan_setup();
+            let setup_handle = state.setup_handle();
 
             let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             setup.selected_map().to_string()
@@ -421,8 +445,8 @@ pub(crate) fn refresh_lan_game_options_from_setup(
     });
 }
 
-fn ensure_default_slots() {
-    let setup_handle = get_lan_setup();
+fn ensure_default_slots(state: &LanGameOptionsState) {
+    let setup_handle = state.setup_handle();
 
     let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     let info = setup.game_info_mut();
@@ -619,7 +643,7 @@ fn update_slot_selection(
     index: usize,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
 ) {
-    let setup_handle = get_lan_setup();
+    let setup_handle = state.setup_handle();
 
     let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     let Some(slot) = setup.game_info().get_slot(index) else {
@@ -689,6 +713,7 @@ fn update_slot_selection(
 }
 
 fn populate_global_controls(
+    state: &LanGameOptionsState,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
@@ -705,7 +730,7 @@ fn populate_global_controls(
                     format!("${}", amount),
                 ));
             }
-            let setup_handle = get_lan_setup();
+            let setup_handle = state.setup_handle();
 
             let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             let selected = setup.game_info().get_starting_cash().count_money();
@@ -720,7 +745,7 @@ fn populate_global_controls(
     })(receiving_manager)
     {
         let mut guard = window.borrow_mut();
-        let setup_handle = get_lan_setup();
+        let setup_handle = state.setup_handle();
 
         let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         let enabled = setup.game_info().get_superweapon_restriction() != 0;
@@ -743,7 +768,7 @@ fn lan_update_slot_list(
         update_slot_selection(state, i, receiving_manager);
     }
     let map_name = {
-        let setup_handle = get_lan_setup();
+        let setup_handle = state.setup_handle();
 
         let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         setup.game_info().get_map().to_string()
@@ -768,7 +793,7 @@ fn choose_default_map(state: &mut LanGameOptionsState) {
     candidates.sort_by(|a, b| a.0.cmp(&b.0));
     if let Some((name, _)) = candidates.first() {
         state.selected_map = Some(name.clone());
-        let setup_handle = get_lan_setup();
+        let setup_handle = state.setup_handle();
 
         let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         setup.set_selected_map(name.clone());
@@ -810,7 +835,7 @@ fn set_start_position(info: &mut game_network::GameInfo, index: usize, position:
 fn handle_start_position_click(state: &mut LanGameOptionsState, control_id: i32) -> bool {
     for (index, button_id) in state.start_position_ids.iter().enumerate() {
         if control_id == *button_id {
-            let setup_handle = get_lan_setup();
+            let setup_handle = state.setup_handle();
 
             let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             let info = setup.game_info_mut();
@@ -859,7 +884,7 @@ fn handle_start_position_click(state: &mut LanGameOptionsState, control_id: i32)
 fn handle_start_position_right_click(state: &mut LanGameOptionsState, control_id: i32) -> bool {
     for (index, button_id) in state.start_position_ids.iter().enumerate() {
         if control_id == *button_id {
-            let setup_handle = get_lan_setup();
+            let setup_handle = state.setup_handle();
 
             let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             let info = setup.game_info_mut();
@@ -901,7 +926,7 @@ fn handle_combo_selection(
                 return true;
             }
             if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
-                let setup_handle = get_lan_setup();
+                let setup_handle = state.setup_handle();
 
                 let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(slot) = setup.game_info_mut().get_slot_mut(index) {
@@ -922,7 +947,7 @@ fn handle_combo_selection(
         }
         if control_id == state.combo_box_color_ids[index] {
             if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
-                let setup_handle = get_lan_setup();
+                let setup_handle = state.setup_handle();
 
                 let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                 let color = if selected == u32::MAX {
@@ -945,7 +970,7 @@ fn handle_combo_selection(
         }
         if control_id == state.combo_box_template_ids[index] {
             if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
-                let setup_handle = get_lan_setup();
+                let setup_handle = state.setup_handle();
 
                 let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(slot) = setup.game_info_mut().get_slot_mut(index) {
@@ -965,7 +990,7 @@ fn handle_combo_selection(
         }
         if control_id == state.combo_box_team_ids[index] {
             if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
-                let setup_handle = get_lan_setup();
+                let setup_handle = state.setup_handle();
 
                 let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(slot) = setup.game_info_mut().get_slot_mut(index) {
@@ -984,7 +1009,7 @@ fn handle_combo_selection(
 
     if control_id == state.combo_box_starting_cash_id {
         if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
-            let setup_handle = get_lan_setup();
+            let setup_handle = state.setup_handle();
 
             let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             setup
@@ -996,7 +1021,7 @@ fn handle_combo_selection(
     }
     if control_id == state.checkbox_limit_superweapons_id {
         if let Some(checked) = checkbox_is_checked(control_id, receiving_manager) {
-            let setup_handle = get_lan_setup();
+            let setup_handle = state.setup_handle();
 
             let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             setup
@@ -1013,7 +1038,7 @@ fn handle_combo_selection(
 fn handle_accept_click(state: &mut LanGameOptionsState, control_id: i32) -> bool {
     for index in 0..MAX_SLOTS {
         if control_id == state.button_accept_ids[index] {
-            let setup_handle = get_lan_setup();
+            let setup_handle = state.setup_handle();
 
             let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(slot) = setup.game_info_mut().get_slot_mut(index) {
@@ -1038,7 +1063,7 @@ fn start_lan_game(
     };
     sync_map_to_game_info(state);
     {
-        let setup_handle = get_lan_setup();
+        let setup_handle = state.setup_handle();
 
         let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         let info = setup.game_info();
@@ -1089,7 +1114,7 @@ fn start_lan_game(
         }
     }
     {
-        let setup_handle = get_lan_setup();
+        let setup_handle = state.setup_handle();
 
         let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         setup.game_info_mut().start_game(0);
@@ -1115,7 +1140,7 @@ pub fn lan_game_options_menu_init(
     set_lan_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
     set_lan_is_shutting_down(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
 
-    with_state(|state| {
+    with_state_on_owner(effects.window_manager_owner, |state| {
         state.parent_id = name_to_id("LanGameOptionsMenu.wnd:LanGameOptionsMenuParent");
         state.button_start_id = name_to_id("LanGameOptionsMenu.wnd:ButtonStart");
         state.button_back_id = name_to_id("LanGameOptionsMenu.wnd:ButtonBack");
@@ -1157,7 +1182,7 @@ pub fn lan_game_options_menu_init(
         });
 
         {
-            let setup_handle = get_lan_setup();
+            let setup_handle = state.setup_handle();
 
             let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             if !setup.selected_map().is_empty() {
@@ -1167,12 +1192,12 @@ pub fn lan_game_options_menu_init(
 
         // Disable slot list updates during init - matches C++ EnableSlotListUpdates(FALSE)
         set_lan_slot_updates_enabled(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
-        ensure_default_slots();
+        ensure_default_slots(state);
         effects.with_manager(|receiving_manager, effects| {
             populate_slot_controls(state, receiving_manager)
         });
         effects.with_manager(|receiving_manager, effects| {
-            populate_global_controls(receiving_manager, effects)
+            populate_global_controls(state, receiving_manager, effects)
         });
         set_lan_slot_updates_enabled(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), true);
 
@@ -1203,7 +1228,7 @@ pub fn lan_game_options_menu_update(
         && effects.with_manager(|manager, effects| manager.transitions_finished())
     {
         // Clear window refs before shutdown complete
-        with_state(|state| {
+        with_state_on_owner(effects.window_manager_owner, |state| {
             state.parent = None;
             state.map_window = None;
             state.text_entry_map_display = None;
@@ -1219,13 +1244,13 @@ pub fn lan_game_options_menu_update(
 
     // Check for map changes
     let setup_map = {
-        let setup_handle = get_lan_setup();
+        let setup_handle = get_lan_setup(effects.window_manager_owner);
 
         let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         setup.selected_map().to_string()
     };
 
-    with_state(|state| {
+    with_state_on_owner(effects.window_manager_owner, |state| {
         if !setup_map.is_empty() && state.selected_map.as_deref() != Some(setup_map.as_str()) {
             state.selected_map = Some(setup_map);
             effects.with_manager(|receiving_manager, effects| {
@@ -1251,7 +1276,7 @@ pub fn lan_game_options_menu_shutdown(
 
     if pop_immediate {
         // Clear window refs
-        with_state(|state| {
+        with_state_on_owner(effects.window_manager_owner, |state| {
             state.parent = None;
             state.map_window = None;
             state.text_entry_map_display = None;
@@ -1277,7 +1302,7 @@ pub fn lan_game_options_menu_system(
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
     let mut handled = false;
-    with_state(|state| match msg {
+    with_state_on_owner(effects.window_manager_owner, |state| match msg {
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             if control_id == state.button_start_id {
@@ -1304,7 +1329,7 @@ pub fn lan_game_options_menu_system(
                         .create_layout_with_windows("Menus/LanMapSelectMenu.wnd", effects)
                         .ok()
                 }) {
-                    with_lan_map_select_layout(|current| *current = Some(layout.clone()));
+                    with_lan_map_select_layout_on_owner(effects.window_manager_owner, |current| *current = Some(layout.clone()));
                     layout.borrow().run_init(None);
                     let mut layout_mut = layout.borrow_mut();
                     effects.with_manager(|manager, _effects| layout_mut.hide(manager, false));
@@ -1382,7 +1407,7 @@ pub fn lan_game_options_menu_input(
     }
 
     if (data2 & KEY_STATE_UP) != 0 {
-        with_state_ref(|state| {
+        with_state_on_owner(effects.window_manager_owner, |state| {
             if let Some(parent) = state.parent.as_ref() {
                 let _ = parent.borrow_mut().send_system_message(
                     WindowMessage::GadgetSelected,
@@ -1449,17 +1474,18 @@ use crate::gui::game_window::WindowEventEffects;
     #[test]
     fn glm_right_clicked_routes_start_position_like_cpp() {
         crate::test_support::ensure_ambient_host();
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut window = GameWindow::new();
-        with_state(|state| {
-            *state = LanGameOptionsState::default();
+        with_state_on_owner(Some(&owner), |state| {
             state.start_position_ids[0] = 77;
         });
 
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&owner);
         assert_eq!(
-            WindowEventEffects::with_standalone(|effects| lan_game_options_menu_system(&mut window, WindowMessage::User(GLM_RIGHT_CLICKED), 77, 0, effects)),
+            lan_game_options_menu_system(&mut window, WindowMessage::User(GLM_RIGHT_CLICKED), 77, 0, &mut effects),
             WindowMsgHandled::Handled
         );
-
-        with_state(|state| *state = LanGameOptionsState::default());
     }
 }

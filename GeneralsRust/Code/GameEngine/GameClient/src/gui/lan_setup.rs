@@ -42,33 +42,64 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
-fn lan_setup_handle() -> Arc<Mutex<LanSetup>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.ensure_lan_setup()
-    }) {
+/// Owner-less unit-test lobby (paired with the options-menu test state).
+#[cfg(test)]
+pub(crate) fn test_lan_setup_handle() -> Arc<Mutex<LanSetup>> {
+    TEST_LAN_SETUP.with(|slot| {
+        slot.borrow_mut()
+            .get_or_insert_with(|| Arc::new(Mutex::new(LanSetup::default())))
+            .clone()
+    })
+}
+
+/// This client's `TheLANGameInfo` lobby.
+///
+/// Callers holding their UI tree pass its `WindowManagerOwner` (window
+/// handlers: `effects.window_manager_owner`; hosts: the owning
+/// `GameClient::lan_setup()`). Without one, the registered live client is
+/// consulted; production Main never publishes that slot, so a missing owner
+/// there is a lifecycle bug and fails loudly instead of handing out a scratch
+/// lobby whose writes would be silently discarded.
+pub fn get_lan_setup(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Arc<Mutex<LanSetup>> {
+    if let Some(owner) = owner {
+        return owner.lan_setup();
+    }
+    if let Some(handle) =
+        crate::core::game_client::with_live_game_client_mut(|client| client.lan_setup())
+    {
         return handle;
     }
     #[cfg(test)]
     {
-        return TEST_LAN_SETUP.with(|slot| {
-            slot.borrow_mut()
-                .get_or_insert_with(|| Arc::new(Mutex::new(LanSetup::default())))
-                .clone()
-        });
+        return test_lan_setup_handle();
     }
     #[cfg(not(test))]
     {
-        Arc::new(Mutex::new(LanSetup::default()))
+        panic!("LAN setup requires a WindowManagerOwner or live GameClient; no process scratch");
     }
 }
 
-/// Handle to the LAN setup for this client (or test/ephemeral fallback).
-pub fn get_lan_setup() -> Arc<Mutex<LanSetup>> {
-    lan_setup_handle()
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gui::window_manager::WindowManagerOwner;
 
-pub fn with_lan_setup<R>(f: impl FnOnce(&mut LanSetup) -> R) -> R {
-    let handle = lan_setup_handle();
-    let mut guard = handle.lock().unwrap_or_else(|e| e.into_inner());
-    f(&mut guard)
+    #[test]
+    fn each_owner_has_its_own_lobby_and_menu_state_edits_it() {
+        let a = WindowManagerOwner::new();
+        let b = WindowManagerOwner::new();
+        // The options menu bound to owner `a` writes through to a's lobby only.
+        a.with_lan_game_options_mut(|state| {
+            let handle = state.borrow().setup_handle();
+            handle.lock().unwrap().set_selected_map("Maps\\Alpha".into());
+        });
+        assert_eq!(
+            get_lan_setup(Some(&a)).lock().unwrap().selected_map(),
+            "Maps\\Alpha"
+        );
+        assert_eq!(get_lan_setup(Some(&b)).lock().unwrap().selected_map(), "");
+        assert!(Arc::ptr_eq(&get_lan_setup(Some(&a)), &a.lan_setup()));
+    }
 }

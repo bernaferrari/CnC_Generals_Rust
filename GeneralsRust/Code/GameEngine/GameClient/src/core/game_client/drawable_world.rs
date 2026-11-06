@@ -478,16 +478,11 @@ impl GameClient {
             .clone()
     }
 
-    pub fn ensure_lan_setup(
-        &mut self,
+    /// This client's LAN lobby (`TheLANGameInfo`, owned by its UI tree).
+    pub fn lan_setup(
+        &self,
     ) -> std::sync::Arc<std::sync::Mutex<crate::gui::lan_setup::LanSetup>> {
-        self.lan_setup
-            .get_or_insert_with(|| {
-                std::sync::Arc::new(std::sync::Mutex::new(
-                    crate::gui::lan_setup::LanSetup::default(),
-                ))
-            })
-            .clone()
+        self.window_manager_owner.lan_setup()
     }
 
     /// This client's `TheSkirmishGameInfo` lobby (owned by its UI tree).

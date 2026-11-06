@@ -121,10 +121,10 @@ fn internet_session_is_sandbox() -> bool {
     false
 }
 
-fn session_is_sandbox() -> bool {
+fn session_is_sandbox(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> bool {
     match TheGameLogic::get_game_mode() {
         GAME_LAN => {
-            let setup_handle = get_lan_setup();
+            let setup_handle = get_lan_setup(owner);
 
             let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             setup.game_info().is_sandbox()
@@ -169,7 +169,7 @@ fn exit_quit_menu(effects: &mut WindowEventEffects<'_>) {
 
     if TheGameLogic::is_in_multiplayer_game()
         && !TheGameLogic::is_in_skirmish_game()
-        && !session_is_sandbox()
+        && !session_is_sandbox(effects.window_manager_owner)
     {
         let local_player = crate::message_stream::player_state::get_local_player_id() as u32;
         effects
