@@ -1276,6 +1276,72 @@ fn attack_ground_does_not_order_synthetic_hive_without_spawn_roster() {
 }
 
 #[test]
+fn player_attack_forwards_only_locked_spawn_roster_after_restore() {
+    use super::CommandExecutor;
+    use crate::command_system::{CommandResult, CommandType};
+    use crate::game_logic::{GameLogic, ObjectId, Player, Team, Weapon};
+    use crate::save_load::SnapshotBuilder;
+    use glam::Vec3;
+
+    fn session() -> (GameLogic, ObjectId, [ObjectId; 2], [ObjectId; 2]) {
+        let mut world = GameLogic::new();
+        world.admit_object_ini_sources([("SpawnOrders.ini".into(),
+            "Object OrderLockedNest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = OrderSpawnChild\n SlavesHaveFreeWill = No\n End\nEnd\nObject OrderFreeNest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = OrderSpawnChild\n SlavesHaveFreeWill = Yes\n End\nEnd\nObject OrderSpawnChild\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\nObject OrderVictim\n KindOf = INFANTRY SELECTABLE ATTACKABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into())]).unwrap();
+        world.add_player(Player::new(1, Team::USA, "Owner", true));
+        world.add_player(Player::new(2, Team::GLA, "Enemy", false));
+        let victim = world.create_object_for_player("OrderVictim", 2, Vec3::new(50.0, 0.0, 0.0)).unwrap();
+        let locked = world.create_object_for_player("OrderLockedNest", 1, Vec3::ZERO).unwrap();
+        let free = world.create_object_for_player("OrderFreeNest", 1, Vec3::new(0.0, 0.0, 5.0)).unwrap();
+        let child = |world: &GameLogic, parent| world.host_object(parent).unwrap().spawn_behavior_children()[0].0;
+        let children = [child(&world, locked), child(&world, free)];
+        for id in children {
+            let actor = world.host_object_mut(id).unwrap();
+            actor.set_status_disabled_held(false);
+            actor.weapon = Some(Weapon {
+                damage: 10.0,
+                range: 200.0,
+                can_target_ground: true,
+                ..Weapon::default()
+            });
+        }
+        (world, victim, [locked, free], children)
+    }
+
+    fn order(world: &mut GameLogic, command: CommandType, parents: [ObjectId; 2]) {
+        let result = CommandExecutor::new(world, 1)
+            .execute_command(dispatch_test_command(command, 1, parents.to_vec()))
+            .unwrap();
+        assert_eq!(result, CommandResult::Success);
+    }
+
+    let (mut owner, victim, parents, children) = session();
+    let (peer, peer_victim, peer_parents, peer_children) = session();
+    assert_eq!((victim, parents, children), (peer_victim, peer_parents, peer_children));
+    let ground = Vec3::new(30.0, 0.0, 20.0);
+    order(&mut owner, CommandType::AttackPosition { location: Some(ground), max_shots: 3 }, parents);
+    assert_eq!(owner.host_object(children[0]).unwrap().target_location, Some(ground));
+    assert_eq!(owner.host_object(children[0]).unwrap().max_shots_to_fire, 3);
+    assert_eq!(owner.host_object(children[1]).unwrap().target_location, None);
+    assert_eq!(peer.host_object(children[0]).unwrap().target_location, None);
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&owner).unwrap();
+    let (mut restored, _, _, _) = session();
+    builder.restore_from_snapshot(&snapshot, &mut restored).unwrap();
+    order(&mut restored, CommandType::AttackObject { target_id: victim }, parents);
+    assert_eq!(restored.host_object(children[0]).unwrap().target, Some(victim));
+    assert!(restored.host_object(children[0]).unwrap().force_attack);
+    assert_eq!(restored.host_object(children[1]).unwrap().target, None);
+
+    order(&mut owner, CommandType::ForceAttackObject { target_id: victim }, parents);
+    assert_eq!(owner.host_object(children[0]).unwrap().target, Some(victim));
+    assert!(owner.host_object(children[0]).unwrap().force_attack);
+    assert_eq!(owner.host_object(children[1]).unwrap().target, None);
+    assert_eq!(peer.host_object(children[0]).unwrap().target, None);
+    assert_eq!(peer.host_object(children[1]).unwrap().target, None);
+}
+
+#[test]
 fn exact_waypoint_path_sets_exact_flag_and_path() {
     use super::CommandExecutor;
     use crate::command_system::CommandResult;
