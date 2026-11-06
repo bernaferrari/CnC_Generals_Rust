@@ -1779,6 +1779,21 @@ impl UIRenderer {
             }
             let mut current_pipeline: Option<PipelineKind> = None;
             let mut current_texture: Option<Arc<TextureView>> = None;
+            // R11: consecutive commands with the same pipeline, texture and
+            // scissor whose index spans are contiguous become one draw; the
+            // primitives keep their order, so blending is unchanged.
+            type DrawKey = (PipelineKind, usize, (u32, u32, u32, u32));
+            let mut pending: Option<(DrawKey, u32, u32)> = None;
+            let flush = |render_pass: &mut RenderPass,
+                         pending: &mut Option<(DrawKey, u32, u32)>,
+                         stats: &mut RenderStats| {
+                if let Some((_, start, count)) = pending.take() {
+                    if count > 0 {
+                        render_pass.draw_indexed(start..start + count, 0, 0..1);
+                        stats.draw_calls += 1;
+                    }
+                }
+            };
 
             for (command, (start, count)) in
                 self.frame_buffers.draw_commands.iter().zip(command_ranges)
@@ -1796,6 +1811,43 @@ impl UIRenderer {
                         (true, _) => (&self.textured_pipeline, PipelineKind::Textured),
                         (false, _) => (&self.solid_pipeline, PipelineKind::Solid),
                     };
+
+                let scissor = match command.scissor_rect {
+                    Some(scissor) => {
+                        // UI coordinates are logical; scissors are attachment pixels.
+                        let scale_x = target_size.0 as f32 / self.screen_size.0.max(1) as f32;
+                        let scale_y = target_size.1 as f32 / self.screen_size.1.max(1) as f32;
+                        let left = (scissor.x * scale_x).max(0.0);
+                        let top = (scissor.y * scale_y).max(0.0);
+                        let right = (scissor.x + scissor.width) * scale_x;
+                        let bottom = (scissor.y + scissor.height) * scale_y;
+                        if !(right > left && bottom > top) {
+                            continue;
+                        }
+                        let x0 = left.floor();
+                        let y0 = top.floor();
+                        let x1 = right.min(target_size.0 as f32).ceil();
+                        let y1 = bottom.min(target_size.1 as f32).ceil();
+                        if !(x1 > x0 && y1 > y0) {
+                            continue;
+                        }
+                        (x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32)
+                    }
+                    None => (0, 0, target_size.0, target_size.1),
+                };
+                let texture_key = command
+                    .texture
+                    .as_ref()
+                    .map_or(0, |texture| Arc::as_ptr(texture) as usize);
+                let key: DrawKey = (pipeline_kind, texture_key, scissor);
+                if let Some((pending_key, pending_start, pending_count)) = pending.as_mut() {
+                    if *pending_key == key && *pending_start + *pending_count == start {
+                        *pending_count += count;
+                        continue;
+                    }
+                }
+                flush(render_pass, &mut pending, &mut stats);
+
                 if current_pipeline != Some(pipeline_kind) {
                     render_pass.set_pipeline(pipeline);
                     current_pipeline = Some(pipeline_kind);
@@ -1847,40 +1899,10 @@ impl UIRenderer {
                     }
                 }
 
-                if let Some(scissor) = command.scissor_rect {
-                    // UI coordinates are logical; scissors are attachment pixels.
-                    let scale_x = target_size.0 as f32 / self.screen_size.0.max(1) as f32;
-                    let scale_y = target_size.1 as f32 / self.screen_size.1.max(1) as f32;
-                    let left = (scissor.x * scale_x).max(0.0);
-                    let top = (scissor.y * scale_y).max(0.0);
-                    let right = (scissor.x + scissor.width) * scale_x;
-                    let bottom = (scissor.y + scissor.height) * scale_y;
-                    if !(right > left && bottom > top) {
-                        continue;
-                    }
-                    let x0 = left.floor();
-                    let y0 = top.floor();
-                    let x1 = right.min(target_size.0 as f32).ceil();
-                    let y1 = bottom.min(target_size.1 as f32).ceil();
-                    if x1 > x0 && y1 > y0 {
-                        render_pass.set_scissor_rect(
-                            x0 as u32,
-                            y0 as u32,
-                            (x1 - x0) as u32,
-                            (y1 - y0) as u32,
-                        );
-                    } else {
-                        continue;
-                    }
-                } else {
-                    render_pass.set_scissor_rect(0, 0, target_size.0, target_size.1);
-                }
-
-                if count > 0 {
-                    render_pass.draw_indexed(start..start + count, 0, 0..1);
-                    stats.draw_calls += 1;
-                }
+                render_pass.set_scissor_rect(scissor.0, scissor.1, scissor.2, scissor.3);
+                pending = Some((key, start, count));
             }
+            flush(render_pass, &mut pending, &mut stats);
         }
 
         stats.render_time_ms = start_time.elapsed().as_secs_f32() * 1000.0;
