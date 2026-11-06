@@ -740,7 +740,10 @@ fn resolve_skirmish_slots<'a>(
             .filter(|index| !colors.contains(&(*index as i32)))
             .count();
         if available < random {
-            return Err("not enough authored colors for occupied Random slots".into());
+            return Err(format!(
+                "not enough authored colors for occupied Random slots: palette={} random={random} available={available} colors={colors:?}",
+                palette.len()
+            ));
         }
     }
     // Caller supplies the driving match's seeded scoped stream; never

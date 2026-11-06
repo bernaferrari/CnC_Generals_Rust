@@ -813,6 +813,14 @@ impl CnCGameEngine {
                 .await
                 .map_err(anyhow::Error::msg)?;
         game_logic.admit_max_beacons_per_player(max_beacons_per_player);
+        // TheMultiplayerSettings (GameEngine.cpp:399) belongs to this game
+        // instance. Skirmish admission runs under the world's own
+        // CommonServices, so hand the authored palette to the world
+        // explicitly instead of relying on whichever services were active
+        // during startup parsing.
+        game_logic.multiplayer_definitions = Some(std::sync::Arc::new(
+            game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(Clone::clone),
+        ));
 
         let startup_load_state = if build_map_cache || audio_startup_requires_quit {
             StartupLoadState::Complete
