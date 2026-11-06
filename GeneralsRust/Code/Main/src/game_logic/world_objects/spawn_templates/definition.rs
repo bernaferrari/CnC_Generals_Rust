@@ -534,6 +534,7 @@ impl GameLogic {
 
             Self::apply_authored_supply_truck_metadata(&mut template, definition);
             Self::apply_authored_stealth_upgrade_metadata(&mut template, definition);
+            Self::apply_authored_horde_and_visual_upgrade_metadata(&mut template, definition);
             Self::apply_authored_production_exit_metadata(&mut template, definition);
             Self::apply_authored_pilot_veterancy_metadata(&mut template, definition);
             Self::apply_authored_eject_pilot_die_metadata(&mut template, definition);

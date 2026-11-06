@@ -387,29 +387,6 @@ impl GameLogic {
                     }
                 }
 
-                // Demo SuicideBomb FireWeaponWhenDead residual: Demo_DestroyedWeapon blast.
-                // Skip intentional SUICIDED path (PlusFire already applied via TertiarySuicide).
-                // Skip terrorists (already handled by host_terrorist SUICIDED residual).
-                {
-                    use crate::game_logic::host_demo_suicide_bomb::{
-                        has_demo_suicide_bomb_upgrade, is_demo_suicide_bomb_eligible_template,
-                    };
-                    use crate::game_logic::host_terrorist::is_terrorist_template;
-                    if !obj.fire_weapon_when_dead_fired
-                        && !obj.demo_suicided_detonating
-                        && is_demo_suicide_bomb_eligible_template(&obj.template_name)
-                        && has_demo_suicide_bomb_upgrade(&obj.applied_upgrades)
-                        && !is_terrorist_template(&obj.template_name)
-                    {
-                        let _ = self.apply_demo_suicide_bomb_death_at_with_effects(
-                            event.id,
-                            obj.team,
-                            death_pos,
-                            presentation_effects,
-                        );
-                    }
-                }
-
                 // GLA Rebel BoobyTrap residual: structure death detonates trap.
                 // C++ Object::checkAndDetonateBoobyTrap(NULL) on die path.
                 if obj.status.booby_trapped {

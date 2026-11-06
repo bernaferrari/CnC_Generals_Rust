@@ -19,10 +19,6 @@ pub(super) fn nationalism_bonus_from_upgrade(
     }
 }
 
-/// Host HordeUpdate residual has no per-object AllowedNationalism field;
-/// match C++ module-data default (TRUE).
-pub(super) const HORDE_DEFAULT_ALLOWED_NATIONALISM: bool = true;
-
 /// The controlling Player's completed Nationalism / Fanaticism upgrades
 /// (AIUpdate.cpp `evaluateMoraleBonus`: `player->hasUpgradeComplete`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -37,7 +33,7 @@ pub(crate) fn apply_evaluate_morale_bonus(obj: &mut Object, upgrades: MoraleUpgr
     let nationalism_active = nationalism_bonus_from_upgrade(
         upgrades.nationalism,
         obj.weapon_bonus_horde,
-        HORDE_DEFAULT_ALLOWED_NATIONALISM,
+        obj.horde_allowed_nationalism(),
     );
     obj.weapon_bonus_nationalism = nationalism_active;
     obj.weapon_bonus_fanaticism =
@@ -266,7 +262,7 @@ impl GameLogic {
         let nationalism_active = nationalism_bonus_from_upgrade(
             nationalism,
             in_horde,
-            HORDE_DEFAULT_ALLOWED_NATIONALISM,
+            obj.horde_allowed_nationalism(),
         );
         obj.weapon_bonus_nationalism = nationalism_active;
         obj.weapon_bonus_fanaticism = leftover_horde_fanaticism_bonus(
@@ -300,7 +296,7 @@ impl GameLogic {
         let nationalism_active = nationalism_bonus_from_upgrade(
             nationalism,
             in_horde,
-            HORDE_DEFAULT_ALLOWED_NATIONALISM,
+            obj.horde_allowed_nationalism(),
         );
         obj.weapon_bonus_nationalism = nationalism_active;
         obj.weapon_bonus_fanaticism = leftover_horde_fanaticism_bonus(
@@ -320,8 +316,7 @@ impl GameLogic {
 
         use crate::game_logic::host_gattling_tank::GattlingFireLevel;
         use crate::game_logic::host_minigunner::{
-            has_chain_guns_upgrade, is_minigunner_template, minigunner_air_weapon,
-            minigunner_ground_weapon,
+            has_chain_guns_upgrade, minigunner_air_weapon, minigunner_ground_weapon,
         };
         let morale = self.owner_morale_upgrades(
             self.objects
@@ -331,7 +326,7 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
-        if !is_minigunner_template(&obj.template_name) {
+        if !obj.authors_minigunner_gun() {
             return;
         }
         let nationalism = morale.nationalism;
@@ -339,7 +334,7 @@ impl GameLogic {
         let nationalism_active = nationalism_bonus_from_upgrade(
             nationalism,
             in_horde,
-            HORDE_DEFAULT_ALLOWED_NATIONALISM,
+            obj.horde_allowed_nationalism(),
         );
         obj.weapon_bonus_nationalism = nationalism_active;
         obj.weapon_bonus_fanaticism = leftover_horde_fanaticism_bonus(
@@ -381,159 +376,6 @@ impl GameLogic {
             .saturating_add(1);
         self.refresh_minigunner_weapon(object_id);
         true
-    }
-
-    /// Recompute China infantry HordeUpdate residual (Red Guard + Tank Hunter + MiniGunner).
-    ///
-    /// Only HordeUpdate infantry count (C++ getHUI). Radius 30 / Count 5 / RubOff 20.
-    pub fn update_china_infantry_horde_status(&mut self) {
-        use crate::game_logic::host_battlemaster::{
-            LeftoverHordeScanUnit, evaluate_leftover_horde_blob_scan,
-            leftover_horde_bounding_sphere_radius, leftover_horde_take_wake,
-        };
-        use crate::game_logic::host_minigunner::is_minigunner_template;
-        use crate::game_logic::host_red_guard::{
-            INFANTRY_HORDE_COUNT, INFANTRY_HORDE_RADIUS, INFANTRY_HORDE_RUB_OFF_RADIUS,
-            INFANTRY_HORDE_UPDATE_FRAMES, counts_toward_infantry_horde,
-            is_china_infantry_horde_unit, leftover_infantry_is_horde_neighbor,
-        };
-
-        // .5: authored nationalism weapon kind (1 Red Guard MG, 2 Tank Hunter launcher, 0 other) — hq-2qedt.262.
-        #[allow(clippy::type_complexity)]
-        let horde_units: Vec<(ObjectId, Team, Option<u32>, LeftoverHordeScanUnit, String, u8)> = self
-            .objects
-            .registered()
-            .filter_map(|(id, o)| {
-                if !o.is_alive() || !is_china_infantry_horde_unit(&o.template_name) {
-                    return None;
-                }
-                let p = o.get_position();
-                let geom = &(*o.geometry_info());
-                Some((
-                    *id,
-                    o.team,
-                    o.owner_player_id,
-                    LeftoverHordeScanUnit {
-                        x: p.x,
-                        y: p.y,
-                        z: p.z,
-                        sphere_radius: leftover_horde_bounding_sphere_radius(
-                            geom.authored,
-                            geom.bounding_sphere_radius(),
-                            o.selection_radius,
-                        ),
-                        alive: o.is_alive(),
-                    },
-                    o.template_name.clone(),
-                    if o.authors_red_guard_machine_gun() {
-                        1u8
-                    } else if o.authors_tank_hunter_missile() {
-                        2
-                    } else {
-                        0
-                    },
-                ))
-            })
-            .collect();
-
-        let units: Vec<LeftoverHordeScanUnit> = horde_units.iter().map(|u| u.3).collect();
-        let membership = evaluate_leftover_horde_blob_scan(
-            &units,
-            INFANTRY_HORDE_COUNT,
-            INFANTRY_HORDE_RADIUS,
-            INFANTRY_HORDE_RUB_OFF_RADIUS,
-            |i, j, dist| {
-                counts_toward_infantry_horde(
-                    horde_units[i].3.alive,
-                    horde_units[j].3.alive,
-                    self.horde_allies_only(
-                        horde_units[i].2,
-                        horde_units[i].1,
-                        horde_units[j].2,
-                        horde_units[j].1,
-                    ),
-                    leftover_infantry_is_horde_neighbor(&horde_units[j].4),
-                    dist,
-                    INFANTRY_HORDE_RADIUS,
-                )
-            },
-        );
-
-        let mut red_grants = 0u32;
-        let mut th_grants = 0u32;
-        let mut mg_grants = 0u32;
-        let mut to_refresh_red: Vec<ObjectId> = Vec::new();
-        let mut to_refresh_th: Vec<ObjectId> = Vec::new();
-        let mut to_refresh_mg: Vec<ObjectId> = Vec::new();
-        let draw_icon = self.get_draw_icon_ui();
-        let frame = self.frame;
-
-        for (idx, (id, _team, owner, _scan, name, kind)) in horde_units.iter().enumerate() {
-            let scanned = membership[idx].in_horde;
-            let morale = self.owner_morale_upgrades(*owner);
-            if let Some(obj) = self.objects.get_mut(id) {
-                let (due, init, last, next) = leftover_horde_take_wake(
-                    obj.horde_wake_initialized,
-                    true,
-                    frame,
-                    obj.last_horde_refresh_frame,
-                    obj.horde_next_wake_frame,
-                    INFANTRY_HORDE_UPDATE_FRAMES,
-                );
-                obj.horde_wake_initialized = init;
-                obj.last_horde_refresh_frame = last;
-                obj.horde_next_wake_frame = next;
-                if !due {
-                    continue;
-                }
-                let was = obj.weapon_bonus_horde;
-                let now_horde = scanned;
-                obj.weapon_bonus_horde = now_horde;
-                let morale_before = (obj.weapon_bonus_nationalism, obj.weapon_bonus_fanaticism);
-                apply_evaluate_morale_bonus(obj, morale);
-                let morale_changed =
-                    morale_before != (obj.weapon_bonus_nationalism, obj.weapon_bonus_fanaticism);
-                obj.apply_horde_terrain_decal(was, now_horde, draw_icon);
-                if now_horde && !was {
-                    if *kind == 1 {
-                        red_grants = red_grants.saturating_add(1);
-                    } else if *kind == 2 {
-                        th_grants = th_grants.saturating_add(1);
-                    } else if is_minigunner_template(name) {
-                        mg_grants = mg_grants.saturating_add(1);
-                    }
-                }
-                if now_horde != was || now_horde || morale_changed {
-                    if *kind == 1 {
-                        to_refresh_red.push(*id);
-                    } else if *kind == 2 {
-                        to_refresh_th.push(*id);
-                    } else if is_minigunner_template(name) {
-                        to_refresh_mg.push(*id);
-                    }
-                }
-            }
-        }
-
-        self.red_guard_residual_horde_grants = self
-            .red_guard_residual_horde_grants
-            .saturating_add(red_grants);
-        self.tank_hunter_residual_horde_grants = self
-            .tank_hunter_residual_horde_grants
-            .saturating_add(th_grants);
-        self.minigunner_residual_horde_grants = self
-            .minigunner_residual_horde_grants
-            .saturating_add(mg_grants);
-
-        for id in to_refresh_red {
-            self.refresh_red_guard_weapon(id);
-        }
-        for id in to_refresh_th {
-            self.refresh_tank_hunter_weapon(id);
-        }
-        for id in to_refresh_mg {
-            self.refresh_minigunner_weapon(id);
-        }
     }
 
     pub fn honesty_tank_hunter_missile_projectile_ok(&self) -> bool {
@@ -751,80 +593,4 @@ impl GameLogic {
         true
     }
 
-}
-
-#[cfg(test)]
-mod horde_allies_tests {
-    use super::*;
-    use crate::game_logic::{Player, ThingTemplate};
-    use glam::Vec3;
-
-    /// C++ HordeUpdate.cpp:77-79 AlliesOnly uses getRelationship == ALLIES.
-    /// Same-faction enemy China must not share a horde blob.
-    #[test]
-    fn china_vs_china_infantry_does_not_form_one_horde() {
-        let mut logic = GameLogic::new();
-        let mut a = Player::new(1, Team::China, "ChinaA", true);
-        a.alliance_team = 0;
-        let mut b = Player::new(2, Team::China, "ChinaB", false);
-        b.alliance_team = 1;
-        logic.add_player(a);
-        logic.add_player(b);
-
-        let mut tpl = ThingTemplate::new("ChinaInfantryRedguard");
-        tpl.add_kind_of(KindOf::Infantry)
-            .set_health(120.0)
-            .set_cost(0, 0);
-        logic.templates.insert("ChinaInfantryRedguard".into(), tpl);
-
-        let mut a_ids = Vec::new();
-        let mut b_ids = Vec::new();
-        for i in 0..3 {
-            let x = i as f32 * 8.0;
-            a_ids.push(
-                logic
-                    .create_object_for_player("ChinaInfantryRedguard", 1, Vec3::new(x, 0.0, 0.0))
-                    .expect("a"),
-            );
-            b_ids.push(
-                logic
-                    .create_object_for_player(
-                        "ChinaInfantryRedguard",
-                        2,
-                        Vec3::new(x + 4.0, 0.0, 4.0),
-                    )
-                    .expect("b"),
-            );
-        }
-        logic.update_china_infantry_horde_status();
-        for id in a_ids.iter().chain(b_ids.iter()) {
-            let obj = logic.host_object(*id).expect("unit");
-            assert!(
-                !obj.weapon_bonus_horde,
-                "3+3 same-faction enemies must not count as one AlliesOnly horde"
-            );
-        }
-
-        for i in 3..5 {
-            let x = i as f32 * 8.0;
-            a_ids.push(
-                logic
-                    .create_object_for_player("ChinaInfantryRedguard", 1, Vec3::new(x, 0.0, 0.0))
-                    .expect("a extra"),
-            );
-        }
-        // C++ HordeUpdate.cpp:146-147 initial wake sleeps UpdateRate, then
-        // :253 infantry re-evaluates membership when the module wakes. The
-        // wake gate is frame-based, so re-scan at the wake frame.
-        logic.frame = crate::game_logic::host_red_guard::INFANTRY_HORDE_UPDATE_FRAMES;
-        logic.update_china_infantry_horde_status();
-        assert!(
-            logic.host_object(a_ids[0]).expect("a0").weapon_bonus_horde,
-            "five owned allies must form a horde"
-        );
-        assert!(
-            !logic.host_object(b_ids[0]).expect("b0").weapon_bonus_horde,
-            "enemy China blob must stay out of the other player's horde"
-        );
-    }
 }

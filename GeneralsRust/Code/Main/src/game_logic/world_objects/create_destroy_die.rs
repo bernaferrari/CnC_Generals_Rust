@@ -3306,38 +3306,6 @@ impl GameLogic {
                         }
                     }
                 }
-
-                // Host residual: Demo SuicideBomb tag + CommandSetUpgrade if researched.
-                {
-                    use crate::game_logic::host_demo_suicide_bomb::{
-                        UPGRADE_DEMO_SUICIDE_BOMB, demo_command_set_upgrade_for_template,
-                        is_demo_suicide_bomb_eligible_template, is_demo_suicide_bomb_upgrade,
-                    };
-                    if is_demo_suicide_bomb_eligible_template(template_name) {
-                        let has_upgrade = self.players.values().any(|p| {
-                            p.team == team
-                                && p.unlocked_sciences
-                                    .iter()
-                                    .any(|s| is_demo_suicide_bomb_upgrade(s))
-                        });
-                        if has_upgrade {
-                            if let Some(obj) = self.objects.get_mut(&id) {
-                                if !obj.has_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB) {
-                                    obj.apply_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB);
-                                    self.demo_suicide_bomb.record_tag();
-                                }
-                                if obj.command_set_override.is_none() {
-                                    if let Some(cs) =
-                                        demo_command_set_upgrade_for_template(&obj.template_name)
-                                    {
-                                        obj.set_command_set_override(Some(cs));
-                                        self.demo_suicide_bomb.record_command_set_upgrade(1);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
             }
 
             self.apply_difficulty_bonuses_for_object_with_effects(id, ui);

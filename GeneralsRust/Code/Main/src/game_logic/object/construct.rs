@@ -149,6 +149,7 @@ impl Object {
         let initial_drawable_scale =
             crate::assets::mesh_asset_resolve::mesh_scale_from_template(&template);
         let template_name = template.name.clone();
+        let authors_horde_update = template.horde_update.is_some();
         let inactive_body =
             template.body_kind == Some(crate::game_logic::thing::BodyKind::Inactive);
         let max_health = if inactive_body {
@@ -807,10 +808,9 @@ impl Object {
             terrain_decal_fade_target: 0.0,
             terrain_decal_fade_rate: 0.0,
             terrain_decal_opacity: if is_fs_fake { 1.0 } else { 0.0 },
-            sub_object_visibility:
-                crate::game_logic::host_battlemaster::leftover_horde_flag_visibility_for_template(
-                    &template_name,
-                ),
+            sub_object_visibility: crate::game_logic::host_battlemaster::leftover_horde_flag_visibility(
+                authors_horde_update,
+            ),
             special_power_completion: None,
             power_plant_rods_extended: false,
             power_plant_rods_done_frame: 0,
@@ -1642,10 +1642,7 @@ impl Object {
             terrain_decal_fade_target: 0.0,
             terrain_decal_fade_rate: 0.0,
             terrain_decal_opacity: if is_fs_fake { 1.0 } else { 0.0 },
-            sub_object_visibility:
-                crate::game_logic::host_battlemaster::leftover_horde_flag_visibility_for_template(
-                    &template_name,
-                ),
+            sub_object_visibility: Default::default(),
             special_power_completion: None,
             power_plant_rods_extended: false,
             power_plant_rods_done_frame: 0,

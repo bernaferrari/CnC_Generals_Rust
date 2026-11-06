@@ -397,10 +397,6 @@ impl GameLogic {
         if !object_scoped {
             let _ = self.apply_player_unlock_upgrade(ledger, upgrade_name, upgrade_name);
         }
-        if !object_scoped && kind == HostUpgradeKind::CashBounty {
-            let _ =
-                self.apply_upgrade_kind_to_recipients(ledger, upgrade_name, interpreter, effects);
-        }
         let mut units_affected = 0u32;
         if object_scoped {
             if let Some(id) = source {
@@ -492,7 +488,7 @@ impl GameLogic {
             object_id: id,
         };
         if !object_scoped {
-            self.apply_upgrade_kind_to_recipients(recipient, upgrade_name, interpreter, effects);
+            self.apply_upgrade_kind_to_recipients(recipient, upgrade_name);
         }
         if !self.objects.get(&id).is_some_and(|object| {
             std::sync::Arc::ptr_eq(&object.visual_draw_identity_token, &identity)
@@ -581,84 +577,25 @@ impl GameLogic {
         &mut self,
         recipients: UpgradeRecipients,
         upgrade_name: &str,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> u32 {
         use crate::game_logic::host_upgrades::HostUpgradeKind;
         // Authored UpgradeMux modules run for every completed upgrade; the
         // template's module list, not the upgrade or unit name, selects them.
+        // Every other upgrade family (WeaponSet/Armor/CommandSet, Locomotor,
+        // FireWeaponWhenDead, ObjectCreation, Radar, PowerPlant, ...) runs
+        // per Object in object_upgrade_callbacks.rs; Nationalism/Fanaticism
+        // and CashBounty are read from the owning Player.
         let authored = self.apply_authored_max_health_upgrades(recipients, upgrade_name);
-        let kind = HostUpgradeKind::from_name(upgrade_name);
         authored
-            + match kind {
-            HostUpgradeKind::Camouflage => {
-                self.apply_camouflage_unlock_to_team(recipients, upgrade_name)
-            }
-            HostUpgradeKind::CamoNetting => {
-                self.apply_camo_netting_unlock_to_team(recipients, upgrade_name)
-            }
-            // WeaponSetUpgrade / WeaponBonusUpgrade / ArmorUpgrade modules
-            // (authored_upgrade_modules.rs) own these upgrades' effects.
-            HostUpgradeKind::FlashBangGrenade
-            | HostUpgradeKind::TowMissile
-            | HostUpgradeKind::NeutronShells
-            | HostUpgradeKind::ComancheRocketPods
-            | HostUpgradeKind::SentryDroneGun
-            | HostUpgradeKind::ScorpionRocket
-            | HostUpgradeKind::ApRockets
-            | HostUpgradeKind::LaserMissiles
-            | HostUpgradeKind::ChainGuns
-            | HostUpgradeKind::UraniumShells
-            | HostUpgradeKind::BlackNapalm
-            | HostUpgradeKind::ApBullets
-            | HostUpgradeKind::AnthraxBeta
-            | HostUpgradeKind::ToxinShells
-            | HostUpgradeKind::TacticalNukeMig
-            | HostUpgradeKind::FortifiedStructure
-            | HostUpgradeKind::ChemicalSuits
-            | HostUpgradeKind::Countermeasures
-            | HostUpgradeKind::AdvancedTraining
-            | HostUpgradeKind::BunkerBusters
-            | HostUpgradeKind::NuclearTanks
-            | HostUpgradeKind::AnthraxGamma => 0,
-            // MaxHealthUpgrade modules (authored_upgrade_modules.rs).
-            HostUpgradeKind::CompositeArmor
-            | HostUpgradeKind::DroneArmor
-            | HostUpgradeKind::AircraftArmor => 0,
-            // LocomotorSetUpgrade (object_upgrade_callbacks.rs) and
-            // WorkerAIUpdate::getUpgradedSupplyBoost own Worker Shoes.
-            HostUpgradeKind::WorkerShoes => 0,
-            HostUpgradeKind::SuicideBomb => {
-                self.apply_demo_suicide_bomb_unlock_to_team(recipients, upgrade_name)
-            }
-            // PowerPlantUpgrade (authored_upgrade_modules.rs) owns Advanced Control Rods.
-            HostUpgradeKind::AdvancedControlRods => 0,
-            // Nationalism/Fanaticism are read from the Player by HordeUpdate's
-            // evaluateMoraleBonus (tanks_and_upgrades.rs); nothing to apply here.
-            HostUpgradeKind::Nationalism | HostUpgradeKind::Fanaticism => 0,
-            HostUpgradeKind::Radar => match recipients {
-                UpgradeRecipients::Object { object_id, .. } => {
-                    self.admit_host_radar_provider_with_effects(object_id, effects);
-                    1
+            + match HostUpgradeKind::from_name(upgrade_name) {
+                HostUpgradeKind::Camouflage => {
+                    self.apply_camouflage_unlock_to_team(recipients, upgrade_name)
                 }
-                UpgradeRecipients::Player { player_id, .. } => self
-                    .apply_radar_research_to_player_with_effects(player_id, upgrade_name, effects),
+                HostUpgradeKind::CamoNetting => {
+                    self.apply_camo_netting_unlock_to_team(recipients, upgrade_name)
+                }
                 _ => 0,
-            },
-            HostUpgradeKind::SlaveDrone => self
-                .apply_slave_drone_upgrade_to_team_with_interpreter_and_effects(
-                    recipients,
-                    upgrade_name,
-                    interpreter,
-                    effects,
-                ),
-            HostUpgradeKind::CashBounty => {
-                self.apply_cash_bounty_upgrade_to_team(recipients, upgrade_name)
             }
-            // Upgrades with no recipient-side work: their effects are authored
-            // modules (object_upgrade_callbacks.rs) or read from the Player.
-            _ => 0,
-        }
     }
 
     pub(crate) fn present_host_upgrade_completion(

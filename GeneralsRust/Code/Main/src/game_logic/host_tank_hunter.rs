@@ -37,7 +37,6 @@ use super::Weapon;
 use crate::game_logic::host_battlemaster::has_nationalism_upgrade;
 use crate::game_logic::host_red_guard::{
     INFANTRY_HORDE_ROF_MULT, INFANTRY_NATIONALISM_ROF_MULT, delay_frames_to_reload_secs,
-    is_in_infantry_horde,
 };
 use glam::Vec3;
 
@@ -322,11 +321,6 @@ pub fn tank_hunter_has_nationalism(applied_upgrades: &std::collections::HashSet<
     has_nationalism_upgrade(applied_upgrades)
 }
 
-/// Re-export horde helper for tests.
-pub fn tank_hunter_is_in_horde(nearby: u32) -> bool {
-    is_in_infantry_horde(nearby)
-}
-
 // --- Wave 67 residual honesty packs ---
 
 /// Wave 67 residual honesty: Tank Hunter RPG weapon residual peel.
@@ -541,8 +535,6 @@ mod tests {
         let mut tags = HashSet::new();
         tags.insert("Upgrade_Nationalism".to_string());
         assert!(tank_hunter_has_nationalism(&tags));
-        assert!(tank_hunter_is_in_horde(4));
-        assert!(!tank_hunter_is_in_horde(3));
     }
 
     #[test]

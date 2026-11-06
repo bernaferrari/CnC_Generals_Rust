@@ -82,9 +82,6 @@ impl GameLogic {
         dying_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        use crate::game_logic::host_demo_suicide_bomb::{
-            has_demo_suicide_bomb_upgrade, is_demo_suicide_bomb_eligible_template,
-        };
         use crate::game_logic::host_fire_weapon_when_dead::{
             death_weapon_for_dying_object, splash_damage_at_distance,
         };
@@ -96,11 +93,6 @@ impl GameLogic {
             return;
         }
         if obj.status.under_construction {
-            return;
-        }
-        if is_demo_suicide_bomb_eligible_template(&obj.template_name)
-            && has_demo_suicide_bomb_upgrade(&obj.applied_upgrades)
-        {
             return;
         }
         let Some(splash) = death_weapon_for_dying_object(&obj.template_name, obj.status.death_type)
