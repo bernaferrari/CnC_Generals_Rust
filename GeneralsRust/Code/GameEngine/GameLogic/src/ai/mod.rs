@@ -2064,6 +2064,7 @@ impl Pathfinder {
         layer: pathfind_astar::PathfindLayerEnum,
         dest: &mut Coord3D,
         starting_in_obstacle: bool,
+        terrain_height: impl FnOnce(f32, f32, crate::common::PathfindLayerEnum) -> f32,
     ) -> bool {
         self.inner.check_for_possible(
             is_crusher,
@@ -2075,6 +2076,7 @@ impl Pathfinder {
             layer,
             dest,
             starting_in_obstacle,
+            terrain_height,
         )
     }
 

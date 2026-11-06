@@ -1303,6 +1303,7 @@ fn check_for_possible_same_zone() {
         PathfindLayerEnum::Ground,
         &mut dest,
         false,
+        |_, _, _| 0.0,
     ));
     assert!((dest.x - 55.0).abs() < 0.01);
     assert!((dest.y - 65.0).abs() < 0.01);

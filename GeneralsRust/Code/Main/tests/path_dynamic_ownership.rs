@@ -808,7 +808,11 @@ fn core_possible_candidate_uses_bridge_cell_and_zone() {
         5,
         layer,
         &mut dest,
-        false
+        false,
+        |_, _, sampled_layer| {
+            assert_eq!(sampled_layer as u32, layer_id);
+            0.0
+        },
     ));
     let mut wrong_zone = Vec3::ZERO;
     assert!(!owner.check_for_possible(
@@ -820,7 +824,8 @@ fn core_possible_candidate_uses_bridge_cell_and_zone() {
         5,
         layer,
         &mut wrong_zone,
-        false
+        false,
+        |_, _, _| 0.0,
     ));
     let mut wrong = Vec3::ZERO;
     assert!(!owner.check_for_possible(
@@ -832,7 +837,8 @@ fn core_possible_candidate_uses_bridge_cell_and_zone() {
         5,
         PathfindLayerEnum::Ground,
         &mut wrong,
-        false
+        false,
+        |_, _, _| 0.0,
     ));
     let mut peer_dest = Vec3::ZERO;
     assert!(peer.check_for_possible(
@@ -844,7 +850,8 @@ fn core_possible_candidate_uses_bridge_cell_and_zone() {
         5,
         layer,
         &mut peer_dest,
-        false
+        false,
+        |_, _, _| 0.0,
     ));
     let mut repeated = Vec3::ZERO;
     assert!(owner.check_for_possible(
@@ -856,7 +863,8 @@ fn core_possible_candidate_uses_bridge_cell_and_zone() {
         5,
         layer,
         &mut repeated,
-        false
+        false,
+        |_, _, _| 0.0,
     ));
     assert_eq!(repeated, dest);
     let line_start = Vec3::new(65.0, 55.0, 0.0);
@@ -880,7 +888,8 @@ fn core_possible_candidate_uses_bridge_cell_and_zone() {
         5,
         layer,
         &mut destroyed,
-        false
+        false,
+        |_, _, _| 0.0,
     ));
     assert!(!owner.is_line_passable_for_surfaces_on_layer(
         &line_start,
@@ -906,7 +915,8 @@ fn core_possible_candidate_uses_bridge_cell_and_zone() {
         5,
         layer,
         &mut peer_after_destroy,
-        false
+        false,
+        |_, _, _| 0.0,
     ));
     owner.set_bridge_destroyed(layer_id, false);
     let mut repaired = Vec3::ZERO;
@@ -919,7 +929,8 @@ fn core_possible_candidate_uses_bridge_cell_and_zone() {
         5,
         layer,
         &mut repaired,
-        false
+        false,
+        |_, _, _| 0.0,
     ));
     assert!(owner.is_line_passable_for_surfaces_on_layer(
         &line_start,
@@ -945,7 +956,8 @@ fn core_possible_candidate_uses_bridge_cell_and_zone() {
             5,
             layer,
             &mut fallback,
-            false
+            false,
+            |_, _, _| 0.0,
         ),
         "an impassable layer slot falls back to the clear ground cell"
     );
@@ -986,7 +998,8 @@ fn possible_candidate_maps_uninitialized_zone_for_unrestricted_locomotors() {
             candidate.y,
             PathfindLayerEnum::Ground,
             &mut core_dest,
-            false
+            false,
+            |_, _, _| 0.0,
         ));
         assert_eq!(
             gamelogic::path::PathfindZoneManager::new().get_effective_zone(surfaces, false, 0),
@@ -1020,8 +1033,87 @@ fn possible_candidate_maps_uninitialized_zone_for_unrestricted_locomotors() {
         candidate.y,
         PathfindLayerEnum::Ground,
         &mut core_dest,
-        false
+        false,
+        |_, _, _| 0.0,
     ));
+}
+
+#[test]
+fn core_possible_candidate_samples_receiving_terrain_only_after_acceptance() {
+    use gamelogic::ai::pathfind_astar::PathfindLayerEnum;
+    use gamelogic::ai::pathfind_complete::{PathfindingSystem, SURFACE_AIR, SURFACE_GROUND};
+    use std::cell::Cell;
+
+    let owner = PathfindingSystem::new(20, 20);
+    let peer = PathfindingSystem::new(20, 20);
+    let calls = Cell::new(0);
+    let mut first = Vec3::ZERO;
+    let mut second = Vec3::ZERO;
+    let sample = |height| {
+        move |x: f32, y: f32, layer: gamelogic::common::PathfindLayerEnum| {
+            assert_eq!((x, y), (65.0, 25.0));
+            assert_eq!(layer as u32, PathfindLayerEnum::Ground as u32);
+            height
+        }
+    };
+    assert!(owner.check_for_possible(
+        false,
+        1,
+        true,
+        SURFACE_AIR,
+        6,
+        2,
+        PathfindLayerEnum::Ground,
+        &mut first,
+        false,
+        sample(17.0)
+    ));
+    assert!(peer.check_for_possible(
+        false,
+        1,
+        true,
+        SURFACE_AIR,
+        6,
+        2,
+        PathfindLayerEnum::Ground,
+        &mut second,
+        false,
+        sample(93.0)
+    ));
+    assert_eq!((first.z, second.z), (17.0, 93.0));
+    assert!(!owner.check_for_possible(
+        false,
+        1,
+        true,
+        SURFACE_GROUND,
+        6,
+        2,
+        PathfindLayerEnum::Ground,
+        &mut first,
+        false,
+        |_, _, _| {
+            calls.set(calls.get() + 1);
+            0.0
+        }
+    ));
+    assert_eq!(
+        calls.get(),
+        0,
+        "rejected candidates must not sample terrain"
+    );
+    assert!(owner.check_for_possible(
+        false,
+        1,
+        true,
+        SURFACE_AIR,
+        6,
+        2,
+        PathfindLayerEnum::Ground,
+        &mut first,
+        false,
+        sample(17.0)
+    ));
+    assert_eq!(first.z, 17.0);
 }
 
 #[test]

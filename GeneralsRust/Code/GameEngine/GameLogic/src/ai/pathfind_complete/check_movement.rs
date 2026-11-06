@@ -694,6 +694,7 @@ impl PathfindingSystem {
         layer: PathfindLayerEnum,
         dest: &mut Coord3D,
         starting_in_obstacle: bool,
+        terrain_height: impl FnOnce(f32, f32, CommonPathfindLayerEnum) -> f32,
     ) -> bool {
         let cell = GridCoord::new(cell_x, cell_y);
         let Some((cell_type, zone)) = self.cell_type_and_zone(layer, cell) else {
@@ -716,7 +717,7 @@ impl PathfindingSystem {
             z2
         };
         if from_zone == zone2 {
-            self.adjust_coord_to_cell(cell_x, cell_y, center, dest, layer);
+            *dest = Self::coord_to_cell_with_height(cell_x, cell_y, center, layer, terrain_height);
             return true;
         }
         false
