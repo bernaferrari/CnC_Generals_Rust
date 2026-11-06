@@ -399,6 +399,7 @@ impl ForwardPass {
         let color_texture = frame.color_texture().clone();
         let encoder = frame.encoder();
 
+        renderer.begin_effects_frame();
         if let Some(prepared) = prepared_particles.as_ref() {
             renderer.preload_authored_textures(prepared.preloaded_texture_assets());
         }

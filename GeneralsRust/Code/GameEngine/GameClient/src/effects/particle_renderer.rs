@@ -540,6 +540,8 @@ fn particle_streak_segment(
 
 /// GPU particle renderer
 pub struct ParticleRenderer {
+    /// Per-frame geometry for weather/tracers/heat haze/decals (R6).
+    geometry_ring: FrameGeometryRing,
     /// Graphics device
     device: Arc<wgpu::Device>,
     /// Command queue
@@ -1242,6 +1244,7 @@ impl ParticleRenderer {
         });
 
         Ok(Self {
+            geometry_ring: FrameGeometryRing::default(),
             device,
             queue,
 
@@ -1332,6 +1335,12 @@ impl ParticleRenderer {
 
     /// Submit immutable CPU data. No live ParticleSystem or manager borrow
     /// survives into texture loading, buffer upload, or command encoding.
+    /// Start a frame of effect geometry: the per-call passes (weather,
+    /// tracers, heat haze, decals) recorded after this share one ring.
+    pub fn begin_effects_frame(&mut self) {
+        self.geometry_ring.begin_frame();
+    }
+
     pub fn render_prepared_particles(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
@@ -1502,13 +1511,7 @@ impl ParticleRenderer {
             return;
         }
 
-        let vertex_buffer = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Weather Particle Vertex Buffer"),
-                contents: bytemuck::cast_slice(&vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
+        let vertex_buffer = self.geometry_ring.alloc(&self.device, &self.queue, bytemuck::cast_slice(&vertices));
 
         let start_time = std::time::Instant::now();
         {
@@ -1620,13 +1623,7 @@ impl ParticleRenderer {
         }
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[*uniforms]));
-        let vertex_buffer = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Tracer Ray FX Vertex Buffer"),
-                contents: bytemuck::cast_slice(&vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
+        let vertex_buffer = self.geometry_ring.alloc(&self.device, &self.queue, bytemuck::cast_slice(&vertices));
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Tracer Ray FX Render Pass"),
@@ -1689,20 +1686,8 @@ impl ParticleRenderer {
         }
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[*uniforms]));
-        let vertex_buffer = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Heat Haze Vertex Buffer"),
-                contents: bytemuck::cast_slice(&vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-        let index_buffer = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Heat Haze Index Buffer"),
-                contents: bytemuck::cast_slice(&indices),
-                usage: wgpu::BufferUsages::INDEX,
-            });
+        let vertex_buffer = self.geometry_ring.alloc(&self.device, &self.queue, bytemuck::cast_slice(&vertices));
+        let index_buffer = self.geometry_ring.alloc(&self.device, &self.queue, bytemuck::cast_slice(&indices));
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Heat Haze Pass"),
@@ -1784,13 +1769,7 @@ impl ParticleRenderer {
 
         let start_time = std::time::Instant::now();
         for (texture_name, shadow_type, vertices) in groups {
-            let vertex_buffer = self
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Decal Vertex Buffer"),
-                    contents: bytemuck::cast_slice(&vertices),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
+            let vertex_buffer = self.geometry_ring.alloc(&self.device, &self.queue, bytemuck::cast_slice(&vertices));
             {
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Decal Render Pass"),
@@ -2593,5 +2572,74 @@ mod tests {
         let empty = ParticleRenderFrame::prepare(&[], &ParticleUniforms::default());
         assert!(empty.heat_smudges().is_empty());
         assert_eq!(frame, before);
+    }
+}
+
+/// Grow-only geometry storage for the per-call effect passes (renderer plan
+/// R6): each pass appends its vertices/indices at a rising offset with one
+/// `write_buffer`, and the cursor rewinds at `begin_frame`. Regions are never
+/// reused inside a frame, so every recorded pass keeps its own data until
+/// submit; a full buffer is replaced (the old one lives until its passes run).
+#[derive(Default)]
+struct FrameGeometryRing {
+    buffer: Option<wgpu::Buffer>,
+    capacity: u64,
+    cursor: u64,
+}
+
+/// A sub-range of the ring; `slice(..)` yields exactly the allocation.
+struct RingSlice {
+    buffer: wgpu::Buffer,
+    range: std::ops::Range<u64>,
+}
+
+impl RingSlice {
+    fn slice(&self, _: std::ops::RangeFull) -> wgpu::BufferSlice<'_> {
+        self.buffer.slice(self.range.clone())
+    }
+}
+
+impl FrameGeometryRing {
+    const ALIGN: u64 = 256;
+
+    fn begin_frame(&mut self) {
+        self.cursor = 0;
+    }
+
+    fn alloc(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, bytes: &[u8]) -> RingSlice {
+        let len = bytes.len() as u64;
+        let padded = len.max(4).next_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT);
+        let start = self.cursor.next_multiple_of(Self::ALIGN);
+        let buffer = match self.buffer.as_ref() {
+            Some(buffer) if start + padded <= self.capacity => buffer.clone(),
+            _ => {
+                let capacity = (self.capacity * 2).max(padded.next_power_of_two()).max(64 * 1024);
+                let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("Effects Frame Geometry Ring"),
+                    size: capacity,
+                    usage: wgpu::BufferUsages::VERTEX
+                        | wgpu::BufferUsages::INDEX
+                        | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+                self.buffer = Some(buffer.clone());
+                self.capacity = capacity;
+                self.cursor = 0;
+                buffer
+            }
+        };
+        let start = self.cursor.next_multiple_of(Self::ALIGN);
+        if padded == len {
+            queue.write_buffer(&buffer, start, bytes);
+        } else {
+            let mut data = bytes.to_vec();
+            data.resize(padded as usize, 0);
+            queue.write_buffer(&buffer, start, &data);
+        }
+        self.cursor = start + padded;
+        RingSlice {
+            buffer,
+            range: start..start + len.max(1),
+        }
     }
 }
