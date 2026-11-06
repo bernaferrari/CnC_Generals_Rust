@@ -43,6 +43,7 @@ fn fixture() -> (GameLogic, ObjectId, ObjectId, CommandButton, u32) {
             update_module_starts_attack: false,
             starts_paused: false,
             scripted_special_power_only: false,
+            cash_bounty: None,
         });
     world.templates.insert(caster.name.clone(), caster);
     let source = world

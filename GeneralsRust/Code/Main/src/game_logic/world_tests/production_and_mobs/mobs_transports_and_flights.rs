@@ -266,6 +266,7 @@ fn special_power_create_starts_unit_recharge() {
         update_module_starts_attack: false,
         starts_paused: false,
         scripted_special_power_only: false,
+        cash_bounty: None,
     });
     logic
         .templates

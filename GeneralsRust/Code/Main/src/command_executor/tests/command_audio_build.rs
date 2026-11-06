@@ -966,6 +966,7 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
         update_module_starts_attack: false,
         starts_paused: false,
         scripted_special_power_only: false,
+        cash_bounty: None,
     });
     logic.templates.insert("VR_SAT".into(), sat);
 

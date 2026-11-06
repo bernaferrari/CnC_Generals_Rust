@@ -872,6 +872,41 @@ mod live_upgrade_mux_tests {
         );
     }
 
+    /// Author one RadarUpgrade (RadarUpgrade.cpp:72-96) triggered by
+    /// `trigger`; `grant` adds GrantUpgradeCreate of it (AmericaCommandCenter
+    /// / GLAVehicleRadarVan shape). Radar never comes from the template name.
+    fn author_radar(
+        logic: &mut GameLogic,
+        template: &mut ThingTemplate,
+        trigger: &str,
+        grant: bool,
+        disable_proof: bool,
+    ) {
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(
+            logic,
+            trigger,
+            if grant { "OBJECT" } else { "PLAYER" },
+            0,
+            1,
+        );
+        template.radar_upgrade_rules =
+            Some(vec![crate::game_logic::host_radar::RadarUpgradeRules {
+                triggered_by: vec![trigger.into()],
+                conflicts_with: vec![],
+                removes_upgrades: vec![],
+                fx_list: None,
+                requires_all: false,
+                disable_proof,
+                valid: true,
+            }]);
+        if grant {
+            template.grant_upgrade_creates = vec![crate::game_logic::GrantUpgradeCreateMetadata {
+                upgrade_name: trigger.into(),
+                exempt_under_construction: true,
+            }];
+        }
+    }
+
     #[test]
     fn china_command_center_radar_requires_research() {
         // C++ RadarUpgrade TriggeredBy Upgrade_ChinaRadar (hq-zx8e6).
@@ -881,6 +916,7 @@ mod live_upgrade_mux_tests {
         t.set_health(2000.0);
         t.add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::CommandCenter);
+        author_radar(&mut logic, &mut t, UPGRADE_CHINA_RADAR, false, false);
         logic.templates.insert("ChinaCommandCenter".into(), t);
         let cc = logic
             .create_object_for_player("ChinaCommandCenter", 1, Vec3::ZERO)
@@ -894,10 +930,7 @@ mod live_upgrade_mux_tests {
             !logic.get_player(1).expect("player").has_radar(),
             "China CC must not grant radar before research"
         );
-        logic
-            .get_player_mut(1)
-            .expect("player")
-            .add_completed_upgrade(UPGRADE_CHINA_RADAR);
+        logic.apply_host_upgrade_complete(Team::China, 1, UPGRADE_CHINA_RADAR);
         logic.update_player_radar();
         assert!(
             logic.get_player(1).expect("player").has_radar(),
@@ -938,6 +971,7 @@ mod live_upgrade_mux_tests {
         t.set_health(2000.0);
         t.add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::CommandCenter);
+        author_radar(&mut logic, &mut t, "Upgrade_AmericaRadar", true, false);
         logic.templates.insert("AmericaCommandCenter".into(), t);
         let cc = logic
             .create_object_for_player("AmericaCommandCenter", 1, Vec3::ZERO)
@@ -981,6 +1015,7 @@ mod live_upgrade_mux_tests {
         let mut t = ThingTemplate::new("GLAVehicleRadarVan");
         t.set_health(200.0);
         t.add_kind_of(KindOf::Vehicle);
+        author_radar(&mut logic, &mut t, "Upgrade_GLARadar", true, true);
         logic.templates.insert("GLAVehicleRadarVan".into(), t);
         let van = logic
             .create_object_for_player("GLAVehicleRadarVan", 1, Vec3::ZERO)

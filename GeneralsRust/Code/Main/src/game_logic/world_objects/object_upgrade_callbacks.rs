@@ -554,16 +554,6 @@ impl GameLogic {
             }
         }
         self.admit_host_radar_provider_with_effects(object_id, presentation_effects);
-        // C++ RadarUpgrade::upgradeImplementation → RadarUpdate::extendRadar.
-        if self
-            .objects
-            .get(&object_id)
-            .is_some_and(|object| object.thing().template.radar_upgrade_rules.is_none())
-            && crate::game_logic::host_upgrades::HostUpgradeKind::from_name(upgrade)
-                == crate::game_logic::host_upgrades::HostUpgradeKind::Radar
-        {
-            self.maybe_start_radar_extend(object_id);
-        }
         Ok(())
     }
 

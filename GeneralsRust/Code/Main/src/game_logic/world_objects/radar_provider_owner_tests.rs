@@ -11,22 +11,31 @@ fn set_radar_fixture_owner(
     object.set_team_and_owner_with_partition_owner(team, owner, events, partition);
 }
 
+/// Radar provision comes only from an authored RadarUpgrade module
+/// (RadarUpgrade.cpp:72-96), granted here by GrantUpgradeCreate.
 fn radar_world() -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
     world.add_player(Player::new(1, Team::GLA, "First", true));
     world.add_player(Player::new(2, Team::GLA, "Second", true));
-    let mut template = ThingTemplate::new("GLAVehicleRadarVan");
-    template.set_health(200.0);
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &mut world,
+        "Upgrade_GLARadar",
+        "OBJECT",
+        0,
+        1,
+    );
+    let template = authored_template(
+        &mut world,
+        "GLAVehicleRadarVan",
+        " Behavior = RadarUpgrade ModuleTag_Radar\n TriggeredBy = Upgrade_GLARadar\n DisableProof = Yes\n End\n Behavior = GrantUpgradeCreate ModuleTag_Grant\n UpgradeToGrant = Upgrade_GLARadar\n End\n",
+    );
     let id = ObjectId(41);
-    let name = template.name.clone();
-    world.templates.insert(name.clone(), template);
     world.next_object_id = id;
     assert_eq!(
-        world.create_object_for_player(&name, 1, Vec3::ZERO),
+        world.create_object_for_player(&template.name, 1, Vec3::ZERO),
         Some(id)
     );
-    world.host_object_mut(id).unwrap().construction_percent = 1.0;
-    world.host_radar_add_object(id);
+    assert_eq!(world.players[&1].radar_count, 1);
     (world, id)
 }
 
@@ -96,23 +105,27 @@ fn player_owned_research_does_not_unlock_a_same_faction_peer() {
     let mut world = GameLogic::new();
     world.add_player(Player::new(1, Team::China, "First", true));
     world.add_player(Player::new(2, Team::China, "Second", true));
-    let mut template = ThingTemplate::new("ChinaCommandCenter");
-    template
-        .add_kind_of(KindOf::CommandCenter)
-        .set_health(500.0);
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &mut world,
+        "Upgrade_ChinaRadar",
+        "PLAYER",
+        0,
+        1,
+    );
+    let template = authored_template(
+        &mut world,
+        "ChinaCommandCenter",
+        " Behavior = RadarUpgrade ModuleTag_Radar\n TriggeredBy = Upgrade_ChinaRadar\n End\n",
+    );
     for owner in [1, 2] {
         let id = ObjectId(owner + 80);
-        world
-            .templates
-            .insert(template.name.clone(), template.clone());
         world.next_object_id = id;
         assert_eq!(
             world.create_object_for_player(&template.name, owner, Vec3::ZERO),
             Some(id)
         );
-        world.host_object_mut(id).unwrap().construction_percent = 1.0;
-        world.host_radar_add_object(id);
     }
+    assert_eq!(world.players[&1].radar_count, 0);
     world.apply_host_upgrade_complete(Team::China, 1, "Upgrade_ChinaRadar");
     assert_eq!(world.players[&1].radar_count, 1);
     assert_eq!(world.players[&2].radar_count, 0);

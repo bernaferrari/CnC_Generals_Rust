@@ -416,27 +416,6 @@ fn authored_command_set_names_producer(object: &Object, producer: &str) -> bool 
     n == p || n == format!("commandset_{p}") || n == format!("{p}commandset")
 }
 
-/// China CommandCenter RadarUpgrade is TriggeredBy `Upgrade_ChinaRadar`.
-/// America CC / GLA RadarVan use GrantUpgradeCreate and need no research.
-pub fn radar_provider_required_research_upgrade(template_name: &str) -> Option<&'static str> {
-    let n = template_name.to_ascii_lowercase();
-    if n.contains("fake") {
-        return None;
-    }
-    if n.contains("radarvan") || n.contains("radar_van") {
-        return None;
-    }
-    let is_cc = n.contains("commandcenter") || n.contains("headquarters");
-    if !is_cc {
-        return None;
-    }
-    if n.contains("china") {
-        Some(UPGRADE_CHINA_RADAR)
-    } else {
-        None
-    }
-}
-
 /// Host residual upgrade kinds with known observable unlocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HostUpgradeKind {
@@ -1387,31 +1366,6 @@ mod tests {
             vec![7, 8, 9]
         );
         assert!(upgrade_mux_target_ids(true, None::<u32>, [7, 8, 9]).is_empty());
-    }
-
-    #[test]
-    fn china_command_center_requires_radar_research() {
-        // C++ RadarUpgrade.cpp TriggeredBy Upgrade_ChinaRadar (hq-zx8e6).
-        assert_eq!(
-            radar_provider_required_research_upgrade("ChinaCommandCenter"),
-            Some(UPGRADE_CHINA_RADAR)
-        );
-        assert_eq!(
-            radar_provider_required_research_upgrade("Nuke_ChinaCommandCenter"),
-            Some(UPGRADE_CHINA_RADAR)
-        );
-        assert_eq!(
-            radar_provider_required_research_upgrade("AmericaCommandCenter"),
-            None
-        );
-        assert_eq!(
-            radar_provider_required_research_upgrade("TestCommandCenter"),
-            None
-        );
-        assert_eq!(
-            radar_provider_required_research_upgrade("GLAVehicleRadarVan"),
-            None
-        );
     }
 }
 

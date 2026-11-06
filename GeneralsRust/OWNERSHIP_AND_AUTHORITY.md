@@ -4,6 +4,17 @@
 
 Preserve C++ **behavior**. Do not preserve C++ **pointer ownership**.
 
+## Authored radar and cash bounty
+
+Radar contributions come from the receiving object's authored RadarUpgrade
+modules and their actual upgrade state, not command-center or vehicle names.
+GrantUpgradeCreate and research take the same module-admission path, including
+authored RadarUpdate extension timing. CashBountyPower retains each module's
+authored Bounty percentage; object creation checks its required science and
+adding a science wakes only modules requiring that science. Both paths only
+raise the controlling player's existing bounty. C++ references are
+RadarUpgrade.cpp, CashBountyPower.cpp and Player.cpp::addScience.
+
 ## Accepted shots and delayed-damage ownership (2026-10-04)
 
 The driving `GameLogic.combat_system` owns accepted shots and materialized

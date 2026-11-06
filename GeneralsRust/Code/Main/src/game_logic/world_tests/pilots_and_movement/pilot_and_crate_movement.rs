@@ -1513,6 +1513,32 @@ fn command_center_radar_residual_enables_player_has_radar() {
     let mut game_logic = GameLogic::new();
     ensure_test_player_for_team(&mut game_logic, Team::USA);
     ensure_test_command_center_template(&mut game_logic);
+    // Radar comes only from an authored RadarUpgrade (RadarUpgrade.cpp:72-96),
+    // granted at creation by GrantUpgradeCreate like AmericaCommandCenter.
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &mut game_logic,
+        "Upgrade_TestCommandCenterRadar",
+        "OBJECT",
+        0,
+        1,
+    );
+    {
+        let template = game_logic.templates.get_mut("TestCommandCenter").unwrap();
+        template.radar_upgrade_rules =
+            Some(vec![crate::game_logic::host_radar::RadarUpgradeRules {
+                triggered_by: vec!["Upgrade_TestCommandCenterRadar".into()],
+                conflicts_with: vec![],
+                removes_upgrades: vec![],
+                fx_list: None,
+                requires_all: false,
+                disable_proof: false,
+                valid: true,
+            }]);
+        template.grant_upgrade_creates = vec![crate::game_logic::GrantUpgradeCreateMetadata {
+            upgrade_name: "Upgrade_TestCommandCenterRadar".into(),
+            exempt_under_construction: true,
+        }];
+    }
 
     // Before CC: no radar.
     game_logic.update_player_radar();

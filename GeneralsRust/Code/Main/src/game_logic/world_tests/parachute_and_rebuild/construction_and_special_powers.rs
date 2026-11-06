@@ -2842,6 +2842,7 @@ fn named_special_power_countdown_reaches_host_pause_and_set_ready() {
             update_module_starts_attack: false,
             starts_paused: false,
             scripted_special_power_only: false,
+            cash_bounty: None,
         });
     logic
         .templates
@@ -3256,5 +3257,6 @@ fn sw_module_fixture(
         update_module_starts_attack: false,
         starts_paused: false,
         scripted_special_power_only: false,
+        cash_bounty: None,
     }
 }

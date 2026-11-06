@@ -897,6 +897,7 @@ fn superweapon_sabotage_recharges_all_special_power_modules() {
         update_module_starts_attack: false,
         starts_paused: false,
         scripted_special_power_only: false,
+        cash_bounty: None,
     });
     st.special_power_modules.push(SpecialPowerModuleMetadata {
         source_index: 1,
@@ -913,6 +914,7 @@ fn superweapon_sabotage_recharges_all_special_power_modules() {
         update_module_starts_attack: false,
         starts_paused: false,
         scripted_special_power_only: false,
+        cash_bounty: None,
     });
     st.special_power_modules.push(SpecialPowerModuleMetadata {
         source_index: 2,
@@ -929,6 +931,7 @@ fn superweapon_sabotage_recharges_all_special_power_modules() {
         update_module_starts_attack: false,
         starts_paused: false,
         scripted_special_power_only: false,
+        cash_bounty: None,
     });
     logic.templates.insert("AmericaCommandCenter".into(), st);
     let id = logic
@@ -999,6 +1002,7 @@ fn superweapon_sabotage_resets_shared_n_sync_player_timer() {
         update_module_starts_attack: false,
         starts_paused: false,
         scripted_special_power_only: false,
+        cash_bounty: None,
     });
     logic
         .templates

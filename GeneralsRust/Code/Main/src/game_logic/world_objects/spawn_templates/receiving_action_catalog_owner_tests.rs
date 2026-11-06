@@ -72,3 +72,47 @@ fn actual_receiving_metadata_and_encoded_recreation_keep_same_template_peer_poli
         90
     );
 }
+
+/// CashBountyPower.cpp:84 parses `Bounty` as a percent; Player::addScience
+/// (Player.cpp:2533-2537) applies it only for the module's RequiredScience.
+#[test]
+fn authored_cash_bounty_percent_applies_when_required_science_is_added() {
+    use game_engine::common::{
+        rts::science::{SCIENCE_INVALID, ScienceInfo, ScienceNameFacts, ScienceStore},
+        thing::receiving_module_content::ReceivingActionDefinitions,
+    };
+    let mut store = ScienceStore::new();
+    store.add_science(ScienceInfo::new(SCIENCE_INVALID, "SCIENCE_BountyOwner"));
+    store.add_science(ScienceInfo::new(SCIENCE_INVALID, "SCIENCE_Unrelated"));
+    let sciences = std::sync::Arc::new(ScienceNameFacts::from_store(&store));
+    let mut actions = ReceivingActionDefinitions::default();
+    actions
+        .apply_source(
+            "SpecialPower AuthoredBountyPower\nReloadTime = 0\nRequiredScience = SCIENCE_BountyOwner\nEnd\n",
+            &sciences,
+        )
+        .unwrap();
+    let content = crate::assets::ReceivingObjectContent::from_sources_with_catalogs(
+        [(
+            "bounty-object.ini".into(),
+            "Object AuthoredBountyHall\nKindOf = STRUCTURE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = CashBountyPower BountyTag\nSpecialPowerTemplate = AuthoredBountyPower\nBounty = 15%\nEnd\nEnd\n"
+                .into(),
+        )],
+        sciences,
+        std::sync::Arc::new(actions),
+    )
+    .unwrap();
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::GLA, "BountyOwner", true));
+    world.admit_receiving_module_content(content).unwrap();
+    let module = &world.templates["AuthoredBountyHall"].special_power_modules[0];
+    assert_eq!(module.cash_bounty, Some(0.15));
+    world
+        .create_object_for_player("AuthoredBountyHall", 0, glam::Vec3::ZERO)
+        .unwrap();
+    assert_eq!(world.players[&0].cash_bounty_percent, 0.0);
+    world.on_special_power_science_creation(0, "SCIENCE_Unrelated");
+    assert_eq!(world.players[&0].cash_bounty_percent, 0.0);
+    world.on_special_power_science_creation(0, "SCIENCE_BountyOwner");
+    assert!((world.players[&0].cash_bounty_percent - 0.15).abs() < 1e-6);
+}

@@ -475,6 +475,7 @@ fn partial_button_filters_actual_valid_members_before_percentage_without_readine
                 update_module_starts_attack: false,
                 starts_paused: false,
                 scripted_special_power_only: false,
+                cash_bounty: None,
             });
         owner
             .host_object_mut(id)
@@ -550,6 +551,7 @@ fn partial_authored_button_executes_actual_power_for_first_valid_owned_team_memb
                 update_module_starts_attack: false,
                 starts_paused: false,
                 scripted_special_power_only: false,
+                cash_bounty: None,
             });
         owner
             .host_object_mut(id)

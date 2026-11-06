@@ -2353,23 +2353,40 @@ fn radar_extend_sets_extending_then_upgraded_bits() {
     use crate::game_logic::host_enum_table_residual::{
         host_model_condition_has, radar_extending_model_bit, radar_upgraded_model_bit,
     };
-    use crate::game_logic::host_radar_stealth_vision_residual::RADAR_EXTEND_TIME_FRAMES_RESIDUAL;
+    // C++ RadarUpdate::extendRadar (RadarUpdate.cpp:67-80) with a 120-frame extend.
+    const EXTEND_FRAMES: u32 = 120;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Local", true));
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &mut logic, "Upgrade_TestRadar", "OBJECT", 0, 1,
+    );
     let mut st = ThingTemplate::new("AmericaCommandCenter");
     st.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::CommandCenter)
         .set_health(5000.0);
+    st.radar_extend_frames = Some(EXTEND_FRAMES);
+    st.radar_upgrade_rules = Some(vec![crate::game_logic::host_radar::RadarUpgradeRules {
+        triggered_by: vec!["Upgrade_TestRadar".into()],
+        conflicts_with: vec![],
+        removes_upgrades: vec![],
+        fx_list: None,
+        requires_all: false,
+        disable_proof: false,
+        valid: true,
+    }]);
+    st.grant_upgrade_creates = vec![crate::game_logic::GrantUpgradeCreateMetadata {
+        upgrade_name: "Upgrade_TestRadar".into(),
+        exempt_under_construction: true,
+    }];
     logic.templates.insert("AmericaCommandCenter".into(), st);
     let id = logic
-        .create_object(
+        .create_object_for_player(
             "AmericaCommandCenter",
-            Team::USA,
+            0,
             glam::Vec3::new(0.0, 0.0, 0.0),
         )
         .expect("cc");
-    logic.maybe_start_radar_extend(id);
-    assert!(logic.honesty_radar_extend_start_ok());
     let obj = logic.host_object(id).expect("o");
     assert!(host_model_condition_has(
         obj.model_condition_bits,
@@ -2378,7 +2395,7 @@ fn radar_extend_sets_extending_then_upgraded_bits() {
     assert!(!obj.radar_extend_complete);
     assert!(obj.radar_active);
     // Advance past extend window.
-    logic.frame = RADAR_EXTEND_TIME_FRAMES_RESIDUAL.saturating_add(1);
+    logic.frame = EXTEND_FRAMES.saturating_add(1);
     let frame = logic.frame;
     if let Some(o) = logic.host_object_mut(id) {
         assert!(o.tick_radar_extend(frame));

@@ -86,8 +86,7 @@ pub use super::host_car_bomb::{
 };
 pub use super::host_cash_bounty::{
     CASH_BOUNTY1_PERCENT, CASH_BOUNTY2_PERCENT, CASH_BOUNTY3_PERCENT, HostCashBountyRegistry,
-    SCIENCE_CASH_BOUNTY1, SCIENCE_CASH_BOUNTY2, SCIENCE_CASH_BOUNTY3,
-    cash_bounty_percent_for_science, compute_bounty_award,
+    SCIENCE_CASH_BOUNTY1, SCIENCE_CASH_BOUNTY2, SCIENCE_CASH_BOUNTY3, compute_bounty_award,
 };
 pub use super::host_cia_intelligence::{
     CIA_INTELLIGENCE_ACTIVATE_AUDIO, CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS,
@@ -332,10 +331,7 @@ pub use super::host_propaganda::{
     HOST_PROPAGANDA_UPGRADED_HEAL_PERCENT_PER_SEC, UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
     is_legal_propaganda_target, is_propaganda_tower, propaganda_heal_amount,
 };
-pub use super::host_radar::{
-    HostRadarRegistry, RADAR_OFFLINE_AUDIO, RADAR_ONLINE_AUDIO, is_legal_radar_provider,
-    is_radar_command_center_template, is_radar_provider_template, is_radar_van_template,
-};
+pub use super::host_radar::{HostRadarRegistry, RADAR_OFFLINE_AUDIO, RADAR_ONLINE_AUDIO};
 pub use super::host_radar_scan::{
     HostRadarScan, HostRadarScanRegistry, RADAR_SCAN_ACTIVATE_AUDIO, RADAR_SCAN_DURATION_FRAMES,
     RADAR_SCAN_RADIUS, RADAR_SCAN_SHRINK_DELAY_FRAMES, RADAR_SCAN_SHRINK_TIME_FRAMES,

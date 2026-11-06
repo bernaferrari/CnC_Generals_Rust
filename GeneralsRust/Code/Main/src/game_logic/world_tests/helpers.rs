@@ -762,6 +762,7 @@ pub(super) fn ensure_test_black_lotus_template(game_logic: &mut GameLogic) {
             update_module_starts_attack: true,
             starts_paused: false,
             scripted_special_power_only: false,
+            cash_bounty: None,
         });
     }
     game_logic
@@ -1032,6 +1033,7 @@ pub(super) fn author_superweapon_special_power_module(
             update_module_starts_attack: false,
             starts_paused: false,
             scripted_special_power_only: false,
+            cash_bounty: None,
         });
 }
 

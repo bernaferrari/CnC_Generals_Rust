@@ -824,27 +824,6 @@ impl GameLogic {
     /// C++ structure construction-complete residual feedback for local owner:
     /// radar message + authored dozer getVoiceTaskComplete + model condition bit.
 
-    /// C++ `RadarUpgrade::upgradeImplementation` → `RadarUpdate::extendRadar`.
-    pub fn maybe_start_radar_extend(&mut self, structure_id: ObjectId) {
-        use crate::game_logic::host_radar::is_legal_radar_provider;
-        use crate::game_logic::host_radar_stealth_vision_residual::RADAR_EXTEND_TIME_FRAMES_RESIDUAL;
-        let Some(obj) = self.objects.get_mut(&structure_id) else {
-            return;
-        };
-        if obj.thing().template.radar_upgrade_rules.is_some() {
-            // Authored RadarUpgrade invokes extension exactly once through
-            // the owner admission, with this definition's RadarUpdate duration.
-            return;
-        }
-        let is_cc = obj.is_command_center() || obj.is_kind_of(KindOf::CommandCenter);
-        if !is_legal_radar_provider(obj.is_alive(), true, is_cc, &obj.template_name) {
-            return;
-        }
-        let done = self.frame.saturating_add(RADAR_EXTEND_TIME_FRAMES_RESIDUAL);
-        obj.extend_radar(done);
-        self.radar_extend_starts = self.radar_extend_starts.saturating_add(1);
-    }
-
     pub fn honesty_radar_extend_start_ok(&self) -> bool {
         self.radar_extend_starts > 0
     }
@@ -1681,6 +1660,7 @@ mod tests {
             update_module_starts_attack: false,
             starts_paused: false,
             scripted_special_power_only: false,
+            cash_bounty: None,
         }
     }
 
