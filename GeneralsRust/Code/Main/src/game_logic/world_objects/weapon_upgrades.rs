@@ -63,53 +63,6 @@ impl From<Team> for UpgradeRecipients {
 }
 
 impl GameLogic {
-    /// C++ CashBountyPower / SCIENCE_CashBounty residual via upgrade complete.
-    /// Tag Helix casters with Napalm/Nuke bomb upgrade residual unlock.
-    pub(in super::super) fn apply_helix_bomb_upgrade_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-        canonical_tag: &str,
-    ) -> u32 {
-        let team = recipients.team();
-        use crate::game_logic::host_helix_napalm::is_helix_napalm_caster;
-        let mut n = 0u32;
-        let ids: Vec<_> = self.objects.registered_keys().copied().collect();
-        for id in ids {
-            let Some(obj) = self.objects.get_mut(&id) else {
-                continue;
-            };
-            if !recipients.matches_object(obj) || !obj.is_alive() {
-                continue;
-            }
-            if !is_helix_napalm_caster(&obj.template_name) {
-                continue;
-            }
-            if obj.has_upgrade_tag(canonical_tag) || obj.has_upgrade_tag(upgrade_name) {
-                continue;
-            }
-            obj.apply_upgrade_tag(canonical_tag);
-            if upgrade_name != canonical_tag {
-                obj.apply_upgrade_tag(upgrade_name);
-            }
-            n = n.saturating_add(1);
-        }
-        // Player unlock residual for science/UI gates.
-        let player = match recipients {
-            UpgradeRecipients::Player { player_id, .. } => self.get_player_mut(player_id),
-            UpgradeRecipients::Team(team) => self.get_player_mut_by_team(team),
-            UpgradeRecipients::PlayerLedger { player_id, .. } => self.get_player_mut(player_id),
-            UpgradeRecipients::Object { .. } => None,
-        };
-        if let Some(p) = player {
-            p.unlocked_sciences.insert(canonical_tag.to_string());
-            if upgrade_name != canonical_tag {
-                p.unlocked_sciences.insert(upgrade_name.to_string());
-            }
-        }
-        n
-    }
-
     pub(in super::super) fn apply_cash_bounty_upgrade_to_team(
         &mut self,
         recipients: UpgradeRecipients,
@@ -231,33 +184,6 @@ impl GameLogic {
         }
         // Player unlock residual for production UI / late builds.
         let _ = self.apply_player_unlock_upgrade(recipients, upgrade_name, upgrade_name);
-        n
-    }
-
-    /// C++ Upgrade_ChinaSatelliteHackOne/Two residual — player FOW/intel unlock.
-    pub(in super::super) fn apply_satellite_hack_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_upgrades::{
-            UPGRADE_CHINA_SATELLITE_HACK_ONE, UPGRADE_CHINA_SATELLITE_HACK_TWO,
-        };
-        let lower = upgrade_name.to_ascii_lowercase();
-        let canonical = if lower.contains("two") || lower.contains("2") {
-            UPGRADE_CHINA_SATELLITE_HACK_TWO
-        } else {
-            UPGRADE_CHINA_SATELLITE_HACK_ONE
-        };
-        let n = self.apply_player_unlock_upgrade(recipients, upgrade_name, canonical);
-        // Also unlock both tiers when Two is researched (Two implies One residual).
-        if canonical == UPGRADE_CHINA_SATELLITE_HACK_TWO {
-            let _ = self.apply_player_unlock_upgrade(
-                recipients,
-                UPGRADE_CHINA_SATELLITE_HACK_ONE,
-                UPGRADE_CHINA_SATELLITE_HACK_ONE,
-            );
-        }
         n
     }
 
@@ -736,55 +662,6 @@ mod recipient_owner_tests {
         }
     }
 
-    #[test]
-    fn satellite_nested_tier_unlocks_forward_exact_recipients_across_same_id_worlds() {
-        let mut owner = GameLogic::new();
-        let mut peer = GameLogic::new();
-        for world in [&mut owner, &mut peer] {
-            same_faction_players(world, Team::China);
-        }
-        let selection = UpgradeRecipients::Player {
-            team: Team::China,
-            player_id: 0,
-        };
-        let peer_selection = UpgradeRecipients::Player {
-            team: Team::China,
-            player_id: 7,
-        };
-        use crate::game_logic::host_upgrades::{
-            UPGRADE_CHINA_SATELLITE_HACK_ONE, UPGRADE_CHINA_SATELLITE_HACK_TWO,
-        };
-        // Tier Two enters apply_player_unlock_upgrade twice, including Tier One.
-        assert_eq!(
-            owner.apply_satellite_hack_to_team(selection, UPGRADE_CHINA_SATELLITE_HACK_TWO),
-            1
-        );
-        assert_eq!(
-            peer.apply_satellite_hack_to_team(peer_selection, UPGRADE_CHINA_SATELLITE_HACK_TWO),
-            1
-        );
-        // Reusing an explicit selection cannot inherit the peer's last admission.
-        assert_eq!(
-            owner.apply_satellite_hack_to_team(selection, UPGRADE_CHINA_SATELLITE_HACK_TWO),
-            1
-        );
-        for (world, selected) in [(&owner, 0), (&peer, 7)] {
-            for player in [0, 7] {
-                for upgrade in [
-                    UPGRADE_CHINA_SATELLITE_HACK_ONE,
-                    UPGRADE_CHINA_SATELLITE_HACK_TWO,
-                ] {
-                    assert_eq!(
-                        world
-                            .get_player(player)
-                            .unwrap()
-                            .has_unlocked_upgrade(upgrade),
-                        player == selected
-                    );
-                }
-            }
-        }
-    }
 }
 
 #[cfg(test)]

@@ -234,21 +234,9 @@ fn create_object_technical_and_battlemaster_bind_residual_not_default() {
     assert!((bw.range - 150.0).abs() < 0.01);
 }
 
-/// FlashBang grenades fly as GameLogic Bezier-shell objects stepped by
-/// `update_flashbang_grenade_projectiles` (C++ RangerFlashBang Projectile),
-/// not CombatSystem projectiles — run their flight to impact.
+/// The ranger FlashBang grenade resolves through the shared weapon path; no
+/// separate projectile object remains to advance, only pending destroys.
 fn land_in_flight_projectiles(logic: &mut crate::game_logic::GameLogic) {
-    for _ in 0..300 {
-        logic.frame = logic.frame.saturating_add(1);
-        logic.update_flashbang_grenade_projectiles();
-        if !logic
-            .objects
-            .registered_values()
-            .any(|o| o.flashbang_grenade_projectile && o.is_alive())
-        {
-            break;
-        }
-    }
     logic.process_destroy_list();
 }
 

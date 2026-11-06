@@ -397,15 +397,7 @@ impl GameLogic {
         if !object_scoped {
             let _ = self.apply_player_unlock_upgrade(ledger, upgrade_name, upgrade_name);
         }
-        if !object_scoped
-            && matches!(
-                kind,
-                HostUpgradeKind::CashBounty
-                    | HostUpgradeKind::SatelliteHack
-                    | HostUpgradeKind::HelixNapalmBomb
-                    | HostUpgradeKind::HelixNukeBomb
-            )
-        {
+        if !object_scoped && kind == HostUpgradeKind::CashBounty {
             let _ =
                 self.apply_upgrade_kind_to_recipients(ledger, upgrade_name, interpreter, effects);
         }
@@ -656,9 +648,6 @@ impl GameLogic {
                     .apply_radar_research_to_player_with_effects(player_id, upgrade_name, effects),
                 _ => 0,
             },
-            HostUpgradeKind::SatelliteHack => {
-                self.apply_satellite_hack_to_team(recipients, upgrade_name)
-            }
             HostUpgradeKind::SlaveDrone => self
                 .apply_slave_drone_upgrade_to_team_with_interpreter_and_effects(
                     recipients,
@@ -669,16 +658,6 @@ impl GameLogic {
             HostUpgradeKind::CashBounty => {
                 self.apply_cash_bounty_upgrade_to_team(recipients, upgrade_name)
             }
-            HostUpgradeKind::HelixNapalmBomb => self.apply_helix_bomb_upgrade_to_team(
-                recipients,
-                upgrade_name,
-                crate::game_logic::host_helix_napalm::UPGRADE_HELIX_NAPALM_BOMB,
-            ),
-            HostUpgradeKind::HelixNukeBomb => self.apply_helix_bomb_upgrade_to_team(
-                recipients,
-                upgrade_name,
-                crate::game_logic::host_helix_napalm::UPGRADE_HELIX_NUKE_BOMB,
-            ),
             // Upgrades with no recipient-side work: their effects are authored
             // modules (object_upgrade_callbacks.rs) or read from the Player.
             _ => 0,
