@@ -169,8 +169,6 @@ pub struct SystemStores {
     pub runtime_fx_next_id: std::sync::atomic::AtomicU64,
     /// Live GameClient snapshot bridge (same-thread exclusive borrow).
     pub live_game_client: Mutex<LiveGameClientBridge>,
-    /// Type-erased `Arc<Renderer3dRuntime>` (set by Main; GameClient downcasts).
-    pub renderer_3d_any: Mutex<Option<std::sync::Arc<dyn std::any::Any + Send + Sync>>>,
     /// Type-erased published terrain visual of the live GameClient (C++
     /// `TheTerrainVisual`); GameClient downcasts.
     pub terrain_visual_any: Mutex<Option<std::sync::Arc<dyn std::any::Any + Send + Sync>>>,
@@ -258,7 +256,6 @@ impl SystemStores {
             effects_next_handle: std::sync::atomic::AtomicU32::new(10000),
             runtime_fx_next_id: std::sync::atomic::AtomicU64::new(1),
             live_game_client: Mutex::new(LiveGameClientBridge::default()),
-            renderer_3d_any: Mutex::new(None),
             terrain_visual_any: Mutex::new(None),
             post_load_hooks: Arc::new(Mutex::new(PostLoadHooks::default())),
             academy_local_player_mines: AtomicU32::new(0),

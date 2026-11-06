@@ -34,7 +34,8 @@ impl<'a> CameraOptionsInputContext<'a> {
             terrain_lod: None,
         }
     }
-    /// Actual native input lends its installed renderer owner for this operation.
+    /// Actual native input lends a hook that applies a texture-reduction
+    /// target to its installed renderer and terrain for this operation.
     pub fn with_terrain_lod(mut self, receiver: &'a mut dyn FnMut(i32)) -> Self {
         self.terrain_lod = Some(receiver);
         self

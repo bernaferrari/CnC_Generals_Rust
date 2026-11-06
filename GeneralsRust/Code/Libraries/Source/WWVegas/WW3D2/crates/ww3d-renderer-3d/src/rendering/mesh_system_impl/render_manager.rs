@@ -30,6 +30,11 @@ pub struct PreparedMeshModel {
     /// Index ranges for each material pass (start_index, count)
     /// Maps pass index to (start_index, index_count) for filtering draw calls
     pass_index_ranges: Vec<(u32, u32)>,
+    /// Model-space positions numbered like `vertex_buffer`, and the index
+    /// stream of `index_buffer`: the CPU geometry the sorting renderer's
+    /// per-triangle depth sort reads (C++ sorting vertex/index buffers).
+    positions: Arc<[glam::Vec3]>,
+    indices: Arc<[u32]>,
 }
 
 /// Flatten only the triangles owned by each material batch. The source face
@@ -156,6 +161,11 @@ impl PreparedMeshModel {
             });
             (Some(Arc::new(buffer)), index_data.len() as u32)
         };
+        let positions: Arc<[glam::Vec3]> = model
+            .vertices
+            .iter()
+            .map(|vertex| glam::Vec3::new(vertex.x, vertex.y, vertex.z))
+            .collect();
 
         Ok(Self {
             vertex_buffer,
@@ -166,6 +176,8 @@ impl PreparedMeshModel {
             is_skinned,
             source_revision: model.revision(),
             pass_index_ranges,
+            positions,
+            indices: Arc::from(index_data),
         })
     }
 }
@@ -577,6 +589,7 @@ impl MeshRenderManager {
     pub fn begin_frame_caches(&mut self) {
         self.bind_cache.begin_frame();
         self.bind_cache.begin_pass();
+        self.sorting.begin_frame();
     }
 
     /// Bind-group cache hits/misses since the last [`Self::begin_frame_caches`].
@@ -584,14 +597,16 @@ impl MeshRenderManager {
         self.bind_cache.stats
     }
 
-    /// Number of sorted batches queued since the last [`Self::flush_sorted`].
+    /// Number of sorted draws queued since the last [`Self::flush_sorted`].
     pub fn sorted_batch_count(&self) -> usize {
-        self.sorting.batch_count()
+        self.sorting.node_count()
     }
 
-    /// Draw this renderer's sorted batches back-to-front into `pass`, then clear them.
+    /// Draw this renderer's sorted triangles back to front into `pass`
+    /// (C++ `SortingRendererClass::Flush`), then clear them.
     pub fn flush_sorted(&mut self, pass: &mut wgpu::RenderPass<'_>) {
-        self.sorting.flush(pass);
+        let gpu = Arc::clone(&self.gpu_device);
+        self.sorting.flush(gpu.wgpu_device(), gpu.queue(), pass);
     }
 
     /// Drop queued sorted batches without drawing (frame abandoned).
@@ -1218,9 +1233,9 @@ impl MeshRenderManager {
             }).unwrap_or(false)
         });
         if sorting {
-            let origin = mesh.transform.w_axis.truncate();
-            let camera = render_info.camera.get_position();
-            let distance = (origin - camera).length();
+            // C++ Insert_Triangles keeps the world and view transforms the
+            // node was drawn with; Flush_Sorting_Pool sorts by their product.
+            let world_view = render_info.camera.get_cached_view_matrix() * mesh.transform;
             // Group 1 (model) is the only dynamic-offset group.
             let offsets = vec![Vec::new(), model_offsets];
             self.enqueue_sorted_material_pass(
@@ -1229,7 +1244,7 @@ impl MeshRenderManager {
                 &pipeline,
                 sorted_groups,
                 offsets,
-                distance,
+                world_view,
             );
         } else {
             self.issue_draw_call(prepared, pass, render_pass, &mesh.name);
@@ -1243,6 +1258,9 @@ impl MeshRenderManager {
         Ok(())
     }
 
+    /// C++ `SortingRendererClass::Insert_Triangles` for one material pass.
+    /// Skinned meshes sort by their bind-pose positions (the GPU skins them;
+    /// C++ sorts the software-skinned vertices).
     fn enqueue_sorted_material_pass(
         &mut self,
         prepared: &PreparedMeshModel,
@@ -1250,43 +1268,31 @@ impl MeshRenderManager {
         pipeline: &Arc<wgpu::RenderPipeline>,
         bind_groups: Vec<Arc<wgpu::BindGroup>>,
         bind_group_offsets: Vec<Vec<u32>>,
-        distance: f32,
+        world_view: Mat4,
     ) {
         let pass_index = pass.get_pass_index();
-        let (start_index, count) = if pass_index < prepared.pass_index_ranges.len() {
-            prepared.pass_index_ranges[pass_index]
-        } else {
-            (0, 0)
-        };
-        let Some(index_buffer) = prepared.index_buffer.as_ref() else {
-            return;
-        };
-        if count < 3 {
+        let (start_index, count) = prepared
+            .pass_index_ranges
+            .get(pass_index)
+            .copied()
+            .unwrap_or((0, 0));
+        if prepared.index_buffer.is_none() || count < 3 {
             return;
         }
-        let vertex_buffer = ww3d_gpu::GpuBuffer::from_existing(
-            prepared.vertex_buffer.as_ref().clone(),
-            prepared.vertex_buffer.size(),
-            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        );
-        let index_gpu = ww3d_gpu::GpuBuffer::from_existing(
-            index_buffer.as_ref().clone(),
-            index_buffer.size(),
-            wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-        );
-        self.sorting.add_triangles_with_state(
-            vertex_buffer,
-            index_gpu,
-            start_index,
-            count / 3,
-            0,
-            prepared.vertex_count,
-            distance,
-            Arc::clone(pipeline),
-            bind_groups,
-            bind_group_offsets,
-            wgpu::IndexFormat::Uint32,
-        );
+        self.sorting.insert_triangles(ww3d_gpu::SortingNode {
+            state: ww3d_gpu::SortingState {
+                vertex_buffer: Arc::clone(&prepared.vertex_buffer),
+                pipeline: Arc::clone(pipeline),
+                bind_groups,
+                bind_group_offsets,
+            },
+            geometry: ww3d_gpu::SortingGeometry {
+                positions: Arc::clone(&prepared.positions),
+                indices: Arc::clone(&prepared.indices),
+                index_range: start_index..start_index + count,
+                world_view,
+            },
+        });
     }
 
     // helper slots intentionally minimal; temporary bindings are stored in local vectors to ensure
@@ -2457,28 +2463,70 @@ mod sorting_queue_isolation_tests {
         Some(Arc::new(GpuDevice::from_shared(Arc::new(device), Arc::new(queue))))
     }
 
-    fn batch(device: &wgpu::Device, distance: f32) -> ww3d_gpu::RenderBatch {
-        let buffer = |usage| {
-            ww3d_gpu::GpuBuffer::from_existing(
-                device.create_buffer(&wgpu::BufferDescriptor {
+    fn node(
+        device: &wgpu::Device,
+        pipeline: &Arc<wgpu::RenderPipeline>,
+        z: f32,
+    ) -> ww3d_gpu::SortingNode {
+        ww3d_gpu::SortingNode {
+            state: ww3d_gpu::SortingState {
+                vertex_buffer: Arc::new(device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("sorting-isolation"),
                     size: 64,
-                    usage,
+                    usage: wgpu::BufferUsages::VERTEX,
                     mapped_at_creation: false,
-                }),
-                64,
-                usage,
-            )
-        };
-        ww3d_gpu::RenderBatch::new(
-            buffer(wgpu::BufferUsages::VERTEX),
-            buffer(wgpu::BufferUsages::INDEX),
-            0,
-            3,
-            0,
-            3,
-            distance,
-        )
+                })),
+                pipeline: Arc::clone(pipeline),
+                bind_groups: Vec::new(),
+                bind_group_offsets: Vec::new(),
+            },
+            geometry: ww3d_gpu::SortingGeometry {
+                positions: Arc::from(vec![
+                    glam::Vec3::new(0.0, 0.0, z),
+                    glam::Vec3::new(1.0, 0.0, z),
+                    glam::Vec3::new(0.0, 1.0, z),
+                ]),
+                indices: Arc::from(vec![0, 1, 2]),
+                index_range: 0..3,
+                world_view: Mat4::IDENTITY,
+            },
+        }
+    }
+
+    fn position_pipeline(device: &wgpu::Device) -> Arc<wgpu::RenderPipeline> {
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("sorting-isolation"),
+            source: wgpu::ShaderSource::Wgsl(
+                "@vertex fn vs(@location(0) p: vec3<f32>) -> @builtin(position) vec4<f32> { return vec4<f32>(p, 1.0); }
+                 @fragment fn fs() -> @location(0) vec4<f32> { return vec4<f32>(1.0); }"
+                    .into(),
+            ),
+        });
+        Arc::new(device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("sorting-isolation"),
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &module,
+                entry_point: Some("vs"),
+                compilation_options: Default::default(),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: 12,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x3],
+                }],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &module,
+                entry_point: Some("fs"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::TextureFormat::Rgba8Unorm.into())],
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        }))
     }
 
     /// C++ `SortingRendererClass` is static; two Rust renderers in one
@@ -2492,9 +2540,10 @@ mod sorting_queue_isolation_tests {
         let mut first = MeshRenderManager::new(gpu.clone());
         let mut second = MeshRenderManager::new(gpu.clone());
 
-        first.sorting.add_batch(batch(device, 5.0));
-        first.sorting.add_batch(batch(device, 9.0));
-        second.sorting.add_batch(batch(device, 1.0));
+        let pipeline = position_pipeline(device);
+        first.sorting.insert_triangles(node(device, &pipeline, -5.0));
+        first.sorting.insert_triangles(node(device, &pipeline, -9.0));
+        second.sorting.insert_triangles(node(device, &pipeline, -1.0));
         assert_eq!(first.sorted_batch_count(), 2);
         assert_eq!(second.sorted_batch_count(), 1);
 

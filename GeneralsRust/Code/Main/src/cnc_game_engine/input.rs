@@ -317,13 +317,7 @@ impl CnCGameEngine {
                                             .with_receiving_menu_effects_and_ui(
                                                 |ui_manager, render_pipeline, effects| {
                                                     let mut terrain_lod = |reduction| {
-                                                        if let Some(terrain) =
-                                                            render_pipeline.native_terrain_mut()
-                                                        {
-                                                            terrain.apply_texture_lod_reduction(
-                                                                reduction,
-                                                            );
-                                                        }
+                                                        render_pipeline.apply_texture_lod(reduction)
                                                     };
                                                     route_host_ui_key_with_terrain_lod(
                                                         ui_manager,
@@ -737,9 +731,7 @@ impl CnCGameEngine {
                         hud_cameo_consumed = self.with_receiving_menu_effects_and_ui(
                             |ui_manager, render_pipeline, effects| {
                                 let mut terrain_lod = |reduction| {
-                                    if let Some(terrain) = render_pipeline.native_terrain_mut() {
-                                        terrain.apply_texture_lod_reduction(reduction);
-                                    }
+                                    render_pipeline.apply_texture_lod(reduction);
                                 };
                                 ui_manager.handle_mouse_click_with_terrain_lod_and_effects(
                                     x,
@@ -769,9 +761,7 @@ impl CnCGameEngine {
                         let _ = self.with_receiving_menu_effects_and_ui(
                             |ui_manager, render_pipeline, effects| {
                                 let mut terrain_lod = |reduction| {
-                                    if let Some(terrain) = render_pipeline.native_terrain_mut() {
-                                        terrain.apply_texture_lod_reduction(reduction);
-                                    }
+                                    render_pipeline.apply_texture_lod(reduction);
                                 };
                                 ui_manager.handle_mouse_click_with_terrain_lod_and_effects(
                                     x,

@@ -1764,6 +1764,8 @@ mod receiving_terrain_lod_tests {
         let mut observed_b = Vec::new();
         let mut receiver_a = game_client::core::game_client::GameClient::new().unwrap();
         let mut receiver_b = game_client::core::game_client::GameClient::new().unwrap();
+        let r3d_a = ww3d_renderer_3d::Renderer3dRuntime::new();
+        let r3d_b = ww3d_renderer_3d::Renderer3dRuntime::new();
         let _foreign = game_client::terrain::terrain_visual::get_terrain_visual().unwrap();
         let button = a
             .action_buttons
@@ -1777,14 +1779,18 @@ mod receiving_terrain_lod_tests {
                 y,
                 MouseButton::Left,
                 Some(&mut |value| {
-                    assert_eq!(definitions.read().texture_reduction_factor, value);
-                    if let Some(r3d) = game_client::core::game_client::live_renderer_3d() {
-                        assert_eq!(
-                            ww3d_renderer_3d::rendering::texture_quality::texture_reduction(&r3d),
-                            value as u32
-                        );
-                    }
-                    observed_a.push(value);
+                    game_client::core::game_client::apply_lod_texture_reduction_to_session(
+                        &r3d_a,
+                        value,
+                        &mut |applied| {
+                            assert_eq!(definitions.read().texture_reduction_factor, applied);
+                            assert_eq!(
+                                ww3d_renderer_3d::rendering::texture_quality::texture_reduction(&r3d_a),
+                                applied as u32
+                            );
+                            observed_a.push(applied);
+                        },
+                    );
                 }),
                 Some(effects),
             )
@@ -1801,8 +1807,14 @@ mod receiving_terrain_lod_tests {
             b.handle_key_press_with_terrain_lod_and_effects(
                 KeyCode::Enter,
                 Some(&mut |value| {
-                    assert_eq!(definitions.read().texture_reduction_factor, value);
-                    observed_b.push(value);
+                    game_client::core::game_client::apply_lod_texture_reduction_to_session(
+                        &r3d_b,
+                        value,
+                        &mut |applied| {
+                            assert_eq!(definitions.read().texture_reduction_factor, applied);
+                            observed_b.push(applied);
+                        },
+                    );
                 }),
                 Some(effects),
             )

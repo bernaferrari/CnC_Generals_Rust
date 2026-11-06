@@ -138,10 +138,6 @@ impl ForwardPass {
         };
         let renderer = WgpuMainRenderer::from_engine(engine.clone(), renderer_config)
             .map_err(|e| anyhow::anyhow!("Failed to initialize WW3D renderer: {e:?}"))?;
-        // Publish session runtime so GameClient LOD / texture quality hit the same bag.
-        game_client::core::game_client::set_live_renderer_3d(std::sync::Arc::clone(
-            &renderer.renderer_3d,
-        ));
 
 
         // Get engine device and queue - these are Arc clones of the global engine resources

@@ -45,10 +45,10 @@ see `ecbfce083`.
 | R7 | partial | Full 2x2 box-filtered mip chains for mesh pass textures (`cb2171626`). Open: BC upload (DXT still CPU-decoded to RGBA8, device created without `TEXTURE_COMPRESSION_BC`, `TextureClass` keeps no DDS blocks or authored DDS mips). |
 | R8 | done | Gamma space like DX8 (`f5e2784da`): surface prefers `Bgra8Unorm`, every colour texture/target is `*Unorm`, `image_format_to_wgpu` and the mesh upload treat sRGB tags as Unorm. Visible: lit/modulated colours and UI fills are no longer washed out (the radar letterbox line, C++ 50/50/50, was 122/122/122 and is now 50/50/50). |
 | R9 | done | Live CSM deleted (`ecbfce083`). `Depth24PlusStencil8` + stencil volumes from welded-edge silhouettes for SHADOW_VOLUME objects, drawn in the mesh flush between opaque and blended meshes, then the 0x7fa0a0a0 multiply (`7772919c9`). The old shadow-pass box prisms read from `OBJECT_REGISTRY` are deleted (`8b5f104ad`). Skinned casters do not cast volumes yet. |
-| R10 | open | `SortingRenderer` still sorts whole batches by mesh-origin distance; C++ `Flush_Sorting_Pool` sorts every pooled triangle by view-space centroid z. A per-triangle implementation (CPU positions/indices on `PreparedMeshModel`, one grow-only sorted index buffer, runs per node) is drafted in the worktree stash on `fix/render2` but not verified. |
+| R10 | partial | Mesh sorting now pools triangles by view-space centroid and emits sorted index runs per node. This is unverified: skinned meshes use bind-pose positions rather than C++ software-skinned positions; particles and other native sorting producers are not pooled with meshes; C++ first orders nodes by bounding-sphere center and uses an unstable sort for larger pools, so equal-depth order can differ. |
 | R11 | partial | Consecutive UI draws with equal pipeline, texture and scissor merge into one draw (`cf92f27eb`). Open: glyph atlas (each string is still its own texture). |
-| R12 | open | Encoder is created after acquire (R0). Pass merging not landed: a shared `ScenePass` (one `forget_lifetime` wgpu pass on colour + depth/stencil, ended automatically when `RenderFrame::encoder()` is borrowed, dynamic state reset per hand-out) is drafted in the stash on `fix/render2`; terrain, water, mesh and sorted flush were migrated there, selection decals, lasers, occlusion bridge and client effects were not. Note: `passes=` in the stats only counts sites that call `note_render_pass`; particle, shadow, filter and camera-fade passes are not counted. |
-| R13 | partial | `THE_RENDER_BRIDGE` gone (`8829c2867`); `PUBLISHED_TERRAIN_VISUAL` on the instance's `CommonServices` (`a2cb0030a`); ww3d-gpu buffer-usage `lazy_static`s are consts (`3da129e5e`, WWVegas globals 5 -> 0, total 30 -> 25); the shadow pass no longer reads the live client, `OBJECT_REGISTRY` or `get_global_data()` (`8b5f104ad`). Remaining: `set_live_renderer_3d` is an instance-scoped `CommonServices` slot (not a process static) read only by the options-menu texture LOD; removing it means passing the renderer through the 8 `terrain_lod` hook sites. No renderer module is sealed yet. Command-buffer exhaustion (hq-sjaur7) not reproduced. |
+| R12 | partial | Shared scene-pass changes are present in `5e9c8d02b`, but are not verified here. That commit touches sealed `Code/Main/src/graphics/render_pipeline/pipeline_execute.rs` without its required `Unseal:` commit-message line; resolve provenance before integration. Pass-count instrumentation does not count every pass. |
+| R13 | partial | `THE_RENDER_BRIDGE` is gone; published terrain visual remains on `CommonServices`; buffer-usage constants and shadow-pass inputs were migrated. Options texture LOD now borrows the receiving renderer rather than publishing a type-erased renderer handle. The changes are unverified; no renderer module is sealed, and full instance isolation is not established. |
 
 Frame stats, 800x600 debug build, steady frozen frame (created per frame):
 
@@ -102,9 +102,10 @@ which is what C++ draws. The revealed patch, units and view trapezoid render
 correctly. The radar shroud revision now only moves on a real cell change,
 so the resident shroud texture is not re-uploaded every frame.
 
-Open render items: R7 BC upload, R10 per-triangle sorting, R11 glyph
-atlas, R12 pass merging, R13 `set_live_renderer_3d` + sealing, R6
-dynamic-light chunk rebakes, skinned shadow-volume casters.
+Open render items: R7 BC upload, R10 sorting parity gaps and verification,
+R11 glyph atlas, R12 pass merging verification and commit provenance, R13
+sealing and remaining instance isolation, R6 dynamic-light chunk rebakes,
+and skinned shadow-volume casters.
 
 ---
 
@@ -276,6 +277,8 @@ the intermittent Metal "4097 created-not-submitted command buffers" failure (hq-
 root cause unresolved).
 
 ### 1.7 Process-wide or thread-bound state on the render path (blocks multiple instances)
+
+This table records the original audit, not current status; see the progress table above.
 
 | State | Where | Live? |
 |---|---|---|

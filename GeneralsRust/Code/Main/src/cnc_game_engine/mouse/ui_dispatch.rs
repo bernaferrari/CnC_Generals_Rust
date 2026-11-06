@@ -266,11 +266,7 @@ impl CnCGameEngine {
                     .unwrap_or(false)
             };
             let render_pipeline = &mut self.render_pipeline;
-            let mut terrain_lod = |reduction| {
-                if let Some(terrain) = render_pipeline.native_terrain_mut() {
-                    terrain.apply_texture_lod_reduction(reduction);
-                }
-            };
+            let mut terrain_lod = |reduction| render_pipeline.apply_texture_lod(reduction);
             let mut emitted_messages = Vec::new();
             let (
                 window_manager_owner,
@@ -527,11 +523,7 @@ impl CnCGameEngine {
                 .unwrap_or(false)
         };
         let render_pipeline = &mut self.render_pipeline;
-        let mut terrain_lod = |reduction| {
-            if let Some(terrain) = render_pipeline.native_terrain_mut() {
-                terrain.apply_texture_lod_reduction(reduction);
-            }
-        };
+        let mut terrain_lod = |reduction| render_pipeline.apply_texture_lod(reduction);
         let mut emitted_messages = Vec::new();
         let (
             receiving_window_manager,
