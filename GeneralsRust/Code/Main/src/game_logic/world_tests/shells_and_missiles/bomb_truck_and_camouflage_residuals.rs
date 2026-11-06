@@ -751,6 +751,10 @@ fn camouflage_upgrade_queue_complete_stealths_rebel() {
         .add_kind_of(KindOf::Attackable)
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
+    rebel.stealth_upgrades = vec![crate::game_logic::UpgradeMuxTriggers {
+        triggered_by: vec!["Upgrade_GLACamouflage".into()],
+        ..Default::default()
+    }];
     game_logic
         .templates
         .insert("GLAInfantryRebel".to_string(), rebel);
@@ -885,6 +889,10 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
         .add_kind_of(KindOf::Attackable)
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
+    rebel.stealth_upgrades = vec![crate::game_logic::UpgradeMuxTriggers {
+        triggered_by: vec!["Upgrade_GLACamouflage".into()],
+        ..Default::default()
+    }];
     game_logic
         .templates
         .insert("GLAInfantryRebel".to_string(), rebel);

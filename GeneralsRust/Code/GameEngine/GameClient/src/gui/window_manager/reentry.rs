@@ -78,6 +78,9 @@ struct WindowManagerOwnerState {
     /// the lobby the options menu edits and `startSkirmishGame` launches.
     /// One per client UI tree; shared with the save hook via `Arc`.
     skirmish_setup: std::sync::Arc<std::sync::Mutex<crate::gui::skirmish_setup::SkirmishSetup>>,
+    /// C++ `TheLANGameInfo`: the lobby the LAN options/map-select menus edit.
+    /// One per client UI tree.
+    lan_setup: std::sync::Arc<std::sync::Mutex<crate::gui::lan_setup::LanSetup>>,
     /// Skirmish map-select layout slot (was process TLS).
     skirmish_map_select_layout: RefCell<Option<Rc<RefCell<crate::gui::WindowLayout>>>>,
     /// Skirmish map-select menu state (was process TLS).
@@ -245,6 +248,9 @@ impl WindowManagerOwner {
         let skirmish_setup = std::sync::Arc::new(std::sync::Mutex::new(
             crate::gui::skirmish_setup::SkirmishSetup::default(),
         ));
+        let lan_setup = std::sync::Arc::new(std::sync::Mutex::new(
+            crate::gui::lan_setup::LanSetup::default(),
+        ));
         Self {
             state: Rc::new(WindowManagerOwnerState {
                 manager: RefCell::new(WindowManager::new()),
@@ -286,8 +292,11 @@ impl WindowManagerOwner {
                     crate::gui::callbacks::skirmish_map_select_menu::SkirmishMapSelectState::default(),
                 )),
                 lan_game_options: RefCell::new(
-                    crate::gui::callbacks::lan_game_options_menu::LanGameOptionsState::default(),
+                    crate::gui::callbacks::lan_game_options_menu::LanGameOptionsState::for_setup(
+                        std::sync::Arc::clone(&lan_setup),
+                    ),
                 ),
+                lan_setup,
                 lan_map_select_layout: RefCell::new(None),
                 lan_map_select_state: std::sync::Arc::new(std::sync::Mutex::new(
                     crate::gui::callbacks::lan_map_select_menu::LanMapSelectState::default(),
@@ -675,6 +684,13 @@ impl WindowManagerOwner {
         &self,
     ) -> std::sync::Arc<std::sync::Mutex<crate::gui::skirmish_setup::SkirmishSetup>> {
         std::sync::Arc::clone(&self.state.skirmish_setup)
+    }
+
+    /// This UI tree's `TheLANGameInfo` lobby.
+    pub fn lan_setup(
+        &self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::gui::lan_setup::LanSetup>> {
+        std::sync::Arc::clone(&self.state.lan_setup)
     }
 
     pub(crate) fn with_skirmish_map_select_layout_mut<R>(

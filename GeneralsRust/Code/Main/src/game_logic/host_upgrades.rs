@@ -1420,32 +1420,6 @@ mod tests {
 /// Retail GLA Camouflage upgrade name (Palace research).
 pub const UPGRADE_GLA_CAMOUFLAGE: &str = "Upgrade_GLACamouflage";
 
-/// Template names that receive StealthUpgrade from Camouflage residual.
-///
-/// C++: GLAInfantryRebel (+ Chem_/Demo_/CINE_ variants) StealthUpgrade
-/// TriggeredBy = Upgrade_GLACamouflage. Fail-closed: not full StealthUpgrade
-/// module on every general variant; workers do **not** receive Camouflage
-/// (Worker has no StealthUpgrade — fail-closed honesty).
-pub fn is_camouflage_unit_template(name: &str) -> bool {
-    let n: String = name
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .flat_map(|c| c.to_lowercase())
-        .collect();
-    if n.is_empty() {
-        return false;
-    }
-    // Explicit residual test names.
-    if n == "testrebel" || n == "testglarebel" {
-        return true;
-    }
-    // Rebel residual (not worker, not hijacker, not terrorist).
-    if n.contains("worker") {
-        return false;
-    }
-    n.contains("rebel") || n == "glainfantryrebel" || n.ends_with("infantryrebel")
-}
-
 /// C++ StealthUpdate StealthDelay residual for Rebel after Camouflage (2500 ms).
 /// Host residual: re-cloak after this many logic frames once attack stops
 /// (fail-closed vs full StealthUpdate forbidden-condition matrix).
@@ -1496,19 +1470,6 @@ pub fn stealth_forbidden_contains(conditions: &str, token: &str) -> bool {
 #[cfg(test)]
 mod camouflage_template_tests {
     use super::*;
-
-    #[test]
-    fn camouflage_unit_name_residual() {
-        assert!(is_camouflage_unit_template("GLAInfantryRebel"));
-        assert!(is_camouflage_unit_template("Demo_GLAInfantryRebel"));
-        assert!(is_camouflage_unit_template("Chem_GLAInfantryRebel"));
-        assert!(is_camouflage_unit_template("TestRebel"));
-        // Host shorthand GLA_Soldier is not a retail camouflage carrier (Rebel is).
-        assert!(!is_camouflage_unit_template("GLA_Soldier"));
-        assert!(!is_camouflage_unit_template("GLAInfantryWorker"));
-        assert!(!is_camouflage_unit_template("GLAInfantryTerrorist"));
-        assert!(!is_camouflage_unit_template("USA_Ranger"));
-    }
 
     #[test]
     fn cash_bounty_kind_from_name() {

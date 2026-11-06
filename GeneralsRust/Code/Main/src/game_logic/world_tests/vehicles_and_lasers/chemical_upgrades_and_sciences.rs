@@ -30,6 +30,10 @@ fn camo_netting_upgrade_stealths_gla_structures() {
                 t.add_kind_of(KindOf::Structure)
                     .add_kind_of(KindOf::Selectable)
                     .set_health(1000.0);
+                t.stealth_upgrades = vec![crate::game_logic::UpgradeMuxTriggers {
+                    triggered_by: vec!["Upgrade_GLACamoNetting".into()],
+                    ..Default::default()
+                }];
             }
             game_logic.templates.insert(name.to_string(), t);
         }

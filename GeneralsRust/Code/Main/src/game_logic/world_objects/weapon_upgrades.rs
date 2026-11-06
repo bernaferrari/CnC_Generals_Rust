@@ -731,52 +731,6 @@ impl GameLogic {
         affected
     }
 
-    /// Apply WorkerShoes residual: speed 30 + upgrade tag on GLA workers.
-    pub(in super::super) fn apply_worker_shoes_unlock_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_gla_worker::{
-            UPGRADE_GLA_WORKER_SHOES, WORKER_SHOES_AUDIO, is_gla_worker_template,
-            worker_residual_speed,
-        };
-
-        let mut affected = 0u32;
-        for obj in self.objects.registered_values_mut() {
-            if !recipients.matches_object(obj) || !obj.is_alive() {
-                continue;
-            }
-            if !is_gla_worker_template(&obj.template_name) && !obj.is_worker() {
-                continue;
-            }
-            // Prefer GLA worker templates; also accept KINDOF_WORKER residual
-            // whose template name matches worker residual (not USA/China dozer).
-            if !is_gla_worker_template(&obj.template_name) {
-                continue;
-            }
-            let residual_speed = obj.thing().template.receiving_object_definition.is_none();
-            if obj.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES) || obj.has_upgrade_tag(upgrade_name) {
-                // Already applied — refresh speed residual only.
-                if residual_speed {
-                    obj.movement.max_speed = worker_residual_speed(true);
-                }
-                continue;
-            }
-            if residual_speed {
-                obj.movement.max_speed = worker_residual_speed(true);
-            }
-            obj.apply_upgrade_tag(upgrade_name);
-            obj.apply_upgrade_tag(UPGRADE_GLA_WORKER_SHOES);
-            affected = affected.saturating_add(1);
-        }
-        if affected > 0 {
-            self.gla_worker.record_shoes_applied(affected);
-            self.queue_audio_event(AudioEventRequest::new(WORKER_SHOES_AUDIO).with_priority(140));
-        }
-        affected
-    }
-
     /// Apply BoobyTrap residual unlock tag on GLA Rebel infantry.
     pub(in super::super) fn apply_booby_trap_unlock_to_team(
         &mut self,
@@ -866,7 +820,7 @@ impl GameLogic {
     ) -> u32 {
         use crate::game_logic::host_upgrades::{
             CAMOUFLAGE_STEALTH_DELAY_FRAMES, UPGRADE_GLA_CAMOUFLAGE,
-            camouflage_stealth_allowed_frame, is_camouflage_unit_template,
+            camouflage_stealth_allowed_frame,
         };
 
         let mut affected = 0u32;
@@ -875,10 +829,12 @@ impl GameLogic {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
-            if !obj.is_kind_of(KindOf::Infantry) {
-                continue;
-            }
-            if !is_camouflage_unit_template(&obj.template_name) {
+            // StealthUpgrade.cpp: only objects authoring a StealthUpgrade
+            // triggered by this upgrade gain CAN_STEALTH.
+            if !super::authored_upgrade_modules::authors_triggered_stealth_upgrade(
+                &obj.thing().template,
+                |name| name.eq_ignore_ascii_case(upgrade_name),
+            ) {
                 continue;
             }
             obj.apply_upgrade_tag(upgrade_name);
@@ -911,7 +867,7 @@ impl GameLogic {
     ) -> u32 {
         use crate::game_logic::host_upgrades::{
             CAMO_NETTING_STEALTH_DELAY_FRAMES, UPGRADE_GLA_CAMO_NETTING,
-            camo_netting_stealth_allowed_frame, is_camo_netting_structure_template,
+            camo_netting_stealth_allowed_frame,
         };
 
         let mut affected = 0u32;
@@ -920,7 +876,10 @@ impl GameLogic {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
-            if !is_camo_netting_structure_template(&obj.template_name) {
+            if !super::authored_upgrade_modules::authors_triggered_stealth_upgrade(
+                &obj.thing().template,
+                |name| name.eq_ignore_ascii_case(upgrade_name),
+            ) {
                 continue;
             }
             obj.apply_upgrade_tag(upgrade_name);

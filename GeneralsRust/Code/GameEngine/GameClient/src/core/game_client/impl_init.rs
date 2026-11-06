@@ -117,7 +117,6 @@ impl GameClient {
             header_template_manager: None,
             translator_presentation_residual: None,
             mouse: None,
-            lan_setup: None,
             host_command_authority: None,
             font_library: None,
             tactical_view: {

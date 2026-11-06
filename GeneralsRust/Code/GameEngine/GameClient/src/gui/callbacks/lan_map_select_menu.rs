@@ -264,7 +264,7 @@ pub fn lan_map_select_menu_init(
     });
 
     {
-        let setup_handle = get_lan_setup();
+        let setup_handle = get_lan_setup(effects.window_manager_owner);
 
         let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         if !setup.selected_map().is_empty() {
@@ -280,7 +280,7 @@ pub fn lan_map_select_menu_init(
             }
         };
     } else {
-        let setup_handle = get_lan_setup();
+        let setup_handle = get_lan_setup(effects.window_manager_owner);
 
         let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         state.use_system_maps = setup.use_system_maps();
@@ -367,7 +367,7 @@ pub fn lan_map_select_menu_system(
             let control_id = data1 as i32;
             if control_id == state.button_ok_id {
                 if let Some(map_name) = state.selected_map.clone() {
-                    let setup_handle = get_lan_setup();
+                    let setup_handle = get_lan_setup(effects.window_manager_owner);
 
                     let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                     setup.set_selected_map(map_name);

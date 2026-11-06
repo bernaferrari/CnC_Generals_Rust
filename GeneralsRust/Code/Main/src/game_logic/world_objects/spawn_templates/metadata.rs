@@ -1250,6 +1250,19 @@ impl GameLogic {
         });
     }
 
+    /// Retain each authored `StealthUpgrade` module's UpgradeMux triggers.
+    pub(super) fn apply_authored_stealth_upgrade_metadata(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        template.stealth_upgrades = definition
+            .behavior_modules
+            .iter()
+            .filter(|module| module.class_name.eq_ignore_ascii_case("StealthUpgrade"))
+            .map(crate::game_logic::world_objects::authored_upgrade_modules::upgrade_mux_data)
+            .collect();
+    }
+
     /// Retain exact `SupplyTruckAIUpdate` data. A generic HARVESTER KindOf is
     /// insufficient: it deliberately receives no autonomous collector state.
     pub(super) fn apply_authored_supply_truck_metadata(
@@ -1280,6 +1293,10 @@ impl GameLogic {
                     || class.eq_ignore_ascii_case("WorkerAIUpdate")
             })
             .collect();
+        template.worker_ai_update = matches!(
+            modules.as_slice(),
+            [module] if module.class_name.eq_ignore_ascii_case("WorkerAIUpdate")
+        );
         let [module] = modules.as_slice() else {
             template.supply_truck_metadata = None;
             template.supplies_depleted_voice.clear();

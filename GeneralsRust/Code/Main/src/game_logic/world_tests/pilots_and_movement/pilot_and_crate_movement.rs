@@ -67,12 +67,11 @@ fn pilot_recrew_rejects_manned_vehicle() {
 }
 
 #[test]
-fn worker_shoes_upgrade_speed_and_supply_boost_residual() {
+fn worker_shoes_completion_pays_authored_worker_supply_boost() {
     use crate::command_system::{CommandType, GameCommand};
-    use crate::game_logic::host_gla_worker::{
-        UPGRADE_GLA_WORKER_SHOES, WORKER_BASE_SPEED, WORKER_SHOES_SPEED, WORKER_SHOES_SUPPLY_BOOST,
-        is_gla_worker_template, residual_worker_shoes_drop_off_boost, worker_residual_speed,
-    };
+    use crate::game_logic::host_gla_worker::UPGRADE_GLA_WORKER_SHOES;
+    // WorkerAIUpdate UpgradedSupplyBoost authored on the worker (retail 8).
+    const AUTHORED_BOOST: u32 = 8;
     use crate::game_logic::host_upgrades::HostUpgradeKind;
 
     let mut game_logic = GameLogic::new();
@@ -87,6 +86,14 @@ fn worker_shoes_upgrade_speed_and_supply_boost_residual() {
         .add_kind_of(KindOf::Worker)
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
+    worker_tpl.worker_ai_update = true;
+    worker_tpl.supply_truck_metadata = Some(crate::game_logic::SupplyTruckMetadata {
+        max_boxes: 3,
+        warehouse_scan_distance: 100.0,
+        warehouse_delay_frames: 0,
+        center_delay_frames: 0,
+        upgraded_supply_boost: AUTHORED_BOOST,
+    });
     game_logic
         .templates
         .insert("GLAInfantryWorker".to_string(), worker_tpl);
@@ -114,17 +121,6 @@ fn worker_shoes_upgrade_speed_and_supply_boost_residual() {
     let supply_id = game_logic
         .create_object("GLASupplyStash", Team::GLA, Vec3::new(5.0, 0.0, 0.0))
         .expect("supply");
-
-    {
-        let w = game_logic.host_object(worker_id).expect("worker");
-        assert!(is_gla_worker_template(&w.template_name));
-        assert!(
-            (w.movement.max_speed - WORKER_BASE_SPEED).abs() < 0.01
-                || (w.movement.max_speed - worker_residual_speed(false)).abs() < 0.01,
-            "worker base residual speed (got {})",
-            w.movement.max_speed
-        );
-    }
 
     game_logic.queue_command(GameCommand {
         command_type: CommandType::QueueUpgrade {
@@ -157,25 +153,11 @@ fn worker_shoes_upgrade_speed_and_supply_boost_residual() {
             .honesty_complete_ok(HostUpgradeKind::WorkerShoes)
     );
     assert!(
-        game_logic.honesty_worker_shoes_apply_ok(),
-        "WorkerShoes must affect workers"
-    );
-
-    let worker = game_logic
-        .host_object(worker_id)
-        .expect("worker after shoes");
-    assert!(
-        worker.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES),
-        "worker must receive WorkerShoes tag"
-    );
-    assert!(
-        (worker.movement.max_speed - WORKER_SHOES_SPEED).abs() < 0.01,
-        "WorkerShoes residual speed 30 (got {})",
-        worker.movement.max_speed
-    );
-    assert_eq!(
-        residual_worker_shoes_drop_off_boost(true, true),
-        WORKER_SHOES_SUPPLY_BOOST
+        game_logic
+            .get_player(0)
+            .unwrap()
+            .has_unlocked_upgrade(UPGRADE_GLA_WORKER_SHOES),
+        "completion records the player's upgrade"
     );
 
     // Drop-off residual: worker with cargo deposits +8 shoes boost.
@@ -201,9 +183,9 @@ fn worker_shoes_upgrade_speed_and_supply_boost_residual() {
         .map(|p| p.resources.supplies)
         .unwrap_or(0);
 
-    game_logic
-        .update_ai(&[worker_id, supply_id], 1.0 / 30.0)
-        .expect("receiving AI operation succeeds");
+    // The first update enters DockingCenter; the action runs on the next.
+    game_logic.update_with_dt(1.0 / 30.0);
+    game_logic.update_with_dt(1.0 / 30.0);
 
     let cash_after = game_logic
         .get_player(0)
@@ -211,20 +193,8 @@ fn worker_shoes_upgrade_speed_and_supply_boost_residual() {
         .unwrap_or(0);
     let gained = cash_after.saturating_sub(cash_before);
     assert!(
-        gained >= 100 + WORKER_SHOES_SUPPLY_BOOST,
+        gained == 100 + AUTHORED_BOOST,
         "WorkerShoes drop-off must credit cargo + boost (gained={gained})"
-    );
-    assert!(
-        game_logic.honesty_worker_shoes_boost_ok(),
-        "shoes boost honesty"
-    );
-    assert!(
-        game_logic.honesty_worker_ok(),
-        "combined worker residual honesty"
-    );
-    assert_eq!(
-        game_logic.gla_worker_residual().shoes_bonus_cash_total,
-        WORKER_SHOES_SUPPLY_BOOST
     );
     let _ = barracks_id;
 }
