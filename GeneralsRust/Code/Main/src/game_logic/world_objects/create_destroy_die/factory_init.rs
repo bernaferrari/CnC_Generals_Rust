@@ -328,6 +328,14 @@ impl GameLogic {
                 object.run_authored_power_plant_upgrades(|name| player.has_unlocked_upgrade(name));
             object.run_authored_max_health_upgrades(|name| player.has_unlocked_upgrade(name));
             object.apply_authored_flag_upgrades(|name| player.has_unlocked_upgrade(name));
+            // UnpauseSpecialPowerUpgrade: the constructor's StartsPaused pause
+            // (init_special_power_ctor_arms) is lifted for a completed upgrade.
+            for power in super::super::authored_upgrade_modules::authored_unpause_powers(
+                &object.thing().template,
+                |name| player.has_unlocked_upgrade(name),
+            ) {
+                object.pause_special_power_countdown(&power, false);
+            }
             // LocomotorSetUpgrade (Worker Shoes, Nuclear Tanks, ...).
             object.apply_authored_locomotor_set_upgrade_for_mask(
                 |name| player.has_unlocked_upgrade(name),

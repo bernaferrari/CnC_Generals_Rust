@@ -563,3 +563,63 @@ mod stealth_upgrade_tests {
         assert!(world.host_object(bunker).unwrap().innate_stealth);
     }
 }
+
+#[cfg(test)]
+mod replay_tests {
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::{GameLogic, Player, Team};
+
+    /// Object::initObject -> updateUpgradeModules: a unit created after its
+    /// Player completed the triggering upgrade has StartsPaused lifted.
+    #[test]
+    fn unit_created_after_upgrade_has_authored_power_unpaused() {
+        let mut world = GameLogic::new();
+        let mut owner = Player::new(0, Team::China, "Owner", true);
+        owner.add_completed_upgrade("Upgrade_TestUnpause");
+        world.players.insert(0, owner);
+        world.players.insert(1, Player::new(1, Team::China, "Other", false));
+        use game_engine::common::{
+            rts::science::{ScienceNameFacts, ScienceStore},
+            thing::receiving_module_content::ReceivingActionDefinitions,
+        };
+        let sciences = std::sync::Arc::new(ScienceNameFacts::from_store(&ScienceStore::new()));
+        let mut actions = ReceivingActionDefinitions::default();
+        actions
+            .apply_source(
+                "SpecialPower SpecialAbilityHelixNapalmBomb\nReloadTime = 6000\nEnd\n",
+                &sciences,
+            )
+            .unwrap();
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources_with_catalogs(
+                    [(
+                        "receiving-unpause-replay.ini".into(),
+                        "Object PlainBomber\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\n\
+                         Behavior = SpecialAbility AbilityTag\nSpecialPowerTemplate = SpecialAbilityHelixNapalmBomb\nStartsPaused = Yes\nEnd\n\
+                         Behavior = UnpauseSpecialPowerUpgrade UnpauseTag\nSpecialPowerTemplate = SpecialAbilityHelixNapalmBomb\nTriggeredBy = Upgrade_TestUnpause\nEnd\nEnd\n"
+                            .into(),
+                    )],
+                    sciences,
+                    std::sync::Arc::new(actions),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let upgraded = world.create_object_for_player("PlainBomber", 0, glam::Vec3::ZERO).unwrap();
+        let plain = world.create_object_for_player("PlainBomber", 1, glam::Vec3::X).unwrap();
+        assert_eq!(
+            world.host_object(plain).unwrap().thing().template.special_power_modules.len(),
+            1,
+            "authored SpecialAbility module admitted"
+        );
+        let paused = |id| {
+            world
+                .host_object(id)
+                .unwrap()
+                .is_special_power_countdown_paused(&SpecialPowerType::HelixNapalmBomb)
+        };
+        assert!(paused(plain), "the constructor pause stays without the upgrade");
+        assert!(!paused(upgraded), "the completed upgrade lifts the pause on a new unit");
+    }
+}
