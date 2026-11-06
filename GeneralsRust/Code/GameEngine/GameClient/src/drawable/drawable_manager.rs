@@ -600,10 +600,9 @@ impl DrawableManager {
         if let Some(pipeline) = pipeline {
             let mut pipeline = pipeline.lock().unwrap_or_else(|e| e.into_inner());
             pipeline.update_camera(view_matrix, proj_matrix);
+            // Submissions only exist on a receiving client's own bridge.
             if let Some(bridge) = bridge.as_deref_mut() {
                 pipeline.record_draw_with_bridge(pass, bridge);
-            } else {
-                pipeline.record_draw(pass);
             }
         }
     }

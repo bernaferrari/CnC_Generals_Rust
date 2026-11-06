@@ -299,14 +299,6 @@ pub struct MeshRenderManager {
     decal_queue: Vec<Arc<MeshClass>>,
     fvf_containers: Vec<Arc<DX8FVFCategoryContainer>>,
     live_csm: crate::rendering::shadow_system::live_cascade_shadow::LiveCascadeShadowMap,
-    cascade_depth_pipeline: Option<Arc<wgpu::RenderPipeline>>,
-    cascade_depth_pipeline_skinned: Option<Arc<wgpu::RenderPipeline>>,
-
-    cascade_light_bgl: Option<wgpu::BindGroupLayout>,
-    cascade_model_bgl: Option<wgpu::BindGroupLayout>,
-    last_cascade_casters_drawn: u32,
-    /// Depth passes the live cascade recorded this frame (frame stats).
-    last_cascade_passes: u32,
 
     /// Frozen presentation texture installed for the current frame. The
     /// dedicated rigid/skinned draw pipeline is intentionally separate work;
@@ -373,7 +365,7 @@ impl MeshRenderManager {
             stats: MeshRenderStats::default(),
             pipeline_mgr,
             pass_texture_provider: None,
-            color_format: wgpu::TextureFormat::Bgra8UnormSrgb,
+            color_format: wgpu::TextureFormat::Bgra8Unorm,
             depth_format: Some(wgpu::TextureFormat::Depth32Float),
             fallback_textures,
             default_sampler,
@@ -382,13 +374,6 @@ impl MeshRenderManager {
             decal_queue: Vec::new(),
             fvf_containers: Vec::new(),
             live_csm,
-            cascade_depth_pipeline: None,
-            cascade_depth_pipeline_skinned: None,
-
-            cascade_light_bgl: None,
-            cascade_model_bgl: None,
-            last_cascade_casters_drawn: 0,
-            last_cascade_passes: 0,
 
             projected_shroud: None,
         }
@@ -611,269 +596,6 @@ impl MeshRenderManager {
         self.depth_format = depth_format;
     }
 
-    /// C++ `W3DProjectedShadowManager::updateRenderTargetTextures` fills the
-    /// shadow map before the scene (W3DDisplay.cpp:1840). Clear each cascade
-    /// layer, draw queued opaque casters into light-space depth, then publish
-    /// matrices with `enabled = true` so opaque.wgsl PCF-samples a filled map.
-    pub fn update_and_fill_live_cascade(
-        &mut self,
-        encoder: &mut wgpu::CommandEncoder,
-        render_info: &RenderInfoClass,
-        casters: &[Arc<MeshClass>],
-    ) {
-        self.last_cascade_casters_drawn = 0;
-        self.last_cascade_passes = 0;
-        self.ensure_cascade_depth_pipeline();
-        let light_direction = live_cascade_light_direction(render_info);
-        self.live_csm.update(
-            self.gpu_device.queue(),
-            render_info.camera.get_position(),
-            render_info.camera.get_forward(),
-            light_direction,
-            true,
-        );
-
-        if self.cascade_depth_pipeline.is_none() {
-            return;
-        }
-
-        // Prepare geometry first so later layout/view borrows are immutable.
-        let mut prepared_casters = Vec::new();
-        for mesh in casters {
-            if mesh.is_hidden || mesh.is_animation_hidden || mesh.is_decal_instance {
-                continue;
-            }
-            let Some(model) = mesh.model.as_ref() else {
-                continue;
-            };
-            let Ok(prepared) = self.preparemodel(model) else {
-                continue;
-            };
-            if prepared.index_count == 0 && prepared.vertex_count == 0 {
-                continue;
-            }
-            prepared_casters.push((prepared, mesh.transform));
-        }
-
-        let Some(pipeline) = self.cascade_depth_pipeline.clone() else {
-            return;
-        };
-        let skinned_pipeline = self
-            .cascade_depth_pipeline_skinned
-            .clone()
-            .unwrap_or_else(|| Arc::clone(&pipeline));
-        let Some(light_bgl) = self.cascade_light_bgl.as_ref() else {
-            return;
-        };
-        let Some(model_bgl) = self.cascade_model_bgl.as_ref() else {
-            return;
-        };
-
-        let device = self.gpu_device.wgpu_device();
-        let mut light_groups = Vec::with_capacity(self.live_csm.layer_views.len());
-        for view_proj in &self.live_csm.uniform.view_proj {
-            let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("live_csm_light_view_proj"),
-                contents: bytemuck::bytes_of(view_proj),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("live_csm_light_bg"),
-                layout: light_bgl,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: buffer.as_entire_binding(),
-                }],
-            });
-            light_groups.push((buffer, bind_group));
-        }
-
-        let mut model_groups = Vec::with_capacity(prepared_casters.len());
-        for (prepared, transform) in prepared_casters {
-            let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("live_csm_model"),
-                contents: bytemuck::bytes_of(&transform),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("live_csm_model_bg"),
-                layout: model_bgl,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: buffer.as_entire_binding(),
-                }],
-            });
-            model_groups.push((prepared, buffer, bind_group));
-        }
-
-        self.last_cascade_passes = u32::try_from(self.live_csm.layer_views.len()).unwrap_or(u32::MAX);
-        for (layer, view) in self.live_csm.layer_views.iter().enumerate() {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("live_csm_first_light_depth"),
-                color_attachments: &[],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            if let Some((_, light_bg)) = light_groups.get(layer) {
-                pass.set_bind_group(0, light_bg, &[]);
-            }
-            for (prepared, _, model_bg) in &model_groups {
-                if prepared.is_skinned {
-                    pass.set_pipeline(&skinned_pipeline);
-                } else {
-                    pass.set_pipeline(&pipeline);
-                }
-                pass.set_bind_group(1, model_bg, &[]);
-                pass.set_vertex_buffer(0, prepared.vertex_buffer.slice(..));
-                if let Some(index_buffer) = prepared.index_buffer.as_ref() {
-                    pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                    pass.draw_indexed(0..prepared.index_count, 0, 0..1);
-                } else if prepared.vertex_count > 0 {
-                    pass.draw(0..prepared.vertex_count, 0..1);
-                }
-            }
-        }
-        self.last_cascade_casters_drawn = model_groups.len() as u32;
-    }
-
-    pub fn last_cascade_passes(&self) -> u32 {
-        self.last_cascade_passes
-    }
-
-    pub fn last_cascade_casters_drawn(&self) -> u32 {
-        self.last_cascade_casters_drawn
-    }
-
-    pub fn live_cascade_enabled(&self) -> bool {
-        self.live_csm.is_enabled()
-    }
-
-    fn cascade_depth_vertex_layout(skinned: bool) -> wgpu::VertexBufferLayout<'static> {
-        let floats = if skinned {
-            3 + 3 + (4 * 2) + 4 + 4
-        } else {
-            3 + 3 + (4 * 2)
-        };
-        wgpu::VertexBufferLayout {
-            array_stride: (floats * std::mem::size_of::<f32>()) as u64,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[wgpu::VertexAttribute {
-                offset: 0,
-                shader_location: 0,
-                format: wgpu::VertexFormat::Float32x3,
-            }],
-        }
-    }
-
-    fn create_cascade_depth_pipeline(
-        device: &wgpu::Device,
-        layout: &wgpu::PipelineLayout,
-        module: &wgpu::ShaderModule,
-        skinned: bool,
-    ) -> wgpu::RenderPipeline {
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some(if skinned {
-                "live_csm_depth_pipeline_skinned"
-            } else {
-                "live_csm_depth_pipeline"
-            }),
-            layout: Some(layout),
-            vertex: wgpu::VertexState {
-                module,
-                entry_point: Some("vs_main"),
-                buffers: &[Some(Self::cascade_depth_vertex_layout(skinned))],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: None,
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: Some(true),
-                depth_compare: Some(wgpu::CompareFunction::LessEqual),
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState {
-                    constant: 2,
-                    slope_scale: 1.5,
-                    clamp: 0.0,
-                },
-            }),
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview_mask: None,
-            cache: None,
-        })
-    }
-
-    fn ensure_cascade_depth_pipeline(&mut self) {
-        if self.cascade_depth_pipeline.is_some() {
-            return;
-        }
-        let device = self.gpu_device.wgpu_device();
-        let light_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("live_csm_light_bgl"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
-        let model_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("live_csm_model_bgl"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("live_csm_depth_layout"),
-            bind_group_layouts: &[Some(&light_bgl), Some(&model_bgl)],
-            immediate_size: 0,
-        });
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("live_csm_depth_shader"),
-            source: wgpu::ShaderSource::Wgsl(
-                include_str!("../shader_system/cascade_depth.wgsl").into(),
-            ),
-        });
-        let rigid = Self::create_cascade_depth_pipeline(device, &layout, &module, false);
-        let skinned = Self::create_cascade_depth_pipeline(device, &layout, &module, true);
-        self.cascade_light_bgl = Some(light_bgl);
-        self.cascade_model_bgl = Some(model_bgl);
-        self.cascade_depth_pipeline = Some(Arc::new(rigid));
-        self.cascade_depth_pipeline_skinned = Some(Arc::new(skinned));
-    }
-
     pub fn render_pass(
         &mut self,
         render_pass: &mut wgpu::RenderPass<'_>,
@@ -883,13 +605,19 @@ impl MeshRenderManager {
         arena: &mut FrameUniformArena,
     ) -> W3dResult<()> {
         let mut pass_resources = RenderPassResources::default();
-        for mesh in opaque_meshes {
-            self.render_mesh(mesh, render_info, render_pass, arena, &mut pass_resources)?;
-        }
-        for mesh in blended_meshes {
-            self.render_mesh(mesh, render_info, render_pass, arena, &mut pass_resources)?;
-        }
-        Ok(())
+        let result = (|| {
+            for mesh in opaque_meshes {
+                self.render_mesh(mesh, render_info, render_pass, arena, &mut pass_resources)?;
+            }
+            for mesh in blended_meshes {
+                self.render_mesh(mesh, render_info, render_pass, arena, &mut pass_resources)?;
+            }
+            Ok(())
+        })();
+        // The pass's uniforms are staged in the arena; queue them (one write
+        // per page) before anyone can submit the recorded pass.
+        arena.flush(self.gpu_device.as_ref());
+        result
     }
 
     /// Select the lighting environment owned by this MeshClass when one has
@@ -1757,16 +1485,11 @@ impl MeshRenderManager {
     /// should one ever appear. Paletted DDS stays rejected (unrepresented in
     /// the shipped content) and binds magenta.
     ///
-    /// sRGB: mesh pass textures are color content and the scene target is
-    /// Bgra8UnormSrgb (color_format below). Uploading them as *Unorm sampled
-    /// them twice-gamma-corrected — the washed-white unit look. Uploading the
-    /// same bytes with the Srgb view format makes the sampler linearize once;
-    /// the lighting math stays linear and the sRGB target re-encodes on store
-    /// (single gamma-correct path, C++ dx8renderer.cpp:1771-1775 where the one
-    /// LightEnvironment install feeds the whole draw). There is no normal/light
-    /// map stage in this lane — every stage hint (diffuse/emissive/env/spec
-    /// mask) is color content — so all four 32-bit formats map to their Srgb
-    /// view variant.
+    /// Colour space: DX8 never linearizes. Texture bytes, vertex/material
+    /// colours, blending and fog all run on the stored (gamma-space) values
+    /// and the back buffer is presented as-is. The scene target is therefore a
+    /// plain *Unorm format (color_format below) and every 32-bit pass texture
+    /// uploads as *Unorm, whatever its source tagged (renderer plan R8 / G6).
     fn ensure_gpu_texture_view(
         &mut self,
         texture: &TextureClass,
@@ -1814,14 +1537,10 @@ impl MeshRenderManager {
             return None;
         }
         let wgpu_format = match texture.format {
-            crate::texture_system::TextureFormat::Rgba8Unorm => wgpu::TextureFormat::Rgba8UnormSrgb,
-            crate::texture_system::TextureFormat::Rgba8UnormSrgb => {
-                wgpu::TextureFormat::Rgba8UnormSrgb
-            }
-            crate::texture_system::TextureFormat::Bgra8Unorm => wgpu::TextureFormat::Bgra8UnormSrgb,
-            crate::texture_system::TextureFormat::Bgra8UnormSrgb => {
-                wgpu::TextureFormat::Bgra8UnormSrgb
-            }
+            crate::texture_system::TextureFormat::Rgba8Unorm
+            | crate::texture_system::TextureFormat::Rgba8UnormSrgb => wgpu::TextureFormat::Rgba8Unorm,
+            crate::texture_system::TextureFormat::Bgra8Unorm
+            | crate::texture_system::TextureFormat::Bgra8UnormSrgb => wgpu::TextureFormat::Bgra8Unorm,
             _ => return None,
         };
         let expected = width as usize * height as usize * 4;
@@ -2406,196 +2125,6 @@ mod per_mesh_lighting_tests {
     }
 
     #[test]
-    fn live_cascade_uses_first_enabled_directional_light() {
-        let camera = Arc::new(CameraClass::new());
-        let mut info = RenderInfoClass::new(camera);
-        let mut environment = LightEnvironmentClass::new();
-        let r3d = crate::process_state::Renderer3dRuntime::new();
-        environment.add_light(&r3d, crate::rendering::lighting_system::LightClass::directional(
-            glam::Vec3::new(0.2, -1.0, 0.1),
-            glam::Vec3::ONE,
-            1.0,
-        ));
-        info.set_lighting_environment(environment);
-        let dir = live_cascade_light_direction(&info);
-        assert!((dir.y + 1.0 / (0.2f32 * 0.2 + 1.0 + 0.1 * 0.1).sqrt()).abs() < 0.02);
-    }
-
-    #[test]
-    fn live_cascade_falls_back_when_no_directional_light() {
-        let camera = Arc::new(CameraClass::new());
-        let info = RenderInfoClass::new(camera);
-        let dir = live_cascade_light_direction(&info);
-        assert_eq!(dir, glam::Vec3::new(0.35, -0.85, 0.35));
-    }
-
-    #[test]
-    fn render_with_targets_calls_live_cascade_update() {
-        // C++ W3DDisplay.cpp:1840 updateRenderTargetTextures before the scene.
-        let renderer_src = include_str!("../../lib.rs");
-        assert!(
-            renderer_src.contains("update_and_fill_live_cascade"),
-            "Renderer::render_with_targets must fill LiveCascadeShadowMap"
-        );
-        let src = include_str!("render_manager.rs");
-        assert!(
-            src.contains("self.live_csm.update("),
-            "MeshRenderManager must call LiveCascadeShadowMap::update"
-        );
-        assert!(
-            src.contains("live_csm_first_light_depth"),
-            "first-light depth pass must clear cascade layers"
-        );
-        assert!(
-            src.contains("draw_indexed(0..prepared.index_count"),
-            "first-light depth pass must draw casters, not only clear"
-        );
-        assert!(
-            renderer_src.contains("cascade_casters"),
-            "Renderer must pass live casters into cascade fill"
-        );
-    }
-
-    #[test]
-    fn live_cascade_fill_draws_opaque_casters() {
-        // C++ W3DDisplay.cpp:1840 updateRenderTargetTextures writes occluder
-        // depth before the scene. An empty clear+enable is not a fill.
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..wgpu::InstanceDescriptor::new_without_display_handle()
-        });
-        let Some(adapter) =
-            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::LowPower,
-                compatible_surface: None,
-                force_fallback_adapter: true,
-                apply_limit_buckets: false,
-            }))
-            .ok()
-        else {
-            return;
-        };
-        // STANDALONE DEVICE: #[cfg(test)] cascade fill, not on the game path.
-        let Ok((device, queue)) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::downlevel_defaults(),
-                label: Some("live-csm-fill-test"),
-                ..Default::default()
-            }))
-        else {
-            return;
-        };
-        let gpu = Arc::new(GpuDevice::from_shared(Arc::new(device), Arc::new(queue)));
-        let mut manager = MeshRenderManager::new(gpu.clone());
-        let camera = Arc::new(CameraClass::new());
-        let info = RenderInfoClass::new(camera);
-
-        let mut model = MeshModelClass::new("csm_caster");
-        model.vertices = vec![
-            W3dVectorStruct {
-                x: 0.0,
-                y: 0.0,
-                z: 0.0,
-            },
-            W3dVectorStruct {
-                x: 4.0,
-                y: 0.0,
-                z: 0.0,
-            },
-            W3dVectorStruct {
-                x: 0.0,
-                y: 0.0,
-                z: 4.0,
-            },
-        ];
-        model.triangles = vec![W3dTriangleStruct {
-            vindex: [0, 1, 2],
-            attributes: 0,
-            normal: W3dVectorStruct {
-                x: 0.0,
-                y: 1.0,
-                z: 0.0,
-            },
-            distance: 0.0,
-        }];
-        model.vertex_count = 3;
-        model.index_count = 3;
-        let mut mesh = MeshClass::new();
-        mesh.model = Some(Arc::new(model));
-        mesh.transform = Mat4::IDENTITY;
-
-        let mut encoder =
-            gpu.wgpu_device()
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("live-csm-fill-encoder"),
-                });
-        manager.update_and_fill_live_cascade(&mut encoder, &info, &[Arc::new(mesh)]);
-        gpu.queue().submit(Some(encoder.finish()));
-        let _ = gpu.wgpu_device().poll(wgpu::PollType::wait_indefinitely());
-
-        assert!(
-            manager.live_cascade_enabled(),
-            "filled cascade must enable PCF sampling"
-        );
-        assert_eq!(
-            manager.last_cascade_casters_drawn(),
-            1,
-            "opaque caster must write depth, not just clear the map"
-        );
-    }
-
-    #[test]
-    fn live_cascade_fill_skips_hidden_and_decal_meshes() {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..wgpu::InstanceDescriptor::new_without_display_handle()
-        });
-        let Some(adapter) =
-            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::LowPower,
-                compatible_surface: None,
-                force_fallback_adapter: true,
-                apply_limit_buckets: false,
-            }))
-            .ok()
-        else {
-            return;
-        };
-        // STANDALONE DEVICE: #[cfg(test)] cascade skip, not on the game path.
-        let Ok((device, queue)) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::downlevel_defaults(),
-                label: Some("live-csm-skip-test"),
-                ..Default::default()
-            }))
-        else {
-            return;
-        };
-        let gpu = Arc::new(GpuDevice::from_shared(Arc::new(device), Arc::new(queue)));
-        let mut manager = MeshRenderManager::new(gpu.clone());
-        let camera = Arc::new(CameraClass::new());
-        let info = RenderInfoClass::new(camera);
-
-        let mut hidden = MeshClass::new();
-        hidden.is_hidden = true;
-        let mut model = MeshModelClass::new("hidden");
-        model.vertex_count = 3;
-        model.index_count = 3;
-        hidden.model = Some(Arc::new(model));
-
-        let mut encoder =
-            gpu.wgpu_device()
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("live-csm-skip-encoder"),
-                });
-        manager.update_and_fill_live_cascade(&mut encoder, &info, &[Arc::new(hidden)]);
-        gpu.queue().submit(Some(encoder.finish()));
-
-        assert_eq!(manager.last_cascade_casters_drawn(), 0);
-    }
-    #[test]
     fn utb_headless_body_mesh_paints_pixels() {
         // UTB diagnostic: replicate the live mesh-lane draw for a CC-like
         // multi-triangle body (default material pass, opaque routing) in a
@@ -2817,20 +2346,6 @@ mod per_mesh_lighting_tests {
             "headless body mesh must paint pixels, painted={painted}"
         );
     }
-}
-
-pub(crate) fn live_cascade_light_direction(render_info: &RenderInfoClass) -> glam::Vec3 {
-    if let Some(environment) = render_info.lighting.as_ref() {
-        for light in &environment.lights {
-            if light.enabled
-                && light.light_type == crate::rendering::lighting_system::LightType::Directional
-                && light.direction.length_squared() > 1e-6
-            {
-                return light.direction;
-            }
-        }
-    }
-    glam::Vec3::new(0.35, -0.85, 0.35)
 }
 
 #[cfg(test)]

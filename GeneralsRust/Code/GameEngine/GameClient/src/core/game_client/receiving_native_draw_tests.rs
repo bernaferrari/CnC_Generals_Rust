@@ -150,16 +150,10 @@ fn receiving_native_draw_admits_authored_emitter_before_next_client_bone_update(
         .initialize_player(0)
         .expect("fresh local player command queue");
     let assets = static_asset();
-    let mut bridge = crate::render_bridge::RenderBridge::new();
-    *bridge.asset_manager_mut() = assets;
-    let previous_bridge = crate::render_bridge::THE_RENDER_BRIDGE
-        .lock()
-        .unwrap()
-        .replace(bridge);
     let observed = (|| -> Result<_, String> {
         let mut client = GameClient::new().map_err(|e| e.to_string())?;
         // Receiving public shell draws through DrawableWorld.particles and the
-        // client's own render bridge (no longer THE_RENDER_BRIDGE ambient).
+        // client's own render bridge (there is no process bridge).
         *client.render_bridge_mut().asset_manager_mut() = static_asset();
         client.drawables.particles = Some(emitter_manager());
         client
@@ -235,7 +229,6 @@ fn receiving_native_draw_admits_authored_emitter_before_next_client_bone_update(
         drop(client);
         Ok((id, birth, moved, chain_frames, retired))
     })();
-    *crate::render_bridge::THE_RENDER_BRIDGE.lock().unwrap() = previous_bridge;
     let (id, birth, moved, chain_frames, retired) = observed.unwrap();
     let (_, frame, saveable, attached) =
         birth.expect("actual authored native Draw phase must create its state emitter");

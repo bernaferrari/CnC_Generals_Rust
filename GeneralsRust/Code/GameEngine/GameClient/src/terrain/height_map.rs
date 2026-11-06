@@ -768,9 +768,11 @@ impl HeightMap {
             uv.u = [0.0, 1.0, 1.0, 0.0];
             uv.v = [1.0, 1.0, 0.0, 0.0];
         } else {
-            let sub = (tile_ndx & 3) as f32;
-            let ou = (sub % 2.0) * 0.5;
-            let ov = (sub / 2.0).floor() * 0.5;
+            // C++ getUVForNdx: bit 0 picks the right half (minU = mid); bit 1
+            // picks the half nearer the tile's top edge (maxV = mid, "y's are
+            // flipped"), else the bottom half (minV = mid).
+            let ou = if tile_ndx & 1 != 0 { 0.5 } else { 0.0 };
+            let ov = if tile_ndx & 2 != 0 { 0.0 } else { 0.5 };
             uv.u = [ou, ou + 0.5, ou + 0.5, ou];
             uv.v = [ov + 0.5, ov + 0.5, ov, ov];
         }

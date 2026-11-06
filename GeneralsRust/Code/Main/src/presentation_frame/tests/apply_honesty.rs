@@ -1488,51 +1488,6 @@ fn presentation_frame_freezes_laser_line3d_segments() {
     assert!(empty.dual_tick_presentation_residual_ok());
 }
 
-#[cfg(feature = "game_client")]
-#[test]
-fn presentation_frame_freezes_visible_scene_lines() {
-    use game_engine::common::system::geometry::Coord3D;
-    use game_engine::common::system::scene_submission::{SceneLineDesc, SceneSubmission};
-    use std::sync::Arc;
-
-    game_client::render_bridge::init_render_bridge();
-    let _ = gamelogic::helpers::register_scene_submission(Arc::new(
-        game_client::render_bridge::RenderBridge::new(),
-    ));
-    let desc = SceneLineDesc {
-        start: Coord3D::new(1.0, 2.0, 3.0),
-        end: Coord3D::new(4.0, 5.0, 6.0),
-        width: 1.5,
-        color_r: 0.2,
-        color_g: 0.4,
-        color_b: 0.8,
-        opacity: 1.0,
-        texture_name: Some("EXLaser.tga".to_string()),
-        tile_factor: 1.0,
-        visible: true,
-        scroll_rate: 0.0,
-    };
-    if gamelogic::helpers::submit_scene_line(11, &desc).is_none() {
-        let _ = game_client::render_bridge::RenderBridge::new().submit_line(11, &desc);
-    }
-
-    let mut logic = GameLogic::new();
-    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
-    assert!(
-        !frame.scene_lines.is_empty(),
-        "build_from_logic must freeze visible_scene_lines"
-    );
-    assert!((frame.scene_lines[0].start.0 - 1.0).abs() < f32::EPSILON);
-    assert!((frame.scene_lines[0].end.0 - 4.0).abs() < f32::EPSILON);
-    assert_eq!(frame.scene_lines[0].start, (1.0, 3.0, 2.0));
-    assert_eq!(frame.scene_lines[0].end, (4.0, 6.0, 5.0));
-
-    let pack =
-        crate::graphics::laser_segment_upload::LaserSegmentUpload::pack_from_presentation(&frame);
-    assert!(pack.honesty.has_geometry);
-    assert!(pack.honesty.segments_packed >= 1);
-}
-
 #[test]
 fn dual_tick_residual_counters_increment_on_apply() {
     let mut logic = GameLogic::new();

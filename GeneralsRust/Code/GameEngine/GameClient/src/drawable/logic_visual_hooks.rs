@@ -5,7 +5,6 @@
 //! so the logic-side draw modules call through these registered adapters.
 
 use crate::radius_decal::{ShadowHandle, ShadowTypeInfo, with_projected_shadow_manager_mut};
-use crate::render_bridge::THE_RENDER_BRIDGE;
 use crate::terrain::terrain_visual::get_terrain_visual;
 use gamelogic::common::{Coord3D, Matrix3D, ObjectID, Real};
 use gamelogic::helpers::TheGameLogic;
@@ -360,10 +359,10 @@ pub fn lookup_w3d_client_bone(
     _frame: i32,
     bone: &str,
 ) -> Option<(i32, Matrix3D)> {
-    let guard = THE_RENDER_BRIDGE.lock().ok()?;
-    let bridge = guard.as_ref()?;
-    let assets = bridge.asset_manager();
-    lookup_w3d_client_bone_in_assets(assets, model, scale, _frame, bone)
+    with_receiving_assets(|assets| {
+        lookup_w3d_client_bone_in_assets(assets, model, scale, _frame, bone)
+    })
+    .flatten()
 }
 
 /// The same native bone lookup on explicitly receiving immutable assets.
@@ -424,13 +423,8 @@ fn lookup_pristine_bone(
 }
 
 fn lookup_sub_object_names(model: &str) -> Vec<String> {
-    let Ok(guard) = THE_RENDER_BRIDGE.lock() else {
-        return Vec::new();
-    };
-    let Some(bridge) = guard.as_ref() else {
-        return Vec::new();
-    };
-    lookup_sub_object_names_in_assets(bridge.asset_manager(), model)
+    with_receiving_assets(|assets| lookup_sub_object_names_in_assets(assets, model))
+        .unwrap_or_default()
 }
 
 pub(crate) fn lookup_sub_object_names_in_assets(
@@ -447,9 +441,21 @@ pub(crate) fn lookup_sub_object_names_in_assets(
 }
 
 fn lookup_model_obj_bounds(model: &str) -> Option<([f32; 3], [f32; 3])> {
-    let guard = THE_RENDER_BRIDGE.lock().ok()?;
-    let bridge = guard.as_ref()?;
-    let assets = bridge.asset_manager();
+    with_receiving_assets(|assets| lookup_model_obj_bounds_in_assets(assets, model)).flatten()
+}
+
+/// The receiving GameClient's render-bridge assets (the C++ asset manager the
+/// W3D render objects were created from). Fails closed without a live client.
+fn with_receiving_assets<R>(f: impl FnOnce(&ww3d_assets::AssetManager) -> R) -> Option<R> {
+    crate::core::game_client::with_live_game_client_mut(|client| {
+        f(client.render_bridge().asset_manager())
+    })
+}
+
+fn lookup_model_obj_bounds_in_assets(
+    assets: &ww3d_assets::AssetManager,
+    model: &str,
+) -> Option<([f32; 3], [f32; 3])> {
     let Some(proto) = assets.get_prototype_as::<HlodPrototype>(model) else {
         return Some(([0.0; 3], [0.0; 3]));
     };

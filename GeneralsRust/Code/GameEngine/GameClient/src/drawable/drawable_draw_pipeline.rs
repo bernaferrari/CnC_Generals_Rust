@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
-use crate::render_bridge::{self, DrainedDrawSubmission, DrawableId, get_render_bridge};
+use crate::render_bridge::{self, DrainedDrawSubmission, DrawableId};
 
 // ---------------------------------------------------------------------------
 // Vertex / Uniform layouts
@@ -515,25 +515,6 @@ impl DrawableDrawPipeline {
             .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[uniforms]));
     }
 
-    /// Flush the global RenderBridge, drain culled/sorted submissions, and record
-    /// draw calls into the given wgpu RenderPass.
-    ///
-    /// This is the main entry point called from `DrawableManager::render_pass_through()`.
-    pub fn record_draw(&mut self, pass: &mut wgpu::RenderPass) {
-        let submissions = {
-            let mut guard = get_render_bridge()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            match guard.as_mut() {
-                Some(bridge) => {
-                    bridge.flush_for_drawable_pipeline(self);
-                    bridge.drain_scene_submissions()
-                }
-                None => return,
-            }
-        };
-        self.record_submissions(pass, submissions);
-    }
 
     /// Flush and draw submissions from the receiving client's bridge.
     pub fn record_draw_with_bridge(
@@ -686,8 +667,8 @@ impl DrawableDrawPipeline {
         self.failed_textures.clear();
     }
 
-    /// Upload decoded RGBA8 pixels as `Rgba8UnormSrgb` (the lane's sRGB
-    /// contract) and cache the resulting bind group under `key`.
+    /// Upload decoded RGBA8 pixels as `Rgba8Unorm` (gamma-space, renderer
+    /// plan R8) and cache the resulting bind group under `key`.
     fn upload_texture_pixels(&mut self, key: &str, pixels: &DecodedTexturePixels) -> bool {
         if pixels.rgba.is_empty() || pixels.width == 0 || pixels.height == 0 {
             return false;
@@ -702,7 +683,7 @@ impl DrawableDrawPipeline {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -825,7 +806,7 @@ impl DrawableDrawPipeline {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });

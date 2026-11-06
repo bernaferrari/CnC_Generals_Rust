@@ -93,10 +93,6 @@ fn run_public_expiration(
 ) -> Result<ExpirationObservations, String> {
     // These are the existing application presentation boundaries, exercised
     // serially. No fixture lock, ambient clock write or substitute UI is added.
-    let previous_bridge = crate::render_bridge::THE_RENDER_BRIDGE
-        .lock()
-        .unwrap()
-        .replace(crate::render_bridge::RenderBridge::new());
     let previous_particles = get_particle_system_manager_mut()
         .unwrap()
         .replace(ParticleSystemManager::new());
@@ -161,7 +157,6 @@ fn run_public_expiration(
         })
     })();
     *get_particle_system_manager_mut().unwrap() = previous_particles;
-    *crate::render_bridge::THE_RENDER_BRIDGE.lock().unwrap() = previous_bridge;
     result
 }
 

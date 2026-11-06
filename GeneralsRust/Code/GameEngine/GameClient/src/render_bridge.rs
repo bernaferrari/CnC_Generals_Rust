@@ -1416,27 +1416,6 @@ impl RenderBridge {
     }
 }
 
-/// Snapshot visible lines from the global RenderBridge (empty if not initialized).
-pub fn snapshot_visible_scene_lines() -> Vec<FrozenSceneLine> {
-    let guard = THE_RENDER_BRIDGE.lock().unwrap_or_else(|e| e.into_inner());
-    let Some(bridge) = guard.as_ref() else {
-        return Vec::new();
-    };
-    bridge
-        .visible_scene_lines()
-        .into_iter()
-        .map(|(id, entry)| FrozenSceneLine {
-            id,
-            start: [entry.start.x, entry.start.y, entry.start.z],
-            end: [entry.end.x, entry.end.y, entry.end.z],
-            width: entry.width,
-            color: entry.color,
-            scroll_rate: entry.scroll_rate,
-            texture_name: entry.texture_name.clone(),
-            tile_factor: entry.tile_factor,
-        })
-        .collect()
-}
 
 fn mesh_prototype_names(asset_manager: &AssetManager) -> HashSet<String> {
     asset_manager
@@ -1842,42 +1821,41 @@ use game_engine::common::system::scene_submission::{
     SceneModelDesc, SceneProjectileStreamDesc, SceneSubmission as SceneSubmissionTrait,
 };
 
-impl SceneSubmissionTrait for RenderBridge {
+/// GameLogic's per-instance scene-submission sink (registered on the world's
+/// services by `GameClient::init_display_subsystems`). Logic-side draw
+/// modules (C++ `Add_Render_Object` for SegLine / models / streams) land in
+/// the receiving GameClient's own `RenderBridge`; there is no process bridge.
+pub struct LiveClientSceneSubmission;
+
+fn scene_line_entry(desc: &game_engine::common::system::scene_submission::SceneLineDesc) -> SceneLineEntry {
+    SceneLineEntry {
+        start: glam::Vec3::new(desc.start.x, desc.start.y, desc.start.z),
+        end: glam::Vec3::new(desc.end.x, desc.end.y, desc.end.z),
+        width: desc.width,
+        color: [desc.color_r, desc.color_g, desc.color_b, desc.opacity],
+        texture_name: desc.texture_name.clone().unwrap_or_default(),
+        tile_factor: desc.tile_factor,
+        scroll_rate: desc.scroll_rate,
+        visible: desc.visible,
+    }
+}
+
+impl SceneSubmissionTrait for LiveClientSceneSubmission {
     fn submit_line(
         &self,
-        _drawable_id: u32,
+        drawable_id: u32,
         desc: &game_engine::common::system::scene_submission::SceneLineDesc,
     ) -> Option<game_engine::common::system::scene_submission::SceneLineId> {
-        let mut guard = THE_RENDER_BRIDGE.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(bridge) = guard.as_mut() {
-            let id = crate::core::game_client::with_live_game_client_mut(|client| {
-                client.next_render_bridge_line_id()
-            })
-            .unwrap_or_else(|| {
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_nanos() as u64)
-                    .unwrap_or(1)
-            });
-            let entry = SceneLineEntry {
-                start: glam::Vec3::new(desc.start.x, desc.start.y, desc.start.z),
-                end: glam::Vec3::new(desc.end.x, desc.end.y, desc.end.z),
-                width: desc.width,
-                color: [desc.color_r, desc.color_g, desc.color_b, desc.opacity],
-                texture_name: desc.texture_name.clone().unwrap_or_default(),
-                tile_factor: desc.tile_factor,
-                scroll_rate: desc.scroll_rate,
-                visible: desc.visible,
-            };
-            bridge.scene_lines.insert(id, entry);
-            log::debug!(
-                "SceneSubmission::submit_line drawable_id={} id={}",
-                _drawable_id,
-                id
-            );
-            return Some(id);
-        }
-        None
+        let id = crate::core::game_client::with_live_game_client_mut(|client| {
+            let id = client.next_render_bridge_line_id();
+            client
+                .render_bridge_mut()
+                .scene_lines
+                .insert(id, scene_line_entry(desc));
+            id
+        })?;
+        log::debug!("SceneSubmission::submit_line drawable_id={drawable_id} id={id}");
+        Some(id)
     }
 
     fn update_line(
@@ -1885,52 +1863,41 @@ impl SceneSubmissionTrait for RenderBridge {
         id: game_engine::common::system::scene_submission::SceneLineId,
         desc: &game_engine::common::system::scene_submission::SceneLineDesc,
     ) {
-        let mut guard = THE_RENDER_BRIDGE.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(bridge) = guard.as_mut() {
-            if let Some(entry) = bridge.scene_lines.get_mut(&id) {
-                entry.start = glam::Vec3::new(desc.start.x, desc.start.y, desc.start.z);
-                entry.end = glam::Vec3::new(desc.end.x, desc.end.y, desc.end.z);
-                entry.width = desc.width;
-                entry.color = [desc.color_r, desc.color_g, desc.color_b, desc.opacity];
-                entry.texture_name = desc.texture_name.clone().unwrap_or_default();
-                entry.tile_factor = desc.tile_factor;
-                entry.scroll_rate = desc.scroll_rate;
-                entry.visible = desc.visible;
+        let _ = crate::core::game_client::with_live_game_client_mut(|client| {
+            if let Some(entry) = client.render_bridge_mut().scene_lines.get_mut(&id) {
+                *entry = scene_line_entry(desc);
             }
-        }
+        });
         log::debug!("SceneSubmission::update_line id={}", id);
     }
 
     fn remove_line(&self, id: game_engine::common::system::scene_submission::SceneLineId) {
-        let mut guard = THE_RENDER_BRIDGE.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(bridge) = guard.as_mut() {
-            bridge.scene_lines.remove(&id);
-        }
+        let _ = crate::core::game_client::with_live_game_client_mut(|client| {
+            client.render_bridge_mut().scene_lines.remove(&id);
+        });
         log::debug!("SceneSubmission::remove_line id={}", id);
     }
 
     fn submit_model(&self, desc: SceneModelDesc) {
-        let mut guard = THE_RENDER_BRIDGE.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(bridge) = guard.as_mut() {
-            let submission = DrawSubmission::from_scene_model_desc(desc);
-            bridge.submit(submission);
-        }
+        let submission = DrawSubmission::from_scene_model_desc(desc);
+        let _ = crate::core::game_client::with_live_game_client_mut(|client| {
+            client.render_bridge_mut().submit(submission);
+        });
     }
 
     fn submit_projectile_stream(&self, desc: SceneProjectileStreamDesc) {
-        let mut guard = THE_RENDER_BRIDGE.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(bridge) = guard.as_mut() {
-            let ps = ProjectileStreamSubmission::from_scene_desc(desc);
-            bridge.submit_projectile_stream(ps);
-        }
+        let stream = ProjectileStreamSubmission::from_scene_desc(desc);
+        let _ = crate::core::game_client::with_live_game_client_mut(|client| {
+            client.render_bridge_mut().submit_projectile_stream(stream);
+        });
     }
 
     fn begin_logic_frame(&self) {
-        let mut guard = THE_RENDER_BRIDGE.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(bridge) = guard.as_mut() {
+        let _ = crate::core::game_client::with_live_game_client_mut(|client| {
+            let bridge = client.render_bridge_mut();
             bridge.pending.clear();
             bridge.pending_projectile_streams.clear();
-        }
+        });
     }
 
     fn end_logic_frame(&self) {}
@@ -2036,30 +2003,12 @@ fn matrix3x4_is_finite(matrix: &gamelogic::object::w3d_ghost_object::Matrix3x4) 
     matrix.rows.iter().flatten().all(|value| value.is_finite())
 }
 
-// Global singleton instance
-lazy_static::lazy_static! {
-    pub static ref THE_RENDER_BRIDGE: Mutex<Option<RenderBridge>> = Mutex::new(None);
-}
-
-pub fn init_render_bridge() {
-    let mut guard = THE_RENDER_BRIDGE.lock().unwrap_or_else(|e| e.into_inner());
-    *guard = Some(RenderBridge::new());
-}
-
-pub fn get_render_bridge() -> &'static Mutex<Option<RenderBridge>> {
-    &THE_RENDER_BRIDGE
-}
-
 /// Submit a scene line to the live RenderBridge (C++ `Add_Render_Object` for SegLine).
 pub fn submit_bridge_scene_line(
     desc: &game_engine::common::system::scene_submission::SceneLineDesc,
 ) -> Option<game_engine::common::system::scene_submission::SceneLineId> {
     use game_engine::common::system::scene_submission::SceneSubmission;
-    let bridge = RenderBridge::new();
-    if let Some(id) = SceneSubmission::submit_line(&bridge, 0, desc) {
-        return Some(id);
-    }
-    None
+    LiveClientSceneSubmission.submit_line(0, desc)
 }
 
 // ---------------------------------------------------------------------------
@@ -3612,14 +3561,15 @@ mod tests {
     }
 
     #[test]
-    fn register_scene_submission_and_submit_line_makes_visible_scene_lines() {
+    fn scene_submission_lands_in_the_receiving_clients_bridge() {
         crate::test_support::ensure_ambient_host();
         use game_engine::common::system::geometry::Coord3D;
         use game_engine::common::system::scene_submission::{SceneLineDesc, SceneSubmission};
         use std::sync::Arc;
 
-        init_render_bridge();
-        let _ = gamelogic::helpers::register_scene_submission(Arc::new(RenderBridge::new()));
+        let mut client = crate::core::game_client::GameClient::new().expect("client");
+        crate::core::game_client::register_live_game_client(&mut client);
+        let _ = gamelogic::helpers::register_scene_submission(Arc::new(LiveClientSceneSubmission));
         let desc = SceneLineDesc {
             start: Coord3D::new(0.0, 0.0, 0.0),
             end: Coord3D::new(10.0, 0.0, 1.0),
@@ -3633,16 +3583,16 @@ mod tests {
             tile_factor: 1.0,
             visible: true,
         };
-        if gamelogic::helpers::submit_scene_line(7, &desc).is_none() {
-            let _ = RenderBridge::new().submit_line(7, &desc);
-        }
-        let lines = snapshot_visible_scene_lines();
-        assert!(
-            !lines.is_empty(),
-            "submit_scene_line must populate visible_scene_lines"
-        );
-        assert!((lines[0].start[0] - 0.0).abs() < f32::EPSILON);
+        let id = gamelogic::helpers::submit_scene_line(7, &desc)
+            .or_else(|| LiveClientSceneSubmission.submit_line(7, &desc))
+            .expect("live client accepts the line");
+        let lines = client.render_bridge().snapshot_visible_scene_lines();
+        assert_eq!(lines.len(), 1, "the line lives on this client's bridge");
+        assert_eq!(lines[0].id, id);
         assert!((lines[0].end[0] - 10.0).abs() < f32::EPSILON);
         assert!((lines[0].width - 2.0).abs() < f32::EPSILON);
+        LiveClientSceneSubmission.remove_line(id);
+        assert!(client.render_bridge().snapshot_visible_scene_lines().is_empty());
+        crate::core::game_client::clear_live_game_client(&mut client);
     }
 }

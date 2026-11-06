@@ -363,64 +363,81 @@ impl TerrainVisualImpl {
                     vertex_weights.push(blended);
                 }
 
-                for (vert_index, (vertex, blended)) in gpu_vertices
-                    .iter_mut()
-                    .zip(vertex_weights.iter())
-                    .enumerate()
-                {
-                    let mut packed_indices = [0u16; MAX_BLEND_WEIGHTS];
-                    let mut packed_weights = [0.0f32; MAX_BLEND_WEIGHTS];
-
-                    let mut insert_count = 0usize;
-                    for (texture_id, weight) in blended.iter_pairs() {
-                        if weight <= 0.0 {
-                            break;
+                // Bound slot per weight. The fragment shader reads the slots
+                // flat, so every corner of a cell gets the same slot set (the
+                // union over the cell, strongest four, sorted by slot) and its
+                // own weight for each slot.
+                let fallback_slot = shared_slot_map
+                    .get(stable_texture_ids.first().unwrap())
+                    .copied()
+                    .unwrap_or(0) as u16;
+                let slot_weights: Vec<Vec<(u16, f32)>> = vertex_weights
+                    .iter()
+                    .map(|blended| {
+                        let mut pairs: Vec<(u16, f32)> = Vec::new();
+                        for (texture_id, weight) in blended.iter_pairs() {
+                            let slot = shared_slot_map
+                                .get(&texture_id)
+                                .copied()
+                                .map(|slot| slot as u16)
+                                .unwrap_or(fallback_slot);
+                            match pairs.iter_mut().find(|(s, _)| *s == slot) {
+                                Some(entry) => entry.1 += weight,
+                                None => pairs.push((slot, weight)),
+                            }
                         }
-
-                        let slot_idx = shared_slot_map
-                            .get(&texture_id)
-                            .copied()
-                            .or_else(|| {
-                                shared_slot_map
-                                    .get(stable_texture_ids.first().unwrap())
-                                    .copied()
-                            })
-                            .unwrap_or(0);
-
-                        if insert_count < MAX_BLEND_WEIGHTS {
-                            packed_indices[insert_count] = slot_idx as u16;
-                            packed_weights[insert_count] = weight;
-                            insert_count += 1;
+                        pairs
+                    })
+                    .collect();
+                let mut packed_per_vertex =
+                    vec![([0u16; MAX_BLEND_WEIGHTS], [0.0f32; MAX_BLEND_WEIGHTS]); gpu_vertices.len()];
+                let mut group_start = 0usize;
+                while group_start < gpu_vertices.len() {
+                    let mut group_end = group_start + 1;
+                    while group_end < gpu_vertices.len()
+                        && cell_centers[group_end] == cell_centers[group_start]
+                    {
+                        group_end += 1;
+                    }
+                    let mut union: Vec<(u16, f32)> = Vec::new();
+                    for pairs in &slot_weights[group_start..group_end] {
+                        for &(slot, weight) in pairs {
+                            match union.iter_mut().find(|(s, _)| *s == slot) {
+                                Some(entry) => entry.1 += weight,
+                                None => union.push((slot, weight)),
+                            }
+                        }
+                    }
+                    union.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+                    union.truncate(MAX_BLEND_WEIGHTS);
+                    union.sort_by_key(|(slot, _)| *slot);
+                    if union.is_empty() {
+                        union.push((fallback_slot, 1.0));
+                    }
+                    for vert in group_start..group_end {
+                        let (indices, weights) = &mut packed_per_vertex[vert];
+                        for (k, &(slot, _)) in union.iter().enumerate() {
+                            indices[k] = slot;
+                            weights[k] = slot_weights[vert]
+                                .iter()
+                                .find(|(s, _)| *s == slot)
+                                .map_or(0.0, |(_, w)| *w);
+                        }
+                        let sum: f32 = weights.iter().sum();
+                        if sum > f32::EPSILON {
+                            for weight in weights.iter_mut() {
+                                *weight /= sum;
+                            }
                         } else {
-                            let mut weakest = 0usize;
-                            let mut weakest_weight = packed_weights[0];
-                            for idx in 1..MAX_BLEND_WEIGHTS {
-                                if packed_weights[idx] < weakest_weight {
-                                    weakest_weight = packed_weights[idx];
-                                    weakest = idx;
-                                }
-                            }
-
-                            if weight > weakest_weight {
-                                packed_indices[weakest] = slot_idx as u16;
-                                packed_weights[weakest] = weight;
-                            }
+                            *weights = [0.0; MAX_BLEND_WEIGHTS];
+                            weights[0] = 1.0;
                         }
                     }
+                    group_start = group_end;
+                }
 
-                    let sum: f32 = packed_weights.iter().sum();
-                    if sum > f32::EPSILON {
-                        for weight in &mut packed_weights {
-                            *weight /= sum;
-                        }
-                    } else {
-                        packed_weights[0] = 1.0;
-                        packed_indices[0] = shared_slot_map
-                            .get(stable_texture_ids.first().unwrap())
-                            .copied()
-                            .unwrap_or(0) as u16;
-                    }
-
+                for (vert_index, vertex) in gpu_vertices.iter_mut().enumerate() {
+                    let (packed_indices, packed_weights) = packed_per_vertex[vert_index];
                     vertex.blend_indices = packed_indices;
                     vertex.blend_weights = packed_weights;
                     if let Some(hm) = self.height_map.as_ref() {
@@ -1533,7 +1550,7 @@ impl TerrainVisualImpl {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -1591,7 +1608,7 @@ impl TerrainVisualImpl {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -1707,7 +1724,7 @@ impl TerrainVisualImpl {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -1908,7 +1925,7 @@ impl TerrainVisualImpl {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -2363,7 +2380,9 @@ impl TerrainVisualImpl {
                     tex_coords: vertex.tex_coords,
                     // C++ second pass samples extra-blend tile art (blend.blend_ndx),
                     // not the base slot-0 procedural texture (hq-qar9).
-                    blend_indices: [1, 0, 0, 0],
+                    // Weight 0 is slot 0 of the chunk binding (what the
+                    // pre-index shader sampled for this pass).
+                    blend_indices: [0, 0, 0, 0],
                     blend_weights: [1.0, 0.0, 0.0, 0.0],
                     color,
                 }
@@ -2802,7 +2821,13 @@ fn cell_class_uv(
     };
     let width = class.width.max(1);
     let tile = (i32::try_from(packed).unwrap_or(0) - class.first_tile).max(0);
-    let (column, row) = ((tile % width) as f32, (tile / width).min(width - 1) as f32);
+    // C++ updateTileTexturePositions places class tile (i, j) at
+    // y = yOrigin + (width - j - 1) * TILE_PIXEL_EXTENT: row 0 is the bottom
+    // row of the class block, so moving north (j + 1) moves up the texture.
+    let (column, row) = (
+        (tile % width) as f32,
+        (width - 1 - (tile / width).min(width - 1)) as f32,
+    );
     let width = width as f32;
     [(uv[0] + column) / width, (uv[1] + row) / width]
 }
@@ -2972,7 +2997,8 @@ mod splat_texture_class_tests {
             "Dirt".to_string(),
             "Art/Terrain/Dirt.tga".to_string(),
         ));
-        let stable = [grass, rock, snow, dirt];
+        let mut stable = [grass; MAX_TEXTURES_PER_CHUNK];
+        stable[..4].copy_from_slice(&[grass, rock, snow, dirt]);
         let mut slot_map = HashMap::new();
         for (slot, id) in stable.iter().enumerate() {
             slot_map.entry(*id).or_insert(slot);

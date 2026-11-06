@@ -955,17 +955,11 @@ impl ForwardPass {
 
     /// Decode and package an archive texture for the mesh bind path.
     ///
-    /// Format: color textures upload as `Rgba8UnormSrgb`. The scene target is
-    /// `Bgra8UnormSrgb` and mesh pass textures are color content, so the sRGB
-    /// view format makes the sampler linearize the authored bytes exactly once
-    /// (lighting math linear, sRGB target re-encodes on store) — the C++
-    /// single gamma-correct path (dx8renderer.cpp:1771-1775). The previous
-    /// `Rgba8Unorm` choice sampled already-encoded bytes as linear and the
-    /// sRGB target re-encoded them again: gamma applied twice, washing every
-    /// unit texture toward white. Alpha content does not change the format —
-    /// sRGB governs the RGB channels only — so the former has_alpha branch
-    /// (which returned the same format in both arms) collapses into one
-    /// choice; `raw.has_alpha` stays on RawTexture for blend consumers.
+    /// Format: colour textures upload as `Rgba8Unorm` onto a `*Unorm` scene
+    /// target. DX8 never linearizes: texture bytes, lighting, blending and fog
+    /// all operate on stored (gamma-space) values (renderer plan R8 / G6).
+    /// Alpha content does not change the format; `raw.has_alpha` stays on
+    /// RawTexture for blend consumers.
     fn build_texture(texture_name: &str, raw: &RawTexture) -> Result<Arc<TextureClass>> {
         // C++ W3DTextureLoad (W3DAssetManager) hands the rasterizer uncompressed
         // 32-bit surfaces. The mesh bind path (MeshRenderManager::
@@ -998,7 +992,7 @@ impl ForwardPass {
             texture_name,
             raw.width,
             raw.height,
-            TextureFormat::Rgba8UnormSrgb,
+            TextureFormat::Rgba8Unorm,
         );
         texture
             .replace_pixels(data)
@@ -1117,16 +1111,15 @@ mod build_texture_tests {
     }
 
     #[test]
-    fn color_textures_upload_as_srgb_for_single_gamma_correction() {
+    fn color_textures_upload_as_gamma_space_unorm() {
         // Uncompressed payload: the format choice itself is the contract. The
-        // scene target is Bgra8UnormSrgb; uploading color bytes as Rgba8Unorm
-        // double-applied gamma and washed textures white.
+        // scene target is *Unorm; DX8 samples and blends stored bytes as-is.
         let texture =
             ForwardPass::build_texture("plain", &raw_with(None, 4, 4)).expect("uncompressed build");
         assert_eq!(
             texture.format,
-            TextureFormat::Rgba8UnormSrgb,
-            "color pass textures must sample linearized exactly once"
+            TextureFormat::Rgba8Unorm,
+            "color pass textures are never linearized"
         );
     }
 
@@ -1139,7 +1132,7 @@ mod build_texture_tests {
         let texture =
             ForwardPass::build_texture("skin", &raw_with(Some(DdsCompression::Dxt1), 8, 4))
                 .expect("DXT1 build");
-        assert_eq!(texture.format, TextureFormat::Rgba8UnormSrgb);
+        assert_eq!(texture.format, TextureFormat::Rgba8Unorm);
         assert_eq!(texture.raw_pixels().len(), 8 * 4 * 4);
         // color0 = 0xF800 decodes to opaque red in the first pixel.
         assert_eq!(&texture.raw_pixels()[..4], &[255, 0, 0, 255]);
@@ -1154,7 +1147,7 @@ mod build_texture_tests {
             let texture =
                 ForwardPass::build_texture("skin_alpha", &raw_with(Some(compression), 8, 8))
                     .unwrap_or_else(|e| panic!("{compression:?} build failed: {e}"));
-            assert_eq!(texture.format, TextureFormat::Rgba8UnormSrgb);
+            assert_eq!(texture.format, TextureFormat::Rgba8Unorm);
             assert_eq!(texture.raw_pixels().len(), 8 * 8 * 4);
             // First pixel keeps full alpha from its block encoding.
             assert_eq!(texture.raw_pixels()[3], 255, "{compression:?} alpha");

@@ -154,10 +154,6 @@ fn receiving_material_threshold_look_rules_and_native_xfer_continue() {
 #[test]
 fn actual_native_material_shell_obeys_repeat_and_freeze_admission() {
     crate::test_support::ensure_ambient_host();
-    let previous_bridge = crate::render_bridge::THE_RENDER_BRIDGE
-        .lock()
-        .unwrap()
-        .replace(crate::render_bridge::RenderBridge::new());
     let previous_particles = get_particle_system_manager_mut()
         .unwrap()
         .replace(ParticleSystemManager::new());
@@ -261,7 +257,6 @@ fn actual_native_material_shell_obeys_repeat_and_freeze_admission() {
         Ok(observations)
     })();
     *get_particle_system_manager_mut().unwrap() = previous_particles;
-    *crate::render_bridge::THE_RENDER_BRIDGE.lock().unwrap() = previous_bridge;
     assert_eq!(
         result.unwrap(),
         [0.8, 0.8, 0.8, 0.8 * 0.8, 1.0, 0.8, 0.0, 0.8]

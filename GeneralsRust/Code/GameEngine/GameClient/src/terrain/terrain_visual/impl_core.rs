@@ -246,6 +246,8 @@ impl TerrainVisualImpl {
             fog_start: 0.0,
             fog_end: 0.0,
             time: 0.0,
+            last_animation_frame: None,
+            last_water_frame: None,
             oversize_amount: 0,
             draw_width: NORMAL_DRAW_WIDTH,
             draw_height: NORMAL_DRAW_HEIGHT,

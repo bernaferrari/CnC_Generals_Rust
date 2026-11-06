@@ -1027,7 +1027,7 @@ impl Engine {
 
         let format = config
             .color_format
-            .unwrap_or(wgpu::TextureFormat::Bgra8UnormSrgb);
+            .unwrap_or(wgpu::TextureFormat::Bgra8Unorm);
 
         let depth_format = config.enable_depth.then_some(config.depth_format);
 
@@ -2248,10 +2248,14 @@ fn select_surface_format(
         }
     }
 
+    // Colour space (renderer plan R8): the back buffer stores gamma-space
+    // values like the DX8 one, so prefer the formats every pipeline targets
+    // (`Bgra8Unorm`, then any non-sRGB format).
     supported
         .iter()
         .copied()
-        .find(|format| format.is_srgb())
+        .find(|format| *format == wgpu::TextureFormat::Bgra8Unorm)
+        .or_else(|| supported.iter().copied().find(|format| !format.is_srgb()))
         .unwrap_or_else(|| supported[0])
 }
 

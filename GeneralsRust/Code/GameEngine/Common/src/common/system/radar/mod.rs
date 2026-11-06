@@ -1723,10 +1723,14 @@ impl RadarSystem {
         }
 
         let index = (y as usize * RADAR_CELL_WIDTH as usize) + x as usize;
-        if index < self.shroud_grid.len() {
-            self.shroud_grid[index] = status;
+        if let Some(cell) = self.shroud_grid.get_mut(index) {
+            // The revision keys the resident radar shroud texture; repainting
+            // a cell with its current status is not a change.
+            if *cell != status {
+                *cell = status;
+                self.shroud_revision = self.shroud_revision.wrapping_add(1);
+            }
             self.terrain_dirty = true;
-            self.shroud_revision = self.shroud_revision.wrapping_add(1);
         }
     }
 
@@ -1823,6 +1827,8 @@ impl RadarSystem {
             return; // Shroud disabled or GPS active
         }
 
+        let revision_before = self.shroud_revision;
+        let grid_before = self.shroud_grid.clone();
         // Mark all clear cells as fogged (fog of war)
         for cell in &mut self.shroud_grid {
             if *cell == CellShroudStatus::Clear {
@@ -1856,7 +1862,12 @@ impl RadarSystem {
         }
 
         self.terrain_dirty = true;
-        self.shroud_revision = self.shroud_revision.wrapping_add(1);
+        // Only a net change of the grid invalidates the resident shroud texture.
+        self.shroud_revision = if self.shroud_grid == grid_before {
+            revision_before
+        } else {
+            revision_before.wrapping_add(1)
+        };
     }
 
     /// Check if shroud is cleared
