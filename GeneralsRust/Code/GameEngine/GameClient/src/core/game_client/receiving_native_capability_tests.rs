@@ -174,12 +174,6 @@ fn public_shell_missing_native_capabilities_reaches_actual_hud_and_existing_fx()
         .expect("standalone command manager")
         .initialize_player(0)
         .expect("fresh local player command queue");
-    let mut bridge = crate::render_bridge::RenderBridge::new();
-    *bridge.asset_manager_mut() = static_asset();
-    let previous_bridge = crate::render_bridge::THE_RENDER_BRIDGE
-        .lock()
-        .unwrap()
-        .replace(bridge);
     let mut manager = emitter_manager();
     let independent = admit_independent_particle(&mut manager, 37);
     let observed = (|| -> Result<_, String> {
@@ -238,7 +232,6 @@ fn public_shell_missing_native_capabilities_reaches_actual_hud_and_existing_fx()
             tracks,
         ))
     })();
-    *crate::render_bridge::THE_RENDER_BRIDGE.lock().unwrap() = previous_bridge;
     let (result, gaps, hud, lifetime, supported_emitters, animated, tracks) = observed.unwrap();
     assert!(
         result.is_ok(),

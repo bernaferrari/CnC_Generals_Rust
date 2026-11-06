@@ -56,10 +56,13 @@ impl GameClient {
                     gamelogic::object::w3d_ghost_object::capture_w3d_ghost_snapshot_source(
                         object_id,
                     )?;
-                let mut bridge_guard = crate::render_bridge::get_render_bridge().lock().ok()?;
-                let bridge = bridge_guard.as_mut()?;
-                let generation = bridge.capture_window_generation_for_source(&source)?;
-                bridge.materialize_exact_mesh_w3d_ghost_capture_at(&source, generation)
+                // The receiving client's own bridge holds the capture window.
+                crate::core::game_client::with_live_game_client_mut(|client| {
+                    let bridge = client.render_bridge_mut();
+                    let generation = bridge.capture_window_generation_for_source(&source)?;
+                    bridge.materialize_exact_mesh_w3d_ghost_capture_at(&source, generation)
+                })
+                .flatten()
             }),
         ));
     }
@@ -880,9 +883,8 @@ impl GameClient {
             self.subsystem_manager.display_strings = Some(Arc::new(Mutex::new(display_strings)));
         }
 
-        crate::render_bridge::init_render_bridge();
         let _ = gamelogic::helpers::register_scene_submission(Arc::new(
-            crate::render_bridge::RenderBridge::new(),
+            crate::render_bridge::LiveClientSceneSubmission,
         ));
 
         log::debug!("init_display_subsystems done");

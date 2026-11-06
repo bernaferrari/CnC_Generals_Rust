@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
-use crate::render_bridge::{self, DrainedDrawSubmission, DrawableId, get_render_bridge};
+use crate::render_bridge::{self, DrainedDrawSubmission, DrawableId};
 
 // ---------------------------------------------------------------------------
 // Vertex / Uniform layouts
@@ -515,25 +515,6 @@ impl DrawableDrawPipeline {
             .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[uniforms]));
     }
 
-    /// Flush the global RenderBridge, drain culled/sorted submissions, and record
-    /// draw calls into the given wgpu RenderPass.
-    ///
-    /// This is the main entry point called from `DrawableManager::render_pass_through()`.
-    pub fn record_draw(&mut self, pass: &mut wgpu::RenderPass) {
-        let submissions = {
-            let mut guard = get_render_bridge()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            match guard.as_mut() {
-                Some(bridge) => {
-                    bridge.flush_for_drawable_pipeline(self);
-                    bridge.drain_scene_submissions()
-                }
-                None => return,
-            }
-        };
-        self.record_submissions(pass, submissions);
-    }
 
     /// Flush and draw submissions from the receiving client's bridge.
     pub fn record_draw_with_bridge(

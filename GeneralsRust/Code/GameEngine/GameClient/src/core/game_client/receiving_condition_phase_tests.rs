@@ -67,10 +67,6 @@ struct Observation {
 fn run_public_phase(decal: bool, expires: bool, restore: bool) -> Result<Observation, String> {
     // Existing application boundaries, restored before any test assertions.
     // No fixture serialization mutex or ambient frame mutation is introduced.
-    let previous_bridge = crate::render_bridge::THE_RENDER_BRIDGE
-        .lock()
-        .unwrap()
-        .replace(crate::render_bridge::RenderBridge::new());
     let previous_particles = get_particle_system_manager_mut()
         .unwrap()
         .replace(ParticleSystemManager::new());
@@ -211,7 +207,6 @@ fn run_public_phase(decal: bool, expires: bool, restore: bool) -> Result<Observa
         })
     })();
     *get_particle_system_manager_mut().unwrap() = previous_particles;
-    *crate::render_bridge::THE_RENDER_BRIDGE.lock().unwrap() = previous_bridge;
     result
 }
 fn assert_live(observed: &Observation, decal: bool) {
