@@ -37,6 +37,19 @@ impl ThingTemplate {
             })
     }
 
+    /// C++ `WorkerAIUpdate::getUpgradedSupplyBoost` (WorkerAIUpdate.cpp:1376):
+    /// the authored `UpgradedSupplyBoost` of this template's `WorkerAIUpdate`
+    /// while the controlling player has completed `Upgrade_GLAWorkerShoes`,
+    /// otherwise 0. A template without that module never boosts.
+    pub(crate) fn worker_upgraded_supply_boost(&self, player_has_worker_shoes: bool) -> u32 {
+        if player_has_worker_shoes && self.worker_ai_update {
+            self.supply_truck_metadata
+                .map_or(0, |metadata| metadata.upgraded_supply_boost)
+        } else {
+            0
+        }
+    }
+
     /// First authored behavior module of `class` whose typed module data is `T`.
     pub(crate) fn authored_module_data<T: 'static>(&self, class: &str) -> Option<&T> {
         self.receiving_client_template
@@ -59,5 +72,46 @@ impl ThingTemplate {
             .filter(|entry| entry.name.as_str().eq_ignore_ascii_case(class))
             .filter_map(|entry| entry.data.downcast_ref::<T>())
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod worker_boost_tests {
+    use crate::game_logic::{GameLogic, Team};
+
+    fn world() -> GameLogic {
+        let mut world = GameLogic::new();
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "receiving-worker-boost.ini".into(),
+                    "Object PlainHauler\nKindOf = INFANTRY SELECTABLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = WorkerAIUpdate WorkerTag\nUpgradedSupplyBoost = 8\nMaxBoxes = 3\nEnd\nEnd\n\
+                     Object GLAInfantryWorker\nKindOf = INFANTRY SELECTABLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n"
+                        .into(),
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        world
+    }
+
+    #[test]
+    fn upgraded_boost_follows_the_authored_worker_module_not_the_name() {
+        let mut world = world();
+        let hauler = world.create_object("PlainHauler", Team::GLA, glam::Vec3::ZERO).unwrap();
+        let named = world
+            .create_object("GLAInfantryWorker", Team::GLA, glam::Vec3::ZERO)
+            .unwrap();
+        let boost = |world: &GameLogic, id, shoes| {
+            world
+                .host_object(id)
+                .unwrap()
+                .thing()
+                .template
+                .worker_upgraded_supply_boost(shoes)
+        };
+        assert_eq!(boost(&world, hauler, true), 8);
+        assert_eq!(boost(&world, hauler, false), 0);
+        assert_eq!(boost(&world, named, true), 0);
     }
 }

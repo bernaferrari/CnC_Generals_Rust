@@ -22,7 +22,7 @@ pub use template_metadata::{
 mod authored_modules;
 mod template;
 pub(crate) use template::BodyKind;
-pub use template::ThingTemplate;
+pub use template::{ThingTemplate, UpgradeMuxTriggers};
 pub(crate) use template::{ReceivingClientTemplate, ReceivingDrawModels};
 mod build_prerequisites;
 pub(crate) use build_prerequisites::PrerequisiteDefinitions;

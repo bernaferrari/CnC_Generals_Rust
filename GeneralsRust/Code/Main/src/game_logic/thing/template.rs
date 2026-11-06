@@ -426,6 +426,29 @@ impl ReceivingClientTemplate {
     }
 }
 
+/// C++ `UpgradeMuxData` trigger fields of one authored upgrade module
+/// (`TriggeredBy`, `ConflictsWith`, `RequiresAllTriggers`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpgradeMuxTriggers {
+    pub triggered_by: Vec<String>,
+    pub conflicts_with: Vec<String>,
+    pub requires_all: bool,
+}
+
+impl UpgradeMuxTriggers {
+    /// UpgradeMux::testUpgradeConditions against the upgrade set `has`.
+    pub fn satisfied_by(&self, has: &impl Fn(&str) -> bool) -> bool {
+        if self.triggered_by.is_empty() || self.conflicts_with.iter().any(|name| has(name)) {
+            return false;
+        }
+        if self.requires_all {
+            self.triggered_by.iter().all(|name| has(name))
+        } else {
+            self.triggered_by.iter().any(|name| has(name))
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThingTemplate {
     pub name: String,
@@ -722,6 +745,14 @@ pub struct ThingTemplate {
     /// `UnpauseSpecialPowerUpgrade::TriggeredBy` for that same capture power.
     #[serde(default)]
     pub capture_upgrade_trigger: Option<String>,
+    /// The template authors `WorkerAIUpdate` as its supply AI module (its
+    /// `UpgradedSupplyBoost` is paid while the player has Worker Shoes).
+    #[serde(default)]
+    pub worker_ai_update: bool,
+    /// UpgradeMux trigger rules of every authored `StealthUpgrade` module
+    /// (StealthUpgrade.cpp sets CAN_STEALTH when one is satisfied).
+    #[serde(default)]
+    pub stealth_upgrades: Vec<UpgradeMuxTriggers>,
     /// `SpecialAbilityUpdate::StartAbilityRange`.  The authority state uses
     /// this rather than a hero/template-name range fallback.
     #[serde(default)]
@@ -1233,6 +1264,8 @@ impl ThingTemplate {
             capture_power: CapturePowerKind::None,
             capture_starts_paused: false,
             capture_upgrade_trigger: None,
+            stealth_upgrades: Vec::new(),
+            worker_ai_update: false,
             capture_start_ability_range: None,
             capture_unpack_time_ms: None,
             capture_preparation_time_ms: None,

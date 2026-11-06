@@ -481,18 +481,14 @@ impl GameLogic {
             // A Player recheck visits every member, but an unrelated member
             // must not execute this family's generic residual callbacks.
             use crate::game_logic::host_upgrades::{
-                HostUpgradeKind, is_camo_netting_structure_template, is_camouflage_unit_template,
-                is_supply_center_template,
+                HostUpgradeKind, is_supply_center_template,
             };
             match HostUpgradeKind::from_name(upgrade_name) {
-                HostUpgradeKind::Camouflage
-                    if !object.is_kind_of(KindOf::Infantry)
-                        || !is_camouflage_unit_template(&object.template_name) =>
-                {
-                    return false;
-                }
-                HostUpgradeKind::CamoNetting
-                    if !is_camo_netting_structure_template(&object.template_name) =>
+                HostUpgradeKind::Camouflage | HostUpgradeKind::CamoNetting
+                    if !super::authored_upgrade_modules::authors_triggered_stealth_upgrade(
+                        &object.thing().template,
+                        |name| name.eq_ignore_ascii_case(upgrade_name),
+                    ) =>
                 {
                     return false;
                 }
@@ -651,9 +647,9 @@ impl GameLogic {
             HostUpgradeKind::CompositeArmor
             | HostUpgradeKind::DroneArmor
             | HostUpgradeKind::AircraftArmor => 0,
-            HostUpgradeKind::WorkerShoes => {
-                self.apply_worker_shoes_unlock_to_team(recipients, upgrade_name)
-            }
+            // LocomotorSetUpgrade (object_upgrade_callbacks.rs) and
+            // WorkerAIUpdate::getUpgradedSupplyBoost own Worker Shoes.
+            HostUpgradeKind::WorkerShoes => 0,
             HostUpgradeKind::BoobyTrap => {
                 self.apply_booby_trap_unlock_to_team(recipients, upgrade_name)
             }

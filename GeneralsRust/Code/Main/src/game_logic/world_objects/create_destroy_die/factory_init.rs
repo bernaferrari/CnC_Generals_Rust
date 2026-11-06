@@ -309,38 +309,6 @@ impl GameLogic {
             reset_continuous_fire_state(object);
         }
 
-        // C++ Object::initObject → updateUpgradeModules: PLAYER_UPGRADE mask
-        // (Upgrade_GLAWorkerShoes) fires LocomotorSetUpgrade on new workers.
-        // Live research only stamps objects alive at complete; inherit here.
-        // Owner-player only — same-faction leak is not C++ getControllingPlayer.
-        if crate::game_logic::host_gla_worker::is_gla_worker_template(template_name) {
-            use crate::game_logic::host_gla_worker::{
-                UPGRADE_GLA_WORKER_SHOES, worker_residual_speed,
-            };
-            let player_has_shoes = owner_player_id
-                .and_then(|pid| players.get(&pid))
-                .is_some_and(|p| p.has_unlocked_upgrade(UPGRADE_GLA_WORKER_SHOES));
-            let shoes = (allow_upgrades && object.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES))
-                || player_has_shoes;
-            if shoes && !(allow_upgrades && object.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES)) {
-                object.apply_upgrade_tag(UPGRADE_GLA_WORKER_SHOES);
-                let _ =
-                    crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_upgrade_in(
-                        object,
-                        UPGRADE_GLA_WORKER_SHOES,
-                        self.locomotor_definitions.as_ref(),
-                    );
-            }
-            if object
-                .thing()
-                .template
-                .receiving_object_definition
-                .is_none()
-            {
-                object.movement.max_speed = worker_residual_speed(shoes);
-            }
-        }
-
         // Host residual: GLA RPG Trooper / Tunnel Defender PRIMARY rocket residual.
         // Fail-closed: not full ScatterRadiusVsInfantry / projectile exhaust FX matrix.
         // RPG Trooper PRIMARY binds from the authored WeaponSet (C++
@@ -357,6 +325,11 @@ impl GameLogic {
         if let Some(player) = owner_player_id.and_then(|pid| players.get(&pid)) {
             object.run_authored_max_health_upgrades(|name| player.has_unlocked_upgrade(name));
             object.apply_authored_flag_upgrades(|name| player.has_unlocked_upgrade(name));
+            // LocomotorSetUpgrade (Worker Shoes, Nuclear Tanks, ...).
+            object.apply_authored_locomotor_set_upgrade_for_mask(
+                |name| player.has_unlocked_upgrade(name),
+                self.locomotor_definitions.as_ref(),
+            );
         }
     }
 }

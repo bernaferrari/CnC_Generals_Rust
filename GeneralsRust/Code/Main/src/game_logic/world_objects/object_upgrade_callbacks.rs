@@ -398,41 +398,20 @@ impl GameLogic {
             ) {
                 self.upgrade_module_residuals.record_locomotor_set(upgrade);
             }
-            // C++ UnpauseSpecialPowerUpgrade residual.  Capture uses its
-            // exact module-local `TriggeredBy` field; do not turn an upgrade
-            // spelling that merely contains "capture" into an ability on a
-            // Ranger/RedGuard/Rebel-named object.
-            let capture_unpause = obj
-                .thing()
-                .template
-                .capture_power
-                .special_power_type()
-                .filter(|_| {
-                    obj.thing()
-                        .template
-                        .capture_upgrade_trigger
-                        .as_deref()
-                        .is_some_and(|trigger| trigger.trim().eq_ignore_ascii_case(upgrade.trim()))
-                });
-            if let Some(power) = capture_unpause {
-                obj.pause_special_power_countdown(&power, false);
+            // C++ UnpauseSpecialPowerUpgrade::upgradeImplementation: every
+            // authored module triggered by this upgrade unpauses the power
+            // its SpecialPowerTemplate names (capture, radar scan, booby
+            // trap, helix bombs). Capture's three faction powers are
+            // separate modules, each unpaused by its own module.
+            let unpaused = super::authored_upgrade_modules::authored_unpause_powers(
+                &obj.thing().template,
+                |name| name.eq_ignore_ascii_case(upgrade),
+            );
+            for power in &unpaused {
+                obj.pause_special_power_countdown(power, false);
+            }
+            if !unpaused.is_empty() {
                 self.upgrade_module_residuals.record_unpause(upgrade);
-            } else if let Some(power) =
-                crate::game_logic::host_upgrade_module_residuals::unpause_power_for_upgrade(upgrade)
-            {
-                // Capture-family values are handled only above by exact INI
-                // metadata.  The remaining non-capture residual remains
-                // compatible with its existing module peel.
-                if crate::game_logic::CapturePowerKind::from_special_power_type(&power)
-                    == crate::game_logic::CapturePowerKind::None
-                {
-                    for p in crate::game_logic::host_upgrade_module_residuals::unpause_power_family(
-                        power,
-                    ) {
-                        obj.pause_special_power_countdown(&p, false);
-                    }
-                    self.upgrade_module_residuals.record_unpause(upgrade);
-                }
             }
             if is_overlord_family_host(&obj.template_name) {
                 if is_gattling_addon_upgrade(upgrade) {

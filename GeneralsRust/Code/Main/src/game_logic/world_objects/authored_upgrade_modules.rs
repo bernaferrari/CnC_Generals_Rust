@@ -88,30 +88,30 @@ impl AuthoredMaxHealthUpgrade {
     }
 }
 
-/// C++ `UpgradeMuxData` trigger fields of one authored upgrade module
-/// (`TriggeredBy`, `ConflictsWith`, `RequiresAllTriggers`).
-fn upgrade_mux_triggers(
+/// Parse the C++ `UpgradeMuxData` trigger fields of one authored module.
+pub(crate) fn upgrade_mux_data(
     module: &crate::assets::ini_parser::BehaviorModuleDefinition,
-    has: &impl Fn(&str) -> bool,
-) -> bool {
+) -> crate::game_logic::UpgradeMuxTriggers {
     let tokens = |key: &str| -> Vec<String> {
         module
             .attribute(key)
             .map(|v| v.split_whitespace().map(str::to_owned).collect())
             .unwrap_or_default()
     };
-    let triggers = tokens("TriggeredBy");
-    if triggers.is_empty() || tokens("ConflictsWith").iter().any(|name| has(name)) {
-        return false;
+    crate::game_logic::UpgradeMuxTriggers {
+        triggered_by: tokens("TriggeredBy"),
+        conflicts_with: tokens("ConflictsWith"),
+        requires_all: module
+            .attribute("RequiresAllTriggers")
+            .is_some_and(|v| v.trim().eq_ignore_ascii_case("yes") || v.trim() == "1"),
     }
-    let requires_all = module
-        .attribute("RequiresAllTriggers")
-        .is_some_and(|v| v.trim().eq_ignore_ascii_case("yes") || v.trim() == "1");
-    if requires_all {
-        triggers.iter().all(|name| has(name))
-    } else {
-        triggers.iter().any(|name| has(name))
-    }
+}
+
+fn upgrade_mux_triggers(
+    module: &crate::assets::ini_parser::BehaviorModuleDefinition,
+    has: &impl Fn(&str) -> bool,
+) -> bool {
+    upgrade_mux_data(module).satisfied_by(has)
 }
 
 /// The flag-setting upgrade modules an object's template authors that are
@@ -169,6 +169,46 @@ impl AuthoredFlagUpgrades {
     }
 }
 
+/// `UnpauseSpecialPowerUpgrade` modules a template authors that are triggered
+/// by `has` (UnpauseSpecialPowerUpgrade.cpp: `upgradeImplementation` calls
+/// `pauseCountdown(FALSE)` on the module's `SpecialPowerTemplate`). Capture,
+/// Radar Van Scan, Booby Trap and Helix bombs all arrive through this module;
+/// no unit or upgrade name selects the power.
+pub(crate) fn authored_unpause_powers(
+    template: &ThingTemplate,
+    has: impl Fn(&str) -> bool,
+) -> Vec<crate::command_system::SpecialPowerType> {
+    let Some(definition) = template.receiving_object_definition.as_deref() else {
+        return Vec::new();
+    };
+    definition
+        .behavior_modules
+        .iter()
+        .filter(|module| {
+            module
+                .class_name
+                .eq_ignore_ascii_case("UnpauseSpecialPowerUpgrade")
+                && upgrade_mux_triggers(module, &has)
+        })
+        .filter_map(|module| {
+            crate::command_system::special_power_type_from_template_name(
+                module.attribute("SpecialPowerTemplate")?.trim(),
+            )
+        })
+        .collect()
+}
+
+/// Whether the template authors a `StealthUpgrade` triggered by `has`
+/// (StealthUpgrade.cpp: `upgradeImplementation` sets OBJECT_STATUS_CAN_STEALTH
+/// for the module's owner). Camouflage and Camo Netting both arrive through
+/// this module; no unit or structure name selects the recipient.
+pub(crate) fn authors_triggered_stealth_upgrade(
+    template: &ThingTemplate,
+    has: impl Fn(&str) -> bool,
+) -> bool {
+    template.stealth_upgrades.iter().any(|rules| rules.satisfied_by(&has))
+}
+
 impl Object {
     /// Apply the authored flag upgrades triggered by this object's mask plus
     /// `extra` (C++ Object::updateUpgradeModules). Flags only ever turn on
@@ -194,6 +234,33 @@ impl Object {
         }
         applied
     }
+    /// C++ `Object::updateUpgradeModules` for `LocomotorSetUpgrade`
+    /// (LocomotorSetUpgrade.cpp): run the template's authored module when its
+    /// UpgradeMux triggers are satisfied by `has` (the owning player's
+    /// completed upgrades for a new object). Returns whether a module
+    /// executed. No unit or upgrade name selects the recipient.
+    pub(crate) fn apply_authored_locomotor_set_upgrade_for_mask(
+        &mut self,
+        has: impl Fn(&str) -> bool,
+        locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
+    ) -> bool {
+        let triggered = self
+            .thing()
+            .template
+            .receiving_object_definition
+            .as_deref()
+            .is_some_and(|definition| {
+                definition.behavior_modules.iter().any(|module| {
+                    module.class_name.eq_ignore_ascii_case("LocomotorSetUpgrade")
+                        && upgrade_mux_triggers(module, &has)
+                })
+            });
+        if triggered {
+            self.set_locomotor_upgrade_in(true, locomotors);
+        }
+        triggered
+    }
+
     /// Run this Object's authored `MaxHealthUpgrade` modules whose trigger is
     /// satisfied (`is_completed(upgrade)`), each at most once. Returns whether
     /// any module executed. Used both at upgrade completion and by
@@ -312,6 +379,41 @@ mod tests {
 }
 
 #[cfg(test)]
+mod unpause_tests {
+    use super::authored_unpause_powers;
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::{GameLogic, Team};
+
+    #[test]
+    fn unpause_module_trigger_selects_its_power_for_any_template_name() {
+        let mut world = GameLogic::new();
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "receiving-unpause.ini".into(),
+                    "Object PlainScanner\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\n\
+                     Behavior = UnpauseSpecialPowerUpgrade UnpauseTag\nSpecialPowerTemplate = SpecialPowerRadarVanScan\nTriggeredBy = Upgrade_GLARadarVanScan\nEnd\nEnd\n\
+                     Object GLAVehicleRadarVan\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n"
+                        .into(),
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        let plain = world.create_object("PlainScanner", Team::GLA, glam::Vec3::ZERO).unwrap();
+        let named = world.create_object("GLAVehicleRadarVan", Team::GLA, glam::Vec3::ZERO).unwrap();
+        let powers = |id, upgrade: &'static str| {
+            authored_unpause_powers(&world.host_object(id).unwrap().thing().template, |n| {
+                n == upgrade
+            })
+        };
+        assert_eq!(powers(plain, "Upgrade_GLARadarVanScan"), vec![SpecialPowerType::RadarScan]);
+        assert!(powers(plain, "Upgrade_Unrelated").is_empty());
+        // The retail name alone authors nothing.
+        assert!(powers(named, "Upgrade_GLARadarVanScan").is_empty());
+    }
+}
+
+#[cfg(test)]
 mod flag_tests {
     use super::AuthoredFlagUpgrades;
     use crate::game_logic::{GameLogic, Team};
@@ -365,5 +467,41 @@ mod flag_tests {
         let flags = object.apply_authored_flag_upgrades(|n| n == "Upgrade_AmericaTOWMissile");
         assert_eq!(flags, AuthoredFlagUpgrades::default());
         assert!(!object.weapon_set_player_upgrade);
+    }
+}
+
+#[cfg(test)]
+mod stealth_upgrade_tests {
+    use crate::game_logic::host_upgrades::{UPGRADE_GLA_CAMOUFLAGE, UPGRADE_GLA_CAMO_NETTING};
+    use crate::game_logic::{GameLogic, Team};
+
+    #[test]
+    fn stealth_upgrade_module_selects_camo_recipients_not_the_name() {
+        let mut world = GameLogic::new();
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "receiving-stealth-upgrade.ini".into(),
+                    "Object PlainSneaker\nKindOf = INFANTRY SELECTABLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\n\
+                     Behavior = StealthUpgrade CamoTag\nTriggeredBy = Upgrade_GLACamouflage\nEnd\nEnd\n\
+                     Object PlainBunker\nKindOf = STRUCTURE SELECTABLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\n\
+                     Behavior = StealthUpgrade NetTag\nTriggeredBy = Upgrade_GLACamoNetting\nEnd\nEnd\n\
+                     Object GLAInfantryRebel\nKindOf = INFANTRY SELECTABLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n"
+                        .into(),
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        let sneaker = world.create_object("PlainSneaker", Team::GLA, glam::Vec3::ZERO).unwrap();
+        let bunker = world.create_object("PlainBunker", Team::GLA, glam::Vec3::ZERO).unwrap();
+        let rebel = world.create_object("GLAInfantryRebel", Team::GLA, glam::Vec3::ZERO).unwrap();
+
+        assert_eq!(world.apply_camouflage_unlock_to_team(Team::GLA.into(), UPGRADE_GLA_CAMOUFLAGE), 1);
+        assert!(world.host_object(sneaker).unwrap().innate_stealth);
+        assert!(!world.host_object(bunker).unwrap().innate_stealth);
+        assert!(!world.host_object(rebel).unwrap().innate_stealth, "the name authors no StealthUpgrade");
+
+        assert_eq!(world.apply_camo_netting_unlock_to_team(Team::GLA.into(), UPGRADE_GLA_CAMO_NETTING), 1);
+        assert!(world.host_object(bunker).unwrap().innate_stealth);
     }
 }

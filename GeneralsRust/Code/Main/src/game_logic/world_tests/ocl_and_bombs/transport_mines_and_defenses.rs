@@ -2174,6 +2174,10 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
                 .add_kind_of(KindOf::Attackable)
                 .add_kind_of(KindOf::FSBaseDefense)
                 .set_health(1000.0);
+            t.stealth_upgrades = vec![crate::game_logic::UpgradeMuxTriggers {
+                triggered_by: vec!["Upgrade_GLACamoNetting".into()],
+                ..Default::default()
+            }];
             game_logic.templates.insert(name.to_string(), t);
         }
     }

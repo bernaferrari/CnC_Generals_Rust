@@ -3641,8 +3641,7 @@ impl GameLogic {
 
                         // Snapshot carrier for C++ getUpgradedSupplyBoost identity.
                         let (
-                                carrier_is_gla_worker,
-                                carrier_has_worker_shoes,
+                                carrier_worker_boost,
                                 carrier_is_chinook,
                                 carrier_is_combat_chinook,
                                 carrier_authored_boost,
@@ -3651,14 +3650,11 @@ impl GameLogic {
                                 .objects
                                 .get(&object_id)
                                 .map(|o| {
-                                    let is_w = crate::game_logic::host_gla_worker::is_gla_worker_template(
-                                        &o.template_name,
-                                    );
                                     // C++ WorkerAIUpdate::getUpgradedSupplyBoost
                                     // (WorkerAIUpdate.cpp:1376-1384): controlling
                                     // player hasUpgradeComplete only. Object tags
                                     // and any same Team enum leak 2v2 allies.
-                                    let shoes = self
+                                    let worker_shoes = self
                                         .player_owner_for_host_object(o)
                                         .and_then(|pid| self.players.get(&pid))
                                         .is_some_and(|p| {
@@ -3666,6 +3662,11 @@ impl GameLogic {
                                                 crate::game_logic::host_gla_worker::UPGRADE_GLA_WORKER_SHOES,
                                             )
                                         });
+                                    // WorkerAIUpdate::getUpgradedSupplyBoost.
+                                    let worker_boost = o
+                                        .thing()
+                                        .template
+                                        .worker_upgraded_supply_boost(worker_shoes);
                                     // C++ ChinookAIUpdate::getUpgradedSupplyBoost
                                     // (ChinookAIUpdate.cpp:1644-1652): controlling
                                     // player hasUpgradeComplete only. A same-Team
@@ -3691,9 +3692,9 @@ impl GameLogic {
                                         .supply_truck_metadata
                                         .map(|m| m.upgraded_supply_boost)
                                         .unwrap_or(0);
-                                    (is_w, shoes, is_chinook, is_combat, authored, supply_lines)
+                                    (worker_boost, is_chinook, is_combat, authored, supply_lines)
                                 })
-                                .unwrap_or((false, false, false, false, 0, false));
+                                .unwrap_or((0, false, false, 0, false));
 
                         // Clear carried resources.
                         if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -3712,13 +3713,7 @@ impl GameLogic {
                                 carrier_authored_boost,
                                 has_supply_lines,
                             );
-                        // GLA WorkerShoes residual: +8 per drop-off when unlocked.
-                        let worker_shoes_boost =
-                                crate::game_logic::host_gla_worker::residual_worker_shoes_drop_off_boost(
-                                    carrier_is_gla_worker,
-                                    carrier_has_worker_shoes,
-                                );
-                        let boost = supply_lines_boost.saturating_add(worker_shoes_boost);
+                        let boost = supply_lines_boost.saturating_add(carrier_worker_boost);
                         let credited = deposit_amount.saturating_add(boost);
                         // Credit the player (carried supplies + optional economy boost).
                         // Capture the concrete owner before the mutable
@@ -3812,9 +3807,9 @@ impl GameLogic {
                                 .supply_lines_bonus_cash_total
                                 .saturating_add(supply_lines_boost);
                         }
-                        if worker_shoes_boost > 0 {
+                        if carrier_worker_boost > 0 {
                             self.gla_worker
-                                .record_shoes_drop_off_boost(worker_shoes_boost);
+                                .record_shoes_drop_off_boost(carrier_worker_boost);
                         }
                         if deposit_amount > 0 {
                             let has_supply_truck = self.objects.get(&object_id).is_some_and(|o| {
