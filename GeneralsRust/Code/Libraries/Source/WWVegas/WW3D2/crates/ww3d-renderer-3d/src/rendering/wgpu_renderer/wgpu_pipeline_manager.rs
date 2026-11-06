@@ -512,7 +512,7 @@ impl WgpuPipelineManager {
             wgpu::DepthBiasState::default()
         };
 
-        let depth_format = depth_format.unwrap_or(wgpu::TextureFormat::Depth32Float);
+        let depth_format = depth_format.unwrap_or(ww3d_gpu::SCENE_DEPTH_FORMAT);
         let mut depth_stencil = Some(create_depth_stencil_state_from_shader(
             shader,
             depth_format,

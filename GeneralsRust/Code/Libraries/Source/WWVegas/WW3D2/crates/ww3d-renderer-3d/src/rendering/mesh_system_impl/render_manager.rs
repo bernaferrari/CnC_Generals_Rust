@@ -366,7 +366,7 @@ impl MeshRenderManager {
             pipeline_mgr,
             pass_texture_provider: None,
             color_format: wgpu::TextureFormat::Bgra8Unorm,
-            depth_format: Some(wgpu::TextureFormat::Depth32Float),
+            depth_format: Some(ww3d_gpu::SCENE_DEPTH_FORMAT),
             fallback_textures,
             default_sampler,
             empty_vertex_color_buffer,

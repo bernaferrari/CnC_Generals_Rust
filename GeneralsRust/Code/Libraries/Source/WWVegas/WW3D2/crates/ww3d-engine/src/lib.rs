@@ -88,7 +88,7 @@ impl Default for EngineConfig {
             color_format: None,
             surface_usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             enable_depth: true,
-            depth_format: wgpu::TextureFormat::Depth32Float,
+            depth_format: ww3d_gpu::SCENE_DEPTH_FORMAT,
             sample_count: 1,
             features: wgpu::Features::empty(),
             limits: wgpu::Limits {

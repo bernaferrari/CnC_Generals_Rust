@@ -626,7 +626,7 @@ impl ParticleRenderer {
             device,
             queue,
             surface_format,
-            wgpu::TextureFormat::Depth32Float,
+            ww3d_gpu::SCENE_DEPTH_FORMAT,
         )
     }
 

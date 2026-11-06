@@ -148,7 +148,7 @@ impl LaserDrawGpu {
                 // Must match the pass this pipeline draws into: the post-frame
                 // laser pass attaches the ww3d frame depth (`depth_view_arc()`,
                 // `Depth32Float`). wgpu fatals on pipeline/attachment mismatch.
-                format: wgpu::TextureFormat::Depth32Float,
+                format: ww3d_gpu::SCENE_DEPTH_FORMAT,
                 depth_write_enabled: Some(false),
                 depth_compare: Some(wgpu::CompareFunction::LessEqual),
                 stencil: wgpu::StencilState::default(),
