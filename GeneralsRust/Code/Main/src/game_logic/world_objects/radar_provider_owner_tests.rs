@@ -593,17 +593,24 @@ mod bulk_retirement_order_tests {
         outgoing
             .victory_conditions
             .set_victory_conditions(crate::game_logic::victory_conditions::VictoryType::empty());
-        let mut template = ThingTemplate::new("GLAVehicleRadarVan");
-        template.set_health(200.);
-        outgoing
-            .templates
-            .insert(template.name.clone(), template.clone());
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(
+            &mut outgoing,
+            "Upgrade_GLARadar",
+            "OBJECT",
+            0,
+            1,
+        );
+        authored_template(
+            &mut outgoing,
+            "GLAVehicleRadarVan",
+            " Behavior = RadarUpgrade ModuleTag_Radar\n TriggeredBy = Upgrade_GLARadar\n DisableProof = Yes\n End\n Behavior = GrantUpgradeCreate ModuleTag_Grant\n UpgradeToGrant = Upgrade_GLARadar\n End\n",
+        );
         let id = ObjectId(41);
-        let mut object = Object::new(template, id, Team::GLA);
-        object.construction_percent = 1.;
-        object.owner_player_id = Some(1);
-        outgoing.add_object(object);
-        outgoing.host_radar_add_object(id);
+        outgoing.next_object_id = id;
+        assert_eq!(
+            outgoing.create_object_for_player("GLAVehicleRadarVan", 1, Vec3::ZERO),
+            Some(id)
+        );
         assert_eq!(outgoing.get_player(1).unwrap().radar_count, 1);
         assert!(
             outgoing.queued_audio_events.is_empty(),
