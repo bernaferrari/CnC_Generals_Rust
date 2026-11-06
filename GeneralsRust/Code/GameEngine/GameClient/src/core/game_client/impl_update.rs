@@ -880,6 +880,14 @@ impl GameClient {
             let mut inherited_material_opacity = None;
             if let Some(drawable_id) = existing_drawable_id {
                 if retains_binding {
+                    // An epoch-0 binding was seeded by Client Xfer for a
+                    // Drawable this host has never observed (Xfer replaced the
+                    // object's Drawable). Its key is new to every renderer, so
+                    // announce the replacement before ordinary updates: the
+                    // renderer retires the predecessor's constructor receipt
+                    // and binds this lifetime instead of rejecting a changed
+                    // key. Reused Drawables keep their key and are not adopted.
+                    let mut adopted = false;
                     if let Some(binding) = self
                         .drawables
                         .presentation_direct_drawable_bindings
@@ -887,11 +895,25 @@ impl GameClient {
                     {
                         if binding.binding_key.host_epoch == 0 {
                             binding.binding_key.host_epoch = e.host_epoch;
+                            adopted = true;
                         }
                     }
                     let Some(drawable) = self.drawables.drawable_map.get_mut(&drawable_id) else {
                         continue;
                     };
+                    if adopted {
+                        observe(PresentationDrawableMutation::Destroyed {
+                            host_epoch: e.host_epoch,
+                            object_id: e.object_id,
+                        });
+                        if let Some(basic) = drawable.downcast_ref::<BasicDrawable>() {
+                            observe(PresentationDrawableMutation::Creating {
+                                source: &e,
+                                initial_transform: basic.native_base_transform(),
+                                sync_ms,
+                            });
+                        }
+                    }
                     let position = Vector3::new(e.position[0], e.position[1], e.position[2]);
                     drawable.set_position(position);
                     if let Some(basic) = drawable.downcast_ref::<BasicDrawable>() {
