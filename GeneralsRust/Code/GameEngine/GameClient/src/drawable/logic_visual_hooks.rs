@@ -555,6 +555,17 @@ mod tests {
             .terrain_tracks_mut()
             .bind_track(4.0, 4.0, "track")
             .unwrap() as u32;
+        // No live client in a unit test: publish a terrain owner the way
+        // the live client does, then hand it this visual.
+        let published = std::sync::Arc::new(parking_lot::Mutex::new(None));
+        crate::terrain::terrain_visual::publish_terrain_visual(std::sync::Arc::clone(&published));
+        struct Unpublish(std::sync::Arc<parking_lot::Mutex<Option<TerrainVisualImpl>>>);
+        impl Drop for Unpublish {
+            fn drop(&mut self) {
+                crate::terrain::terrain_visual::unpublish_terrain_visual(&self.0);
+            }
+        }
+        let _unpublish = Unpublish(published);
         let previous = get_terrain_visual().unwrap().replace(visual);
         struct RestoreTerrain(Option<TerrainVisualImpl>);
         impl Drop for RestoreTerrain {
