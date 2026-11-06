@@ -1,75 +1,25 @@
 //! P0 hq-x1j4u.9.2: shell → skirmish → retail non-shell map reaches InGame.
 //!
-//! Skips when retail data or the `generals` binary is unavailable.
+//! Fails when retail data, Lone Eagle or the `generals` binary is missing unless
+//! `GENERALS_GATES_ALLOW_SKIP=1` (see `common/retail_gate.rs`).
 
-use generals_main::executable_smoke::{
-    lone_eagle_map_on_disk, run_load_retail_skirmish_map, ExecutableSmokeResult,
-};
-use std::path::{Path, PathBuf};
-use std::time::Duration;
+use generals_main::executable_smoke::{ExecutableSmokeResult, run_load_retail_skirmish_map};
 
-fn retail_root() -> Option<PathBuf> {
-    for key in ["GENERALS_RETAIL_DIR", "GENERALS_ASSETS_DIR"] {
-        if let Ok(dir) = std::env::var(key) {
-            let p = PathBuf::from(dir);
-            if retail_looks_valid(&p) {
-                return Some(p);
-            }
-        }
-    }
-    for c in [
-        PathBuf::from("windows_game/Command & Conquer Generals Zero Hour"),
-        PathBuf::from("windows_game"),
-        PathBuf::from("../windows_game/Command & Conquer Generals Zero Hour"),
-        PathBuf::from("../windows_game"),
-    ] {
-        if retail_looks_valid(&c) {
-            return Some(c.canonicalize().unwrap_or(c));
-        }
-    }
-    None
-}
+#[path = "common/retail_gate.rs"]
+mod retail_gate;
 
-fn retail_looks_valid(root: &Path) -> bool {
-    let data = if root
-        .file_name()
-        .is_some_and(|n| n.eq_ignore_ascii_case("Data"))
-    {
-        root.to_path_buf()
-    } else {
-        root.join("Data")
-    };
-    data.join("MapsZH.big").is_file()
-        || data.join("EnglishZH.big").is_file()
-        || Path::new("windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map")
-            .is_file()
-}
+const GATE: &str = "retail_skirmish_map";
 
 #[test]
 fn production_host_loads_retail_map_into_skirmish() {
-    let Some(retail) = retail_root() else {
-        eprintln!("skip: retail assets missing");
-        return;
-    };
-    if std::env::var_os("GENERALS_ASSETS_DIR").is_none() {
-        unsafe {
-            std::env::set_var("GENERALS_ASSETS_DIR", &retail);
-        }
-    }
-    if !lone_eagle_map_on_disk() {
-        eprintln!("skip: Lone Eagle.map missing");
+    if !retail_gate::require_lone_eagle(GATE) {
         return;
     }
-
-    let timeout = Duration::from_secs(
-        std::env::var("RETAIL_SKIRMISH_MAP_TIMEOUT_SECS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(600),
-    );
-    let r = run_load_retail_skirmish_map(timeout);
-    if r.status == "binary_missing" {
-        eprintln!("skip: generals binary missing — {}", r.detail);
+    let r = run_load_retail_skirmish_map(retail_gate::timeout(
+        "RETAIL_SKIRMISH_MAP_TIMEOUT_SECS",
+        600,
+    ));
+    if !retail_gate::ran(GATE, &r) {
         return;
     }
     assert!(

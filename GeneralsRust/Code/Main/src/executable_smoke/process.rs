@@ -43,27 +43,29 @@ pub(crate) fn resolve_runtime_exe() -> Option<PathBuf> {
                 || s.eq_ignore_ascii_case("false")
                 || s.eq_ignore_ascii_case("no"))
         });
-    let candidates = [
-        PathBuf::from("target/release/generals"),
-        PathBuf::from("GeneralsRust/target/release/generals"),
-        PathBuf::from("./target/release/generals"),
-        PathBuf::from("target/debug/generals"),
-        PathBuf::from("GeneralsRust/target/debug/generals"),
-        PathBuf::from("./target/debug/generals"),
+    // Gates run with cwd = Code/Main, so cwd-relative candidates alone never
+    // resolve there: also anchor at the workspace target dir (CARGO_TARGET_DIR
+    // or `<workspace>/target`) and at the running test binary's profile dir
+    // (`target/<profile>/deps/<test>` → `target/<profile>/generals`).
+    let mut target_dirs: Vec<PathBuf> = vec![
+        PathBuf::from("target"),
+        PathBuf::from("GeneralsRust/target"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target"),
     ];
+    if let Some(dir) = std::env::var_os("CARGO_TARGET_DIR") {
+        target_dirs.push(PathBuf::from(dir));
+    }
+    let mut candidates: Vec<PathBuf> = ["release", "debug"]
+        .iter()
+        .flat_map(|profile| target_dirs.iter().map(move |t| t.join(profile).join("generals")))
+        .collect();
+    if let Ok(cur) = std::env::current_exe() {
+        candidates.extend(cur.ancestors().skip(1).take(2).map(|dir| dir.join("generals")));
+    }
     if let Some(path) = resolve_runtime_exe_from_candidates(&candidates, !prefer_release_first) {
         // The child runs in a temporary working directory. Keep the chosen
         // binary valid after Command::current_dir changes that directory.
         return Some(path.canonicalize().unwrap_or(path));
-    }
-    // Try next to current exe
-    if let Ok(cur) = std::env::current_exe() {
-        if let Some(dir) = cur.parent() {
-            let sibling = dir.join("generals");
-            if sibling.is_file() {
-                return Some(sibling);
-            }
-        }
     }
     None
 }

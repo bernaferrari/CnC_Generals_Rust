@@ -1,42 +1,34 @@
 //! P0 hq-x1j4u.9.3: select/move/attack on a loaded retail skirmish map.
-use generals_main::executable_smoke::{lone_eagle_map_on_disk, run_issue_player_orders};
-use std::path::{Path, PathBuf};
-use std::time::Duration;
+//!
+//! Fails when retail data, Lone Eagle or the `generals` binary is missing unless
+//! `GENERALS_GATES_ALLOW_SKIP=1` (see `common/retail_gate.rs`).
 
-fn retail_root() -> Option<PathBuf> {
-    for key in ["GENERALS_RETAIL_DIR", "GENERALS_ASSETS_DIR"] {
-        if let Ok(dir) = std::env::var(key) {
-            let p = PathBuf::from(dir);
-            if p.join("Data/EnglishZH.big").is_file()
-                || Path::new("windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map").is_file()
-            {
-                return Some(p);
-            }
-        }
-    }
-    let c = PathBuf::from("windows_game/Command & Conquer Generals Zero Hour");
-    if c.join("Data/EnglishZH.big").is_file() || Path::new("windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map").is_file() {
-        return Some(c.canonicalize().unwrap_or(c));
-    }
-    None
-}
+use generals_main::executable_smoke::run_issue_player_orders;
+
+#[path = "common/retail_gate.rs"]
+mod retail_gate;
+
+const GATE: &str = "player_orders";
 
 #[test]
 fn production_host_issues_select_move_attack_orders() {
-    let Some(retail) = retail_root() else { eprintln!("skip: retail missing"); return; };
-    if std::env::var_os("GENERALS_ASSETS_DIR").is_none() {
-        unsafe { std::env::set_var("GENERALS_ASSETS_DIR", &retail); }
+    if !retail_gate::require_lone_eagle(GATE) {
+        return;
     }
-    if !lone_eagle_map_on_disk() { eprintln!("skip: Lone Eagle missing"); return; }
-    let timeout = Duration::from_secs(
-        std::env::var("PLAYER_ORDERS_TIMEOUT_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(720),
-    );
-    let r = run_issue_player_orders(timeout);
-    if r.status == "binary_missing" { eprintln!("skip: {}", r.detail); return; }
+    let r = run_issue_player_orders(retail_gate::timeout("PLAYER_ORDERS_TIMEOUT_SECS", 720));
+    if !retail_gate::ran(GATE, &r) {
+        return;
+    }
     assert!(
-        r.executable_host_ok && r.reached_ingame && r.gameplay_cmd_ok
+        r.executable_host_ok
+            && r.reached_ingame
+            && r.gameplay_cmd_ok
             && (r.status == "success" || r.status == "success_forced_exit"),
         "expected select/move/attack; status={} host_ok={} ingame={} gameplay={} detail={}",
-        r.status, r.executable_host_ok, r.reached_ingame, r.gameplay_cmd_ok, r.detail
+        r.status,
+        r.executable_host_ok,
+        r.reached_ingame,
+        r.gameplay_cmd_ok,
+        r.detail
     );
 }

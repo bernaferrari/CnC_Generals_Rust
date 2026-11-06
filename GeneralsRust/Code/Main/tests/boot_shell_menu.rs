@@ -1,80 +1,22 @@
 //! P0 hq-x1j4u.9.1: production host boots to live MainMenu.wnd with retail assets.
 //!
-//! Skips when retail data or the `generals` binary is unavailable so CI without
-//! the install stays green. Local Mac worktrees with `windows_game/` must pass.
+//! Fails when retail data or the `generals` binary is missing unless
+//! `GENERALS_GATES_ALLOW_SKIP=1` (see `common/retail_gate.rs`).
 
-use generals_main::executable_smoke::{lone_eagle_map_on_disk, run_boot_to_shell_menu};
-use std::path::{Path, PathBuf};
-use std::time::Duration;
+use generals_main::executable_smoke::run_boot_to_shell_menu;
 
-fn retail_root() -> Option<PathBuf> {
-    for key in ["GENERALS_RETAIL_DIR", "GENERALS_ASSETS_DIR"] {
-        if let Ok(dir) = std::env::var(key) {
-            let p = PathBuf::from(dir);
-            if retail_looks_valid(&p) {
-                return Some(p);
-            }
-        }
-    }
-    for c in [
-        PathBuf::from("windows_game/Command & Conquer Generals Zero Hour"),
-        PathBuf::from("windows_game"),
-        PathBuf::from("../windows_game/Command & Conquer Generals Zero Hour"),
-        PathBuf::from("../windows_game"),
-    ] {
-        if retail_looks_valid(&c) {
-            return Some(c.canonicalize().unwrap_or(c));
-        }
-    }
-    None
-}
+#[path = "common/retail_gate.rs"]
+mod retail_gate;
 
-fn retail_looks_valid(root: &Path) -> bool {
-    let data = if root
-        .file_name()
-        .is_some_and(|n| n.eq_ignore_ascii_case("Data"))
-    {
-        root.to_path_buf()
-    } else {
-        root.join("Data")
-    };
-    data.join("EnglishZH.big").is_file()
-        || data.join("WindowZH.big").is_file()
-        || root
-            .parent()
-            .map(|p| {
-                p.join("extracted_big_files/WindowZH/Window/Menus/MainMenu.wnd")
-                    .is_file()
-            })
-            .unwrap_or(false)
-        || Path::new("windows_game/extracted_big_files/WindowZH/Window/Menus/MainMenu.wnd")
-            .is_file()
-}
+const GATE: &str = "boot_shell_menu";
 
 #[test]
 fn production_host_boots_to_main_menu_wnd() {
-    let Some(retail) = retail_root() else {
-        eprintln!("skip: retail assets missing");
+    if !retail_gate::require_retail(GATE) {
         return;
-    };
-    if std::env::var_os("GENERALS_ASSETS_DIR").is_none() {
-        // SAFETY: test process before spawning the runtime host child.
-        unsafe {
-            std::env::set_var("GENERALS_ASSETS_DIR", &retail);
-        }
     }
-    // Prefer a real map on disk as a secondary retail signal (not required for menu).
-    let _ = lone_eagle_map_on_disk();
-
-    let timeout = Duration::from_secs(
-        std::env::var("BOOT_SHELL_MENU_TIMEOUT_SECS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(180),
-    );
-    let r = run_boot_to_shell_menu(timeout);
-    if r.status == "binary_missing" {
-        eprintln!("skip: generals binary missing — {}", r.detail);
+    let r = run_boot_to_shell_menu(retail_gate::timeout("BOOT_SHELL_MENU_TIMEOUT_SECS", 180));
+    if !retail_gate::ran(GATE, &r) {
         return;
     }
     assert!(

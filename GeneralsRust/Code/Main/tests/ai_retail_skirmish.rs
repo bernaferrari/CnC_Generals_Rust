@@ -1,56 +1,22 @@
 //! P0 hq-x1j4u.9.5: AI activity on retail Lone Eagle while human issues move orders.
-use generals_main::executable_smoke::{lone_eagle_map_on_disk, run_ai_opponent_skirmish};
-use std::path::{Path, PathBuf};
-use std::time::Duration;
+//!
+//! Fails when retail data, Lone Eagle or the `generals` binary is missing unless
+//! `GENERALS_GATES_ALLOW_SKIP=1` (see `common/retail_gate.rs`).
 
-fn retail_root() -> Option<PathBuf> {
-    for key in ["GENERALS_RETAIL_DIR", "GENERALS_ASSETS_DIR"] {
-        if let Ok(dir) = std::env::var(key) {
-            let p = PathBuf::from(dir);
-            if p.join("Data/EnglishZH.big").is_file()
-                || Path::new(
-                    "windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
-                )
-                .is_file()
-            {
-                return Some(p);
-            }
-        }
-    }
-    let c = PathBuf::from("windows_game/Command & Conquer Generals Zero Hour");
-    if c.join("Data/EnglishZH.big").is_file()
-        || Path::new("windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map")
-            .is_file()
-    {
-        return Some(c.canonicalize().unwrap_or(c));
-    }
-    None
-}
+use generals_main::executable_smoke::run_ai_opponent_skirmish;
+
+#[path = "common/retail_gate.rs"]
+mod retail_gate;
+
+const GATE: &str = "ai_retail_skirmish";
 
 #[test]
 fn production_host_ai_runs_with_human_orders_on_retail_map() {
-    let Some(retail) = retail_root() else {
-        eprintln!("skip: retail missing");
-        return;
-    };
-    if std::env::var_os("GENERALS_ASSETS_DIR").is_none() {
-        unsafe {
-            std::env::set_var("GENERALS_ASSETS_DIR", &retail);
-        }
-    }
-    if !lone_eagle_map_on_disk() {
-        eprintln!("skip: Lone Eagle missing");
+    if !retail_gate::require_lone_eagle(GATE) {
         return;
     }
-    let timeout = Duration::from_secs(
-        std::env::var("AI_RETAIL_SKIRMISH_TIMEOUT_SECS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(900),
-    );
-    let r = run_ai_opponent_skirmish(timeout);
-    if r.status == "binary_missing" {
-        eprintln!("skip: {}", r.detail);
+    let r = run_ai_opponent_skirmish(retail_gate::timeout("AI_RETAIL_SKIRMISH_TIMEOUT_SECS", 900));
+    if !retail_gate::ran(GATE, &r) {
         return;
     }
     assert!(
