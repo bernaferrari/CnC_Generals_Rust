@@ -104,10 +104,7 @@ impl MapCache {
         }
         self.load_standard_maps();
 
-        let build_map_cache = global_data_arc()
-            .read()
-            .map(|data| data.writable.build_map_cache)
-            .unwrap_or(false);
+        let build_map_cache = global_data_arc().read().writable.build_map_cache;
         if build_map_cache {
             let _ = self.load_user_maps(true);
             self.write_cache_ini(false);
@@ -823,10 +820,7 @@ pub fn would_map_transfer(map_name: &str) -> bool {
 }
 
 fn build_user_map_dir() -> String {
-    let user_dir = global_data_arc()
-        .read()
-        .map(|data| data.get_user_data_dir().to_string())
-        .unwrap_or_default();
+    let user_dir = global_data_arc().read().get_user_data_dir().to_string();
     let mut base = if user_dir.is_empty() {
         "UserData/".to_string()
     } else {
@@ -840,10 +834,7 @@ fn build_user_map_dir() -> String {
 }
 
 fn build_map_preview_dir() -> String {
-    let user_dir = global_data_arc()
-        .read()
-        .map(|data| data.get_user_data_dir().to_string())
-        .unwrap_or_default();
+    let user_dir = global_data_arc().read().get_user_data_dir().to_string();
     let mut base = if user_dir.is_empty() {
         "UserData/".to_string()
     } else {

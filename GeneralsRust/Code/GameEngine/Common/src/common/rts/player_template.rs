@@ -8,6 +8,7 @@
 //! rewritten here. This module owns the runtime type, store APIs, and C++-named
 //! accessors used after parse.
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use crate::common::game_common::VeterancyLevel;
 use crate::common::name_key_generator::{
     NAMEKEY_INVALID, NameKeyGenerator, NameKeyNamespace, NameKeyType,
@@ -644,31 +645,28 @@ impl Default for PlayerTemplateStore {
 
 /// Non-blocking read so map-load player sync can fail-open if INI load holds the write lock.
 
-fn player_template_cell() -> std::sync::Arc<std::sync::RwLock<PlayerTemplateStore>> {
+fn player_template_cell() -> std::sync::Arc<parking_lot::RwLock<PlayerTemplateStore>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.player_template)
 }
 
-pub(crate) fn player_template_store() -> std::sync::Arc<std::sync::RwLock<PlayerTemplateStore>> {
+pub(crate) fn player_template_store() -> std::sync::Arc<parking_lot::RwLock<PlayerTemplateStore>> {
     player_template_cell()
 }
 
-pub fn get_player_template_store() -> RwLockReadGuard<'static, PlayerTemplateStore> {
+pub fn get_player_template_store() -> OwnedReadGuard<PlayerTemplateStore> {
     let cell = player_template_cell();
-    let guard = cell.read().expect("PlayerTemplateStore poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.read_arc()
 }
 
-pub fn try_get_player_template_store() -> Option<RwLockReadGuard<'static, PlayerTemplateStore>> {
+pub fn try_get_player_template_store() -> Option<OwnedReadGuard<PlayerTemplateStore>> {
     let services = crate::common::common_services::try_common_services()?;
     let cell = std::sync::Arc::clone(&services.ini.player_template);
-    let guard = cell.try_read().ok()?;
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(cell.try_read_arc()?)
 }
 
-pub fn get_player_template_store_mut() -> RwLockWriteGuard<'static, PlayerTemplateStore> {
+pub fn get_player_template_store_mut() -> OwnedWriteGuard<PlayerTemplateStore> {
     let cell = player_template_cell();
-    let guard = cell.write().expect("PlayerTemplateStore poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.write_arc()
 }
 
 #[cfg(test)]

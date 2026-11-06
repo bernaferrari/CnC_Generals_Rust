@@ -4,6 +4,7 @@
 //!
 //! Matches C++ FXList.h and FXList.cpp
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -34,20 +35,18 @@ impl generals_fx::FxValueParser for EngineFxValues {
 }
 /// Shared pure parser with the engine's original unit conversions.
 
-fn ini_fx_list_cell() -> std::sync::Arc<std::sync::RwLock<FXListStore>> {
+fn ini_fx_list_cell() -> std::sync::Arc<parking_lot::RwLock<FXListStore>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.fx_list)
 }
 
-pub fn get_fx_list_store() -> RwLockReadGuard<'static, FXListStore> {
+pub fn get_fx_list_store() -> OwnedReadGuard<FXListStore> {
     let cell = ini_fx_list_cell();
-    let guard = cell.read().expect("FXListStore poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.read_arc()
 }
 
-pub fn get_fx_list_store_mut() -> RwLockWriteGuard<'static, FXListStore> {
+pub fn get_fx_list_store_mut() -> OwnedWriteGuard<FXListStore> {
     let cell = ini_fx_list_cell();
-    let guard = cell.write().expect("FXListStore poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.write_arc()
 }
 
 pub fn parse_fx_nugget_definition(

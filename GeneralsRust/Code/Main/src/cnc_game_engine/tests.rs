@@ -5,15 +5,13 @@ use super::{
 };
 use crate::command_line::CommandLineArgs;
 use game_engine::common::global_data::{
-    test_isolation_lock, with_global_data_restored as with_global_data_snapshot_restored,
+    lock_test_isolation, with_global_data_restored as with_global_data_snapshot_restored,
 };
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn with_global_and_startup_state_snapshot_restored<F: FnOnce()>(f: F) {
-    let _guard = test_isolation_lock()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let _guard = lock_test_isolation();
     let global_snapshot = game_engine::common::global_data::read().clone();
     let previous_difficulty = gamelogic::helpers::TheScriptEngine::get_global_difficulty();
     let previous_rank_points =

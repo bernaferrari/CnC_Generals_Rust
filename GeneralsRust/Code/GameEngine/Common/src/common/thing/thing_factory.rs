@@ -1139,55 +1139,37 @@ struct ObjectDeclaration {
     reskin_from: Option<String>,
 }
 
-/// Guard that keeps the owning `Arc<Mutex<_>>` alive for the lock duration.
+/// Guard over the instance's `ThingFactory` slot; holds its own `Arc` to the lock.
 pub struct ThingFactoryGuard {
-    _owner: Arc<Mutex<Option<ThingFactory>>>,
-    guard: Option<std::sync::MutexGuard<'static, Option<ThingFactory>>>,
+    guard: crate::common::owned_lock::OwnedMutexGuard<Option<ThingFactory>>,
 }
 
 impl ThingFactoryGuard {
-    fn from_arc(owner: Arc<Mutex<Option<ThingFactory>>>) -> Result<Self, std::sync::PoisonError<()>> {
-        let locked = owner.lock().map_err(|_| std::sync::PoisonError::new(()))?;
-        // SAFETY: `owner` is stored in Self and dropped after `guard` (see Drop).
-        let guard: std::sync::MutexGuard<'static, Option<ThingFactory>> =
-            unsafe { std::mem::transmute(locked) };
-        Ok(Self {
-            _owner: owner,
-            guard: Some(guard),
-        })
+    fn from_arc(
+        owner: Arc<parking_lot::Mutex<Option<ThingFactory>>>,
+    ) -> Result<Self, std::sync::PoisonError<()>> {
+        Ok(Self { guard: owner.lock_arc() })
     }
 
-    fn try_from_arc(owner: Arc<Mutex<Option<ThingFactory>>>) -> Option<Self> {
-        let locked = owner.try_lock().ok()?;
-        let guard: std::sync::MutexGuard<'static, Option<ThingFactory>> =
-            unsafe { std::mem::transmute(locked) };
-        Some(Self {
-            _owner: owner,
-            guard: Some(guard),
-        })
-    }
-}
-
-impl Drop for ThingFactoryGuard {
-    fn drop(&mut self) {
-        self.guard.take();
+    fn try_from_arc(owner: Arc<parking_lot::Mutex<Option<ThingFactory>>>) -> Option<Self> {
+        Some(Self { guard: owner.try_lock_arc()? })
     }
 }
 
 impl std::ops::Deref for ThingFactoryGuard {
     type Target = Option<ThingFactory>;
     fn deref(&self) -> &Self::Target {
-        self.guard.as_deref().expect("ThingFactoryGuard dropped")
+        &self.guard
     }
 }
 
 impl std::ops::DerefMut for ThingFactoryGuard {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.guard.as_deref_mut().expect("ThingFactoryGuard dropped")
+        &mut self.guard
     }
 }
 
-fn active_thing_factory_slot() -> Arc<Mutex<Option<ThingFactory>>> {
+fn active_thing_factory_slot() -> Arc<parking_lot::Mutex<Option<ThingFactory>>> {
     Arc::clone(&crate::common::common_services::common_services().thing_factory)
 }
 

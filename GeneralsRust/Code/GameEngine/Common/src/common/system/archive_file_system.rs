@@ -226,8 +226,7 @@ pub fn init_archive_file_system() {
     *services
         .system
         .archive_file_system
-        .lock()
-        .unwrap_or_else(|p| p.into_inner()) = ArchiveFileSystem::new();
+        .lock() = ArchiveFileSystem::new();
     services
         .system
         .archive_file_system_ready
@@ -235,7 +234,7 @@ pub fn init_archive_file_system() {
 }
 
 /// Fetch a mutable reference to the instance archive file system.
-pub fn get_archive_file_system() -> Option<MutexGuard<'static, ArchiveFileSystem>> {
+pub fn get_archive_file_system() -> Option<crate::common::owned_lock::OwnedMutexGuard<ArchiveFileSystem>> {
     let services = crate::common::common_services::common_services();
     if !services
         .system
@@ -244,12 +243,7 @@ pub fn get_archive_file_system() -> Option<MutexGuard<'static, ArchiveFileSystem
     {
         return None;
     }
-    let guard = services
-        .system
-        .archive_file_system
-        .lock()
-        .expect("ArchiveFileSystem mutex poisoned");
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(services.system.archive_file_system.lock_arc())
 }
 
 #[cfg(test)]

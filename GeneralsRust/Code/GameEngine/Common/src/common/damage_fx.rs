@@ -275,20 +275,6 @@ pub fn with_damage_fx_store_mut<R>(f: impl FnOnce(&mut DamageFXStore) -> R) -> R
         .unwrap_or_else(|p| p.into_inner()))
 }
 
-/// Legacy handle API — prefer [`with_damage_fx_store`].
-pub fn get_damage_fx_store() -> std::sync::MutexGuard<'static, DamageFXStore> {
-    let services = crate::common::common_services::common_services();
-    let guard = services
-        .damage_fx_store
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
-    unsafe { std::mem::transmute(guard) }
-}
-
-pub fn get_damage_fx_store_mut() -> std::sync::MutexGuard<'static, DamageFXStore> {
-    get_damage_fx_store()
-}
-
 /// Damage type flags (placeholder - would be defined elsewhere)
 pub struct DamageTypeFlags;
 

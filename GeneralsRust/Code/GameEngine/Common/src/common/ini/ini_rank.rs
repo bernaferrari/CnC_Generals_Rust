@@ -24,6 +24,7 @@
 //! };
 //! ```
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -417,27 +418,25 @@ impl Default for RankInfoStore {
 /// Get the global rank info store (write access)
 /// Initialize the global rank info store
 
-fn ini_rank_cell() -> std::sync::Arc<std::sync::RwLock<RankInfoStore>> {
+fn ini_rank_cell() -> std::sync::Arc<parking_lot::RwLock<RankInfoStore>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.rank)
 }
 
 
-pub fn get_rank_info_store() -> std::sync::RwLockReadGuard<'static, RankInfoStore> {
+pub fn get_rank_info_store() -> OwnedReadGuard<RankInfoStore> {
     let cell = ini_rank_cell();
-    let guard = cell.read().expect("RankInfoStore poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.read_arc()
 }
 
 
-pub fn get_rank_info_store_mut() -> std::sync::RwLockWriteGuard<'static, RankInfoStore> {
+pub fn get_rank_info_store_mut() -> OwnedWriteGuard<RankInfoStore> {
     let cell = ini_rank_cell();
-    let guard = cell.write().expect("RankInfoStore poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.write_arc()
 }
 
 
 pub fn init_rank_info_store() {
-    ini_rank_cell().write().expect("RankInfoStore poisoned").init();
+    ini_rank_cell().write().init();
 }
 
 /// Parse rank definition from INI block

@@ -84,10 +84,9 @@ pub trait GameClientInterface: Send + Sync {
 type GameClientFactory =
     dyn Fn() -> SubsystemResult<Box<dyn GameClientInterface>> + Send + Sync + 'static;
 
-fn game_client_factory_slot() -> parking_lot::MutexGuard<'static, Option<Arc<GameClientFactory>>> {
+fn game_client_factory_slot() -> crate::common::owned_lock::OwnedMutexGuard<Option<Arc<GameClientFactory>>> {
     let services = crate::common::common_services::common_services();
-    let guard = services.system.game_client_factory.lock();
-    unsafe { std::mem::transmute(guard) }
+    services.system.game_client_factory.lock_arc()
 }
 
 /// Register a runtime factory that builds the concrete `GameClient` bridge.
@@ -1564,10 +1563,9 @@ impl GameEngine {
     }
 }
 
-fn game_engine_slot() -> parking_lot::MutexGuard<'static, Option<Arc<Mutex<GameEngine>>>> {
+fn game_engine_slot() -> crate::common::owned_lock::OwnedMutexGuard<Option<Arc<Mutex<GameEngine>>>> {
     let services = crate::common::common_services::common_services();
-    let guard = services.system.game_engine_instance.lock();
-    unsafe { std::mem::transmute(guard) }
+    services.system.game_engine_instance.lock_arc()
 }
 
 /// Get the global game engine instance.

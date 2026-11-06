@@ -8,6 +8,8 @@
 //!
 //! Rust port: 2025
 
+use crate::common::owned_lock::{OwnedWriteGuard};
+use crate::common::owned_lock::{OwnedReadGuard};
 use crate::common::ini::ini::{FieldParse, INI, INIError, INIResult};
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -248,22 +250,20 @@ pub fn get_global_language() -> Option<std::sync::Arc<parking_lot::RwLock<Global
 }
 
 /// Get a read guard to the global language settings
-pub fn get_global_language_read() -> Option<parking_lot::RwLockReadGuard<'static, GlobalLanguage>> {
+pub fn get_global_language_read() -> Option<OwnedReadGuard<GlobalLanguage>> {
     let cell = std::sync::Arc::clone(
         &crate::common::common_services::common_services().ini.global_language,
     );
-    let guard = cell.read();
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(cell.read_arc())
 }
 
 /// Get a write guard to the global language settings
-pub fn get_global_language_write() -> Option<parking_lot::RwLockWriteGuard<'static, GlobalLanguage>>
+pub fn get_global_language_write() -> Option<OwnedWriteGuard<GlobalLanguage>>
 {
     let cell = std::sync::Arc::clone(
         &crate::common::common_services::common_services().ini.global_language,
     );
-    let guard = cell.write();
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(cell.write_arc())
 }
 
 // ============================================================================

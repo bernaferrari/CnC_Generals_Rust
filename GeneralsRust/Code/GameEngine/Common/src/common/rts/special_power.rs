@@ -9,6 +9,7 @@
 //! Reference: /GeneralsMD/Code/GameEngine/Source/Common/RTS/SpecialPower.cpp
 //! Reference: /GeneralsMD/Code/GameEngine/Include/Common/SpecialPower.h
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -711,20 +712,18 @@ impl Default for SpecialPowerStore {
 }
 
 
-fn rts_special_power_cell() -> std::sync::Arc<std::sync::RwLock<SpecialPowerStore>> {
+fn rts_special_power_cell() -> std::sync::Arc<parking_lot::RwLock<SpecialPowerStore>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.rts_special_power)
 }
 
-pub fn get_special_power_store() -> RwLockReadGuard<'static, SpecialPowerStore> {
+pub fn get_special_power_store() -> OwnedReadGuard<SpecialPowerStore> {
     let cell = rts_special_power_cell();
-    let guard = cell.read().expect("SpecialPowerStore poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.read_arc()
 }
 
-pub fn get_special_power_store_mut() -> RwLockWriteGuard<'static, SpecialPowerStore> {
+pub fn get_special_power_store_mut() -> OwnedWriteGuard<SpecialPowerStore> {
     let cell = rts_special_power_cell();
-    let guard = cell.write().expect("SpecialPowerStore poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.write_arc()
 }
 
 pub fn reset_special_power_store() {

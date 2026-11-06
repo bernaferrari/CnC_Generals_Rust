@@ -523,18 +523,12 @@ pub fn with_local_file_system<R>(f: impl FnOnce(&mut LocalFileSystem) -> R) -> R
     f(&mut services
         .system
         .local_file_system
-        .lock()
-        .unwrap_or_else(|p| p.into_inner()))
+        .lock())
 }
 
-pub fn get_local_file_system() -> std::sync::MutexGuard<'static, LocalFileSystem> {
+pub fn get_local_file_system() -> crate::common::owned_lock::OwnedMutexGuard<LocalFileSystem> {
     let services = crate::common::common_services::common_services();
-    let guard = services
-        .system
-        .local_file_system
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
-    unsafe { std::mem::transmute(guard) }
+    services.system.local_file_system.lock_arc()
 }
 
 #[cfg(test)]

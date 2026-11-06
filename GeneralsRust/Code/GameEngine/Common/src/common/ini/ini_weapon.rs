@@ -8,6 +8,7 @@
 //! Author: Colin Day, November 2001 (Converted to Rust)
 //! Desc:   Parsing Weapon INI entries
 
+use crate::common::owned_lock::{OwnedWriteGuard};
 use crate::common::ascii_string::AsciiString;
 use crate::common::ini::INILoadType;
 use std::collections::HashMap;
@@ -1053,7 +1054,7 @@ impl Default for WeaponStore {
 /// left the store containing only the final weapon.
 /// Get a reference to the global weapon store
 
-fn ini_weapon_cell() -> std::sync::Arc<std::sync::RwLock<WeaponStore>> {
+fn ini_weapon_cell() -> std::sync::Arc<parking_lot::RwLock<WeaponStore>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.weapon)
 }
 
@@ -1066,15 +1067,13 @@ pub fn initialize_weapon_store() {
 pub fn reset_weapon_store() {
     ini_weapon_cell()
         .write()
-        .expect("WeaponStore poisoned")
         .clear();
 }
 
 /// Get a mutable reference to the instance weapon store
-pub fn get_weapon_store() -> Option<RwLockWriteGuard<'static, WeaponStore>> {
+pub fn get_weapon_store() -> Option<OwnedWriteGuard<WeaponStore>> {
     let cell = ini_weapon_cell();
-    let guard = cell.write().expect("WeaponStore poisoned");
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(cell.write_arc())
 }
 
 /// Parse a boolean value from string

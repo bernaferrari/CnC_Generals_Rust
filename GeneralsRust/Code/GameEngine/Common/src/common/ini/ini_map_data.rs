@@ -6,6 +6,7 @@
 //! Author: Colin Day, November 2001
 //! Rust port: 2025
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -539,7 +540,7 @@ impl MapData {
 /// C++ INIMapData.cpp:22-24 leaves MapData parsing empty, with no parser cursor
 /// or global MapData mutation.
 
-fn ini_map_data_cell() -> std::sync::Arc<std::sync::RwLock<MapData>> {
+fn ini_map_data_cell() -> std::sync::Arc<parking_lot::RwLock<MapData>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.map_data)
 }
 
@@ -549,17 +550,15 @@ pub fn init_global_map_data() {
 }
 
 
-pub fn get_map_data() -> Option<std::sync::RwLockReadGuard<'static, MapData>> {
+pub fn get_map_data() -> Option<OwnedReadGuard<MapData>> {
     let cell = ini_map_data_cell();
-    let guard = cell.read().ok()?;
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(cell.read_arc())
 }
 
 
-pub fn get_map_data_mut() -> Option<std::sync::RwLockWriteGuard<'static, MapData>> {
+pub fn get_map_data_mut() -> Option<OwnedWriteGuard<MapData>> {
     let cell = ini_map_data_cell();
-    let guard = cell.write().ok()?;
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(cell.write_arc())
 }
 
 pub fn parse_map_data_definition(_ini: &mut INI) -> Result<(), String> {

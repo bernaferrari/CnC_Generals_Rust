@@ -192,6 +192,7 @@
 //! let (purchasable, potential) = store.get_purchasable_sciences(&player);
 //! ```
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use std::any::Any;
 use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::fs::File;
@@ -1242,25 +1243,23 @@ impl Default for ScienceStore {
 /// Initialize the global science store
 /// Get a mutable guard to the global science store.
 
-fn rts_science_cell() -> std::sync::Arc<std::sync::RwLock<ScienceStore>> {
+fn rts_science_cell() -> std::sync::Arc<parking_lot::RwLock<ScienceStore>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.rts_science)
 }
 
-pub fn get_science_store() -> Option<RwLockReadGuard<'static, ScienceStore>> {
+pub fn get_science_store() -> Option<OwnedReadGuard<ScienceStore>> {
     let cell = rts_science_cell();
-    let guard = cell.read().ok()?;
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(cell.read_arc())
 }
 
 pub fn init_science_store() {
     let cell = rts_science_cell();
-    *cell.write().expect("ScienceStore poisoned") = ScienceStore::new();
+    *cell.write() = ScienceStore::new();
 }
 
-pub fn get_science_store_mut() -> Option<RwLockWriteGuard<'static, ScienceStore>> {
+pub fn get_science_store_mut() -> Option<OwnedWriteGuard<ScienceStore>> {
     let cell = rts_science_cell();
-    let guard = cell.write().ok()?;
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(cell.write_arc())
 }
 
 /// Subsystem responsible for loading and maintaining the global science store.

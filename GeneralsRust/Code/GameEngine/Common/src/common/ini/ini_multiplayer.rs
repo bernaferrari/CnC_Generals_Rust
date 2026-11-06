@@ -8,6 +8,7 @@
 //! Author: Matthew D. Campbell, January 2002 (Converted to Rust)
 //! Desc:   Parsing MultiplayerSettings and MultiplayerColor INI entries
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::common::ascii_string::AsciiString;
@@ -394,20 +395,18 @@ fn parse_starting_money_default(
 }
 
 
-fn ini_multiplayer_cell() -> std::sync::Arc<std::sync::RwLock<MultiplayerSettings>> {
+fn ini_multiplayer_cell() -> std::sync::Arc<parking_lot::RwLock<MultiplayerSettings>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.multiplayer)
 }
 
-fn multiplayer_settings_mut() -> RwLockWriteGuard<'static, MultiplayerSettings> {
+fn multiplayer_settings_mut() -> OwnedWriteGuard<MultiplayerSettings> {
     let cell = ini_multiplayer_cell();
-    let guard = cell.write().expect("MultiplayerSettings poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.write_arc()
 }
 
-fn multiplayer_settings() -> RwLockReadGuard<'static, MultiplayerSettings> {
+fn multiplayer_settings() -> OwnedReadGuard<MultiplayerSettings> {
     let cell = ini_multiplayer_cell();
-    let guard = cell.read().expect("MultiplayerSettings poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.read_arc()
 }
 
 pub fn with_multiplayer_settings<R>(f: impl FnOnce(&MultiplayerSettings) -> R) -> R {

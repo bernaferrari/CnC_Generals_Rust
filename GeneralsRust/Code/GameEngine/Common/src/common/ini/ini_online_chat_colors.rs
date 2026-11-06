@@ -9,6 +9,7 @@
 //!
 //! Rust port: 2025
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use crate::common::ini::ini::{INI, INIError, INIResult};
 use parking_lot::RwLock;
 
@@ -192,17 +193,15 @@ fn online_chat_colors_cell() -> std::sync::Arc<parking_lot::RwLock<OnlineChatCol
 }
 
 /// Get read access to the online chat colors on the published CommonServices.
-pub fn get_online_chat_colors() -> parking_lot::RwLockReadGuard<'static, OnlineChatColors> {
+pub fn get_online_chat_colors() -> OwnedReadGuard<OnlineChatColors> {
     let cell = online_chat_colors_cell();
-    let guard = cell.read();
-    unsafe { std::mem::transmute(guard) }
+    cell.read_arc()
 }
 
 /// Get write access to the online chat colors on the published CommonServices.
-pub fn get_online_chat_colors_mut() -> parking_lot::RwLockWriteGuard<'static, OnlineChatColors> {
+pub fn get_online_chat_colors_mut() -> OwnedWriteGuard<OnlineChatColors> {
     let cell = online_chat_colors_cell();
-    let guard = cell.write();
-    unsafe { std::mem::transmute(guard) }
+    cell.write_arc()
 }
 
 /// Initialize the online chat colors (ensures CommonServices is published).

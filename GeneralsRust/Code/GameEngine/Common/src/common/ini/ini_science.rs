@@ -10,6 +10,7 @@
 //!
 //! Matches C++ Science.h and Science.cpp field parse table
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -355,20 +356,18 @@ impl Default for ScienceStore {
 
 /// Get mutable access to the global science store
 
-fn ini_science_cell() -> std::sync::Arc<std::sync::RwLock<ScienceStore>> {
+fn ini_science_cell() -> std::sync::Arc<parking_lot::RwLock<ScienceStore>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.science)
 }
 
-pub fn get_science_store() -> RwLockReadGuard<'static, ScienceStore> {
+pub fn get_science_store() -> OwnedReadGuard<ScienceStore> {
     let cell = ini_science_cell();
-    let guard = cell.read().expect("ScienceStore poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.read_arc()
 }
 
-pub fn get_science_store_mut() -> RwLockWriteGuard<'static, ScienceStore> {
+pub fn get_science_store_mut() -> OwnedWriteGuard<ScienceStore> {
     let cell = ini_science_cell();
-    let guard = cell.write().expect("ScienceStore poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.write_arc()
 }
 
 fn parse_cpp_bool(field_name: &str, value: &str) -> ScienceResult<bool> {

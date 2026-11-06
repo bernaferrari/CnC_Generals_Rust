@@ -1067,45 +1067,33 @@ impl Snapshotable for ModuleFactory {
     }
 }
 
-/// Guard that keeps the owning `Arc<Mutex<_>>` alive for the lock duration.
+/// Guard over the instance's `ModuleFactory` slot; holds its own `Arc` to the lock.
 pub struct ModuleFactoryGuard {
-    _owner: Arc<Mutex<Option<ModuleFactory>>>,
-    guard: Option<std::sync::MutexGuard<'static, Option<ModuleFactory>>>,
+    guard: crate::common::owned_lock::OwnedMutexGuard<Option<ModuleFactory>>,
 }
 
 impl ModuleFactoryGuard {
-    fn from_arc(owner: Arc<Mutex<Option<ModuleFactory>>>) -> Result<Self, std::sync::PoisonError<()>> {
-        let locked = owner.lock().map_err(|_| std::sync::PoisonError::new(()))?;
-        // SAFETY: `owner` is stored in Self and dropped after `guard` (see Drop).
-        let guard: std::sync::MutexGuard<'static, Option<ModuleFactory>> =
-            unsafe { std::mem::transmute(locked) };
-        Ok(Self {
-            _owner: owner,
-            guard: Some(guard),
-        })
-    }
-}
-
-impl Drop for ModuleFactoryGuard {
-    fn drop(&mut self) {
-        self.guard.take();
+    fn from_arc(
+        owner: Arc<parking_lot::Mutex<Option<ModuleFactory>>>,
+    ) -> Result<Self, std::sync::PoisonError<()>> {
+        Ok(Self { guard: owner.lock_arc() })
     }
 }
 
 impl std::ops::Deref for ModuleFactoryGuard {
     type Target = Option<ModuleFactory>;
     fn deref(&self) -> &Self::Target {
-        self.guard.as_deref().expect("ModuleFactoryGuard dropped")
+        &self.guard
     }
 }
 
 impl std::ops::DerefMut for ModuleFactoryGuard {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.guard.as_deref_mut().expect("ModuleFactoryGuard dropped")
+        &mut self.guard
     }
 }
 
-fn active_module_factory_slot() -> Arc<Mutex<Option<ModuleFactory>>> {
+fn active_module_factory_slot() -> Arc<parking_lot::Mutex<Option<ModuleFactory>>> {
     Arc::clone(&crate::common::common_services::common_services().module_factory)
 }
 

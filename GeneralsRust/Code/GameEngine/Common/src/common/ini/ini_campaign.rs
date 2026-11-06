@@ -5,6 +5,7 @@
 //!
 //! Purpose: INI parsing for Campaign and Mission definitions
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use crate::common::ini::ini::{FieldParse, INI, INIError, INIResult};
 use crate::common::ini::ini_misc_audio::AudioEventRTS;
 
@@ -346,22 +347,20 @@ const MISSION_FIELD_PARSE_TABLE: &[FieldParse<Mission>] = &[
 // ============================================================================
 
 
-fn ini_campaign_cell() -> std::sync::Arc<std::sync::RwLock<CampaignStore>> {
+fn ini_campaign_cell() -> std::sync::Arc<parking_lot::RwLock<CampaignStore>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.campaign)
 }
 
 
-pub fn get_campaign_store() -> std::sync::RwLockReadGuard<'static, CampaignStore> {
+pub fn get_campaign_store() -> OwnedReadGuard<CampaignStore> {
     let cell = ini_campaign_cell();
-    let guard = cell.read().expect("CampaignStore poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.read_arc()
 }
 
 
-pub fn get_campaign_store_mut() -> std::sync::RwLockWriteGuard<'static, CampaignStore> {
+pub fn get_campaign_store_mut() -> OwnedWriteGuard<CampaignStore> {
     let cell = ini_campaign_cell();
-    let guard = cell.write().expect("CampaignStore poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.write_arc()
 }
 
 

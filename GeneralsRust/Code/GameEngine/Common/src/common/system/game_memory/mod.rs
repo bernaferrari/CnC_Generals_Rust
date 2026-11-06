@@ -124,8 +124,7 @@ fn with_factory_mut<R>(f: impl FnOnce(&mut MemoryPoolFactory) -> R) -> R {
     f(&mut services
         .system
         .memory_pool_factory
-        .lock()
-        .unwrap_or_else(|p| p.into_inner()))
+        .lock())
 }
 
 pub fn init_memory_manager() {
@@ -144,17 +143,6 @@ pub fn shutdown_memory_manager() {
 
 pub fn with_memory_pool_factory<R>(f: impl FnOnce(&mut MemoryPoolFactory) -> R) -> R {
     with_factory_mut(f)
-}
-
-#[deprecated(note = "use with_memory_pool_factory")]
-pub fn get_memory_pool_factory() -> std::sync::MutexGuard<'static, MemoryPoolFactory> {
-    let services = crate::common::common_services::common_services();
-    let guard = services
-        .system
-        .memory_pool_factory
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
-    unsafe { std::mem::transmute(guard) }
 }
 
 pub fn dma_allocate(num_bytes: usize) -> *mut u8 {

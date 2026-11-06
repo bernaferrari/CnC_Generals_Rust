@@ -8,6 +8,7 @@
 //! Author: Colin Day, April 2002 (Converted to Rust)
 //! Desc:   Special Power INI database
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -470,31 +471,29 @@ impl Default for SpecialPowerStore {
 
 /// Get a reference to the global special power store
 
-fn ini_special_power_cell() -> std::sync::Arc<std::sync::RwLock<SpecialPowerStore>> {
+fn ini_special_power_cell() -> std::sync::Arc<parking_lot::RwLock<SpecialPowerStore>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.special_power)
 }
 
-fn special_power_store_mut() -> RwLockWriteGuard<'static, SpecialPowerStore> {
+fn special_power_store_mut() -> OwnedWriteGuard<SpecialPowerStore> {
     let cell = ini_special_power_cell();
-    let guard = cell.write().expect("SpecialPowerStore poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.write_arc()
 }
 
-fn special_power_store() -> RwLockReadGuard<'static, SpecialPowerStore> {
+fn special_power_store() -> OwnedReadGuard<SpecialPowerStore> {
     let cell = ini_special_power_cell();
-    let guard = cell.read().expect("SpecialPowerStore poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.read_arc()
 }
 
 pub fn initialize_special_power_store() {
     let _ = ini_special_power_cell();
 }
 
-pub fn get_special_power_store() -> Option<RwLockReadGuard<'static, SpecialPowerStore>> {
+pub fn get_special_power_store() -> Option<OwnedReadGuard<SpecialPowerStore>> {
     Some(special_power_store())
 }
 
-pub fn get_special_power_store_mut() -> Option<RwLockWriteGuard<'static, SpecialPowerStore>> {
+pub fn get_special_power_store_mut() -> Option<OwnedWriteGuard<SpecialPowerStore>> {
     Some(special_power_store_mut())
 }
 

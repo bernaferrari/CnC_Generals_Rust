@@ -345,11 +345,11 @@ enum PlayerTemplateAdmission {
 /// Admit one completed load attempt under the existing catalog's boundary.
 /// Two cold loaders must not invalidate identities from the first admitted one.
 fn admit_player_templates(
-    catalog: &RwLock<PlayerTemplateStore>,
+    catalog: &parking_lot::RwLock<PlayerTemplateStore>,
     candidate: PlayerTemplateStore,
     admission: PlayerTemplateAdmission,
 ) -> bool {
-    let mut store = catalog.write().expect("PlayerTemplateStore poisoned");
+    let mut store = catalog.write();
     if matches!(admission, PlayerTemplateAdmission::IfEmpty) && !store.is_empty() {
         return false;
     }

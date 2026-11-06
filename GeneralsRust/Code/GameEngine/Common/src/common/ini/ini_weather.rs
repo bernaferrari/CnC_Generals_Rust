@@ -24,6 +24,8 @@
 //! End
 //! ```
 
+use crate::common::owned_lock::{OwnedReadGuard};
+use crate::common::owned_lock::{OwnedWriteGuard};
 use std::sync::RwLock;
 
 use super::ini::{FieldParse, INI, INIError, INILoadType, INIResult};
@@ -352,48 +354,43 @@ fn parse_cpp_bool(value: &str) -> INIResult<bool> {
 /// Get the live weather setting (C++ `TheWeatherSetting->`, the final override).
 
 
-fn ini_weather_cell() -> std::sync::Arc<std::sync::RwLock<Option<WeatherSetting>>> {
+fn ini_weather_cell() -> std::sync::Arc<parking_lot::RwLock<Option<WeatherSetting>>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.weather)
 }
 
 pub fn get_weather_setting() -> Option<WeatherSetting> {
     ini_weather_cell()
         .read()
-        .ok()
-        .and_then(|guard| {
-            guard.as_ref().map(|setting| {
-                let mut final_setting = setting.final_override().clone();
-                final_setting.next_override = None;
-                final_setting
-            })
+        .as_ref()
+        .map(|setting| {
+            let mut final_setting = setting.final_override().clone();
+            final_setting.next_override = None;
+            final_setting
         })
 }
 
 pub fn get_base_weather_setting() -> Option<WeatherSetting> {
     ini_weather_cell()
         .read()
-        .ok()?
         .as_ref()
         .map(WeatherSetting::clone_without_chain)
 }
 
 fn with_weather_setting_mut<R>(f: impl FnOnce(&mut Option<WeatherSetting>) -> R) -> R {
     let cell = ini_weather_cell();
-    let mut guard = cell.write().expect("WeatherSetting poisoned");
+    let mut guard = cell.write();
     f(&mut guard)
 }
 
-fn get_weather_setting_mut() -> std::sync::RwLockWriteGuard<'static, Option<WeatherSetting>> {
+fn get_weather_setting_mut() -> OwnedWriteGuard<Option<WeatherSetting>> {
     let cell = ini_weather_cell();
-    let guard = cell.write().expect("WeatherSetting poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.write_arc()
 }
 
 pub fn get_weather_setting_lock()
--> Option<std::sync::RwLockReadGuard<'static, Option<WeatherSetting>>> {
+-> Option<OwnedReadGuard<Option<WeatherSetting>>> {
     let cell = ini_weather_cell();
-    let guard = cell.read().ok()?;
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(cell.read_arc())
 }
 
 pub fn clear_weather_setting_overrides() {

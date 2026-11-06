@@ -29,6 +29,7 @@
 //! };
 //! ```
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::common::ini::{INI, INIError, INIResult};
@@ -501,30 +502,28 @@ impl Default for CreditsManager {
     }
 }
 
-fn credits_manager_cell() -> std::sync::Arc<RwLock<CreditsManager>> {
+fn credits_manager_cell() -> std::sync::Arc<parking_lot::RwLock<CreditsManager>> {
     crate::common::common_services::common_services()
         .credits_manager
         .clone()
 }
 
 /// Get the credits manager (read access) on the published CommonServices.
-pub fn get_credits_manager() -> RwLockReadGuard<'static, CreditsManager> {
+pub fn get_credits_manager() -> OwnedReadGuard<CreditsManager> {
     let cell = credits_manager_cell();
-    let guard = cell.read().unwrap();
-    unsafe { std::mem::transmute(guard) }
+    cell.read_arc()
 }
 
 /// Get the credits manager (write access) on the published CommonServices.
-pub fn get_credits_manager_mut() -> RwLockWriteGuard<'static, CreditsManager> {
+pub fn get_credits_manager_mut() -> OwnedWriteGuard<CreditsManager> {
     let cell = credits_manager_cell();
-    let guard = cell.write().unwrap();
-    unsafe { std::mem::transmute(guard) }
+    cell.write_arc()
 }
 
 /// Initialize / reset the credits manager on the published CommonServices.
 pub fn init_credits_manager() {
     let cell = credits_manager_cell();
-    *cell.write().unwrap() = CreditsManager::new();
+    *cell.write() = CreditsManager::new();
 }
 
 /// Parse credits definition from INI block

@@ -10,6 +10,7 @@
 //!
 //! Matches C++ Locomotor.h and Locomotor.cpp field parse table
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -555,20 +556,18 @@ impl Default for LocomotorStore {
 
 /// Get mutable access to the global locomotor store
 
-fn ini_locomotor_cell() -> std::sync::Arc<std::sync::RwLock<LocomotorStore>> {
+fn ini_locomotor_cell() -> std::sync::Arc<parking_lot::RwLock<LocomotorStore>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.locomotor)
 }
 
-pub fn get_locomotor_store() -> RwLockReadGuard<'static, LocomotorStore> {
+pub fn get_locomotor_store() -> OwnedReadGuard<LocomotorStore> {
     let cell = ini_locomotor_cell();
-    let guard = cell.read().expect("LocomotorStore poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.read_arc()
 }
 
-pub fn get_locomotor_store_mut() -> RwLockWriteGuard<'static, LocomotorStore> {
+pub fn get_locomotor_store_mut() -> OwnedWriteGuard<LocomotorStore> {
     let cell = ini_locomotor_cell();
-    let guard = cell.write().expect("LocomotorStore poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.write_arc()
 }
 
 fn parse_cpp_bool(field_name: &str, value: &str) -> LocomotorResult<bool> {

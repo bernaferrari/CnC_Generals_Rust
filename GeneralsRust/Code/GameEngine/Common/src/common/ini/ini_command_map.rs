@@ -3,6 +3,7 @@
 //! Corresponds to C++ INI::parseMetaMapDefinition in MetaEvent.cpp
 //! Parses keyboard command mappings for game actions.
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use crate::common::ini::{FieldParse, INI, INIError, INIResult, LookupListRec, ini};
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
@@ -629,7 +630,7 @@ fn parse_display_name(ini: &mut INI, target: &mut MetaMapRec, _tokens: &[&str]) 
 /// Get a read reference to the MetaMap
 /// Get a write reference to the MetaMap
 
-fn ini_meta_map_cell() -> std::sync::Arc<std::sync::RwLock<MetaMap>> {
+fn ini_meta_map_cell() -> std::sync::Arc<parking_lot::RwLock<MetaMap>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.meta_map)
 }
 
@@ -639,17 +640,15 @@ pub fn init_meta_map() {
 }
 
 
-pub fn get_meta_map() -> Option<std::sync::RwLockReadGuard<'static, MetaMap>> {
+pub fn get_meta_map() -> Option<OwnedReadGuard<MetaMap>> {
     let cell = ini_meta_map_cell();
-    let guard = cell.read().ok()?;
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(cell.read_arc())
 }
 
 
-pub fn get_meta_map_mut() -> Option<std::sync::RwLockWriteGuard<'static, MetaMap>> {
+pub fn get_meta_map_mut() -> Option<OwnedWriteGuard<MetaMap>> {
     let cell = ini_meta_map_cell();
-    let guard = cell.write().ok()?;
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(cell.write_arc())
 }
 
 /// Parse a CommandMap definition block

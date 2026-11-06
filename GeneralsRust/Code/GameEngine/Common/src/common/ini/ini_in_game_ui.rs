@@ -3,6 +3,7 @@
 //! Corresponds to C++ INI::parseInGameUIDefinition in InGameUI.cpp
 //! Parses UI configuration for in-game elements like messages, captions, and superweapon countdowns.
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use crate::common::ini::{FieldParse, INI, INIError, INIResult, ini};
 use std::sync::{OnceLock, RwLock};
 
@@ -834,7 +835,7 @@ fn parse_move_rmb_scroll_anchor(
 /// Get a read reference to the InGameUI settings
 /// Get a write reference to the InGameUI settings
 
-fn ini_in_game_ui_cell() -> std::sync::Arc<std::sync::RwLock<InGameUISettings>> {
+fn ini_in_game_ui_cell() -> std::sync::Arc<parking_lot::RwLock<InGameUISettings>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.in_game_ui)
 }
 
@@ -844,17 +845,15 @@ pub fn init_in_game_ui_settings() {
 }
 
 
-pub fn get_in_game_ui_settings() -> Option<std::sync::RwLockReadGuard<'static, InGameUISettings>> {
+pub fn get_in_game_ui_settings() -> Option<OwnedReadGuard<InGameUISettings>> {
     let cell = ini_in_game_ui_cell();
-    let guard = cell.read().ok()?;
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(cell.read_arc())
 }
 
 
-pub fn get_in_game_ui_settings_mut() -> Option<std::sync::RwLockWriteGuard<'static, InGameUISettings>> {
+pub fn get_in_game_ui_settings_mut() -> Option<OwnedWriteGuard<InGameUISettings>> {
     let cell = ini_in_game_ui_cell();
-    let guard = cell.write().ok()?;
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(cell.write_arc())
 }
 
 /// Parse the InGameUI definition block

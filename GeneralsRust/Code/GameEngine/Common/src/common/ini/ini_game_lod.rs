@@ -8,6 +8,7 @@
 //!
 //! Rust port: 2025
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::common::ini::{INI, INIError, INIResult};
@@ -623,27 +624,25 @@ pub fn get_dynamic_lod_level() -> DynamicGameLODLevel {
 // ============================================================================
 
 
-fn ini_game_lod_cell() -> std::sync::Arc<std::sync::RwLock<GameLODManager>> {
+fn ini_game_lod_cell() -> std::sync::Arc<parking_lot::RwLock<GameLODManager>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.game_lod)
 }
 
 
-pub fn get_game_lod_manager() -> std::sync::RwLockReadGuard<'static, GameLODManager> {
+pub fn get_game_lod_manager() -> OwnedReadGuard<GameLODManager> {
     let cell = ini_game_lod_cell();
-    let guard = cell.read().expect("GameLODManager poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.read_arc()
 }
 
 
-pub fn get_game_lod_manager_mut() -> std::sync::RwLockWriteGuard<'static, GameLODManager> {
+pub fn get_game_lod_manager_mut() -> OwnedWriteGuard<GameLODManager> {
     let cell = ini_game_lod_cell();
-    let guard = cell.write().expect("GameLODManager poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.write_arc()
 }
 
 
 pub fn init_game_lod_manager() {
-    ini_game_lod_cell().write().expect("GameLODManager poisoned").init();
+    ini_game_lod_cell().write().init();
 }
 
 /// Parse StaticGameLOD block from INI

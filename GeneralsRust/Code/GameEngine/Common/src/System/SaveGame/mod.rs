@@ -104,23 +104,14 @@ pub(crate) fn default_save_directory() -> PathBuf {
     PathBuf::from(base)
 }
 
-pub fn get_game_state() -> std::sync::MutexGuard<'static, GameState> {
+pub fn get_game_state() -> crate::common::owned_lock::OwnedMutexGuard<GameState> {
     let services = crate::common::common_services::common_services();
-    let guard = services
-        .system
-        .game_state
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
-    unsafe { std::mem::transmute(guard) }
+    services.system.game_state.lock_arc()
 }
 
 pub fn init_game_state(save_directory: PathBuf) {
     let services = crate::common::common_services::common_services();
-    let mut state = services
-        .system
-        .game_state
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+    let mut state = services.system.game_state.lock();
     state.reset_for_init(save_directory);
     state.init();
 }

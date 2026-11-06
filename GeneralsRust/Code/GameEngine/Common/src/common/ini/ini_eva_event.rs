@@ -36,6 +36,7 @@
 //! };
 //! ```
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -624,27 +625,25 @@ impl Default for EvaEventStore {
 /// Get the global EVA event store (write access)
 /// Initialize the global EVA event store
 
-fn ini_eva_cell() -> std::sync::Arc<std::sync::RwLock<EvaEventStore>> {
+fn ini_eva_cell() -> std::sync::Arc<parking_lot::RwLock<EvaEventStore>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.eva)
 }
 
 
-pub fn get_eva_event_store() -> std::sync::RwLockReadGuard<'static, EvaEventStore> {
+pub fn get_eva_event_store() -> OwnedReadGuard<EvaEventStore> {
     let cell = ini_eva_cell();
-    let guard = cell.read().expect("EvaEventStore poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.read_arc()
 }
 
 
-pub fn get_eva_event_store_mut() -> std::sync::RwLockWriteGuard<'static, EvaEventStore> {
+pub fn get_eva_event_store_mut() -> OwnedWriteGuard<EvaEventStore> {
     let cell = ini_eva_cell();
-    let guard = cell.write().expect("EvaEventStore poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.write_arc()
 }
 
 
 pub fn init_eva_event_store() {
-    ini_eva_cell().write().expect("EvaEventStore poisoned").init();
+    ini_eva_cell().write().init();
 }
 
 /// Parse EvaEvent definition from INI block

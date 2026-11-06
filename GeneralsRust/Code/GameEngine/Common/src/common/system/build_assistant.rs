@@ -860,8 +860,7 @@ pub fn init_build_assistant() {
     *services
         .system
         .build_assistant
-        .lock()
-        .unwrap_or_else(|p| p.into_inner()) = BuildAssistant::new();
+        .lock() = BuildAssistant::new();
     services
         .system
         .build_assistant_ready
@@ -869,7 +868,7 @@ pub fn init_build_assistant() {
 }
 
 /// Get reference to the instance build assistant (C++ `TheBuildAssistant`).
-pub fn get_build_assistant() -> Option<MutexGuard<'static, BuildAssistant>> {
+pub fn get_build_assistant() -> Option<crate::common::owned_lock::OwnedMutexGuard<BuildAssistant>> {
     let services = crate::common::common_services::common_services();
     if !services
         .system
@@ -878,13 +877,7 @@ pub fn get_build_assistant() -> Option<MutexGuard<'static, BuildAssistant>> {
     {
         return None;
     }
-    let guard = services
-        .system
-        .build_assistant
-        .lock()
-        .expect("BuildAssistant mutex poisoned");
-    // Guard lifetime is bound to the published CommonServices Arc (TLS / WorldServices).
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(services.system.build_assistant.lock_arc())
 }
 
 #[cfg(test)]

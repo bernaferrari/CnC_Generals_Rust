@@ -437,22 +437,21 @@ impl Default for VideoPlayer {
 /// Get a reference to the global video player
 /// Parse a boolean value from string
 
-fn ini_video_player_cell() -> std::sync::Arc<std::sync::Mutex<VideoPlayer>> {
+fn ini_video_player_cell() -> std::sync::Arc<parking_lot::Mutex<VideoPlayer>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.video_player)
 }
 
 pub fn initialize_video_player() {
     let cell = ini_video_player_cell();
-    if let Ok(mut player) = cell.lock() {
+    {
+        let mut player = cell.lock();
         // Re-init keeps player usable across loads (C++ recreate semantics approximated).
         *player = VideoPlayer::new();
     }
 }
 
-pub fn get_video_player() -> Option<std::sync::MutexGuard<'static, VideoPlayer>> {
-    let cell = ini_video_player_cell();
-    let guard = cell.lock().ok()?;
-    Some(unsafe { std::mem::transmute(guard) })
+pub fn get_video_player() -> Option<crate::common::owned_lock::OwnedMutexGuard<VideoPlayer>> {
+    Some(ini_video_player_cell().lock_arc())
 }
 
 pub fn parse_bool(value: &str) -> Result<bool, String> {

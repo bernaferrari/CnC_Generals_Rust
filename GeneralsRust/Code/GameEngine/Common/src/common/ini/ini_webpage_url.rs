@@ -8,6 +8,7 @@
 //! Author: Bryan Cleveland, November 2001 (Converted to Rust)
 //! Desc:   Parsing Webpage URL INI entries
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use log::debug;
 use std::collections::HashMap;
 use std::fs;
@@ -336,22 +337,20 @@ impl Default for WebBrowser {
 }
 
 /// Global web browser instance
-fn web_browser_cell() -> std::sync::Arc<RwLock<WebBrowser>> {
+fn web_browser_cell() -> std::sync::Arc<parking_lot::RwLock<WebBrowser>> {
     crate::common::common_services::common_services()
         .web_browser
         .clone()
 }
 
-fn web_browser_mut() -> RwLockWriteGuard<'static, WebBrowser> {
+fn web_browser_mut() -> OwnedWriteGuard<WebBrowser> {
     let cell = web_browser_cell();
-    let guard = cell.write().expect("WebBrowser poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.write_arc()
 }
 
-fn web_browser() -> RwLockReadGuard<'static, WebBrowser> {
+fn web_browser() -> OwnedReadGuard<WebBrowser> {
     let cell = web_browser_cell();
-    let guard = cell.read().expect("WebBrowser poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.read_arc()
 }
 
 /// Initialize the web browser on the published CommonServices.
@@ -360,11 +359,11 @@ pub fn initialize_web_browser() {
 }
 
 /// Get a reference to the published web browser.
-pub fn get_web_browser() -> Option<RwLockReadGuard<'static, WebBrowser>> {
+pub fn get_web_browser() -> Option<OwnedReadGuard<WebBrowser>> {
     Some(web_browser())
 }
 
-pub fn get_web_browser_mut() -> Option<RwLockWriteGuard<'static, WebBrowser>> {
+pub fn get_web_browser_mut() -> Option<OwnedWriteGuard<WebBrowser>> {
     Some(web_browser_mut())
 }
 

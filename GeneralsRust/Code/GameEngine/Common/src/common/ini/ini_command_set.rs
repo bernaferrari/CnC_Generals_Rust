@@ -3,6 +3,7 @@
 //! Desc: Command sets are a configurable set of CommandButtons, we will use the sets as
 //!       part of the context sensitive user interface
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -486,7 +487,7 @@ impl Default for CommandSetManager {
 /// Get a reference to the global command set manager
 /// Get a mutable reference to the global command set manager
 
-fn ini_command_set_cell() -> std::sync::Arc<std::sync::RwLock<CommandSetManager>> {
+fn ini_command_set_cell() -> std::sync::Arc<parking_lot::RwLock<CommandSetManager>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.command_set)
 }
 
@@ -496,17 +497,15 @@ pub fn initialize_command_set_manager() {
 }
 
 
-pub fn get_command_set_manager() -> Option<std::sync::RwLockReadGuard<'static, CommandSetManager>> {
+pub fn get_command_set_manager() -> Option<OwnedReadGuard<CommandSetManager>> {
     let cell = ini_command_set_cell();
-    let guard = cell.read().ok()?;
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(cell.read_arc())
 }
 
 
-pub fn get_command_set_manager_mut() -> Option<std::sync::RwLockWriteGuard<'static, CommandSetManager>> {
+pub fn get_command_set_manager_mut() -> Option<OwnedWriteGuard<CommandSetManager>> {
     let cell = ini_command_set_cell();
-    let guard = cell.write().ok()?;
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(cell.write_arc())
 }
 
 /// Parse command set definition from INI file

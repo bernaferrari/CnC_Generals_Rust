@@ -4,6 +4,7 @@
 //! Reference: GeneralsMD/Code/GameEngine/Include/GameClient/GameWindowTransitions.h
 //! Parses [WindowTransition] blocks from INI files for GUI window animations.
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 
@@ -196,7 +197,7 @@ impl WindowTransitionStore {
 /// Initialize the window transition store
 
 
-fn ini_window_transition_cell() -> std::sync::Arc<std::sync::RwLock<WindowTransitionStore>> {
+fn ini_window_transition_cell() -> std::sync::Arc<parking_lot::RwLock<WindowTransitionStore>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.window_transition)
 }
 
@@ -204,16 +205,14 @@ pub fn init_window_transition_store() {
     let _ = ini_window_transition_cell();
 }
 
-pub fn get_window_transition_store() -> std::sync::RwLockReadGuard<'static, WindowTransitionStore> {
+pub fn get_window_transition_store() -> OwnedReadGuard<WindowTransitionStore> {
     let cell = ini_window_transition_cell();
-    let guard = cell.read().expect("WindowTransitionStore poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.read_arc()
 }
 
-pub fn get_window_transition_store_mut() -> std::sync::RwLockWriteGuard<'static, WindowTransitionStore> {
+pub fn get_window_transition_store_mut() -> OwnedWriteGuard<WindowTransitionStore> {
     let cell = ini_window_transition_cell();
-    let guard = cell.write().expect("WindowTransitionStore poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.write_arc()
 }
 
 /// Parse bool value from string

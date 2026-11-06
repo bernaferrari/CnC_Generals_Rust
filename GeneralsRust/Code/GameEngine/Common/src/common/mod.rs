@@ -14,6 +14,7 @@ pub mod bit_flags;
 pub mod command_line;
 pub mod crc;
 pub mod common_services;
+pub mod owned_lock;
 pub mod ini_stores;
 pub mod system_stores;
 pub mod crc_debug;

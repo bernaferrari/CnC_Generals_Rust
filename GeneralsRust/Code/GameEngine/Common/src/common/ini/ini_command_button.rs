@@ -3,6 +3,7 @@
 //! Desc: Command buttons are the atomic units we can configure into command sets
 //!       to then display in the context sensitive user interface
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use super::ini::{FieldParse, INI, INIError, INILoadType, INIResult, LookupListRec};
 use crate::common::ini::ini_misc_audio::AudioEventRTS;
 use crate::common::rts::{SCIENCE_INVALID, ScienceType, WeaponSlotType, get_science_store};
@@ -554,15 +555,13 @@ impl Default for ControlBar {
     }
 }
 
-fn control_bar_read() -> RwLockReadGuard<'static, ControlBar> {
+fn control_bar_read() -> OwnedReadGuard<ControlBar> {
     let cell = ini_control_bar_cell();
-    let guard = cell.read().expect("ControlBar poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.read_arc()
 }
-fn control_bar_write() -> RwLockWriteGuard<'static, ControlBar> {
+fn control_bar_write() -> OwnedWriteGuard<ControlBar> {
     let cell = ini_control_bar_cell();
-    let guard = cell.write().expect("ControlBar poisoned");
-    unsafe { std::mem::transmute(guard) }
+    cell.write_arc()
 }
 /// Initialize the global control bar
 
@@ -571,7 +570,7 @@ fn control_bar_write() -> RwLockWriteGuard<'static, ControlBar> {
 /// Parse command button definition from INI file
 /// This is the main entry point called by the INI parser
 
-fn ini_control_bar_cell() -> std::sync::Arc<std::sync::RwLock<ControlBar>> {
+fn ini_control_bar_cell() -> std::sync::Arc<parking_lot::RwLock<ControlBar>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.control_bar)
 }
 
@@ -579,16 +578,14 @@ pub fn initialize_control_bar() {
     let _ = ini_control_bar_cell();
 }
 
-pub fn get_control_bar() -> Option<RwLockReadGuard<'static, ControlBar>> {
+pub fn get_control_bar() -> Option<OwnedReadGuard<ControlBar>> {
     let cell = ini_control_bar_cell();
-    let guard = cell.read().ok()?;
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(cell.read_arc())
 }
 
-pub fn get_control_bar_mut() -> Option<RwLockWriteGuard<'static, ControlBar>> {
+pub fn get_control_bar_mut() -> Option<OwnedWriteGuard<ControlBar>> {
     let cell = ini_control_bar_cell();
-    let guard = cell.write().ok()?;
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(cell.write_arc())
 }
 
 pub fn parse_command_button_definition(ini: &mut INI) -> INIResult<()> {

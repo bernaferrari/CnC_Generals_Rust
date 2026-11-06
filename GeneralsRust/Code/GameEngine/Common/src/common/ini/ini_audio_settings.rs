@@ -9,6 +9,7 @@
 //!
 //! Rust port: 2025
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use crate::common::ini::ini::{FieldParse, INI, INIError, INIResult};
 use crate::common::user_preferences::UserPreferences;
 use parking_lot::RwLock;
@@ -745,16 +746,14 @@ pub fn get_audio_settings() -> Option<Arc<RwLock<AudioSettings>>> {
 }
 
 /// Get a read guard to the global audio settings
-pub fn get_audio_settings_read() -> Option<parking_lot::RwLockReadGuard<'static, AudioSettings>> {
+pub fn get_audio_settings_read() -> Option<OwnedReadGuard<AudioSettings>> {
     let cell = ensure_audio_settings();
-    let guard = cell.read();
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(cell.read_arc())
 }
 /// Get a write guard to the global audio settings
-pub fn get_audio_settings_write() -> Option<parking_lot::RwLockWriteGuard<'static, AudioSettings>> {
+pub fn get_audio_settings_write() -> Option<OwnedWriteGuard<AudioSettings>> {
     let cell = ensure_audio_settings();
-    let guard = cell.write();
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(cell.write_arc())
 }
 /// INI parsing function for AudioSettings definition (matches C++ INI::parseAudioSettingsDefinition)
 ///

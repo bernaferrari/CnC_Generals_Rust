@@ -8,11 +8,11 @@ pub use common_roads::{
 };
 
 /// Access the global terrain road collection (mirrors TheTerrainRoads).
-pub fn terrain_roads() -> std::sync::RwLockReadGuard<'static, TerrainRoadCollection> {
+pub fn terrain_roads() -> game_engine::common::owned_lock::OwnedReadGuard<TerrainRoadCollection> {
     common_roads::get_terrain_roads()
 }
 
 /// Mutable access to the global terrain road collection.
-pub fn terrain_roads_mut() -> std::sync::RwLockWriteGuard<'static, TerrainRoadCollection> {
+pub fn terrain_roads_mut() -> game_engine::common::owned_lock::OwnedWriteGuard<TerrainRoadCollection> {
     common_roads::get_terrain_roads_mut()
 }

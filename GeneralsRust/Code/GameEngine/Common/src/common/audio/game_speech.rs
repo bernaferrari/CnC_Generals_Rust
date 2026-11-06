@@ -12,6 +12,7 @@
 //! Rust `script_action_handler::speech_play` → `TheAudio`). This registry/queue
 //! port is dormant. Do not rewrite it for live-path parity.
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use crate::common::audio::audio_event_rts::{AudioEventRts, TimeOfDay};
 use crate::common::random_value::get_game_client_random_value;
 use std::collections::{HashMap, VecDeque};
@@ -31,24 +32,14 @@ const BASE_DLG_DIR: &str = "data\\audio\\sounds";
 const BASE_DLG_EXT: &str = "wav";
 const NUM_DLG_PRIORITIES: usize = 5;
 
-fn speech_registry_read() -> std::sync::RwLockReadGuard<'static, HashMap<String, Speech>> {
+fn speech_registry_read() -> OwnedReadGuard<HashMap<String, Speech>> {
     let services = crate::common::common_services::common_services();
-    let guard = services
-        .system
-        .speech_registry
-        .read()
-        .unwrap_or_else(|p| p.into_inner());
-    unsafe { std::mem::transmute(guard) }
+    services.system.speech_registry.read_arc()
 }
 
-fn speech_registry_write() -> std::sync::RwLockWriteGuard<'static, HashMap<String, Speech>> {
+fn speech_registry_write() -> OwnedWriteGuard<HashMap<String, Speech>> {
     let services = crate::common::common_services::common_services();
-    let guard = services
-        .system
-        .speech_registry
-        .write()
-        .unwrap_or_else(|p| p.into_inner());
-    unsafe { std::mem::transmute(guard) }
+    services.system.speech_registry.write_arc()
 }
 
 /// Information about a line of speech/dialog

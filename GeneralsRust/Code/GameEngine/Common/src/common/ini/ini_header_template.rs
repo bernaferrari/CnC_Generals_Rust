@@ -3,12 +3,13 @@
 //! Corresponds to C++ INI::parseHeaderTemplateDefinition in HeaderTemplate.cpp
 //! Parses font header templates for UI consistency.
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use crate::common::ini::{FieldParse, INI, INIError, INIResult, ini};
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 
 
-fn ini_header_template_cell() -> std::sync::Arc<std::sync::RwLock<HeaderTemplateManager>> {
+fn ini_header_template_cell() -> std::sync::Arc<parking_lot::RwLock<HeaderTemplateManager>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.header_template)
 }
 
@@ -17,17 +18,15 @@ pub fn init_header_template_manager() {
 }
 
 pub fn get_header_template_manager()
--> Option<std::sync::RwLockReadGuard<'static, HeaderTemplateManager>> {
+-> Option<OwnedReadGuard<HeaderTemplateManager>> {
     let cell = ini_header_template_cell();
-    let guard = cell.read().ok()?;
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(cell.read_arc())
 }
 
 pub fn get_header_template_manager_mut()
--> Option<std::sync::RwLockWriteGuard<'static, HeaderTemplateManager>> {
+-> Option<OwnedWriteGuard<HeaderTemplateManager>> {
     let cell = ini_header_template_cell();
-    let guard = cell.write().ok()?;
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(cell.write_arc())
 }
 
 /// HeaderTemplate structure

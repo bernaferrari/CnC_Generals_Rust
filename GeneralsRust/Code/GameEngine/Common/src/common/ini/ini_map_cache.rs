@@ -6,6 +6,7 @@
 //! Author: Matthew D. Campbell, February 2002
 //! Rust port: 2025
 
+use crate::common::owned_lock::{OwnedReadGuard, OwnedWriteGuard};
 use once_cell::sync::OnceCell;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -231,7 +232,7 @@ impl MapMetaData {
 /// Field parsing functions for MapMetaDataReader
 
 
-fn ini_map_cache_cell() -> std::sync::Arc<std::sync::RwLock<MapCache>> {
+fn ini_map_cache_cell() -> std::sync::Arc<parking_lot::RwLock<MapCache>> {
     std::sync::Arc::clone(&crate::common::common_services::common_services().ini.map_cache)
 }
 
@@ -241,17 +242,15 @@ pub fn init_global_map_cache() {
 }
 
 
-pub fn get_map_cache() -> Option<std::sync::RwLockReadGuard<'static, MapCache>> {
+pub fn get_map_cache() -> Option<OwnedReadGuard<MapCache>> {
     let cell = ini_map_cache_cell();
-    let guard = cell.read().ok()?;
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(cell.read_arc())
 }
 
 
-pub fn get_map_cache_mut() -> Option<std::sync::RwLockWriteGuard<'static, MapCache>> {
+pub fn get_map_cache_mut() -> Option<OwnedWriteGuard<MapCache>> {
     let cell = ini_map_cache_cell();
-    let guard = cell.write().ok()?;
-    Some(unsafe { std::mem::transmute(guard) })
+    Some(cell.write_arc())
 }
 
 /// Parse supply position coordinate

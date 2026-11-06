@@ -257,23 +257,21 @@ impl Version {
     }
 }
 
-fn version_lock() -> &'static RwLock<Version> {
+fn version_lock() -> std::sync::Arc<RwLock<Version>> {
     let services = crate::common::common_services::common_services();
     let mut slot = services
         .system
         .version
         .lock()
         .unwrap_or_else(|p| p.into_inner());
-    if slot.is_none() {
-        *slot = Some(RwLock::new(Version::new()));
-    }
-    let lock = slot.as_ref().expect("version");
-    unsafe { std::mem::transmute(lock) }
+    std::sync::Arc::clone(
+        slot.get_or_insert_with(|| std::sync::Arc::new(RwLock::new(Version::new()))),
+    )
 }
 
 /// Initialize the global version instance with default values.
 pub fn initialize_version() {
-    let mut version = version_lock().write();
+    let mut version = version_lock().write_arc();
     *version = Version::new();
 }
 
@@ -288,7 +286,7 @@ pub fn initialize_version_with_info(
     build_time: String,
     build_date: String,
 ) {
-    let mut version = version_lock().write();
+    let mut version = version_lock().write_arc();
     version.set_version(
         major,
         minor,
@@ -302,13 +300,13 @@ pub fn initialize_version_with_info(
 }
 
 /// Get read access to the global version instance.
-pub fn get_version() -> RwLockReadGuard<'static, Version> {
-    version_lock().read()
+pub fn get_version() -> crate::common::owned_lock::OwnedReadGuard<Version> {
+    version_lock().read_arc()
 }
 
 /// Get mutable access to the global version instance.
-pub fn get_version_mut() -> RwLockWriteGuard<'static, Version> {
-    version_lock().write()
+pub fn get_version_mut() -> crate::common::owned_lock::OwnedWriteGuard<Version> {
+    version_lock().write_arc()
 }
 
 /// Check if version is initialized.

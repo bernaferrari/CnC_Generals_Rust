@@ -36,6 +36,7 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
+use parking_lot::Mutex as ParkingMutex;
 use parking_lot::RwLock as ParkingRwLock;
 
 /// GameClient / GameAudio / GameLogic random streams owned by one game instance.
@@ -114,9 +115,9 @@ pub struct CommonServices {
     pub random: RandomServices,
     pub crc_flags: CrcRuntimeFlags,
     /// ThingFactory slot for this instance (C++ `TheThingFactory`).
-    pub thing_factory: Arc<Mutex<Option<ThingFactory>>>,
+    pub thing_factory: Arc<ParkingMutex<Option<ThingFactory>>>,
     /// ModuleFactory slot for this instance (C++ `TheModuleFactory`).
-    pub module_factory: Arc<Mutex<Option<ModuleFactory>>>,
+    pub module_factory: Arc<ParkingMutex<Option<ModuleFactory>>>,
     /// NameKeyGenerator namespace (was process NAME_KEY_STATE bag).
     pub name_key_namespace: Mutex<NameKeyNamespace>,
     /// Session logic RNG publish slot for this instance.
@@ -156,9 +157,9 @@ pub struct CommonServices {
     /// Online chat colors (was process ONLINE_CHAT_COLORS).
     pub online_chat_colors: Arc<ParkingRwLock<OnlineChatColors>>,
     /// Web browser URL table (was process WEB_BROWSER).
-    pub web_browser: Arc<RwLock<WebBrowser>>,
+    pub web_browser: Arc<ParkingRwLock<WebBrowser>>,
     /// Credits manager (was process CREDITS_MANAGER).
-    pub credits_manager: Arc<RwLock<CreditsManager>>,
+    pub credits_manager: Arc<ParkingRwLock<CreditsManager>>,
     /// INI definition registries (was process OnceCell stores).
     pub ini: IniStores,
     /// System managers (AI, Upgrade, FS, team, FX, radar, …).
@@ -170,8 +171,8 @@ impl Default for CommonServices {
         Self {
             random: RandomServices::default(),
             crc_flags: CrcRuntimeFlags::default(),
-            thing_factory: Arc::new(Mutex::new(None)),
-            module_factory: Arc::new(Mutex::new(None)),
+            thing_factory: Arc::new(ParkingMutex::new(None)),
+            module_factory: Arc::new(ParkingMutex::new(None)),
             name_key_namespace: Mutex::new(NameKeyNamespace::new()),
             logic_rng_owner: Mutex::new(None),
             sim_clock: Mutex::new(SimulationClock::default()),
@@ -191,8 +192,8 @@ impl Default for CommonServices {
             damage_fx_store: Mutex::new(DamageFXStore::new()),
             resource_manager: Arc::new(Mutex::new(ResourceManager::new())),
             online_chat_colors: Arc::new(ParkingRwLock::new(OnlineChatColors::new())),
-            web_browser: Arc::new(RwLock::new(WebBrowser::new())),
-            credits_manager: Arc::new(RwLock::new(CreditsManager::new())),
+            web_browser: Arc::new(ParkingRwLock::new(WebBrowser::new())),
+            credits_manager: Arc::new(ParkingRwLock::new(CreditsManager::new())),
             ini: IniStores::new(),
             system: SystemStores::new(),
         }

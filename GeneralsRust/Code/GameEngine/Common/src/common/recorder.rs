@@ -2446,7 +2446,7 @@ fn arg_data_type_from_u8(value: u8) -> Result<GameMessageArgumentDataType, std::
     }
 }
 
-fn ensure_recorder_mutex() -> &'static Mutex<Recorder> {
+fn ensure_recorder_mutex() -> std::sync::Arc<Mutex<Recorder>> {
     let services = crate::common::common_services::common_services();
     let mut slot = services
         .system
@@ -2455,21 +2455,20 @@ fn ensure_recorder_mutex() -> &'static Mutex<Recorder> {
         .unwrap_or_else(|p| p.into_inner());
     if slot.is_none() {
         log::info!("Recorder initialized");
-        *slot = Some(Mutex::new(Recorder::new()));
     }
-    // Nested Mutex lives on CommonServices for the published instance lifetime.
-    let nested = slot.as_ref().expect("recorder");
-    unsafe { std::mem::transmute(nested) }
+    std::sync::Arc::clone(
+        slot.get_or_insert_with(|| std::sync::Arc::new(Mutex::new(Recorder::new()))),
+    )
 }
 
 /// Initialize and obtain the instance recorder
 /// Matches C++ TheRecorder and createRecorder() from Recorder.cpp:335-336, 1593-1595
-pub fn init_recorder() -> &'static Mutex<Recorder> {
+pub fn init_recorder() -> std::sync::Arc<Mutex<Recorder>> {
     ensure_recorder_mutex()
 }
 
 /// Get the instance recorder (creates if needed)
-pub fn get_recorder() -> &'static Mutex<Recorder> {
+pub fn get_recorder() -> std::sync::Arc<Mutex<Recorder>> {
     init_recorder()
 }
 

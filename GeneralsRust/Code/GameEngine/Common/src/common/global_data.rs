@@ -2261,7 +2261,7 @@ impl Snapshotable for GlobalData {
 }
 
 /// Instance GlobalData registry (C++ `TheGlobalData` / writable bag).
-pub fn global_data_arc() -> Arc<RwLock<GlobalData>> {
+pub fn global_data_arc() -> Arc<parking_lot::RwLock<GlobalData>> {
     Arc::clone(
         &crate::common::common_services::common_services()
             .system
@@ -2290,44 +2290,32 @@ impl std::fmt::Display for GlobalDataError {
 impl std::error::Error for GlobalDataError {}
 
 /// Safe read access with panic recovery
-pub fn read_safe() -> Result<RwLockReadGuard<'static, GlobalData>, GlobalDataError> {
+pub fn read_safe() -> Result<crate::common::owned_lock::OwnedReadGuard<GlobalData>, GlobalDataError> {
     let Some(services) = crate::common::common_services::try_common_services() else {
         // Free/test callers without a published CommonServices: ephemeral bag
         // for this read only (no process fallback cell).
         let services = std::sync::Arc::new(crate::common::common_services::CommonServices::new());
         return crate::common::common_services::with_common_services(&services, read_safe);
     };
-    match services.system.runtime_global_data.read() {
-        Ok(guard) => Ok(unsafe { std::mem::transmute(guard) }),
-        Err(poisoned) => {
-            eprintln!("WARN: GlobalData lock poisoned, recovering...");
-            Ok(unsafe { std::mem::transmute(poisoned.into_inner()) })
-        }
-    }
+    Ok(services.system.runtime_global_data.read_arc())
 }
 
 /// Safe write access with panic recovery
-pub fn write_safe() -> Result<RwLockWriteGuard<'static, GlobalData>, GlobalDataError> {
+pub fn write_safe() -> Result<crate::common::owned_lock::OwnedWriteGuard<GlobalData>, GlobalDataError> {
     let Some(services) = crate::common::common_services::try_common_services() else {
         let services = std::sync::Arc::new(crate::common::common_services::CommonServices::new());
         return crate::common::common_services::with_common_services(&services, write_safe);
     };
-    match services.system.runtime_global_data.write() {
-        Ok(guard) => Ok(unsafe { std::mem::transmute(guard) }),
-        Err(poisoned) => {
-            eprintln!("WARN: GlobalData lock poisoned, recovering...");
-            Ok(unsafe { std::mem::transmute(poisoned.into_inner()) })
-        }
-    }
+    Ok(services.system.runtime_global_data.write_arc())
 }
 
 /// Legacy convenience functions - now use panic recovery internally
-pub fn read() -> RwLockReadGuard<'static, GlobalData> {
+pub fn read() -> crate::common::owned_lock::OwnedReadGuard<GlobalData> {
     read_safe().expect("GlobalData lock")
 }
 
 /// Legacy convenience functions - now use panic recovery internally
-pub fn write() -> RwLockWriteGuard<'static, GlobalData> {
+pub fn write() -> crate::common::owned_lock::OwnedWriteGuard<GlobalData> {
     write_safe().expect("GlobalData lock")
 }
 
@@ -2350,17 +2338,16 @@ pub mod access {
     }
 }
 
-/// Process-wide mutex for tests that temporarily mutate [`GLOBAL_DATA`].
+/// Process-wide serialization for tests that temporarily mutate GlobalData.
 ///
-/// All such tests must hold this lock so parallel suites cannot clobber
+/// All such tests must hold this guard so parallel suites cannot clobber
 /// sell percentages and other shared knobs mid-assertion.
-pub fn test_isolation_lock() -> &'static Mutex<()> {
+pub fn lock_test_isolation() -> crate::common::owned_lock::OwnedMutexGuard<()> {
     let services = crate::common::common_services::common_services();
-    let lock = &services.system.global_data_test_lock;
-    unsafe { std::mem::transmute(lock) }
+    services.system.global_data_test_lock.lock_arc()
 }
 
-/// Run `f` while holding [`test_isolation_lock`], restoring GlobalData afterward.
+/// Run `f` while holding the GlobalData test lock, restoring GlobalData afterward.
 ///
 /// Recovers from a poisoned mutex (a prior panicking test) and still restores
 /// the snapshot if `f` panics, then re-raises the panic.
@@ -2370,9 +2357,7 @@ where
 {
     use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 
-    let _guard = test_isolation_lock()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = lock_test_isolation();
     let snapshot = read().clone();
     let result = catch_unwind(AssertUnwindSafe(f));
     *write() = snapshot;
