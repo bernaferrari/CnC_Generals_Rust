@@ -1285,14 +1285,72 @@ fn player_attack_forwards_only_locked_spawn_roster_after_restore() {
 
     fn session() -> (GameLogic, ObjectId, [ObjectId; 2], [ObjectId; 2]) {
         let mut world = GameLogic::new();
-        world.admit_object_ini_sources([("SpawnOrders.ini".into(),
-            "Object OrderLockedNest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = OrderSpawnChild\n SlavesHaveFreeWill = No\n End\nEnd\nObject OrderFreeNest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = OrderSpawnChild\n SlavesHaveFreeWill = Yes\n End\nEnd\nObject OrderSpawnChild\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\nObject OrderVictim\n KindOf = INFANTRY SELECTABLE ATTACKABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into())]).unwrap();
+        world
+            .admit_object_ini_sources([(
+                "SpawnOrders.ini".into(),
+                r#"
+Object OrderLockedNest
+  KindOf = STRUCTURE SELECTABLE
+  Body = ActiveBody Body
+    MaxHealth = 200
+    InitialHealth = 200
+  End
+  Behavior = SpawnBehavior Spawn
+    OneShot = Yes
+    SpawnNumber = 1
+    SpawnTemplateName = OrderSpawnChild
+    SlavesHaveFreeWill = No
+  End
+End
+Object OrderFreeNest
+  KindOf = STRUCTURE SELECTABLE
+  Body = ActiveBody Body
+    MaxHealth = 200
+    InitialHealth = 200
+  End
+  Behavior = SpawnBehavior Spawn
+    OneShot = Yes
+    SpawnNumber = 1
+    SpawnTemplateName = OrderSpawnChild
+    SlavesHaveFreeWill = Yes
+  End
+End
+Object OrderSpawnChild
+  KindOf = INFANTRY SELECTABLE
+  Body = ActiveBody Body
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+  Behavior = AIUpdateInterface Brain
+  End
+End
+Object OrderVictim
+  KindOf = INFANTRY SELECTABLE
+  Body = ActiveBody Body
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+  Behavior = AIUpdateInterface Brain
+  End
+End
+"#
+                .into(),
+            )])
+            .unwrap();
         world.add_player(Player::new(1, Team::USA, "Owner", true));
         world.add_player(Player::new(2, Team::GLA, "Enemy", false));
-        let victim = world.create_object_for_player("OrderVictim", 2, Vec3::new(50.0, 0.0, 0.0)).unwrap();
-        let locked = world.create_object_for_player("OrderLockedNest", 1, Vec3::ZERO).unwrap();
-        let free = world.create_object_for_player("OrderFreeNest", 1, Vec3::new(0.0, 0.0, 5.0)).unwrap();
-        let child = |world: &GameLogic, parent| world.host_object(parent).unwrap().spawn_behavior_children()[0].0;
+        let victim = world
+            .create_object_for_player("OrderVictim", 2, Vec3::new(50.0, 0.0, 0.0))
+            .unwrap();
+        let locked = world
+            .create_object_for_player("OrderLockedNest", 1, Vec3::ZERO)
+            .unwrap();
+        let free = world
+            .create_object_for_player("OrderFreeNest", 1, Vec3::new(0.0, 0.0, 5.0))
+            .unwrap();
+        let child = |world: &GameLogic, parent| {
+            world.host_object(parent).unwrap().spawn_behavior_children()[0].0
+        };
         let children = [child(&world, locked), child(&world, free)];
         for id in children {
             let actor = world.host_object_mut(id).unwrap();
@@ -1316,10 +1374,23 @@ fn player_attack_forwards_only_locked_spawn_roster_after_restore() {
 
     let (mut owner, victim, parents, children) = session();
     let (peer, peer_victim, peer_parents, peer_children) = session();
-    assert_eq!((victim, parents, children), (peer_victim, peer_parents, peer_children));
+    assert_eq!(
+        (victim, parents, children),
+        (peer_victim, peer_parents, peer_children)
+    );
     let ground = Vec3::new(30.0, 0.0, 20.0);
-    order(&mut owner, CommandType::AttackPosition { location: Some(ground), max_shots: 3 }, parents);
-    assert_eq!(owner.host_object(children[0]).unwrap().target_location, Some(ground));
+    order(
+        &mut owner,
+        CommandType::AttackPosition {
+            location: Some(ground),
+            max_shots: 3,
+        },
+        parents,
+    );
+    assert_eq!(
+        owner.host_object(children[0]).unwrap().target_location,
+        Some(ground)
+    );
     assert_eq!(owner.host_object(children[0]).unwrap().max_shots_to_fire, 3);
     assert_eq!(owner.host_object(children[1]).unwrap().target_location, None);
     assert_eq!(peer.host_object(children[0]).unwrap().target_location, None);
@@ -1327,13 +1398,26 @@ fn player_attack_forwards_only_locked_spawn_roster_after_restore() {
     let builder = SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&owner).unwrap();
     let (mut restored, _, _, _) = session();
-    builder.restore_from_snapshot(&snapshot, &mut restored).unwrap();
-    order(&mut restored, CommandType::AttackObject { target_id: victim }, parents);
-    assert_eq!(restored.host_object(children[0]).unwrap().target, Some(victim));
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    order(
+        &mut restored,
+        CommandType::AttackObject { target_id: victim },
+        parents,
+    );
+    assert_eq!(
+        restored.host_object(children[0]).unwrap().target,
+        Some(victim)
+    );
     assert!(restored.host_object(children[0]).unwrap().force_attack);
     assert_eq!(restored.host_object(children[1]).unwrap().target, None);
 
-    order(&mut owner, CommandType::ForceAttackObject { target_id: victim }, parents);
+    order(
+        &mut owner,
+        CommandType::ForceAttackObject { target_id: victim },
+        parents,
+    );
     assert_eq!(owner.host_object(children[0]).unwrap().target, Some(victim));
     assert!(owner.host_object(children[0]).unwrap().force_attack);
     assert_eq!(owner.host_object(children[1]).unwrap().target, None);
