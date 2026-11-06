@@ -111,11 +111,7 @@ impl CnCGameEngine {
                     .unwrap_or(false)
             };
             let render_pipeline = &mut self.render_pipeline;
-            let mut terrain_lod = |reduction| {
-                if let Some(terrain) = render_pipeline.native_terrain_mut() {
-                    terrain.apply_texture_lod_reduction(reduction);
-                }
-            };
+            let mut terrain_lod = |reduction| render_pipeline.apply_texture_lod(reduction);
             let preferences = self.ui_manager.options_preferences_mut();
             let control_bar = &mut self.control_bar;
             let viewport = &mut self.game_logic.session_view.camera;

@@ -367,63 +367,11 @@ pub fn recoil_glam_for_object(object_id: u32) -> Option<glam::Mat4> {
     .flatten()
 }
 
-/// Apply a texture-reduction target immediately, mirroring C++ `W3DGameClient::adjustLOD`.
-///
-/// C++ reference:
-/// - `W3DGameClient.cpp` `W3DGameClient::adjustLOD` (clamp [0,4], `WW3D::Set_Texture_Reduction`,
-///   `TheTerrainRenderObject->setTextureLOD`)
-pub fn live_renderer_3d() -> Option<std::sync::Arc<ww3d_renderer_3d::Renderer3dRuntime>> {
-    let services = try_common_services()?;
-    let guard = services.system.renderer_3d_any.lock().ok()?;
-    let any = guard.as_ref()?;
-    std::sync::Arc::clone(any)
-        .downcast::<ww3d_renderer_3d::Renderer3dRuntime>()
-        .ok()
-}
-
-/// Publish the session [`Renderer3dRuntime`] for GameClient LOD / texture quality.
-pub fn set_live_renderer_3d(r3d: std::sync::Arc<ww3d_renderer_3d::Renderer3dRuntime>) {
-    if let Some(services) = try_common_services() {
-        if let Ok(mut guard) = services.system.renderer_3d_any.lock() {
-            *guard = Some(r3d);
-        }
-    }
-}
-
-
-pub fn apply_lod_texture_reduction(target_factor: i32) -> Option<i32> {
-    apply_lod_texture_reduction_to(target_factor, &mut |clamped| {
-        if let Ok(mut terrain_guard) = crate::terrain::terrain_visual::get_terrain_visual() {
-            if let Some(terrain) = terrain_guard.as_mut() {
-                terrain.apply_texture_lod_reduction(clamped);
-            }
-        }
-    })
-}
-
-/// Synchronous native operation: the caller lends its actual installed terrain.
-/// Definition and renderer changes precede terrain invalidation, then shadows.
-pub fn apply_lod_texture_reduction_to(
-    target_factor: i32,
-    terrain: &mut dyn FnMut(i32),
-) -> Option<i32> {
-    let owned = live_renderer_3d().unwrap_or_else(|| {
-        let owned = std::sync::Arc::new(ww3d_renderer_3d::Renderer3dRuntime::new());
-        // C++ WW3D texture reduction is process-global; publish the session so
-        // later reads observe the same runtime adjustLOD just wrote.
-        set_live_renderer_3d(std::sync::Arc::clone(&owned));
-        owned
-    });
-    apply_lod_texture_reduction_to_session(&owned, target_factor, terrain)
-}
-
-pub fn apply_lod_texture_reduction_to_session(
-    r3d: &ww3d_renderer_3d::Renderer3dRuntime,
-    target_factor: i32,
-    terrain: &mut dyn FnMut(i32),
-) -> Option<i32> {
+/// Store a texture-reduction target in the definitions (C++ `adjustLOD`'s
+/// `TheWritableGlobalData->m_textureReductionFactor`), clamped to [0, 4].
+/// Returns `(clamped, previous)`. Used directly when no renderer is installed.
+fn store_texture_reduction(target_factor: i32) -> Option<(i32, i32)> {
     let global_data = get_global_data()?;
-
     let clamped = target_factor.clamp(TEXTURE_REDUCTION_MIN, TEXTURE_REDUCTION_MAX);
     let previous = {
         let mut global = global_data.write();
@@ -433,10 +381,29 @@ pub fn apply_lod_texture_reduction_to_session(
         global.texture_reduction_factor = clamped;
         previous
     };
-
     if let Ok(mut runtime_global) = runtime_global_data::write_safe() {
         runtime_global.texture_reduction_factor = clamped;
     }
+    Some((clamped, previous))
+}
+
+/// Texture-reduction target without an installed renderer: only the
+/// definitions change. Returns the clamped factor.
+pub fn store_lod_texture_reduction(target_factor: i32) -> Option<i32> {
+    store_texture_reduction(target_factor).map(|(clamped, _)| clamped)
+}
+
+/// Apply a texture-reduction target to the definitions and the caller's
+/// renderer, then re-texture its terrain, mirroring C++
+/// `W3DGameClient::adjustLOD` (clamp [0,4], `WW3D::Set_Texture_Reduction`,
+/// `TheTerrainRenderObject->setTextureLOD`). The caller lends its own
+/// renderer runtime; no process or service slot is consulted.
+pub fn apply_lod_texture_reduction_to_session(
+    r3d: &ww3d_renderer_3d::Renderer3dRuntime,
+    target_factor: i32,
+    terrain: &mut dyn FnMut(i32),
+) -> Option<i32> {
+    let (clamped, previous) = store_texture_reduction(target_factor)?;
 
     let renderer_previous = ww3d_renderer_3d::rendering::texture_quality::texture_reduction(r3d);
     if renderer_previous != clamped as u32 {
@@ -450,19 +417,18 @@ pub fn apply_lod_texture_reduction_to_session(
     if previous != clamped || renderer_previous != clamped as u32 {
         terrain(clamped);
     }
-    crate::display::shadow_pass::rebuild_shadows();
 
     Some(clamped)
 }
 
-/// Delta-based texture reduction adjustment wrapper (C++ `adjustLOD(adj)` semantics).
-pub fn adjust_lod_texture_reduction(delta: i32) -> Option<i32> {
-    let global_data = get_global_data()?;
-    let current = {
-        let global = global_data.read();
-        global.texture_reduction_factor
-    };
-    apply_lod_texture_reduction(current.saturating_add(delta))
+/// Delta-based texture reduction adjustment (C++ `adjustLOD(adj)` semantics).
+pub fn adjust_lod_texture_reduction(
+    r3d: &ww3d_renderer_3d::Renderer3dRuntime,
+    delta: i32,
+    terrain: &mut dyn FnMut(i32),
+) -> Option<i32> {
+    let current = get_global_data()?.read().texture_reduction_factor;
+    apply_lod_texture_reduction_to_session(r3d, current.saturating_add(delta), terrain)
 }
 
 #[cfg(test)]
@@ -1014,10 +980,9 @@ mod receiving_lod_tests {
         }
         let definitions = game_engine::common::ini::ini_game_data::ensure_global_data();
         definitions.write().texture_reduction_factor = 0;
-        let __r3d = std::sync::Arc::new(ww3d_renderer_3d::Renderer3dRuntime::new());
-        // Same session as apply_lod / observe (parity with sibling LOD tests).
-        super::set_live_renderer_3d(std::sync::Arc::clone(&__r3d));
-        ww3d_renderer_3d::rendering::texture_quality::set_texture_reduction(&__r3d, 0, 32);
+        // The receiving renderer is lent to every apply; nothing is published.
+        let r3d = ww3d_renderer_3d::Renderer3dRuntime::new();
+        ww3d_renderer_3d::rendering::texture_quality::set_texture_reduction(&r3d, 0, 32);
         // Publish terrain visual through a live GameClient (register publishes it).
         let _live = crate::test_support::park_live_game_client();
         // A real foreign native holder remains unavailable throughout. The
@@ -1032,14 +997,12 @@ mod receiving_lod_tests {
                 value
             );
             assert_eq!(
-                ww3d_renderer_3d::rendering::texture_quality::texture_reduction(
-                    super::live_renderer_3d().as_deref().unwrap_or(__r3d.as_ref()),
-                ),
+                ww3d_renderer_3d::rendering::texture_quality::texture_reduction(&r3d),
                 value as u32
             );
         };
         assert_eq!(
-            super::apply_lod_texture_reduction_to(2, &mut |value| {
+            super::apply_lod_texture_reduction_to_session(&r3d, 2, &mut |value| {
                 observe(value);
                 a.push(value);
             }),
@@ -1048,7 +1011,7 @@ mod receiving_lod_tests {
         assert_eq!(a, vec![2]);
         assert!(b.is_empty());
         assert_eq!(
-            super::apply_lod_texture_reduction_to(4, &mut |value| {
+            super::apply_lod_texture_reduction_to_session(&r3d, 4, &mut |value| {
                 observe(value);
                 b.push(value);
             }),
@@ -1057,7 +1020,7 @@ mod receiving_lod_tests {
         assert_eq!(a, vec![2]);
         assert_eq!(b, vec![4]);
         assert_eq!(
-            super::apply_lod_texture_reduction_to(4, &mut |value| a.push(value)),
+            super::apply_lod_texture_reduction_to_session(&r3d, 4, &mut |value| a.push(value)),
             Some(4)
         );
         assert_eq!(

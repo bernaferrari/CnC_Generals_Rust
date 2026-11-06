@@ -132,7 +132,6 @@ use host_mods_special_powers::host_baikonur_launch;
 use host_mods_special_powers::host_defector_special_power;
 use host_mods_special_powers::host_special_power_completion_die;
 use host_mods_structures::host_black_market;
-use host_mods_structures::host_model_condition_upgrade;
 use host_mods_structures::host_preorder_create;
 use host_mods_structures::host_replace_object_upgrade;
 pub use host_mods_structures::host_sub_objects_upgrade;

@@ -450,6 +450,10 @@ impl PresentationFrame {
             });
             let auth_occupants = logic.host_authoritative_occupant_count(obj.id);
             let authoritative_contained = logic.host_authoritative_contained_units(obj.id);
+            let containment_id = logic.redirected_containment_owner(obj.id);
+            let containment = logic.host_object(containment_id).unwrap_or(obj);
+            let redirected_capacity = (containment_id != obj.id)
+                .then(|| containment.transport_capacity());
             let shared_containment =
                 obj.is_tunnel_network_style_container() || obj.is_cave_style_container();
             let _auth_attack_sub = logic.host_authoritative_attack_substate(obj.id);
@@ -999,8 +1003,6 @@ impl PresentationFrame {
                 is_listening_outpost_transport: obj.is_listening_outpost_transport,
                 is_troop_crawler_transport: obj.is_troop_crawler_transport,
                 is_helix_transport: obj.is_helix_transport,
-                has_overlord_gattling_addon: obj.has_overlord_gattling_addon,
-                has_overlord_propaganda_addon: obj.has_overlord_propaganda_addon,
                 is_battle_bus_transport: obj.is_battle_bus_transport,
                 is_technical_transport: obj.is_technical_transport,
                 is_combat_cycle_transport: obj.is_combat_cycle_transport,
@@ -1008,11 +1010,11 @@ impl PresentationFrame {
                 is_tunnel_network: obj.is_tunnel_network,
                 is_combat_chinook_transport: obj.is_combat_chinook_transport,
                 max_transport: obj.max_transport,
-                overlord_bunker_capacity: obj.overlord_bunker_capacity.unwrap_or(usize::MAX),
-                contain_module_present: obj.thing().template.contain_module.kind
+                overlord_bunker_capacity: redirected_capacity.unwrap_or(usize::MAX),
+                contain_module_present: containment.thing().template.contain_module.kind
                     != crate::game_logic::ContainModuleKind::None,
-                contain_module_kind: obj.thing().template.contain_module.kind,
-                contain_admission: obj.normal_enter_admission(),
+                contain_module_kind: containment.thing().template.contain_module.kind,
+                contain_admission: containment.normal_enter_admission(),
                 rider_change_allowed_templates: obj
                     .thing()
                     .template
@@ -1022,24 +1024,12 @@ impl PresentationFrame {
                     .filter(|rider| rider.physical_enter_supported)
                     .map(|rider| rider.template_name.clone())
                     .collect(),
-                contain_allow_allies_inside: obj
-                    .thing()
-                    .template
-                    .contain_module
-                    .allow_allies_inside,
-                contain_allow_enemies_inside: obj
-                    .thing()
-                    .template
-                    .contain_module
-                    .allow_enemies_inside,
-                contain_allow_neutral_inside: obj
-                    .thing()
-                    .template
-                    .contain_module
-                    .allow_neutral_inside,
+                contain_allow_allies_inside: containment.thing().template.contain_module.allow_allies_inside,
+                contain_allow_enemies_inside: containment.thing().template.contain_module.allow_enemies_inside,
+                contain_allow_neutral_inside: containment.thing().template.contain_module.allow_neutral_inside,
                 transport_slot_count: obj.transport_slot_count(),
                 is_faction_structure: obj.is_faction_structure(),
-                passengers_allowed_to_fire: obj.passengers_allowed_to_fire,
+                passengers_allowed_to_fire: containment.passengers_allowed_to_fire,
                 display_name: obj.name.clone(),
                 demo_suicided_detonating: obj.demo_suicided_detonating,
                 turret_holding: obj.turret_ai.turret_holding,
@@ -2672,6 +2662,7 @@ mod sw_hud_tests {
             update_module_starts_attack: false,
             starts_paused: false,
             scripted_special_power_only: false,
+            cash_bounty: None,
         }
     }
 

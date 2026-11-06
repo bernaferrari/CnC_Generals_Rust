@@ -1136,11 +1136,14 @@ impl GameWorldShadow {
             }
         }
         e.engine_bridged = false;
-        e.overlord_bunker_capacity = obj
-            .overlord_bunker_capacity
-            .map(|n| n.min(u16::MAX as usize - 1) as u16)
-            .unwrap_or(u16::MAX);
-        e.passengers_allowed_to_fire = obj.passengers_allowed_to_fire;
+        let containment_id = logic.redirected_containment_owner(obj.id);
+        let containment = logic.host_object(containment_id).unwrap_or(obj);
+        e.overlord_bunker_capacity = if containment_id != obj.id {
+            containment.transport_capacity().min(u16::MAX as usize - 1) as u16
+        } else {
+            u16::MAX
+        };
+        e.passengers_allowed_to_fire = containment.passengers_allowed_to_fire;
         e.armed_riders_upgrade_weapon_set = obj.armed_riders_upgrade_weapon_set;
         e.weapon_set_player_upgrade = obj.test_weapon_condition(3);
         e.second_life = obj.armor_set_second_life;
@@ -1220,8 +1223,6 @@ impl GameWorldShadow {
         e.is_listening_outpost_transport = obj.is_listening_outpost_transport;
         e.is_troop_crawler_transport = obj.is_troop_crawler_transport;
         e.is_helix_transport = obj.is_helix_transport;
-        e.has_overlord_gattling_addon = obj.has_overlord_gattling_addon;
-        e.has_overlord_propaganda_addon = obj.has_overlord_propaganda_addon;
         e.demo_suicided_detonating = obj.demo_suicided_detonating;
         e.hive_slave_count = obj.hive_slave_count;
         e.hive_slave_hp = obj.hive_slave_hp;

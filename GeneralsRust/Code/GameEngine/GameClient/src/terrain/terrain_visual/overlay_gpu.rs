@@ -1106,7 +1106,7 @@ impl TerrainVisualImpl {
             .collect();
     }
 
-    fn record_overlay_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
+    fn record_overlay_draws(&self, pass: &mut RenderPass<'_>) {
         let (Some(road_pipeline), Some(camera_bg)) = (
             self.road_pipeline.as_ref(),
             self.terrain_camera_bind_group.as_ref(),
@@ -1188,7 +1188,7 @@ impl TerrainVisualImpl {
     }
     /// C++ sort-order parity: the shoreline feather tiles belong to the terrain
     /// render (BaseHeightMap shoreline blend), drawn before scene objects.
-    pub fn record_shoreline_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
+    pub fn record_shoreline_draws(&self, pass: &mut RenderPass<'_>) {
         let (Some(water_pipeline), Some(camera_bg), Some(water_bg)) = (
             self.water_pipeline.as_ref(),
             self.terrain_camera_bind_group.as_ref(),
@@ -1213,7 +1213,7 @@ impl TerrainVisualImpl {
     /// (drawRiverWater), standing-water trapezoids (drawTrapezoidWater) and the
     /// animated water grid mesh. Rivers use the JBA river pixel shader with the
     /// alpha-edge stage; trapezoids use the flat-water trapezoid shader.
-    pub fn record_extra_water_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
+    pub fn record_extra_water_draws(&self, pass: &mut RenderPass<'_>) {
         let Some(camera_bg) = self.terrain_camera_bind_group.as_ref() else {
             return;
         };

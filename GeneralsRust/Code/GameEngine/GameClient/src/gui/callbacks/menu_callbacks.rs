@@ -14,7 +14,6 @@ pub use map_select_menu::*;
 pub use options_menu::*;
 pub use options_residual::*;
 
-use crate::core::game_client::apply_lod_texture_reduction;
 use crate::game_text::GameText;
 use crate::gui::callbacks::quit_menu::destroy_quit_menu;
 use crate::gui::gadgets::ComboBoxItem;

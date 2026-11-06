@@ -368,8 +368,6 @@ impl GameLogic {
             stealth_fighter_science:
                 crate::game_logic::host_stealth_fighter::HostStealthFighterRegistry::new(),
             unit_training: crate::game_logic::host_unit_training::HostUnitTrainingRegistry::new(),
-            demo_suicide_bomb:
-                crate::game_logic::host_demo_suicide_bomb::HostDemoSuicideBombRegistry::new(),
             rocket_buggy_residual_fires: 0,
             rocket_buggy_residual_units_hit: 0,
             rocket_buggy_residual_scatter_misses: 0,
@@ -1258,7 +1256,6 @@ impl GameLogic {
         self.angry_mobs.clear();
         self.stealth_fighter_science.clear();
         self.unit_training.clear();
-        self.demo_suicide_bomb.clear();
         self.rocket_buggy_residual_fires = 0;
         self.rocket_buggy_residual_units_hit = 0;
         self.rocket_buggy_residual_scatter_misses = 0;

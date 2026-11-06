@@ -310,6 +310,44 @@ impl Object {
         }
         applied
     }
+
+    /// `ModelConditionUpgrade` / `SubObjectsUpgrade::upgradeImplementation`
+    /// (ModelConditionUpgrade.cpp:60-67, SubObjectsUpgrade.cpp:75-117) for
+    /// every authored module whose UpgradeMux `has` satisfies, each once
+    /// (`UpgradeMux::m_upgradeExecuted`). Returns the shown sub-object names.
+    pub(crate) fn run_authored_visual_upgrades(
+        &mut self,
+        has: impl Fn(&str) -> bool,
+    ) -> Vec<String> {
+        let model_condition = self.thing().template.model_condition_upgrades.clone();
+        let sub_objects = self.thing().template.sub_objects_upgrades.clone();
+        for module in &model_condition {
+            if module.mux.satisfied_by(&has)
+                && self
+                    .applied_upgrades
+                    .insert(format!("ModelConditionUpgrade#{}", module.tag))
+            {
+                if let Some(bit) = module.condition_bit {
+                    self.model_condition_bits |= 1u128 << bit;
+                }
+            }
+        }
+        let mut shown = Vec::new();
+        for module in &sub_objects {
+            if !module.mux.satisfied_by(&has)
+                || !self
+                    .applied_upgrades
+                    .insert(format!("SubObjectsUpgrade#{}", module.tag))
+            {
+                continue;
+            }
+            let show: Vec<&str> = module.show.iter().map(String::as_str).collect();
+            let hide: Vec<&str> = module.hide.iter().map(String::as_str).collect();
+            self.sub_object_visibility.apply_show_hide(&show, &hide);
+            shown.extend(module.show.iter().cloned());
+        }
+        shown
+    }
 }
 
 /// Whether the template authors a `SpecialAbilityUpdate` for the named
@@ -784,5 +822,61 @@ mod replay_tests {
         assert!(world.object_may_plant_booby_trap(upgraded));
         assert!(!world.object_may_plant_booby_trap(plain));
         assert!(!world.object_may_plant_booby_trap(named), "the retail name authors nothing");
+    }
+}
+
+#[cfg(test)]
+mod visual_upgrade_tests {
+    use crate::game_logic::{GameLogic, Team};
+
+    const MODULES: &str = "Behavior = ModelConditionUpgrade McTag\nTriggeredBy = Upgrade_TestRadar\nConditionFlag = RADAR_UPGRADED\nEnd\n\
+        Behavior = SubObjectsUpgrade SoTag\nTriggeredBy = Upgrade_TestBio\nShowSubObjects = Bombload02\nHideSubObjects = Bombload01\nEnd\n";
+
+    /// ModelConditionUpgrade.cpp / SubObjectsUpgrade.cpp: the authored
+    /// ConditionFlag and Show/HideSubObjects run once when the module's
+    /// UpgradeMux triggers; a retail-named template without modules is inert.
+    #[test]
+    fn authored_visual_upgrades_follow_their_modules_not_names() {
+        let mut world = GameLogic::new();
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "receiving-visual-upgrades.ini".into(),
+                    format!(
+                        "Object PlainTruck\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\n{MODULES}End\n\
+                         Object GLAVehicleBombTruck\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n"
+                    ),
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        let radar_bit = 1u128
+            << crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(
+                "RADAR_UPGRADED",
+            )
+            .unwrap();
+        let plain = world.create_object("PlainTruck", Team::GLA, glam::Vec3::ZERO).unwrap();
+        let named = world
+            .create_object("GLAVehicleBombTruck", Team::GLA, glam::Vec3::X)
+            .unwrap();
+
+        let object = world.host_object_mut(plain).unwrap();
+        assert!(object.run_authored_visual_upgrades(|n| n == "Upgrade_Other").is_empty());
+        assert_eq!(object.model_condition_bits & radar_bit, 0);
+        assert!(object.run_authored_visual_upgrades(|n| n == "Upgrade_TestRadar").is_empty());
+        assert_ne!(object.model_condition_bits & radar_bit, 0);
+        let shown = object.run_authored_visual_upgrades(|n| n == "Upgrade_TestBio");
+        assert_eq!(shown, vec!["Bombload02".to_string()]);
+        assert!(object.sub_object_visibility.is_hidden("Bombload01"));
+        // UpgradeMux::isAlreadyUpgraded: each module executes once.
+        assert!(object.run_authored_visual_upgrades(|n| n == "Upgrade_TestBio").is_empty());
+
+        let named = world.host_object_mut(named).unwrap();
+        assert!(
+            named
+                .run_authored_visual_upgrades(|n| n.starts_with("Upgrade_"))
+                .is_empty()
+        );
+        assert_eq!(named.model_condition_bits & radar_bit, 0);
     }
 }

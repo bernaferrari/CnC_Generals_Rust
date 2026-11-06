@@ -814,31 +814,22 @@ fn selected_general_start_binds_exact_template_and_rejects_late_invalid_identity
 
 #[test]
 fn overlord_propaganda_addon_residual_heals_allies() {
-    use crate::game_logic::host_overlord_addons::UPGRADE_OVERLORD_PROPAGANDA;
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
-
-    let mut overlord_tpl = crate::game_logic::ThingTemplate::new("ChinaTankOverlord");
-    overlord_tpl
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(1100.0);
-    game_logic
-        .templates
-        .insert("ChinaTankOverlord".to_string(), overlord_tpl);
-
-    let overlord_id = game_logic
-        .create_object("ChinaTankOverlord", Team::China, Vec3::new(0.0, 0.0, 0.0))
-        .expect("overlord");
-    game_logic.apply_upgrade_to_object(overlord_id, UPGRADE_OVERLORD_PROPAGANDA);
-    {
-        let o = game_logic.host_object(overlord_id).unwrap();
-        assert!(o.has_overlord_propaganda_residual());
-        assert!(!o.has_overlord_gattling_residual());
-    }
-    assert!(game_logic.overlord_addons().honesty_propaganda_install_ok());
+    ensure_test_player_for_team(&mut game_logic, Team::China);
+    game_logic.admit_object_ini_sources([(
+        "TestPortablePropaganda.ini".into(),
+        "Object TestPortablePropaganda\nKindOf = PORTABLE_STRUCTURE SCORE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = PropagandaTowerBehavior Tower\nRadius = 150\nDelayBetweenUpdates = 2000\nHealPercentEachSecond = 1%\nEnd\nEnd\n".into(),
+    )]).unwrap();
+    let overlord_id = create_test_overlord(&mut game_logic, Vec3::ZERO, None);
+    let portable = game_logic
+        .create_object("TestPortablePropaganda", Team::China, Vec3::ZERO)
+        .expect("portable tower");
+    game_logic.attach_overlord_portable_occupant(overlord_id, portable);
+    assert!(game_logic.host_object(portable).unwrap()
+        .authors_behavior_module("PropagandaTowerBehavior"));
+    assert_eq!(game_logic.host_object(overlord_id).unwrap().overlord_portable_occupant, Some(portable));
 
     let ally_id = game_logic
         .create_object("TestTank", Team::China, Vec3::new(20.0, 0.0, 0.0))
@@ -849,6 +840,7 @@ fn overlord_propaganda_addon_residual_heals_allies() {
     }
     let hp_before = game_logic.host_object(ally_id).unwrap().health.current;
     // Pulse residual for 1 second (30 frames @ 1/30).
+    game_logic.frame = 1;
     for _ in 0..30 {
         game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
     }
@@ -858,7 +850,7 @@ fn overlord_propaganda_addon_residual_heals_allies() {
         "propaganda addon must heal ally (before={hp_before} after={hp_after})"
     );
     assert!(
-        game_logic.honesty_propaganda_heal_ok() || game_logic.honesty_overlord_propaganda_ok(),
+        game_logic.honesty_propaganda_heal_ok(),
         "propaganda residual honesty"
     );
 }
@@ -866,41 +858,23 @@ fn overlord_propaganda_addon_residual_heals_allies() {
 #[test]
 fn overlord_portable_addon_mirrors_host_body_damage() {
     use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
-    use crate::game_logic::host_overlord_addons::UPGRADE_OVERLORD_GATTLING;
-
     let mut game_logic = GameLogic::new();
-    let mut overlord_tpl = crate::game_logic::ThingTemplate::new("ChinaTankOverlord");
-    overlord_tpl
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(1100.0);
-    game_logic
-        .templates
-        .insert("ChinaTankOverlord".to_string(), overlord_tpl);
-
-    let overlord_id = game_logic
-        .create_object("ChinaTankOverlord", Team::China, Vec3::new(0.0, 0.0, 0.0))
-        .expect("overlord");
-    game_logic.apply_upgrade_to_object(overlord_id, UPGRADE_OVERLORD_GATTLING);
+    let overlord_id = create_test_overlord(&mut game_logic, Vec3::ZERO, None);
+    let mut turret = ThingTemplate::new("TestPortableGattling");
+    turret.add_kind_of(KindOf::PortableStructure).set_health(1100.0);
+    game_logic.templates.insert(turret.name.clone(), turret);
+    let occupant = game_logic.create_object("TestPortableGattling", Team::China, Vec3::ZERO)
+        .expect("portable gun");
+    game_logic.attach_overlord_portable_occupant(overlord_id, occupant);
 
     let occupant_id = {
         let o = game_logic.host_object(overlord_id).unwrap();
-        assert!(o.has_overlord_gattling_residual());
-        assert_eq!(
-            o.overlord_addon_body_damage_state,
-            HostBodyDamageType::Pristine
-        );
         o.overlord_portable_occupant
             .expect("portable occupant spawned")
     };
     {
         let addon = game_logic.host_object(occupant_id).unwrap();
-        assert!(
-            crate::game_logic::host_battlemaster::is_portable_structure_template(
-                &addon.template_name
-            )
-        );
+        assert!(addon.is_kind_of(KindOf::PortableStructure));
         assert_eq!(addon.body_damage_state, HostBodyDamageType::Pristine);
         assert_eq!(addon.contained_by, Some(overlord_id));
     }
@@ -909,10 +883,6 @@ fn overlord_portable_addon_mirrors_host_body_damage() {
         let o = game_logic.host_object_mut(overlord_id).unwrap();
         o.internal_change_health(o.health.maximum * 0.5 - o.health.current);
         assert_eq!(o.body_damage_state, HostBodyDamageType::Damaged);
-        assert_eq!(
-            o.overlord_addon_body_damage_state,
-            HostBodyDamageType::Damaged
-        );
     }
     game_logic.mirror_overlord_addon_damage_to_occupant(overlord_id);
     {
@@ -928,10 +898,6 @@ fn overlord_portable_addon_mirrors_host_body_damage() {
         let o = game_logic.host_object_mut(overlord_id).unwrap();
         o.internal_change_health(o.health.maximum * 0.2 - o.health.current);
         assert_eq!(o.body_damage_state, HostBodyDamageType::ReallyDamaged);
-        assert_eq!(
-            o.overlord_addon_body_damage_state,
-            HostBodyDamageType::ReallyDamaged
-        );
     }
     game_logic.mirror_overlord_addon_damage_to_occupant(overlord_id);
     {
@@ -949,11 +915,6 @@ fn overlord_portable_addon_mirrors_host_body_damage() {
         o.status.destroyed = true;
         o.refresh_model_condition_bits();
         assert_eq!(o.body_damage_state, HostBodyDamageType::Rubble);
-        assert_eq!(
-            o.overlord_addon_body_damage_state,
-            HostBodyDamageType::ReallyDamaged,
-            "C++ skips BODY_RUBBLE; death is handled separately"
-        );
     }
     game_logic.mirror_overlord_addon_damage_to_occupant(overlord_id);
     {
@@ -1003,12 +964,7 @@ fn emperor_innate_propaganda_and_helix_transport_residual() {
     {
         let e = game_logic.host_object(emp_id).unwrap();
         assert!(e.authors_innate_propaganda_tower());
-        assert!(e.has_overlord_propaganda_residual());
     }
-    assert!(
-        game_logic.overlord_addons().honesty_propaganda_install_ok(),
-        "emperor innate propaganda install honesty"
-    );
 
     let ally_id = spawn(&mut game_logic, "TestAllyTank", Vec3::new(10.0, 0.0, 0.0));
     {

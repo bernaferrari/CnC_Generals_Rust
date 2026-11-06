@@ -80,7 +80,7 @@ fn comanche_rocket_pods_create_key_on_authored_weapon_set() {
 /// PropagandaTowerBehavior + OverlordContain modules, not the template name.
 #[test]
 fn emperor_innate_propaganda_keys_on_authored_modules() {
-    let run = |name: &str, propaganda: bool| -> (bool, bool) {
+    let run = |name: &str, propaganda: bool| -> bool {
         let mut world = GameLogic::new();
         let tower = if propaganda {
             "Behavior = PropagandaTowerBehavior ModulePropaganda_04\nRadius = 150.0\nDelayBetweenUpdates = 2000\nHealPercentEachSecond = 1%\nEnd\n"
@@ -111,19 +111,14 @@ fn emperor_innate_propaganda_keys_on_authored_modules() {
             .unwrap()
             .unwrap();
         let o = world.host_object(id).unwrap();
-        (
-            o.has_overlord_propaganda_addon,
-            o.authors_innate_propaganda_tower(),
-        )
+        o.authors_innate_propaganda_tower()
     };
-    assert_eq!(
+    assert!(
         run("TestHullWithTower", true),
-        (true, true),
         "authored innate PropagandaTowerBehavior on OverlordContain host is Emperor-style"
     );
-    assert_eq!(
-        run("Tank_ChinaTankEmperor", false),
-        (false, false),
+    assert!(
+        !run("Tank_ChinaTankEmperor", false),
         "Emperor-named hull without authored PropagandaTowerBehavior gets no innate tower"
     );
 }
@@ -140,7 +135,11 @@ fn emperor_addon_conflicts_key_on_authored_innate_tower() {
             ""
         };
         let source = format!(
-            "Object {name}\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = OverlordContain ModuleTag_06\nSlots = 1\nEnd\n{tower}End\n"
+            "Object {name}\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = OverlordContain ModuleTag_06\nSlots = 1\nAllowInsideKindOf = PORTABLE_STRUCTURE\nEnd\nBehavior = ObjectCreationUpgrade CreateGun\nTriggeredBy = Upgrade_TestPortableGun\nUpgradeObject = OCL_TestPortableGun\nEnd\n{tower}End\nObject TestPortableGun\nKindOf = PORTABLE_STRUCTURE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n"
+        );
+        world.admit_object_creation_list_sources(["ObjectCreationList OCL_TestPortableGun\nCreateObject\nObjectNames = TestPortableGun\nCount = 1\nContainInsideSourceObject = Yes\nEnd\nEnd\n".into()]).unwrap();
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(
+            &mut world, "Upgrade_TestPortableGun", "OBJECT", 0, 1,
         );
         world
             .admit_receiving_module_content(
@@ -162,23 +161,19 @@ fn emperor_addon_conflicts_key_on_authored_innate_tower() {
             )
             .unwrap()
             .unwrap();
-        let o = world.host_object_mut(id).unwrap();
-        o.has_overlord_propaganda_addon = true;
-        o.install_overlord_gattling_addon(0);
-        (
-            o.has_overlord_propaganda_addon,
-            o.has_overlord_propaganda_residual(),
-        )
+        world.apply_upgrade_to_object(id, "Upgrade_TestPortableGun");
+        let o = world.host_object(id).unwrap();
+        (o.authors_innate_propaganda_tower(), o.overlord_portable_occupant.is_some())
     };
     assert_eq!(
         run("TestHullWithTower", true),
         (true, true),
-        "authored innate tower survives the gattling ConflictsWith clear"
+        "the authored innate tower remains alongside the actual gun rider"
     );
     assert_eq!(
         run("Tank_ChinaTankEmperor", false),
-        (false, false),
-        "Emperor-named hull without authored tower takes the normal conflict clear"
+        (false, true),
+        "a named hull without the authored tower still gets only its actual rider"
     );
 }
 

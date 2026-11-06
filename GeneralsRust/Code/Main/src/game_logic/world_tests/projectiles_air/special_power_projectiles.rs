@@ -119,6 +119,7 @@ fn starts_paused_module_and_capture_flag_do_not_double_pause() {
         update_module_starts_attack: true,
         starts_paused: true,
         scripted_special_power_only: false,
+        cash_bounty: None,
     });
     logic.templates.insert("AmericaInfantryRanger".into(), t);
     let id = logic

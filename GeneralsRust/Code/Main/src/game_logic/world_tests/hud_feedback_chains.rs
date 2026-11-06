@@ -103,6 +103,7 @@ fn superweapon_object_produces_counting_down_strip_entry_that_hits_ready() {
             update_module_starts_attack: false,
             starts_paused: false,
             scripted_special_power_only: false,
+            cash_bounty: None,
         });
     logic.templates.insert("OwnedScudTimer".into(), template);
     let id = logic

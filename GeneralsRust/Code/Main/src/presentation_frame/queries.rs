@@ -764,14 +764,6 @@ impl PresentationFrame {
             .count()
     }
 
-    /// Count presentation objects with host overlord gattling addon residual.
-    pub fn overlord_gattling_object_count(&self) -> usize {
-        // Wave 1107: residual counts exclude sold.
-        self.objects
-            .iter()
-            .filter(|o| o.has_overlord_gattling_addon && !o.destroyed && !o.sold)
-            .count()
-    }
 
     pub fn hive_object_count(&self) -> usize {
         // Wave 1107: residual counts exclude sold.

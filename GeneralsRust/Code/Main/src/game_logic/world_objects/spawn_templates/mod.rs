@@ -315,6 +315,7 @@ mod definition;
 mod metadata;
 mod seeding;
 mod setup;
+mod upgrade_module_metadata;
 mod vision;
 
 #[cfg(test)]

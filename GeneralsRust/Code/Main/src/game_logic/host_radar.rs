@@ -178,100 +178,6 @@ pub fn host_time_of_day_is_night() -> bool {
         .unwrap_or(false)
 }
 
-/// True when template is a residual radar-providing Command Center (not fake).
-///
-/// Leftover/INI attach RadarUpgrade only to America/China CC (and Radar Van).
-/// GLACommandCenter has no RadarUpgrade, so a GLA CC name is not a provider.
-pub fn is_radar_command_center_template(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    if n.contains("fake") || n.contains("gla") {
-        return false;
-    }
-    n.contains("commandcenter") || n.contains("headquarters")
-}
-
-/// True when template is a residual Radar Van provider.
-pub fn is_radar_van_template(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    n.contains("radarvan") || n.contains("radar_van") || n == "testradarvan"
-}
-
-/// True when template name is a residual radar provider (CC or RadarVan).
-pub fn is_radar_provider_template(name: &str) -> bool {
-    is_radar_command_center_template(name) || is_radar_van_template(name)
-}
-
-/// Leftover RadarUpgrade DisableProof for an applied module on this template.
-/// `None` when the template has no RadarUpgrade (GLA CC, barracks, …).
-pub fn leftover_radar_upgrade_disable_proof(template_name: &str) -> Option<bool> {
-    if is_radar_van_template(template_name) {
-        return Some(RADAR_VAN_DISABLE_PROOF);
-    }
-    if is_radar_command_center_template(template_name) {
-        return Some(false);
-    }
-    None
-}
-
-/// Leftover `RadarUpgrade::isAlreadyUpgraded` residual.
-/// America CC / RadarVan GrantUpgradeCreate apply on construction.
-/// China CC RadarUpgrade stays unapplied until Upgrade_ChinaRadar is tagged.
-pub fn leftover_radar_upgrade_is_applied(
-    template_name: &str,
-    has_required_research_tag: bool,
-) -> bool {
-    if leftover_radar_upgrade_disable_proof(template_name).is_none() {
-        return false;
-    }
-    if crate::game_logic::host_upgrades::radar_provider_required_research_upgrade(template_name)
-        .is_some()
-    {
-        return has_required_research_tag;
-    }
-    true
-}
-
-/// Leftover `Object::on_disabled_edge` radar walk (object_upgrade.rs:312-319).
-/// `Some(disable_proof)` when an applied RadarUpgrade must add/remove radar.
-pub fn leftover_on_disabled_edge_radar(
-    template_name: &str,
-    radar_upgrade_applied: bool,
-) -> Option<bool> {
-    if !radar_upgrade_applied {
-        return None;
-    }
-    leftover_radar_upgrade_disable_proof(template_name)
-}
-
-/// C++ `Object::isDisabled` for radar (DisabledType mask, not UNDER_CONSTRUCTION).
-pub fn is_disabled_for_radar(is_disabled: bool, under_construction: bool) -> bool {
-    is_disabled && !under_construction
-}
-
-/// Whether a residual object can grant radar this frame.
-///
-/// Matches C++ RadarUpgrade gates (subset):
-/// alive, construction complete (GrantUpgradeCreate ExemptStatus=UNDER_CONSTRUCTION),
-/// not fake provider.
-pub fn is_legal_radar_provider(
-    is_alive: bool,
-    is_constructed: bool,
-    is_command_center_kind: bool,
-    template_name: &str,
-) -> bool {
-    if !is_alive || !is_constructed {
-        return false;
-    }
-    if is_radar_van_template(template_name) {
-        return true;
-    }
-    if is_command_center_kind || is_radar_command_center_template(template_name) {
-        // Fake / GLA CC residual-skip (no RadarUpgrade on GLACommandCenter).
-        return is_radar_command_center_template(template_name);
-    }
-    false
-}
-
 /// Host residual honesty + radar-online bookkeeping.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostRadarRegistry {
@@ -338,98 +244,9 @@ impl HostRadarRegistry {
     }
 }
 
-// --- Wave 63 residual honesty packs ---
-
-/// Wave 63 residual honesty: radar provider + audio residual peel.
-pub fn honesty_radar_provider_residual_ok() -> bool {
-    RADAR_ONLINE_AUDIO == "RadarOn"
-        && RADAR_OFFLINE_AUDIO == "RadarOff"
-        && is_radar_command_center_template("AmericaCommandCenter")
-        && is_radar_command_center_template("ChinaCommandCenter")
-        && !is_radar_command_center_template("GLA_CommandCenter")
-        && !is_radar_command_center_template("GLACommandCenter")
-        && !is_radar_command_center_template("Chem_GLACommandCenter")
-        && !is_radar_command_center_template("FakeGLACommandCenter")
-        && is_radar_van_template("GLAVehicleRadarVan")
-        && is_radar_provider_template("USA_CommandCenter")
-        && !is_radar_provider_template("GLACommandCenter")
-        && is_legal_radar_provider(true, true, true, "USA_CommandCenter")
-        && !is_legal_radar_provider(true, false, true, "USA_CommandCenter")
-        && !is_legal_radar_provider(true, true, true, "GLACommandCenter")
-        && is_legal_radar_provider(true, true, false, "GLAVehicleRadarVan")
-        && leftover_radar_upgrade_disable_proof("GLACommandCenter").is_none()
-        && leftover_radar_upgrade_disable_proof("AmericaCommandCenter") == Some(false)
-        && leftover_radar_upgrade_disable_proof("GLAVehicleRadarVan") == Some(true)
-        && leftover_on_disabled_edge_radar("AmericaCommandCenter", true) == Some(false)
-        && leftover_on_disabled_edge_radar("GLACommandCenter", true).is_none()
-        && leftover_on_disabled_edge_radar("GLAVehicleRadarVan", true) == Some(true)
-        && leftover_on_disabled_edge_radar("AmericaCommandCenter", false).is_none()
-        && is_disabled_for_radar(true, false)
-        && !is_disabled_for_radar(true, true)
-}
-
-/// Wave 63 residual honesty: Radar Van body residual peel.
-pub fn honesty_radar_van_body_residual_ok() -> bool {
-    (RADAR_VAN_MAX_HEALTH - 200.0).abs() < 0.01
-        && (RADAR_VAN_VISION_RANGE - 200.0).abs() < 0.01
-        && (RADAR_VAN_SHROUD_CLEARING_RANGE - 500.0).abs() < 0.01
-        && RADAR_VAN_BUILD_COST == 500
-        && (RADAR_VAN_BUILD_TIME_SEC - 10.0).abs() < 0.01
-        && RADAR_VAN_BUILD_TIME_FRAMES
-            == ((RADAR_VAN_BUILD_TIME_SEC * RADAR_LOGIC_FPS).round() as u32)
-        && RADAR_VAN_BUILD_TIME_FRAMES == 300
-        && RADAR_VAN_TRANSPORT_SLOT_COUNT == 3
-        && UPGRADE_GLA_RADAR == "Upgrade_GLARadar"
-        && RADAR_VAN_DISABLE_PROOF
-}
-
-/// Wave 63 residual honesty: Radar Van Scan special-power residual peel.
-pub fn honesty_radar_van_scan_residual_ok() -> bool {
-    SPECIAL_POWER_RADAR_VAN_SCAN == "SpecialPowerRadarVanScan"
-        && UPGRADE_GLA_RADAR_VAN_SCAN == "Upgrade_GLARadarVanScan"
-        && OCL_RADAR_VAN_SCAN == "SUPERWEAPON_RadarVanScan"
-        && RADAR_VAN_SCAN_RELOAD_MS == 30_000
-        && RADAR_VAN_SCAN_RELOAD_FRAMES == radar_ms_to_frames(RADAR_VAN_SCAN_RELOAD_MS)
-        && RADAR_VAN_SCAN_RELOAD_FRAMES == 900
-        && (RADAR_VAN_SCAN_RADIUS_CURSOR - 150.0).abs() < 0.01
-        && RADAR_VAN_SCAN_AUDIO == "RadarVanScan"
-}
-
-/// Combined Wave 63 radar residual honesty pack.
-pub fn honesty_radar_residual_pack_ok() -> bool {
-    honesty_radar_provider_residual_ok()
-        && honesty_radar_van_body_residual_ok()
-        && honesty_radar_van_scan_residual_ok()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn command_center_and_radar_van_templates_detected() {
-        assert!(is_radar_command_center_template("USA_CommandCenter"));
-        assert!(is_radar_command_center_template("AmericaCommandCenter"));
-        assert!(is_radar_command_center_template("ChinaCommandCenter"));
-        assert!(!is_radar_command_center_template("GLA_CommandCenter"));
-        assert!(!is_radar_command_center_template("GLACommandCenter"));
-        assert!(!is_radar_command_center_template("Slth_GLACommandCenter"));
-        assert!(!is_radar_command_center_template("FakeGLACommandCenter"));
-        assert!(is_radar_van_template("GLAVehicleRadarVan"));
-        assert!(is_radar_van_template("TestRadarVan"));
-        assert!(is_radar_provider_template("TestCommandCenter"));
-        assert!(!is_radar_provider_template("TestBarracks"));
-        assert!(!is_radar_provider_template("GLACommandCenter"));
-        assert_eq!(
-            leftover_on_disabled_edge_radar("AmericaCommandCenter", true),
-            Some(false)
-        );
-        assert!(leftover_on_disabled_edge_radar("GLACommandCenter", true).is_none());
-        assert_eq!(
-            leftover_on_disabled_edge_radar("GLAVehicleRadarVan", true),
-            Some(true)
-        );
-    }
 
     #[test]
     fn radar_event_helpers_match_cpp_defaults() {
@@ -476,46 +293,6 @@ mod tests {
     }
 
     #[test]
-    fn legal_provider_requires_alive_constructed() {
-        assert!(is_legal_radar_provider(
-            true,
-            true,
-            true,
-            "USA_CommandCenter"
-        ));
-        assert!(!is_legal_radar_provider(
-            false,
-            true,
-            true,
-            "USA_CommandCenter"
-        ));
-        assert!(!is_legal_radar_provider(
-            true,
-            false,
-            true,
-            "USA_CommandCenter"
-        ));
-        assert!(!is_legal_radar_provider(
-            true,
-            true,
-            false,
-            "FakeGLACommandCenter"
-        ));
-        assert!(is_legal_radar_provider(
-            true,
-            true,
-            false,
-            "GLAVehicleRadarVan"
-        ));
-        assert!(!is_legal_radar_provider(
-            true,
-            true,
-            true,
-            "GLACommandCenter"
-        ));
-    }
-
-    #[test]
     fn registry_records_online_transition() {
         let mut reg = HostRadarRegistry::new();
         assert!(!reg.honesty_ok());
@@ -532,24 +309,10 @@ mod tests {
     }
 
     #[test]
-    fn radar_residual_pack_honesty_wave63() {
-        assert!(honesty_radar_provider_residual_ok());
-        assert!(honesty_radar_van_body_residual_ok());
-        assert!(honesty_radar_van_scan_residual_ok());
-        assert!(honesty_radar_residual_pack_ok());
-        assert_eq!(radar_ms_to_frames(30_000), 900);
-        assert_eq!(radar_ms_to_frames(0), 0);
-        assert_eq!(RADAR_VAN_BUILD_TIME_FRAMES, 300);
-        assert!(RADAR_VAN_DISABLE_PROOF);
-        assert_eq!(SPECIAL_POWER_RADAR_VAN_SCAN, "SpecialPowerRadarVanScan");
-    }
-
-    #[test]
     fn radar_edge_audio_uses_retail_misc_audio_event_names() {
         // Retail MiscAudio.ini: RadarNotifyOnlineSound = RadarOn, Offline = RadarOff.
         // SoundEffects.ini defines AudioEvent RadarOn / RadarOff; no RadarOnline/Offline.
         assert_eq!(RADAR_ONLINE_AUDIO, "RadarOn");
         assert_eq!(RADAR_OFFLINE_AUDIO, "RadarOff");
-        assert!(honesty_radar_provider_residual_ok());
     }
 }

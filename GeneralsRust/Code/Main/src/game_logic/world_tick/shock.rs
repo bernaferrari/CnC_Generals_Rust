@@ -1781,56 +1781,11 @@ impl GameLogic {
 fn enclosing_hidden_rider_ids(
     objects: crate::game_logic::HostObjectRead<'_>,
 ) -> std::collections::HashSet<u32> {
-    let pairs: Vec<(ObjectId, ObjectId, String)> = objects
+    objects
         .registered()
-        .filter_map(|(id, o)| {
-            o.contained_by
-                .map(|cid| (*id, cid, o.template_name.clone()))
+        .filter_map(|(id, rider)| {
+            let container = rider.contained_by.and_then(|cid| objects.lookup(&cid))?;
+            container.is_enclosing_container_for(rider).then_some(id.0)
         })
-        .collect();
-    pairs
-        .into_iter()
-        .filter(|(rid, cid, tmpl)| {
-            objects
-                .lookup(cid)
-                .is_some_and(|c| enclosing_container_hides_rider(c, *rid, tmpl))
-        })
-        .map(|(rid, _, _)| rid.0)
         .collect()
-}
-
-/// Mirrors `Object::is_enclosing_container_for` without dual HashMap borrows.
-fn enclosing_container_hides_rider(
-    container: &Object,
-    victim_id: ObjectId,
-    victim_template: &str,
-) -> bool {
-    let name = container.template_name.to_ascii_lowercase();
-    if container.paradrop_parachute || name.contains("parachute") {
-        return false;
-    }
-    if container.is_overlord_style_container() {
-        if container.overlord_portable_occupant == Some(victim_id) {
-            return false;
-        }
-        if container
-            .contained_units()
-            .first()
-            .is_some_and(|&id| id == victim_id)
-        {
-            return false;
-        }
-        if crate::game_logic::host_battlemaster::is_portable_structure_template(victim_template) {
-            return false;
-        }
-    }
-    if container.is_helix_transport
-        && crate::game_logic::host_battlemaster::is_portable_structure_template(victim_template)
-    {
-        return false;
-    }
-    if container.is_garrison_contain() {
-        return container.is_enclosing_garrison_container();
-    }
-    true
 }

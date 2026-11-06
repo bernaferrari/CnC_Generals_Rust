@@ -81,7 +81,6 @@ impl GameLogic {
         };
         let player_id = self.player_owner_for_host_object(obj);
         let object_birth = std::sync::Arc::downgrade(&obj.visual_draw_identity_token);
-        let mut radar_upgrade = false;
         for grant in grants {
             if !self.object_birth_matches(object_id, &object_birth) {
                 return Ok(());
@@ -109,12 +108,6 @@ impl GameLogic {
                         interpreter,
                         effects,
                     )?;
-                    if crate::game_logic::host_upgrades::HostUpgradeKind::from_name(
-                        &grant.upgrade_name,
-                    ) == crate::game_logic::host_upgrades::HostUpgradeKind::Radar
-                    {
-                        radar_upgrade = true;
-                    }
                 }
                 None => {}
             }
@@ -123,15 +116,6 @@ impl GameLogic {
             }
         }
         self.admit_host_radar_provider_with_effects(object_id, effects);
-        if radar_upgrade
-            && self
-                .objects
-                .get(&object_id)
-                .is_some_and(|object| object.thing().template.radar_upgrade_rules.is_none())
-        {
-            // C++ GrantUpgradeCreate → updateUpgradeModules → RadarUpgrade::extendRadar
-            self.maybe_start_radar_extend(object_id);
-        }
         Ok(())
     }
 }

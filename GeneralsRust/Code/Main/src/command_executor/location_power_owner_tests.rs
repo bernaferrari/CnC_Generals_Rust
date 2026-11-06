@@ -42,6 +42,7 @@ fn location_world(water: bool, extent: i32) -> (GameLogic, ObjectId, ObjectId) {
                 update_module_starts_attack: false,
                 starts_paused: false,
                 scripted_special_power_only: false,
+                cash_bounty: None,
             });
     }
     world

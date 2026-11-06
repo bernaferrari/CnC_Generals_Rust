@@ -41,14 +41,6 @@ pub(crate) struct SubdualDamageResidual {
     pub heal_countdown: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub(crate) struct OverlordAddonResidual {
-    pub gattling: bool,
-    pub propaganda: bool,
-    pub helix_transport: bool,
-    pub bunker_capacity: Option<usize>,
-}
-
 impl StatusBitsResidual {
     pub(crate) fn present(object: &Object) -> bool {
         object.object_status_mask_for_queries() != 0
@@ -154,29 +146,6 @@ impl SubdualDamageResidual {
     }
 }
 
-impl OverlordAddonResidual {
-    pub(crate) fn present(object: &Object) -> bool {
-        object.has_overlord_gattling_addon
-            || object.has_overlord_propaganda_addon
-            || object.is_helix_transport
-            || object.overlord_bunker_capacity.is_some()
-    }
-    pub(crate) fn from_object(object: &Object) -> Self {
-        Self {
-            gattling: object.has_overlord_gattling_addon,
-            propaganda: object.has_overlord_propaganda_addon,
-            helix_transport: object.is_helix_transport,
-            bunker_capacity: object.overlord_bunker_capacity,
-        }
-    }
-    pub(crate) fn apply(self, object: &mut Object) {
-        object.has_overlord_gattling_addon = self.gattling;
-        object.has_overlord_propaganda_addon = self.propaganda;
-        object.is_helix_transport = self.helix_transport;
-        object.overlord_bunker_capacity = self.bunker_capacity;
-    }
-}
-
 pub(crate) fn collect(
     object: &Object,
     out: &mut Vec<EntityModuleState>,
@@ -204,12 +173,6 @@ pub(crate) fn collect(
         TAG_SUBDUAL_DAMAGE,
         SubdualDamageResidual::present(object),
         &SubdualDamageResidual::from_object(object),
-    )?;
-    push_present(
-        out,
-        TAG_OVERLORD_ADDON,
-        OverlordAddonResidual::present(object),
-        &OverlordAddonResidual::from_object(object),
     )
 }
 
@@ -223,7 +186,6 @@ pub(crate) fn apply(
         TAG_MODEL_CONDITION => decode_payload::<ModelConditionResidual>(payload)?.apply(object),
         TAG_CONTINUOUS_FIRE => decode_payload::<ContinuousFireResidual>(payload)?.apply(object),
         TAG_SUBDUAL_DAMAGE => decode_payload::<SubdualDamageResidual>(payload)?.apply(object),
-        TAG_OVERLORD_ADDON => decode_payload::<OverlordAddonResidual>(payload)?.apply(object),
         _ => return Ok(false),
     }
     Ok(true)

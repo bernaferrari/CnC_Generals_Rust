@@ -185,6 +185,21 @@ impl RenderPipeline {
     ) -> Option<&mut game_client::terrain::terrain_visual::TerrainVisualImpl> {
         self.native_terrain.as_mut()
     }
+    /// C++ `W3DGameClient::adjustLOD` for this pipeline: the texture
+    /// reduction goes to its own renderer runtime and installed terrain.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn apply_texture_lod(&mut self, target_factor: i32) {
+        let r3d = std::sync::Arc::clone(&self.forward_pass.renderer.renderer_3d);
+        let _ = game_client::core::game_client::apply_lod_texture_reduction_to_session(
+            &r3d,
+            target_factor,
+            &mut |reduction| {
+                if let Some(terrain) = self.native_terrain.as_mut() {
+                    terrain.apply_texture_lod_reduction(reduction);
+                }
+            },
+        );
+    }
     #[cfg(feature = "game_client")]
     pub(crate) fn clear_native_terrain(&mut self) {
         self.native_terrain = None;

@@ -239,7 +239,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     }
 }
 
-/// C++ `W3DStatusCircle::Render` fade quad onto the live 3D dest.
+/// C++ `W3DStatusCircle::Render` fade quad onto the live 3D dest. Returns
+/// whether a render pass was recorded.
 pub fn record_camera_fade(
     resources: &mut CameraFadeResources,
     device: &wgpu::Device,
@@ -250,14 +251,15 @@ pub fn record_camera_fade(
     fade: u8,
     intensity: f32,
     diffuse: u32,
-) {
+) -> bool {
     let Some(overlay) = overlay_from_packed(fade, intensity, diffuse) else {
-        return;
+        return false;
     };
-    record_camera_fade_overlay(resources, device, queue, encoder, dest, format, overlay);
+    record_camera_fade_overlay(resources, device, queue, encoder, dest, format, overlay)
 }
 
-/// Draw a frozen `CameraFadeOverlay` with ADD / REVSUBTRACT / 4x SATURATE / MULTIPLY.
+/// Draw a frozen `CameraFadeOverlay` with ADD / REVSUBTRACT / 4x SATURATE /
+/// MULTIPLY. Returns whether a render pass was recorded.
 pub fn record_camera_fade_overlay(
     resources: &mut CameraFadeResources,
     device: &wgpu::Device,
@@ -266,9 +268,9 @@ pub fn record_camera_fade_overlay(
     dest: &wgpu::TextureView,
     format: wgpu::TextureFormat,
     overlay: CameraFadeOverlay,
-) {
+) -> bool {
     if overlay.fade == TFade::None {
-        return;
+        return false;
     }
     let gpu = resources.for_target(device, format);
     let a = ((overlay.diffuse >> 24) & 0xff) as f32 / 255.0;
@@ -282,34 +284,37 @@ pub fn record_camera_fade_overlay(
         TFade::Subtract => &gpu.subtract,
         TFade::Multiply => &gpu.multiply,
         TFade::Saturate => &gpu.saturate,
-        TFade::None => return,
+        TFade::None => return false,
     };
-    let passes = if overlay.fade == TFade::Saturate {
+    // Saturate draws the quad twice (C++ two passes of the doubled colour);
+    // consecutive draws in one pass blend exactly like two passes.
+    let draws = if overlay.fade == TFade::Saturate {
         2
     } else {
         1
     };
-    for _ in 0..passes {
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("W3DStatusCircle fade"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: dest,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-            multiview_mask: None,
-        });
-        pass.set_pipeline(pipeline);
-        pass.set_bind_group(0, &gpu.bind, &[]);
+    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("W3DStatusCircle fade"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: dest,
+            depth_slice: None,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Load,
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        depth_stencil_attachment: None,
+        occlusion_query_set: None,
+        timestamp_writes: None,
+        multiview_mask: None,
+    });
+    pass.set_pipeline(pipeline);
+    pass.set_bind_group(0, &gpu.bind, &[]);
+    for _ in 0..draws {
         pass.draw(0..3, 0..1);
     }
+    true
 }
 
 #[cfg(test)]

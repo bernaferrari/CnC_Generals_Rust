@@ -967,12 +967,10 @@ pub enum WorldMutation {
         hive_slave_respawn_frame: u32,
         next_detection_scan_frame: u32,
     },
-    /// Host Object Overlord/Helix addon residual.
+    /// Projected Overlord redirected capacity and Helix containment kind.
     SetOverlordAddon {
         target: EntityId,
-        has_gattling: bool,
-        has_propaganda: bool,
-        /// `u16::MAX` = host Option::None bunker residual.
+        /// `u16::MAX` when no redirected contain module exists.
         bunker_capacity: u16,
         is_helix_transport: bool,
     },
@@ -2359,14 +2357,10 @@ impl GameWorld {
                 }
                 WorldMutation::SetOverlordAddon {
                     target,
-                    has_gattling,
-                    has_propaganda,
                     bunker_capacity,
                     is_helix_transport,
                 } => {
                     if let Some(e) = self.inner.entity_mut(target) {
-                        e.has_overlord_gattling_addon = has_gattling;
-                        e.has_overlord_propaganda_addon = has_propaganda;
                         e.overlord_bunker_capacity = bunker_capacity;
                         e.is_helix_transport = is_helix_transport;
                         applied += 1;

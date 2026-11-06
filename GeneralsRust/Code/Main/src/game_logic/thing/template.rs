@@ -449,6 +449,60 @@ impl UpgradeMuxTriggers {
     }
 }
 
+/// One authored `HordeUpdate` module (HordeUpdate.cpp `HordeUpdateModuleData`).
+/// Defaults are the C++ module-data constructor values.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HordeUpdateRules {
+    /// `UpdateRate` in logic frames (default LOGICFRAMES_PER_SECOND).
+    pub update_rate_frames: u32,
+    /// `KindOf` the other object must match (C++ `isKindOfMulti`).
+    pub kind_of_mask: u128,
+    /// `Count` — members within `Radius` (including self) for true hordesman.
+    pub min_count: i32,
+    /// `Radius` — FROM_BOUNDINGSPHERE_3D scan range.
+    pub min_dist: f32,
+    /// `RubOffRadius` — FROM_CENTER_2D honorary distance to a true member.
+    pub rub_off_radius: f32,
+    pub allies_only: bool,
+    pub exact_match: bool,
+    pub allowed_nationalism: bool,
+}
+
+impl Default for HordeUpdateRules {
+    fn default() -> Self {
+        Self {
+            update_rate_frames: 30,
+            kind_of_mask: 0,
+            min_count: 0,
+            min_dist: 0.0,
+            rub_off_radius: 20.0,
+            allies_only: true,
+            exact_match: false,
+            allowed_nationalism: true,
+        }
+    }
+}
+
+/// One authored `ModelConditionUpgrade` (ModelConditionUpgrade.cpp).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelConditionUpgradeRule {
+    /// Module tag; keys the Object's `UpgradeMux::m_upgradeExecuted` latch.
+    pub tag: String,
+    pub mux: UpgradeMuxTriggers,
+    /// `ConditionFlag` as a C++ ModelConditionFlags bit index.
+    pub condition_bit: Option<u32>,
+}
+
+/// One authored `SubObjectsUpgrade` (SubObjectsUpgrade.cpp).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SubObjectsUpgradeRule {
+    /// Module tag; keys the Object's `UpgradeMux::m_upgradeExecuted` latch.
+    pub tag: String,
+    pub mux: UpgradeMuxTriggers,
+    pub show: Vec<String>,
+    pub hide: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThingTemplate {
     pub name: String,
@@ -750,6 +804,15 @@ pub struct ThingTemplate {
     /// (StealthUpgrade.cpp sets CAN_STEALTH when one is satisfied).
     #[serde(default)]
     pub stealth_upgrades: Vec<UpgradeMuxTriggers>,
+    /// The authored `HordeUpdate` module, if any (C++ `getHordeUpdateInterface`).
+    #[serde(default)]
+    pub horde_update: Option<HordeUpdateRules>,
+    /// Every authored `ModelConditionUpgrade`, in declaration order.
+    #[serde(default)]
+    pub model_condition_upgrades: Vec<ModelConditionUpgradeRule>,
+    /// Every authored `SubObjectsUpgrade`, in declaration order.
+    #[serde(default)]
+    pub sub_objects_upgrades: Vec<SubObjectsUpgradeRule>,
     /// `SpecialAbilityUpdate::StartAbilityRange`.  The authority state uses
     /// this rather than a hero/template-name range fallback.
     #[serde(default)]
@@ -1262,6 +1325,9 @@ impl ThingTemplate {
             capture_starts_paused: false,
             capture_upgrade_trigger: None,
             stealth_upgrades: Vec::new(),
+            horde_update: None,
+            model_condition_upgrades: Vec::new(),
+            sub_objects_upgrades: Vec::new(),
             worker_ai_update: false,
             capture_start_ability_range: None,
             capture_unpack_time_ms: None,

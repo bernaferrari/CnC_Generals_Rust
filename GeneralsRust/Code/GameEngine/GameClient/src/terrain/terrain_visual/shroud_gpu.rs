@@ -276,9 +276,9 @@ impl TerrainVisualImpl {
     /// right after drawing it (W3DWater.cpp:2906-2918 / 3314-3334). The
     /// shoreline tiles ride the terrain pass, so they are only included when
     /// `include_shoreline` is set.
-    fn record_shroud_water_pass<'pass>(
-        &'pass self,
-        pass: &mut RenderPass<'pass>,
+    fn record_shroud_water_pass(
+        &self,
+        pass: &mut RenderPass<'_>,
         include_shoreline: bool,
     ) {
         let (Some(pipeline), Some(camera), Some(shroud)) = (
@@ -305,7 +305,7 @@ impl TerrainVisualImpl {
         }
     }
 
-    fn record_shroud_tree_pass<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
+    fn record_shroud_tree_pass(&self, pass: &mut RenderPass<'_>) {
         let (Some(pipeline), Some(camera), Some(shroud)) = (
             self.shroud_gpu.tree_pipeline.as_ref(),
             self.terrain_camera_bind_group.as_ref(),
@@ -326,7 +326,7 @@ impl TerrainVisualImpl {
         }
     }
 
-    fn record_shroud_ground_pass<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
+    fn record_shroud_ground_pass(&self, pass: &mut RenderPass<'_>) {
         if self.overlay.shroud_cells.is_empty() {
             return;
         }

@@ -668,6 +668,7 @@ fn special_power_readiness_uses_owned_module_and_timer() {
         update_module_starts_attack: false,
         starts_paused: false,
         scripted_special_power_only: false,
+        cash_bounty: None,
     };
     owner
         .templates

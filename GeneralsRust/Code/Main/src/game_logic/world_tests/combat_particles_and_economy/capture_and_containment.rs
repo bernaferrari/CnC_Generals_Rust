@@ -2516,7 +2516,7 @@ fn overlord_bunker_residual_without_bunker_rejects_enter() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_infantry_template(&mut game_logic);
-    // Some(0): overlord-style, no BattleBunker residual installed.
+    // No portable rider means no redirected infantry container.
     let overlord_id = create_test_overlord(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), None);
     let infantry_id = game_logic
         .create_object("TestInfantry", Team::China, Vec3::new(2.0, 0.0, 0.0))
@@ -2527,7 +2527,7 @@ fn overlord_bunker_residual_without_bunker_rejects_enter() {
         overlord.is_overlord_style_container(),
         "TestOverlord must mark overlord-style residual"
     );
-    assert_eq!(overlord.overlord_bunker_slot_capacity(), 0);
+    assert!(overlord.overlord_portable_occupant.is_none());
     assert!(
         overlord.can_contain(),
         "unupgraded Overlord retains its literal portable payload interface"
@@ -2578,10 +2578,7 @@ fn overlord_bunker_residual_enter_sets_docked_state_and_capacity() {
         .expect("infantry");
 
     let overlord = game_logic.host_object(overlord_id).expect("overlord");
-    assert!(
-        overlord.can_contain() && overlord.overlord_bunker_slot_capacity() == 5,
-        "BattleBunker residual must expose 5 infantry slots"
-    );
+    assert!(overlord.can_contain());
     assert_eq!(overlord.transport_capacity(), 1);
     assert_eq!(
         game_logic

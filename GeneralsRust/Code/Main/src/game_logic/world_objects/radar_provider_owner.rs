@@ -2,60 +2,27 @@
 use super::super::*;
 
 impl GameLogic {
+    /// C++ RadarUpgrade contributions: only authored RadarUpgrade modules
+    /// (RadarUpgrade.cpp:72-96) add radar; templates without one provide none.
     fn host_radar_providers(&self, id: ObjectId) -> Vec<Vec<(u32, bool)>> {
         let Some(obj) = self.objects.get(&id) else {
             return Vec::new();
         };
-        use crate::game_logic::host_radar::*;
-        use crate::game_logic::host_upgrades::*;
-        let owner = self.player_owner_for_host_object(obj);
-        if let Some(rules) = &obj.thing().template.radar_upgrade_rules {
-            return rules
-                .iter()
-                .enumerate()
-                .map(|(index, rule)| {
-                    obj.radar_upgrade_contributors
-                        .get(index)
-                        .into_iter()
-                        .flatten()
-                        .map(|&contributor| (contributor, rule.disable_proof))
-                        .collect()
-                })
-                .collect();
-        }
-        // Synthesized seed templates have no authored module list. This adapter
-        // is deliberately unreachable for parsed definitions, even Some(empty).
-        if is_disabled_for_radar(obj.is_disabled(), obj.status.under_construction)
-            || !is_legal_radar_provider(
-                obj.is_alive(),
-                obj.is_constructed() && !obj.status.under_construction,
-                obj.is_command_center() || obj.is_kind_of(KindOf::CommandCenter),
-                &obj.template_name,
-            )
-        {
-            return Vec::new();
-        }
-        let Some(owner) = owner else {
+        let Some(rules) = &obj.thing().template.radar_upgrade_rules else {
             return Vec::new();
         };
-        if let Some(required) = radar_provider_required_research_upgrade(&obj.template_name) {
-            let researched = self.players.get(&owner).is_some_and(|player| {
-                player.has_unlocked_upgrade(required)
-                    || player
-                        .unlocked_sciences
-                        .iter()
-                        .any(|name| normalize_upgrade_identity(name).contains("chinaradar"))
-            });
-            let tagged = obj.has_upgrade_tag(required)
-                || obj
-                    .applied_upgrades
-                    .iter()
-                    .any(|name| normalize_upgrade_identity(name).contains("chinaradar"));
-            if !researched && !tagged {
-                return Vec::new();
-            }
-        }
-        vec![vec![(owner, is_radar_van_template(&obj.template_name))]]
+        rules
+            .iter()
+            .enumerate()
+            .map(|(index, rule)| {
+                obj.radar_upgrade_contributors
+                    .get(index)
+                    .into_iter()
+                    .flatten()
+                    .map(|&contributor| (contributor, rule.disable_proof))
+                    .collect()
+            })
+            .collect()
     }
 
     /// The combined player/object upgrade mask is observed once per module.

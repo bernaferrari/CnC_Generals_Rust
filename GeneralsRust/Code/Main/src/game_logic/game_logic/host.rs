@@ -743,11 +743,6 @@ pub struct GameLogic {
     /// Fail-closed: not full PrerequisiteSciences rank tree / IsTrainable matrix.
     pub(super) unit_training: crate::game_logic::host_unit_training::HostUnitTrainingRegistry,
 
-    /// Host Demo SuicideBomb residual (Demo_Upgrade_SuicideBomb death blast).
-    /// Fail-closed: not full FireWeaponWhenDead exclusive / SlowDeath fling matrix.
-    pub(super) demo_suicide_bomb:
-        crate::game_logic::host_demo_suicide_bomb::HostDemoSuicideBombRegistry,
-
     /// Host GLA Rocket Buggy residual honesty (long-range rocket + scatter splash).
     /// Fail-closed: not full projectile flight / AP rocket mult matrix.
     pub(super) rocket_buggy_residual_fires: u32,

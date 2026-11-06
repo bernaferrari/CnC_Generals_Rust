@@ -1405,13 +1405,13 @@ impl OptionsMenu {
         );
 
         if detail_index == CUSTOMDETAIL {
-            if let Some(terrain) = terrain_lod {
-                let _ = crate::core::game_client::apply_lod_texture_reduction_to(
-                    texture_reduction,
-                    terrain,
-                );
+            // The native caller's hook applies the target to its own renderer
+            // and terrain (`apply_lod_texture_reduction_to_session`); without
+            // one only the definitions change.
+            if let Some(apply_texture_lod) = terrain_lod {
+                apply_texture_lod(texture_reduction);
             } else {
-                let _ = apply_lod_texture_reduction(texture_reduction);
+                let _ = crate::core::game_client::store_lod_texture_reduction(texture_reduction);
             }
         }
 

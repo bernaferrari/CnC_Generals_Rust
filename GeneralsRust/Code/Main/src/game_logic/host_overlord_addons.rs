@@ -1,31 +1,10 @@
-//! Host China Overlord / Helix / Emperor portable addon residual.
+//! Retail Overlord, Helix and Emperor add-on names and combat constants.
 //!
-//! Residual slice (playability):
-//! - Overlord / Helix portable structure upgrades install residual behavior on the
-//!   host vehicle (fail-closed vs full OverlordContain / HelixContain passenger
-//!   object spawn + W3DDependencyModelDraw):
-//!   - `Upgrade_ChinaOverlordGattlingCannon` / `Upgrade_ChinaHelixGattlingCannon`:
-//!     equips SECONDARY AA `GattlingBuildingGunAir` + passenger ground residual
-//!     `GattlingBuildingGun` on PRIMARY fires (PassengersAllowedToFire residual).
-//!     BuildCost **1200** / BuildTime **20**s residual.
-//!   - `Upgrade_ChinaOverlordPropagandaTower` / `Upgrade_ChinaHelixPropagandaTower`:
-//!     enables propaganda pulse residual on the host (Radius 150, heal 1%/2%).
-//!     BuildCost **500** / BuildTime **10**s residual.
-//!   - BattleBunker residual remains `install_overlord_battle_bunker` (existing).
-//!     BuildCost **400** / BuildTime **15**s residual. Bunker infantry slots **5**.
-//! - ConflictsWith residual exclusivity: only **one** portable addon at a time
-//!   (gattling ↔ propaganda ↔ bunker pairwise ConflictsWith).
-//! - OverlordContain residual capacity: Slots **1** (PORTABLE_STRUCTURE only).
-//! - Emperor tank (`Tank_ChinaTankEmperor`): innate propaganda residual
-//!   (`PropagandaTowerBehavior` AffectsSelf=Yes) + optional gattling upgrade.
-//! - Helix residual: `HelixContain` Slots=**5** transport capacity.
-//!
-//! Fail-closed honesty:
-//! - Not full OCL portable-structure passenger object / DamageModule share
-//! - Not full W3DOverlord*Draw / W3DDependencyModelDraw bone attach
-//! - Not full ContinuousFire model-condition animation on payload
-//! - Not full ProductionUpdate MaxQueueEntries UI production-queue path
-//! - Not network addon replication (network deferred)
+//! Runtime add-ons are actual authored portable riders produced by
+//! ObjectCreationUpgrade and its OCL, not weapons or tower flags installed on
+//! the hull. The rider's own containment, weapons and behaviors remain its
+//! authority. The constants here describe retail data, not a name-based
+//! substitute for the receiving session's authored modules.
 
 use super::Weapon;
 use serde::{Deserialize, Serialize};

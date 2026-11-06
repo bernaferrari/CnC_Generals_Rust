@@ -2236,14 +2236,76 @@ fn cash_bounty_science_unlock_requires_palace_module() {
             update_module_starts_attack: false,
             starts_paused: false,
             scripted_special_power_only: false,
+            // Authored Bounty, deliberately not a retail tier percent.
+            cash_bounty: Some(0.07),
         });
     game_logic.templates.insert("GLAPalace".into(), palace);
     let _ = game_logic
         .create_object_for_player("GLAPalace", 2, Vec3::new(0.0, 0.0, 0.0))
         .expect("palace");
     assert!(
-        (game_logic.get_player(2).unwrap().cash_bounty_percent - 0.05).abs() < 1e-6,
+        (game_logic.get_player(2).unwrap().cash_bounty_percent - 0.07).abs() < 1e-6,
         "onObjectCreated must apply bounty when palace exists and science is owned"
+    );
+}
+
+/// C++ Player::addScience (Player.cpp:2513-2540) wakes only modules whose
+/// RequiredScience is the added science; CashBountyPower::onObjectCreated
+/// (CashBountyPower.cpp:111-120) applies only already-owned sciences.
+#[test]
+fn cash_bounty_add_science_applies_only_matching_required_science_module() {
+    use crate::game_logic::{SpecialPowerModuleKind, SpecialPowerModuleMetadata, ThingTemplate};
+    let mut game_logic = GameLogic::new();
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
+    let module = |index: u32, science: &str, bounty: f32| SpecialPowerModuleMetadata {
+        source_index: index,
+        module_tag: None,
+        module_kind: SpecialPowerModuleKind::CashBountyPower,
+        special_power_template: format!("AuthoredBounty{index}"),
+        special_power_template_id: index + 1,
+        command_power: None,
+        reload_time_frames: 0,
+        required_science: Some(science.into()),
+        public_timer: false,
+        shared_n_sync: false,
+        shortcut_power: false,
+        update_module_starts_attack: false,
+        starts_paused: false,
+        scripted_special_power_only: false,
+        cash_bounty: Some(bounty),
+    };
+    let mut palace = ThingTemplate::new("ArbitraryBountyHall");
+    palace
+        .add_kind_of(crate::game_logic::KindOf::Structure)
+        .set_health(3000.0);
+    palace.special_power_modules = vec![
+        module(0, "SCIENCE_BountyLow", 0.03),
+        module(1, "SCIENCE_BountyHigh", 0.30),
+    ];
+    game_logic
+        .templates
+        .insert("ArbitraryBountyHall".into(), palace);
+    game_logic
+        .create_object_for_player("ArbitraryBountyHall", 2, Vec3::ZERO)
+        .expect("hall");
+    let bounty = |logic: &GameLogic| logic.get_player(2).unwrap().cash_bounty_percent;
+    assert_eq!(bounty(&game_logic), 0.0, "no owned science at creation");
+    game_logic
+        .get_player_mut(2)
+        .unwrap()
+        .unlock_science("SCIENCE_BountyLow");
+    game_logic.on_special_power_science_creation(2, "SCIENCE_BountyLow");
+    assert!((bounty(&game_logic) - 0.03).abs() < 1e-6, "only the low module");
+    game_logic
+        .get_player_mut(2)
+        .unwrap()
+        .unlock_science("SCIENCE_BountyHigh");
+    game_logic.on_special_power_science_creation(2, "SCIENCE_BountyHigh");
+    assert!((bounty(&game_logic) - 0.30).abs() < 1e-6);
+    game_logic.on_special_power_science_creation(2, "SCIENCE_BountyLow");
+    assert!(
+        (bounty(&game_logic) - 0.30).abs() < 1e-6,
+        "setCashBounty only raises"
     );
 }
 

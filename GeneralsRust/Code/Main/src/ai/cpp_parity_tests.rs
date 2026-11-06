@@ -2823,6 +2823,7 @@ fn live_ai_fires_ready_superweapon_at_enemy_cluster() {
         update_module_starts_attack: false,
         starts_paused: false,
         scripted_special_power_only: false,
+        cash_bounty: None,
     });
     logic.templates.insert("AiSwPuc".into(), puc);
 
@@ -2936,6 +2937,7 @@ fn update_does_not_auto_fire_first_ready_special() {
         update_module_starts_attack: false,
         starts_paused: false,
         scripted_special_power_only: false,
+        cash_bounty: None,
     });
     logic.templates.insert("AiSwA10".into(), a10);
     let _ = logic.create_object("AiSwA10", Team::USA, glam::Vec3::new(-40.0, 0.0, 0.0));

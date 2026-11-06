@@ -674,7 +674,7 @@ impl GameLogic {
         // C++ OverlordContain::isKickOutOnCapture: FALSE unless redirected bunker.
         let overlord_no_redirect = container.is_overlord_style_container()
             && !container.is_helix_transport
-            && container.overlord_bunker_slot_capacity() == 0;
+            && self.redirected_containment_owner(container_id) == container_id;
         if overlord_no_redirect {
             return;
         }
@@ -709,9 +709,7 @@ impl GameLogic {
             .collect();
         occupants.retain(|&id| {
             !self.objects.get(&id).is_some_and(|occ| {
-                crate::game_logic::host_battlemaster::is_portable_structure_template(
-                    &occ.template_name,
-                )
+                occ.is_kind_of(KindOf::PortableStructure)
             })
         });
         if let Some(pid) = portable_id {

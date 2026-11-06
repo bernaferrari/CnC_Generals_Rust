@@ -86,8 +86,7 @@ pub use super::host_car_bomb::{
 };
 pub use super::host_cash_bounty::{
     CASH_BOUNTY1_PERCENT, CASH_BOUNTY2_PERCENT, CASH_BOUNTY3_PERCENT, HostCashBountyRegistry,
-    SCIENCE_CASH_BOUNTY1, SCIENCE_CASH_BOUNTY2, SCIENCE_CASH_BOUNTY3,
-    cash_bounty_percent_for_science, compute_bounty_award,
+    SCIENCE_CASH_BOUNTY1, SCIENCE_CASH_BOUNTY2, SCIENCE_CASH_BOUNTY3, compute_bounty_award,
 };
 pub use super::host_cia_intelligence::{
     CIA_INTELLIGENCE_ACTIVATE_AUDIO, CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS,
@@ -130,16 +129,6 @@ pub use super::host_deliver_payload::{
     SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE, SUPPLY_DROP_PAYLOAD_TEMPLATE,
     SUPPLY_DROP_PRE_OPEN_DISTANCE, SUPPLY_DROP_PUT_IN_CONTAINER, drop_delay_frames_from_ms,
     residual_allowed_delivery_distance,
-};
-pub use super::host_demo_suicide_bomb::{
-    DEMO_COMMAND_TERTIARY_SUICIDE, DEMO_DESTROYED_PRIMARY_DAMAGE, DEMO_DESTROYED_PRIMARY_RADIUS,
-    DEMO_DESTROYED_SECONDARY_DAMAGE, DEMO_DESTROYED_SECONDARY_RADIUS, DEMO_DESTROYED_WEAPON,
-    DEMO_PLUS_FIRE_PRIMARY_DAMAGE, DEMO_PLUS_FIRE_PRIMARY_RADIUS, DEMO_PLUS_FIRE_SECONDARY_DAMAGE,
-    DEMO_PLUS_FIRE_SECONDARY_RADIUS, DEMO_SUICIDE_DYNAMITE_PLUS_FIRE, HostDemoSuicideBombRegistry,
-    UPGRADE_DEMO_SUICIDE_BOMB, can_issue_demo_tertiary_suicide,
-    command_set_enables_tertiary_suicide, demo_command_set_upgrade_for_template,
-    demo_destroyed_damage_at, demo_plus_fire_damage_at, has_demo_suicide_bomb_upgrade,
-    is_demo_suicide_bomb_eligible_template, is_demo_suicide_bomb_upgrade, plan_demo_plus_fire_hits,
 };
 pub use super::host_dock_contain_exit_heal_residual::honesty_heal_residual_deepen_pack_wave98;
 pub use super::host_dragon_tank::{
@@ -342,10 +331,7 @@ pub use super::host_propaganda::{
     HOST_PROPAGANDA_UPGRADED_HEAL_PERCENT_PER_SEC, UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
     is_legal_propaganda_target, is_propaganda_tower, propaganda_heal_amount,
 };
-pub use super::host_radar::{
-    HostRadarRegistry, RADAR_OFFLINE_AUDIO, RADAR_ONLINE_AUDIO, is_legal_radar_provider,
-    is_radar_command_center_template, is_radar_provider_template, is_radar_van_template,
-};
+pub use super::host_radar::{HostRadarRegistry, RADAR_OFFLINE_AUDIO, RADAR_ONLINE_AUDIO};
 pub use super::host_radar_scan::{
     HostRadarScan, HostRadarScanRegistry, RADAR_SCAN_ACTIVATE_AUDIO, RADAR_SCAN_DURATION_FRAMES,
     RADAR_SCAN_RADIUS, RADAR_SCAN_SHRINK_DELAY_FRAMES, RADAR_SCAN_SHRINK_TIME_FRAMES,

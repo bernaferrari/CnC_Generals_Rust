@@ -682,11 +682,8 @@ impl GameLogic {
             return capacity.checked_sub(slots_in_use);
         }
 
-        // GarrisonContain (including Overlord's retained bunker role) uses
-        // body count, not passenger slot cost.
-        let capacity = target
-            .garrison_capacity()
-            .max(target.overlord_bunker_slot_capacity());
+        // GarrisonContain uses body count, not passenger slot cost.
+        let capacity = target.garrison_capacity();
         (capacity > 0)
             .then(|| capacity.checked_sub(target.contained_units().len()))
             .flatten()

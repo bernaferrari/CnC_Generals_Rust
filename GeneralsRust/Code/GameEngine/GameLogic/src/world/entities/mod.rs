@@ -1209,8 +1209,8 @@ pub struct Entity {
     pub ground_height_from_terrain: bool,
     /// Host Object::engine_object_id.is_some residual (bridged factory id).
     pub engine_bridged: bool,
-    /// Host Object::overlord_bunker_capacity residual:
-    /// `u16::MAX` = None (not overlord-style).
+    /// Observed capacity of a redirected Overlord rider's contain module;
+    /// `u16::MAX` means no redirection.
     pub overlord_bunker_capacity: u16,
     /// Host Object::passengers_allowed_to_fire residual.
     pub passengers_allowed_to_fire: bool,
@@ -1371,8 +1371,6 @@ pub struct Entity {
     pub is_listening_outpost_transport: bool,
     pub is_troop_crawler_transport: bool,
     pub is_helix_transport: bool,
-    pub has_overlord_gattling_addon: bool,
-    pub has_overlord_propaganda_addon: bool,
     /// Host demo/hive residual.
     pub demo_suicided_detonating: bool,
     pub hive_slave_count: u8,
@@ -2320,8 +2318,6 @@ impl EntityStore {
             is_listening_outpost_transport: false,
             is_troop_crawler_transport: false,
             is_helix_transport: false,
-            has_overlord_gattling_addon: false,
-            has_overlord_propaganda_addon: false,
             demo_suicided_detonating: false,
             hive_slave_count: 0,
             hive_slave_hp: 0.0,

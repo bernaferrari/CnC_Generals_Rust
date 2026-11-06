@@ -387,29 +387,6 @@ impl GameLogic {
                     }
                 }
 
-                // Demo SuicideBomb FireWeaponWhenDead residual: Demo_DestroyedWeapon blast.
-                // Skip intentional SUICIDED path (PlusFire already applied via TertiarySuicide).
-                // Skip terrorists (already handled by host_terrorist SUICIDED residual).
-                {
-                    use crate::game_logic::host_demo_suicide_bomb::{
-                        has_demo_suicide_bomb_upgrade, is_demo_suicide_bomb_eligible_template,
-                    };
-                    use crate::game_logic::host_terrorist::is_terrorist_template;
-                    if !obj.fire_weapon_when_dead_fired
-                        && !obj.demo_suicided_detonating
-                        && is_demo_suicide_bomb_eligible_template(&obj.template_name)
-                        && has_demo_suicide_bomb_upgrade(&obj.applied_upgrades)
-                        && !is_terrorist_template(&obj.template_name)
-                    {
-                        let _ = self.apply_demo_suicide_bomb_death_at_with_effects(
-                            event.id,
-                            obj.team,
-                            death_pos,
-                            presentation_effects,
-                        );
-                    }
-                }
-
                 // GLA Rebel BoobyTrap residual: structure death detonates trap.
                 // C++ Object::checkAndDetonateBoobyTrap(NULL) on die path.
                 if obj.status.booby_trapped {
@@ -503,94 +480,87 @@ impl GameLogic {
         true
     }
 
+    /// Authored `CashBountyPowerModuleData::m_defaultBounty` for one module
+    /// (CashBountyPower.cpp:124-140 findBounty); `None` for other subclasses.
     fn cash_bounty_module_percent(
         module: &crate::game_logic::SpecialPowerModuleMetadata,
-        science_name: Option<&str>,
-        player_has_science: impl Fn(&str) -> bool,
     ) -> Option<f32> {
-        if module.module_kind != crate::game_logic::SpecialPowerModuleKind::CashBountyPower {
-            return None;
-        }
-        let required = module.required_science.as_deref().unwrap_or("");
-        let template = module.special_power_template.as_str();
-        let pct = crate::game_logic::host_cash_bounty::cash_bounty_percent_for_science(required)
-            .or_else(|| {
-                crate::game_logic::host_cash_bounty::cash_bounty_percent_for_science(template)
-            })?;
-        if let Some(science) = science_name {
-            let sci_pct =
-                crate::game_logic::host_cash_bounty::cash_bounty_percent_for_science(science);
-            if sci_pct != Some(pct)
-                && !required.eq_ignore_ascii_case(science)
-                && !template.eq_ignore_ascii_case(science)
-            {
-                return None;
-            }
-        } else if !required.is_empty() && !player_has_science(required) {
-            return None;
-        }
-        Some(pct)
+        (module.module_kind == crate::game_logic::SpecialPowerModuleKind::CashBountyPower)
+            .then(|| module.cash_bounty.unwrap_or(0.0))
     }
 
-    /// C++ Player::addScience walks owned SpecialPowerModules and calls
-    /// CashBountyPower::onSpecialPowerCreation. No palace module ⇒ no bounty.
-    pub fn apply_cash_bounty_from_palace_modules(
-        &mut self,
-        player_id: u32,
-        science_name: Option<&str>,
-    ) -> bool {
-        let Some(player) = self.players.get(&player_id) else {
-            return false;
-        };
-        let sciences = player.unlocked_sciences.clone();
-        let has_science = |name: &str| {
-            sciences
-                .iter()
-                .any(|owned| owned.eq_ignore_ascii_case(name))
-        };
-        let mut best = 0.0f32;
-        let mut found = false;
+    /// C++ setCashBounty-if-higher shared by both CashBountyPower entry points
+    /// (CashBountyPower.cpp:117-118, 152-153).
+    fn raise_player_cash_bounty(&mut self, player_id: u32, bounty: f32) {
+        let current = self
+            .players
+            .get(&player_id)
+            .map(|player| player.cash_bounty_percent);
+        if current.is_some_and(|current| bounty > current) {
+            self.set_player_cash_bounty(player_id, bounty);
+        }
+    }
+
+    /// C++ Player::addScience (Player.cpp:2513-2540): every owned
+    /// SpecialPowerModule whose RequiredScience is the added science runs
+    /// onSpecialPowerCreation; CashBountyPower raises the player's bounty.
+    pub fn apply_cash_bounty_for_added_science(&mut self, player_id: u32, science_name: &str) {
+        let mut bounties = Vec::new();
         for object in self.objects.registered_values() {
             if !self.object_owned_by_player(object, player_id) {
                 continue;
             }
-            for module in &object.thing().template.special_power_modules {
-                if let Some(pct) =
-                    Self::cash_bounty_module_percent(module, science_name, has_science)
-                {
-                    found = true;
-                    if pct > best {
-                        best = pct;
-                    }
-                }
-            }
+            bounties.extend(
+                object
+                    .thing()
+                    .template
+                    .special_power_modules
+                    .iter()
+                    .filter(|module| {
+                        module
+                            .required_science
+                            .as_deref()
+                            .is_some_and(|required| required.eq_ignore_ascii_case(science_name))
+                    })
+                    .filter_map(Self::cash_bounty_module_percent),
+            );
         }
-        if !found {
-            return false;
+        for bounty in bounties {
+            self.raise_player_cash_bounty(player_id, bounty);
         }
-        self.set_player_cash_bounty(player_id, best)
     }
 
-    /// C++ CashBountyPower::onObjectCreated — apply if the owner already has
-    /// the module's required science.
+    /// C++ CashBountyPower::onObjectCreated (CashBountyPower.cpp:111-120):
+    /// this object's modules apply only if the controller already has the
+    /// module's RequiredScience (SCIENCE_INVALID is never owned).
     pub fn apply_cash_bounty_on_object_created(&mut self, object_id: ObjectId) {
         let Some(object) = self.objects.get(&object_id) else {
             return;
         };
-        let has_cash_bounty = object
+        let Some(player_id) = self.player_owner_for_host_object(object) else {
+            return;
+        };
+        let Some(player) = self.players.get(&player_id) else {
+            return;
+        };
+        let bounties: Vec<f32> = object
             .thing()
             .template
             .special_power_modules
             .iter()
-            .any(|m| m.module_kind == crate::game_logic::SpecialPowerModuleKind::CashBountyPower);
-        if !has_cash_bounty {
-            return;
+            .filter(|module| {
+                module.required_science.as_deref().is_some_and(|required| {
+                    player
+                        .unlocked_sciences
+                        .iter()
+                        .any(|owned| owned.eq_ignore_ascii_case(required))
+                })
+            })
+            .filter_map(Self::cash_bounty_module_percent)
+            .collect();
+        for bounty in bounties {
+            self.raise_player_cash_bounty(player_id, bounty);
         }
-        let player_id = self.player_owner_for_host_object(object);
-        let Some(player_id) = player_id else {
-            return;
-        };
-        let _ = self.apply_cash_bounty_from_palace_modules(player_id, None);
     }
 
     /// Residual honesty: cash bounty was configured and at least one award paid.

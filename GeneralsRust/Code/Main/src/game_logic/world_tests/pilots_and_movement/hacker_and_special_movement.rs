@@ -1629,6 +1629,7 @@ fn burton_and_tnt_plant_reject_bridges() {
             update_module_starts_attack: true,
             starts_paused: false,
             scripted_special_power_only: false,
+            cash_bounty: None,
         });
     game_logic
         .templates
@@ -1767,6 +1768,7 @@ fn tank_hunter_tnt_does_not_consume_cooldown_at_click() {
             update_module_starts_attack: true,
             starts_paused: false,
             scripted_special_power_only: false,
+            cash_bounty: None,
         });
     game_logic
         .templates

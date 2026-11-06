@@ -11,6 +11,10 @@ impl Object {
 
     /// Original DISABLED mask, independent of construction and weapon jamming.
     pub(crate) fn has_disabled_type(&self) -> bool {
+        self.status.disabled_held || self.has_disabled_type_except_held()
+    }
+
+    pub(crate) fn has_disabled_type_except_held(&self) -> bool {
         [
             self.status.disabled_underpowered,
             self.status.disabled_unmanned,
@@ -22,7 +26,6 @@ impl Object {
             self.status.disabled_default,
             self.status.disabled_script_disabled,
             self.status.disabled_script_underpowered,
-            self.status.disabled_held,
             self.status.disabled_awestruck,
             self.status.disabled_brainwashed,
         ]
@@ -488,13 +491,12 @@ impl Object {
         draw_icon_ui: bool,
     ) {
         use crate::game_logic::host_battlemaster::{
-            TERRAIN_DECAL_NONE, hide_leftover_horde_flag_subobjects,
-            is_portable_structure_template, leftover_horde_decal_fade, leftover_horde_decal_type,
-            leftover_horde_major_radius,
+            TERRAIN_DECAL_NONE, hide_leftover_horde_flag_subobjects, leftover_horde_decal_fade,
+            leftover_horde_decal_type, leftover_horde_major_radius,
             leftover_infantry_horde_decal_size_or_bbox, leftover_template_shadow_size,
-            leftover_unit_has_horde_flag_subobjects, leftover_vehicle_horde_decal_size,
+            leftover_vehicle_horde_decal_size,
         };
-        if leftover_unit_has_horde_flag_subobjects(&self.template_name) {
+        if self.thing.template.horde_update.is_some() {
             hide_leftover_horde_flag_subobjects(&mut self.sub_object_visibility);
         }
         if !self.is_alive() {
@@ -502,7 +504,8 @@ impl Object {
         }
         let is_infantry = self.is_kind_of(crate::game_logic::KindOf::Infantry);
         if draw_icon_ui {
-            if now_in_horde && !is_portable_structure_template(&self.template_name) {
+            // HordeUpdate.cpp:296: not a KINDOF_PORTABLE_STRUCTURE overlord ride-on.
+            if now_in_horde && !self.is_kind_of(crate::game_logic::KindOf::PortableStructure) {
                 let has_nationalism = self.weapon_bonus_nationalism;
                 // evaluateMoraleBonus already nested FANATICISM inside NATIONALISM.
                 let has_fanaticism = self.weapon_bonus_fanaticism;
@@ -1094,28 +1097,12 @@ impl Object {
         if self.paradrop_parachute || name.contains("parachute") {
             return false;
         }
-        if self.is_overlord_style_container() {
-            if self.overlord_portable_occupant == Some(victim.id) {
-                return false;
-            }
-            if self
-                .contained_units()
-                .first()
-                .is_some_and(|&id| id == victim.id)
-            {
-                return false;
-            }
-            if crate::game_logic::host_battlemaster::is_portable_structure_template(
-                &victim.template_name,
-            ) {
-                return false;
-            }
-        }
-        if self.is_helix_transport
-            && crate::game_logic::host_battlemaster::is_portable_structure_template(
-                &victim.template_name,
-            )
+        if self.is_overlord_style_container()
+            && self.occupants.first().is_some_and(|&id| id == victim.id)
         {
+            return false;
+        }
+        if self.is_helix_transport && self.overlord_portable_occupant == Some(victim.id) {
             return false;
         }
         if self.is_garrison_contain() {
@@ -1306,9 +1293,6 @@ impl Object {
             // accepts every non-aircraft object regardless of OpenContain masks.
             return ContainAdmission::AnyMobile;
         }
-        if self.is_overlord_style_container() && self.overlord_bunker_slot_capacity() > 0 {
-            return ContainAdmission::InfantryOnly;
-        }
         // `RiderChangeContain` is not an ordinary one-seat transport.  It is
         // admitted only when the exact parsed roster and its bounded Combat
         // Cycle transaction are available; an old name-based Combat Cycle
@@ -1373,9 +1357,6 @@ impl Object {
         if self.is_tunnel_network_style_container() {
             return false;
         }
-        if self.is_overlord_style_container() && self.overlord_bunker_slot_capacity() > 0 {
-            return true;
-        }
         match self.thing.template.contain_module.kind {
             ContainModuleKind::Transport
             | ContainModuleKind::RiderChange
@@ -1417,7 +1398,8 @@ impl Object {
             return true;
         }
         if self.is_tunnel_network_style_container()
-            || self.is_kind_of(KindOf::Structure)
+            || (self.is_kind_of(KindOf::Structure)
+                && !self.is_kind_of(KindOf::PortableStructure))
             || self.thing.template.contain_module.kind == ContainModuleKind::Garrison
         {
             return false;
@@ -1478,6 +1460,13 @@ impl Object {
             let cap = self.transport_capacity();
             return cap > 0 && self.contained_units().len().saturating_add(count) <= cap;
         }
+        if self.is_kind_of(KindOf::PortableStructure)
+            && self.thing.template.contain_module.kind
+                == crate::game_logic::ContainModuleKind::Transport
+        {
+            let cap = self.transport_capacity();
+            return cap > 0 && self.contained_units().len().saturating_add(count) <= cap;
+        }
         if let Some(building) = &self.building_data {
             if building.max_garrison == 0 {
                 return false;
@@ -1510,82 +1499,14 @@ impl Object {
             .unwrap_or(0)
     }
 
-    /// True when this vehicle uses OverlordContain residual semantics
-    /// (`overlord_bunker_capacity` is `Some(...)`).
+    /// True when this object authors an `OverlordContain` module (C++
+    /// `OverlordContain::isSpecialOverlordStyleContainer`, OverlordContain.h).
+    /// Its portable rider is the only add-on source; contain queries redirect
+    /// to that rider's own ContainModule (OverlordContain.cpp:157-181).
     pub fn is_overlord_style_container(&self) -> bool {
-        self.overlord_bunker_capacity.is_some()
+        self.thing.template.contain_module.is_overlord_contain
     }
 
-    /// Residual BattleBunker infantry slots on an Overlord-style vehicle.
-    /// `0` when not overlord-style or bunker residual not installed.
-    pub fn overlord_bunker_slot_capacity(&self) -> usize {
-        self.overlord_bunker_capacity.unwrap_or(0)
-    }
-
-    /// Install residual BattleBunker capacity (C++ OCL_OverlordBattleBunker →
-    /// ChinaTankOverlordBattleBunker TransportContain Slots=5).
-    /// Fail-closed: does not spawn a real portable-structure passenger object.
-    /// Conflicts residual: clears gattling/propaganda addons (exclusive payload).
-    pub fn install_overlord_battle_bunker(&mut self, slots: usize) {
-        self.overlord_bunker_capacity = Some(slots);
-        // Exclusive ConflictsWith residual (not Emperor innate propaganda).
-        let emperor = self.authors_innate_propaganda_tower();
-        self.has_overlord_gattling_addon = false;
-        if !emperor {
-            self.has_overlord_propaganda_addon = false;
-        }
-
-        self.sync_overlord_addon_body_damage();
-    }
-
-    /// Install residual portable GattlingCannon addon
-    /// (C++ OCL_OverlordGattlingCannon / OCL_HelixGattlingCannon).
-    /// Equips AA secondary + passenger ground residual on primary fires.
-    /// Fail-closed: not full portable-structure passenger object.
-    pub fn install_overlord_gattling_addon(&mut self, frame: u32) {
-        use crate::game_logic::host_gattling_tank::has_chain_guns_upgrade;
-        use crate::game_logic::host_overlord_addons::overlord_gattling_air_weapon;
-        // Exclusive ConflictsWith residual vs bunker / propaganda (except Emperor).
-        let emperor = self.authors_innate_propaganda_tower();
-        if !emperor {
-            self.has_overlord_propaganda_addon = false;
-            // Keep overlord-style marker but zero bunker slots.
-            if self.overlord_bunker_capacity.is_some() {
-                self.overlord_bunker_capacity = Some(0);
-            }
-        }
-        self.has_overlord_gattling_addon = true;
-        let receiving = self.thing().template.has_receiving_weapon_sets();
-        self.set_weapon_condition_at_frame(3, true, frame);
-        if !receiving {
-            let chain = has_chain_guns_upgrade(&self.applied_upgrades);
-            let _ = self.replace_weapon_set_slot(1, Some(overlord_gattling_air_weapon(0, chain)));
-        }
-
-        self.continuous_fire_level = 0;
-        self.continuous_fire_coast_until_frame = 0;
-
-        self.sync_overlord_addon_body_damage();
-    }
-
-    /// Install residual portable PropagandaTower addon
-    /// (C++ OCL_OverlordPropagandaTower / OCL_HelixPropagandaTower).
-    /// Fail-closed: not full portable tower object / PulseFX.
-    pub fn install_overlord_propaganda_addon(&mut self) {
-        // Exclusive ConflictsWith residual vs gattling / bunker.
-        self.has_overlord_gattling_addon = false;
-        if self.overlord_bunker_capacity.is_some() {
-            self.overlord_bunker_capacity = Some(0);
-        }
-        self.has_overlord_propaganda_addon = true;
-
-        self.sync_overlord_addon_body_damage();
-    }
-
-    /// Install residual HelixContain transport (Slots=5).
-    /// C++ OpenContain default `m_passengersAllowedToFire = FALSE`.
-    /// `PassengersFireUpgrade` (Battle Bunker) sets the flag later.
-    /// HelixContain still applies WEAPONBONUSCONDITION_GARRISONED on enter.
     /// C++ OCL `ContainInsideSourceObject` portable-structure admission:
     /// native HelixContain slot or authored OverlordContain (hq-2qedt.1).
     pub(crate) fn admits_ocl_portable_structure(&self) -> bool {
@@ -1593,6 +1514,10 @@ impl Object {
         (self.is_helix_transport && contain.is_helix_contain) || contain.is_overlord_contain
     }
 
+    /// Install residual HelixContain transport (Slots=5).
+    /// C++ OpenContain default `m_passengersAllowedToFire = FALSE`.
+    /// `PassengersFireUpgrade` (Battle Bunker) sets the flag later.
+    /// HelixContain still applies WEAPONBONUSCONDITION_GARRISONED on enter.
     pub fn install_helix_transport(&mut self) {
         self.is_helix_transport = true;
         self.max_transport = crate::game_logic::host_overlord_addons::HELIX_TRANSPORT_SLOTS;
@@ -1601,28 +1526,10 @@ impl Object {
         // Fail-closed: allow_inside matrix simplified to transport capacity.
     }
 
+    /// C++ OverlordContain::onBodyDamageStateChange (OverlordContain.cpp:140-153)
+    /// mirrors the hull state only onto a contained portable rider.
     pub fn has_portable_overlord_addon(&self) -> bool {
-        crate::game_logic::host_overlord_addon_damage::portable_addon_installed(
-            self.has_overlord_gattling_addon,
-            self.has_overlord_propaganda_addon,
-            self.overlord_bunker_slot_capacity(),
-            self.authors_innate_propaganda_tower(),
-        )
-    }
-
-    pub fn sync_overlord_addon_body_damage(&mut self) {
-        if !self.has_portable_overlord_addon() {
-            self.overlord_addon_body_damage_state =
-                crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine;
-            return;
-        }
-        if let Some(state) =
-            crate::game_logic::host_overlord_addon_damage::overlord_addon_mirrored_damage_state(
-                self.body_damage_state,
-            )
-        {
-            self.overlord_addon_body_damage_state = state;
-        }
+        self.overlord_portable_occupant.is_some()
     }
 
     pub fn apply_overlord_addon_set_damage_state(
@@ -1641,34 +1548,27 @@ impl Object {
         self.internal_change_health(target - self.health.current);
     }
 
-    /// True when portable gattling residual is active on this host.
-    pub fn has_overlord_gattling_residual(&self) -> bool {
-        self.has_overlord_gattling_addon
-    }
-
     /// C++ Emperor shape: innate `PropagandaTowerBehavior` authored on an
     /// `OverlordContain` host (TankGeneral.ini Tank_ChinaTankEmperor), rather
     /// than granted by the portable tower addon (hq-2qedt.256).
     pub fn authors_innate_propaganda_tower(&self) -> bool {
+        self.authors_behavior_module("PropagandaTowerBehavior")
+            && self.authors_behavior_module("OverlordContain")
+    }
+
+    /// Whether this session's exact Object definition authors a behavior
+    /// module of `class_name`.
+    pub(crate) fn authors_behavior_module(&self, class_name: &str) -> bool {
         self.thing()
             .template
             .receiving_object_definition
             .as_deref()
             .is_some_and(|definition| {
-                let has = |name: &str| {
-                    definition
-                        .behavior_modules
-                        .iter()
-                        .any(|module| module.class_name.eq_ignore_ascii_case(name))
-                };
-                has("PropagandaTowerBehavior") && has("OverlordContain")
+                definition
+                    .behavior_modules
+                    .iter()
+                    .any(|module| module.class_name.eq_ignore_ascii_case(class_name))
             })
-    }
-
-    /// True when portable / innate propaganda residual is active on this host.
-    pub fn has_overlord_propaganda_residual(&self) -> bool {
-        self.has_overlord_propaganda_addon
-            || self.authors_innate_propaganda_tower()
     }
 
     /// Install a TunnelContain entrance. `capacity` is the receiving session's
@@ -2002,8 +1902,18 @@ impl Object {
         {
             return self.max_transport;
         }
-        if self.is_kind_of(KindOf::Structure) {
+        if self.is_kind_of(KindOf::Structure)
+            && !self.is_kind_of(KindOf::PortableStructure)
+        {
             return 0;
+        }
+        // C++ TransportContain::getContainMax (TransportContain.cpp:105-108)
+        // is the authored Slots, independent of KindOf: the OverlordContain
+        // BattleBunker rider is KINDOF_PORTABLE_STRUCTURE, not a VEHICLE.
+        if self.is_kind_of(KindOf::PortableStructure)
+            && self.thing.template.contain_module.kind == crate::game_logic::ContainModuleKind::Transport
+        {
+            return self.max_transport;
         }
         let is_railed_transport =
             self.thing.template.dock_kind == crate::game_logic::DockKind::RailedTransport;

@@ -26,6 +26,12 @@ impl GameLogic {
         // OpenContain::addToContain ignores an already-contained rider. Avoid
         // replaying the world-removal and leaveGroup phase for the same link.
         let is_new_container = actor.contained_by != container;
+        let was_in_helix = actor.contained_by
+            .and_then(|id| objects.get(&id))
+            .is_some_and(|parent| parent.is_helix_transport);
+        let will_be_in_helix = container
+            .and_then(|id| objects.get(&id))
+            .is_some_and(|parent| parent.is_helix_transport);
         if container.is_some() && enclosing && is_new_container {
             change_world_membership(
                 objects,
@@ -47,10 +53,13 @@ impl GameLogic {
                 &mut Vec::new(),
             );
         }
-        objects
+        let actor = objects
             .get_mut(&id)
-            .expect("containment membership does not replace actors")
-            .finish_containment_reference_with_partition_owner(container, enclosing, partition);
+            .expect("containment membership does not replace actors");
+        actor.finish_containment_reference_with_partition_owner(container, enclosing, partition);
+        if is_new_container && (was_in_helix || will_be_in_helix) {
+            actor.set_status_disabled_held(will_be_in_helix);
+        }
     }
 }
 fn change_world_membership(

@@ -850,6 +850,7 @@ fn special_power_create_expresses_shared_n_sync_ready_now() {
         update_module_starts_attack: false,
         starts_paused: false,
         scripted_special_power_only: false,
+        cash_bounty: None,
     });
     tpl.special_power_modules.push(SpecialPowerModuleMetadata {
         source_index: 1,
@@ -866,6 +867,7 @@ fn special_power_create_expresses_shared_n_sync_ready_now() {
         update_module_starts_attack: false,
         starts_paused: false,
         scripted_special_power_only: true,
+        cash_bounty: None,
     });
     logic.templates.insert("AmericaCommandCenter".into(), tpl);
 

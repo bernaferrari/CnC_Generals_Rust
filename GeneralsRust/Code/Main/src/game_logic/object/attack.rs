@@ -12,6 +12,7 @@ enum WeaponShotRoute {
         damage_bonus: Option<f32>,
         pre_attack_bonus: Option<f32>,
         owned_rof: Option<[f32; 3]>,
+        allow_held: bool,
     },
 }
 
@@ -188,6 +189,7 @@ impl Object {
                 damage_bonus: None,
                 pre_attack_bonus: None,
                 owned_rof: None,
+                allow_held: false,
             },
             ShotVictim::Object(target_id),
             current_time,
@@ -230,6 +232,7 @@ impl Object {
         owned_rof: [f32; 3],
         random: &game_engine::common::random_value::SessionRandom,
         projectile_team_id: Option<u32>,
+        allow_held: bool,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
         self.prepare_weapon_shot_with_operation(
             WeaponShotRoute::Passive {
@@ -238,6 +241,7 @@ impl Object {
                 damage_bonus: Some(damage_bonus),
                 pre_attack_bonus: Some(pre_attack_bonus),
                 owned_rof: Some(owned_rof),
+                allow_held,
             },
             ShotVictim::Object(target_id),
             current_time,
@@ -289,6 +293,7 @@ impl Object {
                 damage_bonus: Some(damage_bonus),
                 pre_attack_bonus: Some(pre_attack_bonus),
                 owned_rof: Some(owned_rof),
+                allow_held: false,
             },
             ShotVictim::Position(target_position),
             current_time,
@@ -507,8 +512,15 @@ impl Object {
             return None;
         }
 
-        // C++ canFireWeapon residual: jammed / disabled units cannot discharge.
-        if self.status.weapons_jammed || self.is_disabled() {
+        // HelixContain holds its riders but explicitly permits their passive
+        // passenger fire; all other disabled bits and construction still gate.
+        let held_passenger = matches!(route, WeaponShotRoute::Passive { allow_held: true, .. });
+        let disabled = if held_passenger {
+            self.status.under_construction || self.has_disabled_type_except_held()
+        } else {
+            self.is_disabled()
+        };
+        if self.status.weapons_jammed || disabled {
             return None;
         }
         // C++ Object::isAbleToAttack (Object.cpp:3171-3176): sold / under

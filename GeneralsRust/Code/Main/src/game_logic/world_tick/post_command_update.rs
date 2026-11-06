@@ -226,19 +226,10 @@ impl GameLogic {
             self.update_power_plant_rods();
         }
 
-        // Host China vehicle HordeUpdate residual. Vehicles run every frame for
-        // decal size (UPDATE_SLEEP_NONE) but membership is gated on UpdateRate.
-        // Wave 812: host-sole unless movement authority live: horde status owned by GW expire + logs.
-        {
-            self.update_battlemaster_horde_status();
-        }
-
-        // Host China infantry HordeUpdate residual. Infantry UPDATE_SLEEP(UpdateRate).
-        // Wave 813: host-sole unless movement authority live: horde status owned by GW expire + logs.
-
-        {
-            self.update_china_infantry_horde_status();
-        }
+        // C++ HordeUpdate::update for every authored HordeUpdate module.
+        // Vehicles run every frame for the decal (UPDATE_SLEEP_NONE) with
+        // membership gated on UpdateRate; infantry UPDATE_SLEEP(UpdateRate).
+        self.update_horde_modules();
 
         // Host China ECM Tank / jammer residual: jam enemy weapons in radius.
         // Fail-closed vs full subdual damage accumulate / laser stream / missile scatter.

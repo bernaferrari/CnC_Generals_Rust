@@ -1092,37 +1092,6 @@ impl Object {
                     );
                 }
             }
-        } else {
-            use crate::game_logic::host_radar::{
-                leftover_on_disabled_edge_radar, leftover_radar_upgrade_is_applied,
-            };
-            use crate::game_logic::host_upgrades::{
-                UPGRADE_CHINA_RADAR, normalize_upgrade_identity,
-                radar_provider_required_research_upgrade,
-            };
-
-            let required = radar_provider_required_research_upgrade(&self.template_name);
-            let tagged = required.is_some_and(|req| {
-                self.has_upgrade_tag(req)
-                    || self.has_upgrade_tag(UPGRADE_CHINA_RADAR)
-                    || self
-                        .applied_upgrades
-                        .iter()
-                        .any(|name| normalize_upgrade_identity(name).contains("chinaradar"))
-            });
-            let applied = leftover_radar_upgrade_is_applied(&self.template_name, tagged);
-            if let Some(disable_proof) =
-                leftover_on_disabled_edge_radar(&self.template_name, applied)
-            {
-                self.pending_radar_disabled_edges.push(
-                    crate::game_logic::host_radar::RadarDisabledEdge {
-                        player_id: self.owner_player_id,
-                        becoming_disabled,
-                        disable_proof,
-                        module_index: 0,
-                    },
-                );
-            }
         }
         // Intentionally keep `overcharge_enabled`. C++ OverchargeBehavior
         // stays active and continues DAMAGE_PENALTY; Energy::adjustPower

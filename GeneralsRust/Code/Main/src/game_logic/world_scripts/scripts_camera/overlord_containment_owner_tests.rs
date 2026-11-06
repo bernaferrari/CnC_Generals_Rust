@@ -1,7 +1,7 @@
 //! CPP OverlordContain157/188/205: physical payload and redirection phases.
 use super::*;
 use crate::command_system::{CommandType, GameCommand, ModifierKeys};
-use crate::game_logic::host_overlord_addons::UPGRADE_OVERLORD_BUNKER;
+use crate::game_logic::{ContainAdmission, ContainModuleKind};
 
 fn world() -> (GameLogic, ObjectId, ObjectId, ObjectId) {
     world_with_authored_deaths(None)
@@ -32,6 +32,15 @@ fn world_with_authored_deaths(
         infantry = authored;
         owner.templates.insert(payload.name.clone(), payload);
     }
+    if !owner.templates.contains_key("ChinaTankOverlordBattleBunker") {
+        let mut payload = ThingTemplate::new("ChinaTankOverlordBattleBunker");
+        payload.add_kind_of(KindOf::PortableStructure).set_health(100.0);
+        payload.contain_module.kind = ContainModuleKind::Transport;
+        payload.contain_module.slots = Some(5);
+        payload.contain_module.admission = ContainAdmission::InfantryOnly;
+        payload.contain_module.damage_percent_to_units = Some(0.5);
+        owner.templates.insert(payload.name.clone(), payload);
+    }
     owner.templates.insert(infantry.name.clone(), infantry);
     let unit = owner
         .create_object_for_player("PhysicalBunkerInfantry", 1, Vec3::new(50.0, 0.0, 50.0))
@@ -40,16 +49,17 @@ fn world_with_authored_deaths(
     hull.add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Attackable)
         .set_health(1000.0);
+    hull.contain_module.kind = ContainModuleKind::Transport;
+    hull.contain_module.is_overlord_contain = true;
+    hull.contain_module.slots = Some(1);
     owner.templates.insert(hull.name.clone(), hull);
     let hull = owner
         .create_object_for_player("ChinaTankOverlord", 1, Vec3::new(50.0, 0.0, 50.0))
         .unwrap();
-    owner.apply_upgrade_to_object(hull, UPGRADE_OVERLORD_BUNKER);
     let payload = owner
-        .host_object(hull)
-        .unwrap()
-        .overlord_portable_occupant
-        .expect("actual upgrade payload");
+        .create_object_for_player("ChinaTankOverlordBattleBunker", 1, Vec3::new(50.0, 0.0, 50.0))
+        .expect("physical bunker");
+    owner.attach_overlord_portable_occupant(hull, payload);
     (owner, unit, hull, payload)
 }
 fn world_with_authored_death_source(source: &str) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
@@ -72,12 +82,10 @@ fn world_with_authored_death_source(source: &str) -> (GameLogic, ObjectId, Objec
     let hull = owner
         .create_object_for_player("ChinaTankOverlord", 1, Vec3::new(50.0, 0.0, 50.0))
         .unwrap();
-    owner.apply_upgrade_to_object(hull, UPGRADE_OVERLORD_BUNKER);
     let payload = owner
-        .host_object(hull)
-        .unwrap()
-        .overlord_portable_occupant
-        .expect("actual upgrade payload");
+        .create_object_for_player("ChinaTankOverlordBattleBunker", 1, Vec3::new(50.0, 0.0, 50.0))
+        .expect("physical bunker");
+    owner.attach_overlord_portable_occupant(hull, payload);
     (owner, unit, hull, payload)
 }
 
@@ -281,9 +289,13 @@ Object ChinaTankOverlord
     MaxHealth = 1000
     InitialHealth = 1000
   End
+  Behavior = OverlordContain ModuleTag_Contain
+    Slots = 1
+    AllowInsideKindOf = PORTABLE_STRUCTURE
+  End
 End
 Object ChinaTankOverlordBattleBunker
-  KindOf = VEHICLE CAN_ATTACK
+  KindOf = VEHICLE PORTABLE_STRUCTURE CAN_ATTACK
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 100
     InitialHealth = 100

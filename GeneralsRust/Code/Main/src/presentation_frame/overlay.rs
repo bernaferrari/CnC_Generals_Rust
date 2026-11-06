@@ -757,14 +757,6 @@ impl PresentationFrame {
                 obj.is_helix_transport = ent.is_helix_transport;
                 dirty = true;
             }
-            if obj.has_overlord_gattling_addon != ent.has_overlord_gattling_addon {
-                obj.has_overlord_gattling_addon = ent.has_overlord_gattling_addon;
-                dirty = true;
-            }
-            if obj.has_overlord_propaganda_addon != ent.has_overlord_propaganda_addon {
-                obj.has_overlord_propaganda_addon = ent.has_overlord_propaganda_addon;
-                dirty = true;
-            }
             // Expanded transport-kind / display residual.
             if obj.is_battle_bus_transport != ent.is_battle_bus_transport {
                 obj.is_battle_bus_transport = ent.is_battle_bus_transport;
@@ -1787,8 +1779,6 @@ impl PresentationFrame {
             is_listening_outpost_transport: ent.is_listening_outpost_transport,
             is_troop_crawler_transport: ent.is_troop_crawler_transport,
             is_helix_transport: ent.is_helix_transport,
-            has_overlord_gattling_addon: ent.has_overlord_gattling_addon,
-            has_overlord_propaganda_addon: ent.has_overlord_propaganda_addon,
             is_battle_bus_transport: ent.is_battle_bus_transport,
             is_technical_transport: ent.is_technical_transport,
             is_combat_cycle_transport: ent.is_combat_cycle_transport,
@@ -1797,7 +1787,7 @@ impl PresentationFrame {
             is_combat_chinook_transport: ent.is_combat_chinook_transport,
             max_transport: ent.max_transport as usize,
             overlord_bunker_capacity: if ent.overlord_bunker_capacity == u16::MAX {
-                0
+                usize::MAX
             } else {
                 ent.overlord_bunker_capacity as usize
             },
@@ -2144,7 +2134,9 @@ impl PresentationFrame {
             // the immutable host containment snapshot at frame construction
             // time so physical RMB remains presentation-only and does not
             // invent a transport from vehicle geometry.
-            let contain_kind = obj.thing().template.contain_module.kind;
+            let containment_id = logic.redirected_containment_owner(obj.id);
+            let containment = logic.host_object(containment_id).unwrap_or(obj);
+            let contain_kind = containment.thing().template.contain_module.kind;
             let contain_present = contain_kind != crate::game_logic::ContainModuleKind::None;
             if ro.contain_module_present != contain_present {
                 ro.contain_module_present = contain_present;
@@ -2154,12 +2146,12 @@ impl PresentationFrame {
                 ro.contain_module_kind = contain_kind;
                 dirty = true;
             }
-            let contain_admission = obj.normal_enter_admission();
+            let contain_admission = containment.normal_enter_admission();
             if ro.contain_admission != contain_admission {
                 ro.contain_admission = contain_admission;
                 dirty = true;
             }
-            let rider_change_allowed_templates: Vec<String> = obj
+            let rider_change_allowed_templates: Vec<String> = containment
                 .thing()
                 .template
                 .contain_module
@@ -2172,17 +2164,17 @@ impl PresentationFrame {
                 ro.rider_change_allowed_templates = rider_change_allowed_templates;
                 dirty = true;
             }
-            let allow_allies = obj.thing().template.contain_module.allow_allies_inside;
+            let allow_allies = containment.thing().template.contain_module.allow_allies_inside;
             if ro.contain_allow_allies_inside != allow_allies {
                 ro.contain_allow_allies_inside = allow_allies;
                 dirty = true;
             }
-            let allow_enemies = obj.thing().template.contain_module.allow_enemies_inside;
+            let allow_enemies = containment.thing().template.contain_module.allow_enemies_inside;
             if ro.contain_allow_enemies_inside != allow_enemies {
                 ro.contain_allow_enemies_inside = allow_enemies;
                 dirty = true;
             }
-            let allow_neutral = obj.thing().template.contain_module.allow_neutral_inside;
+            let allow_neutral = containment.thing().template.contain_module.allow_neutral_inside;
             if ro.contain_allow_neutral_inside != allow_neutral {
                 ro.contain_allow_neutral_inside = allow_neutral;
                 dirty = true;
@@ -2234,7 +2226,7 @@ impl PresentationFrame {
                 }
                 if hidden { Vec::new() } else { contained }
             } else {
-                let contained = obj.contained_units();
+                let contained = authoritative_contained;
                 let visibility_team =
                     super::live_draw_source::receiving_local_team(logic, self.local_player_id);
                 if super::build::hide_garrison_from_local(logic, obj, visibility_team, &contained) {
@@ -2266,7 +2258,11 @@ impl PresentationFrame {
                 ro.max_garrison = max_garrison;
                 dirty = true;
             }
-            let overlord_capacity = obj.overlord_bunker_capacity.unwrap_or(usize::MAX);
+            let overlord_capacity = if containment_id != obj.id {
+                containment.transport_capacity()
+            } else {
+                usize::MAX
+            };
             if ro.overlord_bunker_capacity != overlord_capacity {
                 ro.overlord_bunker_capacity = overlord_capacity;
                 dirty = true;

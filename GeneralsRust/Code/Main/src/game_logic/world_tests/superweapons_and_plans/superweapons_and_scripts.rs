@@ -3209,6 +3209,7 @@ fn script_team_nearest_and_partial_command_button_live() {
             update_module_starts_attack: false,
             starts_paused: false,
             scripted_special_power_only: false,
+            cash_bounty: None,
         });
     // CPP AIGroup::getSpecialPowerSourceObject selects the first authored
     // object-target module for the button before its nearest-target query.

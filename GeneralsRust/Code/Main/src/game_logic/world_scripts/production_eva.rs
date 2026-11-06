@@ -42,210 +42,13 @@ impl GameLogic {
         self.unit_training.honesty_ok()
     }
 
-    /// Host Demo SuicideBomb residual honesty registry.
-    pub fn demo_suicide_bomb(
-        &self,
-    ) -> &crate::game_logic::host_demo_suicide_bomb::HostDemoSuicideBombRegistry {
-        &self.demo_suicide_bomb
-    }
-
-    pub fn honesty_demo_suicide_bomb_upgrade_ok(&self) -> bool {
-        self.demo_suicide_bomb.honesty_upgrade_ok()
-    }
-
-    pub fn honesty_demo_suicide_bomb_death_ok(&self) -> bool {
-        self.demo_suicide_bomb.honesty_death_ok()
-    }
-
-    pub fn honesty_demo_suicide_bomb_ok(&self) -> bool {
-        self.demo_suicide_bomb.honesty_host_path_ok()
-    }
-
-    /// Apply residual Demo_DestroyedWeapon blast at a Demo SuicideBomb death site.
-    pub fn apply_demo_suicide_bomb_death_at(
-        &mut self,
-        source_id: ObjectId,
-        source_team: Team,
-        source_pos: Vec3,
-    ) -> bool {
-        self.apply_demo_suicide_bomb_death_at_with_effects(
-            source_id,
-            source_team,
-            source_pos,
-            &mut Default::default(),
-        )
-    }
-
-    pub(crate) fn apply_demo_suicide_bomb_death_at_with_effects(
-        &mut self,
-        source_id: ObjectId,
-        source_team: Team,
-        source_pos: Vec3,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
-        use crate::game_logic::host_demo_suicide_bomb::{
-            plan_demo_destroyed_hits, DEMO_SUICIDE_BOMB_AUDIO,
-        };
-
-        let candidates: Vec<(ObjectId, Vec3, bool, bool)> = self
-            .objects
-            .registered()
-            .map(|(id, o)| {
-                (
-                    *id,
-                    o.get_position(),
-                    o.is_alive(),
-                    o.status.under_construction,
-                )
-            })
-            .collect();
-        let hits = plan_demo_destroyed_hits(source_id, source_pos, &candidates);
-        let mut damage_dealt = 0.0f32;
-        let mut blast_hits = 0u32;
-        let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
-        for hit in &hits {
-            if let Some(victim) = self.objects.get_mut(&hit.target_id) {
-                if !victim.is_alive() {
-                    continue;
-                }
-                damage_dealt += hit.damage.min(victim.health.current.max(0.0));
-                blast_hits = blast_hits.saturating_add(1);
-                if {
-                    let owned_victim_id = victim.id;
-                    let owned_damage_type = crate::game_logic::combat::DamageType::Unresistable;
-                    self.apply_residual_damage_owned_with_effects(
-                        owned_victim_id,
-                        hit.damage,
-                        Some(source_id),
-                        owned_damage_type,
-                        crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
-                            owned_damage_type,
-                        ),
-                        None,
-                        effects,
-                    )
-                } {
-                    destroy_ids.push((hit.target_id, source_team));
-                }
-            }
-        }
-        let destroyed = destroy_ids.len() as u32;
-        self.demo_suicide_bomb
-            .record_death_detonation(blast_hits, damage_dealt, destroyed);
-        self.queue_audio_event(
-            AudioEventRequest::new(DEMO_SUICIDE_BOMB_AUDIO)
-                .with_object(source_id)
-                .with_position(source_pos)
-                .with_priority(180),
-        );
-        let _ = self.combat_particles.spawn(
-            CombatParticleKind::WeaponImpact,
-            source_pos,
-            self.frame,
-            Some(source_id),
-            None,
-        );
-        for (vid, killer) in destroy_ids {
-            self.mark_object_for_destruction_with_effects(vid, Some(killer), effects);
-        }
-        true
-    }
-
-    /// Apply residual Demo_SuicideDynamitePackPlusFire blast (SUICIDED residual).
-    pub fn apply_demo_plus_fire_death_at(
-        &mut self,
-        source_id: ObjectId,
-        source_team: Team,
-        source_pos: Vec3,
-    ) -> bool {
-        self.apply_demo_plus_fire_death_at_with_effects(
-            source_id,
-            source_team,
-            source_pos,
-            &mut Default::default(),
-        )
-    }
-
-    pub(crate) fn apply_demo_plus_fire_death_at_with_effects(
-        &mut self,
-        source_id: ObjectId,
-        source_team: Team,
-        source_pos: Vec3,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
-        use crate::game_logic::host_demo_suicide_bomb::{
-            plan_demo_plus_fire_hits, DEMO_SUICIDE_BOMB_AUDIO, DEMO_SUICIDE_DYNAMITE_PLUS_FIRE,
-        };
-
-        let _ = DEMO_SUICIDE_DYNAMITE_PLUS_FIRE; // honesty weapon name residual
-        let candidates: Vec<(ObjectId, Vec3, bool, bool)> = self
-            .objects
-            .registered()
-            .map(|(id, o)| {
-                (
-                    *id,
-                    o.get_position(),
-                    o.is_alive(),
-                    o.status.under_construction,
-                )
-            })
-            .collect();
-        let hits = plan_demo_plus_fire_hits(source_id, source_pos, &candidates);
-        let mut damage_dealt = 0.0f32;
-        let mut blast_hits = 0u32;
-        let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
-        for hit in &hits {
-            if let Some(victim) = self.objects.get_mut(&hit.target_id) {
-                if !victim.is_alive() {
-                    continue;
-                }
-                damage_dealt += hit.damage.min(victim.health.current.max(0.0));
-                blast_hits = blast_hits.saturating_add(1);
-                if {
-                    let owned_victim_id = victim.id;
-                    let owned_damage_type = crate::game_logic::combat::DamageType::Unresistable;
-                    self.apply_residual_damage_owned_with_effects(
-                        owned_victim_id,
-                        hit.damage,
-                        Some(source_id),
-                        owned_damage_type,
-                        crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
-                            owned_damage_type,
-                        ),
-                        None,
-                        effects,
-                    )
-                } {
-                    destroy_ids.push((hit.target_id, source_team));
-                }
-            }
-        }
-        let destroyed = destroy_ids.len() as u32;
-        self.demo_suicide_bomb
-            .record_suicided_detonation(blast_hits, damage_dealt, destroyed);
-        self.queue_audio_event(
-            AudioEventRequest::new(DEMO_SUICIDE_BOMB_AUDIO)
-                .with_object(source_id)
-                .with_position(source_pos)
-                .with_priority(190),
-        );
-        let _ = self.combat_particles.spawn(
-            CombatParticleKind::WeaponImpact,
-            source_pos,
-            self.frame,
-            Some(source_id),
-            None,
-        );
-        for (vid, killer) in destroy_ids {
-            self.mark_object_for_destruction_with_effects(vid, Some(killer), effects);
-        }
-        true
-    }
-
-    /// Issue Demo_Command_TertiarySuicide residual (intentional SUICIDED PlusFire).
-    ///
-    /// Fail-closed: requires SuicideBomb upgrade + CommandSetUpgrade residual.
-    /// Terrorists keep host_terrorist path (not TertiarySuicide).
+    /// `Command_DemoTertiarySuicide` (FIRE_WEAPON TERTIARY). The authored
+    /// TERTIARY weapon (`TerroristSuicideNotARealWeapon`) carries
+    /// `WEAPON_KILLS_SELF`: Weapon.cpp:1296-1306 damages the shooter for
+    /// HUGE_DAMAGE_AMOUNT with the weapon's DamageType and DeathType
+    /// (SUICIDED). The unit's authored FireWeaponWhenDeadBehavior modules
+    /// (`DeathTypes = NONE +SUICIDED`, TriggeredBy Demo_Upgrade_SuicideBomb)
+    /// then fire on the ordinary die path. No unit name selects the unit.
     pub fn issue_demo_tertiary_suicide(&mut self, unit_id: ObjectId) -> bool {
         self.issue_demo_tertiary_suicide_with_effects(unit_id, &mut Default::default())
     }
@@ -255,60 +58,41 @@ impl GameLogic {
         unit_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
-        use crate::game_logic::host_demo_suicide_bomb::{
-            can_issue_demo_tertiary_suicide, command_set_enables_tertiary_suicide,
-        };
-        use crate::game_logic::host_terrorist::is_terrorist_template;
-
-        let Some(obj) = self.objects.get(&unit_id) else {
-            self.demo_suicide_bomb.record_tertiary_suicide_denied();
+        /// C++ `HUGE_DAMAGE_AMOUNT` (Damage.h).
+        const HUGE_DAMAGE_AMOUNT: f32 = 999_999.0;
+        let Some(object) = self.objects.get(&unit_id) else {
             return false;
         };
-        let is_terrorist = is_terrorist_template(&obj.template_name);
-        let can = can_issue_demo_tertiary_suicide(
-            &obj.template_name,
-            &obj.applied_upgrades,
-            obj.is_alive(),
-            is_terrorist,
-        ) && command_set_enables_tertiary_suicide(obj.command_set_override.as_deref());
-        if !can {
-            self.demo_suicide_bomb.record_tertiary_suicide_denied();
+        if !object.is_alive() {
             return false;
         }
-
-        let source_team = obj.team;
-        let source_pos = obj.get_position();
-        // Mark before blast so destroy path skips DestroyedWeapon double-fire.
-        if let Some(obj) = self.objects.get_mut(&unit_id) {
-            obj.demo_suicided_detonating = true;
-
-            Self::mark_object_destroyed_authority_aware(
-                obj,
-                Some(unit_id),
-                &mut self.health_events,
-            );
+        let team = object.team;
+        let Some(weapon_name) = object.authored_weapon_name_for_slot(2).map(str::to_owned) else {
+            return false;
+        };
+        let Ok(Some(weapon)) = crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
+            store.find_weapon_template(&weapon_name).cloned()
+        }) else {
+            return false;
+        };
+        if weapon.affects_mask.bits()
+            & crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF
+            == 0
+        {
+            return false;
         }
-        self.demo_suicide_bomb.record_tertiary_suicide_issued();
-        let _ = self.apply_demo_plus_fire_death_at_with_effects(
+        if self.apply_residual_damage_owned_with_effects(
             unit_id,
-            source_team,
-            source_pos,
+            HUGE_DAMAGE_AMOUNT,
+            Some(unit_id),
+            crate::game_logic::combat::DamageType::from_store(weapon.damage_type),
+            crate::game_logic::host_usa_pilot::HostDeathType::from_store(weapon.death_type),
+            None,
             effects,
-        );
-        self.mark_object_for_destruction_with_effects(unit_id, Some(source_team), effects);
+        ) {
+            self.mark_object_for_destruction_with_effects(unit_id, Some(team), effects);
+        }
         true
-    }
-
-    pub fn honesty_demo_suicide_bomb_command_set_ok(&self) -> bool {
-        self.demo_suicide_bomb.honesty_command_set_ok()
-    }
-
-    pub fn honesty_demo_suicide_bomb_suicided_ok(&self) -> bool {
-        self.demo_suicide_bomb.honesty_suicided_ok()
-    }
-
-    pub fn honesty_demo_suicide_bomb_plus_fire_ok(&self) -> bool {
-        self.demo_suicide_bomb.honesty_plus_fire_path_ok()
     }
 
     /// Snapshot pending radar texts for PresentationFrame (does not drain).
@@ -1026,27 +810,6 @@ impl GameLogic {
 
     /// C++ structure construction-complete residual feedback for local owner:
     /// radar message + authored dozer getVoiceTaskComplete + model condition bit.
-
-    /// C++ `RadarUpgrade::upgradeImplementation` → `RadarUpdate::extendRadar`.
-    pub fn maybe_start_radar_extend(&mut self, structure_id: ObjectId) {
-        use crate::game_logic::host_radar::is_legal_radar_provider;
-        use crate::game_logic::host_radar_stealth_vision_residual::RADAR_EXTEND_TIME_FRAMES_RESIDUAL;
-        let Some(obj) = self.objects.get_mut(&structure_id) else {
-            return;
-        };
-        if obj.thing().template.radar_upgrade_rules.is_some() {
-            // Authored RadarUpgrade invokes extension exactly once through
-            // the owner admission, with this definition's RadarUpdate duration.
-            return;
-        }
-        let is_cc = obj.is_command_center() || obj.is_kind_of(KindOf::CommandCenter);
-        if !is_legal_radar_provider(obj.is_alive(), true, is_cc, &obj.template_name) {
-            return;
-        }
-        let done = self.frame.saturating_add(RADAR_EXTEND_TIME_FRAMES_RESIDUAL);
-        obj.extend_radar(done);
-        self.radar_extend_starts = self.radar_extend_starts.saturating_add(1);
-    }
 
     pub fn honesty_radar_extend_start_ok(&self) -> bool {
         self.radar_extend_starts > 0
@@ -1884,6 +1647,7 @@ mod tests {
             update_module_starts_attack: false,
             starts_paused: false,
             scripted_special_power_only: false,
+            cash_bounty: None,
         }
     }
 

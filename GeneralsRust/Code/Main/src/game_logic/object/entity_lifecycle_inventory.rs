@@ -23,29 +23,22 @@ pub(crate) struct FireWeaponWhenDamagedBundle {
 /// C++ OverlordContain::xfer portable object and active redirection phase.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct OverlordAddonResidual {
-    pub gattling: bool,
-    pub propaganda: bool,
+    pub version: u8,
     pub helix_transport: bool,
-    pub bunker_capacity: Option<usize>,
     pub redirection_active: bool,
     pub portable_occupant: Option<crate::game_logic::ObjectId>,
 }
 impl OverlordAddonResidual {
     fn from_object(object: &Object) -> Self {
         Self {
-            gattling: object.has_overlord_gattling_addon,
-            propaganda: object.has_overlord_propaganda_addon,
+            version: 0xA5,
             helix_transport: object.is_helix_transport,
-            bunker_capacity: object.overlord_bunker_capacity,
             redirection_active: object.overlord_redirection_active,
             portable_occupant: object.overlord_portable_occupant,
         }
     }
     pub(crate) fn apply(self, object: &mut Object) {
-        object.has_overlord_gattling_addon = self.gattling;
-        object.has_overlord_propaganda_addon = self.propaganda;
         object.is_helix_transport = self.helix_transport;
-        object.overlord_bunker_capacity = self.bunker_capacity;
         object.overlord_redirection_active = self.redirection_active;
         object.overlord_portable_occupant = self.portable_occupant;
     }
@@ -383,10 +376,7 @@ pub(crate) fn collect_module_states(
     push_present(
         &mut out,
         TAG_OVERLORD_ADDON,
-        object.has_overlord_gattling_addon
-            || object.has_overlord_propaganda_addon
-            || object.is_helix_transport
-            || object.overlord_bunker_capacity.is_some()
+        object.is_helix_transport
             || object.overlord_portable_occupant.is_some()
             || object.overlord_redirection_active,
         &OverlordAddonResidual::from_object(object),

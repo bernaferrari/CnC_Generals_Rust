@@ -784,10 +784,6 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/Main/src/graphics/render_pipeline/pipeline_execute.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
     "Code/Main/src/main.rs": {
       "constructs": 3,
       "undocumented": 0

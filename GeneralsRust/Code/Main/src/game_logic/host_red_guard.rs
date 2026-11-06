@@ -95,21 +95,6 @@ pub const INFANTRY_NATIONALISM_ROF_MULT: f32 = 1.25;
 /// FANATICISM WeaponBonus RATE_OF_FIRE 125% (stacks with nationalism; Infantry General).
 pub const INFANTRY_FANATICISM_ROF_MULT: f32 = 1.25;
 
-/// Retail HordeUpdate Radius for China infantry (Red Guard / Tank Hunter).
-pub const INFANTRY_HORDE_RADIUS: f32 = 30.0;
-/// Retail HordeUpdate Count (includes self via C++ minCount-1 others).
-pub const INFANTRY_HORDE_COUNT: u32 = 5;
-/// Retail HordeUpdate UpdateRate residual (msec).
-pub const INFANTRY_HORDE_UPDATE_MS: u32 = 1_000;
-/// Retail HordeUpdate UpdateRate 1000ms → 30 frames @ 30 FPS.
-pub const INFANTRY_HORDE_UPDATE_FRAMES: u32 = 30;
-/// Retail HordeUpdate ExactMatch residual (No for infantry).
-pub const INFANTRY_HORDE_EXACT_MATCH: bool = false;
-/// Retail HordeUpdate KindOf residual.
-pub const INFANTRY_HORDE_KIND_OF: &str = "INFANTRY";
-/// C++ HordeUpdateModuleData default `m_rubOffRadius` (INI `RubOffRadius` override).
-pub const INFANTRY_HORDE_RUB_OFF_RADIUS: f32 = 20.0;
-
 /// Residual fire audio.
 pub const REDGUARD_FIRE_AUDIO: &str = "RedGuardWeapon";
 /// Residual bayonet audio.
@@ -197,34 +182,6 @@ pub fn is_red_guard_template(template_name: &str) -> bool {
 /// Authored Red Guard PRIMARY weapon (hq-2qedt.262).
 pub fn is_red_guard_machine_gun_weapon(weapon_name: &str) -> bool {
     weapon_name.eq_ignore_ascii_case(REDGUARD_MACHINE_GUN)
-}
-
-/// Whether residual unit participates in China infantry HordeUpdate residual
-/// (Red Guard + Tank Hunter share KindOf INFANTRY horde params).
-///
-/// Name residual only (avoids circular host_tank_hunter import).
-pub fn is_china_infantry_horde_unit(template_name: &str) -> bool {
-    if is_red_guard_template(template_name) {
-        return true;
-    }
-    let n = template_name.to_ascii_lowercase();
-    if n.contains("weapon")
-        || n.contains("missile")
-        || n.contains("projectile")
-        || n.contains("locomotor")
-        || n.contains("sticky")
-        || n.contains("detonation")
-    {
-        return false;
-    }
-    if n.contains("tankhunter") || n.contains("tank_hunter") || n == "testtankhunter" {
-        return true;
-    }
-    // MiniGunner residual shares China infantry HordeUpdate params.
-    n.contains("minigunner")
-        || n.contains("mini_gunner")
-        || n == "testminigunner"
-        || n == "china_minigunner"
 }
 
 /// Combined ROF multiplier residual (HORDE * NATIONALISM when both active).
@@ -325,42 +282,11 @@ pub fn should_apply_bayonet_residual(
         && distance >= 0.0
 }
 
-/// Horde residual: Count includes self (C++: others >= Count-1).
-pub fn is_in_infantry_horde(nearby_infantry_allies: u32) -> bool {
-    nearby_infantry_allies + 1 >= INFANTRY_HORDE_COUNT
-}
-
 /// 2D distance residual (XZ plane).
 pub fn distance_2d(ax: f32, az: f32, bx: f32, bz: f32) -> f32 {
     let dx = ax - bx;
     let dz = az - bz;
     (dx * dx + dz * dz).sqrt()
-}
-
-/// Whether other unit counts toward self's infantry horde residual.
-///
-/// C++ `PartitionFilterHordeMember` requires `getHUI(other)` — workers / hackers /
-/// officers without HordeUpdate do **not** count. Callers must pass
-/// `other_is_infantry = is_china_infantry_horde_unit(other)` (not raw KindOf Infantry).
-pub fn counts_toward_infantry_horde(
-    self_alive: bool,
-    other_alive: bool,
-    same_team: bool,
-    other_is_horde_infantry: bool,
-    distance: f32,
-    radius: f32,
-) -> bool {
-    self_alive
-        && other_alive
-        && same_team
-        && other_is_horde_infantry
-        && distance <= radius
-        && distance >= 0.0
-}
-
-/// C++ `getHUI(other)` leftover: only China HordeUpdate infantry count.
-pub fn leftover_infantry_is_horde_neighbor(template_name: &str) -> bool {
-    is_china_infantry_horde_unit(template_name)
 }
 
 /// Authored WeaponTemplate identity for the Red Guard residual (gun or bayonet slot).
@@ -405,32 +331,6 @@ pub fn honesty_red_guard_weapon_residual_ok() -> bool {
         }
 }
 
-/// Wave 67 residual honesty: infantry horde residual peel.
-pub fn honesty_red_guard_horde_residual_ok() -> bool {
-    use crate::game_logic::host_battlemaster::evaluate_leftover_horde_membership;
-    (INFANTRY_HORDE_RADIUS - 30.0).abs() < 0.01
-        && INFANTRY_HORDE_COUNT == 5
-        && INFANTRY_HORDE_UPDATE_MS == 1_000
-        && INFANTRY_HORDE_UPDATE_FRAMES == red_guard_ms_to_frames(INFANTRY_HORDE_UPDATE_MS)
-        && !INFANTRY_HORDE_EXACT_MATCH
-        && INFANTRY_HORDE_KIND_OF == "INFANTRY"
-        && (INFANTRY_HORDE_RUB_OFF_RADIUS - 20.0).abs() < 0.01
-        && (INFANTRY_HORDE_ROF_MULT - 1.5).abs() < 0.001
-        && (INFANTRY_NATIONALISM_ROF_MULT - 1.25).abs() < 0.001
-        && red_guard_delay_frames(true, false) == 20
-        && red_guard_delay_frames(true, true) == 16
-        && is_in_infantry_horde(4)
-        && !is_in_infantry_horde(3)
-        && leftover_infantry_is_horde_neighbor("ChinaInfantryRedguard")
-        && leftover_infantry_is_horde_neighbor("ChinaInfantryTankHunter")
-        && leftover_infantry_is_horde_neighbor("Infa_ChinaInfantryMiniGunner")
-        && !leftover_infantry_is_horde_neighbor("ChinaInfantryHacker")
-        && !leftover_infantry_is_horde_neighbor("ChinaInfantryBlackLotus")
-        && !leftover_infantry_is_horde_neighbor("GLAInfantryWorker")
-        && evaluate_leftover_horde_membership(3, 5, Some(12.0), 20.0).in_horde
-        && !evaluate_leftover_horde_membership(3, 5, Some(12.0), 20.0).true_member
-}
-
 /// Wave 67 residual honesty: Red Guard body / capture residual peel.
 pub fn honesty_red_guard_body_residual_ok() -> bool {
     (REDGUARD_MAX_HEALTH - 120.0).abs() < 0.01
@@ -458,9 +358,7 @@ pub fn honesty_red_guard_body_residual_ok() -> bool {
 
 /// Combined Wave 67 Red Guard residual honesty pack.
 pub fn honesty_red_guard_residual_pack_ok() -> bool {
-    honesty_red_guard_weapon_residual_ok()
-        && honesty_red_guard_horde_residual_ok()
-        && honesty_red_guard_body_residual_ok()
+    honesty_red_guard_weapon_residual_ok() && honesty_red_guard_body_residual_ok()
 }
 
 #[cfg(test)]
@@ -514,14 +412,6 @@ mod tests {
     }
 
     #[test]
-    fn horde_count_includes_self() {
-        assert!(is_in_infantry_horde(4));
-        assert!(!is_in_infantry_horde(3));
-        assert!(!is_in_infantry_horde(0));
-        assert!(is_in_infantry_horde(5));
-    }
-
-    #[test]
     fn bayonet_residual_filters() {
         assert!(should_apply_bayonet_residual(true, true, true, 1.5));
         assert!(should_apply_bayonet_residual(true, true, true, 2.0));
@@ -543,46 +433,8 @@ mod tests {
     }
 
     #[test]
-    fn counts_toward_infantry_horde_filters() {
-        assert!(counts_toward_infantry_horde(
-            true, true, true, true, 20.0, 30.0
-        ));
-        assert!(!counts_toward_infantry_horde(
-            true, true, false, true, 20.0, 30.0
-        ));
-        assert!(!counts_toward_infantry_horde(
-            true, true, true, true, 40.0, 30.0
-        ));
-        assert!(!counts_toward_infantry_horde(
-            true, true, true, false, 10.0, 30.0
-        ));
-    }
-
-    #[test]
-    fn infantry_count_requires_horde_update_module() {
-        assert!(leftover_infantry_is_horde_neighbor("ChinaInfantryRedguard"));
-        assert!(leftover_infantry_is_horde_neighbor(
-            "ChinaInfantryTankHunter"
-        ));
-        assert!(leftover_infantry_is_horde_neighbor(
-            "Infa_ChinaInfantryMiniGunner"
-        ));
-        assert!(!leftover_infantry_is_horde_neighbor("ChinaInfantryHacker"));
-        assert!(!leftover_infantry_is_horde_neighbor(
-            "ChinaInfantryBlackLotus"
-        ));
-        assert!(!leftover_infantry_is_horde_neighbor(
-            "AmericaInfantryRanger"
-        ));
-        assert!(!counts_toward_infantry_horde(
-            true, true, true, false, 10.0, 30.0
-        ));
-    }
-
-    #[test]
     fn red_guard_residual_pack_honesty_wave67() {
         assert!(honesty_red_guard_weapon_residual_ok());
-        assert!(honesty_red_guard_horde_residual_ok());
         assert!(honesty_red_guard_body_residual_ok());
         assert!(honesty_red_guard_residual_pack_ok());
         assert_eq!(red_guard_ms_to_frames(1_000), 30);
@@ -591,6 +443,5 @@ mod tests {
         assert_eq!(REDGUARD_BUILD_TIME_FRAMES, 300);
         assert_eq!(REDGUARD_DAMAGE_TYPE, "SMALL_ARMS");
         assert_eq!(BAYONET_DAMAGE_TYPE, "MELEE");
-        assert!(!INFANTRY_HORDE_EXACT_MATCH);
     }
 }

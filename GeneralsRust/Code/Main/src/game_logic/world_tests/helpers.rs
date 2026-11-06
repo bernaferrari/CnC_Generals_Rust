@@ -277,18 +277,16 @@ pub(super) fn ensure_test_overlord_template(game_logic: &mut GameLogic) {
         .add_kind_of(KindOf::Attackable)
         .set_health(1100.0)
         .set_cost(2000, 0);
+    overlord.contain_module.kind = ContainModuleKind::Transport;
+    overlord.contain_module.is_overlord_contain = true;
+    overlord.contain_module.slots = Some(1);
     game_logic
         .templates
         .insert("TestOverlord".to_string(), overlord);
 }
 
-/// Spawn residual Overlord. Without BattleBunker residual (`Some(0)`),
-/// infantry enter is rejected. Call `install_overlord_battle_bunker(5)`
-/// to match ChinaTankOverlordBattleBunker TransportContain Slots=5.
-
-/// Spawn residual Overlord. Without BattleBunker residual (`Some(0)`),
-/// infantry enter is rejected. Call `install_overlord_battle_bunker(5)`
-/// to match ChinaTankOverlordBattleBunker TransportContain Slots=5.
+/// Spawn a hull with an authored OverlordContain and, when requested, an
+/// actual portable TransportContain rider.
 pub(super) fn create_test_overlord(
     game_logic: &mut GameLogic,
     pos: Vec3,
@@ -298,24 +296,22 @@ pub(super) fn create_test_overlord(
     let id = game_logic
         .create_object("TestOverlord", Team::China, pos)
         .expect("TestOverlord");
-    if let Some(obj) = game_logic.host_object_mut(id) {
-        // Mark overlord-style residual; slots=None means no bunker installed.
-        obj.overlord_bunker_capacity = Some(bunker_slots.unwrap_or(0));
-    }
     if let Some(slots) = bunker_slots {
         let name = crate::game_logic::host_overlord_addons::OVERLORD_PAYLOAD_BUNKER;
         let mut payload = ThingTemplate::new(name);
-        payload.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        payload.add_kind_of(KindOf::PortableStructure).set_health(100.0);
         payload.contain_module = ContainModuleMetadata {
             kind: ContainModuleKind::Transport,
             slots: Some(slots),
             admission: ContainAdmission::InfantryOnly,
+            passengers_allowed_to_fire: true,
             ..Default::default()
         };
         game_logic.templates.insert(name.into(), payload);
-        game_logic
-            .ensure_overlord_portable_addon_occupant(id)
+        let rider = game_logic
+            .create_object(name, Team::China, pos)
             .expect("physical test bunker");
+        game_logic.attach_overlord_portable_occupant(id, rider);
     }
     id
 }
@@ -772,6 +768,7 @@ pub(super) fn ensure_test_black_lotus_template(game_logic: &mut GameLogic) {
             update_module_starts_attack: true,
             starts_paused: false,
             scripted_special_power_only: false,
+            cash_bounty: None,
         });
     }
     game_logic
@@ -1051,6 +1048,7 @@ pub(super) fn author_superweapon_special_power_module(
             update_module_starts_attack: false,
             starts_paused: false,
             scripted_special_power_only: false,
+            cash_bounty: None,
         });
 }
 

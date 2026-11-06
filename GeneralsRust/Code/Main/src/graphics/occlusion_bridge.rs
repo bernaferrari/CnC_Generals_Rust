@@ -469,38 +469,8 @@ pub fn enqueue_occluded_player_color_pass(
     let renderer = Arc::new(renderer);
     let view_proj = *projection_matrix * *view_matrix;
     pipeline.enqueue_frame_work(ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::OccludedStencil, move |gpu_frame| {
-        let color_view = gpu_frame.color_view_arc();
-        let depth_view = gpu_frame.depth_view_arc();
-        gpu_frame.note_render_pass();
-        let encoder = gpu_frame.encoder();
-        let depth_stencil = depth_view
-            .as_ref()
-            .map(|dv| wgpu::RenderPassDepthStencilAttachment {
-                view: dv.as_ref(),
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                }),
-                stencil_ops: None,
-            });
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("occluded_player_color_pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: color_view.as_ref(),
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: depth_stencil,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-            multiview_mask: None,
-        });
-        renderer.draw(&mut render_pass, &view_proj, camera_position, &overlays);
-        drop(render_pass);
+        // The occlusion overlay shares the frame's scene pass (plan R12).
+        renderer.draw(gpu_frame.scene_pass(), &view_proj, camera_position, &overlays);
         Ok(())
     });
 }

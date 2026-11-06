@@ -263,6 +263,7 @@ path = "Code/GameEngine/GameClient/src/display/image.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/System/Image.cpp"
 note = "Mapped ImageCollection + startup-shell log dedupe on GameClient; removed MAPPED_IMAGE_COLLECTION/REPORTED TLS; peels use live-client loan."
 
+[[module]]
 path = "Code/GameEngine/Common/src/common/random_value.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/Common/RandomValue.cpp"
 note = "RNG streams on CommonServices; SessionRandom publish via TLS owner; 0 file globals."
@@ -366,6 +367,8 @@ note = "Observer look-at + gen arrow on InGameUISubsystem; removed process Atomi
 path = "Code/GameEngine/GameClient/src/gui/display_string.rs"
 cpp = "GeneralsMD/Code/GameEngineDevice/Source/GameEngine/Source/GameClient/DisplayStringManager.cpp"
 note = "DisplayStringManager on WindowManagerOwner; removed process TLS; peels use live-client loan / cfg(test) TLS fallback."
+
+[[module]]
 path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-core/src/ww3d.rs"
 cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/ww3d.h"
 note = "RENDERER_STORAGE off TLS onto Arc<Mutex> RendererStorageSlot; RendererBackend: Send; WgpuCoreBridge FrameStats Arc<Mutex>; old-style WWVegas TLS 2→0."

@@ -51,6 +51,7 @@ fn registered_public_timer_remains_visible_only_in_its_world() {
             update_module_starts_attack: false,
             starts_paused: false,
             scripted_special_power_only: false,
+            cash_bounty: None,
         });
     owner.templates.insert(template.name.clone(), template);
     let id = owner

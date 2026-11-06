@@ -199,6 +199,40 @@ impl Object {
         })
     }
 
+    /// Whether the authored PRIMARY is a Battlemaster tank gun
+    /// (`BattleMasterTankGun` / general variants), not a chassis-name sniff.
+    pub fn authors_battlemaster_tank_gun(&self) -> bool {
+        use crate::game_logic::host_battlemaster::{
+            BATTLE_MASTER_TANK_GUN, NUKE_BATTLE_MASTER_TANK_GUN, TANK_BATTLE_MASTER_TANK_GUN,
+        };
+        self.authored_weapon_name_for_slot(0).is_some_and(|name| {
+            [
+                BATTLE_MASTER_TANK_GUN,
+                TANK_BATTLE_MASTER_TANK_GUN,
+                NUKE_BATTLE_MASTER_TANK_GUN,
+            ]
+            .iter()
+            .any(|gun| name.eq_ignore_ascii_case(gun))
+        })
+    }
+
+    /// Whether the authored PRIMARY is the MiniGunner gattling gun.
+    pub fn authors_minigunner_gun(&self) -> bool {
+        self.authored_weapon_name_for_slot(0).is_some_and(|name| {
+            name.eq_ignore_ascii_case(crate::game_logic::host_minigunner::MINIGUNNER_GUN)
+        })
+    }
+
+    /// `HordeUpdateInterface::isAllowedNationalism` of the authored module;
+    /// C++ module-data default is TRUE.
+    pub fn horde_allowed_nationalism(&self) -> bool {
+        self.thing
+            .template
+            .horde_update
+            .as_ref()
+            .is_none_or(|rules| rules.allowed_nationalism)
+    }
+
     /// Restore the C++ client-only `Weapon::m_suspendFXFrame` parallel
     /// snapshot tail without exposing slot storage to save/load code.
     pub(crate) fn restore_weapon_suspend_fx_frame_for_slot(

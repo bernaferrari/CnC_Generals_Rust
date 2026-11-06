@@ -317,13 +317,7 @@ impl CnCGameEngine {
                                             .with_receiving_menu_effects_and_ui(
                                                 |ui_manager, render_pipeline, effects| {
                                                     let mut terrain_lod = |reduction| {
-                                                        if let Some(terrain) =
-                                                            render_pipeline.native_terrain_mut()
-                                                        {
-                                                            terrain.apply_texture_lod_reduction(
-                                                                reduction,
-                                                            );
-                                                        }
+                                                        render_pipeline.apply_texture_lod(reduction)
                                                     };
                                                     route_host_ui_key_with_terrain_lod(
                                                         ui_manager,
@@ -737,9 +731,7 @@ impl CnCGameEngine {
                         hud_cameo_consumed = self.with_receiving_menu_effects_and_ui(
                             |ui_manager, render_pipeline, effects| {
                                 let mut terrain_lod = |reduction| {
-                                    if let Some(terrain) = render_pipeline.native_terrain_mut() {
-                                        terrain.apply_texture_lod_reduction(reduction);
-                                    }
+                                    render_pipeline.apply_texture_lod(reduction);
                                 };
                                 ui_manager.handle_mouse_click_with_terrain_lod_and_effects(
                                     x,
@@ -769,9 +761,7 @@ impl CnCGameEngine {
                         let _ = self.with_receiving_menu_effects_and_ui(
                             |ui_manager, render_pipeline, effects| {
                                 let mut terrain_lod = |reduction| {
-                                    if let Some(terrain) = render_pipeline.native_terrain_mut() {
-                                        terrain.apply_texture_lod_reduction(reduction);
-                                    }
+                                    render_pipeline.apply_texture_lod(reduction);
                                 };
                                 ui_manager.handle_mouse_click_with_terrain_lod_and_effects(
                                     x,
@@ -2185,12 +2175,6 @@ impl CnCGameEngine {
                 self.game_logic.session_view.camera.camera_zoom,
                 hovered_drawable,
             );
-            #[cfg(feature = "game_client")]
-            {
-                let _ =
-                    game_client::display::shadow_pass::present_occluded_player_color_silhouette();
-            }
-
             crate::graphics::occlusion_bridge::enqueue_occluded_player_color_pass(
                 &mut self.render_pipeline,
                 &self.game_logic.session_view.camera.view_matrix,

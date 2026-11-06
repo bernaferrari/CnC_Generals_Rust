@@ -4,9 +4,8 @@
 //! - Player holds a cash-bounty percent (CashBountyPower module / direct set).
 //! - On enemy unit/structure kill, killer player receives
 //!   `ceil(victim_build_cost * cash_bounty_percent)` cash.
-//! - SCIENCE_CashBounty1/2/3 map to retail residual 5% / 10% / 20%.
-//! - Unlocking those sciences does not set the percent; a palace
-//!   CashBountyPower module must apply leftover findBounty().
+//! - CashBountyPower uses each module's authored Bounty and RequiredScience;
+//!   the retail palace tiers author 5%, 10%, and 20%.
 //! - No bounty for under-construction victims
 //! - No bounty for same-team / non-enemy kills
 //!
@@ -23,7 +22,6 @@
 //! - Floating text residual: GUI:AddCash, Z lift **10**, yellow RGBA.
 //!
 //! Fail-closed honesty:
-//! - Not full CashBountyPower module-on-palace science gate matrix
 //! - Not full InGameUI GPU draw / Unicode GameText localization
 //! - calcCostToBuild uses victim owner production/kindof/handicap (Player.cpp:2409)
 //! - Network deferred
@@ -199,25 +197,6 @@ pub fn normalize_science_identity(name: &str) -> String {
         .collect()
 }
 
-/// Map a science / ability name to residual cash-bounty percent.
-/// Returns `None` when the name is not a cash-bounty science.
-pub fn cash_bounty_percent_for_science(name: &str) -> Option<f32> {
-    let n = normalize_science_identity(name);
-    // Higher tiers first so "cashbounty3" is not matched as tier 1.
-    if n.contains("cashbounty3") {
-        Some(CASH_BOUNTY3_PERCENT)
-    } else if n.contains("cashbounty2") {
-        Some(CASH_BOUNTY2_PERCENT)
-    } else if n.contains("cashbounty1") {
-        Some(CASH_BOUNTY1_PERCENT)
-    } else if n == "cashbounty" || n == "upgradecashbounty" || n.contains("upgradecashbounty") {
-        // Upgrade_CashBounty residual maps to tier-1 default when tier omitted.
-        Some(CASH_BOUNTY1_PERCENT)
-    } else {
-        None
-    }
-}
-
 /// Compute bounty award: `ceil(cost * percent)` as C++ REAL_TO_INT_CEIL.
 /// Returns 0 when percent ≤ 0, cost ≤ 0, or result would be 0.
 pub fn compute_bounty_award(build_cost: u32, cash_bounty_percent: f32) -> u32 {
@@ -380,9 +359,6 @@ pub fn honesty_cash_bounty_science_residual_ok() -> bool {
         && CASH_BOUNTY1_PREREQ_SCIENCES == ["SCIENCE_GLA", "SCIENCE_Rank3"]
         && CASH_BOUNTY2_PREREQ_SCIENCES == ["SCIENCE_CashBounty1", "SCIENCE_Rank3"]
         && CASH_BOUNTY3_PREREQ_SCIENCES == ["SCIENCE_CashBounty2", "SCIENCE_Rank3"]
-        && cash_bounty_percent_for_science(SCIENCE_CASH_BOUNTY1) == Some(0.05)
-        && cash_bounty_percent_for_science(SCIENCE_CASH_BOUNTY2) == Some(0.10)
-        && cash_bounty_percent_for_science(SCIENCE_CASH_BOUNTY3) == Some(0.20)
 }
 
 /// Wave 66 residual honesty: special-power residual peel.
@@ -451,21 +427,6 @@ pub fn honesty_cash_bounty_residual_pack_wave78() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn science_tiers_map_to_retail_percents() {
-        assert!(
-            (cash_bounty_percent_for_science(SCIENCE_CASH_BOUNTY1).unwrap() - 0.05).abs() < 1e-6
-        );
-        assert!(
-            (cash_bounty_percent_for_science(SCIENCE_CASH_BOUNTY2).unwrap() - 0.10).abs() < 1e-6
-        );
-        assert!(
-            (cash_bounty_percent_for_science(SCIENCE_CASH_BOUNTY3).unwrap() - 0.20).abs() < 1e-6
-        );
-        assert!((cash_bounty_percent_for_science("cashbounty1").unwrap() - 0.05).abs() < 1e-6);
-        assert!(cash_bounty_percent_for_science("SCIENCE_A10").is_none());
-    }
 
     #[test]
     fn compute_bounty_ceil_matches_cpp() {

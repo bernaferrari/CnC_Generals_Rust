@@ -149,6 +149,7 @@ impl Object {
         let initial_drawable_scale =
             crate::assets::mesh_asset_resolve::mesh_scale_from_template(&template);
         let template_name = template.name.clone();
+        let authors_horde_update = template.horde_update.is_some();
         let inactive_body =
             template.body_kind == Some(crate::game_logic::thing::BodyKind::Inactive);
         let max_health = if inactive_body {
@@ -780,7 +781,6 @@ impl Object {
             player_who_entered: None,
 
             max_transport: authored_transport_slots,
-            overlord_bunker_capacity: None,
             passengers_allowed_to_fire: authored_passengers_allowed_to_fire,
             armed_riders_upgrade_weapon_set: false,
             weapon_condition_flags: 0,
@@ -803,10 +803,9 @@ impl Object {
             terrain_decal_fade_target: 0.0,
             terrain_decal_fade_rate: 0.0,
             terrain_decal_opacity: if is_fs_fake { 1.0 } else { 0.0 },
-            sub_object_visibility:
-                crate::game_logic::host_battlemaster::leftover_horde_flag_visibility_for_template(
-                    &template_name,
-                ),
+            sub_object_visibility: crate::game_logic::host_battlemaster::leftover_horde_flag_visibility(
+                authors_horde_update,
+            ),
             special_power_completion: None,
             power_plant_rods_extended: false,
             power_plant_rods_done_frame: 0,
@@ -975,12 +974,8 @@ impl Object {
             command_button_hunt: None,
             last_command_source: crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI,
             attack_move_command_src: None,
-            has_overlord_gattling_addon: false,
-            overlord_addon_body_damage_state:
-                crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             overlord_redirection_active: false,
             overlord_portable_occupant: None,
-            has_overlord_propaganda_addon: false,
             is_helix_transport: authored_helix_contain,
             command_set_override: None,
             demo_suicided_detonating: false,
@@ -1603,7 +1598,6 @@ impl Object {
             player_who_entered: None,
 
             max_transport: 0,
-            overlord_bunker_capacity: None,
             passengers_allowed_to_fire: false,
             armed_riders_upgrade_weapon_set: false,
             weapon_condition_flags: 0,
@@ -1626,10 +1620,7 @@ impl Object {
             terrain_decal_fade_target: 0.0,
             terrain_decal_fade_rate: 0.0,
             terrain_decal_opacity: if is_fs_fake { 1.0 } else { 0.0 },
-            sub_object_visibility:
-                crate::game_logic::host_battlemaster::leftover_horde_flag_visibility_for_template(
-                    &template_name,
-                ),
+            sub_object_visibility: Default::default(),
             special_power_completion: None,
             power_plant_rods_extended: false,
             power_plant_rods_done_frame: 0,
@@ -1798,12 +1789,8 @@ impl Object {
             command_button_hunt: None,
             last_command_source: crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI,
             attack_move_command_src: None,
-            overlord_addon_body_damage_state:
-                crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             overlord_redirection_active: false,
             overlord_portable_occupant: None,
-            has_overlord_gattling_addon: false,
-            has_overlord_propaganda_addon: false,
             is_helix_transport: false,
             command_set_override: None,
             demo_suicided_detonating: false,

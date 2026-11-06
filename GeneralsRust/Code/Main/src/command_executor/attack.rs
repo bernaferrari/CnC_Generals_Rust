@@ -396,17 +396,30 @@ impl<'a> CommandExecutor<'a> {
 
             // C++ uses the owner's position for every passenger when location
             // is absent, and invokes passengers before slaves and the owner.
-            let may_fire = self.game_logic.host_object(unit_id).is_some_and(|owner| {
-                if owner.is_garrison_contain() {
-                    !owner.is_subdued_disabled()
-                } else {
-                    owner.passengers_allowed_to_fire
-                        || crate::game_logic::host_passengers_fire_upgrade::overlord_bunker_passengers_may_fire(
-                            owner.overlord_bunker_slot_capacity(), owner.contained_by.is_some())
-                }
-            });
-            if may_fire {
+            let contain_owner = self.game_logic.redirected_containment_owner(unit_id);
+            let (may_fire, helix_rider) = self.game_logic.host_object(contain_owner)
+                .map(|owner| {
+                    let nested = ((owner.is_overlord_style_container() || owner.is_helix_transport)
+                        && owner.contained_by.is_some())
+                        || owner.contained_by.and_then(|id| self.game_logic.host_object(id))
+                            .is_some_and(|outer| outer.is_overlord_style_container() && outer.contained_by.is_some());
+                    let ordinary = !nested && if owner.is_garrison_contain() {
+                        !owner.is_subdued_disabled()
+                    } else {
+                        owner.passengers_allowed_to_fire
+                    };
+                    let rider = if owner.is_helix_transport && owner.contained_by.is_none() {
+                        owner.overlord_portable_occupant
+                    } else {
+                        None
+                    };
+                    (ordinary, rider)
+                }).unwrap_or((false, None));
+            if may_fire || helix_rider.is_some() {
                 for passenger in self.game_logic.contained_units_for_interface(unit_id) {
+                    if !may_fire && helix_rider != Some(passenger) {
+                        continue;
+                    }
                     if self
                         .game_logic
                         .host_object(passenger)

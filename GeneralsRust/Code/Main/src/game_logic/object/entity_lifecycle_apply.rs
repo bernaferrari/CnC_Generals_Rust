@@ -245,6 +245,13 @@ fn apply_one(
             residual.apply(object);
         }
         TAG_OVERLORD_ADDON => {
+            // Older residual payloads begin with a boolean and cannot safely
+            // be interpreted as physical-rider state.
+            if payload.first() != Some(&0xA5) {
+                return Err(EntityLifecycleCodecError::InvalidOwnerComponent {
+                    component: "OverlordContain rider version",
+                });
+            }
             let residual: super::entity_lifecycle_inventory::OverlordAddonResidual =
                 decode_payload(payload)?;
             residual.apply(object);

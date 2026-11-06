@@ -2161,6 +2161,22 @@ impl GameLogic {
                         Some(value) => parse_bool(value)?,
                         None => false,
                     },
+                    // CashBountyPower.cpp:84 `Bounty` uses INI::parsePercentToReal.
+                    cash_bounty: match module.attribute("Bounty") {
+                        Some(value)
+                            if module_kind == SpecialPowerModuleKind::CashBountyPower =>
+                        {
+                            Some(
+                                stripped_value(value)
+                                    .trim_end_matches('%')
+                                    .parse::<f32>()
+                                    .ok()
+                                    .filter(|value| value.is_finite())?
+                                    / 100.0,
+                            )
+                        }
+                        _ => None,
+                    },
                 })
             })();
             if let Some(parsed) = parsed {

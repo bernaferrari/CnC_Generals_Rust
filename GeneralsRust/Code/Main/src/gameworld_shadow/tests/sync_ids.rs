@@ -646,8 +646,6 @@ fn sync_from_host_copies_entity_combat_bonus_residual() {
         obj.is_listening_outpost_transport = true;
         obj.is_troop_crawler_transport = true;
         obj.is_helix_transport = true;
-        obj.has_overlord_gattling_addon = true;
-        obj.has_overlord_propaganda_addon = true;
         obj.demo_suicided_detonating = true;
         obj.hive_slave_count = 3;
         obj.hive_slave_hp = 40.0;
@@ -676,7 +674,6 @@ fn sync_from_host_copies_entity_combat_bonus_residual() {
     assert_eq!(e.continuous_fire_consecutive, 7);
     assert_eq!(e.faerie_fire_until_frame, 99);
     assert!(e.is_humvee_transport && e.is_helix_transport);
-    assert!(e.has_overlord_gattling_addon && e.has_overlord_propaganda_addon);
     assert!(e.demo_suicided_detonating);
     assert_eq!(e.hive_slave_count, 3);
     assert!((e.turret_angle_deg - 45.0).abs() < 0.01);
@@ -739,16 +736,30 @@ fn sync_from_host_copies_entity_transport_residual() {
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     ensure_template(&mut logic, "OverlordX", 800.0);
     ensure_template(&mut logic, "RiderX", 100.0);
+    {
+        let hull = logic.templates.get_mut("OverlordX").unwrap();
+        hull.contain_module.kind = crate::game_logic::ContainModuleKind::Transport;
+        hull.contain_module.is_overlord_contain = true;
+        hull.contain_module.slots = Some(1);
+        let mut bunker = crate::game_logic::ThingTemplate::new("ShadowBunkerX");
+        bunker.add_kind_of(crate::game_logic::KindOf::PortableStructure).set_health(100.0);
+        bunker.contain_module.kind = crate::game_logic::ContainModuleKind::Transport;
+        bunker.contain_module.slots = Some(5);
+        bunker.contain_module.passengers_allowed_to_fire = true;
+        logic.templates.insert(bunker.name.clone(), bunker);
+    }
     let bus = logic
         .create_object("OverlordX", Team::China, glam::Vec3::new(9.0, 0.0, 9.0))
         .expect("bus");
+    let bunker = logic.create_object("ShadowBunkerX", Team::China, glam::Vec3::new(9.0, 0.0, 9.0))
+        .expect("bunker");
+    logic.attach_overlord_portable_occupant(bus, bunker);
     let rider = logic
         .create_object("RiderX", Team::China, glam::Vec3::new(10.0, 0.0, 9.0))
         .expect("rider");
     {
         let obj = logic.host_object_mut(bus).expect("obj");
         obj.name = "OL-1".into();
-        obj.overlord_bunker_capacity = Some(5);
         obj.passengers_allowed_to_fire = true;
         obj.armed_riders_upgrade_weapon_set = true;
         obj.set_weapon_condition_at_frame(3, true, 0);
@@ -761,12 +772,12 @@ fn sync_from_host_copies_entity_transport_residual() {
     }
     {
         let obj = logic.host_object_mut(rider).expect("rider");
-        obj.contained_by = Some(bus);
+        obj.contained_by = Some(bunker);
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     assert_eq!(shadow.battle_bus_entity_count(), 1);
-    assert_eq!(shadow.contained_entity_count(), 1);
+    assert_eq!(shadow.contained_entity_count(), 2);
     let eid = shadow.entity_for_host(bus).expect("map");
     let e = shadow.world().entity(eid).expect("e");
     assert_eq!(e.display_name, "OL-1");
@@ -778,7 +789,7 @@ fn sync_from_host_copies_entity_transport_residual() {
     assert!(e.is_combat_chinook_transport);
     let rid = shadow.entity_for_host(rider).expect("rmap");
     let r = shadow.world().entity(rid).expect("r");
-    assert_eq!(r.contained_by_host, bus.0);
+    assert_eq!(r.contained_by_host, bunker.0);
 }
 
 #[test]

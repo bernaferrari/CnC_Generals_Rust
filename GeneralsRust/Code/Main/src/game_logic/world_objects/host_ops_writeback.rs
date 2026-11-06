@@ -193,25 +193,17 @@ impl GameLogic {
         let Some(host) = self.objects.get(&host_id) else {
             return;
         };
-        let mut candidates: Vec<ObjectId> = Vec::new();
-        if let Some(id) = host.overlord_portable_occupant {
-            candidates.push(id);
+        if !host.is_overlord_style_container() && !host.is_helix_transport {
+            return;
         }
-        for &id in &host.occupants {
-            if !candidates.contains(&id) {
-                candidates.push(id);
-            }
-        }
-        let flash: Vec<ObjectId> = candidates
-            .into_iter()
-            .filter(|&id| {
-                self.objects.get(&id).is_some_and(|occ| {
-                    crate::game_logic::host_battlemaster::is_portable_structure_template(
-                        &occ.template_name,
-                    )
-                })
-            })
-            .collect();
+        let flash: Vec<ObjectId> = if host.is_helix_transport {
+            host.overlord_portable_occupant.into_iter().collect()
+        } else {
+            host.occupants.iter().copied().filter(|&id| {
+                self.objects.get(&id)
+                    .is_some_and(|occ| occ.is_kind_of(KindOf::PortableStructure))
+            }).collect()
+        };
         for id in flash {
             if let Some(occ) = self.objects.get_mut(&id) {
                 occ.flash_as_selected();
@@ -923,6 +915,7 @@ impl GameLogic {
     /// Occupant/garrison count on the receiving world.
     /// TunnelContain redirects to the controlling player's TunnelTracker.
     pub fn host_authoritative_occupant_count(&self, id: ObjectId) -> Option<u16> {
+        let id = self.redirected_containment_owner(id);
         let o = self.host_object(id)?;
         if o.is_tunnel_network_style_container()
         {
@@ -951,6 +944,7 @@ impl GameLogic {
     /// Authoritative contained-unit list. Tunnels export the shared player pool
     /// so every entrance shows the same ControlBar inventory.
     pub fn host_authoritative_contained_units(&self, id: ObjectId) -> Vec<ObjectId> {
+        let id = self.redirected_containment_owner(id);
         let Some(o) = self.host_object(id) else {
             return Vec::new();
         };
@@ -1993,7 +1987,6 @@ mod select_object_cpp_parity_tests {
 
     #[test]
     fn select_overlord_flashes_portable_addon() {
-        use crate::game_logic::host_overlord_addons::UPGRADE_OVERLORD_GATTLING;
         use crate::game_logic::host_saboteur::SABOTEUR_FLASH_DECAY_FRAMES;
 
         let mut logic = two_player_logic();
@@ -2002,12 +1995,16 @@ mod select_object_cpp_parity_tests {
             "ChinaTankOverlord",
             &[KindOf::Vehicle, KindOf::Selectable],
         );
+        {
+            let contain = &mut logic.templates.get_mut("ChinaTankOverlord").unwrap().contain_module;
+            contain.kind = ContainModuleKind::Transport;
+            contain.is_overlord_contain = true;
+            contain.slots = Some(1);
+        }
+        ensure_tpl(&mut logic, "SelectionPortableRider", &[KindOf::PortableStructure]);
         let overlord = spawn(&mut logic, "ChinaTankOverlord", 0, 0.0);
-        logic.apply_upgrade_to_object(overlord, UPGRADE_OVERLORD_GATTLING);
-        let addon = logic
-            .host_object(overlord)
-            .and_then(|o| o.overlord_portable_occupant)
-            .expect("portable occupant");
+        let addon = spawn(&mut logic, "SelectionPortableRider", 0, 0.0);
+        logic.attach_overlord_portable_occupant(overlord, addon);
 
         logic.select_objects(0, vec![overlord]);
         assert_eq!(
@@ -2037,7 +2034,6 @@ mod select_object_cpp_parity_tests {
 
     #[test]
     fn select_helix_flashes_portable_addon_not_infantry() {
-        use crate::game_logic::host_overlord_addons::UPGRADE_HELIX_GATTLING;
         use crate::game_logic::host_saboteur::SABOTEUR_FLASH_DECAY_FRAMES;
 
         let mut logic = two_player_logic();
@@ -2046,8 +2042,16 @@ mod select_object_cpp_parity_tests {
             "ChinaVehicleHelix",
             &[KindOf::Vehicle, KindOf::Aircraft, KindOf::Selectable],
         );
+        {
+            let contain = &mut logic.templates.get_mut("ChinaVehicleHelix").unwrap().contain_module;
+            contain.kind = ContainModuleKind::Transport;
+            contain.is_helix_contain = true;
+            contain.slots = Some(5);
+        }
+        ensure_tpl(&mut logic, "SelectionPortableRider", &[KindOf::PortableStructure]);
         let helix = spawn(&mut logic, "ChinaVehicleHelix", 0, 0.0);
-        logic.apply_upgrade_to_object(helix, UPGRADE_HELIX_GATTLING);
+        let addon = spawn(&mut logic, "SelectionPortableRider", 0, 0.0);
+        logic.attach_overlord_portable_occupant(helix, addon);
         let infantry = spawn(&mut logic, "SelectParityUnit", 0, 10.0);
         {
             let h = logic.host_object_mut(helix).expect("helix");
@@ -2061,10 +2065,6 @@ mod select_object_cpp_parity_tests {
                 .expect("infantry");
             i.set_contained_by_with_partition_owner(Some(helix), true, partition);
         }
-        let addon = logic
-            .host_object(helix)
-            .and_then(|o| o.overlord_portable_occupant)
-            .expect("helix portable occupant");
 
         logic.select_objects(0, vec![helix]);
         assert_eq!(

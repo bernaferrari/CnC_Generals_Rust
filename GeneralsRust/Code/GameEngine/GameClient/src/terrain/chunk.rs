@@ -1132,7 +1132,7 @@ impl ChunkManager {
     /// returns (vertex_slice, index_slice, index_count).
     pub fn render_pass_draw<'a, FBindGroup, FMesh>(
         &'a self,
-        render_pass: &mut RenderPass<'a>,
+        render_pass: &mut RenderPass<'_>,
         mut bind_group_fn: FBindGroup,
         mut mesh_fn: FMesh,
     ) -> TerrainResult<()>

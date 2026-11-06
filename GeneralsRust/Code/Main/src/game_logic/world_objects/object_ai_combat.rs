@@ -397,10 +397,6 @@ impl GameLogic {
         if !object_scoped {
             let _ = self.apply_player_unlock_upgrade(ledger, upgrade_name, upgrade_name);
         }
-        if !object_scoped && kind == HostUpgradeKind::CashBounty {
-            let _ =
-                self.apply_upgrade_kind_to_recipients(ledger, upgrade_name, interpreter, effects);
-        }
         let mut units_affected = 0u32;
         if object_scoped {
             if let Some(id) = source {
@@ -475,7 +471,7 @@ impl GameLogic {
             object_id: id,
         };
         if !object_scoped {
-            self.apply_upgrade_kind_to_recipients(recipient, upgrade_name, interpreter, effects);
+            self.apply_upgrade_kind_to_recipients(recipient, upgrade_name);
         }
         if !self.objects.get(&id).is_some_and(|object| {
             std::sync::Arc::ptr_eq(&object.visual_draw_identity_token, &identity)
@@ -564,81 +560,10 @@ impl GameLogic {
         &mut self,
         recipients: UpgradeRecipients,
         upgrade_name: &str,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> u32 {
-        use crate::game_logic::host_upgrades::HostUpgradeKind;
-        // Authored UpgradeMux modules run for every completed upgrade; the
-        // template's module list, not the upgrade or unit name, selects them.
-        let authored = self.apply_authored_max_health_upgrades(recipients, upgrade_name);
-        let kind = HostUpgradeKind::from_name(upgrade_name);
-        authored
-            + match kind {
-            // StealthUpgrade modules (Object::run_authored_stealth_upgrades,
-            // object_upgrade_callbacks.rs) own Camouflage and Camo Netting.
-            HostUpgradeKind::Camouflage | HostUpgradeKind::CamoNetting => 0,
-            // WeaponSetUpgrade / WeaponBonusUpgrade / ArmorUpgrade modules
-            // (authored_upgrade_modules.rs) own these upgrades' effects.
-            HostUpgradeKind::FlashBangGrenade
-            | HostUpgradeKind::TowMissile
-            | HostUpgradeKind::NeutronShells
-            | HostUpgradeKind::ComancheRocketPods
-            | HostUpgradeKind::SentryDroneGun
-            | HostUpgradeKind::ScorpionRocket
-            | HostUpgradeKind::ApRockets
-            | HostUpgradeKind::LaserMissiles
-            | HostUpgradeKind::ChainGuns
-            | HostUpgradeKind::UraniumShells
-            | HostUpgradeKind::BlackNapalm
-            | HostUpgradeKind::ApBullets
-            | HostUpgradeKind::AnthraxBeta
-            | HostUpgradeKind::ToxinShells
-            | HostUpgradeKind::TacticalNukeMig
-            | HostUpgradeKind::FortifiedStructure
-            | HostUpgradeKind::ChemicalSuits
-            | HostUpgradeKind::Countermeasures
-            | HostUpgradeKind::AdvancedTraining
-            | HostUpgradeKind::BunkerBusters
-            | HostUpgradeKind::NuclearTanks
-            | HostUpgradeKind::AnthraxGamma => 0,
-            // MaxHealthUpgrade modules (authored_upgrade_modules.rs).
-            HostUpgradeKind::CompositeArmor
-            | HostUpgradeKind::DroneArmor
-            | HostUpgradeKind::AircraftArmor => 0,
-            // LocomotorSetUpgrade (object_upgrade_callbacks.rs) and
-            // WorkerAIUpdate::getUpgradedSupplyBoost own Worker Shoes.
-            HostUpgradeKind::WorkerShoes => 0,
-            HostUpgradeKind::SuicideBomb => {
-                self.apply_demo_suicide_bomb_unlock_to_team(recipients, upgrade_name)
-            }
-            // PowerPlantUpgrade (authored_upgrade_modules.rs) owns Advanced Control Rods.
-            HostUpgradeKind::AdvancedControlRods => 0,
-            // Nationalism/Fanaticism are read from the Player by HordeUpdate's
-            // evaluateMoraleBonus (tanks_and_upgrades.rs); nothing to apply here.
-            HostUpgradeKind::Nationalism | HostUpgradeKind::Fanaticism => 0,
-            HostUpgradeKind::Radar => match recipients {
-                UpgradeRecipients::Object { object_id, .. } => {
-                    self.admit_host_radar_provider_with_effects(object_id, effects);
-                    1
-                }
-                UpgradeRecipients::Player { player_id, .. } => self
-                    .apply_radar_research_to_player_with_effects(player_id, upgrade_name, effects),
-                _ => 0,
-            },
-            HostUpgradeKind::SlaveDrone => self
-                .apply_slave_drone_upgrade_to_team_with_interpreter_and_effects(
-                    recipients,
-                    upgrade_name,
-                    interpreter,
-                    effects,
-                ),
-            HostUpgradeKind::CashBounty => {
-                self.apply_cash_bounty_upgrade_to_team(recipients, upgrade_name)
-            }
-            // Upgrades with no recipient-side work: their effects are authored
-            // modules (object_upgrade_callbacks.rs) or read from the Player.
-            _ => 0,
-        }
+        // Other upgrade families, including StealthUpgrade and radar, run
+        // through the authored per-object callbacks.
+        self.apply_authored_max_health_upgrades(recipients, upgrade_name)
     }
 
     pub(crate) fn present_host_upgrade_completion(
@@ -887,10 +812,16 @@ mod live_upgrade_mux_tests {
         // C++ OBJECT upgrade giveUpgrade is producer-only (hq-w4syv).
         let mut logic = GameLogic::new();
         add_player(&mut logic, 1, Team::China);
-        let mut t = ThingTemplate::new("ChinaTankOverlord");
-        t.set_health(1000.0);
-        t.add_kind_of(KindOf::Vehicle);
-        logic.templates.insert("ChinaTankOverlord".into(), t);
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(
+            &mut logic, UPGRADE_OVERLORD_BUNKER, "OBJECT", 0, 1,
+        );
+        logic.admit_object_creation_list_sources([
+            "ObjectCreationList OCL_TestBunker\nCreateObject\nObjectNames = TestPortableBunker\nCount = 1\nContainInsideSourceObject = Yes\nEnd\nEnd\n".into(),
+        ]).unwrap();
+        logic.admit_object_ini_sources([(
+            "TestBunkerUpgrade.ini".into(),
+            format!("Object ChinaTankOverlord\nKindOf = VEHICLE\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nBehavior = OverlordContain Contain\nSlots = 1\nAllowInsideKindOf = PORTABLE_STRUCTURE\nEnd\nBehavior = ObjectCreationUpgrade BunkerUpgrade\nTriggeredBy = {UPGRADE_OVERLORD_BUNKER}\nUpgradeObject = OCL_TestBunker\nEnd\nEnd\nObject TestPortableBunker\nKindOf = PORTABLE_STRUCTURE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = TransportContain Bunker\nSlots = 5\nAllowInsideKindOf = INFANTRY\nEnd\nEnd\n"),
+        )]).unwrap();
 
         let a = logic
             .create_object_for_player("ChinaTankOverlord", 1, Vec3::new(0.0, 0.0, 0.0))
@@ -903,16 +834,45 @@ mod live_upgrade_mux_tests {
 
         let producer = logic.host_object(a).expect("producer");
         let other = logic.host_object(b).expect("other");
-        assert_eq!(
-            producer.overlord_bunker_slot_capacity(),
-            5,
-            "producer bunker must install"
-        );
-        assert_eq!(
-            other.overlord_bunker_slot_capacity(),
+        let rider_id = producer.overlord_portable_occupant.expect("producer bunker");
+        assert_eq!(logic.host_object(rider_id).unwrap().transport_capacity(), 5);
+        assert!(other.overlord_portable_occupant.is_none(),
+            "sibling Overlord must not receive the object upgrade");
+    }
+
+    /// Author one RadarUpgrade (RadarUpgrade.cpp:72-96) triggered by
+    /// `trigger`; `grant` adds GrantUpgradeCreate of it (AmericaCommandCenter
+    /// / GLAVehicleRadarVan shape). Radar never comes from the template name.
+    fn author_radar(
+        logic: &mut GameLogic,
+        template: &mut ThingTemplate,
+        trigger: &str,
+        grant: bool,
+        disable_proof: bool,
+    ) {
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(
+            logic,
+            trigger,
+            if grant { "OBJECT" } else { "PLAYER" },
             0,
-            "sibling Overlord must not receive the object upgrade"
+            1,
         );
+        template.radar_upgrade_rules =
+            Some(vec![crate::game_logic::host_radar::RadarUpgradeRules {
+                triggered_by: vec![trigger.into()],
+                conflicts_with: vec![],
+                removes_upgrades: vec![],
+                fx_list: None,
+                requires_all: false,
+                disable_proof,
+                valid: true,
+            }]);
+        if grant {
+            template.grant_upgrade_creates = vec![crate::game_logic::GrantUpgradeCreateMetadata {
+                upgrade_name: trigger.into(),
+                exempt_under_construction: true,
+            }];
+        }
     }
 
     #[test]
@@ -924,6 +884,7 @@ mod live_upgrade_mux_tests {
         t.set_health(2000.0);
         t.add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::CommandCenter);
+        author_radar(&mut logic, &mut t, UPGRADE_CHINA_RADAR, false, false);
         logic.templates.insert("ChinaCommandCenter".into(), t);
         let cc = logic
             .create_object_for_player("ChinaCommandCenter", 1, Vec3::ZERO)
@@ -937,10 +898,7 @@ mod live_upgrade_mux_tests {
             !logic.get_player(1).expect("player").has_radar(),
             "China CC must not grant radar before research"
         );
-        logic
-            .get_player_mut(1)
-            .expect("player")
-            .add_completed_upgrade(UPGRADE_CHINA_RADAR);
+        logic.apply_host_upgrade_complete(Team::China, 1, UPGRADE_CHINA_RADAR);
         logic.update_player_radar();
         assert!(
             logic.get_player(1).expect("player").has_radar(),
@@ -981,6 +939,7 @@ mod live_upgrade_mux_tests {
         t.set_health(2000.0);
         t.add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::CommandCenter);
+        author_radar(&mut logic, &mut t, "Upgrade_AmericaRadar", true, false);
         logic.templates.insert("AmericaCommandCenter".into(), t);
         let cc = logic
             .create_object_for_player("AmericaCommandCenter", 1, Vec3::ZERO)
@@ -1024,6 +983,7 @@ mod live_upgrade_mux_tests {
         let mut t = ThingTemplate::new("GLAVehicleRadarVan");
         t.set_health(200.0);
         t.add_kind_of(KindOf::Vehicle);
+        author_radar(&mut logic, &mut t, "Upgrade_GLARadar", true, true);
         logic.templates.insert("GLAVehicleRadarVan".into(), t);
         let van = logic
             .create_object_for_player("GLAVehicleRadarVan", 1, Vec3::ZERO)

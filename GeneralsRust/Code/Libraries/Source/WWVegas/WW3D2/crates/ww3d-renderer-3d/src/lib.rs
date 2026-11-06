@@ -121,19 +121,6 @@ pub struct AttachmentRecord {
     pub parent_label: String,
 }
 
-/// Immutable bundle of render targets supplied to the renderer for a single frame.
-pub struct RenderTargets<'a> {
-    pub encoder: &'a mut wgpu::CommandEncoder,
-    pub color_view: &'a wgpu::TextureView,
-    pub depth_view: Option<&'a wgpu::TextureView>,
-    /// Attachment size in pixels. The main render pass applies the camera's
-    /// normalized viewport against this rect (C++ `dx8wrapper::Set_Viewport`
-    /// parity: D3D kept one device viewport that every scene lane — terrain
-    /// pre-scene, meshes, overlays — rendered through, so their depth writes
-    /// line up row-for-row). `(0, 0)` leaves the full-attachment default.
-    pub size: (u32, u32),
-}
-
 // Alias for backward compatibility
 pub mod bounding_volumes {
     pub use ww3d_collision::bounding_volumes::{
@@ -588,10 +575,11 @@ impl Renderer {
         pass.set_scissor_rect(sx, sy, sw, sh);
     }
 
-    /// Record the queued meshes into the provided command encoder and render targets.
-    pub fn render_with_targets(
+    /// Record the queued meshes into `frame`'s shared scene pass; with
+    /// `clear_color` the frame starts a cleared scene pass here.
+    fn record_mesh_flush(
         &mut self,
-        targets: RenderTargets<'_>,
+        frame: &mut ww3d_engine::RenderFrame,
         clear_color: Option<wgpu::Color>,
         render_info: Option<&RendererRenderInfoClass>,
         frame_time: Option<AnimationFrameInput>,
@@ -653,67 +641,33 @@ impl Renderer {
         // frame (W3DShadowManager). The former live cascade (4 depth passes
         // and a PCF term in opaque.wgsl) is gone (renderer plan R9 / G8).
 
-        let stencil = mesh_manager.stencil_available();
-        let load_op = clear_color
-            .map(wgpu::LoadOp::Clear)
-            .unwrap_or(wgpu::LoadOp::Load);
-
-        let render_result = {
-            let mut render_pass = targets
-                .encoder
-                .begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("WW3D Main Render Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: targets.color_view,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: load_op,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: targets.depth_view.map(|view| {
-                        wgpu::RenderPassDepthStencilAttachment {
-                            view,
-                            depth_ops: Some(wgpu::Operations {
-                                load: if clear_color.is_some() {
-                                    wgpu::LoadOp::Clear(1.0)
-                                } else {
-                                    wgpu::LoadOp::Load
-                                },
-                                store: wgpu::StoreOp::Store,
-                            }),
-                            // The shadow-volume counts live only in this pass.
-                            stencil_ops: stencil.then_some(wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(0),
-                                store: wgpu::StoreOp::Discard,
-                            }),
-                        }
-                    }),
-                    occlusion_query_set: None,
-                    timestamp_writes: None,
-                    multiview_mask: None,
-                });
-
-            // C++ dx8wrapper::Set_Viewport parity: D3D applied the tactical
-            // viewport as DEVICE state, so the terrain pre-scene pass and the
-            // mesh pass rendered through the SAME pixel rect and their depth
-            // writes lined up row-for-row. wgpu viewports are per-pass, so the
-            // mesh pass must explicitly reuse the camera's (tactical) viewport
-            // here; rendering full-attachment while the terrain writes a
-            // frac-height sub-rect makes every mesh fragment compare against
-            // the WRONG ROW of terrain depth (units vanish behind terrain).
-            Self::apply_camera_viewport(self.camera.as_ref(), &mut render_pass, targets.size);
-
-            mesh_manager.render_pass_with_shadow_volumes(
-                &mut render_pass,
-                &prepared.opaque,
-                &prepared.shadow_casters,
-                &blended_and_decals,
-                info,
-                arena,
-            )
+        let size = frame.size();
+        let render_pass = match clear_color {
+            Some(color) => frame.clear_scene_pass(ww3d_gpu::scene_pass::SceneClear {
+                color,
+                depth: 1.0,
+            }),
+            None => frame.scene_pass(),
         };
+        // C++ dx8wrapper::Set_Viewport parity: D3D applied the tactical
+        // viewport as DEVICE state, so the terrain pre-scene draws and the
+        // meshes rendered through the SAME pixel rect and their depth writes
+        // lined up row-for-row. wgpu viewports are pass state, so the mesh
+        // flush explicitly reuses the camera's (tactical) viewport here;
+        // rendering full-attachment while the terrain writes a frac-height
+        // sub-rect makes every mesh fragment compare against the WRONG ROW of
+        // terrain depth (units vanish behind terrain). The scene pass cleared
+        // the stencil when the frame opened it, so the shadow-volume counts
+        // start at zero.
+        Self::apply_camera_viewport(self.camera.as_ref(), render_pass, size);
+        let render_result = mesh_manager.render_pass_with_shadow_volumes(
+            render_pass,
+            &prepared.opaque,
+            &prepared.shadow_casters,
+            &blended_and_decals,
+            info,
+            arena,
+        );
         render_result?;
 
         for render_obj in non_mesh_static.drain(..) {
@@ -730,29 +684,13 @@ impl Renderer {
         clear_color: Option<wgpu::Color>,
         render_info: Option<&RendererRenderInfoClass>,
     ) -> RendererResult<()> {
-        let color_view = frame.color_view_arc();
-        let depth_view = frame.depth_view_arc();
-        let depth_ref = depth_view.as_deref();
         let timing = frame.timing;
         let animation_input = AnimationFrameInput::new(
             timing.delta_seconds(),
             Some(timing.total_seconds()),
             Some(timing.frame_number),
         );
-        let size = frame.size();
-        let result = self.render_with_targets(
-            RenderTargets {
-                encoder: frame.encoder(),
-                color_view: color_view.as_ref(),
-                depth_view: depth_ref,
-                size,
-            },
-            clear_color,
-            render_info,
-            Some(animation_input),
-        );
-        frame.note_render_pass();
-        result
+        self.record_mesh_flush(frame, clear_color, render_info, Some(animation_input))
     }
 
     /// Record this renderer's sorted translucent batches (C++
@@ -761,50 +699,12 @@ impl Renderer {
         if self.mesh_render_manager.sorted_batch_count() == 0 {
             return Ok(());
         }
-        let color_view = frame.color_view_arc();
-        let depth_view = frame.depth_view_arc();
         let size = frame.size();
-        frame.note_render_pass();
-        let targets = RenderTargets {
-            encoder: frame.encoder(),
-            color_view: color_view.as_ref(),
-            depth_view: depth_view.as_deref(),
-            size,
-        };
-        {
-            let mut sort_pass = targets
-                .encoder
-                .begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("WW3D Sorting Flush"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: targets.color_view,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: targets.depth_view.map(|view| {
-                        wgpu::RenderPassDepthStencilAttachment {
-                            view,
-                            depth_ops: Some(wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: wgpu::StoreOp::Store,
-                            }),
-                            stencil_ops: None,
-                        }
-                    }),
-                    occlusion_query_set: None,
-                    timestamp_writes: None,
-                    multiview_mask: None,
-                });
-            // The sorting flush draws through the same tactical viewport as
-            // the mesh flush (it used to cover the full attachment).
-            Self::apply_camera_viewport(self.camera.as_ref(), &mut sort_pass, targets.size);
-            self.mesh_render_manager.flush_sorted(&mut sort_pass);
-        }
-
+        let sort_pass = frame.scene_pass();
+        // The sorting flush draws through the same tactical viewport as
+        // the mesh flush (it used to cover the full attachment).
+        Self::apply_camera_viewport(self.camera.as_ref(), sort_pass, size);
+        self.mesh_render_manager.flush_sorted(sort_pass);
         Ok(())
     }
 

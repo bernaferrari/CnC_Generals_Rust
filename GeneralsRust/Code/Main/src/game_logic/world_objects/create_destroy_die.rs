@@ -2869,24 +2869,6 @@ impl GameLogic {
                     .max(crate::game_logic::host_troop_crawler::TROOP_CRAWLER_VISION_RANGE);
             }
 
-            // Host residual: China Overlord / Helix / Emperor portable addons + transport.
-            // Fail-closed: not full OverlordContain / HelixContain portable-structure spawn.
-            if crate::game_logic::host_overlord_addons::is_overlord_tank_template(template_name) {
-                // OverlordContain style: portable slot reserved; bunker residual separate.
-                object.overlord_bunker_capacity = Some(0);
-            }
-            // Helix PRIMARY binds from the authored WeaponSet above (C++
-            // WeaponSet::updateWeaponSet from ThingTemplate), not a
-            // template-name host table (hq-2qedt.139).
-            // Emperor innate propaganda keyed on authored PropagandaTowerBehavior
-            // (hq-2qedt.256), not is_emperor_template name peel.
-            let emperor_spawn = object.authors_innate_propaganda_tower();
-            if emperor_spawn {
-                // Innate PropagandaTowerBehavior AffectsSelf residual.
-                object.has_overlord_propaganda_addon = true;
-
-                object.overlord_bunker_capacity = Some(0);
-            }
 
             // Host residual: America Humvee TransportContain Slots=5 + passenger fire.
             // Fail-closed: not multi-exit-path / drone ObjectCreationUpgrade matrix.
@@ -3116,10 +3098,6 @@ impl GameLogic {
                 ui,
             )?;
             verify_factory_birth!();
-            // Residual honesty: Emperor innate propaganda counts as install on spawn.
-            if emperor_spawn {
-                self.overlord_addons.record_propaganda_install();
-            }
 
             // C++ VeterancyGainCreate.cpp:63-65 controlling player only, then
             // PlayerTemplate fallback. Ally training science must not veteran
@@ -3230,38 +3208,6 @@ impl GameLogic {
                                 && !obj.has_upgrade_tag(UPGRADE_AMERICA_ADVANCED_TRAINING)
                             {
                                 obj.apply_upgrade_tag(UPGRADE_AMERICA_ADVANCED_TRAINING);
-                            }
-                        }
-                    }
-                }
-
-                // Host residual: Demo SuicideBomb tag + CommandSetUpgrade if researched.
-                {
-                    use crate::game_logic::host_demo_suicide_bomb::{
-                        UPGRADE_DEMO_SUICIDE_BOMB, demo_command_set_upgrade_for_template,
-                        is_demo_suicide_bomb_eligible_template, is_demo_suicide_bomb_upgrade,
-                    };
-                    if is_demo_suicide_bomb_eligible_template(template_name) {
-                        let has_upgrade = self.players.values().any(|p| {
-                            p.team == team
-                                && p.unlocked_sciences
-                                    .iter()
-                                    .any(|s| is_demo_suicide_bomb_upgrade(s))
-                        });
-                        if has_upgrade {
-                            if let Some(obj) = self.objects.get_mut(&id) {
-                                if !obj.has_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB) {
-                                    obj.apply_upgrade_tag(UPGRADE_DEMO_SUICIDE_BOMB);
-                                    self.demo_suicide_bomb.record_tag();
-                                }
-                                if obj.command_set_override.is_none() {
-                                    if let Some(cs) =
-                                        demo_command_set_upgrade_for_template(&obj.template_name)
-                                    {
-                                        obj.set_command_set_override(Some(cs));
-                                        self.demo_suicide_bomb.record_command_set_upgrade(1);
-                                    }
-                                }
                             }
                         }
                     }

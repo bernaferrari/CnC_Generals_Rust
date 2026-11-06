@@ -1268,6 +1268,9 @@ fn presentation_freezes_transport_kind_damage_residual() {
         t.set_health(100.0);
         t.add_kind_of(KindOf::Selectable);
         t.add_kind_of(KindOf::Vehicle);
+        t.contain_module.kind = crate::game_logic::ContainModuleKind::Transport;
+        t.contain_module.is_overlord_contain = true;
+        t.contain_module.slots = Some(1);
         logic.templates.insert("PresTK".into(), t);
     }
     let id = logic
@@ -1276,24 +1279,28 @@ fn presentation_freezes_transport_kind_damage_residual() {
     let src_id = logic
         .create_object("PresTK", Team::GLA, glam::Vec3::new(8.0, 0.0, 6.0))
         .expect("src");
+    let mut bunker = ThingTemplate::new("PresentationPortableBunker");
+    bunker.add_kind_of(KindOf::PortableStructure).set_health(100.0);
+    bunker.contain_module.kind = crate::game_logic::ContainModuleKind::Transport;
+    bunker.contain_module.slots = Some(4);
+    logic.templates.insert(bunker.name.clone(), bunker);
+    let payload = logic.create_object("PresentationPortableBunker", Team::USA, glam::Vec3::ZERO).unwrap();
+    logic.attach_overlord_portable_occupant(id, payload);
     {
         let obj = logic.host_object_mut(id).expect("obj");
         obj.is_humvee_transport = true;
         obj.is_listening_outpost_transport = true;
         obj.is_troop_crawler_transport = true;
         obj.is_helix_transport = true;
-        obj.has_overlord_gattling_addon = true;
-        obj.has_overlord_propaganda_addon = true;
         obj.demo_suicided_detonating = true;
         obj.turret_ai.turret_holding = true;
         obj.last_damage_source = Some(src_id);
     }
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert_eq!(frame.humvee_transport_object_count(), 1);
-    assert_eq!(frame.overlord_gattling_object_count(), 1);
     let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
     assert!(ro.is_humvee_transport && ro.is_helix_transport);
-    assert!(ro.has_overlord_gattling_addon && ro.has_overlord_propaganda_addon);
+    assert_eq!(ro.overlord_bunker_capacity, 4);
     assert!(ro.demo_suicided_detonating && ro.turret_holding);
     assert_eq!(ro.last_damage_source_host, src_id.0);
 }

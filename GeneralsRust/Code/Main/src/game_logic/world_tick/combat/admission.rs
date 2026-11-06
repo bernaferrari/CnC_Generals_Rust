@@ -40,8 +40,17 @@ impl GameLogic {
                 {
                     return Ok(None);
                 }
-                // ECM jam residual: C++ canFireWeapon DISABLED_SUBDUED — no fire while jammed.
-                if attacker.status.weapons_jammed || attacker.is_disabled() {
+                // HelixContain holds its riders while explicitly allowing
+                // passenger fire. HELD alone does not block that path.
+                let helix_passenger = attacker.contained_by
+                    .and_then(|id| self.objects.get(&id))
+                    .is_some_and(|host| host.is_helix_transport);
+                let disabled = if helix_passenger {
+                    attacker.status.under_construction || attacker.has_disabled_type_except_held()
+                } else {
+                    attacker.is_disabled()
+                };
+                if attacker.status.weapons_jammed || disabled {
                     return Ok(None);
                 }
                 // Nested AttackStateMachine residual owns aim/fire/approach for these units.
@@ -76,7 +85,11 @@ impl GameLogic {
                     || attacker.object_type == ObjectType::Aircraft;
                 let docked_sortie =
                     attacker.ai_state() == AIState::Docked && is_ac && attacker.target.is_some();
-                let docked_passenger = attacker.ai_state() == AIState::Docked && !docked_sortie;
+                let portable_rider = attacker.is_kind_of(KindOf::PortableStructure)
+                    && attacker.contained_by.and_then(|id| self.objects.get(&id))
+                        .is_some_and(|host| host.overlord_portable_occupant == Some(attacker_id));
+                let docked_passenger = (attacker.ai_state() == AIState::Docked && !docked_sortie)
+                    || portable_rider;
                 let garrisoned = attacker.ai_state() == AIState::Garrisoned;
                 (
                     std::sync::Arc::downgrade(&attacker.visual_draw_identity_token),
@@ -198,18 +211,6 @@ impl GameLogic {
                     );
                     return Ok(None);
                 }
-            }
-            // Portable Overlord/Helix gattling: independent auto-acquire (HelixContain.cpp:340).
-            if self
-                .objects
-                .get(&attacker_id)
-                .map(|a| a.has_overlord_gattling_residual())
-                .unwrap_or(false)
-            {
-                self.try_overlord_gattling_addon_independent_fire_with_effects(
-                    attacker_id,
-                    presentation_effects,
-                );
             }
             let Some(attacker) = self.objects.get(&attacker_id) else {
                 return Ok(None);

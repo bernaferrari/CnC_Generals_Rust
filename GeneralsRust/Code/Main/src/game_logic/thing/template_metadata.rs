@@ -1375,6 +1375,10 @@ pub struct SpecialPowerModuleMetadata {
     pub update_module_starts_attack: bool,
     pub starts_paused: bool,
     pub scripted_special_power_only: bool,
+    /// `CashBountyPowerModuleData::m_defaultBounty` (`Bounty`, percent as a
+    /// fraction). `None` for other subclasses or an omitted field (C++ 0.0).
+    #[serde(default)]
+    pub cash_bounty: Option<f32>,
 }
 
 /// Exact capture special carried by an Object INI `SpecialAbility` module.

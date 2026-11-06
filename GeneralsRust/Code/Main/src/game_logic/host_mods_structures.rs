@@ -38,9 +38,6 @@ pub mod host_hacker_income;
 #[path = "host_listening_outpost.rs"]
 pub mod host_listening_outpost;
 
-#[path = "host_model_condition_upgrade.rs"]
-pub(super) mod host_model_condition_upgrade;
-
 #[path = "host_money_crate.rs"]
 pub mod host_money_crate;
 

@@ -37,16 +37,29 @@ impl GameLogic {
         for (id, _) in ordered {
             // Release the owner's borrow before a passenger runs its actual
             // attack algorithm. Later phases reread the current owner.
-            let passengers = self.host_object(id).filter(|owner| {
-                if owner.is_garrison_contain() {
+            let contain_owner = self.redirected_containment_owner(id);
+            let (may_fire, helix_rider) = self.host_object(contain_owner).map(|owner| {
+                let nested = ((owner.is_overlord_style_container() || owner.is_helix_transport)
+                    && owner.contained_by.is_some())
+                    || owner.contained_by.and_then(|id| self.host_object(id))
+                        .is_some_and(|outer| outer.is_overlord_style_container() && outer.contained_by.is_some());
+                let ordinary = !nested && if owner.is_garrison_contain() {
                     !owner.is_subdued_disabled()
                 } else {
                     owner.passengers_allowed_to_fire
-                        || crate::game_logic::host_passengers_fire_upgrade::overlord_bunker_passengers_may_fire(
-                            owner.overlord_bunker_slot_capacity(), owner.contained_by.is_some())
-                }
-            }).map(|_| self.contained_units_for_interface(id)).unwrap_or_default();
+                };
+                let rider = if owner.is_helix_transport && owner.contained_by.is_none() {
+                    owner.overlord_portable_occupant
+                } else {
+                    None
+                };
+                (ordinary, rider)
+            }).unwrap_or((false, None));
+            let passengers = self.contained_units_for_interface(id);
             for passenger in passengers {
+                if !may_fire && helix_rider != Some(passenger) {
+                    continue;
+                }
                 if self
                     .host_object(passenger)
                     .is_some_and(|object| object.has_ai_update_interface())

@@ -1285,53 +1285,19 @@ pub fn enqueue_selection_render(
         // its depth reads/writes line up row-for-row with theirs.
         let (vp_w, vp_h) = pipeline.tactical_viewport_pixel_size();
         pipeline.enqueue_frame_work(ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::DecalShadows, move |frame| {
-            let color_view = frame.color_view_arc();
-            let depth_view = frame.depth_view_arc();
-            frame.note_render_pass();
-            let encoder = frame.encoder();
-
-            let depth_stencil =
-                depth_view
-                    .as_ref()
-                    .map(|dv| wgpu::RenderPassDepthStencilAttachment {
-                        view: dv.as_ref(),
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        }),
-                        stencil_ops: None,
-                    });
-
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("selection world overlay pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: color_view.as_ref(),
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: depth_stencil,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-
+            // Ground decals share the frame's scene pass (plan R12).
+            let render_pass = frame.scene_pass();
             let vp_w = vp_w.max(1.0);
             let vp_h = vp_h.max(1.0);
             render_pass.set_viewport(0.0, 0.0, vp_w, vp_h, 0.0, 1.0);
             render_pass.set_scissor_rect(0, 0, vp_w as u32, vp_h as u32);
 
             world_renderer.draw(
-                &mut render_pass,
+                render_pass,
                 &view_proj,
                 &selected_units,
                 &order_line_vertices,
             );
-
-            drop(render_pass);
             Ok(())
         });
     }

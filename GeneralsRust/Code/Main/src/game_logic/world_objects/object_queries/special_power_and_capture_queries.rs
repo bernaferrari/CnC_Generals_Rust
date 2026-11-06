@@ -373,9 +373,9 @@ impl GameLogic {
                 player.express_shared_special_power_ready_now(power);
             }
         }
-        // C++ Player::addScience → SpecialPowerModule::onSpecialPowerCreation.
-        // CashBountyPower is the only setter; no palace module ⇒ no bounty.
-        let _ = self.apply_cash_bounty_from_palace_modules(player_id, Some(science_name));
+        // C++ Player::addScience → SpecialPowerModule::onSpecialPowerCreation
+        // for modules whose RequiredScience is this science (Player.cpp:2533).
+        self.apply_cash_bounty_for_added_science(player_id, science_name);
     }
 
     pub fn team_has_completed_capture_upgrade(&self, team: Team) -> bool {

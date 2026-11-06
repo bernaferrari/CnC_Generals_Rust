@@ -9,22 +9,6 @@
 )]
 use super::*;
 
-struct ShadowCallbackDevice {
-    device: std::sync::Arc<wgpu::Device>,
-}
-
-#[cfg(target_arch = "wasm32")]
-// SAFETY: wasm32-only. The single field is `Arc<wgpu::Device>`, an `Rc`-backed
-// handle on the web backend that makes the struct `!Send`/`!Sync` by default.
-// wasm32-unknown-unknown has no threads, so the device can never move to or
-// be observed from another thread; the impl only satisfies the bounds of the
-// shadow-pass callback slot that stores it. Native keeps the auto traits.
-unsafe impl Send for ShadowCallbackDevice {}
-#[cfg(target_arch = "wasm32")]
-// SAFETY: same wasm32-only scope: the target is single-threaded, so
-// `&ShadowCallbackDevice` is never accessed from two threads and the device's
-// `!Sync` default is unreachable.
-unsafe impl Sync for ShadowCallbackDevice {}
 impl RenderPipeline {
     pub fn execute(
         &mut self,
@@ -516,50 +500,10 @@ impl RenderPipeline {
         }
         #[cfg(feature = "game_client")]
         {
-            // C++ DoShadows(true) after opaque flush.
-            let depth_format = graphics_system
-                .depth_format()
-                .unwrap_or(wgpu::TextureFormat::Depth32Float);
-            let color_format = graphics_system.color_format();
-            let _ = game_client::display::shadow_pass::present_volumetric_shadows(depth_format);
-            let view_proj = *projection_matrix * *view_matrix;
-            let camera = [camera_position.x, camera_position.y, camera_position.z];
-            let light_pos = self
-                .cached_lighting
-                .as_ref()
-                .and_then(|lighting| lighting.sun_direction)
-                .unwrap_or([0.0, 0.0, -1.0]);
-            let device = ShadowCallbackDevice {
-                device: graphics_system.device_arc(),
-            };
-            let shadow_viewport_px = self.tactical_viewport_pixel_size();
-            self.enqueue_frame_work(
-                ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::StencilShadows,
-                move |gpu_frame| {
-                let Some(depth_view) = gpu_frame.depth_view_arc() else {
-                    return Ok(());
-                };
-                let color_view = gpu_frame.color_view_arc();
-                game_client::display::shadow_pass::record_shadow_and_occlusion_passes(
-                    device.device.as_ref(),
-                    gpu_frame.encoder(),
-                    color_view.as_ref(),
-                    depth_view.as_ref(),
-                    view_proj,
-                    camera,
-                    light_pos,
-                    color_format,
-                    depth_format,
-                    shadow_viewport_px,
-                );
-                Ok(())
-                },
-            );
-
-            // C++ W3DScene order: water (static sort level 2) renders after the
-            // shadow passes and before translucent objects / post filters
-            // (W3DScene.cpp:833-836). Enqueued after the shadow callback above,
-            // so post-frame execution order is shadows -> water -> filter.
+            // C++ W3DScene order: stencil shadow volumes (DoShadows(true)) are
+            // recorded by the mesh flush; water (static sort level 2) renders
+            // after them and before translucent objects / post filters
+            // (W3DScene.cpp:833-836).
             self.execute_water_pass(graphics_system)?;
         }
         #[cfg(feature = "game_client")]
@@ -623,6 +567,7 @@ impl RenderPipeline {
             let width = color_texture.width();
             let height = color_texture.height();
             let scroll = game_client::display::view::Vector2::new(filter_scroll.x, filter_scroll.y);
+            let mut filter_pass = false;
             {
                 let view_filter = native_receiver.view_filter_mut();
                 let composite = view_filter.composite(scroll);
@@ -637,7 +582,7 @@ impl RenderPipeline {
                     view_filter.tick_fade();
                     let composite = view_filter.composite(scroll);
                     let post = view_filter.post_render(filter_logic_frame, scroll);
-                    filter_resources.composite_retained_view_filter(
+                    filter_pass = filter_resources.composite_retained_view_filter(
                         device.as_ref(),
                         queue.as_ref(),
                         encoder,
@@ -655,6 +600,9 @@ impl RenderPipeline {
                         .map(|position| Vec3::new(position.x, position.z, position.y));
                 }
             }
+            if filter_pass {
+                gpu_frame.note_render_pass();
+            }
             // C++ LookAt executes inside postRender, before the locked Drawable
             // uses the new matrix. This is not another camera/view update.
             native_receiver
@@ -671,7 +619,7 @@ impl RenderPipeline {
             let queue = frame.queue_arc();
             let format = frame.color_format();
             let encoder = frame.encoder();
-            game_client::display::status_circle::record_camera_fade(
+            let fade_pass = game_client::display::status_circle::record_camera_fade(
                 fade_resources,
                 device.as_ref(),
                 queue.as_ref(),
@@ -682,6 +630,9 @@ impl RenderPipeline {
                 camera_fade.intensity,
                 camera_fade.diffuse,
             );
+            if fade_pass {
+                frame.note_render_pass();
+            }
             Ok(())
         };
         let projected_shroud = self
