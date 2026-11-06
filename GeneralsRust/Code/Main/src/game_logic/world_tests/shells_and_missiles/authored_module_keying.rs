@@ -164,7 +164,7 @@ fn emperor_addon_conflicts_key_on_authored_innate_tower() {
             .unwrap();
         let o = world.host_object_mut(id).unwrap();
         o.has_overlord_propaganda_addon = true;
-        o.install_overlord_gattling_addon();
+        o.install_overlord_gattling_addon(0);
         (
             o.has_overlord_propaganda_addon,
             o.has_overlord_propaganda_residual(),
@@ -271,84 +271,52 @@ fn stinger_hive_spawn_keys_on_authored_spawns_are_the_weapons() {
     );
 }
 
-/// hq-2qedt.260: Black Lotus innate hero stealth keys on the authored
-/// SpecialAbilityBlackLotusCaptureBuilding capture power, not the template name.
 #[test]
-fn black_lotus_innate_stealth_keys_on_authored_capture_power() {
-    let run = |name: &str, lotus: bool| -> bool {
+fn lotus_innate_stealth_comes_from_authored_stealth_update() {
+    let run = |name: &str, authored: bool| {
         let mut logic = GameLogic::new();
-        logic.players.insert(
-            0,
-            crate::game_logic::Player::new(0, Team::China, "China", true),
-        );
-        let mut t = crate::game_logic::ThingTemplate::new(name);
-        t.add_kind_of(KindOf::Infantry)
-            .add_kind_of(KindOf::Selectable)
-            .set_health(200.0);
-        if lotus {
-            t.capture_power = crate::game_logic::CapturePowerKind::BlackLotus;
+        logic.players.insert(0, crate::game_logic::Player::new(0, Team::China, "China", true));
+        let mut template = crate::game_logic::ThingTemplate::new(name);
+        template.add_kind_of(KindOf::Infantry).add_kind_of(KindOf::Selectable).set_health(200.0);
+        if authored {
+            template.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+                innate_stealth: true, ..Default::default()
+            });
+        } else {
+            template.capture_power = crate::game_logic::CapturePowerKind::BlackLotus;
         }
-        logic.templates.insert(name.into(), t);
-        let id = logic
-            .create_object(name, Team::China, Vec3::ZERO)
-            .expect("lotus");
+        logic.templates.insert(name.into(), template);
+        let id = logic.create_object(name, Team::China, Vec3::ZERO).expect("infantry");
         logic.host_object(id).unwrap().innate_stealth
     };
-    assert!(
-        run("TestHeroCaptureInfantry", true),
-        "authored Black Lotus capture power gets innate hero stealth"
-    );
-    assert!(
-        !run("ChinaInfantryBlackLotus", false),
-        "Lotus-named infantry without the authored capture power gets no hero stealth"
-    );
+    assert!(run("TestHeroCaptureInfantry", true));
+    assert!(!run("ChinaInfantryBlackLotus", false), "capture power and name do not grant innate stealth");
 }
 
-/// hq-2qedt.261: Pathfinder reveal response (OrderIdleEnemiesToAttackMeUponReveal)
-/// keys on the authored USAPathfinderSniperRifle WeaponSet slot, not the name.
 #[test]
-fn pathfinder_reveal_response_keys_on_authored_sniper_weapon() {
-    let run = |name: &str, weapon: &str| -> bool {
+fn pathfinder_reveal_response_comes_from_authored_stealth_update() {
+    let run = |name: &str, authored: bool| {
         let mut logic = GameLogic::new();
-        logic
-            .players
-            .insert(0, crate::game_logic::Player::new(0, Team::USA, "USA", true));
-        logic.players.insert(
-            1,
-            crate::game_logic::Player::new(1, Team::China, "China", true),
-        );
-        let mut t = crate::game_logic::ThingTemplate::new(name);
-        t.add_kind_of(KindOf::Infantry)
-            .add_kind_of(KindOf::Selectable)
-            .set_health(100.0)
-            .set_primary_weapon_name(weapon);
-        logic.templates.insert(name.into(), t);
-        let mut e = crate::game_logic::ThingTemplate::new("TestChinaGrunt");
-        e.add_kind_of(KindOf::Infantry)
-            .add_kind_of(KindOf::Selectable)
-            .set_health(100.0);
-        logic.templates.insert("TestChinaGrunt".into(), e);
-        let v = logic
-            .create_object(name, Team::USA, Vec3::ZERO)
-            .expect("victim");
-        let eid = logic
-            .create_object("TestChinaGrunt", Team::China, Vec3::new(20.0, 0.0, 0.0))
-            .expect("enemy");
-        logic.host_object_mut(eid).unwrap().vision_range = 300.0;
-        logic.order_idle_enemies_to_attack_on_reveal(v);
-        logic.host_object(eid).unwrap().target == Some(v)
+        logic.players.insert(0, crate::game_logic::Player::new(0, Team::USA, "USA", true));
+        logic.players.insert(1, crate::game_logic::Player::new(1, Team::China, "China", true));
+        let mut template = crate::game_logic::ThingTemplate::new(name);
+        template.add_kind_of(KindOf::Infantry).add_kind_of(KindOf::Selectable).set_health(100.0)
+            .set_primary_weapon_name(crate::game_logic::host_pathfinder::PATHFINDER_SNIPER_WEAPON);
+        template.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+            order_idle_enemies_to_attack_me_upon_reveal: authored, ..Default::default()
+        });
+        logic.templates.insert(name.into(), template);
+        let mut enemy = crate::game_logic::ThingTemplate::new("TestChinaGrunt");
+        enemy.add_kind_of(KindOf::Infantry).add_kind_of(KindOf::Selectable).set_health(100.0);
+        logic.templates.insert("TestChinaGrunt".into(), enemy);
+        let victim = logic.create_object(name, Team::USA, Vec3::ZERO).expect("victim");
+        let enemy = logic.create_object("TestChinaGrunt", Team::China, Vec3::new(20.0, 0.0, 0.0)).expect("enemy");
+        logic.host_object_mut(enemy).unwrap().vision_range = 300.0;
+        logic.order_idle_enemies_to_attack_on_reveal(victim);
+        logic.host_object(enemy).unwrap().target == Some(victim)
     };
-    assert!(
-        run(
-            "TestSniperInfantry",
-            crate::game_logic::host_pathfinder::PATHFINDER_SNIPER_WEAPON
-        ),
-        "authored Pathfinder sniper WeaponSet orders idle enemies on reveal"
-    );
-    assert!(
-        !run("AmericaInfantryPathfinder", "TestNonRetailRifle"),
-        "Pathfinder-named infantry without the authored sniper does not"
-    );
+    assert!(run("TestSniperInfantry", true));
+    assert!(!run("AmericaInfantryPathfinder", false), "sniper weapon and name do not enable reveal response");
 }
 
 /// hq-2qedt.194: C++ BlackNapalm / Tactical Nuke MiG are WeaponSetUpgrade
@@ -507,9 +475,12 @@ fn stealth_fighter_innate_stealth_residual_keys_on_authored_stealth_update() {
         .add_kind_of(KindOf::Aircraft)
         .add_kind_of(KindOf::Selectable)
         .set_health(150.0);
-    authored.stealth_update_innate = true;
-    authored.stealth_update_forbids_attacking = true;
-    authored.stealth_update_delay_ms = Some(2000);
+    authored.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        innate_stealth: true,
+        forbidden_conditions: crate::game_logic::object::StealthForbiddenConditions::ATTACKING,
+        stealth_delay_frames: 60,
+        ..Default::default()
+    });
     game_logic
         .templates
         .insert("TestCloakJet".to_string(), authored);
@@ -534,7 +505,8 @@ fn stealth_fighter_innate_stealth_residual_keys_on_authored_stealth_update() {
     let a = game_logic.host_object(authored_id).expect("authored");
     assert!(a.innate_stealth, "authored InnateStealth must apply");
     assert_eq!(
-        a.stealth_delay_frames, 60,
+        a.stealth_update_data().map(|d| d.stealth_delay_frames),
+        Some(60),
         "authored StealthDelay 2000ms = 60f"
     );
 }

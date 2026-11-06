@@ -901,10 +901,7 @@ impl UnitRenderInput {
             user_1: self.user_1,
             user_2: self.user_2,
             using_ability: self.using_ability,
-            veterancy: self.veterancy,
-            weapon_crate_upgrade: self.weapon_crate_upgrade,
             weapon_fire_status: self.weapon_fire_status,
-            weapon_set_player_upgrade: self.weapon_set_player_upgrade,
             world_is_night: self.world_is_night,
             world_is_snow: self.world_is_snow,
         }
@@ -1629,7 +1626,7 @@ mod tests {
         {
             let o = logic.host_object_mut(local_car).expect("local car obj");
             o.owner_player_id = Some(0);
-            o.weapon_set_carbomb = true;
+            o.set_weapon_condition_at_frame(7, true, 0);
             o.status.is_carbomb = true;
         }
         let enemy_car = logic
@@ -1638,7 +1635,7 @@ mod tests {
         {
             let o = logic.host_object_mut(enemy_car).expect("enemy car obj");
             o.owner_player_id = Some(1);
-            o.weapon_set_carbomb = true;
+            o.set_weapon_condition_at_frame(7, true, 0);
             o.status.is_carbomb = true;
         }
         let target = logic

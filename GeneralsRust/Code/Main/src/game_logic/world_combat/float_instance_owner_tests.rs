@@ -187,7 +187,8 @@ fn water_fixture(path: &std::path::Path) -> (GameLogic, ObjectId) {
     use crate::game_logic::ThingTemplate;
 
     let mut world = GameLogic::new();
-    world.start_new_game(crate::game_logic::GameMode::SinglePlayer);
+    world.admit_object_ini_sources(std::iter::empty()).unwrap();
+    world.start_new_game(crate::game_logic::GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(path.to_str().unwrap()));
     assert!(
         world.terrain.is_none(),

@@ -28,7 +28,7 @@ fn world(variation_one: &str, variation_two: &str) -> (GameLogic, ObjectId) {
     logic
         .admit_object_ini_sources([("Object.ini".into(), object_ini)])
         .expect("admit per-world Object INI");
-    logic.start_new_game(GameMode::SinglePlayer);
+    logic.start_new_game(GameMode::SinglePlayer).unwrap();
     let mut player = Player::new(0, Team::USA, "Owner", true);
     player.resources.supplies = 5000;
     logic.add_player(player);

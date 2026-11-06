@@ -11,7 +11,8 @@ fn isolated(name: &str, run: impl FnOnce()) {
 fn world(game_info: Option<u32>, definition_base: u32) -> GameLogic {
     crate::skirmish_config::lobby_definition_tests::admit_slot_definitions();
     let mut world = GameLogic::new();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.admit_object_ini_sources(std::iter::empty()).unwrap();
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     world.admit_new_game_starting_cash(game_info, definition_base);
     world
 }
@@ -247,7 +248,7 @@ fn same_id_worlds_keep_cash_isolated_across_foreign_reset_and_drop() {
             assert_eq!(first.skirmish_rules.starting_cash_default, Some(17_321));
             assert_eq!(load(&mut first, &path), a);
             assert_eq!(first.players[&a].resources.supplies, 18_021);
-            first.start_new_game(GameMode::SinglePlayer);
+            first.start_new_game(GameMode::SinglePlayer).unwrap();
             first.admit_new_game_starting_cash(None, 21_000);
             let next = load(&mut first, &path);
             assert_eq!(first.players[&next].resources.supplies, 21_700);
@@ -351,7 +352,7 @@ fn reset_and_direct_restart_clear_the_previous_cash_source() {
                     current.skirmish_rules.starting_cash_default,
                     Some(Player::DEFAULT_STARTING_MONEY)
                 );
-                current.start_new_game(GameMode::SinglePlayer);
+                current.start_new_game(GameMode::SinglePlayer).unwrap();
                 template_cash(0);
                 let id = load(&mut current, &path);
                 assert_eq!(

@@ -931,8 +931,9 @@ fn object_attack_skips_vehicle_transport_riders() {
         .create_object("AT_VE", Team::China, Vec3::new(40.0, 0.0, 0.0))
         .unwrap();
     {
+        let frame = logic.get_current_frame() as u32;
         let h = logic.host_object_mut(chinook).unwrap();
-        h.install_combat_chinook_transport();
+        h.install_combat_chinook_transport(frame);
         let _ = h.add_occupant(rider);
         h.weapon = Some(Weapon {
             damage: 5.0,
@@ -1095,14 +1096,18 @@ fn stealth_mood_delay_skips_while_stealthed_auto_acquire() {
     tpl.add_kind_of(KindOf::Infantry);
     tpl.add_kind_of(KindOf::Selectable);
     tpl.set_health(100.0);
+    tpl.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        stealth_delay_frames: 30,
+        ..Default::default()
+    });
+    tpl.auto_acquire_enemies_when_idle =
+        gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE_STEALTHED;
     logic.templates.insert("ST_P".to_string(), tpl);
     let id = logic.create_object("ST_P", Team::USA, Vec3::ZERO).unwrap();
     {
         let u = logic.host_object_mut(id).unwrap();
         u.innate_stealth = true;
-        u.stealth_delay_frames = 30;
         u.set_auto_acquire_when_idle(true);
-        u.stealth_breaks_on_attack = false;
         u.status.stealthed = false;
         u.status.detected = false;
         u.weapon = Some(crate::game_logic::Weapon {
@@ -1117,6 +1122,38 @@ fn stealth_mood_delay_skips_while_stealthed_auto_acquire() {
         "units that auto-acquire while stealthed must not get a stop mood delay"
     );
     assert_eq!(logic.host_object(id).unwrap().next_mood_check_time, 0);
+}
+
+#[test]
+fn stealth_mood_delay_uses_authored_grant_and_live_acquire_mask() {
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use gamelogic::object::update::ai_update_interface::{AUTO_ACQUIRE_IDLE, AUTO_ACQUIRE_IDLE_NO};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut ordinary = ThingTemplate::new("ST_ORDINARY");
+    ordinary.add_kind_of(KindOf::Infantry);
+    ordinary.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        stealth_delay_frames: 30,
+        ..Default::default()
+    });
+    ordinary.auto_acquire_enemies_when_idle = AUTO_ACQUIRE_IDLE;
+    let mut granted = ordinary.clone();
+    granted.stealth_update.as_mut().unwrap().granted_by_special_power = true;
+    logic.templates.insert("ST_ORDINARY".into(), ordinary);
+    logic.templates.insert("ST_GRANTED".into(), granted);
+    let ordinary_id = logic.create_object("ST_ORDINARY", Team::USA, Vec3::ZERO).unwrap();
+    let granted_id = logic.create_object("ST_GRANTED", Team::USA, Vec3::ZERO).unwrap();
+    for id in [ordinary_id, granted_id] {
+        let unit = logic.host_object_mut(id).unwrap();
+        unit.innate_stealth = true;
+        unit.auto_acquire_idle_bits = AUTO_ACQUIRE_IDLE_NO;
+        unit.next_mood_check_time = 0;
+    }
+    assert!(logic.unit_command_apply_stealth_mood_delay(ordinary_id, 100, 5));
+    assert_eq!(logic.host_object(ordinary_id).unwrap().next_mood_check_time, 135);
+    assert!(!logic.unit_command_apply_stealth_mood_delay(granted_id, 100, 5));
+    assert_eq!(logic.host_object(granted_id).unwrap().next_mood_check_time, 0);
 }
 
 #[test]

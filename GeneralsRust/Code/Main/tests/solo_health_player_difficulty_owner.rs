@@ -12,12 +12,6 @@ fn world(
     hard_factor: u32,
 ) -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
-    world.start_new_game(GameMode::SinglePlayer);
-    world
-        .admit_combat_bonus_ini_sources([format!(
-            "GameData\nAISoloPlayerHealthBonus_Easy = {easy_factor}%\nAISoloPlayerHealthBonus_Hard = {hard_factor}%\nEnd\n"
-        )])
-        .expect("receiving GameData should admit AI factors");
     world
         .admit_object_ini_sources([(
             "SoloHealthOwner.ini".into(),
@@ -26,6 +20,12 @@ fn world(
             ),
         )])
         .expect("receiving object content should admit the health probe");
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
+    world
+        .admit_combat_bonus_ini_sources([format!(
+            "GameData\nAISoloPlayerHealthBonus_Easy = {easy_factor}%\nAISoloPlayerHealthBonus_Hard = {hard_factor}%\nEnd\n"
+        )])
+        .expect("receiving GameData should admit AI factors");
     world.add_player(Player::new(OWNER, Team::China, "Target AI", false));
     world.add_ai_opponent(OWNER, Team::China, target_difficulty);
     world.add_ai_opponent(78, Team::GLA, other_difficulty);

@@ -45,7 +45,7 @@ fn map_power_rules_belong_to_the_receiving_world_through_reset() {
         world
             .admit_object_ini_sources([("Empty.ini".into(), String::new())])
             .unwrap();
-        world.start_new_game(GameMode::SinglePlayer);
+        world.start_new_game(GameMode::SinglePlayer).unwrap();
         world
     };
     let mut first = make_world();

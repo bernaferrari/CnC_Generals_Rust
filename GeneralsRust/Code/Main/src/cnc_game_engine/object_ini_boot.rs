@@ -78,11 +78,12 @@ fn capture_receiving_object_sources_with_inventory(
 ) -> Result<ObjectSourceSnapshot, String> {
     let paths = ordered_object_source_paths(filesystem_paths, manager.list_all_files(), roots);
     capture_object_sources(&paths, |path| {
-        read_receiving_object_source(path, roots, |path| {
+        let text = read_receiving_object_source(path, roots, |path| {
             manager
                 .read_optional_definition_source(path)
                 .map_err(|error| format!("Receiving Object source '{path}': {error}"))
-        })
+        })?;
+        text.map(Some).ok_or_else(|| format!("Required receiving Object source '{path}' is missing"))
     })
 }
 
@@ -120,6 +121,85 @@ fn capture_object_sources(
         }
     }
     Ok(ObjectSourceSnapshot { sources })
+}
+
+/// Load a standalone world's definitions from the same ordered archive and loose
+/// sources as application startup. Missing required catalogs are errors.
+pub fn load_standalone_startup_content() -> Result<crate::assets::ReceivingStartupContent, String> {
+    use game_engine::common::ini::INILoadType;
+    use game_engine::common::rts::science::ScienceNameFacts;
+    use game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions;
+    use std::sync::Arc;
+
+    let mut archive = crate::assets::archive::ArchiveFileSystem::new();
+    pollster::block_on(archive.init()).map_err(|error| format!("Initializing startup archives: {error}"))?;
+    let roots = super::CnCGameEngine::startup_ini_disk_roots();
+    let paths = ordered_object_source_paths(Vec::new(), archive.list_all_files(), &roots);
+    let mut read = |path: &str| {
+        read_receiving_object_source(path, &roots, |name| {
+            archive.read_optional_definition_source(name).map_err(|error| error.to_string())
+        })
+    };
+    let mut science_sources = Vec::new();
+    for (path, overwrite) in [
+        ("Data/INI/Default/Science.ini", false),
+        ("Data/INI/Science.ini", true),
+    ] {
+        if let Some(source) = read(path)? {
+            science_sources.push((path, source.into_bytes(), overwrite));
+        }
+    }
+    if science_sources.is_empty() {
+        return Err("Startup requires Science.ini sources".into());
+    }
+    let mut science_store = game_engine::common::rts::science::ScienceStore::new_owned();
+    let science_refs = science_sources.iter()
+        .map(|(path, source, overwrite)| (*path, source.as_slice(), *overwrite))
+        .collect::<Vec<_>>();
+    science_store.load_from_sources(&science_refs).map_err(|error| format!("Cannot admit Science.ini: {error}"))?;
+    let sciences = Arc::new(ScienceNameFacts::from_store(&science_store));
+    let weapon_source = read("Data/INI/Weapon.ini")?
+        .ok_or("Startup requires Data/INI/Weapon.ini")?;
+    let mut weapons = std::collections::HashMap::new();
+    crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+        &mut weapons, &weapon_source,
+        crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+    );
+    let mut weapons: Vec<_> = weapons.into_values().map(|weapon| (weapon.name.clone(), weapon)).collect();
+    weapons.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut actions = ReceivingActionDefinitions::default();
+    for (label, paths) in [
+        ("SpecialPower", ["Data/INI/Default/SpecialPower.ini", "Data/INI/SpecialPower.ini"]),
+        ("CommandButton", ["Data/INI/Default/CommandButton.ini", "Data/INI/CommandButton.ini"]),
+        ("CommandSet", ["Data/INI/Default/CommandSet.ini", "Data/INI/CommandSet.ini"]),
+    ] {
+        let mut found = false;
+        for path in paths {
+            if let Some(source) = read(path)? {
+                actions.apply_source_with_load_type(&source, &sciences, INILoadType::Overwrite)
+                    .map_err(|error| format!("Cannot admit {path}: {error}"))?;
+                found = true;
+            }
+        }
+        if !found {
+            return Err(format!("Startup requires {label}.ini definitions"));
+        }
+    }
+    let sources = capture_object_sources(&paths, |path| {
+        read(path)?.map(Some).ok_or_else(|| format!("Required receiving Object source '{path}' is missing"))
+    })?;
+    crate::assets::ReceivingStartupContent::from_sources(
+        sources.sources, sciences, Arc::new(actions), weapons,
+    )
+}
+
+/// Initialize a standalone world with real application-selected definitions.
+pub fn start_standalone_game(
+    world: &mut crate::game_logic::GameLogic,
+    mode: crate::game_logic::GameMode,
+) -> Result<(), String> {
+    world.admit_startup_content(load_standalone_startup_content()?)?;
+    world.start_new_game(mode)
 }
 
 /// Virtual paths in C++ ThingFactory order: Default/Object.ini, then

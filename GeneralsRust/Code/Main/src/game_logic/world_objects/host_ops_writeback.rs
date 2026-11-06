@@ -381,7 +381,7 @@ impl GameLogic {
 
     /// Wave 933: single session-control authority boundary.
     #[inline]
-    pub fn apply_session_control_op(&mut self, op: SessionControlOp) {
+    pub fn apply_session_control_op(&mut self, op: SessionControlOp) -> Result<bool, String> {
         self.apply_session_control_op_with_effects(op, &mut Default::default())
     }
 
@@ -389,7 +389,8 @@ impl GameLogic {
         &mut self,
         op: SessionControlOp,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> Result<bool, String> {
+        let mut success = true;
         match op {
             SessionControlOp::SelectObjects { player_id, ids } => {
                 self.select_objects(player_id, ids);
@@ -406,14 +407,14 @@ impl GameLogic {
                 faction_team,
                 setup_skirmish_ai,
             } => {
-                self.start_new_game_with_faction(mode, player_id, faction_team, setup_skirmish_ai);
+                self.start_new_game_with_faction(mode, player_id, faction_team, setup_skirmish_ai)?;
             }
             SessionControlOp::StartNewGameWithPlayerTemplate {
                 mode,
                 player_id,
                 player_template,
             } => {
-                self.start_new_game_with_player_template(mode, player_id, player_template);
+                success = self.start_new_game_with_player_template(mode, player_id, player_template)?;
             }
             SessionControlOp::StartNewGameInCampaignSession {
                 mode,
@@ -424,7 +425,7 @@ impl GameLogic {
                 is_campaign,
                 is_challenge,
             } => {
-                self.start_new_game_in_campaign_session(mode, is_campaign, is_challenge);
+                self.start_new_game_in_campaign_session(mode, is_campaign, is_challenge)?;
                 if let Some(identity) = player_template {
                     if !self.bind_player_template_identity(player_id, identity) {
                         let removed_local = self.local_player_id() == Some(player_id);
@@ -433,6 +434,7 @@ impl GameLogic {
                             self.select_local_player(None);
                         }
                         self.player_template_bindings.remove(&player_id);
+                        success = false;
                     }
                 } else {
                     let _ = self.set_player_team(player_id, faction_team);
@@ -448,6 +450,7 @@ impl GameLogic {
                 self.override_world_size_with_effects(width, height, effects);
             }
         }
+        Ok(success)
     }
 
     /// Wave 934: single host-support residual authority boundary.

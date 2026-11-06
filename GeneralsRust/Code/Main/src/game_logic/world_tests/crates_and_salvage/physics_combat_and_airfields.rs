@@ -2603,7 +2603,7 @@ fn worker_mine_clear_dumps_carried_boxes() {
     let id = ObjectId(8802);
     let mut worker = Object::new(t, id, Team::GLA);
     worker.stored_resources.supplies = 3;
-    worker.set_weapon_set_mine_clearing_detail_at_frame(true, 0);
+    worker.set_weapon_condition_at_frame(8, true, 0);
     // C++ WorkerAIUpdate ctor: arming the detail alone never spends boxes.
     assert_eq!(worker.stored_resources.supplies, 3);
     // C++ WorkerAIUpdate::aiDoCommand tail (WorkerAIUpdate.cpp:1005-1014):

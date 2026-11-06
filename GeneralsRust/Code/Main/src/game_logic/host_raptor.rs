@@ -316,6 +316,7 @@ pub fn raptor_weapon(is_king: bool, has_laser_missiles: bool) -> Weapon {
         min_range: raptor_min_range(is_king),
         reload_time: delay_frames_to_reload_secs(raptor_delay_frames(is_king)),
         last_fire_time: 0.0,
+        last_fire_frame: 0,
         ammo: Some(raptor_clip_size(is_king)),
         can_target_air: true,
         can_target_ground: true,

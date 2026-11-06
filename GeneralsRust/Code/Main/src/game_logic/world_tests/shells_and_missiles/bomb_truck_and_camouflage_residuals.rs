@@ -755,6 +755,15 @@ fn camouflage_upgrade_queue_complete_stealths_rebel() {
         triggered_by: vec!["Upgrade_GLACamouflage".into()],
         ..Default::default()
     }];
+    // Retail GLAInfantryRebel StealthUpdate: StealthDelay 2500, ATTACKING
+    // USING_ABILITY, InnateStealth No (the StealthUpgrade grants CAN_STEALTH).
+    rebel.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        stealth_delay_frames: crate::game_logic::host_upgrades::CAMOUFLAGE_STEALTH_DELAY_FRAMES,
+        forbidden_conditions: crate::game_logic::object::StealthForbiddenConditions::ATTACKING
+            .union(crate::game_logic::object::StealthForbiddenConditions::USING_ABILITY),
+        innate_stealth: false,
+        ..Default::default()
+    });
     game_logic
         .templates
         .insert("GLAInfantryRebel".to_string(), rebel);
@@ -860,8 +869,8 @@ fn camouflage_upgrade_queue_complete_stealths_rebel() {
 
     let worker = game_logic.host_object(worker_id).expect("worker after");
     assert!(
-        !worker.has_upgrade_tag(UPGRADE_GLA_CAMOUFLAGE),
-        "fail-closed: workers do not receive Camouflage (no StealthUpgrade)"
+        !worker.innate_stealth,
+        "fail-closed: workers author no StealthUpgrade, so no CAN_STEALTH"
     );
     assert!(
         !worker.status.stealthed,
@@ -893,6 +902,13 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
         triggered_by: vec!["Upgrade_GLACamouflage".into()],
         ..Default::default()
     }];
+    rebel.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        stealth_delay_frames: CAMOUFLAGE_STEALTH_DELAY_FRAMES,
+        forbidden_conditions: crate::game_logic::object::StealthForbiddenConditions::ATTACKING
+            .union(crate::game_logic::object::StealthForbiddenConditions::USING_ABILITY),
+        innate_stealth: false,
+        ..Default::default()
+    });
     game_logic
         .templates
         .insert("GLAInfantryRebel".to_string(), rebel);
@@ -905,9 +921,12 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
         .expect("enemy");
 
     // Live unlock path (StealthUpgrade TriggeredBy = Upgrade_GLACamouflage).
-    let affected =
-        game_logic.apply_camouflage_unlock_to_team(Team::GLA.into(), UPGRADE_GLA_CAMOUFLAGE);
-    assert!(affected > 0, "camouflage unlock must affect rebel");
+    let affected = game_logic
+        .objects
+        .get_mut(&rebel_id)
+        .expect("rebel")
+        .run_authored_stealth_upgrades(|name| name == UPGRADE_GLA_CAMOUFLAGE);
+    assert!(affected, "camouflage StealthUpgrade must affect rebel");
     {
         let _ = game_logic.host_object_mut(rebel_id).expect("rebel");
         let rebel = game_logic.objects.get_mut(&rebel_id).expect("rebel");
@@ -928,7 +947,7 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
     assert_eq!(
         game_logic
             .host_object(rebel_id)
-            .map(|r| r.stealth_delay_frames)
+            .and_then(|r| r.stealth_update_data().map(|d| d.stealth_delay_frames))
             .unwrap_or(0),
         CAMOUFLAGE_STEALTH_DELAY_FRAMES,
         "Camouflage residual must stamp 2500ms StealthDelay"
@@ -939,7 +958,6 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
         let _ = game_logic.host_object_mut(rebel_id).expect("rebel");
         let rebel = game_logic.objects.get_mut(&rebel_id).expect("rebel");
         rebel.set_status_stealthed(true);
-        rebel.stealth_breaks_on_attack = true;
         assert!(
             rebel.fire_at(
                 enemy_id,

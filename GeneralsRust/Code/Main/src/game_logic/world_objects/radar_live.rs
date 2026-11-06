@@ -832,7 +832,7 @@ mod tests {
         logic
             .with_object_veterancy_feedback_and_partition(id, |obj, audio, feedback, partition| {
                 obj.apply_convert_to_car_bomb_from_with_partition_owner(
-                    None, audio, feedback, partition,
+                    None, audio, feedback, partition, 0,
                 );
             })
             .expect("actual radar car owner");

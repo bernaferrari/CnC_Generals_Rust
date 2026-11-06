@@ -133,13 +133,13 @@ fn targetable_by_enemy_honors_weaponset_unattackable_and_masked_overrides() {
 }
 
 #[test]
-fn fire_at_breaks_stealth_when_forbidden_while_attacking() {
-    let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
-
-    let mut shot_combat = crate::game_logic::combat::CombatSystem::new();
+fn fire_at_reveals_on_the_stealth_update_when_attacking_is_forbidden() {
+    use crate::game_logic::object::{StealthForbiddenConditions as C, StealthUpdateData, StealthWorldFacts};
+    let mut events = crate::game_logic::host_attack_log::AttackEvents::default();
+    let mut combat = crate::game_logic::combat::CombatSystem::new();
     let mut object = make_test_object();
-    object.status.stealthed = true;
-    object.stealth_breaks_on_attack = true;
+    object.apply_grant_stealth(0);
+    assert!(object.status.stealthed && object.innate_stealth);
     object.weapon = Some(Weapon {
         damage: 100.0,
         range: 100.0,
@@ -148,15 +148,24 @@ fn fire_at_breaks_stealth_when_forbidden_while_attacking() {
         ..Weapon::default()
     });
     assert!(object.fire_at(
-        ObjectId(2),
-        0.0,
-        0,
-        &mut shot_combat,
-        &mut _attack_output,
+        ObjectId(2), 0.0, 1, &mut combat, &mut events,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
+    object.set_status_firing_weapon(true);
+    let data = StealthUpdateData::default();
+    let facts = StealthWorldFacts { flags: C::ATTACKING, owner_can_stealth: true, ..Default::default() };
+    let allowed = object.allowed_to_stealth(&data, facts, 1);
+    object.apply_stealth_allowed(1, allowed, 30);
     assert!(!object.status.stealthed);
+    assert!(object.innate_stealth);
     assert!(!object.status.detected);
+    assert_eq!(object.stealth_allowed_frame, 31);
+    object.set_status_firing_weapon(false);
+    let allowed = object.allowed_to_stealth(&data, facts, 30);
+    object.apply_stealth_allowed(30, allowed, 30);
+    assert!(!object.status.stealthed);
+    object.apply_stealth_allowed(31, allowed, 30);
+    assert!(object.status.stealthed);
 }
 
 #[test]
@@ -749,7 +758,7 @@ End
     // C++ destroys the old PRIMARY Weapon when its conditional WeaponSet
     // changes.  A topology arriving after that replacement cannot transfer
     // the old instance's saved cursor into the mine-detail Weapon.
-    o.set_weapon_set_mine_clearing_detail_at_frame(true, 0);
+    o.set_weapon_condition_at_frame(8, true, 0);
     assert!(o.set_weapon_barrel_count_for_slot(0, 4));
 
     let state = o
@@ -796,7 +805,7 @@ End
 
     // Do not invoke a mutating cursor helper after the set swap: this models
     // a save before topology can configure the new concrete C++ Weapon.
-    object.set_weapon_set_mine_clearing_detail_at_frame(true, 0);
+    object.set_weapon_condition_at_frame(8, true, 0);
     assert_eq!(
         object.weapon_barrel_cursor_for_snapshot(0),
         Some((0, 0)),
@@ -825,7 +834,7 @@ fn mine_clearing_weapon_set_swap_resets_primary_barrel_cursor() {
         1
     );
 
-    o.set_weapon_set_mine_clearing_detail_at_frame(true, 0);
+    o.set_weapon_condition_at_frame(8, true, 0);
 
     let state = o
         .weapon_barrel_state_for_slot(0)

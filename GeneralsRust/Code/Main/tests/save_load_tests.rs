@@ -637,6 +637,13 @@ mod integration_tests {
         template
     }
 
+    fn admit_fixture_objects(game_logic: &mut GameLogic) {
+        game_logic.admit_object_ini_sources([(
+            "SaveFixture.ini".into(),
+            "Object SaveTestCommandCenter\n KindOf = STRUCTURE SELECTABLE COMMANDCENTER\n BuildCost = 2000\n BuildTime = 0.1\n Body = ActiveBody Body\n MaxHealth = 2000\n InitialHealth = 2000\n End\nEnd\nObject SaveTestDozer\n KindOf = VEHICLE SELECTABLE\n BuildCost = 1000\n BuildTime = 0.1\n Body = ActiveBody Body\n MaxHealth = 300\n InitialHealth = 300\n End\nEnd\nObject SaveTestBarracks\n KindOf = STRUCTURE SELECTABLE\n BuildCost = 500\n BuildTime = 0.1\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\n End\nEnd\nObject SaveTestRanger\n KindOf = INFANTRY SELECTABLE\n BuildCost = 100\n BuildTime = 0.05\n Body = ActiveBody Body\n MaxHealth = 120\n InitialHealth = 120\n End\nEnd\n".into(),
+        )]).unwrap();
+    }
+
     fn install_fixture_templates(game_logic: &mut GameLogic) {
         let templates = [
             template(
@@ -693,7 +700,8 @@ mod integration_tests {
 
     fn fixture_game() -> GameLogic {
         let mut game_logic = GameLogic::new();
-        game_logic.start_new_game(GameMode::Skirmish);
+        admit_fixture_objects(&mut game_logic);
+        game_logic.start_new_game(GameMode::Skirmish).unwrap();
         game_logic.clear_all_players();
         install_fixture_templates(&mut game_logic);
         game_logic.add_player(Player::new(0, Team::USA, "USA", true));
@@ -711,6 +719,7 @@ mod integration_tests {
             .expect("fixture should save");
 
         let mut loaded = GameLogic::new();
+        admit_fixture_objects(&mut loaded);
         install_fixture_templates(&mut loaded);
         let loaded_info = manager
             .load_game(filename, &mut loaded)
@@ -894,6 +903,7 @@ mod integration_tests {
         assert_eq!(saves[0].save_info.save_type, SaveFileType::AutoSave);
 
         let mut loaded = GameLogic::new();
+        admit_fixture_objects(&mut loaded);
         install_fixture_templates(&mut loaded);
         let loaded_info = manager
             .load_game(&saves[0].filename, &mut loaded)

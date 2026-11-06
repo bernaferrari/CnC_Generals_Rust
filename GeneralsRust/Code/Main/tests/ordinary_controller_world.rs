@@ -58,7 +58,7 @@ End
         "admitted templates: {:?}",
         world.templates.keys().collect::<Vec<_>>()
     );
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(map.to_str().unwrap()));
     world.clear_all_players();
     world.add_player(Player::new(0, Team::USA, "Mover owner", human));

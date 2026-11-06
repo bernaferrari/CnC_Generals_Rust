@@ -295,6 +295,66 @@ fn encoded_snapshot_rebinds_to_receiving_catalog_without_reparsing_or_peer_subst
     assert_eq!(rate(&foreign, NAME), PEER_RATE_PER_FRAME);
 }
 
+#[test]
+fn receiving_stealth_uses_effective_ordered_modules_and_map_overrides() {
+    let text = "Object DefaultThingTemplate\n\
+OverrideableByLikeKind\n\
+Behavior = StealthUpdate DefaultStealth\n\
+StealthDelay = 3000\nInnateStealth = No\nGrantedBySpecialPower = Yes\n\
+MoveThresholdSpeed = 30\nHintDetectableConditions = IS_FIRING_WEAPON USING_ABILITY\n\
+RequiredStatus = CAN_STEALTH\nForbiddenStatus = USING_ABILITY\n\
+DisguiseTransitionTime = 4000\nDisguiseRevealTransitionTime = 1000\n\
+DisguiseFX = FX_CustomGain\nDisguiseRevealFX = FX_CustomReveal\n\
+EnemyDetectionEvaEvent = EnemyJarmenKellDetected\nOwnDetectionEvaEvent = OwnJarmenKellDetected\n\
+End\nEnd\nEnd\n\
+Object InheritedStealth\nKindOf = VEHICLE\nEnd\n\
+Object OwnStealth\nKindOf = VEHICLE\n\
+Behavior = StealthUpdate OwnModule\nStealthDelay = 1000\nInnateStealth = Yes\nEnd\nEnd\n\
+ChildObject RemovedStealth InheritedStealth\nRemoveModule DefaultStealth\nEnd\n";
+    let mut world = GameLogic::new();
+    world.admit_receiving_module_content(producer(text)).unwrap();
+    let inherited = world.templates["InheritedStealth"].stealth_update.unwrap();
+    assert_eq!(inherited.stealth_delay_frames, 90);
+    assert!(inherited.granted_by_special_power);
+    assert!(!inherited.innate_stealth);
+    assert_eq!(inherited.move_threshold_speed, 1.0);
+    assert!(inherited.hint_detectable.is_firing_weapon);
+    assert!(inherited.hint_detectable.is_using_ability);
+    assert_eq!(inherited.required_status, 1 << 18);
+    assert_eq!(inherited.forbidden_status, 1 << 24);
+    assert_eq!(inherited.disguise_transition_frames, 120);
+    assert_eq!(inherited.disguise_reveal_transition_frames, 30);
+    let inherited_template = &world.templates["InheritedStealth"];
+    assert_eq!(inherited_template.stealth_disguise_fx.as_deref(), Some("FX_CustomGain"));
+    assert_eq!(inherited_template.stealth_disguise_reveal_fx.as_deref(), Some("FX_CustomReveal"));
+    assert_eq!(inherited_template.stealth_enemy_detection_eva.as_deref(), Some("EnemyJarmenKellDetected"));
+    assert_eq!(inherited_template.stealth_own_detection_eva.as_deref(), Some("OwnJarmenKellDetected"));
+    let own = world.templates["OwnStealth"].stealth_update.unwrap();
+    assert_eq!(own.stealth_delay_frames, 30);
+    assert!(own.innate_stealth);
+    assert!(!own.granted_by_special_power);
+    assert!(world.templates["RemovedStealth"].stealth_update.is_none());
+
+    world.apply_receiving_module_overrides(&[
+        "Object InheritedStealth\nReplaceModule DefaultStealth\n\
+Behavior = StealthUpdate MapStealth\nStealthDelay = 500\n\
+InnateStealth = No\nEnd\nEnd\nEnd".to_owned()
+    ]).unwrap();
+    let replaced = world.templates["InheritedStealth"].stealth_update.unwrap();
+    assert_eq!(replaced.stealth_delay_frames, 15);
+    assert!(!replaced.granted_by_special_power);
+    world.apply_receiving_module_overrides(&[]).unwrap();
+    assert_eq!(world.templates["InheritedStealth"].stealth_update, Some(inherited));
+}
+
+#[test]
+fn programmatic_infantry_does_not_fabricate_a_default_stealth_module() {
+    let mut template = ThingTemplate::new("NoDefaultContent");
+    template.add_kind_of(KindOf::Infantry);
+    let object = Object::new(template, ObjectId(987), Team::USA);
+    assert!(object.stealth_update_data().is_none());
+}
+
 #[cfg(feature = "game_client")]
 fn client_entry(
     frame: &PresentationFrame,

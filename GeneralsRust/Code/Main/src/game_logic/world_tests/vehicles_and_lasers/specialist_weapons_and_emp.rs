@@ -22,6 +22,10 @@ fn hero_spawn_waits_stealth_delay() {
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
         .set_health(200.0);
+    burton_tpl.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        stealth_delay_frames: BURTON_STEALTH_DELAY_FRAMES,
+        ..Default::default()
+    });
     game_logic
         .templates
         .insert("AmericaInfantryColonelBurton".to_string(), burton_tpl);
@@ -40,7 +44,10 @@ fn hero_spawn_waits_stealth_delay() {
             !b.status.stealthed,
             "C++ ctor sets CAN_STEALTH only; STEALTHED waits StealthDelay"
         );
-        assert_eq!(b.stealth_delay_frames, BURTON_STEALTH_DELAY_FRAMES);
+        assert_eq!(
+            b.stealth_update_data().map(|d| d.stealth_delay_frames),
+            Some(BURTON_STEALTH_DELAY_FRAMES)
+        );
         assert_eq!(b.stealth_allowed_frame, BURTON_STEALTH_DELAY_FRAMES);
     }
     game_logic.update_stealth_and_detection();

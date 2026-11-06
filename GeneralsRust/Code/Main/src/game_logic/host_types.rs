@@ -944,6 +944,8 @@ pub struct Weapon {
     pub min_range: f32,
     pub reload_time: f32,
     pub last_fire_time: f32,
+    /// C++ Weapon::m_lastFireFrame, maintained independently for each slot.
+    pub last_fire_frame: u32,
     pub ammo: Option<u32>,
     /// C++ ClipSize residual. 0 = unlimited (ammo ignored for readiness).
     #[serde(default)]
@@ -988,6 +990,7 @@ impl Default for Weapon {
             min_range: 0.0,
             reload_time: 1.0,
             last_fire_time: 0.0,
+            last_fire_frame: 0,
             ammo: None,
             clip_size: 0,
             clip_reload_time: 0.0,

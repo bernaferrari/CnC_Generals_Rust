@@ -82,7 +82,7 @@ fn make_world(path: &std::path::Path, contain_kind: &str) -> (GameLogic, ObjectI
     if contain_kind == "helix" {
         world.admit_object_creation_list_sources(["ObjectCreationList OCL_OwnerPortable\nCreateObject\nObjectNames = OwnerPortable\nCount = 1\nContainInsideSourceObject = Yes\nEnd\nEnd".into()]).unwrap();
     }
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(path.to_str().unwrap()));
     world.add_player(Player::new(42, Team::USA, "Owner", true).with_script_identity("Owner"));
     let template = if contain_kind == "overlord" {

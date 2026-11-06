@@ -1050,7 +1050,7 @@ impl GameWorldShadow {
                 Team::Neutral => 3u8,
             })
             .unwrap_or(255u8);
-        e.weapon_crate_upgrade = obj.weapon_crate_upgrade;
+        e.weapon_crate_upgrade = obj.weapon_crate_upgrade();
         e.armor_crate_upgrade = obj.armor_crate_upgrade;
         e.enemy_near = obj
             .enemy_near
@@ -1142,7 +1142,7 @@ impl GameWorldShadow {
             .unwrap_or(u16::MAX);
         e.passengers_allowed_to_fire = obj.passengers_allowed_to_fire;
         e.armed_riders_upgrade_weapon_set = obj.armed_riders_upgrade_weapon_set;
-        e.weapon_set_player_upgrade = obj.weapon_set_player_upgrade;
+        e.weapon_set_player_upgrade = obj.test_weapon_condition(3);
         e.second_life = obj.armor_set_second_life;
         e.is_battle_bus_transport = obj.is_battle_bus_transport;
         e.is_technical_transport = obj.is_technical_transport;
@@ -1193,18 +1193,11 @@ impl GameWorldShadow {
         e.hijacker_eject_pos = obj.hijacker_eject_pos.map(|p| [p.x, p.y, p.z]);
         e.hive_slave_respawn_frame = obj.hive_slave_respawn_frame;
         e.next_detection_scan_frame = obj.next_detection_scan_frame;
-        e.stealth_breaks_on_attack = obj.stealth_breaks_on_attack;
-        e.stealth_breaks_on_move = obj.stealth_breaks_on_move;
         e.innate_stealth = obj.innate_stealth;
         e.stealth_allowed_frame = obj.stealth_allowed_frame;
-        e.stealth_delay_pending = obj.stealth_delay_pending;
-        e.stealth_delay_frames = obj.stealth_delay_frames;
-        e.stealth_breaks_on_damage = obj.stealth_breaks_on_damage;
         e.detection_expires_frame = obj.detection_expires_frame;
         e.camo_opacity_pulse_phase = obj.camo_opacity_pulse_phase;
         e.camo_heat_vision_opacity = obj.pending_second_material_pass().unwrap_or(0.0);
-        e.camo_net_sub_object_shown = obj.camo_net_sub_object_shown;
-        e.camo_net_sub_object_observer_visible = obj.camo_net_sub_object_observer_visible;
         e.weapon_bonus_enthusiastic = obj.weapon_bonus_enthusiastic;
         e.weapon_bonus_subliminal = obj.weapon_bonus_subliminal;
         e.weapon_bonus_horde = obj.weapon_bonus_horde;

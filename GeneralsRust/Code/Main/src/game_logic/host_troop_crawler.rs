@@ -269,6 +269,7 @@ pub fn troop_crawler_assault_weapon() -> Weapon {
         min_range: 0.0,
         reload_time: (TROOP_CRAWLER_ASSAULT_DELAY_FRAMES as f32) / 30.0,
         last_fire_time: 0.0,
+        last_fire_frame: 0,
         ammo: None,
         clip_size: 0,
         clip_reload_time: 0.0,

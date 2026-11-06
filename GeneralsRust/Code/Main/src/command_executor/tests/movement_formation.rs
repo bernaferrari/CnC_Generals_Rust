@@ -1169,8 +1169,8 @@ fn set_weapon_set_flag_carbomb_and_upgrade() {
         assert!(exec.execute_set_weapon_set_flag(&[id], 0, true) == CommandResult::Success);
     }
     let o = logic.host_object(id).unwrap();
-    assert!(o.weapon_set_carbomb);
-    assert!(o.weapon_set_player_upgrade);
+    assert!(o.test_weapon_condition(7));
+    assert!(o.test_weapon_condition(3));
 }
 
 #[test]

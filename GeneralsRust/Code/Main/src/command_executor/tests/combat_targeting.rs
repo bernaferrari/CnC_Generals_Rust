@@ -585,7 +585,7 @@ fn mine_clearing_detail_toggles_weapon_set_flag() {
         logic
             .host_object(d)
             .unwrap()
-            .weapon_set_mine_clearing_detail
+            .test_weapon_condition(8)
     );
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -595,7 +595,7 @@ fn mine_clearing_detail_toggles_weapon_set_flag() {
         !logic
             .host_object(d)
             .unwrap()
-            .weapon_set_mine_clearing_detail
+            .test_weapon_condition(8)
     );
 }
 
@@ -664,7 +664,7 @@ fn ordinary_do_weapon_uses_authored_mine_detail_and_disarms_only_when_armed() {
             ) == CommandResult::Success);
     }
     let clearer = logic.host_object(clearer_id).expect("typed clearer");
-    assert!(clearer.weapon_set_mine_clearing_detail);
+    assert!(clearer.test_weapon_condition(8));
     assert_eq!(clearer.weapon_name_for_slot(0),
         Some("DozerMineDisarmingWeapon"),
         "ordinary DoWeapon must select the authored conditional source name"
@@ -1056,12 +1056,18 @@ fn stop_delays_mood_for_unstealthed_stealth_unit() {
     tpl.add_kind_of(KindOf::Infantry);
     tpl.add_kind_of(KindOf::Selectable);
     tpl.set_health(100.0);
+    tpl.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        stealth_delay_frames: 45,
+        ..Default::default()
+    });
+    // AIUpdate defaults to no auto-acquisition; this combat unit opts in.
+    tpl.auto_acquire_enemies_when_idle =
+        gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
     logic.templates.insert("ST_A".to_string(), tpl);
     let a = logic.create_object("ST_A", Team::USA, Vec3::ZERO).unwrap();
     {
         let u = logic.host_object_mut(a).unwrap();
         u.innate_stealth = true;
-        u.stealth_delay_frames = 45;
         u.set_auto_acquire_when_idle(true);
         u.status.stealthed = false;
         u.status.detected = false;
@@ -1304,12 +1310,18 @@ fn move_delays_mood_for_unstealthed_stealth_unit() {
     tpl.add_kind_of(KindOf::Infantry);
     tpl.add_kind_of(KindOf::Selectable);
     tpl.set_health(100.0);
+    tpl.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        stealth_delay_frames: 30,
+        ..Default::default()
+    });
+    // AIUpdate defaults to no auto-acquisition; this combat unit opts in.
+    tpl.auto_acquire_enemies_when_idle =
+        gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
     logic.templates.insert("MV_ST".to_string(), tpl);
     let a = logic.create_object("MV_ST", Team::USA, Vec3::ZERO).unwrap();
     {
         let u = logic.host_object_mut(a).unwrap();
         u.innate_stealth = true;
-        u.stealth_delay_frames = 30;
         u.set_auto_acquire_when_idle(true);
         u.status.stealthed = false;
         u.status.detected = false;

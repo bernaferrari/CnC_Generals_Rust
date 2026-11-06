@@ -13,7 +13,7 @@ fn world(set: &str, clear: &str) -> (GameLogic, ObjectId, ObjectId) {
         ),
     )])
     .expect("receiving Object INI admitted");
-    game.start_new_game(GameMode::SinglePlayer);
+    game.start_new_game(GameMode::SinglePlayer).unwrap();
     let mut owner = Player::new(1, Team::USA, "Owner", false);
     owner.alliance_team = 1;
     let mut enemy = Player::new(2, Team::GLA, "Enemy", false);

@@ -75,7 +75,7 @@ fn world(root: &std::path::Path, map_name: &str, beacon_name: &str, cap: i32) ->
             template_name: "BeaconOwner".into(),
             template_index: None,
         },
-    ));
+    ).unwrap());
     assert!(logic.load_map(map.to_str().unwrap()));
     let owner = logic.get_player(1).expect("map admits the placing player");
     assert!(owner.is_alive, "placing player must be active");
@@ -171,7 +171,7 @@ fn authored_beacon_cap_and_template_are_session_owned_through_admission_and_rese
             template_name: "BeaconOwner".into(),
             template_index: None,
         },
-    ));
+    ).unwrap());
     assert!(one.load_map(one_root.path().join("one.map").to_str().unwrap()));
     assert!(
         place(&mut one, 1, 31.0, "after reset") == CommandResult::Success);

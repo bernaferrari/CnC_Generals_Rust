@@ -100,7 +100,8 @@ mod tests {
     #[test]
     fn probe_advances_with_main_game_logic_only() {
         let mut logic = GameLogic::new();
-        logic.start_new_game(GameMode::Skirmish);
+        logic.admit_object_ini_sources(std::iter::empty()).unwrap();
+        logic.start_new_game(GameMode::Skirmish).unwrap();
         logic.clear_all_players();
         logic.add_player(Player::new(0, Team::USA, "USA", true));
         let before = AuthorityProbe::capture(&logic, 0);

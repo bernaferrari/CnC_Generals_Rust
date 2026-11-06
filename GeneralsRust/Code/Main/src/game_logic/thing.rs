@@ -167,14 +167,6 @@ fn default_asset_scale() -> f32 {
     1.0
 }
 
-fn default_stealth_friendly_opacity_min() -> f32 {
-    0.5
-}
-
-fn default_stealth_friendly_opacity_max() -> f32 {
-    1.0
-}
-
 fn default_template_physics_mass() -> f32 {
     1.0
 }

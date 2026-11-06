@@ -18,7 +18,7 @@ fn world(speed: u32, fast: u32, delay: &str) -> (GameLogic, ObjectId) {
         ),
     )])
     .expect("typed ParticleUplinkCannonUpdate module admitted");
-    game.start_new_game(GameMode::SinglePlayer);
+    game.start_new_game(GameMode::SinglePlayer).unwrap();
     game.add_player(Player::new(0, Team::China, "CannonOwner", true));
     let source = game
         .create_object_for_player(SOURCE, 0, Vec3::ZERO)

@@ -15,7 +15,7 @@ fn world() -> GameLogic {
     locomotors.apply_source("Locomotor OwnerWalk\n Surfaces = GROUND\n Speed = 60\n Acceleration = 60\n TurnRate = 120\n Appearance = TWO_LEGS\nEnd\n").unwrap();
     world.admit_locomotor_definitions(locomotors).unwrap();
     world.admit_object_ini_sources([("AiOwner.ini".into(), "Object OwnerUnit\n KindOf = INFANTRY SELECTABLE\n Locomotor = SET_NORMAL OwnerWalk\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into())]).unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     world.add_player(Player::new(7, Team::USA, "Owner", true));
     world
 }

@@ -32,7 +32,8 @@ fn map_with_weather_rule(root: &std::path::Path, name: &str, rule: &str) -> std:
 
 fn world_with_world_info_weather(map: &std::path::Path, intensity: f32) -> GameLogic {
     let mut logic = GameLogic::new();
-    logic.start_new_game(GameMode::SinglePlayer);
+    logic.admit_object_ini_sources(std::iter::empty()).unwrap();
+    logic.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(logic.load_map(map.to_str().expect("map path is UTF-8")));
     logic.set_weather_state("clear", intensity, 90.0, 30.0);
     logic.apply_world_info_weather(Some(1));

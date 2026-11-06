@@ -1147,7 +1147,7 @@ impl CnCGameEngine {
                     player_id,
                     ids: ids.clone(),
                 },
-            );
+            ).expect("selection session operation cannot fail");
         }
         self.host_write_selection_residuals(player_id, ids);
     }
@@ -1581,14 +1581,14 @@ impl CnCGameEngine {
         mode: crate::game_logic::GameMode,
         faction_team: crate::game_logic::Team,
         setup_skirmish_ai: bool,
-    ) {
+    ) -> Result<(), String> {
         self.host_start_new_game_with_faction_in_session(
             mode,
             faction_team,
             setup_skirmish_ai,
             false,
             false,
-        );
+        )
     }
 
     pub(super) fn host_start_new_game_with_faction_in_session(
@@ -1598,12 +1598,12 @@ impl CnCGameEngine {
         setup_skirmish_ai: bool,
         is_campaign: bool,
         is_challenge: bool,
-    ) {
+    ) -> Result<(), String> {
         // Wave 577/871/921/933: start_new_game via session-control authority.
         // Clear prior match residuals; stamp mode/team immediately for peels.
         self.host_clear_match_residuals();
         let player_id = self.current_player_id;
-        self.host_game_logic_mut().apply_session_control_op(
+        if !self.host_game_logic_mut().apply_session_control_op(
             crate::game_logic::SessionControlOp::StartNewGameInCampaignSession {
                 mode,
                 player_id,
@@ -1613,11 +1613,14 @@ impl CnCGameEngine {
                 is_campaign,
                 is_challenge,
             },
-        );
+        )? {
+            return Err("Faction session startup was rejected".into());
+        }
         self.host_match_game_mode = Some(mode);
         self.host_match_local_team = Some(faction_team);
         self.host_match_local_player_id = Some(self.current_player_id);
         self.host_stamp_sim_timing_residuals();
+        Ok(())
     }
 
     /// Start a Campaign/Challenge session from its exact C++ PlayerTemplate.
@@ -1632,10 +1635,10 @@ impl CnCGameEngine {
         faction_team: crate::game_logic::Team,
         player_template: crate::game_logic::PlayerTemplateIdentity,
         is_challenge: bool,
-    ) -> bool {
+    ) -> Result<bool, String> {
         self.host_clear_match_residuals();
         let player_id = self.current_player_id;
-        self.host_game_logic_mut().apply_session_control_op(
+        let accepted = self.host_game_logic_mut().apply_session_control_op(
             crate::game_logic::SessionControlOp::StartNewGameInCampaignSession {
                 mode,
                 player_id,
@@ -1645,8 +1648,8 @@ impl CnCGameEngine {
                 is_campaign: true,
                 is_challenge,
             },
-        );
-        if self
+        )?;
+        if !accepted || self
             .game_logic
             .player_template_identity(player_id)
             .is_none()
@@ -1659,13 +1662,13 @@ impl CnCGameEngine {
                 "Rejecting host Campaign/Challenge start: PlayerTemplate binding for player {} did not survive session reset",
                 player_id
             );
-            return false;
+            return Ok(false);
         }
         self.host_match_game_mode = Some(mode);
         self.host_match_local_team = Some(faction_team);
         self.host_match_local_player_id = Some(self.current_player_id);
         self.host_stamp_sim_timing_residuals();
-        true
+        Ok(true)
     }
 
     /// Input may flush commands before the next fixed step. Lend the same
@@ -1833,7 +1836,8 @@ impl CnCGameEngine {
             self.game_paused = paused;
         }
         self.host_game_logic_mut()
-            .apply_session_control_op(crate::game_logic::SessionControlOp::SetPaused { paused });
+            .apply_session_control_op(crate::game_logic::SessionControlOp::SetPaused { paused })
+            .expect("pause session operation cannot fail");
 
         // Compose freeze residual without dual-read when presentation freeze owns
         // script time (InGame). Boot path still probes live is_time_frozen once.

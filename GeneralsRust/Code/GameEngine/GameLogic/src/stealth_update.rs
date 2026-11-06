@@ -62,46 +62,6 @@ pub fn leftover_not_while_moving_destalths(
     leftover_velocity_magnitude > leftover_move_threshold_speed
 }
 
-/// Leftover ThingFactory first `StealthUpdate` MoveThresholdSpeed (`stealth_speed`).
-pub fn leftover_stealth_move_threshold_speed(template_name: &str) -> Option<Real> {
-    if template_name.is_empty() {
-        return None;
-    }
-    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
-    let factory = guard.as_ref()?;
-    let tmpl = factory.find_template(template_name, false)?;
-    for entry in tmpl.get_behavior_module_info().iter() {
-        if !entry.name.as_str().eq_ignore_ascii_case("StealthUpdate") {
-            continue;
-        }
-        if let Some(data) = entry
-            .data
-            .as_any()
-            .downcast_ref::<StealthUpdateModuleData>()
-        {
-            return Some(data.stealth_speed());
-        }
-        if let Some(data) = entry
-            .data
-            .as_any()
-            .downcast_ref::<crate::object::behavior::StealthUpdateModuleData>()
-        {
-            return Some(data.stealth_speed);
-        }
-        if let Some(data) = entry
-            .data
-            .as_any()
-            .downcast_ref::<crate::object::update::stealth_update::StealthUpdateModuleData>(
-        ) {
-            return Some(data.stealth_speed());
-        }
-        if let Some(speed) = entry.data.get_ini_real("MoveThresholdSpeed") {
-            return Some(speed);
-        }
-    }
-    None
-}
-
 fn play_object_stealth_sound(object_id: ObjectID, stealth_on: bool) {
     let Some(mut event) = OBJECT_REGISTRY.with_object(object_id, |obj| {
         if stealth_on {
@@ -187,6 +147,29 @@ pub struct StealthUpdateModuleData {
     raw_stealth_forbidden_conditions: Option<String>,
 }
 
+/// Immutable authored facts consumed by the host stealth projection.
+#[derive(Debug, Clone, Copy)]
+pub struct StealthUpdateAuthoredFields {
+    pub hint_detectable_states: ObjectStatusMaskType,
+    pub required_status: ObjectStatusMaskType,
+    pub forbidden_status: ObjectStatusMaskType,
+    pub stealth_speed: Real,
+    pub friendly_opacity_min: Real,
+    pub friendly_opacity_max: Real,
+    pub reveal_distance_from_target: Real,
+    pub disguise_transition_frames: UnsignedInt,
+    pub disguise_reveal_transition_frames: UnsignedInt,
+    pub pulse_frames: UnsignedInt,
+    pub stealth_delay_frames: UnsignedInt,
+    pub black_market_check_frames: UnsignedInt,
+    pub stealth_level_mask: u32,
+    pub innate_stealth: bool,
+    pub team_disguised: bool,
+    pub use_rider_stealth: bool,
+    pub order_idle_enemies_to_attack: bool,
+    pub granted_by_special_power: bool,
+}
+
 impl Default for StealthUpdateModuleData {
     fn default() -> Self {
         Self {
@@ -221,6 +204,40 @@ impl Default for StealthUpdateModuleData {
 impl StealthUpdateModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
         ini.init_from_ini_with_fields(self, STEALTH_UPDATE_FIELDS)
+    }
+
+    /// Project the effective typed module after ThingTemplate inheritance.
+    pub fn authored_fields(&self) -> StealthUpdateAuthoredFields {
+        StealthUpdateAuthoredFields {
+            hint_detectable_states: self.hint_detectable_states,
+            required_status: self.required_status,
+            forbidden_status: self.forbidden_status,
+            stealth_speed: self.stealth_speed,
+            friendly_opacity_min: self.friendly_opacity_min,
+            friendly_opacity_max: self.friendly_opacity_max,
+            reveal_distance_from_target: self.reveal_distance_from_target,
+            pulse_frames: self.pulse_frames,
+            disguise_transition_frames: self.disguise_transition_frames,
+            disguise_reveal_transition_frames: self.disguise_reveal_transition_frames,
+            stealth_delay_frames: self.stealth_delay_frames,
+            black_market_check_frames: self.black_market_check_frames,
+            stealth_level_mask: self.stealth_level_mask,
+            innate_stealth: self.innate_stealth,
+            team_disguised: self.team_disguised,
+            use_rider_stealth: self.use_rider_stealth,
+            order_idle_enemies_to_attack: self.order_idle_enemies_to_attack,
+            granted_by_special_power: self.granted_by_special_power,
+        }
+    }
+
+    /// Authored FX-list and EVA names retained by this module data.
+    pub fn authored_presentation_names(&self) -> (Option<&str>, Option<&str>, Option<&str>, Option<&str>) {
+        (
+            self.disguise_fx.as_deref(),
+            self.disguise_reveal_fx.as_deref(),
+            self.enemy_detection_eva_event.as_deref(),
+            self.own_detection_eva_event.as_deref(),
+        )
     }
 
     pub fn hint_detectable_states(&self) -> ObjectStatusMaskType {
@@ -1829,7 +1846,9 @@ fn parse_move_threshold_speed(
     data: &mut StealthUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    parse_real_field(&mut data.stealth_speed, tokens)
+    let value = first_value_token(tokens).ok_or(INIError::InvalidData)?;
+    data.stealth_speed = INI::parse_velocity_real(value)?;
+    Ok(())
 }
 
 fn parse_reveal_distance(
@@ -2410,7 +2429,6 @@ mod tests {
         assert!(leftover_not_while_moving_destalths(3.1, 3.0));
         assert!(leftover_not_while_moving_destalths(0.1, 0.0));
         assert!(!leftover_not_while_moving_destalths(0.0, 0.0));
-        assert_eq!(leftover_stealth_move_threshold_speed(""), None);
     }
 
     #[test]

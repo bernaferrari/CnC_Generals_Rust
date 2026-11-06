@@ -28,6 +28,17 @@ impl GameLogic {
             return false;
         }
 
+        obj.set_weapon_condition_at_frame(
+            4,
+            tier == crate::game_logic::host_marauder::MarauderWeaponTier::One,
+            self.frame,
+        );
+        obj.set_weapon_condition_at_frame(
+            5,
+            tier == crate::game_logic::host_marauder::MarauderWeaponTier::Two,
+            self.frame,
+        );
+
         let name = marauder_weapon_name_for_tier(tier);
         let (dmg, range, delay, _splash, speed) = marauder_weapon_stats(tier);
         let mut weapon = ThingTemplate::weapon_from_store(name)
@@ -40,20 +51,6 @@ impl GameLogic {
         weapon.can_target_ground = true;
         weapon.can_target_air = false;
         let _ = obj.replace_weapon_set_slot(0, Some(weapon));
-
-        obj.applied_upgrades.remove("WEAPONSET_CRATEUPGRADE_ONE");
-        obj.applied_upgrades.remove("WEAPONSET_CRATEUPGRADE_TWO");
-        match tier {
-            crate::game_logic::host_marauder::MarauderWeaponTier::One => {
-                obj.applied_upgrades
-                    .insert("WEAPONSET_CRATEUPGRADE_ONE".to_string());
-            }
-            crate::game_logic::host_marauder::MarauderWeaponTier::Two => {
-                obj.applied_upgrades
-                    .insert("WEAPONSET_CRATEUPGRADE_TWO".to_string());
-            }
-            crate::game_logic::host_marauder::MarauderWeaponTier::Base => {}
-        }
 
         self.marauder_residual_weapon_upgrades =
             self.marauder_residual_weapon_upgrades.saturating_add(1);
@@ -250,21 +247,10 @@ impl GameLogic {
             return false;
         }
 
-        obj.applied_upgrades.remove("WEAPONSET_CRATEUPGRADE_ONE");
-        obj.applied_upgrades.remove("WEAPONSET_CRATEUPGRADE_TWO");
-        match tier {
-            ScorpionSalvageTier::One => {
-                obj.applied_upgrades
-                    .insert("WEAPONSET_CRATEUPGRADE_ONE".to_string());
-            }
-            ScorpionSalvageTier::Two => {
-                obj.applied_upgrades
-                    .insert("WEAPONSET_CRATEUPGRADE_TWO".to_string());
-            }
-            ScorpionSalvageTier::Base => {}
-        }
-
         let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
+        obj.set_weapon_condition_at_frame(4, tier == ScorpionSalvageTier::One, self.frame);
+        obj.set_weapon_condition_at_frame(5, tier == ScorpionSalvageTier::Two, self.frame);
+
         let mut gun = scorpion_gun_weapon(tier);
         gun.last_fire_time = last_fire;
         let _ = obj.replace_weapon_set_slot(0, Some(gun));
@@ -293,7 +279,7 @@ impl GameLogic {
     /// Equip Scorpion Rocket secondary residual (Upgrade_GLAScorpionRocket).
     pub fn apply_scorpion_rocket_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_scorpion::{
-            UPGRADE_GLA_SCORPION_ROCKET, has_ap_rockets_upgrade, salvage_tier_from_upgrades,
+            UPGRADE_GLA_SCORPION_ROCKET, has_ap_rockets_upgrade, salvage_tier_from_weapon_crate,
             scorpion_missile_weapon,
         };
 
@@ -305,7 +291,7 @@ impl GameLogic {
         }
         obj.applied_upgrades
             .insert(UPGRADE_GLA_SCORPION_ROCKET.to_string());
-        let tier = salvage_tier_from_upgrades(&obj.applied_upgrades);
+        let tier = salvage_tier_from_weapon_crate(obj.weapon_crate_upgrade());
         let ap = has_ap_rockets_upgrade(&obj.applied_upgrades);
         let _ = obj.replace_weapon_set_slot(
             1,
@@ -319,7 +305,7 @@ impl GameLogic {
     /// Apply AP Rockets residual damage mult to Scorpion missile secondary.
     pub fn apply_scorpion_ap_rockets_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_scorpion::{
-            UPGRADE_GLA_AP_ROCKETS, has_scorpion_rocket_upgrade, salvage_tier_from_upgrades,
+            UPGRADE_GLA_AP_ROCKETS, has_scorpion_rocket_upgrade, salvage_tier_from_weapon_crate,
             scorpion_missile_weapon,
         };
 
@@ -332,7 +318,7 @@ impl GameLogic {
         obj.applied_upgrades
             .insert(UPGRADE_GLA_AP_ROCKETS.to_string());
         if has_scorpion_rocket_upgrade(&obj.applied_upgrades) {
-            let tier = salvage_tier_from_upgrades(&obj.applied_upgrades);
+            let tier = salvage_tier_from_weapon_crate(obj.weapon_crate_upgrade());
             let sec_last = obj
                 .secondary_weapon
                 .as_ref()

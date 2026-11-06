@@ -94,7 +94,6 @@ impl GameLogic {
             if !is_alive {
                 continue;
             }
-            self.expire_temporary_stealth_grant(object_id);
             self.cancel_replaced_ability_channels_with_effects(object_id, &ai_state, effects);
             // The pre-locomotor invocation owns both temporary exit movement
             // and its suspended Guard. Do not observe this frame's movement

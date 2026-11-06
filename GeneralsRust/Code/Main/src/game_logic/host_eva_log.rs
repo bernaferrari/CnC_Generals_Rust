@@ -5,6 +5,8 @@ use std::sync::Arc;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EvaOperation {
     Request(EvaEvent),
+    /// An authored native EVA message name, resolved by the receiving speaker.
+    RequestNamed(String),
     SetEnabled(bool),
 }
 
@@ -57,6 +59,9 @@ impl Default for HostEvaAnnouncements {
 impl HostEvaAnnouncements {
     pub fn request(&mut self, event: EvaEvent) {
         self.delivery.operations.push(EvaOperation::Request(event));
+    }
+    pub fn request_named(&mut self, name: &str) {
+        self.delivery.operations.push(EvaOperation::RequestNamed(name.to_owned()));
     }
     /// Eva.cpp setEnabled clears latches even when enabled is unchanged.
     pub fn set_enabled(&mut self, enabled: bool) {

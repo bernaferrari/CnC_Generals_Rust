@@ -705,18 +705,19 @@ impl AIGroup {
                     && !obj.test_status(ObjectStatusTypes::Stealthed)
                     && !obj.test_status(ObjectStatusTypes::Detected)
                 {
-                    if let Some(stealth) = obj.get_stealth() {
-                        if let (Ok(stealth_guard), Ok(mut ai_guard)) = (stealth.lock(), ai.lock()) {
-                            if ai_guard.can_auto_acquire()
-                                && !stealth_guard.is_granted_by_special_power()
-                                && !ai_guard.can_auto_acquire_while_stealthed()
-                            {
-                                let stealth_frames = stealth_guard.get_stealth_delay();
-                                let random_frames =
-                                    GameLogicRandomValue(0, LOGICFRAMES_PER_SECOND as i32) as u32;
-                                ai_guard.set_next_mood_check_time(
-                                    TheGameLogic::get_frame() + stealth_frames + random_frames,
-                                );
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        if ai_guard.can_auto_acquire()
+                            && !ai_guard.can_auto_acquire_while_stealthed_for_source(obj)
+                        {
+                            if let Some(stealth) = obj.get_stealth() {
+                                if let Ok(stealth_guard) = stealth.lock() {
+                                    let stealth_frames = stealth_guard.get_stealth_delay();
+                                    let random_frames =
+                                        GameLogicRandomValue(0, LOGICFRAMES_PER_SECOND as i32) as u32;
+                                    ai_guard.set_next_mood_check_time(
+                                        TheGameLogic::get_frame() + stealth_frames + random_frames,
+                                    );
+                                }
                             }
                         }
                     }
@@ -1267,21 +1268,20 @@ impl AIGroup {
                         && !obj_ref.test_status(ObjectStatusTypes::Stealthed)
                         && !obj_ref.test_status(ObjectStatusTypes::Detected)
                     {
-                        if let Some(stealth) = obj_ref.get_stealth() {
-                            if let (Ok(stealth_guard), Ok(mut ai_guard)) =
-                                (stealth.lock(), ai.lock())
+                        if let Ok(mut ai_guard) = ai.lock() {
+                            if ai_guard.can_auto_acquire()
+                                && !ai_guard.can_auto_acquire_while_stealthed_for_source(obj_ref)
                             {
-                                if ai_guard.can_auto_acquire()
-                                    && !stealth_guard.is_granted_by_special_power()
-                                    && !ai_guard.can_auto_acquire_while_stealthed()
-                                {
-                                    let stealth_frames = stealth_guard.get_stealth_delay();
-                                    let random_frames =
-                                        GameLogicRandomValue(0, LOGICFRAMES_PER_SECOND as i32)
-                                            as u32;
-                                    ai_guard.set_next_mood_check_time(
-                                        TheGameLogic::get_frame() + stealth_frames + random_frames,
-                                    );
+                                if let Some(stealth) = obj_ref.get_stealth() {
+                                    if let Ok(stealth_guard) = stealth.lock() {
+                                        let stealth_frames = stealth_guard.get_stealth_delay();
+                                        let random_frames =
+                                            GameLogicRandomValue(0, LOGICFRAMES_PER_SECOND as i32)
+                                                as u32;
+                                        ai_guard.set_next_mood_check_time(
+                                            TheGameLogic::get_frame() + stealth_frames + random_frames,
+                                        );
+                                    }
                                 }
                             }
                         }

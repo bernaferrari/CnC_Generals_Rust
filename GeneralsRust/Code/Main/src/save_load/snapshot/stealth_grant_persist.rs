@@ -1,24 +1,17 @@
-//! Persist live temporary stealth grant expiry.
+//! Persist Object CAN_STEALTH and StealthUpdate grant state.
 //!
-//! C++ `StealthUpdate::xfer` v2 writes `m_framesGranted`. Supply-center
-//! dock/exit call `receiveGrant(TRUE, GrantTemporaryStealth)` (retail
-//! 20000ms = 600 frames). Leftover `stealth_update.rs` already matches
-//! that table. Live stores the remaining grant as
-//! `Object.temporary_stealth_expires_frame` (absolute host frame).
-//! Object snapshots never wrote it — load zeroed the clock so a camo
-//! worker stayed stealthed forever (`temporary_stealth_grant_should_expire`
-//! requires expires_frame > 0).
-//!
-//! Append a tagged suffix after the historical v9 contain/producer payload
-//! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
-//! Restore writes the clock only; it never re-runs `apply_temporary_stealth_grant`.
+//! C++ Object::xfer saves the status bit independently of STEALTHED and
+//! StealthUpdate::xfer saves m_enabled and, in version 2, m_framesGranted.
+//! The scheduler's awake state is also retained. Restore after construction
+//! and upgrades, without replaying grants.
+//! Pulse rate is invariant at the native constructor's 0.2 in host-created state.
 
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const STLG_MAGIC: &[u8; 4] = b"STLG";
-const STLG_VERSION: u32 = 1;
+const STLG_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct StealthGrantPersistPayload {
@@ -28,7 +21,11 @@ struct StealthGrantPersistPayload {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StealthGrantPersist {
     object_id: u32,
-    temporary_stealth_expires_frame: u32,
+    can_stealth: bool,
+    enabled: bool,
+    awake: bool,
+    frames_granted: u32,
+    pulse_phase: f32,
 }
 
 pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
@@ -81,12 +78,14 @@ fn capture(game_logic: &GameLogic) -> StealthGrantPersistPayload {
         let Some(object) = game_logic.host_object(id) else {
             continue;
         };
-        if object.temporary_stealth_expires_frame == 0 {
-            continue;
-        }
+        // False values must override constructor and upgrade side effects.
         objects.push(StealthGrantPersist {
             object_id: id.0,
-            temporary_stealth_expires_frame: object.temporary_stealth_expires_frame,
+            can_stealth: object.innate_stealth,
+            enabled: object.stealth_update_enabled,
+            awake: object.stealth_update_awake,
+            frames_granted: object.stealth_frames_granted,
+            pulse_phase: object.camo_opacity_pulse_phase,
         });
     }
     StealthGrantPersistPayload { objects }
@@ -100,7 +99,7 @@ fn reset_stealth_grant(game_logic: &mut GameLogic) {
         .collect();
     for id in ids {
         if let Some(object) = game_logic.host_objects_mut().get_mut(&id) {
-            object.temporary_stealth_expires_frame = 0;
+            object.stealth_frames_granted = 0;
         }
     }
 }
@@ -110,7 +109,11 @@ fn apply_payload(game_logic: &mut GameLogic, payload: StealthGrantPersistPayload
         let Some(object) = game_logic.host_object_mut(ObjectId(entry.object_id)) else {
             continue;
         };
-        object.temporary_stealth_expires_frame = entry.temporary_stealth_expires_frame;
+        object.innate_stealth = entry.can_stealth;
+        object.stealth_update_enabled = entry.enabled;
+        object.stealth_update_awake = entry.awake;
+        object.stealth_frames_granted = entry.frames_granted;
+        object.camo_opacity_pulse_phase = entry.pulse_phase;
     }
 }
 
@@ -153,7 +156,7 @@ mod tests {
             .expect("worker");
         {
             let object = source.host_object_mut(id).expect("worker obj");
-            object.temporary_stealth_expires_frame = 600;
+            object.stealth_frames_granted = 600;
         }
 
         let builder = super::super::SnapshotBuilder::new();
@@ -171,28 +174,71 @@ mod tests {
             .expect("restore");
 
         let loaded = restored.host_object(id).expect("restored worker");
-        assert_eq!(loaded.temporary_stealth_expires_frame, 600);
-        assert!(
-            !crate::game_logic::Object::temporary_stealth_grant_should_expire(
-                loaded.temporary_stealth_expires_frame,
-                599,
-                false,
-            )
-        );
-        assert!(
-            crate::game_logic::Object::temporary_stealth_grant_should_expire(
-                loaded.temporary_stealth_expires_frame,
-                600,
-                false,
-            )
-        );
-        assert!(
-            crate::game_logic::Object::temporary_stealth_grant_should_expire(
-                loaded.temporary_stealth_expires_frame,
-                100,
-                true,
-            )
-        );
+        assert_eq!(loaded.stealth_frames_granted, 600);
+    }
+
+    #[test]
+    fn snapshot_preserves_capability_independently_of_visible_stealth_and_template() {
+        use crate::game_logic::object::StealthUpdateData;
+
+        let mut source = GameLogic::new();
+        let mut innate = ThingTemplate::new("Innate");
+        innate.stealth_update = Some(StealthUpdateData {
+            innate_stealth: true,
+            ..Default::default()
+        });
+        source.templates.insert("Innate".into(), innate);
+        let mut special = ThingTemplate::new("Granted");
+        special.stealth_update = Some(StealthUpdateData {
+            innate_stealth: false,
+            granted_by_special_power: true,
+            ..Default::default()
+        });
+        source.templates.insert("Granted".into(), special);
+        source.add_player(Player::new(0, Team::GLA, "GLA", true));
+        let revoked = source.create_object("Innate", Team::GLA, Vec3::ZERO).unwrap();
+        let granted = source.create_object("Granted", Team::GLA, Vec3::ZERO).unwrap();
+        let sleeping = source.create_object("Granted", Team::GLA, Vec3::ZERO).unwrap();
+        source.host_object_mut(revoked).unwrap().revoke_grant_stealth();
+        let object = source.host_object_mut(granted).unwrap();
+        object.apply_grant_stealth(0);
+        object.set_status_stealthed(false);
+        object.stealth_frames_granted = 2;
+        object.camo_opacity_pulse_phase = 1.25;
+
+        let builder = super::super::SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&source).unwrap();
+        let mut restored = GameLogic::new();
+        restored.templates = source.templates.clone();
+        restored.add_player(Player::new(0, Team::GLA, "GLA", true));
+        builder.restore_from_snapshot(&snapshot, &mut restored).unwrap();
+
+        let object = restored.host_object(revoked).unwrap();
+        assert!(!object.innate_stealth, "revocation overrides innate constructor");
+        assert!(!object.stealth_update_enabled);
+        let object = restored.host_object(granted).unwrap();
+        assert!(object.innate_stealth, "grant survives while revealed");
+        assert!(object.stealth_update_enabled);
+        assert!(object.stealth_update_awake);
+        assert!(!object.status.stealthed);
+        assert_eq!(object.stealth_frames_granted, 2);
+        assert_eq!(object.camo_opacity_pulse_phase, 1.25);
+        let object = restored.host_object(sleeping).unwrap();
+        assert!(object.stealth_update_enabled);
+        assert!(!object.stealth_update_awake);
+        assert!(!object.innate_stealth);
+
+        restored.frame += 1;
+        restored.update_stealth_and_detection();
+        let object = restored.host_object(granted).unwrap();
+        assert_eq!(object.stealth_frames_granted, 1);
+        assert!(object.innate_stealth);
+        assert!((object.camo_opacity_pulse_phase - 1.45).abs() < 1e-5);
+        restored.frame += 1;
+        restored.update_stealth_and_detection();
+        let object = restored.host_object(granted).unwrap();
+        assert_eq!(object.stealth_frames_granted, 0);
+        assert!(!object.innate_stealth);
     }
 
     #[test]
@@ -208,18 +254,10 @@ mod tests {
             .expect("worker");
         {
             let object = logic.host_object_mut(id).expect("worker");
-            object.temporary_stealth_expires_frame = 600;
+            object.stealth_frames_granted = 600;
         }
         apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
         let object = logic.host_object(id).expect("worker");
-        assert_eq!(object.temporary_stealth_expires_frame, 0);
-        assert!(
-            !crate::game_logic::Object::temporary_stealth_grant_should_expire(
-                object.temporary_stealth_expires_frame,
-                50,
-                true,
-            ),
-            "zero expiry must not keep the grant after a player order"
-        );
+        assert_eq!(object.stealth_frames_granted, 0);
     }
 }

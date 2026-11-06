@@ -119,7 +119,8 @@ fn staged_restore_rejects_unavailable_map_before_snapshot_restore() {
             // This deliberately needs no retail assets: map identity is validated
             // before a staging world is started or any snapshot state is restored.
             let mut source = GameLogic::new();
-            source.start_new_game(GameMode::SinglePlayer);
+            source.admit_object_ini_sources(std::iter::empty()).unwrap();
+            source.start_new_game(GameMode::SinglePlayer).unwrap();
             let catalog = source.templates.clone();
             saves
                 .save_game(
@@ -1458,7 +1459,8 @@ fn commit_logic_rng_reseed_is_a_no_op_for_pre_v22_saves() {
         "commit_logic_rng_reseed_is_a_no_op_for_pre_v22_saves",
         || {
             let mut logic = GameLogic::new();
-            logic.start_new_game(GameMode::Skirmish);
+            logic.admit_object_ini_sources(std::iter::empty()).unwrap();
+            logic.start_new_game(GameMode::Skirmish).unwrap();
             let before_words = logic.logic_random.seed_words();
             let before_base = logic.logic_base_seed;
             CnCGameEngine::host_restore_staged_logic_rng(&mut logic, [0u32; 6]);

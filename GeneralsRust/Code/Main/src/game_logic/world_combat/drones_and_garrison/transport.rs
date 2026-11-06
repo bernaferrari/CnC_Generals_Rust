@@ -179,23 +179,13 @@ impl GameLogic {
             .get(&container_id)
             .map(|c| c.contained_units())
             .unwrap_or_default();
-        let now = self.frame;
         for pid in occupants {
-            let stealth_garrison = self
+            if self
                 .objects
                 .get(&pid)
-                .is_some_and(|o| o.is_kind_of(KindOf::StealthGarrison));
-            if !stealth_garrison {
-                continue;
-            }
-            let delay = self
-                .objects
-                .get(&pid)
-                .map(|o| o.stealth_delay_frames)
-                .unwrap_or(0)
-                .max(60);
-            if let Some(occ) = self.objects.get_mut(&pid) {
-                occ.mark_detected(now.saturating_add(delay));
+                .is_some_and(|o| o.is_kind_of(KindOf::StealthGarrison))
+            {
+                self.mark_stealth_detected(pid, 0);
             }
         }
     }

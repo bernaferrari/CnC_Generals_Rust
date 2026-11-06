@@ -605,9 +605,9 @@ pub struct Object {
     /// C++ `RepairDockUpdate::m_healthToAddPerFrame`, in logic-frame units.
     #[serde(default)]
     pub repair_dock_health_per_frame: f32,
-    /// Absolute frame when a GrantTemporaryStealth residual expires (0 = none).
+    /// C++ StealthUpdate::m_framesGranted, decremented on each module update.
     #[serde(default)]
-    pub temporary_stealth_expires_frame: u32,
+    pub stealth_frames_granted: u32,
 
     /// C++ HighlanderBody residual (cannot die from normal damage).
     pub highlander_body: bool,
@@ -1232,9 +1232,6 @@ pub struct Object {
     #[serde(default)]
     pub drawable_hidden: bool,
 
-    /// C++ WEAPONSET_CRATEUPGRADE_ONE/TWO residual (0/1/2).
-    #[serde(default)]
-    pub weapon_crate_upgrade: u8,
     /// C++ ARMORSET_CRATE_UPGRADE_ONE/TWO residual (0/1/2).
     #[serde(default)]
     pub armor_crate_upgrade: u8,
@@ -1287,13 +1284,13 @@ pub struct Object {
     pub passengers_allowed_to_fire: bool,
 
     /// Host residual: C++ TransportContain `m_armedRidersUpgradeWeaponSet`.
-    /// When true, bus sets `weapon_set_player_upgrade` while any armed infantry
-    /// rider is loaded (Battle Bus PLAYER_UPGRADE weapon set residual).
+    /// When true, the bus sets WEAPONSET_PLAYER_UPGRADE while an armed
+    /// infantry rider is loaded.
     pub armed_riders_upgrade_weapon_set: bool,
+    /// Native WeaponSetType-indexed condition bits.
+    #[serde(default)]
+    pub(crate) weapon_condition_flags: u32,
 
-    /// Host residual: C++ WEAPONSET_PLAYER_UPGRADE flag on this object.
-    /// Battle Bus uses this when armed riders are present.
-    pub weapon_set_player_upgrade: bool,
     /// C++ WEAPONBONUSCONDITION_PLAYER_UPGRADE residual (WeaponBonusUpgrade).
     #[serde(default)]
     pub weapon_bonus_player_upgrade: bool,
@@ -1309,15 +1306,6 @@ pub struct Object {
     /// C++ ARMORSET_HERO residual.
     #[serde(default)]
     pub armor_set_hero: bool,
-    /// C++ WEAPONSET_VETERAN residual (`Object::onVeterancyLevelChanged`).
-    #[serde(default)]
-    pub weapon_set_veteran: bool,
-    /// C++ WEAPONSET_ELITE residual.
-    #[serde(default)]
-    pub weapon_set_elite: bool,
-    /// C++ WEAPONSET_HERO residual.
-    #[serde(default)]
-    pub weapon_set_hero: bool,
     /// C++ WEAPONBONUSCONDITION_VETERAN residual.
     #[serde(default)]
     pub weapon_bonus_veteran: bool,
@@ -1366,15 +1354,6 @@ pub struct Object {
     /// Refcount, not a set: two pause() calls need two unpauses.
     #[serde(default)]
     pub special_power_paused: std::collections::HashMap<crate::command_system::SpecialPowerType, u32>,
-    /// C++ WEAPONSET_MINE_CLEARING_DETAIL residual (DozerAI / AIGroup::setMineClearingDetail).
-    #[serde(default)]
-    pub weapon_set_mine_clearing_detail: bool,
-    /// C++ WEAPONSET_CARBOMB residual.
-    #[serde(default)]
-    pub weapon_set_carbomb: bool,
-    /// C++ WEAPONSET_VEHICLE_HIJACK residual.
-    #[serde(default)]
-    pub weapon_set_vehicle_hijack: bool,
 
     /// Host residual: Battle Bus style transport (capacity 8 + fire + armed-riders).
     /// Distinct from generic Humvee transport residual for honesty counters.
@@ -2207,14 +2186,15 @@ pub struct Object {
     /// Logic frame when OBJECT_STATUS_DETECTED expires (0 = no timer).
     /// C++ StealthUpdate::m_detectionExpiresFrame residual.
     pub detection_expires_frame: u32,
-    /// C++ STEALTH_NOT_WHILE_ATTACKING residual: firing breaks stealth.
-    /// Default true for host residual honesty.
-    pub stealth_breaks_on_attack: bool,
-    /// C++ StealthForbiddenConditions MOVING residual (Pathfinder): uncloak while moving.
-    /// Fail-closed: not full StealthUpdate condition matrix.
-    pub stealth_breaks_on_move: bool,
-    /// C++ InnateStealth residual: re-cloak when forbidden conditions clear.
+    /// C++ `OBJECT_STATUS_CAN_STEALTH`: set by StealthUpdate `InnateStealth`,
+    /// `StealthUpgrade` and `receiveGrant`; the StealthUpdate cloaks only while set.
     pub innate_stealth: bool,
+    /// C++ StealthUpdate::m_enabled, independent of CAN_STEALTH.
+    #[serde(default)]
+    pub stealth_update_enabled: bool,
+    /// Whether the module scheduler has woken this StealthUpdate.
+    #[serde(default)]
+    pub stealth_update_awake: bool,
 
     /// C++ StealthUpdate disguise residual (Bomb Truck DisguisesAsTeam).
     /// Template the unit is currently disguised as (None when not disguised).
@@ -2352,11 +2332,6 @@ pub struct Object {
     /// Fail-closed: not multi-door exit / IR FX / RIDERS_ATTACKING uncloak matrix.
     #[serde(default)]
     pub is_listening_outpost_transport: bool,
-
-    /// Host residual: America Pathfinder unit class (StealthDetector + InnateStealth).
-    /// Cached at spawn so stealth ticks avoid template-name scans on dense maps.
-    #[serde(default)]
-    pub is_pathfinder_unit: bool,
 
     /// Host residual: China Troop Crawler TransportContain (Slots=8 + assault deploy).
     /// Passengers exit to fight (do not fire from inside). Fail-closed vs full
@@ -2598,28 +2573,13 @@ pub struct Object {
         deserialize_with = "material_commands::deserialize_pending"
     )]
     pub(crate) pending_second_material_pass: Option<f32>,
-    /// CamoNetting sub-object net mesh residual shown (Upgrade_GLACamoNetting applied).
-    /// Fail-closed: not full W3D SubObjectsUpgrade / mesh GPU draw.
-    #[serde(default)]
-    pub camo_net_sub_object_shown: bool,
-    /// CamoNetting sub-object residual observer-visible (StealthLook ≠ Invisible).
-    #[serde(default)]
-    pub camo_net_sub_object_observer_visible: bool,
 
-    /// C++ StealthUpdate StealthDelay residual: earliest frame allowed to re-cloak.
-    /// 0 = no delay gate (instant re-cloak residual, e.g. Pathfinder StealthDelay 0).
+    /// C++ `StealthUpdate::m_stealthAllowedFrame`: earliest frame allowed to cloak.
     #[serde(default)]
     pub stealth_allowed_frame: u32,
-    /// Pending StealthDelay scheduling after a reveal (resolved in stealth update).
+    /// C++ `StealthUpdate::m_nextBlackMarketCheckFrame` (NO_BLACK_MARKET).
     #[serde(default)]
-    pub stealth_delay_pending: bool,
-    /// Frames of StealthDelay after reveal (Camo Rebel / CamoNetting = 75, Sentry = 60).
-    /// 0 = instant re-cloak residual.
-    #[serde(default)]
-    pub stealth_delay_frames: u32,
-    /// C++ StealthForbiddenConditions TAKING_DAMAGE residual.
-    #[serde(default)]
-    pub stealth_breaks_on_damage: bool,
+    pub stealth_next_black_market_check_frame: u32,
     /// C++ `Drawable::fadeIn` / `fadeOut` residual (0 none, 1 in, 2 out).
     #[serde(default)]
     pub drawable_fade_mode: u8,
@@ -3009,6 +2969,7 @@ mod runtime_attachment;
 pub(crate) mod selected_weapon_set;
 mod status_bits;
 mod stealth;
+mod stealth_update;
 mod structure_topple_filters;
 mod update;
 pub mod visual;
@@ -3042,9 +3003,10 @@ pub use stealth::{
     TINT_FRENZY_COLOR, TINT_FRENZY_COLOR_INFANTRY, TINT_SUBDUAL_ATTACK_FRAMES, TINT_SUBDUAL_COLOR,
     VERY_TRANSPARENT_MATERIAL_PASS_OPACITY, drawable_disabled_dark_tint,
     drawable_explicit_fade_opacity, drawable_status_tint_rgb, friendly_stealth_pulse_opacity,
-    is_live_stealth_black_market, order_idle_enemies_on_reveal,
     stealth_second_material_pass_opacity, stealth_update_pulse_opacity,
 };
+pub(crate) use stealth_update::StealthWorldFacts;
+pub use stealth_update::{StealthForbiddenConditions, StealthHintConditions, StealthUpdateData};
 pub use visual::ObjectVisualInfo;
 
 #[cfg(test)]

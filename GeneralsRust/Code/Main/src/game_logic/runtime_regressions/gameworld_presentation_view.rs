@@ -81,7 +81,10 @@ fn gameworld_presentation_view() -> bool {
     };
 
     let mut logic = GameLogic::new();
-    logic.start_new_game(GameMode::Skirmish);
+    if let Err(error) = crate::cnc_game_engine::start_standalone_game(&mut logic, GameMode::Skirmish) {
+        eprintln!("Retail presentation startup failed: {error}");
+        return false;
+    }
     let cfg = golden_skirmish_config("GwPresView186");
     if apply_skirmish_config(&mut logic, &cfg).is_err() {
         return false;

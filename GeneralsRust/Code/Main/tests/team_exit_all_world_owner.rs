@@ -56,7 +56,7 @@ fn world(
             "Object TeamExitCarrier\n KindOf = SELECTABLE VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = TransportContain ContainTag\n  ContainMax = 2\n  Slots = 2\n  AllowInsideKindOf = INFANTRY\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\nObject TeamExitAircraft\n KindOf = SELECTABLE VEHICLE AIRCRAFT\n TransportSlotCount = 2\n Locomotor = SET_NORMAL BasicHumanLocomotor\n Body = ActiveBody BodyTag\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = PhysicsBehavior PhysTag\n  Mass = 1\n End\n Behavior = TransportContain ContainTag\n  ContainMax = 2\n  Slots = 2\n  AllowInsideKindOf = INFANTRY\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\nObject TeamExitPassenger\n KindOf = SELECTABLE INFANTRY\n TransportSlotCount = 1\n Locomotor = SET_NORMAL BasicHumanLocomotor\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into(),
         )])
         .unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(map.to_str().unwrap()));
     world.add_player(Player::new(1, Team::USA, "Owner", true).with_script_identity("Owner"));
     let carrier = world

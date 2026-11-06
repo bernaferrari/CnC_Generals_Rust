@@ -118,7 +118,7 @@ fn world(map: &std::path::Path) -> (GameLogic, ObjectId, ObjectId) {
         ),
     )])
     .expect("admit receiving unit template");
-    game.start_new_game(GameMode::SinglePlayer);
+    game.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(game.load_map(map.to_str().expect("UTF-8 map path")));
     // The authored map side at index 0 is admitted as Main player 1.
     assert!(game.get_player(1).is_some(), "map admits Owner participant");

@@ -14,8 +14,6 @@ fn world(veteran_health_bonus: u32, cash: u32) -> (GameLogic, generals_main::gam
         "GameData\n HealthBonus_Veteran = {veteran_health_bonus}%\nEnd\n"
     )])
     .unwrap();
-    game.start_new_game(GameMode::SinglePlayer);
-    game.add_player(Player::new(PLAYER, Team::China, "Hacker owner", true));
 
     let marker = if veteran_health_bonus == 130 {
         "BOOBY_TRAPPED"
@@ -29,6 +27,8 @@ fn world(veteran_health_bonus: u32, cash: u32) -> (GameLogic, generals_main::gam
         ),
     )])
     .expect("receiving hacker and upgrade definitions");
+    game.start_new_game(GameMode::SinglePlayer).unwrap();
+    game.add_player(Player::new(PLAYER, Team::China, "Hacker owner", true));
     let id = game
         .create_object_for_player(HACKER, PLAYER, Vec3::ZERO)
         .expect("hacker admitted into receiving world");

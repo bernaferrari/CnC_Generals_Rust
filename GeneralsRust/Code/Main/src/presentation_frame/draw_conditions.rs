@@ -59,10 +59,7 @@ pub(super) struct DrawConditionFacts {
     pub user_1: bool,
     pub user_2: bool,
     pub using_ability: bool,
-    pub veterancy: PresentationVeterancy,
-    pub weapon_crate_upgrade: u8,
     pub weapon_fire_status: u8,
-    pub weapon_set_player_upgrade: bool,
     pub world_is_night: bool,
     pub world_is_snow: bool,
 }

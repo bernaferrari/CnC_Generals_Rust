@@ -86,7 +86,7 @@ fn world(map: &std::path::Path) -> GameLogic {
             ),
         )])
         .unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(map.to_str().unwrap()));
     world
 }

@@ -50,7 +50,7 @@ fn world_with_positions(
     ])
     .expect("admit typed charge and host templates");
     admit_trap_blast(&mut game);
-    game.start_new_game(GameMode::SinglePlayer);
+    game.start_new_game(GameMode::SinglePlayer).unwrap();
 
     let mut planter = Player::new(0, Team::GLA, "GLA", false);
     planter.set_map_relationship(1, Relationship::Enemies);
@@ -572,7 +572,7 @@ fn detonation_kills_the_receiving_charge_through_its_authored_die_callback() {
         game.admit_object_ini_sources([("ChargeDie.ini".into(), objects)])
             .unwrap();
         admit_trap_blast(&mut game);
-        game.start_new_game(GameMode::SinglePlayer);
+        game.start_new_game(GameMode::SinglePlayer).unwrap();
         game.add_player(Player::new(0, Team::GLA, "ChargeOwner", false));
         game.add_player(Player::new(1, Team::USA, "TargetOwner", false));
         let target = game

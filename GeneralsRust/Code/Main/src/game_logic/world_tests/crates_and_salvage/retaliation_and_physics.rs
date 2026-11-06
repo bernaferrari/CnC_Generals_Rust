@@ -185,7 +185,8 @@ fn start_new_game_applies_retail_enable_repulsors() {
     let mut definitions = game_engine::common::ini::AIData::default();
     definitions.enable_repulsors = true; // authored Default/AIData.ini Yes
     logic.set_ai_definition_base(definitions);
-    logic.start_new_game(GameMode::Skirmish);
+    logic.admit_object_ini_sources(std::iter::empty()).unwrap();
+    logic.start_new_game(GameMode::Skirmish).unwrap();
     assert!(
         logic.enable_repulsors,
         "retail Default/AIData.ini EnableRepulsors=Yes on live start_new_game"

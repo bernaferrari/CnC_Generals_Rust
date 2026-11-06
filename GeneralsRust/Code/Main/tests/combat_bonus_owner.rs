@@ -13,7 +13,7 @@ fn world(health_percent: u32) -> GameLogic {
             "Object BonusUnit\n KindOf = INFANTRY\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
         )])
         .unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     world.add_player(Player::new(42, Team::USA, "BonusOwner", true));
     world
 }
@@ -38,7 +38,7 @@ fn veterancy_world(veteran_percent: u32, elite_percent: u32) -> GameLogic {
              Object BonusBornVeteran\n KindOf = INFANTRY\n IsTrainable = Yes\n ExperienceRequired = 0 60 150 300\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = VeterancyGainCreate Rank\n StartingLevel = VETERAN\n End\nEnd\n".into(),
         )])
         .unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     world.add_player(Player::new(42, Team::USA, "BonusOwner", true));
     world
 }
@@ -142,7 +142,7 @@ fn construction_and_reset_keep_each_worlds_game_data() {
         125.0
     );
 
-    peer.start_new_game(GameMode::SinglePlayer);
+    peer.start_new_game(GameMode::SinglePlayer).unwrap();
     peer.add_player(Player::new(42, Team::USA, "BonusOwner", true));
     let peer_again = spawn(&mut peer);
     let first_again = spawn(&mut first);

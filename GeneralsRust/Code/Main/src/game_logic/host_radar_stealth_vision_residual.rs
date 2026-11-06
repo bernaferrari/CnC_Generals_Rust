@@ -262,13 +262,6 @@ pub const SPOTTER_RADAR_EVENT_STEALTH_NEUTRALIZED_INDEX: usize = 9;
 
 /// Wave 97 spotter residual honesty pack.
 
-/// C++ AmericaJetStealthFighter StealthDelay residual (msec).
-pub const STEALTH_FIGHTER_STEALTH_DELAY_MS_RESIDUAL: u32 = 2_000;
-/// StealthDelay 2000ms → 60 frames @ 30 FPS.
-pub const STEALTH_FIGHTER_STEALTH_DELAY_FRAMES_RESIDUAL: u32 = 60;
-/// Retail StealthForbiddenConditions = ATTACKING residual.
-pub const STEALTH_FIGHTER_FORBIDDEN_ATTACKING_RESIDUAL: bool = true;
-
 /// C++ mine / demo-trap StealthDelay residual (immediate cloak).
 pub const MINE_STEALTH_DELAY_FRAMES_RESIDUAL: u32 = 0;
 /// C++ StealthUpdate::update mine special-case `setEffectiveOpacity(0, 0)`.
@@ -292,28 +285,6 @@ pub fn detector_can_scan_while_contained_residual(
     } else {
         can_detect_while_transported
     }
-}
-
-/// Retail hero StealthDelay frames (Burton/Kell 60, Lotus/Saboteur/Hijacker 75).
-pub fn hero_stealth_delay_frames_residual(template_name: &str) -> u32 {
-    let n = template_name.to_ascii_lowercase();
-    if n.contains("burton") || n.contains("colonel") {
-        crate::game_logic::host_colonel_burton::BURTON_STEALTH_DELAY_FRAMES
-    } else if n.contains("jarmen") || n.contains("kell") {
-        crate::game_logic::host_jarmen_kell::JARMEN_STEALTH_DELAY_FRAMES
-    } else if crate::game_logic::host_hero_abilities::is_black_lotus_template(template_name)
-        || n.contains("lotus")
-    {
-        crate::game_logic::host_hero_abilities::LOTUS_STEALTH_DELAY_FRAMES
-    } else {
-        crate::game_logic::host_saboteur::SABOTEUR_STEALTH_DELAY_FRAMES
-    }
-}
-
-/// C++ allowedToStealth ATTACKING residual for Stealth Fighter.
-#[inline]
-pub fn stealth_fighter_allowed_to_stealth_residual(attacking: bool) -> bool {
-    !STEALTH_FIGHTER_FORBIDDEN_ATTACKING_RESIDUAL || !attacking
 }
 
 /// Whether a mine-kind object should use the 0-opacity stealth residual.
@@ -867,14 +838,7 @@ mod tests {
     }
 
     #[test]
-    fn stealth_fighter_and_mine_cloak_residuals() {
-        assert_eq!(STEALTH_FIGHTER_STEALTH_DELAY_MS_RESIDUAL, 2_000);
-        assert_eq!(
-            STEALTH_FIGHTER_STEALTH_DELAY_FRAMES_RESIDUAL,
-            residual_ms_to_frames(STEALTH_FIGHTER_STEALTH_DELAY_MS_RESIDUAL)
-        );
-        assert!(stealth_fighter_allowed_to_stealth_residual(false));
-        assert!(!stealth_fighter_allowed_to_stealth_residual(true));
+    fn mine_cloak_residuals() {
         assert_eq!(MINE_STEALTH_DELAY_FRAMES_RESIDUAL, 0);
         assert!((MINE_STEALTH_OPACITY_RESIDUAL - 0.0).abs() < 1e-6);
         assert!(is_mine_stealth_kind_residual(true, false, false));
@@ -884,7 +848,7 @@ mod tests {
     }
 
     #[test]
-    fn contained_detector_and_hero_delay_residuals() {
+    fn contained_detector_residuals() {
         assert!(detector_can_scan_while_contained_residual(
             false, false, false, false
         ));
@@ -900,21 +864,5 @@ mod tests {
         assert!(detector_can_scan_while_contained_residual(
             true, false, false, true
         ));
-        assert_eq!(
-            hero_stealth_delay_frames_residual("AmericaInfantryColonelBurton"),
-            60
-        );
-        assert_eq!(
-            hero_stealth_delay_frames_residual("GLAInfantryJarmenKell"),
-            60
-        );
-        assert_eq!(
-            hero_stealth_delay_frames_residual("ChinaInfantryBlackLotus"),
-            75
-        );
-        assert_eq!(
-            hero_stealth_delay_frames_residual("GLAInfantrySaboteur"),
-            75
-        );
     }
 }

@@ -49,7 +49,7 @@ End
             ),
         )])
         .expect("admit typed CostModifierUpgrade source and production targets");
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     world.add_player(Player::new(1, Team::USA, "CostOwnerA", true));
     world.add_player(Player::new(2, Team::China, "CostOwnerB", true));
     let source = create_source.then(|| {

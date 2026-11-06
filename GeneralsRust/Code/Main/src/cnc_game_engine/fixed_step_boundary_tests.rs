@@ -236,7 +236,11 @@ fn production_shadow_boundary_preserves_same_faction_player_radar_ownership() {
 fn production_shadow_boundary_preserves_same_faction_player_radar_ownership_case() {
     let make_world = || {
         let mut logic = GameLogic::new();
-        logic.start_new_game(GameMode::Skirmish);
+        logic.admit_object_ini_sources([(
+            "RadarOwnership.ini".into(),
+            "Object AmericaCommandCenter\n KindOf = STRUCTURE COMMANDCENTER MP_COUNT_FOR_VICTORY\n Body = ActiveBody Body\n  MaxHealth = 1000\n  InitialHealth = 1000\n End\nEnd\nObject AmericaBarracks\n KindOf = STRUCTURE MP_COUNT_FOR_VICTORY\n Body = ActiveBody Body\n  MaxHealth = 1000\n  InitialHealth = 1000\n End\nEnd\nObject OwnedRadarPowerPlant\n KindOf = STRUCTURE\n EnergyProduction = 10\n Body = ActiveBody Body\n  MaxHealth = 1000\n  InitialHealth = 1000\n End\nEnd\n".into(),
+        )]).unwrap();
+        logic.start_new_game(GameMode::Skirmish).unwrap();
         logic.clear_all_players();
         logic.add_player(Player::new(0, Team::USA, "USA provider owner", true));
         logic.add_player(Player::new(1, Team::USA, "USA without radar", true));

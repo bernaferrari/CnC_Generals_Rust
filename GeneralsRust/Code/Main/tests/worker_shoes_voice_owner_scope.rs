@@ -15,9 +15,6 @@ fn world(
     generals_main::game_logic::ObjectId,
 ) {
     let mut world = GameLogic::new();
-    world.start_new_game(GameMode::SinglePlayer);
-    world.add_player(Player::new(1, Team::GLA, "Worker owner", false));
-    world.add_player(Player::new(2, Team::USA, "Capturing owner", false));
     world
         .admit_object_ini_sources([(
             "WorkerShoesVoiceOwner.ini".into(),
@@ -26,6 +23,9 @@ fn world(
             ),
         )])
         .expect("admit worker fixture");
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
+    world.add_player(Player::new(1, Team::GLA, "Worker owner", false));
+    world.add_player(Player::new(2, Team::USA, "Capturing owner", false));
     let worker = world
         .create_object_for_player(WORKER, 1, Vec3::ZERO)
         .expect("create worker");

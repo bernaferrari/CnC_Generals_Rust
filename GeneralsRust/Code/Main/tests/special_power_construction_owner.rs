@@ -42,7 +42,7 @@ fn world(power: &str, enum_name: &str) -> (tempfile::TempDir, GameLogic, ObjectI
             format!("Object ConstructTarget\n{object_ini}"),
         )])
         .unwrap();
-    logic.start_new_game(GameMode::SinglePlayer);
+    logic.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(logic.load_map(map_path.to_str().unwrap()));
     logic.add_player(Player::new(42, Team::USA, "ConstructOwner", true));
     let producer = logic

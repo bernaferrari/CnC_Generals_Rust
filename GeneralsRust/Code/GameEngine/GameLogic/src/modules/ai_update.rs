@@ -896,6 +896,10 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     fn can_auto_acquire_while_stealthed(&self) -> bool {
         true
     }
+    /// Query using an already borrowed owner, avoiding re-entry into its lock.
+    fn can_auto_acquire_while_stealthed_for_source(&self, _source: &Object) -> bool {
+        self.can_auto_acquire_while_stealthed()
+    }
     /// Get packed mood matrix parameters (matching C++ AIUpdateInterface::getMoodMatrixValue).
     fn get_mood_matrix_value(&self) -> u32 {
         0

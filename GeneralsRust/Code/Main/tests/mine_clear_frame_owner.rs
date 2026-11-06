@@ -30,7 +30,7 @@ fn world(
             "Object USA_Dozer\n KindOf = SELECTABLE VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\nObject OwnerLandMine\n KindOf = SELECTABLE VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
         )])
         .unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(path.to_str().unwrap()));
     world.add_player(Player::new(1, Team::China, "Dozer", true));
     world.add_player(Player::new(2, Team::USA, "Mine", true));
@@ -77,7 +77,7 @@ fn mine_clear_approach_stamps_each_receiving_world_frame() {
         logic
             .host_object_mut(dozer)
             .unwrap()
-            .set_weapon_set_mine_clearing_detail_at_frame(true, frame);
+            .set_weapon_condition_at_frame(8, true, frame);
     }
 
     owner.update_mines_and_demo_traps();

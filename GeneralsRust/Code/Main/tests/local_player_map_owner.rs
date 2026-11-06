@@ -61,7 +61,8 @@ fn world(map: &std::path::Path) -> GameLogic {
         .unwrap();
     let mut world = GameLogic::new();
     world.admit_player_template_definitions(templates).unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.admit_object_ini_sources(std::iter::empty()).unwrap();
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(
         world.load_map(map.to_str().unwrap()),
         "loading {}",

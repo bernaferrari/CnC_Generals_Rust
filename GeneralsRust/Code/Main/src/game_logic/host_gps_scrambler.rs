@@ -203,14 +203,6 @@ pub fn host_has_gps_stealth_module(
     is_vehicle || is_infantry
 }
 
-/// Name residual for bomb-truck / disguise units that C++ receiveGrant skips.
-/// C++ StealthUpdate.cpp:184-185 `canDisguise()` is DisguisesAsTeam (Bomb Truck).
-/// Hijacker has InnateStealth, not DisguisesAsTeam — GPS must recloak him.
-pub fn is_gps_scrambler_disguise_name(template_name: &str) -> bool {
-    let n = template_name.to_ascii_lowercase();
-    n.contains("bombtruck") || n.contains("disguise")
-}
-
 /// 2D distance check residual (C++ FROM_CENTER_2D / FinalRadius).
 pub fn in_gps_scrambler_radius_2d(center: (f32, f32), target: (f32, f32), radius: f32) -> bool {
     let dx = center.0 - target.0;
@@ -449,17 +441,6 @@ mod tests {
             false, false, false, false, false, false, false, false, false, false, true
         ));
         assert!(!host_has_gps_stealth_module(false, false, true, true));
-    }
-
-    #[test]
-    fn disguise_name_residual() {
-        assert!(is_gps_scrambler_disguise_name("GLAVehicleBombTruck"));
-        assert!(is_gps_scrambler_disguise_name("Demo_GLAVehicleBombTruck"));
-        assert!(!is_gps_scrambler_disguise_name("GLAVehicleQuadCannon"));
-        assert!(!is_gps_scrambler_disguise_name("USA_Ranger"));
-        // C++ canDisguise is Bomb Truck only; Hijacker must receive GPS grant.
-        assert!(!is_gps_scrambler_disguise_name("GLAInfantryHijacker"));
-        assert!(!is_gps_scrambler_disguise_name("Slth_GLAInfantryHijacker"));
     }
 
     #[test]

@@ -38,7 +38,7 @@ fn world(
             "Object ReturnOwnerCarrier\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL ReturnOwnerLoco\n Body = ActiveBody BodyTag\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = TransportContain ContainTag\n  ContainMax = 2\n  Slots = 2\n  AllowInsideKindOf = INFANTRY\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into(),
         )])
         .unwrap();
-    logic.start_new_game(GameMode::SinglePlayer);
+    logic.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(logic.load_map(path.to_str().unwrap()));
     logic.add_player(Player::new(1, Team::USA, "Owner", true));
     for _ in 0..frame_steps {

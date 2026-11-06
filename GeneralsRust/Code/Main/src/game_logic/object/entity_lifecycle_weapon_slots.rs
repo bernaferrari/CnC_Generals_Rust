@@ -14,7 +14,6 @@ pub(crate) struct WeaponSlotsResidual {
     pub secondary: Option<Weapon>,
     pub tertiary: Option<Weapon>,
     pub active_slot: u8,
-    pub mine_detail: bool,
     pub suspend_frames: [u32; 3],
 }
 
@@ -24,7 +23,6 @@ impl WeaponSlotsResidual {
             || object.secondary_weapon.is_some()
             || object.tertiary_weapon.is_some()
             || object.active_weapon_slot != 0
-            || object.weapon_set_mine_clearing_detail
     }
     pub(crate) fn from_object(object: &Object) -> Self {
         Self {
@@ -32,7 +30,6 @@ impl WeaponSlotsResidual {
             secondary: object.secondary_weapon.clone(),
             tertiary: object.tertiary_weapon.clone(),
             active_slot: object.active_weapon_slot,
-            mine_detail: object.weapon_set_mine_clearing_detail,
             suspend_frames: std::array::from_fn(|i| {
                 object
                     .weapon_slot(i as u8)
@@ -45,7 +42,6 @@ impl WeaponSlotsResidual {
         object.secondary_weapon = self.secondary;
         object.tertiary_weapon = self.tertiary;
         object.active_weapon_slot = self.active_slot;
-        object.weapon_set_mine_clearing_detail = self.mine_detail;
         for slot in 0..3 {
             if let Some(weapon) = object.weapon_slot_mut(slot) {
                 weapon.suspend_fx_frame = self.suspend_frames[slot as usize];
@@ -58,7 +54,7 @@ pub(crate) fn collect(
     out: &mut Vec<EntityModuleState>,
 ) -> Result<(), EntityLifecycleCodecError> {
     if WeaponSlotsResidual::present(object) {
-        let mut payload = b"WS3\0".to_vec();
+        let mut payload = b"WS5\0".to_vec();
         payload.extend(encode_payload(&WeaponSlotsResidual::from_object(object))?);
         out.push(EntityModuleState {
             tag: TAG_WEAPON_SLOTS.to_owned(),
@@ -70,7 +66,7 @@ pub(crate) fn collect(
 pub(crate) fn decode(payload: &[u8]) -> Result<WeaponSlotsResidual, EntityLifecycleCodecError> {
     let bytes =
         payload
-            .strip_prefix(b"WS3\0")
+            .strip_prefix(b"WS5\0")
             .ok_or(EntityLifecycleCodecError::InvalidOwnerComponent {
                 component: "weapon slots version",
             })?;
@@ -109,9 +105,9 @@ mod tests {
             let mut slots = WeaponSlotsResidual::from_object(&owner);
             slots.active_slot = if kind == 1 { 3 } else { 0 };
             let mut bytes = if kind == 0 {
-                b"WS3\x01".to_vec()
+                b"WS5\x01".to_vec()
             } else {
-                b"WS3\0".to_vec()
+                b"WS5\0".to_vec()
             };
             bytes.extend(encode_payload(&slots).unwrap());
             envelope.module_states.retain(|m| m.tag != TAG_WEAPON_SLOTS);
@@ -139,7 +135,7 @@ mod tests {
             assert_eq!(owner.path_extra_distance, 7.0);
             assert_eq!(owner.weapon.as_ref().unwrap().ammo, Some(1));
             assert_eq!(owner.weapon.as_ref().unwrap().last_fire_time, 0.25);
-            assert!(!owner.weapon_set_mine_clearing_detail);
+            assert!(!owner.test_weapon_condition(8));
         }
     }
 }

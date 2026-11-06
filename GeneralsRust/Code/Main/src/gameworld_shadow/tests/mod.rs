@@ -19,6 +19,23 @@ pub(super) fn ensure_template(logic: &mut GameLogic, name: &str, hp: f32) {
     logic.templates.insert(name.into(), t);
 }
 
+/// Admit the actual ordered object definition used by a shadow fixture.
+fn admit_shadow_fixture(logic: &mut GameLogic, name: &str, kind: &str) {
+    let source = format!(
+        "Object {name}\nKindOf = {kind}\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n"
+    );
+    let content = crate::assets::ReceivingStartupContent::from_sources(
+        [("shadow-fixture.ini".into(), source)],
+        std::sync::Arc::new(game_engine::common::rts::science::ScienceNameFacts::default()),
+        std::sync::Arc::new(
+            game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions::default(),
+        ),
+        Vec::new(),
+    )
+    .expect("shadow fixture content");
+    logic.admit_startup_content(content).expect("admit shadow fixture");
+}
+
 mod authority_dry_run;
 mod authority_writeback;
 mod combat_status;

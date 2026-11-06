@@ -81,7 +81,7 @@ fn world(start_money: u32, map: &std::path::Path) -> GameLogic {
         template_name: "FactionAmerica".into(),
         template_index: Some(0),
     };
-    assert!(world.start_new_game_with_player_template(GameMode::SinglePlayer, 0, identity));
+    assert!(world.start_new_game_with_player_template(GameMode::SinglePlayer, 0, identity).unwrap());
     assert_eq!(world.get_player(0).unwrap().resources.supplies, start_money);
     assert!(world.load_map(map.to_str().unwrap()));
     world

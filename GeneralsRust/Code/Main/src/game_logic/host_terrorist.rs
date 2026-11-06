@@ -272,6 +272,7 @@ pub fn terrorist_suicide_weapon_for_profile(profile: TerroristDeathProfile) -> W
         min_range: 0.0,
         reload_time: 0.05,
         last_fire_time: 0.0,
+        last_fire_frame: 0,
         ammo: Some(1),
         clip_size: 0,
         clip_reload_time: 0.0,

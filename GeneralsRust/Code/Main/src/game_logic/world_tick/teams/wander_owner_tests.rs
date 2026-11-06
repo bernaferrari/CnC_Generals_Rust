@@ -73,7 +73,8 @@ fn wander_runtime_ends_with_the_object_and_new_ids_start_inert() {
     );
     world.test_host_wander_issue_path(id, &[glam::Vec3::new(60.0, 0.0, 60.0)]);
     assert!(world.test_wander_path_active(id));
-    world.start_new_game(GameMode::Skirmish);
+    world.admit_object_ini_sources(std::iter::empty()).unwrap();
+    world.start_new_game(GameMode::Skirmish).unwrap();
     assert!(
         !world.test_wander_path_active(id),
         "reset drops the old object's machine"

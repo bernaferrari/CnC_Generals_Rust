@@ -115,7 +115,7 @@ fn world(map: &std::path::Path) -> GameLogic {
         ("RetryWalk.ini".into(), "Object RetryWalker\n KindOf = SELECTABLE INFANTRY\n Locomotor = SET_NORMAL RetryWalk\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into()),
         ("RetryWideWalk.ini".into(), "Object RetryWideWalker\n KindOf = SELECTABLE INFANTRY\n Geometry = BOX\n GeometryMajorRadius = 8\n GeometryMinorRadius = 5\n GeometryHeight = 12\n Locomotor = SET_NORMAL RetryWalk\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into()),
     ]).unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(map.to_str().unwrap()));
     world.add_player(Player::new(1, Team::USA, "Owner", true));
     world
@@ -132,7 +132,7 @@ fn aircraft_world(map: &std::path::Path) -> GameLogic {
         ("RetryWideFly.ini".into(), "Object RetryWideFlyer\n KindOf = SELECTABLE VEHICLE AIRCRAFT\n Geometry = BOX\n GeometryMajorRadius = 8\n GeometryMinorRadius = 5\n GeometryHeight = 12\n Locomotor = SET_NORMAL RetryFly\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into()),
         ("RetryGround.ini".into(), "Object RetryGroundUnit\n KindOf = SELECTABLE INFANTRY\n Locomotor = SET_NORMAL RetryGround\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into()),
     ]).unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(map.to_str().unwrap()));
     world.add_player(Player::new(1, Team::USA, "Owner", true));
     world

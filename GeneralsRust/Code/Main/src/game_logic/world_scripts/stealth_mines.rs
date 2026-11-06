@@ -5,6 +5,10 @@
 use super::super::*;
 
 mod stealth_detection;
+mod stealth_update;
+#[cfg(test)]
+#[path = "stealth_mines/stealth_update_tests.rs"]
+mod stealth_update_tests;
 mod mine_placement;
 mod mine_detonation;
 
@@ -493,7 +497,7 @@ impl GameLogic {
                 if !is_mine_clearer(obj.is_kind_of(KindOf::Worker), &obj.template_name) {
                     return None;
                 }
-                if !mine_clear_allowed_for_order(obj.weapon_set_mine_clearing_detail) {
+                if !mine_clear_allowed_for_order(obj.test_weapon_condition(8)) {
                     return None;
                 }
                 let busy = matches!(
@@ -524,7 +528,7 @@ impl GameLogic {
                     .weapon_name_for_slot(0)
                     .map(crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage)
                     .unwrap_or(false)
-                    || obj.weapon_set_mine_clearing_detail;
+                    || obj.test_weapon_condition(8);
                 let attacking =
                     obj.status.attacking || matches!(obj.ai_state(), AIState::Attacking);
                 if demo_trap_skips_dozer_disarm_while_attacking(is_dozer, weapon_disarm, attacking)

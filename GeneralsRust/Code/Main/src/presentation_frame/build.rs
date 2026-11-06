@@ -147,7 +147,7 @@ pub(super) fn freeze_friendly_stealth_opacity(obj: &crate::game_logic::Object) -
     if object_is_mine_kind(obj) {
         obj.camo_friendly_opacity
     } else {
-        obj.thing().template.stealth_friendly_opacity_min
+        obj.stealth_friendly_opacity_min()
     }
 }
 
@@ -179,15 +179,11 @@ pub(super) fn freeze_sticky_bomb_overlay(obj: &crate::game_logic::Object, now: u
 }
 
 /// Freeze the source capability consumed by C++
-/// `StealthUpdate::canDisguise()`. The active host's Bomb Truck residual is
-/// the implemented source of `DisguisesAsTeam`; use the immutable
-/// ThingTemplate identity rather than mutable Object template bookkeeping or
-/// a pending/committed disguise transition.
+/// `StealthUpdate::canDisguise()`: the authored StealthUpdate's
+/// `DisguisesAsTeam`, never the template name or a pending transition.
 pub(super) fn freeze_direct_can_disguise_as_team(obj: &crate::game_logic::Object) -> bool {
-    crate::game_logic::host_bomb_truck_disguise::BOMB_TRUCK_DISGUISES_AS_TEAM
-        && crate::game_logic::host_bomb_truck_disguise::has_disguises_as_team_stealth_residual(
-            obj.thing().template.name.as_str(),
-        )
+    obj.stealth_update_data()
+        .is_some_and(|data| data.disguises_as_team)
 }
 
 /// C++ visual disguise is an identity selection, not a mutation of the
@@ -855,7 +851,7 @@ impl PresentationFrame {
                 effectively_stealthed: obj.is_effectively_stealthed(),
                 can_disguise_as_team: freeze_direct_can_disguise_as_team(obj),
                 friendly_stealth_opacity: freeze_friendly_stealth_opacity(obj),
-                friendly_stealth_opacity_max: obj.thing().template.stealth_friendly_opacity_max,
+                friendly_stealth_opacity_max: obj.stealth_friendly_opacity_max(),
                 disabled: obj.is_disabled(),
                 contained_by: obj.contained_by,
                 force_attack: obj.force_attack,
@@ -891,7 +887,7 @@ impl PresentationFrame {
                     .map(|w| w.projectile_speed)
                     .unwrap_or(0.0),
                 armed_riders_upgrade_weapon_set: obj.armed_riders_upgrade_weapon_set,
-                weapon_set_player_upgrade: obj.weapon_set_player_upgrade,
+                weapon_set_player_upgrade: obj.test_weapon_condition(3),
                 // Wave 523: battle-bus / armor second-life residual.
                 second_life: obj.armor_set_second_life,
                 // Wave 525: crush + USER model-condition residuals.
@@ -904,7 +900,7 @@ impl PresentationFrame {
                     & (1u128 << crate::game_logic::host_enum_table_residual::user_2_model_bit()))
                     != 0,
                 // Wave 518: crate upgrades + enemy-near + armed residual.
-                weapon_crate_upgrade: obj.weapon_crate_upgrade,
+                weapon_crate_upgrade: obj.weapon_crate_upgrade(),
                 armor_crate_upgrade: obj.armor_crate_upgrade,
                 enemy_near: obj
                     .enemy_near
@@ -919,7 +915,7 @@ impl PresentationFrame {
                 disguised: obj.status.disguised,
                 disabled_subdued: obj.status.disabled_subdued,
                 is_carbomb: obj.status.is_carbomb,
-                weapon_set_carbomb: obj.weapon_set_carbomb,
+                weapon_set_carbomb: obj.test_weapon_condition(7),
                 authors_carbomb_weapon_set: obj.authors_carbomb_weapon_set(),
                 bomb_type: freeze_sticky_bomb_overlay(obj, logic.get_current_frame() as u32).0,
                 bomb_timer_seconds: freeze_sticky_bomb_overlay(
@@ -935,8 +931,6 @@ impl PresentationFrame {
                 },
                 detection_range: obj.detection_range.max(0.0),
                 detection_rate_frames: obj.detection_rate_frames,
-                stealth_breaks_on_attack: obj.stealth_breaks_on_attack,
-                stealth_breaks_on_move: obj.stealth_breaks_on_move,
                 innate_stealth: obj.innate_stealth,
                 weapon_bonus_frenzy_until_frame: obj.weapon_bonus_frenzy_until_frame,
                 continuous_fire_consecutive: obj.consecutive_shots_at_target.min(u16::MAX as u32)

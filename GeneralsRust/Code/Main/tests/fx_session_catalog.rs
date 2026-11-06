@@ -145,7 +145,8 @@ fn map_fx_overrides_and_failed_peer_load_are_session_owned() {
     let mut first = GameLogic::new();
     let mut second = GameLogic::new();
     for (world, sound) in [(&mut first, "FirstBase"), (&mut second, "SecondBase")] {
-        world.start_new_game(GameMode::SinglePlayer);
+        world.admit_object_ini_sources(std::iter::empty()).unwrap();
+        world.start_new_game(GameMode::SinglePlayer).unwrap();
         world.admit_fx_source(&definition(sound)).unwrap();
     }
     assert!(first.load_map(first_map.to_str().unwrap()));
@@ -157,7 +158,8 @@ fn map_fx_overrides_and_failed_peer_load_are_session_owned() {
     let encoded = bincode_legacy::serialize(&saved).unwrap();
     let decoded = bincode_legacy::deserialize(&encoded).unwrap();
     let mut loaded = GameLogic::new();
-    loaded.start_new_game(GameMode::SinglePlayer);
+    loaded.admit_object_ini_sources(std::iter::empty()).unwrap();
+    loaded.start_new_game(GameMode::SinglePlayer).unwrap();
     loaded.admit_fx_source(&definition("FirstBase")).unwrap();
     assert!(loaded.load_map(first_map.to_str().unwrap()));
     builder

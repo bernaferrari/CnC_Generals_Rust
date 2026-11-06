@@ -515,15 +515,11 @@ impl GameLogic {
         }
     }
 
-    /// C++ `setScriptStatus(OBJECT_STATUS_SCRIPT_UNSTEALTHED, !enabled)`.
+    /// C++ `setScriptStatus(OBJECT_STATUS_SCRIPT_UNSTEALTHED, !enabled)`; the
+    /// StealthUpdate's `allowedToStealth` then uncloaks on its next update.
     pub(super) fn host_script_set_stealth_enabled(&mut self, id: ObjectId, enabled: bool) {
-        let frame = self.frame;
-        let Some(obj) = self.objects.get_mut(&id) else {
-            return;
-        };
-        obj.set_script_unstealthed(!enabled);
-        if !enabled {
-            obj.apply_stealth_allowed_update(frame, false);
+        if let Some(obj) = self.objects.get_mut(&id) {
+            obj.set_script_unstealthed(!enabled);
         }
     }
 

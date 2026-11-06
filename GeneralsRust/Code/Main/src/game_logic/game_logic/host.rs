@@ -1114,20 +1114,6 @@ pub struct GameLogic {
     pub(crate) stinger_hive_residual_respawns: u32,
     /// getClosestSlave residual: propagate hits that used shooter world position.
     pub(super) stinger_hive_residual_closest_slave_hits: u32,
-    /// CamoNetting StealthLook / heat-vision residual applications.
-    pub(super) camo_netting_heat_vision_count: u32,
-    /// CamoNetting structure StealthUpdate residual: attack/damage reveals.
-    pub(super) camo_netting_structure_residual_reveals: u32,
-    /// OrderIdleEnemiesToAttackMeUponReveal residual wake count (CamoNetting).
-    pub(super) camo_netting_order_idle_enemies_count: u32,
-    /// CamoNetting structure StealthUpdate residual: StealthDelay re-cloaks.
-    pub(super) camo_netting_structure_residual_recloaks: u32,
-    /// CamoNetting FriendlyOpacity residual: cloaked (min opacity) applications.
-    pub(super) camo_netting_opacity_cloak_count: u32,
-    /// CamoNetting FriendlyOpacity residual: revealed (max opacity) applications.
-    pub(super) camo_netting_opacity_reveal_count: u32,
-    /// CamoNetting sub-object net mesh residual show applications.
-    pub(super) camo_netting_sub_object_show_count: u32,
     /// Stinger physical soldier orderSlavesToAttackTarget residual orders.
     pub(super) stinger_slave_order_attack_count: u32,
 

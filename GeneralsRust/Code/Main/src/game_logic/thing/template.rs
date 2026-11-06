@@ -589,22 +589,19 @@ pub struct ThingTemplate {
     /// INI module rather than inferred from VEHICLE, dimensions, or a name.
     #[serde(default)]
     pub contain_module: ContainModuleMetadata,
-    /// Exact StealthUpdate FriendlyOpacityMin/Max values.  They are retained
-    /// on the immutable template so presentation can select the C++ friendly
-    /// look without re-reading INI or live GameLogic during WGPU collection.
-    #[serde(default = "default_stealth_friendly_opacity_min")]
-    pub stealth_friendly_opacity_min: f32,
-    #[serde(default = "default_stealth_friendly_opacity_max")]
-    pub stealth_friendly_opacity_max: f32,
-    /// Exact StealthUpdate `InnateStealth` (C++ `m_innateStealth`).
+    /// Effective authored or inherited `StealthUpdateModuleData`, selected
+    /// by the receiving ThingTemplate's ordered module admission.
     #[serde(default)]
-    pub stealth_update_innate: bool,
-    /// StealthUpdate `StealthForbiddenConditions` contains `ATTACKING`.
+    pub stealth_update: Option<crate::game_logic::object::StealthUpdateData>,
+    /// FX-list and EVA identities authored by the effective StealthUpdate.
     #[serde(default)]
-    pub stealth_update_forbids_attacking: bool,
-    /// Exact StealthUpdate `StealthDelay` in ms, when authored.
+    pub stealth_disguise_fx: Option<String>,
     #[serde(default)]
-    pub stealth_update_delay_ms: Option<u32>,
+    pub stealth_disguise_reveal_fx: Option<String>,
+    #[serde(default)]
+    pub stealth_enemy_detection_eva: Option<String>,
+    #[serde(default)]
+    pub stealth_own_detection_eva: Option<String>,
     /// Exact `ParkingPlaceBehavior` data.  This remains absent when the
     /// source object has no such behavior, even if its KindOf is
     /// `FSAirfield`; physical aircraft landing then fails closed.
@@ -1228,11 +1225,11 @@ impl ThingTemplate {
 
             contain_module: ContainModuleMetadata::default(),
 
-            stealth_friendly_opacity_min: default_stealth_friendly_opacity_min(),
-            stealth_friendly_opacity_max: default_stealth_friendly_opacity_max(),
-            stealth_update_innate: false,
-            stealth_update_forbids_attacking: false,
-            stealth_update_delay_ms: None,
+            stealth_update: None,
+            stealth_disguise_fx: None,
+            stealth_disguise_reveal_fx: None,
+            stealth_enemy_detection_eva: None,
+            stealth_own_detection_eva: None,
             parking_place: None,
             flight_deck: None,
             deploy_style_metadata: None,
@@ -1783,6 +1780,7 @@ impl ThingTemplate {
             min_range: wt.minimum_attack_range,
             reload_time,
             last_fire_time: 0.0,
+            last_fire_frame: 0,
             ammo: if wt.clip_size > 0 {
                 Some(wt.clip_size as u32)
             } else {

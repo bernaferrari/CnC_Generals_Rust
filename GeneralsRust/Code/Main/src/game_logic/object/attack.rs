@@ -1384,6 +1384,9 @@ impl Object {
         {
             self.release_weapon_lock(WeaponLockType::LockedTemporarily);
         }
+        if let Some(weapon) = self.weapon_slot_mut(slot) {
+            weapon.last_fire_frame = logic_frame;
+        }
         {
             let frame = logic_frame;
             self.stamp_fire_sound_loop_after_shot(frame, fire_weapon_name, sound_events);
@@ -1406,15 +1409,6 @@ impl Object {
                 self.fire_intent_count = next_count;
                 #[cfg(test)]
                 self.record_host_fire_intent();
-            }
-        }
-
-        // C++ STEALTH_NOT_WHILE_ATTACKING / IS_FIRING_WEAPON residual.
-        if self.stealth_breaks_on_attack && self.status.stealthed {
-            let can_stealth = self.innate_stealth;
-            self.break_stealth();
-            if can_stealth {
-                self.innate_stealth = true;
             }
         }
     }
@@ -1896,47 +1890,6 @@ mod tests {
             Some(0.0),
             "primary must not be consumed by an explicit tertiary fire"
         );
-    }
-
-    #[test]
-    fn fire_at_grant_stealth_keeps_can_stealth() {
-        let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
-
-        let mut shot_combat = crate::game_logic::combat::CombatSystem::new();
-        // C++ StealthUpdate.cpp:198 receiveGrant stays CAN_STEALTH after fire.
-        let mut unit = Object::new(ThingTemplate::new("TestTank"), ObjectId(1), Team::GLA);
-        unit.weapon = Some(Weapon {
-            damage: 20.0,
-            range: 150.0,
-            last_fire_time: -10.0,
-            ..Weapon::default()
-        });
-        unit.apply_grant_stealth();
-        unit.stealth_breaks_on_attack = true;
-        unit.stealth_delay_frames = 30;
-        assert!(unit.fire_at(
-            ObjectId(2),
-            1.0,
-            0,
-            &mut shot_combat,
-            &mut _attack_output,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
-        ));
-        assert!(!unit.status.stealthed);
-        assert!(
-            unit.innate_stealth,
-            "GPS grant CAN_STEALTH must survive fire"
-        );
-        assert!(unit.stealth_delay_pending);
-        // C++ StealthUpdate.cpp:717-752 evaluates the disruption and rearms
-        // the timer during the actual update before a later allowed update.
-        assert!(!unit.try_recloak_after_stealth_delay(1, true));
-        assert!(!unit.stealth_delay_pending);
-        assert_eq!(unit.stealth_allowed_frame, 31);
-        assert!(!unit.try_recloak_after_stealth_delay(30, false));
-        assert!(!unit.status.stealthed);
-        assert!(unit.try_recloak_after_stealth_delay(31, false));
-        assert!(unit.status.stealthed);
     }
 
     #[test]

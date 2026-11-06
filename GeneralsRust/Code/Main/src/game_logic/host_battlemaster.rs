@@ -330,6 +330,7 @@ pub fn battlemaster_weapon(has_uranium: bool, in_horde: bool, has_nationalism: b
         min_range: 0.0,
         reload_time: delay_frames_to_reload_secs(delay),
         last_fire_time: 0.0,
+        last_fire_frame: 0,
         ammo: None,
         clip_size: 0,
         clip_reload_time: 0.0,

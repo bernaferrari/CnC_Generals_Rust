@@ -465,6 +465,8 @@ impl XferData for Weapon {
         xfer.xfer_f32(&mut self.reload_time)?;
         xfer.xfer_marker_label("LastFireTime")?;
         xfer.xfer_f32(&mut self.last_fire_time)?;
+        xfer.xfer_marker_label("LastFireFrame")?;
+        xfer.xfer_u32(&mut self.last_fire_frame)?;
         xfer.xfer_marker_label("Ammo")?;
         xfer_option(xfer, &mut self.ammo, 0u32)?;
         xfer.xfer_marker_label("CanTargetAir")?;

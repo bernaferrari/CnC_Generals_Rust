@@ -255,8 +255,6 @@ fn primary_entity_id(mutation: &WorldMutation) -> Option<EntityId> {
         | WorldMutation::SetContainCapacity { target, .. }
         | WorldMutation::SetHiveSlaves { target, .. }
         | WorldMutation::SetHijacker { target, .. }
-        | WorldMutation::SetStealthFlags { target, .. }
-        | WorldMutation::SetStealthDelay { target, .. }
         | WorldMutation::SetOverlordAddon { target, .. }
         | WorldMutation::SetCommandSet { target, .. }
         | WorldMutation::SetDisguise { target, .. }

@@ -28,7 +28,7 @@ fn world(veteran_bonus: u32, elite_bonus: u32) -> GameLogic {
             ),
         )])
         .expect("receiving pilot and vehicle definitions accepted");
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     world.add_player(Player::new(PLAYER, Team::USA, "PilotOwner", true));
     world
 }

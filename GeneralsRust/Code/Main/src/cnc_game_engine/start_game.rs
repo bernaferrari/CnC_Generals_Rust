@@ -744,7 +744,7 @@ impl CnCGameEngine {
                 difficulty_code.unwrap_or(1),
                 0,
                 30,
-            );
+            )?;
             self.game_logic.clear_all_players();
         } else if mode == GameMode::Skirmish {
             if let Some(ref config) = skirmish {
@@ -801,7 +801,7 @@ impl CnCGameEngine {
                         faction_team,
                         player_template,
                         is_challenge_session,
-                    ) {
+                    )? {
                         // C++ never substitutes a base Team after a selected
                         // GameSlot PlayerTemplate fails to resolve.  Return to
                         // the shell before map load so Main cannot create a
@@ -821,7 +821,7 @@ impl CnCGameEngine {
                         false,
                         is_campaign_session,
                         is_challenge_session,
-                    );
+                    )?;
                 }
             }
         }

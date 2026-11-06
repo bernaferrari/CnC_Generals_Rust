@@ -1,5 +1,5 @@
 use game_engine::common::system::DataChunkOutput;
-use generals_main::game_logic::{GameLogic, GameMode, KindOf, Player, Team, ThingTemplate};
+use generals_main::game_logic::{GameLogic, GameMode, Player, Team};
 use glam::Vec3;
 
 const FLOATING_VEHICLE: &str = "CivilianVehicleFerry";
@@ -36,12 +36,15 @@ fn water_map(root: &std::path::Path, name: &str, water_y: i32) -> std::path::Pat
 
 fn world(map_path: &std::path::Path) -> (GameLogic, generals_main::game_logic::ObjectId) {
     let mut logic = GameLogic::new();
-    logic.start_new_game(GameMode::SinglePlayer);
+    logic
+        .admit_object_ini_sources([(
+            "FloatOwner.ini".into(),
+            "Object CivilianVehicleFerry\n KindOf = VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = FloatUpdate FloatTag\n End\nEnd\n".into(),
+        )])
+        .unwrap();
+    logic.start_new_game(GameMode::SinglePlayer).unwrap();
     logic.add_player(Player::new(0, Team::USA, "FloatOwner", true));
     assert!(logic.load_map(map_path.to_str().expect("map path is UTF-8")));
-    let mut ferry = ThingTemplate::new(FLOATING_VEHICLE);
-    ferry.add_kind_of(KindOf::Vehicle).set_health(100.0);
-    logic.templates.insert(FLOATING_VEHICLE.into(), ferry);
 
     let object = logic
         .create_object(FLOATING_VEHICLE, Team::USA, Vec3::new(100.0, 0.0, 100.0))

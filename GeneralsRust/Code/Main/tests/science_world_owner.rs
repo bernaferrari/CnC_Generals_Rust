@@ -7,7 +7,7 @@ fn world(map: &std::path::Path) -> GameLogic {
     world
         .admit_object_ini_sources([("Empty.ini".into(), String::new())])
         .unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(map.to_str().unwrap()));
     let mut player = Player::new(42, Team::USA, "Owner", true);
     player.unlocked_sciences.insert("SCIENCE_Root".into());

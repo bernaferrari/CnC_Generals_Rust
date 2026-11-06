@@ -13,6 +13,7 @@ impl WeaponDefinition {
     fn instantiate(&self, frame: u32) -> Weapon {
         let mut weapon = self.prototype.clone();
         weapon.last_fire_time = 0.0;
+        weapon.last_fire_frame = 0;
         weapon.reloading_clip = false;
         weapon.last_bonus_rof = 0.0;
         weapon.ammo = (weapon.clip_size > 0).then_some(weapon.clip_size);
@@ -320,17 +321,97 @@ fn select_conditional_weapon_row(rows: &[WeaponRow], flags: u32) -> Option<(usiz
 }
 
 impl Object {
+    /// Native WeaponSetType bits: veterancy 0–2, player upgrade 3, crate
+    /// upgrades 4–5, hijack 6, car bomb 7, mine clearing 8, riders 9–16.
+    pub fn weapon_condition_flags(&self) -> u32 {
+        self.weapon_condition_flags
+    }
+
+    /// Test a native WeaponSetType index.
+    pub fn test_weapon_condition(&self, bit: u8) -> bool {
+        bit < 17 && self.weapon_condition_flags & (1u32 << bit) != 0
+    }
+
+    /// Highest active salvage tier for legacy tier consumers.
+    pub fn weapon_crate_upgrade(&self) -> u8 {
+        if self.test_weapon_condition(5) { 2 }
+        else if self.test_weapon_condition(4) { 1 }
+        else { 0 }
+    }
+
+    /// Apply one native WeaponSetType mutation, including its immediate rebind.
+    pub fn set_weapon_condition_at_frame(&mut self, bit: u8, enabled: bool, frame: u32) {
+        if bit >= 17 { return; }
+        let legacy_change = !self.thing.template.has_receiving_weapon_sets()
+            && self.test_weapon_condition(bit) != enabled;
+        let previous_sources = (legacy_change && matches!(bit, 3 | 6 | 7))
+            .then(|| self.active_weapon_barrel_source_identities());
+        let previous = self.selected_weapon_row_identity();
+        if enabled { self.weapon_condition_flags |= 1u32 << bit; }
+        else { self.weapon_condition_flags &= !(1u32 << bit); }
+        let _ = self.rebind_receiving_weapon_row_if_changed(previous, frame);
+        if legacy_change {
+            if let Some(condition) = match bit {
+                3 => Some("PLAYER_UPGRADE"),
+                6 => Some("VEHICLE_HIJACK"),
+                7 => Some("CARBOMB"),
+                _ => None,
+            } {
+                if enabled {
+                    self.adopt_weapon_set_lock_share_for_condition(condition);
+                }
+                self.release_weapon_lock_on_set_change();
+            } else if bit <= 2 {
+                self.release_weapon_lock_on_set_change();
+            }
+        }
+        if let Some(sources) = previous_sources {
+            self.reset_weapon_barrel_states_if_sources_changed(sources);
+        }
+        self.set_weapon_condition_model_bit(bit, enabled);
+    }
+
+    fn weapon_condition_model_bit(bit: u8) -> Option<usize> {
+        let model = match bit {
+            0 => "WEAPONSET_VETERAN",
+            1 => "WEAPONSET_ELITE",
+            2 => "WEAPONSET_HERO",
+            3 => "WEAPONSET_PLAYER_UPGRADE",
+            4 => "WEAPONSET_CRATEUPGRADE_ONE",
+            5 => "WEAPONSET_CRATEUPGRADE_TWO",
+            9 => "RIDER1", 10 => "RIDER2",
+            11 => "RIDER3", 12 => "RIDER4",
+            13 => "RIDER5", 14 => "RIDER6",
+            15 => "RIDER7", 16 => "RIDER8",
+            _ => return None,
+        };
+        crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(model)
+            .filter(|bit| *bit < 128)
+    }
+
+    fn set_weapon_condition_model_bit(&mut self, bit: u8, enabled: bool) {
+        if let Some(model_bit) = Self::weapon_condition_model_bit(bit) {
+            if enabled { self.model_condition_bits |= 1u128 << model_bit; }
+            else { self.model_condition_bits &= !(1u128 << model_bit); }
+        }
+    }
+
+    pub(crate) fn restore_weapon_condition_flags(
+        &mut self, flags: u32, saved_model_bits: u128, rider_model_mask: u128,
+    ) {
+        self.weapon_condition_flags = flags;
+        let mut mask = rider_model_mask;
+        for bit in 0..17 {
+            if let Some(model_bit) = Self::weapon_condition_model_bit(bit) {
+                mask |= 1u128 << model_bit;
+            }
+        }
+        self.model_condition_bits = (self.model_condition_bits & !mask) | (saved_model_bits & mask);
+    }
+
+
     fn active_weapon_condition_mask(&self) -> u32 {
-        // Rank and mine rows are the only conditional transitions which
-        // currently rebind these receiving Weapon instances. Leave unrelated
-        // runtime flags out until their setters share that owner path.
-        u32::from(self.weapon_set_veteran)
-            | (u32::from(self.weapon_set_elite) << 1)
-            | (u32::from(self.weapon_set_hero) << 2)
-            // C++ WeaponSetUpgrade → setWeaponSetFlag(WEAPONSET_PLAYER_UPGRADE)
-            // → updateWeaponSet (hq-2qedt.247).
-            | (u32::from(self.weapon_set_player_upgrade) << 3)
-            | (u32::from(self.weapon_set_mine_clearing_detail) << 8)
+        self.weapon_condition_flags
     }
 
     fn selected_weapon_row_binding(&self) -> Option<(WeaponRowIdentity, &WeaponRow)> {
@@ -340,7 +421,7 @@ impl Object {
         {
             return Some((WeaponRowIdentity::Conditional(index), row));
         }
-        if self.weapon_set_mine_clearing_detail {
+        if self.test_weapon_condition(8) {
             if let Some(row) = rows.mine.as_ref() {
                 return Some((WeaponRowIdentity::Mine, row));
             }
@@ -443,18 +524,19 @@ impl Object {
         let row = self.selected_weapon_row()?;
         row.names.get(slot as usize)?.as_deref()
     }
-    pub fn set_weapon_set_mine_clearing_detail_at_frame(&mut self, enabled: bool, frame: u32) {
-        if enabled == self.weapon_set_mine_clearing_detail {
-            return;
+    /// Set or clear the authored RiderChange weapon condition.
+    pub(crate) fn set_rider_weapon_condition_at_frame(&mut self, condition: Option<&str>, frame: u32) {
+        if let Some(previous) = self.rider_change_weapon_set.take() {
+            if let Some(mask) = weapon_condition_mask(&previous) {
+                self.set_weapon_condition_at_frame(mask.trailing_zeros() as u8, false, frame);
+            }
         }
-        let Some(_) = self.thing.template.selected_weapon_sets.as_ref() else {
-            // A plain inert object has no conditional row to replace.
-            self.weapon_set_mine_clearing_detail = enabled;
-            return;
-        };
-        let previous = self.selected_weapon_row_identity();
-        self.weapon_set_mine_clearing_detail = enabled;
-        let _ = self.rebind_receiving_weapon_row_if_changed(previous, frame);
+        if let Some(condition) = condition {
+            if let Some(mask) = weapon_condition_mask(condition) {
+                self.set_weapon_condition_at_frame(mask.trailing_zeros() as u8, true, frame);
+            }
+            self.rider_change_weapon_set = Some(condition.to_owned());
+        }
     }
 }
 
@@ -494,24 +576,18 @@ mod tests {
     }
 
     #[test]
-    fn active_mask_only_includes_flags_with_receiving_rebind_transitions() {
+    fn condition_mask_preserves_overlapping_native_flags() {
         let (mut world, id) = world(30.0);
         let object = world.host_object_mut(id).unwrap();
-        object.weapon_set_veteran = true;
-        object.weapon_set_mine_clearing_detail = true;
-        object.weapon_crate_upgrade = 2;
-        object.weapon_set_player_upgrade = true;
-        object.weapon_set_carbomb = true;
-        object.weapon_set_vehicle_hijack = true;
-        object.rider_change_active_slot = Some(3);
-        object.armed_riders_upgrade_weapon_set = true;
-        let mask = object.active_weapon_condition_mask();
-        assert_ne!(mask & 1, 0);
-        assert_ne!(mask & (1 << 8), 0);
-        assert_ne!(mask & (1 << 3), 0, "PLAYER_UPGRADE selects its row");
-        for unsupported in [4, 5, 6, 7, 11] {
-            assert_eq!(mask & (1 << unsupported), 0);
+        for bit in [0, 3, 5, 6, 7, 8, 11] {
+            object.set_weapon_condition_at_frame(bit, true, 0);
         }
+        assert_eq!(object.weapon_condition_flags(), 0x9e9);
+        object.set_rider_weapon_condition_at_frame(Some("PLAYER_UPGRADE"), 0);
+        object.set_rider_weapon_condition_at_frame(None, 0);
+        assert!(!object.test_weapon_condition(3));
+        assert!(object.test_weapon_condition(6));
+        assert!(object.test_weapon_condition(11));
     }
 
     fn world(mine_damage: f32) -> (GameLogic, ObjectId) {
@@ -577,7 +653,7 @@ mod tests {
         let object = world.host_object_mut(id).unwrap();
         object.set_active_weapon_slot(2);
         assert!(object.set_weapon_lock(2, WeaponLockType::LockedPermanently));
-        object.set_weapon_set_mine_clearing_detail_at_frame(true, 80);
+        object.set_weapon_condition_at_frame(8, true, 80);
         assert_eq!(object.active_weapon_slot, 2);
         assert!(object.is_weapon_locked());
         for (slot, damage) in [(0, 50.0), (1, 30.0), (2, 40.0)] {
@@ -586,10 +662,24 @@ mod tests {
             assert_eq!(weapon.ammo, Some(3));
             assert_eq!(weapon.suspend_fx_frame, 110);
         }
-        object.set_weapon_set_mine_clearing_detail_at_frame(false, 81);
+        object.set_weapon_condition_at_frame(8, false, 81);
         assert_eq!(object.active_weapon_slot, 0);
         assert!(!object.is_weapon_locked());
         assert_eq!(object.weapon_slot(0).unwrap().damage, 30.0);
+    }
+
+    #[test]
+    fn rider_clears_shared_mine_flag_and_rebinds_only_when_row_changes() {
+        let (mut owner, id) = world(90.0);
+        let object = owner.host_object_mut(id).unwrap();
+        object.set_weapon_condition_at_frame(8, true, 30);
+        object.weapon.as_mut().unwrap().ammo = Some(1);
+        object.set_rider_weapon_condition_at_frame(Some("MINE_CLEARING_DETAIL"), 31);
+        assert_eq!(object.weapon.as_ref().unwrap().ammo, Some(1));
+        object.set_rider_weapon_condition_at_frame(None, 32);
+        assert!(!object.test_weapon_condition(8));
+        assert_eq!(object.weapon.as_ref().unwrap().damage, 10.0);
+        assert_eq!(object.weapon.as_ref().unwrap().ammo, Some(5));
     }
     #[test]
     fn receiving_selected_set_recreates_three_slots_once_without_peer_cache() {
@@ -599,23 +689,26 @@ mod tests {
         let object = owner.host_object_mut(id).unwrap();
         object.weapon.as_mut().unwrap().ammo = Some(1);
         object.weapon.as_mut().unwrap().last_fire_time = 25.0;
+        object.weapon.as_mut().unwrap().last_fire_frame = 29;
         object.set_active_weapon_slot(2);
         object.set_weapon_lock(2, WeaponLockType::LockedPermanently);
-        object.set_weapon_set_mine_clearing_detail_at_frame(true, 30);
+        object.set_weapon_condition_at_frame(8, true, 30);
         assert_eq!(object.weapon.as_ref().unwrap().damage, 90.0);
         assert_eq!(object.weapon.as_ref().unwrap().ammo, Some(2));
         assert_eq!(object.weapon.as_ref().unwrap().last_fire_time, 0.0);
+        assert_eq!(object.weapon.as_ref().unwrap().last_fire_frame, 0);
         assert_eq!(object.active_weapon_slot, 0);
         assert!(!object.is_weapon_locked());
         assert!(object.secondary_weapon.is_none() && object.tertiary_weapon.is_none());
         object.weapon.as_mut().unwrap().ammo = Some(1);
         object.weapon.as_mut().unwrap().last_fire_time = 1.0;
-        object.set_weapon_set_mine_clearing_detail_at_frame(true, 31);
+        object.weapon.as_mut().unwrap().last_fire_frame = 30;
+        object.set_weapon_condition_at_frame(8, true, 31);
         assert_eq!(object.weapon.as_ref().unwrap().ammo, Some(1));
         assert_eq!(object.weapon.as_ref().unwrap().last_fire_time, 1.0);
+        assert_eq!(object.weapon.as_ref().unwrap().last_fire_frame, 30);
         peer.host_object_mut(peer_id)
-            .unwrap()
-            .set_weapon_set_mine_clearing_detail_at_frame(true, 700);
+            .unwrap().set_weapon_condition_at_frame(8, true, 700);
         assert_eq!(
             peer.host_object(peer_id)
                 .unwrap()
@@ -627,8 +720,7 @@ mod tests {
         );
         owner
             .host_object_mut(id)
-            .unwrap()
-            .set_weapon_set_mine_clearing_detail_at_frame(false, 32);
+            .unwrap().set_weapon_condition_at_frame(8, false, 32);
         let object = owner.host_object(id).unwrap();
         assert_eq!(object.weapon.as_ref().unwrap().damage, 10.0);
         assert_eq!(object.weapon.as_ref().unwrap().ammo, Some(5));
@@ -639,10 +731,11 @@ mod tests {
         let (mut original, id) = world(90.0);
         original.frame = 37;
         let object = original.host_object_mut(id).unwrap();
-        object.set_weapon_set_mine_clearing_detail_at_frame(true, 37);
+        object.set_weapon_condition_at_frame(8, true, 37);
         object.weapon.as_mut().unwrap().ammo = Some(1);
         object.weapon.as_mut().unwrap().last_fire_time = 1.2;
         object.weapon.as_mut().unwrap().suspend_fx_frame = 49;
+        object.weapon.as_mut().unwrap().last_fire_frame = 36;
         let builder = crate::save_load::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&original).unwrap();
         let bytes = bincode_legacy::serialize(&snapshot).unwrap();
@@ -652,15 +745,55 @@ mod tests {
             .restore_from_snapshot(&decoded, &mut restored)
             .unwrap();
         let object = restored.host_object_mut(id).unwrap();
-        assert!(object.weapon_set_mine_clearing_detail);
+        assert!(object.test_weapon_condition(8));
         assert!(object.secondary_weapon.is_none() && object.tertiary_weapon.is_none());
         assert_eq!(object.weapon.as_ref().unwrap().ammo, Some(1));
         assert_eq!(object.weapon.as_ref().unwrap().last_fire_time, 1.2);
         assert_eq!(object.weapon.as_ref().unwrap().suspend_fx_frame, 49);
-        object.set_weapon_set_mine_clearing_detail_at_frame(true, 38);
+        assert_eq!(object.weapon.as_ref().unwrap().last_fire_frame, 36);
+        object.set_weapon_condition_at_frame(8, true, 38);
         assert_eq!(object.weapon.as_ref().unwrap().ammo, Some(1));
-        object.set_weapon_set_mine_clearing_detail_at_frame(false, 39);
+        assert_eq!(object.weapon.as_ref().unwrap().last_fire_frame, 36);
+        object.set_weapon_condition_at_frame(8, false, 39);
         assert_eq!(object.weapon.as_ref().unwrap().ammo, Some(5));
+        assert_eq!(object.weapon.as_ref().unwrap().last_fire_frame, 0);
+    }
+    #[test]
+    fn disk_save_restores_independent_weapon_shot_frames() {
+        use crate::game_logic::Player;
+        use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
+        use std::time::{Duration, UNIX_EPOCH};
+
+        let (mut world, id) = world(90.0);
+        world.add_player(Player::new(0, Team::USA, "Weapon owner", true));
+        {
+            let object = world.host_object_mut(id).unwrap();
+            object.weapon.as_mut().unwrap().last_fire_frame = 35;
+            object.secondary_weapon.as_mut().unwrap().last_fire_frame = 36;
+        }
+        let directory = tempfile::TempDir::new().unwrap();
+        let mut manager = SaveFileManager::with_save_directory(directory.path());
+        manager.init().unwrap();
+        let info = SaveGameInfo {
+            pristine_map_name: None,
+            filename: "weapon_frames".into(),
+            display_name: "Weapon frames".into(),
+            description: "Per-slot shot timing".into(),
+            map_name: "WeaponFramesMap".into(),
+            campaign_side: None,
+            mission_number: None,
+            save_date: UNIX_EPOCH,
+            game_version: env!("CARGO_PKG_VERSION").into(),
+            play_time: Duration::ZERO,
+            difficulty: GameDifficulty::Medium,
+            save_type: SaveFileType::Normal,
+        };
+        manager.save_game("weapon_frames", &world, &info).unwrap();
+        world.host_object_mut(id).unwrap().weapon.as_mut().unwrap().last_fire_frame = 99;
+        manager.load_game("weapon_frames", &mut world).unwrap();
+        let object = world.host_object(id).unwrap();
+        assert_eq!(object.weapon.as_ref().unwrap().last_fire_frame, 35);
+        assert_eq!(object.secondary_weapon.as_ref().unwrap().last_fire_frame, 36);
     }
 }
 

@@ -123,8 +123,6 @@ pub const BURTON_STEALTH_BREAKS_ON_KNIFE: bool = false;
 pub const BURTON_FRIENDLY_OPACITY_MIN_PCT: f32 = 50.0;
 /// Retail FriendlyOpacityMax residual (percent).
 pub const BURTON_FRIENDLY_OPACITY_MAX_PCT: f32 = 100.0;
-/// Retail OrderIdleEnemiesToAttackMeUponReveal residual.
-pub const BURTON_ORDER_IDLE_ENEMIES_ON_REVEAL: bool = true;
 /// Retail EnemyDetectionEvaEvent residual.
 pub const BURTON_ENEMY_DETECTION_EVA: &str = "EnemyColonelBurtonDetected";
 /// Retail OwnDetectionEvaEvent residual.
@@ -245,6 +243,7 @@ pub fn burton_sniper_weapon() -> Weapon {
         min_range: 0.0,
         reload_time: delay_frames_to_reload_secs(delay),
         last_fire_time: 0.0,
+        last_fire_frame: 0,
         ammo: Some(BURTON_CLIP_SIZE),
         clip_size: BURTON_CLIP_SIZE,
         clip_reload_time: delay_frames_to_reload_secs(BURTON_CLIP_RELOAD_FRAMES),
@@ -267,6 +266,7 @@ pub fn burton_knife_weapon() -> Weapon {
         min_range: 0.0,
         reload_time: delay_frames_to_reload_secs(BURTON_KNIFE_DELAY_FRAMES),
         last_fire_time: 0.0,
+        last_fire_frame: 0,
         ammo: Some(BURTON_KNIFE_CLIP_SIZE),
         clip_size: BURTON_KNIFE_CLIP_SIZE,
         clip_reload_time: delay_frames_to_reload_secs(BURTON_KNIFE_DELAY_FRAMES),
@@ -312,25 +312,6 @@ pub fn is_legal_burton_target(
     is_combat_kind: bool,
 ) -> bool {
     is_alive && !is_self && !under_construction && is_combat_kind
-}
-
-/// Maintain Burton stealth residual (FIRING_PRIMARY breaks cloak).
-///
-/// Returns `Some(desired_stealthed)` for honesty bookkeeping.
-pub fn burton_stealth_desired(
-    is_burton: bool,
-    innate_stealth: bool,
-    is_alive: bool,
-    firing_primary: bool,
-) -> Option<bool> {
-    if !is_burton || !innate_stealth || !is_alive {
-        return None;
-    }
-    if BURTON_STEALTH_BREAKS_ON_PRIMARY_FIRE && firing_primary {
-        Some(false)
-    } else {
-        Some(true)
-    }
 }
 
 /// Whether producer may plant another remote charge (MaxSpecialObjects residual).
@@ -413,13 +394,10 @@ pub fn honesty_burton_stealth_residual_ok() -> bool {
         && !BURTON_STEALTH_BREAKS_ON_KNIFE
         && (BURTON_FRIENDLY_OPACITY_MIN_PCT - 50.0).abs() < 0.01
         && (BURTON_FRIENDLY_OPACITY_MAX_PCT - 100.0).abs() < 0.01
-        && BURTON_ORDER_IDLE_ENEMIES_ON_REVEAL
         && BURTON_ENEMY_DETECTION_EVA == "EnemyColonelBurtonDetected"
         && BURTON_OWN_DETECTION_EVA == "OwnColonelBurtonDetected"
         && BURTON_STEALTH_ON_AUDIO == "StealthOn"
         && BURTON_STEALTH_OFF_AUDIO == "StealthOff"
-        && burton_stealth_desired(true, true, true, true) == Some(false)
-        && burton_stealth_desired(true, true, true, false) == Some(true)
 }
 
 /// Wave 57 residual honesty: remote/timed charge residual peel.
@@ -534,18 +512,7 @@ mod tests {
     }
 
     #[test]
-    fn burton_stealth_and_charges() {
-        assert_eq!(
-            burton_stealth_desired(true, true, true, true),
-            Some(false),
-            "primary fire uncloaks"
-        );
-        assert_eq!(
-            burton_stealth_desired(true, true, true, false),
-            Some(true),
-            "idle re-cloaks after delay residual"
-        );
-        assert_eq!(burton_stealth_desired(false, true, true, false), None);
+    fn burton_charges() {
         assert!(can_plant_remote_charge(0));
         assert!(!can_plant_remote_charge(BURTON_MAX_REMOTE_CHARGES));
         assert!(can_plant_timed_charge(0));

@@ -770,3 +770,82 @@ fn hive_body_without_spawn_behavior_forwards_to_closest_contained_rider() {
     );
     assert_eq!(world.host_object(empty).unwrap().health.current, 1000.0);
 }
+
+#[test]
+fn spawn_weapon_stealth_checks_child_eligibility_and_reveals_the_pack() {
+    fn session() -> (GameLogic, ObjectId, Vec<u32>) {
+        let mut world = GameLogic::new();
+        world.admit_object_ini_sources([("SpawnStealth.ini".into(),
+            "Object StealthNest\n KindOf = STRUCTURE SELECTABLE SPAWNS_ARE_THE_WEAPONS\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 2\n SpawnTemplateName = StealthChild\n End\n Behavior = StealthUpdate Cloak\n StealthDelay = 0\n InnateStealth = Yes\n End\nEnd\nObject StealthChild\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = StealthUpdate Cloak\n StealthDelay = 2000\n InnateStealth = Yes\n End\nEnd\n".into())]).unwrap();
+        world.add_player(Player::new(1, Team::GLA, "Owner", true));
+        let parent = world.create_object_for_player("StealthNest", 1, Vec3::ZERO).unwrap();
+        let children = roster(&world, parent);
+        assert_eq!(children.len(), 2);
+        (world, parent, children)
+    }
+
+    let (mut owner, parent, children) = session();
+    let (mut peer, peer_parent, peer_children) = session();
+    assert_eq!(parent, peer_parent);
+    assert_eq!(children, peer_children);
+    let first = ObjectId(children[0]);
+    let second = ObjectId(children[1]);
+    owner.host_object_mut(second).unwrap().innate_stealth = false;
+    owner.update_stealth_and_detection();
+    assert!(!owner.host_object(parent).unwrap().status.stealthed);
+    assert_eq!(owner.host_object(first).unwrap().detection_expires_frame, 60);
+    assert_eq!(owner.host_object(second).unwrap().detection_expires_frame, 60);
+    assert!(!peer.host_object(first).unwrap().status.detected);
+
+    // Eligibility, not the current cloak or detection bit, controls the nest.
+    owner.host_object_mut(second).unwrap().innate_stealth = true;
+    owner.host_object_mut(first).unwrap().set_status_stealthed(false);
+    owner.update_stealth_and_detection();
+    assert!(owner.host_object(parent).unwrap().status.stealthed);
+    peer.update_stealth_and_detection();
+    assert!(peer.host_object(peer_parent).unwrap().status.stealthed);
+}
+
+#[test]
+fn temporary_stealth_grant_expires_after_awake_updates() {
+    let mut world = GameLogic::new();
+    world.admit_object_ini_sources([("TemporaryStealth.ini".into(),
+        "Object TemporaryCloakUnit\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\n Behavior = StealthUpdate Cloak\n StealthDelay = 0\n InnateStealth = No\n GrantedBySpecialPower = Yes\n End\nEnd\n".into())]).unwrap();
+    world.add_player(Player::new(1, Team::GLA, "Owner", true));
+    let id = world.create_object_for_player("TemporaryCloakUnit", 1, Vec3::ZERO).unwrap();
+    let frame = world.get_frame();
+    let object = world.host_object_mut(id).unwrap();
+    object.apply_grant_stealth(frame);
+    object.stealth_frames_granted = 2;
+    object.set_status_disabled_emp(true);
+
+    world.update_stealth_and_detection();
+    assert_eq!(world.host_object(id).unwrap().stealth_frames_granted, 2);
+    assert!(world.host_object(id).unwrap().innate_stealth);
+    world.host_object_mut(id).unwrap().set_status_disabled_emp(false);
+
+    world.update_stealth_and_detection();
+    assert_eq!(world.host_object(id).unwrap().stealth_frames_granted, 1);
+    assert!(world.host_object(id).unwrap().innate_stealth);
+    world.update_stealth_and_detection();
+    let object = world.host_object(id).unwrap();
+    assert_eq!(object.stealth_frames_granted, 0);
+    assert!(!object.innate_stealth);
+    assert!(!object.status.stealthed);
+    assert!(object.stealth_update_awake);
+    world.update_stealth_and_detection();
+    assert!(!world.host_object(id).unwrap().stealth_update_awake);
+
+    let commanded = world.create_object_for_player("TemporaryCloakUnit", 1, Vec3::ZERO).unwrap();
+    let frame = world.get_frame();
+    let object = world.host_object_mut(commanded).unwrap();
+    assert!(object.has_ai_update_interface());
+    object.apply_grant_stealth(frame);
+    object.stealth_frames_granted = 10;
+    object.last_command_source = 0; // CMD_FROM_PLAYER
+    world.update_stealth_and_detection();
+    let object = world.host_object(commanded).unwrap();
+    assert_eq!(object.stealth_frames_granted, 0);
+    assert!(!object.innate_stealth);
+    assert!(!object.status.stealthed);
+}

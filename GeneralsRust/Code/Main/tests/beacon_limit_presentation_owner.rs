@@ -23,7 +23,7 @@ fn world() -> GameLogic {
             template_name: "FactionAmerica".into(),
             template_index: Some(0)
         },
-    ));
+    ).unwrap());
     world.admit_max_beacons_per_player(1);
     world
 }

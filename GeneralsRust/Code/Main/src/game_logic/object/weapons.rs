@@ -120,7 +120,7 @@ impl Object {
             // admits the target-position route without letting the mine
             // weapon harm ordinary ground objects.
             if slot == Some(0)
-                && self.weapon_set_mine_clearing_detail
+                && self.test_weapon_condition(8)
                 && self.weapon.is_some()
                 && target_anti_mask == WeaponAntiMask::GROUND
                 && (template_mask & WeaponAntiMask::MINE) != 0

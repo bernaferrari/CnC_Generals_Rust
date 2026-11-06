@@ -41,7 +41,7 @@ impl GameLogic {
             SCORPION_GUN_SPLASH_RADIUS, SCORPION_MISSILE_DAMAGE_TYPE, SCORPION_MISSILE_DEATH_TYPE,
             SCORPION_MISSILE_FIRE_AUDIO, SCORPION_MISSILE_SECONDARY_RADIUS,
             SCORPION_MISSILE_WEAPON, SCORPION_TANK_GUN, has_ap_rockets_upgrade,
-            is_legal_scorpion_splash_target, salvage_tier_from_upgrades,
+            is_legal_scorpion_splash_target, salvage_tier_from_weapon_crate,
             scorpion_gun_splash_damage_at, scorpion_missile_damage_at, scorpion_scatter_aim,
             scorpion_scatter_misses_infantry,
         };
@@ -64,7 +64,7 @@ impl GameLogic {
             if !authored_scorpion_weapon {
                 return (0, false);
             }
-            let tier = salvage_tier_from_upgrades(&obj.applied_upgrades);
+            let tier = salvage_tier_from_weapon_crate(obj.weapon_crate_upgrade());
             let gun_dmg = obj
                 .weapon
                 .as_ref()

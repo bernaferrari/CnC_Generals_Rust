@@ -540,6 +540,10 @@ fn live_host_script_unmanned_radar_stealth_apply() {
     logic.templates.insert("AmericaTankCrusader".into(), tank);
     let mut burton = ThingTemplate::new("AmericaInfantryColonelBurton");
     burton.set_health(200.0);
+    burton.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        stealth_delay_frames: 0,
+        ..Default::default()
+    });
     logic
         .templates
         .insert("AmericaInfantryColonelBurton".into(), burton);
@@ -564,8 +568,6 @@ fn live_host_script_unmanned_radar_stealth_apply() {
     if let Some(o) = logic.host_object_mut(hero_id) {
         o.name = "ColonelBurton".into();
         o.team_instance_name = "teamAmerica".into();
-        o.innate_stealth = true;
-        o.stealth_delay_frames = 0;
         o.set_status_stealthed(true);
     }
 
@@ -607,15 +609,13 @@ fn live_host_script_unmanned_radar_stealth_apply() {
             hero.script_unstealthed,
             "SET_STEALTH false stamps SCRIPT_UNSTEALTHED"
         );
-        assert!(!hero.status.stealthed, "script destalths immediately");
-        assert!(hero.stealth_level_forbids_cloak(1, false, false, false, true));
     }
     logic.update_stealth_and_detection();
     {
         let hero = logic.host_object(hero_id).expect("hero after tick");
         assert!(
             !hero.status.stealthed,
-            "script-unstealthed hero must stay destalthed"
+            "SCRIPT_UNSTEALTHED destalths on the next StealthUpdate (allowedToStealth)"
         );
     }
 
@@ -853,7 +853,8 @@ fn script_radar_event_reaches_ui_ping() {
 #[test]
 fn host_ai_rebind_after_world_wipe_keeps_players_cash_and_rebuilds() {
     let mut logic = GameLogic::new();
-    logic.start_new_game(GameMode::Skirmish);
+    logic.admit_object_ini_sources(std::iter::empty()).unwrap();
+    logic.start_new_game(GameMode::Skirmish).unwrap();
     logic.clear_all_players();
 
     let mut human = Player::new(0, Team::USA, "Player", true);
@@ -1041,7 +1042,8 @@ fn corrupt_selected_map_uses_and_reports_the_loaded_fallback() {
 #[test]
 fn map_fallback_failure_leaves_no_active_map_identity_or_playable_world() {
     let mut game_logic = GameLogic::new();
-    game_logic.start_new_game(GameMode::Skirmish);
+    game_logic.admit_object_ini_sources(std::iter::empty()).unwrap();
+    game_logic.start_new_game(GameMode::Skirmish).unwrap();
     assert!(game_logic.load_map("TestMap"));
     assert!(game_logic.isInGame());
 
@@ -1149,10 +1151,11 @@ fn asset_template_catalogue_seed_keeps_curated_templates_and_uses_exact_retail_f
 #[test]
 fn shell_game_state_tracks_in_game_status() {
     let mut game_logic = GameLogic::new();
+    game_logic.admit_object_ini_sources(std::iter::empty()).unwrap();
     assert!(!game_logic.isInGame());
     assert!(!game_logic.isInShellGame());
 
-    game_logic.start_new_game(GameMode::Shell);
+    game_logic.start_new_game(GameMode::Shell).unwrap();
     assert!(
         game_logic.isInShellGame(),
         "GAME_SHELL should report shell state before the map is marked loaded"
@@ -1161,7 +1164,7 @@ fn shell_game_state_tracks_in_game_status() {
     game_logic.map_loaded = true;
     assert!(game_logic.isInShellGame());
 
-    game_logic.start_new_game(GameMode::Skirmish);
+    game_logic.start_new_game(GameMode::Skirmish).unwrap();
     assert!(!game_logic.isInShellGame());
 }
 

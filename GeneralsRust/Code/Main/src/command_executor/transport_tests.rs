@@ -102,8 +102,9 @@ fn execute_combat_drop_uses_hover_not_land_evac() {
         .create_object("CD_P", Team::USA, Vec3::new(1.0, 0.0, 0.0))
         .unwrap();
     {
+        let frame = logic.get_current_frame() as u32;
         let t = logic.host_object_mut(transport).unwrap();
-        t.install_combat_chinook_transport();
+        t.install_combat_chinook_transport(frame);
         let _ = t.add_occupant(pax);
     }
     {
@@ -164,8 +165,9 @@ fn execute_combat_drop_plays_voice_combat_drop() {
         .create_object("CD_VOICE_P", Team::USA, Vec3::new(1.0, 0.0, 0.0))
         .unwrap();
     {
+        let frame = logic.get_current_frame() as u32;
         let t = logic.host_object_mut(transport).unwrap();
-        t.install_combat_chinook_transport();
+        t.install_combat_chinook_transport(frame);
         let _ = t.add_occupant(pax);
     }
     {
@@ -214,8 +216,9 @@ fn combat_drop_arrival_rappels_not_teleport() {
         .create_object("CD_P2", Team::USA, Vec3::new(1.0, 0.0, 0.0))
         .unwrap();
     {
+        let frame = logic.get_current_frame() as u32;
         let t = logic.host_object_mut(transport).unwrap();
-        t.install_combat_chinook_transport();
+        t.install_combat_chinook_transport(frame);
         let _ = t.add_occupant(pax);
         if let Some(ai) = t.chinook_ai.as_mut() {
             ai.command_combat_drop([10.0, 10.0, 0.0], None);
@@ -294,8 +297,9 @@ fn combat_drop_rappel_uses_roof_dest_not_y0() {
         .create_object("CD_P3", Team::USA, Vec3::new(1.0, 0.0, 0.0))
         .unwrap();
     {
+        let frame = logic.get_current_frame() as u32;
         let (t, attack_events) = logic.host_object_and_attack_events_mut(transport).unwrap();
-        t.install_combat_chinook_transport();
+        t.install_combat_chinook_transport(frame);
         let _ = t.add_occupant(pax);
         t.set_order_target(
             Some(bunker),
@@ -352,8 +356,9 @@ fn combat_drop_rappel_add_to_contain_on_roof() {
         .create_object("CD_P4", Team::USA, Vec3::new(1.0, 0.0, 0.0))
         .unwrap();
     {
+        let frame = logic.get_current_frame() as u32;
         let (t, attack_events) = logic.host_object_and_attack_events_mut(transport).unwrap();
-        t.install_combat_chinook_transport();
+        t.install_combat_chinook_transport(frame);
         let _ = t.add_occupant(pax);
         t.set_order_target(
             Some(bunker),
@@ -475,8 +480,9 @@ End
         o.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_o);
     }
     {
+        let frame = logic.get_current_frame() as u32;
         let (t, attack_events) = logic.host_object_and_attack_events_mut(transport).unwrap();
-        t.install_combat_chinook_transport();
+        t.install_combat_chinook_transport(frame);
         let _ = t.add_occupant(pax);
         t.set_order_target(
             Some(bunker),
@@ -1021,8 +1027,9 @@ fn combat_drop_into_rejects_faction_structure() {
         )
         .unwrap();
     {
+        let frame = logic.get_current_frame() as u32;
         let t = logic.host_object_mut(transport).unwrap();
-        t.install_combat_chinook_transport();
+        t.install_combat_chinook_transport(frame);
         let _ = t.add_occupant(pax);
     }
     {
@@ -1058,8 +1065,9 @@ fn combat_drop_hover_uses_geometry_height_plus_min_drop() {
         .create_object("CD_B7", Team::USA, Vec3::new(40.0, 0.0, 0.0))
         .unwrap();
     {
+        let frame = logic.get_current_frame() as u32;
         let t = logic.host_object_mut(transport).unwrap();
-        t.install_combat_chinook_transport();
+        t.install_combat_chinook_transport(frame);
         let _ = t.add_occupant(pax);
     }
     {
@@ -1125,8 +1133,9 @@ fn last_rappeller_finish_leaves_do_combat_drop() {
         .create_object("CD_P8", Team::USA, Vec3::new(1.0, 0.0, 0.0))
         .unwrap();
     {
+        let frame = logic.get_current_frame() as u32;
         let t = logic.host_object_mut(transport).unwrap();
-        t.install_combat_chinook_transport();
+        t.install_combat_chinook_transport(frame);
         let _ = t.add_occupant(pax);
         if let Some(ai) = t.chinook_ai.as_mut() {
             ai.command_combat_drop([10.0, 10.0, 0.0], None);
@@ -1294,6 +1303,10 @@ fn execute_evacuate_marks_stealth_garrison_detected() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::StealthGarrison)
         .set_health(120.0);
+    ninja_t.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        stealth_delay_frames: 30,
+        ..Default::default()
+    });
     ninja_t.transport_slot_count = Some(1);
     logic.templates.insert("EVAC_SG_N".into(), ninja_t);
     let bunker = logic.create_object("EVAC_SG_B", Team::USA, origin).unwrap();
@@ -1312,6 +1325,7 @@ fn execute_evacuate_marks_stealth_garrison_detected() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         n.set_status_stealthed(true);
+        n.stealth_allowed_frame = 0;
         n.set_status_detected(false);
     }
     {
@@ -1319,6 +1333,9 @@ fn execute_evacuate_marks_stealth_garrison_detected() {
         assert!(
             exec.execute_evacuate(&[bunker]).expect("evacuate command") == CommandResult::Success);
     }
+    assert_eq!(logic.host_object(ninja).unwrap().detection_expires_frame, 30);
+    logic.frame = 1;
+    logic.update_stealth_and_detection();
     let n = logic.host_object(ninja).unwrap();
     assert!(n.contained_by.is_none());
     assert!(

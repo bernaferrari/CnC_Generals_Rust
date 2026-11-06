@@ -4,8 +4,7 @@
 //! - Pathfinder is always a stealth detector residual (`StealthDetectorUpdate`;
 //!   DetectionRange unset → VisionRange = **200**).
 //! - Innate stealth (`StealthUpdate InnateStealth = Yes`) from spawn.
-//! - Stays stealthed while attacking (`StealthForbiddenConditions = MOVING` only;
-//!   `stealth_breaks_on_attack = false`).
+//! - Stays stealthed while attacking (`StealthForbiddenConditions = MOVING` only).
 //! - Uncloaks while moving; re-cloaks immediately when stopped (StealthDelay = 0).
 //! - PRIMARY `USAPathfinderSniperRifle` (100 dmg / 300 range / 2000 ms).
 //!
@@ -13,7 +12,8 @@
 //! - SCIENCE_Pathfinder prereq gate residual (SCIENCE_AMERICA + SCIENCE_Rank3)
 //! - StealthUpdate: StealthDelay **0**, InnateStealth **Yes**, Forbidden **MOVING**,
 //!   FriendlyOpacityMin **30%**, Max **80%**, PulseFrequency **500**ms → **15**f,
-//!   MoveThresholdSpeed **3**, OrderIdleEnemiesToAttackMeUponReveal **Yes**
+//!   (MoveThresholdSpeed / OrderIdleEnemiesToAttackMeUponReveal run in the generic
+//!   StealthUpdate port)
 //! - StealthDetectorUpdate: DetectionRate **500**ms → **15**f,
 //!   CanDetectWhileGarrisoned/Contained **No**, DetectionRange → VisionRange **200**
 //! - VisionRange **200**, ShroudClearingRange **400**, BuildCost **600**, MaxHealth **120**
@@ -83,10 +83,6 @@ pub const PATHFINDER_FRIENDLY_OPACITY_MAX_PCT: f32 = 80.0;
 pub const PATHFINDER_PULSE_FREQUENCY_MS: u32 = 500;
 /// PulseFrequency 500ms → 15 frames @ 30 FPS.
 pub const PATHFINDER_PULSE_FREQUENCY_FRAMES: u32 = 15;
-/// Retail MoveThresholdSpeed residual.
-pub const PATHFINDER_MOVE_THRESHOLD_SPEED: f32 = 3.0;
-/// Retail OrderIdleEnemiesToAttackMeUponReveal residual.
-pub const PATHFINDER_ORDER_IDLE_ENEMIES_ON_REVEAL: bool = true;
 
 // --- StealthDetectorUpdate residual ---
 
@@ -261,59 +257,6 @@ pub fn pathfinder_sniper_damage(has_ap_upgrade: bool) -> f32 {
     }
 }
 
-/// Maintain Pathfinder move-forbidden stealth residual.
-///
-/// Destalth only when leftover physics velocity exceeds leftover MoveThresholdSpeed
-/// (C++ StealthUpdate.cpp:389-392 / leftover `allowed_to_stealth_runtime`).
-pub fn pathfinder_stealth_desired(
-    is_pathfinder: bool,
-    innate_stealth: bool,
-    stealth_breaks_on_move: bool,
-    is_alive: bool,
-    leftover_velocity: f32,
-    leftover_move_threshold_speed: f32,
-) -> Option<bool> {
-    if !is_pathfinder || !innate_stealth || !is_alive {
-        return None;
-    }
-    if stealth_breaks_on_move
-        && gamelogic::stealth_update::leftover_not_while_moving_destalths(
-            leftover_velocity,
-            leftover_move_threshold_speed,
-        )
-    {
-        Some(false)
-    } else {
-        Some(true)
-    }
-}
-
-/// Stealth residual while attacking (retail Forbidden = MOVING only).
-pub fn pathfinder_stealth_while_attacking(
-    is_pathfinder: bool,
-    innate_stealth: bool,
-    is_alive: bool,
-    is_attacking: bool,
-    leftover_velocity: f32,
-    leftover_move_threshold_speed: f32,
-) -> Option<bool> {
-    if !is_pathfinder || !innate_stealth || !is_alive {
-        return None;
-    }
-    // Attack does not break stealth; leftover velocity above MoveThresholdSpeed does.
-    let _ = is_attacking;
-    if PATHFINDER_STEALTH_BREAKS_ON_MOVE
-        && gamelogic::stealth_update::leftover_not_while_moving_destalths(
-            leftover_velocity,
-            leftover_move_threshold_speed,
-        )
-    {
-        Some(false)
-    } else {
-        Some(true)
-    }
-}
-
 /// Wave 54 residual honesty: detect range / sniper residual.
 pub fn honesty_pathfinder_detect_sniper_residual_ok() -> bool {
     (PATHFINDER_DETECTION_RANGE - 200.0).abs() < 0.01
@@ -340,8 +283,6 @@ pub fn honesty_pathfinder_stealth_update_residual_ok() -> bool {
         && PATHFINDER_PULSE_FREQUENCY_MS == 500
         && PATHFINDER_PULSE_FREQUENCY_FRAMES
             == pathfinder_ms_to_frames(PATHFINDER_PULSE_FREQUENCY_MS)
-        && (PATHFINDER_MOVE_THRESHOLD_SPEED - 3.0).abs() < 0.01
-        && PATHFINDER_ORDER_IDLE_ENEMIES_ON_REVEAL
         && !PATHFINDER_HAS_PACK_UNPACK
 }
 
@@ -431,89 +372,12 @@ mod tests {
     }
 
     #[test]
-    fn pathfinder_detect_and_stealth_desired() {
+    fn pathfinder_detect_residual() {
         assert!(pathfinder_spawn_is_detector("AmericaInfantryPathfinder"));
         assert_eq!(
             pathfinder_detection_range("AmericaInfantryPathfinder"),
             Some(PATHFINDER_DETECTION_RANGE)
         );
-        assert_eq!(
-            pathfinder_stealth_desired(
-                true,
-                true,
-                true,
-                true,
-                4.0,
-                PATHFINDER_MOVE_THRESHOLD_SPEED
-            ),
-            Some(false),
-            "leftover velocity above MoveThresholdSpeed uncloaks"
-        );
-        assert_eq!(
-            pathfinder_stealth_desired(
-                true,
-                true,
-                true,
-                true,
-                2.0,
-                PATHFINDER_MOVE_THRESHOLD_SPEED
-            ),
-            Some(true),
-            "leftover velocity below MoveThresholdSpeed stays cloaked"
-        );
-        assert_eq!(
-            pathfinder_stealth_desired(
-                true,
-                true,
-                true,
-                true,
-                0.0,
-                PATHFINDER_MOVE_THRESHOLD_SPEED
-            ),
-            Some(true),
-            "idle pathfinder re-cloaks"
-        );
-        assert_eq!(
-            pathfinder_stealth_desired(
-                false,
-                true,
-                true,
-                true,
-                0.0,
-                PATHFINDER_MOVE_THRESHOLD_SPEED
-            ),
-            None
-        );
-    }
-
-    #[test]
-    fn pathfinder_stealth_while_attacking_residual() {
-        assert_eq!(
-            pathfinder_stealth_while_attacking(
-                true,
-                true,
-                true,
-                true,
-                0.0,
-                PATHFINDER_MOVE_THRESHOLD_SPEED,
-            ),
-            Some(true),
-            "attacking idle stays stealthed"
-        );
-        assert_eq!(
-            pathfinder_stealth_while_attacking(
-                true,
-                true,
-                true,
-                true,
-                4.0,
-                PATHFINDER_MOVE_THRESHOLD_SPEED,
-            ),
-            Some(false),
-            "attacking while leftover velocity exceeds MoveThresholdSpeed uncloaks"
-        );
-        assert!(!PATHFINDER_STEALTH_BREAKS_ON_ATTACK);
-        assert!(PATHFINDER_STEALTH_BREAKS_ON_MOVE);
     }
 
     #[test]

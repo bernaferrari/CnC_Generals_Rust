@@ -123,8 +123,6 @@ pub const JARMEN_STEALTH_DELAY_FRAMES: u32 = 60;
 pub const JARMEN_INNATE_STEALTH: bool = true;
 /// Retail StealthForbiddenConditions = ATTACKING residual.
 pub const JARMEN_STEALTH_BREAKS_ON_ATTACK: bool = true;
-/// Retail OrderIdleEnemiesToAttackMeUponReveal residual.
-pub const JARMEN_ORDER_IDLE_ENEMIES_ON_REVEAL: bool = true;
 /// Retail EnemyDetectionEvaEvent residual.
 pub const JARMEN_ENEMY_DETECTION_EVA: &str = "EnemyJarmenKellDetected";
 /// Retail OwnDetectionEvaEvent residual.
@@ -225,6 +223,7 @@ pub fn jarmen_kell_weapon(has_ap: bool) -> Weapon {
         min_range: 0.0,
         reload_time: delay_frames_to_reload_secs(delay),
         last_fire_time: 0.0,
+        last_fire_frame: 0,
         ammo: None,
         clip_size: 0,
         clip_reload_time: 0.0,
@@ -257,6 +256,7 @@ pub fn jarmen_pilot_snipe_weapon() -> Weapon {
         min_range: 0.0,
         reload_time: delay_frames_to_reload_secs(delay),
         last_fire_time: 0.0,
+        last_fire_frame: 0,
         ammo: Some(JARMEN_PILOT_SNIPE_CLIP_SIZE),
         clip_size: 0,
         clip_reload_time: 0.0,
@@ -290,25 +290,6 @@ pub fn is_legal_pilot_snipe_target(
     unmanned: bool,
 ) -> bool {
     is_alive && is_vehicle && !is_airborne && is_enemy && !unmanned
-}
-
-/// Maintain Jarmen Kell stealth residual (ATTACKING breaks cloak).
-///
-/// Returns `Some(desired_stealthed)` for honesty bookkeeping.
-pub fn jarmen_stealth_desired(
-    is_kell: bool,
-    innate_stealth: bool,
-    is_alive: bool,
-    is_attacking: bool,
-) -> Option<bool> {
-    if !is_kell || !innate_stealth || !is_alive {
-        return None;
-    }
-    if JARMEN_STEALTH_BREAKS_ON_ATTACK && is_attacking {
-        Some(false)
-    } else {
-        Some(true)
-    }
 }
 
 // --- Wave 57 residual honesty packs ---
@@ -357,13 +338,10 @@ pub fn honesty_jarmen_stealth_residual_ok() -> bool {
         && JARMEN_STEALTH_DELAY_FRAMES == jarmen_ms_to_frames(JARMEN_STEALTH_DELAY_MS)
         && JARMEN_INNATE_STEALTH
         && JARMEN_STEALTH_BREAKS_ON_ATTACK
-        && JARMEN_ORDER_IDLE_ENEMIES_ON_REVEAL
         && JARMEN_ENEMY_DETECTION_EVA == "EnemyJarmenKellDetected"
         && JARMEN_OWN_DETECTION_EVA == "OwnJarmenKellDetected"
         && JARMEN_STEALTH_ON_AUDIO == "StealthOn"
         && JARMEN_STEALTH_OFF_AUDIO == "StealthOff"
-        && jarmen_stealth_desired(true, true, true, true) == Some(false)
-        && jarmen_stealth_desired(true, true, true, false) == Some(true)
 }
 
 /// Wave 57 residual honesty: body / vision + biker delay residual.
@@ -427,20 +405,5 @@ mod tests {
         assert_eq!(jarmen_ms_to_frames(30_000), 900);
         assert_eq!(jarmen_ms_to_frames(750), 23);
         assert_eq!(jarmen_ms_to_frames(0), 0);
-    }
-
-    #[test]
-    fn jarmen_stealth_desired_residual() {
-        assert_eq!(
-            jarmen_stealth_desired(true, true, true, true),
-            Some(false),
-            "attacking uncloaks"
-        );
-        assert_eq!(
-            jarmen_stealth_desired(true, true, true, false),
-            Some(true),
-            "idle re-cloaks after delay residual"
-        );
-        assert_eq!(jarmen_stealth_desired(false, true, true, false), None);
     }
 }

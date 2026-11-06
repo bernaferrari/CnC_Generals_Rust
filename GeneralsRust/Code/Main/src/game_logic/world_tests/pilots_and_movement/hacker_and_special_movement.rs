@@ -2878,9 +2878,9 @@ fn weapon_set_upgrade_sets_player_upgrade_flag() {
     let id = logic
         .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::ZERO)
         .unwrap();
-    assert!(!logic.objects.get(&id).unwrap().weapon_set_player_upgrade);
+    assert!(!logic.objects.get(&id).unwrap().test_weapon_condition(3));
     logic.apply_upgrade_to_object(id, "Upgrade_AmericaRangerFlashBangGrenade");
-    assert!(logic.objects.get(&id).unwrap().weapon_set_player_upgrade);
+    assert!(logic.objects.get(&id).unwrap().test_weapon_condition(3));
     assert!(logic.upgrade_module_residuals.weapon_set_applications > 0);
 }
 

@@ -9,7 +9,7 @@ fn world(map: &std::path::Path) -> (GameLogic, ObjectId) {
     world
         .admit_object_ini_sources([("Empty.ini".into(), String::new())])
         .unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(map.to_str().unwrap()));
     world.add_player(Player::new(42, Team::USA, "Owner", true));
     let id = world

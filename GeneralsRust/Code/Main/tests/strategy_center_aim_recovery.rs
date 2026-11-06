@@ -88,7 +88,8 @@ fn live_goal_becoming_stealthed_clears_mood_and_reacquires() {
 
     // This is the real public target-side receiveGrant behavior used by GPS,
     // not a controller/goal-field repair or a full GPS UI/science activation.
-    logic.host_object_mut(hidden).unwrap().apply_grant_stealth();
+    let grant_frame = logic.get_frame();
+    logic.host_object_mut(hidden).unwrap().apply_grant_stealth(grant_frame);
     assert!(logic.host_object(hidden).unwrap().is_alive());
     assert!(
         logic

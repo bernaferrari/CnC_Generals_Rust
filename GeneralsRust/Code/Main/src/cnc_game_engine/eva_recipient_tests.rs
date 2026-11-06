@@ -87,6 +87,25 @@ fn ordered_controls_clear_prior_requests_and_admit_requests_while_disabled() {
     );
 }
 
+#[cfg(feature = "game_client")]
+#[test]
+fn named_requests_obey_ordered_enable_clears_and_invalid_names_do_not_play() {
+    use game_client::eva::EvaMessage;
+    let mut owner = HostEvaAnnouncements::default();
+    let mut native = recipient();
+    owner.request_named("BuildingLost");
+    owner.set_enabled(false);
+    owner.request_named("SuperweaponReady_Enemy_ScudStorm");
+    owner.request_named("not_a_native_message");
+    native.admit(&owner.take_delivery());
+    assert!(!native.is_enabled());
+    assert_eq!(native.speaker.pending_messages(), vec![EvaMessage::SuperweaponReadyEnemyScudStorm]);
+    owner.set_enabled(true);
+    owner.request(EvaEvent::UnitLost);
+    native.admit(&owner.take_delivery());
+    assert_eq!(native.speaker.pending_messages(), vec![EvaMessage::UnitLost]);
+}
+
 #[test]
 fn different_worlds_and_reset_are_new_sessions_at_identical_cursors() {
     let mut a = HostEvaAnnouncements::default();
@@ -200,4 +219,56 @@ fn cleared_and_disabled_requests_are_absorbed_before_counter_fallback() {
         counters,
         "only actually observed intents suppress the counter-only fallback"
     );
+}
+
+#[cfg(feature = "game_client")]
+#[test]
+fn authored_names_share_native_order_and_cooldown_with_typed_requests() {
+    use game_client::eva::{Eva, EvaFrameContext, EvaLocalPlayerContext, EvaPlayback};
+    #[derive(Default)]
+    struct Speech(Vec<String>);
+    impl EvaPlayback for Speech {
+        fn is_playing(&mut self, _: u32) -> bool { false }
+        fn play_speech(&mut self, event: &gamelogic::common::audio::AudioEventRts) -> u32 {
+            self.0.push(event.event_name.clone());
+            0
+        }
+    }
+    let source = "EvaEvent SuperweaponReady_Ally_Nuke\nPriority = 1\nTimeBetweenChecksMS = 1000\nExpirationTimeMS = 5000\nSideSounds\nSide = America\nSounds = AllyNukeVoice\nEnd\nEnd\n\
+EvaEvent GeneralLevelUp\nPriority = 1\nTimeBetweenChecksMS = 1000\nExpirationTimeMS = 5000\nSideSounds\nSide = America\nSounds = LevelVoice\nEnd\nEnd\n";
+    let mut native = EvaRecipient::new(Eva::from_ordered_ini_sources([source]).unwrap());
+    let mut world = crate::game_logic::GameLogic::new();
+    world.add_player(crate::game_logic::Player::new(0, crate::game_logic::Team::USA, "Local", true));
+    world.add_player(crate::game_logic::Player::new(1, crate::game_logic::Team::China, "Enemy", false));
+    let mut template = crate::game_logic::ThingTemplate::new("NamedStealthAgent");
+    template.set_health(100.0);
+    template.stealth_update = Some(crate::game_logic::object::StealthUpdateData::default());
+    template.stealth_enemy_detection_eva = Some("superweaponready_ally_nuke".into());
+    world.templates.insert("NamedStealthAgent".into(), template);
+    let target = world.create_object("NamedStealthAgent", crate::game_logic::Team::China, glam::Vec3::ZERO).unwrap();
+    world.eva_announcements.request(EvaEvent::GeneralLevelUp);
+    world.try_eva_hero_detected(target);
+    world.try_eva_hero_detected(target);
+    native.admit(&world.eva_announcements.take_delivery());
+    let mut speech = Speech::default();
+    let context = |frame| EvaFrameContext {
+        frame,
+        local_player: Some(EvaLocalPlayerContext {
+            side: "America".into(), index: 0, sufficient_power: true,
+        }),
+    };
+    native.speaker.update_with_playback(&context(1), &mut speech, &mut |lo, _| lo);
+    assert!(speech.0.is_empty());
+    native.speaker.update_with_playback(&context(2), &mut speech, &mut |lo, _| lo);
+    native.speaker.update_with_playback(&context(3), &mut speech, &mut |lo, _| lo);
+    assert_eq!(speech.0, ["AllyNukeVoice", "LevelVoice"]);
+    world.eva_announcements.request_named("SuperweaponReady_Ally_Nuke");
+    native.admit(&world.eva_announcements.take_delivery());
+    native.speaker.update_with_playback(&context(30), &mut speech, &mut |lo, _| lo);
+    assert_eq!(speech.0.len(), 2);
+    native.speaker.update_with_playback(&context(31), &mut speech, &mut |lo, _| lo);
+    world.eva_announcements.request_named("SuperweaponReady_Ally_Nuke");
+    native.admit(&world.eva_announcements.take_delivery());
+    native.speaker.update_with_playback(&context(32), &mut speech, &mut |lo, _| lo);
+    assert_eq!(speech.0, ["AllyNukeVoice", "LevelVoice", "AllyNukeVoice"]);
 }

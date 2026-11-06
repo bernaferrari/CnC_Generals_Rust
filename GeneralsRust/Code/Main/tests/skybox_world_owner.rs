@@ -34,7 +34,8 @@ fn map_path(root: &std::path::Path, name: &str, draw_sky_box: bool) -> std::path
 
 fn admitted_world(map: &std::path::Path) -> GameLogic {
     let mut world = GameLogic::new();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.admit_object_ini_sources(std::iter::empty()).unwrap();
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(map.to_str().expect("map path is UTF-8")));
     world
 }

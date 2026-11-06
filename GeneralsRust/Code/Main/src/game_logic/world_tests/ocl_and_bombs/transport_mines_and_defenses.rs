@@ -83,7 +83,7 @@ fn listening_outpost_residual_transport_load_unload() {
     assert_eq!(outpost.transport_count(), LISTENING_OUTPOST_TRANSPORT_SLOTS);
     assert_eq!(game_logic.listening_outpost_residual_loads(), 2);
     assert!(
-        outpost.weapon_set_player_upgrade,
+        outpost.test_weapon_condition(3),
         "armed riders must upgrade Listening Outpost weapon set"
     );
     assert!(
@@ -165,7 +165,7 @@ fn listening_outpost_residual_transport_load_unload() {
         let outpost = game_logic.host_object(outpost_id).expect("empty");
         assert_eq!(outpost.transport_count(), 0);
         assert!(
-            !outpost.weapon_set_player_upgrade,
+            !outpost.test_weapon_condition(3),
             "no armed riders → clear PLAYER_UPGRADE residual"
         );
     }
@@ -581,7 +581,7 @@ fn timed_c4_kill_sinks_xp_to_planter() {
         burton.experience.current
     );
     assert_eq!(burton.experience.level, VeterancyLevel::Veteran);
-    assert!(burton.weapon_set_veteran);
+    assert!(burton.test_weapon_condition(0));
     assert!(burton.weapon_bonus_veteran);
 }
 
@@ -745,7 +745,7 @@ fn dozer_mine_clear_residual_disarms_enemy_mine_safely() {
         )
         .expect("dozer");
     if let Some(d) = game_logic.host_object_mut(dozer_id) {
-        d.set_weapon_set_mine_clearing_detail_at_frame(true, 0);
+        d.set_weapon_condition_at_frame(8, true, 0);
     }
     let health_before = game_logic.host_object(dozer_id).unwrap().health.current;
     assert!(
@@ -826,7 +826,7 @@ fn dozer_mine_clear_residual_approaches_then_clears() {
         .create_object("TestDozer", Team::USA, Vec3::new(approach_dist, 0.0, 0.0))
         .expect("dozer");
     if let Some(d) = game_logic.host_object_mut(dozer_id) {
-        d.set_weapon_set_mine_clearing_detail_at_frame(true, 0);
+        d.set_weapon_condition_at_frame(8, true, 0);
     }
 
     game_logic.update_mines_and_demo_traps();
@@ -1019,7 +1019,7 @@ fn dozer_mine_clear_defuses_demo_trap_without_detonation() {
         .create_object("TestDozer", Team::USA, Vec3::new(50.0, 0.0, 0.0))
         .expect("dozer");
     if let Some(d) = game_logic.host_object_mut(dozer_id) {
-        d.set_weapon_set_mine_clearing_detail_at_frame(true, 0);
+        d.set_weapon_condition_at_frame(8, true, 0);
     }
 
     assert!(
@@ -1313,13 +1313,13 @@ fn bored_dozer_arms_mine_clearing_weaponset() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.idle_since_frame = 1;
-        assert!(!o.weapon_set_mine_clearing_detail);
+        assert!(!o.test_weapon_condition(8));
     }
     logic.frame = 1 + crate::game_logic::host_repair::DOZER_BORED_TIME_FRAMES;
     logic.update_dozer_bored_repair();
     let d = logic.host_object(did).expect("d");
     assert!(
-        d.weapon_set_mine_clearing_detail,
+        d.test_weapon_condition(8),
         "idle dozer must arm WEAPONSET_MINE_CLEARING_DETAIL"
     );
     let _ = HostMineKind::LandMine;
@@ -1353,6 +1353,13 @@ fn stealth_residual_not_auto_targeted_until_detected() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_infantry_template(&mut game_logic);
+    game_logic.templates.get_mut("TestInfantry").unwrap().stealth_update =
+        Some(crate::game_logic::object::StealthUpdateData {
+            stealth_delay_frames: 0,
+            innate_stealth: false,
+            granted_by_special_power: true,
+            ..Default::default()
+        });
 
     let attacker_id = game_logic
         .create_object("TestInfantry", Team::China, Vec3::new(0.0, 0.0, 0.0))
@@ -1371,7 +1378,7 @@ fn stealth_residual_not_auto_targeted_until_detected() {
         .expect("stealthed");
     {
         let s = game_logic.host_object_mut(stealth_id).unwrap();
-        s.set_status_stealthed(true);
+        s.apply_grant_stealth(0);
         s.set_status_detected(false);
     }
 
@@ -1406,6 +1413,7 @@ fn stealth_residual_not_auto_targeted_until_detected() {
     }
 
     game_logic.update_stealth_and_detection();
+    game_logic.update_stealth_and_detection();
 
     let stealth = game_logic.host_object(stealth_id).unwrap();
     assert!(
@@ -1438,10 +1446,21 @@ fn stealth_residual_not_auto_targeted_until_detected() {
     );
 }
 
+/// C++ firing does not touch STEALTHED directly: the inherited
+/// DefaultThingTemplate StealthUpdate (FIRING_PRIMARY/SECONDARY/TERTIARY)
+/// destalths on its next update via `allowedToStealth`
+/// (StealthUpdate.cpp:324-362, 717-752).
 #[test]
 fn stealth_residual_fire_breaks_stealth() {
     let mut game_logic = GameLogic::new();
     ensure_test_infantry_template(&mut game_logic);
+    game_logic.templates.get_mut("TestInfantry").unwrap().stealth_update =
+        Some(crate::game_logic::object::StealthUpdateData {
+            innate_stealth: false,
+            granted_by_special_power: true,
+            forbidden_conditions: crate::game_logic::object::StealthForbiddenConditions::FIRING_WEAPON,
+            ..Default::default()
+        });
 
     let shooter_id = game_logic
         .create_object("TestInfantry", Team::USA, Vec3::new(0.0, 0.0, 0.0))
@@ -1453,8 +1472,7 @@ fn stealth_residual_fire_breaks_stealth() {
     {
         let _ = game_logic.host_object_mut(shooter_id).unwrap();
         let s = game_logic.objects.get_mut(&shooter_id).unwrap();
-        s.set_status_stealthed(true);
-        s.stealth_breaks_on_attack = true;
+        s.apply_grant_stealth(game_logic.frame);
         s.weapon = Some(Weapon {
             damage: 5.0,
             range: 100.0,
@@ -1470,23 +1488,37 @@ fn stealth_residual_fire_breaks_stealth() {
             &mut game_logic.attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         ));
-        assert!(!s.status.stealthed, "fire_at must break stealth");
     }
+    game_logic
+        .objects
+        .get_mut(&shooter_id)
+        .unwrap()
+        .set_status_firing_weapon(true);
+    game_logic.update_stealth_and_detection();
+    assert!(
+        !game_logic.host_object(shooter_id).unwrap().status.stealthed,
+        "firing destalths on the next StealthUpdate"
+    );
 }
 
 #[test]
 fn stealth_residual_detection_expires() {
     let mut game_logic = GameLogic::new();
     ensure_test_infantry_template(&mut game_logic);
+    game_logic.templates.get_mut("TestInfantry").unwrap().stealth_update =
+        Some(crate::game_logic::object::StealthUpdateData {
+            stealth_delay_frames: 0,
+            innate_stealth: false,
+            granted_by_special_power: true,
+            ..Default::default()
+        });
 
     let stealth_id = game_logic
         .create_object("TestInfantry", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("stealth");
-    {
-        let s = game_logic.host_object_mut(stealth_id).unwrap();
-        s.set_status_stealthed(true);
-        s.mark_detected(5); // expires at frame 5
-    }
+    game_logic.host_object_mut(stealth_id).unwrap().apply_grant_stealth(0);
+    game_logic.mark_stealth_detected(stealth_id, 5);
+    assert!(!game_logic.host_object(stealth_id).unwrap().status.detected);
 
     game_logic.frame = 4;
     game_logic.update_stealth_and_detection();
@@ -1630,6 +1662,7 @@ fn residual_auto_fire_commits_canonical_target_before_observation() {
             min_range: 0.0,
             reload_time: 0.1,
             last_fire_time: -10.0,
+            last_fire_frame: 0,
             ammo: None,
             clip_size: 0,
             clip_reload_time: 0.0,
@@ -2151,13 +2184,19 @@ fn stinger_get_closest_slave_physical_roster_residual() {
     }
 }
 
+/// CamoNetting StealthUpgrade grants CAN_STEALTH (StealthUpgrade.cpp:27-42);
+/// the structures' authored StealthUpdate (InnateStealth No, ATTACKING
+/// USING_ABILITY TAKING_DAMAGE, OrderIdleEnemiesToAttackMeUponReveal) then
+/// cloaks after StealthDelay and reveals on its next update
+/// (StealthUpdate.cpp:234-401, 717-752, 846-912).
 #[test]
-fn camo_netting_structure_attack_and_damage_reveal_residual() {
+fn camo_netting_structure_attack_and_damage_reveal() {
     use crate::command_system::{CommandType, GameCommand};
     use crate::game_logic::host_upgrades::{
         CAMO_NETTING_FRIENDLY_OPACITY_MAX, CAMO_NETTING_FRIENDLY_OPACITY_MIN,
         CAMO_NETTING_STEALTH_DELAY_FRAMES, HostUpgradeKind, UPGRADE_GLA_CAMO_NETTING,
     };
+    use crate::game_logic::object::{StealthForbiddenConditions as C, StealthUpdateData};
 
     let mut game_logic = GameLogic::new();
     let mut player = Player::new(0, Team::GLA, "GLA", true);
@@ -2167,33 +2206,29 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
     ensure_test_tank_template(&mut game_logic);
 
     for name in ["GLATunnelNetwork", "GLAStingerSite"] {
-        if !game_logic.templates.contains_key(name) {
-            let mut t = crate::game_logic::ThingTemplate::new(name);
-            t.add_kind_of(KindOf::Structure)
-                .add_kind_of(KindOf::Selectable)
-                .add_kind_of(KindOf::Attackable)
-                .add_kind_of(KindOf::FSBaseDefense)
-                .set_health(1000.0);
-            t.stealth_upgrades = vec![crate::game_logic::UpgradeMuxTriggers {
-                triggered_by: vec!["Upgrade_GLACamoNetting".into()],
-                ..Default::default()
-            }];
-            game_logic.templates.insert(name.to_string(), t);
-        }
-    }
-    if !game_logic.templates.contains_key("GLABlackMarket") {
-        let mut market = crate::game_logic::ThingTemplate::new("GLABlackMarket");
-        market
-            .add_kind_of(KindOf::Structure)
-            .add_kind_of(KindOf::FSBlackMarket)
+        let mut t = crate::game_logic::ThingTemplate::new(name);
+        t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::FSBaseDefense)
             .set_health(1000.0);
-        game_logic
-            .templates
-            .insert("GLABlackMarket".to_string(), market);
+        t.stealth_upgrades = vec![crate::game_logic::UpgradeMuxTriggers {
+            triggered_by: vec!["Upgrade_GLACamoNetting".into()],
+            ..Default::default()
+        }];
+        t.stealth_update = Some(StealthUpdateData {
+            stealth_delay_frames: CAMO_NETTING_STEALTH_DELAY_FRAMES,
+            forbidden_conditions: C::ATTACKING
+                .union(C::USING_ABILITY)
+                .union(C::TAKING_DAMAGE),
+            friendly_opacity_min: CAMO_NETTING_FRIENDLY_OPACITY_MIN,
+            friendly_opacity_max: CAMO_NETTING_FRIENDLY_OPACITY_MAX,
+            order_idle_enemies_to_attack_me_upon_reveal: true,
+            innate_stealth: false,
+            ..Default::default()
+        });
+        game_logic.templates.insert(name.to_string(), t);
     }
-    let _market_id = game_logic
-        .create_object("GLABlackMarket", Team::GLA, Vec3::new(-200.0, 0.0, 0.0))
-        .expect("black market");
 
     let barracks_id = game_logic
         .create_object("TestBarracks", Team::GLA, Vec3::new(-80.0, 0.0, 0.0))
@@ -2205,6 +2240,12 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
         .create_object("GLAStingerSite", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
         .expect("stinger");
     game_logic.run_first_spawn_update_for_test();
+    for id in [tunnel_id, stinger_id] {
+        assert!(
+            !game_logic.host_object(id).unwrap().innate_stealth,
+            "InnateStealth No: no CAN_STEALTH before the upgrade"
+        );
+    }
 
     game_logic.queue_command(GameCommand {
         command_type: CommandType::QueueUpgrade {
@@ -2218,8 +2259,6 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
     });
     game_logic.process_commands();
     // C++ ProductionUpdate.cpp:686-704 advances research once per logic frame.
-    // A live update drops excess wall time, so drive the actual 5s research
-    // window with fixed frames rather than one oversized presentation delta.
     game_logic.update();
     for _ in 0..HostUpgradeKind::CamoNetting.retail_research_frames() {
         game_logic.update();
@@ -2232,18 +2271,12 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
         "producer research must complete before exercising CamoNetting stealth"
     );
 
+    // While CAN_STEALTH was clear every update re-armed StealthDelay.
     for id in [tunnel_id, stinger_id] {
         let o = game_logic.host_object(id).unwrap();
-        assert!(o.innate_stealth);
-        assert!(!o.status.stealthed, "CamoNetting re-arms StealthDelay");
-        assert!(o.stealth_breaks_on_attack);
-        assert!(o.stealth_breaks_on_damage);
-        assert_eq!(o.stealth_delay_frames, CAMO_NETTING_STEALTH_DELAY_FRAMES);
+        assert!(o.innate_stealth, "StealthUpgrade sets CAN_STEALTH");
+        assert!(!o.status.stealthed, "cloak waits StealthDelay");
         assert!(o.stealth_allowed_frame > game_logic.frame);
-        assert!(
-            o.camo_net_sub_object_shown,
-            "CamoNetting residual must show net mesh sub-object"
-        );
     }
     let cloak_at = game_logic
         .host_object(tunnel_id)
@@ -2253,128 +2286,76 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
     game_logic.update_stealth_and_detection();
     for id in [tunnel_id, stinger_id] {
         let o = game_logic.host_object(id).unwrap();
-        assert!(o.status.stealthed && o.innate_stealth);
+        assert!(o.status.stealthed, "cloaks once StealthDelay elapsed");
         assert!(
-            (o.camo_friendly_opacity - CAMO_NETTING_FRIENDLY_OPACITY_MIN).abs() < 0.01,
-            "CamoNetting cloak residual must set FriendlyOpacityMin, got {}",
+            o.camo_friendly_opacity >= CAMO_NETTING_FRIENDLY_OPACITY_MIN - 0.01
+                && o.camo_friendly_opacity <= CAMO_NETTING_FRIENDLY_OPACITY_MAX + 0.01,
+            "friendly pulse stays within FriendlyOpacityMin..Max, got {}",
             o.camo_friendly_opacity
         );
     }
-    assert!(
-        game_logic.honesty_camo_netting_friendly_opacity_ok(),
-        "FriendlyOpacity residual honesty must record cloak"
-    );
-    assert!(game_logic.camo_netting_opacity_cloak_count() >= 2);
-    assert!(
-        game_logic.honesty_camo_netting_sub_object_ok(),
-        "CamoNetting sub-object net mesh residual honesty"
-    );
-    assert!(game_logic.camo_netting_sub_object_show_count() >= 2);
 
-    // TAKING_DAMAGE residual uncloaks.
+    // TAKING_DAMAGE: the next update reveals and re-arms StealthDelay.
     let _ = game_logic.apply_host_damage(tunnel_id, 10.0);
-    assert!(
-        !game_logic
-            .host_object(tunnel_id)
-            .map(|o| o.status.stealthed)
-            .unwrap_or(true),
-        "damage residual must break CamoNetting structure stealth"
-    );
-    assert!(
-        game_logic
-            .host_object(tunnel_id)
-            .map(|o| (o.camo_friendly_opacity - CAMO_NETTING_FRIENDLY_OPACITY_MAX).abs() < 0.01)
-            .unwrap_or(false),
-        "damage reveal residual must set FriendlyOpacityMax"
-    );
-    assert!(
-        game_logic
-            .host_object(tunnel_id)
-            .map(|o| o.stealth_delay_pending || o.stealth_allowed_frame > 0)
-            .unwrap_or(false)
-            || game_logic.camo_netting_structure_residual_reveals() > 0,
-        "damage reveal must schedule StealthDelay residual"
-    );
-
-    // Resolve delay pending + stay uncloaked until delay elapses.
-    game_logic.frame = 1;
     game_logic.update_stealth_and_detection();
-    let allowed = game_logic
-        .host_object(tunnel_id)
-        .map(|o| o.stealth_allowed_frame)
-        .unwrap_or(0);
-    assert!(
-        allowed > 0,
-        "StealthDelay residual must set stealth_allowed_frame"
-    );
-    assert!(
-        !game_logic
-            .host_object(tunnel_id)
-            .map(|o| o.status.stealthed)
-            .unwrap_or(true),
-        "must remain uncloaked during StealthDelay"
-    );
+    {
+        let o = game_logic.host_object(tunnel_id).unwrap();
+        assert!(!o.status.stealthed, "damage reveals CamoNetting structure");
+        assert!(o.stealth_allowed_frame > game_logic.frame);
+    }
 
-    // ATTACKING residual: IS_FIRING_WEAPON destalths; approach does not.
+    // ATTACKING: IS_FIRING_WEAPON reveals.
+    game_logic.frame += 1;
     {
         let s = game_logic.host_object_mut(stinger_id).unwrap();
-        s.set_status_stealthed(true);
-        s.stealth_allowed_frame = 0;
-        s.stealth_delay_pending = false;
         s.set_status_firing_weapon(true);
     }
-
-    game_logic.frame = 2;
     game_logic.update_stealth_and_detection();
     assert!(
-        !game_logic
-            .host_object(stinger_id)
-            .map(|o| o.status.stealthed)
-            .unwrap_or(true),
-        "attacking residual must break CamoNetting structure stealth"
+        !game_logic.host_object(stinger_id).unwrap().status.stealthed,
+        "firing reveals CamoNetting structure"
     );
 
-    // USING_ABILITY residual: forbids stealth while OBJECT_STATUS_IS_USING_ABILITY.
+    // USING_ABILITY: forbids stealth even once the delay has elapsed.
     {
         let s = game_logic.host_object_mut(stinger_id).unwrap();
-        s.set_status_stealthed(true);
-        s.stealth_allowed_frame = 0;
-        s.stealth_delay_pending = false;
-        s.set_status_attacking(false);
         s.set_status_firing_weapon(false);
-        s.set_ai_state(
-            AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
         s.set_status_using_ability(true);
     }
-    game_logic.frame = 3;
+    game_logic.frame = game_logic
+        .host_object(stinger_id)
+        .unwrap()
+        .stealth_allowed_frame;
     game_logic.update_stealth_and_detection();
     assert!(
-        !game_logic
-            .host_object(stinger_id)
-            .map(|o| o.status.stealthed)
-            .unwrap_or(true),
-        "USING_ABILITY residual must break CamoNetting structure stealth"
+        !game_logic.host_object(stinger_id).unwrap().status.stealthed,
+        "using an ability keeps CamoNetting structure revealed"
     );
-    // Clear ability so re-cloak path can exercise.
-    {
-        let s = game_logic.host_object_mut(stinger_id).unwrap();
-        s.set_status_using_ability(false);
-    }
 
-    // OrderIdleEnemiesToAttackMeUponReveal residual: idle enemy in vision
-    // wakes and targets the revealed structure.
+    // Idle + StealthDelay elapsed: the tunnel re-cloaks.
+    {
+        let t = game_logic.host_object_mut(tunnel_id).unwrap();
+        t.last_damage_timestamp = None;
+    }
+    game_logic.frame = game_logic
+        .host_object(tunnel_id)
+        .unwrap()
+        .stealth_allowed_frame
+        .max(game_logic.frame);
+    game_logic.update_stealth_and_detection();
+    assert!(
+        game_logic.host_object(tunnel_id).unwrap().status.stealthed,
+        "idle after StealthDelay re-cloaks CamoNetting structure"
+    );
+
+    // markAsDetected wakes idle enemies that see the structure.
     let enemy_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(30.0, 0.0, 0.0))
         .expect("enemy tank");
     {
         let e = game_logic.host_object_mut(enemy_id).unwrap();
-        e.set_ai_state(
-            AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
         e.target = None;
+        e.vision_range = 300.0;
         e.weapon = Some(Weapon {
             damage: 10.0,
             range: 200.0,
@@ -2382,176 +2363,15 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
             last_fire_time: -10.0,
             ..Weapon::default()
         });
-        // Ensure vision covers the tunnel at x=0 (enemy at x=30).
-        e.get_template(); // touch template path
     }
-    // Force tunnel stealthed then damage-reveal so OrderIdle residual fires.
-    {
-        let t = game_logic.host_object_mut(tunnel_id).unwrap();
-        t.set_status_stealthed(true);
-        t.set_status_attacking(false);
-        t.set_status_using_ability(false);
-        t.set_ai_state(
-            AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        t.stealth_allowed_frame = 0;
-        t.stealth_delay_pending = false;
-        t.set_status_firing_weapon(true); // force uncloak this frame
-    }
-
-    let order_before = game_logic.camo_netting_order_idle_enemies_count();
-    game_logic.frame = 4;
-    game_logic.update_stealth_and_detection();
-    assert!(
-        !game_logic
-            .host_object(tunnel_id)
-            .map(|o| o.status.stealthed)
-            .unwrap_or(true),
-        "reveal residual must uncloak for OrderIdle path"
+    game_logic.mark_stealth_detected(tunnel_id, 0);
+    assert!(!game_logic.host_object(tunnel_id).unwrap().status.detected);
+    assert!(game_logic.host_object(tunnel_id).unwrap().detection_expires_frame > game_logic.frame);
+    assert_eq!(
+        game_logic.host_object(enemy_id).unwrap().target,
+        Some(tunnel_id),
+        "OrderIdleEnemiesToAttackMeUponReveal wakes the idle enemy"
     );
-    assert!(
-        game_logic.camo_netting_order_idle_enemies_count() > order_before
-            || game_logic
-                .host_object(enemy_id)
-                .map(|e| e.target == Some(tunnel_id))
-                .unwrap_or(false),
-        "OrderIdleEnemies residual must wake idle enemy on reveal"
-    );
-    assert!(
-        game_logic
-            .host_object(enemy_id)
-            .map(|e| e.target == Some(tunnel_id) && e.ai_state() == AIState::Attacking)
-            .unwrap_or(false)
-            || game_logic.honesty_camo_netting_order_idle_enemies_ok(),
-        "idle enemy residual must attempt to target revealed structure"
-    );
-
-    // Idle + StealthDelay elapsed → re-cloak residual.
-    game_logic.frame = 10 + CAMO_NETTING_STEALTH_DELAY_FRAMES;
-    let recloak_frame = game_logic.frame;
-    {
-        let t = game_logic.host_object_mut(tunnel_id).unwrap();
-        t.set_status_attacking(false);
-        t.set_status_firing_weapon(false);
-        t.set_status_using_ability(false);
-        t.set_ai_state(
-            AIState::Idle,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        t.target = None;
-        t.set_status_stealthed(false);
-        // frame < allowed forbids; equal allows re-cloak residual.
-        t.stealth_allowed_frame = recloak_frame;
-        t.stealth_delay_pending = false;
-        // Research now advances on the producer (frame ~150), so the earlier
-        // damage-reveal stamped an absolute timestamp past this rewound frame;
-        // this block exercises idle re-cloak, not the damage window.
-        t.last_damage_timestamp = None;
-    }
-    game_logic.update_stealth_and_detection();
-    assert!(
-        game_logic
-            .host_object(tunnel_id)
-            .map(|o| o.status.stealthed)
-            .unwrap_or(false),
-        "idle after StealthDelay must re-cloak CamoNetting structure"
-    );
-    assert!(
-        game_logic
-            .host_object(tunnel_id)
-            .map(
-                |o| (o.camo_friendly_opacity - CAMO_NETTING_FRIENDLY_OPACITY_MIN).abs() < 0.01
-                    || o.camo_friendly_opacity <= CAMO_NETTING_FRIENDLY_OPACITY_MAX
-            )
-            .unwrap_or(false),
-        "re-cloak residual must restore FriendlyOpacityMin (or pulse within min..max)"
-    );
-    // Pulse residual while cloaked: one more tick advances phase / opacity.
-    let (op_before, phase_before) = game_logic
-        .host_object(tunnel_id)
-        .map(|o| (o.camo_friendly_opacity, o.camo_opacity_pulse_phase))
-        .unwrap_or((1.0, 0.0));
-    game_logic.frame = recloak_frame.saturating_add(1);
-    game_logic.update_stealth_and_detection();
-    {
-        let o = game_logic.host_object(tunnel_id).unwrap();
-        assert!(o.status.stealthed);
-        assert!(
-            o.camo_opacity_pulse_phase > phase_before
-                || (o.camo_friendly_opacity - op_before).abs() > 0.001
-                || o.camo_friendly_opacity >= CAMO_NETTING_FRIENDLY_OPACITY_MIN,
-            "cloaked residual must pulse FriendlyOpacity"
-        );
-        assert!(
-            o.camo_friendly_opacity >= CAMO_NETTING_FRIENDLY_OPACITY_MIN - 0.01
-                && o.camo_friendly_opacity <= CAMO_NETTING_FRIENDLY_OPACITY_MAX + 0.01,
-            "pulse residual opacity must stay in min..max, got {}",
-            o.camo_friendly_opacity
-        );
-    }
-    assert!(
-        game_logic.camo_netting_structure_residual_recloaks() > 0
-            || game_logic.honesty_camo_netting_structure_stealth_ok(),
-        "camo structure stealth residual honesty"
-    );
-    assert!(game_logic.honesty_camo_netting_structure_stealth_ok());
-
-    // StealthLook / heat-vision residual: detect cloaked structure → second pass.
-    use crate::game_logic::host_upgrades::{HostCamoStealthLook, camo_netting_stealth_look};
-    {
-        let t = game_logic.host_object_mut(tunnel_id).unwrap();
-        t.set_status_stealthed(true);
-        t.set_status_detected(true);
-        t.queue_second_material_pass(0.0);
-        t.camo_stealth_look = 0;
-    }
-    game_logic.update_stealth_and_detection();
-    {
-        let t = game_logic.host_object(tunnel_id).unwrap();
-        let look = HostCamoStealthLook::from_u8(t.camo_stealth_look);
-        assert_eq!(
-            look,
-            HostCamoStealthLook::VisibleDetected,
-            "enemy-detected residual StealthLook must be VISIBLE_DETECTED"
-        );
-        assert_eq!(
-            t.pending_second_material_pass(),
-            Some(1.0),
-            "changed detected look queues its material side effect at logic time"
-        );
-        assert_eq!(
-            camo_netting_stealth_look(true, true, false),
-            HostCamoStealthLook::VisibleDetected
-        );
-    }
-    assert!(
-        game_logic.honesty_camo_netting_heat_vision_ok(),
-        "CamoNetting heat-vision residual honesty"
-    );
-    assert!(game_logic.camo_netting_heat_vision_count() >= 1);
-
-    // Sub-object residual: detected → observer-visible with heat-vision pass.
-    use crate::game_logic::host_upgrades::{
-        CAMO_NETTING_SUB_OBJECT_MESH_NAME, camo_netting_sub_object_observer_visible,
-        camo_netting_sub_object_state,
-    };
-    {
-        let t = game_logic.host_object(tunnel_id).unwrap();
-        assert!(t.camo_net_sub_object_shown);
-        let sub = camo_netting_sub_object_state(
-            true,
-            t.status.stealthed,
-            t.status.detected,
-            false,
-            t.camo_friendly_opacity,
-        );
-        assert_eq!(sub.mesh_name, CAMO_NETTING_SUB_OBJECT_MESH_NAME);
-        assert!(sub.shown);
-        assert!(sub.heat_vision_pass);
-        assert!(camo_netting_sub_object_observer_visible(&sub));
-        assert!(t.camo_net_sub_object_observer_visible);
-    }
 }
 
 #[test]

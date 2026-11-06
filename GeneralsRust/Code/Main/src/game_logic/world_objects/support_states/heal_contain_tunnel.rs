@@ -619,7 +619,7 @@ impl GameLogic {
         if !crate::game_logic::host_gla_worker::is_gla_worker_template(&obj.template_name) {
             return;
         }
-        obj.set_weapon_set_mine_clearing_detail_at_frame(true, self.frame);
+        obj.set_weapon_condition_at_frame(8, true, self.frame);
     }
 
     /// C++ / leftover WANTING update: cargo → center; empty → warehouse;

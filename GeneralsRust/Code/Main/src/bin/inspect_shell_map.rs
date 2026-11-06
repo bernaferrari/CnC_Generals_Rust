@@ -100,7 +100,8 @@ fn dump_matching_list(list: &ScriptList) {
 fn main() -> Result<()> {
     let map_name = "Maps\\ShellMapMD\\ShellMapMD.map";
     let mut logic = GameLogic::initialize();
-    logic.start_new_game(GameMode::Skirmish);
+    generals_main::cnc_game_engine::start_standalone_game(&mut logic, GameMode::Skirmish)
+        .map_err(anyhow::Error::msg)?;
 
     println!("map_name={map_name}");
     println!("resolved={:?}", find_map_file(map_name));

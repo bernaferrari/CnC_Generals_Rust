@@ -2483,78 +2483,54 @@ impl GameLogic {
         }
     }
 
-    /// Retain the exact StealthUpdate friendly opacity bounds used by
-    /// C++ `StealthUpdate::getFriendlyOpacity`. Missing fields retain the
-    /// module-data defaults; malformed present values fail closed to those
-    /// defaults rather than inventing a non-finite presentation value.
+    /// Retain the authored `Behavior = StealthUpdate` module data (C++
+    /// `StealthUpdateModuleData::buildFieldParse`, StealthUpdate.cpp:72-104).
+    /// A later declaration (the child's own module) overrides an inherited one.
     pub(super) fn apply_authored_stealth_update_metadata(
         template: &mut ThingTemplate,
         definition: &ObjectDefinition,
     ) {
-        fn parse_percent(value: &str) -> Option<f32> {
-            value
-                .split(';')
-                .next()
-                .unwrap_or_default()
-                .trim()
-                .trim_end_matches('%')
-                .parse::<f32>()
-                .ok()
-                .filter(|value| value.is_finite())
-                .map(|value| (value / 100.0).clamp(0.0, 1.0))
-        }
+        let module = definition.behavior_modules.iter().rev()
+            .find(|module| module.class_name.eq_ignore_ascii_case("StealthUpdate"));
+        template.stealth_update = module.map(crate::game_logic::object::StealthUpdateData::from_module);
+        let name = |key| module.and_then(|module| module.attribute(key))
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("none"))
+            .map(str::to_owned);
+        template.stealth_disguise_fx = name("DisguiseFX");
+        template.stealth_disguise_reveal_fx = name("DisguiseRevealFX");
+        template.stealth_enemy_detection_eva = name("EnemyDetectionEvaEvent");
+        template.stealth_own_detection_eva = name("OwnDetectionEvaEvent");
+    }
 
-        let modules: Vec<_> = definition
-            .behavior_modules
-            .iter()
-            .filter(|module| module.class_name.eq_ignore_ascii_case("StealthUpdate"))
-            .collect();
-        let [module] = modules.as_slice() else {
-            return;
-        };
-
-        if let Some(value) = module
-            .attribute("FriendlyOpacityMin")
-            .and_then(parse_percent)
-        {
-            template.stealth_friendly_opacity_min = value;
+    /// The receiving ThingTemplate already resolved ordered copied-module policy.
+    pub(super) fn apply_receiving_stealth_update_metadata(
+        template: &mut ThingTemplate,
+        name: &str,
+        receiving: &game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
+    ) -> Result<(), String> {
+        let admitted = receiving.admitted_template(name)
+            .ok_or_else(|| format!("Missing receiving stealth definition '{name}'"))?;
+        let entry = admitted.behavior_modules().iter()
+            .find(|entry| entry.name.as_str() == "StealthUpdate");
+        if let Some(entry) = entry {
+            let data = entry.data.as_any()
+                .downcast_ref::<gamelogic::stealth_update::StealthUpdateModuleData>()
+                .ok_or_else(|| format!("Invalid receiving StealthUpdate data on '{name}'"))?;
+            template.stealth_update = Some(crate::game_logic::object::StealthUpdateData::from_admitted_module(data));
+            let (gain, reveal, enemy, own) = data.authored_presentation_names();
+            template.stealth_disguise_fx = gain.map(str::to_owned);
+            template.stealth_disguise_reveal_fx = reveal.map(str::to_owned);
+            template.stealth_enemy_detection_eva = enemy.map(str::to_owned);
+            template.stealth_own_detection_eva = own.map(str::to_owned);
+        } else {
+            template.stealth_update = None;
+            template.stealth_disguise_fx = None;
+            template.stealth_disguise_reveal_fx = None;
+            template.stealth_enemy_detection_eva = None;
+            template.stealth_own_detection_eva = None;
         }
-        if let Some(value) = module
-            .attribute("FriendlyOpacityMax")
-            .and_then(parse_percent)
-        {
-            template.stealth_friendly_opacity_max = value;
-        }
-        // C++ StealthUpdateModuleData: InnateStealth (parseBool), StealthDelay
-        // (parseDurationUnsignedInt ms), StealthForbiddenConditions bitstring.
-        if let Some(value) = module.attribute("InnateStealth") {
-            let v = value.split(';').next().unwrap_or_default().trim();
-            template.stealth_update_innate = v.eq_ignore_ascii_case("yes") || v == "1";
-        }
-        if let Some(ms) = module.attribute("StealthDelay").and_then(|value| {
-            value
-                .split(';')
-                .next()
-                .unwrap_or_default()
-                .trim()
-                .parse::<f32>()
-                .ok()
-                .filter(|v| v.is_finite() && *v >= 0.0)
-        }) {
-            template.stealth_update_delay_ms = Some(ms.round() as u32);
-        }
-        if let Some(value) = module.attribute("StealthForbiddenConditions") {
-            template.stealth_update_forbids_attacking = value
-                .split(';')
-                .next()
-                .unwrap_or_default()
-                .split_whitespace()
-                .any(|token| token.eq_ignore_ascii_case("ATTACKING"));
-        }
-        if template.stealth_friendly_opacity_min > template.stealth_friendly_opacity_max {
-            template.stealth_friendly_opacity_min = 0.5;
-            template.stealth_friendly_opacity_max = 1.0;
-        }
+        Ok(())
     }
 
     /// Retain the exact Object INI data C++ `OverchargeBehavior` consumes.

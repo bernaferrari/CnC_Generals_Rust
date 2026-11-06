@@ -208,6 +208,7 @@ pub fn tomahawk_weapon() -> Weapon {
         min_range: TOMAHAWK_MIN_RANGE,
         reload_time: delay_frames_to_reload_secs(TOMAHAWK_RELOAD_FRAMES),
         last_fire_time: 0.0,
+        last_fire_frame: 0,
         ammo: Some(TOMAHAWK_CLIP_SIZE),
         clip_size: 0,
         clip_reload_time: 0.0,

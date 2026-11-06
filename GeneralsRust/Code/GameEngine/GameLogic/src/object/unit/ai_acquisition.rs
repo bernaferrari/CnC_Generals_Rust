@@ -40,7 +40,7 @@ impl UnitAIUpdate {
             .unwrap_or(false)
     }
 
-    fn can_auto_acquire_while_stealthed_for_source(&self, source: &crate::object::Object) -> bool {
+    pub(super) fn can_auto_acquire_while_stealthed_for_source(&self, source: &crate::object::Object) -> bool {
         self.runtime
             .can_auto_acquire_while_stealthed_for_source(source)
     }

@@ -966,7 +966,7 @@ fn car_bomb_detonates_when_pilot_sniped_unmanned() {
     let _ = logic.host_object_mut(cid);
     logic
         .with_object_veterancy_feedback_and_partition(cid, |c, audio, feedback, partition| {
-            c.apply_convert_to_car_bomb_from_with_partition_owner(None, audio, feedback, partition);
+            c.apply_convert_to_car_bomb_from_with_partition_owner(None, audio, feedback, partition, 0);
         })
         .expect("actual car-bomb owner");
     let sid = logic
@@ -2548,7 +2548,7 @@ fn eva_beacon_detected_for_ally_placer_only() {
 #[test]
 fn eva_hero_detected_own_and_enemy_lotus() {
     use crate::game_logic::Team;
-    use gamelogic::helpers::EvaEvent;
+    use crate::game_logic::host_eva_log::EvaOperation;
     let mut logic = GameLogic::new();
     logic.players.insert(
         0,
@@ -2563,6 +2563,8 @@ fn eva_hero_detected_own_and_enemy_lotus() {
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Hero)
         .set_health(100.0);
+    lotus.stealth_update = Some(crate::game_logic::object::StealthUpdateData::default());
+    lotus.stealth_enemy_detection_eva = Some("EnemyBlackLotusDetected".into());
     logic
         .templates
         .insert("ChinaInfantryBlackLotus".into(), lotus);
@@ -2575,19 +2577,16 @@ fn eva_hero_detected_own_and_enemy_lotus() {
         .expect("enemy lotus");
     logic.try_eva_hero_detected(enemy);
     assert!(logic.honesty_eva_hero_detected_ok());
-    let events = logic.take_eva_requests();
-    assert!(
-        events
-            .iter()
-            .any(|e| *e == EvaEvent::EnemyBlackLotusDetected),
-        "{events:?}"
-    );
+    let events = logic.eva_announcements.take_delivery().operations;
+    assert_eq!(events, vec![EvaOperation::RequestNamed("EnemyBlackLotusDetected".into())]);
     // Own lotus residual
     let mut own_t = ThingTemplate::new("AmericaInfantryColonelBurton");
     own_t
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Hero)
         .set_health(100.0);
+    own_t.stealth_update = Some(crate::game_logic::object::StealthUpdateData::default());
+    own_t.stealth_own_detection_eva = Some("OwnColonelBurtonDetected".into());
     logic
         .templates
         .insert("AmericaInfantryColonelBurton".into(), own_t);
@@ -2598,15 +2597,21 @@ fn eva_hero_detected_own_and_enemy_lotus() {
             glam::Vec3::new(5.0, 0.0, 5.0),
         )
         .expect("own burton");
-    let _ = logic.take_eva_requests();
+    let _ = logic.eva_announcements.take_delivery();
     logic.try_eva_hero_detected(own);
-    let events2 = logic.take_eva_requests();
-    assert!(
-        events2
-            .iter()
-            .any(|e| *e == EvaEvent::OwnColonelBurtonDetected),
-        "{events2:?}"
-    );
+    let events = logic.eva_announcements.take_delivery().operations;
+    assert_eq!(events, vec![EvaOperation::RequestNamed("OwnColonelBurtonDetected".into())]);
+    let mut custom = ThingTemplate::new("UnrelatedAgent");
+    custom.set_health(100.0);
+    custom.stealth_update = Some(crate::game_logic::object::StealthUpdateData::default());
+    custom.stealth_enemy_detection_eva = Some("SuperweaponReady_Ally_Nuke".into());
+    logic.templates.insert("UnrelatedAgent".into(), custom);
+    let custom_id = logic.create_object(
+        "UnrelatedAgent", Team::China, glam::Vec3::ZERO
+    ).unwrap();
+    logic.try_eva_hero_detected(custom_id);
+    assert_eq!(logic.eva_announcements.take_delivery().operations,
+        vec![EvaOperation::RequestNamed("SuperweaponReady_Ally_Nuke".into())]);
 }
 
 #[test]

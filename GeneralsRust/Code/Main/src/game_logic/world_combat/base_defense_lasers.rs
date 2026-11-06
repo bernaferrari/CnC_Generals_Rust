@@ -828,26 +828,6 @@ impl GameLogic {
         self.stinger_hive_residual_closest_slave_hits
     }
 
-    /// Residual honesty: CamoNetting structure attack/damage reveal + re-cloak.
-    pub fn honesty_camo_netting_structure_stealth_ok(&self) -> bool {
-        self.camo_netting_structure_residual_reveals > 0
-            || self.camo_netting_structure_residual_recloaks > 0
-            || self.camo_netting_order_idle_enemies_count > 0
-            || self.camo_netting_opacity_cloak_count > 0
-            || self.camo_netting_opacity_reveal_count > 0
-            || self.camo_netting_heat_vision_count > 0
-            || self.camo_netting_sub_object_show_count > 0
-    }
-
-    /// Residual honesty: CamoNetting sub-object net mesh residual shown.
-    pub fn honesty_camo_netting_sub_object_ok(&self) -> bool {
-        self.camo_netting_sub_object_show_count > 0
-    }
-
-    pub fn camo_netting_sub_object_show_count(&self) -> u32 {
-        self.camo_netting_sub_object_show_count
-    }
-
     /// Residual honesty: Stinger orderSlavesToAttackTarget residual.
     pub fn honesty_stinger_slave_order_ok(&self) -> bool {
         self.stinger_slave_order_attack_count > 0
@@ -855,15 +835,6 @@ impl GameLogic {
 
     pub fn stinger_slave_order_attack_count(&self) -> u32 {
         self.stinger_slave_order_attack_count
-    }
-
-    /// Residual honesty: CamoNetting StealthLook heat-vision residual applied.
-    pub fn honesty_camo_netting_heat_vision_ok(&self) -> bool {
-        self.camo_netting_heat_vision_count > 0
-    }
-
-    pub fn camo_netting_heat_vision_count(&self) -> u32 {
-        self.camo_netting_heat_vision_count
     }
 
     /// Residual honesty: Strategy Center TurretAI idle mood-target residual.
@@ -874,36 +845,6 @@ impl GameLogic {
     /// Residual honesty: StrategyCenterGun ScatterRadius peels applied.
     pub fn honesty_strategy_center_gun_scatter_ok(&self) -> bool {
         self.strategy_center_gun_scatter_applied > 0 || self.strategy_center_gun_scatter_misses > 0
-    }
-
-    pub fn camo_netting_structure_residual_reveals(&self) -> u32 {
-        self.camo_netting_structure_residual_reveals
-    }
-
-    pub fn camo_netting_structure_residual_recloaks(&self) -> u32 {
-        self.camo_netting_structure_residual_recloaks
-    }
-
-    /// Residual honesty: OrderIdleEnemiesToAttackMeUponReveal residual woke ≥1 unit.
-    pub fn honesty_camo_netting_order_idle_enemies_ok(&self) -> bool {
-        self.camo_netting_order_idle_enemies_count > 0
-    }
-
-    pub fn camo_netting_order_idle_enemies_count(&self) -> u32 {
-        self.camo_netting_order_idle_enemies_count
-    }
-
-    /// Residual honesty: CamoNetting FriendlyOpacity residual applied.
-    pub fn honesty_camo_netting_friendly_opacity_ok(&self) -> bool {
-        self.camo_netting_opacity_cloak_count > 0 || self.camo_netting_opacity_reveal_count > 0
-    }
-
-    pub fn camo_netting_opacity_cloak_count(&self) -> u32 {
-        self.camo_netting_opacity_cloak_count
-    }
-
-    pub fn camo_netting_opacity_reveal_count(&self) -> u32 {
-        self.camo_netting_opacity_reveal_count
     }
 
     /// Residual honesty: USA Patriot dual ground/AA residual exercised.

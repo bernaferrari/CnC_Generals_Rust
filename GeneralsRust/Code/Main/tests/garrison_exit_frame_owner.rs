@@ -1,4 +1,4 @@
-use generals_main::game_logic::{GameLogic, GameMode, KindOf, Team, ThingTemplate};
+use generals_main::game_logic::{GameLogic, GameMode, Team};
 
 fn world(
     frame_steps: usize,
@@ -8,24 +8,14 @@ fn world(
     generals_main::game_logic::ObjectId,
 ) {
     let mut logic = GameLogic::new();
-    let mut bunker = ThingTemplate::new("OwnerGarrison");
-    bunker.add_kind_of(KindOf::Structure).set_health(1000.0);
-    bunker.contain_module = generals_main::game_logic::ContainModuleMetadata {
-        kind: generals_main::game_logic::ContainModuleKind::Garrison,
-        slots: Some(5),
-        is_enclosing_container: true,
-        ..Default::default()
-    };
-    bunker.geometry_info.authored = true;
-    bunker.geometry_info.major_radius = 20.0;
-    bunker.geometry_info.minor_radius = 10.0;
-    logic.templates.insert("OwnerGarrison".into(), bunker);
-    let mut passenger = ThingTemplate::new("OwnerGarrisonPassenger");
-    passenger.add_kind_of(KindOf::Infantry).set_health(100.0);
     logic
-        .templates
-        .insert("OwnerGarrisonPassenger".into(), passenger);
-    logic.start_new_game(GameMode::SinglePlayer);
+        .admit_object_ini_sources([(
+            "GarrisonExitOwner.ini".into(),
+            "Object OwnerGarrison\n KindOf = STRUCTURE\n Geometry = BOX\n GeometryMajorRadius = 20\n GeometryMinorRadius = 10\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = GarrisonContain GarrisonTag\n ContainMax = 5\n End\nEnd\n\
+             Object OwnerGarrisonPassenger\n KindOf = INFANTRY\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
+        )])
+        .unwrap();
+    logic.start_new_game(GameMode::SinglePlayer).unwrap();
     for _ in 0..frame_steps {
         logic.update_with_dt(1.0 / 30.0);
     }

@@ -1,89 +1,142 @@
 //! Behavior suite extracted from `unit_residuals`.
 use super::*;
 
+/// C++ `UseRiderStealth` (StealthUpdate.cpp:531-556): the first contained
+/// rider's StealthUpdate rules and CAN_STEALTH decide whether the bike cloaks.
 #[test]
 fn combat_cycle_use_rider_stealth_cloaks_from_rider() {
-    use crate::game_logic::host_combat_cycle::{
-        CombatCycleRider, honesty_combat_cycle_rider_stealth_ok,
-    };
+    use crate::game_logic::object::{StealthForbiddenConditions as C, StealthUpdateData};
 
     let mut game_logic = GameLogic::new();
-    let mut bike_tpl = crate::game_logic::ThingTemplate::new("GLAVehicleCombatBike");
+    let mut bike_tpl = crate::game_logic::ThingTemplate::new("TestRiderBike");
     bike_tpl
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(100.0);
+    bike_tpl.stealth_update = Some(StealthUpdateData {
+        stealth_delay_frames: 0,
+        use_rider_stealth: true,
+        innate_stealth: false,
+        ..Default::default()
+    });
     game_logic
         .templates
-        .insert("GLAVehicleCombatBike".to_string(), bike_tpl);
+        .insert("TestRiderBike".to_string(), bike_tpl);
+    let mut sniper_tpl = crate::game_logic::ThingTemplate::new("TestStealthRider");
+    sniper_tpl
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    sniper_tpl.stealth_update = Some(StealthUpdateData {
+        stealth_delay_frames: 0,
+        forbidden_conditions: C::FIRING_WEAPON,
+        ..Default::default()
+    });
+    game_logic
+        .templates
+        .insert("TestStealthRider".to_string(), sniper_tpl);
+    let mut plain_tpl = crate::game_logic::ThingTemplate::new("TestPlainRider");
+    plain_tpl
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    game_logic
+        .templates
+        .insert("TestPlainRider".to_string(), plain_tpl);
 
     let bike_id = game_logic
-        .create_object("GLAVehicleCombatBike", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .create_object("TestRiderBike", Team::GLA, Vec3::ZERO)
         .expect("bike");
+    let stealth_rider = game_logic
+        .create_object("TestStealthRider", Team::GLA, Vec3::ZERO)
+        .expect("stealth rider");
+    let plain_rider = game_logic
+        .create_object("TestPlainRider", Team::GLA, Vec3::ZERO)
+        .expect("plain rider");
 
     game_logic.update_stealth_and_detection();
-    {
-        let b = game_logic.host_object(bike_id).expect("bike");
-        assert!(
-            !b.status.stealthed,
-            "Rebel InitialPayload bike must stay visible"
-        );
-    }
+    assert!(
+        !game_logic.host_object(bike_id).unwrap().status.stealthed,
+        "riderless UseRiderStealth bike lacks CAN_STEALTH"
+    );
 
-    assert!(game_logic.apply_combat_cycle_rider(bike_id, CombatCycleRider::JarmenKell));
+    game_logic
+        .host_object_mut(bike_id)
+        .unwrap()
+        .occupants
+        .push(stealth_rider);
     game_logic.update_stealth_and_detection();
-    {
-        let b = game_logic.host_object(bike_id).expect("bike");
-        assert!(
-            b.status.stealthed,
-            "Kell rider must cloak the bike via UseRiderStealth"
-        );
-    }
+    assert!(
+        game_logic.host_object(bike_id).unwrap().status.stealthed,
+        "stealthy rider cloaks the bike"
+    );
 
-    assert!(game_logic.apply_combat_cycle_rider(bike_id, CombatCycleRider::Hijacker));
+    game_logic
+        .host_object_mut(bike_id)
+        .unwrap()
+        .set_status_firing_weapon(true);
     game_logic.update_stealth_and_detection();
-    {
-        let b = game_logic.host_object(bike_id).expect("bike");
-        assert!(b.status.stealthed, "Hijacker bike must stay cloaked");
-    }
-
-    assert!(game_logic.apply_combat_cycle_rider(bike_id, CombatCycleRider::Saboteur));
-    game_logic.update_stealth_and_detection();
-    {
-        let b = game_logic.host_object(bike_id).expect("bike");
-        assert!(b.status.stealthed, "Saboteur bike must stay cloaked");
-    }
+    assert!(
+        !game_logic.host_object(bike_id).unwrap().status.stealthed,
+        "the rider's FIRING_WEAPON rule reveals the firing bike"
+    );
 
     {
-        let b = game_logic.host_object_mut(bike_id).expect("bike");
-        b.set_status_firing_weapon(true);
+        let bike = game_logic.host_object_mut(bike_id).unwrap();
+        bike.set_status_firing_weapon(false);
+        bike.occupants = vec![plain_rider];
     }
+    game_logic.frame += 1;
     game_logic.update_stealth_and_detection();
-    {
-        let b = game_logic.host_object(bike_id).expect("bike");
-        assert!(
-            !b.status.stealthed,
-            "FIRING destalths a UseRiderStealth bike"
-        );
-    }
+    assert!(
+        !game_logic.host_object(bike_id).unwrap().status.stealthed,
+        "a rider without CAN_STEALTH does not cloak the bike"
+    );
+}
 
-    assert!(game_logic.apply_combat_cycle_rider(bike_id, CombatCycleRider::Rebel));
-    {
-        let b = game_logic.host_object_mut(bike_id).expect("bike");
-        b.set_status_firing_weapon(false);
-        b.stealth_allowed_frame = 0;
-        b.stealth_delay_pending = false;
-    }
-    game_logic.update_stealth_and_detection();
-    {
-        let b = game_logic.host_object(bike_id).expect("bike");
-        assert!(
-            !b.status.stealthed,
-            "Rebel rider must not grant bike stealth"
-        );
-    }
-    assert!(honesty_combat_cycle_rider_stealth_ok());
+#[test]
+fn stealth_black_market_requires_live_owned_black_market_kind() {
+    use crate::game_logic::object::{StealthForbiddenConditions as C, StealthUpdateData};
+    let run = |fake: bool, sold: bool, construction: bool, dead: bool, market_kind: bool| {
+        let mut logic = GameLogic::new();
+        let mut unit = crate::game_logic::ThingTemplate::new("MarketStealthUnit");
+        unit.add_kind_of(KindOf::Infantry).set_health(100.0);
+        unit.stealth_update = Some(StealthUpdateData {
+            stealth_delay_frames: 0,
+            forbidden_conditions: C::NO_BLACK_MARKET,
+            innate_stealth: true,
+            ..Default::default()
+        });
+        logic.templates.insert("MarketStealthUnit".into(), unit);
+        let mut market = crate::game_logic::ThingTemplate::new("Market");
+        market.add_kind_of(KindOf::Structure).set_health(100.0);
+        if market_kind {
+            market.add_kind_of(KindOf::FSBlackMarket);
+        }
+        if fake {
+            market.add_kind_of(KindOf::FSFake);
+        }
+        logic.templates.insert("Market".into(), market);
+        let unit = logic.create_object("MarketStealthUnit", Team::GLA, Vec3::ZERO).unwrap();
+        let market = logic.create_object("Market", Team::GLA, Vec3::ZERO).unwrap();
+        let market = logic.host_object_mut(market).unwrap();
+        market.status.sold = sold;
+        market.status.under_construction = construction;
+        if dead {
+            market.status.destroyed = true;
+        }
+        logic.frame = 1;
+        logic.update_stealth_and_detection();
+        logic.host_object(unit).unwrap().status.stealthed
+    };
+    assert!(run(false, false, false, false, true));
+    assert!(!run(true, false, false, false, false), "fake-only structure is not a black market");
+    assert!(run(true, false, false, false, true), "FS_BLACK_MARKET qualifies even when also FS_FAKE");
+    assert!(!run(false, true, false, false, true));
+    assert!(!run(false, false, true, false, true));
+    assert!(!run(false, false, false, true, true));
+    assert!(!run(false, false, false, false, false));
 }
 
 #[test]

@@ -410,7 +410,7 @@ fn overlord_gattling_independent_acquire_not_stacked_primary() {
         .expect("overlord");
     {
         let o = logic.host_object_mut(tank).unwrap();
-        o.install_overlord_gattling_addon();
+        o.install_overlord_gattling_addon(0);
         o.set_ai_state(
             AIState::Idle,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),

@@ -122,7 +122,6 @@ fn map(
 fn prepared(base_cell: f32) -> GameLogic {
     crate::skirmish_config::lobby_definition_tests::admit_slot_definitions();
     let mut world = GameLogic::new();
-    world.start_new_game(GameMode::SinglePlayer);
     world
         .admit_receiving_module_content(
             crate::assets::ReceivingObjectContent::from_sources([(
@@ -132,6 +131,7 @@ fn prepared(base_cell: f32) -> GameLogic {
             .unwrap(),
         )
         .unwrap();
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     world.admit_camera_application_movement(CameraMovementRules {
         partition_cell_size: base_cell,
         ..Default::default()

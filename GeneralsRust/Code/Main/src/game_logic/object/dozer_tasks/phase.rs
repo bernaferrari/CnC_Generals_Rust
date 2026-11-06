@@ -60,7 +60,7 @@ impl GameLogic {
 
     pub(crate) fn dozer_primary_reset_owned(&mut self, id: ObjectId) {
         if let Some(actor) = self.objects.get_mut(&id) {
-            actor.set_weapon_set_mine_clearing_detail_at_frame(true, self.frame);
+            actor.set_weapon_condition_at_frame(8, true, self.frame);
             actor.dozer_tasks.finish_primary_reset(self.frame);
         }
     }
@@ -339,7 +339,7 @@ impl GameLogic {
                 }
                 // CPP725 Fortify remains intentionally empty.
                 if let Some(actor) = self.objects.get_mut(&id) {
-                    actor.set_weapon_set_mine_clearing_detail_at_frame(false, self.frame);
+                    actor.set_weapon_condition_at_frame(8, false, self.frame);
                 }
             }
         }

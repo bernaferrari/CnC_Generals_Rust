@@ -40,7 +40,7 @@ fn world(map: &std::path::Path) -> GameLogic {
             "Object AmericaBeacon\nKindOf = SELECTABLE\nBody = ActiveBody BodyTag\nMaxHealth = 1\nInitialHealth = 1\nEnd\nEnd\n".into(),
         )])
         .unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(map.to_str().unwrap()));
     world.add_player(Player::new(1, Team::USA, "Local", true).with_script_identity("Local"));
     world

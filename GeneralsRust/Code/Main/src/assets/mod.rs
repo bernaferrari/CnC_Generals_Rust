@@ -49,3 +49,4 @@ pub(crate) use receiving_object_definitions::ReceivingObjectDefinitions;
 
 mod receiving_object_content;
 pub(crate) use receiving_object_content::ReceivingObjectContent;
+pub use receiving_object_content::ReceivingStartupContent;

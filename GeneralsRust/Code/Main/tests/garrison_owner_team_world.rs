@@ -266,7 +266,7 @@ End\n"
                 .into(),
         )])
         .expect("admit authored Garrison definitions");
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(map.to_str().unwrap()));
     let mut p1 =
         Player::new(1, Team::USA, "GarrisonHost", true).with_script_identity("GarrisonHost");

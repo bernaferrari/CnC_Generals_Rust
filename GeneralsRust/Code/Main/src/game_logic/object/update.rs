@@ -727,46 +727,34 @@ impl Object {
     }
 
     /// C++ SalvageCrateCollide::doWeaponSet residual.
-    pub fn apply_salvage_weapon_upgrade(&mut self) {
-        if self.weapon_crate_upgrade >= 2 {
+    pub fn apply_salvage_weapon_upgrade(&mut self, frame: u32) {
+        if self.test_weapon_condition(5) {
             return;
         }
-        self.weapon_crate_upgrade = self.weapon_crate_upgrade.saturating_add(1);
-        self.applied_upgrades.remove("WEAPONSET_CRATEUPGRADE_ONE");
-        self.applied_upgrades.remove("WEAPONSET_CRATEUPGRADE_TWO");
-        let tag = if self.weapon_crate_upgrade >= 2 {
-            "WEAPONSET_CRATEUPGRADE_TWO"
+        let receiving = self.thing().template.has_receiving_weapon_sets();
+        if self.test_weapon_condition(4) {
+            self.set_weapon_condition_at_frame(4, false, frame);
+            self.set_weapon_condition_at_frame(5, true, frame);
         } else {
-            "WEAPONSET_CRATEUPGRADE_ONE"
-        };
-        self.applied_upgrades.insert(tag.to_string());
-        use crate::game_logic::host_enum_table_residual::{
-            weaponset_crateupgrade_one_model_bit, weaponset_crateupgrade_two_model_bit,
-        };
-        let one = weaponset_crateupgrade_one_model_bit();
-        let two = weaponset_crateupgrade_two_model_bit();
-        self.model_condition_bits &= !(1u128 << one);
-        self.model_condition_bits &= !(1u128 << two);
-        if self.weapon_crate_upgrade >= 2 {
-            self.model_condition_bits |= 1u128 << two;
-        } else {
-            self.model_condition_bits |= 1u128 << one;
+            self.set_weapon_condition_at_frame(4, true, frame);
         }
-        // C++ SalvageCrateCollide::doWeaponSet → setWeaponSetFlag → updateWeaponSet.
-        let crate_condition = if self.weapon_crate_upgrade >= 2 {
-            "CRATEUPGRADE_TWO"
-        } else {
-            "CRATEUPGRADE_ONE"
-        };
-        self.adopt_weapon_set_lock_share_for_condition(crate_condition);
-        self.release_weapon_lock_on_set_change();
-        if let Some(wname) = crate::game_logic::host_car_bomb::crateupgrade_primary_weapon(
-            &self.template_name,
-            self.weapon_crate_upgrade,
-        ) {
-            if let Some(weapon) = crate::game_logic::thing::ThingTemplate::weapon_from_store(&wname)
-            {
-                let _ = self.replace_weapon_set_slot(0, Some(weapon));
+        if !receiving {
+            // Legacy synthetic fixtures have no receiving WeaponSet rows.
+            let crate_condition = if self.weapon_crate_upgrade() >= 2 {
+                "CRATEUPGRADE_TWO"
+            } else {
+                "CRATEUPGRADE_ONE"
+            };
+            self.adopt_weapon_set_lock_share_for_condition(crate_condition);
+            self.release_weapon_lock_on_set_change();
+            if let Some(wname) = crate::game_logic::host_car_bomb::crateupgrade_primary_weapon(
+                &self.template_name,
+                self.weapon_crate_upgrade(),
+            ) {
+                if let Some(weapon) = crate::game_logic::thing::ThingTemplate::weapon_from_store(&wname)
+                {
+                    let _ = self.replace_weapon_set_slot(0, Some(weapon));
+                }
             }
         }
     }
@@ -848,55 +836,12 @@ impl Object {
         self.weapon_bonus_veteran = vet;
         self.weapon_bonus_elite = elite;
         self.weapon_bonus_hero = hero;
-        self.stamp_veterancy_weaponset_model_bits();
     }
 
     fn set_veterancy_weapon_flag(&mut self, index: u8, enabled: bool, frame: u32) {
-        let current = match index {
-            0 => self.weapon_set_veteran,
-            1 => self.weapon_set_elite,
-            2 => self.weapon_set_hero,
-            _ => return,
-        };
-        if current == enabled {
-            return;
-        }
-        let receiving = self.thing.template.has_receiving_weapon_sets();
-        let previous = receiving
-            .then(|| self.selected_weapon_row_identity())
-            .flatten();
-        match index {
-            0 => self.weapon_set_veteran = enabled,
-            1 => self.weapon_set_elite = enabled,
-            2 => self.weapon_set_hero = enabled,
-            _ => unreachable!(),
-        }
-        if receiving {
-            let _ = self.rebind_receiving_weapon_row_if_changed(previous, frame);
-        } else {
-            self.release_weapon_lock_on_set_change();
-        }
+        self.set_weapon_condition_at_frame(index, enabled, frame);
     }
 
-    /// C++ `TheWeaponSetTypeToModelConditionTypeMap` WEAPONSET_VETERAN/ELITE/HERO.
-    fn stamp_veterancy_weaponset_model_bits(&mut self) {
-        use crate::game_logic::host_enum_table_residual::{
-            weaponset_elite_model_bit, weaponset_hero_model_bit, weaponset_veteran_model_bit,
-        };
-        let vet_b = weaponset_veteran_model_bit();
-        let elite_b = weaponset_elite_model_bit();
-        let hero_b = weaponset_hero_model_bit();
-        self.model_condition_bits &= !(1u128 << vet_b);
-        self.model_condition_bits &= !(1u128 << elite_b);
-        self.model_condition_bits &= !(1u128 << hero_b);
-        if self.weapon_set_hero {
-            self.model_condition_bits |= 1u128 << hero_b;
-        } else if self.weapon_set_elite {
-            self.model_condition_bits |= 1u128 << elite_b;
-        } else if self.weapon_set_veteran {
-            self.model_condition_bits |= 1u128 << vet_b;
-        }
-    }
 
     /// C++ WeaponSet::updateWeaponSet: unless the incoming set has
     /// WeaponLockSharedAcrossSets, release permanent lock and return to PRIMARY.

@@ -201,8 +201,9 @@ fn combat_chinook_vehicle_rider_does_not_residual_fire() {
         )
         .expect("chinook");
     {
+        let frame = logic.get_current_frame() as u32;
         let c = logic.host_object_mut(bird).unwrap();
-        c.install_combat_chinook_transport();
+        c.install_combat_chinook_transport(frame);
     }
     let rider = logic
         .create_object("AmericaVehicleHumvee", Team::USA, Vec3::new(0.0, 0.0, 0.0))
@@ -830,6 +831,10 @@ fn enemy_may_enter_stealth_garrison_only_civilian_and_kick() {
     );
     let mut ninja = infantry_template("JapanNinja");
     ninja.add_kind_of(KindOf::StealthGarrison);
+    ninja.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        stealth_delay_frames: 30,
+        ..Default::default()
+    });
     logic.templates.insert("JapanNinja".into(), ninja);
     logic
         .templates
@@ -847,6 +852,7 @@ fn enemy_may_enter_stealth_garrison_only_civilian_and_kick() {
     if let Some(n) = logic.host_object_mut(ninja_id) {
         n.owner_player_id = Some(0);
         n.status.detected = false;
+        n.stealth_allowed_frame = 0;
     }
     assert!(
         logic
@@ -868,6 +874,9 @@ fn enemy_may_enter_stealth_garrison_only_civilian_and_kick() {
         "C++ lets a non-owner Enter a stealth-garrison-only civilian"
     );
     logic.kick_other_controller_occupants_for_enter(bunker, enemy);
+    assert_eq!(logic.host_object(ninja_id).unwrap().detection_expires_frame, 30);
+    logic.frame = 1;
+    logic.update_stealth_and_detection();
     let ninja = logic.host_object(ninja_id).unwrap();
     assert!(
         ninja.status.detected,

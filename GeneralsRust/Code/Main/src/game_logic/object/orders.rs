@@ -1542,7 +1542,7 @@ impl Object {
     /// (C++ OCL_OverlordGattlingCannon / OCL_HelixGattlingCannon).
     /// Equips AA secondary + passenger ground residual on primary fires.
     /// Fail-closed: not full portable-structure passenger object.
-    pub fn install_overlord_gattling_addon(&mut self) {
+    pub fn install_overlord_gattling_addon(&mut self, frame: u32) {
         use crate::game_logic::host_gattling_tank::has_chain_guns_upgrade;
         use crate::game_logic::host_overlord_addons::overlord_gattling_air_weapon;
         // Exclusive ConflictsWith residual vs bunker / propaganda (except Emperor).
@@ -1555,9 +1555,12 @@ impl Object {
             }
         }
         self.has_overlord_gattling_addon = true;
-        let _ = self.set_weapon_set_flag(0, true);
-        let chain = has_chain_guns_upgrade(&self.applied_upgrades);
-        let _ = self.replace_weapon_set_slot(1, Some(overlord_gattling_air_weapon(0, chain)));
+        let receiving = self.thing().template.has_receiving_weapon_sets();
+        self.set_weapon_condition_at_frame(3, true, frame);
+        if !receiving {
+            let chain = has_chain_guns_upgrade(&self.applied_upgrades);
+            let _ = self.replace_weapon_set_slot(1, Some(overlord_gattling_air_weapon(0, chain)));
+        }
 
         self.continuous_fire_level = 0;
         self.continuous_fire_coast_until_frame = 0;
@@ -1814,7 +1817,7 @@ impl Object {
     /// C++ TransportContain Slots=8, PassengersAllowedToFire=Yes,
     /// ArmedRidersUpgradeMyWeaponSet=Yes, AllowInsideKindOf=INFANTRY VEHICLE.
     /// Fail-closed: leftover dual-world ropes/drawable still require OBJECT_REGISTRY.
-    pub fn install_combat_chinook_transport(&mut self) {
+    pub fn install_combat_chinook_transport(&mut self, frame: u32) {
         self.is_combat_chinook_transport = true;
         self.max_transport = crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_TRANSPORT_SLOTS;
         self.passengers_allowed_to_fire = true;
@@ -1838,8 +1841,8 @@ impl Object {
         );
         // Retail WeaponSet Conditions=None has PRIMARY NONE until PLAYER_UPGRADE
         // (ListeningOutpostUpgradedDummyWeapon). Strip kind-based Weapon::default.
+        self.set_weapon_condition_at_frame(3, false, frame);
         self.weapon = None;
-        self.weapon_set_player_upgrade = false;
     }
 
     /// Vanilla AmericaVehicleChinook: TransportContain Slots=8 + ChinookAI, no passenger fire.
@@ -1872,7 +1875,7 @@ impl Object {
     /// ArmedRidersUpgradeMyWeaponSet=Yes, AllowInsideKindOf=INFANTRY,
     /// StealthDetectorUpdate DetectionRange=300, InnateStealth=Yes.
     /// Fail-closed: not multi-door exit / IR FX / RIDERS_ATTACKING uncloak matrix.
-    pub fn install_listening_outpost_transport(&mut self) {
+    pub fn install_listening_outpost_transport(&mut self, frame: u32) {
         self.is_listening_outpost_transport = true;
         self.max_transport =
             crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_TRANSPORT_SLOTS;
@@ -1882,18 +1885,9 @@ impl Object {
         self.is_detector = true;
         self.detection_range =
             crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_DETECTION_RANGE;
-        // C++ StealthUpdate ctor: InnateStealth sets CAN_STEALTH only, not STEALTHED
-        // (StealthUpdate.cpp:110-137). Spawn arms StealthDelay in create_object.
-        self.innate_stealth = true;
-        self.stealth_breaks_on_move = true;
-        // Fire does not break stealth on the vehicle itself (passengers fire residual).
-        self.stealth_breaks_on_attack = false;
-        self.stealth_delay_frames =
-            crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_STEALTH_DELAY_FRAMES;
-        self.stealth_delay_pending = false;
         // Retail WeaponSet Conditions=None has PRIMARY NONE until PLAYER_UPGRADE.
+        self.set_weapon_condition_at_frame(3, false, frame);
         self.weapon = None;
-        self.weapon_set_player_upgrade = false;
         // KindOf residual includes CAN_ATTACK (for dummy weapon range residual).
         self.thing.template.add_kind_of(KindOf::Attackable);
     }
@@ -2187,10 +2181,15 @@ impl Object {
     }
 
     pub fn contained_units(&self) -> Vec<ObjectId> {
+        self.contained_unit_ids().to_vec()
+    }
+
+    /// C++ `ContainModule::getContainedItemsList` without copying.
+    pub fn contained_unit_ids(&self) -> &[ObjectId] {
         if let Some(building) = &self.building_data {
-            building.garrisoned_units.clone()
+            &building.garrisoned_units
         } else {
-            self.occupants.clone()
+            &self.occupants
         }
     }
 

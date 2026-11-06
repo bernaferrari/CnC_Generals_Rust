@@ -307,7 +307,7 @@ impl GameLogic {
         let is_listening_outpost = container.is_listening_outpost_style_container();
         let is_battle_bus = container.is_battle_bus_style_container();
         let occupant_ids = container.contained_units();
-        let was_upgraded = container.weapon_set_player_upgrade;
+        let was_upgraded = container.test_weapon_condition(3);
 
         let mut any_armed = false;
         for oid in &occupant_ids {
@@ -337,8 +337,9 @@ impl GameLogic {
 
         let mut newly_upgraded = false;
         if let Some(container) = self.objects.get_mut(&container_id) {
-            let _ = container.set_weapon_set_flag(0, any_armed);
-            if any_armed {
+            let receiving = container.thing().template.has_receiving_weapon_sets();
+            container.set_weapon_condition_at_frame(3, any_armed, self.frame);
+            if any_armed && !receiving {
                 // Bind residual dummy weapon when primary is empty or still a
                 // passenger dummy (PLAYER_UPGRADE weapon set residual).
                 let need_dummy = match container.weapon.as_ref() {
@@ -360,8 +361,10 @@ impl GameLogic {
                         }),
                     );
                 }
+            }
+            if any_armed {
                 newly_upgraded = !was_upgraded;
-            } else if was_upgraded {
+            } else if was_upgraded && !receiving {
                 // Clear dummy primary when no armed riders remain.
                 if container
                     .weapon
@@ -407,11 +410,6 @@ impl GameLogic {
         self.listening_outpost.weapon_set_upgrades
     }
 
-    /// Residual Listening Outpost honesty: detector residual reveals.
-    pub fn listening_outpost_residual_detects(&self) -> u32 {
-        self.listening_outpost.detects
-    }
-
     /// Residual Listening Outpost honesty: InitialPayload TankHunter docks.
     pub fn listening_outpost_residual_initial_payload_docks(&self) -> u32 {
         self.listening_outpost.initial_payload_docks
@@ -442,11 +440,6 @@ impl GameLogic {
         self.listening_outpost.honesty_weapon_set_upgrade_ok()
     }
 
-    /// Residual honesty: Listening Outpost detector residual revealed a unit.
-    pub fn honesty_listening_outpost_detect_ok(&self) -> bool {
-        self.listening_outpost.honesty_detect_ok()
-    }
-
     /// Residual honesty: Listening Outpost InitialPayload TankHunter residual.
     pub fn honesty_listening_outpost_initial_payload_ok(&self) -> bool {
         self.listening_outpost.honesty_initial_payload_ok()
@@ -467,9 +460,6 @@ impl GameLogic {
     pub fn troop_crawler_residual_assault_deploys(&self) -> u32 {
         self.troop_crawler.assault_deploys
     }
-    pub fn troop_crawler_residual_detects(&self) -> u32 {
-        self.troop_crawler.detects
-    }
     pub fn troop_crawler_residual_initial_payloads(&self) -> u32 {
         self.troop_crawler.initial_payloads
     }
@@ -488,9 +478,6 @@ impl GameLogic {
 
     pub fn honesty_troop_crawler_assault_deploy_ok(&self) -> bool {
         self.troop_crawler.honesty_assault_deploy_ok()
-    }
-    pub fn honesty_troop_crawler_detect_ok(&self) -> bool {
-        self.troop_crawler.honesty_detect_ok()
     }
     pub fn honesty_troop_crawler_initial_payload_ok(&self) -> bool {
         self.troop_crawler.honesty_initial_payload_ok()

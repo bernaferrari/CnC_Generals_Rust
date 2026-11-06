@@ -120,7 +120,8 @@ fn receiving_playback_continuation_clears_actual_world_before_mode_or_header_adm
     std::fs::create_dir_all(&owner.replay_directory).unwrap();
     let mut world = GameLogic::new();
     world.replay_pending.reset_recorder_owned(owner.clone());
-    world.start_new_game_for_restore(GameMode::Skirmish);
+    world.admit_object_ini_sources([("ReplayFixture.ini".into(), "Object USA_Ranger\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n  MaxHealth = 100\n  InitialHealth = 100\n End\nEnd\n".into())]).unwrap();
+    world.start_new_game_for_restore(GameMode::Skirmish).unwrap();
     world.force_map_loaded_for_path_test(true);
     let unit = world
         .create_object_for_player("USA_Ranger", 0, Vec3::ZERO)
@@ -212,7 +213,8 @@ fn recorded_missing_map_cannot_admit_a_different_match() {
                 .map
                 .clone();
             assert_eq!(requested, missing);
-            receiver.start_new_game_with_recorder_payload(GameMode::Replay, 1, 0, 30);
+            receiver.admit_object_ini_sources(std::iter::empty()).unwrap();
+            receiver.start_new_game_with_recorder_payload(GameMode::Replay, 1, 0, 30).unwrap();
             assert_eq!(
                 receiver.load_recorded_map_with_progress(&requested, |_, _| {}),
                 None
@@ -250,7 +252,8 @@ fn actual_shell_and_match_clear_before_valid_or_failed_replay_header() {
                 ] {
                     let mut world = GameLogic::new();
                     world.replay_pending.reset_recorder_owned(policy.clone());
-                    world.start_new_game_for_restore(mode);
+                    world.admit_object_ini_sources(std::iter::empty()).unwrap();
+                    world.start_new_game_for_restore(mode).unwrap();
                     // In particular Shell is active for source clear although no map is loaded.
                     assert_ne!(world.game_mode(), GameMode::None);
                     let active = world.game_mode() != GameMode::None;

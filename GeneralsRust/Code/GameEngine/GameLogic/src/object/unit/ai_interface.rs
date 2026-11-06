@@ -1178,6 +1178,9 @@ impl AIUpdateInterface for UnitAIUpdate {
     fn can_auto_acquire_while_stealthed(&self) -> bool {
         UnitAIUpdate::can_auto_acquire_while_stealthed(self)
     }
+    fn can_auto_acquire_while_stealthed_for_source(&self, source: &crate::object::Object) -> bool {
+        UnitAIUpdate::can_auto_acquire_while_stealthed_for_source(self, source)
+    }
 
     fn get_mood_matrix_value(&self) -> u32 {
         UnitAIUpdate::get_mood_matrix_value(self)

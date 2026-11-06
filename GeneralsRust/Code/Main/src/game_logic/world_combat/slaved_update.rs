@@ -57,7 +57,7 @@ impl GameLogic {
         );
         object.status.unselectable = true;
         if master_stealthed && object.innate_stealth {
-            object.apply_grant_stealth();
+            self.receive_stealth_grant(drone, true, 0);
         }
         true
     }

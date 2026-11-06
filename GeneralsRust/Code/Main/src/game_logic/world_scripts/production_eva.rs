@@ -708,20 +708,16 @@ impl GameLogic {
         if !obj.is_alive() {
             return;
         }
-        let name = obj.template_name.to_ascii_lowercase();
-        let team = obj.team;
-        let owner_player_id = obj.owner_player_id;
-        let kind = if obj.thing().template.capture_power
-            == crate::game_logic::CapturePowerKind::BlackLotus
-        {
-            "lotus"
-        } else if name.contains("jarmen") || name.contains("kell") {
-            "jarmen"
-        } else if name.contains("burton") || name.contains("colonel") {
-            "burton"
+        let event = if want_own {
+            obj.thing().template.stealth_own_detection_eva.as_deref()
         } else {
+            obj.thing().template.stealth_enemy_detection_eva.as_deref()
+        };
+        let Some(event) = event else {
             return;
         };
+        let team = obj.team;
+        let owner_player_id = obj.owner_player_id;
         let Some(local_id) = self.eva_local_player_id() else {
             return;
         };
@@ -740,17 +736,8 @@ impl GameLogic {
         {
             return;
         }
-        use gamelogic::helpers::EvaEvent;
-        let event = match (kind, is_own) {
-            ("lotus", true) => EvaEvent::OwnBlackLotusDetected,
-            ("lotus", false) => EvaEvent::EnemyBlackLotusDetected,
-            ("jarmen", true) => EvaEvent::OwnJarmenKellDetected,
-            ("jarmen", false) => EvaEvent::EnemyJarmenKellDetected,
-            ("burton", true) => EvaEvent::OwnColonelBurtonDetected,
-            ("burton", false) => EvaEvent::EnemyColonelBurtonDetected,
-            _ => return,
-        };
-        self.eva_announcements.request(event);
+        // The event comes from this object's admitted StealthUpdate, not its name.
+        self.eva_announcements.request_named(event);
         self.eva_hero_detected = self.eva_hero_detected.saturating_add(1);
     }
 

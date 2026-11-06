@@ -43,7 +43,8 @@ fn quick_and_auto_save_embed_the_receiving_map() {
     world
         .admit_player_template_definitions(definitions)
         .unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.admit_object_ini_sources(std::iter::empty()).unwrap();
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(original.to_str().unwrap()));
 
     let save_root = root.path().join("saves");
@@ -77,7 +78,8 @@ fn quick_and_auto_save_embed_the_receiving_map() {
     let second_bytes = map_bytes(12);
     std::fs::write(&second_map, &second_bytes).unwrap();
     let mut second = GameLogic::new();
-    second.start_new_game(GameMode::SinglePlayer);
+    second.admit_object_ini_sources(std::iter::empty()).unwrap();
+    second.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(second.load_map(second_map.to_str().unwrap()));
     saves.quick_save(&second).unwrap();
     let decoded = saves.load_game_snapshot("quicksave").unwrap();

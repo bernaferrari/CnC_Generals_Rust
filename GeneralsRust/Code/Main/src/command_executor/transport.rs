@@ -923,6 +923,7 @@ impl<'a> CommandExecutor<'a> {
                 any = true;
                 continue;
             }
+            let frame = self.game_logic.get_current_frame() as u32;
             let taking_off = if let Some(obj) = self.game_logic.host_object_mut(unit_id) {
                 let name = obj.template_name.clone();
                 if obj.chinook_ai.is_none()
@@ -931,7 +932,7 @@ impl<'a> CommandExecutor<'a> {
                     if crate::game_logic::host_combat_chinook::is_authored_combat_chinook(
                         &obj.thing().template,
                     ) {
-                        obj.install_combat_chinook_transport();
+                        obj.install_combat_chinook_transport(frame);
                     } else {
                         obj.install_chinook_transport();
                     }
@@ -1131,6 +1132,7 @@ impl<'a> CommandExecutor<'a> {
                     .unit_command_set_order_target(unit_id, Some(tid));
             }
             let mut hover = dest;
+            let frame = self.game_logic.get_current_frame() as u32;
             if let Some(obj) = self.game_logic.host_object_mut(unit_id) {
                 if obj.chinook_ai.is_none() {
                     if crate::game_logic::host_combat_chinook::is_regular_chinook_template(
@@ -1138,7 +1140,7 @@ impl<'a> CommandExecutor<'a> {
                     ) {
                         obj.install_chinook_transport();
                     } else {
-                        obj.install_combat_chinook_transport();
+                        obj.install_combat_chinook_transport(frame);
                     }
                 }
                 let p = obj.get_position();

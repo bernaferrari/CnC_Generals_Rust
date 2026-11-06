@@ -1859,7 +1859,7 @@ fn car_bomb_convert_endows_vision_and_veterancy() {
     let donor = logic.objects.get(&tid).cloned();
     logic
         .with_object_veterancy_feedback(vid, |car, audio, feedback| {
-            car.apply_convert_to_car_bomb_from(donor.as_ref(), audio, feedback);
+            car.apply_convert_to_car_bomb_from(donor.as_ref(), audio, feedback, 0);
         })
         .expect("actual converted car owner");
     logic
@@ -2459,7 +2459,7 @@ fn salvage_crate_only_salvager_picks_up() {
     let scorp = &logic.objects[&sid];
     // Weapon chance is 100% retail → weapon upgrade
     assert!(
-        scorp.weapon_crate_upgrade >= 1
+        scorp.weapon_crate_upgrade() >= 1
             || logic
                 .players
                 .values()
@@ -2529,11 +2529,11 @@ fn execute_salvage_weapon_then_money() {
     let (kind, money) = logic.execute_salvage_crate_behavior(id, 40, 1);
     assert_eq!(kind, "weapon");
     assert_eq!(money, 0);
-    assert_eq!(logic.objects[&id].weapon_crate_upgrade, 1);
+    assert_eq!(logic.objects[&id].weapon_crate_upgrade(), 1);
     // Second upgrade
     let (kind, _) = logic.execute_salvage_crate_behavior(id, 40, 1);
     assert_eq!(kind, "weapon");
-    assert_eq!(logic.objects[&id].weapon_crate_upgrade, 2);
+    assert_eq!(logic.objects[&id].weapon_crate_upgrade(), 2);
     // Fully upgraded → money (weapon chance may still roll but upgrade maxed goes to level/money)
     let (kind, money) = logic.execute_salvage_crate_behavior(id, 40, 99);
     assert!(kind == "level" || kind == "money", "got {kind}");

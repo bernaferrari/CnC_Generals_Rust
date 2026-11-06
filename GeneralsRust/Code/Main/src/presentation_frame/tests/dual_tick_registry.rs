@@ -62,7 +62,8 @@ fn presentation_frame_is_built_from_authority_without_arc() {
 fn dual_presentation_hashes_match_for_identical_worlds() {
     let mk = || {
         let mut logic = GameLogic::new();
-        logic.start_new_game(GameMode::Skirmish);
+        logic.admit_object_ini_sources(std::iter::empty()).unwrap();
+        logic.start_new_game(GameMode::Skirmish).unwrap();
         logic.clear_all_players();
         logic.add_player(Player::new(0, Team::USA, "P", true));
         let mut t = ThingTemplate::new("HashUnit");
@@ -582,7 +583,8 @@ fn presentation_fow_shell_bypass_forces_fully_visible() {
 
     let mut logic = GameLogic::new();
     // Shell map path: FOW bypass is frozen on the frame.
-    logic.start_new_game(GameMode::Shell);
+    logic.admit_object_ini_sources(std::iter::empty()).unwrap();
+    logic.start_new_game(GameMode::Shell).unwrap();
     assert!(logic.isInShellGame());
     let mut t = ThingTemplate::new("ShellFowUnit");
     t.set_health(10.0);
@@ -771,7 +773,8 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
     {
         use crate::game_logic::GameMode;
         let mut shell_logic = GameLogic::new();
-        shell_logic.start_new_game(GameMode::Shell);
+        shell_logic.admit_object_ini_sources(std::iter::empty()).unwrap();
+        shell_logic.start_new_game(GameMode::Shell).unwrap();
         let shell_snap = PresentationFrame::build_from_logic(&mut shell_logic, 0);
         assert!(shell_snap.fow_shell_bypass);
         if shell_snap.fow_grid.active {

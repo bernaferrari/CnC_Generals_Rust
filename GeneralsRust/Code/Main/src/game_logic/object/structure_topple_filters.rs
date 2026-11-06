@@ -37,7 +37,7 @@ impl Object {
             )
     }
 
-    fn structure_topple_status_mask(&self) -> gamelogic::object::die::ObjectStatusMask {
+    pub(crate) fn structure_topple_status_mask(&self) -> gamelogic::object::die::ObjectStatusMask {
         use gamelogic::common::ObjectStatusMaskType as Mask;
         // Unrepresented status bits retain their actual host bitset value.
         // Where Main owns a dedicated field, it is the observation authority;
@@ -56,6 +56,7 @@ impl Object {
             (Mask::BRAKING, self.is_braking),
             (Mask::STEALTHED, self.status.stealthed),
             (Mask::DETECTED, self.status.detected),
+            (Mask::CAN_STEALTH, self.innate_stealth),
             (Mask::SOLD, self.status.sold),
             (Mask::RECONSTRUCTING, self.status.reconstructing),
             (Mask::MASKED, self.status.masked),

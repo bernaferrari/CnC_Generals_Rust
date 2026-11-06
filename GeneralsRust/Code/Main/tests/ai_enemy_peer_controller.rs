@@ -17,7 +17,8 @@ fn selected_enemy(peer_is_skirmish: bool) -> Option<u32> {
     let mut templates = PlayerTemplateStore::new_owned();
     templates.apply_source("PlayerTemplate FactionCivilian\n Side = Civilian\nEnd\nPlayerTemplate FactionAmerica\n Side = America\nEnd\n", INILoadType::Overwrite).unwrap();
     world.admit_player_template_definitions(templates).unwrap();
-    world.start_new_game(GameMode::Skirmish);
+    world.admit_object_ini_sources([("Peer.ini".into(), "Object PeerBarracks\n KindOf = STRUCTURE FS_BARRACKS\nEnd\nObject PeerInfantry\n KindOf = INFANTRY\n Prerequisites\n Object = PeerBarracks\n End\nEnd\n".into())]).unwrap();
+    world.start_new_game(GameMode::Skirmish).unwrap();
     world.clear_all_players();
     let root = tempfile::tempdir().unwrap();
     let mut map = DataChunkOutput::new();

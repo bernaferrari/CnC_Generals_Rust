@@ -22,15 +22,15 @@ fn veterancy_increases_weapon_damage() {
 #[test]
 fn level_up_sets_weaponset_and_weaponbonus_flags() {
     let mut object = make_test_object();
-    assert!(!object.weapon_set_veteran && !object.weapon_bonus_veteran);
+    assert!(!object.test_weapon_condition(0) && !object.weapon_bonus_veteran);
     object.gain_experience(
         60.0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         &mut crate::game_logic::VeterancyFeedback::standalone(),
     );
-    assert!(object.weapon_set_veteran);
+    assert!(object.test_weapon_condition(0));
     assert!(object.weapon_bonus_veteran);
-    assert!(!object.weapon_set_elite && !object.weapon_set_hero);
+    assert!(!object.test_weapon_condition(1) && !object.test_weapon_condition(2));
     assert!(!object.weapon_bonus_elite && !object.weapon_bonus_hero);
 
     object.gain_experience(
@@ -38,18 +38,18 @@ fn level_up_sets_weaponset_and_weaponbonus_flags() {
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         &mut crate::game_logic::VeterancyFeedback::standalone(),
     ); // 150 total → Elite
-    assert!(!object.weapon_set_veteran && !object.weapon_bonus_veteran);
-    assert!(object.weapon_set_elite);
+    assert!(!object.test_weapon_condition(0) && !object.weapon_bonus_veteran);
+    assert!(object.test_weapon_condition(1));
     assert!(object.weapon_bonus_elite);
-    assert!(!object.weapon_set_hero && !object.weapon_bonus_hero);
+    assert!(!object.test_weapon_condition(2) && !object.weapon_bonus_hero);
 
     object.gain_experience(
         150.0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         &mut crate::game_logic::VeterancyFeedback::standalone(),
     ); // 300 total → Heroic
-    assert!(!object.weapon_set_veteran && !object.weapon_set_elite);
-    assert!(object.weapon_set_hero);
+    assert!(!object.test_weapon_condition(0) && !object.test_weapon_condition(1));
+    assert!(object.test_weapon_condition(2));
     assert!(object.weapon_bonus_hero);
     assert!(!object.weapon_bonus_veteran && !object.weapon_bonus_elite);
 }
@@ -64,20 +64,20 @@ fn weaponset_flag_and_salvage_unlock_unless_shared_across_sets() {
         ..Weapon::default()
     });
     assert!(object.set_weapon_lock(1, WeaponLockType::LockedPermanently));
-    assert!(object.set_weapon_set_flag(0, true));
+    object.set_weapon_condition_at_frame(3, true, 0);
     assert!(!object.is_weapon_locked());
     assert_eq!(object.active_weapon_slot, 0);
 
     object.thing.template.weapon_lock_shared_across_sets = true;
     assert!(object.set_weapon_lock(1, WeaponLockType::LockedPermanently));
-    object.set_weapon_set_mine_clearing_detail_at_frame(true, 0);
-    assert!(object.weapon_set_mine_clearing_detail);
+    object.set_weapon_condition_at_frame(8, true, 0);
+    assert!(object.test_weapon_condition(8));
     assert!(object.is_weapon_locked());
     assert_eq!(object.weapon_lock_slot, 1);
 
     object.thing.template.weapon_lock_shared_across_sets = false;
     assert!(object.set_weapon_lock(1, WeaponLockType::LockedPermanently));
-    object.apply_salvage_weapon_upgrade();
+    object.apply_salvage_weapon_upgrade(0);
     assert!(!object.is_weapon_locked());
     assert_eq!(object.active_weapon_slot, 0);
 }

@@ -306,6 +306,7 @@ fn canonical_overlord_projects_without_writeback() {
 fn canonical_stealth_flags_projects_without_writeback() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
+    admit_shadow_fixture(&mut logic, "StfU", "SELECTABLE");
     let cfg = golden_skirmish_config("StfCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("StfU") {
@@ -321,8 +322,6 @@ fn canonical_stealth_flags_projects_without_writeback() {
     {
         let o = logic.host_object_mut(oid).expect("o");
         o.innate_stealth = true;
-        o.stealth_breaks_on_attack = true;
-        o.stealth_breaks_on_move = false;
         o.is_tunnel_network = true;
         o.passengers_allowed_to_fire = true;
     }
@@ -331,28 +330,24 @@ fn canonical_stealth_flags_projects_without_writeback() {
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
         e.innate_stealth = false;
-        e.stealth_breaks_on_attack = false;
-        e.stealth_breaks_on_move = true;
         e.is_tunnel_network = false;
         e.passengers_allowed_to_fire = false;
     }
 
     shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).expect("e");
-    assert!(e.innate_stealth && e.stealth_breaks_on_attack && !e.stealth_breaks_on_move);
+    assert!(e.innate_stealth);
     assert!(e.is_tunnel_network && e.passengers_allowed_to_fire);
 
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
         e.innate_stealth = true;
-        e.stealth_breaks_on_attack = true;
-        e.stealth_breaks_on_move = false;
         e.is_tunnel_network = true;
         e.passengers_allowed_to_fire = true;
     }
     shadow.sync_from_host(&logic);
 
     let o = logic.host_objects().lookup(&oid).expect("o");
-    assert!(o.innate_stealth && o.stealth_breaks_on_attack && !o.stealth_breaks_on_move);
+    assert!(o.innate_stealth);
     assert!(o.is_tunnel_network && o.passengers_allowed_to_fire);
 }
 
@@ -508,7 +503,7 @@ fn canonical_weapon_set_is_projected_from_receiving_owner() {
 
     {
         let o = logic.host_object_mut(oid).expect("o");
-        o.weapon_set_player_upgrade = true;
+        o.set_weapon_condition_at_frame(3, true, 0);
         o.armed_riders_upgrade_weapon_set = true;
     }
     let mut shadow = GameWorldShadow::new(64);
@@ -530,7 +525,7 @@ fn canonical_weapon_set_is_projected_from_receiving_owner() {
     shadow.sync_from_host(&logic);
 
     let o = logic.host_objects().lookup(&oid).expect("o");
-    assert!(o.weapon_set_player_upgrade && o.armed_riders_upgrade_weapon_set);
+    assert!(o.test_weapon_condition(3) && o.armed_riders_upgrade_weapon_set);
 }
 
 #[test]

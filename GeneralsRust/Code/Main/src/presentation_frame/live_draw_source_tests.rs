@@ -51,8 +51,8 @@ fn receiving_world(case: u8) -> GameLogic {
             obj.cell_is_cliff = true;
             obj.cell_is_underwater = true;
             obj.over_water = true;
-            obj.weapon_set_player_upgrade = true;
-            obj.weapon_crate_upgrade = 2;
+            obj.set_weapon_condition_at_frame(3, true, 0);
+            obj.set_weapon_condition_at_frame(5, true, 0);
             obj.armor_crate_upgrade = 1;
             obj.is_surrendered = true;
         }
@@ -120,6 +120,31 @@ fn live_camera_conditions_match_actual_frozen_draw_route_without_consuming_audio
                 .unwrap()
                 .condition_bits
         );
+    }
+}
+
+#[test]
+fn live_and_frozen_draw_preserve_overlapping_weapon_conditions() {
+    use crate::game_logic::host_enum_table_residual::{
+        weaponset_crateupgrade_one_model_bit, weaponset_crateupgrade_two_model_bit,
+        weaponset_elite_model_bit, weaponset_veteran_model_bit,
+    };
+
+    let mut world = receiving_world(0);
+    let object = world.host_object_mut(ObjectId(42)).unwrap();
+    for bit in [0, 1, 4, 5] {
+        object.set_weapon_condition_at_frame(bit, true, 0);
+    }
+    let live = world.current_native_slave_source(ObjectId(42), 0).unwrap();
+    let frame = PresentationFrame::build_from_logic(&mut world, 0);
+    let frozen = frame.native_resident_drawable_inputs().into_iter()
+        .find(|input| input.id == ObjectId(42)).unwrap();
+    for bit in [
+        weaponset_veteran_model_bit(), weaponset_elite_model_bit(),
+        weaponset_crateupgrade_one_model_bit(), weaponset_crateupgrade_two_model_bit(),
+    ] {
+        assert_ne!(live.condition_bits & (1u128 << bit), 0);
+        assert_ne!(frozen.model_condition_bits_with_combat_flags() & (1u128 << bit), 0);
     }
 }
 

@@ -80,6 +80,12 @@ impl EvaRecipient {
                         self.speaker.set_should_play(message);
                     }
                 }
+                EvaOperation::RequestNamed(name) => {
+                    #[cfg(feature = "game_client")]
+                    if let Some(message) = game_client::eva::EvaMessage::from_name(name) {
+                        self.speaker.set_should_play(message);
+                    }
+                }
                 EvaOperation::SetEnabled(enabled) => {
                     #[cfg(feature = "game_client")]
                     self.speaker.set_enabled(*enabled);

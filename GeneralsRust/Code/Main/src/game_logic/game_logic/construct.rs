@@ -564,13 +564,6 @@ impl GameLogic {
             stinger_hive_residual_swallows: 0,
             stinger_hive_residual_respawns: 0,
             stinger_hive_residual_closest_slave_hits: 0,
-            camo_netting_heat_vision_count: 0,
-            camo_netting_structure_residual_reveals: 0,
-            camo_netting_order_idle_enemies_count: 0,
-            camo_netting_structure_residual_recloaks: 0,
-            camo_netting_opacity_cloak_count: 0,
-            camo_netting_opacity_reveal_count: 0,
-            camo_netting_sub_object_show_count: 0,
             stinger_slave_order_attack_count: 0,
             patriot_residual_ground_fires: 0,
             patriot_residual_aa_fires: 0,
@@ -1448,13 +1441,6 @@ impl GameLogic {
         self.stinger_hive_residual_swallows = 0;
         self.stinger_hive_residual_respawns = 0;
         self.stinger_hive_residual_closest_slave_hits = 0;
-        self.camo_netting_heat_vision_count = 0;
-        self.camo_netting_structure_residual_reveals = 0;
-        self.camo_netting_order_idle_enemies_count = 0;
-        self.camo_netting_structure_residual_recloaks = 0;
-        self.camo_netting_opacity_cloak_count = 0;
-        self.camo_netting_opacity_reveal_count = 0;
-        self.camo_netting_sub_object_show_count = 0;
         self.stinger_slave_order_attack_count = 0;
         self.patriot_residual_ground_fires = 0;
         self.patriot_residual_aa_fires = 0;

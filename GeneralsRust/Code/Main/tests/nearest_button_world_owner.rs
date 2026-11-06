@@ -130,7 +130,7 @@ fn world_with_roster(
     let mut definitions = PlayerTemplateStore::new_owned();
     definitions.apply_source("PlayerTemplate FactionCivilian\n Side = Civilian\nEnd\nPlayerTemplate FactionAmerica\n Side = America\nEnd\n", INILoadType::Overwrite).unwrap();
     game.admit_player_template_definitions(definitions).unwrap();
-    game.start_new_game(GameMode::SinglePlayer);
+    game.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(game.load_map(path.to_str().unwrap()));
     game.add_player(Player::new(2, Team::China, "Opponent", false));
     game.get_player_mut(1)

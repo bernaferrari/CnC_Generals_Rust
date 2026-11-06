@@ -7,6 +7,8 @@ mod direct_destroy_owner;
 mod helpers;
 use helpers::*;
 
+const VICTORY_FIXTURE_OBJECTS: &str = "Object TestInfantry\n KindOf = INFANTRY SELECTABLE ATTACKABLE SCORE\n BuildCost = 100\n Body = ActiveBody Body\n  MaxHealth = 80\n  InitialHealth = 80\n End\nEnd\nObject TestBuilding\n KindOf = STRUCTURE MP_COUNT_FOR_VICTORY SELECTABLE ATTACKABLE\n BuildCost = 500\n EnergyProduction = -1\n Body = ActiveBody Body\n  MaxHealth = 1200\n  InitialHealth = 1200\n End\nEnd\n";
+
 mod base_defenses;
 mod cave_bridge;
 mod combat_particles_and_economy;
@@ -166,7 +168,8 @@ fn victory_conditions_update_inside_each_logic_frame() {
     // GameLogic::update, not only PresentationFrame::build (hq-en3j).
     use crate::game_logic::VictoryCondition;
     let mut logic = GameLogic::new();
-    logic.start_new_game(GameMode::Skirmish);
+    logic.admit_object_ini_sources([("VictoryFixtures.ini".into(), VICTORY_FIXTURE_OBJECTS.into())]).unwrap();
+    logic.start_new_game(GameMode::Skirmish).unwrap();
     ensure_test_infantry_template(&mut logic);
     ensure_test_structure_template(&mut logic);
     ensure_test_player_for_team(&mut logic, Team::USA);
@@ -206,7 +209,8 @@ fn skirmish_razing_last_enemy_building_defeats_player_with_units_left() {
     // units remain (C++ then killPlayer leftover infantry).
     use crate::game_logic::{VictoryCondition, VictoryType};
     let mut logic = GameLogic::new();
-    logic.start_new_game(GameMode::Skirmish);
+    logic.admit_object_ini_sources([("VictoryFixtures.ini".into(), VICTORY_FIXTURE_OBJECTS.into())]).unwrap();
+    logic.start_new_game(GameMode::Skirmish).unwrap();
     logic.clear_all_players();
     ensure_test_infantry_template(&mut logic);
     ensure_test_structure_template(&mut logic);
@@ -273,7 +277,8 @@ fn campaign_does_not_run_multiplayer_annihilation() {
     // C++ VictoryConditions.cpp:125 early-return unless isMultiplayer.
     use crate::game_logic::VictoryCondition;
     let mut logic = GameLogic::new();
-    logic.start_new_game(GameMode::SinglePlayer);
+    logic.admit_object_ini_sources([("VictoryFixtures.ini".into(), VICTORY_FIXTURE_OBJECTS.into())]).unwrap();
+    logic.start_new_game(GameMode::SinglePlayer).unwrap();
     logic.clear_all_players();
     ensure_test_infantry_template(&mut logic);
     ensure_test_player_for_team(&mut logic, Team::USA);

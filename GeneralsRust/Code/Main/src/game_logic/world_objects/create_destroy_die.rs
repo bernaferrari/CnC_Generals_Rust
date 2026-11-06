@@ -2455,9 +2455,6 @@ impl GameLogic {
                 .locomotor_name
                 .as_deref()
                 .and_then(|name| self.resolve_receiving_locomotor(name));
-            // Sentry residual: detect explicit template primary before move.
-            let sentry_had_explicit_primary =
-                template.primary_weapon.is_some() || template.primary_weapon_name.is_some();
             // C++ Object.cpp:160-497 / onObjectCreated: create policy comes
             // from ThingTemplate INI (AutoChooseSources, FireOCLAfterWeaponCooldown).
             // Name residuals below are missing-INI fallbacks only.
@@ -2593,6 +2590,7 @@ impl GameLogic {
                         min_range: 0.0,
                         reload_time: delay_frames_to_reload_secs(TOXIN_SPRAY_DELAY_FRAMES),
                         last_fire_time: 0.0,
+                        last_fire_frame: 0,
                         ammo: None,
                         clip_size: 0,
                         clip_reload_time: 0.0,
@@ -2814,6 +2812,9 @@ impl GameLogic {
             // C++ StealthDetectorUpdate is an authored module: every template
             // declaring it detects with its own data (StealthDetectorUpdate.cpp).
             object.install_authored_stealth_detector();
+            // C++ StealthUpdate is an authored module too: its constructor
+            // arms StealthDelay and InnateStealth CAN_STEALTH (StealthUpdate.cpp:107-147).
+            object.construct_stealth_update(self.frame);
 
             // C++ TunnelContain: entrances share the player's TunnelTracker whose
             // capacity is GameData MaxTunnelCapacity (TunnelTracker.cpp:81-84).
@@ -2833,7 +2834,7 @@ impl GameLogic {
             if crate::game_logic::host_combat_chinook::is_authored_combat_chinook(
                 &object.thing().template,
             ) {
-                object.install_combat_chinook_transport();
+                object.install_combat_chinook_transport(self.frame);
             } else if crate::game_logic::host_combat_chinook::is_chinook_hull_template(
                 template_name,
             ) {
@@ -2847,9 +2848,7 @@ impl GameLogic {
                     template_name,
                 );
             if is_listening_outpost_spawn {
-                object.install_listening_outpost_transport();
-                // C++ StealthUpdate ctor: m_stealthAllowedFrame = now + StealthDelay.
-                object.rearm_stealth_delay(self.frame);
+                object.install_listening_outpost_transport(self.frame);
             }
 
             // Host residual: China Troop Crawler TransportContain Slots=8 +
@@ -2900,63 +2899,6 @@ impl GameLogic {
             // USA Avenger PRIMARY/SECONDARY bind from the authored WeaponSet
             // above (C++ WeaponSet::updateWeaponSet from ThingTemplate), not a
             // template-name host table (hq-2qedt.138).
-
-            // Host residual: America Sentry Drone StealthDetectorUpdate (DetectionRange 225).
-            // Always detector from spawn; gun is PLAYER_UPGRADE residual.
-            if crate::game_logic::host_sentry_drone::sentry_spawn_is_detector(template_name) {
-                // C++ StealthUpdate ctor: m_stealthAllowedFrame = now + StealthDelay.
-                // InnateStealth only sets CAN_STEALTH, not STEALTHED (StealthUpdate.cpp:110-137).
-                // AmericaVehicleSentryDrone StealthDelay 2000ms = 60f.
-                object.innate_stealth = true;
-                object.stealth_breaks_on_attack = true;
-                object.stealth_breaks_on_move = true;
-                object.stealth_delay_frames =
-                    crate::game_logic::host_sentry_drone::SENTRY_STEALTH_DELAY_FRAMES;
-                object.stealth_allowed_frame =
-                    self.frame.saturating_add(object.stealth_delay_frames);
-                object.stealth_delay_pending = false;
-
-                if !sentry_had_explicit_primary {
-                    object.weapon = None;
-                }
-            }
-
-            // Host residual: America Pathfinder StealthDetectorUpdate + InnateStealth.
-            // DetectionRange unset → VisionRange 200; stays stealthed while attacking;
-            // uncloaks only while MOVING (StealthForbiddenConditions = MOVING).
-            if crate::game_logic::host_pathfinder::pathfinder_spawn_is_detector(template_name) {
-                object.set_status_stealthed(true);
-                object.innate_stealth = true;
-                object.is_pathfinder_unit = true;
-
-                object.stealth_breaks_on_attack = false;
-
-                object.stealth_breaks_on_move = true;
-            }
-
-            // C++ StealthUpdate.cpp:111 ctor: m_stealthAllowedFrame = now + StealthDelay.
-            // InnateStealth only sets OBJECT_STATUS_CAN_STEALTH (line 135), not STEALTHED.
-            // Heroes wait StealthDelay (Burton/Kell 60f, Lotus/Saboteur/Hijacker 75f).
-            {
-                use crate::game_logic::host_colonel_burton::is_colonel_burton_template;
-                use crate::game_logic::host_jarmen_kell::is_jarmen_kell_template;
-                use crate::game_logic::host_radar_stealth_vision_residual::hero_stealth_delay_frames_residual;
-                let n = template_name.to_ascii_lowercase();
-                let is_hero_stealth = is_colonel_burton_template(template_name)
-                    || is_jarmen_kell_template(template_name)
-                    || object.thing().template.capture_power == crate::game_logic::CapturePowerKind::BlackLotus
-                    || n.contains("saboteur")
-                    || n.contains("hijacker");
-                if is_hero_stealth {
-                    object.innate_stealth = true;
-                    object.stealth_breaks_on_attack = true;
-                    object.stealth_breaks_on_move = false;
-                    object.stealth_delay_frames = hero_stealth_delay_frames_residual(template_name);
-                    object.stealth_allowed_frame =
-                        self.frame.saturating_add(object.stealth_delay_frames);
-                    object.stealth_delay_pending = false;
-                }
-            }
 
             // Patriot PRIMARY/SECONDARY(assist)/TERTIARY(AA) bind from the authored
             // WeaponSet above (C++ WeaponSet::updateWeaponSet), no host override.
@@ -3048,14 +2990,6 @@ impl GameLogic {
                 object.template_mut().apply_retail_button_only_auto_choose();
             }
 
-            // Host residual: America Scout Drone StealthDetectorUpdate (VisionRange 150).
-            if crate::game_logic::host_slave_drones::scout_spawn_is_detector(template_name) {
-                // Sensor drone: strip kind-based default gun if no explicit primary.
-                // Reuse sentry_had_explicit_primary (same template fields, captured pre-move).
-                if !sentry_had_explicit_primary {
-                    object.weapon = None;
-                }
-            }
 
             // Host residual: America Hellfire Drone AutoAcquire + HellfireMissileWeapon.
             // Weapon bound via weapon_bootstrap primary; no extra strip.
@@ -3271,13 +3205,7 @@ impl GameLogic {
             }
             self.admit_factory_drawable_with_effects(id, ui)?;
             verify_factory_birth!();
-            self.apply_factory_init_bootstrap_upgrades(
-                id,
-                template_name,
-                team,
-                owner_player_id,
-                sentry_had_explicit_primary,
-            );
+            self.apply_factory_init_bootstrap_upgrades(id, template_name, team, owner_player_id);
             verify_factory_birth!();
             self.apply_researched_player_upgrades_to_object_with_interpreter(id, interpreter, ui);
             verify_factory_birth!();

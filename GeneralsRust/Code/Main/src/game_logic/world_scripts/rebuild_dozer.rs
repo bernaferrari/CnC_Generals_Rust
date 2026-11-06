@@ -1407,7 +1407,7 @@ impl GameLogic {
         if !attacking {
             return false;
         }
-        obj.weapon_set_mine_clearing_detail
+        obj.test_weapon_condition(8)
     }
 
     /// C++ WorkerStateMachine AS_SUPPLY_TRUCK — dozer brain is not updated.
@@ -1612,7 +1612,7 @@ impl GameLogic {
                 .map(|m| m.get_position())
                 .unwrap_or(glam::Vec3::ZERO);
             if let Some(obj) = self.objects.get_mut(&id) {
-                obj.set_weapon_set_mine_clearing_detail_at_frame(true, self.frame);
+                obj.set_weapon_condition_at_frame(8, true, self.frame);
                 obj.idle_since_frame = 0;
             }
 
@@ -1700,7 +1700,7 @@ impl GameLogic {
                     .map(|m| m.get_position())
                     .unwrap_or(glam::Vec3::ZERO);
                 if let Some(obj) = self.objects.get_mut(&id) {
-                    obj.set_weapon_set_mine_clearing_detail_at_frame(true, self.frame);
+                    obj.set_weapon_condition_at_frame(8, true, self.frame);
                     obj.idle_since_frame = 0;
                 }
 

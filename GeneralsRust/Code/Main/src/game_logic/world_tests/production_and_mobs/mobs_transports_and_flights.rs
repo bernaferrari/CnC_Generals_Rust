@@ -3170,7 +3170,7 @@ fn combat_chinook_residual_capacity_and_flags_installed() {
     );
     assert!(chinook.passengers_allowed_to_fire);
     assert!(chinook.armed_riders_upgrade_weapon_set);
-    assert!(!chinook.weapon_set_player_upgrade);
+    assert!(!chinook.test_weapon_condition(3));
     assert!(
         chinook.is_kind_of(KindOf::Attackable),
         "Combat Chinook KindOf residual includes CAN_ATTACK"
@@ -3224,7 +3224,7 @@ fn combat_chinook_residual_enter_sets_docked_and_upgrades_weapon_set() {
     assert!(chinook.contained_units().contains(&infantry_id));
     assert_eq!(chinook.transport_count(), 1);
     assert!(
-        chinook.weapon_set_player_upgrade,
+        chinook.test_weapon_condition(3),
         "armed riders must upgrade Combat Chinook weapon set"
     );
     assert!(

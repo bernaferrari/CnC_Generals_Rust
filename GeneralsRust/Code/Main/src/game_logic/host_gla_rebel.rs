@@ -232,6 +232,7 @@ pub fn rebel_weapon(has_ap_bullets: bool) -> Weapon {
         min_range: 0.0,
         reload_time: delay_frames_to_reload_secs(delay),
         last_fire_time: 0.0,
+        last_fire_frame: 0,
         ammo: Some(REBEL_CLIP_SIZE),
         clip_size: REBEL_CLIP_SIZE,
         clip_reload_time: delay_frames_to_reload_secs(REBEL_CLIP_RELOAD_FRAMES),

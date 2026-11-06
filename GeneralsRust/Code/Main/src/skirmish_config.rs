@@ -931,7 +931,7 @@ fn apply_skirmish_config_for_mode_with_settings(
                     .start_new_game_for_resolved_players_with_effects(mode, effects)
                     .map_err(|error| error.to_string())?;
             } else {
-                logic.start_new_game_for_resolved_players(mode);
+                logic.start_new_game_for_resolved_players(mode)?;
             }
             // Carry faction-selection draws into the admitted match stream before
             // the subsequent start-position selection.
@@ -1546,7 +1546,8 @@ mod tests {
         };
 
         let mut logic = GameLogic::new();
-        logic.start_new_game(GameMode::SinglePlayer);
+        logic.admit_object_ini_sources(std::iter::empty()).unwrap();
+        logic.start_new_game(GameMode::SinglePlayer).unwrap();
         let original_name = logic
             .get_player(0)
             .expect("single-player bootstrap player")
@@ -1582,7 +1583,8 @@ mod tests {
         };
 
         let mut logic = GameLogic::new();
-        logic.start_new_game(GameMode::SinglePlayer);
+        logic.admit_object_ini_sources(std::iter::empty()).unwrap();
+        logic.start_new_game(GameMode::SinglePlayer).unwrap();
         let error = apply_skirmish_config(&mut logic, &config)
             .expect_err("a locked Boss persona must not reach host Skirmish startup");
         assert!(error.contains("FactionBossGeneral"), "{error}");
@@ -2168,7 +2170,8 @@ mod tests {
     #[test]
     fn start_new_game_skirmish_creates_replay_observer() {
         let mut logic = GameLogic::new();
-        logic.start_new_game(GameMode::Skirmish);
+        logic.admit_object_ini_sources(std::iter::empty()).unwrap();
+        logic.start_new_game(GameMode::Skirmish).unwrap();
         assert!(
             logic
                 .get_players()
@@ -2195,7 +2198,8 @@ mod tests {
             "windows_game/Command & Conquer Generals Zero Hour/Data/Scripts/MultiplayerScripts.scb",
         );
         let mut logic = GameLogic::new();
-        logic.start_new_game(GameMode::Skirmish);
+        logic.admit_object_ini_sources(std::iter::empty()).unwrap();
+        logic.start_new_game(GameMode::Skirmish).unwrap();
         logic.set_install_multiplayer_scripts(true);
         logic.install_multiplayer_scripts_if_needed();
         if scb.is_file() {
@@ -2232,7 +2236,8 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let mut logic = GameLogic::new();
-            logic.start_new_game(GameMode::Skirmish);
+            logic.admit_object_ini_sources(std::iter::empty()).unwrap();
+            logic.start_new_game(GameMode::Skirmish).unwrap();
             let load_started = std::time::Instant::now();
             let ok = logic.load_map(&path_str);
             println!(

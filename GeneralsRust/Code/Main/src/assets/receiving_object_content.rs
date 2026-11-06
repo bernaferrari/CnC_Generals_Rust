@@ -6,6 +6,35 @@ use game_engine::common::{
     thing::{module_factory::ModuleFactory, receiving_module_content::ReceivingModuleContent},
 };
 
+/// Owned startup definitions from one ordered Object source stream and the
+/// application-selected weapon, science and action catalogs.
+pub struct ReceivingStartupContent {
+    pub(crate) objects: ReceivingObjectContent,
+    pub(crate) weapons: Vec<(String, gamelogic::weapon::WeaponTemplate)>,
+}
+
+impl ReceivingStartupContent {
+    pub fn from_sources<I>(
+        sources: I,
+        sciences: std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>,
+        actions: std::sync::Arc<game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions>,
+        weapons: Vec<(String, gamelogic::weapon::WeaponTemplate)>,
+    ) -> Result<Self, String>
+    where
+        I: IntoIterator<Item = (String, String)>,
+    {
+        let objects = ReceivingObjectContent::from_sources_with_catalogs(sources, sciences, actions)?;
+        Ok(Self::from_admitted(objects, weapons))
+    }
+
+    pub(crate) fn from_admitted(
+        objects: ReceivingObjectContent,
+        weapons: Vec<(String, gamelogic::weapon::WeaponTemplate)>,
+    ) -> Self {
+        Self { objects, weapons }
+    }
+}
+
 pub(crate) struct ReceivingObjectContent {
     modules: ReceivingModuleContent,
     projections: ReceivingObjectDefinitions,
@@ -132,6 +161,124 @@ mod tests {
             .unwrap()
             .tread_animation_rate
     }
+    #[test]
+    fn startup_bundle_preserves_ordered_inheritance_and_owned_catalogs() {
+        use game_engine::common::rts::science::{ScienceNameFacts, ScienceStore};
+        use game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions;
+        let mut sciences = ScienceStore::new_owned();
+        sciences.load_from_sources(&[(
+            "Science.ini",
+            b"Science SCIENCE_Owned\n SciencePurchasePointCost = 1\nEnd\n",
+            false,
+        )]).unwrap();
+        let facts = Arc::new(ScienceNameFacts::from_store(&sciences));
+        let mut actions = ReceivingActionDefinitions::default();
+        actions.apply_source_with_load_type(
+            "CommandButton OwnedButton\n Command = PURCHASE_SCIENCE\n Science = SCIENCE_Owned\nEnd\nCommandSet OwnedSet\n 1 = OwnedButton\nEnd\n",
+            &facts,
+            INILoadType::Overwrite,
+        ).unwrap();
+        let weapons = vec![("OwnedWeapon".into(), gamelogic::weapon::WeaponTemplate::new("OwnedWeapon".into()))];
+        let bundle = ReceivingStartupContent::from_sources(sources(2.5), facts, Arc::new(actions), weapons).unwrap();
+        let mut world = crate::game_logic::GameLogic::new();
+        world.admit_startup_content(bundle).unwrap();
+        world.start_new_game(crate::game_logic::GameMode::Skirmish).unwrap();
+        let content = world.receiving_module_content.as_ref().unwrap();
+        let parent = content.admitted_template("Actual").unwrap();
+        let child = content.admitted_template("ActualChild").unwrap();
+        assert!(Arc::ptr_eq(
+            &parent.draw_modules().iter().next().unwrap().data,
+            &child.draw_modules().iter().next().unwrap().data
+        ));
+        assert!(content.action_definitions().buttons.find_command_button_resolved("OwnedButton").is_some());
+        assert!(content.science_facts_ref().science("SCIENCE_Owned").is_some());
+    }
+    #[test]
+    fn startup_rejects_missing_content_before_reset() {
+        let mut world = crate::game_logic::GameLogic::new();
+        let error = world.start_new_game(crate::game_logic::GameMode::Skirmish).unwrap_err();
+        assert!(error.contains("ordered receiving Object content"), "{error}");
+        assert_eq!(world.game_mode(), crate::game_logic::GameMode::None);
+        assert!(world.get_players().is_empty());
+    }
+
+    #[test]
+    fn session_start_wrappers_propagate_missing_content() {
+        use crate::game_logic::{GameLogic, GameMode, PlayerTemplateIdentity, SessionControlOp, Team};
+
+        let identity = PlayerTemplateIdentity {
+            template_name: "MissingTemplate".into(),
+            template_index: None,
+        };
+        let mut world = GameLogic::new();
+        let error = world
+            .start_new_game_with_faction(GameMode::Skirmish, 0, Team::USA, true)
+            .unwrap_err();
+        assert!(error.contains("ordered receiving Object content"), "{error}");
+        let error = world
+            .start_new_game_with_player_template(GameMode::SinglePlayer, 0, identity.clone())
+            .unwrap_err();
+        assert!(error.contains("ordered receiving Object content"), "{error}");
+        for op in [
+            SessionControlOp::StartNewGameWithFaction {
+                mode: GameMode::Skirmish,
+                player_id: 0,
+                faction_team: Team::USA,
+                setup_skirmish_ai: true,
+            },
+            SessionControlOp::StartNewGameWithPlayerTemplate {
+                mode: GameMode::SinglePlayer,
+                player_id: 0,
+                player_template: identity,
+            },
+            SessionControlOp::StartNewGameInCampaignSession {
+                mode: GameMode::SinglePlayer,
+                player_id: 0,
+                faction_team: Team::USA,
+                player_template: None,
+                setup_skirmish_ai: false,
+                is_campaign: true,
+                is_challenge: false,
+            },
+        ] {
+            let error = world.apply_session_control_op(op).unwrap_err();
+            assert!(error.contains("ordered receiving Object content"), "{error}");
+            assert_eq!(world.game_mode(), GameMode::None);
+            assert!(world.get_players().is_empty());
+        }
+    }
+
+    #[test]
+    fn session_start_reports_rejected_player_template() {
+        use crate::game_logic::{GameLogic, GameMode, PlayerTemplateIdentity, SessionControlOp, Team};
+
+        let mut world = GameLogic::new();
+        world.admit_object_ini_sources(std::iter::empty()).unwrap();
+        let identity = PlayerTemplateIdentity {
+            template_name: "MissingTemplate".into(),
+            template_index: None,
+        };
+        for op in [
+            SessionControlOp::StartNewGameWithPlayerTemplate {
+                mode: GameMode::SinglePlayer,
+                player_id: 0,
+                player_template: identity.clone(),
+            },
+            SessionControlOp::StartNewGameInCampaignSession {
+                mode: GameMode::SinglePlayer,
+                player_id: 0,
+                faction_team: Team::USA,
+                player_template: Some(identity),
+                setup_skirmish_ai: false,
+                is_campaign: true,
+                is_challenge: false,
+            },
+        ] {
+            assert!(!world.apply_session_control_op(op).unwrap());
+            assert!(world.get_player(0).is_none());
+        }
+    }
+
     #[test]
     fn one_ordered_source_pair_keeps_typed_parent_data_and_host_projection_together() {
         let first = ReceivingObjectContent::from_sources(sources(2.5)).unwrap();

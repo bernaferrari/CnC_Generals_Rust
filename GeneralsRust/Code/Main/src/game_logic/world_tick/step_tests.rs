@@ -301,7 +301,8 @@ fn foreign_setup_reset_and_process_reseed_do_not_change_driving_rng() {
                 );
                 let mut foreign = GameLogic::new();
                 foreign.set_logic_random_seed(0xB000_0000 + index);
-                foreign.start_new_game(GameMode::Skirmish);
+                foreign.admit_object_ini_sources(std::iter::empty()).unwrap();
+                foreign.start_new_game(GameMode::Skirmish).unwrap();
                 foreign.tick_logic_frame(LOGIC_FRAME_TIMESTEP, None, Some(1));
                 foreign.reset();
                 assert_eq!(foreign.logic_base_seed, 0xB000_0000 + index);

@@ -87,7 +87,7 @@ impl GameLogic {
         use crate::game_logic::host_gps_scrambler::{
             GPS_SCRAMBLER_GROW_UPDATES_TO_FINAL, gps_scrambler_grow_is_final,
             gps_scrambler_scan_radius_after_updates, in_gps_scrambler_radius_2d,
-            is_gps_scrambler_disguise_name, is_legal_gps_scrambler_target,
+            is_legal_gps_scrambler_target,
         };
 
         // Collect grow work without holding registry mut across object mut.
@@ -147,7 +147,8 @@ impl GameLogic {
                     let is_ally = self.gps_grant_is_ally(player_id, caster_id, team, obj);
                     let under_construction =
                         obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
-                    let is_disguise = is_gps_scrambler_disguise_name(&obj.template_name);
+                    // C++ receiveGrant skips canDisguise() (StealthUpdate.cpp:184-185).
+                    let is_disguise = obj.stealth_can_disguise();
                     let has_stealth_module = obj.has_gps_stealth_module();
                     Some((
                         *id,
@@ -183,14 +184,17 @@ impl GameLogic {
                 ) {
                     continue;
                 }
-                let Some(target) = self.objects.get_mut(&id) else {
+                let Some(target) = self.objects.get(&id) else {
                     continue;
                 };
                 if !target.is_alive() {
                     continue;
                 }
                 let was = target.is_effectively_stealthed();
-                target.apply_grant_stealth();
+                self.receive_stealth_grant(id, true, 0);
+                let Some(target) = self.objects.get_mut(&id) else {
+                    continue;
+                };
                 // C++ grantStealthToObject: receiveGrant() then draw->flashAsSelected().
                 target.flash_as_selected();
                 if !was || target.is_effectively_stealthed() {
@@ -566,7 +570,6 @@ impl GameLogic {
             .unwrap_or((0, 0));
         // First DetectionRate scan is immediate (C++ UPDATE_SLEEP_NONE).
         let hold = stealth_detector_hold_frames(RADAR_SCAN_STEALTH_DETECTION_RATE_FRAMES);
-        let expires = self.frame.saturating_add(hold);
         let range_sq = RADAR_SCAN_STEALTH_DETECTION_RANGE * RADAR_SCAN_STEALTH_DETECTION_RANGE;
         let stealthed: Vec<ObjectId> = self
             .objects
@@ -590,26 +593,14 @@ impl GameLogic {
             })
             .map(|(id, _)| *id)
             .collect();
-        let mut garrison_detect_recalc: Vec<ObjectId> = Vec::new();
         for sid in stealthed {
-            let (contained_by, already_detected) = self
-                .objects
-                .get(&sid)
-                .map(|o| (o.contained_by, o.status.detected))
-                .unwrap_or((None, false));
-            if let Some(o) = self.objects.get_mut(&sid) {
-                o.mark_detected(expires);
-            }
-            self.order_idle_enemies_to_attack_on_reveal(sid);
+            let already_detected = self.objects.get(&sid).is_some_and(|o| o.status.detected);
+            self.mark_stealth_detected(sid, hold);
             // C++ StealthDetectorUpdate.cpp:198-282 first reveal (UPDATE_SLEEP_NONE).
             if !already_detected {
                 self.fire_stealth_discover_feedback(sid, &[pid]);
             }
-            if let Some(cid) = contained_by {
-                garrison_detect_recalc.push(cid);
-            }
         }
-        self.recalc_garrisons_after_occupant_detect_change(&garrison_detect_recalc);
         self.radar_scans.record_ping_spawn();
         Some(pid)
     }
@@ -729,7 +720,6 @@ impl GameLogic {
             .unwrap_or((0, 0));
         // First DetectionRate scan is immediate (C++ UPDATE_SLEEP_NONE).
         let hold = stealth_detector_hold_frames(SPY_SATELLITE_STEALTH_DETECTION_RATE_FRAMES);
-        let expires = self.frame.saturating_add(hold);
         let range_sq =
             SPY_SATELLITE_STEALTH_DETECTION_RANGE * SPY_SATELLITE_STEALTH_DETECTION_RANGE;
         let stealthed: Vec<ObjectId> = self
@@ -754,18 +744,9 @@ impl GameLogic {
             })
             .map(|(id, _)| *id)
             .collect();
-        let mut garrison_detect_recalc: Vec<ObjectId> = Vec::new();
         for sid in stealthed {
-            let contained_by = self.objects.get(&sid).and_then(|o| o.contained_by);
-            if let Some(obj) = self.objects.get_mut(&sid) {
-                obj.mark_detected(expires);
-            }
-            self.order_idle_enemies_to_attack_on_reveal(sid);
-            if let Some(cid) = contained_by {
-                garrison_detect_recalc.push(cid);
-            }
+            self.mark_stealth_detected(sid, hold);
         }
-        self.recalc_garrisons_after_occupant_detect_change(&garrison_detect_recalc);
         self.spy_satellites.record_ping_spawn();
         Some(pid)
     }

@@ -51,7 +51,7 @@ fn receiving_world() -> (GameLogic, ObjectId) {
 fn weapon_set_flags_round_trip_in_a_real_snapshot() {
     let (mut source, source_id) = world();
     let technical = source.host_object_mut(source_id).unwrap();
-    technical.apply_salvage_weapon_upgrade();
+    technical.apply_salvage_weapon_upgrade(0);
     // OXOB is a later framed record. Its legitimate payload can contain the
     // WSFL tag as data and must not be mistaken for another WSFL header.
     technical.safe_occlusion_frame = u32::from_le_bytes(*b"WSFL");
@@ -69,7 +69,7 @@ fn weapon_set_flags_round_trip_in_a_real_snapshot() {
         .restore_from_snapshot(&snapshot, &mut restored)
         .expect("restore snapshot");
     let loaded = restored.host_object(source_id).expect("restored technical");
-    assert_eq!(loaded.weapon_crate_upgrade, 1);
+    assert_eq!(loaded.weapon_crate_upgrade(), 1);
     assert_eq!(loaded.safe_occlusion_frame, u32::from_le_bytes(*b"WSFL"));
     assert!(
         loaded
@@ -85,7 +85,7 @@ fn malformed_or_duplicate_wsfl_is_rejected_before_receiving_world_mutation() {
         source
             .host_object_mut(source_id)
             .unwrap()
-            .apply_salvage_weapon_upgrade();
+            .apply_salvage_weapon_upgrade(0);
         let builder = SnapshotBuilder::new();
         let mut snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         let (_, record) = wsfl_record(&snapshot.lifecycle_tail);
@@ -103,7 +103,7 @@ fn malformed_or_duplicate_wsfl_is_rejected_before_receiving_world_mutation() {
         let before_upgrade = receiving
             .host_object(receiving_id)
             .unwrap()
-            .weapon_crate_upgrade;
+            .weapon_crate_upgrade();
         assert!(
             builder
                 .restore_from_snapshot(&snapshot, &mut receiving)
@@ -118,7 +118,7 @@ fn malformed_or_duplicate_wsfl_is_rejected_before_receiving_world_mutation() {
             receiving
                 .host_object(receiving_id)
                 .unwrap()
-                .weapon_crate_upgrade,
+                .weapon_crate_upgrade(),
             before_upgrade
         );
     }

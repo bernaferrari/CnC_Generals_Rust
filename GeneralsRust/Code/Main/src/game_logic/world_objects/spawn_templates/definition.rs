@@ -86,6 +86,14 @@ impl GameLogic {
         )?)
     }
 
+    /// Admit the ordered startup owner and its application-specific catalogs.
+    pub fn admit_startup_content(
+        &mut self,
+        content: crate::assets::ReceivingStartupContent,
+    ) -> Result<(), String> {
+        self.admit_receiving_module_content_with_weapons(content.objects, Some(content.weapons))
+    }
+
     /// The caller supplies the weapon snapshot from its own asset service.
     /// No process-wide asset manager is selected while admitting a session.
     pub(crate) fn admit_receiving_module_content_with_weapons(
@@ -514,7 +522,11 @@ impl GameLogic {
             // value on the host template so snapshots and rendering never need a
             // template-name scale fallback.
             template.set_asset_scale(definition.scale);
-            Self::apply_authored_stealth_update_metadata(&mut template, definition);
+            if let Some(content) = receiving {
+                Self::apply_receiving_stealth_update_metadata(&mut template, template_name, content)?;
+            } else {
+                Self::apply_authored_stealth_update_metadata(&mut template, definition);
+            }
             let rider_change_normal_locomotors =
                 unambiguous_locomotors_for_set(definition, "SET_NORMAL");
             Self::apply_authored_dock_and_contain_modules(

@@ -366,6 +366,7 @@ fn stealth_delay_channel_via_set_stealth_delay() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
+    admit_shadow_fixture(&mut logic, "StlU", "INFANTRY");
     let cfg = golden_skirmish_config("StealthD");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("StlU") {
@@ -379,14 +380,9 @@ fn stealth_delay_channel_via_set_stealth_delay() {
     {
         let o = logic.host_object_mut(oid).expect("o");
         o.stealth_allowed_frame = 300;
-        o.stealth_delay_pending = true;
-        o.stealth_delay_frames = 75;
-        o.stealth_breaks_on_damage = true;
         o.detection_expires_frame = 450;
         o.camo_opacity_pulse_phase = 1.25;
         o.queue_second_material_pass(1.0);
-        o.camo_net_sub_object_shown = true;
-        o.camo_net_sub_object_observer_visible = true;
     }
 
     let mut shadow = GameWorldShadow::new(64);
@@ -395,20 +391,13 @@ fn stealth_delay_channel_via_set_stealth_delay() {
     shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).unwrap();
     assert_eq!(e.stealth_allowed_frame, 300);
-    assert!(e.stealth_delay_pending);
-    assert_eq!(e.stealth_delay_frames, 75);
-    assert!(e.stealth_breaks_on_damage);
     assert_eq!(e.detection_expires_frame, 450);
     assert!((e.camo_opacity_pulse_phase - 1.25).abs() < 1e-5);
-    assert!(e.camo_net_sub_object_shown);
 
     shadow.sync_from_host(&logic);
 
     let o = logic.host_objects().lookup(&oid).unwrap();
-    assert!(o.stealth_delay_pending);
     assert_eq!(o.stealth_allowed_frame, 300);
-    assert_eq!(o.stealth_delay_frames, 75);
-    assert!(o.camo_net_sub_object_shown);
 }
 
 #[test]
@@ -577,7 +566,7 @@ fn canonical_ai_request_is_projected_from_receiving_owner() {
         o.path_timestamp = 77;
         o.disguise_pending_template = Some("FakeTank".into());
         o.disguise_pending_team = Some(Team::GLA);
-        o.weapon_crate_upgrade = 2;
+        o.set_weapon_condition_at_frame(5, true, 0);
         o.armor_crate_upgrade = 1;
         o.selection_flash_remaining = 15;
     }
@@ -604,7 +593,7 @@ fn canonical_ai_request_is_projected_from_receiving_owner() {
     assert_eq!(o.requested_victim_id, Some(victim));
     assert_eq!(o.disguise_pending_template.as_deref(), Some("FakeTank"));
     assert_eq!(o.disguise_pending_team, Some(Team::GLA));
-    assert_eq!(o.weapon_crate_upgrade, 2);
+    assert_eq!(o.weapon_crate_upgrade(), 2);
     assert_eq!(o.selection_flash_remaining, 15);
     assert_eq!(o.crate_created, Some(ObjectId(99)));
 }

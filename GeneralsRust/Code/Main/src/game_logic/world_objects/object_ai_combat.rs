@@ -468,23 +468,6 @@ impl GameLogic {
         }) else {
             return false;
         };
-        if !object_scoped {
-            // These residuals represent concrete retail module eligibility.
-            // A Player recheck visits every member, but an unrelated member
-            // must not execute this family's generic residual callbacks.
-            use crate::game_logic::host_upgrades::HostUpgradeKind;
-            match HostUpgradeKind::from_name(upgrade_name) {
-                HostUpgradeKind::Camouflage | HostUpgradeKind::CamoNetting
-                    if !super::authored_upgrade_modules::authors_triggered_stealth_upgrade(
-                        &object.thing().template,
-                        |name| name.eq_ignore_ascii_case(upgrade_name),
-                    ) =>
-                {
-                    return false;
-                }
-                _ => {}
-            }
-        }
         let identity = std::sync::Arc::clone(&object.visual_draw_identity_token);
         let recipient = UpgradeRecipients::Object {
             team,
@@ -591,12 +574,9 @@ impl GameLogic {
         let kind = HostUpgradeKind::from_name(upgrade_name);
         authored
             + match kind {
-            HostUpgradeKind::Camouflage => {
-                self.apply_camouflage_unlock_to_team(recipients, upgrade_name)
-            }
-            HostUpgradeKind::CamoNetting => {
-                self.apply_camo_netting_unlock_to_team(recipients, upgrade_name)
-            }
+            // StealthUpgrade modules (Object::run_authored_stealth_upgrades,
+            // object_upgrade_callbacks.rs) own Camouflage and Camo Netting.
+            HostUpgradeKind::Camouflage | HostUpgradeKind::CamoNetting => 0,
             // WeaponSetUpgrade / WeaponBonusUpgrade / ArmorUpgrade modules
             // (authored_upgrade_modules.rs) own these upgrades' effects.
             HostUpgradeKind::FlashBangGrenade

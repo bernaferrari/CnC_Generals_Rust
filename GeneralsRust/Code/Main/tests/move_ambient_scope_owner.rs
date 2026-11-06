@@ -1,4 +1,4 @@
-use generals_main::game_logic::{GameLogic, GameMode, KindOf, Team, ThingTemplate};
+use generals_main::game_logic::{GameLogic, GameMode, Team};
 use glam::Vec3;
 
 #[test]
@@ -8,10 +8,13 @@ fn starting_a_move_does_not_retry_another_objects_ambient_sound() {
     game_engine::common::audio::game_audio::initialize_global_audio_manager();
 
     let mut world = GameLogic::new();
-    world.start_new_game(GameMode::SinglePlayer);
-    let mut template = ThingTemplate::new("OwnedMoveProbe");
-    template.add_kind_of(KindOf::Vehicle).set_health(100.0);
-    world.templates.insert("OwnedMoveProbe".into(), template);
+    world
+        .admit_object_ini_sources([(
+            "MoveAmbientOwner.ini".into(),
+            "Object OwnedMoveProbe\n KindOf = VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
+        )])
+        .unwrap();
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
 
     let ambient = world
         .create_object("OwnedMoveProbe", Team::USA, Vec3::ZERO)

@@ -662,7 +662,7 @@ impl GameLogic {
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
-        unit.set_weapon_set_mine_clearing_detail_at_frame(enabled, self.frame);
+        unit.set_weapon_condition_at_frame(8, enabled, self.frame);
         true
     }
 
@@ -758,12 +758,15 @@ impl GameLogic {
         if !unit.is_alive() {
             return false;
         }
-        if flag == 1 {
-            unit.set_weapon_set_mine_clearing_detail_at_frame(enabled, self.frame);
-            true
-        } else {
-            unit.set_weapon_set_flag(flag, enabled)
-        }
+        let bit = match flag {
+            0 => 3,
+            1 => 8,
+            2 => 7,
+            3 => 6,
+            _ => return false,
+        };
+        unit.set_weapon_condition_at_frame(bit, enabled, self.frame);
+        true
     }
 
     /// Wave 233: surrender residual.
@@ -1202,29 +1205,33 @@ impl GameLogic {
         Ok(true)
     }
 
-    /// Wave 233: C++ groupIdle stealth mood delay residual for one unit.
-    /// C++ AIGroup.cpp:2042-2061: CAN_STEALTH + canAutoAcquire + not STEALTHED/DETECTED
-    /// **and** !canAutoAcquireWhileStealthed. Host residual for the while-stealthed
-    /// gate is `stealth_breaks_on_attack` (units that fight while stealthed skip).
+    /// C++ AIGroup.cpp:2042-2061 groupIdle stealth mood delay for one unit:
+    /// CAN_STEALTH + canAutoAcquire + not STEALTHED/DETECTED and
+    /// !canAutoAcquireWhileStealthed delays the mood check by the
+    /// StealthUpdate's StealthDelay plus `skew`.
     pub fn unit_command_apply_stealth_mood_delay(
         &mut self,
         id: ObjectId,
         now_frame: u32,
         skew: u32,
     ) -> bool {
+        use gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE_STEALTHED;
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
-        let can_stealth = unit.innate_stealth || unit.stealth_delay_frames > 0;
-        if can_stealth
-            && unit.auto_acquire_when_idle()
-            && unit.can_attack()
+        let Some(stealth_data) = unit.stealth_update_data() else {
+            return false;
+        };
+        let stealth_delay = stealth_data.stealth_delay_frames;
+        let auto_acquire_while_stealthed = stealth_data.granted_by_special_power
+            || unit.auto_acquire_idle_bits & AUTO_ACQUIRE_IDLE_STEALTHED != 0;
+        if unit.innate_stealth
+            && unit.auto_acquire_idle_bits != 0
             && !unit.status.stealthed
             && !unit.status.detected
-            && unit.stealth_breaks_on_attack
+            && !auto_acquire_while_stealthed
         {
-            let delay = unit.stealth_delay_frames.max(1);
-            unit.next_mood_check_time = now_frame.saturating_add(delay).saturating_add(skew);
+            unit.next_mood_check_time = now_frame.wrapping_add(stealth_delay).wrapping_add(skew);
             return true;
         }
         false

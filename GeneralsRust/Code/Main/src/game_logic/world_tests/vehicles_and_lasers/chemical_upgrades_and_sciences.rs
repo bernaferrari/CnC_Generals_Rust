@@ -4,9 +4,7 @@ use super::*;
 #[test]
 fn camo_netting_upgrade_stealths_gla_structures() {
     use crate::command_system::{CommandType, GameCommand};
-    use crate::game_logic::host_upgrades::{
-        HostUpgradeKind, UPGRADE_GLA_CAMO_NETTING, is_camo_netting_structure_template,
-    };
+    use crate::game_logic::host_upgrades::{HostUpgradeKind, UPGRADE_GLA_CAMO_NETTING};
 
     let mut game_logic = GameLogic::new();
     let mut player = Player::new(0, Team::GLA, "GLA", true);
@@ -34,6 +32,13 @@ fn camo_netting_upgrade_stealths_gla_structures() {
                     triggered_by: vec!["Upgrade_GLACamoNetting".into()],
                     ..Default::default()
                 }];
+                // Authored StealthUpdate (InnateStealth No) the upgrade enables.
+                t.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+                    stealth_delay_frames:
+                        crate::game_logic::host_upgrades::CAMO_NETTING_STEALTH_DELAY_FRAMES,
+                    innate_stealth: false,
+                    ..Default::default()
+                });
             }
             game_logic.templates.insert(name.to_string(), t);
         }
@@ -51,9 +56,6 @@ fn camo_netting_upgrade_stealths_gla_structures() {
     let _market_id = game_logic
         .create_object("GLABlackMarket", Team::GLA, Vec3::new(-200.0, 0.0, 0.0))
         .expect("black market");
-
-    assert!(is_camo_netting_structure_template("Slth_GLACommandCenter"));
-    assert!(is_camo_netting_structure_template("GLATunnelNetwork"));
 
     let barracks_id = game_logic
         .create_object("TestBarracks", Team::GLA, Vec3::new(-40.0, 0.0, 0.0))
@@ -153,8 +155,8 @@ fn camo_netting_upgrade_stealths_gla_structures() {
 
     let rebel = game_logic.host_object(rebel_id).expect("rebel");
     assert!(
-        !rebel.has_upgrade_tag(UPGRADE_GLA_CAMO_NETTING),
-        "fail-closed: Rebel does not receive CamoNetting (use Camouflage residual)"
+        !rebel.innate_stealth && !rebel.status.stealthed,
+        "fail-closed: Rebel authors no CamoNetting StealthUpgrade"
     );
 }
 

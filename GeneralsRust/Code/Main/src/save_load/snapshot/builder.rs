@@ -170,6 +170,7 @@ impl SnapshotBuilder {
             min_range: 0.0,
             reload_time: 0.0,
             last_fire_time: 0.0,
+            last_fire_frame: 0,
             ammo: None,
             clip_size: 0,
             clip_reload_time: 0.0,

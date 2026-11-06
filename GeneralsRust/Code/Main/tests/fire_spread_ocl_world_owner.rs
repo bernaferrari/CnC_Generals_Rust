@@ -1,15 +1,18 @@
 use generals_main::game_logic::host_fire_spread::HostFlammableState;
-use generals_main::game_logic::{GameLogic, GameMode, Team, ThingTemplate};
+use generals_main::game_logic::{GameLogic, GameMode, Team};
 use glam::Vec3;
 
 #[test]
 fn missing_receiving_ember_ocl_does_not_synthesize_a_gameplay_object() {
     let mut world = GameLogic::new();
-    world.start_new_game(GameMode::SinglePlayer);
+    world
+        .admit_object_ini_sources([(
+            "FireSpreadOwner.ini".into(),
+            "Object DogwoodTreeFireSpreadOclOwner\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = FlammableUpdate FlammableTag\n End\n Behavior = FireSpreadUpdate SpreadTag\n End\nEnd\n".into(),
+        )])
+        .unwrap();
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
 
-    let mut tree = ThingTemplate::new("DogwoodTreeFireSpreadOclOwner");
-    tree.set_health(100.0);
-    world.templates.insert(tree.name.clone(), tree);
     let tree = world
         .create_object("DogwoodTreeFireSpreadOclOwner", Team::Neutral, Vec3::ZERO)
         .expect("create source tree");

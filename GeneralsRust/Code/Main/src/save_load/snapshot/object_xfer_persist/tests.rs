@@ -278,7 +278,7 @@ fn snapshot_round_trips_object_xfer_clocks() {
         object.turret_ai.turret_angle_deg = 45.0;
         object.turret_ai.turret_substate = TurretSubState::Aim;
         object.turret_ai.turret_target_id = Some(ObjectId(9));
-        object.temporary_stealth_expires_frame = 600;
+        object.stealth_frames_granted = 600;
         object.weapon_bonus_solo = 16;
         object.which_exit_path = 2;
         object.cheer_timer = 1.5;
@@ -337,7 +337,7 @@ fn snapshot_round_trips_object_xfer_clocks() {
     assert!((loaded.turret_ai.turret_angle_deg - 45.0).abs() < 1e-4);
     assert_eq!(loaded.turret_ai.turret_substate, TurretSubState::Aim);
     assert_eq!(loaded.turret_ai.turret_target_id, Some(ObjectId(9)));
-    assert_eq!(loaded.temporary_stealth_expires_frame, 600);
+    assert_eq!(loaded.stealth_frames_granted, 600);
     assert_eq!(loaded.weapon_bonus_solo, 16);
     assert!(
         loaded.is_receiving_difficulty_bonus,

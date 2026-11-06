@@ -71,7 +71,7 @@ fn world(map: &std::path::Path) -> (GameLogic, generals_main::game_logic::Object
             "Object OwnedTeamStateUnit\n KindOf = SELECTABLE INFANTRY\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into(),
         )])
         .unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(map.to_str().unwrap()));
     world.add_player(Player::new(1, Team::USA, "Owner", true).with_script_identity("Owner"));
     let unit = world
@@ -231,7 +231,7 @@ End
                 .into(),
             )])
             .unwrap();
-        world.start_new_game(GameMode::SinglePlayer);
+        world.start_new_game(GameMode::SinglePlayer).unwrap();
         assert!(world.load_map(path.to_str().unwrap()));
         world.add_player(Player::new(1, Team::USA, "Owner", true).with_script_identity("Owner"));
         let mover = world

@@ -219,7 +219,7 @@ pub const INVENTORY_TAGS: &[&str] = &[
     TAG_OVERLORD_ADDON,
 ];
 
-/// CPP WeaponSet selected active three slots and row flags.
+/// C++ WeaponSet selected active three slots; condition flags live in WSFL.
 pub const TAG_WEAPON_SLOTS: &str = "WeaponSlots";
 
 /// C++ SlavedUpdate exact saved owner/offset/wait/repair fields.

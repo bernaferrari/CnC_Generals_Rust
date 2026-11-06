@@ -39,14 +39,17 @@ use std::time::SystemTime;
 pub const WORLD_SNAPSHOT_OBJECT_COMPLETION_VERSION: u32 = 37;
 pub const WORLD_SNAPSHOT_PARTICLE_DRIVE_SETTINGS_VERSION: u32 = 38;
 /// Version39 requires OpenContain's runtime passenger-fire permission.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 39;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 39;
+/// Version40 adds each Weapon's last-shot frame to the positional body.
+/// Version41 persists one authoritative WeaponSet condition bitset.
+/// Older Rust bodies cannot recover these exact flags and are rejected.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 41;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 41;
 /// Version36 introduced mandatory exact original-Garrison-Team continuation.
 pub const WORLD_SNAPSHOT_GARRISON_TEAM_VERSION: u32 = 36;
 
 /// Validate the Rust outer envelope before consuming or restoring its body.
 pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadResult<()> {
-    if matches!(version, 34 | 35 | 36 | 37 | 38) || version == WORLD_SNAPSHOT_DIRECT_XFER_VERSION {
+    if version == WORLD_SNAPSHOT_DIRECT_XFER_VERSION {
         Ok(())
     } else {
         Err(crate::save_load::SaveLoadError::VersionMismatch {

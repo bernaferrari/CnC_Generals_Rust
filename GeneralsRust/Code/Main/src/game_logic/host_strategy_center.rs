@@ -774,6 +774,7 @@ pub fn strategy_center_gun_weapon() -> Weapon {
         min_range: STRATEGY_CENTER_GUN_MIN_RANGE,
         reload_time: strategy_center_gun_reload_secs(),
         last_fire_time: 0.0,
+        last_fire_frame: 0,
         ammo: None,
         clip_size: 0,
         clip_reload_time: 0.0,

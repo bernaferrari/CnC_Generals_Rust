@@ -112,16 +112,17 @@ pub fn resolve_first_map(candidates: &[&str]) -> Option<(String, PathBuf)> {
 
 /// Load a map through the production host path and advance `frames` logic updates.
 ///
-/// When `map_name` is `None`, tries [`DEFAULT_MAP_CANDIDATES`]. If no map is found,
-/// still advances frames on a skirmish world so the update path is covered and the
-/// status reports `AssetsUnavailable` honestly.
+/// When `map_name` is `None`, tries [`DEFAULT_MAP_CANDIDATES`]. Startup requires
+/// the ordered game definitions; a missing startup source is returned as an error.
+/// If no map is found, the status reports `AssetsUnavailable`.
 pub fn run_map_frame_scenario(
     map_name: Option<&str>,
     frames: u32,
 ) -> gamelogic::GameLogicResult<MapFrameScenarioResult> {
     let frames = frames.max(1);
     let mut logic = GameLogic::new();
-    logic.start_new_game(GameMode::Skirmish);
+    crate::cnc_game_engine::start_standalone_game(&mut logic, GameMode::Skirmish)
+        .map_err(gamelogic::GameLogicError::Configuration)?;
 
     let resolved = match map_name {
         Some(name) => {

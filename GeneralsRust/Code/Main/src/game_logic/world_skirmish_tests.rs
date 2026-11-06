@@ -4,10 +4,14 @@
 
 use super::*;
 
+// Mirrors the synthesized faction templates used by these startup fixtures.
+const STARTING_UNIT_FIXTURES: &str = "Object AmericaCommandCenter\n KindOf = STRUCTURE COMMANDCENTER SELECTABLE\n BuildCost = 2000\n VisionRange = 300\n ShroudClearingRange = 300\n Body = ActiveBody Body\n  MaxHealth = 2000\n  InitialHealth = 2000\n End\nEnd\nObject ChinaCommandCenter\n KindOf = STRUCTURE COMMANDCENTER SELECTABLE\n BuildCost = 2000\n VisionRange = 300\n ShroudClearingRange = 300\n Body = ActiveBody Body\n  MaxHealth = 2000\n  InitialHealth = 2000\n End\nEnd\nObject AmericaVehicleDozer\n KindOf = VEHICLE WORKER DOZER SELECTABLE\n BuildCost = 1000\n VisionRange = 200\n Body = ActiveBody Body\n  MaxHealth = 300\n  InitialHealth = 300\n End\nEnd\nObject China_Dozer\n KindOf = VEHICLE DOZER SELECTABLE\n BuildCost = 1000\n Body = ActiveBody Body\n  MaxHealth = 350\n  InitialHealth = 350\n End\nEnd\nObject SpawnedBuilderScaffold\n KindOf = STRUCTURE IMMOBILE ALWAYS_VISIBLE\n BuildCost = 300\n Body = ActiveBody Body\n  MaxHealth = 1000\n  InitialHealth = 1000\n End\nEnd\n";
+
 #[test]
 fn spawn_skirmish_starting_units_spawns_missing_builder() {
     let mut logic = GameLogic::new();
-    logic.start_new_game(GameMode::Skirmish);
+    logic.admit_object_ini_sources([("StartingUnits.ini".into(), STARTING_UNIT_FIXTURES.into())]).unwrap();
+    logic.start_new_game(GameMode::Skirmish).unwrap();
     logic.clear_all_players();
     // Human USA with a structure but no dozer.
     let mut p0 = Player::new(0, Team::USA, "Human", true);
@@ -57,7 +61,8 @@ fn spawn_skirmish_starting_units_spawns_missing_builder() {
 #[test]
 fn america_vehicle_dozer_is_retail_starting_builder() {
     let mut logic = GameLogic::new();
-    logic.start_new_game(GameMode::Skirmish);
+    logic.admit_object_ini_sources([("StartingUnits.ini".into(), STARTING_UNIT_FIXTURES.into())]).unwrap();
+    logic.start_new_game(GameMode::Skirmish).unwrap();
     logic.clear_all_players();
     let mut p0 = Player::new(0, Team::USA, "Human", true);
     p0.is_alive = true;
@@ -218,7 +223,8 @@ fn cached_player_start_waypoints_pairs_rally() {
 #[test]
 fn spawn_skirmish_starting_units_uses_player_rally() {
     let mut logic = GameLogic::new();
-    logic.start_new_game(GameMode::Skirmish);
+    logic.admit_object_ini_sources([("StartingUnits.ini".into(), STARTING_UNIT_FIXTURES.into())]).unwrap();
+    logic.start_new_game(GameMode::Skirmish).unwrap();
     logic.clear_all_players();
     let mut p0 = Player::new(0, Team::USA, "Human", true);
     p0.is_alive = true;

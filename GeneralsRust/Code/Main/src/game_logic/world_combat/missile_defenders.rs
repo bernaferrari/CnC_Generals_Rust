@@ -562,6 +562,13 @@ impl GameLogic {
         }
 
         obj.combat_cycle_rider = rider.as_u8();
+        if obj.thing().template.has_receiving_weapon_sets() {
+            // Authored RiderChange rows own the live weapons. This residual
+            // refresh must not replace them with the synthetic cycle table.
+            self.combat_cycle_residual_rider_switches =
+                self.combat_cycle_residual_rider_switches.saturating_add(1);
+            return true;
+        }
         if let Some(name) =
             crate::game_logic::host_combat_cycle::combat_cycle_weapon_name_for_rider(rider)
         {
@@ -716,9 +723,9 @@ impl GameLogic {
                     has_beta,
                     is_chem_general_template(&a.template_name),
                 );
-                let tier = if a.has_upgrade_tag("WEAPONSET_CRATEUPGRADE_TWO") {
+                let tier = if a.test_weapon_condition(5) {
                     ToxinTractorSalvageTier::Two
-                } else if a.has_upgrade_tag("WEAPONSET_CRATEUPGRADE_ONE") {
+                } else if a.test_weapon_condition(4) {
                     ToxinTractorSalvageTier::One
                 } else {
                     ToxinTractorSalvageTier::Base
@@ -1327,11 +1334,15 @@ impl GameLogic {
             )
         };
 
-        // SlavedUpdate is an authored module, not a template-name behavior.
-        // Preserve receiving local definitions; otherwise resolve the exact
-        // resident Object definition before factory admission.
+        // A receiving world must bind this world's effective inherited
+        // definition before examining SlavedUpdate; never consult a foreign
+        // asset-manager projection for an absent or stale host template.
         let drone_tpl_name = kind.template_name();
-        if !self.templates.contains_key(drone_tpl_name) {
+        if self.receiving_module_content.is_some() {
+            if !self.ensure_host_spawn_template(drone_tpl_name) {
+                return Ok(None);
+            }
+        } else if !self.templates.contains_key(drone_tpl_name) {
             let Some(template) = Self::build_template_from_asset_definition(drone_tpl_name) else {
                 return Ok(None);
             };

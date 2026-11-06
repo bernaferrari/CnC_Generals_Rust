@@ -25,12 +25,12 @@ impl GameLogic {
         obj: &Object,
     ) -> crate::game_logic::host_technical::TechnicalWeaponTier {
         use crate::game_logic::host_technical::TechnicalWeaponTier;
-        if obj.has_upgrade_tag("WEAPONSET_CRATEUPGRADE_TWO")
+        if obj.test_weapon_condition(5)
             || obj.has_upgrade_tag("TechnicalCrateUpgradeTwo")
         {
             return TechnicalWeaponTier::Two;
         }
-        if obj.has_upgrade_tag("WEAPONSET_CRATEUPGRADE_ONE")
+        if obj.test_weapon_condition(4)
             || obj.has_upgrade_tag("TechnicalCrateUpgradeOne")
         {
             return TechnicalWeaponTier::One;
@@ -78,6 +78,17 @@ impl GameLogic {
         }
         let _ = TECHNICAL_TRANSPORT_SLOTS;
 
+        obj.set_weapon_condition_at_frame(
+            4,
+            tier == crate::game_logic::host_technical::TechnicalWeaponTier::One,
+            self.frame,
+        );
+        obj.set_weapon_condition_at_frame(
+            5,
+            tier == crate::game_logic::host_technical::TechnicalWeaponTier::Two,
+            self.frame,
+        );
+
         let name = technical_weapon_name_for_tier(tier);
         let (dmg, range, min_range, delay, _splash) = technical_weapon_stats(tier);
         let mut weapon = ThingTemplate::weapon_from_store(name)
@@ -90,21 +101,6 @@ impl GameLogic {
         weapon.can_target_ground = true;
         weapon.can_target_air = false;
         let _ = obj.replace_weapon_set_slot(0, Some(weapon));
-
-        // Tag residual crate upgrade for tier inference.
-        obj.applied_upgrades.remove("WEAPONSET_CRATEUPGRADE_ONE");
-        obj.applied_upgrades.remove("WEAPONSET_CRATEUPGRADE_TWO");
-        match tier {
-            crate::game_logic::host_technical::TechnicalWeaponTier::One => {
-                obj.applied_upgrades
-                    .insert("WEAPONSET_CRATEUPGRADE_ONE".to_string());
-            }
-            crate::game_logic::host_technical::TechnicalWeaponTier::Two => {
-                obj.applied_upgrades
-                    .insert("WEAPONSET_CRATEUPGRADE_TWO".to_string());
-            }
-            crate::game_logic::host_technical::TechnicalWeaponTier::Base => {}
-        }
 
         self.technical_residual_weapon_upgrades =
             self.technical_residual_weapon_upgrades.saturating_add(1);
@@ -312,12 +308,12 @@ impl GameLogic {
         obj: &Object,
     ) -> crate::game_logic::host_marauder::MarauderWeaponTier {
         use crate::game_logic::host_marauder::MarauderWeaponTier;
-        if obj.has_upgrade_tag("WEAPONSET_CRATEUPGRADE_TWO")
+        if obj.test_weapon_condition(5)
             || obj.has_upgrade_tag("MarauderCrateUpgradeTwo")
         {
             return MarauderWeaponTier::Two;
         }
-        if obj.has_upgrade_tag("WEAPONSET_CRATEUPGRADE_ONE")
+        if obj.test_weapon_condition(4)
             || obj.has_upgrade_tag("MarauderCrateUpgradeOne")
         {
             return MarauderWeaponTier::One;

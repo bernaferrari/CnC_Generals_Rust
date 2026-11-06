@@ -213,15 +213,19 @@ impl Object {
     /// Apply the authored flag upgrades triggered by this object's mask plus
     /// `extra` (C++ Object::updateUpgradeModules). Flags only ever turn on
     /// here; removal follows UpgradeMux::removeUpgrade paths.
+    /// `WeaponSetUpgrade` → `setWeaponSetFlag(WEAPONSET_PLAYER_UPGRADE)` →
+    /// `updateWeaponSet` rebinds the authored row at `frame` (Object.cpp
+    /// setWeaponSetFlag; WeaponSet::updateWeaponSet).
     pub(crate) fn apply_authored_flag_upgrades(
         &mut self,
         extra: impl Fn(&str) -> bool,
+        frame: u32,
     ) -> AuthoredFlagUpgrades {
         let applied = AuthoredFlagUpgrades::triggered(&self.thing().template, |name| {
             extra(name) || self.has_upgrade_tag(name)
         });
         if applied.weapon_set {
-            let _ = self.set_weapon_set_flag(0, true);
+            self.set_weapon_condition_at_frame(3, true, frame);
         }
         if applied.armor_set {
             self.set_armor_set_player_upgrade(true);
@@ -234,6 +238,22 @@ impl Object {
         }
         applied
     }
+
+    /// C++ `StealthUpgrade::upgradeImplementation` (StealthUpgrade.cpp:27-42)
+    /// for this Object's authored StealthUpgrade modules triggered by its
+    /// upgrade mask plus `extra`: `setStatus(OBJECT_STATUS_CAN_STEALTH)`; the
+    /// StealthUpdate then cloaks once its StealthDelay has passed. Returns
+    /// whether a module executed.
+    pub(crate) fn run_authored_stealth_upgrades(&mut self, extra: impl Fn(&str) -> bool) -> bool {
+        if !authors_triggered_stealth_upgrade(&self.thing().template, |name| {
+            extra(name) || self.has_upgrade_tag(name)
+        }) {
+            return false;
+        }
+        self.innate_stealth = true;
+        true
+    }
+
     /// C++ `Object::updateUpgradeModules` for `LocomotorSetUpgrade`
     /// (LocomotorSetUpgrade.cpp): run the template's authored module when its
     /// UpgradeMux triggers are satisfied by `has` (the owning player's
@@ -543,29 +563,67 @@ mod flag_tests {
     fn authored_modules_set_flags_only_when_their_mux_triggers() {
         let (mut world, id) = world("PlainBuggy", MODULES);
         let object = world.host_object_mut(id).unwrap();
-        let none = object.apply_authored_flag_upgrades(|n| n == "Upgrade_Unrelated");
+        let none = object.apply_authored_flag_upgrades(|n| n == "Upgrade_Unrelated", 0);
         assert_eq!(none, AuthoredFlagUpgrades::default());
-        let gun = object.apply_authored_flag_upgrades(|n| n == "Upgrade_TestGun");
+        let gun = object.apply_authored_flag_upgrades(|n| n == "Upgrade_TestGun", 0);
         assert!(gun.weapon_set && !gun.armor_set && !gun.weapon_bonus);
         assert_eq!(gun.command_set.as_deref(), Some("TestUpgradedSet"));
-        assert!(object.weapon_set_player_upgrade);
+        assert!(object.test_weapon_condition(3));
         // ConflictsWith blocks; RequiresAllTriggers needs both.
-        let blocked = object
-            .apply_authored_flag_upgrades(|n| n == "Upgrade_TestPlate" || n == "Upgrade_TestBlock");
+        let blocked = object.apply_authored_flag_upgrades(
+            |n| n == "Upgrade_TestPlate" || n == "Upgrade_TestBlock",
+            0,
+        );
         assert!(!blocked.armor_set);
-        assert!(!object.apply_authored_flag_upgrades(|n| n == "Upgrade_TestA").weapon_bonus);
+        assert!(!object.apply_authored_flag_upgrades(|n| n == "Upgrade_TestA", 0).weapon_bonus);
         assert!(object
-            .apply_authored_flag_upgrades(|n| n == "Upgrade_TestA" || n == "Upgrade_TestB")
+            .apply_authored_flag_upgrades(|n| n == "Upgrade_TestA" || n == "Upgrade_TestB", 0)
             .weapon_bonus);
+    }
+
+    #[test]
+    fn weapon_upgrade_rebinds_selected_row_and_preserves_shared_lock() {
+        use crate::game_logic::object::WeaponLockType;
+
+        let mut world = GameLogic::new();
+        world.admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "upgrade-row.ini".into(),
+                "Object UpgradeRow\nKindOf = VEHICLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nWeaponSet\nConditions = None\nWeapon = PRIMARY UpgradeBase\nWeapon = SECONDARY UpgradeBase\nEnd\nWeaponSet\nConditions = PLAYER_UPGRADE\nWeapon = PRIMARY UpgradeNew\nWeapon = SECONDARY UpgradeNew\nWeaponLockSharedAcrossSets = Yes\nEnd\nBehavior = WeaponSetUpgrade UpgradeTag\nTriggeredBy = Upgrade_TestGun\nEnd\nEnd\n".into(),
+            )]).unwrap(),
+        ).unwrap();
+        let mut definitions = std::collections::HashMap::new();
+        crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+            &mut definitions,
+            "Weapon UpgradeBase\nPrimaryDamage = 10\nClipSize = 3\nEnd\nWeapon UpgradeNew\nPrimaryDamage = 20\nClipSize = 4\nSuspendFXDelay = 1000\nEnd\n",
+            crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+        );
+        world.admit_weapon_content_snapshot(
+            definitions.into_values().map(|rule| (rule.name.clone(), rule)).collect(),
+            &[],
+        ).unwrap();
+        let id = world.create_object("UpgradeRow", Team::USA, glam::Vec3::ZERO).unwrap();
+        let object = world.host_object_mut(id).unwrap();
+        assert!(object.set_weapon_lock(1, WeaponLockType::LockedPermanently));
+        object.apply_authored_flag_upgrades(|n| n == "Upgrade_TestGun", 80);
+        assert!(object.is_weapon_locked());
+        assert_eq!(object.active_weapon_slot, 1);
+        assert_eq!(object.weapon_slot(0).unwrap().damage, 20.0);
+        assert_eq!(object.weapon_slot(0).unwrap().ammo, Some(4));
+        assert_eq!(object.weapon_slot(0).unwrap().suspend_fx_frame, 110);
+        object.weapon.as_mut().unwrap().ammo = Some(1);
+        object.apply_authored_flag_upgrades(|n| n == "Upgrade_TestGun", 81);
+        assert_eq!(object.weapon_slot(0).unwrap().ammo, Some(1));
+        assert!(object.is_weapon_locked());
     }
 
     #[test]
     fn unit_named_template_without_modules_gets_no_flags() {
         let (mut world, id) = world("AmericaVehicleHumvee", "");
         let object = world.host_object_mut(id).unwrap();
-        let flags = object.apply_authored_flag_upgrades(|n| n == "Upgrade_AmericaTOWMissile");
+        let flags = object.apply_authored_flag_upgrades(|n| n == "Upgrade_AmericaTOWMissile", 0);
         assert_eq!(flags, AuthoredFlagUpgrades::default());
-        assert!(!object.weapon_set_player_upgrade);
+        assert!(!object.test_weapon_condition(3));
     }
 }
 
@@ -595,12 +653,14 @@ mod stealth_upgrade_tests {
         let bunker = world.create_object("PlainBunker", Team::GLA, glam::Vec3::ZERO).unwrap();
         let rebel = world.create_object("GLAInfantryRebel", Team::GLA, glam::Vec3::ZERO).unwrap();
 
-        assert_eq!(world.apply_camouflage_unlock_to_team(Team::GLA.into(), UPGRADE_GLA_CAMOUFLAGE), 1);
+        assert!(world.host_object_mut(sneaker).unwrap().run_authored_stealth_upgrades(|n| n == UPGRADE_GLA_CAMOUFLAGE));
+        assert!(!world.host_object_mut(bunker).unwrap().run_authored_stealth_upgrades(|n| n == UPGRADE_GLA_CAMOUFLAGE));
+        assert!(!world.host_object_mut(rebel).unwrap().run_authored_stealth_upgrades(|n| n == UPGRADE_GLA_CAMOUFLAGE));
         assert!(world.host_object(sneaker).unwrap().innate_stealth);
         assert!(!world.host_object(bunker).unwrap().innate_stealth);
         assert!(!world.host_object(rebel).unwrap().innate_stealth, "the name authors no StealthUpgrade");
 
-        assert_eq!(world.apply_camo_netting_unlock_to_team(Team::GLA.into(), UPGRADE_GLA_CAMO_NETTING), 1);
+        assert!(world.host_object_mut(bunker).unwrap().run_authored_stealth_upgrades(|n| n == UPGRADE_GLA_CAMO_NETTING));
         assert!(world.host_object(bunker).unwrap().innate_stealth);
     }
 }
@@ -609,6 +669,37 @@ mod stealth_upgrade_tests {
 mod replay_tests {
     use crate::command_system::SpecialPowerType;
     use crate::game_logic::{GameLogic, Player, Team};
+
+    #[test]
+    fn completed_rocket_pod_upgrade_selects_authored_row_at_factory() {
+        let mut world = GameLogic::new();
+        let mut owner = Player::new(0, Team::USA, "Owner", true);
+        owner.add_completed_upgrade("Upgrade_AmericaComancheRocketPods");
+        world.players.insert(0, owner);
+        world.players.insert(1, Player::new(1, Team::USA, "Other", false));
+        world.admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "upgrade-factory-row.ini".into(),
+                "Object FactoryAircraft\nKindOf = VEHICLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nWeaponSet\nConditions = None\nWeapon = PRIMARY Comanche20mmCannonWeapon\nEnd\nWeaponSet\nConditions = PLAYER_UPGRADE\nWeapon = PRIMARY FactoryUpgradedGun\nWeapon = TERTIARY FactoryPod\nEnd\nBehavior = WeaponSetUpgrade UpgradeTag\nTriggeredBy = Upgrade_AmericaComancheRocketPods\nEnd\nEnd\n".into(),
+            )]).unwrap(),
+        ).unwrap();
+        let mut definitions = std::collections::HashMap::new();
+        crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+            &mut definitions,
+            "Weapon Comanche20mmCannonWeapon\nPrimaryDamage = 11\nEnd\nWeapon FactoryUpgradedGun\nPrimaryDamage = 22\nEnd\nWeapon FactoryPod\nPrimaryDamage = 33\nEnd\n",
+            crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+        );
+        world.admit_weapon_content_snapshot(
+            definitions.into_values().map(|rule| (rule.name.clone(), rule)).collect(),
+            &[],
+        ).unwrap();
+        let upgraded = world.create_object_for_player("FactoryAircraft", 0, glam::Vec3::ZERO).unwrap();
+        let plain = world.create_object_for_player("FactoryAircraft", 1, glam::Vec3::X).unwrap();
+        assert_eq!(world.host_object(upgraded).unwrap().weapon_slot(0).unwrap().damage, 22.0);
+        assert_eq!(world.host_object(upgraded).unwrap().weapon_slot(2).unwrap().damage, 33.0);
+        assert_eq!(world.host_object(plain).unwrap().weapon_slot(0).unwrap().damage, 11.0);
+        assert!(world.host_object(plain).unwrap().weapon_slot(2).is_none());
+    }
 
     /// Object::initObject -> updateUpgradeModules: a unit created after its
     /// Player completed the triggering upgrade has StartsPaused lifted.

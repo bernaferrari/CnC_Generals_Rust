@@ -128,7 +128,7 @@ fn append_while_waiting_survives_the_pending_path_result() {
         locomotors.apply_source("Locomotor WaypointWalk\n Surfaces = GROUND\n Speed = 30\n Acceleration = 60\n TurnRate = 360\n Appearance = TWO_LEGS\nEnd\n").unwrap();
         world.admit_locomotor_definitions(locomotors).unwrap();
         world.admit_object_ini_sources([("WaypointWalk.ini".into(), "Object WaypointWalker\n KindOf = SELECTABLE INFANTRY\n Locomotor = SET_NORMAL WaypointWalk\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into())]).unwrap();
-        world.start_new_game(GameMode::SinglePlayer);
+        world.start_new_game(GameMode::SinglePlayer).unwrap();
         assert!(world.load_map(map.to_str().unwrap()));
         world.add_player(Player::new(1, Team::USA, "Owner", true));
         world
@@ -468,7 +468,7 @@ fn waypoints_are_traversed_in_order_by_the_owning_world() {
         locomotors.apply_source("Locomotor WaypointWalk\n Surfaces = GROUND\n Speed = 30\n Acceleration = 60\n TurnRate = 360\n Appearance = TWO_LEGS\nEnd\n").unwrap();
         world.admit_locomotor_definitions(locomotors).unwrap();
         world.admit_object_ini_sources([("WaypointWalk.ini".into(), "Object WaypointWalker\n KindOf = SELECTABLE INFANTRY\n Locomotor = SET_NORMAL WaypointWalk\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into())]).unwrap();
-        world.start_new_game(GameMode::SinglePlayer);
+        world.start_new_game(GameMode::SinglePlayer).unwrap();
         assert!(world.load_map(map.to_str().unwrap()));
         world.add_player(Player::new(1, Team::USA, "Owner", true));
         world
@@ -605,7 +605,7 @@ fn waypoints_are_traversed_in_order_by_the_owning_world() {
     );
 
     reloaded.reset();
-    reloaded.start_new_game(GameMode::SinglePlayer);
+    reloaded.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(reloaded.load_map(map.to_str().unwrap()));
     reloaded.add_player(Player::new(1, Team::USA, "Owner", true));
     let restarted = reloaded

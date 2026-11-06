@@ -131,7 +131,7 @@ fn world(
 
     let path = root.join(format!("{label}Portable.map"));
     std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
-    game.start_new_game(GameMode::SinglePlayer);
+    game.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(game.load_map(path.to_str().expect("UTF-8 map path")));
     let host = game
         .host_objects()

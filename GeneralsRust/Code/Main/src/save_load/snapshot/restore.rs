@@ -483,6 +483,9 @@ impl SnapshotBuilder {
             temporary_weapons,
             game_logic.body_damage_policy(),
         );
+        // StealthUpdate constructor (InnateStealth CAN_STEALTH); the saved
+        // m_stealthAllowedFrame overlays it in restore_object_status.
+        object.construct_stealth_update(frame);
         // Object::xfer restores m_layer before its behavior modules.
         if let Some(layer) = current_layer {
             object.pathfind_layer = layer;
@@ -510,7 +513,7 @@ impl SnapshotBuilder {
         if crate::game_logic::host_listening_outpost::is_listening_outpost_template(
             &snapshot.template_name,
         ) {
-            object.install_listening_outpost_transport();
+            object.install_listening_outpost_transport(game_logic.get_current_frame() as u32);
         }
 
         // TransportContain exists before runtime overlays, including a saved
@@ -537,7 +540,7 @@ impl SnapshotBuilder {
         if crate::game_logic::host_combat_chinook::is_authored_combat_chinook(
             &object.thing().template,
         ) {
-            object.install_combat_chinook_transport();
+            object.install_combat_chinook_transport(game_logic.get_current_frame() as u32);
         } else if crate::game_logic::host_combat_chinook::is_chinook_hull_template(
             &snapshot.template_name,
         ) {
@@ -1068,6 +1071,8 @@ impl SnapshotBuilder {
                         .filter(|name| !name.trim().is_empty())
                         .cloned()
                         .collect();
+                    // StealthUpgrade CAN_STEALTH follows the restored upgrade mask.
+                    object.run_authored_stealth_upgrades(|_| false);
                 }
                 ModuleSnapshot::Contain(snapshot) => {
                     // Leftover TransportContain xfer already matches C++
@@ -1082,12 +1087,6 @@ impl SnapshotBuilder {
                         object.armed_riders_upgrade_weapon_set = true;
                         object.is_detector = true;
                         object.detection_range = crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_DETECTION_RANGE;
-                        object.innate_stealth = true;
-                        object.stealth_breaks_on_move = true;
-                        object.stealth_breaks_on_attack = false;
-                        if object.stealth_delay_frames == 0 {
-                            object.stealth_delay_frames = crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_STEALTH_DELAY_FRAMES;
-                        }
                         object.template_mut().add_kind_of(KindOf::Attackable);
                     }
                     if snapshot.max_capacity > 0 {

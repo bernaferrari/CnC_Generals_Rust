@@ -108,10 +108,6 @@ impl GameLogic {
                 &rates,
             );
             attacker.stamp_auto_reload_when_idle_from_slot(slot, fire_frame);
-            // C++ STEALTH_NOT_WHILE_ATTACKING: firing breaks stealth.
-            if attacker.stealth_breaks_on_attack && attacker.status.stealthed {
-                attacker.break_stealth();
-            }
         }
         if let Some(visual) = visual {
             self.finish_accepted_weapon_discharge(visual);

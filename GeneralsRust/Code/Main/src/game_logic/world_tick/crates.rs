@@ -427,7 +427,7 @@ impl GameLogic {
                 t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target,
                 t.is_kind_of(KindOf::Drone),
                 hijack_target_rejected(t),
-                t.status.is_carbomb || t.weapon_set_carbomb,
+                t.status.is_carbomb || t.test_weapon_condition(7),
             );
             if ok {
                 return Some(tid);
@@ -2004,12 +2004,12 @@ impl GameLogic {
             return ("armor", 0);
         }
         // Weapon salvager path.
-        if picker.is_kind_of(KindOf::WeaponSalvager) && picker.weapon_crate_upgrade < 2 {
+        if picker.is_kind_of(KindOf::WeaponSalvager) && picker.weapon_crate_upgrade() < 2 {
             let roll = pure_logic_random_real(seed, 1, 0.0, 1.0);
             if SALVAGE_WEAPON_CHANCE_RESIDUAL >= 1.0 - f32::EPSILON
                 || roll < SALVAGE_WEAPON_CHANCE_RESIDUAL
             {
-                picker.apply_salvage_weapon_upgrade();
+                picker.apply_salvage_weapon_upgrade(self.frame);
                 return ("weapon", 0);
             }
         }

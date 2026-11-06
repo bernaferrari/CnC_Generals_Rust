@@ -5,6 +5,7 @@ use super::*;
 fn assert_one_owned_cue(world: &mut GameLogic, source: ObjectId, frame: u32) {
     let object = &world.objects[&source];
     assert_eq!(object.weapon.as_ref().unwrap().ammo, Some(7));
+    assert_eq!(object.weapon.as_ref().unwrap().last_fire_frame, frame);
     let marker = object.weapon_discharge_marker();
     assert_eq!(marker.sequence, 1);
     assert_eq!(marker.weapon_slot, 0);

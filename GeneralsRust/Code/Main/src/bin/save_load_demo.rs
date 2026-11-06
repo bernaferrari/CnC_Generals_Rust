@@ -22,9 +22,10 @@ use glam::Vec3;
 use std::time::{Duration, SystemTime};
 
 #[cfg(feature = "dev-tools")]
-fn build_demo_state() {
+fn build_demo_state() -> anyhow::Result<()> {
     let mut logic = GameLogic::new();
-    logic.start_new_game(GameMode::Skirmish);
+    generals_main::cnc_game_engine::start_standalone_game(&mut logic, GameMode::Skirmish)
+        .map_err(anyhow::Error::msg)?;
     let _ = logic.load_map("demo_map");
     let _ = logic.create_object("USA_Ranger", Team::USA, Vec3::new(-20.0, 0.0, -10.0));
     let _ = logic.create_object("USA_Humvee", Team::USA, Vec3::new(-10.0, 0.0, -8.0));
@@ -34,6 +35,7 @@ fn build_demo_state() {
     let ai_system = AIManager::new();
 
     register_game_systems(logic, command_system, ai_system);
+    Ok(())
 }
 
 #[cfg(feature = "dev-tools")]
@@ -166,7 +168,7 @@ fn main() -> anyhow::Result<()> {
     init_save_load_system()?;
     init_game_state_system()?;
 
-    build_demo_state();
+    build_demo_state()?;
     demo_save_load()?;
     demo_replay()?;
     demo_campaign()?;

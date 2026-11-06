@@ -144,7 +144,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             logic.is_paused()
         );
 
-        logic.start_new_game(GameMode::Skirmish);
+        generals_main::cnc_game_engine::start_standalone_game(&mut logic, GameMode::Skirmish)?;
         println!("Started skirmish game");
         println!(
             "Game state: In Game = {}, Paused = {}",

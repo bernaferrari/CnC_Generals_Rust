@@ -287,10 +287,11 @@ fn fire_base_object_hit_residual_keys_on_authored_weapon_not_template_name() {
     assert!(hp < 1000.0, "attacker never hit the victim");
 }
 
-/// hq-2qedt.225: Stealth Fighter jet lockon and innate-stealth residuals key on
-/// the authored StealthJetMissileWeapon, not the template name.
+/// hq-2qedt.225: Stealth Fighter jet lockon keys on the authored
+/// StealthJetMissileWeapon, not the template name. (Innate stealth comes from
+/// the authored StealthUpdate module; see stealth_update_tests.)
 #[test]
-fn stealth_fighter_lockon_and_innate_stealth_key_on_authored_weapon_not_template_name() {
+fn stealth_fighter_lockon_keys_on_authored_weapon_not_template_name() {
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
     ensure_host_weapon_store();
@@ -317,10 +318,8 @@ fn stealth_fighter_lockon_and_innate_stealth_key_on_authored_weapon_not_template
     game_logic.update_stealth_and_detection();
     let f = game_logic.host_object(foreign).unwrap();
     assert_eq!(f.jet_lockon_time_frames(), 0, "name-only lockon residual");
-    assert!(!f.innate_stealth, "name-only innate stealth residual");
     let a = game_logic.host_object(authored).unwrap();
     assert_ne!(a.jet_lockon_time_frames(), 0, "authored weapon lockon");
-    assert!(a.innate_stealth, "authored weapon innate stealth");
 }
 
 /// hq-2qedt.266: Gattling Cannon structure factory dual-slot residual keys on

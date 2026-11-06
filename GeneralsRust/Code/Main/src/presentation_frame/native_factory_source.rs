@@ -171,7 +171,7 @@ impl GameLogic {
                 .map_or(0, |building| building.max_garrison)
                 .min(255) as u8,
             disabled: object.is_disabled(),
-            is_carbomb: object.weapon_set_carbomb
+            is_carbomb: object.test_weapon_condition(7)
                 && object.owner_player_id == Some(local_player_id),
             bomb_type,
             bomb_timer_seconds: bomb_seconds,

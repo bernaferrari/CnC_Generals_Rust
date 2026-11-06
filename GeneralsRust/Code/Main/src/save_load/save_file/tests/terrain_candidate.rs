@@ -211,7 +211,8 @@ fn file_backed_world(path: &std::path::Path, raw: u8) -> GameLogic {
     map.close_data_chunk();
     std::fs::write(path, map.into_ckmp_bytes()).unwrap();
     let mut owner = GameLogic::new();
-    owner.start_new_game_for_restore(crate::game_logic::GameMode::SinglePlayer);
+    owner.admit_object_ini_sources(std::iter::empty()).unwrap();
+    owner.start_new_game_for_restore(crate::game_logic::GameMode::SinglePlayer).unwrap();
     assert!(owner.load_map(path.to_str().unwrap()));
     owner
 }

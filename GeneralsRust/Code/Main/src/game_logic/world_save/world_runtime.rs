@@ -266,8 +266,8 @@ impl GameLogic {
     }
 
     /// Start a new game with specified mode
-    pub fn start_new_game(&mut self, mode: GameMode) {
-        self.start_new_game_state(mode, NewGamePlayerAdmission::Bootstrap);
+    pub fn start_new_game(&mut self, mode: GameMode) -> Result<(), String> {
+        self.start_new_game_state(mode, NewGamePlayerAdmission::Bootstrap)
     }
 
     /// Receiving native NewGame route; the actual dispatcher supplies its
@@ -279,8 +279,8 @@ impl GameLogic {
         difficulty: i32,
         rank: i32,
         max_fps: i32,
-    ) {
-        self.start_new_game_state(mode, NewGamePlayerAdmission::Bootstrap);
+    ) -> Result<(), String> {
+        self.start_new_game_state(mode, NewGamePlayerAdmission::Bootstrap)?;
         self.set_rank_points_to_add_at_game_start(rank);
         if !self.replay_pending.recorder_owned().is_playback() {
             self.replay_pending.record_new_game_owned(
@@ -291,19 +291,20 @@ impl GameLogic {
                 max_fps,
             );
         }
+        Ok(())
     }
 
     /// Prepare a candidate world for loading a save. C++ GameState::loadGame
     /// resets the engine and does not post MSG_NEW_GAME for ordinary saves;
     /// the candidate must not start a second replay on the live recorder.
-    pub(crate) fn start_new_game_for_restore(&mut self, mode: GameMode) {
-        self.start_new_game_state(mode, NewGamePlayerAdmission::Resolved);
+    pub(crate) fn start_new_game_for_restore(&mut self, mode: GameMode) -> Result<(), String> {
+        self.start_new_game_state(mode, NewGamePlayerAdmission::Resolved)
     }
 
     /// GameInfo admission supplies the actual participants immediately after
     /// this source reset. Never create temporary bootstrap Players/observer.
-    pub(crate) fn start_new_game_for_resolved_players(&mut self, mode: GameMode) {
-        self.start_new_game_state(mode, NewGamePlayerAdmission::Resolved);
+    pub(crate) fn start_new_game_for_resolved_players(&mut self, mode: GameMode) -> Result<(), String> {
+        self.start_new_game_state(mode, NewGamePlayerAdmission::Resolved)
     }
 
     /// Native NewGame must retire the outgoing world's Objects through its
@@ -314,10 +315,12 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         self.with_own_services_mut(|this| {
+            this.require_startup_content().map_err(gamelogic::GameLogicError::Configuration)?;
             log::info!("Starting new game: {:?}", mode);
             clear_live_campaign_victorious_for_new_game(this);
             this.reset_with_effects_checked(effects)?;
-            this.finish_start_new_game_state(mode, NewGamePlayerAdmission::Resolved, false, false);
+            this.finish_start_new_game_state(mode, NewGamePlayerAdmission::Resolved, false, false)
+                .map_err(gamelogic::GameLogicError::Configuration)?;
             Ok(())
         })
     }
@@ -327,13 +330,13 @@ impl GameLogic {
         mode: GameMode,
         is_campaign: bool,
         is_challenge: bool,
-    ) {
+    ) -> Result<(), String> {
         self.start_new_game_state_with_campaign(
             mode,
             NewGamePlayerAdmission::Bootstrap,
             is_campaign,
             is_challenge,
-        );
+        )
     }
 
     pub(crate) fn start_new_game_for_restore_in_campaign_session(
@@ -341,17 +344,17 @@ impl GameLogic {
         mode: GameMode,
         is_campaign: bool,
         is_challenge: bool,
-    ) {
+    ) -> Result<(), String> {
         self.start_new_game_state_with_campaign(
             mode,
             NewGamePlayerAdmission::Resolved,
             is_campaign,
             is_challenge,
-        );
+        )
     }
 
-    fn start_new_game_state(&mut self, mode: GameMode, admission: NewGamePlayerAdmission) {
-        self.start_new_game_state_with_campaign(mode, admission, false, false);
+    fn start_new_game_state(&mut self, mode: GameMode, admission: NewGamePlayerAdmission) -> Result<(), String> {
+        self.start_new_game_state_with_campaign(mode, admission, false, false)
     }
 
     fn start_new_game_state_with_campaign(
@@ -360,14 +363,22 @@ impl GameLogic {
         admission: NewGamePlayerAdmission,
         is_campaign: bool,
         is_challenge: bool,
-    ) {
+    ) -> Result<(), String> {
+        self.require_startup_content()?;
         self.with_own_services_mut(|this| {
             log::info!("Starting new game: {:?}", mode);
             // C++ GameLogic.cpp:1254-1256 TheCampaignManager->SetVictorious(FALSE).
             clear_live_campaign_victorious_for_new_game(this);
             this.reset();
-            this.finish_start_new_game_state(mode, admission, is_campaign, is_challenge);
+            this.finish_start_new_game_state(mode, admission, is_campaign, is_challenge)
         })
+    }
+
+    fn require_startup_content(&self) -> Result<(), String> {
+        if self.receiving_module_content.is_none() || self.receiving_template_baseline.is_none() {
+            return Err("NewGame requires admitted ordered receiving Object content".into());
+        }
+        Ok(())
     }
 
     fn finish_start_new_game_state(
@@ -376,7 +387,7 @@ impl GameLogic {
         admission: NewGamePlayerAdmission,
         is_campaign: bool,
         is_challenge: bool,
-    ) {
+    ) -> Result<(), String> {
         // Source metadata is admitted after reset and before template/player/onCreate work.
         self.admit_campaign_session(is_campaign, is_challenge);
         // C++ TheAI already holds AIData.ini EnableRepulsors after GameEngine init.
@@ -388,11 +399,8 @@ impl GameLogic {
             self.victory_conditions
                 .set_victory_conditions(VictoryType::NO_BUILDINGS);
         }
-        // Host combat/movement: ensure WeaponStore + LocomotorStore before units resolve.
-        let seeded = super::weapon_bootstrap::ensure_host_weapon_store();
-        if seeded > 0 {
-            log::info!("Host WeaponStore bootstrap registered {} templates", seeded);
-        }
+        // Locomotor compatibility bootstrap remains separate from the owned
+        // Object and weapon catalogs admitted before this NewGame.
         if self.locomotor_definitions.is_none() {
             let loco_seeded = super::locomotor_bootstrap::ensure_host_locomotor_store();
             if loco_seeded > 0 {
@@ -402,29 +410,11 @@ impl GameLogic {
                 );
             }
         }
-        if self.receiving_module_content.is_some() {
-            let Some(baseline) = &self.receiving_template_baseline else {
-                log::error!("Receiving NewGame has no accepted host template baseline");
-                return;
-            };
-            self.templates = baseline.clone();
+        let baseline = self.receiving_template_baseline.as_ref()
+            .ok_or_else(|| "Receiving NewGame has no accepted host template baseline".to_owned())?;
+        self.templates = baseline.clone();
         self.invalidate_build_facility_template_names_cache();
-            self.refresh_receiving_client_templates();
-        } else {
-            self.setup_templates();
-            let asset_template_count = self.seed_asset_definition_templates();
-            if asset_template_count > 0 {
-                log::info!(
-                    "Seeded {asset_template_count} missing templates from resolved retail Object INI data"
-                );
-            }
-            let leftover_object_overrides = self.apply_all_leftover_object_create_overrides();
-            if leftover_object_overrides > 0 {
-                log::info!(
-                    "Applied {leftover_object_overrides} leftover map.ini Object CREATE_OVERRIDES to live catalog"
-                );
-            }
-        }
+        self.refresh_receiving_client_templates();
         if matches!(admission, NewGamePlayerAdmission::Bootstrap) {
             self.create_default_players();
             if matches!(mode, GameMode::Skirmish | GameMode::Replay) {
@@ -446,6 +436,7 @@ impl GameLogic {
             }
         }
         log::info!("New game started successfully");
+        Ok(())
     }
 
     /// Whether this world was admitted from a Challenge campaign descriptor.

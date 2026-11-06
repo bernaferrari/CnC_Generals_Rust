@@ -201,9 +201,9 @@ fn supply_center_one_shot_collector_uses_exit_interface() {
         "stealthed GLA stash must GrantTemporaryStealth on the starter worker"
     );
     assert!(
-        second.temporary_stealth_expires_frame >= 600,
-        "retail GrantTemporaryStealth 20000ms is 600 frames, got {}",
-        second.temporary_stealth_expires_frame
+        second.stealth_frames_granted > 0 && second.stealth_frames_granted <= 600,
+        "retail GrantTemporaryStealth 20000ms starts at 600 frames, got {}",
+        second.stealth_frames_granted
     );
     assert!(
         second

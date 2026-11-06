@@ -449,6 +449,12 @@ fn troop_crawler_residual_detect_stealth_in_range() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_infantry_template(&mut game_logic);
+    game_logic.templates.get_mut("TestInfantry").unwrap().stealth_update =
+        Some(crate::game_logic::object::StealthUpdateData {
+            innate_stealth: false,
+            granted_by_special_power: true,
+            ..Default::default()
+        });
     let crawler_id = create_test_troop_crawler(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
     let _ = crawler_id;
 
@@ -460,8 +466,9 @@ fn troop_crawler_residual_detect_stealth_in_range() {
         )
         .expect("stealthed enemy");
     {
+        let frame = game_logic.frame;
         let e = game_logic.host_object_mut(stealth_id).unwrap();
-        e.set_status_stealthed(true);
+        e.apply_grant_stealth(frame);
         e.set_status_detected(false);
     }
 
@@ -484,15 +491,6 @@ fn troop_crawler_residual_detect_stealth_in_range() {
             "troop crawler detector residual must reveal stealthed enemy in range"
         );
     }
-    assert!(
-        game_logic.honesty_troop_crawler_detect_ok(),
-        "troop crawler detect honesty residual must fire"
-    );
-    assert!(
-        game_logic.troop_crawler_residual_detects() >= 1,
-        "detect counter residual"
-    );
-
     // Fail-closed: beyond 175 not detected.
     let far_id = game_logic
         .create_object(
@@ -502,8 +500,9 @@ fn troop_crawler_residual_detect_stealth_in_range() {
         )
         .expect("far stealthed");
     {
+        let frame = game_logic.frame;
         let e = game_logic.host_object_mut(far_id).unwrap();
-        e.set_status_stealthed(true);
+        e.apply_grant_stealth(frame);
         e.set_status_detected(false);
     }
     // Advance past another full DetectionRate cadence; the out-of-range enemy
@@ -515,6 +514,7 @@ fn troop_crawler_residual_detect_stealth_in_range() {
     }
     {
         let e = game_logic.host_object(far_id).expect("far");
+        assert!(e.status.stealthed);
         assert!(
             !e.status.detected,
             "fail-closed: enemy outside VisionRange 175 residual must not be detected"

@@ -89,7 +89,7 @@ fn historical_broken_lock_observation_is_ignored_without_blocking_canonical_relo
     world.set_camera_follow_object(Some(id));
     world.apply_session_control_op(crate::game_logic::SessionControlOp::SetCameraFollow {
         id: None,
-    });
+    }).unwrap();
     // Authored re-lock before any frame showing None is a new valid lock.
     world.set_camera_tether_object(id, true, 9.);
     let facts = crate::presentation_frame::follow::FollowTargetFacts {

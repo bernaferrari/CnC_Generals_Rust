@@ -38,8 +38,7 @@ impl GameLogic {
         use crate::game_logic::host_gps_scrambler::{
             GPS_SCRAMBLER_ACTIVATE_AUDIO, GPS_SCRAMBLER_INVISIBLE_MARKER,
             GPS_SCRAMBLER_START_RADIUS, HOST_GPS_SCRAMBLER_RADIUS, HostGpsScrambler,
-            in_gps_scrambler_radius_2d, is_gps_scrambler_disguise_name,
-            is_legal_gps_scrambler_target,
+            in_gps_scrambler_radius_2d, is_legal_gps_scrambler_target,
         };
 
         let frame = self.frame;
@@ -73,7 +72,8 @@ impl GameLogic {
                 let is_ally = self.gps_grant_is_ally(player_id, caster_id, caster_team, obj);
                 let under_construction =
                     obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
-                let is_disguise = is_gps_scrambler_disguise_name(&obj.template_name);
+                // C++ receiveGrant skips canDisguise() (StealthUpdate.cpp:184-185).
+                let is_disguise = obj.stealth_can_disguise();
                 let has_stealth_module = obj.has_gps_stealth_module();
                 Some((
                     *id,
@@ -109,14 +109,17 @@ impl GameLogic {
             ) {
                 continue;
             }
-            let Some(target) = self.objects.get_mut(&id) else {
+            let Some(target) = self.objects.get(&id) else {
                 continue;
             };
             if !target.is_alive() {
                 continue;
             }
             let was_stealthed = target.is_effectively_stealthed();
-            target.apply_grant_stealth();
+            self.receive_stealth_grant(id, true, 0);
+            let Some(target) = self.objects.get_mut(&id) else {
+                continue;
+            };
             // C++ grantStealthToObject: receiveGrant() then draw->flashAsSelected().
             target.flash_as_selected();
             // Count new grants and refreshes as residual grant events for honesty.
@@ -1694,6 +1697,15 @@ mod tests {
     use super::*;
     use crate::game_logic::{Player, ThingTemplate};
 
+    fn gps_module() -> crate::game_logic::object::StealthUpdateData {
+        crate::game_logic::object::StealthUpdateData {
+            stealth_delay_frames: 60,
+            innate_stealth: false,
+            granted_by_special_power: true,
+            ..Default::default()
+        }
+    }
+
     fn insert_speaker_and_infantry(logic: &mut GameLogic) {
         let mut tower_tpl = ThingTemplate::new("ChinaSpeakerTower");
         tower_tpl
@@ -2121,14 +2133,17 @@ mod tests {
 
         let mut paladin = ThingTemplate::new("AmericaTankPaladin");
         paladin.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        paladin.stealth_update = Some(gps_module());
         logic.templates.insert("AmericaTankPaladin".into(), paladin);
         let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
         ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
+        ranger.stealth_update = Some(gps_module());
         logic
             .templates
             .insert("AmericaInfantryRanger".into(), ranger);
         let mut pathfinder = ThingTemplate::new("AmericaInfantryPathfinder");
         pathfinder.add_kind_of(KindOf::Infantry).set_health(100.0);
+        pathfinder.stealth_update = Some(gps_module());
         logic
             .templates
             .insert("AmericaInfantryPathfinder".into(), pathfinder);
@@ -2231,6 +2246,7 @@ mod tests {
             .insert("GLAInfantryAngryMobNexus".into(), nexus);
         let mut rebel = ThingTemplate::new("GLAInfantryRebel");
         rebel.add_kind_of(KindOf::Infantry).set_health(120.0);
+        rebel.stealth_update = Some(gps_module());
         logic.templates.insert("GLAInfantryRebel".into(), rebel);
 
         let nid = logic
@@ -2284,6 +2300,10 @@ mod tests {
 
         let mut hijacker = ThingTemplate::new("GLAInfantryHijacker");
         hijacker.add_kind_of(KindOf::Infantry).set_health(120.0);
+        hijacker.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+            stealth_delay_frames: 75,
+            ..Default::default()
+        });
         logic
             .templates
             .insert("GLAInfantryHijacker".into(), hijacker);
@@ -2293,21 +2313,14 @@ mod tests {
             .expect("hijacker");
         {
             let h = logic.host_object_mut(hid).expect("hijacker mut");
-            assert!(h.innate_stealth, "Hijacker spawn stamps InnateStealth");
+            assert!(h.innate_stealth, "authored InnateStealth sets CAN_STEALTH");
             h.set_status_stealthed(false);
-            h.stealth_delay_pending = true;
             h.stealth_allowed_frame = 75;
         }
 
         assert!(
             logic.host_object(hid).unwrap().has_gps_stealth_module(),
             "Hijacker authored StealthUpdate qualifies for receiveGrant"
-        );
-        assert!(
-            !crate::game_logic::host_gps_scrambler::is_gps_scrambler_disguise_name(
-                "GLAInfantryHijacker"
-            ),
-            "Hijacker is not canDisguise"
         );
 
         assert!(logic.activate_gps_scrambler(2, Vec3::ZERO, Some(hid)));
@@ -2338,14 +2351,17 @@ mod tests {
 
         let mut scorp = ThingTemplate::new("GLATankScorpion");
         scorp.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        scorp.stealth_update = Some(gps_module());
         logic.templates.insert("GLATankScorpion".into(), scorp);
         let mut crusader = ThingTemplate::new("AmericaTankCrusader");
         crusader.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        crusader.stealth_update = Some(gps_module());
         logic
             .templates
             .insert("AmericaTankCrusader".into(), crusader);
         let mut battlemaster = ThingTemplate::new("ChinaTankBattleMaster");
         battlemaster.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        battlemaster.stealth_update = Some(gps_module());
         logic
             .templates
             .insert("ChinaTankBattleMaster".into(), battlemaster);
@@ -2842,8 +2858,6 @@ mod tests {
             .create_object("GLAVehicleTechnical", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
             .unwrap();
         {
-            let t = logic.host_object_mut(tech).unwrap();
-            t.apply_upgrade_tag("WEAPONSET_CRATEUPGRADE_ONE");
             logic.apply_technical_weapon_tier(
                 tech,
                 crate::game_logic::host_technical::TechnicalWeaponTier::One,

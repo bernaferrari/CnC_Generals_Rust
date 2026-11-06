@@ -1419,10 +1419,10 @@ impl CnCGameEngine {
                             let mut ini = game_engine::common::ini::INI::new();
                             match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                 Ok(()) => info!("Loaded weapon definitions from Data/INI/Weapon.ini"),
-                                Err(err) => warn!("Failed parsing Weapon.ini: {}", err),
+                                Err(err) => return Err(format!("Failed parsing Weapon.ini: {err}")),
                             }
                         } else {
-                            warn!("Weapon.ini not found in archives — continuing without weapon data");
+                            return Err("Required Weapon.ini source is missing".into());
                         }
                     }
 
@@ -1444,16 +1444,13 @@ impl CnCGameEngine {
                                         loaded_any_special_power = true;
                                     }
                                     Err(err) => {
-                                        warn!(
-                                            "Failed parsing special power definitions from '{}': {}",
-                                            sp_path, err
-                                        );
+                                        return Err(format!("Failed parsing special power definitions from '{sp_path}': {err}"));
                                     }
                                 }
                             }
                         }
                         if !loaded_any_special_power {
-                            warn!("SpecialPower.ini bootstrap loaded 0 templates — continuing without special power INI data");
+                            return Err("Required SpecialPower.ini definitions are missing".into());
                         }
                     }
 
@@ -1691,9 +1688,7 @@ impl CnCGameEngine {
                     ] {
                         if let Some(content) = extract_ini_text_from_archives(button_path)? {
                             if let Err(err) = receiving_module_content.admit_command_source(&content) {
-                                warn!("Failed admitting receiving CommandButton.ini '{}': {}", button_path, err);
-                                command_buttons_parsed = false;
-                                break;
+                                return Err(format!("Failed admitting receiving CommandButton.ini '{button_path}': {err}"));
                             }
                             let mut ini = game_engine::common::ini::INI::new();
                             ini.set_receiving_science_names(receiving_module_content.module_content().science_facts());
@@ -1703,12 +1698,7 @@ impl CnCGameEngine {
                                     info!("Loaded command button definitions from {}", button_path);
                                 }
                                 Err(err) => {
-                                    warn!(
-                                        "Failed parsing CommandButton.ini '{}': {}",
-                                        button_path, err
-                                    );
-                                    command_buttons_parsed = false;
-                                    break;
+                                    return Err(format!("Failed parsing CommandButton.ini '{button_path}': {err}"));
                                 }
                             }
                         }
@@ -1719,9 +1709,7 @@ impl CnCGameEngine {
                         for set_path in ["Data/INI/Default/CommandSet.ini", "Data/INI/CommandSet.ini"] {
                             if let Some(content) = extract_ini_text_from_archives(set_path)? {
                                 if let Err(err) = receiving_module_content.admit_command_source(&content) {
-                                    warn!("Failed admitting receiving CommandSet.ini '{}': {}", set_path, err);
-                                    command_sets_parsed = false;
-                                    break;
+                                    return Err(format!("Failed admitting receiving CommandSet.ini '{set_path}': {err}"));
                                 }
                                 let mut ini = game_engine::common::ini::INI::new();
                                 match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
@@ -1730,25 +1718,14 @@ impl CnCGameEngine {
                                         info!("Loaded command set definitions from {}", set_path);
                                     }
                                     Err(err) => {
-                                        warn!(
-                                            "Failed parsing CommandSet.ini '{}': {}",
-                                            set_path, err
-                                        );
-                                        command_sets_parsed = false;
-                                        break;
+                                        return Err(format!("Failed parsing CommandSet.ini '{set_path}': {err}"));
                                     }
                                 }
                             }
                         }
                     }
 
-                    let parsed_button_count = receiving_module_content.module_content().action_definitions().buttons.count();
-                    let parsed_set_count = receiving_module_content.module_content().action_definitions().sets.count();
-                    if command_buttons_parsed
-                        && command_sets_parsed
-                        && parsed_button_count > 0
-                        && parsed_set_count > 0
-                    {
+                    if command_buttons_parsed && command_sets_parsed {
                         // GameClient reads this bridge for the same live
                         // CommandSet buttons shown to the player; Main's
                         // production authorization reads its typed UNIT_BUILD
@@ -1762,11 +1739,7 @@ impl CnCGameEngine {
                             );
                         }
                     } else {
-                        warn!(
-                            "CommandButton/CommandSet catalog unavailable (buttons={}, sets={}); retaining fail-closed compatibility production fallback",
-                            parsed_button_count,
-                            parsed_set_count
-                        );
+                        return Err("Required CommandButton/CommandSet sources are missing".into());
                     }
 
                     // C++ parity: GameEngine.cpp:500-501 — load CommandMap.ini (language-specific + fallback).
@@ -1794,9 +1767,8 @@ impl CnCGameEngine {
                         .weapon_definitions_snapshot();
                     let mut game_logic = GameLogic::initialize();
                     simulation_rules.admit_locomotors_before_objects(&mut game_logic)?;
-                    game_logic.admit_receiving_module_content_with_weapons(
-                        receiving_module_content,
-                        Some(weapons),
+                    game_logic.admit_startup_content(
+                        crate::assets::ReceivingStartupContent::from_admitted(receiving_module_content, weapons)
                     )?;
                     // Remaining legacy prerequisite/build-variation readers observe only
                     // an accepted detached view. Native plans move with their exact owner.
@@ -1927,7 +1899,7 @@ impl CnCGameEngine {
                             None if original_mode == 0 => {
                                 game_logic.start_new_game_with_recorder_payload(
                                     GameMode::Replay, difficulty, rank, max_fps,
-                                );
+                                )?;
                                 // Closed lobby rows preserve the campaign's authored sides.
                                 game_logic.clear_all_players();
                             }
@@ -1936,7 +1908,7 @@ impl CnCGameEngine {
                             )),
                         }
                     } else {
-                        game_logic.start_new_game_with_recorder_payload(startup_mode, difficulty, rank, max_fps);
+                        game_logic.start_new_game_with_recorder_payload(startup_mode, difficulty, rank, max_fps)?;
                     }
                     Self::admit_startup_simulation_inputs(&mut game_logic, startup_new_game);
                     game_logic.admit_new_game_starting_cash(game_info_starting_cash, default_starting_cash);
@@ -2189,7 +2161,7 @@ impl CnCGameEngine {
                         "Failed to load startup map '{}'; falling back to menu startup",
                         map_to_load
                     );
-                    game_logic.start_new_game(GameMode::Shell);
+                    game_logic.start_new_game(GameMode::Shell).map_err(anyhow::Error::msg)?;
                     game_logic.admit_new_game_starting_cash(None, default_starting_cash);
                     start_in_menu = true;
                 } else {
@@ -2197,7 +2169,7 @@ impl CnCGameEngine {
                         "Failed to load startup map '{}'; falling back to menu startup with empty scene",
                         map_to_load
                     );
-                    game_logic.start_new_game(GameMode::Shell);
+                    game_logic.start_new_game(GameMode::Shell).map_err(anyhow::Error::msg)?;
                     game_logic.admit_new_game_starting_cash(None, default_starting_cash);
                     start_in_menu = true;
                 }

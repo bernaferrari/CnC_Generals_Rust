@@ -37,7 +37,8 @@ fn actual_single_player_replay_keeps_authored_sides_without_starter_players() {
             );
             assert_eq!(world.replay_pending.recorder_owned().get_game_mode(), 0);
             assert!(!world.has_recorded_lobby_sides());
-            world.start_new_game_with_recorder_payload(GameMode::Replay, 1, 0, 30);
+            world.admit_object_ini_sources(std::iter::empty()).unwrap();
+            world.start_new_game_with_recorder_payload(GameMode::Replay, 1, 0, 30).unwrap();
             world.clear_all_players();
             assert!(world.is_single_player_scenario());
             assert!(!world.uses_lobby_side_foundation());

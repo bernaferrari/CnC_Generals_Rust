@@ -1563,14 +1563,14 @@ impl GameLogic {
     }
 
     /// Start skirmish match with AI opponents
-    pub fn start_skirmish_match(&mut self, human_team: Team, map_name: &str) {
+    pub fn start_skirmish_match(&mut self, human_team: Team, map_name: &str) -> Result<(), String> {
         println!(
             "🎮 Starting skirmish match: {} vs AI",
             human_team.get_name()
         );
 
         // Start new game
-        self.start_new_game(GameMode::Skirmish);
+        self.start_new_game(GameMode::Skirmish)?;
 
         // Load map
         self.load_map(map_name);
@@ -1605,6 +1605,7 @@ impl GameLogic {
             "✅ Skirmish match started with {} AI opponents!",
             ai_teams.len()
         );
+        Ok(())
     }
 
     /// Demonstrate AI capabilities

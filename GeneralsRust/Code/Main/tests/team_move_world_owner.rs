@@ -52,7 +52,7 @@ fn world(map: &std::path::Path) -> (GameLogic, generals_main::game_logic::Object
             "Object OwnedTeamMoveUnit\n KindOf = SELECTABLE INFANTRY\n Locomotor = SET_NORMAL GroupGround\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into(),
         )])
         .unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(map.to_str().unwrap()));
     world.add_player(Player::new(1, Team::USA, "Owner", true).with_script_identity("Owner"));
     let unit = world
@@ -79,7 +79,7 @@ fn contact_attack_uses_reachable_nearby_position_in_its_own_world() {
         weapon.attack_range = 5.0;
         game.admit_receiving_weapon_snapshot(vec![("ContactFixtureWeapon".into(), weapon)])
             .unwrap();
-        game.start_new_game(GameMode::SinglePlayer);
+        game.start_new_game(GameMode::SinglePlayer).unwrap();
         assert!(game.load_map(map.to_str().unwrap()));
         game.add_player(Player::new(1, Team::USA, "Owner", true).with_script_identity("Owner"));
         let id = game

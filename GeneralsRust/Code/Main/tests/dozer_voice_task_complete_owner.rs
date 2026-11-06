@@ -4,8 +4,6 @@ use glam::Vec3;
 
 fn world_with_task_voice(sound: &str) -> (GameLogic, generals_main::game_logic::ObjectId) {
     let mut world = GameLogic::new();
-    world.start_new_game(GameMode::SinglePlayer);
-    world.add_player(Player::new(0, Team::USA, "Local", true));
     world
         .admit_object_ini_sources([(
             "TaskVoice.ini".into(),
@@ -15,6 +13,8 @@ fn world_with_task_voice(sound: &str) -> (GameLogic, generals_main::game_logic::
             ),
         )])
         .unwrap();
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
+    world.add_player(Player::new(0, Team::USA, "Local", true));
     let dozer = world
         .create_object_for_player("SharedTaskDozer", 0, Vec3::ZERO)
         .expect("create receiving Dozer");

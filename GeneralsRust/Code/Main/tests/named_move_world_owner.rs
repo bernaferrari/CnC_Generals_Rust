@@ -123,7 +123,7 @@ fn world(path: &std::path::Path) -> (GameLogic, ObjectId) {
     world
         .admit_player_template_definitions(player_templates)
         .unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(path.to_str().expect("UTF-8 map path")));
     let unit = world
         .host_objects()

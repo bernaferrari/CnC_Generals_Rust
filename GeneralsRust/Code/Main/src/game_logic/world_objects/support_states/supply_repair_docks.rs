@@ -286,31 +286,6 @@ impl GameLogic {
         );
     }
 
-    pub(super) fn expire_temporary_stealth_grant(&mut self, object_id: ObjectId) {
-        let Some(object) = self.objects.get(&object_id) else {
-            return;
-        };
-        let expire = object.temporary_stealth_expires_frame;
-        // Host residual for C++ getLastCommandSource() == CMD_FROM_PLAYER:
-        // a move/attack order after stash grant is the player-visible exploit path.
-        let last_command_from_player = matches!(
-            object.ai_state(),
-            AIState::Moving | AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
-        );
-        if !Object::temporary_stealth_grant_should_expire(
-            expire,
-            self.frame,
-            last_command_from_player,
-        ) {
-            return;
-        }
-        if let Some(object) = self.objects.get_mut(&object_id) {
-            // Leftover receive_grant(false): strip CAN_STEALTH even when the
-            // grant latched innate_stealth. Skipping that latch left stash
-            // workers permanently cloaked.
-            object.revoke_grant_stealth();
-        }
-    }
 
     pub(crate) fn try_claim_dock(&mut self, dock_id: ObjectId, docker_id: ObjectId) -> gamelogic::GameLogicResult<bool> {
         self.with_own_services_mut(|this| this.try_claim_dock_bound(dock_id, docker_id))
@@ -1022,8 +997,8 @@ impl GameLogic {
         let Some(unit) = self.objects.get(&unit_id) else {
             return;
         };
-        let unit_is_temp = unit.temporary_stealth_expires_frame > self.frame;
-        let unit_can_stealth = unit.innate_stealth || unit.status.stealthed;
+        let unit_is_temp = unit.stealth_frames_granted > 0;
+        let unit_can_stealth = unit.innate_stealth;
         if !crate::game_logic::host_supply_gather::should_grant_temporary_stealth(
             center_stealthed,
             grant_frames,
@@ -1032,10 +1007,10 @@ impl GameLogic {
         ) {
             return;
         }
-        if let Some(unit) = self.objects.get_mut(&unit_id) {
-            unit.apply_grant_stealth();
-            unit.temporary_stealth_expires_frame = self.frame.saturating_add(grant_frames);
+        if unit.stealth_can_disguise() || unit.status.destroyed {
+            return;
         }
+        self.receive_stealth_grant(unit_id, true, grant_frames);
     }
 
     /// C++ ResourceManager + SupplyCenterDock: same controlling player only.

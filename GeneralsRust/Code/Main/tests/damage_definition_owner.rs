@@ -39,10 +39,10 @@ fn admitted_world(sound: &str, map: &std::path::Path) -> GameLogic {
          Behavior = TransitionDamageFX DamageTag\n DamagedFXList1 = Loc X:0 Y:0 Z:0 FXList:BaseDamageFx\n ReallyDamagedFXList1 = Loc X:0 Y:0 Z:0 FXList:BaseDamageFxReally\n End\nEnd\n"
     );
     let mut world = GameLogic::new();
-    world.start_new_game(GameMode::SinglePlayer);
     world
         .admit_object_ini_sources([("Object.ini".into(), source)])
         .unwrap();
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(map.to_str().expect("map path is UTF-8")));
     world
 }

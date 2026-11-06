@@ -35,7 +35,7 @@ fn world(map: &std::path::Path) -> GameLogic {
              Object VisibilityDetector\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
         )])
         .unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(map.to_str().unwrap()));
     world.add_player(Player::new(1, Team::USA, "Local", true).with_script_identity("Local"));
     world.add_player(Player::new(2, Team::China, "China", false).with_script_identity("China"));
@@ -120,10 +120,8 @@ fn live_visibility_uses_receiving_object_status_not_core_singletons() {
     owner.update_with_dt(1.0 / 30.0);
     peer.update_with_dt(1.0 / 30.0);
     for world in [&mut owner, &mut peer] {
-        world
-            .host_object_mut(owner_target)
-            .unwrap()
-            .set_status_stealthed(true);
+        let frame = world.get_frame();
+        world.host_object_mut(owner_target).unwrap().apply_grant_stealth(frame);
         world
             .host_object_mut(owner_target)
             .unwrap()
@@ -133,6 +131,8 @@ fn live_visibility_uses_receiving_object_status_not_core_singletons() {
     peer.host_object_mut(detector)
         .unwrap()
         .next_detection_scan_frame = frame;
+    peer.update_stealth_and_detection();
+    assert!(!peer.host_object(peer_target).unwrap().status.detected);
     peer.update_stealth_and_detection();
     assert!(peer.host_object(peer_target).unwrap().status.detected);
 

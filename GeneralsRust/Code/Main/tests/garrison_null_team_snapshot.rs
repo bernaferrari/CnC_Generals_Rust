@@ -61,7 +61,7 @@ End\n"
                 .into(),
         )])
         .expect("admit no-Team Garrison fixture");
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     let map_root = tempfile::tempdir().unwrap();
     let map = map_file(map_root.path());
     assert!(world.load_map(map.to_str().unwrap()));

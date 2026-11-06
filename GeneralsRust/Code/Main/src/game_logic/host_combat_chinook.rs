@@ -1466,9 +1466,10 @@ mod tests {
             )
             .expect("chinook");
         {
+            let frame = logic.get_current_frame() as u32;
             let obj = logic.host_object_mut(id).expect("obj");
             if !obj.is_combat_chinook_style_container() {
-                obj.install_combat_chinook_transport();
+                obj.install_combat_chinook_transport(frame);
             }
             let ai = obj.chinook_ai.as_ref().expect("chinook_ai installed");
             assert_eq!(ai.flight_status, HostChinookFlightStatus::Flying);
@@ -1559,9 +1560,10 @@ mod tests {
             )
             .expect("chinook");
         {
+            let frame = logic.get_current_frame() as u32;
             let obj = logic.host_object_mut(id).expect("obj");
             if !obj.is_combat_chinook_style_container() {
-                obj.install_combat_chinook_transport();
+                obj.install_combat_chinook_transport(frame);
             }
             obj.set_stored_supplies(8 * 75);
             obj.drawable_supply_boxes = 8;

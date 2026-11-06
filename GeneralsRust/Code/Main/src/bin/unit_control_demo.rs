@@ -84,12 +84,13 @@ impl UnitControlDemo {
         };
 
         // Initialize game logic
-        let game_logic = GameLogic::new();
+        let mut game_logic = GameLogic::new();
 
         // Set up the game world
         {
             let logic = &mut game_logic;
-            logic.start_new_game(GameMode::Skirmish);
+            generals_main::cnc_game_engine::start_standalone_game(logic, GameMode::Skirmish)
+                .map_err(anyhow::Error::msg)?;
             logic.load_map("demo_map");
 
             // Create additional test units for demo

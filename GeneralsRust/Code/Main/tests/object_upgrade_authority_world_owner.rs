@@ -85,7 +85,7 @@ fn world(root: &std::path::Path, label: &str) -> (GameLogic, ObjectId, String) {
     )
     .unwrap();
 
-    game.start_new_game(GameMode::SinglePlayer);
+    game.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(
         game.load_map(map_path.to_str().unwrap()),
         "authored MapGrantTarget and receiving Map.ini should admit"

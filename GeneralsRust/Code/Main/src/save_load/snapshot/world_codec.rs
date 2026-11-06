@@ -1,4 +1,4 @@
-//! Typed Rust world codec for the identical version-23 through 28 positional body.
+//! Typed Rust world codec; validate the outer version before decoding the body.
 use super::*;
 use crate::save_load::{SaveLoadError, SaveLoadResult, Xfer, XferMode};
 use serde::{Deserialize, Serialize};

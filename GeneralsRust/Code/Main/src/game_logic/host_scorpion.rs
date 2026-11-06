@@ -198,25 +198,13 @@ pub fn has_ap_rockets_upgrade(applied_upgrades: &HashSet<String>) -> bool {
     })
 }
 
-/// Infer salvage tier from upgrade tags (caller may also pass explicit tier).
-pub fn salvage_tier_from_upgrades(applied_upgrades: &HashSet<String>) -> ScorpionSalvageTier {
-    if applied_upgrades.iter().any(|u| {
-        let l = u.to_ascii_lowercase();
-        l.contains("crateupgrade_two")
-            || l.contains("crateupgradetwo")
-            || l.contains("weaponset_crateupgrade_two")
-    }) {
-        return ScorpionSalvageTier::Two;
+/// Infer salvage tier from the object's authoritative weapon conditions.
+pub fn salvage_tier_from_weapon_crate(level: u8) -> ScorpionSalvageTier {
+    match level {
+        0 => ScorpionSalvageTier::Base,
+        1 => ScorpionSalvageTier::One,
+        _ => ScorpionSalvageTier::Two,
     }
-    if applied_upgrades.iter().any(|u| {
-        let l = u.to_ascii_lowercase();
-        l.contains("crateupgrade_one")
-            || l.contains("crateupgradeone")
-            || l.contains("weaponset_crateupgrade_one")
-    }) {
-        return ScorpionSalvageTier::One;
-    }
-    ScorpionSalvageTier::Base
 }
 
 /// Primary gun weapon name for salvage tier.
@@ -252,6 +240,7 @@ pub fn scorpion_gun_weapon(tier: ScorpionSalvageTier) -> Weapon {
         min_range: 0.0,
         reload_time: delay_frames_to_reload_secs(delay),
         last_fire_time: 0.0,
+        last_fire_frame: 0,
         ammo: None,
         clip_size: 0,
         clip_reload_time: 0.0,
@@ -287,6 +276,7 @@ pub fn scorpion_missile_weapon(has_ap: bool, dual_clip: bool) -> Weapon {
         min_range: SCORPION_MISSILE_MIN_RANGE,
         reload_time: delay_frames_to_reload_secs(SCORPION_MISSILE_RELOAD_FRAMES),
         last_fire_time: 0.0,
+        last_fire_frame: 0,
         ammo: None,
         clip_size: 0,
         clip_reload_time: 0.0,
@@ -500,8 +490,7 @@ mod tests {
         assert!(has_scorpion_rocket_upgrade(&set));
         set.insert(UPGRADE_GLA_AP_ROCKETS.to_string());
         assert!(has_ap_rockets_upgrade(&set));
-        set.insert("WEAPONSET_CRATEUPGRADE_TWO".to_string());
-        assert_eq!(salvage_tier_from_upgrades(&set), ScorpionSalvageTier::Two);
+        assert_eq!(salvage_tier_from_weapon_crate(2), ScorpionSalvageTier::Two);
     }
 
     #[test]

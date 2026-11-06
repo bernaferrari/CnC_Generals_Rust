@@ -29,7 +29,7 @@ fn world(map: &std::path::Path, radius: u32) -> (GameLogic, generals_main::game_
              Object AmericaVehicleSpyDrone\n KindOf = SELECTABLE VEHICLE\n Locomotor = SET_NORMAL SpyDroneLocomotor\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into(),
         )])
         .unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(map.to_str().unwrap()));
     world.add_player(Player::new(1, Team::USA, "Display", true).with_script_identity("Owner"));
     let id = world

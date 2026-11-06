@@ -375,7 +375,7 @@ fn viewer_relative_stealth_matches_cxx_allies_and_inactive_local_rules() {
         object.owner_player_id = Some(owner);
         object.status.stealthed = true;
         object.status.detected = false;
-        object.apply_stealth_update_pulse();
+        object.apply_stealth_update_pulse(&crate::game_logic::object::StealthUpdateData::default());
     }
 
     let active = PresentationFrame::build_from_logic(&mut logic, 0);
@@ -488,6 +488,10 @@ fn friendly_stealth_opacity_pulses_across_logic_frames() {
     logic.add_player(Player::new(0, Team::USA, "Local", true));
     let mut template = ThingTemplate::new("PulseStealthUnit");
     template.set_health(100.0);
+    template.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        stealth_delay_frames: 0,
+        ..Default::default()
+    });
     logic.templates.insert("PulseStealthUnit".into(), template);
     let id = logic
         .create_object(
@@ -583,6 +587,14 @@ fn bomb_truck_prehalfpoint_disguise_stays_visible_opaque_through_gameworld_rebui
 
     let mut template = ThingTemplate::new("GLAVehicleBombTruck");
     template.set_health(100.0);
+    // Authored StealthUpdate `DisguisesAsTeam = Yes` (canDisguise).
+    template.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        disguises_as_team: true,
+        innate_stealth: false,
+        disguise_transition_frames: 60,
+        disguise_reveal_transition_frames: 30,
+        ..Default::default()
+    });
     logic
         .templates
         .insert("GLAVehicleBombTruck".into(), template);
@@ -648,6 +660,13 @@ fn completed_allied_disguise_uses_the_direct_visual_template_after_gameworld_reb
 
     let mut truck_template = ThingTemplate::new("GLAVehicleBombTruck");
     truck_template.set_health(100.0);
+    truck_template.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        innate_stealth: false,
+        disguises_as_team: true,
+        disguise_transition_frames: 60,
+        disguise_reveal_transition_frames: 30,
+        ..Default::default()
+    });
     logic
         .templates
         .insert("GLAVehicleBombTruck".into(), truck_template);
@@ -975,6 +994,7 @@ fn overlay_gameworld_shadow_copies_entity_residual() {
             min_range: 0.0,
             reload_time: 1.0,
             last_fire_time: 0.0,
+            last_fire_frame: 0,
             ammo: None,
             clip_size: 0,
             clip_reload_time: 0.0,
@@ -1218,8 +1238,6 @@ fn presentation_freezes_detector_stealth_timing_residual() {
         obj.is_detector = true;
         obj.detection_range = 250.0;
         obj.detection_rate_frames = 15;
-        obj.stealth_breaks_on_attack = true;
-        obj.stealth_breaks_on_move = true;
         obj.innate_stealth = true;
         obj.weapon_bonus_frenzy_until_frame = 120;
         obj.consecutive_shots_at_target = 9;
@@ -1232,7 +1250,7 @@ fn presentation_freezes_detector_stealth_timing_residual() {
     let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
     assert!((ro.detection_range - 250.0).abs() < 0.01);
     assert_eq!(ro.detection_rate_frames, 15);
-    assert!(ro.stealth_breaks_on_attack && ro.stealth_breaks_on_move && ro.innate_stealth);
+    assert!(ro.innate_stealth);
     assert_eq!(ro.weapon_bonus_frenzy_until_frame, 120);
     assert_eq!(ro.continuous_fire_consecutive, 9);
     assert_eq!(ro.continuous_fire_coast_until_frame, 40);

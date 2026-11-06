@@ -122,6 +122,7 @@ struct ObjectXferPersist {
     turret_enabled: bool,
     turret_substate: u8,
     turret_rotating: bool,
+    // Retired absolute deadline slot. STLG owns the StealthUpdate countdown.
     temporary_stealth_expires_frame: u32,
     weapon_bonus_solo: u8,
     which_exit_path: u8,
@@ -902,7 +903,7 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
             turret_enabled: object.turret_ai.turret_enabled,
             turret_substate: object.turret_ai.turret_substate.ordinal(),
             turret_rotating: object.turret_ai.turret_rotating,
-            temporary_stealth_expires_frame: object.temporary_stealth_expires_frame,
+            temporary_stealth_expires_frame: 0,
             weapon_bonus_solo: object.weapon_bonus_solo,
             which_exit_path: object.which_exit_path,
             cheer_timer: object.cheer_timer,
@@ -1177,7 +1178,6 @@ fn reset_object_xfer(game_logic: &mut GameLogic) {
         object.turret_ai.turret_force_attacking = false;
         object.turret_ai.turret_substate = TurretSubState::Idle;
         object.turret_ai.turret_rotating = false;
-        object.temporary_stealth_expires_frame = 0;
         object.weapon_bonus_solo = 0;
         object.is_receiving_difficulty_bonus = false;
         object.which_exit_path = 0;
@@ -1317,7 +1317,6 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) 
             object.turret_ai.turret_enabled = entry.turret_enabled;
             object.turret_ai.turret_substate = TurretSubState::from_ordinal(entry.turret_substate);
             object.turret_ai.turret_rotating = entry.turret_rotating;
-            object.temporary_stealth_expires_frame = entry.temporary_stealth_expires_frame;
             object.weapon_bonus_solo = entry.weapon_bonus_solo;
             object.is_receiving_difficulty_bonus = entry.weapon_bonus_solo != 0;
             object.which_exit_path = entry.which_exit_path;

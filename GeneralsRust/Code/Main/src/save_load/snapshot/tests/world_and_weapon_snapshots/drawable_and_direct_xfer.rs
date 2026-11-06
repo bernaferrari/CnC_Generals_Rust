@@ -47,6 +47,10 @@ fn stealth_detection_expires_frame_survives_snapshot_and_clears_detected() {
     template
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable);
+    template.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        stealth_delay_frames: 0,
+        ..Default::default()
+    });
     source
         .templates
         .insert("StealthExpirySnap".into(), template);
@@ -106,7 +110,7 @@ fn stealth_detection_expires_frame_survives_snapshot_and_clears_detected() {
         obj.status.stealthed,
         "stealth remains after detection expires"
     );
-    assert_eq!(obj.detection_expires_frame, 0);
+    assert_eq!(obj.detection_expires_frame, 100);
 }
 
 #[test]
@@ -582,6 +586,8 @@ fn direct_xfer_current_round_trips_weapon_suspend_fx_tail_and_keeps_alignment() 
     };
     object.template_name = "V7SuspendFxDirectXferObject".to_string();
     object.weapons = vec![Weapon::default(), Weapon::default(), Weapon::default()];
+    object.weapons[0].last_fire_frame = 123;
+    object.weapons[2].last_fire_frame = 456;
     object.weapon_suspend_fx_frames = vec![1_234, 0, 5_678];
     world.objects.insert(object_id, object);
     let mut player = default_player_snapshot();
@@ -609,6 +615,8 @@ fn direct_xfer_current_round_trips_weapon_suspend_fx_tail_and_keeps_alignment() 
         .objects
         .get(&object_id)
         .expect("restored v7 object");
+    assert_eq!(restored_object.weapons[0].last_fire_frame, 123);
+    assert_eq!(restored_object.weapons[2].last_fire_frame, 456);
     assert_eq!(
         restored_object.weapon_suspend_fx_frames,
         vec![1_234, 0, 5_678]
@@ -712,6 +720,25 @@ fn direct_xfer_current_round_trips_temporary_weapon_tail_and_keeps_alignment() {
     );
     assert_eq!(restored.players[0].name, "V8PostTemporaryWeaponAlignment");
     assert_eq!(sentinel, 0xABCD_0123);
+}
+
+#[test]
+fn old_world_weapon_layout_is_rejected_before_decoding() {
+    use crate::save_load::{SaveLoadError, Xfer, XferLoad};
+    use std::io::Cursor;
+
+    let old_version = WORLD_SNAPSHOT_DIRECT_XFER_VERSION - 1;
+    let bytes = old_version.to_le_bytes();
+    assert!(matches!(
+        crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes),
+        Err(SaveLoadError::VersionMismatch { actual, .. }) if actual == old_version
+    ));
+    let mut reader = XferLoad::new(Cursor::new(bytes.to_vec()));
+    let mut restored = WorldSnapshot::default();
+    assert!(matches!(
+        restored.xfer(&mut reader),
+        Err(SaveLoadError::VersionMismatch { actual, .. }) if actual == old_version
+    ));
 }
 
 #[test]

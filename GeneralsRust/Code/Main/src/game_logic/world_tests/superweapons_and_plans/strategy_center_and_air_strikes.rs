@@ -731,6 +731,12 @@ fn strategy_center_stealth_detector_enable_residual() {
         .add_kind_of(KindOf::Selectable)
         .set_health(1500.0);
     sc_template.sight_range = 400.0;
+    game_logic.templates.get_mut("TestTank").unwrap().stealth_update =
+        Some(crate::game_logic::object::StealthUpdateData {
+            innate_stealth: false,
+            granted_by_special_power: true,
+            ..Default::default()
+        });
     game_logic
         .templates
         .insert("AmericaStrategyCenter".to_string(), sc_template);
@@ -751,8 +757,9 @@ fn strategy_center_stealth_detector_enable_residual() {
         .create_object("TestTank", Team::China, Vec3::new(400.0, 0.0, 0.0))
         .expect("near stealthed");
     {
+        let frame = game_logic.frame;
         let e = game_logic.host_object_mut(near_id).expect("near");
-        e.apply_grant_stealth();
+        e.apply_grant_stealth(frame);
         assert!(e.is_effectively_stealthed());
     }
     // Stealthed enemy outside DetectionRange 500.
@@ -760,8 +767,9 @@ fn strategy_center_stealth_detector_enable_residual() {
         .create_object("TestTank", Team::China, Vec3::new(600.0, 0.0, 0.0))
         .expect("far stealthed");
     {
+        let frame = game_logic.frame;
         let e = game_logic.host_object_mut(far_id).expect("far");
-        e.apply_grant_stealth();
+        e.apply_grant_stealth(frame);
     }
 
     // Without S&D: detector off → no residual detect.
@@ -810,6 +818,8 @@ fn strategy_center_stealth_detector_enable_residual() {
         game_logic.honesty_stealth_detector_rate_ok(),
         "DetectionRate residual must record scan honesty"
     );
+    assert!(game_logic.host_object(near_id).unwrap().is_effectively_stealthed());
+    game_logic.update_stealth_and_detection();
     assert!(
         !game_logic
             .host_object(near_id)
@@ -856,11 +866,13 @@ fn strategy_center_stealth_detector_enable_residual() {
         "must record StealthDetector disable honesty"
     );
 
-    // After disable: clear detected and re-stealth for residual recheck.
+    // A new grant does not clear detection; wait for the existing timer.
     {
+        let frame = game_logic.frame;
         let e = game_logic.host_object_mut(near_id).expect("near");
-        e.apply_grant_stealth();
+        e.apply_grant_stealth(frame);
     }
+    game_logic.frame = game_logic.host_object(near_id).unwrap().detection_expires_frame;
     game_logic.update_stealth_and_detection();
     assert!(
         game_logic
@@ -880,6 +892,12 @@ fn strategy_center_stealth_detector_detection_rate_residual() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    game_logic.templates.get_mut("TestTank").unwrap().stealth_update =
+        Some(crate::game_logic::object::StealthUpdateData {
+            innate_stealth: false,
+            granted_by_special_power: true,
+            ..Default::default()
+        });
     ensure_test_player_for_team(&mut game_logic, Team::USA);
     ensure_test_player_for_team(&mut game_logic, Team::China);
 
@@ -908,8 +926,9 @@ fn strategy_center_stealth_detector_detection_rate_residual() {
         .create_object("TestTank", Team::China, Vec3::new(200.0, 0.0, 0.0))
         .expect("stealthed enemy");
     {
+        let frame = game_logic.frame;
         let e = game_logic.host_object_mut(enemy_id).expect("enemy");
-        e.apply_grant_stealth();
+        e.apply_grant_stealth(frame);
     }
 
     assert!(game_logic.activate_battle_plan(0, HostBattlePlan::SearchAndDestroy, Some(sc_id),));
@@ -925,15 +944,15 @@ fn strategy_center_stealth_detector_detection_rate_residual() {
     );
     {
         let e = game_logic.host_object(enemy_id).expect("enemy");
-        assert!(
-            e.status.detected,
-            "first scan must detect in-range stealthed"
-        );
+        assert!(!e.status.detected, "the scan only marks the detection timer");
         assert_eq!(
             e.detection_expires_frame, STRATEGY_CENTER_STEALTH_DETECTION_HOLD_FRAMES,
             "markAsDetected(rate+1) residual hold must be 16 frames"
         );
     }
+    game_logic.frame = 1;
+    game_logic.update_stealth_and_detection();
+    assert!(game_logic.host_object(enemy_id).unwrap().status.detected);
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
         assert_eq!(
@@ -1589,6 +1608,15 @@ fn gps_scrambler_residual_grants_stealth_to_ally_units() {
     );
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_barracks_template(&mut game_logic);
+    for name in ["TestTank", "TestInfantry"] {
+        game_logic.templates.get_mut(name).unwrap().stealth_update =
+            Some(crate::game_logic::object::StealthUpdateData {
+                innate_stealth: false,
+                granted_by_special_power: true,
+                forbidden_conditions: crate::game_logic::object::StealthForbiddenConditions::FIRING_WEAPON,
+                ..Default::default()
+            });
+    }
 
     // Caster + ally on GLA (retail GPS Scrambler faction residual).
     ensure_test_player_for_team(&mut game_logic, Team::GLA);
@@ -1775,12 +1803,20 @@ fn gps_scrambler_residual_grants_stealth_to_ally_units() {
         );
     }
     game_logic.update_combat(&[ally_vehicle_id, enemy_id], 1.0 / 30.0);
+    // C++ firing does not clear STEALTHED itself: the granted
+    // DefaultThingTemplate StealthUpdate (FIRING_PRIMARY/SECONDARY/TERTIARY)
+    // reveals on its next update (StealthUpdate.cpp:324-362, 717-752).
+    game_logic
+        .host_object_mut(ally_vehicle_id)
+        .expect("ally vehicle")
+        .set_status_firing_weapon(true);
+    game_logic.update_stealth_and_detection();
     let after_fire = game_logic
         .host_object(ally_vehicle_id)
         .expect("ally vehicle");
     assert!(
         !after_fire.is_effectively_stealthed(),
-        "firing must break GPS Scrambler residual stealth"
+        "firing must break GPS Scrambler stealth on the next StealthUpdate"
     );
 }
 
@@ -2240,6 +2276,11 @@ fn radar_van_scan_fires_stealth_discover_feedback() {
     hero.add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Hero)
         .set_health(120.0);
+    hero.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        innate_stealth: false,
+        granted_by_special_power: true,
+        ..Default::default()
+    });
     logic
         .templates
         .insert("ChinaInfantryBlackLotus".into(), hero);
@@ -2248,18 +2289,21 @@ fn radar_van_scan_fires_stealth_discover_feedback() {
         .expect("lotus");
     {
         let obj = logic.host_object_mut(lotus).unwrap();
-        obj.set_status_stealthed(true);
+        obj.apply_grant_stealth(0);
         obj.set_status_detected(false);
     }
     logic.queued_audio_events.clear();
     let ping = logic
         .spawn_radar_van_ping(Team::GLA, Vec3::new(100.0, 0.0, 100.0), None)
         .expect("ping");
-    let _ = ping;
+    run_detector_first_scan(&mut logic, ping);
     assert!(
-        logic.host_object(lotus).unwrap().status.detected,
-        "first-scan mark_detected"
+        logic.host_object(lotus).unwrap().detection_expires_frame > logic.frame,
+        "first scan must mark the detection timer"
     );
+    logic.frame += 1;
+    logic.update_stealth_and_detection();
+    assert!(logic.host_object(lotus).unwrap().status.detected);
     let text = logic
         .last_radar_message_text()
         .unwrap_or("")
@@ -2339,7 +2383,7 @@ fn spy_satellite_destalths_units_in_scan() {
         .unwrap();
     {
         let obj = logic.host_object_mut(kell).unwrap();
-        obj.set_status_stealthed(true);
+        obj.apply_grant_stealth(0);
         obj.set_status_detected(false);
     }
     assert!(logic.host_object(kell).unwrap().is_effectively_stealthed());
@@ -2357,6 +2401,8 @@ fn spy_satellite_destalths_units_in_scan() {
         (ping.detection_range - 300.0).abs() < 0.1,
         "DetectionRange 0 → VisionRange 300"
     );
+    assert!(!logic.host_object(kell).unwrap().status.detected);
+    logic.update_stealth_and_detection();
     let kell_after = logic.host_object(kell).unwrap();
     assert!(
         kell_after.status.detected,
@@ -2562,9 +2608,19 @@ fn gps_scrambler_grows_and_spawns_marker() {
     }
     let mut tank_near = crate::game_logic::ThingTemplate::new("GLATankScorpion");
     tank_near.add_kind_of(KindOf::Vehicle).set_health(400.0);
+    tank_near.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        innate_stealth: false,
+        granted_by_special_power: true,
+        ..Default::default()
+    });
     logic.templates.insert("GLATankScorpion".into(), tank_near);
     let mut tank_far = crate::game_logic::ThingTemplate::new("GLATankMarauder");
     tank_far.add_kind_of(KindOf::Vehicle).set_health(400.0);
+    tank_far.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        innate_stealth: false,
+        granted_by_special_power: true,
+        ..Default::default()
+    });
     logic.templates.insert("GLATankMarauder".into(), tank_far);
     let near = logic
         .create_object("GLATankScorpion", Team::GLA, Vec3::new(15.0, 0.0, 0.0))

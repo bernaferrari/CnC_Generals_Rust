@@ -9,7 +9,8 @@ const OWNER: &str = "SynchronousCashOwner";
 
 fn world(initial: u32) -> GameLogic {
     let mut world = GameLogic::new();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.admit_object_ini_sources(std::iter::empty()).unwrap();
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     let mut player = Player::new(3, Team::USA, OWNER, true).with_script_identity(OWNER);
     player.resources.supplies = initial;
     world.add_player(player);

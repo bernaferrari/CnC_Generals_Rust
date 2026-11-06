@@ -2278,6 +2278,12 @@ fn detector_scan_uses_player_relationship_not_team_enum() {
     logic.add_player(gla);
 
     ensure_test_infantry_template(&mut logic);
+    logic.templates.get_mut("TestInfantry").unwrap().stealth_update =
+        Some(crate::game_logic::object::StealthUpdateData {
+            innate_stealth: false,
+            granted_by_special_power: true,
+            ..Default::default()
+        });
     let det = logic
         .create_object_for_player("TestInfantry", 0, Vec3::new(0.0, 0.0, 0.0))
         .expect("detector");
@@ -2295,12 +2301,14 @@ fn detector_scan_uses_player_relationship_not_team_enum() {
     }
     for id in [ally, enemy] {
         if let Some(o) = logic.host_object_mut(id) {
-            o.status.stealthed = true;
+            o.apply_grant_stealth(0);
             o.status.detected = false;
         }
     }
 
     logic.frame = 1;
+    logic.update_stealth_and_detection();
+    logic.frame = 2;
     logic.update_stealth_and_detection();
 
     assert!(
@@ -2320,6 +2328,38 @@ fn detector_scan_uses_player_relationship_not_team_enum() {
 }
 
 #[test]
+fn overlapping_detectors_each_refresh_detection() {
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(2, Team::GLA, "GLA", false));
+    ensure_test_infantry_template(&mut logic);
+    ensure_test_tank_template(&mut logic);
+    logic.templates.get_mut("TestTank").unwrap().stealth_update =
+        Some(crate::game_logic::object::StealthUpdateData {
+            innate_stealth: false,
+            granted_by_special_power: true,
+            ..Default::default()
+        });
+    let target = logic.create_object("TestTank", Team::GLA, Vec3::new(10.0, 0.0, 0.0)).unwrap();
+    logic.host_object_mut(target).unwrap().apply_grant_stealth(0);
+    for rate in [5, 20] {
+        let detector = logic.create_object("TestInfantry", Team::USA, Vec3::ZERO).unwrap();
+        let detector = logic.host_object_mut(detector).unwrap();
+        detector.is_detector = true;
+        detector.detection_range = 80.0;
+        detector.detection_rate_frames = rate;
+        detector.next_detection_scan_frame = 0;
+    }
+
+    logic.frame = 1;
+    logic.update_stealth_and_detection();
+    assert_eq!(logic.host_object(target).unwrap().detection_expires_frame, 22);
+    logic.frame = 2;
+    logic.update_stealth_and_detection();
+    assert!(logic.host_object(target).unwrap().status.detected);
+}
+
+#[test]
 fn detected_hero_wakes_idle_enemies() {
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
@@ -2332,6 +2372,12 @@ fn detected_hero_wakes_idle_enemies() {
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
         .set_health(200.0);
+    burton_tpl.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        innate_stealth: false,
+        granted_by_special_power: true,
+        order_idle_enemies_to_attack_me_upon_reveal: true,
+        ..Default::default()
+    });
     logic
         .templates
         .insert("AmericaInfantryColonelBurton".into(), burton_tpl);
@@ -2341,8 +2387,7 @@ fn detected_hero_wakes_idle_enemies() {
         .expect("burton");
     {
         let b = logic.host_object_mut(burton).unwrap();
-        b.innate_stealth = true;
-        b.set_status_stealthed(true);
+        b.apply_grant_stealth(0);
         b.set_status_detected(false);
         b.stealth_allowed_frame = 0;
     }
@@ -2378,6 +2423,10 @@ fn detected_hero_wakes_idle_enemies() {
 
     logic.frame = 1;
     logic.update_stealth_and_detection();
+    assert!(!logic.host_object(burton).unwrap().status.detected);
+    logic.host_object_mut(detector).unwrap().is_detector = false;
+    logic.frame = 2;
+    logic.update_stealth_and_detection();
     assert!(
         logic.host_object(burton).unwrap().status.detected,
         "detector must mark Burton DETECTED"
@@ -2405,6 +2454,12 @@ fn detected_stealth_garrison_unhides_building() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::StealthGarrison)
         .set_health(200.0);
+    burton_tpl.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        innate_stealth: false,
+        granted_by_special_power: true,
+        order_idle_enemies_to_attack_me_upon_reveal: true,
+        ..Default::default()
+    });
     logic
         .templates
         .insert("AmericaInfantryColonelBurton".into(), burton_tpl);
@@ -2421,8 +2476,7 @@ fn detected_stealth_garrison_unhides_building() {
         .expect("burton");
     {
         let (b, fixture_partition_b) = logic.host_object_and_partition_mut(burton).unwrap();
-        b.innate_stealth = true;
-        b.set_status_stealthed(true);
+        b.apply_grant_stealth(0);
         b.set_status_detected(false);
         b.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_b);
     }
@@ -2454,6 +2508,10 @@ fn detected_stealth_garrison_unhides_building() {
 
     logic.frame = 1;
     logic.update_stealth_and_detection();
+    assert!(!logic.host_object(burton).unwrap().status.detected);
+    logic.host_object_mut(detector).unwrap().is_detector = false;
+    logic.frame = 2;
+    logic.update_stealth_and_detection();
     assert!(logic.host_object(burton).unwrap().status.detected);
     assert!(
         !logic
@@ -2477,6 +2535,13 @@ fn camo_netting_destalths_without_black_market() {
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::Selectable)
         .set_health(1000.0);
+    tunnel.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        stealth_delay_frames: 0,
+        forbidden_conditions: crate::game_logic::object::StealthForbiddenConditions::NO_BLACK_MARKET
+            .union(crate::game_logic::object::StealthForbiddenConditions::TAKING_DAMAGE),
+        innate_stealth: false,
+        ..Default::default()
+    });
     logic.templates.insert("GLATunnelNetwork".into(), tunnel);
 
     let tunnel_id = logic
@@ -2485,7 +2550,6 @@ fn camo_netting_destalths_without_black_market() {
     {
         let t = logic.host_object_mut(tunnel_id).unwrap();
         t.innate_stealth = true;
-        t.stealth_breaks_on_damage = true;
         t.set_status_stealthed(true);
         t.set_status_attacking(false);
         t.stealth_allowed_frame = 0;
@@ -2501,8 +2565,7 @@ fn camo_netting_destalths_without_black_market() {
     {
         let t = logic.host_object_mut(tunnel_id).unwrap();
         t.stealth_allowed_frame = 0;
-        t.stealth_delay_pending = false;
-        t.stealth_delay_frames = 0;
+        t.stealth_next_black_market_check_frame = 0;
     }
 
     logic.frame = 2;
@@ -2515,6 +2578,12 @@ fn camo_netting_destalths_without_black_market() {
     if let Some(m) = logic.host_object_mut(market) {
         m.set_status_sold(true);
     }
+    // C++ re-checks NO_BLACK_MARKET only once m_nextBlackMarketCheckFrame
+    // has passed (StealthUpdate.cpp:280-292); make the check due.
+    logic
+        .host_object_mut(tunnel_id)
+        .unwrap()
+        .stealth_next_black_market_check_frame = 0;
     logic.frame = 3;
     logic.update_stealth_and_detection();
     assert!(
@@ -2538,6 +2607,10 @@ fn cloak_and_detect_play_stealth_on_off() {
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
         .set_health(200.0);
+    burton_tpl.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        stealth_delay_frames: BURTON_STEALTH_DELAY_FRAMES,
+        ..Default::default()
+    });
     logic
         .templates
         .insert("AmericaInfantryColonelBurton".into(), burton_tpl);
@@ -2567,6 +2640,10 @@ fn cloak_and_detect_play_stealth_on_off() {
     }
     logic.queued_audio_events.clear();
     logic.frame = BURTON_STEALTH_DELAY_FRAMES.saturating_add(1);
+    logic.update_stealth_and_detection();
+    assert!(!logic.host_object(burton).unwrap().status.detected);
+    logic.host_object_mut(detector).unwrap().is_detector = false;
+    logic.frame = BURTON_STEALTH_DELAY_FRAMES.saturating_add(2);
     logic.update_stealth_and_detection();
     assert!(logic.host_object(burton).unwrap().status.detected);
     assert!(
@@ -2600,8 +2677,9 @@ fn sold_detector_stops_scanning() {
         .create_object("TestTank", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
         .expect("stealthed");
     {
+        let frame = logic.frame;
         let s = logic.host_object_mut(stealth).unwrap();
-        s.apply_grant_stealth();
+        s.apply_grant_stealth(frame);
     }
 
     logic.frame = 1;
@@ -2621,6 +2699,12 @@ fn stealth_attack_move_does_not_destalth() {
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
         .set_health(200.0);
+    burton_tpl.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        innate_stealth: false,
+        granted_by_special_power: true,
+        forbidden_conditions: crate::game_logic::object::StealthForbiddenConditions::FIRING_WEAPON,
+        ..Default::default()
+    });
     logic
         .templates
         .insert("AmericaInfantryColonelBurton".into(), burton_tpl);
@@ -2630,10 +2714,9 @@ fn stealth_attack_move_does_not_destalth() {
         .expect("burton");
     {
         let b = logic.host_object_mut(burton).unwrap();
-        b.innate_stealth = true;
+        b.apply_grant_stealth(0);
         b.set_status_stealthed(true);
         b.stealth_allowed_frame = 0;
-        b.stealth_delay_pending = false;
         b.set_ai_state(
             AIState::AttackMoving,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
@@ -2668,6 +2751,12 @@ fn stealth_detector_uses_horizontal_range() {
     logic.add_player(Player::new(2, Team::GLA, "GLA", false));
     ensure_test_infantry_template(&mut logic);
     ensure_test_tank_template(&mut logic);
+    logic.templates.get_mut("TestTank").unwrap().stealth_update =
+        Some(crate::game_logic::object::StealthUpdateData {
+            innate_stealth: false,
+            granted_by_special_power: true,
+            ..Default::default()
+        });
 
     let detector = logic
         .create_object("TestInfantry", Team::USA, Vec3::ZERO)
@@ -2682,11 +2771,16 @@ fn stealth_detector_uses_horizontal_range() {
         .create_object("TestTank", Team::GLA, Vec3::new(30.0, 400.0, 40.0))
         .expect("airborne stealth");
     {
+        let frame = logic.frame;
         let s = logic.host_object_mut(stealth).unwrap();
-        s.apply_grant_stealth();
+        s.apply_grant_stealth(frame);
     }
 
     logic.frame = 1;
+    logic.update_stealth_and_detection();
+    assert!(!logic.host_object(stealth).unwrap().status.detected);
+    logic.host_object_mut(detector).unwrap().is_detector = false;
+    logic.frame = 2;
     logic.update_stealth_and_detection();
     assert!(
         logic.host_object(stealth).unwrap().status.detected,
@@ -2709,6 +2803,11 @@ fn detector_scan_queues_ir_ping_and_heat_vision() {
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
         .set_health(200.0);
+    burton_tpl.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        innate_stealth: false,
+        granted_by_special_power: true,
+        ..Default::default()
+    });
     logic
         .templates
         .insert("AmericaInfantryColonelBurton".into(), burton_tpl);
@@ -2721,8 +2820,9 @@ fn detector_scan_queues_ir_ping_and_heat_vision() {
         )
         .expect("burton");
     {
+        let frame = logic.frame;
         let b = logic.host_object_mut(burton).unwrap();
-        b.apply_grant_stealth();
+        b.apply_grant_stealth(frame);
     }
 
     let detector = logic
@@ -2738,7 +2838,7 @@ fn detector_scan_queues_ir_ping_and_heat_vision() {
     logic.frame = 1;
     logic.update_stealth_and_detection();
     let target = logic.host_object(burton).unwrap();
-    assert!(target.status.detected);
+    assert!(target.detection_expires_frame > logic.frame);
     assert!(
         target.pending_second_material_pass() == Some(1.0),
         "first-spot must arm heat-vision second pass"
@@ -2762,6 +2862,16 @@ fn detector_scan_queues_ir_ping_and_heat_vision() {
     );
 }
 
+/// Authored Pathfinder StealthUpdate: Forbidden MOVING, MoveThresholdSpeed 3.
+fn pathfinder_stealth_update() -> crate::game_logic::object::StealthUpdateData {
+    crate::game_logic::object::StealthUpdateData {
+        stealth_delay_frames: 0,
+        forbidden_conditions: crate::game_logic::object::StealthForbiddenConditions::MOVING,
+        move_threshold_speed: 3.0,
+        ..Default::default()
+    }
+}
+
 #[test]
 fn pathfinder_grant_does_not_recloak_while_moving() {
     let mut logic = GameLogic::new();
@@ -2771,6 +2881,7 @@ fn pathfinder_grant_does_not_recloak_while_moving() {
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
+    pf_tpl.stealth_update = Some(pathfinder_stealth_update());
     logic
         .templates
         .insert("AmericaInfantryPathfinder".into(), pf_tpl);
@@ -2780,9 +2891,6 @@ fn pathfinder_grant_does_not_recloak_while_moving() {
     {
         let o = logic.host_object_mut(pf).unwrap();
         o.innate_stealth = true;
-        o.is_pathfinder_unit = true;
-        o.stealth_breaks_on_move = true;
-        o.stealth_delay_frames = 0;
         o.set_status_stealthed(true);
         o.set_status_moving(true);
         o.set_ai_state(
@@ -2810,6 +2918,7 @@ fn pathfinder_move_order_below_threshold_stays_stealthed() {
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
+    pf_tpl.stealth_update = Some(pathfinder_stealth_update());
     logic
         .templates
         .insert("AmericaInfantryPathfinder".into(), pf_tpl);
@@ -2819,9 +2928,6 @@ fn pathfinder_move_order_below_threshold_stays_stealthed() {
     {
         let o = logic.host_object_mut(pf).unwrap();
         o.innate_stealth = true;
-        o.is_pathfinder_unit = true;
-        o.stealth_breaks_on_move = true;
-        o.stealth_delay_frames = 0;
         o.set_status_stealthed(true);
         o.set_status_moving(true);
         o.set_ai_state(
@@ -2848,6 +2954,7 @@ fn pathfinder_sliding_stop_above_threshold_destalths() {
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
+    pf_tpl.stealth_update = Some(pathfinder_stealth_update());
     logic
         .templates
         .insert("AmericaInfantryPathfinder".into(), pf_tpl);
@@ -2857,9 +2964,6 @@ fn pathfinder_sliding_stop_above_threshold_destalths() {
     {
         let o = logic.host_object_mut(pf).unwrap();
         o.innate_stealth = true;
-        o.is_pathfinder_unit = true;
-        o.stealth_breaks_on_move = true;
-        o.stealth_delay_frames = 0;
         o.set_status_stealthed(true);
         o.set_status_moving(false);
         o.set_ai_state(
@@ -2927,13 +3031,19 @@ fn detector_ir_grid_refreshes_on_already_detected_scan() {
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     logic.add_player(Player::new(2, Team::GLA, "GLA", false));
     ensure_test_infantry_template(&mut logic);
+    logic.templates.get_mut("TestInfantry").unwrap().stealth_update =
+        Some(crate::game_logic::object::StealthUpdateData {
+            innate_stealth: false,
+            granted_by_special_power: true,
+            ..Default::default()
+        });
 
     let stealth = logic
         .create_object("TestInfantry", Team::GLA, Vec3::new(25.0, 0.0, 13.0))
         .expect("stealthed");
     {
         let s = logic.host_object_mut(stealth).unwrap();
-        s.set_status_stealthed(true);
+        s.apply_grant_stealth(0);
         s.set_status_detected(false);
     }
 
@@ -2948,7 +3058,7 @@ fn detector_ir_grid_refreshes_on_already_detected_scan() {
 
     logic.frame = 1;
     logic.update_stealth_and_detection();
-    assert!(logic.host_object(stealth).unwrap().status.detected);
+    assert!(logic.host_object(stealth).unwrap().detection_expires_frame > logic.frame);
     let first: Vec<_> = logic
         .combat_particles()
         .active_systems()

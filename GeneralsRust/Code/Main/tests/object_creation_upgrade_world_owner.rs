@@ -130,7 +130,7 @@ fn world(root: &std::path::Path, label: &str) -> (GameLogic, ObjectId, String) {
 
     let path = root.join(format!("{label}Upgrade.map"));
     std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
-    game.start_new_game(GameMode::SinglePlayer);
+    game.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(game.load_map(path.to_str().expect("UTF-8 map path")));
     let master_id = game
         .host_objects()
@@ -331,7 +331,7 @@ fn ordered_mux_world(
 
     let map_path = root.join(format!("{label}OrderedMux.map"));
     std::fs::write(&map_path, map.into_ckmp_bytes()).unwrap();
-    game.start_new_game(GameMode::SinglePlayer);
+    game.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(game.load_map(map_path.to_str().expect("UTF-8 map path")));
     let master_id = game
         .host_objects()

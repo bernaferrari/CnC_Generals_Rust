@@ -3260,7 +3260,7 @@ mod sticky_bomb_exact_team_tests {
         let mut game = GameLogic::new();
         game.admit_object_ini_sources([("ExactSticky.ini".into(), SOURCE.into())])
             .unwrap();
-        game.start_new_game(GameMode::SinglePlayer);
+        game.start_new_game(GameMode::SinglePlayer).unwrap();
         game.add_player(Player::new(0, Team::GLA, "GLA", false));
         game.add_player(Player::new(1, Team::USA, "USA", false));
         let planter = game

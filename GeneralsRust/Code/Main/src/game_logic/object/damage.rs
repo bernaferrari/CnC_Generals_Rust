@@ -907,11 +907,6 @@ impl Object {
             }
         }
 
-        // C++ StealthForbiddenConditions TAKING_DAMAGE residual (CamoNetting structures).
-        if self.stealth_breaks_on_damage && self.status.stealthed {
-            self.break_stealth();
-        }
-
         // C++ UndeadBody.cpp:58-68 / HighlanderBody.cpp:30-36 clamp
         // DamageInfo.in.m_amount PRE-armor, then ActiveBody applies armor
         // to the (possibly clamped) raw amount.

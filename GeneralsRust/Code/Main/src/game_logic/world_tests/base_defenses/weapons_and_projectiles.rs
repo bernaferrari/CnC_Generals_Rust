@@ -933,8 +933,6 @@ fn technical_cannon_shell_projectile_flies_and_impacts() {
         .create_object("GLAVehicleTechnical", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
         .expect("technical");
     {
-        let t = logic.host_object_mut(tech).expect("tech mut");
-        t.apply_upgrade_tag("WEAPONSET_CRATEUPGRADE_ONE");
         logic.apply_technical_weapon_tier(tech, TechnicalWeaponTier::One);
     }
     let enemy = logic

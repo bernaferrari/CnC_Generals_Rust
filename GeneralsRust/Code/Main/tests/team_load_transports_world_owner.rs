@@ -65,7 +65,7 @@ fn world(map: &std::path::Path, is_transport: bool) -> (GameLogic, ObjectId, Obj
             ),
         )])
         .unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(map.to_str().unwrap()));
     let ranger = world
         .create_object_for_player("LoadRanger", 1, Vec3::new(10.0, 0.0, 50.0))

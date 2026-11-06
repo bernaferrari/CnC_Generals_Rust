@@ -828,10 +828,6 @@ pub struct RenderableObject {
     pub detection_range: f32,
     /// Host detection_rate_frames residual (0 = continuous).
     pub detection_rate_frames: u32,
-    /// Host stealth_breaks_on_attack residual.
-    pub stealth_breaks_on_attack: bool,
-    /// Host stealth_breaks_on_move residual.
-    pub stealth_breaks_on_move: bool,
     /// Host innate_stealth residual.
     pub innate_stealth: bool,
     /// Host weapon_bonus_frenzy_until_frame residual.

@@ -159,8 +159,6 @@ impl Object {
         }
     }
 
-    /// C++ Object::setWeaponSetFlag(WEAPONSET_MINE_CLEARING_DETAIL) residual.
-
     /// C++ SpecialPowerUpdateInterface::setSpecialPowerOverridableDestination residual.
     pub fn set_special_power_overridable_destination(
         &mut self,
@@ -176,41 +174,6 @@ impl Object {
         self.special_power_override_type = None;
     }
 
-    /// C++ Object::setWeaponSetFlag residual (subset used by AIGroup).
-    /// `flag`: 0=PLAYER_UPGRADE, 1=MINE_CLEARING, 2=CARBOMB, 3=VEHICLE_HIJACK.
-    pub fn set_weapon_set_flag(&mut self, flag: u8, enabled: bool) -> bool {
-        let previous_sources = self.active_weapon_barrel_source_identities();
-        let previous = match flag {
-            0 => self.weapon_set_player_upgrade,
-            1 => return false,
-            2 => self.weapon_set_carbomb,
-            3 => self.weapon_set_vehicle_hijack,
-            _ => return false,
-        };
-        match flag {
-            0 => self.weapon_set_player_upgrade = enabled,
-
-            2 => self.weapon_set_carbomb = enabled,
-            3 => self.weapon_set_vehicle_hijack = enabled,
-            _ => return false,
-        }
-        if previous != enabled {
-            // C++ setWeaponSetFlag / clearWeaponSetFlag → updateWeaponSet.
-            let condition = match flag {
-                0 => "PLAYER_UPGRADE",
-                1 => "MINE_CLEARING_DETAIL",
-                2 => "CARBOMB",
-                3 => "VEHICLE_HIJACK",
-                _ => "",
-            };
-            if enabled {
-                self.adopt_weapon_set_lock_share_for_condition(condition);
-            }
-            self.release_weapon_lock_on_set_change();
-        }
-        self.reset_weapon_barrel_states_if_sources_changed(previous_sources);
-        true
-    }
 
     /// C++ AICMD_GO_PRONE residual — infantry hit the dirt briefly.
     pub fn go_prone(

@@ -634,6 +634,7 @@ impl GameLogic {
             using_ability,
             attacking,
             stealthed,
+            acquire_while_stealthed,
             auto_idle,
             attitude,
             last_dmg,
@@ -652,6 +653,7 @@ impl GameLogic {
                 o.status.using_ability,
                 o.status.attacking || o.ai_state() == AIState::Attacking,
                 o.status.stealthed,
+                o.stealth_update_data().is_some_and(|data| data.granted_by_special_power),
                 o.auto_acquire_idle_bits,
                 o.ai_attitude,
                 o.last_damage_source,
@@ -672,7 +674,7 @@ impl GameLogic {
         if called_during_idle && (auto_idle & AUTO_ACQUIRE_IDLE) == 0 {
             return None;
         }
-        if called_during_idle && stealthed && (auto_idle & AUTO_ACQUIRE_IDLE_STEALTHED) == 0 {
+        if called_during_idle && stealthed && !acquire_while_stealthed && (auto_idle & AUTO_ACQUIRE_IDLE_STEALTHED) == 0 {
             let container_may_fire = self
                 .objects
                 .get(&unit_id)
@@ -1624,6 +1626,12 @@ mod common_target_parity {
         at.set_authored_ai_update_interface(Some(true));
         at.add_kind_of(KindOf::Infantry);
         at.add_kind_of(KindOf::Attackable);
+        at.stealth_update = Some(crate::game_logic::object::StealthUpdateData::default());
+        let mut granted_template = at.clone();
+        granted_template.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+            granted_by_special_power: true,
+            ..Default::default()
+        });
         let aid = ObjectId(2601);
         logic.objects.insert(aid, {
             let mut o = Object::new(at, aid, Team::USA);
@@ -1663,6 +1671,25 @@ mod common_target_parity {
             logic.get_next_mood_target(aid, true, true),
             Some(vid),
             "Stealthed INI bit must allow idle acquire"
+        );
+        let granted_id = ObjectId(2603);
+        let mut granted = Object::new(granted_template, granted_id, Team::USA);
+        granted.set_position(glam::Vec3::ZERO);
+        granted.ai_attitude = 0;
+        granted.vision_range = 200.0;
+        granted.auto_acquire_idle_bits = AUTO_ACQUIRE_IDLE;
+        granted.status.stealthed = true;
+        granted.weapon = Some(Weapon {
+            range: 80.0,
+            damage: 10.0,
+            can_target_ground: true,
+            ..Default::default()
+        });
+        logic.objects.insert(granted_id, granted);
+        assert_eq!(
+            logic.get_next_mood_target(granted_id, true, true),
+            Some(vid),
+            "authored special-power stealth permits idle acquisition even before a grant"
         );
     }
 

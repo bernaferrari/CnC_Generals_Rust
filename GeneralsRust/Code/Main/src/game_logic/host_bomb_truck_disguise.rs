@@ -8,10 +8,8 @@
 //!   (C++ StealthUpdate::disguiseAsTemplate + DisguisesAsTeam = Yes).
 //! - Enemies of the bomb truck see the **disguise team** for relationship /
 //!   auto-target residual (do not auto-attack when disguised as their ally).
-//! - C++ RevealDistanceFromTarget = 100: while attacking, if distance to
-//!   current victim ≤ 100, reveal (clear DISGUISED + STEALTHED residual).
-//! - Attacking / force-fire residual also reveals (OrderIdleEnemies path is
-//!   fail-closed to clear-disguise only).
+//! - RevealDistanceFromTarget reveal and attack reveal run in the generic
+//!   StealthUpdate port.
 //!
 //! Wave 66 residual pack (retail GLAVehicle.ini / SpecialPower.ini / Locomotor.ini):
 //! - Disguise residual: SpecialAbilityDisguiseAsVehicle, DisguisesAsTeam **Yes**,
@@ -121,27 +119,6 @@ pub fn is_bomb_truck_template(template_name: &str) -> bool {
     n.contains("bombtruck")
 }
 
-/// Exact retail source identities whose `StealthUpdate` declares
-/// `DisguisesAsTeam = Yes`.
-///
-/// This deliberately is narrower than [`is_bomb_truck_template`]. The latter
-/// is a gameplay-facing Bomb Truck heuristic and also matches non-disguising
-/// assets such as `DeadBombTruckHulk`; the C++ scene-stealth rule instead
-/// reads the current template's `StealthUpdate::m_teamDisguised` capability.
-/// Normalize the authored identity so case/punctuation-only test fixtures do
-/// not create a second behavior class, but fail closed for every other name.
-pub fn has_disguises_as_team_stealth_residual(template_name: &str) -> bool {
-    matches!(
-        alnum_lower(template_name).as_str(),
-        "glavehiclebombtruck"
-            | "chemglavehiclebombtruck"
-            | "demoglavehiclebombtruck"
-            | "gcchemglavehiclebombtruck"
-            | "cineglavehiclebombtruck"
-            | "slthglavehiclebombtruck"
-    )
-}
-
 /// Whether a template is a legal disguise target residual.
 ///
 /// C++ `ActionManager::canDoSpecialPowerAtObject` `SPECIAL_DISGUISE_AS_VEHICLE`:
@@ -173,11 +150,6 @@ pub fn is_legal_disguise_target(
         return false;
     }
     is_legal_disguise_target_flags(is_boat, is_cliff_jumper, has_railroad_behavior)
-}
-
-/// Whether reveal-distance residual triggers (2D distance).
-pub fn should_reveal_disguise_by_distance(distance: f32) -> bool {
-    distance <= BOMB_TRUCK_DISGUISE_REVEAL_DISTANCE
 }
 
 /// Apparent team residual: non-allied viewers see the disguise team.
@@ -316,8 +288,6 @@ pub fn honesty_bomb_truck_disguise_ability_residual_ok() -> bool {
         && BOMB_TRUCK_DISGUISE_STARTED_AUDIO == "DisguiseStarted"
         && BOMB_TRUCK_DISGUISE_REVEALED_SUCCESS_AUDIO == "DisguiseRevealedSuccess"
         && BOMB_TRUCK_DISGUISE_REVEALED_FAILURE_AUDIO == "DisguiseRevealedFailure"
-        && should_reveal_disguise_by_distance(100.0)
-        && !should_reveal_disguise_by_distance(100.1)
 }
 
 /// Wave 66 residual honesty: bomb truck body residual peel.
@@ -356,19 +326,18 @@ mod tests {
     }
 
     #[test]
-    fn only_authored_team_disguise_templates_receive_the_scene_capability() {
-        for name in [
-            "GLAVehicleBombTruck",
-            "Chem_GLAVehicleBombTruck",
-            "Demo_GLAVehicleBombTruck",
-            "GC_Chem_GLAVehicleBombTruck",
-            "CINE_GLAVehicleBombTruck",
-            "Slth_GLAVehicleBombTruck",
-        ] {
-            assert!(has_disguises_as_team_stealth_residual(name), "{name}");
-        }
-        assert!(!has_disguises_as_team_stealth_residual("DeadBombTruckHulk"));
-        assert!(!has_disguises_as_team_stealth_residual("CustomBombTruck"));
+    fn disguise_capability_comes_from_authored_stealth_update() {
+        use crate::game_logic::{Object, ObjectId, Team, ThingTemplate};
+        use crate::game_logic::object::StealthUpdateData;
+        let mut template = ThingTemplate::new("CustomVehicle");
+        template.stealth_update = Some(StealthUpdateData {
+            disguises_as_team: true,
+            ..Default::default()
+        });
+        let authored = Object::new(template, ObjectId(1), Team::GLA);
+        assert!(authored.stealth_can_disguise());
+        let named = Object::new(ThingTemplate::new("GLAVehicleBombTruck"), ObjectId(2), Team::GLA);
+        assert!(!named.stealth_can_disguise());
     }
 
     #[test]
@@ -434,13 +403,6 @@ mod tests {
             false,
             Team::USA
         ));
-    }
-
-    #[test]
-    fn reveal_distance_residual() {
-        assert!(should_reveal_disguise_by_distance(0.0));
-        assert!(should_reveal_disguise_by_distance(100.0));
-        assert!(!should_reveal_disguise_by_distance(100.1));
     }
 
     #[test]

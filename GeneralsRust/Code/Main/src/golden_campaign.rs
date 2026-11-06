@@ -403,7 +403,8 @@ pub fn run_golden_campaign_ex(
 
     // --- SinglePlayer world ---
     let mut logic = GameLogic::new();
-    logic.start_new_game(GameMode::SinglePlayer);
+    crate::cnc_game_engine::start_standalone_game(&mut logic, GameMode::SinglePlayer)
+        .map_err(gamelogic::GameLogicError::Configuration)?;
     let single_player = matches!(logic.game_mode(), GameMode::SinglePlayer);
 
     let (host_map_identity, host_map_loaded) = match &host_resolved {

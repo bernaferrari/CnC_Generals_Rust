@@ -113,7 +113,8 @@ fn new_world_shroud_does_not_inherit_process_match_state() {
 
 fn world_with_enemy() -> (GameLogic, ObjectId) {
     let mut logic = GameLogic::new();
-    logic.start_new_game(GameMode::Skirmish);
+    logic.admit_object_ini_sources(std::iter::empty()).unwrap();
+    logic.start_new_game(GameMode::Skirmish).unwrap();
     logic.clear_all_players();
     logic.add_player(Player::new(0, Team::USA, "Local", true));
     logic.add_player(Player::new(1, Team::China, "Enemy", false));

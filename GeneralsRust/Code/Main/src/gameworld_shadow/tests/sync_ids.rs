@@ -563,6 +563,7 @@ fn sync_from_host_copies_entity_path_waypoints_residual() {
             min_range: 0.0,
             reload_time: 1.0,
             last_fire_time: 0.0,
+            last_fire_frame: 0,
             ammo: None,
             clip_size: 0,
             clip_reload_time: 0.0,
@@ -710,8 +711,6 @@ fn sync_from_host_copies_entity_detector_sp_residual() {
         obj.is_detector = true;
         obj.detection_range = 200.0;
         obj.detection_rate_frames = 15;
-        obj.stealth_breaks_on_attack = true;
-        obj.stealth_breaks_on_move = true;
         obj.innate_stealth = true;
     }
     let mut shadow = GameWorldShadow::new(64);
@@ -731,7 +730,7 @@ fn sync_from_host_copies_entity_detector_sp_residual() {
     assert!(e.is_detector);
     assert!((e.detection_range - 200.0).abs() < 0.01);
     assert_eq!(e.detection_rate_frames, 15);
-    assert!(e.stealth_breaks_on_attack && e.stealth_breaks_on_move && e.innate_stealth);
+    assert!(e.innate_stealth);
 }
 
 fn sync_from_host_copies_entity_transport_residual() {
@@ -752,7 +751,7 @@ fn sync_from_host_copies_entity_transport_residual() {
         obj.overlord_bunker_capacity = Some(5);
         obj.passengers_allowed_to_fire = true;
         obj.armed_riders_upgrade_weapon_set = true;
-        obj.weapon_set_player_upgrade = true;
+        obj.set_weapon_condition_at_frame(3, true, 0);
         obj.is_battle_bus_transport = true;
         obj.is_technical_transport = false;
         obj.is_combat_cycle_transport = false;
@@ -800,6 +799,7 @@ fn sync_from_host_copies_entity_weapon_move_residual() {
             min_range: 5.0,
             reload_time: 1.5,
             last_fire_time: 0.0,
+            last_fire_frame: 0,
             ammo: Some(30),
             clip_size: 0,
             clip_reload_time: 0.0,

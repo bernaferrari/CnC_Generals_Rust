@@ -667,8 +667,8 @@ impl ObjectSnapshot {
         xfer.xfer_u32(&mut self.weapon_bonus_frenzy_until_frame)?;
 
         // v21 appended the per-weapon clip/splash/reload residual. The
-        // historical direct-Xfer `Weapon` record (xfer_helpers
-        // `impl XferData for Weapon`) carries only the ten core fields, so a
+        // direct-Xfer `Weapon` record (xfer_helpers `impl XferData for Weapon`)
+        // omitted these fields, so a
         // mid-clip-reload slot (C++ `Weapon::xfer` v3 persists `m_status`
         // RELOADING_CLIP + `m_ammoInClip`, Weapon.cpp:3364-3367) reset to
         // `Weapon::default()` on load while the serde path kept the values.

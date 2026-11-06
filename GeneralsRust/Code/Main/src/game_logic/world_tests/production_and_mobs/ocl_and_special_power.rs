@@ -50,7 +50,7 @@ fn combat_chinook_residual_load_two_unload_both_free() {
     );
     assert_eq!(chinook.transport_count(), 2);
     assert_eq!(game_logic.combat_chinook_residual_loads(), 2);
-    assert!(chinook.weapon_set_player_upgrade);
+    assert!(chinook.test_weapon_condition(3));
 
     for unit_id in [unit_a, unit_b] {
         let unit = game_logic.host_object(unit_id).expect("loaded unit");
@@ -90,7 +90,7 @@ fn combat_chinook_residual_load_two_unload_both_free() {
     );
     assert_eq!(chinook.transport_count(), 0);
     assert!(
-        !chinook.weapon_set_player_upgrade,
+        !chinook.test_weapon_condition(3),
         "weapon set upgrade must clear when empty"
     );
 
@@ -354,7 +354,7 @@ fn combat_chinook_vehicle_rider_does_not_arm_weapon_set() {
     game_logic.refresh_battle_bus_armed_riders_weapon_set(chinook_id);
     let chinook = game_logic.host_object(chinook_id).expect("chinook");
     assert!(
-        !chinook.weapon_set_player_upgrade,
+        !chinook.test_weapon_condition(3),
         "vehicle-only load must not set WEAPONSET_PLAYER_UPGRADE"
     );
 }
@@ -390,12 +390,6 @@ fn listening_outpost_residual_capacity_detect_and_payload() {
         "C++ ctor sets CAN_STEALTH only; STEALTHED waits StealthDelay"
     );
     assert!(outpost.innate_stealth);
-    assert!(outpost.stealth_breaks_on_move);
-    assert!(!outpost.stealth_breaks_on_attack);
-    assert_eq!(
-        outpost.stealth_delay_frames,
-        LISTENING_OUTPOST_STEALTH_DELAY_FRAMES
-    );
     assert_eq!(
         outpost.stealth_allowed_frame,
         LISTENING_OUTPOST_STEALTH_DELAY_FRAMES
@@ -417,7 +411,7 @@ fn listening_outpost_residual_capacity_detect_and_payload() {
     // Armed riders from payload upgrade weapon set residual.
     if outpost.transport_count() > 0 {
         assert!(
-            outpost.weapon_set_player_upgrade,
+            outpost.test_weapon_condition(3),
             "payload armed riders must upgrade Listening Outpost weapon set"
         );
         assert!(
@@ -439,6 +433,12 @@ fn listening_outpost_residual_detect_stealth_in_range() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_infantry_template(&mut game_logic);
+    game_logic.templates.get_mut("TestInfantry").unwrap().stealth_update =
+        Some(crate::game_logic::object::StealthUpdateData {
+            innate_stealth: false,
+            granted_by_special_power: true,
+            ..Default::default()
+        });
     let outpost_id = create_test_listening_outpost(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
 
     // Stealthed enemy within 300 residual detect range.
@@ -450,8 +450,9 @@ fn listening_outpost_residual_detect_stealth_in_range() {
         )
         .expect("stealthed enemy");
     {
+        let frame = game_logic.frame;
         let e = game_logic.host_object_mut(stealth_id).unwrap();
-        e.set_status_stealthed(true);
+        e.apply_grant_stealth(frame);
         e.set_status_detected(false);
     }
 
@@ -478,14 +479,6 @@ fn listening_outpost_residual_detect_stealth_in_range() {
             "listening outpost detector residual must reveal stealthed enemy in range"
         );
     }
-    assert!(
-        game_logic.honesty_listening_outpost_detect_ok(),
-        "listening outpost detect honesty residual must fire"
-    );
-    assert!(
-        game_logic.listening_outpost_residual_detects() >= 1,
-        "detect counter residual"
-    );
 
     // Fail-closed: enemy beyond 300 is not detected by this residual.
     let far_id = game_logic
@@ -496,8 +489,9 @@ fn listening_outpost_residual_detect_stealth_in_range() {
         )
         .expect("far stealthed");
     {
+        let frame = game_logic.frame;
         let e = game_logic.host_object_mut(far_id).unwrap();
-        e.set_status_stealthed(true);
+        e.apply_grant_stealth(frame);
         e.set_status_detected(false);
     }
     // Already-detected near enemy stays marked; far must remain undetected.
@@ -509,6 +503,7 @@ fn listening_outpost_residual_detect_stealth_in_range() {
     }
     {
         let e = game_logic.host_object(far_id).expect("far");
+        assert!(e.status.stealthed);
         assert!(
             !e.status.detected,
             "fail-closed: enemy outside DetectionRange 300 must not be residual-detected"

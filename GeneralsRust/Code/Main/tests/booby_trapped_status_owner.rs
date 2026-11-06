@@ -12,7 +12,7 @@ fn world() -> (GameLogic, ObjectId) {
         ),
     )])
     .expect("receiving Object INI admitted");
-    game.start_new_game(GameMode::SinglePlayer);
+    game.start_new_game(GameMode::SinglePlayer).unwrap();
     game.add_player(
         Player::new(3, Team::GLA, "TrapOwner", false).with_script_identity("TrapOwner"),
     );

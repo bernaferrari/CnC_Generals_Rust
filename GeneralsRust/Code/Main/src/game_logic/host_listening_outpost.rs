@@ -22,7 +22,7 @@
 //!   Delay **1000**ms → **30**f
 //!
 //! Fail-closed honesty:
-//! - Not full FriendlyOpacity / OrderIdleEnemiesToAttackMe
+//! - Not full FriendlyOpacity (OrderIdleEnemiesToAttackMe runs in the generic StealthUpdate port)
 //! - Not full IR detector FX / CanDetectWhileGarrisoned matrix
 //! - Not multi-door ExitStart bone matrix / HealthRegen%PerSec embark heal
 //! - Not network detect / transport replication (network deferred)
@@ -98,8 +98,6 @@ pub const LISTENING_OUTPOST_INNATE_STEALTH: bool = true;
 pub const LISTENING_OUTPOST_FRIENDLY_OPACITY_MIN_PERCENT: f32 = 50.0;
 /// Retail FriendlyOpacityMax residual (percent).
 pub const LISTENING_OUTPOST_FRIENDLY_OPACITY_MAX_PERCENT: f32 = 100.0;
-/// Retail OrderIdleEnemiesToAttackMeUponReveal residual.
-pub const LISTENING_OUTPOST_ORDER_IDLE_ENEMIES_ON_REVEAL: bool = true;
 
 /// Retail MaxHealth residual.
 pub const LISTENING_OUTPOST_MAX_HEALTH: f32 = 240.0;
@@ -301,28 +299,6 @@ pub fn listening_outpost_detection_range(template_name: &str) -> Option<f32> {
     }
 }
 
-/// Maintain Listening Outpost move + rider-fire forbidden stealth residual.
-///
-/// Returns `Some(desired_stealthed)` when residual applies.
-/// C++ `STEALTH_NOT_WHILE_RIDERS_ATTACKING` destalths the frame a rider attacks.
-pub fn listening_outpost_stealth_desired(
-    is_outpost: bool,
-    innate_stealth: bool,
-    stealth_breaks_on_move: bool,
-    is_alive: bool,
-    is_moving_state: bool,
-    riders_attacking: bool,
-) -> Option<bool> {
-    if !is_outpost || !innate_stealth || !is_alive {
-        return None;
-    }
-    if (stealth_breaks_on_move && is_moving_state) || riders_attacking {
-        Some(false)
-    } else {
-        Some(true)
-    }
-}
-
 /// Residual TankHunter missile weapon bound on InitialPayload infantry.
 pub fn tank_hunter_missile_weapon() -> Weapon {
     Weapon {
@@ -331,6 +307,7 @@ pub fn tank_hunter_missile_weapon() -> Weapon {
         min_range: TANK_HUNTER_MIN_RANGE,
         reload_time: TANK_HUNTER_DELAY_FRAMES as f32 / 30.0,
         last_fire_time: 0.0,
+        last_fire_frame: 0,
         ammo: None,
         clip_size: 0,
         clip_reload_time: 0.0,
@@ -399,7 +376,6 @@ pub fn honesty_listening_outpost_stealth_residual_ok() -> bool {
         && LISTENING_OUTPOST_INNATE_STEALTH
         && (LISTENING_OUTPOST_FRIENDLY_OPACITY_MIN_PERCENT - 50.0).abs() < 0.01
         && (LISTENING_OUTPOST_FRIENDLY_OPACITY_MAX_PERCENT - 100.0).abs() < 0.01
-        && LISTENING_OUTPOST_ORDER_IDLE_ENEMIES_ON_REVEAL
         && listening_outpost_stealth_allowed_frame(10) == 70
 }
 
@@ -486,28 +462,6 @@ mod tests {
         assert_eq!(listening_outpost_detection_range("USA_Ranger"), None);
         assert_eq!(LISTENING_OUTPOST_TRANSPORT_SLOTS, 2);
         assert_eq!(LISTENING_OUTPOST_INITIAL_PAYLOAD_COUNT, 2);
-    }
-
-    fn stealth_desired_matrix() {
-        assert_eq!(
-            listening_outpost_stealth_desired(true, true, true, true, true, false),
-            Some(false),
-            "moving outpost uncloaks"
-        );
-        assert_eq!(
-            listening_outpost_stealth_desired(true, true, true, true, false, false),
-            Some(true),
-            "idle outpost re-cloaks"
-        );
-        assert_eq!(
-            listening_outpost_stealth_desired(true, true, true, true, false, true),
-            Some(false),
-            "riders attacking destalths"
-        );
-        assert_eq!(
-            listening_outpost_stealth_desired(false, true, true, true, false, false),
-            None
-        );
     }
 
     #[test]

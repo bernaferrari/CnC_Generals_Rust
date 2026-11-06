@@ -93,8 +93,10 @@ fn accepted_same_map_admissions_keep_campaign_context_with_each_session() {
 
     let mut session_a = GameLogic::new();
     let mut session_b = GameLogic::new();
-    session_a.start_new_game(GameMode::SinglePlayer);
-    session_b.start_new_game(GameMode::SinglePlayer);
+    session_a.admit_object_ini_sources(std::iter::empty()).unwrap();
+    session_b.admit_object_ini_sources(std::iter::empty()).unwrap();
+    session_a.start_new_game(GameMode::SinglePlayer).unwrap();
+    session_b.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(session_a.load_map_with_campaign_context(
         map,
         campaign_a
@@ -128,7 +130,8 @@ fn accepted_same_map_admissions_keep_campaign_context_with_each_session() {
         .unwrap()
         .victory_rule = Some("NoBuildings".into());
     let mut campaign_override_session = GameLogic::new();
-    campaign_override_session.start_new_game(GameMode::SinglePlayer);
+    campaign_override_session.admit_object_ini_sources(std::iter::empty()).unwrap();
+    campaign_override_session.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(campaign_override_session.load_map_with_campaign_context(
         map,
         campaign_a

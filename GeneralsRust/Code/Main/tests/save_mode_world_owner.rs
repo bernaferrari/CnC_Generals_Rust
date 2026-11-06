@@ -114,7 +114,8 @@ fn interleaved_public_saves_keep_each_receiving_world_mode_in_its_archive() {
     // retains in the receiving GameLogic.
     let skirmish = admitted_skirmish_world();
     let mut campaign = GameLogic::new();
-    campaign.start_new_game(GameMode::SinglePlayer);
+    campaign.admit_object_ini_sources(std::iter::empty()).unwrap();
+    campaign.start_new_game(GameMode::SinglePlayer).unwrap();
 
     // Interleave owners and revisit the first owner after the second save.
     saves

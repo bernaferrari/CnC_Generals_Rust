@@ -82,14 +82,9 @@ fn sentry_drone_residual_detect_and_auto_fire() {
         );
 
         assert!(s.innate_stealth, "sentry InnateStealth Yes");
-        assert!(s.stealth_breaks_on_move, "sentry uncloaks while MOVING");
-        assert!(
-            s.stealth_breaks_on_attack,
-            "sentry uncloaks while FIRING_PRIMARY"
-        );
         assert_eq!(
-            s.stealth_delay_frames,
-            crate::game_logic::host_sentry_drone::SENTRY_STEALTH_DELAY_FRAMES
+            s.stealth_update_data().map(|d| d.stealth_delay_frames),
+            Some(crate::game_logic::host_sentry_drone::SENTRY_STEALTH_DELAY_FRAMES)
         );
         assert!(
             s.weapon.is_none(),
@@ -102,14 +97,16 @@ fn sentry_drone_residual_detect_and_auto_fire() {
         .create_object("TestInfantry", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
         .expect("stealthed enemy");
     {
+        let frame = game_logic.frame;
         let e = game_logic.host_object_mut(stealth_id).unwrap();
-        e.set_status_stealthed(true);
+        e.apply_grant_stealth(frame);
         e.set_status_detected(false);
         e.health.current = 10_000.0;
         e.health.maximum = 10_000.0;
     }
 
     run_detector_first_scan(&mut game_logic, sentry_id);
+    game_logic.update_stealth_and_detection();
     {
         let e = game_logic.host_object(stealth_id).expect("enemy");
         assert!(
@@ -348,6 +345,13 @@ fn sentry_drone_uncloaks_while_moving_and_recloaks_after_fire_delay() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(300.0);
+    // Authored `Behavior = StealthUpdate`: InnateStealth, MOVING FIRING_PRIMARY.
+    sentry_tpl.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        stealth_delay_frames: SENTRY_STEALTH_DELAY_FRAMES,
+        forbidden_conditions: crate::game_logic::object::StealthForbiddenConditions::MOVING
+            .union(crate::game_logic::object::StealthForbiddenConditions::FIRING_PRIMARY),
+        ..Default::default()
+    });
     game_logic
         .templates
         .insert("AmericaVehicleSentryDrone".to_string(), sentry_tpl);
@@ -366,8 +370,10 @@ fn sentry_drone_uncloaks_while_moving_and_recloaks_after_fire_delay() {
             "sentry ctor is visible until StealthDelay"
         );
         assert!(s.innate_stealth);
-        assert!(s.stealth_breaks_on_move);
-        assert_eq!(s.stealth_delay_frames, SENTRY_STEALTH_DELAY_FRAMES);
+        assert_eq!(
+            s.stealth_update_data().map(|d| d.stealth_delay_frames),
+            Some(SENTRY_STEALTH_DELAY_FRAMES)
+        );
         assert_eq!(s.stealth_allowed_frame, SENTRY_STEALTH_DELAY_FRAMES);
     }
 
@@ -379,6 +385,8 @@ fn sentry_drone_uncloaks_while_moving_and_recloaks_after_fire_delay() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         s.status.moving = true;
+        // C++ MOVING is PhysicsBehavior velocity (StealthUpdate.cpp:390-392).
+        s.movement.velocity = Vec3::new(10.0, 0.0, 0.0);
     }
     game_logic.frame = 1;
     game_logic.update_stealth_and_detection();
@@ -395,6 +403,7 @@ fn sentry_drone_uncloaks_while_moving_and_recloaks_after_fire_delay() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         s.status.moving = false;
+        s.movement.velocity = Vec3::ZERO;
         s.set_status_attacking(false);
     }
     game_logic.frame = 2;
@@ -588,12 +597,14 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
         .create_object("TestInfantry", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
         .expect("stealthed");
     {
+        let frame = game_logic.frame;
         let e = game_logic.host_object_mut(stealth_id).unwrap();
-        e.set_status_stealthed(true);
+        e.apply_grant_stealth(frame);
         e.set_status_detected(false);
     }
     // Place scout at origin (already); enemy at 30 within 150.
     run_detector_first_scan(&mut game_logic, scout_id);
+    game_logic.update_stealth_and_detection();
     {
         let e = game_logic.host_object(stealth_id).unwrap();
         assert!(

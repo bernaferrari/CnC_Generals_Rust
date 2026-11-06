@@ -107,15 +107,13 @@ impl GameLogic {
             effects,
         )?;
         self.attach_overlord_portable_occupant(host_id, occupant_id);
-        if stealthed {
-            if let Some(occ) = self.objects.get_mut(&occupant_id) {
-                if should_grant_stealth_to_portable_addon(
-                    true,
-                    is_portable_structure_template(&occ.template_name),
-                ) {
-                    occ.apply_grant_stealth();
-                }
-            }
+        if stealthed && self.objects.get(&occupant_id).is_some_and(|occ| {
+            should_grant_stealth_to_portable_addon(
+                true,
+                is_portable_structure_template(&occ.template_name),
+            )
+        }) {
+            self.receive_stealth_grant(occupant_id, true, 0);
         }
         self.mirror_overlord_addon_damage_to_occupant_with_effects(host_id, effects);
         Some(occupant_id)

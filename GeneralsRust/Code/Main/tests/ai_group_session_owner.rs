@@ -165,7 +165,7 @@ fn world_with_options(
         INILoadType::Overwrite,
     ).unwrap();
     world.admit_player_template_definitions(templates).unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(path.to_str().unwrap()));
     let first = world
         .create_object_for_player("GroupUnit", 1, Vec3::new(40.0, 0.0, 40.0))

@@ -211,10 +211,7 @@ pub(super) fn object_condition_facts(
             & (1u128 << crate::game_logic::host_enum_table_residual::user_2_model_bit())
             != 0,
         using_ability: obj.status.using_ability,
-        veterancy: PresentationVeterancy::from_host(obj.experience.level),
-        weapon_crate_upgrade: obj.weapon_crate_upgrade,
         weapon_fire_status: obj.weapon_fire_status as u8,
-        weapon_set_player_upgrade: obj.weapon_set_player_upgrade,
         world_is_night: world_is_night,
         world_is_snow: world_is_snow,
     }

@@ -1420,9 +1420,7 @@ mod tests {
 /// Retail GLA Camouflage upgrade name (Palace research).
 pub const UPGRADE_GLA_CAMOUFLAGE: &str = "Upgrade_GLACamouflage";
 
-/// C++ StealthUpdate StealthDelay residual for Rebel after Camouflage (2500 ms).
-/// Host residual: re-cloak after this many logic frames once attack stops
-/// (fail-closed vs full StealthUpdate forbidden-condition matrix).
+/// C++ StealthUpdate StealthDelay for Rebel after Camouflage (2500 ms).
 pub const CAMOUFLAGE_STEALTH_DELAY_FRAMES: u32 = 75; // 2500ms @ 30 FPS
 
 /// Retail Rebel Camouflage StealthForbiddenConditions residual tokens.
@@ -1430,35 +1428,6 @@ pub const CAMOUFLAGE_STEALTH_FORBIDDEN_CONDITIONS: &str = "ATTACKING USING_ABILI
 /// Retail CamoNetting structure StealthForbiddenConditions residual tokens.
 pub const CAMO_NETTING_STEALTH_FORBIDDEN_CONDITIONS: &str =
     "ATTACKING USING_ABILITY TAKING_DAMAGE NO_BLACK_MARKET";
-
-/// Host residual of Camouflage infantry StealthUpdate::allowedToStealth.
-///
-/// Retail GLAInfantryRebel: StealthForbiddenConditions = ATTACKING USING_ABILITY.
-/// Host residual also applies StealthDelay re-cloak gate after reveal.
-pub fn camouflage_unit_stealth_desired(
-    innate_stealth: bool,
-    is_alive: bool,
-    is_attacking: bool,
-    is_using_ability: bool,
-    current_frame: u32,
-    stealth_allowed_frame: u32,
-) -> Option<bool> {
-    if !innate_stealth || !is_alive {
-        return None;
-    }
-    if is_attacking || is_using_ability {
-        return Some(false);
-    }
-    if stealth_allowed_frame > 0 && current_frame < stealth_allowed_frame {
-        return Some(false);
-    }
-    Some(true)
-}
-
-/// Absolute frame when Camouflage residual may re-cloak after a reveal.
-pub fn camouflage_stealth_allowed_frame(current_frame: u32) -> u32 {
-    current_frame.saturating_add(CAMOUFLAGE_STEALTH_DELAY_FRAMES)
-}
 
 /// Whether a residual forbidden condition token is present in the retail string.
 pub fn stealth_forbidden_contains(conditions: &str, token: &str) -> bool {
@@ -1687,8 +1656,6 @@ pub const CAMO_NETTING_STEALTH_DELAY_FRAMES: u32 = 75;
 pub const CAMO_NETTING_FRIENDLY_OPACITY_MIN: f32 = 0.5;
 /// Retail CamoNetting FriendlyOpacityMax **100%**.
 pub const CAMO_NETTING_FRIENDLY_OPACITY_MAX: f32 = 1.0;
-/// C++ StealthUpdate pulse phase rate residual (`m_pulsePhaseRate = 0.2`).
-pub const CAMO_NETTING_OPACITY_PULSE_PHASE_RATE: f32 = 0.2;
 
 // --- CamoNetting StealthLook / heat-vision residual (Drawable::setStealthLook) ---
 
@@ -1796,143 +1763,6 @@ pub fn calc_stealthed_status_for_player(
     }
 }
 
-/// Heat-vision second material pass opacity residual (0.0 or 1.0).
-pub fn camo_netting_heat_vision_opacity(look: HostCamoStealthLook) -> f32 {
-    if look.heat_vision_active() { 1.0 } else { 0.0 }
-}
-
-/// Discrete FriendlyOpacity residual from cloaked / revealed state.
-///
-/// Stealthed-and-undetected → FriendlyOpacityMin; otherwise → Max.
-pub fn camo_netting_friendly_opacity(stealthed: bool, detected: bool) -> f32 {
-    if stealthed && !detected {
-        CAMO_NETTING_FRIENDLY_OPACITY_MIN
-    } else {
-        CAMO_NETTING_FRIENDLY_OPACITY_MAX
-    }
-}
-
-/// StealthUpdate pulse opacity residual while cloaked.
-///
-/// C++ drawable path: `0.5 + sin(phase) * 0.5` (range 0..1). Host residual maps
-/// that factor into FriendlyOpacityMin..Max so cloaked structures pulse between
-/// **50%** and **100%**. Returns `(opacity, next_phase)`.
-pub fn camo_netting_pulse_opacity(phase: f32) -> (f32, f32) {
-    crate::game_logic::object::stealth_update_pulse_opacity(
-        phase,
-        CAMO_NETTING_FRIENDLY_OPACITY_MIN,
-    )
-}
-
-// --- CamoNetting sub-object net mesh residual (presentation state, not GPU) ---
-
-/// Residual honesty mesh name for structure camo-net sub-object presentation.
-///
-/// Retail CamoNetting is StealthUpgrade (not SubObjectsUpgrade), but drawable
-/// presentation consumers still need a host residual "net mesh" show/hide +
-/// opacity state analogous to a sub-object toggle. Fail-closed: not W3D mesh
-/// GPU / SubObjectsUpgrade ShowSubObjects path.
-pub const CAMO_NETTING_SUB_OBJECT_MESH_NAME: &str = "CamoNet";
-
-/// Host residual of a CamoNetting structure net-mesh sub-object presentation.
-///
-/// Maps upgrade + StealthLook + FriendlyOpacity into a CPU-side descriptor
-/// for presentation consumers. Fail-closed: not full W3D heat-vision GPU pass.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct HostCamoNetSubObject {
-    /// Residual mesh name honesty (`CamoNet`).
-    pub mesh_name: &'static str,
-    /// True when Upgrade_GLACamoNetting is applied (sub-object "shown").
-    pub shown: bool,
-    /// Effective opacity residual (FriendlyOpacity / pulse while cloaked).
-    pub opacity: f32,
-    /// Heat-vision second material pass residual active.
-    pub heat_vision_pass: bool,
-    /// StealthLook residual ordinal (host of Drawable::setStealthLook).
-    pub stealth_look: HostCamoStealthLook,
-}
-
-/// Build CamoNetting sub-object net mesh residual presentation state.
-///
-/// - Upgrade not applied → shown=false (no net mesh residual)
-/// - Upgrade applied → shown=true; opacity from FriendlyOpacity residual
-/// - Detected residual → heat_vision_pass (second material pass opacity 1)
-///
-/// Fail-closed: not full W3D sub-object bone hide/show GPU matrix.
-pub fn camo_netting_sub_object_state(
-    upgrade_applied: bool,
-    stealthed: bool,
-    detected: bool,
-    observer_is_friendly: bool,
-    friendly_opacity: f32,
-) -> HostCamoNetSubObject {
-    let look = camo_netting_stealth_look(stealthed, detected, observer_is_friendly);
-    let heat = camo_netting_heat_vision_opacity(look) > 0.5;
-    let opacity = if upgrade_applied {
-        friendly_opacity.clamp(
-            CAMO_NETTING_FRIENDLY_OPACITY_MIN,
-            CAMO_NETTING_FRIENDLY_OPACITY_MAX,
-        )
-    } else {
-        CAMO_NETTING_FRIENDLY_OPACITY_MAX
-    };
-    HostCamoNetSubObject {
-        mesh_name: CAMO_NETTING_SUB_OBJECT_MESH_NAME,
-        shown: upgrade_applied,
-        opacity,
-        heat_vision_pass: upgrade_applied && heat,
-        stealth_look: look,
-    }
-}
-
-/// Whether residual net mesh should be presentation-visible to an observer.
-///
-/// Invisible StealthLook (enemy, undetected) → mesh residual hidden to that
-/// observer. Friendly / detected residual → mesh can render with opacity.
-pub fn camo_netting_sub_object_observer_visible(state: &HostCamoNetSubObject) -> bool {
-    if !state.shown {
-        return false;
-    }
-    !matches!(state.stealth_look, HostCamoStealthLook::Invisible)
-}
-
-/// Whether a CamoNetting residual structure should be stealthed this frame.
-///
-/// Host residual of StealthUpdate::allowedToStealth for structures:
-/// - forbidden while attacking (ATTACKING / FIRING_PRIMARY residual)
-/// - forbidden while using ability (USING_ABILITY residual)
-/// - forbidden until StealthDelay after reveal (TAKING_DAMAGE / attack break)
-/// - forbidden without a live owner `KINDOF_FS_BLACK_MARKET` (NO_BLACK_MARKET)
-/// - re-cloak when idle and delay elapsed (InnateStealth after StealthUpgrade)
-///
-/// Fail-closed: not full W3D sub-object net mesh GPU (host sub-object state closed).
-pub fn camo_netting_structure_stealth_desired(
-    innate_stealth: bool,
-    is_alive: bool,
-    is_attacking: bool,
-    is_using_ability: bool,
-    current_frame: u32,
-    stealth_allowed_frame: u32,
-    has_live_black_market: bool,
-) -> Option<bool> {
-    if !innate_stealth || !is_alive {
-        return None;
-    }
-    if is_attacking || is_using_ability {
-        return Some(false);
-    }
-    if stealth_allowed_frame > 0 && current_frame < stealth_allowed_frame {
-        return Some(false);
-    }
-    // C++ StealthUpdate.cpp:280-292 STEALTH_ONLY_WITH_BLACK_MARKET.
-    if stealth_forbidden_contains(CAMO_NETTING_STEALTH_FORBIDDEN_CONDITIONS, "NO_BLACK_MARKET")
-        && !has_live_black_market
-    {
-        return Some(false);
-    }
-    Some(true)
-}
-
 /// C++ `isBlackMarket` (StealthUpdate.cpp:157-175).
 ///
 /// A `KINDOF_FS_BLACK_MARKET` counts only when it is not effectively dead,
@@ -1944,84 +1774,6 @@ pub fn is_black_market_for_stealth(
     sold: bool,
 ) -> bool {
     is_kind_of_fs_black_market && is_alive && !under_construction && !sold
-}
-
-/// C++ `self->getControllingPlayer()` owner match for the black-market iterate.
-pub fn stealth_same_controlling_player(
-    owner_team: Team,
-    owner_player: Option<u32>,
-    other_team: Team,
-    other_player: Option<u32>,
-) -> bool {
-    match (owner_player, other_player) {
-        (Some(a), Some(b)) => a == b,
-        _ => owner_team == other_team,
-    }
-}
-
-/// Absolute frame when CamoNetting residual may re-cloak after a reveal.
-pub fn camo_netting_stealth_allowed_frame(current_frame: u32) -> u32 {
-    current_frame.saturating_add(CAMO_NETTING_STEALTH_DELAY_FRAMES)
-}
-
-/// Whether an idle enemy residual unit should wake and attempt to target a
-/// CamoNetting structure that just revealed (OrderIdleEnemiesToAttackMeUponReveal).
-///
-/// C++ `setWakeupIfInRange`: unit vision range ≥ distance to revealed victim.
-/// Host residual: Idle AI + can_attack units (not structures/dozers) within vision.
-pub fn camo_netting_order_idle_enemy_in_range(
-    enemy_is_alive: bool,
-    enemy_is_idle: bool,
-    enemy_can_attack: bool,
-    dist: f32,
-    enemy_vision_range: f32,
-) -> bool {
-    enemy_is_alive
-        && enemy_is_idle
-        && enemy_can_attack
-        && enemy_vision_range > 0.0
-        && dist <= enemy_vision_range
-}
-
-/// Template names that receive StealthUpgrade from CamoNetting residual.
-///
-/// Retail: Stealth General buildings (Slth_*), GLATunnelNetwork, GLAStingerSite.
-/// Fail-closed: not full sub-object camo net visual / every general reskin.
-pub fn is_camo_netting_structure_template(name: &str) -> bool {
-    let n: String = name
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .flat_map(|c| c.to_lowercase())
-        .collect();
-    if n.is_empty() {
-        return false;
-    }
-    // Explicit residual tests.
-    if n == "testcamonetstructure"
-        || n == "testslthcommandcenter"
-        || n == "testtunnelnetwork"
-        || n == "teststingersite"
-    {
-        return true;
-    }
-    // Tunnel Network / Stinger Site residual (all general variants).
-    if n.contains("tunnelnetwork") || n.contains("stingersite") {
-        return true;
-    }
-    // Stealth General structure residual (Slth_ buildings).
-    if n.starts_with("slth_") || n.starts_with("slth") || n.contains("gcslth") {
-        // Building-like residual only (exclude infantry/vehicles).
-        return n.contains("commandcenter")
-            || n.contains("blackmarket")
-            || n.contains("scudstorm")
-            || n.contains("palace")
-            || n.contains("supplystash")
-            || n.contains("barracks")
-            || n.contains("armsdealer")
-            || n.contains("demotrap")
-            || n.contains("fake");
-    }
-    false
 }
 
 // --- Anthrax Gamma residual helpers ---
@@ -2087,18 +1839,6 @@ pub fn honesty_upgrades_stealth_forbidden_residual_ok() -> bool {
         && stealth_forbidden_contains(CAMO_NETTING_STEALTH_FORBIDDEN_CONDITIONS, "NO_BLACK_MARKET")
         && CAMOUFLAGE_STEALTH_DELAY_FRAMES == 75
         && CAMO_NETTING_STEALTH_DELAY_FRAMES == 75
-        && camouflage_unit_stealth_desired(true, true, false, false, 100, 0) == Some(true)
-        && camouflage_unit_stealth_desired(true, true, true, false, 100, 0) == Some(false)
-        && camouflage_unit_stealth_desired(true, true, false, true, 100, 0) == Some(false)
-        && camouflage_unit_stealth_desired(true, true, false, false, 50, 85) == Some(false)
-        && camouflage_stealth_allowed_frame(10) == 85
-        // CamoNetting structure forbidden residual already host-wired.
-        && camo_netting_structure_stealth_desired(true, true, true, false, 100, 0, true)
-            == Some(false)
-        && camo_netting_structure_stealth_desired(true, true, false, true, 100, 0, true)
-            == Some(false)
-        && camo_netting_structure_stealth_desired(true, true, false, false, 100, 0, false)
-            == Some(false)
         && is_black_market_for_stealth(true, true, false, false)
         && !is_black_market_for_stealth(true, false, false, false)
         && !is_black_market_for_stealth(true, true, true, false)
@@ -2157,103 +1897,18 @@ mod camo_netting_and_gamma_tests {
     use super::*;
 
     #[test]
-    fn camo_netting_structure_name_residual() {
-        assert!(is_camo_netting_structure_template("Slth_GLACommandCenter"));
-        assert!(is_camo_netting_structure_template("Slth_FakeGLABarracks"));
-        assert!(is_camo_netting_structure_template("GLATunnelNetwork"));
-        assert!(is_camo_netting_structure_template("Chem_GLATunnelNetwork"));
-        assert!(is_camo_netting_structure_template("GLAStingerSite"));
-        assert!(is_camo_netting_structure_template("TestCamoNetStructure"));
-        assert!(!is_camo_netting_structure_template("GLAInfantryRebel"));
-        assert!(!is_camo_netting_structure_template("AmericaCommandCenter"));
-        assert!(!is_camo_netting_structure_template("Slth_GLAInfantryRebel"));
-    }
-
-    #[test]
-    fn camo_netting_structure_stealth_delay_matrix() {
+    fn camo_netting_structure_stealth_matrix() {
         assert_eq!(CAMO_NETTING_STEALTH_DELAY_FRAMES, 75);
-        assert_eq!(camo_netting_stealth_allowed_frame(10), 85);
 
-        // Idle + delay elapsed + live Black Market → recloak.
-        assert_eq!(
-            camo_netting_structure_stealth_desired(true, true, false, false, 100, 85, true),
-            Some(true)
-        );
-        // Attacking residual forbids stealth.
-        assert_eq!(
-            camo_netting_structure_stealth_desired(true, true, true, false, 100, 0, true),
-            Some(false)
-        );
-        // USING_ABILITY residual forbids stealth.
-        assert_eq!(
-            camo_netting_structure_stealth_desired(true, true, false, true, 100, 0, true),
-            Some(false)
-        );
-        // Still inside StealthDelay after reveal.
-        assert_eq!(
-            camo_netting_structure_stealth_desired(true, true, false, false, 50, 85, true),
-            Some(false)
-        );
-        // No CamoNetting residual (not innate).
-        assert_eq!(
-            camo_netting_structure_stealth_desired(false, true, false, false, 100, 0, true),
-            None
-        );
-        // Dead structure.
-        assert_eq!(
-            camo_netting_structure_stealth_desired(true, false, false, false, 100, 0, true),
-            None
-        );
-        // C++ isBlackMarket: destalth without a live market.
-        assert_eq!(
-            camo_netting_structure_stealth_desired(true, true, false, false, 100, 85, false),
-            Some(false)
-        );
         assert!(is_black_market_for_stealth(true, true, false, false));
         assert!(!is_black_market_for_stealth(true, false, false, false));
         assert!(!is_black_market_for_stealth(true, true, true, false));
         assert!(!is_black_market_for_stealth(true, true, false, true));
         assert!(!is_black_market_for_stealth(false, true, false, false));
-        assert!(stealth_same_controlling_player(
-            Team::GLA,
-            Some(2),
-            Team::GLA,
-            Some(2)
-        ));
-        assert!(!stealth_same_controlling_player(
-            Team::GLA,
-            Some(2),
-            Team::GLA,
-            Some(3)
-        ));
-        // OrderIdleEnemies residual range gate.
-        assert!(camo_netting_order_idle_enemy_in_range(
-            true, true, true, 100.0, 150.0
-        ));
-        assert!(!camo_netting_order_idle_enemy_in_range(
-            true, true, true, 200.0, 150.0
-        ));
-        assert!(!camo_netting_order_idle_enemy_in_range(
-            true, false, true, 50.0, 150.0
-        ));
-        assert!(!camo_netting_order_idle_enemy_in_range(
-            true, true, false, 50.0, 150.0
-        ));
 
         // FriendlyOpacity residual matrix.
         assert!((CAMO_NETTING_FRIENDLY_OPACITY_MIN - 0.5).abs() < 0.001);
         assert!((CAMO_NETTING_FRIENDLY_OPACITY_MAX - 1.0).abs() < 0.001);
-        assert!((camo_netting_friendly_opacity(true, false) - 0.5).abs() < 0.001);
-        assert!((camo_netting_friendly_opacity(true, true) - 1.0).abs() < 0.001);
-        assert!((camo_netting_friendly_opacity(false, false) - 1.0).abs() < 0.001);
-        // Pulse residual: phase 0 → mid-span opacity 0.75; phase advances by 0.2.
-        let (op0, ph1) = camo_netting_pulse_opacity(0.0);
-        assert!((op0 - 0.75).abs() < 0.001);
-        assert!((ph1 - 0.2).abs() < 0.001);
-        let (op_pi_2, _) = camo_netting_pulse_opacity(std::f32::consts::FRAC_PI_2);
-        assert!((op_pi_2 - 1.0).abs() < 0.001);
-        let (op_3pi_2, _) = camo_netting_pulse_opacity(3.0 * std::f32::consts::FRAC_PI_2);
-        assert!((op_3pi_2 - 0.5).abs() < 0.001);
 
         // StealthLook / heat-vision residual matrix (C++ Drawable.h ordinals).
         assert_eq!(HostCamoStealthLook::None.as_u8(), 0);
@@ -2314,41 +1969,6 @@ mod camo_netting_and_gamma_tests {
         assert!(!HostCamoStealthLook::VisibleFriendly.heat_vision_active());
         assert!(HostCamoStealthLook::VisibleDetected.heat_vision_active());
         assert!(HostCamoStealthLook::VisibleFriendlyDetected.heat_vision_active());
-        assert!(
-            (camo_netting_heat_vision_opacity(HostCamoStealthLook::VisibleDetected) - 1.0).abs()
-                < 0.001
-        );
-        assert!(
-            (camo_netting_heat_vision_opacity(HostCamoStealthLook::Invisible) - 0.0).abs() < 0.001
-        );
-
-        // CamoNetting sub-object net mesh residual (presentation, not GPU).
-        assert_eq!(CAMO_NETTING_SUB_OBJECT_MESH_NAME, "CamoNet");
-        let no_upg = camo_netting_sub_object_state(false, false, false, false, 1.0);
-        assert!(!no_upg.shown);
-        assert!(!camo_netting_sub_object_observer_visible(&no_upg));
-        let cloaked = camo_netting_sub_object_state(
-            true,
-            true,
-            false,
-            true,
-            CAMO_NETTING_FRIENDLY_OPACITY_MIN,
-        );
-        assert!(cloaked.shown);
-        assert_eq!(cloaked.mesh_name, "CamoNet");
-        assert!((cloaked.opacity - 0.5).abs() < 0.001);
-        assert!(!cloaked.heat_vision_pass);
-        assert_eq!(cloaked.stealth_look, HostCamoStealthLook::VisibleFriendly);
-        assert!(camo_netting_sub_object_observer_visible(&cloaked));
-        let detected = camo_netting_sub_object_state(true, true, true, false, 1.0);
-        assert!(detected.shown);
-        assert!(detected.heat_vision_pass);
-        assert_eq!(detected.stealth_look, HostCamoStealthLook::VisibleDetected);
-        assert!(camo_netting_sub_object_observer_visible(&detected));
-        let invisible = camo_netting_sub_object_state(true, true, false, false, 0.5);
-        assert!(invisible.shown);
-        assert_eq!(invisible.stealth_look, HostCamoStealthLook::Invisible);
-        assert!(!camo_netting_sub_object_observer_visible(&invisible));
     }
 
     #[test]

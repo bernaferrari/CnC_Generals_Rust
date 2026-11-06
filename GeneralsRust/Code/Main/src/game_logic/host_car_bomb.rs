@@ -205,6 +205,7 @@ pub fn suicide_car_bomb_weapon() -> Weapon {
         min_range: 0.0,
         reload_time: 0.0,
         last_fire_time: 0.0,
+        last_fire_frame: 0,
         ammo: Some(1),
         clip_size: 0,
         clip_reload_time: 0.0,
@@ -349,7 +350,7 @@ pub fn carbomb_target_rejected(target: &crate::game_logic::Object) -> bool {
     if target.is_kind_of(KindOf::Boat) {
         return true;
     }
-    if target.status.is_carbomb || target.weapon_set_carbomb {
+    if target.status.is_carbomb || target.test_weapon_condition(7) {
         return true;
     }
     !target.authors_carbomb_weapon_set()

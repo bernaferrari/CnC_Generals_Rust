@@ -179,50 +179,6 @@ impl GameLogic {
         }
     }
 
-    /// Seed templates for retail Object INI entries that the hand-authored
-    /// bootstrap does not already cover.
-    ///
-    /// Starter templates retain their host behavior that generic Object INI
-    /// fields do not yet represent.  Their authored Drawable `Scale` is still
-    /// refreshed from retail data; additions use only exact object identity
-    /// and authored attributes and do not imply an unavailable mesh or an
-    /// unsupported behavior module has been ported.
-    pub(in super::super::super) fn seed_asset_definition_templates(&mut self) -> usize {
-        let Some(manager_arc) = get_asset_manager() else {
-            return 0;
-        };
-        let (definitions, weapons, available_models) = match manager_arc.lock() {
-            Ok(manager) => {
-                let definitions = manager.object_definitions_snapshot();
-                let available_models = manager
-                    .list_available_models()
-                    .into_iter()
-                    .map(|model| Self::normalize_model_lookup_key(&model))
-                    .collect();
-                (
-                    definitions,
-                    manager.weapon_definitions_snapshot(),
-                    available_models,
-                )
-            }
-            Err(error) => {
-                log::warn!(
-                    "Skipping retail Object INI seed because AssetManager is poisoned: {error}"
-                );
-                return 0;
-            }
-        };
-        // The asset loader already resolved file/override order. Freeze those
-        // effective rows before factory callbacks, outside the asset service loan.
-        if let Err(error) = self.admit_weapon_content_snapshot(weapons, &definitions) {
-            log::error!("Cannot admit receiving weapon content: {error}");
-            return 0;
-        }
-        self.seed_asset_definition_templates_from_snapshot_with_models(
-            definitions,
-            Some(&available_models),
-        )
-    }
 
     /// Admit a resolved weapon catalog for this world's already admitted Object
     /// definitions. This is an application boundary: weapons cannot be replaced
@@ -315,6 +271,7 @@ impl GameLogic {
 
     /// Catalogue seeding core with no global state, used to characterize the
     /// exact-data-only policy in tests.
+    #[cfg(test)]
     pub(crate) fn seed_asset_definition_templates_from_snapshot<I>(
         &mut self,
         definitions: I,
@@ -325,13 +282,8 @@ impl GameLogic {
         self.seed_asset_definition_templates_from_snapshot_with_models(definitions, None)
     }
 
-    /// As [`Self::seed_asset_definition_templates_from_snapshot`], with the
-    /// exact archive W3D names available to the active asset manager.
-    ///
-    /// `Some` is required in production: a visual gameplay template whose
-    /// pristine basename is absent must remain unavailable rather than being
-    /// spawned with a proxy mesh.  `None` is reserved for pure data tests,
-    /// where no asset archive exists to prove or disprove the exact name.
+    /// Test-only detached projection, without an asset manager.
+    #[cfg(test)]
     pub(super) fn seed_asset_definition_templates_from_snapshot_with_models<I>(
         &mut self,
         definitions: I,
@@ -431,6 +383,11 @@ impl GameLogic {
                 Self::apply_authored_flight_deck_metadata(template, &definition);
                 Self::apply_authored_supply_truck_metadata(template, &definition);
                 Self::apply_authored_stealth_upgrade_metadata(template, &definition);
+                if let Some(content) = receiving {
+                    Self::apply_receiving_stealth_update_metadata(template, name, content)?;
+                } else {
+                    Self::apply_authored_stealth_update_metadata(template, &definition);
+                }
                 // Starter templates are retained by the host before the full
                 // Object INI catalogue is seeded.  They still need the exact
                 // authored exit interface; otherwise a retail ChinaBarracks
@@ -799,7 +756,11 @@ impl GameLogic {
         Self::apply_authored_physics_behavior_metadata(template, definition);
         Self::apply_authored_structure_death_metadata(template, definition);
         Self::apply_authored_geometry(template, definition);
-        Self::apply_authored_stealth_update_metadata(template, definition);
+        if let Some(content) = receiving {
+            Self::apply_receiving_stealth_update_metadata(template, &definition.name, content)?;
+        } else {
+            Self::apply_authored_stealth_update_metadata(template, definition);
+        }
         apply_production_prerequisites_from_definition(template, definition, receiving)?;
         Ok(())
     }

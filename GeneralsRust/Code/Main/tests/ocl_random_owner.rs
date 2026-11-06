@@ -45,7 +45,7 @@ fn world(map: &std::path::Path) -> (GameLogic, ObjectId) {
     logic
         .admit_object_ini_sources([("Object.ini".into(), source)])
         .unwrap();
-    logic.start_new_game(GameMode::SinglePlayer);
+    logic.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(logic.load_map(map.to_str().unwrap()));
     logic.add_player(Player::new(42, Team::USA, "Owner", true));
     let source = logic

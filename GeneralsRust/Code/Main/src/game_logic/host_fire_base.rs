@@ -206,6 +206,7 @@ pub fn fire_base_weapon() -> Weapon {
         min_range: FIRE_BASE_MIN_RANGE,
         reload_time: delay_frames_to_reload_secs(FIRE_BASE_DELAY_FRAMES),
         last_fire_time: 0.0,
+        last_fire_frame: 0,
         ammo: None,
         clip_size: 0,
         clip_reload_time: 0.0,

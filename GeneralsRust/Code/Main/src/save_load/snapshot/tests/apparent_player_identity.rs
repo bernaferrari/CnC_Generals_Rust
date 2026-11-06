@@ -13,9 +13,15 @@ fn wire_roundtrip(mut snapshot: WorldSnapshot) -> WorldSnapshot {
 }
 fn identity_world() -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
-    world
-        .templates
-        .insert("IdentityTruck".into(), ThingTemplate::new("IdentityTruck"));
+    let mut truck = ThingTemplate::new("IdentityTruck");
+    truck.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        innate_stealth: false,
+        disguises_as_team: true,
+        disguise_transition_frames: 60,
+        disguise_reveal_transition_frames: 30,
+        ..Default::default()
+    });
+    world.templates.insert("IdentityTruck".into(), truck);
     world
         .templates
         .insert("IdentityTank".into(), ThingTemplate::new("IdentityTank"));
@@ -40,6 +46,7 @@ fn exact_disguise_player_survives_halfpoint_and_actual_world_roundtrip() {
     let builder = SnapshotBuilder::new();
     let snapshot = wire_roundtrip(builder.create_world_snapshot(&world).unwrap());
     let mut peer = GameLogic::new();
+    peer.templates.insert("IdentityTruck".into(), world.templates["IdentityTruck"].clone());
     builder.restore_from_snapshot(&snapshot, &mut peer).unwrap();
     for _ in 0..crate::game_logic::host_bomb_truck_disguise::BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES {
         peer.host_object_mut(id).unwrap().tick_disguise_transition();

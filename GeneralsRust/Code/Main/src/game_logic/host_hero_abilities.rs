@@ -191,7 +191,6 @@ pub const LOTUS_STEALTH_DELAY_MS: u32 = 2_500;
 pub const LOTUS_STEALTH_DELAY_FRAMES: u32 = 75;
 pub const LOTUS_INNATE_STEALTH: bool = true;
 pub const LOTUS_STEALTH_BREAKS_ON_ABILITY: bool = true;
-pub const LOTUS_ORDER_IDLE_ENEMIES_ON_REVEAL: bool = true;
 pub const LOTUS_ENEMY_DETECTION_EVA: &str = "EnemyBlackLotusDetected";
 pub const LOTUS_OWN_DETECTION_EVA: &str = "OwnBlackLotusDetected";
 pub const LOTUS_PACK_SOUND: &str = "BlackLotusPack";
@@ -420,23 +419,6 @@ pub fn is_cash_hack_science_name(name: &str) -> bool {
         || n == "science_cashhack2"
         || n == "science_cashhack3"
         || n.contains("cashhack")
-}
-
-/// Maintain Black Lotus stealth residual (USING_ABILITY breaks cloak).
-pub fn lotus_stealth_desired(
-    is_lotus: bool,
-    innate_stealth: bool,
-    is_alive: bool,
-    using_ability: bool,
-) -> Option<bool> {
-    if !is_lotus || !innate_stealth || !is_alive {
-        return None;
-    }
-    if LOTUS_STEALTH_BREAKS_ON_ABILITY && using_ability {
-        Some(false)
-    } else {
-        Some(true)
-    }
 }
 
 /// Horizontal distance helper for residual attach placement.
@@ -1168,15 +1150,12 @@ pub fn honesty_lotus_body_stealth_residual_ok() -> bool {
         && LOTUS_STEALTH_DELAY_FRAMES == hero_ms_to_frames(LOTUS_STEALTH_DELAY_MS)
         && LOTUS_INNATE_STEALTH
         && LOTUS_STEALTH_BREAKS_ON_ABILITY
-        && LOTUS_ORDER_IDLE_ENEMIES_ON_REVEAL
         && LOTUS_ENEMY_DETECTION_EVA == "EnemyBlackLotusDetected"
         && LOTUS_OWN_DETECTION_EVA == "OwnBlackLotusDetected"
         && LOTUS_PACK_SOUND == "BlackLotusPack"
         && LOTUS_UNPACK_SOUND == "BlackLotusUnpack"
         && LOTUS_TRIGGER_SOUND == "BlackLotusTrigger"
         && LOTUS_PREP_SOUND_LOOP == "BlackLotusPrepLoop"
-        && lotus_stealth_desired(true, true, true, true) == Some(false)
-        && lotus_stealth_desired(true, true, true, false) == Some(true)
 }
 
 /// Combined Wave 57 hero abilities residual honesty pack.

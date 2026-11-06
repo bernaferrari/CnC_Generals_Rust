@@ -14,7 +14,8 @@ fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let mut logic = GameLogic::new();
-    logic.start_new_game(GameMode::Skirmish);
+    generals_main::cnc_game_engine::start_standalone_game(&mut logic, GameMode::Skirmish)
+        .map_err(anyhow::Error::msg)?;
     let _ = logic.load_map("demo_map");
     let _ = logic.create_object("USA_Ranger", Team::USA, Vec3::new(-10.0, 0.0, -10.0));
     let _ = logic.create_object("USA_Ranger", Team::USA, Vec3::new(-8.0, 0.0, -12.0));

@@ -1,10 +1,18 @@
 use gamelogic::common::Relationship;
-use generals_main::game_logic::{GameLogic, GameMode, KindOf, Player, Team, ThingTemplate};
+use generals_main::game_logic::{GameLogic, GameMode, Player, Team};
 use glam::Vec3;
 
 fn world() -> GameLogic {
     let mut world = GameLogic::new();
-    world.start_new_game(GameMode::SinglePlayer);
+    world
+        .admit_object_ini_sources([(
+            "MineDamageOwner.ini".into(),
+            "Object StructureArmorMineWitness\n KindOf = STRUCTURE\n Body = ActiveBody BodyTag\n MaxHealth = 10000\n InitialHealth = 10000\n End\nEnd\n\
+             Object TestLandMine\n KindOf = MINE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
+             Object TestDemoTrap\n KindOf = STRUCTURE SELECTABLE DEMOTRAP\n BuildCost = 400\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
+        )])
+        .unwrap();
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     let mut china = Player::new(0, Team::China, "China", true);
     china.set_map_relationship(1, Relationship::Enemies);
     let mut usa = Player::new(1, Team::USA, "USA", false);
@@ -12,18 +20,10 @@ fn world() -> GameLogic {
     world.add_player(china);
     world.add_player(usa);
 
-    let mut structure = ThingTemplate::new("StructureArmorMineWitness");
-    structure
-        .add_kind_of(KindOf::Structure)
-        .set_health(10_000.0)
-        .set_primary_weapon_none();
     // Leaving ArmorDefinitions absent deliberately selects Main's mapless
     // StructureArmor residual, whose LandMine coefficient is 0 and whose
     // EXPLOSION coefficient is 1. This exercises actual splash admission while
     // avoiding an inaccessible crate-private catalog-admission hook.
-    world
-        .templates
-        .insert(structure.name.clone(), structure);
     world
 }
 

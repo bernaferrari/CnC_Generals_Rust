@@ -470,7 +470,7 @@ fn empty_world(map: &std::path::Path) -> GameLogic {
         .expect("parse authored map PlayerTemplates");
     game.admit_player_template_definitions(player_templates)
         .expect("admit map PlayerTemplates to this GameLogic");
-    game.start_new_game(GameMode::SinglePlayer);
+    game.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(game.load_map(map.to_str().expect("UTF-8 map path")));
     assert!(game.get_player(1).is_some(), "map admits its Owner side");
     game
@@ -649,7 +649,7 @@ fn authored_team_build_applies_both_money_callbacks_to_receiving_world() {
         owner_before + 34
     );
 
-    owner.start_new_game(GameMode::SinglePlayer);
+    owner.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(owner.load_map(owner_map.to_str().unwrap()));
     let clean_owner = empty_world(&owner_map);
     assert_eq!(

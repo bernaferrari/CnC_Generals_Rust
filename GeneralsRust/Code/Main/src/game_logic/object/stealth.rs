@@ -8,33 +8,10 @@ impl Object {
         self.status.stealthed && !self.status.detected && !self.status.disguised
     }
 
-    /// C++ `Object::getStealth() != NULL` analog for GPS GrantStealth.
-    ///
-    /// DefaultThingTemplate OverrideableByLikeKind StealthUpdate is kept for
-    /// VEHICLE|INFANTRY unless ImmuneToGPS (AIRCRAFT/BOAT/STRUCTURE/MOB_NEXUS/...).
-    /// Authored InnateStealth units (heroes, sentry, pathfinder) still qualify.
+    /// C++ `Object::getStealth() != NULL` for GPS GrantStealth: the
+    /// authored StealthUpdate or the inherited DefaultThingTemplate module.
     pub fn has_gps_stealth_module(&self) -> bool {
-        use crate::game_logic::host_gps_scrambler::{
-            host_has_gps_stealth_module, is_immune_to_default_gps_stealth,
-        };
-        host_has_gps_stealth_module(
-            self.innate_stealth,
-            self.is_kind_of(KindOf::Vehicle),
-            self.is_kind_of(KindOf::Infantry),
-            is_immune_to_default_gps_stealth(
-                self.is_kind_of(KindOf::Aircraft),
-                self.is_kind_of(KindOf::Structure),
-                self.is_kind_of(KindOf::Boat),
-                self.is_kind_of(KindOf::IgnoredInGui),
-                self.is_kind_of(KindOf::DefensiveWall),
-                self.is_kind_of(KindOf::BallisticMissile),
-                self.is_kind_of(KindOf::SupplySource),
-                self.is_kind_of(KindOf::Bridge),
-                self.is_kind_of(KindOf::LandmarkBridge),
-                self.is_kind_of(KindOf::BridgeTower),
-                self.is_kind_of(KindOf::MobNexus),
-            ),
-        )
+        self.stealth_update_data().is_some()
     }
 
     /// C++ OBJECT_STATUS_DISGUISED residual.
@@ -101,10 +78,11 @@ impl Object {
             self.clear_disguise();
             return;
         };
-        use crate::game_logic::host_bomb_truck_disguise::BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES;
         if self.status.destroyed {
             return;
         }
+        self.stealth_update_enabled = true;
+        self.stealth_update_awake = true;
         self.disguise_pending_template = Some(template_name.to_string());
 
         self.disguise_pending_team = Some(as_team);
@@ -114,7 +92,8 @@ impl Object {
         self.set_status_stealthed(true);
         self.set_status_detected(false);
         self.detection_expires_frame = 0;
-        self.status.disguise_transition_frames = BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES;
+        self.status.disguise_transition_frames = self.stealth_update_data()
+            .map_or(0, |data| data.disguise_transition_frames);
         self.set_status_disguise_transitioning_to(true);
         self.set_status_disguise_halfpoint_reached(false);
         self.status.disguise_transition_opacity = 1.0;
@@ -126,7 +105,6 @@ impl Object {
     /// C++ residual: DisguiseRevealTransitionTime frames; halfpoint restores
     /// true visual; end clears STEALTHED.
     pub fn clear_disguise(&mut self) {
-        use crate::game_logic::host_bomb_truck_disguise::BOMB_TRUCK_DISGUISE_REVEAL_TRANSITION_FRAMES;
         if !self.status.disguised
             && self.disguise_as_template.is_none()
             && self.disguise_pending_template.is_none()
@@ -135,7 +113,8 @@ impl Object {
             return;
         }
         // Begin reveal transition residual (losing disguise look).
-        self.status.disguise_transition_frames = BOMB_TRUCK_DISGUISE_REVEAL_TRANSITION_FRAMES;
+        self.status.disguise_transition_frames = self.stealth_update_data()
+            .map_or(0, |data| data.disguise_reveal_transition_frames);
         self.set_status_disguise_transitioning_to(false);
         self.set_status_disguise_halfpoint_reached(false);
         self.status.disguise_transition_opacity = 1.0;
@@ -155,6 +134,8 @@ impl Object {
         self.set_status_stealthed(false);
         self.set_status_detected(false);
         self.detection_expires_frame = 0;
+        self.stealth_update_enabled = false;
+        self.stealth_update_awake = false;
         self.status.disguise_transition_frames = 0;
         self.set_status_disguise_transitioning_to(false);
         self.set_status_disguise_halfpoint_reached(false);
@@ -171,16 +152,15 @@ impl Object {
         if self.status.disguise_transition_frames == 0 {
             return false;
         }
-        use crate::game_logic::host_bomb_truck_disguise::{
-            BOMB_TRUCK_DISGUISE_REVEAL_TRANSITION_FRAMES, BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES,
-        };
         self.status.disguise_transition_frames =
             self.status.disguise_transition_frames.saturating_sub(1);
-        let total = if self.status.disguise_transitioning_to {
-            BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES.max(1)
-        } else {
-            BOMB_TRUCK_DISGUISE_REVEAL_TRANSITION_FRAMES.max(1)
-        };
+        let total = self.stealth_update_data().map_or(0, |data| {
+            if self.status.disguise_transitioning_to {
+                data.disguise_transition_frames
+            } else {
+                data.disguise_reveal_transition_frames
+            }
+        }).max(1);
         let remaining = self.status.disguise_transition_frames;
         // factor 0 → 1 over transition (C++).
         let factor = 1.0 - (remaining as f32 / total as f32);
@@ -224,6 +204,8 @@ impl Object {
         }
 
         if remaining == 0 && !self.status.disguise_transitioning_to {
+            self.stealth_update_enabled = false;
+            self.stealth_update_awake = false;
             // Finished removing disguise — clear stealth residual.
             self.set_status_stealthed(false);
             self.set_status_detected(false);
@@ -297,21 +279,6 @@ impl Object {
         }
     }
 
-    /// Mark this object as detected until `expires_frame` (logic frame exclusive).
-    /// C++ StealthUpdate::markAsDetected residual (`StealthUpdate.cpp:846-912`).
-    /// Leftover `mark_as_detected` / `disguiseAsObject(NULL)` only if `m_disguised`
-    /// (committed halfpoint). Pre-halfpoint pending disguise finishes.
-    /// Idle-enemy walk (`orderIdlesToAttack`) is `GameLogic::order_idle_enemies_to_attack_on_reveal`.
-    pub fn mark_detected(&mut self, expires_frame: u32) {
-        if self.is_disguised() {
-            self.clear_disguise();
-        }
-        self.set_status_detected(true);
-        // Keep the later expiry if already detected by another scanner.
-        if expires_frame > self.detection_expires_frame {
-            self.detection_expires_frame = expires_frame;
-        }
-    }
 
     /// C++ StealthUpdate innate mine cloak + `setEffectiveOpacity(0,0)` residual.
     /// Land mines / demo traps / charges start stealthed and stay fully invisible.
@@ -324,9 +291,7 @@ impl Object {
         self.set_status_stealthed(true);
         self.set_status_detected(false);
         self.detection_expires_frame = 0;
-        self.stealth_delay_frames = 0;
         self.stealth_allowed_frame = 0;
-        self.stealth_delay_pending = false;
         self.camo_friendly_opacity = MINE_STEALTH_OPACITY_RESIDUAL;
         // Mines aren't auto-acquirable (MinefieldBehavior ctor).
         self.apply_mine_no_attack_from_ai();
@@ -346,132 +311,72 @@ impl Object {
         self.detection_expires_frame = 0;
     }
 
-    /// Break stealth entirely (fire / script residual).
+    /// Break stealth entirely (script / disguise reveal path).
     /// Also clears disguise residual (attack reveal path for bomb truck).
     pub fn break_stealth(&mut self) {
         if self.status.disguised {
             self.clear_disguise();
             return;
         }
-        let was_stealthed = self.status.stealthed;
         self.set_status_stealthed(false);
         self.set_status_detected(false);
         self.detection_expires_frame = 0;
-        // CamoNetting / StealthDelay residual: schedule re-cloak gate on reveal.
-        if was_stealthed && self.stealth_delay_frames > 0 {
-            self.stealth_delay_pending = true;
-        }
-        // CamoNetting FriendlyOpacity residual: revealed → max opacity.
-        if was_stealthed && self.stealth_breaks_on_damage {
-            self.camo_friendly_opacity = 1.0;
-            self.camo_opacity_pulse_phase = 0.0;
-        }
     }
 
     /// C++ StealthUpdate.cpp:178-201 `receiveGrant(true)`:
     /// `OBJECT_STATUS_CAN_STEALTH | OBJECT_STATUS_STEALTHED`,
     /// `m_stealthAllowedFrame = now`. CAN_STEALTH survives later fire destalth.
-    pub fn apply_grant_stealth(&mut self) {
-        if self.status.destroyed {
+    pub fn apply_grant_stealth(&mut self, now: u32) {
+        if self.status.destroyed || self.stealth_can_disguise() {
             return;
         }
+        self.stealth_update_enabled = true;
+        self.stealth_update_awake = true;
         self.innate_stealth = true;
         self.set_status_stealthed(true);
-        self.set_status_detected(false);
-        self.detection_expires_frame = 0;
-        // receiveGrant keeps CAN_STEALTH; fire destalths then re-arms delay.
-        if self.stealth_delay_frames == 0 {
-            self.stealth_delay_frames = 30;
-        }
-        self.stealth_allowed_frame = 0;
-        self.stealth_delay_pending = false;
+        self.stealth_frames_granted = 0;
+        self.stealth_allowed_frame = now;
     }
 
-    /// C++ StealthUpdate.cpp:203-214 `receiveGrant(false)` leftover revoke.
+    /// C++ StealthUpdate.cpp:203-214 `receiveGrant(false)`.
     /// Clears CAN_STEALTH/STEALTHED, `m_stealthAllowedFrame = FOREVER`,
-    /// `m_framesGranted = 0`, `setEffectiveOpacity(1.0)`. Temp stash grants
-    /// latch `innate_stealth`; expiry must still strip it so workers cannot recloak.
+    /// `m_framesGranted = 0`, `setEffectiveOpacity(1.0)`.
     pub fn revoke_grant_stealth(&mut self) {
-        if self.status.disguised {
+        if self.stealth_can_disguise() {
             return;
         }
+        self.stealth_update_enabled = false;
         self.innate_stealth = false;
         self.set_status_stealthed(false);
-        self.set_status_detected(false);
-        self.detection_expires_frame = 0;
-        self.temporary_stealth_expires_frame = 0;
+        self.stealth_frames_granted = 0;
         self.stealth_allowed_frame = u32::MAX;
-        self.stealth_delay_pending = false;
         self.camo_friendly_opacity = 1.0;
     }
 
-    /// Leftover `StealthUpdate::update` else-branch (`StealthUpdate.cpp:666-670`).
-    ///
-    /// Every enabled StealthUpdate except mines and disguise-transition writes
-    /// `setEffectiveOpacity(0.5 + sin(phase)*0.5)` and advances `m_pulsePhase`.
-    /// Authored StealthUpdate `InnateStealth Yes` + `StealthForbiddenConditions`
-    /// containing `ATTACKING`: returns the authored StealthDelay in ms (None
-    /// when unauthored). Outer None when the template lacks that module data.
-    pub(crate) fn authored_innate_attacking_stealth_delay_ms(&self) -> Option<Option<u32>> {
-        let t = &self.thing.template;
-        (t.stealth_update_innate && t.stealth_update_forbids_attacking)
-            .then_some(t.stealth_update_delay_ms)
-    }
-
-    pub fn apply_stealth_update_pulse(&mut self) {
-        if !self.stealth_or_detector_update_processes() {
-            return;
-        }
-        if self.is_kind_of(KindOf::Mine)
-            || self.is_kind_of(KindOf::DemoTrap)
-            || self.mine_data.is_some()
-        {
+    /// C++ `StealthUpdate::update` drawable opacity (StealthUpdate.cpp:630-671):
+    /// mines go fully transparent; outside a disguise transition every
+    /// awake module pulses `0.5 + sin(m_pulsePhase) * 0.5` and advances the phase.
+    pub(crate) fn apply_stealth_update_pulse(&mut self, data: &StealthUpdateData) {
+        if self.is_kind_of(KindOf::Mine) {
+            self.camo_friendly_opacity = 0.0;
             return;
         }
         if self.status.disguise_transition_frames > 0 {
             return;
         }
-        // C++ enabled StealthUpdate: heroes, camo rebels, outposts, fighters, GPS.
-        if !(self.innate_stealth
-            || self.status.stealthed
-            || self.stealth_delay_frames > 0
-            || self.temporary_stealth_expires_frame > 0)
-        {
-            return;
-        }
         let floor = if self.status.stealthed {
-            self.thing.template.stealth_friendly_opacity_min
+            data.friendly_opacity_min
         } else {
             1.0
         };
         let (op, next) = stealth_update_pulse_opacity(self.camo_opacity_pulse_phase, floor);
         self.camo_opacity_pulse_phase = next;
-        if (self.camo_friendly_opacity - op).abs() > 1e-4 {
-            self.camo_friendly_opacity = op;
-        }
-    }
-
-    /// C++ StealthUpdate.cpp:717-752 — cloak after `m_stealthAllowedFrame` when allowed.
-    /// Forbidden frames roll `m_stealthAllowedFrame = now + StealthDelay` every tick.
-    pub fn try_recloak_after_stealth_delay(&mut self, now: u32, forbidden: bool) -> bool {
-        if !self.innate_stealth || !self.is_alive() || self.status.disguised {
-            return false;
-        }
-        self.apply_stealth_allowed_update(now, !forbidden);
-        self.status.stealthed && !forbidden
+        self.camo_friendly_opacity = op;
     }
 
     /// C++ `OBJECT_STATUS_IS_FIRING_WEAPON` (AIAttackFireWeaponState, after approach).
     pub fn stealth_is_firing_weapon(&self) -> bool {
         self.status.is_firing_weapon
-    }
-
-    /// C++ FIRING_PRIMARY: `IS_FIRING_WEAPON` and `lastShotFrame >= now - 1`.
-    pub fn stealth_fired_primary_recently(&self, now: u32) -> bool {
-        self.status.is_firing_weapon
-            && self.last_fire_slot == 0
-            && self.last_fire_frame > 0
-            && self.last_fire_frame.saturating_add(1) >= now
     }
 
     /// C++ TAKING_DAMAGE: `lastDamageTimestamp >= now - 1` and not healing.
@@ -488,40 +393,6 @@ impl Object {
         }
     }
 
-    /// C++ `StealthUpdate::allowedToStealth` StealthLevel bits for grant recloak.
-    /// MOVING / TAKING_DAMAGE / NO_BLACK_MARKET / RIDERS_ATTACKING plus fire/ability.
-    pub fn stealth_level_forbids_cloak(
-        &self,
-        now: u32,
-        moving: bool,
-        riders_attacking: bool,
-        requires_black_market: bool,
-        has_live_black_market: bool,
-    ) -> bool {
-        if self.script_unstealthed {
-            return true;
-        }
-        if self.stealth_is_firing_weapon()
-            || self.status.using_ability
-            || matches!(self.ai_state(), AIState::SpecialAbility)
-        {
-            return true;
-        }
-        if self.stealth_breaks_on_move && moving {
-            return true;
-        }
-        if self.stealth_breaks_on_damage && self.stealth_taking_non_healing_damage(now) {
-            return true;
-        }
-        if requires_black_market && !has_live_black_market {
-            return true;
-        }
-        if self.is_listening_outpost_style_container() && riders_attacking {
-            return true;
-        }
-        false
-    }
-
     /// C++ `StealthDetectorUpdate.cpp:284-290` — every detector scan (not only first-spot).
     pub fn apply_detected_heat_vision_second_pass(&mut self) {
         // C++ StealthDetectorUpdate.cpp:284-290 excludes exactly KINDOF_MINE.
@@ -529,12 +400,6 @@ impl Object {
         if !self.is_kind_of(KindOf::Mine) {
             self.queue_second_material_pass(1.0);
         }
-    }
-
-    /// C++ StealthUpdate.cpp:739 — `m_stealthAllowedFrame = now + stealthDelay`.
-    pub fn rearm_stealth_delay(&mut self, now: u32) {
-        self.stealth_allowed_frame = now.saturating_add(self.stealth_delay_frames);
-        self.stealth_delay_pending = false;
     }
 
     /// Leftover StealthUpdate / StealthDetectorUpdate `get_disabled_types_to_process = HELD`.
@@ -547,50 +412,6 @@ impl Object {
         )
     }
 
-    /// C++ StealthUpdate.cpp:717-752 cloak / destalth + rolling StealthDelay.
-    /// `allowed` is `allowedToStealth` (delay is applied here, not in `allowed`).
-    pub fn apply_stealth_allowed_update(&mut self, now: u32, allowed: bool) {
-        if !self.stealth_or_detector_update_processes() {
-            return;
-        }
-        let allowed = allowed && !self.script_unstealthed;
-        if allowed {
-            if self.stealth_delay_pending {
-                self.rearm_stealth_delay(now);
-                return;
-            }
-            if self.stealth_allowed_frame > 0 && now < self.stealth_allowed_frame {
-                return;
-            }
-            if !self.status.stealthed {
-                self.set_status_stealthed(true);
-                self.set_status_detected(false);
-                self.detection_expires_frame = 0;
-                self.stealth_allowed_frame = 0;
-                self.stealth_delay_pending = false;
-            }
-        } else {
-            self.rearm_stealth_delay(now);
-            if self.status.stealthed {
-                self.break_stealth();
-                self.stealth_delay_pending = false;
-            }
-        }
-    }
-
-    /// C++ StealthUpdate.cpp:365-373 — non-garrison container destalths occupants.
-    pub fn transport_contain_should_destalth(container_is_garrisonable: bool) -> bool {
-        !container_is_garrisonable
-    }
-
-    /// C++ StealthUpdate.cpp:696-714 — temp grant expires on timer or CMD_FROM_PLAYER.
-    pub fn temporary_stealth_grant_should_expire(
-        expires_frame: u32,
-        now: u32,
-        last_command_from_player: bool,
-    ) -> bool {
-        expires_frame > 0 && (last_command_from_player || now >= expires_frame)
-    }
 
     /// C++ `FROM_CENTER_2D` horizontal XZ distance (StealthDetectorUpdate.cpp:179).
     pub fn stealth_detector_distance_2d(a: Vec3, b: Vec3) -> f32 {
@@ -599,21 +420,7 @@ impl Object {
         (dx * dx + dz * dz).sqrt()
     }
 
-    /// C++ FIRING_PRIMARY last-shot residual: only primary slot destalths Burton.
-    pub fn firing_primary_breaks_stealth(
-        forbidden_primary_only: bool,
-        last_fire_slot: u8,
-        last_fire_sim_time: f32,
-        firing: bool,
-    ) -> bool {
-        if !firing {
-            return false;
-        }
-        if !forbidden_primary_only {
-            return true;
-        }
-        last_fire_slot == 0 && last_fire_sim_time > 0.0
-    }
+
 
     /// C++ Object::setVisionSpied (Object.cpp:5220-5250) per-player refcount.
     /// When on, spying player treats this unit as a temporary looker / revealed target.
@@ -889,59 +696,6 @@ impl Object {
 pub const SOUND_STEALTH_ON: &str = "StealthOn";
 /// C++ `ThingTemplate::getSoundStealthOff` residual default.
 pub const SOUND_STEALTH_OFF: &str = "StealthOff";
-
-/// C++ `StealthUpdate` `m_orderIdleEnemiesToAttackMeUponReveal` for retail units.
-/// `authored_black_lotus`: template authors the Black Lotus capture power
-/// (`CapturePowerKind::BlackLotus`), the Lotus StealthUpdate owner.
-/// `authored_pathfinder`: WeaponSet authors `USAPathfinderSniperRifle` (hq-2qedt.261).
-pub fn order_idle_enemies_on_reveal(
-    template_name: &str,
-    authored_black_lotus: bool,
-    authored_pathfinder: bool,
-) -> bool {
-    use crate::game_logic::host_colonel_burton::{
-        BURTON_ORDER_IDLE_ENEMIES_ON_REVEAL, is_colonel_burton_template,
-    };
-    use crate::game_logic::host_hero_abilities::LOTUS_ORDER_IDLE_ENEMIES_ON_REVEAL;
-    use crate::game_logic::host_jarmen_kell::{
-        JARMEN_ORDER_IDLE_ENEMIES_ON_REVEAL, is_jarmen_kell_template,
-    };
-    use crate::game_logic::host_listening_outpost::{
-        LISTENING_OUTPOST_ORDER_IDLE_ENEMIES_ON_REVEAL, is_listening_outpost_template,
-    };
-    use crate::game_logic::host_pathfinder::PATHFINDER_ORDER_IDLE_ENEMIES_ON_REVEAL;
-    use crate::game_logic::host_upgrades::is_camo_netting_structure_template;
-
-    if is_colonel_burton_template(template_name) {
-        return BURTON_ORDER_IDLE_ENEMIES_ON_REVEAL;
-    }
-    if is_jarmen_kell_template(template_name) {
-        return JARMEN_ORDER_IDLE_ENEMIES_ON_REVEAL;
-    }
-    if authored_black_lotus {
-        return LOTUS_ORDER_IDLE_ENEMIES_ON_REVEAL;
-    }
-    if authored_pathfinder {
-        return PATHFINDER_ORDER_IDLE_ENEMIES_ON_REVEAL;
-    }
-    if is_listening_outpost_template(template_name) {
-        return LISTENING_OUTPOST_ORDER_IDLE_ENEMIES_ON_REVEAL;
-    }
-    is_camo_netting_structure_template(template_name)
-}
-
-/// C++ `isBlackMarket` (`StealthUpdate.cpp:157-175`): live `KINDOF_FS_BLACK_MARKET`,
-/// skip dead / under construction / sold (and fake markets).
-pub fn is_live_stealth_black_market(
-    is_fs_black_market: bool,
-    is_fake: bool,
-    is_alive: bool,
-    under_construction: bool,
-    sold: bool,
-    destroyed: bool,
-) -> bool {
-    is_fs_black_market && !is_fake && is_alive && !under_construction && !sold && !destroyed
-}
 
 /// C++ `Drawable` fade mode residual: none.
 pub const DRAWABLE_FADE_NONE: u8 = 0;
@@ -1305,165 +1059,123 @@ impl DrawableTintEnvelopes {
 
 #[cfg(test)]
 mod stealth_grant_tests {
-    use super::{
-        Object, STEALTH_UPDATE_PULSE_PHASE_RATE, Team, ThingTemplate, is_live_stealth_black_market,
-        order_idle_enemies_on_reveal, stealth_update_pulse_opacity,
-    };
+    use super::{Object, STEALTH_UPDATE_PULSE_PHASE_RATE, ThingTemplate, stealth_update_pulse_opacity};
+    use super::{StealthForbiddenConditions as C, StealthUpdateData, StealthWorldFacts};
 
     #[test]
-    fn gps_grant_keeps_can_stealth_and_recloaks_after_fire() {
-        // C++ StealthUpdate.cpp:198 receiveGrant stays CAN_STEALTH.
-        let mut unit = Object::new(
-            ThingTemplate::new("TestTank"),
-            super::ObjectId(1),
-            super::Team::GLA,
-        );
-        unit.apply_grant_stealth();
-        assert!(unit.status.stealthed);
-        assert!(unit.innate_stealth, "receiveGrant must set CAN_STEALTH");
+    fn disguise_uses_authored_gain_and_reveal_durations() {
+        let mut template = ThingTemplate::new("CustomDisguise");
+        template.stealth_update = Some(StealthUpdateData {
+            disguise_transition_frames: 4,
+            disguise_reveal_transition_frames: 6,
+            ..Default::default()
+        });
+        let mut unit = Object::new(template, super::ObjectId(81), super::Team::GLA);
+        unit.apply_disguise("Target", super::Team::USA, Some(1));
+        assert_eq!(unit.status.disguise_transition_frames, 4);
+        assert!(!unit.tick_disguise_transition());
+        assert!(unit.tick_disguise_transition());
+        assert!(unit.status.disguised);
+        unit.clear_disguise();
+        assert_eq!(unit.status.disguise_transition_frames, 6);
+        assert!(!unit.tick_disguise_transition());
+        assert!(!unit.tick_disguise_transition());
+        assert!(unit.tick_disguise_transition());
+        assert!(!unit.status.disguised);
+    }
 
-        unit.stealth_breaks_on_attack = true;
-        unit.stealth_delay_frames = 30;
-        unit.break_stealth();
+    #[test]
+    fn grant_recloaks_after_fire_and_rolling_delay() {
+        let mut unit = Object::new(ThingTemplate::new("TestTank"), super::ObjectId(1), super::Team::GLA);
+        unit.apply_grant_stealth(0);
+        assert!(unit.status.stealthed && unit.innate_stealth);
+        let data = StealthUpdateData::default();
+        let facts = StealthWorldFacts { flags: C::ATTACKING, owner_can_stealth: true, ..Default::default() };
+        unit.set_status_firing_weapon(true);
+        for frame in [10, 20] {
+            let allowed = unit.allowed_to_stealth(&data, facts, frame);
+            assert!(!allowed);
+            unit.apply_stealth_allowed(frame, allowed, 30);
+        }
         assert!(!unit.status.stealthed);
-        assert!(unit.innate_stealth, "fire must not strip CAN_STEALTH");
-        assert!(unit.stealth_delay_pending);
-
-        assert!(!unit.try_recloak_after_stealth_delay(0, false));
-        assert!(!unit.status.stealthed, "must wait StealthDelay");
-        assert!(unit.try_recloak_after_stealth_delay(30, false));
-        assert!(unit.status.stealthed);
         assert!(unit.innate_stealth);
+        assert_eq!(unit.stealth_allowed_frame, 50);
+        unit.set_status_firing_weapon(false);
+        let allowed = unit.allowed_to_stealth(&data, facts, 40);
+        unit.apply_stealth_allowed(40, allowed, 30);
+        assert!(!unit.status.stealthed);
+        unit.apply_stealth_allowed(50, allowed, 30);
+        assert!(unit.status.stealthed);
     }
 
     #[test]
-    fn hero_spawn_delay_does_not_cloak_before_allowed_frame() {
-        // C++ StealthUpdate.cpp:111 ctor delay before STEALTHED.
-        let mut hero = Object::new(
-            ThingTemplate::new("AmericaInfantryColonelBurton"),
-            super::ObjectId(2),
-            super::Team::USA,
-        );
-        hero.innate_stealth = true;
-        hero.stealth_delay_frames = 60;
-        hero.stealth_allowed_frame = 60;
+    fn authored_spawn_delay_and_upgrade_wait_for_deadline() {
+        let mut template = ThingTemplate::new("Hero");
+        template.stealth_update = Some(StealthUpdateData { innate_stealth: true, stealth_delay_frames: 60, ..Default::default() });
+        let mut hero = Object::new(template, super::ObjectId(2), super::Team::USA);
+        hero.construct_stealth_update(0);
+        assert!(hero.innate_stealth);
+        hero.apply_stealth_allowed(59, true, 60);
         assert!(!hero.status.stealthed);
-        assert!(!hero.try_recloak_after_stealth_delay(0, false));
-        assert!(!hero.status.stealthed);
-        assert!(hero.try_recloak_after_stealth_delay(60, false));
+        hero.apply_stealth_allowed(60, true, 60);
         assert!(hero.status.stealthed);
-    }
 
-    #[test]
-    fn camo_unlock_rearms_delay_not_instant_cloak() {
-        // C++ StealthUpgrade.cpp:31 CAN_STEALTH; StealthUpdate.cpp:739 re-arm.
-        let mut rebel = Object::new(
-            ThingTemplate::new("GLAInfantryRebel"),
-            super::ObjectId(3),
-            super::Team::GLA,
-        );
+        let mut rebel = Object::new(ThingTemplate::new("Rebel"), super::ObjectId(3), super::Team::GLA);
+        rebel.apply_stealth_allowed(0, false, 75);
         rebel.innate_stealth = true;
-        rebel.stealth_delay_frames = 75;
-        rebel.stealth_allowed_frame = 75;
-        rebel.set_status_stealthed(false);
-        assert!(!rebel.try_recloak_after_stealth_delay(10, false));
+        rebel.apply_stealth_allowed(10, true, 75);
         assert!(!rebel.status.stealthed);
-        assert!(rebel.try_recloak_after_stealth_delay(75, false));
+        rebel.apply_stealth_allowed(75, true, 75);
         assert!(rebel.status.stealthed);
     }
 
     #[test]
-    fn stealth_delay_rolls_forward_while_forbidden() {
-        let mut unit = Object::new(
-            ThingTemplate::new("TestTank"),
-            super::ObjectId(4),
-            super::Team::USA,
-        );
-        unit.innate_stealth = true;
-        unit.stealth_delay_frames = 30;
+    fn forbidden_conditions_use_world_facts_and_primary_fire() {
+        let mut unit = Object::new(ThingTemplate::new("TestUnit"), super::ObjectId(4), super::Team::USA);
+        let data = StealthUpdateData::default();
+        let mut facts = StealthWorldFacts { owner_can_stealth: true, ..Default::default() };
+        facts.flags = C::NO_BLACK_MARKET.union(C::RIDERS_ATTACKING);
+        facts.black_market_missing = true;
+        assert!(!unit.allowed_to_stealth(&data, facts, 10));
+        facts.black_market_missing = false;
+        facts.riders_attacking = true;
+        assert!(!unit.allowed_to_stealth(&data, facts, 10));
+        facts.riders_attacking = false;
+        facts.contained_by_non_garrisonable = true;
+        assert!(!unit.allowed_to_stealth(&data, facts, 10));
+        facts.contained_by_non_garrisonable = false;
+        assert!(unit.allowed_to_stealth(&data, facts, 10));
+        unit.script_unstealthed = true;
+        assert!(!unit.allowed_to_stealth(&data, facts, 10));
         unit.set_status_stealthed(true);
-        unit.apply_stealth_allowed_update(10, false);
+        unit.apply_stealth_allowed(10, false, 0);
         assert!(!unit.status.stealthed);
-        assert_eq!(unit.stealth_allowed_frame, 40);
-        unit.apply_stealth_allowed_update(20, false);
-        assert_eq!(
-            unit.stealth_allowed_frame, 50,
-            "delay must count from last forbidden frame"
-        );
-        assert!(!unit.try_recloak_after_stealth_delay(40, false));
-        assert!(unit.try_recloak_after_stealth_delay(50, false));
-        assert!(unit.status.stealthed);
-    }
-
-    #[test]
-    fn grant_recloak_respects_stealth_level_moving() {
-        let mut pf = Object::new(
-            ThingTemplate::new("AmericaInfantryPathfinder"),
-            super::ObjectId(7),
-            super::Team::USA,
-        );
-        pf.innate_stealth = true;
-        pf.stealth_breaks_on_move = true;
-        pf.stealth_delay_frames = 0;
-        pf.set_status_stealthed(false);
-        assert!(
-            pf.stealth_level_forbids_cloak(1, true, false, false, true),
-            "MOVING must forbid Pathfinder recloak"
-        );
-        assert!(!pf.try_recloak_after_stealth_delay(1, true));
-        assert!(!pf.status.stealthed);
-        assert!(!pf.stealth_level_forbids_cloak(1, false, false, false, true));
-        assert!(pf.try_recloak_after_stealth_delay(1, false));
-        assert!(pf.status.stealthed);
-    }
-
-    #[test]
-    fn grant_recloak_respects_black_market_and_riders() {
-        let mut net = Object::new(
-            ThingTemplate::new("GLATunnelNetwork"),
-            super::ObjectId(8),
-            super::Team::GLA,
-        );
-        net.innate_stealth = true;
-        net.stealth_breaks_on_damage = true;
-        net.set_status_stealthed(false);
-        assert!(net.stealth_level_forbids_cloak(1, false, false, true, false));
-        assert!(!net.try_recloak_after_stealth_delay(1, true));
-        assert!(!net.status.stealthed);
-
-        let mut lo = Object::new(
-            ThingTemplate::new("ChinaVehicleListeningOutpost"),
-            super::ObjectId(9),
-            super::Team::China,
-        );
-        lo.innate_stealth = true;
-        lo.is_listening_outpost_transport = true;
-        lo.stealth_breaks_on_move = true;
-        lo.set_status_stealthed(false);
-        assert!(lo.stealth_level_forbids_cloak(1, false, true, false, true));
-        assert!(!lo.try_recloak_after_stealth_delay(1, true));
-    }
-
-    #[test]
-    fn script_unstealthed_forbids_cloak_and_destalths() {
-        let mut hero = Object::new(
-            ThingTemplate::new("AmericaInfantryColonelBurton"),
-            super::ObjectId(11),
-            super::Team::USA,
-        );
-        hero.innate_stealth = true;
-        hero.stealth_delay_frames = 0;
-        hero.set_status_stealthed(true);
-        hero.set_script_unstealthed(true);
-        assert!(hero.stealth_level_forbids_cloak(1, false, false, false, true));
-        hero.apply_stealth_allowed_update(1, true);
-        assert!(
-            !hero.status.stealthed,
-            "SCRIPT_UNSTEALTHED destalths even if otherwise allowed"
-        );
-        hero.set_script_unstealthed(false);
-        assert!(hero.try_recloak_after_stealth_delay(hero.stealth_allowed_frame, false));
-        assert!(hero.status.stealthed);
+        unit.script_unstealthed = false;
+        facts.flags = C::FIRING_PRIMARY;
+        unit.set_status_firing_weapon(true);
+        unit.secondary_weapon = Some(crate::game_logic::Weapon {
+            last_fire_frame: 10,
+            ..Default::default()
+        });
+        assert!(unit.allowed_to_stealth(&data, facts, 10));
+        unit.weapon = Some(crate::game_logic::Weapon {
+            last_fire_frame: 10,
+            ..Default::default()
+        });
+        assert!(!unit.allowed_to_stealth(&data, facts, 10));
+        assert!(!unit.allowed_to_stealth(&data, facts, 11));
+        assert!(unit.allowed_to_stealth(&data, facts, 12));
+        // C++ compares each extant slot, including the initial frame-zero
+        // value, and unsigned subtraction wraps at frame zero.
+        unit.weapon.as_mut().unwrap().last_fire_frame = 0;
+        assert!(!unit.allowed_to_stealth(&data, facts, 1));
+        assert!(unit.allowed_to_stealth(&data, facts, 0));
+        unit.set_status_firing_weapon(false);
+        facts.flags = C::MOVING;
+        unit.movement.velocity = glam::Vec3::new(10.0, 0.0, 0.0);
+        assert!(!unit.allowed_to_stealth(&data, facts, 12));
+        unit.movement.velocity = glam::Vec3::ZERO;
+        assert!(unit.allowed_to_stealth(&data, facts, 12));
     }
 
     #[test]
@@ -1501,11 +1213,6 @@ mod stealth_grant_tests {
         assert!(!unit.stealth_is_firing_weapon());
         unit.set_status_firing_weapon(true);
         assert!(unit.stealth_is_firing_weapon());
-        unit.last_fire_slot = 0;
-        unit.last_fire_frame = 10;
-        assert!(unit.stealth_fired_primary_recently(10));
-        assert!(unit.stealth_fired_primary_recently(11));
-        assert!(!unit.stealth_fired_primary_recently(12));
     }
 
     #[test]
@@ -1550,41 +1257,24 @@ mod stealth_grant_tests {
             super::ObjectId(7),
             super::Team::USA,
         );
-        hero.innate_stealth = true;
+        let data = crate::game_logic::object::StealthUpdateData::default();
         hero.status.stealthed = true;
-        hero.apply_stealth_update_pulse();
+        hero.apply_stealth_update_pulse(&data);
         assert!(
             hero.camo_friendly_opacity >= 0.5 - 1e-4
                 && hero.camo_friendly_opacity <= 1.0 + 1e-4
                 && (hero.camo_friendly_opacity - 1.0).abs() > 1e-3,
-            "cloaked hero must pulse away from full opacity, got {}",
+            "cloaked unit must pulse away from full opacity, got {}",
             hero.camo_friendly_opacity
         );
         assert!(hero.camo_opacity_pulse_phase > 0.0);
         let phase_after = hero.camo_opacity_pulse_phase;
         hero.status.stealthed = false;
-        hero.apply_stealth_update_pulse();
+        hero.apply_stealth_update_pulse(&data);
         assert!((hero.camo_friendly_opacity - 1.0).abs() < 1e-4);
         assert!(hero.camo_opacity_pulse_phase > phase_after);
     }
 
-    #[test]
-    fn transport_destalths_non_garrison() {
-        assert!(Object::transport_contain_should_destalth(false));
-        assert!(!Object::transport_contain_should_destalth(true));
-    }
-
-    #[test]
-    fn temp_grant_strips_on_player_order() {
-        assert!(Object::temporary_stealth_grant_should_expire(100, 50, true));
-        assert!(!Object::temporary_stealth_grant_should_expire(
-            100, 50, false
-        ));
-        assert!(Object::temporary_stealth_grant_should_expire(
-            100, 100, false
-        ));
-        assert!(!Object::temporary_stealth_grant_should_expire(0, 50, true));
-    }
 
     #[test]
     fn temp_grant_revoke_clears_innate_latch_and_cannot_recloak() {
@@ -1596,16 +1286,11 @@ mod stealth_grant_tests {
             super::ObjectId(12),
             super::Team::GLA,
         );
-        worker.apply_grant_stealth();
-        worker.temporary_stealth_expires_frame = 600;
+        worker.apply_grant_stealth(10);
+        worker.stealth_frames_granted = 600;
         worker.camo_friendly_opacity = 0.5;
         assert!(worker.innate_stealth);
         assert!(worker.status.stealthed);
-        assert!(Object::temporary_stealth_grant_should_expire(
-            worker.temporary_stealth_expires_frame,
-            600,
-            false,
-        ));
 
         worker.revoke_grant_stealth();
         assert!(
@@ -1613,56 +1298,11 @@ mod stealth_grant_tests {
             "receiveGrant(false) clears CAN_STEALTH"
         );
         assert!(!worker.status.stealthed);
-        assert_eq!(worker.temporary_stealth_expires_frame, 0);
+        assert_eq!(worker.stealth_frames_granted, 0);
         assert_eq!(worker.stealth_allowed_frame, u32::MAX);
         assert!((worker.camo_friendly_opacity - 1.0).abs() < 1e-5);
-        assert!(!worker.try_recloak_after_stealth_delay(700, false));
-        assert!(
-            !worker.status.stealthed,
-            "stash worker cannot re-cloak after grant expiry"
-        );
-    }
-
-    #[test]
-    fn burton_primary_only_breaks_stealth() {
-        assert!(Object::firing_primary_breaks_stealth(true, 0, 1.0, true));
-        assert!(!Object::firing_primary_breaks_stealth(true, 1, 1.0, true));
-        assert!(!Object::firing_primary_breaks_stealth(true, 0, 0.0, true));
-        assert!(!Object::firing_primary_breaks_stealth(true, 0, 1.0, false));
-        assert!(Object::firing_primary_breaks_stealth(false, 1, 1.0, true));
-    }
-
-    #[test]
-    fn order_idle_enemies_on_reveal_matches_retail_heroes() {
-        assert!(order_idle_enemies_on_reveal("AmericaInfantryColonelBurton", false, false));
-        assert!(order_idle_enemies_on_reveal("GLAInfantryJarmenKell", false, false));
-        assert!(order_idle_enemies_on_reveal("ChinaInfantryBlackLotus", true, false));
-        assert!(order_idle_enemies_on_reveal("AmericaInfantryPathfinder", false, true));
-        assert!(order_idle_enemies_on_reveal("AmericaVehicleListeningOutpost", false, false));
-        assert!(order_idle_enemies_on_reveal("GLATunnelNetwork", false, false));
-        assert!(!order_idle_enemies_on_reveal("AmericaInfantryRanger", false, false));
-    }
-
-    #[test]
-    fn live_black_market_skips_sold_dead_and_fake() {
-        assert!(is_live_stealth_black_market(
-            true, false, true, false, false, false
-        ));
-        assert!(!is_live_stealth_black_market(
-            true, false, true, false, true, false
-        ));
-        assert!(!is_live_stealth_black_market(
-            true, false, true, true, false, false
-        ));
-        assert!(!is_live_stealth_black_market(
-            true, false, false, false, false, false
-        ));
-        assert!(!is_live_stealth_black_market(
-            true, true, true, false, false, false
-        ));
-        assert!(!is_live_stealth_black_market(
-            false, false, true, false, false, false
-        ));
+        let facts = StealthWorldFacts { owner_can_stealth: worker.innate_stealth, ..Default::default() };
+        assert!(!worker.allowed_to_stealth(&StealthUpdateData::default(), facts, 700));
     }
 
     #[test]

@@ -80,7 +80,7 @@ fn world(map: &Path, position: [f32; 3]) -> (GameLogic, generals_main::game_logi
              Object AmericaJetCargoPlane\n KindOf = AIRCRAFT VEHICLE SELECTABLE\n Body = ActiveBody PlaneBody\n MaxHealth = 800\n InitialHealth = 800\n End\nEnd\n".into(),
         )])
         .unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(map.to_str().unwrap()));
     world.add_player(Player::new(1, Team::USA, "Owner", true).with_script_identity("Owner"));
     let unit = world

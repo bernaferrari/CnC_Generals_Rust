@@ -8,14 +8,14 @@ fn canonical_same_id_follow_resets_tether_and_stop_observes_new_script_lock() {
     peer.set_camera_tether_object(id, true, 7.);
     a.apply_session_control_op(crate::game_logic::SessionControlOp::SetCameraFollow {
         id: Some(id),
-    });
+    }).unwrap();
     assert_eq!(a.camera_follow_object_id(), Some(id));
     assert_eq!(a.peek_camera_tether_play(), None);
     assert!(a.session_view.camera.camera_follow_snap_immediate);
     // A newly authored lock must be clearable even if the old frozen observation
     // was None. No residual ID gate participates in this receiving operation.
     a.set_camera_tether_object(id, false, 3.);
-    a.apply_session_control_op(crate::game_logic::SessionControlOp::SetCameraFollow { id: None });
+    a.apply_session_control_op(crate::game_logic::SessionControlOp::SetCameraFollow { id: None }).unwrap();
     assert_eq!(a.camera_follow_object_id(), None);
     assert_eq!(a.peek_camera_tether_play(), None);
     assert!(a.session_view.camera.camera_follow_snap_immediate);

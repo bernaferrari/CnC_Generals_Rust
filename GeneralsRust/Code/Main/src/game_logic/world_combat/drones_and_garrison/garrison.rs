@@ -872,22 +872,14 @@ impl GameLogic {
         if kick.is_empty() {
             return;
         }
-        let now = self.frame;
         for pid in kick {
             let stealth_garrison = self
                 .objects
                 .get(&pid)
                 .is_some_and(|o| o.is_kind_of(KindOf::StealthGarrison));
-            let delay = self
-                .objects
-                .get(&pid)
-                .map(|o| o.stealth_delay_frames)
-                .unwrap_or(0)
-                .max(60);
+            // C++ OpenContain::removeFromContainViaIterator: StealthUpdate::markAsDetected().
             if stealth_garrison {
-                if let Some(occ) = self.objects.get_mut(&pid) {
-                    occ.mark_detected(now.saturating_add(delay));
-                }
+                self.mark_stealth_detected(pid, 0);
             }
             if let Some(c) = self.objects.get_mut(&container_id) {
                 let _ = c.remove_occupant_with_partition_owner(

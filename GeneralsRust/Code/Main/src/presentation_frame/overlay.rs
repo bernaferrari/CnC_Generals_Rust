@@ -208,6 +208,10 @@ impl PresentationFrame {
                 obj.building_type = building_type;
                 dirty = true;
             }
+            if obj.model_condition_bits != ent.model_condition_bits {
+                obj.model_condition_bits = ent.model_condition_bits;
+                dirty = true;
+            }
             // Resolve by exact Object INI identity plus the GameWorld-frozen
             // condition bank.  Do not carry an older pristine `model_key`
             // over a damaged/construction state, and do not synthesize a
@@ -662,14 +666,6 @@ impl PresentationFrame {
             }
             if obj.detection_rate_frames != ent.detection_rate_frames {
                 obj.detection_rate_frames = ent.detection_rate_frames;
-                dirty = true;
-            }
-            if obj.stealth_breaks_on_attack != ent.stealth_breaks_on_attack {
-                obj.stealth_breaks_on_attack = ent.stealth_breaks_on_attack;
-                dirty = true;
-            }
-            if obj.stealth_breaks_on_move != ent.stealth_breaks_on_move {
-                obj.stealth_breaks_on_move = ent.stealth_breaks_on_move;
                 dirty = true;
             }
             if obj.innate_stealth != ent.innate_stealth {
@@ -1708,8 +1704,6 @@ impl PresentationFrame {
             disguise_transition_opacity: 1.0,
             detection_range: ent.detection_range,
             detection_rate_frames: ent.detection_rate_frames,
-            stealth_breaks_on_attack: ent.stealth_breaks_on_attack,
-            stealth_breaks_on_move: ent.stealth_breaks_on_move,
             innate_stealth: ent.innate_stealth,
             // Wave 490: continuous-fire / battle-plan timers from GW entity.
             weapon_bonus_frenzy_until_frame: ent.weapon_bonus_frenzy_until_frame,
@@ -2090,7 +2084,7 @@ impl PresentationFrame {
                 ro.friendly_stealth_opacity = friendly_stealth_opacity;
                 dirty = true;
             }
-            let friendly_stealth_opacity_max = obj.thing().template.stealth_friendly_opacity_max;
+            let friendly_stealth_opacity_max = obj.stealth_friendly_opacity_max();
             if (ro.friendly_stealth_opacity_max - friendly_stealth_opacity_max).abs() > f32::EPSILON
             {
                 ro.friendly_stealth_opacity_max = friendly_stealth_opacity_max;
@@ -2134,8 +2128,8 @@ impl PresentationFrame {
                 ro.authors_carbomb_weapon_set = authored_carbomb;
                 dirty = true;
             }
-            if ro.weapon_set_carbomb != obj.weapon_set_carbomb {
-                ro.weapon_set_carbomb = obj.weapon_set_carbomb;
+            if ro.weapon_set_carbomb != obj.test_weapon_condition(7) {
+                ro.weapon_set_carbomb = obj.test_weapon_condition(7);
                 dirty = true;
             }
             let (bomb_type, bomb_timer_seconds) =

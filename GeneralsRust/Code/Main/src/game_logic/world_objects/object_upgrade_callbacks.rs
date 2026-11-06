@@ -274,6 +274,7 @@ impl GameLogic {
         let mut installed_propaganda = false;
         let mut installed_bunker = false;
         let mut satellite_hack_activate = None;
+        let mut upgrade_spawn_stealth = false;
         let Some((identity, status_upgrade_first_give, object_birth)) =
             self.objects.get(&object_id).map(|object| {
                 (
@@ -285,6 +286,15 @@ impl GameLogic {
         else {
             return Ok(());
         };
+        let newly_triggered_stealth = self.objects.get(&object_id).is_some_and(|obj| {
+            let player = obj.owner_player_id.and_then(|id| self.players.get(&id));
+            let had = |name: &str| obj.has_upgrade_tag(name)
+                || (!name.eq_ignore_ascii_case(upgrade)
+                    && player.is_some_and(|player| player.has_unlocked_upgrade(name)));
+            let has = |name: &str| had(name) || name.eq_ignore_ascii_case(upgrade);
+            obj.thing().template.stealth_upgrades.iter()
+                .any(|rules| !rules.satisfied_by(&had) && rules.satisfied_by(&has))
+        });
         // C++ updateUpgradeModules tests every module against the combined
         // controlling-player/object mask. Snapshot the exact admitted module
         // declarations and current mask before any callbacks mutate either.
@@ -371,7 +381,16 @@ impl GameLogic {
             // C++ WeaponBonusUpgrade / WeaponSetUpgrade / ArmorUpgrade /
             // CommandSetUpgrade::upgradeImplementation: only modules this
             // template authors, triggered through UpgradeMux, set flags.
-            let flags = obj.apply_authored_flag_upgrades(|name| name.eq_ignore_ascii_case(upgrade));
+            let flags = obj.apply_authored_flag_upgrades(
+                |name| name.eq_ignore_ascii_case(upgrade),
+                self.frame,
+            );
+            // C++ StealthUpgrade::upgradeImplementation (CAN_STEALTH).
+            obj.run_authored_stealth_upgrades(|name| name.eq_ignore_ascii_case(upgrade));
+            if newly_triggered_stealth {
+                obj.innate_stealth = true;
+                upgrade_spawn_stealth = obj.is_kind_of(KindOf::SpawnsAreTheWeapons);
+            }
             if flags.weapon_bonus {
                 self.upgrade_module_residuals.record_weapon_bonus(upgrade);
             }
@@ -415,7 +434,7 @@ impl GameLogic {
             }
             if is_overlord_family_host(&obj.template_name) {
                 if is_gattling_addon_upgrade(upgrade) {
-                    obj.install_overlord_gattling_addon();
+                    obj.install_overlord_gattling_addon(self.frame);
                     installed_gattling = true;
                 } else if is_propaganda_addon_upgrade(upgrade) {
                     obj.install_overlord_propaganda_addon();
@@ -434,6 +453,20 @@ impl GameLogic {
                         self.passengers_fire_upgrade_reg.record_apply(1);
                     }
                     installed_bunker = true;
+                }
+            }
+        }
+        if upgrade_spawn_stealth {
+            let children = self.objects.get(&object_id)
+                .map(|obj| obj.spawn_behavior_children())
+                .unwrap_or_default();
+            for (child_id, birth) in children {
+                let matches = self.objects.get(&object_id).zip(self.objects.get(&child_id))
+                    .is_some_and(|(parent, child)| parent.spawn_behavior_child_birth_matches(child_id, &birth, child));
+                if matches {
+                    if let Some(child) = self.objects.get_mut(&child_id) {
+                        child.innate_stealth = true;
+                    }
                 }
             }
         }

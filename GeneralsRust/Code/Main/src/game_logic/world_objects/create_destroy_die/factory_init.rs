@@ -11,7 +11,6 @@ impl GameLogic {
         template_name: &str,
         team: Team,
         owner_player_id: Option<u32>,
-        sentry_had_explicit_primary: bool,
     ) {
         let frame = self.frame;
         let no_players = std::collections::HashMap::new();
@@ -62,27 +61,10 @@ impl GameLogic {
             }
         }
 
-        if crate::game_logic::host_sentry_drone::sentry_spawn_is_detector(template_name) {
-            // Retail WeaponSet Conditions=None has PRIMARY None until PLAYER_UPGRADE.
-            // Strip kind-based Weapon::default fallback from resolve_primary_weapon.
-            // C++ initObject → updateUpgradeModules applies completed player
-            // WeaponSetUpgrade so later builds spawn with SentryDroneGun.
-            use crate::game_logic::host_sentry_drone::UPGRADE_AMERICA_SENTRY_DRONE_GUN;
-            let has_gun_upgrade = (allow_upgrades
-                && object.has_upgrade_tag(UPGRADE_AMERICA_SENTRY_DRONE_GUN))
-                || if let Some(player) = owner_player_id.and_then(|pid| players.get(&pid)) {
-                    player.has_unlocked_upgrade(UPGRADE_AMERICA_SENTRY_DRONE_GUN)
-                } else {
-                    players.values().any(|p| {
-                        p.team == team && p.has_unlocked_upgrade(UPGRADE_AMERICA_SENTRY_DRONE_GUN)
-                    })
-                };
-            if has_gun_upgrade {
-                Self::equip_sentry_drone_gun(object);
-            } else if !sentry_had_explicit_primary {
-                object.weapon = None;
-            }
-        }
+        // The Sentry Drone gun is the authored WeaponSet row `Conditions = None
+        // / PRIMARY None` plus `WeaponSetUpgrade` (WEAPONSET_PLAYER_UPGRADE),
+        // replayed below by apply_authored_flag_upgrades; no template name
+        // strips or equips a weapon here.
 
         // China Dragon Tank PRIMARY binds from the authored WeaponSet (C++
         // WeaponSet::updateWeaponSet from ThingTemplate), not a template-name
@@ -176,14 +158,10 @@ impl GameLogic {
         // Fail-closed: not full SalvageCrate missile-rack W3D subobject matrix.
         if super::super::super::world_combat::ocl_and_scud::authored_scorpion_gun(object) {
             use crate::game_logic::host_scorpion::{
-                has_ap_rockets_upgrade, has_scorpion_rocket_upgrade, salvage_tier_from_upgrades,
+                has_ap_rockets_upgrade, has_scorpion_rocket_upgrade, salvage_tier_from_weapon_crate,
                 scorpion_missile_weapon,
             };
-            let tier = salvage_tier_from_upgrades(if allow_upgrades {
-                &object.applied_upgrades
-            } else {
-                &no_upgrade_mask
-            });
+            let tier = salvage_tier_from_weapon_crate(object.weapon_crate_upgrade());
             if has_scorpion_rocket_upgrade(if allow_upgrades {
                 &object.applied_upgrades
             } else {
@@ -211,9 +189,11 @@ impl GameLogic {
         // (C++ WeaponSet::updateWeaponSet), not this name peel (hq-2qedt.109).
         // Retail rocket pods are a PLAYER_UPGRADE TERTIARY weapon; only expose
         // pods after the team owns the real upgrade.
-        if crate::game_logic::host_comanche_rocket_pods::carries_comanche_weapon_set(
-            object.authored_weapon_name_for_slot(0),
-        ) {
+        if !object.thing().template.has_receiving_weapon_sets()
+            && crate::game_logic::host_comanche_rocket_pods::carries_comanche_weapon_set(
+                object.authored_weapon_name_for_slot(0),
+            )
+        {
             use crate::game_logic::host_comanche_rocket_pods::{
                 UPGRADE_COMANCHE_ROCKET_PODS, comanche_rocket_pod_weapon,
             };
@@ -225,7 +205,7 @@ impl GameLogic {
             if has_pods {
                 object.tertiary_weapon = Some(comanche_rocket_pod_weapon());
                 object.apply_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS);
-                object.weapon_set_player_upgrade = true;
+                object.set_weapon_condition_at_frame(3, true, frame);
             } else {
                 // The simple ObjectDefinition parser preserves the source
                 // name but does not evaluate full WeaponSet Conditions.
@@ -327,7 +307,9 @@ impl GameLogic {
             power_plant_bonus =
                 object.run_authored_power_plant_upgrades(|name| player.has_unlocked_upgrade(name));
             object.run_authored_max_health_upgrades(|name| player.has_unlocked_upgrade(name));
-            object.apply_authored_flag_upgrades(|name| player.has_unlocked_upgrade(name));
+            object.apply_authored_flag_upgrades(|name| player.has_unlocked_upgrade(name), frame);
+            // StealthUpgrade (Camouflage, Camo Netting): CAN_STEALTH.
+            object.run_authored_stealth_upgrades(|name| player.has_unlocked_upgrade(name));
             // UnpauseSpecialPowerUpgrade: the constructor's StartsPaused pause
             // (init_special_power_ctor_arms) is lifted for a completed upgrade.
             for power in super::super::authored_upgrade_modules::authored_unpause_powers(

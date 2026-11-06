@@ -1280,10 +1280,6 @@ pub struct Entity {
     pub detection_range: f32,
     /// Host Object::detection_rate_frames residual.
     pub detection_rate_frames: u32,
-    /// Host Object::stealth_breaks_on_attack residual.
-    pub stealth_breaks_on_attack: bool,
-    /// Host Object::stealth_breaks_on_move residual.
-    pub stealth_breaks_on_move: bool,
     /// Host Object::innate_stealth residual.
     pub innate_stealth: bool,
     /// Host hijacker residual `hijack_vehicle_host`.
@@ -1344,22 +1340,12 @@ pub struct Entity {
     pub next_detection_scan_frame: u32,
     /// Host Object::stealth_allowed_frame residual.
     pub stealth_allowed_frame: u32,
-    /// Host Object::stealth_delay_pending residual.
-    pub stealth_delay_pending: bool,
-    /// Host Object::stealth_delay_frames residual.
-    pub stealth_delay_frames: u32,
-    /// Host Object::stealth_breaks_on_damage residual.
-    pub stealth_breaks_on_damage: bool,
     /// Host Object::detection_expires_frame residual.
     pub detection_expires_frame: u32,
     /// Host Object::camo_opacity_pulse_phase residual.
     pub camo_opacity_pulse_phase: f32,
     /// Host Object::camo_heat_vision_opacity residual.
     pub camo_heat_vision_opacity: f32,
-    /// Host Object::camo_net_sub_object_shown residual.
-    pub camo_net_sub_object_shown: bool,
-    /// Host Object::camo_net_sub_object_observer_visible residual.
-    pub camo_net_sub_object_observer_visible: bool,
     /// Host weapon-bonus flags residual.
     pub weapon_bonus_enthusiastic: bool,
     pub weapon_bonus_subliminal: bool,
@@ -2308,18 +2294,11 @@ impl EntityStore {
             is_detector: false,
             detection_range: 0.0,
             detection_rate_frames: 0,
-            stealth_breaks_on_attack: false,
-            stealth_breaks_on_move: false,
             innate_stealth: false,
             stealth_allowed_frame: 0,
-            stealth_delay_pending: false,
-            stealth_delay_frames: 0,
-            stealth_breaks_on_damage: false,
             detection_expires_frame: 0,
             camo_opacity_pulse_phase: 0.0,
             camo_heat_vision_opacity: 0.0,
-            camo_net_sub_object_shown: false,
-            camo_net_sub_object_observer_visible: false,
             weapon_bonus_enthusiastic: false,
             weapon_bonus_subliminal: false,
             weapon_bonus_horde: false,

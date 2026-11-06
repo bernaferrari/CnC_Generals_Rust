@@ -29,7 +29,7 @@ fn world(map: &std::path::Path) -> GameLogic {
     world
         .admit_object_ini_sources([("MapVisibilityOwner.ini".into(), String::new())])
         .unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(map.to_str().unwrap()));
     world.add_player(Player::new(1, Team::USA, "Local", true).with_script_identity("Local"));
     world

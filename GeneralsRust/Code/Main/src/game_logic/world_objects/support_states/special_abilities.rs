@@ -29,6 +29,7 @@ struct RiderChangeEnterPlan {
 fn clear_rider_change_runtime_state(
     container: &mut Object,
     authored_rider: Option<&crate::game_logic::RiderChangeRiderMetadata>,
+    frame: u32,
 ) {
     let authored_model_mask = authored_rider
         .map(|rider| rider.model_condition_mask)
@@ -46,19 +47,22 @@ fn clear_rider_change_runtime_state(
 
     container.model_condition_bits &=
         !(container.rider_change_model_condition_mask | authored_model_mask | door_closing_mask);
+    let receiving = container.thing().template.has_receiving_weapon_sets();
+    container.set_rider_weapon_condition_at_frame(None, frame);
     let rider_status_mask = container.rider_change_object_status_mask | authored_status_mask;
     container.clear_object_status_mask_bits(rider_status_mask);
     container.rider_change_active_slot = None;
     container.rider_change_model_condition_mask = 0;
     container.rider_change_object_status_mask = 0;
-    container.rider_change_weapon_set = None;
     container.rider_change_locomotor_set = None;
     container.rider_change_locomotor_name = None;
     // C++ clears the active WeaponSet before the replacement's set is chosen.
     // The bounded Combat Cycle bridge is the live representation of that set.
     container.combat_cycle_rider = 0;
-    let _ = container.replace_weapon_set_slot(0, None);
-    let _ = container.replace_weapon_set_slot(1, None);
+    if !receiving {
+        let _ = container.replace_weapon_set_slot(0, None);
+        let _ = container.replace_weapon_set_slot(1, None);
+    }
 }
 
 /// Apply every Locomotor.ini field for which the live host Object has an
@@ -2468,7 +2472,7 @@ impl GameLogic {
             }
             self.admit_object_drawable_deselection(previous_rider_id);
             if let Some(container) = self.objects.get_mut(&container_id) {
-                clear_rider_change_runtime_state(container, Some(&previous_metadata));
+                clear_rider_change_runtime_state(container, Some(&previous_metadata), self.frame);
                 if previous_has_controller {
                     container.set_rider_change_veterancy_level_with_health_bonus_table(
                         VeterancyLevel::Rookie,
@@ -2482,7 +2486,7 @@ impl GameLogic {
             // An initial-payload Combat Cycle can have a visible legacy rider
             // without a tracked Object.  Clear only its existing host bridge
             // before applying the explicitly parsed replacement.
-            clear_rider_change_runtime_state(container, None);
+            clear_rider_change_runtime_state(container, None, self.frame);
         }
 
         // OpenContain adds the rider to its list before redeployment and
@@ -2536,11 +2540,11 @@ impl GameLogic {
                 .get_mut(&container_id)
                 .expect("validated original container");
             container.model_condition_bits |= plan.rider.model_condition_mask;
+            container.set_rider_weapon_condition_at_frame(Some(&plan.rider.weapon_set), self.frame);
             container.apply_object_status_mask_bits(plan.rider.object_status_mask);
             container.rider_change_active_slot = Some(plan.rider.slot);
             container.rider_change_model_condition_mask = plan.rider.model_condition_mask;
             container.rider_change_object_status_mask = plan.rider.object_status_mask;
-            container.rider_change_weapon_set = Some(plan.rider.weapon_set.clone());
             container.rider_change_locomotor_set = Some(plan.rider.locomotor_set.clone());
             container.rider_change_locomotor_name = Some(plan.active_locomotor_name.clone());
             container.set_command_set_override(Some(plan.rider.command_set.clone()));
@@ -2570,10 +2574,18 @@ impl GameLogic {
         // This is a visual/weapon mirror only.  It receives the parsed RiderN
         // ordinal, never the incoming rider's template spelling; the generic
         // `refresh_combat_cycle_rider_weapon` is intentionally not called.
-        let switched = self.apply_combat_cycle_rider(
-            container_id,
-            crate::game_logic::host_combat_cycle::CombatCycleRider::from_u8(plan.rider.slot),
-        );
+        let receiving = self.objects.get(&container_id).is_some_and(|container| {
+            container.thing().template.has_receiving_weapon_sets()
+        });
+        let switched = if receiving {
+            self.objects.get_mut(&container_id).unwrap().combat_cycle_rider = plan.rider.slot;
+            true
+        } else {
+            self.apply_combat_cycle_rider(
+                container_id,
+                crate::game_logic::host_combat_cycle::CombatCycleRider::from_u8(plan.rider.slot),
+            )
+        };
         debug_assert!(
             switched,
             "RiderChange preflight must make weapon bridge infallible"
@@ -2748,7 +2760,7 @@ impl GameLogic {
             }
         }
         if let Some(container) = self.objects.get_mut(&container_id) {
-            clear_rider_change_runtime_state(container, Some(&rider_metadata));
+            clear_rider_change_runtime_state(container, Some(&rider_metadata), self.frame);
             if rider_has_controller {
                 container.set_rider_change_veterancy_level_with_health_bonus_table(
                     VeterancyLevel::Rookie,

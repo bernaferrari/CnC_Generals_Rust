@@ -87,7 +87,7 @@ fn world(path: &std::path::Path) -> (GameLogic, generals_main::game_logic::Objec
             "Object WaypointOwnerInfantry\nKindOf = SELECTABLE INFANTRY\nLocomotor = SET_NORMAL OwnedNormal\nLocomotor = SET_WANDER OwnedWander\nLocomotor = SET_PANIC OwnedPanic\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = AIUpdateInterface Brain\nEnd\nEnd\n".into(),
         )])
         .unwrap();
-    logic.start_new_game(GameMode::SinglePlayer);
+    logic.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(logic.load_map(path.to_str().expect("UTF-8 map path")));
     logic.add_player(Player::new(1, Team::USA, "Owner", true).with_script_identity("Owner"));
     let object = logic

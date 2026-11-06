@@ -358,7 +358,7 @@ impl CnCGameEngine {
                     crate::game_logic::SessionControlOp::OverrideWorldSize { width, height },
                     effects,
                 )
-            });
+            }).expect("world-size session operation cannot fail");
             self.host_match_world_bounds = Some((min, max));
         }
     }
@@ -1100,7 +1100,8 @@ impl CnCGameEngine {
         // View::setCameraLock is an operation, even when the ID is equal:
         // authored tether may have changed the canonical lock style meanwhile.
         self.host_game_logic_mut()
-            .apply_session_control_op(crate::game_logic::SessionControlOp::SetCameraFollow { id });
+            .apply_session_control_op(crate::game_logic::SessionControlOp::SetCameraFollow { id })
+            .expect("camera-follow session operation cannot fail");
     }
 
     /// Input must observe the receiving live lock, including an action since
@@ -2482,6 +2483,9 @@ impl CnCGameEngine {
         );
         let mut candidate = crate::game_logic::GameLogic::new_unpublished();
         let preparation = (|| -> Result<_, String> {
+            candidate.receiving_module_content = live.receiving_module_content.clone();
+            candidate.receiving_object_definitions = live.receiving_object_definitions.clone();
+            candidate.receiving_template_baseline = live.receiving_template_baseline.clone();
             candidate.start_new_game_for_restore_in_campaign_session(
                 live.game_mode(),
                 decoded
@@ -2492,7 +2496,7 @@ impl CnCGameEngine {
                     .campaign_state
                     .as_ref()
                     .is_some_and(|state| state.is_challenge),
-            );
+            )?;
             candidate.begin_saved_snapshot_admission()?;
             // The receiving loaded catalog owns name/mask allocation order; the
             // snapshot carries purchased/pending state, not UpgradeTemplate INI.
@@ -2503,11 +2507,8 @@ impl CnCGameEngine {
                 candidate.admit_player_template_definitions(definitions.clone())?;
             }
             candidate.multiplayer_definitions = live.multiplayer_definitions.clone();
-            candidate.receiving_module_content = live.receiving_module_content.clone();
-            candidate.receiving_object_definitions = live.receiving_object_definitions.clone();
             candidate.locomotor_definition_base = live.locomotor_definition_base.clone();
             candidate.locomotor_definitions = live.locomotor_definitions.clone();
-            candidate.receiving_template_baseline = live.receiving_template_baseline.clone();
             candidate.templates.extend(live.templates.clone());
             candidate.weapon_definition_base = live.weapon_definition_base.clone();
             candidate.weapon_definitions = live.weapon_definition_base.clone();
@@ -2848,11 +2849,14 @@ impl CnCGameEngine {
         if let Some(catalog) = armor_definition_seed {
             staged.admit_armor_definitions(Arc::clone(catalog));
         }
+        staged.receiving_module_content = template_catalog.modules.clone();
+        staged.receiving_object_definitions = template_catalog.object_definitions.clone();
+        staged.receiving_template_baseline = template_catalog.baseline.clone();
         staged.start_new_game_for_restore_in_campaign_session(
             mode,
             campaign_state.is_some_and(crate::save_load::campaign_state_requires_owner),
             campaign_state.is_some_and(|state| state.is_challenge),
-        );
+        )?;
         staged.begin_saved_snapshot_admission()?;
         if native.is_some() {
             staged.require_native_drawable_owner();
@@ -2869,9 +2873,6 @@ impl CnCGameEngine {
         // Map object restoration needs the live INI/template catalog.  Keep
         // custom/mod templates from the source match while retaining the fresh
         // world's standard startup catalog.
-        staged.receiving_module_content = template_catalog.modules.clone();
-        staged.receiving_object_definitions = template_catalog.object_definitions.clone();
-        staged.receiving_template_baseline = template_catalog.baseline.clone();
         staged.templates.extend(template_catalog.templates.clone());
         staged.weapon_definition_base = weapon_catalog.clone();
         staged.weapon_definitions = weapon_catalog.clone();

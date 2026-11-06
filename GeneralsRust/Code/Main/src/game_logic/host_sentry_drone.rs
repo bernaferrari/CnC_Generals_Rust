@@ -86,32 +86,6 @@ pub fn sentry_stealth_allowed_frame(current_frame: u32) -> u32 {
     current_frame.saturating_add(SENTRY_STEALTH_DELAY_FRAMES)
 }
 
-/// Maintain Sentry StealthUpdate residual (FIRING_PRIMARY + MOVING).
-///
-/// C++ AmericaVehicleSentryDrone ModuleTag_06: InnateStealth Yes, StealthDelay
-/// 2000ms, StealthForbiddenConditions = FIRING_PRIMARY MOVING. Re-cloak only
-/// after the delay once both forbidden conditions clear.
-pub fn sentry_stealth_desired(
-    is_sentry: bool,
-    innate_stealth: bool,
-    is_alive: bool,
-    is_moving: bool,
-    is_firing: bool,
-    current_frame: u32,
-    stealth_allowed_frame: u32,
-) -> Option<bool> {
-    if !is_sentry || !innate_stealth || !is_alive {
-        return None;
-    }
-    if is_moving || is_firing {
-        return Some(false);
-    }
-    if stealth_allowed_frame > 0 && current_frame < stealth_allowed_frame {
-        return Some(false);
-    }
-    Some(true)
-}
-
 /// Convert msec residual → logic frames @ 30 FPS (round half-up).
 pub fn sentry_ms_to_frames(ms: u32) -> u32 {
     if ms == 0 {
@@ -313,31 +287,7 @@ mod tests {
     }
 
     #[test]
-    fn sentry_stealth_uncloaks_on_move_and_fire_then_waits_delay() {
+    fn sentry_stealth_allowed_frame_adds_delay() {
         assert_eq!(sentry_stealth_allowed_frame(10), 70);
-        assert_eq!(
-            sentry_stealth_desired(true, true, true, true, false, 100, 0),
-            Some(false),
-            "moving sentry uncloaks"
-        );
-        assert_eq!(
-            sentry_stealth_desired(true, true, true, false, true, 100, 0),
-            Some(false),
-            "firing sentry uncloaks"
-        );
-        assert_eq!(
-            sentry_stealth_desired(true, true, true, false, false, 50, 70),
-            Some(false),
-            "idle sentry stays visible until StealthDelay"
-        );
-        assert_eq!(
-            sentry_stealth_desired(true, true, true, false, false, 70, 70),
-            Some(true),
-            "idle sentry re-cloaks after StealthDelay"
-        );
-        assert_eq!(
-            sentry_stealth_desired(false, true, true, false, false, 100, 0),
-            None
-        );
     }
 }

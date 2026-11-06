@@ -48,7 +48,15 @@ fn map_file(root: &Path, area: (f32, f32), area_name: &str) -> std::path::PathBu
 
 fn world(map: &Path) -> GameLogic {
     let mut world = GameLogic::new();
-    world.start_new_game(GameMode::SinglePlayer);
+    // The live AI state must come from an admitted source so the actual
+    // world snapshot can validate and preserve its continuation.
+    world
+        .admit_object_ini_sources([(
+            "WarehouseTwitch.ini".into(),
+            "Object TwitchTruck\n KindOf = VEHICLE HARVESTER\n Body = ActiveBody BodyTag\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = AIUpdateInterface BaseAI\n End\nEnd\nObject TwitchWarehouse\n KindOf = STRUCTURE SUPPLY_SOURCE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\nEnd\n".into(),
+        )])
+        .expect("receiving truck AI source");
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(map.to_str().unwrap()));
     world.add_player(
         Player::new(1, Team::USA, "Warehouse Owner", true).with_script_identity("Warehouse Owner"),
@@ -62,14 +70,6 @@ fn world(map: &Path) -> GameLogic {
         minor_radius: 0.1,
         authored: true,
     };
-    // The live AI state must come from an admitted source so the actual
-    // world snapshot can validate and preserve its continuation.
-    world
-        .admit_object_ini_sources([(
-            "WarehouseTwitch.ini".into(),
-            "Object TwitchTruck\n KindOf = VEHICLE HARVESTER\n Body = ActiveBody BodyTag\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = AIUpdateInterface BaseAI\n End\nEnd\nObject TwitchWarehouse\n KindOf = STRUCTURE SUPPLY_SOURCE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\nEnd\n".into(),
-        )])
-        .expect("receiving truck AI source");
     let truck = world
         .templates
         .get_mut("TwitchTruck")

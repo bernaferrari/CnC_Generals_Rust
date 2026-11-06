@@ -106,7 +106,8 @@ fn unavailable_map_staging_preserves_actual_receiver_and_peer_viewports() {
             let mut saves = SaveFileManager::with_save_directory(directory.path());
             saves.init().unwrap();
             let mut receiver = GameLogic::new();
-            receiver.start_new_game(GameMode::SinglePlayer);
+            receiver.admit_object_ini_sources(std::iter::empty()).unwrap();
+            receiver.start_new_game(GameMode::SinglePlayer).unwrap();
             receiver.session_view = receiving_view();
             let mut peer = GameLogic::new();
             peer.session_view = receiving_view();

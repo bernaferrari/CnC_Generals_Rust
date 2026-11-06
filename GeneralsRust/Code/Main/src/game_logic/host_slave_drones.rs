@@ -728,6 +728,7 @@ pub fn battle_drone_weapon() -> Weapon {
         min_range: 0.0,
         reload_time: (BATTLE_DRONE_GUN_DELAY_FRAMES.max(1) as f32) / 30.0,
         last_fire_time: 0.0,
+        last_fire_frame: 0,
         ammo: None,
         clip_size: 0,
         clip_reload_time: 0.0,
@@ -1237,6 +1238,26 @@ End
             })
             .expect("actual receiving master");
         (logic, mid)
+    }
+
+    #[test]
+    fn receiving_drone_rebuilds_missing_or_stale_host_projection_from_owner() {
+        let (mut logic, mid) = receiving_drone_world();
+        logic.templates.remove(SCOUT_DRONE_TEMPLATE);
+        let scout = logic
+            .residual_attach_slave_drone(mid, SlaveDroneKind::Scout)
+            .expect("missing host projection resolves from receiving owner");
+        assert!(logic.objects[&scout].thing().template.slaved_update_metadata.is_some());
+
+        let (mut logic, mid) = receiving_drone_world();
+        logic.templates.insert(
+            BATTLE_DRONE_TEMPLATE.to_owned(),
+            crate::game_logic::ThingTemplate::new(BATTLE_DRONE_TEMPLATE),
+        );
+        let battle = logic
+            .residual_attach_slave_drone(mid, SlaveDroneKind::Battle)
+            .expect("stale host projection resolves from receiving owner");
+        assert!(logic.objects[&battle].thing().template.slaved_update_metadata.is_some());
     }
 
     #[test]

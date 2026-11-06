@@ -87,9 +87,11 @@ fn real_archives_keep_receiving_modes_across_peer_decode_failure_reset_and_drop(
             saves_a.init().unwrap();
             saves_b.init().unwrap();
             let mut source_a = GameLogic::new();
-            source_a.start_new_game_for_restore(GameMode::SinglePlayer);
+            source_a.admit_object_ini_sources(std::iter::empty()).unwrap();
+            source_a.start_new_game_for_restore(GameMode::SinglePlayer).unwrap();
             saves_a.save_game("a", &source_a, &info("a")).unwrap();
             let mut source_b = GameLogic::new();
+            source_b.admit_object_ini_sources(std::iter::empty()).unwrap();
             let config = crate::skirmish_config::golden_skirmish_config("ModeOwner.map");
             crate::skirmish_config::apply_skirmish_config(&mut source_b, &config).unwrap();
             saves_b.save_game("b", &source_b, &info("b")).unwrap();
@@ -114,7 +116,7 @@ fn real_archives_keep_receiving_modes_across_peer_decode_failure_reset_and_drop(
 
             // Without an initial Skirmish capsule the actual writer must still
             // use this receiving world's mode, never a default or prior save.
-            source_a.start_new_game_for_restore(GameMode::Shell);
+            source_a.start_new_game_for_restore(GameMode::Shell).unwrap();
             saves_a
                 .save_game("shell", &source_a, &info("shell"))
                 .unwrap();
@@ -194,7 +196,8 @@ fn actual_mapless_replay_writer_load_selects_saved_observer_without_bootstrap_ow
             let mut saves = SaveFileManager::with_save_directory(directory.path());
             saves.init().unwrap();
             let mut source = GameLogic::new();
-            source.start_new_game(GameMode::Replay);
+            source.admit_object_ini_sources(std::iter::empty()).unwrap();
+            source.start_new_game(GameMode::Replay).unwrap();
             source.set_current_frame(123);
             let saved_observer = source.replay_observer_player_id().unwrap();
             assert!(source.is_local_player(saved_observer));
@@ -248,9 +251,11 @@ fn actual_mapless_replay_writer_load_selects_saved_observer_without_bootstrap_ow
             );
 
             let mut receiving = GameLogic::new();
-            receiving.start_new_game(GameMode::Replay);
+            receiving.admit_object_ini_sources(std::iter::empty()).unwrap();
+            receiving.start_new_game(GameMode::Replay).unwrap();
             let mut peer = GameLogic::new();
-            peer.start_new_game(GameMode::Replay);
+            peer.admit_object_ini_sources(std::iter::empty()).unwrap();
+            peer.start_new_game(GameMode::Replay).unwrap();
             peer.set_current_frame(987);
             let roster = |world: &GameLogic| {
                 let mut rows = world

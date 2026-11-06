@@ -1784,7 +1784,8 @@ mod tests {
         assert!(logic.game_logic.get_players().is_empty());
         assert!(logic.game_logic.host_objects().registered_is_empty());
 
-        logic.game_logic.start_new_game(GameMode::Skirmish);
+        logic.game_logic.admit_object_ini_sources(std::iter::empty()).unwrap();
+        logic.game_logic.start_new_game(GameMode::Skirmish).unwrap();
         assert_eq!(logic.game_logic.game_mode(), GameMode::Skirmish);
         assert!(!logic.game_logic.get_players().is_empty());
     }

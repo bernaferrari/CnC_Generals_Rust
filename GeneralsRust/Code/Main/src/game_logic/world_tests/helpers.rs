@@ -439,9 +439,10 @@ pub(super) fn create_test_combat_chinook(game_logic: &mut GameLogic, pos: Vec3) 
     let id = game_logic
         .create_object("AirF_AmericaVehicleChinook", Team::USA, pos)
         .expect("AirF_AmericaVehicleChinook");
+    let frame = game_logic.get_current_frame() as u32;
     if let Some(obj) = game_logic.host_object_mut(id) {
         if !obj.is_combat_chinook_style_container() {
-            obj.install_combat_chinook_transport();
+            obj.install_combat_chinook_transport(frame);
         }
     }
     id
@@ -466,6 +467,14 @@ pub(super) fn ensure_test_listening_outpost_template(game_logic: &mut GameLogic)
         .add_kind_of(KindOf::Attackable)
         .set_health(240.0)
         .set_cost(800, 0);
+    // Authored `Behavior = StealthUpdate` (InnateStealth, MOVING forbidden).
+    outpost.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        innate_stealth: true,
+        stealth_delay_frames:
+            crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_STEALTH_DELAY_FRAMES,
+        forbidden_conditions: crate::game_logic::object::StealthForbiddenConditions::MOVING,
+        ..Default::default()
+    });
     game_logic
         .templates
         .insert("ChinaVehicleListeningOutpost".to_string(), outpost);
@@ -478,9 +487,10 @@ pub(super) fn create_test_listening_outpost(game_logic: &mut GameLogic, pos: Vec
     let id = game_logic
         .create_object("ChinaVehicleListeningOutpost", Team::China, pos)
         .expect("ChinaVehicleListeningOutpost");
+    let frame = game_logic.get_current_frame() as u32;
     if let Some(obj) = game_logic.host_object_mut(id) {
         if !obj.is_listening_outpost_style_container() {
-            obj.install_listening_outpost_transport();
+            obj.install_listening_outpost_transport(frame);
         }
     }
     // A started transport fixture includes its first due TransportContain
@@ -828,6 +838,15 @@ pub(super) fn ensure_test_bomb_truck_template(game_logic: &mut GameLogic) {
         .add_kind_of(KindOf::Attackable)
         .set_health(200.0)
         .set_cost(1200, 0);
+    t.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        innate_stealth: false,
+        disguises_as_team: true,
+        disguise_transition_frames: 60,
+        disguise_reveal_transition_frames: 30,
+        ..Default::default()
+    });
+    t.stealth_disguise_fx = Some("FX_BombTruckDisguise".into());
+    t.stealth_disguise_reveal_fx = Some("FX_BombTruckDisguiseReveal".into());
     game_logic.templates.insert("TestBombTruck".to_string(), t);
 }
 

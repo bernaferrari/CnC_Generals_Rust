@@ -52,7 +52,7 @@ fn world_with_catalog(map: &std::path::Path, catalog: LocomotorStore) -> GameLog
              Object NoLocoActor\n KindOf = SELECTABLE VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into(),
         )])
         .unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(map.to_str().unwrap()));
     world.add_player(Player::new(42, Team::USA, "Owner", true));
     world

@@ -49,7 +49,10 @@ fn live_load_one(map_name: &str) -> Option<(u32, usize)> {
 
     let path = resolve_retail_map_path(map_name)?;
     let mut logic = GameLogic::new();
-    logic.start_new_game(GameMode::Skirmish);
+    if let Err(error) = crate::cnc_game_engine::start_standalone_game(&mut logic, GameMode::Skirmish) {
+        eprintln!("Retail map startup failed: {error}");
+        return None;
+    }
     let s = path.to_string_lossy();
     let loaded = logic.load_map(s.as_ref()) || logic.load_map(map_name);
     if !loaded {

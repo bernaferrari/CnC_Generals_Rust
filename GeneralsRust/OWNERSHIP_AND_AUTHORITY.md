@@ -4,6 +4,34 @@
 
 Preserve C++ **behavior**. Do not preserve C++ **pointer ownership**.
 
+## Authored stealth and weapon continuation
+
+StealthUpdate reads the admitted authored module and owns its enabled state,
+scheduler wake state, remaining granted update count, and detection and cloak
+deadlines on the live Object. The frame-counted grant pauses while its update
+does not execute. Weapon slots retain their own last-shot frames; replacing a
+selected authored weapon row creates fresh slot runtime. StealthUpdate.cpp
+and Weapon.cpp define the timing and serialization behavior.
+
+Startup admits an owned ordered object, weapon, science, and action content
+bundle; NewGame rejects missing admitted content rather than reconstructing it
+from the raw asset snapshot. Session control returns `Result<bool, String>`:
+errors propagate admission failures, `false` preserves rejected PlayerTemplate
+binding, and `true` reports acceptance. Faction and template wrappers propagate
+that result. Standalone startup callers load their own ordered bundle.
+Authored detection EVA names pass through the ordered match owner to the
+recipient speaker.
+
+The live host Object owns native-indexed weapon condition bits, including
+RiderChange flags that overlap other writers. Each native set or clear updates
+the selected weapon row immediately; slot runtime survives when the row does
+not change. Rust world schema 41 rejects older positional layouts; WS5 carries
+weapon-slot continuation and WSFL v3 carries the complete condition bitset,
+its model state, and rider state. This is a Rust snapshot cutover,
+not original-executable save interoperability. The earlier stealth-filtered
+run passed 223 tests with 10 baseline failures; the subsequent ownership and
+startup cutover has not been built or tested.
+
 ## Accepted shots and delayed-damage ownership (2026-10-04)
 
 The driving `GameLogic.combat_system` owns accepted shots and materialized

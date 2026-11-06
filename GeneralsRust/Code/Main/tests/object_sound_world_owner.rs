@@ -103,7 +103,7 @@ fn world(path: &std::path::Path) -> (GameLogic, ObjectId) {
             "Object OwnedObjectSoundUnit\n KindOf = SELECTABLE INFANTRY\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
         )])
         .unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(path.to_str().expect("UTF-8 map path")));
     let unit = world
         .host_objects()

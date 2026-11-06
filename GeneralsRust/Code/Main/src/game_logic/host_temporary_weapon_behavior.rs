@@ -1344,7 +1344,7 @@ fn parse_cxx_all_plus_minus_mask(
     found_token.then_some(mask & all_mask)
 }
 
-fn parse_cxx_object_status_mask(value: &str) -> Option<FireWeaponObjectStatusMask> {
+pub(crate) fn parse_cxx_object_status_mask(value: &str) -> Option<FireWeaponObjectStatusMask> {
     // This mirrors `BitFlags<OBJECT_STATUS_COUNT>::parse`, including its
     // normal-vs-+/- mode rule.  `NONE` ends parsing after clearing, just as
     // the C++ loop breaks rather than examining later tokens.

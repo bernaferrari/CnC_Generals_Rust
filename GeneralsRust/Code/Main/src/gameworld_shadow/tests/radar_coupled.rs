@@ -82,7 +82,8 @@ fn shell_to_skirmish_coupled_session_keeps_local_radar() {
     // Shell phase (live: GAME_SHELL with bootstrap players), then match start
     // on the SAME GameLogic + persistent GameWorldShadow.
     let mut logic = GameLogic::new();
-    logic.start_new_game(GameMode::Shell);
+    logic.admit_object_ini_sources(std::iter::empty()).unwrap();
+    logic.start_new_game(GameMode::Shell).unwrap();
     ensure_cc_template(&mut logic);
     let _prop = logic
         .create_object("AmericaVehicleDozer", Team::USA, Vec3::new(1.0, 0.0, 1.0))

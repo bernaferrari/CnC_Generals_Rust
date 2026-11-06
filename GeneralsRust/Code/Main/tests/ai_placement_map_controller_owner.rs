@@ -72,7 +72,7 @@ fn world(root: &std::path::Path, skirmish_ai: bool) -> GameLogic {
             .into(),
     )])
     .unwrap();
-    game.start_new_game(GameMode::Skirmish);
+    game.start_new_game(GameMode::Skirmish).unwrap();
     game.clear_all_players();
     game.add_player(
         Player::new(1, Team::USA, "Placement owner", !skirmish_ai).with_script_identity("player1"),

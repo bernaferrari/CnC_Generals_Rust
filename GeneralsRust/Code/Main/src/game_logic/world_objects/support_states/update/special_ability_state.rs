@@ -1021,6 +1021,7 @@ impl GameLogic {
                 }
                 // Snapshot donor residual (vision/vet) before consume.
                 let donor_snap = self.objects.get(&object_id).cloned();
+                let frame = self.frame;
                 self.with_object_veterancy_inputs(
                     special_target_id,
                     |target, audio, feedback, partition, _locomotors| {
@@ -1029,6 +1030,7 @@ impl GameLogic {
                             audio,
                             feedback,
                             partition,
+                            frame,
                         );
                     },
                 );

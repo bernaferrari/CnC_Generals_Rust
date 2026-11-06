@@ -24,10 +24,12 @@ fn surface_height_uses_each_receiving_map_across_peer_reset() {
     let first_map = map(first_dir.path(), 8);
     let peer_map = map(peer_dir.path(), 16);
     let mut first = GameLogic::new();
-    first.start_new_game(GameMode::SinglePlayer);
+    first.admit_object_ini_sources(std::iter::empty()).unwrap();
+    first.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(first.load_map(first_map.to_str().unwrap()));
     let mut peer = GameLogic::new();
-    peer.start_new_game(GameMode::SinglePlayer);
+    peer.admit_object_ini_sources(std::iter::empty()).unwrap();
+    peer.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(peer.load_map(peer_map.to_str().unwrap()));
 
     let position = Vec3::new(15.0, 0.0, 15.0);

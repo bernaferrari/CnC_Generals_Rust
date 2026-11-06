@@ -771,12 +771,13 @@ impl GameLogic {
         player_id: u32,
         faction_team: Team,
         setup_skirmish_ai: bool,
-    ) {
-        self.start_new_game(mode);
+    ) -> Result<(), String> {
+        self.start_new_game(mode)?;
         let _ = self.set_player_team(player_id, faction_team);
         if setup_skirmish_ai {
             self.setup_skirmish_ai(player_id);
         }
+        Ok(())
     }
 
     /// C++ GameInfo/SidesList start path for a selected Campaign or Challenge
@@ -789,8 +790,8 @@ impl GameLogic {
         mode: GameMode,
         player_id: u32,
         player_template: PlayerTemplateIdentity,
-    ) -> bool {
-        self.start_new_game(mode);
+    ) -> Result<bool, String> {
+        self.start_new_game(mode)?;
         if !self.bind_player_template_identity(player_id, player_template) {
             log::error!(
                 "Rejecting selected PlayerTemplate after session reset; removing local player {} rather than falling back to a base Team",
@@ -801,9 +802,9 @@ impl GameLogic {
                 self.select_local_player(None);
             }
             self.player_template_bindings.remove(&player_id);
-            return false;
+            return Ok(false);
         }
-        true
+        Ok(true)
     }
 
     /// Bind an already validated offline GameInfo slot selection to an

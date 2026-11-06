@@ -94,13 +94,14 @@ fn capture(game_logic: &GameLogic) -> ChinookAiPersistPayload {
 }
 
 fn apply_payload(game_logic: &mut GameLogic, payload: ChinookAiPersistPayload) {
+    let frame = game_logic.get_current_frame() as u32;
     for entry in payload.objects {
         let Some(object) = game_logic.host_object_mut(ObjectId(entry.object_id)) else {
             continue;
         };
         if object.chinook_ai.is_none() {
             if entry.combat {
-                object.install_combat_chinook_transport();
+                object.install_combat_chinook_transport(frame);
             } else {
                 object.install_chinook_transport();
             }
@@ -158,8 +159,9 @@ mod tests {
             )
             .expect("chinook");
         {
+            let frame = source.get_current_frame() as u32;
             let obj = source.host_object_mut(bird).expect("chinook");
-            obj.install_combat_chinook_transport();
+            obj.install_combat_chinook_transport(frame);
             let ai = obj.chinook_ai.as_mut().expect("ai");
             ai.flight_status = HostChinookFlightStatus::DoingCombatDrop;
             ai.state = HostChinookAIState::DoCombatDrop;

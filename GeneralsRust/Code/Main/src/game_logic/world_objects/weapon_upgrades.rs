@@ -409,8 +409,8 @@ impl GameLogic {
     }
 
     /// C++ `WeaponSetUpgrade` + `updateWeaponSet` for Sentry PLAYER_UPGRADE.
-    /// Bind PRIMARY `SentryDroneGun`, stamp the retail tag, set flag 0.
-    pub(in super::super) fn equip_sentry_drone_gun(obj: &mut Object) {
+    /// Bind PRIMARY `SentryDroneGun`, stamp the retail tag, set PLAYER_UPGRADE.
+    pub(in super::super) fn equip_sentry_drone_gun(obj: &mut Object, frame: u32) {
         use crate::game_logic::host_sentry_drone::{
             SENTRY_DRONE_GUN_WEAPON, UPGRADE_AMERICA_SENTRY_DRONE_GUN,
         };
@@ -421,112 +421,7 @@ impl GameLogic {
             let _ = obj.replace_weapon_set_slot(0, Some(w));
         }
         obj.apply_upgrade_tag(UPGRADE_AMERICA_SENTRY_DRONE_GUN);
-        let _ = obj.set_weapon_set_flag(0, true);
-    }
-
-    /// Grant GLA Camouflage residual stealth to Rebel infantry.
-    ///
-    /// C++ StealthUpgrade.cpp:31 sets OBJECT_STATUS_CAN_STEALTH only.
-    /// StealthUpdate.cpp:739 re-arms `m_stealthAllowedFrame = now + StealthDelay`
-    /// rather than cloaking on the upgrade frame.
-    pub(in super::super) fn apply_camouflage_unlock_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_upgrades::{
-            CAMOUFLAGE_STEALTH_DELAY_FRAMES, UPGRADE_GLA_CAMOUFLAGE,
-            camouflage_stealth_allowed_frame,
-        };
-
-        let mut affected = 0u32;
-        let now = self.frame;
-        for obj in self.objects.registered_values_mut() {
-            if !recipients.matches_object(obj) || !obj.is_alive() {
-                continue;
-            }
-            // StealthUpgrade.cpp: only objects authoring a StealthUpgrade
-            // triggered by this upgrade gain CAN_STEALTH.
-            if !super::authored_upgrade_modules::authors_triggered_stealth_upgrade(
-                &obj.thing().template,
-                |name| name.eq_ignore_ascii_case(upgrade_name),
-            ) {
-                continue;
-            }
-            obj.apply_upgrade_tag(upgrade_name);
-            obj.apply_upgrade_tag(UPGRADE_GLA_CAMOUFLAGE);
-            obj.set_status_stealthed(false);
-            obj.set_status_detected(false);
-            obj.detection_expires_frame = 0;
-            obj.innate_stealth = true;
-
-            obj.stealth_breaks_on_attack = true;
-
-            obj.stealth_breaks_on_move = false;
-
-            obj.stealth_delay_frames = CAMOUFLAGE_STEALTH_DELAY_FRAMES;
-            obj.stealth_allowed_frame = camouflage_stealth_allowed_frame(now);
-            obj.stealth_delay_pending = false;
-            affected = affected.saturating_add(1);
-        }
-        affected
-    }
-
-    /// Grant GLA CamoNetting residual stealth to eligible GLA structures.
-    ///
-    /// C++ StealthUpgrade.cpp:31 CAN_STEALTH only; StealthUpdate.cpp:739 re-arms
-    /// StealthDelay (2500ms / 75f) before STEALTHED.
-    pub(in super::super) fn apply_camo_netting_unlock_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_upgrades::{
-            CAMO_NETTING_STEALTH_DELAY_FRAMES, UPGRADE_GLA_CAMO_NETTING,
-            camo_netting_stealth_allowed_frame,
-        };
-
-        let mut affected = 0u32;
-        let now = self.frame;
-        for obj in self.objects.registered_values_mut() {
-            if !recipients.matches_object(obj) || !obj.is_alive() {
-                continue;
-            }
-            if !super::authored_upgrade_modules::authors_triggered_stealth_upgrade(
-                &obj.thing().template,
-                |name| name.eq_ignore_ascii_case(upgrade_name),
-            ) {
-                continue;
-            }
-            obj.apply_upgrade_tag(upgrade_name);
-            obj.apply_upgrade_tag(UPGRADE_GLA_CAMO_NETTING);
-            obj.set_status_stealthed(false);
-            obj.set_status_detected(false);
-            obj.detection_expires_frame = 0;
-            obj.innate_stealth = true;
-
-            obj.stealth_breaks_on_attack = true;
-
-            obj.stealth_breaks_on_damage = true;
-            obj.stealth_breaks_on_move = false;
-
-            obj.stealth_delay_frames = CAMO_NETTING_STEALTH_DELAY_FRAMES;
-            obj.stealth_allowed_frame = camo_netting_stealth_allowed_frame(now);
-            obj.stealth_delay_pending = false;
-            // Sub-object net mesh residual: upgrade shows CamoNet presentation.
-            obj.camo_net_sub_object_shown = true;
-            obj.camo_net_sub_object_observer_visible = true;
-            affected = affected.saturating_add(1);
-        }
-        if affected > 0 {
-            self.camo_netting_opacity_cloak_count = self
-                .camo_netting_opacity_cloak_count
-                .saturating_add(affected);
-            self.camo_netting_sub_object_show_count = self
-                .camo_netting_sub_object_show_count
-                .saturating_add(affected);
-        }
-        affected
+        obj.set_weapon_condition_at_frame(3, true, frame);
     }
 
     /// Apply Demo SuicideBomb residual: tag eligible Demo units/structures +

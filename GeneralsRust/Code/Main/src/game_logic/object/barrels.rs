@@ -148,7 +148,7 @@ impl Object {
     /// SECONDARY→PRIMARY fallback: a hand-authored secondary with no template
     /// must not inherit PRIMARY's barrel configuration.
     fn weapon_barrel_source_name_for_slot(&self, slot: u8) -> Option<&str> {
-        if self.weapon_set_mine_clearing_detail {
+        if self.test_weapon_condition(8) {
             return self.selected_weapon_name(slot);
         }
         match slot {

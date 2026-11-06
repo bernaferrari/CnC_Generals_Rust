@@ -6,8 +6,6 @@ const OCL: &str = "DieImpactOcl";
 
 fn world(child: &str) -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
-    world.start_new_game(GameMode::SinglePlayer);
-    world.add_player(Player::new(0, Team::USA, "Owner", true));
     world
         .admit_object_creation_list_sources([format!(
             "ObjectCreationList {OCL}\nCreateObject\nObjectNames = {child}\nCount = 1\nEnd\nEnd\n"
@@ -21,6 +19,8 @@ fn world(child: &str) -> (GameLogic, ObjectId) {
             ),
         )])
         .unwrap();
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
+    world.add_player(Player::new(0, Team::USA, "Owner", true));
     let target = world
         .create_object_for_player("ImpactTarget", 0, Vec3::new(10.0, 0.0, 0.0))
         .unwrap();

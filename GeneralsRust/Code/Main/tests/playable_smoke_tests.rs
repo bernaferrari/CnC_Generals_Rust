@@ -43,7 +43,7 @@ fn template(
     template
 }
 
-fn install_smoke_templates(game_logic: &mut GameLogic) -> TempDir {
+fn admit_smoke_objects(game_logic: &mut GameLogic) {
     let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
     locomotors.apply_source("Locomotor SmokeDozerLoco\n Surfaces = GROUND\n Speed = 60\n Acceleration = 60\n TurnRate = 120\n Appearance = FOUR_WHEELS\nEnd\n").unwrap();
     game_logic.admit_locomotor_definitions(locomotors).unwrap();
@@ -81,6 +81,9 @@ fn install_smoke_templates(game_logic: &mut GameLogic) -> TempDir {
     game_logic
         .admit_object_ini_sources([("SmokeObjects.ini".into(), object_source)])
         .unwrap();
+}
+
+fn install_smoke_templates(game_logic: &mut GameLogic) -> TempDir {
     let mut ranger_gun = gamelogic::weapon::WeaponTemplate::new("SmokeRangerGun".into());
     ranger_gun.primary_damage = 60.0;
     ranger_gun.attack_range = 200.0;
@@ -323,7 +326,8 @@ fn opposing_team(team: Team) -> Team {
 fn run_basic_faction_flow(human_team: Team) {
     let enemy_team = opposing_team(human_team);
     let mut game_logic = GameLogic::new();
-    game_logic.start_new_game(GameMode::Skirmish);
+    admit_smoke_objects(&mut game_logic);
+    game_logic.start_new_game(GameMode::Skirmish).unwrap();
     game_logic.clear_all_players();
     let _map = install_smoke_templates(&mut game_logic);
     let mut human = Player::new(0, human_team, human_team.get_name(), true);
@@ -553,7 +557,8 @@ fn mini_skirmish_playable_flow_smoke() {
         SkirmishPlayerTemplateSelection, apply_skirmish_config, golden_skirmish_config,
     };
     let mut game_logic = GameLogic::new();
-    game_logic.start_new_game(GameMode::Skirmish);
+    admit_smoke_objects(&mut game_logic);
+    game_logic.start_new_game(GameMode::Skirmish).unwrap();
     game_logic.clear_all_players();
     let _map = install_smoke_templates(&mut game_logic);
     let mut definitions = PlayerTemplateStore::new_owned();
@@ -911,7 +916,8 @@ fn retail_factions_build_train_attack_smoke() {
 fn dozer_construct_places_barracks_under_construction() {
     use generals_main::game_logic::host_production_buildable_command_residual::LBC_OK;
     let mut game_logic = GameLogic::new();
-    game_logic.start_new_game(GameMode::Skirmish);
+    admit_smoke_objects(&mut game_logic);
+    game_logic.start_new_game(GameMode::Skirmish).unwrap();
     game_logic.clear_all_players();
     let _map = install_smoke_templates(&mut game_logic);
     game_logic.add_player(Player::new(0, Team::USA, "USA", true));

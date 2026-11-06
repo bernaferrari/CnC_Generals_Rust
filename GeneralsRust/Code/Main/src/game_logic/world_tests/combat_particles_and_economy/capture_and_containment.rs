@@ -1648,14 +1648,14 @@ fn worker_gather_arms_mine_clearing_detail() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         worker.supply_truck_state = SupplyTruckState::DockingWarehouse;
-        assert!(!worker.weapon_set_mine_clearing_detail);
+        assert!(!worker.test_weapon_condition(8));
     }
 
     logic.update_support_states(&[worker_id, source], 1.0 / 30.0);
 
     let worker = logic.host_object(worker_id).expect("worker after");
     assert!(
-        worker.weapon_set_mine_clearing_detail,
+        worker.test_weapon_condition(8),
         "gathering GLA worker must arm WEAPONSET_MINE_CLEARING_DETAIL"
     );
 }

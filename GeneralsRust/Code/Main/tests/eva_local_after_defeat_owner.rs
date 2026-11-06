@@ -40,7 +40,7 @@ fn defeated_local_owner_still_gets_base_under_attack_eva() {
     fn world() -> GameLogic {
         let mut world = GameLogic::new();
         world.admit_object_ini_sources([("EVA.ini".into(), "Object AmericaCommandCenter\n KindOf = STRUCTURE SELECTABLE COMMANDCENTER MP_COUNT_FOR_VICTORY\n Body = ActiveBody Body\n MaxHealth = 5000\n InitialHealth = 5000\n End\nEnd\n".into())]).unwrap();
-        world.start_new_game(generals_main::game_logic::GameMode::SinglePlayer);
+        world.start_new_game(generals_main::game_logic::GameMode::SinglePlayer).unwrap();
         let local = Player::new(7, Team::USA, "Local", true);
         world.add_player(local);
         world
@@ -72,7 +72,7 @@ fn defeated_local_player_still_classifies_ally_under_attack_per_world() {
     fn world(relationship: Relationship) -> (GameLogic, generals_main::game_logic::ObjectId) {
         let mut world = GameLogic::new();
         world.admit_object_ini_sources([("AllyEVA.ini".into(), "Object AllyCommandCenter\n KindOf = STRUCTURE SELECTABLE COMMANDCENTER MP_COUNT_FOR_VICTORY\n Body = ActiveBody Body\n MaxHealth = 5000\n InitialHealth = 5000\n End\nEnd\n".into())]).unwrap();
-        world.start_new_game(generals_main::game_logic::GameMode::SinglePlayer);
+        world.start_new_game(generals_main::game_logic::GameMode::SinglePlayer).unwrap();
         let mut local = Player::new(7, Team::USA, "Local", true);
         local.set_map_relationship(8, relationship);
         world.add_player(local);
@@ -100,7 +100,7 @@ fn defeated_local_owner_gets_overcharge_exhaustion_only_in_its_world() {
     fn world(local_is_owner: bool) -> (GameLogic, generals_main::game_logic::ObjectId) {
         let mut world = GameLogic::new();
         world.admit_object_ini_sources([("Overcharge.ini".into(), "Object OwnerOvercharger\n KindOf = STRUCTURE SELECTABLE\n EnergyBonus = 5\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = OverchargeBehavior Overcharge\n HealthPercentToDrainPerSecond = 50%\n NotAllowedWhenHealthBelowPercent = 90%\n End\nEnd\n".into())]).unwrap();
-        world.start_new_game(generals_main::game_logic::GameMode::SinglePlayer);
+        world.start_new_game(generals_main::game_logic::GameMode::SinglePlayer).unwrap();
         let owner = Player::new(7, Team::China, "Owner", local_is_owner);
         world.add_player(owner);
         if !local_is_owner {

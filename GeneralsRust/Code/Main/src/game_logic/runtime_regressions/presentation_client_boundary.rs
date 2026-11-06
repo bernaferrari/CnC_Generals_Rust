@@ -22,7 +22,10 @@ fn presentation_client_boundary() -> bool {
         return true;
     };
 
-    logic.start_new_game(GameMode::Skirmish);
+    if let Err(error) = crate::cnc_game_engine::start_standalone_game(&mut logic, GameMode::Skirmish) {
+        eprintln!("Retail presentation startup failed: {error}");
+        return false;
+    }
     let path = resolve_retail_map_path(map_name);
     let loaded = match path {
         Some(p) => {

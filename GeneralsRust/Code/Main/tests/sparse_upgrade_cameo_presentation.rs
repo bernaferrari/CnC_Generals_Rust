@@ -24,7 +24,7 @@ fn selected_world_preserves_sparse_upgrade_cameo_positions() {
             template_name: "FactionAmerica".into(),
             template_index: Some(0)
         },
-    ));
+    ).unwrap());
     let id = world
         .create_object_for_player("SparseCameoObject", 0, glam::Vec3::ZERO)
         .unwrap();

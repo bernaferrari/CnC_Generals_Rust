@@ -334,7 +334,7 @@ fn untouched_admitted_dozer_initial_primary_roundtrips_actual_native_wire() {
         .primary
         .save_original_control_bytes()
         .expect("initialized source control");
-    assert!(actor.weapon_set_mine_clearing_detail);
+    assert!(actor.test_weapon_condition(8));
     let hp = source.host_object(target).unwrap().health.current;
     let builder = crate::save_load::snapshot::SnapshotBuilder::new();
     let mut snapshot = builder
@@ -365,7 +365,7 @@ fn untouched_admitted_dozer_initial_primary_roundtrips_actual_native_wire() {
         source_primary
     );
     assert!(actor.dozer_tasks.primary.control.initialized);
-    assert!(actor.weapon_set_mine_clearing_detail);
+    assert!(actor.test_weapon_condition(8));
     assert_eq!(restored.host_object(target).unwrap().health.current, hp);
 }
 

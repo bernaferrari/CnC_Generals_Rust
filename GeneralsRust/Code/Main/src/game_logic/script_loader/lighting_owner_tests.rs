@@ -192,13 +192,15 @@ fn actual_map_admission_keeps_first_scene_lighting_when_second_map_is_loaded() {
             let night_map = write_map("OwnedNight.map", 4, 0.1);
             let day_map = write_map("OwnedDay.map", 2, 0.5);
             let mut first = GameLogic::new();
-            first.start_new_game(GameMode::Shell);
+            first.admit_object_ini_sources(std::iter::empty()).unwrap();
+            first.start_new_game(GameMode::Shell).unwrap();
             assert!(first.load_map(night_map.to_str().unwrap()));
             let first_before = crate::presentation_frame::PresentationWorldEnv::from_logic(&first);
             assert!(first_before.is_night);
             let first_color = first_before.primary_object_lighting.unwrap().ambient;
             let mut second = GameLogic::new();
-            second.start_new_game(GameMode::Shell);
+            second.admit_object_ini_sources(std::iter::empty()).unwrap();
+            second.start_new_game(GameMode::Shell).unwrap();
             assert!(second.load_map(day_map.to_str().unwrap()));
             assert!(!crate::presentation_frame::PresentationWorldEnv::from_logic(&second).is_night);
             let first_after = crate::presentation_frame::PresentationWorldEnv::from_logic(&first);
@@ -250,7 +252,7 @@ fn actual_map_game_data_thresholds_reach_same_id_factory_bodies_without_cross_wo
                     "map-threshold-body.ini".into(),
                     "Object MapThresholdBody\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 60\nEnd\nEnd\n".into()
                 )]).unwrap()).unwrap();
-                world.start_new_game(GameMode::Shell);
+                world.start_new_game(GameMode::Shell).unwrap();
                 assert!(world.load_map(path.to_str().unwrap()));
                 world.add_player(Player::new(1, Team::USA, "Owner", true));
                 let id = world

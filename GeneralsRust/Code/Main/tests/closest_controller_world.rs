@@ -8,7 +8,8 @@ use glam::Vec3;
 
 fn world(map: &std::path::Path, human: bool) -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.admit_object_ini_sources([("Controller.ini".into(), "Object Mover\n KindOf = VEHICLE\n Geometry = SPHERE\n GeometryMajorRadius = 2\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject Threat\n KindOf = VEHICLE IMMOBILE\n Geometry = SPHERE\n GeometryMajorRadius = 2\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into())]).unwrap();
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(map.to_str().unwrap()));
     world.clear_all_players();
     world.add_player(Player::new(0, Team::USA, "Mover owner", human));

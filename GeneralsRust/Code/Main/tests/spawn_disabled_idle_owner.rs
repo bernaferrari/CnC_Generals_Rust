@@ -14,7 +14,7 @@ fn world() -> (
             "Object SpawnDisabledIdleSite\n KindOf = STRUCTURE SELECTABLE SPAWNS_ARE_THE_WEAPONS\n Body = ActiveBody SiteBody\n MaxHealth = 500\n InitialHealth = 500\n End\nEnd\nObject SpawnDisabledIdleChild\n KindOf = VEHICLE DOZER SELECTABLE\n Locomotor = SET_NORMAL AmericaVehicleDozerLocomotor\n Body = ActiveBody ChildBody\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = DozerAIUpdate ChildAI\n End\nEnd\n".into(),
         )])
         .unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     world.add_player(Player::new(1, Team::USA, "Owner", true));
     let site = world
         .create_object_for_player("SpawnDisabledIdleSite", 1, Vec3::ZERO)

@@ -120,7 +120,7 @@ End
     world
         .admit_object_ini_sources([("VeterancyTransfers.ini".into(), object_ini)])
         .expect("receiving object definitions accepted");
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(map.to_str().expect("map path UTF-8")));
     let mut gla = Player::new(PLAYER_GLA, Team::GLA, "GLA", true);
     gla.alliance_team = 1;

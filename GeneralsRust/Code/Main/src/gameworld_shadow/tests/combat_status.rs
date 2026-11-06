@@ -154,6 +154,7 @@ fn host_attacking_status_log_drives_set_combat_status_channel() {
 fn host_stealth_status_log_drives_set_combat_status_channel() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
+    admit_shadow_fixture(&mut logic, "StU", "SELECTABLE");
     let cfg = golden_skirmish_config("StealthStatusCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("StU") {

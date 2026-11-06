@@ -11,7 +11,8 @@ const TARGET: &str = "ReceivingTimingBuilding";
 
 fn world(seed: u32) -> (GameLogic, ObjectId, ObjectId) {
     let mut game = GameLogic::new();
-    game.start_new_game(GameMode::SinglePlayer);
+    game.admit_object_ini_sources([("Capture.ini".into(), format!("Object {CAPTOR}\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SpecialAbility Capture\n SpecialPowerTemplate = SpecialAbilityRangerCaptureBuilding\n End\n Behavior = SpecialAbilityUpdate CaptureUpdate\n SpecialPowerTemplate = SpecialAbilityRangerCaptureBuilding\n StartAbilityRange = 5\n UnpackTime = 3000\n PreparationTime = 20000\n PackTime = 2000\n PackUnpackVariationFactor = 0.5\n End\nEnd\nObject {TARGET}\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\n End\nEnd\n"))]).unwrap();
+    game.start_new_game(GameMode::SinglePlayer).unwrap();
     game.add_player(Player::new(1, Team::USA, "Owner", true));
     game.add_player(Player::new(2, Team::GLA, "Target", false));
 

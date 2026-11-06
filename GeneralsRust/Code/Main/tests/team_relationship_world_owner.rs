@@ -85,7 +85,7 @@ fn world(map: &std::path::Path) -> (GameLogic, ObjectId, ObjectId) {
     world
         .admit_player_template_definitions(player_templates)
         .unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     let mut map_phases = Vec::new();
     let loaded = world.load_map_with_progress(map.to_str().unwrap(), |progress, phase| {
         map_phases.push((progress, phase.to_owned()));
@@ -1188,7 +1188,7 @@ fn contextual_relationship_actions_use_live_team_ids_and_reset_per_world() {
     // New-game reset clears this owner's Player and Team relationship state,
     // while the peer's same-ID session keeps its authored result.
     owner.reset();
-    owner.start_new_game(GameMode::SinglePlayer);
+    owner.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(owner.load_map(map.to_str().unwrap()));
     assert!(owner.get_player(1).unwrap().team_relations.is_empty());
     let reset_source = owner

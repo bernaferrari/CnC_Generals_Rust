@@ -9,7 +9,7 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
                 .into(),
         )])
         .unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     world.add_player(Player::new(1, Team::USA, "HealthRegenOwner", true));
     let carrier = world
         .create_object_for_player("AmericaVehicleAmbulance", 1, glam::Vec3::ZERO)

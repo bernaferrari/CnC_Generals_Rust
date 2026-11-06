@@ -773,9 +773,10 @@ fn selected_general_start_binds_exact_template_and_rejects_late_invalid_identity
         "a Challenge index is part of the selected General identity"
     );
     let mut logic = GameLogic::new();
+    logic.admit_object_ini_sources(std::iter::empty()).unwrap();
 
     assert!(
-        logic.start_new_game_with_player_template(GameMode::SinglePlayer, 0, selected.clone(),)
+        logic.start_new_game_with_player_template(GameMode::SinglePlayer, 0, selected.clone(),).unwrap()
     );
     let player = logic.get_player(0).expect("bound local player");
     assert_eq!(player.team, Team::USA);
@@ -793,7 +794,7 @@ fn selected_general_start_binds_exact_template_and_rejects_late_invalid_identity
         template_index: None,
     };
     assert!(
-        !logic.start_new_game_with_player_template(GameMode::SinglePlayer, 0, invalid),
+        !logic.start_new_game_with_player_template(GameMode::SinglePlayer, 0, invalid).unwrap(),
         "a late missing identity must not fall back to a USA/China/GLA team"
     );
     assert!(logic.get_player(0).is_none());
@@ -804,7 +805,7 @@ fn selected_general_start_binds_exact_template_and_rejects_late_invalid_identity
         template_index: Some(air_force_index),
     };
     assert!(
-        !logic.start_new_game_with_player_template(GameMode::SinglePlayer, 0, stale_index_pair),
+        !logic.start_new_game_with_player_template(GameMode::SinglePlayer, 0, stale_index_pair).unwrap(),
         "GameLogic must independently reject a stale index/name pair before map load"
     );
     assert!(logic.get_player(0).is_none());
@@ -1066,7 +1067,7 @@ fn battle_bus_residual_capacity_and_flags_installed() {
     );
     assert!(bus.passengers_allowed_to_fire);
     assert!(bus.armed_riders_upgrade_weapon_set);
-    assert!(!bus.weapon_set_player_upgrade);
+    assert!(!bus.test_weapon_condition(3));
 }
 
 #[test]
@@ -1114,7 +1115,7 @@ fn battle_bus_residual_enter_sets_docked_and_upgrades_weapon_set() {
     assert!(bus.contained_units().contains(&infantry_id));
     assert_eq!(bus.transport_count(), 1);
     assert!(
-        bus.weapon_set_player_upgrade,
+        bus.test_weapon_condition(3),
         "armed riders must upgrade weapon set"
     );
     assert!(
@@ -1180,7 +1181,7 @@ fn battle_bus_residual_load_two_unload_both_free() {
     );
     assert_eq!(bus.transport_count(), 2);
     assert_eq!(game_logic.battle_bus_residual_loads(), 2);
-    assert!(bus.weapon_set_player_upgrade);
+    assert!(bus.test_weapon_condition(3));
 
     for unit_id in [unit_a, unit_b] {
         let unit = game_logic.host_object(unit_id).expect("loaded unit");
@@ -1219,7 +1220,7 @@ fn battle_bus_residual_load_two_unload_both_free() {
     );
     assert_eq!(bus.transport_count(), 0);
     assert!(
-        !bus.weapon_set_player_upgrade,
+        !bus.test_weapon_condition(3),
         "weapon set upgrade must clear when empty"
     );
 
@@ -1915,6 +1916,7 @@ fn deploy_style_nuke_launcher_normal_attack_waits_for_range_and_unpack() {
             // range, not weapon readiness, before it begins unpacking.
             reload_time: 100.0,
             last_fire_time: 0.0,
+            last_fire_frame: 0,
             ammo: None,
             clip_size: 0,
             clip_reload_time: 0.0,
@@ -2150,6 +2152,7 @@ fn deploy_style_sentry_auto_target_loss_clears_pending_attack() {
             min_range: 0.0,
             reload_time: 0.0,
             last_fire_time: -100.0,
+            last_fire_frame: 0,
             ammo: None,
             clip_size: 0,
             clip_reload_time: 0.0,

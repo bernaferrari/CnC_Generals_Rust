@@ -6,7 +6,11 @@ use glam::Vec3;
 
 fn world_with_place_builder(script_disabled: bool) -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
-    world.start_new_game(GameMode::Skirmish);
+    world.admit_object_ini_sources([(
+        "PlacementOwner.ini".into(),
+        "Object AmericaBarracks\n KindOf = STRUCTURE FS_BARRACKS SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\n End\nEnd\nObject AmericaInfantryRanger\n KindOf = INFANTRY\n BuildCost = 150\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
+    )]).unwrap();
+    world.start_new_game(GameMode::Skirmish).unwrap();
     world.clear_all_players();
 
     let mut owner = Player::new(0, Team::USA, "USA", true);

@@ -5,23 +5,20 @@ impl GameLogic {
     /// C++ `StealthUpdate::markAsDetected` (`StealthUpdate.cpp:892-910`) +
     /// `setWakeupIfInRange` / `wakeUpAndAttemptToTarget`.
     ///
-    /// Object has no world access, so the idle-enemy walk lives here. Retail
-    /// Burton / Kell / Lotus / Pathfinder / Listening Outpost / CamoNetting
-    /// author `OrderIdleEnemiesToAttackMeUponReveal`. Idle enemy AI in vision
-    /// gets `m_nextMoodCheckTime = now` so same-frame mood acquire can fire.
-
+    /// Object has no world access, so the idle-enemy walk lives here. Only a
+    /// StealthUpdate whose owner authors `OrderIdleEnemiesToAttackMeUponReveal`
+    /// wakes enemies. Idle enemy AI in vision gets `m_nextMoodCheckTime = now`
+    /// so same-frame mood acquire can fire.
     pub(crate) fn order_idle_enemies_to_attack_on_reveal(&mut self, victim_id: ObjectId) {
+        if !self
+            .stealth_owner_rules(victim_id)
+            .is_some_and(|rules| rules.order_idle_enemies_to_attack)
+        {
+            return;
+        }
         let Some(victim) = self.objects.get(&victim_id) else {
             return;
         };
-        if !crate::game_logic::object::order_idle_enemies_on_reveal(
-            &victim.template_name,
-            victim.thing().template.capture_power
-                == crate::game_logic::CapturePowerKind::BlackLotus,
-            victim.authors_pathfinder_sniper_weapon(),
-        ) {
-            return;
-        }
         let v_team = victim.team;
         let v_owner = victim.owner_player_id;
         let v_pos = victim.get_position();
@@ -100,9 +97,6 @@ impl GameLogic {
                     &mut crate::game_logic::ScriptPresentationEffects::default()
                         .reborrow_for_object(&mut self.partition_manager),
                 );
-                {}
-                self.camo_netting_order_idle_enemies_count =
-                    self.camo_netting_order_idle_enemies_count.saturating_add(1);
             }
         }
     }

@@ -849,22 +849,15 @@ impl GameLogic {
             }
             if let Some((pos, gaining, has_victim)) = disguise_halfpoint {
                 use crate::game_logic::host_bomb_truck_disguise::{
-                    BOMB_TRUCK_DISGUISE_FX, BOMB_TRUCK_DISGUISE_REVEAL_FX,
                     BOMB_TRUCK_DISGUISE_REVEALED_FAILURE_AUDIO,
                     BOMB_TRUCK_DISGUISE_REVEALED_SUCCESS_AUDIO, BOMB_TRUCK_DISGUISE_STARTED_AUDIO,
                 };
-                let (sound, fx) = if gaining {
-                    (BOMB_TRUCK_DISGUISE_STARTED_AUDIO, BOMB_TRUCK_DISGUISE_FX)
+                let sound = if gaining {
+                    BOMB_TRUCK_DISGUISE_STARTED_AUDIO
                 } else if has_victim {
-                    (
-                        BOMB_TRUCK_DISGUISE_REVEALED_SUCCESS_AUDIO,
-                        BOMB_TRUCK_DISGUISE_REVEAL_FX,
-                    )
+                    BOMB_TRUCK_DISGUISE_REVEALED_SUCCESS_AUDIO
                 } else {
-                    (
-                        BOMB_TRUCK_DISGUISE_REVEALED_FAILURE_AUDIO,
-                        BOMB_TRUCK_DISGUISE_REVEAL_FX,
-                    )
+                    BOMB_TRUCK_DISGUISE_REVEALED_FAILURE_AUDIO
                 };
                 self.queue_audio_event(
                     crate::game_logic::AudioEventRequest::new(sound)
@@ -872,19 +865,17 @@ impl GameLogic {
                         .with_position(pos)
                         .with_priority(160),
                 );
-                if !self.dispatch_fx_list_at_host_position_with_effects(
-                    fx,
-                    pos,
-                    presentation_effects,
-                ) {
-                    let _ = self.combat_particles.spawn_named(
-                        crate::game_logic::combat_particles::CombatParticleKind::WeaponImpact,
-                        fx,
-                        pos,
-                        self.frame,
-                        Some(object_id),
-                        None,
-                        presentation_effects,
+                let fx = self.objects.get(&object_id).and_then(|object| {
+                    let template = &object.thing().template;
+                    if gaining {
+                        template.stealth_disguise_fx.as_ref()
+                    } else {
+                        template.stealth_disguise_reveal_fx.as_ref()
+                    }
+                }).cloned();
+                if let Some(fx) = fx {
+                    self.dispatch_fx_list_at_host_position_with_effects(
+                        &fx, pos, presentation_effects,
                     );
                 }
             }

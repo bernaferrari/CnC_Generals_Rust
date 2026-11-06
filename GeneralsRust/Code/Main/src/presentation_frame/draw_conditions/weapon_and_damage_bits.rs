@@ -1,49 +1,20 @@
 use super::*;
 impl DrawConditionFacts {
     pub(super) fn weapon_and_damage_bits(&self, mut bits: u128) -> u128 {
-        // Wave 506: weaponset veterancy model-condition residual.
-        {
-            use crate::game_logic::host_enum_table_residual::{
-                weaponset_elite_model_bit, weaponset_hero_model_bit, weaponset_veteran_model_bit,
-            };
-            let vet_b = weaponset_veteran_model_bit();
-            let elite_b = weaponset_elite_model_bit();
-            let hero_b = weaponset_hero_model_bit();
-            bits &= !(1u128 << vet_b);
-            bits &= !(1u128 << elite_b);
-            bits &= !(1u128 << hero_b);
-            match self.veterancy {
-                PresentationVeterancy::Rookie => {}
-                PresentationVeterancy::Veteran => bits |= 1u128 << vet_b,
-                PresentationVeterancy::Elite => bits |= 1u128 << elite_b,
-                PresentationVeterancy::Heroic => bits |= 1u128 << hero_b,
-            }
-        }
-        // Wave 518: weaponset player/crate, armor crate, enemy-near, armed residual bits.
+        // Weapon-set model bits are already synchronized from the complete
+        // native condition bitset in the source model-condition bank. Preserve
+        // that bank rather than reconstructing exclusive tiers or veterancy.
         {
             use crate::game_logic::host_enum_table_residual::{
                 armed_model_bit, armorset_crateupgrade_one_model_bit,
                 armorset_crateupgrade_two_model_bit, enemynear_model_bit,
-                weaponset_crateupgrade_one_model_bit, weaponset_crateupgrade_two_model_bit,
-                weaponset_player_upgrade_model_bit,
             };
-            let wsp = weaponset_player_upgrade_model_bit();
-            let wc1 = weaponset_crateupgrade_one_model_bit();
-            let wc2 = weaponset_crateupgrade_two_model_bit();
             let ac1 = armorset_crateupgrade_one_model_bit();
             let ac2 = armorset_crateupgrade_two_model_bit();
             let en_b = enemynear_model_bit();
             let arm_b = armed_model_bit();
-            for b in [wsp, wc1, wc2, ac1, ac2, en_b, arm_b] {
+            for b in [ac1, ac2, en_b, arm_b] {
                 bits &= !(1u128 << b);
-            }
-            if self.weapon_set_player_upgrade {
-                bits |= 1u128 << wsp;
-            }
-            match self.weapon_crate_upgrade {
-                1 => bits |= 1u128 << wc1,
-                2 => bits |= 1u128 << wc2,
-                _ => {}
             }
             match self.armor_crate_upgrade {
                 1 => bits |= 1u128 << ac1,

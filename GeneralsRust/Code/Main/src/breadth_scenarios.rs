@@ -117,7 +117,9 @@ pub fn breadth_factions() -> BreadthCategoryResult {
 
 pub fn breadth_modules() -> BreadthCategoryResult {
     let mut logic = GameLogic::new();
-    logic.start_new_game(GameMode::Skirmish);
+    if let Err(error) = crate::cnc_game_engine::start_standalone_game(&mut logic, GameMode::Skirmish) {
+        return BreadthCategoryResult { category: "modules_kindof".into(), ok: false, detail: format!("startup: {error}") };
+    }
     let kinds = [
         ("ModInfantry", KindOf::Infantry),
         ("ModVehicle", KindOf::Vehicle),
@@ -353,6 +355,13 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
             80.0,
         ),
     );
+    logic.templates.get_mut("BreadthStealth").unwrap().stealth_update =
+        Some(crate::game_logic::object::StealthUpdateData {
+            innate_stealth: false,
+            granted_by_special_power: true,
+            forbidden_conditions: crate::game_logic::object::StealthForbiddenConditions::FIRING_WEAPON,
+            ..Default::default()
+        });
     logic.templates.insert(
         "BreadthDetector".into(),
         tpl(
@@ -404,7 +413,8 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
         if let Some(u) = logic.host_object_mut(sid) {
             u.set_status_stealthed(true);
             u.set_status_detected(false);
-            u.stealth_breaks_on_attack = true;
+            // GPS-style grant: the inherited StealthUpdate forbids FIRING_*.
+            u.innate_stealth = true;
             // last_fire_time=-1 so weapon_ready at t=0 (Weapon::default reload=1.0
             // would otherwise make fire_at return false — same setup as unit tests).
             u.weapon = Some(crate::game_logic::Weapon {
@@ -425,8 +435,12 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
                 &mut logic.combat_system,
                 &mut logic.attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut logic.queued_audio_events),
-            ) && !u.status.stealthed;
+            );
+            u.set_status_firing_weapon(true);
         }
+        // StealthUpdate::allowedToStealth reveals while IS_FIRING_WEAPON.
+        logic.update_stealth_and_detection();
+        fire_break_ok &= logic.host_object(sid).is_some_and(|u| !u.status.stealthed);
 
         stealth_ok = hidden && detected_ok && fire_break_ok;
         if !stealth_ok {
@@ -454,7 +468,9 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
 
 pub fn breadth_scripts_victory_hooks() -> BreadthCategoryResult {
     let mut logic = GameLogic::new();
-    logic.start_new_game(GameMode::Skirmish);
+    if let Err(error) = crate::cnc_game_engine::start_standalone_game(&mut logic, GameMode::Skirmish) {
+        return BreadthCategoryResult { category: "scripts_victory".into(), ok: false, detail: format!("startup: {error}") };
+    }
     let map_candidates = [
         "windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
         "/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
@@ -639,7 +655,9 @@ pub fn breadth_campaign_hooks() -> BreadthCategoryResult {
 
 pub fn breadth_saveload_multipoint() -> BreadthCategoryResult {
     let mut logic = GameLogic::new();
-    logic.start_new_game(GameMode::Skirmish);
+    if let Err(error) = crate::cnc_game_engine::start_standalone_game(&mut logic, GameMode::Skirmish) {
+        return BreadthCategoryResult { category: "saveload_multipoint".into(), ok: false, detail: format!("startup: {error}") };
+    }
     logic.templates.insert(
         "BreadthSnapUnit".into(),
         tpl(

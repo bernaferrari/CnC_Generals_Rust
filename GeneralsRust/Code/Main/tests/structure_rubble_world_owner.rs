@@ -44,7 +44,7 @@ fn configured_world(
             ),
         )])
         .unwrap();
-    world.start_new_game(GameMode::SinglePlayer);
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(map_path.to_str().unwrap()));
     world.add_player(Player::new(1, Team::USA, "Rubble Owner", false));
 
@@ -96,7 +96,7 @@ fn same_id_worlds_use_their_own_map_game_data_rubble_fallback() {
     // Resetting the first session must admit the replacement map's rules
     // without changing the still-live peer.
     first.reset();
-    first.start_new_game(GameMode::SinglePlayer);
+    first.start_new_game(GameMode::SinglePlayer).unwrap();
     let replacement = root.path().join("second/RubbleOwner.map");
     assert!(first.load_map(replacement.to_str().unwrap()));
     first.add_player(Player::new(1, Team::USA, "Rubble Owner", false));

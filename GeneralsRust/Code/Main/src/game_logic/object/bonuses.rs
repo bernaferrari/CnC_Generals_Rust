@@ -872,8 +872,9 @@ impl Object {
         &mut self,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
+        frame: u32,
     ) {
-        self.apply_convert_to_car_bomb_from(None, audio, feedback);
+        self.apply_convert_to_car_bomb_from(None, audio, feedback, frame);
     }
 
     /// Convert with optional donor (terrorist) residual endowments.
@@ -882,9 +883,10 @@ impl Object {
         donor: Option<&Object>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
+        frame: u32,
     ) {
         self.apply_convert_to_car_bomb_from_with_partition_context(
-            donor, audio, feedback, None, None, None, false,
+            donor, audio, feedback, None, None, None, false, frame,
         );
     }
     #[cfg(test)]
@@ -894,6 +896,7 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
         partition: &mut crate::game_logic::partition_manager::PartitionManager,
+        frame: u32,
     ) {
         self.apply_convert_to_car_bomb_from_with_partition_context(
             donor,
@@ -903,6 +906,7 @@ impl Object {
             None,
             None,
             false,
+            frame,
         );
     }
     pub(crate) fn apply_convert_to_car_bomb_from_before_veterancy(
@@ -911,6 +915,7 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
         partition: &mut crate::game_logic::partition_manager::PartitionManager,
+        frame: u32,
     ) {
         self.apply_convert_to_car_bomb_from_with_partition_context(
             donor,
@@ -920,6 +925,7 @@ impl Object {
             None,
             None,
             true,
+            frame,
         )
     }
     fn apply_convert_to_car_bomb_from_with_partition_context(
@@ -931,22 +937,26 @@ impl Object {
         health_bonus: Option<&[f32; game_engine::common::global_data::LEVEL_COUNT]>,
         locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
         defer_veterancy: bool,
+        frame: u32,
     ) {
         self.require_partition_owner(partition.as_deref());
+        let receiving = self.thing().template.has_receiving_weapon_sets();
+        self.set_weapon_condition_at_frame(7, true, frame);
         self.set_status_is_carbomb(true);
-        let _ = self.set_weapon_set_flag(2, true);
         self.set_status_disabled_unmanned(false);
         self.set_status_disabled_hacked(false);
         self.status.disabled_hacked_until_frame = 0;
         self.set_status_disabled_emp(false);
         self.status.disabled_emp_until_frame = 0;
         self.set_status_hijacked(false);
-        let _ = self.replace_weapon_set_slot(
-            0,
-            Some(crate::game_logic::host_car_bomb::suicide_car_bomb_weapon()),
-        );
-        let _ = self.replace_weapon_set_slot(1, None);
-        self.set_active_weapon_slot(0);
+        if !receiving {
+            let _ = self.replace_weapon_set_slot(
+                0,
+                Some(crate::game_logic::host_car_bomb::suicide_car_bomb_weapon()),
+            );
+            let _ = self.replace_weapon_set_slot(1, None);
+            self.set_active_weapon_slot(0);
+        }
         self.status.attacking = false;
         self.set_status_moving(false);
         self.stop_moving(audio);

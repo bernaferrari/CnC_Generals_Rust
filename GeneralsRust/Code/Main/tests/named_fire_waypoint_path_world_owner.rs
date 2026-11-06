@@ -202,7 +202,7 @@ fn admitted_world_with_projectile_ai(
     }
     game.admit_receiving_weapon_snapshot(weapons)
         .expect("admit receiving weapon definition");
-    game.start_new_game(GameMode::SinglePlayer);
+    game.start_new_game(GameMode::SinglePlayer).unwrap();
     assert!(game.load_map(path.to_str().expect("UTF-8 map path")));
     game
 }
