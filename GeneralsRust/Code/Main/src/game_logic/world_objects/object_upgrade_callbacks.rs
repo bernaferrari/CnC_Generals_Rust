@@ -350,24 +350,17 @@ impl GameLogic {
             return Ok(());
         }
         if let Some(obj) = self.objects.get_mut(&object_id) {
-            // C++ SubObjectsUpgrade residual (BombTruck loads / Helix BombWing).
-            {
-                let applied =
-                    crate::game_logic::host_sub_objects_upgrade::sub_objects_for_upgrade_tags(
-                        &obj.applied_upgrades,
-                        &obj.template_name,
-                    );
-                if applied.matched {
-                    obj.sub_object_visibility
-                        .apply_show_hide(&applied.show, &applied.hide);
-                    self.sub_objects_upgrades.record(&applied.show);
-                }
+            // C++ SubObjectsUpgrade / ModelConditionUpgrade::upgradeImplementation:
+            // only modules this template authors, triggered through UpgradeMux.
+            let tags = obj.applied_upgrades.clone();
+            let shown = obj.run_authored_visual_upgrades(|name| {
+                name.eq_ignore_ascii_case(upgrade)
+                    || tags.iter().any(|tag| tag.eq_ignore_ascii_case(name))
+            });
+            if !shown.is_empty() {
+                let shown: Vec<&str> = shown.iter().map(String::as_str).collect();
+                self.sub_objects_upgrades.record(&shown);
             }
-            // C++ ModelConditionUpgrade residual.
-            let _ = crate::game_logic::host_model_condition_upgrade::apply_model_condition_upgrade(
-                &mut obj.model_condition_bits,
-                upgrade,
-            );
             // C++ WeaponBonusUpgrade / WeaponSetUpgrade / ArmorUpgrade /
             // CommandSetUpgrade::upgradeImplementation: only modules this
             // template authors, triggered through UpgradeMux, set flags.
