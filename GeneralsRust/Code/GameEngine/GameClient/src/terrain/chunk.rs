@@ -103,6 +103,10 @@ pub type ChunkId = u32;
 /// Size of terrain chunks in world units
 pub const CHUNK_SIZE: f32 = 128.0;
 
+/// Map cells per side of one terrain chunk: C++ `VERTEX_BUFFER_TILE_LENGTH`
+/// (HeightMap.h), the 32x32-cell block each heightmap vertex buffer covers.
+pub const CHUNK_CELLS: u32 = 32;
+
 /// Maximum LOD level (0 = highest detail)
 pub const MAX_LOD_LEVEL: u8 = 4;
 
@@ -123,6 +127,12 @@ pub struct TerrainChunk {
 
     /// Heightmap data for this chunk
     pub heights: Vec<Vec<f32>>,
+
+    /// Per-sample normals (row-major, same shape as `heights`) computed from
+    /// the whole map like C++ `HeightMapRenderObjClass` (central differences
+    /// that read across chunk edges). Empty when the heights were edited
+    /// locally; the mesh then falls back to chunk-local differences.
+    pub sample_normals: Vec<Vec3>,
 
     /// Vertex data for rendering
     pub vertices: Vec<TerrainVertex>,
@@ -202,6 +212,9 @@ pub struct ChunkManager {
     /// Configuration for chunk management
     config: TerrainConfig,
 
+    /// World size of one chunk side of the current grid.
+    chunk_world_size: f32,
+
     /// Immutable input to this manager's terrain mesh bakes.
     static_lighting: TerrainStaticLighting,
 
@@ -260,6 +273,7 @@ impl TerrainChunk {
             lod_level: 0,
             size,
             heights: Vec::new(),
+            sample_normals: Vec::new(),
             vertices: Vec::new(),
             base_colors: Vec::new(),
             dynamic_lit: false,
@@ -294,7 +308,36 @@ impl TerrainChunk {
         lights: &[DisplayDynamicLight],
         static_lighting: &TerrainStaticLighting,
     ) -> TerrainResult<()> {
-        if self.heights.is_empty() {
+        self.build_geometry(resolution, resolution, lights, static_lighting)
+    }
+
+    /// C++ `HeightMapRenderObjClass` mesh: one quad per map cell, vertices at
+    /// the cell corners with the exact sample heights. The chunk grid is
+    /// cell-aligned (`CHUNK_CELLS`), so neighbouring chunks share their edge
+    /// vertices exactly and there is no LOD, as in C++.
+    pub fn generate_cell_geometry_with_lights(
+        &mut self,
+        lights: &[DisplayDynamicLight],
+        static_lighting: &TerrainStaticLighting,
+    ) -> TerrainResult<()> {
+        let rows = self.heights.len() as u32;
+        let cols = self.heights.first().map_or(0, Vec::len) as u32;
+        if rows < 2 || cols < 2 {
+            return Err(TerrainError::InvalidData(
+                "No heightmap data available".to_string(),
+            ));
+        }
+        self.build_geometry(cols, rows, lights, static_lighting)
+    }
+
+    fn build_geometry(
+        &mut self,
+        resolution_x: u32,
+        resolution_z: u32,
+        lights: &[DisplayDynamicLight],
+        static_lighting: &TerrainStaticLighting,
+    ) -> TerrainResult<()> {
+        if self.heights.is_empty() || resolution_x < 2 || resolution_z < 2 {
             return Err(TerrainError::InvalidData(
                 "No heightmap data available".to_string(),
             ));
@@ -304,23 +347,36 @@ impl TerrainChunk {
         self.base_colors.clear();
         self.indices.clear();
 
-        let step_x = (self.bounds.max.x - self.bounds.min.x) / (resolution as f32 - 1.0);
-        let step_z = (self.bounds.max.z - self.bounds.min.z) / (resolution as f32 - 1.0);
+        let step_x = (self.bounds.max.x - self.bounds.min.x) / (resolution_x as f32 - 1.0);
+        let step_z = (self.bounds.max.z - self.bounds.min.z) / (resolution_z as f32 - 1.0);
+        // The mesh lands exactly on the height samples: read them directly.
+        let on_samples = self.heights.len() == resolution_z as usize
+            && self.heights.iter().all(|row| row.len() == resolution_x as usize);
+        let map_normals = on_samples
+            && self.sample_normals.len() == (resolution_x * resolution_z) as usize;
 
         // Generate vertices
-        for z in 0..resolution {
-            for x in 0..resolution {
-                let tex_u = x as f32 / (resolution - 1) as f32;
-                let tex_v = z as f32 / (resolution - 1) as f32;
+        for z in 0..resolution_z {
+            for x in 0..resolution_x {
+                let tex_u = x as f32 / (resolution_x - 1) as f32;
+                let tex_v = z as f32 / (resolution_z - 1) as f32;
                 let world_x = self.bounds.min.x + (x as f32 * step_x);
                 let world_z = self.bounds.min.z + (z as f32 * step_z);
 
                 // Sample the chunk-local height field continuously. The populated height grid
                 // matches the source terrain sample density, not the requested mesh resolution.
-                let height = self.sample_height_bilinear(tex_u, tex_v);
+                let height = if on_samples {
+                    self.heights[z as usize][x as usize]
+                } else {
+                    self.sample_height_bilinear(tex_u, tex_v)
+                };
 
                 // Calculate normal using central differences so lighting matches the legacy renderer.
-                let normal = self.compute_normal(tex_u, tex_v);
+                let normal = if map_normals {
+                    self.sample_normals[(z * resolution_x + x) as usize]
+                } else {
+                    self.compute_normal(tex_u, tex_v)
+                };
 
                 // C++ HeightMap.cpp: vb->diffuse = getStaticDiffuse(x,y) then doTheDynamicLight.
                 let base_color = static_diffuse_from_normal(normal, static_lighting);
@@ -341,13 +397,13 @@ impl TerrainChunk {
         //    |    /  |
         //    |  /    |
         //   p0 ----- p1
-        for z in 0..(resolution - 1) {
-            for x in 0..(resolution - 1) {
-                let i = z * resolution + x;
+        for z in 0..(resolution_z - 1) {
+            for x in 0..(resolution_x - 1) {
+                let i = z * resolution_x + x;
                 let p0 = i;
                 let p1 = i + 1;
-                let p3 = i + resolution;
-                let p2 = i + resolution + 1;
+                let p3 = i + resolution_x;
+                let p2 = i + resolution_x + 1;
                 self.indices.push(p0);
                 self.indices.push(p1);
                 self.indices.push(p2);
@@ -501,10 +557,9 @@ impl TerrainChunk {
             }
         };
 
-        if new_lod != self.lod_level {
-            self.lod_level = new_lod;
-            self.dirty = true; // Need to regenerate geometry
-        }
+        // The game mesh is one quad per map cell at every distance (C++ has
+        // no terrain LOD), so a band change does not dirty the geometry.
+        self.lod_level = new_lod;
     }
 
     /// Update bounding box based on current vertices
@@ -600,6 +655,8 @@ impl TerrainChunk {
 
     /// Apply terrain modification to this chunk
     pub fn apply_modification(&mut self, modification: &TerrainModification) -> TerrainResult<()> {
+        // Local edits invalidate the map-wide normals until the next populate.
+        self.sample_normals.clear();
         match modification {
             TerrainModification::Raise {
                 position,
@@ -906,6 +963,7 @@ impl ChunkManager {
             chunks: HashMap::new(),
             spatial_grid: HashMap::new(),
             grid_origin: Vec2::ZERO,
+            chunk_world_size: config.chunk_size.max(1) as f32,
             config,
             static_lighting: TerrainStaticLighting::default(),
             next_chunk_id: 1,
@@ -982,7 +1040,12 @@ impl ChunkManager {
                 "Heightmap cell scale must be positive".to_string(),
             ));
         }
-        let chunk_size = self.config.chunk_size.max(1) as f32;
+        // Chunks are whole 32-cell blocks (C++ VERTEX_BUFFER_TILE_LENGTH) so
+        // every chunk edge lies on a cell edge; a world-unit chunk size that
+        // is not a multiple of the cell size resampled the height field and
+        // left cracks/seams along chunk rows.
+        let chunk_size = CHUNK_CELLS as f32 * heightmap.scale;
+        self.config.chunk_size = chunk_size.round().max(1.0) as u32;
         // C++ HeightMap.cpp ADJUST_FROM_INDEX_TO_REAL: the authored border is
         // terrain too, although the playable camera bounds begin at world 0.
         let border = heightmap.border_size as f32;
@@ -1407,6 +1470,17 @@ impl ChunkManager {
         let samples_z = ((span_z / step_z).ceil() as usize).max(1) + 1;
 
         chunk.heights = vec![vec![0.0; samples_x]; samples_z];
+        // Cell-aligned chunks sample the height map exactly at its grid.
+        let to_index = |world: f32| world / heightmap.scale + border;
+        let aligned = |world: f32| (to_index(world) - to_index(world).round()).abs() < 1e-3;
+        let cell_index = |world_x: f32, world_z: f32| {
+            (aligned(world_x) && aligned(world_z)).then(|| {
+                (
+                    to_index(world_x).round().max(0.0) as u32,
+                    to_index(world_z).round().max(0.0) as u32,
+                )
+            })
+        };
 
         let mut min_height = f32::INFINITY;
         let mut max_height = f32::NEG_INFINITY;
@@ -1427,7 +1501,10 @@ impl ChunkManager {
                 };
                 let world_x = min_world_x + t_x * (max_world_x - min_world_x);
 
-                let height = heightmap.get_height_at(world_x, world_z);
+                let height = match cell_index(world_x, world_z) {
+                    Some((ix, iz)) => heightmap.world_height_at_index(ix, iz),
+                    None => heightmap.get_height_at(world_x, world_z),
+                };
                 *sample = height;
                 min_height = min_height.min(height);
                 max_height = max_height.max(height);
@@ -1437,6 +1514,27 @@ impl ChunkManager {
         if !min_height.is_finite() || !max_height.is_finite() {
             min_height = 0.0;
             max_height = 0.0;
+        }
+
+        // C++ HeightMapRenderObjClass normals: central differences over
+        // 2 * MAP_XY_FACTOR, neighbours clamped to the map, read across chunk
+        // edges so adjacent chunks light their shared vertices identically.
+        chunk.sample_normals.clear();
+        let corner = cell_index(min_world_x, min_world_z);
+        if let Some((ix0, iz0)) = corner {
+            let last_x = heightmap.width.saturating_sub(1);
+            let last_z = heightmap.height.saturating_sub(1);
+            let run = 2.0 * heightmap.scale;
+            chunk.sample_normals.reserve(samples_x * samples_z);
+            for row in 0..samples_z as u32 {
+                for col in 0..samples_x as u32 {
+                    let (ix, iz) = ((ix0 + col).min(last_x), (iz0 + row).min(last_z));
+                    let h = |x: u32, z: u32| heightmap.world_height_at_index(x, z);
+                    let dx = (h((ix + 1).min(last_x), iz) - h(ix.saturating_sub(1), iz)) / run;
+                    let dz = (h(ix, (iz + 1).min(last_z)) - h(ix, iz.saturating_sub(1))) / run;
+                    chunk.sample_normals.push(Vec3::new(-dx, 1.0, -dz).normalize());
+                }
+            }
         }
 
         chunk.bounds.min.x = min_world_x;
@@ -1456,6 +1554,7 @@ impl ChunkManager {
         chunk_size: f32,
     ) -> TerrainResult<()> {
         self.grid_origin = Vec2::new(min_pos.x, min_pos.z);
+        self.chunk_world_size = chunk_size.max(f32::EPSILON);
         let extent_x = (max_pos.x - min_pos.x).max(chunk_size);
         let extent_z = (max_pos.z - min_pos.z).max(chunk_size);
         let chunks_x = (extent_x / chunk_size).ceil() as i32;
@@ -1484,7 +1583,7 @@ impl ChunkManager {
     /// Get chunk by world position
     pub fn get_chunk_at_position(&self, position: &Vec3) -> Option<&TerrainChunk> {
         // Convert world position to grid coordinates
-        let chunk_size = self.config.chunk_size.max(1) as f32;
+        let chunk_size = self.chunk_world_size;
         let grid_x = ((position.x - self.grid_origin.x) / chunk_size).floor() as i32;
         let grid_z = ((position.z - self.grid_origin.y) / chunk_size).floor() as i32;
 
@@ -1500,7 +1599,7 @@ impl ChunkManager {
 
     /// Get mutable chunk by world position
     pub fn get_chunk_at_position_mut(&mut self, position: &Vec3) -> Option<&mut TerrainChunk> {
-        let chunk_size = self.config.chunk_size.max(1) as f32;
+        let chunk_size = self.chunk_world_size;
         let grid_x = ((position.x - self.grid_origin.x) / chunk_size).floor() as i32;
         let grid_z = ((position.z - self.grid_origin.y) / chunk_size).floor() as i32;
 
@@ -1559,19 +1658,9 @@ impl ChunkManager {
                 dx * dx + dz * dz <= 512.0 * 512.0
             };
             if chunk.dirty && (chunk.visible || near_camera) {
-                let resolution = match chunk.lod_level {
-                    0 => 65,
-                    1 => 33,
-                    2 => 17,
-                    3 => 9,
-                    _ => 5,
-                };
-
-                if let Err(e) = chunk.generate_geometry_with_lights(
-                    resolution,
-                    scene_lights,
-                    &self.static_lighting,
-                ) {
+                if let Err(e) =
+                    chunk.generate_cell_geometry_with_lights(scene_lights, &self.static_lighting)
+                {
                     log::warn!("Failed to generate geometry for chunk {}: {}", chunk.id, e);
                 } else {
                     self.stats.geometry_updates += 1;

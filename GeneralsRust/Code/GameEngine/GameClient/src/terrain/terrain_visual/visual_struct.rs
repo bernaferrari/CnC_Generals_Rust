@@ -422,9 +422,10 @@ const NORMAL_DRAW_HEIGHT: i32 = 129;
 const OVERSIZE_TILES_STEP: i32 = 32;
 const MAX_OVERSIZE_TILES: i32 = 4;
 
-// The current live terrain path uses four diffuse terrain layers with four
-// blend weights active per vertex.
-const MAX_TEXTURES_PER_CHUNK: usize = 4;
+// Texture-class slots bound for the terrain (the 16 sampled textures every
+// wgpu backend guarantees per stage). C++ composes every class into one atlas;
+// four blend weights per vertex index into these slots.
+const MAX_TEXTURES_PER_CHUNK: usize = 16;
 
 fn matrix4_to_array(matrix: &Mat4) -> [[f32; 4]; 4] {
     matrix.to_cols_array_2d()

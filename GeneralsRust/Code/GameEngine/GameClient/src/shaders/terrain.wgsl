@@ -30,6 +30,9 @@ struct VertexOutput {
     @location(3) blend_weights: vec4<f32>,
     @location(4) color: vec4<f32>,
     @location(5) fog_factor: f32,
+    // Bound texture-class slot of each blend weight; the four corners of a
+    // cell carry the same slots (sorted by slot), so flat is exact.
+    @location(6) @interpolate(flat) blend_indices: vec4<u32>,
 }
 
 @group(0) @binding(0)
@@ -44,6 +47,30 @@ var terrain_texture_2: texture_2d<f32>;
 @group(1) @binding(3)
 var terrain_texture_3: texture_2d<f32>;
 @group(1) @binding(4)
+var terrain_texture_4: texture_2d<f32>;
+@group(1) @binding(5)
+var terrain_texture_5: texture_2d<f32>;
+@group(1) @binding(6)
+var terrain_texture_6: texture_2d<f32>;
+@group(1) @binding(7)
+var terrain_texture_7: texture_2d<f32>;
+@group(1) @binding(8)
+var terrain_texture_8: texture_2d<f32>;
+@group(1) @binding(9)
+var terrain_texture_9: texture_2d<f32>;
+@group(1) @binding(10)
+var terrain_texture_10: texture_2d<f32>;
+@group(1) @binding(11)
+var terrain_texture_11: texture_2d<f32>;
+@group(1) @binding(12)
+var terrain_texture_12: texture_2d<f32>;
+@group(1) @binding(13)
+var terrain_texture_13: texture_2d<f32>;
+@group(1) @binding(14)
+var terrain_texture_14: texture_2d<f32>;
+@group(1) @binding(15)
+var terrain_texture_15: texture_2d<f32>;
+@group(1) @binding(16)
 var terrain_sampler: sampler;
 
 @vertex
@@ -56,6 +83,7 @@ fn vs_main(vertex: TerrainVertex) -> VertexOutput {
     out.normal = vertex.normal;
     out.tex_coords = vertex.tex_coords;
     out.blend_weights = vertex.blend_weights;
+    out.blend_indices = vertex.blend_indices;
     // C++ HeightMap VB `diffuse` already includes doTheDynamicLight.
     out.color = vertex.color;
     // DX8Wrapper sets FOGVERTEXMODE=LINEAR and enables range fog when supported.
@@ -72,17 +100,19 @@ fn vs_main(vertex: TerrainVertex) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let color_0 = textureSample(terrain_texture_0, terrain_sampler, in.tex_coords);
-    let color_1 = textureSample(terrain_texture_1, terrain_sampler, in.tex_coords);
-    let color_2 = textureSample(terrain_texture_2, terrain_sampler, in.tex_coords);
-    let color_3 = textureSample(terrain_texture_3, terrain_sampler, in.tex_coords);
-
     let weight_sum = in.blend_weights.x + in.blend_weights.y + in.blend_weights.z + in.blend_weights.w;
     let blend = select(in.blend_weights, vec4<f32>(1.0, 0.0, 0.0, 0.0), weight_sum <= 0.0);
-    var final_color = color_0 * blend.x +
-                     color_1 * blend.y +
-                     color_2 * blend.z +
-                     color_3 * blend.w;
+    // Explicit gradients keep sampling valid inside the slot switch
+    // (non-uniform control flow).
+    let ddx = dpdx(in.tex_coords);
+    let ddy = dpdy(in.tex_coords);
+    var final_color = vec4<f32>(0.0);
+    for (var i = 0u; i < 4u; i = i + 1u) {
+        let w = blend[i];
+        if (w > 0.0) {
+            final_color = final_color + sample_slot(in.blend_indices[i], in.tex_coords, ddx, ddy) * w;
+        }
+    }
 
     // C++ HeightMap.cpp:1889/1980-2001 — doCloud = UseCloudMap && !NIGHT,
     // noise/lightmap = UseLightMap. Packed in camera.position.w as bit0/bit1.
@@ -113,4 +143,25 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 fn hash2(p: vec2<f32>) -> f32 {
     return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453);
+}
+
+fn sample_slot(slot: u32, uv: vec2<f32>, ddx: vec2<f32>, ddy: vec2<f32>) -> vec4<f32> {
+    switch slot {
+        case 1u: { return textureSampleGrad(terrain_texture_1, terrain_sampler, uv, ddx, ddy); }
+        case 2u: { return textureSampleGrad(terrain_texture_2, terrain_sampler, uv, ddx, ddy); }
+        case 3u: { return textureSampleGrad(terrain_texture_3, terrain_sampler, uv, ddx, ddy); }
+        case 4u: { return textureSampleGrad(terrain_texture_4, terrain_sampler, uv, ddx, ddy); }
+        case 5u: { return textureSampleGrad(terrain_texture_5, terrain_sampler, uv, ddx, ddy); }
+        case 6u: { return textureSampleGrad(terrain_texture_6, terrain_sampler, uv, ddx, ddy); }
+        case 7u: { return textureSampleGrad(terrain_texture_7, terrain_sampler, uv, ddx, ddy); }
+        case 8u: { return textureSampleGrad(terrain_texture_8, terrain_sampler, uv, ddx, ddy); }
+        case 9u: { return textureSampleGrad(terrain_texture_9, terrain_sampler, uv, ddx, ddy); }
+        case 10u: { return textureSampleGrad(terrain_texture_10, terrain_sampler, uv, ddx, ddy); }
+        case 11u: { return textureSampleGrad(terrain_texture_11, terrain_sampler, uv, ddx, ddy); }
+        case 12u: { return textureSampleGrad(terrain_texture_12, terrain_sampler, uv, ddx, ddy); }
+        case 13u: { return textureSampleGrad(terrain_texture_13, terrain_sampler, uv, ddx, ddy); }
+        case 14u: { return textureSampleGrad(terrain_texture_14, terrain_sampler, uv, ddx, ddy); }
+        case 15u: { return textureSampleGrad(terrain_texture_15, terrain_sampler, uv, ddx, ddy); }
+        default: { return textureSampleGrad(terrain_texture_0, terrain_sampler, uv, ddx, ddy); }
+    }
 }
