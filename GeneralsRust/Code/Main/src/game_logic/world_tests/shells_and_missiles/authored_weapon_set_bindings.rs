@@ -66,6 +66,44 @@ fn battlemaster_create_primary_comes_from_authored_weapon_set() {
     );
 }
 
+/// hq-2qedt.298: Uranium Shells / Nationalism refresh recipients are the
+/// objects whose authored PRIMARY is BattleMasterTankGun (C++ WeaponSet
+/// upgrade bonuses ride the authored weapon), never the chassis name.
+#[test]
+fn battlemaster_refresh_recipient_keys_on_authored_primary_not_name() {
+    use crate::game_logic::host_battlemaster::{
+        BATTLE_MASTER_TANK_GUN, UPGRADE_CHINA_URANIUM_SHELLS,
+    };
+    let mut game_logic = GameLogic::new();
+    for (name, primary) in [
+        ("ArbitraryAuthoredGunTank", BATTLE_MASTER_TANK_GUN),
+        ("ChinaTankBattleMaster", "RangerFlashBangGrenadeWeapon"),
+    ] {
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle)
+            .set_health(400.0)
+            .set_primary_weapon_name(primary);
+        game_logic.templates.insert(name.to_string(), tpl);
+    }
+    let authored = game_logic
+        .create_object("ArbitraryAuthoredGunTank", Team::China, Vec3::ZERO)
+        .expect("authored gun tank");
+    let named = game_logic
+        .create_object("ChinaTankBattleMaster", Team::China, Vec3::ZERO)
+        .expect("name-only tank");
+    assert!(game_logic.apply_battlemaster_uranium_upgrade(authored));
+    assert!(!game_logic.apply_battlemaster_uranium_upgrade(named));
+    let has_uranium = |id| {
+        game_logic
+            .host_object(id)
+            .unwrap()
+            .applied_upgrades
+            .contains(UPGRADE_CHINA_URANIUM_SHELLS)
+    };
+    assert!(has_uranium(authored));
+    assert!(!has_uranium(named));
+}
+
 /// hq-2qedt.145: GLA Marauder PRIMARY binds from the authored WeaponSet at
 /// create (C++ WeaponSet::updateWeaponSet), not a template-name peel.
 #[test]

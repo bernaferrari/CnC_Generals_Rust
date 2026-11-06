@@ -96,7 +96,7 @@ impl GameLogic {
             BATTLE_MASTER_DAMAGE, BATTLE_MASTER_DAMAGE_TYPE, BATTLE_MASTER_DEATH_TYPE,
             BATTLE_MASTER_FIRE_AUDIO, BATTLE_MASTER_SPLASH_RADIUS, battlemaster_scatter_aim,
             battlemaster_scatter_misses_infantry, battlemaster_splash_damage_at,
-            is_battlemaster_template, is_legal_battlemaster_splash_target,
+            is_legal_battlemaster_splash_target,
         };
 
         let damage = source
