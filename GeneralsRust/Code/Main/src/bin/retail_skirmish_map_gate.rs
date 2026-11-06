@@ -71,6 +71,7 @@ fn main() {
         std::process::exit(0);
     };
     if std::env::var_os("GENERALS_ASSETS_DIR").is_none() {
+        // SAFETY: set at the start of main(), before this gate process spawns any thread or child, so nothing can read the environment concurrently.
         unsafe {
             std::env::set_var("GENERALS_ASSETS_DIR", &retail);
         }

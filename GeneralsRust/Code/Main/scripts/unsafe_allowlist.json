@@ -128,6 +128,10 @@
       "constructs": 2,
       "undocumented": 0
     },
+    "Code/GameEngine/GameClient/src/core/game_client/global_boundary_fixture.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
     "Code/GameEngine/GameClient/src/core/game_client/live_slot.rs": {
       "constructs": 1,
       "undocumented": 0
@@ -269,6 +273,10 @@
       "undocumented": 0
     },
     "Code/GameEngine/GameLogic/src/experience/tracker.rs": {
+      "constructs": 1,
+      "undocumented": 0
+    },
+    "Code/GameEngine/GameLogic/src/messages.rs": {
       "constructs": 1,
       "undocumented": 0
     },
@@ -620,6 +628,14 @@
       "constructs": 1,
       "undocumented": 0
     },
+    "Code/Libraries/Source/WWVegas/WWDebug/src/func_level.rs": {
+      "constructs": 1,
+      "undocumented": 0
+    },
+    "Code/Libraries/Source/WWVegas/WWDebug/src/high_level.rs": {
+      "constructs": 1,
+      "undocumented": 0
+    },
     "Code/Libraries/Source/WWVegas/WWDebug/src/memory.rs": {
       "constructs": 24,
       "undocumented": 0
@@ -724,6 +740,34 @@
       "constructs": 1,
       "undocumented": 0
     },
+    "Code/Main/src/bin/ai_retail_skirmish_gate.rs": {
+      "constructs": 1,
+      "undocumented": 0
+    },
+    "Code/Main/src/bin/boot_shell_menu_gate.rs": {
+      "constructs": 1,
+      "undocumented": 0
+    },
+    "Code/Main/src/bin/lone_eagle_bench.rs": {
+      "constructs": 1,
+      "undocumented": 0
+    },
+    "Code/Main/src/bin/player_orders_gate.rs": {
+      "constructs": 1,
+      "undocumented": 0
+    },
+    "Code/Main/src/bin/present_frame_gate.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
+    "Code/Main/src/bin/retail_save_load_gate.rs": {
+      "constructs": 1,
+      "undocumented": 0
+    },
+    "Code/Main/src/bin/retail_skirmish_map_gate.rs": {
+      "constructs": 1,
+      "undocumented": 0
+    },
     "Code/Main/src/cnc_game_engine/selection_hud.rs": {
       "constructs": 4,
       "undocumented": 0
@@ -746,6 +790,10 @@
     },
     "Code/Main/src/main.rs": {
       "constructs": 3,
+      "undocumented": 0
+    },
+    "Code/Main/src/map_frame_scenario.rs": {
+      "constructs": 2,
       "undocumented": 0
     },
     "Code/Main/src/platform/windows.rs": {
@@ -776,12 +824,20 @@
       "constructs": 18,
       "undocumented": 0
     },
+    "Code/Main/tests/common/retail_gate.rs": {
+      "constructs": 1,
+      "undocumented": 0
+    },
     "Code/Main/tests/crc_validation_test.rs": {
       "constructs": 1,
       "undocumented": 0
     },
     "Code/Main/tests/simple_crc_test.rs": {
       "constructs": 2,
+      "undocumented": 0
+    },
+    "Code/Main/tests/smoke_process_isolation.rs": {
+      "constructs": 1,
       "undocumented": 0
     }
   },

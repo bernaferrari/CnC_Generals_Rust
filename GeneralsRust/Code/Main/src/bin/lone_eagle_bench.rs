@@ -499,6 +499,7 @@ fn main() {
         std::process::exit(0);
     };
     if std::env::var_os("GENERALS_ASSETS_DIR").is_none() {
+        // SAFETY: set in main() before any benchmark thread or child process is spawned, so nothing reads the environment concurrently.
         unsafe {
             std::env::set_var("GENERALS_ASSETS_DIR", &retail);
         }

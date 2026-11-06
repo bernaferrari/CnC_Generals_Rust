@@ -49,6 +49,7 @@ fn ensure_retail_assets_env() {
     // Last resort: any existing retail/install dir for non-particle probes.
     for path in &candidates {
         if path.is_dir() {
+            // SAFETY: test-only env seed before child spawn / ambient host.
             unsafe {
                 std::env::set_var("GENERALS_ASSETS_DIR", &path);
                 std::env::set_var("GENERALS_RETAIL_DIR", &path);

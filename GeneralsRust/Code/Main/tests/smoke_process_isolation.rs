@@ -94,8 +94,11 @@ fn smoke_owns_only_its_child_and_preserves_an_unrelated_runtime() {
     for pid in pids.lines() {
         let pid: libc::pid_t = pid.parse().unwrap();
         // Signal 0 checks for the process without sending a signal.
+        // SAFETY: `kill` with signal 0 only probes for the pid and delivers no signal;
+        // it has no memory-safety preconditions.
+        let alive = unsafe { libc::kill(pid, 0) };
         assert_ne!(
-            unsafe { libc::kill(pid, 0) },
+            alive,
             0,
             "smoke child still alive: {pid}"
         );
