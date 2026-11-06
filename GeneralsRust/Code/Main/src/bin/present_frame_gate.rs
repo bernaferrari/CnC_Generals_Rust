@@ -1,6 +1,7 @@
 //! Gate: windowed Lone Eagle present sit-through (hq-x1j4u.9.6).
 use generals_main::executable_smoke::{
-    format_executable_smoke_report, lone_eagle_map_on_disk, run_present_skirmish_frame, SmokeOptions,
+    format_executable_smoke_report, lone_eagle_map_on_disk, run_present_skirmish_frame,
+    ExecutableSmokeResult, SmokeOptions,
 };
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -25,6 +26,14 @@ fn retail_root() -> Option<PathBuf> {
     }
     None
 }
+// A crash or an observed window is not evidence that the display is unavailable.
+fn no_window(r: &ExecutableSmokeResult) -> bool {
+    !r.window_visible
+        && r.exit_code.is_none()
+        && (r.status == "assets_or_display_unavailable"
+            || (r.windowed_launch && !r.reached_ingame && r.status == "timeout"))
+}
+
 
 fn main() {
     let timeout: u64 = std::env::args()
@@ -65,10 +74,7 @@ fn main() {
         eprintln!("present_frame_gate: SKIP binary_missing — {}", r.detail);
         std::process::exit(0);
     }
-    if r.status == "assets_or_display_unavailable"
-        || r.detail.contains("display")
-        || (r.windowed_launch && !r.window_visible && !r.reached_ingame)
-    {
+    if no_window(&r) {
         eprintln!(
             "present_frame_gate: NO_WINDOW — no window can be opened from this non-interactive shell; status={} detail={}",
             r.status, r.detail
@@ -106,4 +112,28 @@ fn main() {
         r.detail
     );
     std::process::exit(1);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn child_panic_is_not_classified_as_unavailable_display() {
+        let mut result = ExecutableSmokeResult::default();
+        result.status = "process_exited".into();
+        result.windowed_launch = true;
+        result.window_visible = true;
+        result.exit_code = Some(101);
+        result.detail = "display initialized; child panicked".into();
+        assert!(!no_window(&result));
+
+        result.window_visible = false;
+        result.status = "assets_or_display_unavailable".into();
+        assert!(!no_window(&result), "a child failure is not proof of display failure");
+
+        result.exit_code = None;
+        result.status = "timeout".into();
+        assert!(no_window(&result), "a windowed launch with no observed window timed out");
+    }
 }

@@ -1,7 +1,6 @@
 //! SkirmishGameOptionsMenu.cpp callback port.
 //!
-//! Uses thread-local RefCell for window state and Cell<bool> global flags
-//! matching C++ statics (via mod.rs helpers).
+//! Menu state and lobby are owned by the receiving window manager.
 
 #[path = "skirmish_battle_honor_display.rs"]
 mod skirmish_battle_honor_display;
@@ -75,7 +74,6 @@ pub(crate) struct SkirmishGameOptionsState {
     static_text_best_streak_id: i32,
     static_text_wins_id: i32,
     static_text_losses_id: i32,
-    checkbox_limit_superweapons_id: i32,
     combo_box_starting_cash_id: i32,
     start_position_ids: [i32; MAX_SLOTS],
     combo_box_player_ids: [i32; MAX_SLOTS],
@@ -822,6 +820,7 @@ pub(crate) fn refresh_skirmish_game_options_from_setup(
             state.selected_map = Some(selected_map);
             update_map_preview(state, receiving_manager);
             sync_map_to_game_info(state);
+            update_skirmish_game_options(state, receiving_manager, effects);
             skirmish_update_slot_list(state, receiving_manager, effects);
             return;
         }
@@ -831,6 +830,7 @@ pub(crate) fn refresh_skirmish_game_options_from_setup(
             // from the active skirmish game info map, even without an explicit setup selection.
             state.selected_map = Some(game_info_map);
             update_map_preview(state, receiving_manager);
+            update_skirmish_game_options(state, receiving_manager, effects);
             skirmish_update_slot_list(state, receiving_manager, effects);
         }
     });
@@ -976,15 +976,16 @@ fn skirmish_update_slot_list(
         }
     }
 
-    let setup_handle = state.setup_handle();
-
-
-    let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
-    let info = setup.game_info().game_info();
-    let map_name = info.get_map().to_string();
-    let cache = get_map_cache_manager();
-    let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
-    let meta = cache_guard.find_map(&map_name);
+    let map_name = {
+        let setup_handle = state.setup_handle();
+        let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
+        setup.game_info().game_info().get_map().to_string()
+    };
+    let meta = {
+        let cache = get_map_cache_manager();
+        let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+        cache_guard.find_map(&map_name)
+    };
     if let Some(text_entry) = state.text_entry_map_display.as_ref() {
         let label = map_display_name(&map_name, meta.as_ref());
         let _ = text_entry.borrow_mut().set_text(&label);
@@ -994,7 +995,6 @@ fn skirmish_update_slot_list(
         update_slot_selection(state, i, receiving_manager);
     }
     update_map_start_spots(state, meta.as_ref(), receiving_manager);
-    update_skirmish_game_options(state, receiving_manager, effects);
 }
 
 fn populate_skirmish_battle_honors(
@@ -1112,18 +1112,6 @@ fn handle_combo_selection(
                 .game_info_mut()
                 .game_info_mut()
                 .set_starting_cash(Money::new(selected));
-        }
-        return true;
-    }
-    if control_id == state.checkbox_limit_superweapons_id {
-        if let Some(checked) = checkbox_is_checked(control_id, receiving_manager) {
-            let setup_handle = state.setup_handle();
-
-            let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
-            setup
-                .game_info_mut()
-                .game_info_mut()
-                .set_superweapon_restriction(if checked { 1 } else { 0 });
         }
         return true;
     }
@@ -1734,7 +1722,10 @@ pub fn skirmish_game_options_menu_init(
     _user_data: Option<&mut dyn std::any::Any>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    set_skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
+    // Keep the previous button latch through synchronous init notifications,
+    // as in C++; the menu clears it only after initialization finishes.
+    let button_pushed = with_state_on_owner(effects.window_manager_owner, |state| state.button_pushed);
+    set_skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), button_pushed);
     set_skirmish_is_shutting_down(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
     set_skirmish_is_initing(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), true);
     set_skirmish_slot_updates_enabled(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
@@ -1762,8 +1753,6 @@ pub fn skirmish_game_options_menu_init(
         state.static_text_wins_id = name_to_id("SkirmishGameOptionsMenu.wnd:StaticTextWinsValue");
         state.static_text_losses_id =
             name_to_id("SkirmishGameOptionsMenu.wnd:StaticTextLossesValue");
-        state.checkbox_limit_superweapons_id =
-            name_to_id("SkirmishGameOptionsMenu.wnd:CheckboxLimitSuperweapons");
         state.combo_box_starting_cash_id =
             name_to_id("SkirmishGameOptionsMenu.wnd:ComboBoxStartingCash");
         for i in 0..MAX_SLOTS {
@@ -1908,6 +1897,7 @@ pub fn skirmish_game_options_menu_init(
         state.still_needs_to_set_options = false;
         state.button_pushed = false;
     });
+    set_skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
     set_skirmish_slot_updates_enabled(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), true);
     set_skirmish_is_initing(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
 
@@ -1958,6 +1948,9 @@ pub fn skirmish_game_options_menu_update(
                 update_map_preview(state, receiving_manager)
             });
             sync_map_to_game_info(state);
+            effects.with_manager(|receiving_manager, effects| {
+                update_skirmish_game_options(state, receiving_manager, effects)
+            });
             effects.with_manager(|receiving_manager, effects| {
                 skirmish_update_slot_list(state, receiving_manager, effects)
             });
@@ -2331,6 +2324,31 @@ pub fn skirmish_game_options_menu_system(
     // handler run selects SubParent's solid-blue HILITEDRAWDATA.
     if msg == WindowMessage::InputFocus {
         return write_input_focus_response(data1, data2, true);
+    }
+    // The checkbox synchronously notifies its owner even when set during menu
+    // initialization or a slot refresh. Its handler needs only the checkbox
+    // and this UI tree's lobby, not the borrowed menu state. Read the lent
+    // source window just as C++ reads the control pointer in GBM_SELECTED.
+    if msg == WindowMessage::GadgetSelected
+        && data1 as i32 == name_to_id("SkirmishGameOptionsMenu.wnd:CheckboxLimitSuperweapons")
+    {
+        let owner = effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner");
+        if !skirmish_button_pushed(owner) {
+            let checked = effects.lent_windows.iter()
+                .find(|window| window.id == data1 as i32)
+                .and_then(|window| match window.widget() {
+                    Some(crate::gui::WindowWidget::CheckBox(check)) => Some(check.is_checked()),
+                    _ => None,
+                })
+                .or_else(|| effects.with_manager(|manager, _| checkbox_is_checked(data1 as i32, manager)));
+            if let Some(checked) = checked {
+                let setup_handle = owner.skirmish_setup();
+                let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
+                setup.game_info_mut().game_info_mut()
+                    .set_superweapon_restriction(if checked { 1 } else { 0 });
+            }
+        }
+        return WindowMsgHandled::Handled;
     }
     let mut handled = false;
     with_state_on_owner(effects.window_manager_owner, |state| match msg {

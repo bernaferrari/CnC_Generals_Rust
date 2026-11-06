@@ -8,12 +8,14 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use std::{cell::Cell, rc::Rc};
 
 #[test]
-fn initialization_notifies_the_checkbox_owner_with_its_manager() {
+fn initialization_and_checkbox_notifications_preserve_each_clients_lobby() {
     let mut client =
         GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted).unwrap();
-    let observed = Rc::new(Cell::new(false));
+    let other =
+        GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted).unwrap();
+    let observed = Rc::new(Cell::new(0usize));
     let callback_observed = observed.clone();
-    let layout = client.with_window_event_effects(None, |effects| {
+    let (layout, parent, checkbox) = client.with_window_event_effects(None, |effects| {
         effects.with_manager(|manager, effects| {
             let parent = manager
                 .create_window_with_id(None, 0, 0, 100, 100, 991, effects)
@@ -28,7 +30,7 @@ fn initialization_notifies_the_checkbox_owner_with_its_manager() {
                                     .is_some()
                             )
                         });
-                        callback_observed.set(true);
+                        callback_observed.set(callback_observed.get() + 1);
                     }
                     skirmish_game_options_menu_system(window, msg, data1, data2, effects)
                 },
@@ -49,16 +51,60 @@ fn initialization_notifies_the_checkbox_owner_with_its_manager() {
                     20,
                 )));
             let mut layout = WindowLayout::new("Menus/SkirmishGameOptionsMenu.wnd".into());
-            layout.add_window(parent);
-            layout.add_window(checkbox);
-            layout
+            layout.add_window(parent.clone());
+            layout.add_window(checkbox.clone());
+            (layout, parent, checkbox)
         })
     });
     client.with_window_event_effects(None, |effects| {
         skirmish_game_options_menu_init(&layout, None, effects);
     });
     assert!(
-        observed.get(),
+        observed.get() > 0,
         "the synchronous owner notification must run"
+    );
+    let other_setup = other.skirmish_setup();
+    {
+        let mut setup = other_setup.lock().unwrap();
+        setup.game_info_mut().game_info_mut().set_superweapon_restriction(1);
+    }
+    client.with_window_event_effects(None, |effects| {
+        checkbox.borrow_mut().gadget_check_box_set_checked(false, effects);
+    });
+    assert_eq!(
+        client.skirmish_setup().lock().unwrap().game_info().game_info()
+            .get_superweapon_restriction(),
+        0
+    );
+    assert_eq!(
+        other_setup.lock().unwrap().game_info().game_info().get_superweapon_restriction(),
+        1,
+        "a synchronous checkbox callback must update only its own lobby"
+    );
+    client.with_window_event_effects(None, |effects| {
+        checkbox.borrow_mut().gadget_check_box_set_checked(true, effects);
+    });
+    assert_eq!(
+        client.skirmish_setup().lock().unwrap().game_info().game_info()
+            .get_superweapon_restriction(),
+        1
+    );
+    let notifications_before_slot_refresh = observed.get();
+    let cash_id = NameKeyGenerator::name_to_key(
+        "SkirmishGameOptionsMenu.wnd:ComboBoxStartingCash",
+    ) as usize;
+    client.with_window_event_effects(None, |effects| {
+        parent.borrow_mut().send_system_message(
+            WindowMessage::GadgetSelected, cash_id, 0, effects,
+        );
+    });
+    assert_eq!(
+        observed.get(), notifications_before_slot_refresh + 1,
+        "C++ slot-list refresh does not re-set the superweapon checkbox"
+    );
+    assert_eq!(
+        client.skirmish_setup().lock().unwrap().game_info().game_info()
+            .get_superweapon_restriction(),
+        1
     );
 }
