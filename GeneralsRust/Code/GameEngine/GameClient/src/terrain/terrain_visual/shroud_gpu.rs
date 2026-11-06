@@ -85,7 +85,7 @@ impl TerrainVisualImpl {
                     entry_point: Some("fs_main"),
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Bgra8UnormSrgb,
+                        format: wgpu::TextureFormat::Bgra8Unorm,
                         blend: multiply,
                         write_mask: wgpu::ColorWrites::ALL,
                     })],

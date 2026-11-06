@@ -871,7 +871,7 @@ impl TextureManager {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -1370,15 +1370,15 @@ mod tests {
     fn dds_compression_maps_to_bc_formats() {
         assert_eq!(
             image_format_to_wgpu(DdsCompression::Dxt1.format()),
-            wgpu::TextureFormat::Bc1RgbaUnormSrgb
+            wgpu::TextureFormat::Bc1RgbaUnorm
         );
         assert_eq!(
             image_format_to_wgpu(DdsCompression::Dxt3.format()),
-            wgpu::TextureFormat::Bc2RgbaUnormSrgb
+            wgpu::TextureFormat::Bc2RgbaUnorm
         );
         assert_eq!(
             image_format_to_wgpu(DdsCompression::Dxt5.format()),
-            wgpu::TextureFormat::Bc3RgbaUnormSrgb
+            wgpu::TextureFormat::Bc3RgbaUnorm
         );
     }
 

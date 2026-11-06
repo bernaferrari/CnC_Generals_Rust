@@ -402,7 +402,7 @@ impl WgpuPolygonRenderer {
                     module: &shader,
                     entry_point: Some("fs_main"),
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Bgra8UnormSrgb, // Common swap chain format
+                        format: wgpu::TextureFormat::Bgra8Unorm, // Common swap chain format
                         blend: blend_state,
                         write_mask: wgpu::ColorWrites::ALL,
                     })],

@@ -2,22 +2,26 @@
 use crate::core::error::Error;
 use ww3d_assets::image::{ImageDecodeError, ImageFormat};
 
+/// Colour space (renderer plan R8): DX8 samples texture bytes as stored and
+/// does all colour math in gamma space, so an sRGB-tagged encoding uploads as
+/// its plain *Unorm format; the renderer never linearizes.
 pub fn image_format_to_wgpu(format: ImageFormat) -> wgpu::TextureFormat {
     match format {
-        ImageFormat::Bc1RgbaUnorm => wgpu::TextureFormat::Bc1RgbaUnorm,
-        ImageFormat::Bc1RgbaUnormSrgb => wgpu::TextureFormat::Bc1RgbaUnormSrgb,
-        ImageFormat::Bc2RgbaUnorm => wgpu::TextureFormat::Bc2RgbaUnorm,
-        ImageFormat::Bc2RgbaUnormSrgb => wgpu::TextureFormat::Bc2RgbaUnormSrgb,
-        ImageFormat::Bc3RgbaUnorm => wgpu::TextureFormat::Bc3RgbaUnorm,
-        ImageFormat::Bc3RgbaUnormSrgb => wgpu::TextureFormat::Bc3RgbaUnormSrgb,
-        ImageFormat::Bgra8Unorm => wgpu::TextureFormat::Bgra8Unorm,
-        ImageFormat::Bgra8UnormSrgb => wgpu::TextureFormat::Bgra8UnormSrgb,
+        ImageFormat::Bc1RgbaUnorm | ImageFormat::Bc1RgbaUnormSrgb => {
+            wgpu::TextureFormat::Bc1RgbaUnorm
+        }
+        ImageFormat::Bc2RgbaUnorm | ImageFormat::Bc2RgbaUnormSrgb => {
+            wgpu::TextureFormat::Bc2RgbaUnorm
+        }
+        ImageFormat::Bc3RgbaUnorm | ImageFormat::Bc3RgbaUnormSrgb => {
+            wgpu::TextureFormat::Bc3RgbaUnorm
+        }
+        ImageFormat::Bgra8Unorm | ImageFormat::Bgra8UnormSrgb => wgpu::TextureFormat::Bgra8Unorm,
         ImageFormat::R8Unorm => wgpu::TextureFormat::R8Unorm,
         ImageFormat::Rgba16Float => wgpu::TextureFormat::Rgba16Float,
         ImageFormat::Rgba16Unorm => wgpu::TextureFormat::Rgba16Unorm,
         ImageFormat::Rgba32Float => wgpu::TextureFormat::Rgba32Float,
-        ImageFormat::Rgba8Unorm => wgpu::TextureFormat::Rgba8Unorm,
-        ImageFormat::Rgba8UnormSrgb => wgpu::TextureFormat::Rgba8UnormSrgb,
+        ImageFormat::Rgba8Unorm | ImageFormat::Rgba8UnormSrgb => wgpu::TextureFormat::Rgba8Unorm,
     }
 }
 
@@ -33,14 +37,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn gpu_mapping_keeps_linear_and_srgb_block_formats_distinct() {
+    fn gpu_mapping_uploads_srgb_tags_as_gamma_space_unorm() {
         assert_eq!(
             image_format_to_wgpu(ImageFormat::Bc1RgbaUnorm),
             wgpu::TextureFormat::Bc1RgbaUnorm
         );
         assert_eq!(
             image_format_to_wgpu(ImageFormat::Bc1RgbaUnormSrgb),
-            wgpu::TextureFormat::Bc1RgbaUnormSrgb
+            wgpu::TextureFormat::Bc1RgbaUnorm
         );
         assert_eq!(
             image_format_to_wgpu(ImageFormat::Rgba8Unorm),
@@ -48,7 +52,7 @@ mod tests {
         );
         assert_eq!(
             image_format_to_wgpu(ImageFormat::Rgba8UnormSrgb),
-            wgpu::TextureFormat::Rgba8UnormSrgb
+            wgpu::TextureFormat::Rgba8Unorm
         );
     }
 

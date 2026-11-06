@@ -373,7 +373,7 @@ impl MeshRenderManager {
             stats: MeshRenderStats::default(),
             pipeline_mgr,
             pass_texture_provider: None,
-            color_format: wgpu::TextureFormat::Bgra8UnormSrgb,
+            color_format: wgpu::TextureFormat::Bgra8Unorm,
             depth_format: Some(wgpu::TextureFormat::Depth32Float),
             fallback_textures,
             default_sampler,
@@ -1757,16 +1757,11 @@ impl MeshRenderManager {
     /// should one ever appear. Paletted DDS stays rejected (unrepresented in
     /// the shipped content) and binds magenta.
     ///
-    /// sRGB: mesh pass textures are color content and the scene target is
-    /// Bgra8UnormSrgb (color_format below). Uploading them as *Unorm sampled
-    /// them twice-gamma-corrected — the washed-white unit look. Uploading the
-    /// same bytes with the Srgb view format makes the sampler linearize once;
-    /// the lighting math stays linear and the sRGB target re-encodes on store
-    /// (single gamma-correct path, C++ dx8renderer.cpp:1771-1775 where the one
-    /// LightEnvironment install feeds the whole draw). There is no normal/light
-    /// map stage in this lane — every stage hint (diffuse/emissive/env/spec
-    /// mask) is color content — so all four 32-bit formats map to their Srgb
-    /// view variant.
+    /// Colour space: DX8 never linearizes. Texture bytes, vertex/material
+    /// colours, blending and fog all run on the stored (gamma-space) values
+    /// and the back buffer is presented as-is. The scene target is therefore a
+    /// plain *Unorm format (color_format below) and every 32-bit pass texture
+    /// uploads as *Unorm, whatever its source tagged (renderer plan R8 / G6).
     fn ensure_gpu_texture_view(
         &mut self,
         texture: &TextureClass,
@@ -1814,14 +1809,10 @@ impl MeshRenderManager {
             return None;
         }
         let wgpu_format = match texture.format {
-            crate::texture_system::TextureFormat::Rgba8Unorm => wgpu::TextureFormat::Rgba8UnormSrgb,
-            crate::texture_system::TextureFormat::Rgba8UnormSrgb => {
-                wgpu::TextureFormat::Rgba8UnormSrgb
-            }
-            crate::texture_system::TextureFormat::Bgra8Unorm => wgpu::TextureFormat::Bgra8UnormSrgb,
-            crate::texture_system::TextureFormat::Bgra8UnormSrgb => {
-                wgpu::TextureFormat::Bgra8UnormSrgb
-            }
+            crate::texture_system::TextureFormat::Rgba8Unorm
+            | crate::texture_system::TextureFormat::Rgba8UnormSrgb => wgpu::TextureFormat::Rgba8Unorm,
+            crate::texture_system::TextureFormat::Bgra8Unorm
+            | crate::texture_system::TextureFormat::Bgra8UnormSrgb => wgpu::TextureFormat::Bgra8Unorm,
             _ => return None,
         };
         let expected = width as usize * height as usize * 4;

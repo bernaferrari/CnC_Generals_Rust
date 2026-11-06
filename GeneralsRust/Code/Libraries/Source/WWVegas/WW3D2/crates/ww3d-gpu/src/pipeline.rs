@@ -46,7 +46,7 @@ impl RenderPipeline {
         let pipeline_layout = device.create_pipeline_layout(layout);
 
         let color_targets = &[Some(wgpu::ColorTargetState {
-            format: wgpu::TextureFormat::Bgra8UnormSrgb,
+            format: wgpu::TextureFormat::Bgra8Unorm,
             blend: compiled_shader
                 .blend_state
                 .or(Some(wgpu::BlendState::REPLACE)),
@@ -397,7 +397,7 @@ impl PipelineConfig {
     /// Create a transparent render pipeline configuration
     pub fn transparent() -> wgpu::ColorTargetState {
         wgpu::ColorTargetState {
-            format: wgpu::TextureFormat::Bgra8UnormSrgb,
+            format: wgpu::TextureFormat::Bgra8Unorm,
             blend: Some(wgpu::BlendState {
                 color: wgpu::BlendComponent {
                     src_factor: wgpu::BlendFactor::SrcAlpha,
