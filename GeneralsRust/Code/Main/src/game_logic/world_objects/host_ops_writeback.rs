@@ -592,10 +592,8 @@ impl GameLogic {
                     match clear {
                         ObjectIdentityClear::None => {}
                         ObjectIdentityClear::FlashbangGrenadeProjectile => {
-                            obj.flashbang_grenade_projectile = false;
                         }
                         ObjectIdentityClear::ScorpionMissileProjectile => {
-                            obj.scorpion_missile_projectile = false;
                         }
                         ObjectIdentityClear::SpySatellitePing => {
                             obj.spy_satellite_ping = false;
@@ -607,18 +605,13 @@ impl GameLogic {
                             obj.aurora_bomb_projectile = false;
                         }
                         ObjectIdentityClear::InfernoShellProjectile => {
-                            obj.inferno_shell_projectile = false;
                         }
                         ObjectIdentityClear::ToxinStreamProjectile => {
-                            obj.toxin_stream_projectile = false;
                         }
                         ObjectIdentityClear::AngryMobProjectile => {
                             obj.angry_mob_projectile = false;
                         }
                         ObjectIdentityClear::CannonShellProjectile => {
-                            obj.scud_launcher_missile_projectile = false;
-                            obj.neutron_cannon_shell_projectile = false;
-                            obj.nuke_cannon_shell_projectile = false;
                         }
                         ObjectIdentityClear::LeafletContainer => {
                             obj.leaflet_container = false;
@@ -627,7 +620,6 @@ impl GameLogic {
                             obj.paradrop_parachute = false;
                         }
                         ObjectIdentityClear::ComancheRocketPodProjectile => {
-                            obj.comanche_rocket_pod_projectile = false;
                         }
                         ObjectIdentityClear::EmpPulseSpheroid => {
                             obj.emp_pulse_spheroid = false;

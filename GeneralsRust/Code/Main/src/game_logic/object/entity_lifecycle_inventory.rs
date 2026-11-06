@@ -336,7 +336,7 @@ pub(crate) fn collect_module_states(
     )?;
     push_present(
         &mut out,
-        TAG_PROJECTILE_FLIGHT,
+        TAG_PROJECTILE_FLIGHT_V2,
         ProjectileFlightResiduals::present(object),
         &ProjectileFlightResiduals::from_object(object),
     )?;

@@ -890,40 +890,6 @@ impl GameWorldShadow {
             .aurora_bomb_mission_id
             .map(|mid| logic.aurora_bombs.has_mission(mid))
             .unwrap_or(false);
-        e.toxin_stream_projectile = obj.toxin_stream_projectile;
-        if let Some(a) = obj.toxin_stream_aim {
-            e.toxin_stream_has_aim = true;
-            e.toxin_stream_aim_x = a[0];
-            e.toxin_stream_aim_y = a[1];
-            e.toxin_stream_aim_z = a[2];
-        } else {
-            e.toxin_stream_has_aim = false;
-        }
-        if let Some(i) = obj.toxin_stream_intended {
-            e.toxin_stream_has_intended = true;
-            e.toxin_stream_intended = i;
-        } else {
-            e.toxin_stream_has_intended = false;
-        }
-        e.toxin_stream_travelled = obj.toxin_stream_travelled;
-        if let Some(f) = obj.toxin_stream_fuel_expires_frame {
-            e.toxin_stream_has_fuel = true;
-            e.toxin_stream_fuel_expires_frame = f;
-        } else {
-            e.toxin_stream_has_fuel = false;
-        }
-        if let Some(f) = obj.toxin_stream_ignition_frame {
-            e.toxin_stream_has_ignition = true;
-            e.toxin_stream_ignition_frame = f;
-        } else {
-            e.toxin_stream_has_ignition = false;
-        }
-        if let Some(s) = obj.toxin_stream_shooter {
-            e.toxin_stream_has_shooter = true;
-            e.toxin_stream_shooter = s;
-        } else {
-            e.toxin_stream_has_shooter = false;
-        }
         e.angry_mob_projectile = obj.angry_mob_projectile;
         e.angry_mob_projectile_kind = obj.angry_mob_projectile_kind;
         if let Some(a) = obj.angry_mob_projectile_from {
@@ -950,61 +916,6 @@ impl GameWorldShadow {
         } else {
             e.angry_mob_projectile_has_intended = false;
         }
-        e.scud_launcher_missile_projectile = obj.scud_launcher_missile_projectile;
-        e.scud_launcher_missile_toxin = obj.scud_launcher_missile_toxin;
-        if let Some(a) = obj.scud_launcher_missile_aim {
-            e.scud_launcher_missile_has_aim = true;
-            e.scud_launcher_missile_aim_x = a[0];
-            e.scud_launcher_missile_aim_y = a[1];
-            e.scud_launcher_missile_aim_z = a[2];
-        } else {
-            e.scud_launcher_missile_has_aim = false;
-        }
-        e.scud_launcher_missile_travelled = obj.scud_launcher_missile_travelled;
-        if let Some(f) = obj.scud_launcher_missile_fuel_expires_frame {
-            e.scud_launcher_missile_has_fuel = true;
-            e.scud_launcher_missile_fuel_expires_frame = f;
-        } else {
-            e.scud_launcher_missile_has_fuel = false;
-        }
-        e.neutron_cannon_shell_projectile = obj.neutron_cannon_shell_projectile;
-        if let Some(a) = obj.neutron_shell_from {
-            e.neutron_shell_has_from = true;
-            e.neutron_shell_from_x = a[0];
-            e.neutron_shell_from_y = a[1];
-            e.neutron_shell_from_z = a[2];
-        } else {
-            e.neutron_shell_has_from = false;
-        }
-        if let Some(a) = obj.neutron_shell_aim {
-            e.neutron_shell_has_aim = true;
-            e.neutron_shell_aim_x = a[0];
-            e.neutron_shell_aim_y = a[1];
-            e.neutron_shell_aim_z = a[2];
-        } else {
-            e.neutron_shell_has_aim = false;
-        }
-        e.neutron_shell_launch_frame = obj.neutron_shell_launch_frame.unwrap_or(0);
-        e.neutron_shell_flight_frames = obj.neutron_shell_flight_frames;
-        e.nuke_cannon_shell_projectile = obj.nuke_cannon_shell_projectile;
-        if let Some(a) = obj.nuke_shell_from {
-            e.nuke_shell_has_from = true;
-            e.nuke_shell_from_x = a[0];
-            e.nuke_shell_from_y = a[1];
-            e.nuke_shell_from_z = a[2];
-        } else {
-            e.nuke_shell_has_from = false;
-        }
-        if let Some(a) = obj.nuke_shell_aim {
-            e.nuke_shell_has_aim = true;
-            e.nuke_shell_aim_x = a[0];
-            e.nuke_shell_aim_y = a[1];
-            e.nuke_shell_aim_z = a[2];
-        } else {
-            e.nuke_shell_has_aim = false;
-        }
-        e.nuke_shell_launch_frame = obj.nuke_shell_launch_frame.unwrap_or(0);
-        e.nuke_shell_flight_frames = obj.nuke_shell_flight_frames;
         e.angry_mob_member = obj.angry_mob_member;
         if let Some(n) = obj.angry_mob_nexus_id {
             e.angry_mob_has_nexus = true;
@@ -1019,83 +930,9 @@ impl GameWorldShadow {
         e.anthrax_toxin_field_expires_frame = obj.anthrax_toxin_field_expires_frame.unwrap_or(0);
         e.inferno_fire_field = obj.inferno_fire_field;
         e.inferno_fire_field_expires_frame = obj.inferno_fire_field_expires_frame.unwrap_or(0);
-        e.inferno_shell_projectile = obj.inferno_shell_projectile;
-        if let Some(a) = obj.inferno_shell_from {
-            e.inferno_shell_has_from = true;
-            e.inferno_shell_from_x = a[0];
-            e.inferno_shell_from_y = a[1];
-            e.inferno_shell_from_z = a[2];
-        } else {
-            e.inferno_shell_has_from = false;
-        }
-        if let Some(a) = obj.inferno_shell_aim {
-            e.inferno_shell_has_aim = true;
-            e.inferno_shell_aim_x = a[0];
-            e.inferno_shell_aim_y = a[1];
-            e.inferno_shell_aim_z = a[2];
-        } else {
-            e.inferno_shell_has_aim = false;
-        }
-        e.inferno_shell_launch_frame = obj.inferno_shell_launch_frame.unwrap_or(0);
-        e.inferno_shell_flight_frames = obj.inferno_shell_flight_frames;
-        if let Some(i) = obj.inferno_shell_intended {
-            e.inferno_shell_has_intended = true;
-            e.inferno_shell_intended = i;
-        } else {
-            e.inferno_shell_has_intended = false;
-        }
-        e.inferno_shell_upgraded = obj.inferno_shell_upgraded;
         e.spy_satellite_ping = obj.spy_satellite_ping;
         e.spy_satellite_ping_expires_frame = obj.spy_satellite_ping_expires_frame.unwrap_or(0);
-        e.flashbang_grenade_projectile = obj.flashbang_grenade_projectile;
-        if let Some(a) = obj.flashbang_grenade_from {
-            e.flashbang_grenade_has_from = true;
-            e.flashbang_grenade_from_x = a[0];
-            e.flashbang_grenade_from_y = a[1];
-            e.flashbang_grenade_from_z = a[2];
-        } else {
-            e.flashbang_grenade_has_from = false;
-        }
-        if let Some(a) = obj.flashbang_grenade_aim {
-            e.flashbang_grenade_has_aim = true;
-            e.flashbang_grenade_aim_x = a[0];
-            e.flashbang_grenade_aim_y = a[1];
-            e.flashbang_grenade_aim_z = a[2];
-        } else {
-            e.flashbang_grenade_has_aim = false;
-        }
-        e.flashbang_grenade_launch_frame = obj.flashbang_grenade_launch_frame.unwrap_or(0);
-        e.flashbang_grenade_flight_frames = obj.flashbang_grenade_flight_frames;
-        if let Some(i) = obj.flashbang_grenade_intended {
-            e.flashbang_grenade_has_intended = true;
-            e.flashbang_grenade_intended = i;
-        } else {
-            e.flashbang_grenade_has_intended = false;
-        }
-        e.comanche_rocket_pod_projectile = obj.comanche_rocket_pod_projectile;
-        e.comanche_rocket_pod_projectile_expires_frame = obj
-            .comanche_rocket_pod_projectile_expires_frame
-            .unwrap_or(0);
         e.helix_napalm_bomb_projectile = obj.helix_napalm_bomb_projectile;
-        e.scorpion_missile_projectile = obj.scorpion_missile_projectile;
-        if let Some(a) = obj.scorpion_missile_aim {
-            e.scorpion_missile_has_aim = true;
-            e.scorpion_missile_aim_x = a[0];
-            e.scorpion_missile_aim_y = a[1];
-            e.scorpion_missile_aim_z = a[2];
-        } else {
-            e.scorpion_missile_has_aim = false;
-        }
-        if let Some(i) = obj.scorpion_missile_intended {
-            e.scorpion_missile_has_intended = true;
-            e.scorpion_missile_intended = i;
-        } else {
-            e.scorpion_missile_has_intended = false;
-        }
-        e.scorpion_missile_travelled = obj.scorpion_missile_travelled;
-        e.scorpion_missile_fuel_expires_frame =
-            obj.scorpion_missile_fuel_expires_frame.unwrap_or(0);
-        e.scorpion_missile_slot = obj.scorpion_missile_slot;
         e.spectre_howitzer_shell = obj.spectre_howitzer_shell;
         e.spectre_howitzer_shell_expires_frame =
             obj.spectre_howitzer_shell_expires_frame.unwrap_or(0);

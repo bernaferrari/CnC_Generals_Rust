@@ -220,16 +220,8 @@ impl Object {
             return;
         }
         if is_dumb_projectile_shell_name(&self.template_name)
-            || self.usa_tank_shell_projectile
-            || self.battlemaster_shell_projectile
-            || self.overlord_shell_projectile
-            || self.marauder_shell_projectile
             || self.fire_base_shell_projectile
             || self.technical_cannon_shell_projectile
-            || self.nuke_cannon_shell_projectile
-            || self.neutron_cannon_shell_projectile
-            || self.inferno_shell_projectile
-            || self.scorpion_shell_projectile
         {
             return;
         }
@@ -237,51 +229,8 @@ impl Object {
         let (sx, sz) = ecm_missile_scatter_offset(seed);
         let new_aim = [pos.x + sx, 0.0, pos.z + sz];
         self.ecm_missile_jammed = true;
-        if self.raptor_missile_aim.is_some() {
-            self.raptor_missile_aim = Some(new_aim);
-            self.raptor_missile_intended = None;
-        }
-        if self.mig_missile_aim.is_some() {
-            self.mig_missile_aim = Some(new_aim);
-            self.mig_missile_intended = None;
-        }
         if self.tomahawk_missile_aim.is_some() {
             self.tomahawk_missile_aim = Some(new_aim);
-        }
-        if self.scud_launcher_missile_aim.is_some() {
-            self.scud_launcher_missile_aim = Some(new_aim);
-        }
-        if self.rocket_buggy_missile_aim.is_some() {
-            self.rocket_buggy_missile_aim = Some(new_aim);
-            self.rocket_buggy_missile_intended = None;
-        }
-        if self.rpg_trooper_missile_aim.is_some() {
-            self.rpg_trooper_missile_aim = Some(new_aim);
-            self.rpg_trooper_missile_intended = None;
-        }
-        if self.tank_hunter_missile_aim.is_some() {
-            self.tank_hunter_missile_aim = Some(new_aim);
-            self.tank_hunter_missile_intended = None;
-        }
-        if self.missile_defender_missile_aim.is_some() {
-            self.missile_defender_missile_aim = Some(new_aim);
-            self.missile_defender_missile_intended = None;
-        }
-        if self.scorpion_missile_aim.is_some() {
-            self.scorpion_missile_aim = Some(new_aim);
-            self.scorpion_missile_intended = None;
-        }
-        if self.technical_rpg_missile_aim.is_some() {
-            self.technical_rpg_missile_aim = Some(new_aim);
-            self.technical_rpg_missile_intended = None;
-        }
-        if self.stealth_jet_missile_aim.is_some() {
-            self.stealth_jet_missile_aim = Some(new_aim);
-            self.stealth_jet_missile_intended = None;
-        }
-        if self.humvee_tow_aim.is_some() {
-            self.humvee_tow_aim = Some(new_aim);
-            self.humvee_tow_intended = None;
         }
     }
 

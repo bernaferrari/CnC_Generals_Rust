@@ -133,7 +133,10 @@ pub const TAG_WEAPON_LOCK: &str = "WeaponLock";
 /// C++ Drawable::setEmoticon + AIUpdateInterface::setSurrendered timers.
 pub const TAG_EMOTICON_SURRENDER: &str = "EmoticonSurrender";
 /// C++ MissileAIUpdate / DumbProjectileBehavior / LifetimeUpdate flight residuals.
+/// Pre-v2 layout; decoded and discarded into the live fields.
 pub const TAG_PROJECTILE_FLIGHT: &str = "ProjectileFlightResiduals";
+/// v2 layout after the dead host projectile fields were removed.
+pub const TAG_PROJECTILE_FLIGHT_V2: &str = "ProjectileFlightResiduals.v2";
 /// C++ ActiveBody::xfer crush flags + UNIT INDESTRUCTIBLE + last-damage stamps.
 pub const TAG_ACTIVE_BODY: &str = "ActiveBody";
 /// C++ PhysicsBehavior::xfer v2 stun rates, overlap chain, ignore-collisions, motive.
@@ -207,6 +210,7 @@ pub const INVENTORY_TAGS: &[&str] = &[
     TAG_WEAPON_LOCK,
     TAG_EMOTICON_SURRENDER,
     TAG_PROJECTILE_FLIGHT,
+    TAG_PROJECTILE_FLIGHT_V2,
     TAG_PARACHUTE_ATTACHMENTS,
     TAG_ACTIVE_BODY,
     TAG_PHYSICS_BEHAVIOR,

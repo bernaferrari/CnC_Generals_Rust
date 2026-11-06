@@ -228,6 +228,11 @@ fn apply_one(
             object.parachute_attachments = Some(decode_payload(payload)?);
         }
         TAG_PROJECTILE_FLIGHT => {
+            let residual: super::entity_lifecycle_projectiles::LegacyProjectileFlightResiduals =
+                decode_payload(payload)?;
+            residual.apply(object);
+        }
+        TAG_PROJECTILE_FLIGHT_V2 => {
             let residual: ProjectileFlightResiduals = decode_payload(payload)?;
             residual.apply(object);
         }

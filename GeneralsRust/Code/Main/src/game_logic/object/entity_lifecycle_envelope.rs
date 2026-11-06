@@ -349,8 +349,8 @@ mod tests {
         src.is_surrendered = true;
         src.carpet_bomb_payload = true;
         src.booby_trap_attached_to = Some(ObjectId(22));
-        src.stealth_jet_missile_projectile = true;
-        src.stealth_jet_missile_travelled = 40.0;
+        src.tomahawk_missile_projectile = true;
+        src.tomahawk_missile_travelled = 40.0;
 
         let envelope = src
             .entity_lifecycle_envelope()
@@ -365,7 +365,7 @@ mod tests {
         assert!(tags.contains(&"SpecialPowerCooldown"));
         assert!(tags.contains(&"WeaponLock"));
         assert!(tags.contains(&"EmoticonSurrender"));
-        assert!(tags.contains(&"ProjectileFlightResiduals"));
+        assert!(tags.contains(&"ProjectileFlightResiduals.v2"));
 
         let mut dst = test_object();
         dst.entity_apply_lifecycle_envelope(&envelope)
@@ -384,7 +384,7 @@ mod tests {
         assert!(dst.is_surrendered);
         assert!(dst.carpet_bomb_payload);
         assert_eq!(dst.booby_trap_attached_to, Some(ObjectId(22)));
-        assert!(dst.stealth_jet_missile_projectile);
-        assert_eq!(dst.stealth_jet_missile_travelled, 40.0);
+        assert!(dst.tomahawk_missile_projectile);
+        assert_eq!(dst.tomahawk_missile_travelled, 40.0);
     }
 }

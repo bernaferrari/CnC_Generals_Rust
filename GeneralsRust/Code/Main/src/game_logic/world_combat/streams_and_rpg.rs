@@ -302,13 +302,6 @@ impl GameLogic {
                     return None;
                 }
                 // Projectiles / debris skip.
-                if obj.humvee_tow_projectile
-                    || obj.raptor_missile_projectile
-                    || obj.mig_missile_projectile
-                    || obj.flashbang_grenade_projectile
-                {
-                    return None;
-                }
                 let d = (obj.get_position() - impact).length();
                 if d > radius + 0.001 {
                     return None;

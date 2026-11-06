@@ -544,30 +544,11 @@ impl GameLogic {
                     return None;
                 }
                 let in_flight = proj
-                    || obj.raptor_missile_projectile
-                    || obj.mig_missile_projectile
-                    || obj.tomahawk_missile_projectile
-                    || obj.scud_launcher_missile_projectile
-                    || obj.rocket_buggy_missile_projectile
-                    || obj.rpg_trooper_missile_projectile
-                    || obj.tank_hunter_missile_projectile
-                    || obj.missile_defender_missile_projectile
-                    || obj.scorpion_missile_projectile
-                    || obj.technical_rpg_missile_projectile
-                    || obj.stealth_jet_missile_projectile
-                    || obj.humvee_tow_projectile;
+                    || obj.tomahawk_missile_projectile;
                 // C++ DumbProjectileBehavior::projectileNowJammed is empty.
                 let dumb_shell = is_dumb_projectile_shell_name(&obj.template_name)
-                    || obj.usa_tank_shell_projectile
-                    || obj.battlemaster_shell_projectile
-                    || obj.overlord_shell_projectile
-                    || obj.marauder_shell_projectile
                     || obj.fire_base_shell_projectile
-                    || obj.technical_cannon_shell_projectile
-                    || obj.nuke_cannon_shell_projectile
-                    || obj.neutron_cannon_shell_projectile
-                    || obj.inferno_shell_projectile
-                    || obj.scorpion_shell_projectile;
+                    || obj.technical_cannon_shell_projectile;
                 if !in_flight || dumb_shell {
                     return None;
                 }
@@ -609,59 +590,8 @@ impl GameLogic {
                 o.ecm_missile_jammed = true;
                 // C++ projectileNowJammed: scatter + lose lock. No Unresistable HP.
                 // Deflect aim residual (C++ projectile loses lock and scatters).
-                if o.raptor_missile_aim.is_some() {
-                    o.raptor_missile_aim = Some(new_aim);
-                    o.raptor_missile_intended = None;
-                }
-                if o.mig_missile_aim.is_some() {
-                    o.mig_missile_aim = Some(new_aim);
-                    o.mig_missile_intended = None;
-                }
                 if o.tomahawk_missile_aim.is_some() {
                     o.tomahawk_missile_aim = Some(new_aim);
-                }
-                if o.scud_launcher_missile_aim.is_some() {
-                    o.scud_launcher_missile_aim = Some(new_aim);
-                }
-                if o.rocket_buggy_missile_aim.is_some() {
-                    o.rocket_buggy_missile_aim = Some(new_aim);
-                    o.rocket_buggy_missile_intended = None;
-                }
-                if o.rpg_trooper_missile_aim.is_some() {
-                    o.rpg_trooper_missile_aim = Some(new_aim);
-                    o.rpg_trooper_missile_intended = None;
-                }
-                if o.tank_hunter_missile_aim.is_some() {
-                    o.tank_hunter_missile_aim = Some(new_aim);
-                    o.tank_hunter_missile_intended = None;
-                }
-                if o.missile_defender_missile_aim.is_some() {
-                    o.missile_defender_missile_aim = Some(new_aim);
-                    o.missile_defender_missile_intended = None;
-                }
-                if o.scorpion_missile_aim.is_some() {
-                    o.scorpion_missile_aim = Some(new_aim);
-                    o.scorpion_missile_intended = None;
-                }
-                if o.technical_rpg_missile_aim.is_some() {
-                    o.technical_rpg_missile_aim = Some(new_aim);
-                    o.technical_rpg_missile_intended = None;
-                }
-                if o.stealth_jet_missile_aim.is_some() {
-                    o.stealth_jet_missile_aim = Some(new_aim);
-                    o.stealth_jet_missile_intended = None;
-                }
-                if o.humvee_tow_aim.is_some() {
-                    o.humvee_tow_aim = Some(new_aim);
-                    o.humvee_tow_intended = None;
-                }
-                if o.usa_tank_shell_aim.is_some() {
-                    o.usa_tank_shell_aim = Some(new_aim);
-                    o.usa_tank_shell_intended = None;
-                }
-                if o.battlemaster_shell_aim.is_some() {
-                    o.battlemaster_shell_aim = Some(new_aim);
-                    o.battlemaster_shell_intended = None;
                 }
                 if o.fire_base_shell_aim.is_some() {
                     o.fire_base_shell_aim = Some(new_aim);
@@ -670,10 +600,6 @@ impl GameLogic {
                 if o.technical_cannon_shell_aim.is_some() {
                     o.technical_cannon_shell_aim = Some(new_aim);
                     o.technical_cannon_shell_intended = None;
-                }
-                if o.inferno_shell_aim.is_some() {
-                    o.inferno_shell_aim = Some(new_aim);
-                    o.inferno_shell_intended = None;
                 }
             }
             self.ecm_missiles_jammed = self.ecm_missiles_jammed.saturating_add(1);
