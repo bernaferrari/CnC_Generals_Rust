@@ -1071,7 +1071,7 @@ impl TerrainVisualImpl {
         }
     }
 
-    pub fn record_chunk_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
+    pub fn record_chunk_draws(&self, pass: &mut RenderPass<'_>) {
         if !self.enabled {
             return;
         }
@@ -1120,13 +1120,13 @@ impl TerrainVisualImpl {
     /// GlobalData sea plane (drawSea) + water tracks + polygon rivers/trapezoids
     /// (renderWater) + water grid mesh (renderWaterMesh), then the shroud pass
     /// over the same geometry.
-    pub fn record_water_scene_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
+    pub fn record_water_scene_draws(&self, pass: &mut RenderPass<'_>) {
         self.record_water_draws(pass);
         self.record_extra_water_draws(pass);
         self.record_shroud_water_pass(pass, false);
     }
 
-    pub fn record_chunk_depth_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
+    pub fn record_chunk_depth_draws(&self, pass: &mut RenderPass<'_>) {
         if !self.enabled {
             return;
         }
@@ -1183,7 +1183,7 @@ impl TerrainVisualImpl {
         self.sync_water_plane(device)
     }
 
-    pub fn record_water_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
+    pub fn record_water_draws(&self, pass: &mut RenderPass<'_>) {
         let pipeline = if self.water_additive_blend {
             self.water_additive_pipeline
                 .as_ref()
@@ -1227,7 +1227,7 @@ impl TerrainVisualImpl {
         }
     }
 
-    fn record_road_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
+    fn record_road_draws(&self, pass: &mut RenderPass<'_>) {
         let (Some(road_pipeline), Some(camera_bg)) = (
             self.road_pipeline.as_ref(),
             self.terrain_camera_bind_group.as_ref(),
@@ -1973,7 +1973,7 @@ impl TerrainVisualImpl {
         texture
     }
 
-    fn record_tree_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
+    fn record_tree_draws(&self, pass: &mut RenderPass<'_>) {
         let (Some(tree_pipeline), Some(camera_bg), Some(atlas_bg)) = (
             self.tree_pipeline.as_ref(),
             self.terrain_camera_bind_group.as_ref(),
@@ -2486,7 +2486,7 @@ impl TerrainVisualImpl {
     }
 
     /// Second extra-blend pass over the base terrain (alpha overlay, no Z write).
-    pub fn record_extra_blend_pass<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
+    pub fn record_extra_blend_pass(&self, pass: &mut RenderPass<'_>) {
         if !self.extra_blend_draw() {
             return;
         }

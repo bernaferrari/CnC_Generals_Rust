@@ -37,6 +37,40 @@ pub fn particle_multiply_color_blend() -> wgpu::BlendComponent {
     }
 }
 
+/// A pass that loads and stores `view` + `depth_view`, for callers without a
+/// shared scene pass.
+fn begin_load_pass<'e>(
+    encoder: &'e mut wgpu::CommandEncoder,
+    label: &str,
+    view: &wgpu::TextureView,
+    depth_view: &wgpu::TextureView,
+) -> wgpu::RenderPass<'e> {
+    let load = wgpu::Operations {
+        load: wgpu::LoadOp::Load,
+        store: wgpu::StoreOp::Store,
+    };
+    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some(label),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view,
+            depth_slice: None,
+            resolve_target: None,
+            ops: load,
+        })],
+        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+            view: depth_view,
+            depth_ops: Some(wgpu::Operations {
+                load: wgpu::LoadOp::Load,
+                store: wgpu::StoreOp::Store,
+            }),
+            stencil_ops: None,
+        }),
+        occlusion_query_set: None,
+        timestamp_writes: None,
+        multiview_mask: None,
+    })
+}
+
 /// Particle vertex data for GPU (matches C++ billboard rendering)
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
@@ -1330,7 +1364,8 @@ impl ParticleRenderer {
         uniforms: &ParticleUniforms,
     ) {
         let prepared = ParticleRenderFrame::prepare(systems, uniforms);
-        self.render_prepared_particles(encoder, view, depth_view, &prepared);
+        let mut render_pass = begin_load_pass(encoder, "Particle Render Pass", view, depth_view);
+        self.render_prepared_particles(&mut render_pass, &prepared);
     }
 
     /// Submit immutable CPU data. No live ParticleSystem or manager borrow
@@ -1341,11 +1376,10 @@ impl ParticleRenderer {
         self.geometry_ring.begin_frame();
     }
 
+    /// Draw `prepared`'s batches into an open scene pass.
     pub fn render_prepared_particles(
         &mut self,
-        encoder: &mut wgpu::CommandEncoder,
-        view: &wgpu::TextureView,
-        depth_view: &wgpu::TextureView,
+        render_pass: &mut wgpu::RenderPass<'_>,
         prepared: &ParticleRenderFrame,
     ) {
         let start_time = std::time::Instant::now();
@@ -1384,30 +1418,6 @@ impl ParticleRenderer {
 
         // Render batches
         {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Particle Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: depth_view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                occlusion_query_set: None,
-                timestamp_writes: None,
-                multiview_mask: None,
-            });
-
             // Set uniform bind group
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
@@ -1659,11 +1669,11 @@ impl ParticleRenderer {
         self.stats.particles_rendered += vertices.len();
     }
 
+    /// C++ `W3DSmudgeManager::render`: copy the scene, then draw the smudge
+    /// quads sampling it into `scene`'s pass.
     pub fn render_heat_haze(
         &mut self,
-        encoder: &mut wgpu::CommandEncoder,
-        view: &wgpu::TextureView,
-        depth_view: &wgpu::TextureView,
+        scene: &mut dyn ww3d_gpu::scene_pass::SceneRecorder,
         scene_source: Option<&wgpu::Texture>,
         smudges: &[crate::effects::heat_haze::HeatHazeSmudge],
         uniforms: &ParticleUniforms,
@@ -1682,36 +1692,14 @@ impl ParticleRenderer {
         // `m_backgroundTexture` so the 5-vertex quads can sample the scene
         // while writing the color target.
         if let Some(source) = scene_source {
-            self.copy_scene_for_heat_haze(encoder, source);
+            self.copy_scene_for_heat_haze(scene.encoder(), source);
         }
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[*uniforms]));
         let vertex_buffer = self.geometry_ring.alloc(&self.device, &self.queue, bytemuck::cast_slice(&vertices));
         let index_buffer = self.geometry_ring.alloc(&self.device, &self.queue, bytemuck::cast_slice(&indices));
         {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Heat Haze Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: depth_view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                occlusion_query_set: None,
-                timestamp_writes: None,
-                multiview_mask: None,
-            });
+            let render_pass = scene.scene_pass();
             render_pass.set_pipeline(&self.heat_haze_pipeline);
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
             let scene_bind_group = self
@@ -1726,11 +1714,26 @@ impl ParticleRenderer {
         self.stats.draw_calls += 1;
     }
 
+    /// Draw `decals` in their own pass on `view` + `depth_view`.
     pub fn render_decals(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
         depth_view: &wgpu::TextureView,
+        decals: &[DecalRenderItem],
+        uniforms: &ParticleUniforms,
+    ) {
+        if decals.is_empty() {
+            return;
+        }
+        let mut render_pass = begin_load_pass(encoder, "Decal Render Pass", view, depth_view);
+        self.record_decals(&mut render_pass, decals, uniforms);
+    }
+
+    /// Draw `decals` into an open scene pass (C++ `flushDecals`).
+    pub fn record_decals(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
         decals: &[DecalRenderItem],
         uniforms: &ParticleUniforms,
     ) {
@@ -1771,30 +1774,6 @@ impl ParticleRenderer {
         for (texture_name, shadow_type, vertices) in groups {
             let vertex_buffer = self.geometry_ring.alloc(&self.device, &self.queue, bytemuck::cast_slice(&vertices));
             {
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Decal Render Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: depth_view,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        }),
-                        stencil_ops: None,
-                    }),
-                    occlusion_query_set: None,
-                    timestamp_writes: None,
-                    multiview_mask: None,
-                });
-
                 let pipeline = if shadow_type == SHADOW_ADDITIVE_DECAL_TYPE {
                     &self.decal_additive_pipeline
                 } else if shadow_type == SHADOW_DECAL_TYPE {

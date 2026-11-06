@@ -275,42 +275,12 @@ impl ForwardPass {
             vertex_count,
         };
         self.renderer.enqueue_frame_work(FramePhase::Translucent, move |frame| {
-            frame.note_render_pass();
-            let color_view = frame.color_view_arc();
-            let depth_view = frame.depth_view_arc();
-            let encoder = frame.encoder();
-            let depth_stencil =
-                depth_view
-                    .as_ref()
-                    .map(|dv| wgpu::RenderPassDepthStencilAttachment {
-                        view: dv.as_ref(),
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        }),
-                        stencil_ops: None,
-                    });
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("laser_additive_segliner"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: color_view.as_ref(),
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: depth_stencil,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
+            // Laser lines share the frame's scene pass (plan R12).
+            let render_pass = frame.scene_pass();
             render_pass.set_pipeline(pack.pipeline.as_ref());
             render_pass.set_bind_group(0, Some(pack.camera_bg.as_ref()), &[]);
             render_pass.set_vertex_buffer(0, pack.buffer.slice(..));
             render_pass.draw(0..pack.vertex_count, 0..1);
-            drop(render_pass);
             Ok(())
         });
         true
@@ -390,14 +360,12 @@ impl ForwardPass {
             particles: prepared_particles,
         } = data;
 
-        let Some(depth_view) = frame.depth_view_arc() else {
+        if frame.depth_view().is_none() {
             // The renderer was constructed for a depth-backed Main frame;
             // do not issue a depth-test pipeline against an absent target.
             return Ok(());
-        };
-        let color_view = frame.color_view_arc();
+        }
         let color_texture = frame.color_texture().clone();
-        let encoder = frame.encoder();
 
         renderer.begin_effects_frame();
         if let Some(prepared) = prepared_particles.as_ref() {
@@ -405,13 +373,9 @@ impl ForwardPass {
         }
         // Exact receiving lifetime was frozen before the render callback.
         // No live particle owner is discovered or advanced from GPU work.
+        // Particles and decals share the frame's scene pass (plan R12).
         if let Some(prepared) = prepared_particles.as_ref() {
-            renderer.render_prepared_particles(
-                encoder,
-                color_view.as_ref(),
-                depth_view.as_ref(),
-                prepared,
-            );
+            renderer.render_prepared_particles(frame.scene_pass(), prepared);
         }
 
         // Client decals follow particle/tracer submission. Retail snow is
@@ -425,13 +389,7 @@ impl ForwardPass {
         if !decals.is_empty() {
             let mut decal_uniforms = uniforms;
             decal_uniforms.particle_count = decals.len().min(u32::MAX as usize) as u32;
-            renderer.render_decals(
-                encoder,
-                color_view.as_ref(),
-                depth_view.as_ref(),
-                &decals,
-                &decal_uniforms,
-            );
+            renderer.record_decals(frame.scene_pass(), &decals, &decal_uniforms);
         }
 
         let smudges = prepared_particles
@@ -439,14 +397,8 @@ impl ForwardPass {
             .map(|frame| frame.heat_smudges())
             .unwrap_or_default();
         if !smudges.is_empty() {
-            renderer.render_heat_haze(
-                encoder,
-                color_view.as_ref(),
-                depth_view.as_ref(),
-                Some(&color_texture),
-                &smudges,
-                &uniforms,
-            );
+            // The scene copy ends the scene pass; the smudges open the next.
+            renderer.render_heat_haze(frame, Some(&color_texture), &smudges, &uniforms);
         }
 
         Ok(())

@@ -567,6 +567,7 @@ impl RenderPipeline {
             let width = color_texture.width();
             let height = color_texture.height();
             let scroll = game_client::display::view::Vector2::new(filter_scroll.x, filter_scroll.y);
+            let mut filter_pass = false;
             {
                 let view_filter = native_receiver.view_filter_mut();
                 let composite = view_filter.composite(scroll);
@@ -581,7 +582,7 @@ impl RenderPipeline {
                     view_filter.tick_fade();
                     let composite = view_filter.composite(scroll);
                     let post = view_filter.post_render(filter_logic_frame, scroll);
-                    filter_resources.composite_retained_view_filter(
+                    filter_pass = filter_resources.composite_retained_view_filter(
                         device.as_ref(),
                         queue.as_ref(),
                         encoder,
@@ -599,6 +600,9 @@ impl RenderPipeline {
                         .map(|position| Vec3::new(position.x, position.z, position.y));
                 }
             }
+            if filter_pass {
+                gpu_frame.note_render_pass();
+            }
             // C++ LookAt executes inside postRender, before the locked Drawable
             // uses the new matrix. This is not another camera/view update.
             native_receiver
@@ -615,7 +619,7 @@ impl RenderPipeline {
             let queue = frame.queue_arc();
             let format = frame.color_format();
             let encoder = frame.encoder();
-            game_client::display::status_circle::record_camera_fade(
+            let fade_pass = game_client::display::status_circle::record_camera_fade(
                 fade_resources,
                 device.as_ref(),
                 queue.as_ref(),
@@ -626,6 +630,9 @@ impl RenderPipeline {
                 camera_fade.intensity,
                 camera_fade.diffuse,
             );
+            if fade_pass {
+                frame.note_render_pass();
+            }
             Ok(())
         };
         let projected_shroud = self

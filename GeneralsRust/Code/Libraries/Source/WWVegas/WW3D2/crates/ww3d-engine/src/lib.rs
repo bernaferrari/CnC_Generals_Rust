@@ -24,6 +24,7 @@ use ww3d_gpu::{DeviceAuthority, GpuDevice, GpuError};
 
 mod frame_stats;
 mod frame_submit;
+mod render_frame_scene;
 pub use frame_stats::{GpuObjectCounts, RenderFrameStats};
 /// Shared handle for explicit frame-submit ownership.
 pub type FrameSubmitHandle = Arc<Mutex<frame_submit::FrameSubmitState>>;
@@ -681,6 +682,10 @@ pub struct RenderFrame {
     stats_probe: frame_stats::FrameStatsProbe,
     frame_index: u64,
     color_format: wgpu::TextureFormat,
+    /// Shared scene pass on the colour + depth/stencil targets (plan R12).
+    scene_pass: ww3d_gpu::scene_pass::ScenePass,
+    /// The depth target carries a stencil aspect.
+    depth_has_stencil: bool,
     /// Frame timing information
     pub timing: FrameTiming,
 }
@@ -701,13 +706,17 @@ impl RenderFrame {
         self.surface_texture.is_some() || self.rendered_offscreen
     }
 
-    /// Borrow the command encoder to record render passes.
+    /// Borrow the command encoder to record render passes. Ends the shared
+    /// scene pass first, so the encoder is never locked by an open pass.
     pub fn encoder(&mut self) -> &mut wgpu::CommandEncoder {
+        self.scene_pass.end();
         &mut self.encoder
     }
 
-    /// Disjoint borrow of the copy-src color target and the frame encoder.
+    /// Disjoint borrow of the copy-src color target and the frame encoder
+    /// (ends the shared scene pass like [`Self::encoder`]).
     pub fn color_texture_and_encoder(&mut self) -> (&wgpu::Texture, &mut wgpu::CommandEncoder) {
+        self.scene_pass.end();
         (&self.color_texture, &mut self.encoder)
     }
 
@@ -1197,6 +1206,9 @@ impl Engine {
 
         // Counters are sampled before any frame object (encoder included) exists.
         let stats_probe = frame_stats::FrameStatsProbe::begin(&self.device);
+        let depth_has_stencil = self
+            ._depth_format
+            .is_some_and(|format| format.has_stencil_aspect());
 
         match &mut self.surface {
             SurfaceMode::Windowed(surface_state) => {
@@ -1225,6 +1237,8 @@ impl Engine {
                             stats_probe,
                             frame_index: self.frame_index,
                             color_format: self.color_format,
+                            scene_pass: Default::default(),
+                            depth_has_stencil,
                             timing,
                         })
                     }
@@ -1262,6 +1276,8 @@ impl Engine {
                             stats_probe,
                             frame_index: self.frame_index,
                             color_format: self.color_format,
+                            scene_pass: Default::default(),
+                            depth_has_stencil,
                             timing,
                         })
                     }
@@ -1289,6 +1305,8 @@ impl Engine {
                     stats_probe,
                     frame_index: self.frame_index,
                     color_format: self.color_format,
+                    scene_pass: Default::default(),
+                    depth_has_stencil,
                     timing,
                 })
             }
@@ -1326,12 +1344,17 @@ impl Engine {
             mut surface_texture,
             rendered_offscreen: frame_rendered_offscreen,
             start_time,
-            stats_probe,
+            mut stats_probe,
             frame_index: _,
             color_format: _,
             timing: _,
+            scene_pass,
+            depth_has_stencil: _,
         } = frame;
 
+        // The open scene pass must end before the encoder finishes.
+        stats_probe.render_passes = stats_probe.render_passes.saturating_add(scene_pass.opened());
+        drop(scene_pass);
         let command_buffer = encoder.finish();
         self.last_frame_stats =
             stats_probe.finish(&self.device, self.frame_index, start_time.elapsed());

@@ -36,6 +36,7 @@ pub mod fvf;
 pub mod pipeline;
 pub mod pipeline_cache;
 pub mod render_target;
+pub mod scene_pass;
 pub mod shader;
 pub mod shader_constants;
 pub mod shader_presets;
