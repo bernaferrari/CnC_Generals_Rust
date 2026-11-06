@@ -1100,26 +1100,25 @@ pub fn local_faction_from_config(config: &SkirmishMatchConfig) -> String {
 
 /// Build match config from the live GameClient skirmish setup (WND Start path).
 ///
-/// SkirmishGameOptionsMenu writes slots/map/cash into `get_skirmish_setup()` and
+/// SkirmishGameOptionsMenu writes slots/map/cash into the client's lobby and
 /// queues `GameMessageType::NewGame`. Main must convert that setup into
 /// `SkirmishMatchConfig` so `start_game_from_ui` applies the same authority path
 /// as the headless shell smoke / SkirmishMenu.
 #[cfg(feature = "game_client")]
 pub fn config_from_client_skirmish_setup(
+    setup: &game_client::gui::skirmish_setup::SkirmishSetup,
     map_override: Option<&str>,
 ) -> Option<SkirmishMatchConfig> {
-    config_from_client_skirmish_setup_with_definitions(map_override, None)
+    config_from_client_skirmish_setup_with_definitions(setup, map_override, None)
 }
 
 #[cfg(feature = "game_client")]
 pub(crate) fn config_from_client_skirmish_setup_with_definitions(
+    setup: &game_client::gui::skirmish_setup::SkirmishSetup,
     map_override: Option<&str>,
     definitions: Option<&game_engine::common::rts::player_template::PlayerTemplateStore>,
 ) -> Option<SkirmishMatchConfig> {
     let (map, local_slot, old_factions_only) = {
-        let setup_handle = game_client::gui::get_skirmish_setup();
-
-        let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         let info = setup.game_info().game_info();
         let map = map_override
             .map(str::trim)
@@ -1137,7 +1136,7 @@ pub(crate) fn config_from_client_skirmish_setup_with_definitions(
     };
     let descriptor = game_engine::common::message_stream::ClientSkirmishLaunch {
         map,
-        game_info: game_client::gui::skirmish_setup::snapshot_skirmish_lobby(),
+        game_info: game_client::gui::skirmish_setup::snapshot_skirmish_lobby(setup),
         local_slot,
         old_factions_only,
         fog_of_war: game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(
@@ -1928,7 +1927,7 @@ mod tests {
     #[cfg(feature = "game_client")]
     #[test]
     fn config_from_client_skirmish_setup_reads_slots_and_map() {
-        use game_client::gui::get_skirmish_setup;
+        use game_client::gui::skirmish_setup::SkirmishSetup;
         use game_client::{Money, SlotState};
 
         game_engine::common::ini::ensure_player_templates_loaded();
@@ -1936,10 +1935,9 @@ mod tests {
             .find_template_index("FactionAmericaAirForceGeneral")
             .expect("retail Air Force General template") as i32;
 
+        let lobby = std::sync::Mutex::new(SkirmishSetup::default());
         {
-            let setup_handle = get_skirmish_setup();
-
-            let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
+            let mut setup = lobby.lock().unwrap_or_else(|e| e.into_inner());
             setup.set_selected_map(String::new());
             let info = setup.game_info_mut().game_info_mut();
             info.reset();
@@ -1963,7 +1961,7 @@ mod tests {
             }
         }
 
-        let cfg = config_from_client_skirmish_setup(None).expect("config from setup");
+        let cfg = config_from_client_skirmish_setup(&lobby.lock().unwrap(), None).expect("config from setup");
         assert!(
             cfg.map.contains("Lone Eagle"),
             "map from GameInfo: {}",
@@ -1996,13 +1994,12 @@ mod tests {
     #[test]
     fn new_game_client_setup_applies_to_host_authority() {
         use crate::presentation_frame::PresentationFrame;
-        use game_client::gui::get_skirmish_setup;
+        use game_client::gui::skirmish_setup::SkirmishSetup;
         use game_client::{Money, SlotState};
 
+        let lobby = std::sync::Mutex::new(SkirmishSetup::default());
         {
-            let setup_handle = get_skirmish_setup();
-
-            let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
+            let mut setup = lobby.lock().unwrap_or_else(|e| e.into_inner());
             setup.set_selected_map("Maps/Lone Eagle/Lone Eagle.map".into());
             let info = setup.game_info_mut().game_info_mut();
             info.reset();
@@ -2022,7 +2019,7 @@ mod tests {
             }
         }
 
-        let cfg = config_from_client_skirmish_setup(None).expect("client setup config");
+        let cfg = config_from_client_skirmish_setup(&lobby.lock().unwrap(), None).expect("client setup config");
         assert!(cfg.map.contains("Lone Eagle"), "{}", cfg.map);
         assert_eq!(cfg.rules.starting_cash, 20_000);
         assert_eq!(cfg.slots.iter().filter(|s| s.is_active).count(), 2);

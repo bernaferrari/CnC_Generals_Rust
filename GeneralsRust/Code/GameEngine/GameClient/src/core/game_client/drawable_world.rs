@@ -490,16 +490,13 @@ impl GameClient {
             .clone()
     }
 
-    pub fn ensure_skirmish_setup(
-        &mut self,
+    /// This client's `TheSkirmishGameInfo` lobby (owned by its UI tree).
+    pub fn skirmish_setup(
+        &self,
     ) -> std::sync::Arc<std::sync::Mutex<crate::gui::skirmish_setup::SkirmishSetup>> {
-        self.skirmish_setup
-            .get_or_insert_with(|| {
-                std::sync::Arc::new(std::sync::Mutex::new(
-                    crate::gui::skirmish_setup::SkirmishSetup::default(),
-                ))
-            })
-            .clone()
+        // `TheSkirmishGameInfo` lives on this client's UI tree so window
+        // handlers reach it through their `WindowManagerOwner` loan.
+        self.window_manager_owner.skirmish_setup()
     }
 
 

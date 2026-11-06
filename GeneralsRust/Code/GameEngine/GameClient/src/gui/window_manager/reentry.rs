@@ -74,6 +74,10 @@ struct WindowManagerOwnerState {
     skirmish_game_options: RefCell<
         crate::gui::callbacks::skirmish_game_options_menu::SkirmishGameOptionsState,
     >,
+    /// C++ `TheSkirmishGameInfo` (SkirmishGameOptionsMenu.cpp / GameInfo.cpp):
+    /// the lobby the options menu edits and `startSkirmishGame` launches.
+    /// One per client UI tree; shared with the save hook via `Arc`.
+    skirmish_setup: std::sync::Arc<std::sync::Mutex<crate::gui::skirmish_setup::SkirmishSetup>>,
     /// Skirmish map-select layout slot (was process TLS).
     skirmish_map_select_layout: RefCell<Option<Rc<RefCell<crate::gui::WindowLayout>>>>,
     /// Skirmish map-select menu state (was process TLS).
@@ -238,6 +242,9 @@ impl WindowManagerOwner {
     }
 
     pub fn new() -> Self {
+        let skirmish_setup = std::sync::Arc::new(std::sync::Mutex::new(
+            crate::gui::skirmish_setup::SkirmishSetup::default(),
+        ));
         Self {
             state: Rc::new(WindowManagerOwnerState {
                 manager: RefCell::new(WindowManager::new()),
@@ -269,8 +276,11 @@ impl WindowManagerOwner {
                     crate::gui::control_bar::control_bar_print_positions::ControlBarPrintPositionsResidualState::default(),
                 ),
                 skirmish_game_options: RefCell::new(
-                    crate::gui::callbacks::skirmish_game_options_menu::SkirmishGameOptionsState::default(),
+                    crate::gui::callbacks::skirmish_game_options_menu::SkirmishGameOptionsState::for_setup(
+                        std::sync::Arc::clone(&skirmish_setup),
+                    ),
                 ),
+                skirmish_setup,
                 skirmish_map_select_layout: RefCell::new(None),
                 skirmish_map_select_state: std::sync::Arc::new(std::sync::Mutex::new(
                     crate::gui::callbacks::skirmish_map_select_menu::SkirmishMapSelectState::default(),
@@ -658,6 +668,13 @@ impl WindowManagerOwner {
         f: impl FnOnce(&RefCell<crate::gui::callbacks::skirmish_game_options_menu::SkirmishGameOptionsState>) -> R,
     ) -> R {
         f(&self.state.skirmish_game_options)
+    }
+
+    /// This UI tree's `TheSkirmishGameInfo` lobby.
+    pub fn skirmish_setup(
+        &self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::gui::skirmish_setup::SkirmishSetup>> {
+        std::sync::Arc::clone(&self.state.skirmish_setup)
     }
 
     pub(crate) fn with_skirmish_map_select_layout_mut<R>(

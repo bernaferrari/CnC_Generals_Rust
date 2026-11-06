@@ -151,7 +151,7 @@ impl CnCGameEngine {
             #[cfg(feature = "game_client")]
             {
                 {
-                    let setup_handle = game_client::gui::get_skirmish_setup();
+                    let setup_handle = self.game_client.skirmish_setup();
 
                     let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                     setup.set_selected_map(map.clone());
@@ -218,13 +218,14 @@ impl CnCGameEngine {
                     if !map_select_wnd_ok {
                         map_select_wnd_ok =
                             game_client::gui::callbacks::simulate_skirmish_map_select_and_confirm(
+                                self.game_client.window_manager_owner_ref(),
                                 map.clone(),
                             );
                     }
                     // Wave 837: always force-commit control map into setup after
                     // latch attempt (shell residual must not win).
                     {
-                        let setup_handle = game_client::gui::get_skirmish_setup();
+                        let setup_handle = self.game_client.skirmish_setup();
 
                         let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                         setup.set_selected_map(map.clone());
@@ -236,7 +237,7 @@ impl CnCGameEngine {
                     map.clone(),
                 );
                     if map_select_wnd_ok
-                        || !game_client::gui::get_skirmish_setup().lock().unwrap_or_else(|e| e.into_inner())
+                        || !self.game_client.skirmish_setup().lock().unwrap_or_else(|e| e.into_inner())
                             .game_info()
                             .game_info()
                             .get_map()
@@ -248,7 +249,9 @@ impl CnCGameEngine {
                 // C++ init residual: human+MedAI slots and default rules
                 // (cash/SW/speed) before Start.
                 let match_options_ok =
-                    game_client::gui::callbacks::simulate_skirmish_prepare_match_options();
+                    game_client::gui::callbacks::simulate_skirmish_prepare_match_options(
+                        self.game_client.window_manager_owner_ref(),
+                    );
                 let slot_ai_wnd_ok = match_options_ok;
                 // Optional difficulty override from control-file args.
                 if let Some(diff) = args.get("ai") {
@@ -260,6 +263,7 @@ impl CnCGameEngine {
                     };
                     if let Some(state) = state {
                         let _ = game_client::gui::callbacks::simulate_skirmish_configure_slot_ai(
+                            self.game_client.window_manager_owner_ref(),
                             1, state, -1, -1, -1,
                         );
                     }
@@ -268,6 +272,7 @@ impl CnCGameEngine {
                 if let Some(cash) = args.get("cash") {
                     if let Ok(amount) = cash.parse::<u32>() {
                         let _ = game_client::gui::callbacks::simulate_skirmish_set_starting_cash(
+                            self.game_client.window_manager_owner_ref(),
                             amount,
                         );
                     }
@@ -597,6 +602,11 @@ impl CnCGameEngine {
             #[cfg(feature = "game_client")]
             {
                 crate::skirmish_config::config_from_client_skirmish_setup_with_definitions(
+                    &self
+                        .game_client
+                        .skirmish_setup()
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner()),
                     Some(map.as_str()),
                     self.game_logic.player_template_definitions.as_ref(),
                 )
@@ -651,7 +661,7 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             // Seed client setup map so config_from_client can resolve.
-            let setup_handle = game_client::gui::get_skirmish_setup();
+            let setup_handle = self.game_client.skirmish_setup();
 
             let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             setup.set_selected_map(map.clone());

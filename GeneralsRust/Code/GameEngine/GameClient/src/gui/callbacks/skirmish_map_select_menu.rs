@@ -75,12 +75,11 @@ fn map_select_state_on_owner(
     }
     #[cfg(not(test))]
     {
-        Arc::new(Mutex::new(SkirmishMapSelectState::default()))
+        // A scratch state would silently discard the overlay selection.
+        panic!(
+            "skirmish map-select state requires a WindowManagerOwner or live GameClient; no process scratch"
+        );
     }
-}
-
-fn map_select_state() -> Arc<Mutex<SkirmishMapSelectState>> {
-    map_select_state_on_owner(None)
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -297,7 +296,7 @@ pub fn skirmish_map_select_menu_init(
     });
 
     {
-        let setup_handle = get_skirmish_setup();
+        let setup_handle = get_skirmish_setup(effects.window_manager_owner);
 
         let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         if !setup.selected_map().is_empty() {
@@ -315,7 +314,7 @@ pub fn skirmish_map_select_menu_init(
             }
         };
     } else {
-        let setup_handle = get_skirmish_setup();
+        let setup_handle = get_skirmish_setup(effects.window_manager_owner);
 
         let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         state.use_system_maps = setup.use_system_maps();
@@ -368,11 +367,11 @@ pub fn skirmish_map_select_menu_shutdown(
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
     effects.with_manager(|manager, _effects| layout.hide(manager, true));
-    nullify_controls();
+    nullify_controls(effects.window_manager_owner);
 }
 
-fn nullify_controls() {
-    let state_handle = map_select_state();
+fn nullify_controls(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_handle = map_select_state_on_owner(owner);
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     state.parent = None;
     state.listbox_map = None;
@@ -394,7 +393,7 @@ pub fn skirmish_map_select_menu_system(
         WindowMessage::Create => return WindowMsgHandled::Handled,
         WindowMessage::Destroy => {
             drop(state);
-            nullify_controls();
+            nullify_controls(effects.window_manager_owner);
             return WindowMsgHandled::Handled;
         }
         WindowMessage::InputFocus => return write_input_focus_response(data1, data2, true),
@@ -407,7 +406,7 @@ pub fn skirmish_map_select_menu_system(
                 };
 
                 let cache = get_map_cache_manager();
-                let setup_handle = get_skirmish_setup();
+                let setup_handle = get_skirmish_setup(effects.window_manager_owner);
 
                 let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                 setup.set_selected_map(map_name.clone());
@@ -855,17 +854,17 @@ fn ensure_map_select_control_ids(state: &mut SkirmishMapSelectState) {
 
 /// Residual: set the map-select row selection without a live listbox widget.
 /// Used by runtime-host / executable smoke when WindowZH listbox is unavailable.
-pub fn set_skirmish_map_select_selected_map(map: impl Into<String>) {
+pub fn set_skirmish_map_select_selected_map(owner: &crate::gui::window_manager::WindowManagerOwner, map: impl Into<String>) {
     let map = map.into();
-    let state_handle = map_select_state();
+    let state_handle = owner.skirmish_map_select_state_handle();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     ensure_map_select_control_ids(&mut state);
     state.selected_map = Some(map);
 }
 
 /// Residual: current map-select overlay selection (if any).
-pub fn skirmish_map_select_selected_map() -> Option<String> {
-    let state_handle = map_select_state();
+pub fn skirmish_map_select_selected_map(owner: &crate::gui::window_manager::WindowManagerOwner) -> Option<String> {
+    let state_handle = owner.skirmish_map_select_state_handle();
     let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     state.selected_map.clone()
 }
@@ -876,9 +875,9 @@ pub fn skirmish_map_select_selected_map() -> Option<String> {
 /// options menu, and destroys the overlay. Returns true when OK was handled
 /// with a selected map (setup commit residual).
 /// Fail-closed: without a selected map, OK is ignored (C++ parity) → false.
-pub fn simulate_skirmish_map_select_ok_button_gadget_selected() -> bool {
+pub fn simulate_skirmish_map_select_ok_button_gadget_selected(owner: &crate::gui::window_manager::WindowManagerOwner) -> bool {
     let (button_ok_id, selected_map, use_system_maps) = {
-        let state_handle = map_select_state();
+        let state_handle = owner.skirmish_map_select_state_handle();
         let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         ensure_map_select_control_ids(&mut state);
         (
@@ -897,7 +896,7 @@ pub fn simulate_skirmish_map_select_ok_button_gadget_selected() -> bool {
 
     // Host residual commit (no window-manager re-entry). Interactive overlay still
     // uses skirmish_map_select_menu_system via real GBM_SELECTED on ButtonOK.
-    let setup_handle = get_skirmish_setup();
+    let setup_handle = owner.skirmish_setup();
 
     let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     setup.set_selected_map(map_name.clone());
@@ -912,7 +911,10 @@ pub fn simulate_skirmish_map_select_ok_button_gadget_selected() -> bool {
 
 /// Residual: open map-select overlay path from options `ButtonSelectMap` when possible,
 /// latch `map`, and commit via ButtonOK. Returns true when setup received the map.
-pub fn simulate_skirmish_map_select_and_confirm(map: impl Into<String>) -> bool {
+pub fn simulate_skirmish_map_select_and_confirm(
+    owner: &crate::gui::window_manager::WindowManagerOwner,
+    map: impl Into<String>,
+) -> bool {
     let map = map.into();
     if map.trim().is_empty() {
         return false;
@@ -920,8 +922,8 @@ pub fn simulate_skirmish_map_select_and_confirm(map: impl Into<String>) -> bool 
     // Host residual: latch selected map + ButtonOK commit without requiring a live
     // WindowZH overlay load (create_layout can block/fail headless). Options menu
     // ButtonSelectMap still creates the overlay on interactive paths.
-    set_skirmish_map_select_selected_map(map);
-    simulate_skirmish_map_select_ok_button_gadget_selected()
+    set_skirmish_map_select_selected_map(owner, map);
+    simulate_skirmish_map_select_ok_button_gadget_selected(owner)
 }
 
 /// Human click-through: OS LeftDown/Up on `ButtonSelectMap` then overlay `ButtonOK`
@@ -943,8 +945,11 @@ pub fn drive_os_wnd_skirmish_map_select_like_cpp(
     if !clicked_select && !clicked_ok {
         return false;
     }
-    set_skirmish_map_select_selected_map(map);
-    simulate_skirmish_map_select_ok_button_gadget_selected()
+    let Some(owner) = effects.window_manager_owner else {
+        return false;
+    };
+    set_skirmish_map_select_selected_map(owner, map);
+    simulate_skirmish_map_select_ok_button_gadget_selected(owner)
 }
 
 #[cfg(test)]
@@ -1039,7 +1044,7 @@ mod tests {
                 with_owner_effects(&owner, |effects| { drive_os_wnd_skirmish_map_select_like_cpp("maps\\alpine_war.map", effects) }),
                 "OS WND clicks must commit map into skirmish setup"
             );
-            let committed = get_skirmish_setup().lock().unwrap_or_else(|e| e.into_inner())
+            let committed = get_skirmish_setup(Some(&owner)).lock().unwrap_or_else(|e| e.into_inner())
                 .game_info()
                 .game_info()
                 .get_map()
@@ -1187,12 +1192,13 @@ mod tests {
     #[test]
     fn simulate_map_select_and_confirm_commits_setup() {
         crate::test_support::ensure_ambient_host();
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let map = "maps/alpine_assault/alpine_assault.map";
         assert!(
-            simulate_skirmish_map_select_and_confirm(map),
+            simulate_skirmish_map_select_and_confirm(&owner, map),
             "map-select OK residual must commit setup"
         );
-        let setup_handle = get_skirmish_setup();
+        let setup_handle = get_skirmish_setup(Some(&owner));
 
         let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         assert!(
@@ -1207,14 +1213,14 @@ mod tests {
     fn simulate_map_select_ok_without_selection_fail_closed() {
         crate::test_support::ensure_ambient_host();
         // Clear selection residual.
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         {
-            let owner = crate::gui::window_manager::WindowManagerOwner::new();
             let state_handle = map_select_state_on_owner(Some(&owner));
             let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
             state.selected_map = None;
         }
         assert!(
-            !simulate_skirmish_map_select_ok_button_gadget_selected(),
+            !simulate_skirmish_map_select_ok_button_gadget_selected(&owner),
             "OK without selection must fail-closed (C++ ignores)"
         );
     }

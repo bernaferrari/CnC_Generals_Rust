@@ -439,7 +439,7 @@ impl CnCGameEngine {
 
     /// Wave 840: skirmish start must not keep boot ShellMapMD when a real control/
     /// setup map is available (or when empty → DEFAULT_SKIRMISH_MAP).
-    pub(super) fn resolve_skirmish_start_map_name(mode: GameMode, map: String) -> String {
+    pub(super) fn resolve_skirmish_start_map_name(&self, mode: GameMode, map: String) -> String {
         let mut map_name = if map.trim().is_empty() {
             DEFAULT_SKIRMISH_MAP.to_string()
         } else {
@@ -453,7 +453,7 @@ impl CnCGameEngine {
         }
         #[cfg(feature = "game_client")]
         {
-            let setup_handle = game_client::gui::get_skirmish_setup();
+            let setup_handle = self.game_client.skirmish_setup();
 
             let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             let selected = setup.selected_map().trim().to_string();
@@ -708,7 +708,7 @@ impl CnCGameEngine {
         let map_name = if mode == GameMode::Shell {
             map
         } else {
-            Self::resolve_skirmish_start_map_name(mode, map)
+            self.resolve_skirmish_start_map_name(mode, map)
         };
 
         info!(

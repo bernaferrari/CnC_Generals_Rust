@@ -71,7 +71,7 @@ use crate::game_text::GameText;
 
 use crate::gui::gadgets::register_button_audio_hook;
 use crate::gui::window_manager::WindowManagerOwner;
-use crate::gui::{UIRenderer, WindowStatus, get_skirmish_setup};
+use crate::gui::{UIRenderer, WindowStatus};
 use crate::input::*;
 use crate::message_stream::command_list::get_command_list;
 use crate::message_stream::command_router::route_commands_to_gamelogic;

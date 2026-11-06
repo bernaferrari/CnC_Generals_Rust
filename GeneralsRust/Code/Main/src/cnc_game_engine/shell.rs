@@ -186,7 +186,7 @@ impl CnCGameEngine {
                 )
             }),
             GameMode::Skirmish => Some({
-                let setup_handle = game_client::gui::get_skirmish_setup();
+                let setup_handle = self.game_client.skirmish_setup();
 
                 let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                 game_client::gui::load_screen::load_screen_init_context_from_game_info(

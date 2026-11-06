@@ -87,7 +87,6 @@ pub struct GameClient {
     translator_presentation_residual: Option<std::sync::Arc<std::sync::RwLock<crate::presentation_translator_residual::TranslatorPresentationResidual>>>,
     mouse: Option<std::sync::Arc<std::sync::Mutex<crate::input::mouse::Mouse>>>,
     lan_setup: Option<std::sync::Arc<std::sync::Mutex<crate::gui::lan_setup::LanSetup>>>,
-    skirmish_setup: Option<std::sync::Arc<std::sync::Mutex<crate::gui::skirmish_setup::SkirmishSetup>>>,
     host_command_authority: Option<std::sync::Arc<dyn Fn(&[crate::message_stream::game_message::GameMessage]) + Send + Sync>>,
     font_library: Option<std::sync::Arc<std::sync::Mutex<crate::gui::font::FontLibrary>>>,
     /// C++ `TheTacticalView` — owned per receiving client.

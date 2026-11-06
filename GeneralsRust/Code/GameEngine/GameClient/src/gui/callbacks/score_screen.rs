@@ -71,8 +71,22 @@ struct ScoreGather {
     side_icon: String,
 }
 
+impl ScoreScreenState {
+    /// The lobby bound at ScoreScreenInit (owner-less unit fixtures resolve
+    /// the test lobby instead).
+    fn skirmish_lobby(
+        &self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::gui::skirmish_setup::SkirmishSetup>> {
+        self.skirmish_setup
+            .clone()
+            .unwrap_or_else(|| get_skirmish_setup(None))
+    }
+}
+
 #[derive(Default)]
 pub struct ScoreScreenState {
+    /// The receiving client's `TheSkirmishGameInfo`, bound at ScoreScreenInit.
+    skirmish_setup: Option<std::sync::Arc<std::sync::Mutex<crate::gui::skirmish_setup::SkirmishSetup>>>,
     residual_action: u8,
     parent_id: i32,
     button_ok_id: i32,
@@ -180,12 +194,15 @@ fn set_window_image(win: &Option<Rc<RefCell<GameWindow>>>, image_name: &str) {
     }
 }
 
-fn score_screen_music_from_game_info_slot(manager: Option<&CampaignManager>) -> String {
+fn score_screen_music_from_game_info_slot(
+    lobby: &std::sync::Mutex<crate::gui::skirmish_setup::SkirmishSetup>,
+    manager: Option<&CampaignManager>,
+) -> String {
     // C++ ScoreScreenUpdate: TheGameInfo slot template, FactionObserver if < 0.
     // Must not touch PlayerList — clearGameData runs before the first Update.
     game_engine::common::ini::ensure_player_templates_loaded();
     let store = game_engine::common::rts::player_template::get_player_template_store();
-    let template_index = score_screen_local_slot_template_index(manager);
+    let template_index = score_screen_local_slot_template_index(lobby, manager);
     let template = if template_index >= 0 {
         usize::try_from(template_index)
             .ok()
@@ -199,7 +216,10 @@ fn score_screen_music_from_game_info_slot(manager: Option<&CampaignManager>) -> 
         .unwrap_or_default()
 }
 
-fn score_screen_local_slot_template_index(manager: Option<&CampaignManager>) -> i32 {
+fn score_screen_local_slot_template_index(
+    lobby: &std::sync::Mutex<crate::gui::skirmish_setup::SkirmishSetup>,
+    manager: Option<&CampaignManager>,
+) -> i32 {
     let from_info = |game: &GameInfo| {
         if !game.is_in_game() {
             return None;
@@ -211,7 +231,7 @@ fn score_screen_local_slot_template_index(manager: Option<&CampaignManager>) -> 
         game.get_slot(slot_num as usize)
             .map(|slot| slot.get_player_template())
     };
-    if let Some(index) = from_info(get_skirmish_setup().lock().unwrap_or_else(|e| e.into_inner()).game_info().game_info()) {
+    if let Some(index) = from_info(lobby.lock().unwrap_or_else(|e| e.into_inner()).game_info().game_info()) {
         return index;
     }
     manager
@@ -229,7 +249,9 @@ fn update_score_screen_music(effects: &mut WindowEventEffects<'_>) {
     let Some(audio) = TheAudio::get() else {
         return;
     };
-    let music_name = score_screen_music_from_game_info_slot(effects.campaign_manager.as_deref());
+    let lobby = get_skirmish_setup(effects.window_manager_owner);
+    let music_name =
+        score_screen_music_from_game_info_slot(&lobby, effects.campaign_manager.as_deref());
     if !music_name.is_empty() {
         audio.remove_audio_event(AHSV_STOP_THE_MUSIC_FADE);
         let mut event = gamelogic::common::audio::AudioEventRts::new(music_name);
@@ -1183,6 +1205,7 @@ fn populate_snapshot_observer(
 }
 
 fn persist_snapshot_skirmish_honors(
+    game: &GameInfo,
     player: &ScoreScreenPlayerSnapshot,
     outcome: &ScoreScreenSkirmishOutcome,
     score: &game_engine::common::rts::score_keeper::ScoreKeeper,
@@ -1202,9 +1225,9 @@ fn persist_snapshot_skirmish_honors(
         stats.set_win_streak(stats.get_win_streak() + 1);
         let best = stats.get_best_win_streak().max(stats.get_win_streak());
         stats.set_best_win_streak(best);
-        update_skirmish_battle_honors(&mut stats, &player.side, score, end_frame);
+        update_skirmish_battle_honors(&mut stats, &player.side, score, end_frame, game);
         let mut challenge_medals = stats.get_challenge_medals();
-        update_challenge_medals(&mut challenge_medals);
+        update_challenge_medals(&mut challenge_medals, game);
         stats.set_challenge_medals(challenge_medals);
     } else {
         stats.set_losses(stats.get_losses() + 1);
@@ -1315,7 +1338,10 @@ fn populate_snapshot_player(
                 .get_user_data::<ScoreScreenAcademySnapshot>()
                 .and_then(|snapshot| snapshot.skirmish_outcome)
         }) {
+            let lobby = state.skirmish_lobby();
+            let lobby = lobby.lock().unwrap_or_else(|e| e.into_inner());
             persist_snapshot_skirmish_honors(
+                lobby.game_info().game_info(),
                 player,
                 &outcome,
                 score,
@@ -1685,6 +1711,7 @@ fn update_skirmish_battle_honors<S: SkirmishScoreMetrics>(
     side: &str,
     score: &S,
     end_frame: u32,
+    game: &GameInfo,
 ) {
     if stats.get_win_streak() >= 5 {
         stats.set_honors(BATTLE_HONOR_STREAK as i32);
@@ -1742,11 +1769,6 @@ fn update_skirmish_battle_honors<S: SkirmishScoreMetrics>(
         }
     }
 
-    let setup_handle = get_skirmish_setup();
-
-
-    let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
-    let game = setup.game_info().game_info();
     let mut num_easy = 0;
     let mut num_medium = 0;
     let mut num_brutal = 0;
@@ -1788,11 +1810,7 @@ fn update_skirmish_battle_honors<S: SkirmishScoreMetrics>(
     }
 }
 
-fn update_challenge_medals(medals: &mut i32) {
-    let setup_handle = get_skirmish_setup();
-
-    let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
-    let game = setup.game_info().game_info();
+fn update_challenge_medals(medals: &mut i32, game: &GameInfo) {
     if !game.is_skirmish() {
         return;
     }
@@ -2129,7 +2147,7 @@ fn populate_player_info(
     }
 
     if state.screen_type == ScoreScreenType::Skirmish && player.is_local_player() {
-        let setup_handle = get_skirmish_setup();
+        let setup_handle = state.skirmish_lobby();
 
         let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         let sandbox = setup.game_info().game_info().is_sandbox();
@@ -2151,9 +2169,10 @@ fn populate_player_info(
                 &player.get_side(),
                 score,
                 score_end_frame(&state.parent),
+                setup.game_info().game_info(),
             );
             let mut challenge_medals = stats.get_challenge_medals();
-            update_challenge_medals(&mut challenge_medals);
+            update_challenge_medals(&mut challenge_medals, setup.game_info().game_info());
             stats.set_challenge_medals(challenge_medals);
         } else {
             stats.set_losses(stats.get_losses() + 1);
@@ -2227,6 +2246,10 @@ pub fn score_screen_init(
     _user_data: Option<&mut dyn std::any::Any>,
     effects: &mut WindowEventEffects<'_>,
 ) {
+    {
+        let lobby = get_skirmish_setup(effects.window_manager_owner);
+        effects.score_screen_mut().skirmish_setup = Some(lobby);
+    }
     {
         let value = true;
         effects.score_screen_mut().play_music = value

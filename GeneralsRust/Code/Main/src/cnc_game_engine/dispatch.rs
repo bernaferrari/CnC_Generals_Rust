@@ -756,6 +756,11 @@ impl CnCGameEngine {
             #[cfg(feature = "game_client")]
             {
                 crate::skirmish_config::config_from_client_skirmish_setup_with_definitions(
+                    &self
+                        .game_client
+                        .skirmish_setup()
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner()),
                     Some(map.as_str()),
                     self.game_logic.player_template_definitions.as_ref(),
                 )

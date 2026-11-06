@@ -3403,7 +3403,7 @@ impl CnCGameEngine {
         let gla = store.find_template_index("FactionGLA").unwrap() as i32;
         drop(store);
         {
-            let setup_handle = game_client::gui::get_skirmish_setup();
+            let setup_handle = self.game_client.skirmish_setup();
 
             let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             setup.set_selected_map("Lone Eagle".into());
@@ -3429,7 +3429,10 @@ impl CnCGameEngine {
             gi.set_in_game();
             assert_eq!(gi.get_local_slot_num(), 1);
         }
-        let config = crate::skirmish_config::config_from_client_skirmish_setup(None)
+        let config = crate::skirmish_config::config_from_client_skirmish_setup(
+            &self.game_client.skirmish_setup().lock().unwrap_or_else(|e| e.into_inner()),
+            None,
+        )
             .ok_or("actual two-human Client setup did not produce a native configuration")?;
         self.current_player_id = 0;
         self.host_apply_skirmish_config_authority(&config)?;

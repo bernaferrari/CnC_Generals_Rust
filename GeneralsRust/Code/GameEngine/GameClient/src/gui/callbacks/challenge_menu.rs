@@ -1040,7 +1040,7 @@ mod tests {
         use crate::gui::get_skirmish_setup;
         let mut client = client();
         {
-            let setup_handle = get_skirmish_setup();
+            let setup_handle = get_skirmish_setup(Some(client.window_manager_owner_ref()));
 
             let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             let info = setup.game_info_mut().game_info_mut();
@@ -1064,7 +1064,7 @@ mod tests {
             challenge_map, "maps\\skirmish_only.map",
             "challenge GameInfo must not share skirmish map"
         );
-        let skirmish_map = get_skirmish_setup().lock().unwrap_or_else(|e| e.into_inner())
+        let skirmish_map = get_skirmish_setup(Some(client.window_manager_owner_ref())).lock().unwrap_or_else(|e| e.into_inner())
             .game_info()
             .game_info()
             .get_map()
@@ -1092,7 +1092,7 @@ mod tests {
             .unwrap();
         assert_eq!(after.0, "maps\\GC_ChemGeneral.map");
         assert_eq!(after.1, 3);
-        let skirmish_map = get_skirmish_setup().lock().unwrap_or_else(|e| e.into_inner())
+        let skirmish_map = get_skirmish_setup(Some(client.window_manager_owner_ref())).lock().unwrap_or_else(|e| e.into_inner())
             .game_info()
             .game_info()
             .get_map()

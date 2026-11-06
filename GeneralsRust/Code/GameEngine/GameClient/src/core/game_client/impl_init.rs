@@ -118,7 +118,6 @@ impl GameClient {
             translator_presentation_residual: None,
             mouse: None,
             lan_setup: None,
-            skirmish_setup: None,
             host_command_authority: None,
             font_library: None,
             tactical_view: {
@@ -584,15 +583,20 @@ impl GameClient {
         );
         // Campaign state is borrowed from the receiving GameClient at each
         // save/load operation; do not publish an ambient campaign callback.
+        // C++ GameStateMap.cpp:406 xferSnapshot(TheSkirmishGameInfo) v4: the
+        // hooks carry this client's lobby, not an ambient lookup.
+        let save_setup = self.window_manager_owner.skirmish_setup();
+        let load_setup = Arc::clone(&save_setup);
         register_save_load_skirmish_hooks(
-            Some(Arc::new(|| {
-                // C++ GameStateMap.cpp:406 xferSnapshot(TheSkirmishGameInfo) v4.
+            Some(Arc::new(move || {
+                let setup = save_setup.lock().unwrap_or_else(|e| e.into_inner());
                 let bytes =
-                    crate::gui::skirmish_setup::snapshot_skirmish_lobby().encode_xfer_bytes();
+                    crate::gui::skirmish_setup::snapshot_skirmish_lobby(&setup).encode_xfer_bytes();
                 if bytes.is_empty() { None } else { Some(bytes) }
             })),
-            Some(Arc::new(|payload| {
-                crate::gui::skirmish_setup::restore_skirmish_lobby(payload);
+            Some(Arc::new(move |payload| {
+                let mut setup = load_setup.lock().unwrap_or_else(|e| e.into_inner());
+                crate::gui::skirmish_setup::restore_skirmish_lobby(&mut setup, payload);
             })),
         );
     }
