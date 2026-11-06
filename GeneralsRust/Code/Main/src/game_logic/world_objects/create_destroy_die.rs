@@ -3338,63 +3338,6 @@ impl GameLogic {
                         }
                     }
                 }
-
-                // C++ AIUpdate::evaluateMoraleBonus reads player->hasUpgradeComplete
-                // each refresh. Live stamps unit tags at research time; inherit
-                // those player upgrades here so late-built units get the bonus.
-                {
-                    use crate::game_logic::host_battlemaster::{
-                        UPGRADE_FANATICISM, UPGRADE_NATIONALISM, has_fanaticism_upgrade,
-                        has_nationalism_upgrade, is_battlemaster_template,
-                        is_china_vehicle_horde_unit,
-                    };
-                    use crate::game_logic::host_minigunner::is_minigunner_template;
-                    use crate::game_logic::host_red_guard::is_china_infantry_horde_unit;
-
-                    let horde_unit = is_china_infantry_horde_unit(template_name)
-                        || is_china_vehicle_horde_unit(template_name);
-                    if horde_unit {
-                        let mut upgrades = std::collections::HashSet::new();
-                        if let Some(player) = owner_player_id.and_then(|pid| self.players.get(&pid))
-                        {
-                            upgrades.extend(player.unlocked_sciences.iter().cloned());
-                            upgrades.extend(player.completed_upgrades.iter().cloned());
-                        } else {
-                            for player in self.players.values().filter(|p| p.team == team) {
-                                upgrades.extend(player.unlocked_sciences.iter().cloned());
-                                upgrades.extend(player.completed_upgrades.iter().cloned());
-                            }
-                        }
-                        let has_nat = has_nationalism_upgrade(&upgrades);
-                        let has_fan = has_fanaticism_upgrade(&upgrades);
-                        if has_nat || has_fan {
-                            if let Some(obj) = self.objects.get_mut(&id) {
-                                if has_nat {
-                                    obj.apply_upgrade_tag(UPGRADE_NATIONALISM);
-                                }
-                                if has_fan {
-                                    obj.apply_upgrade_tag(UPGRADE_FANATICISM);
-                                }
-                            }
-                            let (authored_rg, authored_th) = self
-                                .objects
-                                .get(&id)
-                                .map(|o| {
-                                    (o.authors_red_guard_machine_gun(), o.authors_tank_hunter_missile())
-                                })
-                                .unwrap_or((false, false));
-                            if authored_rg {
-                                self.refresh_red_guard_weapon(id);
-                            } else if authored_th {
-                                self.refresh_tank_hunter_weapon(id);
-                            } else if is_minigunner_template(template_name) {
-                                self.refresh_minigunner_weapon(id);
-                            } else if is_battlemaster_template(template_name) {
-                                self.refresh_battlemaster_weapon(id);
-                            }
-                        }
-                    }
-                }
             }
 
             self.apply_difficulty_bonuses_for_object_with_effects(id, ui);

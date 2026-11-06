@@ -488,9 +488,9 @@ impl Object {
         draw_icon_ui: bool,
     ) {
         use crate::game_logic::host_battlemaster::{
-            TERRAIN_DECAL_NONE, has_fanaticism_upgrade, hide_leftover_horde_flag_subobjects,
+            TERRAIN_DECAL_NONE, hide_leftover_horde_flag_subobjects,
             is_portable_structure_template, leftover_horde_decal_fade, leftover_horde_decal_type,
-            leftover_horde_fanaticism_bonus, leftover_horde_major_radius,
+            leftover_horde_major_radius,
             leftover_infantry_horde_decal_size_or_bbox, leftover_template_shadow_size,
             leftover_unit_has_horde_flag_subobjects, leftover_vehicle_horde_decal_size,
         };
@@ -504,10 +504,8 @@ impl Object {
         if draw_icon_ui {
             if now_in_horde && !is_portable_structure_template(&self.template_name) {
                 let has_nationalism = self.weapon_bonus_nationalism;
-                let has_fanaticism = leftover_horde_fanaticism_bonus(
-                    has_nationalism,
-                    has_fanaticism_upgrade(&self.applied_upgrades),
-                );
+                // evaluateMoraleBonus already nested FANATICISM inside NATIONALISM.
+                let has_fanaticism = self.weapon_bonus_fanaticism;
                 let ty = leftover_horde_decal_type(is_infantry, has_nationalism, has_fanaticism);
                 if is_infantry {
                     let (sx, sy) = leftover_template_shadow_size(

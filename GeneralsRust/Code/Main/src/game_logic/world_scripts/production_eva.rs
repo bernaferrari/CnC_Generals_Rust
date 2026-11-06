@@ -1188,15 +1188,6 @@ impl GameLogic {
             if !self.object_birth_matches(structure_id, &structure_birth) {
                 return;
             }
-            // C++ Object::updateUpgradeModules still walks Type=OBJECT
-            // PowerPlantUpgrade (TriggeredBy Advanced Control Rods) so a plant
-            // built after research gets EnergyBonus + extendRods.
-            if crate::game_logic::host_upgrades::HostUpgradeKind::from_name(&name)
-                == crate::game_logic::host_upgrades::HostUpgradeKind::AdvancedControlRods
-            {
-                self.apply_advanced_control_rods_to_object(structure_id, &name);
-                continue;
-            }
             if self.is_object_scoped_upgrade(&name) {
                 continue;
             }

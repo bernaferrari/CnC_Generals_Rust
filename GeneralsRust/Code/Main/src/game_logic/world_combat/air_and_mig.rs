@@ -4,334 +4,6 @@
 use super::super::*;
 
 impl GameLogic {
-    /// Apply Stealth Fighter residual fire (intended + primary splash) + bunker-buster structure path.
-    /// C++ StealthJetMissile ProjectileObject residual (KillSelfDelay 2000ms).
-    pub fn spawn_stealth_jet_missile_projectile(
-        &mut self,
-        source_id: ObjectId,
-        from: glam::Vec3,
-        aim: glam::Vec3,
-        intended: Option<ObjectId>,
-    ) -> Option<ObjectId> {
-        self.spawn_stealth_jet_missile_projectile_with_effects(
-            source_id,
-            from,
-            aim,
-            intended,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(crate) fn spawn_stealth_jet_missile_projectile_with_effects(
-        &mut self,
-        source_id: ObjectId,
-        from: glam::Vec3,
-        aim: glam::Vec3,
-        intended: Option<ObjectId>,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<ObjectId> {
-        use crate::game_logic::host_stealth_fighter::{
-            STEALTH_FIGHTER_PROJECTILE_SPEED, STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES,
-            STEALTH_JET_MISSILE_MAX_HEALTH, STEALTH_JET_MISSILE_PROJECTILE,
-            STEALTH_MISSILE_FUEL_FRAMES, STEALTH_MISSILE_IGNITION_DELAY_FRAMES,
-            STEALTH_MISSILE_INITIAL_VELOCITY,
-        };
-        use crate::game_logic::{KindOf, ThingTemplate};
-
-        if !self.templates.contains_key(STEALTH_JET_MISSILE_PROJECTILE) {
-            let mut t = ThingTemplate::new(STEALTH_JET_MISSILE_PROJECTILE);
-            t.add_kind_of(KindOf::Projectile)
-                .set_health(STEALTH_JET_MISSILE_MAX_HEALTH)
-                .set_cost(0, 0);
-            self.templates
-                .insert(STEALTH_JET_MISSILE_PROJECTILE.to_string(), t);
-        }
-        let team = self
-            .objects
-            .get(&source_id)
-            .map(|o| o.team)
-            .unwrap_or(Team::Neutral);
-
-        // C++ ScatterRadiusVsInfantry residual on StealthJetMissileWeapon vs infantry.
-        let target_is_infantry = intended
-            .and_then(|id| self.objects.get(&id))
-            .map(|o| o.is_kind_of(KindOf::Infantry))
-            .unwrap_or(false);
-        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
-            source_id.0,
-            intended.map(|id| id.0).unwrap_or(0),
-            self.frame,
-        );
-        let (aim, scattered) = crate::game_logic::host_stealth_fighter::stealth_jet_scatter_aim(
-            aim,
-            target_is_infantry,
-            seed,
-        );
-        if scattered {
-            self.stealth_jet_scatter_applied = self.stealth_jet_scatter_applied.saturating_add(1);
-        }
-        if target_is_infantry {
-            let hit_r = intended
-                .and_then(|id| self.objects.get(&id))
-                .map(|o| {
-                    if o.selection_radius > 0.0 {
-                        o.selection_radius
-                    } else {
-                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
-                    }
-                })
-                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
-            let intended_pos = intended
-                .and_then(|id| self.objects.get(&id))
-                .map(|o| o.get_position());
-            if crate::game_logic::host_stealth_fighter::stealth_jet_scatter_misses_infantry(
-                true, seed, hit_r,
-            ) {
-                if let Some(pos) = intended_pos {
-                    let dx = aim.x - pos.x;
-                    let dz = aim.z - pos.z;
-                    let dist = (dx * dx + dz * dz).sqrt();
-                    if dist
-                        > crate::game_logic::host_stealth_fighter::STEALTH_FIGHTER_PRIMARY_RADIUS
-                    {
-                        self.stealth_jet_scatter_misses =
-                            self.stealth_jet_scatter_misses.saturating_add(1);
-                    }
-                }
-            }
-        }
-
-        let mut start = from;
-        start.y = start.y.max(aim.y + 20.0);
-        let pid = self.create_object_with_script_effects(
-            STEALTH_JET_MISSILE_PROJECTILE,
-            team,
-            start,
-            None,
-            presentation_effects,
-        )?;
-        let launch = STEALTH_MISSILE_INITIAL_VELOCITY / 30.0;
-        let to_aim = aim - start;
-        let dist = to_aim.length().max(0.001);
-        let dir = to_aim / dist;
-        if let Some(o) = self.objects.get_mut(&pid) {
-            o.stealth_jet_missile_projectile = true;
-            o.stealth_jet_missile_aim = Some([aim.x, aim.y, aim.z]);
-            o.stealth_jet_missile_intended = intended.map(|id| id.0);
-            o.stealth_jet_missile_travelled = 0.0;
-            o.stealth_jet_missile_fuel_expires_frame =
-                Some(self.frame.saturating_add(STEALTH_MISSILE_FUEL_FRAMES));
-            o.stealth_jet_missile_ignition_frame = Some(
-                self.frame
-                    .saturating_add(STEALTH_MISSILE_IGNITION_DELAY_FRAMES),
-            );
-            o.stealth_jet_missile_expires_frame = Some(
-                self.frame.saturating_add(STEALTH_MISSILE_FUEL_FRAMES).max(
-                    self.frame
-                        .saturating_add(STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES),
-                ),
-            );
-            o.note_producer(source_id);
-            o.set_body_max_health_with_mode(
-                STEALTH_JET_MISSILE_MAX_HEALTH,
-                crate::game_logic::object::MaxHealthChange::FullyHeal,
-            );
-            self.health_events
-                .record_applied_heal(o.id, o.health.current);
-            o.movement.velocity = dir * launch;
-            o.set_orientation_with_partition_owner(dir.z.atan2(dir.x), &mut self.partition_manager);
-        }
-        let _ = STEALTH_FIGHTER_PROJECTILE_SPEED;
-        self.stealth_jet_missiles_spawned = self.stealth_jet_missiles_spawned.saturating_add(1);
-        Some(pid)
-    }
-
-    pub fn update_stealth_jet_missile_projectiles(&mut self) {
-        self.update_stealth_jet_missile_projectiles_with_effects(
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(crate) fn update_stealth_jet_missile_projectiles_with_effects(
-        &mut self,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        use crate::game_logic::host_bunker_buster::{
-            BUNKER_BUSTER_CRASH_THROUGH_FX, should_play_crash_through_fx,
-        };
-        use crate::game_logic::host_stealth_fighter::{
-            STEALTH_FIGHTER_PROJECTILE_SPEED, STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES,
-            STEALTH_MISSILE_INITIAL_VELOCITY,
-        };
-        let frame = self.frame;
-        let launch = STEALTH_MISSILE_INITIAL_VELOCITY / 30.0;
-        let cruise = STEALTH_FIGHTER_PROJECTILE_SPEED / 30.0;
-        let flying: Vec<ObjectId> = self
-            .objects
-            .registered()
-            .filter_map(|(id, o)| {
-                if o.stealth_jet_missile_projectile && o.is_alive() {
-                    Some(*id)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3)> =
-            Vec::new();
-        let mut crash_fx: Vec<ObjectId> = Vec::new();
-        for id in flying {
-            // C++ MissileAIUpdate::detonate → KILL_SELF + MISSILE_KILLING_SELF.
-            // BunkerBusterBehavior::update plays CrashThroughBunkerFX on the missile
-            // every CrashThroughBunkerFXFrequency frames; bustTheBunker/DetonationFX
-            // run when DetonateCallsKill kill() fires after KillSelfDelay.
-            if self
-                .objects
-                .get(&id)
-                .map(|o| o.is_missile_killing_self())
-                .unwrap_or(false)
-            {
-                if should_play_crash_through_fx(frame, true) {
-                    crash_fx.push(id);
-                }
-                let (source, intended, pos, done) = {
-                    let Some(o) = self.objects.get(&id) else {
-                        continue;
-                    };
-                    let intended = o.stealth_jet_missile_intended.map(ObjectId);
-                    let pos = o
-                        .stealth_jet_missile_aim
-                        .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
-                        .unwrap_or_else(|| o.get_position());
-                    let done = o
-                        .stealth_jet_missile_expires_frame
-                        .map(|f| f <= frame)
-                        .unwrap_or(true);
-                    (o.producer_id, intended, pos, done)
-                };
-                if done {
-                    impact.push((id, source, intended, pos));
-                }
-                continue;
-            }
-            let (source, intended, aim, pos, fuel_done, ignited, kill_self) = {
-                let Some(o) = self.objects.get(&id) else {
-                    continue;
-                };
-                let aim = o
-                    .stealth_jet_missile_aim
-                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
-                    .unwrap_or_else(|| o.get_position());
-                let intended = o.stealth_jet_missile_intended.map(ObjectId);
-                let fuel_done = o
-                    .stealth_jet_missile_fuel_expires_frame
-                    .map(|f| f <= frame)
-                    .unwrap_or(false);
-                let ignited = o
-                    .stealth_jet_missile_ignition_frame
-                    .map(|f| f <= frame)
-                    .unwrap_or(true);
-                let kill_self = o
-                    .stealth_jet_missile_expires_frame
-                    .map(|f| f <= frame)
-                    .unwrap_or(false);
-                (
-                    o.producer_id,
-                    intended,
-                    aim,
-                    o.get_position(),
-                    fuel_done,
-                    ignited,
-                    kill_self,
-                )
-            };
-            let aim = intended
-                .and_then(|tid| {
-                    self.objects
-                        .get(&tid)
-                        .filter(|t| t.is_alive())
-                        .map(|t| t.get_position())
-                })
-                .unwrap_or(aim);
-            let speed = if ignited { cruise } else { launch };
-            let to_aim = aim - pos;
-            let dist = to_aim.length();
-            let step_speed = if dist > 0.001 { speed.min(dist) } else { speed };
-            let vel = if dist > 0.001 {
-                to_aim.normalize() * step_speed
-            } else {
-                glam::Vec3::new(0.0, -step_speed, 0.0)
-            };
-            let step = vel.length().max(step_speed);
-            let new_pos = pos + vel;
-            if let Some(o) = self.objects.get_mut(&id) {
-                o.movement.velocity = vel;
-                o.set_position_with_effects(
-                    new_pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-                o.stealth_jet_missile_travelled += step;
-                o.stealth_jet_missile_aim = Some([aim.x, aim.y, aim.z]);
-                o.set_orientation_with_partition_owner(
-                    vel.z.atan2(vel.x),
-                    &mut self.partition_manager,
-                );
-            }
-            let near = dist <= speed + 0.001 || (aim - new_pos).length() < 8.0;
-            if fuel_done || kill_self || near {
-                if let Some(o) = self.objects.get_mut(&id) {
-                    o.set_status_missile_killing_self(true);
-                    o.set_status_no_collisions(true);
-                    o.stealth_jet_missile_expires_frame =
-                        Some(frame.saturating_add(STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES));
-                    o.set_position_with_effects(
-                        aim,
-                        self.frame,
-                        &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                    );
-                    o.stealth_jet_missile_aim = Some([aim.x, aim.y, aim.z]);
-                }
-                if should_play_crash_through_fx(frame, true) {
-                    crash_fx.push(id);
-                }
-            }
-        }
-        for id in crash_fx {
-            let _ = self.dispatch_fx_list_at_host_object_with_effects(
-                BUNKER_BUSTER_CRASH_THROUGH_FX,
-                id,
-                None,
-                presentation_effects,
-            );
-        }
-        for (id, source, intended, pos) in impact {
-            let team = self.objects.get(&id).map(|o| o.team);
-            if let Some(o) = self.objects.get_mut(&id) {
-                // Wave 752: under damage authority, do not zero host HP mid-frame
-                // (dual with GW HP writeback). Project lethal via damage log + flags.
-                {
-                    o.internal_change_health(-o.health.current);
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                o.stealth_jet_missile_projectile = false;
-                o.set_position_with_effects(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-            }
-            let _ = self.apply_stealth_fighter_residual_at_with_effects(
-                pos,
-                source,
-                intended,
-                presentation_effects,
-            );
-            self.mark_object_for_destruction_with_effects(id, team, presentation_effects);
-        }
-    }
-
     pub fn honesty_stealth_jet_missile_projectile_ok(&self) -> bool {
         self.stealth_jet_missiles_spawned > 0
     }
@@ -574,222 +246,6 @@ impl GameLogic {
         true
     }
 
-    /// Apply Overlord / Emperor residual fire (dual-radius shell).
-    /// C++ OverlordTankShell DumbProjectile residual.
-    pub fn spawn_overlord_shell_projectile(
-        &mut self,
-        source_id: ObjectId,
-        from: glam::Vec3,
-        aim: glam::Vec3,
-        intended: Option<ObjectId>,
-    ) -> Option<ObjectId> {
-        self.spawn_overlord_shell_projectile_with_effects(
-            source_id,
-            from,
-            aim,
-            intended,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(crate) fn spawn_overlord_shell_projectile_with_effects(
-        &mut self,
-        source_id: ObjectId,
-        from: glam::Vec3,
-        aim: glam::Vec3,
-        intended: Option<ObjectId>,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<ObjectId> {
-        use crate::game_logic::host_overlord_gun::{
-            OVERLORD_PROJECTILE, OVERLORD_SHELL_MAX_HEALTH, overlord_shell_flight_frames,
-        };
-        use crate::game_logic::{KindOf, ThingTemplate};
-
-        if !self.templates.contains_key(OVERLORD_PROJECTILE) {
-            let mut t = ThingTemplate::new(OVERLORD_PROJECTILE);
-            t.add_kind_of(KindOf::Projectile)
-                .set_health(OVERLORD_SHELL_MAX_HEALTH)
-                .set_cost(0, 0);
-            self.templates.insert(OVERLORD_PROJECTILE.to_string(), t);
-        }
-        let team = self
-            .objects
-            .get(&source_id)
-            .map(|o| o.team)
-            .unwrap_or(Team::Neutral);
-
-        // C++ ScatterRadiusVsInfantry residual on OverlordTankGun vs infantry.
-        let target_is_infantry = intended
-            .and_then(|id| self.objects.get(&id))
-            .map(|o| o.is_kind_of(KindOf::Infantry))
-            .unwrap_or(false);
-        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
-            source_id.0,
-            intended.map(|id| id.0).unwrap_or(0),
-            self.frame,
-        );
-        let (aim, scattered) = crate::game_logic::host_overlord_gun::overlord_scatter_aim(
-            aim,
-            target_is_infantry,
-            seed,
-        );
-        if scattered {
-            self.overlord_scatter_applied = self.overlord_scatter_applied.saturating_add(1);
-        }
-        if target_is_infantry {
-            let hit_r = intended
-                .and_then(|id| self.objects.get(&id))
-                .map(|o| {
-                    if o.selection_radius > 0.0 {
-                        o.selection_radius
-                    } else {
-                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
-                    }
-                })
-                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
-            let intended_pos = intended
-                .and_then(|id| self.objects.get(&id))
-                .map(|o| o.get_position());
-            if crate::game_logic::host_overlord_gun::overlord_scatter_misses_infantry(
-                true, seed, hit_r,
-            ) {
-                if let Some(pos) = intended_pos {
-                    let dx = aim.x - pos.x;
-                    let dz = aim.z - pos.z;
-                    let dist = (dx * dx + dz * dz).sqrt();
-                    if dist > crate::game_logic::host_overlord_gun::OVERLORD_SECONDARY_RADIUS {
-                        self.overlord_scatter_misses =
-                            self.overlord_scatter_misses.saturating_add(1);
-                    }
-                }
-            }
-        }
-
-        let mut start = from;
-        start.y = start.y.max(aim.y) + 4.0;
-        let pid = self.create_object_with_script_effects(
-            OVERLORD_PROJECTILE,
-            team,
-            start,
-            None,
-            presentation_effects,
-        )?;
-        let frames = overlord_shell_flight_frames(start, aim).max(1);
-        if let Some(o) = self.objects.get_mut(&pid) {
-            o.overlord_shell_projectile = true;
-            o.overlord_shell_from = Some([start.x, start.y, start.z]);
-            o.overlord_shell_aim = Some([aim.x, aim.y, aim.z]);
-            o.overlord_shell_launch_frame = Some(self.frame);
-            o.overlord_shell_flight_frames = frames;
-            o.overlord_shell_intended = intended.map(|id| id.0);
-            o.note_producer(source_id);
-            o.set_body_max_health_with_mode(
-                OVERLORD_SHELL_MAX_HEALTH,
-                crate::game_logic::object::MaxHealthChange::FullyHeal,
-            );
-            self.health_events
-                .record_applied_heal(o.id, o.health.current);
-        }
-        self.overlord_shells_spawned = self.overlord_shells_spawned.saturating_add(1);
-        Some(pid)
-    }
-
-    pub fn update_overlord_shell_projectiles(&mut self) {
-        self.update_overlord_shell_projectiles_with_effects(
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(crate) fn update_overlord_shell_projectiles_with_effects(
-        &mut self,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        use crate::game_logic::host_overlord_gun::overlord_shell_bezier_point;
-        let frame = self.frame;
-        let flying: Vec<ObjectId> = self
-            .objects
-            .registered()
-            .filter_map(|(id, o)| {
-                if o.overlord_shell_projectile && o.is_alive() {
-                    Some(*id)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3)> =
-            Vec::new();
-        for id in flying {
-            let (source, intended, from, aim, launch, frames) = {
-                let Some(o) = self.objects.get(&id) else {
-                    continue;
-                };
-                let from = o
-                    .overlord_shell_from
-                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
-                    .unwrap_or_else(|| o.get_position());
-                let aim = o
-                    .overlord_shell_aim
-                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
-                    .unwrap_or(from);
-                (
-                    o.producer_id,
-                    o.overlord_shell_intended.map(ObjectId),
-                    from,
-                    aim,
-                    o.overlord_shell_launch_frame.unwrap_or(frame),
-                    o.overlord_shell_flight_frames.max(1),
-                )
-            };
-            let elapsed = frame.saturating_sub(launch);
-            let t = (elapsed as f32 / frames as f32).clamp(0.0, 1.0);
-            let pos = overlord_shell_bezier_point(from, aim, t);
-            if let Some(o) = self.objects.get_mut(&id) {
-                let prev = o.get_position();
-                o.set_position_with_effects(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-                let d = pos - prev;
-                if d.length_squared() > 1.0e-6 {
-                    o.set_orientation_with_partition_owner(
-                        d.z.atan2(d.x),
-                        &mut self.partition_manager,
-                    );
-                }
-            }
-            if elapsed >= frames {
-                impact.push((id, source, intended, aim));
-            }
-        }
-        for (id, source, intended, pos) in impact {
-            let team = self.objects.get(&id).map(|o| o.team);
-            if let Some(o) = self.objects.get_mut(&id) {
-                // Wave 752: under damage authority, do not zero host HP mid-frame
-                // (dual with GW HP writeback). Project lethal via damage log + flags.
-                {
-                    o.internal_change_health(-o.health.current);
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                o.overlord_shell_projectile = false;
-                o.set_position_with_effects(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-            }
-            let _ = self.apply_overlord_gun_residual_at_with_effects(
-                pos,
-                source,
-                intended,
-                presentation_effects,
-            );
-            self.mark_object_for_destruction_with_effects(id, team, presentation_effects);
-        }
-    }
-
     pub fn honesty_overlord_shell_projectile_ok(&self) -> bool {
         self.overlord_shells_spawned > 0
     }
@@ -997,9 +453,14 @@ impl GameLogic {
     /// Refresh Battlemaster weapon residual from current uranium / horde / nationalism flags.
     pub(crate) fn refresh_battlemaster_weapon(&mut self, object_id: ObjectId) {
         use crate::game_logic::host_battlemaster::{
-            battlemaster_weapon, has_fanaticism_upgrade, has_nationalism_upgrade,
-            has_uranium_shells_upgrade, is_battlemaster_template, leftover_horde_fanaticism_bonus,
+            battlemaster_weapon, has_uranium_shells_upgrade, is_battlemaster_template,
+            leftover_horde_fanaticism_bonus,
         };
+        let morale = self.owner_morale_upgrades(
+            self.objects
+                .get(&object_id)
+                .and_then(|obj| obj.owner_player_id),
+        );
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
@@ -1007,7 +468,7 @@ impl GameLogic {
             return;
         }
         let uranium = has_uranium_shells_upgrade(&obj.applied_upgrades);
-        let nationalism = has_nationalism_upgrade(&obj.applied_upgrades);
+        let nationalism = morale.nationalism;
         let in_horde = obj.weapon_bonus_horde;
         // C++ evaluateMoraleBonus: nationalism from upgrade; AllowedNationalism
         // vetoes only while in horde (default TRUE). Fanaticism nests inside.
@@ -1019,7 +480,7 @@ impl GameLogic {
         obj.weapon_bonus_nationalism = nationalism_active;
         obj.weapon_bonus_fanaticism = leftover_horde_fanaticism_bonus(
             nationalism_active,
-            has_fanaticism_upgrade(&obj.applied_upgrades),
+            morale.fanaticism,
         );
         let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
         let mut w = battlemaster_weapon(uranium, in_horde, nationalism_active);
@@ -1042,23 +503,6 @@ impl GameLogic {
             .insert(UPGRADE_CHINA_URANIUM_SHELLS.to_string());
         self.battlemaster_residual_uranium_upgrades = self
             .battlemaster_residual_uranium_upgrades
-            .saturating_add(1);
-        self.refresh_battlemaster_weapon(object_id);
-        true
-    }
-
-    /// Apply Nationalism residual tag (ROF stacks with horde when active).
-    pub fn apply_battlemaster_nationalism_upgrade(&mut self, object_id: ObjectId) -> bool {
-        use crate::game_logic::host_battlemaster::{UPGRADE_NATIONALISM, is_battlemaster_template};
-        let Some(obj) = self.objects.get_mut(&object_id) else {
-            return false;
-        };
-        if !is_battlemaster_template(&obj.template_name) {
-            return false;
-        }
-        obj.applied_upgrades.insert(UPGRADE_NATIONALISM.to_string());
-        self.battlemaster_residual_nationalism_upgrades = self
-            .battlemaster_residual_nationalism_upgrades
             .saturating_add(1);
         self.refresh_battlemaster_weapon(object_id);
         true
@@ -1133,8 +577,9 @@ impl GameLogic {
         let draw_icon = self.get_draw_icon_ui();
         let frame = self.frame;
 
-        for (idx, (id, _team, _owner, _scan, name)) in snapshot.iter().enumerate() {
+        for (idx, (id, _team, owner, _scan, name)) in snapshot.iter().enumerate() {
             let scanned = membership[idx].in_horde;
+            let morale = self.owner_morale_upgrades(*owner);
             if let Some(obj) = self.objects.get_mut(id) {
                 let (due, init, last, next) = leftover_horde_take_wake(
                     obj.horde_wake_initialized,
@@ -1158,12 +603,20 @@ impl GameLogic {
                         to_refresh.push(*id);
                     }
                 }
+                let morale_before = (obj.weapon_bonus_nationalism, obj.weapon_bonus_fanaticism);
                 // C++ HordeUpdate::update calls evaluateMoraleBonus after the
                 // membership scan (when due) and then stamps the decal from
                 // NATIONALISM/FANATICISM. Dragon/Inferno/Gattling/Overlord
                 // share this path — they are not Battlemaster-only.
                 if due {
-                    super::tanks_and_upgrades::apply_evaluate_morale_bonus(obj);
+                    super::tanks_and_upgrades::apply_evaluate_morale_bonus(obj, morale);
+                    if is_battlemaster_template(name)
+                        && morale_before
+                            != (obj.weapon_bonus_nationalism, obj.weapon_bonus_fanaticism)
+                        && !to_refresh.contains(id)
+                    {
+                        to_refresh.push(*id);
+                    }
                 }
                 obj.apply_horde_terrain_decal(was, now_horde, draw_icon);
             }
@@ -1175,226 +628,6 @@ impl GameLogic {
 
         for id in to_refresh {
             self.refresh_battlemaster_weapon(id);
-        }
-    }
-
-    /// Apply Battlemaster residual fire (primary on intended + small splash radius).
-    ///
-    /// Damage uses current weapon residual (base 60 or uranium 75).
-    /// C++ GenericTankShell DumbProjectile residual (Crusader/Paladin gun).
-    pub fn spawn_usa_tank_shell_projectile(
-        &mut self,
-        source_id: ObjectId,
-        from: glam::Vec3,
-        aim: glam::Vec3,
-        weapon_speed: f32,
-        intended: Option<ObjectId>,
-    ) -> Option<ObjectId> {
-        self.spawn_usa_tank_shell_projectile_with_effects(
-            source_id,
-            from,
-            aim,
-            weapon_speed,
-            intended,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(crate) fn spawn_usa_tank_shell_projectile_with_effects(
-        &mut self,
-        source_id: ObjectId,
-        from: glam::Vec3,
-        aim: glam::Vec3,
-        weapon_speed: f32,
-        intended: Option<ObjectId>,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<ObjectId> {
-        use crate::game_logic::host_usa_tanks::{
-            USA_SHELL_MAX_HEALTH, USA_TANK_GUN_PROJECTILE, usa_tank_shell_flight_frames,
-        };
-        use crate::game_logic::{KindOf, ThingTemplate};
-
-        if !self.templates.contains_key(USA_TANK_GUN_PROJECTILE) {
-            let mut t = ThingTemplate::new(USA_TANK_GUN_PROJECTILE);
-            t.add_kind_of(KindOf::Projectile)
-                .set_health(USA_SHELL_MAX_HEALTH)
-                .set_cost(0, 0);
-            self.templates
-                .insert(USA_TANK_GUN_PROJECTILE.to_string(), t);
-        }
-        let team = self
-            .objects
-            .get(&source_id)
-            .map(|o| o.team)
-            .unwrap_or(Team::Neutral);
-
-        // C++ ScatterRadiusVsInfantry residual on Crusader/PaladinTankGun vs infantry.
-        let target_is_infantry = intended
-            .and_then(|id| self.objects.get(&id))
-            .map(|o| o.is_kind_of(KindOf::Infantry))
-            .unwrap_or(false);
-        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
-            source_id.0,
-            intended.map(|id| id.0).unwrap_or(0),
-            self.frame,
-        );
-        let (aim, scattered) =
-            crate::game_logic::host_usa_tanks::usa_tank_scatter_aim(aim, target_is_infantry, seed);
-        if scattered {
-            self.usa_tank_scatter_applied = self.usa_tank_scatter_applied.saturating_add(1);
-        }
-        if target_is_infantry {
-            let hit_r = intended
-                .and_then(|id| self.objects.get(&id))
-                .map(|o| {
-                    if o.selection_radius > 0.0 {
-                        o.selection_radius
-                    } else {
-                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
-                    }
-                })
-                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
-            let intended_pos = intended
-                .and_then(|id| self.objects.get(&id))
-                .map(|o| o.get_position());
-            if crate::game_logic::host_usa_tanks::usa_tank_scatter_misses_infantry(
-                true, seed, hit_r,
-            ) {
-                if let Some(pos) = intended_pos {
-                    let dx = aim.x - pos.x;
-                    let dz = aim.z - pos.z;
-                    let dist = (dx * dx + dz * dz).sqrt();
-                    if dist > crate::game_logic::host_usa_tanks::USA_TANK_GUN_PRIMARY_RADIUS {
-                        self.usa_tank_scatter_misses =
-                            self.usa_tank_scatter_misses.saturating_add(1);
-                    }
-                }
-            }
-        }
-
-        let mut start = from;
-        start.y = start.y.max(aim.y) + 4.0;
-        let pid = self.create_object_with_script_effects(
-            USA_TANK_GUN_PROJECTILE,
-            team,
-            start,
-            None,
-            presentation_effects,
-        )?;
-        let frames = usa_tank_shell_flight_frames(start, aim, weapon_speed).max(1);
-        if let Some(o) = self.objects.get_mut(&pid) {
-            o.usa_tank_shell_projectile = true;
-            o.usa_tank_shell_from = Some([start.x, start.y, start.z]);
-            o.usa_tank_shell_aim = Some([aim.x, aim.y, aim.z]);
-            o.usa_tank_shell_launch_frame = Some(self.frame);
-            o.usa_tank_shell_flight_frames = frames;
-            o.usa_tank_shell_weapon_speed = weapon_speed;
-            o.usa_tank_shell_intended = intended.map(|id| id.0);
-            o.note_producer(source_id);
-            o.set_body_max_health_with_mode(
-                USA_SHELL_MAX_HEALTH,
-                crate::game_logic::object::MaxHealthChange::FullyHeal,
-            );
-            self.health_events
-                .record_applied_heal(o.id, o.health.current);
-        }
-        self.usa_tank_shells_spawned = self.usa_tank_shells_spawned.saturating_add(1);
-        Some(pid)
-    }
-
-    pub fn update_usa_tank_shell_projectiles(&mut self) {
-        self.update_usa_tank_shell_projectiles_with_effects(
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(crate) fn update_usa_tank_shell_projectiles_with_effects(
-        &mut self,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        use crate::game_logic::host_usa_tanks::usa_tank_shell_bezier_point;
-        let frame = self.frame;
-        let flying: Vec<ObjectId> = self
-            .objects
-            .registered()
-            .filter_map(|(id, o)| {
-                if o.usa_tank_shell_projectile && o.is_alive() {
-                    Some(*id)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3)> =
-            Vec::new();
-        for id in flying {
-            let (source, intended, from, aim, launch, frames) = {
-                let Some(o) = self.objects.get(&id) else {
-                    continue;
-                };
-                let from = o
-                    .usa_tank_shell_from
-                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
-                    .unwrap_or_else(|| o.get_position());
-                let aim = o
-                    .usa_tank_shell_aim
-                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
-                    .unwrap_or(from);
-                (
-                    o.producer_id,
-                    o.usa_tank_shell_intended.map(ObjectId),
-                    from,
-                    aim,
-                    o.usa_tank_shell_launch_frame.unwrap_or(frame),
-                    o.usa_tank_shell_flight_frames.max(1),
-                )
-            };
-            let elapsed = frame.saturating_sub(launch);
-            let t = (elapsed as f32 / frames as f32).clamp(0.0, 1.0);
-            let pos = usa_tank_shell_bezier_point(from, aim, t);
-            if let Some(o) = self.objects.get_mut(&id) {
-                let prev = o.get_position();
-                o.set_position_with_effects(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-                let d = pos - prev;
-                if d.length_squared() > 1.0e-6 {
-                    o.set_orientation_with_partition_owner(
-                        d.z.atan2(d.x),
-                        &mut self.partition_manager,
-                    );
-                }
-            }
-            if elapsed >= frames {
-                impact.push((id, source, intended, aim));
-            }
-        }
-        for (id, source, intended, pos) in impact {
-            let team = self.objects.get(&id).map(|o| o.team);
-            if let Some(o) = self.objects.get_mut(&id) {
-                // Wave 752: under damage authority, do not zero host HP mid-frame
-                // (dual with GW HP writeback). Project lethal via damage log + flags.
-                {
-                    o.internal_change_health(-o.health.current);
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                o.usa_tank_shell_projectile = false;
-                o.set_position_with_effects(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-            }
-            let _ = self.apply_usa_tank_gun_residual_at_with_effects(
-                pos,
-                source,
-                intended,
-                presentation_effects,
-            );
-            self.mark_object_for_destruction_with_effects(id, team, presentation_effects);
         }
     }
 

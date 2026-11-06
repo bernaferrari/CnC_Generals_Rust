@@ -322,14 +322,28 @@ impl GameLogic {
         // C++ Object::initObject -> updateUpgradeModules: the owning player's
         // completed upgrades run this template's authored MaxHealthUpgrade
         // modules (Composite Armor, Drone Armor, Aircraft Armor, ...).
+        let mut power_plant_bonus = None;
         if let Some(player) = owner_player_id.and_then(|pid| players.get(&pid)) {
+            power_plant_bonus =
+                object.run_authored_power_plant_upgrades(|name| player.has_unlocked_upgrade(name));
             object.run_authored_max_health_upgrades(|name| player.has_unlocked_upgrade(name));
             object.apply_authored_flag_upgrades(|name| player.has_unlocked_upgrade(name));
+            // UnpauseSpecialPowerUpgrade: the constructor's StartsPaused pause
+            // (init_special_power_ctor_arms) is lifted for a completed upgrade.
+            for power in super::super::authored_upgrade_modules::authored_unpause_powers(
+                &object.thing().template,
+                |name| player.has_unlocked_upgrade(name),
+            ) {
+                object.pause_special_power_countdown(&power, false);
+            }
             // LocomotorSetUpgrade (Worker Shoes, Nuclear Tanks, ...).
             object.apply_authored_locomotor_set_upgrade_for_mask(
                 |name| player.has_unlocked_upgrade(name),
                 self.locomotor_definitions.as_ref(),
             );
+        }
+        if let Some(bonus) = power_plant_bonus {
+            self.complete_power_plant_upgrade(id, bonus);
         }
     }
 }

@@ -169,31 +169,7 @@ pub(in super::super) mod residual_gate_seam {
         (FRENZY_MARKERS, "update_frenzy_invisible_markers"),
         (SPY_DRONE_GROW, "update_spy_drone_grow"),
         (NUKE_CANNON_ZONES, "update_nuke_cannon_radiation_zones"),
-        (BATTLEMASTER_SHELLS, "update_battlemaster_shell_projectiles"),
-        (OVERLORD_SHELLS, "update_overlord_shell_projectiles"),
-        (MARAUDER_SHELLS, "update_marauder_shell_projectiles"),
         (FIRE_BASE_SHELLS, "update_fire_base_shell_projectiles"),
-        (
-            RPG_TROOPER_MISSILES,
-            "update_rpg_trooper_missile_projectiles"
-        ),
-        (
-            TANK_HUNTER_MISSILES,
-            "update_tank_hunter_missile_projectiles"
-        ),
-        (
-            MISSILE_DEFENDER_MISSILES,
-            "update_missile_defender_missile_projectiles"
-        ),
-        (SCORPION_SHELLS, "update_scorpion_shell_projectiles"),
-        (RAPTOR_MISSILES, "update_raptor_missile_projectiles"),
-        (MIG_MISSILES, "update_mig_missile_projectiles"),
-        (HUMVEE_TOW_MISSILES, "update_humvee_tow_missile_projectiles"),
-        (DRAGON_FLAME_MISSILES, "update_dragon_flame_projectiles"),
-        (
-            TECHNICAL_RPG_MISSILES,
-            "update_technical_rpg_missile_projectiles"
-        ),
         (
             TECHNICAL_CANNON_SHELLS,
             "update_technical_cannon_shell_projectiles"

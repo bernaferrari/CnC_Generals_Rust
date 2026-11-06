@@ -292,7 +292,65 @@ impl Object {
     }
 }
 
+impl Object {
+    /// Run this Object's authored `PowerPlantUpgrade` modules whose UpgradeMux
+    /// triggers `has` satisfies (PowerPlantUpgrade.cpp `upgradeImplementation`),
+    /// each at most once. Returns the template's `EnergyBonus` (what
+    /// `Player::addPowerBonus` adds) when any module executed.
+    pub(crate) fn run_authored_power_plant_upgrades(
+        &mut self,
+        has: impl Fn(&str) -> bool,
+    ) -> Option<i32> {
+        let definition = self.thing().template.receiving_object_definition.clone()?;
+        let mut executed = false;
+        for (index, module) in definition
+            .behavior_modules
+            .iter()
+            .filter(|module| module.class_name.eq_ignore_ascii_case("PowerPlantUpgrade"))
+            .enumerate()
+        {
+            let key = format!(
+                "PowerPlantUpgrade#{}",
+                module
+                    .module_tag
+                    .clone()
+                    .unwrap_or_else(|| format!("PowerPlantUpgrade{index}"))
+            );
+            if upgrade_mux_triggers(module, &has) && self.applied_upgrades.insert(key) {
+                executed = true;
+            }
+        }
+        executed.then(|| self.thing().template.energy_bonus.unwrap_or(0))
+    }
+}
+
 impl GameLogic {
+    /// `PowerPlantUpgrade::upgradeImplementation` for one Object: run its
+    /// authored modules, then add the EnergyBonus and `extendRods(TRUE)`.
+    pub(in crate::game_logic) fn apply_authored_power_plant_upgrades(
+        &mut self,
+        id: ObjectId,
+        has: impl Fn(&str) -> bool,
+    ) -> bool {
+        let Some(bonus) = self
+            .objects
+            .get_mut(&id)
+            .and_then(|object| object.run_authored_power_plant_upgrades(has))
+        else {
+            return false;
+        };
+        self.complete_power_plant_upgrade(id, bonus);
+        true
+    }
+
+    /// Player::addPowerBonus + PowerPlantUpdate::extendRods(TRUE).
+    pub(in crate::game_logic) fn complete_power_plant_upgrade(&mut self, id: ObjectId, bonus: i32) {
+        if let Some(object) = self.objects.get_mut(&id) {
+            object.power_provided = object.power_provided.saturating_add(bonus);
+        }
+        let _ = self.begin_power_plant_rods_extend(id);
+    }
+
     /// Run every recipient's authored `MaxHealthUpgrade` triggered by
     /// `upgrade_name`. Returns the number of objects changed.
     pub(in crate::game_logic) fn apply_authored_max_health_upgrades(
@@ -503,5 +561,65 @@ mod stealth_upgrade_tests {
 
         assert_eq!(world.apply_camo_netting_unlock_to_team(Team::GLA.into(), UPGRADE_GLA_CAMO_NETTING), 1);
         assert!(world.host_object(bunker).unwrap().innate_stealth);
+    }
+}
+
+#[cfg(test)]
+mod replay_tests {
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::{GameLogic, Player, Team};
+
+    /// Object::initObject -> updateUpgradeModules: a unit created after its
+    /// Player completed the triggering upgrade has StartsPaused lifted.
+    #[test]
+    fn unit_created_after_upgrade_has_authored_power_unpaused() {
+        let mut world = GameLogic::new();
+        let mut owner = Player::new(0, Team::China, "Owner", true);
+        owner.add_completed_upgrade("Upgrade_TestUnpause");
+        world.players.insert(0, owner);
+        world.players.insert(1, Player::new(1, Team::China, "Other", false));
+        use game_engine::common::{
+            rts::science::{ScienceNameFacts, ScienceStore},
+            thing::receiving_module_content::ReceivingActionDefinitions,
+        };
+        let sciences = std::sync::Arc::new(ScienceNameFacts::from_store(&ScienceStore::new()));
+        let mut actions = ReceivingActionDefinitions::default();
+        actions
+            .apply_source(
+                "SpecialPower SpecialAbilityHelixNapalmBomb\nReloadTime = 6000\nEnd\n",
+                &sciences,
+            )
+            .unwrap();
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources_with_catalogs(
+                    [(
+                        "receiving-unpause-replay.ini".into(),
+                        "Object PlainBomber\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\n\
+                         Behavior = SpecialAbility AbilityTag\nSpecialPowerTemplate = SpecialAbilityHelixNapalmBomb\nStartsPaused = Yes\nEnd\n\
+                         Behavior = UnpauseSpecialPowerUpgrade UnpauseTag\nSpecialPowerTemplate = SpecialAbilityHelixNapalmBomb\nTriggeredBy = Upgrade_TestUnpause\nEnd\nEnd\n"
+                            .into(),
+                    )],
+                    sciences,
+                    std::sync::Arc::new(actions),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let upgraded = world.create_object_for_player("PlainBomber", 0, glam::Vec3::ZERO).unwrap();
+        let plain = world.create_object_for_player("PlainBomber", 1, glam::Vec3::X).unwrap();
+        assert_eq!(
+            world.host_object(plain).unwrap().thing().template.special_power_modules.len(),
+            1,
+            "authored SpecialAbility module admitted"
+        );
+        let paused = |id| {
+            world
+                .host_object(id)
+                .unwrap()
+                .is_special_power_countdown_paused(&SpecialPowerType::HelixNapalmBomb)
+        };
+        assert!(paused(plain), "the constructor pause stays without the upgrade");
+        assert!(!paused(upgraded), "the completed upgrade lifts the pause on a new unit");
     }
 }

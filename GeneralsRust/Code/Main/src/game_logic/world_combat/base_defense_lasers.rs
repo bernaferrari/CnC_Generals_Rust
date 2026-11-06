@@ -376,7 +376,6 @@ impl GameLogic {
     pub fn honesty_battlemaster_ok(&self) -> bool {
         self.battlemaster_residual_fires > 0
             || self.battlemaster_residual_uranium_upgrades > 0
-            || self.battlemaster_residual_nationalism_upgrades > 0
             || self.battlemaster_residual_horde_grants > 0
             || self.battlemaster_scatter_applied > 0
             || self.battlemaster_shells_spawned > 0
@@ -393,10 +392,6 @@ impl GameLogic {
 
     pub fn honesty_battlemaster_horde_ok(&self) -> bool {
         self.battlemaster_residual_horde_grants > 0
-    }
-
-    pub fn honesty_battlemaster_nationalism_ok(&self) -> bool {
-        self.battlemaster_residual_nationalism_upgrades > 0
     }
 
     pub fn battlemaster_residual_fires(&self) -> u32 {
@@ -419,16 +414,11 @@ impl GameLogic {
     pub fn honesty_red_guard_ok(&self) -> bool {
         self.red_guard_residual_fires > 0
             || self.red_guard_residual_bayonet_kills > 0
-            || self.red_guard_residual_nationalism_upgrades > 0
             || self.red_guard_residual_horde_grants > 0
     }
 
     pub fn honesty_red_guard_horde_ok(&self) -> bool {
         self.red_guard_residual_horde_grants > 0
-    }
-
-    pub fn honesty_red_guard_nationalism_ok(&self) -> bool {
-        self.red_guard_residual_nationalism_upgrades > 0
     }
 
     pub fn honesty_red_guard_bayonet_ok(&self) -> bool {
@@ -447,7 +437,6 @@ impl GameLogic {
     pub fn honesty_tank_hunter_ok(&self) -> bool {
         self.tank_hunter_residual_fires > 0
             || self.tank_hunter_residual_tnt_plants > 0
-            || self.tank_hunter_residual_nationalism_upgrades > 0
             || self.tank_hunter_residual_horde_grants > 0
             || self.tank_hunter_scatter_applied > 0
             || self.tank_hunter_missiles_spawned > 0
@@ -464,10 +453,6 @@ impl GameLogic {
 
     pub fn honesty_tank_hunter_horde_ok(&self) -> bool {
         self.tank_hunter_residual_horde_grants > 0
-    }
-
-    pub fn honesty_tank_hunter_nationalism_ok(&self) -> bool {
-        self.tank_hunter_residual_nationalism_upgrades > 0
     }
 
     pub fn tank_hunter_residual_fires(&self) -> u32 {
@@ -545,7 +530,6 @@ impl GameLogic {
             || self.minigunner_residual_ramp_mean > 0
             || self.minigunner_residual_ramp_fast > 0
             || self.minigunner_residual_chain_gun_upgrades > 0
-            || self.minigunner_residual_nationalism_upgrades > 0
             || self.minigunner_residual_horde_grants > 0
     }
 
@@ -559,10 +543,6 @@ impl GameLogic {
 
     pub fn honesty_minigunner_horde_ok(&self) -> bool {
         self.minigunner_residual_horde_grants > 0
-    }
-
-    pub fn honesty_minigunner_nationalism_ok(&self) -> bool {
-        self.minigunner_residual_nationalism_upgrades > 0
     }
 
     pub fn minigunner_residual_ground_fires(&self) -> u32 {
@@ -1214,259 +1194,6 @@ impl GameLogic {
         true
     }
 
-    /// Apply Rocket Buggy residual (primary on intended + secondary splash ring).
-    ///
-    /// Returns (units_hit, any_destroyed).
-    /// Fail-closed: not full projectile flight / AP mult / clip spacing.
-    /// C++ RocketBuggyMissile ProjectileObject residual (MissileAI + impact splash).
-    pub fn spawn_rocket_buggy_missile_projectile(
-        &mut self,
-        source_id: ObjectId,
-        from: glam::Vec3,
-        aim: glam::Vec3,
-        intended: Option<ObjectId>,
-    ) -> Option<ObjectId> {
-        self.spawn_rocket_buggy_missile_projectile_with_effects(
-            source_id,
-            from,
-            aim,
-            intended,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(crate) fn spawn_rocket_buggy_missile_projectile_with_effects(
-        &mut self,
-        source_id: ObjectId,
-        from: glam::Vec3,
-        aim: glam::Vec3,
-        intended: Option<ObjectId>,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<ObjectId> {
-        use crate::game_logic::host_rocket_buggy::{
-            BUGGY_MISSILE_FUEL_FRAMES, BUGGY_MISSILE_INITIAL_VELOCITY, BUGGY_MISSILE_MAX_HEALTH,
-            BUGGY_MISSILE_PROJECTILE, BUGGY_PROJECTILE_SPEED,
-        };
-        use crate::game_logic::{KindOf, ThingTemplate};
-
-        if !self.templates.contains_key(BUGGY_MISSILE_PROJECTILE) {
-            let mut t = ThingTemplate::new(BUGGY_MISSILE_PROJECTILE);
-            t.add_kind_of(KindOf::Projectile)
-                .set_health(BUGGY_MISSILE_MAX_HEALTH)
-                .set_cost(0, 0);
-            self.templates
-                .insert(BUGGY_MISSILE_PROJECTILE.to_string(), t);
-        }
-        let team = self
-            .objects
-            .get(&source_id)
-            .map(|o| o.team)
-            .unwrap_or(Team::Neutral);
-
-        // C++ ScatterRadiusVsInfantry residual on BuggyRocketWeapon vs infantry (**20**).
-        let target_is_infantry = intended
-            .and_then(|id| self.objects.get(&id))
-            .map(|o| o.is_kind_of(KindOf::Infantry))
-            .unwrap_or(false);
-        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
-            source_id.0,
-            intended.map(|id| id.0).unwrap_or(0),
-            self.frame,
-        );
-        let (aim, scattered) = crate::game_logic::host_rocket_buggy::rocket_buggy_scatter_aim(
-            aim,
-            target_is_infantry,
-            seed,
-        );
-        if scattered {
-            self.rocket_buggy_scatter_applied = self.rocket_buggy_scatter_applied.saturating_add(1);
-        }
-        if target_is_infantry {
-            let hit_r = intended
-                .and_then(|id| self.objects.get(&id))
-                .map(|o| {
-                    if o.selection_radius > 0.0 {
-                        o.selection_radius
-                    } else {
-                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
-                    }
-                })
-                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
-            let intended_pos = intended
-                .and_then(|id| self.objects.get(&id))
-                .map(|o| o.get_position());
-            if crate::game_logic::host_rocket_buggy::rocket_buggy_scatter_misses_infantry(
-                true, seed, hit_r,
-            ) {
-                if let Some(pos) = intended_pos {
-                    let dx = aim.x - pos.x;
-                    let dz = aim.z - pos.z;
-                    let dist = (dx * dx + dz * dz).sqrt();
-                    if dist > crate::game_logic::host_rocket_buggy::BUGGY_SECONDARY_RADIUS {
-                        self.rocket_buggy_residual_scatter_misses =
-                            self.rocket_buggy_residual_scatter_misses.saturating_add(1);
-                    }
-                }
-            }
-        }
-
-        let mut start = from;
-        start.y = start.y.max(aim.y) + 8.0;
-        let pid = self.create_object_with_script_effects(
-            BUGGY_MISSILE_PROJECTILE,
-            team,
-            start,
-            None,
-            presentation_effects,
-        )?;
-        let launch = BUGGY_MISSILE_INITIAL_VELOCITY / 30.0;
-        let _cruise = BUGGY_PROJECTILE_SPEED / 30.0;
-        let to_aim = aim - start;
-        let dist = to_aim.length().max(0.001);
-        let dir = to_aim / dist;
-        let vel = dir * launch;
-        if let Some(o) = self.objects.get_mut(&pid) {
-            o.rocket_buggy_missile_projectile = true;
-            o.rocket_buggy_missile_aim = Some([aim.x, aim.y, aim.z]);
-            o.rocket_buggy_missile_intended = intended.map(|id| id.0);
-            o.rocket_buggy_missile_travelled = 0.0;
-            o.rocket_buggy_missile_fuel_expires_frame =
-                Some(self.frame.saturating_add(BUGGY_MISSILE_FUEL_FRAMES));
-            o.note_producer(source_id);
-            o.set_body_max_health_with_mode(
-                BUGGY_MISSILE_MAX_HEALTH,
-                crate::game_logic::object::MaxHealthChange::FullyHeal,
-            );
-            self.health_events
-                .record_applied_heal(o.id, o.health.current);
-            o.movement.velocity = vel;
-            o.set_orientation_with_partition_owner(dir.z.atan2(dir.x), &mut self.partition_manager);
-        }
-        self.rocket_buggy_missiles_spawned = self.rocket_buggy_missiles_spawned.saturating_add(1);
-        Some(pid)
-    }
-
-    pub fn update_rocket_buggy_missile_projectiles(&mut self) {
-        self.update_rocket_buggy_missile_projectiles_with_effects(
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(crate) fn update_rocket_buggy_missile_projectiles_with_effects(
-        &mut self,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        use crate::game_logic::host_rocket_buggy::{
-            BUGGY_MISSILE_INITIAL_VELOCITY, BUGGY_MISSILE_TURN_DISTANCE, BUGGY_PROJECTILE_SPEED,
-        };
-        let frame = self.frame;
-        let launch = BUGGY_MISSILE_INITIAL_VELOCITY / 30.0;
-        let cruise = BUGGY_PROJECTILE_SPEED / 30.0;
-        let flying: Vec<ObjectId> = self
-            .objects
-            .registered()
-            .filter_map(|(id, o)| {
-                if o.rocket_buggy_missile_projectile && o.is_alive() {
-                    Some(*id)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3)> =
-            Vec::new();
-        for id in flying {
-            let (source, intended, aim, pos, travelled, fuel_done) = {
-                let Some(o) = self.objects.get(&id) else {
-                    continue;
-                };
-                let aim = o
-                    .rocket_buggy_missile_aim
-                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
-                    .unwrap_or_else(|| o.get_position());
-                let intended = o.rocket_buggy_missile_intended.map(ObjectId);
-                let fuel_done = o
-                    .rocket_buggy_missile_fuel_expires_frame
-                    .map(|f| f <= frame)
-                    .unwrap_or(false);
-                (
-                    o.producer_id,
-                    intended,
-                    aim,
-                    o.get_position(),
-                    o.rocket_buggy_missile_travelled,
-                    fuel_done,
-                )
-            };
-            // Prefer live intended target position (TryToFollowTarget Yes).
-            let aim = intended
-                .and_then(|tid| {
-                    self.objects
-                        .get(&tid)
-                        .filter(|t| t.is_alive())
-                        .map(|t| t.get_position())
-                })
-                .unwrap_or(aim);
-            let speed = if travelled < BUGGY_MISSILE_TURN_DISTANCE {
-                launch
-            } else {
-                cruise
-            };
-            let to_aim = aim - pos;
-            let vel = if to_aim.length() > 0.001 {
-                to_aim.normalize() * speed
-            } else {
-                glam::Vec3::new(0.0, -speed, 0.0)
-            };
-            let step = vel.length().max(speed);
-            if let Some(o) = self.objects.get_mut(&id) {
-                o.movement.velocity = vel;
-                o.set_position_with_effects(
-                    pos + vel,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-                o.rocket_buggy_missile_travelled += step;
-                o.rocket_buggy_missile_aim = Some([aim.x, aim.y, aim.z]);
-                o.set_orientation_with_partition_owner(
-                    vel.z.atan2(vel.x),
-                    &mut self.partition_manager,
-                );
-            }
-            let new_pos = pos + vel;
-            let near = (aim - new_pos).length() < 8.0;
-            if fuel_done || near {
-                // Detonate at locked aim residual.
-                impact.push((id, source, intended, aim));
-            }
-        }
-        for (id, source, intended, pos) in impact {
-            let team = self.objects.get(&id).map(|o| o.team);
-            if let Some(o) = self.objects.get_mut(&id) {
-                // Wave 752: under damage authority, do not zero host HP mid-frame
-                // (dual with GW HP writeback). Project lethal via damage log + flags.
-                {
-                    o.internal_change_health(-o.health.current);
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                o.rocket_buggy_missile_projectile = false;
-                o.set_position_with_effects(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-            }
-            let _ = self.apply_rocket_buggy_residual_at_with_effects(
-                pos,
-                source,
-                intended,
-                presentation_effects,
-            );
-            self.mark_object_for_destruction_with_effects(id, team, presentation_effects);
-        }
-    }
-
     pub fn honesty_rocket_buggy_missile_projectile_ok(&self) -> bool {
         self.rocket_buggy_missiles_spawned > 0
     }
@@ -1639,332 +1366,6 @@ impl GameLogic {
         // impact never spawns a second muzzle at the shooter.
 
         (hits, any_destroyed)
-    }
-
-    /// Apply SCUD launcher area residual at impact; toxin secondary also spawns poison.
-    ///
-    /// Returns (units_hit, any_destroyed).
-    /// Fail-closed: not full SCUDMissile projectile / PreAttack animation matrix.
-    /// C++ SCUDMissile ProjectileObject residual (lob + HeightDie/impact).
-    pub fn spawn_scud_launcher_missile_projectile(
-        &mut self,
-        source_id: ObjectId,
-        from: glam::Vec3,
-        aim: glam::Vec3,
-        intended: Option<ObjectId>,
-        toxin_warhead: bool,
-    ) -> Option<ObjectId> {
-        self.spawn_scud_launcher_missile_projectile_with_effects(
-            source_id,
-            from,
-            aim,
-            intended,
-            toxin_warhead,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(crate) fn spawn_scud_launcher_missile_projectile_with_effects(
-        &mut self,
-        source_id: ObjectId,
-        from: glam::Vec3,
-        aim: glam::Vec3,
-        intended: Option<ObjectId>,
-        toxin_warhead: bool,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<ObjectId> {
-        use crate::game_logic::host_height_die::HostHeightDieData;
-        use crate::game_logic::host_scud_launcher::{
-            SCUD_MISSILE_FUEL_FRAMES, SCUD_MISSILE_HEIGHT_DIE_TARGET,
-            SCUD_MISSILE_INITIAL_VELOCITY, SCUD_MISSILE_LOFT_HEIGHT, SCUD_MISSILE_MAX_HEALTH,
-            SCUD_PROJECTILE,
-        };
-        use crate::game_logic::{KindOf, ThingTemplate};
-
-        if !self.templates.contains_key(SCUD_PROJECTILE) {
-            let mut t = ThingTemplate::new(SCUD_PROJECTILE);
-            t.add_kind_of(KindOf::Projectile)
-                .set_health(SCUD_MISSILE_MAX_HEALTH)
-                .set_cost(0, 0);
-            self.templates.insert(SCUD_PROJECTILE.to_string(), t);
-        }
-        let team = self
-            .objects
-            .get(&source_id)
-            .map(|o| o.team)
-            .unwrap_or(Team::Neutral);
-
-        // C++ ScatterRadiusVsInfantry residual on SCUDLauncherGun vs infantry (**30**).
-        let target_is_infantry = intended
-            .and_then(|id| self.objects.get(&id))
-            .map(|o| o.is_kind_of(KindOf::Infantry))
-            .unwrap_or(false);
-        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
-            source_id.0,
-            intended.map(|id| id.0).unwrap_or(0),
-            self.frame,
-        );
-        let (aim, scattered) = crate::game_logic::host_scud_launcher::scud_launcher_scatter_aim(
-            aim,
-            target_is_infantry,
-            seed,
-        );
-        if scattered {
-            self.scud_launcher_scatter_applied =
-                self.scud_launcher_scatter_applied.saturating_add(1);
-        }
-        if target_is_infantry {
-            let hit_r = intended
-                .and_then(|id| self.objects.get(&id))
-                .map(|o| {
-                    if o.selection_radius > 0.0 {
-                        o.selection_radius
-                    } else {
-                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
-                    }
-                })
-                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
-            let intended_pos = intended
-                .and_then(|id| self.objects.get(&id))
-                .map(|o| o.get_position());
-            if crate::game_logic::host_scud_launcher::scud_launcher_scatter_misses_infantry(
-                true, seed, hit_r,
-            ) {
-                if let Some(pos) = intended_pos {
-                    let dx = aim.x - pos.x;
-                    let dz = aim.z - pos.z;
-                    let dist = (dx * dx + dz * dz).sqrt();
-                    let outer = if toxin_warhead {
-                        crate::game_logic::host_scud_launcher::SCUD_TOX_SECONDARY_RADIUS
-                    } else {
-                        crate::game_logic::host_scud_launcher::SCUD_EXP_SECONDARY_RADIUS
-                    };
-                    if dist > outer {
-                        self.scud_launcher_scatter_misses =
-                            self.scud_launcher_scatter_misses.saturating_add(1);
-                    }
-                }
-            }
-        }
-
-        let mut start = from;
-        start.y = start.y.max(aim.y) + SCUD_MISSILE_LOFT_HEIGHT * 0.25;
-        let pid = self.create_object_with_script_effects(
-            SCUD_PROJECTILE,
-            team,
-            start,
-            None,
-            presentation_effects,
-        )?;
-        let speed = SCUD_MISSILE_INITIAL_VELOCITY / 30.0;
-        let to_aim = aim - start;
-        let dist = to_aim.length().max(0.001);
-        let dir = to_aim / dist;
-        let mut vel = dir * speed;
-        vel.y = vel.y.max(speed * 0.6);
-        if let Some(o) = self.objects.get_mut(&pid) {
-            o.scud_launcher_missile_projectile = true;
-            o.scud_launcher_missile_toxin = toxin_warhead;
-            o.scud_launcher_missile_aim = Some([aim.x, aim.y, aim.z]);
-            o.scud_launcher_missile_travelled = 0.0;
-            o.scud_launcher_missile_fuel_expires_frame =
-                Some(self.frame.saturating_add(SCUD_MISSILE_FUEL_FRAMES));
-            o.note_producer(source_id);
-            o.set_body_max_health_with_mode(
-                SCUD_MISSILE_MAX_HEALTH,
-                crate::game_logic::object::MaxHealthChange::FullyHeal,
-            );
-            self.health_events
-                .record_applied_heal(o.id, o.health.current);
-            o.movement.velocity = vel;
-            o.set_orientation_with_partition_owner(dir.z.atan2(dir.x), &mut self.partition_manager);
-            // A receiving native definition owns exactly its authored updates.
-            // Retail SCUDMissile has no HeightDieUpdate; retain this bootstrap
-            // flight safeguard only until an unbound template is migrated.
-            if o.native_lifecycle.is_none() {
-                o.height_die = Some(HostHeightDieData::with_target(
-                    SCUD_MISSILE_HEIGHT_DIE_TARGET,
-                    true,
-                    self.frame.saturating_add(2),
-                ));
-                o.ensure_height_die(self.frame);
-            }
-        }
-        self.scud_missiles_spawned = self.scud_missiles_spawned.saturating_add(1);
-        Some(pid)
-    }
-
-    pub fn update_scud_launcher_missile_projectiles(&mut self) {
-        self.update_scud_launcher_missile_projectiles_with_effects(
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(crate) fn update_scud_launcher_missile_projectiles_with_effects(
-        &mut self,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        use crate::game_logic::host_scud_launcher::{
-            SCUD_MISSILE_DIVE_DISTANCE, SCUD_MISSILE_INITIAL_VELOCITY, SCUD_MISSILE_LOFT_HEIGHT,
-            SCUD_MISSILE_TURN_DISTANCE,
-        };
-        let frame = self.frame;
-        let speed = SCUD_MISSILE_INITIAL_VELOCITY / 30.0;
-        let flying: Vec<ObjectId> = self
-            .objects
-            .registered()
-            .filter_map(|(id, o)| {
-                if o.scud_launcher_missile_projectile && o.is_alive() {
-                    Some(*id)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let mut impact: Vec<(ObjectId, bool, Option<ObjectId>, glam::Vec3, Team)> = Vec::new();
-        for id in flying {
-            let (toxin, source, team, aim, pos, travelled, fuel_done) = {
-                let Some(o) = self.objects.get(&id) else {
-                    continue;
-                };
-                let aim = o
-                    .scud_launcher_missile_aim
-                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
-                    .unwrap_or_else(|| o.get_position());
-                let fuel_done = o
-                    .scud_launcher_missile_fuel_expires_frame
-                    .map(|f| f <= frame)
-                    .unwrap_or(false);
-                (
-                    o.scud_launcher_missile_toxin,
-                    o.producer_id,
-                    o.team,
-                    aim,
-                    o.get_position(),
-                    o.scud_launcher_missile_travelled,
-                    fuel_done,
-                )
-            };
-            let to_aim = aim - pos;
-            let horiz = glam::Vec3::new(to_aim.x, 0.0, to_aim.z).length();
-            let vel = if travelled < SCUD_MISSILE_TURN_DISTANCE {
-                let dir = if to_aim.length() > 0.001 {
-                    to_aim.normalize()
-                } else {
-                    glam::Vec3::Y
-                };
-                let mut v = dir * speed;
-                if pos.y < aim.y + SCUD_MISSILE_LOFT_HEIGHT {
-                    v.y = speed * 0.85;
-                }
-                v
-            } else if horiz > SCUD_MISSILE_DIVE_DISTANCE {
-                let loft_aim =
-                    glam::Vec3::new(aim.x, aim.y + SCUD_MISSILE_LOFT_HEIGHT * 0.5, aim.z);
-                let d = loft_aim - pos;
-                if d.length() > 0.001 {
-                    d.normalize() * speed
-                } else {
-                    glam::Vec3::new(0.0, -speed, 0.0)
-                }
-            } else {
-                let d = aim - pos;
-                if d.length() > 0.001 {
-                    d.normalize() * speed
-                } else {
-                    glam::Vec3::new(0.0, -speed, 0.0)
-                }
-            };
-            let step = vel.length().max(speed);
-            if let Some(o) = self.objects.get_mut(&id) {
-                o.movement.velocity = vel;
-                let p = o.get_position();
-                o.set_position_with_effects(
-                    p + vel,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-                o.scud_launcher_missile_travelled += step;
-                o.set_orientation_with_partition_owner(
-                    vel.z.atan2(vel.x),
-                    &mut self.partition_manager,
-                );
-            }
-            let new_pos = pos + vel;
-            let near = glam::Vec3::new(aim.x - new_pos.x, 0.0, aim.z - new_pos.z).length() < 12.0
-                && new_pos.y <= aim.y + 15.0;
-            if fuel_done || near {
-                impact.push((id, toxin, source, new_pos, team));
-            }
-        }
-        for (id, toxin, source, pos, team) in impact {
-            if let Some(o) = self.objects.get_mut(&id) {
-                // Wave 752: under damage authority, do not zero host HP mid-frame
-                // (dual with GW HP writeback). Project lethal via damage log + flags.
-                {
-                    o.internal_change_health(-o.health.current);
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                o.scud_launcher_missile_projectile = false;
-            }
-            let _ = self.apply_scud_area_at_with_effects(
-                pos,
-                source,
-                team,
-                toxin,
-                presentation_effects,
-            );
-            self.mark_object_for_destruction_with_effects(id, Some(team), presentation_effects);
-        }
-
-        // HeightDie residual: if freefall/low altitude kills missile, detonate warhead.
-        let height_die_ids: Vec<ObjectId> = self
-            .objects
-            .registered()
-            .filter_map(|(id, o)| {
-                if o.scud_launcher_missile_projectile && o.is_alive() {
-                    Some(*id)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        for id in height_die_ids {
-            let (sample_pos, name, ground) = {
-                let Some(o) = self.objects.get(&id) else {
-                    continue;
-                };
-                (o.get_position(), o.template_name.clone(), o.ground_height)
-            };
-            let terrain = self.height_die_terrain_at(sample_pos, &name, ground);
-            let (toxin, source, team, pos, die) = {
-                let Some(o) = self.objects.get_mut(&id) else {
-                    continue;
-                };
-                let die = o.tick_height_die(frame, terrain);
-                (
-                    o.scud_launcher_missile_toxin,
-                    o.producer_id,
-                    o.team,
-                    o.get_position(),
-                    die,
-                )
-            };
-            if die {
-                if let Some(o) = self.objects.get_mut(&id) {
-                    o.scud_launcher_missile_projectile = false;
-                }
-                let _ = self.apply_scud_area_at_with_effects(
-                    pos,
-                    source,
-                    team,
-                    toxin,
-                    presentation_effects,
-                );
-                self.mark_object_for_destruction_with_effects(id, Some(team), presentation_effects);
-            }
-        }
     }
 
     pub fn honesty_scud_missile_projectile_ok(&self) -> bool {

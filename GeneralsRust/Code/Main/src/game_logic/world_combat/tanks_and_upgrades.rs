@@ -23,245 +23,51 @@ pub(super) fn nationalism_bonus_from_upgrade(
 /// match C++ module-data default (TRUE).
 pub(super) const HORDE_DEFAULT_ALLOWED_NATIONALISM: bool = true;
 
+/// The controlling Player's completed Nationalism / Fanaticism upgrades
+/// (AIUpdate.cpp `evaluateMoraleBonus`: `player->hasUpgradeComplete`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct MoraleUpgrades {
+    pub nationalism: bool,
+    pub fanaticism: bool,
+}
+
 /// C++ `AIUpdateInterface::evaluateMoraleBonus` flag write for live host objects.
-pub(crate) fn apply_evaluate_morale_bonus(obj: &mut Object) {
-    use crate::game_logic::host_battlemaster::{
-        has_fanaticism_upgrade, has_nationalism_upgrade, leftover_horde_fanaticism_bonus,
-    };
+pub(crate) fn apply_evaluate_morale_bonus(obj: &mut Object, upgrades: MoraleUpgrades) {
+    use crate::game_logic::host_battlemaster::leftover_horde_fanaticism_bonus;
     let nationalism_active = nationalism_bonus_from_upgrade(
-        has_nationalism_upgrade(&obj.applied_upgrades),
+        upgrades.nationalism,
         obj.weapon_bonus_horde,
         HORDE_DEFAULT_ALLOWED_NATIONALISM,
     );
     obj.weapon_bonus_nationalism = nationalism_active;
-    obj.weapon_bonus_fanaticism = leftover_horde_fanaticism_bonus(
-        nationalism_active,
-        has_fanaticism_upgrade(&obj.applied_upgrades),
-    );
+    obj.weapon_bonus_fanaticism =
+        leftover_horde_fanaticism_bonus(nationalism_active, upgrades.fanaticism);
 }
 
 impl GameLogic {
+    /// `player->hasUpgradeComplete(Upgrade_Nationalism / Upgrade_Fanaticism)`
+    /// for the Object's controlling Player. Not a per-object tag: units built
+    /// after the research see it too.
+    pub(crate) fn owner_morale_upgrades(&self, owner: Option<u32>) -> MoraleUpgrades {
+        use crate::game_logic::host_battlemaster::{UPGRADE_FANATICISM, UPGRADE_NATIONALISM};
+        owner
+            .and_then(|id| self.players.get(&id))
+            .map(|player| MoraleUpgrades {
+                nationalism: player.has_unlocked_upgrade(UPGRADE_NATIONALISM),
+                fanaticism: player.has_unlocked_upgrade(UPGRADE_FANATICISM),
+            })
+            .unwrap_or_default()
+    }
+
     /// C++ `evaluateMoraleBonus` on a live host HordeUpdate object.
     pub(crate) fn evaluate_horde_morale_bonus(&mut self, object_id: ObjectId) {
-        let Some(obj) = self.objects.get_mut(&object_id) else {
-            return;
-        };
-        apply_evaluate_morale_bonus(obj);
-    }
-
-    /// C++ BattleMasterTankShell DumbProjectile residual.
-    pub fn spawn_battlemaster_shell_projectile(
-        &mut self,
-        source_id: ObjectId,
-        from: glam::Vec3,
-        aim: glam::Vec3,
-        intended: Option<ObjectId>,
-    ) -> Option<ObjectId> {
-        self.spawn_battlemaster_shell_projectile_with_effects(
-            source_id,
-            from,
-            aim,
-            intended,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(crate) fn spawn_battlemaster_shell_projectile_with_effects(
-        &mut self,
-        source_id: ObjectId,
-        from: glam::Vec3,
-        aim: glam::Vec3,
-        intended: Option<ObjectId>,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<ObjectId> {
-        use crate::game_logic::host_battlemaster::{
-            BATTLE_MASTER_PROJECTILE, BM_SHELL_MAX_HEALTH, battlemaster_shell_flight_frames,
-        };
-        use crate::game_logic::{KindOf, ThingTemplate};
-
-        if !self.templates.contains_key(BATTLE_MASTER_PROJECTILE) {
-            let mut t = ThingTemplate::new(BATTLE_MASTER_PROJECTILE);
-            t.add_kind_of(KindOf::Projectile)
-                .set_health(BM_SHELL_MAX_HEALTH)
-                .set_cost(0, 0);
-            self.templates
-                .insert(BATTLE_MASTER_PROJECTILE.to_string(), t);
-        }
-        let team = self
+        let owner = self
             .objects
-            .get(&source_id)
-            .map(|o| o.team)
-            .unwrap_or(Team::Neutral);
-
-        // C++ ScatterRadiusVsInfantry residual on BattleMasterTankGun vs infantry.
-        let target_is_infantry = intended
-            .and_then(|id| self.objects.get(&id))
-            .map(|o| o.is_kind_of(KindOf::Infantry))
-            .unwrap_or(false);
-        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
-            source_id.0,
-            intended.map(|id| id.0).unwrap_or(0),
-            self.frame,
-        );
-        let (aim, scattered) = crate::game_logic::host_battlemaster::battlemaster_scatter_aim(
-            aim,
-            target_is_infantry,
-            seed,
-        );
-        if scattered {
-            self.battlemaster_scatter_applied = self.battlemaster_scatter_applied.saturating_add(1);
-        }
-        if target_is_infantry {
-            let hit_r = intended
-                .and_then(|id| self.objects.get(&id))
-                .map(|o| {
-                    if o.selection_radius > 0.0 {
-                        o.selection_radius
-                    } else {
-                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
-                    }
-                })
-                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
-            let intended_pos = intended
-                .and_then(|id| self.objects.get(&id))
-                .map(|o| o.get_position());
-            if crate::game_logic::host_battlemaster::battlemaster_scatter_misses_infantry(
-                true, seed, hit_r,
-            ) {
-                if let Some(pos) = intended_pos {
-                    let dx = aim.x - pos.x;
-                    let dz = aim.z - pos.z;
-                    let dist = (dx * dx + dz * dz).sqrt();
-                    if dist > crate::game_logic::host_battlemaster::BATTLE_MASTER_SPLASH_RADIUS {
-                        self.battlemaster_scatter_misses =
-                            self.battlemaster_scatter_misses.saturating_add(1);
-                    }
-                }
-            }
-        }
-
-        let mut start = from;
-        start.y = start.y.max(aim.y) + 4.0;
-        let pid = self.create_object_with_script_effects(
-            BATTLE_MASTER_PROJECTILE,
-            team,
-            start,
-            None,
-            presentation_effects,
-        )?;
-        let frames = battlemaster_shell_flight_frames(start, aim).max(1);
-        if let Some(o) = self.objects.get_mut(&pid) {
-            o.battlemaster_shell_projectile = true;
-            o.battlemaster_shell_from = Some([start.x, start.y, start.z]);
-            o.battlemaster_shell_aim = Some([aim.x, aim.y, aim.z]);
-            o.battlemaster_shell_launch_frame = Some(self.frame);
-            o.battlemaster_shell_flight_frames = frames;
-            o.battlemaster_shell_intended = intended.map(|id| id.0);
-            o.note_producer(source_id);
-            o.set_body_max_health_with_mode(
-                BM_SHELL_MAX_HEALTH,
-                crate::game_logic::object::MaxHealthChange::FullyHeal,
-            );
-            self.health_events
-                .record_applied_heal(o.id, o.health.current);
-        }
-        self.battlemaster_shells_spawned = self.battlemaster_shells_spawned.saturating_add(1);
-        Some(pid)
-    }
-
-    pub fn update_battlemaster_shell_projectiles(&mut self) {
-        self.update_battlemaster_shell_projectiles_with_effects(
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(crate) fn update_battlemaster_shell_projectiles_with_effects(
-        &mut self,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        use crate::game_logic::host_battlemaster::battlemaster_shell_bezier_point;
-        let frame = self.frame;
-        let flying: Vec<ObjectId> = self
-            .objects
-            .registered()
-            .filter_map(|(id, o)| {
-                if o.battlemaster_shell_projectile && o.is_alive() {
-                    Some(*id)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3)> =
-            Vec::new();
-        for id in flying {
-            let (source, intended, from, aim, launch, frames) = {
-                let Some(o) = self.objects.get(&id) else {
-                    continue;
-                };
-                let from = o
-                    .battlemaster_shell_from
-                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
-                    .unwrap_or_else(|| o.get_position());
-                let aim = o
-                    .battlemaster_shell_aim
-                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
-                    .unwrap_or(from);
-                (
-                    o.producer_id,
-                    o.battlemaster_shell_intended.map(ObjectId),
-                    from,
-                    aim,
-                    o.battlemaster_shell_launch_frame.unwrap_or(frame),
-                    o.battlemaster_shell_flight_frames.max(1),
-                )
-            };
-            let elapsed = frame.saturating_sub(launch);
-            let t = (elapsed as f32 / frames as f32).clamp(0.0, 1.0);
-            let pos = battlemaster_shell_bezier_point(from, aim, t);
-            if let Some(o) = self.objects.get_mut(&id) {
-                let prev = o.get_position();
-                o.set_position_with_effects(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-                let d = pos - prev;
-                if d.length_squared() > 1.0e-6 {
-                    o.set_orientation_with_partition_owner(
-                        d.z.atan2(d.x),
-                        &mut self.partition_manager,
-                    );
-                }
-            }
-            if elapsed >= frames {
-                impact.push((id, source, intended, aim));
-            }
-        }
-        for (id, source, intended, pos) in impact {
-            let team = self.objects.get(&id).map(|o| o.team);
-            if let Some(o) = self.objects.get_mut(&id) {
-                // Wave 752: under damage authority, do not zero host HP mid-frame
-                // (dual with GW HP writeback). Project lethal via damage log + flags.
-                {
-                    o.internal_change_health(-o.health.current);
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                o.battlemaster_shell_projectile = false;
-                o.set_position_with_effects(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-            }
-            let _ = self.apply_battlemaster_residual_at_with_effects(
-                pos,
-                source,
-                intended,
-                presentation_effects,
-            );
-            self.mark_object_for_destruction_with_effects(id, team, presentation_effects);
+            .get(&object_id)
+            .and_then(|obj| obj.owner_player_id);
+        let upgrades = self.owner_morale_upgrades(owner);
+        if let Some(obj) = self.objects.get_mut(&object_id) {
+            apply_evaluate_morale_bonus(obj, upgrades);
         }
     }
 
@@ -442,17 +248,20 @@ impl GameLogic {
 
     /// Refresh Red Guard weapon residual from current horde / nationalism flags.
     pub(crate) fn refresh_red_guard_weapon(&mut self, object_id: ObjectId) {
-        use crate::game_logic::host_battlemaster::{
-            has_fanaticism_upgrade, has_nationalism_upgrade, leftover_horde_fanaticism_bonus,
-        };
+        use crate::game_logic::host_battlemaster::leftover_horde_fanaticism_bonus;
         use crate::game_logic::host_red_guard::red_guard_weapon;
+        let morale = self.owner_morale_upgrades(
+            self.objects
+                .get(&object_id)
+                .and_then(|obj| obj.owner_player_id),
+        );
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
         if !obj.authors_red_guard_machine_gun() {
             return;
         }
-        let nationalism = has_nationalism_upgrade(&obj.applied_upgrades);
+        let nationalism = morale.nationalism;
         let in_horde = obj.weapon_bonus_horde;
         let nationalism_active = nationalism_bonus_from_upgrade(
             nationalism,
@@ -462,7 +271,7 @@ impl GameLogic {
         obj.weapon_bonus_nationalism = nationalism_active;
         obj.weapon_bonus_fanaticism = leftover_horde_fanaticism_bonus(
             nationalism_active,
-            has_fanaticism_upgrade(&obj.applied_upgrades),
+            morale.fanaticism,
         );
         let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
         let mut w = red_guard_weapon(in_horde, nationalism_active);
@@ -472,18 +281,21 @@ impl GameLogic {
 
     /// Refresh Tank Hunter RPG residual from current horde / nationalism flags.
     pub(crate) fn refresh_tank_hunter_weapon(&mut self, object_id: ObjectId) {
-        use crate::game_logic::host_battlemaster::{
-            has_fanaticism_upgrade, has_nationalism_upgrade, leftover_horde_fanaticism_bonus,
-        };
+        use crate::game_logic::host_battlemaster::leftover_horde_fanaticism_bonus;
 
         use crate::game_logic::host_tank_hunter::tank_hunter_weapon;
+        let morale = self.owner_morale_upgrades(
+            self.objects
+                .get(&object_id)
+                .and_then(|obj| obj.owner_player_id),
+        );
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
         if !obj.authors_tank_hunter_missile() {
             return;
         }
-        let nationalism = has_nationalism_upgrade(&obj.applied_upgrades);
+        let nationalism = morale.nationalism;
         let in_horde = obj.weapon_bonus_horde;
         let nationalism_active = nationalism_bonus_from_upgrade(
             nationalism,
@@ -493,7 +305,7 @@ impl GameLogic {
         obj.weapon_bonus_nationalism = nationalism_active;
         obj.weapon_bonus_fanaticism = leftover_horde_fanaticism_bonus(
             nationalism_active,
-            has_fanaticism_upgrade(&obj.applied_upgrades),
+            morale.fanaticism,
         );
 
         let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
@@ -504,22 +316,25 @@ impl GameLogic {
 
     /// Refresh MiniGunner dual-gun residual from continuous fire + horde / nationalism.
     pub(crate) fn refresh_minigunner_weapon(&mut self, object_id: ObjectId) {
-        use crate::game_logic::host_battlemaster::{
-            has_fanaticism_upgrade, has_nationalism_upgrade, leftover_horde_fanaticism_bonus,
-        };
+        use crate::game_logic::host_battlemaster::leftover_horde_fanaticism_bonus;
 
         use crate::game_logic::host_gattling_tank::GattlingFireLevel;
         use crate::game_logic::host_minigunner::{
             has_chain_guns_upgrade, is_minigunner_template, minigunner_air_weapon,
             minigunner_ground_weapon,
         };
+        let morale = self.owner_morale_upgrades(
+            self.objects
+                .get(&object_id)
+                .and_then(|obj| obj.owner_player_id),
+        );
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
         if !is_minigunner_template(&obj.template_name) {
             return;
         }
-        let nationalism = has_nationalism_upgrade(&obj.applied_upgrades);
+        let nationalism = morale.nationalism;
         let in_horde = obj.weapon_bonus_horde;
         let nationalism_active = nationalism_bonus_from_upgrade(
             nationalism,
@@ -529,7 +344,7 @@ impl GameLogic {
         obj.weapon_bonus_nationalism = nationalism_active;
         obj.weapon_bonus_fanaticism = leftover_horde_fanaticism_bonus(
             nationalism_active,
-            has_fanaticism_upgrade(&obj.applied_upgrades),
+            morale.fanaticism,
         );
 
         let chain = has_chain_guns_upgrade(&obj.applied_upgrades);
@@ -546,58 +361,6 @@ impl GameLogic {
         let mut s = minigunner_air_weapon(level, chain, in_horde, nationalism_active);
         s.last_fire_time = last_sec;
         obj.secondary_weapon = Some(s);
-    }
-
-    /// Apply Nationalism residual tag to a Red Guard (ROF stacks with horde when active).
-    pub fn apply_red_guard_nationalism_upgrade(&mut self, object_id: ObjectId) -> bool {
-        use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM;
-        let Some(obj) = self.objects.get_mut(&object_id) else {
-            return false;
-        };
-        if !obj.authors_red_guard_machine_gun() {
-            return false;
-        }
-        obj.applied_upgrades.insert(UPGRADE_NATIONALISM.to_string());
-        self.red_guard_residual_nationalism_upgrades = self
-            .red_guard_residual_nationalism_upgrades
-            .saturating_add(1);
-        self.refresh_red_guard_weapon(object_id);
-        true
-    }
-
-    /// Apply Nationalism residual tag to a Tank Hunter (ROF stacks with horde when active).
-    pub fn apply_tank_hunter_nationalism_upgrade(&mut self, object_id: ObjectId) -> bool {
-        use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM;
-        let Some(obj) = self.objects.get_mut(&object_id) else {
-            return false;
-        };
-        if !obj.authors_tank_hunter_missile() {
-            return false;
-        }
-        obj.applied_upgrades.insert(UPGRADE_NATIONALISM.to_string());
-        self.tank_hunter_residual_nationalism_upgrades = self
-            .tank_hunter_residual_nationalism_upgrades
-            .saturating_add(1);
-        self.refresh_tank_hunter_weapon(object_id);
-        true
-    }
-
-    /// Apply Nationalism residual tag to a MiniGunner (ROF stacks with horde when active).
-    pub fn apply_minigunner_nationalism_upgrade(&mut self, object_id: ObjectId) -> bool {
-        use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM;
-        use crate::game_logic::host_minigunner::is_minigunner_template;
-        let Some(obj) = self.objects.get_mut(&object_id) else {
-            return false;
-        };
-        if !is_minigunner_template(&obj.template_name) {
-            return false;
-        }
-        obj.applied_upgrades.insert(UPGRADE_NATIONALISM.to_string());
-        self.minigunner_residual_nationalism_upgrades = self
-            .minigunner_residual_nationalism_upgrades
-            .saturating_add(1);
-        self.refresh_minigunner_weapon(object_id);
-        true
     }
 
     /// Apply Chain Guns residual to a MiniGunner (PLAYER_UPGRADE damage residual × 1.25).
@@ -705,8 +468,9 @@ impl GameLogic {
         let draw_icon = self.get_draw_icon_ui();
         let frame = self.frame;
 
-        for (idx, (id, _team, _owner, _scan, name, kind)) in horde_units.iter().enumerate() {
+        for (idx, (id, _team, owner, _scan, name, kind)) in horde_units.iter().enumerate() {
             let scanned = membership[idx].in_horde;
+            let morale = self.owner_morale_upgrades(*owner);
             if let Some(obj) = self.objects.get_mut(id) {
                 let (due, init, last, next) = leftover_horde_take_wake(
                     obj.horde_wake_initialized,
@@ -725,7 +489,10 @@ impl GameLogic {
                 let was = obj.weapon_bonus_horde;
                 let now_horde = scanned;
                 obj.weapon_bonus_horde = now_horde;
-                apply_evaluate_morale_bonus(obj);
+                let morale_before = (obj.weapon_bonus_nationalism, obj.weapon_bonus_fanaticism);
+                apply_evaluate_morale_bonus(obj, morale);
+                let morale_changed =
+                    morale_before != (obj.weapon_bonus_nationalism, obj.weapon_bonus_fanaticism);
                 obj.apply_horde_terrain_decal(was, now_horde, draw_icon);
                 if now_horde && !was {
                     if *kind == 1 {
@@ -736,7 +503,7 @@ impl GameLogic {
                         mg_grants = mg_grants.saturating_add(1);
                     }
                 }
-                if now_horde != was || now_horde {
+                if now_horde != was || now_horde || morale_changed {
                     if *kind == 1 {
                         to_refresh_red.push(*id);
                     } else if *kind == 2 {
@@ -766,252 +533,6 @@ impl GameLogic {
         }
         for id in to_refresh_mg {
             self.refresh_minigunner_weapon(id);
-        }
-    }
-
-    /// Apply Tank Hunter residual RPG fire (primary on intended + small splash radius).
-    /// C++ TankHunterMissile ProjectileObject residual.
-    pub fn spawn_tank_hunter_missile_projectile(
-        &mut self,
-        source_id: ObjectId,
-        from: glam::Vec3,
-        aim: glam::Vec3,
-        intended: Option<ObjectId>,
-    ) -> Option<ObjectId> {
-        self.spawn_tank_hunter_missile_projectile_with_effects(
-            source_id,
-            from,
-            aim,
-            intended,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(crate) fn spawn_tank_hunter_missile_projectile_with_effects(
-        &mut self,
-        source_id: ObjectId,
-        from: glam::Vec3,
-        aim: glam::Vec3,
-        intended: Option<ObjectId>,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<ObjectId> {
-        use crate::game_logic::host_tank_hunter::{
-            TANK_HUNTER_MISSILE_FUEL_FRAMES, TANK_HUNTER_MISSILE_INITIAL_VELOCITY,
-            TANK_HUNTER_MISSILE_MAX_HEALTH, TANK_HUNTER_PROJECTILE, TANK_HUNTER_PROJECTILE_SPEED,
-        };
-        use crate::game_logic::{KindOf, ThingTemplate};
-
-        if !self.templates.contains_key(TANK_HUNTER_PROJECTILE) {
-            let mut t = ThingTemplate::new(TANK_HUNTER_PROJECTILE);
-            t.add_kind_of(KindOf::Projectile)
-                .set_health(TANK_HUNTER_MISSILE_MAX_HEALTH)
-                .set_cost(0, 0);
-            self.templates.insert(TANK_HUNTER_PROJECTILE.to_string(), t);
-        }
-        let team = self
-            .objects
-            .get(&source_id)
-            .map(|o| o.team)
-            .unwrap_or(Team::Neutral);
-
-        // C++ ScatterRadiusVsInfantry residual on TankHunter missile vs infantry.
-        let target_is_infantry = intended
-            .and_then(|id| self.objects.get(&id))
-            .map(|o| o.is_kind_of(KindOf::Infantry))
-            .unwrap_or(false);
-        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
-            source_id.0,
-            intended.map(|id| id.0).unwrap_or(0),
-            self.frame,
-        );
-        let (aim, scattered) = crate::game_logic::host_tank_hunter::tank_hunter_scatter_aim(
-            aim,
-            target_is_infantry,
-            seed,
-        );
-        if scattered {
-            self.tank_hunter_scatter_applied = self.tank_hunter_scatter_applied.saturating_add(1);
-        }
-        if target_is_infantry {
-            let hit_r = intended
-                .and_then(|id| self.objects.get(&id))
-                .map(|o| {
-                    if o.selection_radius > 0.0 {
-                        o.selection_radius
-                    } else {
-                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
-                    }
-                })
-                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
-            let intended_pos = intended
-                .and_then(|id| self.objects.get(&id))
-                .map(|o| o.get_position());
-            if crate::game_logic::host_tank_hunter::tank_hunter_scatter_misses_infantry(
-                true, seed, hit_r,
-            ) {
-                if let Some(pos) = intended_pos {
-                    let dx = aim.x - pos.x;
-                    let dz = aim.z - pos.z;
-                    let dist = (dx * dx + dz * dz).sqrt();
-                    if dist > crate::game_logic::host_tank_hunter::TANK_HUNTER_SPLASH_RADIUS {
-                        self.tank_hunter_scatter_misses =
-                            self.tank_hunter_scatter_misses.saturating_add(1);
-                    }
-                }
-            }
-        }
-
-        let mut start = from;
-        start.y = start.y.max(aim.y) + 6.0;
-        let pid = self.create_object_with_script_effects(
-            TANK_HUNTER_PROJECTILE,
-            team,
-            start,
-            None,
-            presentation_effects,
-        )?;
-        let launch = TANK_HUNTER_MISSILE_INITIAL_VELOCITY / 30.0;
-        let to_aim = aim - start;
-        let dist = to_aim.length().max(0.001);
-        let dir = to_aim / dist;
-        if let Some(o) = self.objects.get_mut(&pid) {
-            o.tank_hunter_missile_projectile = true;
-            o.tank_hunter_missile_aim = Some([aim.x, aim.y, aim.z]);
-            o.tank_hunter_missile_intended = intended.map(|id| id.0);
-            o.tank_hunter_missile_travelled = 0.0;
-            o.tank_hunter_missile_fuel_expires_frame =
-                Some(self.frame.saturating_add(TANK_HUNTER_MISSILE_FUEL_FRAMES));
-            o.note_producer(source_id);
-            o.set_body_max_health_with_mode(
-                TANK_HUNTER_MISSILE_MAX_HEALTH,
-                crate::game_logic::object::MaxHealthChange::FullyHeal,
-            );
-            self.health_events
-                .record_applied_heal(o.id, o.health.current);
-            o.movement.velocity = dir * launch;
-            o.set_orientation_with_partition_owner(dir.z.atan2(dir.x), &mut self.partition_manager);
-        }
-        self.tank_hunter_missiles_spawned = self.tank_hunter_missiles_spawned.saturating_add(1);
-        Some(pid)
-    }
-
-    pub fn update_tank_hunter_missile_projectiles(&mut self) {
-        self.update_tank_hunter_missile_projectiles_with_effects(
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(crate) fn update_tank_hunter_missile_projectiles_with_effects(
-        &mut self,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        use crate::game_logic::host_tank_hunter::{
-            TANK_HUNTER_MISSILE_INITIAL_VELOCITY, TANK_HUNTER_MISSILE_TURN_DISTANCE,
-            TANK_HUNTER_PROJECTILE_SPEED,
-        };
-        let frame = self.frame;
-        let launch = TANK_HUNTER_MISSILE_INITIAL_VELOCITY / 30.0;
-        let cruise = TANK_HUNTER_PROJECTILE_SPEED / 30.0;
-        let flying: Vec<ObjectId> = self
-            .objects
-            .registered()
-            .filter_map(|(id, o)| {
-                if o.tank_hunter_missile_projectile && o.is_alive() {
-                    Some(*id)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3)> =
-            Vec::new();
-        for id in flying {
-            let (source, intended, aim, pos, travelled, fuel_done) = {
-                let Some(o) = self.objects.get(&id) else {
-                    continue;
-                };
-                let aim = o
-                    .tank_hunter_missile_aim
-                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
-                    .unwrap_or_else(|| o.get_position());
-                let intended = o.tank_hunter_missile_intended.map(ObjectId);
-                let fuel_done = o
-                    .tank_hunter_missile_fuel_expires_frame
-                    .map(|f| f <= frame)
-                    .unwrap_or(false);
-                (
-                    o.producer_id,
-                    intended,
-                    aim,
-                    o.get_position(),
-                    o.tank_hunter_missile_travelled,
-                    fuel_done,
-                )
-            };
-            let aim = intended
-                .and_then(|tid| {
-                    self.objects
-                        .get(&tid)
-                        .filter(|t| t.is_alive())
-                        .map(|t| t.get_position())
-                })
-                .unwrap_or(aim);
-            let speed = if travelled < TANK_HUNTER_MISSILE_TURN_DISTANCE {
-                launch
-            } else {
-                cruise
-            };
-            let to_aim = aim - pos;
-            let vel = if to_aim.length() > 0.001 {
-                to_aim.normalize() * speed
-            } else {
-                glam::Vec3::new(0.0, -speed, 0.0)
-            };
-            let step = vel.length().max(speed);
-            if let Some(o) = self.objects.get_mut(&id) {
-                o.movement.velocity = vel;
-                o.set_position_with_effects(
-                    pos + vel,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-                o.tank_hunter_missile_travelled += step;
-                o.tank_hunter_missile_aim = Some([aim.x, aim.y, aim.z]);
-                o.set_orientation_with_partition_owner(
-                    vel.z.atan2(vel.x),
-                    &mut self.partition_manager,
-                );
-            }
-            let new_pos = pos + vel;
-            let near = (aim - new_pos).length() < 6.0;
-            if fuel_done || near {
-                impact.push((id, source, intended, aim));
-            }
-        }
-        for (id, source, intended, pos) in impact {
-            let team = self.objects.get(&id).map(|o| o.team);
-            if let Some(o) = self.objects.get_mut(&id) {
-                // Wave 752: under damage authority, do not zero host HP mid-frame
-                // (dual with GW HP writeback). Project lethal via damage log + flags.
-                {
-                    o.internal_change_health(-o.health.current);
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                o.tank_hunter_missile_projectile = false;
-                o.set_position_with_effects(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-            }
-            let _ = self.apply_tank_hunter_residual_at_with_effects(
-                pos,
-                source,
-                intended,
-                presentation_effects,
-            );
-            self.mark_object_for_destruction_with_effects(id, team, presentation_effects);
         }
     }
 
@@ -1230,1042 +751,6 @@ impl GameLogic {
         true
     }
 
-    /// Apply GLA Rebel residual fire: intended-only gun damage residual.
-    /// Apply USA Ranger residual fire: rifle intended-only or FlashBang dual-radius splash.
-    /// C++ RangerFlashBangGrenade DumbProjectile residual.
-    pub fn spawn_flashbang_grenade_projectile(
-        &mut self,
-        source_id: ObjectId,
-        from: glam::Vec3,
-        aim: glam::Vec3,
-        intended: Option<ObjectId>,
-    ) -> Option<ObjectId> {
-        self.spawn_flashbang_grenade_projectile_with_effects(
-            source_id,
-            from,
-            aim,
-            intended,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(crate) fn spawn_flashbang_grenade_projectile_with_effects(
-        &mut self,
-        source_id: ObjectId,
-        from: glam::Vec3,
-        aim: glam::Vec3,
-        intended: Option<ObjectId>,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<ObjectId> {
-        use crate::game_logic::host_ranger::{
-            FLASHBANG_GRENADE_MAX_HEALTH, FLASHBANG_GRENADE_PROJECTILE,
-            flashbang_shell_flight_frames,
-        };
-        use crate::game_logic::{KindOf, ThingTemplate};
-
-        if !self.templates.contains_key(FLASHBANG_GRENADE_PROJECTILE) {
-            let mut t = ThingTemplate::new(FLASHBANG_GRENADE_PROJECTILE);
-            t.add_kind_of(KindOf::Projectile)
-                .set_health(FLASHBANG_GRENADE_MAX_HEALTH)
-                .set_cost(0, 0);
-            self.templates
-                .insert(FLASHBANG_GRENADE_PROJECTILE.to_string(), t);
-        }
-        let team = self
-            .objects
-            .get(&source_id)
-            .map(|o| o.team)
-            .unwrap_or(Team::Neutral);
-
-        // C++ ScatterRadius residual on RangerFlashBangGrenadeWeapon (**4**, all targets).
-        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
-            source_id.0,
-            intended.map(|id| id.0).unwrap_or(0),
-            self.frame,
-        );
-        let (aim, scattered) =
-            crate::game_logic::host_ranger::ranger_flashbang_scatter_aim(aim, seed);
-        if scattered {
-            self.flashbang_scatter_applied = self.flashbang_scatter_applied.saturating_add(1);
-        }
-        // ScatterRadius (**4**) residual: miss peels when aim lands outside secondary splash.
-        if intended.is_some() {
-            let hit_r = intended
-                .and_then(|id| self.objects.get(&id))
-                .map(|o| {
-                    if o.selection_radius > 0.0 {
-                        o.selection_radius
-                    } else {
-                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
-                    }
-                })
-                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
-            let intended_pos = intended
-                .and_then(|id| self.objects.get(&id))
-                .map(|o| o.get_position());
-            if crate::game_logic::host_ranger::ranger_flashbang_scatter_misses(seed, hit_r) {
-                if let Some(pos) = intended_pos {
-                    let dx = aim.x - pos.x;
-                    let dz = aim.z - pos.z;
-                    let dist = (dx * dx + dz * dz).sqrt();
-                    if dist > crate::game_logic::host_ranger::FLASHBANG_SECONDARY_RADIUS {
-                        self.flashbang_scatter_misses =
-                            self.flashbang_scatter_misses.saturating_add(1);
-                    }
-                }
-            }
-        }
-
-        let mut start = from;
-        start.y = start.y.max(aim.y) + 4.0;
-        let pid = self.create_object_with_script_effects(
-            FLASHBANG_GRENADE_PROJECTILE,
-            team,
-            start,
-            None,
-            presentation_effects,
-        )?;
-        let frames = flashbang_shell_flight_frames(start, aim).max(1);
-        if let Some(o) = self.objects.get_mut(&pid) {
-            o.flashbang_grenade_projectile = true;
-            o.flashbang_grenade_from = Some([start.x, start.y, start.z]);
-            o.flashbang_grenade_aim = Some([aim.x, aim.y, aim.z]);
-            o.flashbang_grenade_launch_frame = Some(self.frame);
-            o.flashbang_grenade_flight_frames = frames;
-            o.flashbang_grenade_intended = intended.map(|id| id.0);
-            o.note_producer(source_id);
-            o.set_body_max_health_with_mode(
-                FLASHBANG_GRENADE_MAX_HEALTH,
-                crate::game_logic::object::MaxHealthChange::FullyHeal,
-            );
-            self.health_events
-                .record_applied_heal(o.id, o.health.current);
-        }
-        self.flashbang_grenades_spawned = self.flashbang_grenades_spawned.saturating_add(1);
-        Some(pid)
-    }
-
-    pub fn update_flashbang_grenade_projectiles(&mut self) {
-        self.update_flashbang_grenade_projectiles_with_effects(
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(crate) fn update_flashbang_grenade_projectiles_with_effects(
-        &mut self,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        use crate::game_logic::host_ranger::flashbang_shell_bezier_point;
-        let frame = self.frame;
-        let flying: Vec<ObjectId> = self
-            .objects
-            .registered()
-            .filter_map(|(id, o)| {
-                if o.flashbang_grenade_projectile && o.is_alive() {
-                    Some(*id)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3)> =
-            Vec::new();
-        for id in flying {
-            let (source, intended, from, aim, launch, frames) = {
-                let Some(o) = self.objects.get(&id) else {
-                    continue;
-                };
-                let from = o
-                    .flashbang_grenade_from
-                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
-                    .unwrap_or_else(|| o.get_position());
-                let aim = o
-                    .flashbang_grenade_aim
-                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
-                    .unwrap_or(from);
-                (
-                    o.producer_id,
-                    o.flashbang_grenade_intended.map(ObjectId),
-                    from,
-                    aim,
-                    o.flashbang_grenade_launch_frame.unwrap_or(frame),
-                    o.flashbang_grenade_flight_frames.max(1),
-                )
-            };
-            let elapsed = frame.saturating_sub(launch);
-            let t = (elapsed as f32 / frames as f32).clamp(0.0, 1.0);
-            let pos = flashbang_shell_bezier_point(from, aim, t);
-            if let Some(o) = self.objects.get_mut(&id) {
-                let prev = o.get_position();
-                o.set_position_with_effects(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-                let d = pos - prev;
-                if d.length_squared() > 1.0e-6 {
-                    o.set_orientation_with_partition_owner(
-                        d.z.atan2(d.x),
-                        &mut self.partition_manager,
-                    );
-                }
-            }
-            if elapsed >= frames {
-                impact.push((id, source, intended, aim));
-            }
-        }
-        for (id, source, intended, pos) in impact {
-            let team = self.objects.get(&id).map(|o| o.team);
-            if let Some(o) = self.objects.get_mut(&id) {
-                // Wave 752: under damage authority, do not zero host HP mid-frame
-                // (dual with GW HP writeback). Project lethal via damage log + flags.
-                {
-                    o.internal_change_health(-o.health.current);
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                o.flashbang_grenade_projectile = false;
-                o.set_position_with_effects(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-            }
-            let _ = self.apply_ranger_residual_at_with_effects(
-                pos,
-                source,
-                intended,
-                true,
-                presentation_effects,
-            );
-            self.mark_object_for_destruction_with_effects(id, team, presentation_effects);
-        }
-    }
-
-    /// Spawn Humvee TOW projectile residual (HumveeMissile ground or PatriotMissile air).
-    pub fn spawn_humvee_tow_missile_projectile(
-        &mut self,
-        source_id: ObjectId,
-        from: glam::Vec3,
-        aim: glam::Vec3,
-        intended: Option<ObjectId>,
-        air: bool,
-    ) -> Option<ObjectId> {
-        self.spawn_humvee_tow_missile_projectile_with_effects(
-            source_id,
-            from,
-            aim,
-            intended,
-            air,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(crate) fn spawn_humvee_tow_missile_projectile_with_effects(
-        &mut self,
-        source_id: ObjectId,
-        from: glam::Vec3,
-        aim: glam::Vec3,
-        intended: Option<ObjectId>,
-        air: bool,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<ObjectId> {
-        use crate::game_logic::host_humvee::{
-            HUMVEE_AIR_TOW_MISSILE_FUEL_FRAMES, HUMVEE_AIR_TOW_MISSILE_IGNITION_DELAY_FRAMES,
-            HUMVEE_AIR_TOW_MISSILE_MAX_HEALTH, HUMVEE_AIR_TOW_PROJECTILE,
-            HUMVEE_GROUND_TOW_MISSILE_FUEL_FRAMES, HUMVEE_GROUND_TOW_MISSILE_IGNITION_DELAY_FRAMES,
-            HUMVEE_GROUND_TOW_MISSILE_MAX_HEALTH, HUMVEE_MISSILE_PROJECTILE,
-        };
-        use crate::game_logic::{KindOf, ThingTemplate};
-
-        let (name, max_hp, fuel_frames, ign_delay) = if air {
-            (
-                HUMVEE_AIR_TOW_PROJECTILE,
-                HUMVEE_AIR_TOW_MISSILE_MAX_HEALTH,
-                HUMVEE_AIR_TOW_MISSILE_FUEL_FRAMES,
-                HUMVEE_AIR_TOW_MISSILE_IGNITION_DELAY_FRAMES,
-            )
-        } else {
-            (
-                HUMVEE_MISSILE_PROJECTILE,
-                HUMVEE_GROUND_TOW_MISSILE_MAX_HEALTH,
-                HUMVEE_GROUND_TOW_MISSILE_FUEL_FRAMES,
-                HUMVEE_GROUND_TOW_MISSILE_IGNITION_DELAY_FRAMES,
-            )
-        };
-
-        if !self.templates.contains_key(name) {
-            let mut t = ThingTemplate::new(name);
-            t.add_kind_of(KindOf::Projectile)
-                .set_health(max_hp)
-                .set_cost(0, 0);
-            self.templates.insert(name.to_string(), t);
-        }
-        let team = self
-            .objects
-            .get(&source_id)
-            .map(|o| o.team)
-            .unwrap_or(Team::Neutral);
-
-        // C++ ScatterRadiusVsInfantry residual on HumveeMissileWeapon (ground TOW) vs infantry.
-        let target_is_infantry = intended
-            .and_then(|id| self.objects.get(&id))
-            .map(|o| o.is_kind_of(KindOf::Infantry))
-            .unwrap_or(false);
-        let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
-            source_id.0,
-            intended.map(|id| id.0).unwrap_or(0),
-            self.frame,
-        );
-        let (aim, scattered) = crate::game_logic::host_humvee::humvee_tow_scatter_aim(
-            aim,
-            target_is_infantry,
-            air,
-            seed,
-        );
-        if scattered {
-            self.humvee_tow_scatter_applied = self.humvee_tow_scatter_applied.saturating_add(1);
-        }
-        if target_is_infantry && !air {
-            let hit_r = intended
-                .and_then(|id| self.objects.get(&id))
-                .map(|o| {
-                    if o.selection_radius > 0.0 {
-                        o.selection_radius
-                    } else {
-                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
-                    }
-                })
-                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
-            let intended_pos = intended
-                .and_then(|id| self.objects.get(&id))
-                .map(|o| o.get_position());
-            if crate::game_logic::host_humvee::humvee_tow_scatter_misses_infantry(
-                true, false, seed, hit_r,
-            ) {
-                if let Some(pos) = intended_pos {
-                    let dx = aim.x - pos.x;
-                    let dz = aim.z - pos.z;
-                    let dist = (dx * dx + dz * dz).sqrt();
-                    if dist > crate::game_logic::host_humvee::HUMVEE_GROUND_TOW_RADIUS {
-                        self.humvee_tow_scatter_misses =
-                            self.humvee_tow_scatter_misses.saturating_add(1);
-                    }
-                }
-            }
-        }
-
-        let mut start = from;
-        if air {
-            start.y = start.y.max(aim.y + 10.0);
-        } else {
-            start.y = start.y.max(2.0);
-        }
-        let pid =
-            self.create_object_with_script_effects(name, team, start, None, presentation_effects)?;
-        let expires = self.frame.saturating_add(fuel_frames.max(1));
-        let ignites = self.frame.saturating_add(ign_delay);
-        if let Some(o) = self.objects.get_mut(&pid) {
-            o.humvee_tow_projectile = true;
-            o.humvee_tow_air = air;
-            o.humvee_tow_aim = Some([aim.x, aim.y, aim.z]);
-            o.humvee_tow_intended = intended.map(|id| id.0);
-            o.humvee_tow_travelled = 0.0;
-            o.humvee_tow_fuel_expires_frame = Some(expires);
-            o.humvee_tow_ignition_frame = Some(ignites);
-            o.note_producer(source_id);
-            o.health.current = max_hp;
-            o.health.maximum = max_hp;
-        }
-        self.humvee_tow_missiles_spawned = self.humvee_tow_missiles_spawned.saturating_add(1);
-        Some(pid)
-    }
-
-    pub fn update_humvee_tow_missile_projectiles(&mut self) {
-        self.update_humvee_tow_missile_projectiles_with_effects(
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(crate) fn update_humvee_tow_missile_projectiles_with_effects(
-        &mut self,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        use crate::game_logic::host_humvee::{
-            HUMVEE_AIR_TOW_MISSILE_LOCK_DISTANCE, HUMVEE_AIR_TOW_MISSILE_TURN_DISTANCE,
-            HUMVEE_GROUND_TOW_MISSILE_TURN_DISTANCE, humvee_air_tow_missile_step_speed,
-            humvee_ground_tow_missile_step_speed,
-        };
-        let frame = self.frame;
-        let flying: Vec<ObjectId> = self
-            .objects
-            .registered()
-            .filter_map(|(id, o)| {
-                if o.humvee_tow_projectile && o.is_alive() {
-                    Some(*id)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let mut impact: Vec<(
-            ObjectId,
-            Option<ObjectId>,
-            Option<ObjectId>,
-            glam::Vec3,
-            bool,
-        )> = Vec::new();
-        for id in flying {
-            let (source, intended, aim, pos, fuel_done, ignited, air, travelled) = {
-                let Some(o) = self.objects.get(&id) else {
-                    continue;
-                };
-                let aim = o
-                    .humvee_tow_aim
-                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
-                    .unwrap_or_else(|| o.get_position());
-                let intended = o.humvee_tow_intended.map(ObjectId);
-                let fuel_done = o
-                    .humvee_tow_fuel_expires_frame
-                    .map(|f| f <= frame)
-                    .unwrap_or(false);
-                let ignited = o
-                    .humvee_tow_ignition_frame
-                    .map(|f| f <= frame)
-                    .unwrap_or(true);
-                (
-                    o.producer_id,
-                    intended,
-                    aim,
-                    o.get_position(),
-                    fuel_done,
-                    ignited,
-                    o.humvee_tow_air,
-                    o.humvee_tow_travelled,
-                )
-            };
-            // Air TOW seeks live intended target (PatriotMissile TryToFollowTarget=Yes).
-            // Ground TOW locks aim at fire (TryToFollowTarget=No).
-            let aim = if air {
-                intended
-                    .and_then(|tid| {
-                        self.objects
-                            .get(&tid)
-                            .filter(|t| t.is_alive())
-                            .map(|t| t.get_position())
-                    })
-                    .unwrap_or(aim)
-            } else {
-                aim
-            };
-            let turn_dist = if air {
-                HUMVEE_AIR_TOW_MISSILE_TURN_DISTANCE
-            } else {
-                HUMVEE_GROUND_TOW_MISSILE_TURN_DISTANCE
-            };
-            // Before DistanceToTravelBeforeTurning: coast straight at initial velocity.
-            let can_steer = travelled >= turn_dist;
-            let speed = if air {
-                humvee_air_tow_missile_step_speed(ignited && can_steer)
-            } else {
-                humvee_ground_tow_missile_step_speed(ignited && can_steer)
-            };
-            // Pre-turn residual: keep launch direction toward original aim snapshot.
-            let to_aim = aim - pos;
-            let dist = to_aim.length();
-            let step_speed = if dist > 0.001 { speed.min(dist) } else { speed };
-            let vel = if dist > 0.001 {
-                to_aim.normalize() * step_speed
-            } else {
-                glam::Vec3::new(0.0, -step_speed, 0.0)
-            };
-            let step = vel.length().max(step_speed);
-            let new_pos = pos + vel;
-            if let Some(o) = self.objects.get_mut(&id) {
-                o.movement.velocity = vel;
-                o.set_position_with_effects(
-                    new_pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-                o.humvee_tow_travelled += step;
-                o.humvee_tow_aim = Some([aim.x, aim.y, aim.z]);
-                o.set_orientation_with_partition_owner(
-                    vel.z.atan2(vel.x),
-                    &mut self.partition_manager,
-                );
-            }
-            let lock = if air {
-                dist <= HUMVEE_AIR_TOW_MISSILE_LOCK_DISTANCE
-            } else {
-                false
-            };
-            let near = dist <= speed + 0.001 || (aim - new_pos).length() < 8.0 || lock;
-            if fuel_done || near {
-                impact.push((id, source, intended, aim, air));
-            }
-        }
-        for (id, source, intended, pos, air) in impact {
-            let team = self.objects.get(&id).map(|o| o.team);
-            if let Some(o) = self.objects.get_mut(&id) {
-                // Wave 752: under damage authority, do not zero host HP mid-frame
-                // (dual with GW HP writeback). Project lethal via damage log + flags.
-                {
-                    o.internal_change_health(-o.health.current);
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                o.humvee_tow_projectile = false;
-                o.set_position_with_effects(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-            }
-            let _ = self.apply_humvee_tow_residual_at_with_effects(
-                pos,
-                source,
-                intended,
-                air,
-                presentation_effects,
-            );
-            self.mark_object_for_destruction_with_effects(id, team, presentation_effects);
-        }
-    }
-
-    /// Spawn DragonTankFlameProjectile residual (MissileAI non-seek, DetonateOnNoFuel).
-    pub fn spawn_dragon_flame_projectile(
-        &mut self,
-        source_id: ObjectId,
-        from: glam::Vec3,
-        aim: glam::Vec3,
-        intended: Option<ObjectId>,
-    ) -> Option<ObjectId> {
-        self.spawn_dragon_flame_projectile_with_effects(
-            source_id,
-            from,
-            aim,
-            intended,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(crate) fn spawn_dragon_flame_projectile_with_effects(
-        &mut self,
-        source_id: ObjectId,
-        from: glam::Vec3,
-        aim: glam::Vec3,
-        intended: Option<ObjectId>,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<ObjectId> {
-        use crate::game_logic::host_dragon_tank::{
-            DRAGON_FLAME_MISSILE_FUEL_FRAMES, DRAGON_FLAME_MISSILE_IGNITION_DELAY_FRAMES,
-            DRAGON_FLAME_MISSILE_MAX_HEALTH, DRAGON_FLAME_PROJECTILE, DRAGON_FLAME_STREAM,
-        };
-        use crate::game_logic::{KindOf, ThingTemplate};
-
-        if !self.templates.contains_key(DRAGON_FLAME_PROJECTILE) {
-            let mut t = ThingTemplate::new(DRAGON_FLAME_PROJECTILE);
-            t.add_kind_of(KindOf::Projectile)
-                .set_health(DRAGON_FLAME_MISSILE_MAX_HEALTH)
-                .set_cost(0, 0);
-            self.templates
-                .insert(DRAGON_FLAME_PROJECTILE.to_string(), t);
-        }
-        let team = self
-            .objects
-            .get(&source_id)
-            .map(|o| o.team)
-            .unwrap_or(Team::Neutral);
-        let mut start = from;
-        start.y = start.y.max(2.0);
-        let pid = self.create_object_with_script_effects(
-            DRAGON_FLAME_PROJECTILE,
-            team,
-            start,
-            None,
-            presentation_effects,
-        )?;
-        let expires = self
-            .frame
-            .saturating_add(DRAGON_FLAME_MISSILE_FUEL_FRAMES.max(1));
-        let ignites = self
-            .frame
-            .saturating_add(DRAGON_FLAME_MISSILE_IGNITION_DELAY_FRAMES);
-        if let Some(o) = self.objects.get_mut(&pid) {
-            o.dragon_flame_projectile = true;
-            o.dragon_flame_aim = Some([aim.x, aim.y, aim.z]);
-            o.dragon_flame_intended = intended.map(|id| id.0);
-            o.dragon_flame_travelled = 0.0;
-            o.dragon_flame_fuel_expires_frame = Some(expires);
-            o.dragon_flame_ignition_frame = Some(ignites);
-            o.dragon_flame_shooter = Some(source_id.0);
-            o.note_producer(source_id);
-            o.set_body_max_health_with_mode(
-                DRAGON_FLAME_MISSILE_MAX_HEALTH,
-                crate::game_logic::object::MaxHealthChange::FullyHeal,
-            );
-        }
-        // Seed stream with launch point residual.
-        self.projectile_streams.add_projectile(
-            source_id,
-            0,
-            DRAGON_FLAME_STREAM,
-            start,
-            intended,
-            Some(aim),
-            self.frame,
-        );
-        self.dragon_flame_missiles_spawned = self.dragon_flame_missiles_spawned.saturating_add(1);
-        Some(pid)
-    }
-
-    pub fn update_dragon_flame_projectiles(&mut self) {
-        self.update_dragon_flame_projectiles_with_effects(
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(crate) fn update_dragon_flame_projectiles_with_effects(
-        &mut self,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        use crate::game_logic::host_dragon_tank::{
-            DRAGON_FLAME_MISSILE_DETONATE_ON_NO_FUEL, DRAGON_FLAME_MISSILE_TURN_DISTANCE,
-            DRAGON_FLAME_STREAM, dragon_flame_missile_step_speed,
-        };
-        let frame = self.frame;
-        let flying: Vec<ObjectId> = self
-            .objects
-            .registered()
-            .filter_map(|(id, o)| {
-                if o.dragon_flame_projectile && o.is_alive() {
-                    Some(*id)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let mut impact: Vec<(ObjectId, Option<ObjectId>, Option<ObjectId>, glam::Vec3)> =
-            Vec::new();
-        let mut stream_pts: Vec<(ObjectId, glam::Vec3, Option<ObjectId>, glam::Vec3)> = Vec::new();
-        for id in flying {
-            let (source, intended, aim, pos, fuel_done, ignited, travelled, shooter) = {
-                let Some(o) = self.objects.get(&id) else {
-                    continue;
-                };
-                let aim = o
-                    .dragon_flame_aim
-                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
-                    .unwrap_or_else(|| o.get_position());
-                let intended = o.dragon_flame_intended.map(ObjectId);
-                let fuel_done = o
-                    .dragon_flame_fuel_expires_frame
-                    .map(|f| f <= frame)
-                    .unwrap_or(false);
-                let ignited = o
-                    .dragon_flame_ignition_frame
-                    .map(|f| f <= frame)
-                    .unwrap_or(true);
-                let shooter = o.dragon_flame_shooter.map(ObjectId).or(o.producer_id);
-                (
-                    o.producer_id,
-                    intended,
-                    aim,
-                    o.get_position(),
-                    fuel_done,
-                    ignited,
-                    o.dragon_flame_travelled,
-                    shooter,
-                )
-            };
-            // Non-seek: keep fire-time aim (TryToFollowTarget = No).
-            let can_steer = travelled >= DRAGON_FLAME_MISSILE_TURN_DISTANCE;
-            let speed = dragon_flame_missile_step_speed(ignited && can_steer);
-            let to_aim = aim - pos;
-            let dist = to_aim.length();
-            let step_speed = if dist > 0.001 { speed.min(dist) } else { speed };
-            let vel = if dist > 0.001 {
-                to_aim.normalize() * step_speed
-            } else {
-                glam::Vec3::new(0.0, -step_speed, 0.0)
-            };
-            let step = vel.length().max(step_speed);
-            let new_pos = pos + vel;
-            if let Some(o) = self.objects.get_mut(&id) {
-                o.movement.velocity = vel;
-                o.set_position_with_effects(
-                    new_pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-                o.dragon_flame_travelled += step;
-                o.dragon_flame_aim = Some([aim.x, aim.y, aim.z]);
-                o.set_orientation_with_partition_owner(
-                    vel.z.atan2(vel.x),
-                    &mut self.partition_manager,
-                );
-            }
-            if let Some(sid) = shooter {
-                stream_pts.push((sid, new_pos, intended, aim));
-            }
-            let near = dist <= speed + 0.001 || (aim - new_pos).length() < 6.0;
-            let fuel_detonate = fuel_done && DRAGON_FLAME_MISSILE_DETONATE_ON_NO_FUEL;
-            if fuel_detonate || near {
-                impact.push((id, source, intended, if near { aim } else { new_pos }));
-            }
-        }
-        for (sid, pos, intended, aim) in stream_pts {
-            self.projectile_streams.add_projectile(
-                sid,
-                0,
-                DRAGON_FLAME_STREAM,
-                pos,
-                intended,
-                Some(aim),
-                frame,
-            );
-        }
-        for (id, source, intended, pos) in impact {
-            let team = self.objects.get(&id).map(|o| o.team);
-            if let Some(o) = self.objects.get_mut(&id) {
-                // Wave 752: under damage authority, do not zero host HP mid-frame
-                // (dual with GW HP writeback). Project lethal via damage log + flags.
-                {
-                    o.internal_change_health(-o.health.current);
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                o.dragon_flame_projectile = false;
-                o.set_position_with_effects(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-            }
-            let _ = self.apply_dragon_flame_residual_at_with_effects(
-                pos,
-                source,
-                intended,
-                presentation_effects,
-            );
-            self.mark_object_for_destruction_with_effects(id, team, presentation_effects);
-        }
-    }
-
-    /// Spawn ToxinTruckStreamProjectile residual (MissileAI non-seek poison stream).
-    pub fn spawn_toxin_stream_projectile(
-        &mut self,
-        source_id: ObjectId,
-        from: glam::Vec3,
-        aim: glam::Vec3,
-        intended: Option<ObjectId>,
-    ) -> Option<ObjectId> {
-        self.spawn_toxin_stream_projectile_with_effects(
-            source_id,
-            from,
-            aim,
-            intended,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(crate) fn spawn_toxin_stream_projectile_with_effects(
-        &mut self,
-        source_id: ObjectId,
-        from: glam::Vec3,
-        aim: glam::Vec3,
-        intended: Option<ObjectId>,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<ObjectId> {
-        use crate::game_logic::host_toxin_tractor::{
-            TOXIN_STREAM_MISSILE_FUEL_FRAMES, TOXIN_STREAM_MISSILE_IGNITION_DELAY_FRAMES,
-            TOXIN_STREAM_MISSILE_MAX_HEALTH, TOXIN_STREAM_NAME, UPGRADE_GLA_ANTHRAX_BETA,
-            UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT, anthrax_tier_from_flags,
-            is_chem_general_template, toxin_stream_projectile_name,
-        };
-        use crate::game_logic::{KindOf, ThingTemplate};
-
-        let (name, max_hp) = {
-            let src = self.objects.get(&source_id)?;
-            let has_gamma = src.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA)
-                || src.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA_ALT)
-                || src.has_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma")
-                || src.has_upgrade_tag("Upgrade_GLAAnthraxGamma");
-            let has_beta = src.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
-                || src.has_upgrade_tag("Upgrade_GLAAnthraxBeta");
-            let tier = anthrax_tier_from_flags(
-                has_gamma,
-                has_beta,
-                is_chem_general_template(&src.template_name),
-            );
-            (
-                toxin_stream_projectile_name(tier),
-                TOXIN_STREAM_MISSILE_MAX_HEALTH,
-            )
-        };
-
-        if !self.templates.contains_key(name) {
-            let mut t = ThingTemplate::new(name);
-            t.add_kind_of(KindOf::Projectile)
-                .set_health(max_hp)
-                .set_cost(0, 0);
-            self.templates.insert(name.to_string(), t);
-        }
-        let team = self
-            .objects
-            .get(&source_id)
-            .map(|o| o.team)
-            .unwrap_or(Team::Neutral);
-        let mut start = from;
-        start.y = start.y.max(2.0);
-        let pid =
-            self.create_object_with_script_effects(name, team, start, None, presentation_effects)?;
-        let expires = self
-            .frame
-            .saturating_add(TOXIN_STREAM_MISSILE_FUEL_FRAMES.max(1));
-        let ignites = self
-            .frame
-            .saturating_add(TOXIN_STREAM_MISSILE_IGNITION_DELAY_FRAMES);
-        if let Some(o) = self.objects.get_mut(&pid) {
-            o.toxin_stream_projectile = true;
-            o.toxin_stream_aim = Some([aim.x, aim.y, aim.z]);
-            o.toxin_stream_intended = intended.map(|id| id.0);
-            o.toxin_stream_travelled = 0.0;
-            o.toxin_stream_fuel_expires_frame = Some(expires);
-            o.toxin_stream_ignition_frame = Some(ignites);
-            o.toxin_stream_shooter = Some(source_id.0);
-            o.note_producer(source_id);
-            o.health.current = max_hp;
-            o.health.maximum = max_hp;
-        }
-        self.projectile_streams.add_projectile(
-            source_id,
-            0,
-            TOXIN_STREAM_NAME,
-            start,
-            intended,
-            Some(aim),
-            self.frame,
-        );
-        self.toxin_stream_missiles_spawned = self.toxin_stream_missiles_spawned.saturating_add(1);
-        Some(pid)
-    }
-
-    pub fn update_toxin_stream_projectiles(&mut self) {
-        self.update_toxin_stream_projectiles_with_effects(
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(crate) fn update_toxin_stream_projectiles_with_effects(
-        &mut self,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        use crate::game_logic::host_toxin_tractor::{
-            TOXIN_STREAM_MISSILE_TURN_DISTANCE, TOXIN_STREAM_NAME, toxin_stream_missile_step_speed,
-        };
-        let frame = self.frame;
-        let flying: Vec<ObjectId> = self
-            .objects
-            .registered()
-            .filter_map(|(id, o)| {
-                if o.toxin_stream_projectile && o.is_alive() {
-                    Some(*id)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let mut impact: Vec<(
-            ObjectId,
-            Option<ObjectId>,
-            Option<ObjectId>,
-            glam::Vec3,
-            Team,
-        )> = Vec::new();
-        let mut stream_pts: Vec<(ObjectId, glam::Vec3, Option<ObjectId>, glam::Vec3)> = Vec::new();
-        for id in flying {
-            let (source, intended, aim, pos, fuel_done, ignited, travelled, shooter, team) = {
-                let Some(o) = self.objects.get(&id) else {
-                    continue;
-                };
-                let aim = o
-                    .toxin_stream_aim
-                    .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
-                    .unwrap_or_else(|| o.get_position());
-                let intended = o.toxin_stream_intended.map(ObjectId);
-                let fuel_done = o
-                    .toxin_stream_fuel_expires_frame
-                    .map(|f| f <= frame)
-                    .unwrap_or(false);
-                let ignited = o
-                    .toxin_stream_ignition_frame
-                    .map(|f| f <= frame)
-                    .unwrap_or(true);
-                let shooter = o.toxin_stream_shooter.map(ObjectId).or(o.producer_id);
-                (
-                    o.producer_id,
-                    intended,
-                    aim,
-                    o.get_position(),
-                    fuel_done,
-                    ignited,
-                    o.toxin_stream_travelled,
-                    shooter,
-                    o.team,
-                )
-            };
-            let can_steer = travelled >= TOXIN_STREAM_MISSILE_TURN_DISTANCE;
-            let speed = toxin_stream_missile_step_speed(ignited && can_steer);
-            let to_aim = aim - pos;
-            let dist = to_aim.length();
-            let step_speed = if dist > 0.001 { speed.min(dist) } else { speed };
-            let vel = if dist > 0.001 {
-                to_aim.normalize() * step_speed
-            } else {
-                glam::Vec3::new(0.0, -step_speed, 0.0)
-            };
-            let step = vel.length().max(step_speed);
-            let new_pos = pos + vel;
-            if let Some(o) = self.objects.get_mut(&id) {
-                o.movement.velocity = vel;
-                o.set_position_with_effects(
-                    new_pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-                o.toxin_stream_travelled += step;
-                o.toxin_stream_aim = Some([aim.x, aim.y, aim.z]);
-                o.set_orientation_with_partition_owner(
-                    vel.z.atan2(vel.x),
-                    &mut self.partition_manager,
-                );
-            }
-            if let Some(sid) = shooter {
-                stream_pts.push((sid, new_pos, intended, aim));
-            }
-            let near = dist <= speed + 0.001 || (aim - new_pos).length() < 6.0;
-            // Fuel expiry detonates residual splash at current position (stream continuity).
-            if fuel_done || near {
-                impact.push((id, source, intended, if near { aim } else { new_pos }, team));
-            }
-        }
-        for (sid, pos, intended, aim) in stream_pts {
-            self.projectile_streams.add_projectile(
-                sid,
-                0,
-                TOXIN_STREAM_NAME,
-                pos,
-                intended,
-                Some(aim),
-                frame,
-            );
-        }
-        for (id, source, intended, pos, team) in impact {
-            if let Some(o) = self.objects.get_mut(&id) {
-                // Wave 752: under damage authority, do not zero host HP mid-frame
-                // (dual with GW HP writeback). Project lethal via damage log + flags.
-                {
-                    o.internal_change_health(-o.health.current);
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                o.toxin_stream_projectile = false;
-                o.set_position_with_effects(
-                    pos,
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-            }
-            let source_team = source
-                .and_then(|sid| self.objects.get(&sid).map(|o| o.team))
-                .unwrap_or(team);
-            let _ = self.apply_toxin_tractor_stream_at_with_effects(
-                pos,
-                source,
-                intended,
-                source_team,
-                presentation_effects,
-            );
-            self.mark_object_for_destruction_with_effects(id, Some(team), presentation_effects);
-        }
-    }
-
-    /// Spawn TechnicalRPGMissile residual (MissileAI seek, Fuel 1000ms).
-    pub fn spawn_technical_rpg_missile_projectile(
-        &mut self,
-        source_id: ObjectId,
-        from: glam::Vec3,
-        aim: glam::Vec3,
-        intended: Option<ObjectId>,
-    ) -> Option<ObjectId> {
-        self.spawn_technical_rpg_missile_projectile_with_effects(
-            source_id,
-            from,
-            aim,
-            intended,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
-    pub(crate) fn spawn_technical_rpg_missile_projectile_with_effects(
-        &mut self,
-        source_id: ObjectId,
-        from: glam::Vec3,
-        aim: glam::Vec3,
-        intended: Option<ObjectId>,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<ObjectId> {
-        use crate::game_logic::host_technical::{
-            TECH_RPG_MISSILE_FUEL_FRAMES, TECH_RPG_MISSILE_IGNITION_DELAY_FRAMES,
-            TECH_RPG_MISSILE_MAX_HEALTH, TECHNICAL_RPG_MISSILE,
-        };
-        use crate::game_logic::{KindOf, ThingTemplate};
-
-        if !self.templates.contains_key(TECHNICAL_RPG_MISSILE) {
-            let mut t = ThingTemplate::new(TECHNICAL_RPG_MISSILE);
-            t.add_kind_of(KindOf::Projectile)
-                .set_health(TECH_RPG_MISSILE_MAX_HEALTH)
-                .set_cost(0, 0);
-            self.templates.insert(TECHNICAL_RPG_MISSILE.to_string(), t);
-        }
-        let team = self
-            .objects
-            .get(&source_id)
-            .map(|o| o.team)
-            .unwrap_or(Team::Neutral);
-        let mut start = from;
-        start.y = start.y.max(aim.y) + 6.0;
-        let pid = self.create_object_with_script_effects(
-            TECHNICAL_RPG_MISSILE,
-            team,
-            start,
-            None,
-            presentation_effects,
-        )?;
-        let expires = self
-            .frame
-            .saturating_add(TECH_RPG_MISSILE_FUEL_FRAMES.max(1));
-        let ignites = self
-            .frame
-            .saturating_add(TECH_RPG_MISSILE_IGNITION_DELAY_FRAMES);
-        if let Some(o) = self.objects.get_mut(&pid) {
-            o.technical_rpg_missile_projectile = true;
-            o.technical_rpg_missile_aim = Some([aim.x, aim.y, aim.z]);
-            o.technical_rpg_missile_intended = intended.map(|id| id.0);
-            o.technical_rpg_missile_travelled = 0.0;
-            o.technical_rpg_missile_fuel_expires_frame = Some(expires);
-            o.technical_rpg_missile_ignition_frame = Some(ignites);
-            o.note_producer(source_id);
-            o.set_body_max_health_with_mode(
-                TECH_RPG_MISSILE_MAX_HEALTH,
-                crate::game_logic::object::MaxHealthChange::FullyHeal,
-            );
-        }
-        self.technical_rpg_missiles_spawned = self.technical_rpg_missiles_spawned.saturating_add(1);
-        Some(pid)
-    }
 }
 
 #[cfg(test)]

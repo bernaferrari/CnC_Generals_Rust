@@ -640,12 +640,11 @@ fn host_upgrade_complete_helix_nuke_bomb_tags_helix() {
     let id = logic
         .create_object("ChinaHelix", Team::China, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("helix");
-    let n = logic.apply_helix_bomb_upgrade_to_team(
-        Team::China.into(),
-        "Nuke_Upgrade_HelixNukeBomb",
-        UPGRADE_HELIX_NUKE_BOMB,
-    );
-    assert!(n >= 1);
+    // Object::giveUpgrade stamps the granted upgrade itself on the Helix.
+    logic
+        .host_object_mut(id)
+        .unwrap()
+        .apply_upgrade_tag("Nuke_Upgrade_HelixNukeBomb");
     assert!(
         logic
             .host_object(id)
@@ -1284,16 +1283,15 @@ fn host_upgrade_complete_fanaticism_does_not_map_to_nationalism() {
     rg.add_kind_of(KindOf::Infantry).set_health(120.0);
     logic.templates.insert("ChinaInfantryRedguard".into(), rg);
     let id = logic
-        .create_object(
-            "ChinaInfantryRedguard",
-            Team::China,
-            glam::Vec3::new(0.0, 0.0, 0.0),
-        )
+        .create_object_for_player("ChinaInfantryRedguard", 0, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("rg");
-    let n = logic.apply_fanaticism_to_team(Team::China.into(), UPGRADE_FANATICISM);
-    assert!(n >= 1, "fanaticism tag residual n={n}");
+    logic
+        .players
+        .get_mut(&0)
+        .unwrap()
+        .add_completed_upgrade(UPGRADE_FANATICISM);
+    logic.evaluate_horde_morale_bonus(id);
     let obj = logic.host_object(id).unwrap();
-    assert!(obj.has_upgrade_tag(UPGRADE_FANATICISM));
     assert!(!obj.weapon_bonus_nationalism);
     assert!(!obj.weapon_bonus_fanaticism);
 }
@@ -1986,18 +1984,6 @@ fn host_upgrade_complete_moab_and_satellite_hack_unlock() {
             .unwrap()
             .unlocked_sciences
             .contains(UPGRADE_AMERICA_MOAB)
-    );
-    assert!(
-        logic.apply_satellite_hack_to_team(Team::China.into(), UPGRADE_CHINA_SATELLITE_HACK_TWO)
-            >= 1
-    );
-    assert!(
-        logic
-            .players
-            .get(&1)
-            .unwrap()
-            .unlocked_sciences
-            .contains(UPGRADE_CHINA_SATELLITE_HACK_TWO)
     );
 }
 

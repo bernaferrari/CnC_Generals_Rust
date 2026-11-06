@@ -328,8 +328,8 @@ fn host_upgrade_complete_anthrax_beta_and_toxin_shells() {
 }
 
 #[test]
-fn host_upgrade_complete_nationalism_tags_red_guard() {
-    use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM;
+fn horde_morale_reads_the_players_completed_nationalism_and_fanaticism() {
+    use crate::game_logic::host_battlemaster::{UPGRADE_FANATICISM, UPGRADE_NATIONALISM};
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     logic
@@ -338,163 +338,97 @@ fn host_upgrade_complete_nationalism_tags_red_guard() {
     let mut rg = ThingTemplate::new("ChinaInfantryRedguard");
     rg.add_kind_of(KindOf::Infantry).set_health(120.0);
     logic.templates.insert("ChinaInfantryRedguard".into(), rg);
-    let id = logic
-        .create_object(
-            "ChinaInfantryRedguard",
-            Team::China,
-            glam::Vec3::new(0.0, 0.0, 0.0),
-        )
+    let before = logic
+        .create_object_for_player("ChinaInfantryRedguard", 0, glam::Vec3::ZERO)
         .expect("rg");
-    let n = logic.apply_nationalism_to_team(Team::China.into(), UPGRADE_NATIONALISM);
-    assert!(n >= 1);
-    assert!(
-        logic
-            .host_object(id)
-            .unwrap()
-            .has_upgrade_tag(UPGRADE_NATIONALISM)
-    );
-    assert!(
-        logic
-            .players
-            .get(&0)
-            .unwrap()
-            .unlocked_sciences
-            .contains(UPGRADE_NATIONALISM)
-    );
-}
-
-#[test]
-fn subliminal_messaging_tags_propaganda_towers() {
-    use crate::game_logic::host_propaganda::UPGRADE_CHINA_SUBLIMINAL_MESSAGING;
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::China, "China", true));
-
-    let mut tower = ThingTemplate::new("ChinaSpeakerTower");
-    tower.add_kind_of(KindOf::Structure).set_health(500.0);
-    logic.templates.insert("ChinaSpeakerTower".into(), tower);
-
-    let id = logic
-        .create_object(
-            "ChinaSpeakerTower",
-            Team::China,
-            glam::Vec3::new(0.0, 0.0, 0.0),
-        )
-        .expect("tower");
-    let n = logic
-        .apply_subliminal_messaging_to_team(Team::China.into(), UPGRADE_CHINA_SUBLIMINAL_MESSAGING);
-    assert_eq!(n, 1);
-    assert!(logic.subliminal_messaging_upgrades > 0);
-    let t = logic.host_object(id).unwrap();
-    assert!(t.has_upgrade_tag(UPGRADE_CHINA_SUBLIMINAL_MESSAGING));
-    assert!(
-        logic
-            .players
-            .get(&0)
-            .unwrap()
-            .unlocked_sciences
-            .contains(UPGRADE_CHINA_SUBLIMINAL_MESSAGING)
-    );
-}
-
-#[test]
-fn advanced_control_rods_boosts_america_power_plant_energy() {
-    use crate::game_logic::host_structure_economy_residual::{
-        AMERICA_POWER_ENERGY_BONUS, UPGRADE_AMERICA_ADVANCED_CONTROL_RODS,
+    let flags = |logic: &GameLogic, id| {
+        let o = logic.host_object(id).unwrap();
+        (o.weapon_bonus_nationalism, o.weapon_bonus_fanaticism)
     };
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
+
+    logic.evaluate_horde_morale_bonus(before);
+    assert_eq!(flags(&logic, before), (false, false));
+
+    // Fanaticism nests inside Nationalism (AIUpdate.cpp evaluateMoraleBonus).
+    logic.players.get_mut(&0).unwrap().add_completed_upgrade(UPGRADE_FANATICISM);
+    logic.evaluate_horde_morale_bonus(before);
+    assert_eq!(flags(&logic, before), (false, false));
+
+    logic.players.get_mut(&0).unwrap().add_completed_upgrade(UPGRADE_NATIONALISM);
+    logic.evaluate_horde_morale_bonus(before);
+    assert_eq!(flags(&logic, before), (true, true));
+
+    // A unit created after the research evaluates against the same Player.
+    let after = logic
+        .create_object_for_player("ChinaInfantryRedguard", 0, glam::Vec3::X)
+        .expect("rg after");
+    logic.evaluate_horde_morale_bonus(after);
+    assert_eq!(flags(&logic, after), (true, true));
+}
+
+fn admit_power_plants(logic: &mut GameLogic) {
+    // Template names are arbitrary: the authored PowerPlantUpgrade module, not
+    // the name, selects the recipient.
     logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
-
-    let mut plant = ThingTemplate::new("AmericaPowerPlant");
-    plant
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::PowerPlant)
-        .set_health(800.0);
-    logic.templates.insert("AmericaPowerPlant".into(), plant);
-    // China plant must not receive America rods residual.
-    let mut china = ThingTemplate::new("ChinaPowerPlant");
-    china
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::PowerPlant)
-        .set_health(1500.0);
-    logic.templates.insert("ChinaPowerPlant".into(), china);
-
-    let aid = logic
-        .create_object(
-            "AmericaPowerPlant",
-            Team::USA,
-            glam::Vec3::new(0.0, 0.0, 0.0),
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "receiving-power-plant-upgrade.ini".into(),
+                "Object ModularReactor\nKindOf = STRUCTURE FS_POWER SELECTABLE\nBody = ActiveBody BodyTag\nMaxHealth = 800\nInitialHealth = 800\nEnd\nEnergyBonus = 5\n\
+                 Behavior = PowerPlantUpgrade RodsTag\nTriggeredBy = Upgrade_TestRods\nEnd\nEnd\n\
+                 Object AmericaPowerPlant\nKindOf = STRUCTURE FS_POWER SELECTABLE\nBody = ActiveBody BodyTag\nMaxHealth = 800\nInitialHealth = 800\nEnd\nEnergyBonus = 5\nEnd\n"
+                    .into(),
+            )])
+            .unwrap(),
         )
-        .expect("usa plant");
-    let cid = logic
-        .create_object(
-            "ChinaPowerPlant",
-            Team::USA,
-            glam::Vec3::new(40.0, 0.0, 0.0),
-        )
-        .expect("china plant");
-    if let Some(o) = logic.host_object_mut(aid) {
-        o.power_provided = 5;
-        o.construction_percent = 1.0;
-        o.set_status_under_construction(false);
-    }
-    if let Some(o) = logic.host_object_mut(cid) {
-        o.power_provided = 10;
-        o.construction_percent = 1.0;
-        o.set_status_under_construction(false);
-    }
-
-    let n = logic.apply_advanced_control_rods_to_team(
-        Team::USA.into(),
-        UPGRADE_AMERICA_ADVANCED_CONTROL_RODS,
-    );
-    assert_eq!(n, 1);
-    assert!(logic.control_rods_upgrades > 0);
-    let usa = logic.host_object(aid).unwrap();
-    assert_eq!(usa.power_provided, 5 + AMERICA_POWER_ENERGY_BONUS);
-    assert!(usa.has_upgrade_tag(UPGRADE_AMERICA_ADVANCED_CONTROL_RODS));
-    let ch = logic.host_object(cid).unwrap();
-    assert_eq!(
-        ch.power_provided, 10,
-        "China plant must not get America rods"
-    );
+        .unwrap();
 }
 
 #[test]
-fn new_cold_fusion_after_control_rods_gets_energy_bonus() {
-    use crate::game_logic::host_structure_economy_residual::{
-        AMERICA_POWER_ENERGY_BONUS, UPGRADE_AMERICA_ADVANCED_CONTROL_RODS,
-    };
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
+fn authored_power_plant_upgrade_adds_energy_bonus_once_by_module_not_name() {
+    use crate::game_logic::Team;
+    let mut logic = GameLogic::new();
+    logic.players.insert(0, Player::new(0, Team::USA, "USA", true));
+    admit_power_plants(&mut logic);
+    let authored = logic
+        .create_object_for_player("ModularReactor", 0, glam::Vec3::ZERO)
+        .unwrap();
+    let named = logic
+        .create_object_for_player("AmericaPowerPlant", 0, glam::Vec3::X * 40.0)
+        .unwrap();
+    for id in [authored, named] {
+        let plant = logic.host_object_mut(id).unwrap();
+        plant.power_provided = 5;
+        plant.construction_percent = 1.0;
+        plant.set_status_under_construction(false);
+    }
+    assert!(logic.apply_authored_power_plant_upgrades(authored, |n| n == "Upgrade_TestRods"));
+    assert!(!logic.apply_authored_power_plant_upgrades(named, |n| n == "Upgrade_TestRods"));
+    // UpgradeMux runs a module once.
+    assert!(!logic.apply_authored_power_plant_upgrades(authored, |n| n == "Upgrade_TestRods"));
+    assert_eq!(logic.host_object(authored).unwrap().power_provided, 10);
+    assert_eq!(logic.host_object(named).unwrap().power_provided, 5);
+}
+
+#[test]
+fn completed_player_upgrade_reaches_power_plant_built_afterwards() {
+    use crate::game_logic::Team;
+    // C++ Object::initObject -> updateUpgradeModules: a plant created while
+    // its controlling Player already owns the triggering upgrade runs the
+    // PowerPlantUpgrade module; one created for a Player without it does not.
     let mut logic = GameLogic::new();
     let mut player = Player::new(0, Team::USA, "USA", true);
-    player.add_completed_upgrade(UPGRADE_AMERICA_ADVANCED_CONTROL_RODS);
+    player.add_completed_upgrade("Upgrade_TestRods");
     logic.players.insert(0, player);
-
-    let mut plant = ThingTemplate::new("AmericaPowerPlant");
-    plant
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::PowerPlant)
-        .set_health(800.0);
-    plant.energy_production = Some(5);
-    logic.templates.insert("AmericaPowerPlant".into(), plant);
-
-    let id = logic
-        .create_object_for_player("AmericaPowerPlant", 0, glam::Vec3::new(0.0, 0.0, 0.0))
-        .expect("plant");
-    if let Some(o) = logic.host_object_mut(id) {
-        o.construction_percent = 1.0;
-        o.set_status_under_construction(false);
-    }
-    logic.apply_researched_player_upgrades_to_object(id);
-    let plant = logic.host_object(id).unwrap();
-    assert_eq!(plant.power_provided, 5 + AMERICA_POWER_ENERGY_BONUS);
-    assert!(plant.has_upgrade_tag(UPGRADE_AMERICA_ADVANCED_CONTROL_RODS));
+    logic.players.insert(1, Player::new(1, Team::USA, "Other", false));
+    admit_power_plants(&mut logic);
+    let upgraded = logic
+        .create_object_for_player("ModularReactor", 0, glam::Vec3::ZERO)
+        .unwrap();
+    let plain = logic
+        .create_object_for_player("ModularReactor", 1, glam::Vec3::X * 40.0)
+        .unwrap();
+    let produced = |logic: &GameLogic, id| logic.host_object(id).unwrap().power_provided;
+    assert_eq!(produced(&logic, upgraded), produced(&logic, plain) + 5);
 }
 
 #[test]
