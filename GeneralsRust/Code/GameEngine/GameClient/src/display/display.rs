@@ -166,6 +166,8 @@ pub struct Display {
     border_shroud_level: u8,
     letterbox_fade_level: f32,
     lighting_state: DisplayLightingState,
+    /// Detected-stealth overlay pass GPU state owned by this Display.
+    occlusion_overlay: shadow_pass::OcclusionOverlayPass,
 }
 
 impl Display {
@@ -257,6 +259,7 @@ impl Display {
                 TimeOfDay::Invalid,
                 false,
             ),
+            occlusion_overlay: shadow_pass::OcclusionOverlayPass::default(),
         }
     }
 
@@ -1144,27 +1147,28 @@ impl Display {
                 }
             }
 
-            // C++ DoShadows(true) after opaque flush, then
-            // flushOccludedObjectsIntoStencil + renderStenciledPlayerColor.
-            let light_pos = self
-                .lighting_state
-                .lights
-                .first()
-                .map(|light| light.position)
-                .unwrap_or([0.0, 0.0, -1.0]);
-            shadow_pass::record_shadow_and_occlusion_passes_with_manager(
+            // Detected-stealth markers over the opaque scene. Stencil volumes
+            // and occluded player colours are drawn by the mesh renderer and
+            // Main's occlusion bridge.
+            let overlays = drawable_manager
+                .as_deref()
+                .map(shadow_pass::heat_vision_overlays)
+                .unwrap_or_default();
+            self.occlusion_overlay.record(
                 self.graphics.device(),
+                self.graphics.queue(),
                 &mut encoder,
-                scene_view,
-                &self.depth_view,
-                proj_glam * view_glam,
-                [camera_pos.x, camera_pos.y, camera_pos.z],
-                light_pos,
-                self.graphics.config().format,
-                ww3d_gpu::SCENE_DEPTH_FORMAT,
-                // Legacy Display::draw path: keep its full-attachment default.
-                (0.0, 0.0),
-                drawable_manager.as_deref(),
+                &shadow_pass::OverlayTargets {
+                    color_view: scene_view,
+                    depth_view: &self.depth_view,
+                    color_format: self.graphics.config().format,
+                    depth_format: ww3d_gpu::SCENE_DEPTH_FORMAT,
+                    view_proj: proj_glam * view_glam,
+                    camera: [camera_pos.x, camera_pos.y, camera_pos.z],
+                    // Legacy Display::draw path: keep its full-attachment default.
+                    viewport_px: (0.0, 0.0),
+                },
+                &overlays,
             );
         });
 

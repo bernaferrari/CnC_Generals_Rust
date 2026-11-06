@@ -450,7 +450,6 @@ pub fn apply_lod_texture_reduction_to_session(
     if previous != clamped || renderer_previous != clamped as u32 {
         terrain(clamped);
     }
-    crate::display::shadow_pass::rebuild_shadows();
 
     Some(clamped)
 }

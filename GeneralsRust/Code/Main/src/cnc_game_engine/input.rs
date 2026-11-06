@@ -2185,12 +2185,6 @@ impl CnCGameEngine {
                 self.game_logic.session_view.camera.camera_zoom,
                 hovered_drawable,
             );
-            #[cfg(feature = "game_client")]
-            {
-                let _ =
-                    game_client::display::shadow_pass::present_occluded_player_color_silhouette();
-            }
-
             crate::graphics::occlusion_bridge::enqueue_occluded_player_color_pass(
                 &mut self.render_pipeline,
                 &self.game_logic.session_view.camera.view_matrix,
