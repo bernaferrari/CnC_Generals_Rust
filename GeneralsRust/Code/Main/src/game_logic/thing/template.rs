@@ -1687,9 +1687,7 @@ impl ThingTemplate {
         None
     }
 
-    /// Resolve weapon for a newly created combat unit:
-    /// 1) explicit host stats, 2) WeaponStore by primary_weapon_name,
-    /// 3) kind-based default fallback (fail-open last resort for Attackable kinds).
+    /// Resolve the authored primary weapon for a newly created unit.
     pub fn resolve_primary_weapon(&self, frame: u32) -> Option<Weapon> {
         if let Some(w) = &self.primary_weapon {
             return Some(w.clone());
@@ -1702,29 +1700,7 @@ impl ThingTemplate {
                 return Some(w);
             }
         }
-        if self.primary_weapon_explicitly_none || self.primary_auto_choose_none {
-            // C++ Object.cpp:160-497 arms only ThingTemplate WeaponSet data.
-            // AutoChooseSources=PRIMARY NONE must not fall through to a
-            // kind-based Weapon::default after a store miss.
-            return None;
-        }
-        // C++ WeaponSet::updateWeaponSet (WeaponSet.cpp:275) arms only the
-        // authored WeaponSet: no weapon is ever inferred from the template name.
-        // C++ dozers carry only MINE_CLEARING_DETAIL (Object.cpp:160-497 arms
-        // ThingTemplate WeaponSet data; a Dozer template has no primary gun).
-        // The kind-based Weapon::default() last resort must not hand
-        // Dozer-kind templates an attack weapon or can_attack flips true.
-        if self.is_kind_of(KindOf::Dozer) {
-            return None;
-        }
-        if self.is_kind_of(KindOf::Infantry)
-            || self.is_kind_of(KindOf::Vehicle)
-            || self.is_kind_of(KindOf::Aircraft)
-            || self.is_kind_of(KindOf::Attackable)
-        {
-            // Last-resort host combat stats when no template/store weapon is usable.
-            return Some(Weapon::default());
-        }
+        // C++ WeaponSet::updateWeaponSet arms only an authored WeaponSet.
         None
     }
 
