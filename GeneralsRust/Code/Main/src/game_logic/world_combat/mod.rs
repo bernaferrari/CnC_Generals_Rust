@@ -11,6 +11,7 @@ pub(crate) use drones_and_garrison::open_contain_exit_path;
 mod gps_and_fields;
 mod heroes_and_plans;
 mod infantry_weapons;
+mod horde_update;
 mod missile_defenders;
 pub(in crate::game_logic) mod ocl_and_scud;
 mod passive_weapon_fire;

@@ -453,8 +453,7 @@ impl GameLogic {
     /// Refresh Battlemaster weapon residual from current uranium / horde / nationalism flags.
     pub(crate) fn refresh_battlemaster_weapon(&mut self, object_id: ObjectId) {
         use crate::game_logic::host_battlemaster::{
-            battlemaster_weapon, has_uranium_shells_upgrade, is_battlemaster_template,
-            leftover_horde_fanaticism_bonus,
+            battlemaster_weapon, has_uranium_shells_upgrade, leftover_horde_fanaticism_bonus,
         };
         let morale = self.owner_morale_upgrades(
             self.objects
@@ -464,7 +463,7 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
-        if !is_battlemaster_template(&obj.template_name) {
+        if !obj.authors_battlemaster_tank_gun() {
             return;
         }
         let uranium = has_uranium_shells_upgrade(&obj.applied_upgrades);
@@ -475,7 +474,7 @@ impl GameLogic {
         let nationalism_active = super::tanks_and_upgrades::nationalism_bonus_from_upgrade(
             nationalism,
             in_horde,
-            super::tanks_and_upgrades::HORDE_DEFAULT_ALLOWED_NATIONALISM,
+            obj.horde_allowed_nationalism(),
         );
         obj.weapon_bonus_nationalism = nationalism_active;
         obj.weapon_bonus_fanaticism = leftover_horde_fanaticism_bonus(
@@ -490,13 +489,11 @@ impl GameLogic {
 
     /// Apply Uranium Shells residual (PLAYER_UPGRADE DAMAGE 125%) to a Battlemaster.
     pub fn apply_battlemaster_uranium_upgrade(&mut self, object_id: ObjectId) -> bool {
-        use crate::game_logic::host_battlemaster::{
-            UPGRADE_CHINA_URANIUM_SHELLS, is_battlemaster_template,
-        };
+        use crate::game_logic::host_battlemaster::UPGRADE_CHINA_URANIUM_SHELLS;
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_battlemaster_template(&obj.template_name) {
+        if !obj.authors_battlemaster_tank_gun() {
             return false;
         }
         obj.applied_upgrades
@@ -506,129 +503,6 @@ impl GameLogic {
             .saturating_add(1);
         self.refresh_battlemaster_weapon(object_id);
         true
-    }
-
-    /// Recompute China vehicle HordeUpdate residual (Battlemaster + other ExactMatch
-    /// HordeUpdate vehicles). Radius 75 / Count 5 / RubOff 20; terrain-decal fade.
-    pub fn update_battlemaster_horde_status(&mut self) {
-        use crate::game_logic::host_battlemaster::{
-            BATTLE_MASTER_HORDE_COUNT, BATTLE_MASTER_HORDE_RADIUS,
-            BATTLE_MASTER_HORDE_RUB_OFF_RADIUS, BATTLE_MASTER_HORDE_UPDATE_FRAMES,
-            LeftoverHordeScanUnit, counts_toward_battlemaster_horde,
-            evaluate_leftover_horde_blob_scan, is_battlemaster_template,
-            is_china_vehicle_horde_unit, leftover_horde_bounding_sphere_radius,
-            leftover_horde_take_wake, same_vehicle_horde_family,
-        };
-
-        let snapshot: Vec<(ObjectId, Team, Option<u32>, LeftoverHordeScanUnit, String)> = self
-            .objects
-            .registered()
-            .filter_map(|(id, o)| {
-                if !o.is_alive() || !is_china_vehicle_horde_unit(&o.template_name) {
-                    return None;
-                }
-                let p = o.get_position();
-                let geom = &(*o.geometry_info());
-                Some((
-                    *id,
-                    o.team,
-                    o.owner_player_id,
-                    LeftoverHordeScanUnit {
-                        x: p.x,
-                        y: p.y,
-                        z: p.z,
-                        sphere_radius: leftover_horde_bounding_sphere_radius(
-                            geom.authored,
-                            geom.bounding_sphere_radius(),
-                            o.selection_radius,
-                        ),
-                        alive: o.is_alive(),
-                    },
-                    o.template_name.clone(),
-                ))
-            })
-            .collect();
-
-        let units: Vec<LeftoverHordeScanUnit> = snapshot.iter().map(|u| u.3).collect();
-        let membership = evaluate_leftover_horde_blob_scan(
-            &units,
-            BATTLE_MASTER_HORDE_COUNT,
-            BATTLE_MASTER_HORDE_RADIUS,
-            BATTLE_MASTER_HORDE_RUB_OFF_RADIUS,
-            |i, j, dist| {
-                counts_toward_battlemaster_horde(
-                    snapshot[i].3.alive,
-                    snapshot[j].3.alive,
-                    self.horde_allies_only(
-                        snapshot[i].2,
-                        snapshot[i].1,
-                        snapshot[j].2,
-                        snapshot[j].1,
-                    ),
-                    same_vehicle_horde_family(&snapshot[i].4, &snapshot[j].4),
-                    dist,
-                    BATTLE_MASTER_HORDE_RADIUS,
-                )
-            },
-        );
-
-        let mut grants = 0u32;
-        let mut to_refresh: Vec<ObjectId> = Vec::new();
-        let draw_icon = self.get_draw_icon_ui();
-        let frame = self.frame;
-
-        for (idx, (id, _team, owner, _scan, name)) in snapshot.iter().enumerate() {
-            let scanned = membership[idx].in_horde;
-            let morale = self.owner_morale_upgrades(*owner);
-            if let Some(obj) = self.objects.get_mut(id) {
-                let (due, init, last, next) = leftover_horde_take_wake(
-                    obj.horde_wake_initialized,
-                    false,
-                    frame,
-                    obj.last_horde_refresh_frame,
-                    obj.horde_next_wake_frame,
-                    BATTLE_MASTER_HORDE_UPDATE_FRAMES,
-                );
-                obj.horde_wake_initialized = init;
-                obj.last_horde_refresh_frame = last;
-                obj.horde_next_wake_frame = next;
-                let was = obj.weapon_bonus_horde;
-                let now_horde = if due { scanned } else { was };
-                if due {
-                    obj.weapon_bonus_horde = now_horde;
-                    if now_horde && !was {
-                        grants = grants.saturating_add(1);
-                    }
-                    if is_battlemaster_template(name) && (now_horde != was || now_horde) {
-                        to_refresh.push(*id);
-                    }
-                }
-                let morale_before = (obj.weapon_bonus_nationalism, obj.weapon_bonus_fanaticism);
-                // C++ HordeUpdate::update calls evaluateMoraleBonus after the
-                // membership scan (when due) and then stamps the decal from
-                // NATIONALISM/FANATICISM. Dragon/Inferno/Gattling/Overlord
-                // share this path — they are not Battlemaster-only.
-                if due {
-                    super::tanks_and_upgrades::apply_evaluate_morale_bonus(obj, morale);
-                    if is_battlemaster_template(name)
-                        && morale_before
-                            != (obj.weapon_bonus_nationalism, obj.weapon_bonus_fanaticism)
-                        && !to_refresh.contains(id)
-                    {
-                        to_refresh.push(*id);
-                    }
-                }
-                obj.apply_horde_terrain_decal(was, now_horde, draw_icon);
-            }
-        }
-
-        self.battlemaster_residual_horde_grants = self
-            .battlemaster_residual_horde_grants
-            .saturating_add(grants);
-
-        for id in to_refresh {
-            self.refresh_battlemaster_weapon(id);
-        }
     }
 
     pub fn honesty_usa_tank_shell_projectile_ok(&self) -> bool {

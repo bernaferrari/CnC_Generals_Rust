@@ -431,6 +431,7 @@ impl GameLogic {
                 Self::apply_authored_flight_deck_metadata(template, &definition);
                 Self::apply_authored_supply_truck_metadata(template, &definition);
                 Self::apply_authored_stealth_upgrade_metadata(template, &definition);
+                Self::apply_authored_horde_and_visual_upgrade_metadata(template, &definition);
                 // Starter templates are retained by the host before the full
                 // Object INI catalogue is seeded.  They still need the exact
                 // authored exit interface; otherwise a retail ChinaBarracks
@@ -784,6 +785,7 @@ impl GameLogic {
         Self::apply_authored_flight_deck_metadata(template, definition);
         Self::apply_authored_supply_truck_metadata(template, definition);
         Self::apply_authored_stealth_upgrade_metadata(template, definition);
+        Self::apply_authored_horde_and_visual_upgrade_metadata(template, definition);
         Self::apply_authored_production_exit_metadata(template, definition);
         Self::apply_authored_eject_pilot_die_metadata(template, definition);
         Self::apply_authored_rebuild_hole_expose_die_metadata(template, definition);

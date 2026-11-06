@@ -488,13 +488,12 @@ impl Object {
         draw_icon_ui: bool,
     ) {
         use crate::game_logic::host_battlemaster::{
-            TERRAIN_DECAL_NONE, hide_leftover_horde_flag_subobjects,
-            is_portable_structure_template, leftover_horde_decal_fade, leftover_horde_decal_type,
-            leftover_horde_major_radius,
+            TERRAIN_DECAL_NONE, hide_leftover_horde_flag_subobjects, leftover_horde_decal_fade,
+            leftover_horde_decal_type, leftover_horde_major_radius,
             leftover_infantry_horde_decal_size_or_bbox, leftover_template_shadow_size,
-            leftover_unit_has_horde_flag_subobjects, leftover_vehicle_horde_decal_size,
+            leftover_vehicle_horde_decal_size,
         };
-        if leftover_unit_has_horde_flag_subobjects(&self.template_name) {
+        if self.thing.template.horde_update.is_some() {
             hide_leftover_horde_flag_subobjects(&mut self.sub_object_visibility);
         }
         if !self.is_alive() {
@@ -502,7 +501,8 @@ impl Object {
         }
         let is_infantry = self.is_kind_of(crate::game_logic::KindOf::Infantry);
         if draw_icon_ui {
-            if now_in_horde && !is_portable_structure_template(&self.template_name) {
+            // HordeUpdate.cpp:296: not a KINDOF_PORTABLE_STRUCTURE overlord ride-on.
+            if now_in_horde && !self.is_kind_of(crate::game_logic::KindOf::PortableStructure) {
                 let has_nationalism = self.weapon_bonus_nationalism;
                 // evaluateMoraleBonus already nested FANATICISM inside NATIONALISM.
                 let has_fanaticism = self.weapon_bonus_fanaticism;

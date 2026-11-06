@@ -747,7 +747,7 @@ impl GameLogic {
         let nationalism = super::tanks_and_upgrades::nationalism_bonus_from_upgrade(
             morale.nationalism,
             in_horde,
-            super::tanks_and_upgrades::HORDE_DEFAULT_ALLOWED_NATIONALISM,
+            obj.horde_allowed_nationalism(),
         );
         obj.weapon_bonus_nationalism = nationalism;
         let chain = has_chain_guns_upgrade(&obj.applied_upgrades);
