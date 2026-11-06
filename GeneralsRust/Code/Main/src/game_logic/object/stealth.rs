@@ -1113,7 +1113,8 @@ mod stealth_grant_tests {
         let mut template = ThingTemplate::new("Hero");
         template.stealth_update = Some(StealthUpdateData { innate_stealth: true, stealth_delay_frames: 60, ..Default::default() });
         let mut hero = Object::new(template, super::ObjectId(2), super::Team::USA);
-        hero.construct_stealth_update(0);
+        let mut random = game_engine::common::random_value::RandomState::default();
+        hero.construct_stealth_update(0, &mut random);
         assert!(hero.innate_stealth);
         hero.apply_stealth_allowed(59, true, 60);
         assert!(!hero.status.stealthed);

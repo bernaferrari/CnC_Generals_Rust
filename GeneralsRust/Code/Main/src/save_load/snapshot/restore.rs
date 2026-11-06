@@ -485,7 +485,7 @@ impl SnapshotBuilder {
         );
         // StealthUpdate constructor (InnateStealth CAN_STEALTH); the saved
         // m_stealthAllowedFrame overlays it in restore_object_status.
-        object.construct_stealth_update(frame);
+        object.construct_stealth_update(frame, &mut game_logic.session_view.client_random);
         // Object::xfer restores m_layer before its behavior modules.
         if let Some(layer) = current_layer {
             object.pathfind_layer = layer;

@@ -2814,7 +2814,7 @@ impl GameLogic {
             object.install_authored_stealth_detector();
             // C++ StealthUpdate is an authored module too: its constructor
             // arms StealthDelay and InnateStealth CAN_STEALTH (StealthUpdate.cpp:107-147).
-            object.construct_stealth_update(self.frame);
+            object.construct_stealth_update(self.frame, &mut self.session_view.client_random);
 
             // C++ TunnelContain: entrances share the player's TunnelTracker whose
             // capacity is GameData MaxTunnelCapacity (TunnelTracker.cpp:81-84).

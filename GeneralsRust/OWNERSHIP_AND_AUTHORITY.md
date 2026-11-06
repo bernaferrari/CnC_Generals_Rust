@@ -9,9 +9,10 @@ Preserve C++ **behavior**. Do not preserve C++ **pointer ownership**.
 StealthUpdate reads the admitted authored module and owns its enabled state,
 scheduler wake state, remaining granted update count, and detection and cloak
 deadlines on the live Object. The frame-counted grant pauses while its update
-does not execute. Weapon slots retain their own last-shot frames; replacing a
-selected authored weapon row creates fresh slot runtime. StealthUpdate.cpp
-and Weapon.cpp define the timing and serialization behavior.
+does not execute. Construction consumes one draw from the receiving session's
+client RNG for the initial opacity phase; weapon slots retain their own
+last-shot frames. Replacing a selected authored weapon row creates fresh slot
+runtime. StealthUpdate.cpp and Weapon.cpp define the timing and serialization.
 Primary weapons are created only from explicitly authored weapon data or a
 resolved authored weapon template; a unit's kind does not imply a default gun.
 

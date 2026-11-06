@@ -310,14 +310,17 @@ impl Object {
             .is_some_and(|data| data.disguises_as_team)
     }
 
-    /// C++ `StealthUpdate` constructor (StealthUpdate.cpp:107-147):
-    /// `m_stealthAllowedFrame = now + StealthDelay` (unsigned wrap, as C++)
-    /// and `OBJECT_STATUS_CAN_STEALTH` for `InnateStealth`.
-    pub(crate) fn construct_stealth_update(&mut self, now: u32) {
+    /// C++ `StealthUpdate` constructor (StealthUpdate.cpp:107-147).
+    pub(crate) fn construct_stealth_update(
+        &mut self,
+        now: u32,
+        client_random: &mut game_engine::common::random_value::RandomState,
+    ) {
         let Some(data) = self.stealth_update_data().copied() else {
             return;
         };
         self.stealth_allowed_frame = now.wrapping_add(data.stealth_delay_frames);
+        self.camo_opacity_pulse_phase = client_random.next_real(0.0, std::f32::consts::PI);
         self.stealth_update_enabled = !data.disguises_as_team;
         self.stealth_update_awake = !data.granted_by_special_power;
         if data.innate_stealth {

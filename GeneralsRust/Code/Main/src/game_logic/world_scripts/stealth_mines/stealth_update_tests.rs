@@ -41,6 +41,26 @@ fn stealth_module(body: &str) -> String {
 }
 
 #[test]
+fn stealth_constructor_consumes_one_receiving_client_random_draw() {
+    let mut world = world(&[
+        object("Cloaked", "INFANTRY", &stealth_module("InnateStealth = Yes\n")),
+        object("Unarmed", "INFANTRY", ""),
+    ]);
+    world.seed_fx_random(0x1234);
+    let mut expected = world.session_view.client_random.clone();
+    let first = expected.next_real(0.0, std::f32::consts::PI);
+    let second = expected.next_real(0.0, std::f32::consts::PI);
+
+    let a = world.create_object("Cloaked", Team::GLA, Vec3::ZERO).unwrap();
+    world.create_object("Unarmed", Team::GLA, Vec3::ZERO).unwrap();
+    let b = world.create_object("Cloaked", Team::GLA, Vec3::ZERO).unwrap();
+
+    assert_eq!(world.host_object(a).unwrap().camo_opacity_pulse_phase, first);
+    assert_eq!(world.host_object(b).unwrap().camo_opacity_pulse_phase, second);
+    assert_eq!(world.session_view.client_random.seed_words(), expected.seed_words());
+}
+
+#[test]
 fn authored_stealth_delay_gates_the_first_cloak() {
     // 1000 ms -> 30 logic frames (parseDurationUnsignedInt).
     let mut world = world(&[
