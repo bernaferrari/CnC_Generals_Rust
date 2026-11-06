@@ -366,7 +366,7 @@ fn sync_from_host_copies_entity_model_key_mesh_scale_residual() {
     // Prove host object carries template model residual before shadow sync.
     {
         let obj = logic.host_object(id).expect("host obj");
-        let key = crate::assets::mesh_asset_resolve::model_key_from_template(obj.get_template());
+        let key = crate::assets::mesh_asset_resolve::model_key_from_template(logic.application_assets().as_deref(), obj.get_template());
         assert_eq!(
             key.to_ascii_lowercase(),
             "avtank",

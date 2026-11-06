@@ -344,6 +344,7 @@ impl PresentationFrame {
         discharges: Vec<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent>,
         camera_fade: super::camera_fade::FrameFade,
     ) -> Self {
+        let application_assets = logic.application_assets();
         #[cfg(feature = "game_client")]
         let w3d_ghost_scene = Some(super::ghosts::freeze_owned_scene(logic, local_player_id));
         // Shell maps render fully visible background scenes (C++ parity).
@@ -469,7 +470,7 @@ impl PresentationFrame {
             // source-authored Draw state below takes precedence; the render
             // collector must receive that exact W3D key untouched.
             let base_model_key =
-                crate::assets::mesh_asset_resolve::model_key_from_template(obj.get_template());
+                crate::assets::mesh_asset_resolve::model_key_from_template(application_assets.as_deref(), obj.get_template());
             let destroyed_for_mesh = obj.status.destroyed || auth_health <= 0.01;
             let body_ord = {
                 use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
@@ -493,6 +494,7 @@ impl PresentationFrame {
                 .authored_draw_models_for_conditions(model_condition_bits)
                 .unwrap_or_else(|| {
                     crate::assets::resolve_presentation_draw_models_for_conditions(
+                        application_assets.as_deref(),
                         &obj.template_name,
                         fallback_draw_models.as_slice(),
                         model_condition_bits,
@@ -2034,6 +2036,7 @@ impl PresentationFrame {
             })
             .collect();
         let mut frame = Self {
+            asset_owner: PresentationAssetOwner(application_assets),
             frame: LogicFrame(logic.get_frame()),
             money_audio_receipts: logic.economy_events.take_money_audio(),
             disable_audio_receipts: logic.health_events.take_disable_audio(),

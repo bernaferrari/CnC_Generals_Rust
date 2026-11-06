@@ -192,8 +192,8 @@ fn structure_placement_bib_transform(world_x: f32, world_z: f32, facing_radians:
 }
 
 /// Authored W3D key for the building being placed (never a footprint circle).
-fn structure_placement_model_key(template_name: &str) -> String {
-    let key = crate::assets::mesh_asset_resolve::drawable_w3d_model_key(template_name);
+fn structure_placement_model_key(asset_manager: &std::sync::Mutex<crate::assets::AssetManager>, template_name: &str) -> String {
+    let key = crate::assets::mesh_asset_resolve::drawable_w3d_model_key(Some(asset_manager), template_name);
     if key.is_empty() {
         template_name.trim().to_string()
     } else {
@@ -1931,7 +1931,7 @@ impl CnCGameEngine {
         let world_y = self.sample_presentation_height_under(Vec3::new(world_x, 0.0, world_z));
         let facing = placement.facing_radians;
         let illegal = !placement.is_legal;
-        let model_name = structure_placement_model_key(&placement.template_name);
+        let model_name = structure_placement_model_key(&self.application_assets, &placement.template_name);
         let world_transform =
             structure_placement_model_transform(world_x, world_y, world_z, facing);
         let half = placement.footprint_half_extents;

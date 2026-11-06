@@ -2696,10 +2696,16 @@ use that retained owner; construction does not publish it. Model cache
 precedence and deferred loading remain unchanged. C++ reference points are
 WW3DAssetManager::Create_Render_Obj (assetmgr.cpp:720-762),
 HLodClass aggregate construction (hlod.cpp:990-1005), and
-W3DAssetManager::Get_Texture (W3DAssetManager.cpp:127-225).
+W3DAssetManager::Get_Texture (W3DAssetManager.cpp:127-225). Authored
+condition and transition selection follows W3DModelDraw.cpp:1684-1688,
+2091-2095 and 2887-2955; W3DTreeDraw.cpp:61-63 parses ModelName.
 
-This is a partial ownership migration, not a multi-instance isolation claim.
-Authored model-key selection in mesh_asset_resolve still reads the ambient
-manager through start-game, seeding, object observation and presentation
-callers. Two-instance public-consumer regression and native/WASM execution
-evidence are still required before closing hq-8d70a.
+The engine also binds that owner to the initial and candidate GameLogic.
+Placement, fallback-template model selection, shadow observation and the
+presentation model/condition/transition consumers use that receiving owner
+rather than selecting an ambient manager. Presentation frames retain the owner
+for the existing late compatibility lookups; this is not yet a fully frozen
+asset-content snapshot. The interleaved same-object-name frame regression
+exercises differing authored model mappings, but distinct same-name W3D
+payloads through an actual renderer, native/WASM execution, and save/load
+evidence remain required before closing hq-8d70a.

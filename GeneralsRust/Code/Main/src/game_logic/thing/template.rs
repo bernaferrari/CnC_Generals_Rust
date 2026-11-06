@@ -2205,7 +2205,7 @@ mod authored_model_identity_tests {
         authored.set_authored_draw_models(None, &[]);
         assert_eq!(authored.get_model_name(), "");
         assert_eq!(authored.get_w3d_filename(), "");
-        assert!(crate::assets::model_key_from_template(&authored).is_empty());
+        assert!(crate::assets::model_key_from_template(None, &authored).is_empty());
         assert_eq!(
             authored.authored_draw_models_for_conditions(0),
             Some(Vec::new())
@@ -2230,7 +2230,7 @@ mod authored_model_identity_tests {
         first.set_authored_draw_models(Some("DamagedActual"), &def.draw_modules);
         assert!(first.has_authored_no_model());
         assert!(first.get_model_name().is_empty());
-        assert!(crate::assets::model_key_from_template(&first).is_empty());
+        assert!(crate::assets::model_key_from_template(None, &first).is_empty());
         let bits = 1u128 << crate::game_logic::host_enum_table_residual::MC_BIT_DAMAGED;
         assert!(
             first

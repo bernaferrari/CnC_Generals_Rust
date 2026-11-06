@@ -646,6 +646,7 @@ impl CnCGameEngine {
             },
         )?;
         let mut game_logic = GameLogic::initialize();
+        game_logic.bind_application_assets(Arc::clone(&application_assets));
         game_logic.admit_combat_bonus_baseline(combat_bonus);
         game_logic.admit_tunnel_capacity_baseline(tunnel_capacity.max_capacity);
         game_logic.admit_historic_damage_limit(historic_damage_limit.frames);

@@ -1080,7 +1080,7 @@ impl GameWorldShadow {
             .unwrap_or(0.0);
         e.display_name = obj.name.clone();
         e.model_key =
-            crate::assets::mesh_asset_resolve::model_key_from_template(obj.get_template());
+            crate::assets::mesh_asset_resolve::model_key_from_template(logic.application_assets().as_deref(), obj.get_template());
         e.model_condition_bits = obj.model_condition_bits;
         e.radar_extend_done_frame = obj.radar_extend_done_frame;
         e.radar_extend_complete = obj.radar_extend_complete;

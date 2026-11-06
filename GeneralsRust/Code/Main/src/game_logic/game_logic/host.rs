@@ -1473,6 +1473,15 @@ pub struct GameLogic {
     pub(super) install_multiplayer_scripts: bool,
 }
 impl GameLogic {
+    /// Asset service bound to this world, not the thread's active service.
+    pub(crate) fn application_assets(&self) -> Option<std::sync::Arc<std::sync::Mutex<crate::assets::AssetManager>>> {
+        self.main_services.asset_manager.lock().ok()?.clone()
+    }
+    pub(crate) fn bind_application_assets(&mut self, assets: std::sync::Arc<std::sync::Mutex<crate::assets::AssetManager>>) {
+        *self.main_services.asset_manager.lock().unwrap_or_else(|e| e.into_inner()) = Some(assets);
+    }
+
+
     pub(crate) fn rank_points_to_add_at_game_start(&self) -> i32 {
         self.rank_points_to_add_at_game_start
     }

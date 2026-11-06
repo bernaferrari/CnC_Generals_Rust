@@ -412,7 +412,7 @@ impl RenderPipeline {
             // Presentation froze the exact destination models; apply the
             // drawable runtime at collection before borrowing any per-input
             // specialized draw payloads.
-            u.apply_live_draw_transition_playback(&mut self.native_draw_world.live_draw_playback);
+            u.apply_live_draw_transition_playback(self.forward_pass.application_assets.as_deref(), &mut self.native_draw_world.live_draw_playback);
             let world_matrix =
                 gameplay_to_render_transform(u.world_matrix_with_drawable_instance(instance));
             #[cfg(feature = "game_client")]

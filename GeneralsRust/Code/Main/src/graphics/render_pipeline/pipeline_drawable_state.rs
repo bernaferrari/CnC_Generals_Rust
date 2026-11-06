@@ -32,7 +32,7 @@ fn prepare_client_drawable_restore_for_collection(
         .chain(frame.native_resident_drawable_inputs())
     {
         if unit.receiving_draw_models.is_some() {
-            unit.resolve_draw_models_for_frozen_conditions();
+            unit.resolve_draw_models_for_frozen_conditions(frame.asset_owner.0.as_deref());
         }
         for draw_model in unit.draw_models {
             let key = (unit.id.0, draw_model.module_index);

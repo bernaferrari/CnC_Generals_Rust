@@ -330,7 +330,14 @@ impl GameLogic {
     pub(in super::super::super) fn build_template_from_asset_definition(
         template_name: &str,
     ) -> Option<ThingTemplate> {
-        let manager_arc = get_asset_manager()?;
+        let manager = get_asset_manager()?;
+        Self::build_template_from_asset_definition_with_assets(&manager, template_name)
+    }
+
+    pub(in super::super::super) fn build_template_from_asset_definition_with_assets(
+        manager_arc: &std::sync::Mutex<crate::assets::AssetManager>,
+        template_name: &str,
+    ) -> Option<ThingTemplate> {
         let (definition, texture_hint) = {
             let manager = manager_arc.lock().ok()?;
             let definition = manager

@@ -556,6 +556,7 @@ impl UnitRenderInput {
     /// makes selected Draw models opaque to presentation queries; they only
     /// replace them for an actual disguise.
     pub fn from_renderable_with_environment(
+        asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
         ro: &RenderableObject,
         world_is_snow: bool,
         world_is_night: bool,
@@ -565,7 +566,7 @@ impl UnitRenderInput {
         input.world_is_snow = world_is_snow;
         input.world_is_night = world_is_night;
         input.logic_frame = logic_frame;
-        input.resolve_draw_models_for_frozen_conditions();
+        input.resolve_draw_models_for_frozen_conditions(asset_manager);
         input
     }
 
@@ -586,7 +587,7 @@ impl UnitRenderInput {
             .first_object_draw(self.model_condition_bits_with_combat_flags())
     }
 
-    pub(crate) fn resolve_draw_models_for_frozen_conditions(&mut self) {
+    pub(crate) fn resolve_draw_models_for_frozen_conditions(&mut self, asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>) {
         let fallback_draw_models = self.draw_models.clone();
         let bits = self.model_condition_bits_with_combat_flags();
         let dest = self
@@ -595,6 +596,7 @@ impl UnitRenderInput {
             .map(|models| models.select(bits))
             .unwrap_or_else(|| {
                 crate::assets::resolve_presentation_draw_models_for_conditions(
+                    asset_manager,
                     &self.template_name,
                     &fallback_draw_models,
                     bits,
@@ -610,10 +612,12 @@ impl UnitRenderInput {
 
     pub(crate) fn resolve_draw_models_for_template(
         &mut self,
+        asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
         template_name: &str,
         fallback_draw_models: &[crate::assets::AuthoredDrawModel],
     ) {
         let dest = crate::assets::resolve_presentation_draw_models_for_conditions(
+            asset_manager,
             template_name,
             fallback_draw_models,
             self.model_condition_bits_with_combat_flags(),
@@ -632,6 +636,7 @@ impl UnitRenderInput {
 
     pub(crate) fn apply_live_draw_transition_playback(
         &mut self,
+        asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
         playback_by_module: &mut std::collections::HashMap<
             crate::assets::LiveDrawPlaybackKey,
             crate::assets::LiveDrawPlayback,
@@ -640,6 +645,7 @@ impl UnitRenderInput {
         self.draw_animation_completion_targets.clear();
         if let Some(identity) = self.draw_playback_identity.as_ref() {
             self.draw_models = crate::assets::apply_live_draw_transition_playback_for_object(
+                asset_manager,
                 playback_by_module,
                 identity,
                 &self.template_name,

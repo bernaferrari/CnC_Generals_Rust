@@ -1,8 +1,30 @@
 use super::*;
 use crate::fow_rendering::ProjectedShroudSnapshot;
+/// Explicit application service retained for the legacy late model-key lookup.
+#[derive(Clone, Default)]
+pub(crate) struct PresentationAssetOwner(pub(crate) Option<std::sync::Arc<std::sync::Mutex<crate::assets::AssetManager>>>);
+
+impl std::fmt::Debug for PresentationAssetOwner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PresentationAssetOwner").finish_non_exhaustive()
+    }
+}
+
+impl PartialEq for PresentationAssetOwner {
+    fn eq(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (Some(a), Some(b)) => std::sync::Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        }
+    }
+}
+
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationFrame {
+    #[serde(skip)]
+    pub(crate) asset_owner: PresentationAssetOwner,
     /// Immutable receiving display scene; GPU submission never selects a live scene.
     #[cfg(feature = "game_client")]
     #[serde(skip)]

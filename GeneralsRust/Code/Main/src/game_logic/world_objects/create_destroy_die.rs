@@ -2009,13 +2009,14 @@ impl GameLogic {
         }
 
         let mut injected = false;
+        let application_assets = self.application_assets();
         let should_spawn_fallback = Self::should_spawn_fallback_template(template_name);
 
-        if let Some(template) = Self::build_template_from_asset_definition(template_name) {
+        if let Some(template) = application_assets.as_deref().and_then(|assets| Self::build_template_from_asset_definition_with_assets(assets, template_name)) {
             let missing_model = template
                 .model_name
                 .as_deref()
-                .filter(|model| !Self::is_model_asset_available(model))
+                .filter(|model| !Self::is_model_asset_available(application_assets.as_deref(), model))
                 .map(|model| model.to_string());
 
             if missing_model.is_none() || should_spawn_fallback {
@@ -2035,7 +2036,7 @@ impl GameLogic {
         }
 
         if !injected {
-            if let Some(fallback_template) = Self::build_visual_fallback_template(template_name) {
+            if let Some(fallback_template) = Self::build_visual_fallback_template(application_assets.as_deref(), template_name) {
                 let model_name = fallback_template
                     .model_name
                     .clone()

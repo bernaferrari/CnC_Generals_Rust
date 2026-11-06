@@ -266,6 +266,7 @@ impl PresentationFrame {
         let make_input =
             |object: &RenderableObject| {
                 let mut input = UnitRenderInput::from_renderable_with_environment(
+                    self.asset_owner.0.as_deref(),
                     object,
                     self.world_env.is_snow,
                     self.world_env.is_night,
@@ -307,6 +308,7 @@ impl PresentationFrame {
                         if !disguise_template.is_empty() {
                             let fallback_model_key =
                                 crate::assets::mesh_asset_resolve::model_key_from_presentation(
+                                    self.asset_owner.0.as_deref(),
                                     Some(disguise_template.as_str()),
                                     disguise_template,
                                 );
@@ -317,6 +319,7 @@ impl PresentationFrame {
                                     ..Default::default()
                                 });
                             input.resolve_draw_models_for_template(
+                                self.asset_owner.0.as_deref(),
                                 disguise_template,
                                 fallback_draw_models.as_slice(),
                             );
@@ -337,10 +340,11 @@ impl PresentationFrame {
                 if let Some(models) = receiving {
                     input.template_name = visual_template_name.to_owned();
                     input.receiving_draw_models = Some(models.clone());
-                    input.resolve_draw_models_for_frozen_conditions();
+                    input.resolve_draw_models_for_frozen_conditions(self.asset_owner.0.as_deref());
                 } else {
                     let fallback_model_key =
                         crate::assets::mesh_asset_resolve::model_key_from_presentation(
+                            self.asset_owner.0.as_deref(),
                             Some(visual_template_name),
                             visual_template_name,
                         );
@@ -352,6 +356,7 @@ impl PresentationFrame {
                         }
                     });
                     input.resolve_draw_models_for_template(
+                        self.asset_owner.0.as_deref(),
                         visual_template_name,
                         fallback_draw_models.as_slice(),
                     );
@@ -491,12 +496,14 @@ impl PresentationFrame {
                 marker.contained_by = None;
                 marker.draw_playback_identity = None;
                 let mut input = UnitRenderInput::from_renderable_with_environment(
+                    self.asset_owner.0.as_deref(),
                     &marker,
                     self.world_env.is_snow,
                     self.world_env.is_night,
                     self.frame.0,
                 );
                 input.draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
+                    self.asset_owner.0.as_deref(),
                     "RallyPointMarker",
                     &[],
                     input.model_condition_bits_with_combat_flags(),
@@ -533,12 +540,14 @@ impl PresentationFrame {
             marker.contained_by = None;
             marker.draw_playback_identity = None;
             let mut input = UnitRenderInput::from_renderable_with_environment(
+                self.asset_owner.0.as_deref(),
                 &marker,
                 self.world_env.is_snow,
                 self.world_env.is_night,
                 self.frame.0,
             );
             input.draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
+                self.asset_owner.0.as_deref(),
                 "RallyPointMarker",
                 &[],
                 input.model_condition_bits_with_combat_flags(),

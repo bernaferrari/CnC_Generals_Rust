@@ -7,6 +7,7 @@ impl PresentationFrame {
             .filter(|direct| direct.resident)
             .map(|direct| {
                 let mut input = UnitRenderInput::from_renderable_with_environment(
+                    self.asset_owner.0.as_deref(),
                     &direct.object,
                     self.world_env.is_snow,
                     self.world_env.is_night,

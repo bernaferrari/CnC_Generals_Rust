@@ -221,6 +221,7 @@ impl PresentationFrame {
             } else {
                 let fallback_model_key =
                     crate::assets::mesh_asset_resolve::model_key_from_presentation(
+                        self.asset_owner.0.as_deref(),
                         (!ent.model_key.is_empty()).then_some(ent.model_key.as_str()),
                         &ent.template.name,
                     );
@@ -232,6 +233,7 @@ impl PresentationFrame {
                     }
                 });
                 crate::assets::resolve_presentation_draw_models_for_conditions(
+                    self.asset_owner.0.as_deref(),
                     &ent.template.name,
                     fallback_draw_models.as_slice(),
                     ent.model_condition_bits,
@@ -1383,6 +1385,7 @@ impl PresentationFrame {
     }
 
     pub fn renderable_from_gameworld_entity(
+        asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
         host_id: crate::game_logic::ObjectId,
         ent: &gamelogic::world::entities::Entity,
     ) -> RenderableObject {
@@ -1408,6 +1411,7 @@ impl PresentationFrame {
         };
         let moving = vel.length_squared() > 1e-6 || move_destination.is_some();
         let fallback_model_key = crate::assets::mesh_asset_resolve::model_key_from_presentation(
+            asset_manager,
             Some(ent.template.name.as_str()),
             &ent.template.name,
         );
@@ -1418,6 +1422,7 @@ impl PresentationFrame {
                 ..Default::default()
             });
         let draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
+            asset_manager,
             &ent.template.name,
             fallback_draw_models.as_slice(),
             ent.model_condition_bits,
@@ -1951,7 +1956,7 @@ impl PresentationFrame {
                 continue;
             }
             self.objects
-                .push(Self::renderable_from_gameworld_entity(host_id, ent));
+                .push(Self::renderable_from_gameworld_entity(self.asset_owner.0.as_deref(), host_id, ent));
             appended += 1;
         }
         self.gameworld_appended = self.gameworld_appended.saturating_add(appended);
@@ -2433,7 +2438,7 @@ impl PresentationFrame {
                 .host_for_entity(ent.id)
                 .unwrap_or_else(|| crate::game_logic::ObjectId(0x8000_0000 | ent.id.get()));
             self.objects
-                .push(Self::renderable_from_gameworld_entity(host_id, ent));
+                .push(Self::renderable_from_gameworld_entity(self.asset_owner.0.as_deref(), host_id, ent));
             n += 1;
         }
         self.gameworld_rebuilt = n;

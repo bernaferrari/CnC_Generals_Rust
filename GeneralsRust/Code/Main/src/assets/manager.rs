@@ -2517,6 +2517,7 @@ pub fn get_asset_manager() -> Option<Arc<Mutex<AssetManager>>> {
 /// Object INI state table was found, `Model = None` and an unsupported source
 /// token fail closed rather than rendering a pristine/suffix-guessed mesh.
 pub fn resolve_presentation_model_key_for_conditions(
+    asset_manager: Option<&Mutex<AssetManager>>,
     object_name: &str,
     fallback_model_key: &str,
     condition_bits: u128,
@@ -2526,7 +2527,7 @@ pub fn resolve_presentation_model_key_for_conditions(
         (!value.is_empty()).then(|| value.to_string())
     };
 
-    let Some(asset_manager) = get_asset_manager() else {
+    let Some(asset_manager) = asset_manager else {
         return fallback();
     };
     let Ok(asset_manager) = asset_manager.lock() else {
@@ -2555,6 +2556,7 @@ pub fn resolve_presentation_model_key_for_conditions(
 /// reports source state but no safely selected model, this returns an empty
 /// vector rather than borrowing a pristine or suffix-derived mesh.
 pub fn resolve_presentation_draw_models_for_conditions(
+    asset_manager: Option<&Mutex<AssetManager>>,
     object_name: &str,
     fallback_draw_models: &[AuthoredDrawModel],
     condition_bits: u128,
@@ -2567,7 +2569,7 @@ pub fn resolve_presentation_draw_models_for_conditions(
             .collect()
     };
 
-    let Some(asset_manager) = get_asset_manager() else {
+    let Some(asset_manager) = asset_manager else {
         return fallback();
     };
     let Ok(asset_manager) = asset_manager.lock() else {
@@ -2584,6 +2586,7 @@ pub fn resolve_presentation_draw_models_for_conditions(
 /// Apply C++ `setModelState` TransitionState playback to already-selected dest
 /// models for one live object. Missing catalogue identity leaves dest as-is.
 pub(crate) fn apply_live_draw_transition_playback_for_object(
+    asset_manager: Option<&Mutex<AssetManager>>,
     playback_by_module: &mut HashMap<
         crate::assets::LiveDrawPlaybackKey,
         crate::assets::LiveDrawPlayback,
@@ -2592,7 +2595,7 @@ pub(crate) fn apply_live_draw_transition_playback_for_object(
     object_name: &str,
     dest_models: Vec<AuthoredDrawModel>,
 ) -> Vec<AuthoredDrawModel> {
-    let Some(asset_manager) = get_asset_manager() else {
+    let Some(asset_manager) = asset_manager else {
         return dest_models;
     };
     let Ok(asset_manager) = asset_manager.lock() else {
@@ -2607,6 +2610,7 @@ pub(crate) fn apply_live_draw_transition_playback_for_object(
 /// Resolve Draw models then play any authored `TransitionState` for this live
 /// object (C++ `setModelState` / `findTransitionForSig`).
 pub(crate) fn resolve_presentation_draw_models_for_live_object(
+    asset_manager: Option<&Mutex<AssetManager>>,
     playback_by_module: &mut HashMap<
         crate::assets::LiveDrawPlaybackKey,
         crate::assets::LiveDrawPlayback,
@@ -2617,11 +2621,12 @@ pub(crate) fn resolve_presentation_draw_models_for_live_object(
     condition_bits: u128,
 ) -> Vec<AuthoredDrawModel> {
     let dest = resolve_presentation_draw_models_for_conditions(
+        asset_manager,
         object_name,
         fallback_draw_models,
         condition_bits,
     );
-    let Some(asset_manager) = get_asset_manager() else {
+    let Some(asset_manager) = asset_manager else {
         return dest;
     };
     let Ok(asset_manager) = asset_manager.lock() else {

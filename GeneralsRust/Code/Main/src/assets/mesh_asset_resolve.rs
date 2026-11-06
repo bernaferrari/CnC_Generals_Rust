@@ -769,7 +769,7 @@ pub fn honesty_projectile_object_model_key_residual_ok() -> bool {
         && projectile_object_model_keys().len() >= 8
 }
 
-pub fn model_key_from_template(template: &ThingTemplate) -> String {
+pub fn model_key_from_template(asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>, template: &ThingTemplate) -> String {
     if template.has_authored_no_model() {
         return String::new();
     }
@@ -781,12 +781,12 @@ pub fn model_key_from_template(template: &ThingTemplate) -> String {
     {
         return remap_model_key_alias(model);
     }
-    drawable_w3d_model_key(&template.name)
+    drawable_w3d_model_key(asset_manager, &template.name)
 }
 
 /// C++ W3DTreeDraw / W3DModelDraw load `ModelName` / ConditionState Model.
 /// ObjectReskin identities such as `TreeSpruce03` are never W3D basenames.
-pub fn drawable_w3d_model_key(object_or_model_name: &str) -> String {
+pub fn drawable_w3d_model_key(asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>, object_or_model_name: &str) -> String {
     let trimmed = object_or_model_name.trim();
     if trimmed.is_empty() {
         return String::new();
@@ -795,15 +795,14 @@ pub fn drawable_w3d_model_key(object_or_model_name: &str) -> String {
     if trimmed.len() >= 4 && trimmed[..4].eq_ignore_ascii_case("amb_") {
         return String::new();
     }
-    if let Some(mapped) = authored_model_name_for_object(trimmed) {
+    if let Some(mapped) = authored_model_name_for_object(asset_manager, trimmed) {
         return remap_model_key_alias(&mapped);
     }
     remap_model_key_alias(trimmed)
 }
 
-fn authored_model_name_for_object(object_name: &str) -> Option<String> {
-    let manager_arc = crate::assets::get_asset_manager()?;
-    let manager = manager_arc.lock().ok()?;
+fn authored_model_name_for_object(asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>, object_name: &str) -> Option<String> {
+    let manager = asset_manager?.lock().ok()?;
     let mapped = manager.get_model_for_object(object_name)?;
     let mapped = mapped.trim();
     if mapped.is_empty() || mapped.eq_ignore_ascii_case("none") {
@@ -819,11 +818,11 @@ fn authored_model_name_for_object(object_name: &str) -> Option<String> {
 ///
 /// Callers sometimes pass the Object / ObjectReskin identity as `model_key`.
 /// Resolve that through INI `ModelName` instead of requesting `TreeSpruce03.w3d`.
-pub fn model_key_from_presentation(model_key: Option<&str>, template_name: &str) -> String {
+pub fn model_key_from_presentation(asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>, model_key: Option<&str>, template_name: &str) -> String {
     if let Some(raw) = model_key.map(str::trim).filter(|s| !s.is_empty()) {
-        return drawable_w3d_model_key(raw);
+        return drawable_w3d_model_key(asset_manager, raw);
     }
-    drawable_w3d_model_key(template_name)
+    drawable_w3d_model_key(asset_manager, template_name)
 }
 
 /// Known common unit template → model key pairs used by host setup / prewarm.
@@ -1394,9 +1393,9 @@ mod tests {
 
     #[test]
     fn ambient_sound_objects_are_not_w3d_model_keys() {
-        assert!(drawable_w3d_model_key("Amb_DesertVillageDayBirds").is_empty());
-        assert!(drawable_w3d_model_key("amb_WinterNatureCrows").is_empty());
-        assert_eq!(drawable_w3d_model_key("AVHummer"), "AVHummer");
+        assert!(drawable_w3d_model_key(None, "Amb_DesertVillageDayBirds").is_empty());
+        assert!(drawable_w3d_model_key(None, "amb_WinterNatureCrows").is_empty());
+        assert_eq!(drawable_w3d_model_key(None, "AVHummer"), "AVHummer");
     }
 
     #[test]
@@ -1446,7 +1445,7 @@ mod tests {
         let mut t = ThingTemplate::new("USA_Ranger");
         t.add_kind_of(KindOf::Infantry);
         t.set_model("airanger_s");
-        let key = model_key_from_template(&t);
+        let key = model_key_from_template(None, &t);
         assert!(!key.is_empty(), "USA_Ranger model key must be non-empty");
         assert_eq!(key.to_ascii_lowercase(), "airanger_s");
     }
@@ -1478,32 +1477,32 @@ mod tests {
 
     #[test]
     fn presentation_model_key_prefers_explicit_over_template() {
-        let key = model_key_from_presentation(Some("avhummer"), "USA_Humvee");
+        let key = model_key_from_presentation(None, Some("avhummer"), "USA_Humvee");
         assert_eq!(key.to_ascii_lowercase(), "avhummer");
-        let key2 = model_key_from_presentation(None, "USA_Ranger");
+        let key2 = model_key_from_presentation(None, None, "USA_Ranger");
         assert_eq!(key2.to_ascii_lowercase(), "airngr_skn");
     }
 
     #[test]
     fn tree_spruce03_lookup_uses_reskin_modelname() {
         assert_eq!(
-            drawable_w3d_model_key("TreeSpruce03").to_ascii_lowercase(),
+            drawable_w3d_model_key(None, "TreeSpruce03").to_ascii_lowercase(),
             "ptxpine03",
             "C++ W3DTreeDraw loads NatureProp ModelName PTXPine03, not TreeSpruce03.w3d"
         );
         assert_eq!(
-            model_key_from_presentation(Some("TreeSpruce03"), "TreeSpruce03").to_ascii_lowercase(),
+            model_key_from_presentation(None, Some("TreeSpruce03"), "TreeSpruce03").to_ascii_lowercase(),
             "ptxpine03"
         );
         let mut t = ThingTemplate::new("TreeSpruce03");
         t.set_model("PTXPine03");
         assert_eq!(
-            model_key_from_template(&t).to_ascii_lowercase(),
+            model_key_from_template(None, &t).to_ascii_lowercase(),
             "ptxpine03"
         );
         let unnamed = ThingTemplate::new("TreeSpruce03");
         assert_eq!(
-            model_key_from_template(&unnamed).to_ascii_lowercase(),
+            model_key_from_template(None, &unnamed).to_ascii_lowercase(),
             "ptxpine03",
             "object-name fallback must still remap through ModelName"
         );
@@ -1631,8 +1630,8 @@ mod tests {
     fn template_resolve_path_matches_presentation_key() {
         let mut t = ThingTemplate::new("USA_Ranger");
         t.set_model("airanger"); // legacy alias
-        let from_template = model_key_from_template(&t);
-        let from_pres = model_key_from_presentation(Some("airanger"), "USA_Ranger");
+        let from_template = model_key_from_template(None, &t);
+        let from_pres = model_key_from_presentation(None, Some("airanger"), "USA_Ranger");
         assert_eq!(from_template.to_ascii_lowercase(), "airngr_skn");
         assert_eq!(from_pres.to_ascii_lowercase(), "airngr_skn");
     }

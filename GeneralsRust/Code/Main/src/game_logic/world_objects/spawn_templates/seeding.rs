@@ -806,13 +806,13 @@ impl GameLogic {
             .find_map(|(attr, value)| attr.eq_ignore_ascii_case(key).then(|| value.clone()))
     }
 
-    pub(in super::super::super) fn is_model_asset_available(model_name: &str) -> bool {
+    pub(in super::super::super) fn is_model_asset_available(asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>, model_name: &str) -> bool {
         let model_name = model_name.trim();
         if model_name.is_empty() {
             return false;
         }
 
-        let Some(manager_arc) = get_asset_manager() else {
+        let Some(manager_arc) = asset_manager else {
             // Keep gameplay path permissive during early startup or in tests
             // where the asset manager may not be initialized.
             return true;
@@ -842,8 +842,8 @@ impl GameLogic {
             .any(|candidate| manager.can_open_file_sync(&candidate))
     }
 
-    pub(in super::super::super) fn resolve_spawn_model_name(model_name: &str) -> Option<String> {
-        if Self::is_model_asset_available(model_name) {
+    pub(in super::super::super) fn resolve_spawn_model_name(asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>, model_name: &str) -> Option<String> {
+        if Self::is_model_asset_available(asset_manager, model_name) {
             return Some(
                 model_name
                     .rsplit(['/', '\\'])
@@ -857,7 +857,7 @@ impl GameLogic {
         }
 
         let requested_key = Self::normalize_model_lookup_key(model_name);
-        let manager_arc = get_asset_manager()?;
+        let manager_arc = asset_manager?;
         let manager = manager_arc.lock().ok()?;
         Self::find_exact_available_model_name(
             &requested_key,
@@ -912,21 +912,22 @@ impl GameLogic {
     /// `ModelName` (PTXPine03), never the object identity (TreeSpruce03).
     /// Do not invent geometry when the base Generals mesh is absent.
     pub(in super::super::super) fn build_fallback_template(
+        asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
         template_name: &str,
     ) -> Option<ThingTemplate> {
         let lower = template_name.to_ascii_lowercase();
         let mut template = ThingTemplate::new(template_name);
         template.set_health(250.0);
-        let authored = crate::assets::drawable_w3d_model_key(template_name);
+        let authored = crate::assets::drawable_w3d_model_key(asset_manager, template_name);
         let probe = if authored.is_empty() {
             template_name
         } else {
             authored.as_str()
         };
-        let fallback_model_name = Self::resolve_spawn_model_name(probe)?;
+        let fallback_model_name = Self::resolve_spawn_model_name(asset_manager, probe)?;
         template.set_model(&fallback_model_name);
 
-        if let Some(manager_arc) = get_asset_manager() {
+        if let Some(manager_arc) = asset_manager {
             if let Ok(manager) = manager_arc.lock() {
                 if let Some(texture_name) = manager.get_texture_for_object(template_name) {
                     if !texture_name.is_empty() && !texture_name.eq_ignore_ascii_case("none") {
@@ -967,11 +968,12 @@ impl GameLogic {
     }
 
     pub(in super::super::super) fn build_visual_fallback_template(
+        asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
         template_name: &str,
     ) -> Option<ThingTemplate> {
-        let template = Self::build_fallback_template(template_name)?;
+        let template = Self::build_fallback_template(asset_manager, template_name)?;
         let model_name = template.model_name.as_deref()?.trim();
-        if model_name.is_empty() || !Self::is_model_asset_available(model_name) {
+        if model_name.is_empty() || !Self::is_model_asset_available(asset_manager, model_name) {
             return None;
         }
         Some(template)
