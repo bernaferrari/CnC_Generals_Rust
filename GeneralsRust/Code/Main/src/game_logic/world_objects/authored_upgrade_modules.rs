@@ -292,7 +292,65 @@ impl Object {
     }
 }
 
+impl Object {
+    /// Run this Object's authored `PowerPlantUpgrade` modules whose UpgradeMux
+    /// triggers `has` satisfies (PowerPlantUpgrade.cpp `upgradeImplementation`),
+    /// each at most once. Returns the template's `EnergyBonus` (what
+    /// `Player::addPowerBonus` adds) when any module executed.
+    pub(crate) fn run_authored_power_plant_upgrades(
+        &mut self,
+        has: impl Fn(&str) -> bool,
+    ) -> Option<i32> {
+        let definition = self.thing().template.receiving_object_definition.clone()?;
+        let mut executed = false;
+        for (index, module) in definition
+            .behavior_modules
+            .iter()
+            .filter(|module| module.class_name.eq_ignore_ascii_case("PowerPlantUpgrade"))
+            .enumerate()
+        {
+            let key = format!(
+                "PowerPlantUpgrade#{}",
+                module
+                    .module_tag
+                    .clone()
+                    .unwrap_or_else(|| format!("PowerPlantUpgrade{index}"))
+            );
+            if upgrade_mux_triggers(module, &has) && self.applied_upgrades.insert(key) {
+                executed = true;
+            }
+        }
+        executed.then(|| self.thing().template.energy_bonus.unwrap_or(0))
+    }
+}
+
 impl GameLogic {
+    /// `PowerPlantUpgrade::upgradeImplementation` for one Object: run its
+    /// authored modules, then add the EnergyBonus and `extendRods(TRUE)`.
+    pub(in crate::game_logic) fn apply_authored_power_plant_upgrades(
+        &mut self,
+        id: ObjectId,
+        has: impl Fn(&str) -> bool,
+    ) -> bool {
+        let Some(bonus) = self
+            .objects
+            .get_mut(&id)
+            .and_then(|object| object.run_authored_power_plant_upgrades(has))
+        else {
+            return false;
+        };
+        self.complete_power_plant_upgrade(id, bonus);
+        true
+    }
+
+    /// Player::addPowerBonus + PowerPlantUpdate::extendRods(TRUE).
+    pub(in crate::game_logic) fn complete_power_plant_upgrade(&mut self, id: ObjectId, bonus: i32) {
+        if let Some(object) = self.objects.get_mut(&id) {
+            object.power_provided = object.power_provided.saturating_add(bonus);
+        }
+        let _ = self.begin_power_plant_rods_extend(id);
+    }
+
     /// Run every recipient's authored `MaxHealthUpgrade` triggered by
     /// `upgrade_name`. Returns the number of objects changed.
     pub(in crate::game_logic) fn apply_authored_max_health_upgrades(

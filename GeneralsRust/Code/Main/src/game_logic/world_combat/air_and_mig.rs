@@ -997,9 +997,14 @@ impl GameLogic {
     /// Refresh Battlemaster weapon residual from current uranium / horde / nationalism flags.
     pub(crate) fn refresh_battlemaster_weapon(&mut self, object_id: ObjectId) {
         use crate::game_logic::host_battlemaster::{
-            battlemaster_weapon, has_fanaticism_upgrade, has_nationalism_upgrade,
-            has_uranium_shells_upgrade, is_battlemaster_template, leftover_horde_fanaticism_bonus,
+            battlemaster_weapon, has_uranium_shells_upgrade, is_battlemaster_template,
+            leftover_horde_fanaticism_bonus,
         };
+        let morale = self.owner_morale_upgrades(
+            self.objects
+                .get(&object_id)
+                .and_then(|obj| obj.owner_player_id),
+        );
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
@@ -1007,7 +1012,7 @@ impl GameLogic {
             return;
         }
         let uranium = has_uranium_shells_upgrade(&obj.applied_upgrades);
-        let nationalism = has_nationalism_upgrade(&obj.applied_upgrades);
+        let nationalism = morale.nationalism;
         let in_horde = obj.weapon_bonus_horde;
         // C++ evaluateMoraleBonus: nationalism from upgrade; AllowedNationalism
         // vetoes only while in horde (default TRUE). Fanaticism nests inside.
@@ -1019,7 +1024,7 @@ impl GameLogic {
         obj.weapon_bonus_nationalism = nationalism_active;
         obj.weapon_bonus_fanaticism = leftover_horde_fanaticism_bonus(
             nationalism_active,
-            has_fanaticism_upgrade(&obj.applied_upgrades),
+            morale.fanaticism,
         );
         let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
         let mut w = battlemaster_weapon(uranium, in_horde, nationalism_active);
@@ -1042,23 +1047,6 @@ impl GameLogic {
             .insert(UPGRADE_CHINA_URANIUM_SHELLS.to_string());
         self.battlemaster_residual_uranium_upgrades = self
             .battlemaster_residual_uranium_upgrades
-            .saturating_add(1);
-        self.refresh_battlemaster_weapon(object_id);
-        true
-    }
-
-    /// Apply Nationalism residual tag (ROF stacks with horde when active).
-    pub fn apply_battlemaster_nationalism_upgrade(&mut self, object_id: ObjectId) -> bool {
-        use crate::game_logic::host_battlemaster::{UPGRADE_NATIONALISM, is_battlemaster_template};
-        let Some(obj) = self.objects.get_mut(&object_id) else {
-            return false;
-        };
-        if !is_battlemaster_template(&obj.template_name) {
-            return false;
-        }
-        obj.applied_upgrades.insert(UPGRADE_NATIONALISM.to_string());
-        self.battlemaster_residual_nationalism_upgrades = self
-            .battlemaster_residual_nationalism_upgrades
             .saturating_add(1);
         self.refresh_battlemaster_weapon(object_id);
         true
@@ -1133,8 +1121,9 @@ impl GameLogic {
         let draw_icon = self.get_draw_icon_ui();
         let frame = self.frame;
 
-        for (idx, (id, _team, _owner, _scan, name)) in snapshot.iter().enumerate() {
+        for (idx, (id, _team, owner, _scan, name)) in snapshot.iter().enumerate() {
             let scanned = membership[idx].in_horde;
+            let morale = self.owner_morale_upgrades(*owner);
             if let Some(obj) = self.objects.get_mut(id) {
                 let (due, init, last, next) = leftover_horde_take_wake(
                     obj.horde_wake_initialized,
@@ -1158,12 +1147,20 @@ impl GameLogic {
                         to_refresh.push(*id);
                     }
                 }
+                let morale_before = (obj.weapon_bonus_nationalism, obj.weapon_bonus_fanaticism);
                 // C++ HordeUpdate::update calls evaluateMoraleBonus after the
                 // membership scan (when due) and then stamps the decal from
                 // NATIONALISM/FANATICISM. Dragon/Inferno/Gattling/Overlord
                 // share this path — they are not Battlemaster-only.
                 if due {
-                    super::tanks_and_upgrades::apply_evaluate_morale_bonus(obj);
+                    super::tanks_and_upgrades::apply_evaluate_morale_bonus(obj, morale);
+                    if is_battlemaster_template(name)
+                        && morale_before
+                            != (obj.weapon_bonus_nationalism, obj.weapon_bonus_fanaticism)
+                        && !to_refresh.contains(id)
+                    {
+                        to_refresh.push(*id);
+                    }
                 }
                 obj.apply_horde_terrain_decal(was, now_horde, draw_icon);
             }

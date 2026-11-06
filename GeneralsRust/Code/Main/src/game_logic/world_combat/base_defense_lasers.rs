@@ -376,7 +376,6 @@ impl GameLogic {
     pub fn honesty_battlemaster_ok(&self) -> bool {
         self.battlemaster_residual_fires > 0
             || self.battlemaster_residual_uranium_upgrades > 0
-            || self.battlemaster_residual_nationalism_upgrades > 0
             || self.battlemaster_residual_horde_grants > 0
             || self.battlemaster_scatter_applied > 0
             || self.battlemaster_shells_spawned > 0
@@ -393,10 +392,6 @@ impl GameLogic {
 
     pub fn honesty_battlemaster_horde_ok(&self) -> bool {
         self.battlemaster_residual_horde_grants > 0
-    }
-
-    pub fn honesty_battlemaster_nationalism_ok(&self) -> bool {
-        self.battlemaster_residual_nationalism_upgrades > 0
     }
 
     pub fn battlemaster_residual_fires(&self) -> u32 {
@@ -419,16 +414,11 @@ impl GameLogic {
     pub fn honesty_red_guard_ok(&self) -> bool {
         self.red_guard_residual_fires > 0
             || self.red_guard_residual_bayonet_kills > 0
-            || self.red_guard_residual_nationalism_upgrades > 0
             || self.red_guard_residual_horde_grants > 0
     }
 
     pub fn honesty_red_guard_horde_ok(&self) -> bool {
         self.red_guard_residual_horde_grants > 0
-    }
-
-    pub fn honesty_red_guard_nationalism_ok(&self) -> bool {
-        self.red_guard_residual_nationalism_upgrades > 0
     }
 
     pub fn honesty_red_guard_bayonet_ok(&self) -> bool {
@@ -447,7 +437,6 @@ impl GameLogic {
     pub fn honesty_tank_hunter_ok(&self) -> bool {
         self.tank_hunter_residual_fires > 0
             || self.tank_hunter_residual_tnt_plants > 0
-            || self.tank_hunter_residual_nationalism_upgrades > 0
             || self.tank_hunter_residual_horde_grants > 0
             || self.tank_hunter_scatter_applied > 0
             || self.tank_hunter_missiles_spawned > 0
@@ -464,10 +453,6 @@ impl GameLogic {
 
     pub fn honesty_tank_hunter_horde_ok(&self) -> bool {
         self.tank_hunter_residual_horde_grants > 0
-    }
-
-    pub fn honesty_tank_hunter_nationalism_ok(&self) -> bool {
-        self.tank_hunter_residual_nationalism_upgrades > 0
     }
 
     pub fn tank_hunter_residual_fires(&self) -> u32 {
@@ -545,7 +530,6 @@ impl GameLogic {
             || self.minigunner_residual_ramp_mean > 0
             || self.minigunner_residual_ramp_fast > 0
             || self.minigunner_residual_chain_gun_upgrades > 0
-            || self.minigunner_residual_nationalism_upgrades > 0
             || self.minigunner_residual_horde_grants > 0
     }
 
@@ -559,10 +543,6 @@ impl GameLogic {
 
     pub fn honesty_minigunner_horde_ok(&self) -> bool {
         self.minigunner_residual_horde_grants > 0
-    }
-
-    pub fn honesty_minigunner_nationalism_ok(&self) -> bool {
-        self.minigunner_residual_nationalism_upgrades > 0
     }
 
     pub fn minigunner_residual_ground_fires(&self) -> u32 {

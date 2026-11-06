@@ -480,21 +480,13 @@ impl GameLogic {
             // These residuals represent concrete retail module eligibility.
             // A Player recheck visits every member, but an unrelated member
             // must not execute this family's generic residual callbacks.
-            use crate::game_logic::host_upgrades::{
-                HostUpgradeKind, is_supply_center_template,
-            };
+            use crate::game_logic::host_upgrades::HostUpgradeKind;
             match HostUpgradeKind::from_name(upgrade_name) {
                 HostUpgradeKind::Camouflage | HostUpgradeKind::CamoNetting
                     if !super::authored_upgrade_modules::authors_triggered_stealth_upgrade(
                         &object.thing().template,
                         |name| name.eq_ignore_ascii_case(upgrade_name),
                     ) =>
-                {
-                    return false;
-                }
-                HostUpgradeKind::SupplyLines
-                    if !object.is_kind_of(KindOf::SupplyCenter)
-                        && !is_supply_center_template(&object.template_name) =>
                 {
                     return false;
                 }
@@ -607,12 +599,6 @@ impl GameLogic {
         let kind = HostUpgradeKind::from_name(upgrade_name);
         authored
             + match kind {
-            HostUpgradeKind::CaptureBuilding => {
-                self.apply_capture_unlock_tags_to_team(recipients, upgrade_name)
-            }
-            HostUpgradeKind::SupplyLines => {
-                self.apply_supply_lines_tags_to_team(recipients, upgrade_name)
-            }
             HostUpgradeKind::Camouflage => {
                 self.apply_camouflage_unlock_to_team(recipients, upgrade_name)
             }
@@ -656,22 +642,11 @@ impl GameLogic {
             HostUpgradeKind::SuicideBomb => {
                 self.apply_demo_suicide_bomb_unlock_to_team(recipients, upgrade_name)
             }
-            HostUpgradeKind::AdvancedControlRods => {
-                self.apply_advanced_control_rods_to_team(recipients, upgrade_name)
-            }
-            HostUpgradeKind::SubliminalMessaging => {
-                self.apply_subliminal_messaging_to_team(recipients, upgrade_name)
-            }
-            HostUpgradeKind::Nationalism => {
-                self.apply_nationalism_to_team(recipients, upgrade_name)
-            }
-            HostUpgradeKind::Fanaticism => self.apply_fanaticism_to_team(recipients, upgrade_name),
-            HostUpgradeKind::ChinaMines => {
-                self.apply_player_unlock_upgrade(recipients, upgrade_name, "Upgrade_ChinaMines")
-            }
-            HostUpgradeKind::EmpMines => {
-                self.apply_player_unlock_upgrade(recipients, upgrade_name, "Upgrade_ChinaEMPMines")
-            }
+            // PowerPlantUpgrade (authored_upgrade_modules.rs) owns Advanced Control Rods.
+            HostUpgradeKind::AdvancedControlRods => 0,
+            // Nationalism/Fanaticism are read from the Player by HordeUpdate's
+            // evaluateMoraleBonus (tanks_and_upgrades.rs); nothing to apply here.
+            HostUpgradeKind::Nationalism | HostUpgradeKind::Fanaticism => 0,
             HostUpgradeKind::Radar => match recipients {
                 UpgradeRecipients::Object { object_id, .. } => {
                     self.admit_host_radar_provider_with_effects(object_id, effects);
@@ -681,14 +656,6 @@ impl GameLogic {
                     .apply_radar_research_to_player_with_effects(player_id, upgrade_name, effects),
                 _ => 0,
             },
-            HostUpgradeKind::RadarVanScan => self.apply_player_unlock_upgrade(
-                recipients,
-                upgrade_name,
-                "Upgrade_GLARadarVanScan",
-            ),
-            HostUpgradeKind::Moab => {
-                self.apply_player_unlock_upgrade(recipients, upgrade_name, "Upgrade_AmericaMOAB")
-            }
             HostUpgradeKind::SatelliteHack => {
                 self.apply_satellite_hack_to_team(recipients, upgrade_name)
             }
@@ -712,7 +679,9 @@ impl GameLogic {
                 upgrade_name,
                 crate::game_logic::host_helix_napalm::UPGRADE_HELIX_NUKE_BOMB,
             ),
-            HostUpgradeKind::Other => 0,
+            // Upgrades with no recipient-side work: their effects are authored
+            // modules (object_upgrade_callbacks.rs) or read from the Player.
+            _ => 0,
         }
     }
 

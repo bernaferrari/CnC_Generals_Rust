@@ -504,16 +504,13 @@ impl GameLogic {
             battlemaster_residual_fires: 0,
             battlemaster_residual_units_hit: 0,
             battlemaster_residual_uranium_upgrades: 0,
-            battlemaster_residual_nationalism_upgrades: 0,
             battlemaster_residual_horde_grants: 0,
             red_guard_residual_fires: 0,
             red_guard_residual_bayonet_kills: 0,
-            red_guard_residual_nationalism_upgrades: 0,
             red_guard_residual_horde_grants: 0,
             tank_hunter_residual_fires: 0,
             tank_hunter_residual_units_hit: 0,
             tank_hunter_residual_tnt_plants: 0,
-            tank_hunter_residual_nationalism_upgrades: 0,
             tank_hunter_residual_horde_grants: 0,
             tank_hunter_tnt_last_frame: HashMap::new(),
             rebel_residual_fires: 0,
@@ -527,7 +524,6 @@ impl GameLogic {
             minigunner_residual_ramp_mean: 0,
             minigunner_residual_ramp_fast: 0,
             minigunner_residual_chain_gun_upgrades: 0,
-            minigunner_residual_nationalism_upgrades: 0,
             minigunner_residual_horde_grants: 0,
             burton_residual_sniper_fires: 0,
             burton_residual_knife_kills: 0,
@@ -699,10 +695,6 @@ impl GameLogic {
             overcharge_toggles: 0,
             overcharge_drain_ticks: 0,
             overcharge_exhaustions: 0,
-            control_rods_upgrades: 0,
-            control_rods_plants_affected: 0,
-            subliminal_messaging_upgrades: 0,
-            subliminal_towers_affected: 0,
             construction_complete_clears: 0,
             dozer_cancel_task_events: 0,
             resume_construction_events: 0,
@@ -1396,16 +1388,13 @@ impl GameLogic {
         self.battlemaster_residual_fires = 0;
         self.battlemaster_residual_units_hit = 0;
         self.battlemaster_residual_uranium_upgrades = 0;
-        self.battlemaster_residual_nationalism_upgrades = 0;
         self.battlemaster_residual_horde_grants = 0;
         self.red_guard_residual_fires = 0;
         self.red_guard_residual_bayonet_kills = 0;
-        self.red_guard_residual_nationalism_upgrades = 0;
         self.red_guard_residual_horde_grants = 0;
         self.tank_hunter_residual_fires = 0;
         self.tank_hunter_residual_units_hit = 0;
         self.tank_hunter_residual_tnt_plants = 0;
-        self.tank_hunter_residual_nationalism_upgrades = 0;
         self.tank_hunter_residual_horde_grants = 0;
         self.tank_hunter_tnt_last_frame.clear();
         self.rebel_residual_fires = 0;
@@ -1419,7 +1408,6 @@ impl GameLogic {
         self.minigunner_residual_ramp_mean = 0;
         self.minigunner_residual_ramp_fast = 0;
         self.minigunner_residual_chain_gun_upgrades = 0;
-        self.minigunner_residual_nationalism_upgrades = 0;
         self.minigunner_residual_horde_grants = 0;
         self.burton_residual_sniper_fires = 0;
         self.burton_residual_knife_kills = 0;
@@ -1571,10 +1559,6 @@ impl GameLogic {
         self.overcharge_toggles = 0;
         self.overcharge_drain_ticks = 0;
         self.overcharge_exhaustions = 0;
-        self.control_rods_upgrades = 0;
-        self.control_rods_plants_affected = 0;
-        self.subliminal_messaging_upgrades = 0;
-        self.subliminal_towers_affected = 0;
         self.construction_complete_clears = 0;
         self.dozer_cancel_task_events = 0;
         self.resume_construction_events = 0;

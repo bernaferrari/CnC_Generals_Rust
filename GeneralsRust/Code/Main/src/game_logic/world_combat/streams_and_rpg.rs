@@ -854,7 +854,6 @@ impl GameLogic {
         target_id: Option<ObjectId>,
         slot: u8,
     ) {
-        use crate::game_logic::host_battlemaster::has_nationalism_upgrade;
         use crate::game_logic::host_gattling_tank::GattlingFireLevel;
         use crate::game_logic::host_minigunner::{
             MINIGUNNER_RAPID_FIRE_AUDIO, has_chain_guns_upgrade, minigunner_air_weapon,
@@ -862,6 +861,11 @@ impl GameLogic {
         };
 
         let frame = self.frame;
+        let morale = self.owner_morale_upgrades(
+            self.objects
+                .get(&attacker_id)
+                .and_then(|obj| obj.owner_player_id),
+        );
         let Some(obj) = self.objects.get_mut(&attacker_id) else {
             return;
         };
@@ -874,7 +878,7 @@ impl GameLogic {
         // C++ evaluateMoraleBonus: nationalism from upgrade; AllowedNationalism
         // vetoes only while in horde (default TRUE).
         let nationalism = super::tanks_and_upgrades::nationalism_bonus_from_upgrade(
-            has_nationalism_upgrade(&obj.applied_upgrades),
+            morale.nationalism,
             in_horde,
             super::tanks_and_upgrades::HORDE_DEFAULT_ALLOWED_NATIONALISM,
         );

@@ -438,6 +438,11 @@ impl GameLogic {
             }
         }
 
+        // C++ PowerPlantUpgrade::upgradeImplementation (authored module).
+        self.apply_authored_power_plant_upgrades(object_id, |name| {
+            name.eq_ignore_ascii_case(upgrade)
+        });
+
         // C++ SpyVisionUpdate::upgradeImplementation — activate on upgrade.
         if let Some(spec) = satellite_hack_activate {
             let _ = self.activate_satellite_hack_spy_vision(object_id, spec);

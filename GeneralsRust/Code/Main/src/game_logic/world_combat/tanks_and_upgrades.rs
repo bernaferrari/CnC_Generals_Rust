@@ -23,30 +23,52 @@ pub(super) fn nationalism_bonus_from_upgrade(
 /// match C++ module-data default (TRUE).
 pub(super) const HORDE_DEFAULT_ALLOWED_NATIONALISM: bool = true;
 
+/// The controlling Player's completed Nationalism / Fanaticism upgrades
+/// (AIUpdate.cpp `evaluateMoraleBonus`: `player->hasUpgradeComplete`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct MoraleUpgrades {
+    pub nationalism: bool,
+    pub fanaticism: bool,
+}
+
 /// C++ `AIUpdateInterface::evaluateMoraleBonus` flag write for live host objects.
-pub(crate) fn apply_evaluate_morale_bonus(obj: &mut Object) {
-    use crate::game_logic::host_battlemaster::{
-        has_fanaticism_upgrade, has_nationalism_upgrade, leftover_horde_fanaticism_bonus,
-    };
+pub(crate) fn apply_evaluate_morale_bonus(obj: &mut Object, upgrades: MoraleUpgrades) {
+    use crate::game_logic::host_battlemaster::leftover_horde_fanaticism_bonus;
     let nationalism_active = nationalism_bonus_from_upgrade(
-        has_nationalism_upgrade(&obj.applied_upgrades),
+        upgrades.nationalism,
         obj.weapon_bonus_horde,
         HORDE_DEFAULT_ALLOWED_NATIONALISM,
     );
     obj.weapon_bonus_nationalism = nationalism_active;
-    obj.weapon_bonus_fanaticism = leftover_horde_fanaticism_bonus(
-        nationalism_active,
-        has_fanaticism_upgrade(&obj.applied_upgrades),
-    );
+    obj.weapon_bonus_fanaticism =
+        leftover_horde_fanaticism_bonus(nationalism_active, upgrades.fanaticism);
 }
 
 impl GameLogic {
+    /// `player->hasUpgradeComplete(Upgrade_Nationalism / Upgrade_Fanaticism)`
+    /// for the Object's controlling Player. Not a per-object tag: units built
+    /// after the research see it too.
+    pub(crate) fn owner_morale_upgrades(&self, owner: Option<u32>) -> MoraleUpgrades {
+        use crate::game_logic::host_battlemaster::{UPGRADE_FANATICISM, UPGRADE_NATIONALISM};
+        owner
+            .and_then(|id| self.players.get(&id))
+            .map(|player| MoraleUpgrades {
+                nationalism: player.has_unlocked_upgrade(UPGRADE_NATIONALISM),
+                fanaticism: player.has_unlocked_upgrade(UPGRADE_FANATICISM),
+            })
+            .unwrap_or_default()
+    }
+
     /// C++ `evaluateMoraleBonus` on a live host HordeUpdate object.
     pub(crate) fn evaluate_horde_morale_bonus(&mut self, object_id: ObjectId) {
-        let Some(obj) = self.objects.get_mut(&object_id) else {
-            return;
-        };
-        apply_evaluate_morale_bonus(obj);
+        let owner = self
+            .objects
+            .get(&object_id)
+            .and_then(|obj| obj.owner_player_id);
+        let upgrades = self.owner_morale_upgrades(owner);
+        if let Some(obj) = self.objects.get_mut(&object_id) {
+            apply_evaluate_morale_bonus(obj, upgrades);
+        }
     }
 
     /// C++ BattleMasterTankShell DumbProjectile residual.
@@ -442,17 +464,20 @@ impl GameLogic {
 
     /// Refresh Red Guard weapon residual from current horde / nationalism flags.
     pub(crate) fn refresh_red_guard_weapon(&mut self, object_id: ObjectId) {
-        use crate::game_logic::host_battlemaster::{
-            has_fanaticism_upgrade, has_nationalism_upgrade, leftover_horde_fanaticism_bonus,
-        };
+        use crate::game_logic::host_battlemaster::leftover_horde_fanaticism_bonus;
         use crate::game_logic::host_red_guard::red_guard_weapon;
+        let morale = self.owner_morale_upgrades(
+            self.objects
+                .get(&object_id)
+                .and_then(|obj| obj.owner_player_id),
+        );
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
         if !obj.authors_red_guard_machine_gun() {
             return;
         }
-        let nationalism = has_nationalism_upgrade(&obj.applied_upgrades);
+        let nationalism = morale.nationalism;
         let in_horde = obj.weapon_bonus_horde;
         let nationalism_active = nationalism_bonus_from_upgrade(
             nationalism,
@@ -462,7 +487,7 @@ impl GameLogic {
         obj.weapon_bonus_nationalism = nationalism_active;
         obj.weapon_bonus_fanaticism = leftover_horde_fanaticism_bonus(
             nationalism_active,
-            has_fanaticism_upgrade(&obj.applied_upgrades),
+            morale.fanaticism,
         );
         let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
         let mut w = red_guard_weapon(in_horde, nationalism_active);
@@ -472,18 +497,21 @@ impl GameLogic {
 
     /// Refresh Tank Hunter RPG residual from current horde / nationalism flags.
     pub(crate) fn refresh_tank_hunter_weapon(&mut self, object_id: ObjectId) {
-        use crate::game_logic::host_battlemaster::{
-            has_fanaticism_upgrade, has_nationalism_upgrade, leftover_horde_fanaticism_bonus,
-        };
+        use crate::game_logic::host_battlemaster::leftover_horde_fanaticism_bonus;
 
         use crate::game_logic::host_tank_hunter::tank_hunter_weapon;
+        let morale = self.owner_morale_upgrades(
+            self.objects
+                .get(&object_id)
+                .and_then(|obj| obj.owner_player_id),
+        );
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
         if !obj.authors_tank_hunter_missile() {
             return;
         }
-        let nationalism = has_nationalism_upgrade(&obj.applied_upgrades);
+        let nationalism = morale.nationalism;
         let in_horde = obj.weapon_bonus_horde;
         let nationalism_active = nationalism_bonus_from_upgrade(
             nationalism,
@@ -493,7 +521,7 @@ impl GameLogic {
         obj.weapon_bonus_nationalism = nationalism_active;
         obj.weapon_bonus_fanaticism = leftover_horde_fanaticism_bonus(
             nationalism_active,
-            has_fanaticism_upgrade(&obj.applied_upgrades),
+            morale.fanaticism,
         );
 
         let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
@@ -504,22 +532,25 @@ impl GameLogic {
 
     /// Refresh MiniGunner dual-gun residual from continuous fire + horde / nationalism.
     pub(crate) fn refresh_minigunner_weapon(&mut self, object_id: ObjectId) {
-        use crate::game_logic::host_battlemaster::{
-            has_fanaticism_upgrade, has_nationalism_upgrade, leftover_horde_fanaticism_bonus,
-        };
+        use crate::game_logic::host_battlemaster::leftover_horde_fanaticism_bonus;
 
         use crate::game_logic::host_gattling_tank::GattlingFireLevel;
         use crate::game_logic::host_minigunner::{
             has_chain_guns_upgrade, is_minigunner_template, minigunner_air_weapon,
             minigunner_ground_weapon,
         };
+        let morale = self.owner_morale_upgrades(
+            self.objects
+                .get(&object_id)
+                .and_then(|obj| obj.owner_player_id),
+        );
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
         if !is_minigunner_template(&obj.template_name) {
             return;
         }
-        let nationalism = has_nationalism_upgrade(&obj.applied_upgrades);
+        let nationalism = morale.nationalism;
         let in_horde = obj.weapon_bonus_horde;
         let nationalism_active = nationalism_bonus_from_upgrade(
             nationalism,
@@ -529,7 +560,7 @@ impl GameLogic {
         obj.weapon_bonus_nationalism = nationalism_active;
         obj.weapon_bonus_fanaticism = leftover_horde_fanaticism_bonus(
             nationalism_active,
-            has_fanaticism_upgrade(&obj.applied_upgrades),
+            morale.fanaticism,
         );
 
         let chain = has_chain_guns_upgrade(&obj.applied_upgrades);
@@ -546,58 +577,6 @@ impl GameLogic {
         let mut s = minigunner_air_weapon(level, chain, in_horde, nationalism_active);
         s.last_fire_time = last_sec;
         obj.secondary_weapon = Some(s);
-    }
-
-    /// Apply Nationalism residual tag to a Red Guard (ROF stacks with horde when active).
-    pub fn apply_red_guard_nationalism_upgrade(&mut self, object_id: ObjectId) -> bool {
-        use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM;
-        let Some(obj) = self.objects.get_mut(&object_id) else {
-            return false;
-        };
-        if !obj.authors_red_guard_machine_gun() {
-            return false;
-        }
-        obj.applied_upgrades.insert(UPGRADE_NATIONALISM.to_string());
-        self.red_guard_residual_nationalism_upgrades = self
-            .red_guard_residual_nationalism_upgrades
-            .saturating_add(1);
-        self.refresh_red_guard_weapon(object_id);
-        true
-    }
-
-    /// Apply Nationalism residual tag to a Tank Hunter (ROF stacks with horde when active).
-    pub fn apply_tank_hunter_nationalism_upgrade(&mut self, object_id: ObjectId) -> bool {
-        use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM;
-        let Some(obj) = self.objects.get_mut(&object_id) else {
-            return false;
-        };
-        if !obj.authors_tank_hunter_missile() {
-            return false;
-        }
-        obj.applied_upgrades.insert(UPGRADE_NATIONALISM.to_string());
-        self.tank_hunter_residual_nationalism_upgrades = self
-            .tank_hunter_residual_nationalism_upgrades
-            .saturating_add(1);
-        self.refresh_tank_hunter_weapon(object_id);
-        true
-    }
-
-    /// Apply Nationalism residual tag to a MiniGunner (ROF stacks with horde when active).
-    pub fn apply_minigunner_nationalism_upgrade(&mut self, object_id: ObjectId) -> bool {
-        use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM;
-        use crate::game_logic::host_minigunner::is_minigunner_template;
-        let Some(obj) = self.objects.get_mut(&object_id) else {
-            return false;
-        };
-        if !is_minigunner_template(&obj.template_name) {
-            return false;
-        }
-        obj.applied_upgrades.insert(UPGRADE_NATIONALISM.to_string());
-        self.minigunner_residual_nationalism_upgrades = self
-            .minigunner_residual_nationalism_upgrades
-            .saturating_add(1);
-        self.refresh_minigunner_weapon(object_id);
-        true
     }
 
     /// Apply Chain Guns residual to a MiniGunner (PLAYER_UPGRADE damage residual × 1.25).
@@ -705,8 +684,9 @@ impl GameLogic {
         let draw_icon = self.get_draw_icon_ui();
         let frame = self.frame;
 
-        for (idx, (id, _team, _owner, _scan, name, kind)) in horde_units.iter().enumerate() {
+        for (idx, (id, _team, owner, _scan, name, kind)) in horde_units.iter().enumerate() {
             let scanned = membership[idx].in_horde;
+            let morale = self.owner_morale_upgrades(*owner);
             if let Some(obj) = self.objects.get_mut(id) {
                 let (due, init, last, next) = leftover_horde_take_wake(
                     obj.horde_wake_initialized,
@@ -725,7 +705,10 @@ impl GameLogic {
                 let was = obj.weapon_bonus_horde;
                 let now_horde = scanned;
                 obj.weapon_bonus_horde = now_horde;
-                apply_evaluate_morale_bonus(obj);
+                let morale_before = (obj.weapon_bonus_nationalism, obj.weapon_bonus_fanaticism);
+                apply_evaluate_morale_bonus(obj, morale);
+                let morale_changed =
+                    morale_before != (obj.weapon_bonus_nationalism, obj.weapon_bonus_fanaticism);
                 obj.apply_horde_terrain_decal(was, now_horde, draw_icon);
                 if now_horde && !was {
                     if *kind == 1 {
@@ -736,7 +719,7 @@ impl GameLogic {
                         mg_grants = mg_grants.saturating_add(1);
                     }
                 }
-                if now_horde != was || now_horde {
+                if now_horde != was || now_horde || morale_changed {
                     if *kind == 1 {
                         to_refresh_red.push(*id);
                     } else if *kind == 2 {

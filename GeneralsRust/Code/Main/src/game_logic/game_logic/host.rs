@@ -1003,14 +1003,12 @@ pub struct GameLogic {
     pub(super) battlemaster_residual_fires: u32,
     pub(super) battlemaster_residual_units_hit: u32,
     pub(super) battlemaster_residual_uranium_upgrades: u32,
-    pub(super) battlemaster_residual_nationalism_upgrades: u32,
     pub(crate) battlemaster_residual_horde_grants: u32,
 
     /// Host residual: China Red Guard gun + bayonet + horde / nationalism honesty.
     /// Fail-closed: not full WeaponSet tertiary auto-choose matrix.
     pub(super) red_guard_residual_fires: u32,
     pub(super) red_guard_residual_bayonet_kills: u32,
-    pub(super) red_guard_residual_nationalism_upgrades: u32,
     pub(crate) red_guard_residual_horde_grants: u32,
 
     /// Host residual: China Tank Hunter RPG + TNT special + horde / nationalism honesty.
@@ -1018,7 +1016,6 @@ pub struct GameLogic {
     pub(super) tank_hunter_residual_fires: u32,
     pub(super) tank_hunter_residual_units_hit: u32,
     pub(super) tank_hunter_residual_tnt_plants: u32,
-    pub(super) tank_hunter_residual_nationalism_upgrades: u32,
     pub(crate) tank_hunter_residual_horde_grants: u32,
     /// Per-unit TNT special residual last plant frame (ReloadTime 7500ms).
     pub(super) tank_hunter_tnt_last_frame: HashMap<ObjectId, u32>,
@@ -1045,7 +1042,6 @@ pub struct GameLogic {
     pub(super) minigunner_residual_ramp_mean: u32,
     pub(super) minigunner_residual_ramp_fast: u32,
     pub(super) minigunner_residual_chain_gun_upgrades: u32,
-    pub(super) minigunner_residual_nationalism_upgrades: u32,
     pub(crate) minigunner_residual_horde_grants: u32,
 
     /// Host residual: Colonel Burton sniper + knife melee honesty.
@@ -1363,14 +1359,6 @@ pub struct GameLogic {
     pub(super) overcharge_drain_ticks: u32,
     /// C++ OverchargeBehavior exhausted auto-disable residual events.
     pub(super) overcharge_exhaustions: u32,
-    /// C++ PowerPlantUpgrade Advanced Control Rods residual completions.
-    pub(super) control_rods_upgrades: u32,
-    /// Plants that received EnergyBonus from control rods residual.
-    pub(super) control_rods_plants_affected: u32,
-    /// C++ SubliminalMessaging upgrade residual completions.
-    pub(super) subliminal_messaging_upgrades: u32,
-    /// Propaganda towers tagged by subliminal residual.
-    pub(super) subliminal_towers_affected: u32,
     /// CONSTRUCTION_COMPLETE duration clears residual.
     pub(super) construction_complete_clears: u32,
     /// C++ DozerAIUpdate::cancelTask residual events.

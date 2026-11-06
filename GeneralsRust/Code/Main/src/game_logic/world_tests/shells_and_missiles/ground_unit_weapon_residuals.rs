@@ -829,6 +829,7 @@ fn battlemaster_residual_gun_uranium_and_horde_nationalism() {
     ensure_test_tank_template(&mut game_logic);
     ensure_test_infantry_template(&mut game_logic);
 
+    game_logic.add_player(crate::game_logic::Player::new(0, Team::China, "China", true));
     let mut bm_tpl = crate::game_logic::ThingTemplate::new("ChinaTankBattleMaster");
     bm_tpl
         .add_kind_of(KindOf::Vehicle)
@@ -844,9 +845,9 @@ fn battlemaster_residual_gun_uranium_and_horde_nationalism() {
     let mut bm_ids = Vec::new();
     for i in 0..5 {
         let id = game_logic
-            .create_object(
+            .create_object_for_player(
                 "ChinaTankBattleMaster",
-                Team::China,
+                0,
                 Vec3::new(i as f32 * 10.0, 0.0, 0.0),
             )
             .expect("battlemaster");
@@ -897,11 +898,14 @@ fn battlemaster_residual_gun_uranium_and_horde_nationalism() {
     }
 
     // Nationalism residual: additional ROF 125% while in horde → 32 frames.
-    assert!(game_logic.apply_battlemaster_nationalism_upgrade(bm0));
-    assert!(game_logic.honesty_battlemaster_nationalism_ok());
+    game_logic
+        .players
+        .get_mut(&0)
+        .unwrap()
+        .add_completed_upgrade(UPGRADE_NATIONALISM);
+    game_logic.refresh_battlemaster_weapon(bm0);
     {
         let bm = game_logic.host_object(bm0).expect("bm0 nat");
-        assert!(bm.has_upgrade_tag(UPGRADE_NATIONALISM));
         assert!(
             bm.weapon_bonus_nationalism,
             "nationalism active while in horde"
@@ -1044,6 +1048,9 @@ fn tank_hunter_residual_rpg_horde_and_tnt() {
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_structure_template(&mut game_logic);
 
+    if game_logic.get_player(0).is_none() {
+        game_logic.add_player(crate::game_logic::Player::new(0, Team::China, "China", true));
+    }
     let mut th_tpl = crate::game_logic::ThingTemplate::new("ChinaInfantryTankHunter");
     th_tpl
         .add_kind_of(KindOf::Infantry)
@@ -1059,9 +1066,9 @@ fn tank_hunter_residual_rpg_horde_and_tnt() {
     let mut th_ids = Vec::new();
     for i in 0..5 {
         let id = game_logic
-            .create_object(
+            .create_object_for_player(
                 "ChinaInfantryTankHunter",
-                Team::China,
+                0,
                 Vec3::new(i as f32 * 5.0, 0.0, 0.0),
             )
             .expect("tankhunter");
@@ -1095,11 +1102,14 @@ fn tank_hunter_residual_rpg_horde_and_tnt() {
         );
     }
 
-    assert!(game_logic.apply_tank_hunter_nationalism_upgrade(th0));
-    assert!(game_logic.honesty_tank_hunter_nationalism_ok());
+    game_logic
+        .players
+        .get_mut(&0)
+        .unwrap()
+        .add_completed_upgrade(UPGRADE_NATIONALISM);
+    game_logic.refresh_tank_hunter_weapon(th0);
     {
         let th = game_logic.host_object(th0).expect("th0 nat");
-        assert!(th.has_upgrade_tag(UPGRADE_NATIONALISM));
         assert!(th.weapon_bonus_nationalism);
         let w = th.weapon.as_ref().expect("nat rpg");
         assert!(
