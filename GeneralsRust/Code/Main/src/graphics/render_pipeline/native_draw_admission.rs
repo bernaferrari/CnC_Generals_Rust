@@ -535,6 +535,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
         }
         let mut budget = usize::MAX;
         let model = match RenderPipeline::ensure_render_model_loaded(
+            self.application_assets.as_deref(),
             &mut self.failed_model_resolutions,
             graphics,
             &template,
@@ -561,7 +562,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
             return;
         };
         let binding = identity.animation.as_ref().and_then(|animation| {
-            RenderPipeline::cached_draw_animation_binding(&model, &animation.hierarchy_animation)
+            RenderPipeline::cached_draw_animation_binding(self.application_assets.as_deref(), &model, &animation.hierarchy_animation)
         });
         let state = self
             .drawable_visual_states

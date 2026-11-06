@@ -12,6 +12,7 @@ pub struct NativeInstalledPoseLoan<'a> {
         &'a mut HashMap<crate::assets::LiveDrawPlaybackKey, crate::assets::LiveDrawPlayback>,
     pub(super) drawable_visual_states: &'a mut HashMap<(NativeDrawOwnerId, u32), ObjectVisualState>,
     pub(super) failed_model_resolutions: &'a mut pipeline_collect::FailedModelResolutions,
+    pub(super) application_assets: Option<Arc<Mutex<crate::assets::AssetManager>>>,
     pub(super) pending_client_drawable_restore:
         &'a mut Option<crate::save_load::snapshot::ClientDrawableWorldSnapshot>,
     pub(super) pending_client_drawable_imports:
@@ -31,7 +32,7 @@ impl RenderPipeline {
 
     pub(crate) fn borrow_native_installed_poses(&mut self) -> NativeInstalledPoseLoan<'_> {
         self.native_draw_world
-            .borrow_installed_poses(&mut self.failed_model_resolutions, self.animation_sync_ms)
+            .borrow_installed_poses(&mut self.failed_model_resolutions, self.animation_sync_ms, self.forward_pass.application_assets.clone())
     }
 }
 impl NativeInstalledPoseLoan<'_> {
@@ -48,6 +49,7 @@ impl NativeInstalledPoseLoan<'_> {
             live_draw_playback: &mut *self.live_draw_playback,
             drawable_visual_states: &mut *self.drawable_visual_states,
             failed_model_resolutions: &mut *self.failed_model_resolutions,
+            application_assets: self.application_assets.clone(),
             pending_client_drawable_restore: &mut *self.pending_client_drawable_restore,
             pending_client_drawable_imports: &mut *self.pending_client_drawable_imports,
             animation_sync_ms: self.animation_sync_ms,
@@ -404,6 +406,7 @@ impl NativeInstalledPoseLoan<'_> {
             }
             let mut budget = usize::MAX;
             let model = match RenderPipeline::ensure_render_model_loaded(
+                self.application_assets.as_deref(),
                 &mut self.failed_model_resolutions,
                 graphics,
                 &source.template_name,
@@ -418,7 +421,7 @@ impl NativeInstalledPoseLoan<'_> {
             // frame zero (or the explicit PRISTINE_BONE_POS_IN_FINAL_FRAME).
             let binding = match selected.animations.first() {
                 Some(animation) => Some(
-                    RenderPipeline::cached_draw_animation_binding(&model, &animation.name)
+                    RenderPipeline::cached_draw_animation_binding(self.application_assets.as_deref(), &model, &animation.name)
                         .ok_or(UnsupportedSourceControls)?,
                 ),
                 None => None,

@@ -842,8 +842,8 @@ impl ForwardPass {
         &self,
         texture_name: &str,
     ) -> Result<Arc<TextureClass>> {
-        let asset_manager =
-            get_asset_manager().ok_or_else(|| anyhow::anyhow!("Asset manager unavailable"))?;
+        let asset_manager = self.application_assets.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Asset manager unavailable"))?;
         let asset_manager = asset_manager
             .lock()
             .map_err(|_| anyhow::anyhow!("Asset manager mutex poisoned"))?;
@@ -856,7 +856,7 @@ impl ForwardPass {
     }
 
     pub(super) fn is_known_missing_texture(&self, texture_name: &str) -> bool {
-        let Some(asset_manager_arc) = get_asset_manager() else {
+        let Some(asset_manager_arc) = self.application_assets.as_ref() else {
             return false;
         };
         let Ok(asset_manager) = asset_manager_arc.lock() else {
@@ -866,8 +866,8 @@ impl ForwardPass {
     }
 
     pub(super) fn prime_texture_raw_blocking(&self, texture_name: &str) -> Result<()> {
-        let asset_manager =
-            get_asset_manager().ok_or_else(|| anyhow::anyhow!("Asset manager unavailable"))?;
+        let asset_manager = self.application_assets.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Asset manager unavailable"))?;
         let mut asset_manager = asset_manager
             .lock()
             .map_err(|_| anyhow::anyhow!("Asset manager mutex poisoned"))?;

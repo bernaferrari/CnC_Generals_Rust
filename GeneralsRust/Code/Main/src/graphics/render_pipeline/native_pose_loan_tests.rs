@@ -63,6 +63,7 @@ fn same_id_peer_reset_and_replacement_cannot_query_or_consume_installed_owner() 
             live_draw_playback: &mut playback,
             drawable_visual_states: &mut states,
             failed_model_resolutions: &mut failed,
+            application_assets: None,
             pending_client_drawable_restore: &mut pending,
             pending_client_drawable_imports: &mut imports,
             animation_sync_ms: 999,
@@ -124,6 +125,7 @@ fn residual_same_id_sibling_from_prior_generation_rejects_whole_source_query() {
         live_draw_playback: &mut playback,
         drawable_visual_states: &mut states,
         failed_model_resolutions: &mut failed,
+        application_assets: None,
         pending_client_drawable_restore: &mut pending,
         pending_client_drawable_imports: &mut imports,
         animation_sync_ms: 999,
@@ -192,6 +194,7 @@ fn same_object_same_template_client_replacement_requires_actual_constructor_befo
         live_draw_playback: &mut playback,
         drawable_visual_states: &mut states,
         failed_model_resolutions: &mut failed,
+        application_assets: None,
         pending_client_drawable_restore: &mut pending,
         pending_client_drawable_imports: &mut imports,
         animation_sync_ms: 999,
@@ -259,7 +262,7 @@ fn native_destroy_loan_retires_only_its_actual_render_and_playback_owner() {
     let peer_before = peer.drawable_visual_states.clone();
     let mut failed = pipeline_collect::FailedModelResolutions::default();
     world
-        .borrow_installed_poses(&mut failed, 999)
+        .borrow_installed_poses(&mut failed, 999, None)
         .retire_native_drawable(crate::game_logic::ObjectId(42));
     assert!(!world.drawable_visual_states.contains_key(&(NativeDrawOwnerId::Actor(42), 2)));
     assert!(world.drawable_visual_states.contains_key(&(NativeDrawOwnerId::Actor(43), 2)));

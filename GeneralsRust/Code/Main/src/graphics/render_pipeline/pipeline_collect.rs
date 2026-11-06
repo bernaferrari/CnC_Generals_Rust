@@ -111,6 +111,7 @@ impl RenderPipeline {
     /// animation which is not present in this exact W3D asset stays bind-pose
     /// too: choosing animation zero would invent visible bone state.
     fn bridge_draw_animation(
+        application_assets: Option<&Mutex<crate::assets::AssetManager>>,
         model: &crate::assets::W3DModel,
         animation_name: Option<&str>,
         animation_time: f32,
@@ -118,7 +119,7 @@ impl RenderPipeline {
         let Some(animation_name) = animation_name else {
             return (None, 0.0);
         };
-        let Some(animation_binding) = Self::cached_draw_animation_binding(model, animation_name)
+        let Some(animation_binding) = Self::cached_draw_animation_binding(application_assets, model, animation_name)
         else {
             return (None, 0.0);
         };
@@ -563,6 +564,7 @@ impl RenderPipeline {
 
                 let model_load_started = Instant::now();
                 let render_model_load_result = Self::ensure_render_model_loaded(
+                    self.forward_pass.application_assets.as_deref(),
                     &mut self.failed_model_resolutions,
                     graphics_system,
                     template_name_for_cull,
@@ -702,7 +704,7 @@ impl RenderPipeline {
 
                                 if material.texture_name.is_none() {
                                     if let Some(asset_manager_arc) =
-                                        crate::assets::get_asset_manager()
+                                        self.forward_pass.application_assets.as_ref()
                                     {
                                         if let Ok(asset_manager) = asset_manager_arc.lock() {
                                             if let Some(obj_def) = asset_manager
@@ -899,6 +901,7 @@ impl RenderPipeline {
                                     .apply_heat_vision_second_pass(u.second_material_pass_opacity);
                                 self.render_items.extend(
                                     super::hlod_aggregate_render::collect_cached_hlod_aggregate_render_items(
+                                        self.forward_pass.application_assets.as_deref(),
                                         graphics_system,
                                         &aggregate_parent_item,
                                         &aggregate_poses,
@@ -1109,6 +1112,7 @@ impl RenderPipeline {
                     p.projectile_object_name.as_str()
                 };
                 let render_model_load_result = Self::ensure_render_model_loaded(
+                    self.forward_pass.application_assets.as_deref(),
                     &mut self.failed_model_resolutions,
                     graphics_system,
                     template_name,
@@ -1380,6 +1384,7 @@ impl RenderPipeline {
     }
 
     pub(super) fn ensure_render_model_loaded(
+        application_assets: Option<&Mutex<crate::assets::AssetManager>>,
         failed_model_resolutions: &mut FailedModelResolutions,
         graphics_system: &mut GraphicsSystem,
         template_name: &str,
@@ -1454,7 +1459,7 @@ impl RenderPipeline {
         // miss from a temporary resolver. Check the budget first so an
         // uncached object with no remaining budget does not contend on this
         // lock every frame.
-        let Some(asset_manager_arc) = crate::assets::get_asset_manager() else {
+        let Some(asset_manager_arc) = application_assets else {
             return RenderModelLoadResult::Deferred;
         };
         let mut asset_manager = match asset_manager_arc.lock() {
@@ -1638,6 +1643,7 @@ impl RenderPipeline {
                 continue;
             }
             let _ = Self::ensure_render_model_loaded(
+                self.forward_pass.application_assets.as_deref(),
                 &mut self.failed_model_resolutions,
                 graphics_system,
                 model_name,
@@ -1812,6 +1818,7 @@ impl RenderPipeline {
             // applied by the direct frozen-unit path above.
 
             let load_result = Self::ensure_render_model_loaded(
+                self.forward_pass.application_assets.as_deref(),
                 &mut self.failed_model_resolutions,
                 graphics_system,
                 model_name,
@@ -1828,6 +1835,7 @@ impl RenderPipeline {
                         // submission. Apply that exact state so raw W3D bit
                         // channels govern HLOD children here too.
                         let (animation_binding, anim_frame) = Self::bridge_draw_animation(
+                            self.forward_pass.application_assets.as_deref(),
                             &w3d_model,
                             submission.animation_name.as_deref(),
                             submission.animation_time,
@@ -1993,6 +2001,7 @@ impl RenderPipeline {
                             }
                             self.render_items.extend(
                                 super::hlod_aggregate_render::collect_cached_hlod_aggregate_render_items(
+                                    self.forward_pass.application_assets.as_deref(),
                                     graphics_system,
                                     &aggregate_parent_item,
                                     &aggregate_poses,
@@ -2368,7 +2377,7 @@ mod w3d_live_path_tests {
         });
 
         let (binding, frame) =
-            RenderPipeline::bridge_draw_animation(&model, Some("bridgehier.bridgeclip"), 0.5);
+            RenderPipeline::bridge_draw_animation(None, &model, Some("bridgehier.bridgeclip"), 0.5);
         assert!(matches!(
             binding,
             Some(crate::assets::W3dAnimationBinding::Local { index: 0 })
@@ -2378,7 +2387,7 @@ mod w3d_live_path_tests {
             "the bridge fraction maps to the selected clip's source frame range"
         );
         let (missing_binding, missing_frame) =
-            RenderPipeline::bridge_draw_animation(&model, Some("different.clip"), 0.5);
+            RenderPipeline::bridge_draw_animation(None, &model, Some("different.clip"), 0.5);
         assert!(
             missing_binding.is_none() && missing_frame == 0.0,
             "an unresolved named clip must not substitute animation zero"

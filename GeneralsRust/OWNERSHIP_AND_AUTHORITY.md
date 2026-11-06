@@ -2686,3 +2686,20 @@ existing boundary and order. The common finalizer captures the actual fired slot
 and pre-advance barrel before consuming ammo. This bounded correction adds no
 state or synchronization. Full original fire-template effect ordering, generic
 max-shot scheduling and native Weapon ownership remain separate contracts.
+
+## Render asset owner (hq-8d70a)
+
+The engine binds its application AssetManager to its RenderPipeline after
+asset initialization. The forward pass, model prewarm, render-model loads,
+native Draw pose loans, animation bindings and cache-only HLOD collection
+use that retained owner; construction does not publish it. Model cache
+precedence and deferred loading remain unchanged. C++ reference points are
+WW3DAssetManager::Create_Render_Obj (assetmgr.cpp:720-762),
+HLodClass aggregate construction (hlod.cpp:990-1005), and
+W3DAssetManager::Get_Texture (W3DAssetManager.cpp:127-225).
+
+This is a partial ownership migration, not a multi-instance isolation claim.
+Authored model-key selection in mesh_asset_resolve still reads the ambient
+manager through start-game, seeding, object observation and presentation
+callers. Two-instance public-consumer regression and native/WASM execution
+evidence are still required before closing hq-8d70a.

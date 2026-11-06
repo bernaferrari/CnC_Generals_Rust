@@ -118,13 +118,14 @@ impl From<&W3dHlodAggregatePose> for RigidAttachmentPose {
 /// record remains absent for this frame, exactly avoiding timing-dependent
 /// archive I/O in render collection.
 pub(super) fn collect_cached_hlod_aggregate_render_items(
+    asset_manager: Option<&Mutex<crate::assets::AssetManager>>,
     graphics_system: &mut GraphicsSystem,
     parent_item: &RenderItem,
     parent_attachment_poses: &[W3dHlodAggregatePose],
     camera_position: Vec3,
 ) -> Vec<RenderItem> {
     let mut resolve =
-        |full_name: &str| resolve_cached_hlod_aggregate_render_object(graphics_system, full_name);
+        |full_name: &str| resolve_cached_hlod_aggregate_render_object(asset_manager, graphics_system, full_name);
     collect_hlod_aggregate_render_items_with_resolver(
         parent_item,
         parent_item.world_matrix,
@@ -137,11 +138,11 @@ pub(super) fn collect_cached_hlod_aggregate_render_items(
 /// Resolve only a resident exact source prototype and place its exact source
 /// model in GraphicsSystem's private strict cache namespace.
 fn resolve_cached_hlod_aggregate_render_object(
+    asset_manager: Option<&Mutex<crate::assets::AssetManager>>,
     graphics_system: &mut GraphicsSystem,
     full_name: &str,
 ) -> Option<ResolvedHlodAggregateRenderObject> {
-    let asset_manager_arc = crate::assets::get_asset_manager()?;
-    let asset_manager = asset_manager_arc.lock().ok()?;
+    let asset_manager = asset_manager?.lock().ok()?;
     let prototype = asset_manager.cached_w3d_render_object_prototype(full_name)?;
     // A registry lookup is case-insensitive like C++ `Find_Prototype`, but
     // keep the requested complete identity honest before it reaches a draw.

@@ -7,6 +7,7 @@ use super::*;
 /// world. The animation clock remains the driving renderer's one clock.
 pub(crate) struct NativeDrawServices<'a> {
     failed_model_resolutions: &'a mut pipeline_collect::FailedModelResolutions,
+    application_assets: Option<Arc<Mutex<crate::assets::AssetManager>>>,
     animation_sync_ms: u32,
 }
 
@@ -14,6 +15,7 @@ impl RenderPipeline {
     pub(crate) fn borrow_native_draw_services(&mut self) -> NativeDrawServices<'_> {
         NativeDrawServices {
             failed_model_resolutions: &mut self.failed_model_resolutions,
+            application_assets: self.forward_pass.application_assets.clone(),
             animation_sync_ms: self.animation_sync_ms,
         }
     }
@@ -53,6 +55,7 @@ impl RenderPipeline {
         (
             NativeDrawServices {
                 failed_model_resolutions: &mut self.failed_model_resolutions,
+                application_assets: self.forward_pass.application_assets.clone(),
                 animation_sync_ms: self.animation_sync_ms,
             },
             NativeLoadSurface {
@@ -66,7 +69,7 @@ impl<'a> NativeDrawServices<'a> {
         self,
         world: &'a mut NativeDrawWorld,
     ) -> native_pose_loan::NativeInstalledPoseLoan<'a> {
-        world.borrow_installed_poses(self.failed_model_resolutions, self.animation_sync_ms)
+        world.borrow_installed_poses(self.failed_model_resolutions, self.animation_sync_ms, self.application_assets)
     }
 }
 
@@ -101,6 +104,7 @@ impl NativeDrawWorld {
         &'a mut self,
         failed_model_resolutions: &'a mut pipeline_collect::FailedModelResolutions,
         animation_sync_ms: u32,
+        application_assets: Option<Arc<Mutex<crate::assets::AssetManager>>>,
     ) -> native_pose_loan::NativeInstalledPoseLoan<'a> {
         native_pose_loan::NativeInstalledPoseLoan {
             #[cfg(feature = "game_client")]
@@ -109,6 +113,7 @@ impl NativeDrawWorld {
             live_draw_playback: &mut self.live_draw_playback,
             drawable_visual_states: &mut self.drawable_visual_states,
             failed_model_resolutions,
+            application_assets,
             pending_client_drawable_restore: &mut self.pending_client_drawable_restore,
             pending_client_drawable_imports: &mut self.pending_client_drawable_imports,
             animation_sync_ms,

@@ -139,7 +139,7 @@ impl RenderPipeline {
     /// initialization. The renderer captures that owner and still resolves
     /// textures lazily at first material use.
     pub(crate) fn bind_application_assets(
-        &self,
+        &mut self,
         application_assets: Arc<Mutex<crate::assets::AssetManager>>,
     ) {
         install_archive_pass_texture_provider(
@@ -151,6 +151,7 @@ impl RenderPipeline {
             // need one retry through this renderer's asset owner.
             manager.clear_missing_model_cache();
         }
+        self.forward_pass.application_assets = Some(application_assets);
     }
 
     /// Keep selection GPU resources on the same device as the scene renderer.

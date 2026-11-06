@@ -572,14 +572,14 @@ impl RenderPipeline {
     /// Local data is immediately usable; an external companion must already
     /// have been loaded into AssetManager's exact identity/hierarchy cache.
     pub(super) fn cached_draw_animation_binding(
+        application_assets: Option<&Mutex<crate::assets::AssetManager>>,
         model: &crate::assets::W3DModel,
         identity: &str,
     ) -> Option<crate::assets::W3dAnimationBinding> {
         if let Some(local) = model.local_animation_binding_for_draw_identity(identity) {
             return Some(local);
         }
-        let asset_manager_arc = crate::assets::get_asset_manager()?;
-        let asset_manager = asset_manager_arc.lock().ok()?;
+        let asset_manager = application_assets?.lock().ok()?;
         asset_manager.cached_w3d_draw_animation_binding(model, identity)
     }
 
@@ -784,6 +784,7 @@ impl RenderPipeline {
 
         if let Some(saved) = pending_restore {
             if let Some(restored) = restore::restore_client_drawable_state(
+                self.forward_pass.application_assets.as_deref(),
                 state,
                 &identity,
                 model,
@@ -865,7 +866,7 @@ impl RenderPipeline {
             return (None, 0.0, controls);
         };
         let Some(animation_binding) =
-            Self::cached_draw_animation_binding(model, expected.hierarchy_animation.as_str())
+            Self::cached_draw_animation_binding(self.forward_pass.application_assets.as_deref(), model, expected.hierarchy_animation.as_str())
         else {
             discard_unvisualizable_discharges(state, &discharges);
             Self::notify_unplayable_transition_complete(

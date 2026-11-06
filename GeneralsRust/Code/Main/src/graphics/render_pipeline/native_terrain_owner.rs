@@ -123,6 +123,7 @@ impl RenderPipeline {
             }
             let model = models.entry(&prop.model_name).or_insert_with(|| {
                 match Self::ensure_render_model_loaded(
+                    self.forward_pass.application_assets.as_deref(),
                     &mut self.failed_model_resolutions,
                     graphics_system,
                     &prop.model_name,
@@ -170,7 +171,7 @@ impl RenderPipeline {
     ) {
         let poses = self
             .native_draw_world
-            .borrow_installed_poses(&mut self.failed_model_resolutions, self.animation_sync_ms);
+            .borrow_installed_poses(&mut self.failed_model_resolutions, self.animation_sync_ms, self.forward_pass.application_assets.clone());
         (poses, self.native_terrain.as_mut())
     }
     #[cfg(feature = "game_client")]

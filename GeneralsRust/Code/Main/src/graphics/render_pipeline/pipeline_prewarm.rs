@@ -65,7 +65,7 @@ impl RenderPipeline {
             return;
         }
 
-        let Some(asset_manager_arc) = crate::assets::get_asset_manager() else {
+        let Some(asset_manager_arc) = self.forward_pass.application_assets.as_ref() else {
             return;
         };
         let Ok(mut asset_manager) = asset_manager_arc.lock() else {
@@ -103,7 +103,7 @@ impl RenderPipeline {
             return;
         }
 
-        let Some(asset_manager_arc) = crate::assets::get_asset_manager() else {
+        let Some(asset_manager_arc) = self.forward_pass.application_assets.as_ref() else {
             return;
         };
         let Ok(mut asset_manager) = asset_manager_arc.lock() else {
@@ -209,6 +209,11 @@ impl RenderPipeline {
         graphics_system: &mut GraphicsSystem,
         allow_sync_model_loads: bool,
     ) {
+        if self.forward_pass.application_assets.is_none() {
+            // Binding happens after pipeline construction; do not consume the
+            // map's prewarm signature before the receiving owner exists.
+            return;
+        }
         // Presentation-only: map signature comes from frozen world_env.
         let Some(pres) = self.presentation_frame.as_ref() else {
             return;
@@ -237,7 +242,7 @@ impl RenderPipeline {
         let mut seen = HashSet::new();
 
         if !template_names.is_empty() {
-            if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
+            if let Some(asset_manager_arc) = self.forward_pass.application_assets.as_ref() {
                 if let Ok(asset_manager) = asset_manager_arc.lock() {
                     for template_raw in &template_names {
                         let template = template_raw.trim();
@@ -259,7 +264,7 @@ impl RenderPipeline {
         }
 
         if candidates.is_empty() {
-            if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
+            if let Some(asset_manager_arc) = self.forward_pass.application_assets.as_ref() {
                 if let Ok(asset_manager) = asset_manager_arc.lock() {
                     candidates.extend(
                         asset_manager
@@ -269,7 +274,7 @@ impl RenderPipeline {
                     );
                 }
             }
-        } else if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
+        } else if let Some(asset_manager_arc) = self.forward_pass.application_assets.as_ref() {
             if let Ok(asset_manager) = asset_manager_arc.lock() {
                 for unit in asset_manager.get_common_cnc_units() {
                     if candidates.len() >= if allow_sync_model_loads { 48 } else { 12 } {
@@ -293,7 +298,7 @@ impl RenderPipeline {
         let mut cached_to_graphics = 0usize;
         let mut stats = ModelPrewarmStats::default();
 
-        if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
+        if let Some(asset_manager_arc) = self.forward_pass.application_assets.as_ref() {
             match asset_manager_arc.lock() {
                 Ok(mut asset_manager) => {
                     stats = asset_manager.prewarm_object_models_blocking(candidates.iter());

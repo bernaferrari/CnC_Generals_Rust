@@ -168,6 +168,7 @@ impl ForwardPass {
 
         Ok(Self {
             renderer,
+            application_assets: None,
             mesh_cache: HashMap::new(),
             texture_cache: HashMap::new(),
             pending_texture_stream: VecDeque::new(),
@@ -439,7 +440,7 @@ impl ForwardPass {
         }
 
         // Prime all raw payloads while holding the asset manager lock once, matching C++ upfront loads.
-        if let Some(asset_manager_arc) = get_asset_manager() {
+        if let Some(asset_manager_arc) = self.application_assets.as_ref() {
             let mut asset_manager = asset_manager_arc
                 .lock()
                 .map_err(|_| anyhow::anyhow!("Asset manager mutex poisoned"))?;

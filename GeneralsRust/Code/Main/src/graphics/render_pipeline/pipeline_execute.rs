@@ -554,7 +554,7 @@ impl RenderPipeline {
         #[cfg(feature = "game_client")]
         let mut native_poses = self
             .native_draw_world
-            .borrow_installed_poses(&mut self.failed_model_resolutions, self.animation_sync_ms);
+            .borrow_installed_poses(&mut self.failed_model_resolutions, self.animation_sync_ms, self.forward_pass.application_assets.clone());
         #[cfg(feature = "game_client")]
         let mut finish_filters = |gpu_frame: &mut ww3d_engine::RenderFrame,
                                   graphics: &mut GraphicsSystem| {

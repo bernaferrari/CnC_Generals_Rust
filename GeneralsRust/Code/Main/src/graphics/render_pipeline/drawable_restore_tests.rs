@@ -114,7 +114,7 @@ fn narrow_restore_rebases_receiving_animation_without_draw_side_effects() {
     let peer = owner.clone();
     let identity = owner.identity.clone().unwrap();
     let restored =
-        restore_client_drawable_state(&mut owner, &identity, &model, &selected, &saved, 5000)
+        restore_client_drawable_state(None, &mut owner, &identity, &model, &selected, &saved, 5000)
             .unwrap();
     assert_eq!(restored.frame, 2.);
     let a = owner.animation.as_ref().unwrap();
@@ -163,21 +163,21 @@ fn malformed_or_foreign_restore_is_transactional_and_retained_motion_remains_sup
     let mut foreign = saved.clone();
     foreign.model_key = "OTHER_MODEL".into();
     assert!(
-        restore_client_drawable_state(&mut owner, &identity, &model, &selected, &foreign, 5000)
+        restore_client_drawable_state(None, &mut owner, &identity, &model, &selected, &foreign, 5000)
             .is_none()
     );
     assert_eq!(owner, before);
     let mut malformed = saved.clone();
     malformed.recoil_slots[0].push(ClientDrawableRecoilSnapshot::default());
     assert!(
-        restore_client_drawable_state(&mut owner, &identity, &model, &selected, &malformed, 5000)
+        restore_client_drawable_state(None, &mut owner, &identity, &model, &selected, &malformed, 5000)
             .is_none()
     );
     assert_eq!(owner, before);
     selected.animations.clear();
     let retained = frozen_visual_identity_for_draw_model("RestoreReceiver", &selected).unwrap();
     assert!(
-        restore_client_drawable_state(&mut owner, &retained, &model, &selected, &saved, 6000)
+        restore_client_drawable_state(None, &mut owner, &retained, &model, &selected, &saved, 6000)
             .is_some()
     );
     assert!(owner.identity.as_ref().unwrap().animation.is_none());

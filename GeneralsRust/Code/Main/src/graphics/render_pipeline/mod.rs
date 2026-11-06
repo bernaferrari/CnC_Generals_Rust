@@ -10,7 +10,6 @@
 )]
 
 use crate::assets::NativeDrawOwnerId;
-use crate::assets::get_asset_manager;
 use crate::fow_rendering::ObjectVisibility;
 use crate::game_logic::ObjectId as ObjectID;
 use crate::ui::UiTextureId;
@@ -900,6 +899,7 @@ fn clear_visual_world_state_components<T>(
 /// Forward rendering pass powered by the WW3D renderer backend.
 pub struct ForwardPass {
     pub(crate) renderer: WgpuMainRenderer,
+    application_assets: Option<Arc<Mutex<crate::assets::AssetManager>>>,
     mesh_cache: HashMap<String, Arc<MeshModelClass>>,
     texture_cache: HashMap<String, Arc<TextureClass>>,
     pending_texture_stream: VecDeque<String>,

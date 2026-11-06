@@ -8,6 +8,7 @@ pub(super) struct RestoredDrawable {
 }
 
 pub(super) fn restore_client_drawable_state(
+    application_assets: Option<&Mutex<crate::assets::AssetManager>>,
     state: &mut ObjectVisualState,
     identity: &FrozenVisualDrawIdentity,
     model: &crate::assets::W3DModel,
@@ -26,6 +27,7 @@ pub(super) fn restore_client_drawable_state(
         None if identity.animation.is_none() => (None, None),
         Some(saved_animation) => {
             let binding = RenderPipeline::cached_draw_animation_binding(
+                application_assets,
                 model,
                 &saved_animation.hierarchy_animation,
             )?;
@@ -198,6 +200,7 @@ impl super::super::native_pose_loan::NativeInstalledPoseLoan<'_> {
             };
             let model = Arc::clone(&pose.model);
             if restore_client_drawable_state(
+                self.application_assets.as_deref(),
                 state,
                 &identity,
                 &model,
