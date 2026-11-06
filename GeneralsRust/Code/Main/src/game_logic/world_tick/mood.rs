@@ -1003,7 +1003,9 @@ impl GameLogic {
             if let Some(container) = self.objects.get(&cid) {
                 if (container.passengers_allowed_to_fire
                     || container.is_combat_chinook_style_container())
-                    && !(container.is_overlord_style_container()
+                    && !((container.is_overlord_style_container()
+                        || (container.is_helix_transport
+                            && container.overlord_portable_occupant == Some(source.id)))
                         && source.is_kind_of(KindOf::PortableStructure))
                     && !gamelogic::object::contain::transport_contain_passenger_kind_allowed_to_fire(
                         source.is_kind_of(KindOf::Infantry),
@@ -1397,18 +1399,33 @@ impl GameLogic {
         pos: Option<glam::Vec3>,
         attack_type: AbleToAttackType,
     ) -> Option<CanAttackResult> {
-        let members = {
-            let owner = self.redirected_containment_owner(source_id);
-            let source = self.objects.get(&owner)?;
-            // C++ GarrisonContain::isPassengerAllowedToFire — always, unless SUBDUED.
-            let garrison_may = source.is_garrison_contain() && !source.is_subdued();
-            if !source.passengers_allowed_to_fire && !garrison_may {
-                return None;
-            }
-            source.contained_units()
-        };
+        let owner_id = self.redirected_containment_owner(source_id);
+        let owner = self.objects.get(&owner_id)?;
+        if ((owner.is_overlord_style_container() || owner.is_helix_transport)
+            && owner.contained_by.is_some())
+            || owner.contained_by.and_then(|id| self.objects.get(&id))
+                .is_some_and(|outer| outer.is_overlord_style_container() && outer.contained_by.is_some())
+        {
+            return None;
+        }
+        let ordinary = owner.passengers_allowed_to_fire
+            || (owner.is_garrison_contain() && !owner.is_subdued());
+        let helix_rider = owner.is_helix_transport.then_some(owner.overlord_portable_occupant).flatten();
+        if !ordinary && helix_rider.is_none() {
+            return None;
+        }
+        let members = owner.contained_units();
         for mid in members {
-            if !self.objects.get(&mid).is_some_and(|m| m.can_attack()) {
+            if !ordinary && helix_rider != Some(mid) {
+                continue;
+            }
+            if !self.objects.get(&mid).is_some_and(|m| {
+                m.can_attack()
+                    || (m.contained_by == Some(owner_id) && m.is_alive()
+                        && !m.status.under_construction && !m.status.sold
+                        && !m.status.weapons_jammed && !m.has_disabled_type_except_held()
+                        && [0, 1, 2].into_iter().any(|slot| m.weapon_slot(slot).is_some()))
+            }) {
                 continue;
             }
             let r = self.get_able_to_use_weapon_against_target(mid, victim_id, pos, attack_type);
