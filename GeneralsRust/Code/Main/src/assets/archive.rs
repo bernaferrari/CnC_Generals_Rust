@@ -1502,42 +1502,35 @@ mod tests {
     }
 
     #[test]
-    fn find_archive_resolves_nested_case_insensitive_paths() {
+    fn nested_and_absolute_case_insensitive_archive_paths_load_entries() {
         let temp_dir = tempfile::tempdir().unwrap();
         let actual_dir = temp_dir.path().join("Data").join("English");
         std::fs::create_dir_all(&actual_dir).unwrap();
         let actual_archive = actual_dir.join("AudioEnglishZH.big");
-        std::fs::write(&actual_archive, b"placeholder").unwrap();
+        create_single_file_big(
+            &actual_archive,
+            "Data/INI/CaseInsensitiveArchiveProbe.ini",
+            b"archive content",
+        )
+        .unwrap();
 
-        let mut archive_system = ArchiveFileSystem::new();
-        archive_system.add_search_path(temp_dir.path());
-
-        let resolved = archive_system
-            .find_archive("data/english/audioenglishzh.big")
-            .expect("nested archive path should resolve case-insensitively");
-
-        assert_eq!(resolved, actual_archive);
-    }
-
-    #[test]
-    fn find_archive_resolves_absolute_case_insensitive_paths() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let actual_dir = temp_dir.path().join("Command & Conquer Generals Zero Hour");
-        std::fs::create_dir_all(&actual_dir).unwrap();
-        let actual_archive = actual_dir.join("INIZH.big");
-        std::fs::write(&actual_archive, b"placeholder").unwrap();
-
-        let requested = temp_dir
-            .path()
-            .join("command & conquer generals zero hour")
-            .join("inizh.big");
-        let archive_system = ArchiveFileSystem::new();
-
-        let resolved = archive_system
-            .find_archive(requested.to_str().unwrap())
-            .expect("absolute archive path should resolve case-insensitively");
-
-        assert_eq!(resolved, actual_archive);
+        let absolute = temp_dir.path().join("data/english/audioenglishzh.big");
+        for requested in [
+            "data/english/audioenglishzh.big".to_owned(),
+            absolute.to_string_lossy().into_owned(),
+        ] {
+            let mut files = ArchiveFileSystem::new();
+            files.add_search_path(temp_dir.path());
+            files.set_local_search_roots(Vec::new());
+            let archive = files
+                .find_archive(&requested)
+                .expect("archive path should resolve case-insensitively");
+            futures::executor::block_on(files.load_big_file(&archive)).unwrap();
+            assert_eq!(
+                files.open_file_sync("data/ini/caseinsensitivearchiveprobe.ini").unwrap(),
+                b"archive content"
+            );
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
