@@ -605,13 +605,19 @@ impl MeshRenderManager {
         arena: &mut FrameUniformArena,
     ) -> W3dResult<()> {
         let mut pass_resources = RenderPassResources::default();
-        for mesh in opaque_meshes {
-            self.render_mesh(mesh, render_info, render_pass, arena, &mut pass_resources)?;
-        }
-        for mesh in blended_meshes {
-            self.render_mesh(mesh, render_info, render_pass, arena, &mut pass_resources)?;
-        }
-        Ok(())
+        let result = (|| {
+            for mesh in opaque_meshes {
+                self.render_mesh(mesh, render_info, render_pass, arena, &mut pass_resources)?;
+            }
+            for mesh in blended_meshes {
+                self.render_mesh(mesh, render_info, render_pass, arena, &mut pass_resources)?;
+            }
+            Ok(())
+        })();
+        // The pass's uniforms are staged in the arena; queue them (one write
+        // per page) before anyone can submit the recorded pass.
+        arena.flush(self.gpu_device.as_ref());
+        result
     }
 
     /// Select the lighting environment owned by this MeshClass when one has

@@ -180,19 +180,6 @@ impl LiveCascadeShadowMap {
     }
 }
 
-/// Honesty: live opaque.wgsl must bind + PCF-sample the cascade map.
-pub fn honesty_live_csm_pcf_shader_bound(opaque_wgsl: &str) -> bool {
-    opaque_wgsl.contains("@group(1) @binding(2)")
-        && opaque_wgsl.contains("@group(1) @binding(3)")
-        && opaque_wgsl.contains("texture_depth_2d_array")
-        && opaque_wgsl.contains("sampler_comparison")
-        && opaque_wgsl.contains("fn sample_csm_pcf")
-        && opaque_wgsl.contains("textureSampleCompare")
-        && opaque_wgsl.contains("sample_csm_pcf(")
-        // Array layer for textureSampleCompare must be integer (f32 fails naga validation).
-        && opaque_wgsl.contains("let layer: i32")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,16 +191,13 @@ mod tests {
     }
 
     #[test]
-    fn honesty_pins_live_opaque_bind_and_pcf_sample() {
+    fn opaque_shader_keeps_the_cascade_bindings_but_no_shadow_term() {
+        // C++ meshes have no shadow-map term (renderer plan R9 / G8): the
+        // bindings stay for the shared layout, the lighting never reads them.
         let opaque = include_str!("../shader_system/opaque.wgsl");
-        assert!(
-            honesty_live_csm_pcf_shader_bound(opaque),
-            "opaque.wgsl must bind cascade map + PCF sample (not comments only)"
-        );
-        assert!(
-            opaque.contains("sample_projected_shadow"),
-            "empty-map fallback must remain"
-        );
+        assert!(opaque.contains("var cascade_shadow_map: texture_depth_2d_array;"));
+        assert!(!opaque.contains("fn sample_csm_pcf"));
+        assert!(!opaque.contains("fn sample_projected_shadow"));
     }
 
     #[test]

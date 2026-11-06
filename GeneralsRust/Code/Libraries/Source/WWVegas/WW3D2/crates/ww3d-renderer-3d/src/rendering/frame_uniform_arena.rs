@@ -1,8 +1,10 @@
 //! Per-frame uniform arena for batching renderer uniforms into a single GPU buffer.
 //!
 //! This arena is reset once per frame and avoids creating transient uniform buffers for every
-//! draw call. Data is uploaded through `queue.write_buffer` at allocation time and bind groups
-//! reference the shared buffer with per-draw offsets.
+//! draw call. Allocations are staged in a CPU mirror of each page and uploaded by `flush` with
+//! one `queue.write_buffer` per page (renderer plan R5/R6: a write per allocation made wgpu
+//! allocate a staging buffer per draw). Bind groups reference the shared buffer with per-draw
+//! offsets; callers flush after recording and before the frame is submitted.
 
 use std::num::NonZeroU64;
 use std::sync::Arc;
@@ -41,6 +43,17 @@ struct FrameUniformPage {
     buffer: Arc<wgpu::Buffer>,
     capacity: u64,
     cursor: u64,
+    /// Bytes `[0, flushed)` are already queued for upload this frame.
+    flushed: u64,
+    /// CPU mirror of the page; the bytes uploaded by `flush`.
+    staging: Vec<u8>,
+}
+
+impl FrameUniformPage {
+    fn stage(&mut self, offset: u64, data: &[u8]) {
+        let start = offset as usize;
+        self.staging[start..start + data.len()].copy_from_slice(data);
+    }
 }
 
 impl FrameUniformArena {
@@ -68,6 +81,8 @@ impl FrameUniformArena {
             buffer,
             capacity,
             cursor: 0,
+            flushed: 0,
+            staging: vec![0; capacity as usize],
         }
     }
 
@@ -75,8 +90,28 @@ impl FrameUniformArena {
     pub fn reset(&mut self) {
         for page in &mut self.pages {
             page.cursor = 0;
+            page.flushed = 0;
         }
         self.active_page = 0;
+    }
+
+    /// Queue every byte allocated since the last flush: one `write_buffer`
+    /// per touched page. Must run after the allocations a recorded pass
+    /// references and before that frame's `queue.submit`.
+    pub fn flush(&mut self, device: &GpuDevice) {
+        for page in &mut self.pages {
+            if page.cursor <= page.flushed {
+                continue;
+            }
+            let start = page.flushed & !(wgpu::COPY_BUFFER_ALIGNMENT - 1);
+            let end = align_up(page.cursor, wgpu::COPY_BUFFER_ALIGNMENT).min(page.capacity);
+            device.queue().write_buffer(
+                page.buffer.as_ref(),
+                start,
+                &page.staging[start as usize..end as usize],
+            );
+            page.flushed = page.cursor;
+        }
     }
 
     #[inline]
@@ -117,9 +152,7 @@ impl FrameUniformArena {
                 .checked_add(size)
                 .ok_or_else(|| Error::BufferOverflow("uniform arena overflow".into()))?;
             if end <= page.capacity {
-                device
-                    .queue()
-                    .write_buffer(page.buffer.as_ref(), aligned, data);
+                page.stage(aligned, data);
                 page.cursor = end;
                 self.active_page = index;
                 return Ok(FrameUniformSlice {
@@ -148,11 +181,11 @@ impl FrameUniformArena {
                 "frame uniform arena exhausted".into(),
             ));
         }
+        page.stage(aligned, data);
         page.cursor = end;
         let buffer = Arc::clone(&page.buffer);
         self.pages.push(page);
         self.active_page = self.pages.len() - 1;
-        device.queue().write_buffer(buffer.as_ref(), aligned, data);
 
         Ok(FrameUniformSlice {
             buffer,
