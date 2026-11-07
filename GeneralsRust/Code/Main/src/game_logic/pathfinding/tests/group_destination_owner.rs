@@ -84,6 +84,7 @@ fn native_world(
         30.0,
         20.0,
     );
+    world.pathfinding_system.grid.allocate_and_classify_wall_layer();
     (world, id)
 }
 

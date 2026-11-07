@@ -472,7 +472,7 @@ world collision, bounce and callback-order regressions cover continuation.
 Motive force uses the original absolute logic-frame expiry and unsigned
 comparison, including while physics integration is skipped. State transitions
 and visual sampling borrow the driving frame explicitly; the shadow no longer
-owns a duplicate motive value. Rust world snapshot version 43 requires a
+owns a duplicate motive value. Rust world snapshot version 45 requires a
 validated physics continuation before replacing a live world and rejects
 older snapshots. Held ground contact uses zero active vertical impact velocity.
 
@@ -2800,14 +2800,25 @@ Saved bridge bindings use the map bridge index or the placed landmark's map
 object index, not the layer or geometric center. Overflow spans sharing Ground
 do not bind or deactivate a reserved path layer. C++ references: AIPathfind.cpp
 `addBridge`, TerrainLogic bridge admission and deletion, and BridgeBehavior
-`xfer`. Slot 15's coupled wall and bridge allocation still needs original-order
-parity; it is not resolved by the restoration identity change.
+`xfer`. Slot 15 follows the coupled wall/bridge allocation and classification
+lifecycle; flight queries borrow the receiving terrain's ordered bridge list.
 
 ## Spawned-unit attack dispatch
 
 Player group object attacks dispatch each owner's passenger, locked spawned
 children and owner phases in order. Spawned children receive the original
 force-attack admission without the passenger weapon preflight; free-will
-children are not forwarded. Retail Stinger autonomous admission still depends
-on an explicit receiving-world W3D SpawnPoint bone provider before its
-synthetic fallback can be retired safely.
+children are not forwarded. SpawnPoint lookup borrows the receiving asset
+provider, and slot occupancy uses object generations rather than shared handles.
+Physical held children acquire and fire autonomously; the synthetic parent-fire
+forwarding has been removed. Spawn cadence and slot occupancy survive v45 saves.
+
+Flight-deck poses use the receiving world's pristine W3D bones; stall occupants,
+healing and frame deadlines belong to that carrier. Rail dock pull and push
+state belongs to the ferry and persists object IDs for rebinding to receiving
+births. Remaining parity work includes the rail DockAction approach and generic
+containment-removal callbacks, and the flight-deck catapult's full bone transform.
+
+ImmortalBody's health floor applies to ordinary internal health changes as well
+as damage. This keeps an initially empty, aggregate-health Angry Mob alive
+until its authored SpawnBehavior creates its members.

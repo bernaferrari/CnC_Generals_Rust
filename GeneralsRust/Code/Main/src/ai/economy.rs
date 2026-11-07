@@ -1598,8 +1598,12 @@ impl AIPlayer {
             // handoff becomes a real counted gatherer.
             let spawn_behavior_fired = game_logic
                 .host_object(center_id)
-                .is_some_and(|center| center.supply_center_spawn_behavior_fired);
-            if !spawn_behavior_fired {
+                .is_some_and(|center| center.spawn_behavior_initial_times_inited
+                    && !center.spawn_behavior_active
+                    && center.spawn_behavior_oneshot_remaining == 0);
+            if game_logic.supply_center_one_shot_collector_template(center_id).is_some()
+                && !spawn_behavior_fired
+            {
                 continue;
             }
             if total_collectors >= desired.saturating_mul(3)

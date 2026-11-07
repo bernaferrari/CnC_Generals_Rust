@@ -219,6 +219,8 @@ fn authored_panic_waypoint_on_wall_keeps_wall_height_and_layer() {
     logic
         .pathfinding_system
         .add_wall_piece_from_object(&wall, 12.0);
+    // Native addWallPiece only registers the piece; newMap allocates its deck.
+    logic.pathfinding_system.grid.allocate_and_classify_wall_layer();
     assert!(
         logic
             .pathfinding_system

@@ -36,10 +36,11 @@ impl GameLogic {
             .get(&source)
             .and_then(|object| object.owner_player_id)
             .and_then(|player_id| self.host_default_team_id(player_id));
-        let allow_held = self.objects.get(&source)
-            .and_then(|object| object.contained_by)
-            .and_then(|id| self.objects.get(&id))
-            .is_some_and(|container| container.is_helix_transport);
+        let contained = self.objects.get(&source).is_some_and(|object| object.contained_by.is_some());
+        let allow_held = contained && self.passenger_allowed_to_fire(source);
+        if contained && !allow_held {
+            return false;
+        }
         let Some((bonuses, rates)) = self.objects.get(&source).map(|shooter| {
             (
                 self.receiving_weapon_bonus_fields_for_slot(shooter, slot),

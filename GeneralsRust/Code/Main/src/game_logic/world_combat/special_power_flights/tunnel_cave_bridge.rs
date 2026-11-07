@@ -330,7 +330,7 @@ impl GameLogic {
             span.scaffold_ids.extend(ids);
         }
         self.bridge_behavior.bind_scaffold_anims(span_id, anims);
-        if let Some(span) = self.bridge_behavior.span(span_id) {
+        if let Some(layer) = self.pathfinding_system.grid.bridge_layer_for_object(span_id.0) {
             ({
                 let ground_owner = self.world_services.terrain();
                 let ground_loan = ground_owner
@@ -343,11 +343,8 @@ impl GameLogic {
                     self.pathfinding_height_samples.as_ref(),
                     &self.pathfinding_system.grid,
                 );
-                self.pathfinding_system.grid.stamp_bridge_deck(
-                    span.from_left,
-                    span.from_right,
-                    span.to_left,
-                    span.to_right,
+                self.pathfinding_system.grid.stamp_reserved_bridge_layer(
+                    layer,
                     true,
                     &ground_source,
                 )
@@ -364,7 +361,7 @@ impl GameLogic {
                 || o.health.current <= 0.0
         });
         if !rubble {
-            if let Some(span) = self.bridge_behavior.span(span_id) {
+            if let Some(layer) = self.pathfinding_system.grid.bridge_layer_for_object(span_id.0) {
                 ({
                     let ground_owner = self.world_services.terrain();
                     let ground_loan = ground_owner
@@ -378,11 +375,8 @@ impl GameLogic {
                             self.pathfinding_height_samples.as_ref(),
                             &self.pathfinding_system.grid,
                         );
-                    self.pathfinding_system.grid.stamp_bridge_deck(
-                        span.from_left,
-                        span.from_right,
-                        span.to_left,
-                        span.to_right,
+                    self.pathfinding_system.grid.stamp_reserved_bridge_layer(
+                        layer,
                         false,
                         &ground_source,
                     )

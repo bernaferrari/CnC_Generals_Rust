@@ -702,10 +702,10 @@ impl GameLogic {
 
         // The same numeric ID can be replaced by a callback. Only the birth
         // whose onDie starts in this operation can receive the Team callback.
-        let dying_birth = self.objects.get(&id).and_then(|object| {
-            (!object.status.on_die_started)
-                .then(|| std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+        let dying_generation = self.objects.get(&id).and_then(|object| {
+            (!object.status.on_die_started).then_some(object.visual_object_generation)
         });
+        let dying_epoch = self.visual_world_epoch;
         self.object_lifecycle_callback_depth += 1;
         let mut result = self.begin_object_death_callbacks_with_effects(
             id,
@@ -715,53 +715,55 @@ impl GameLogic {
             presentation_effects,
         );
         if result.is_ok()
-            && dying_birth.as_ref().is_some_and(|birth| {
-                self.objects.get(&id).is_some_and(|object| {
-                    object.status.on_die_started
-                        && birth.ptr_eq(&std::sync::Arc::downgrade(
-                            &object.visual_draw_identity_token,
-                        ))
-                })
+            && dying_generation.is_some_and(|birth| {
+                self.spawn_identity_matches(id, birth, dying_epoch)
+                    && self.objects.get(&id).is_some_and(|object| object.status.on_die_started)
             })
         {
             // C++ Object::kill calls SpawnBehavior::onSpawnDeath after the
             // dying object's module callbacks, before Team death notification
             // and before physical retirement. Remove this exact child birth;
             // an ID-reused replacement is a distinct roster member.
-            if let Some(child_birth) = dying_birth.as_ref() {
-                let producer_id = self.objects.get(&id).and_then(|child| {
-                    child_birth
-                        .ptr_eq(&std::sync::Arc::downgrade(
-                            &child.visual_draw_identity_token,
-                        ))
-                        .then_some(child.producer_id)
-                        .flatten()
-                });
+            let mut empty_aggregate = None;
+            if let Some(child_birth) = dying_generation
+                && self.spawn_identity_matches(id, child_birth, dying_epoch)
+            {
+                let producer_id = self.objects.get(&id).and_then(|child| child.producer_id);
                 if let Some(producer_id) = producer_id
                     && let Some(producer) = self.objects.get_mut(&producer_id)
-                    && producer.contains_spawn_behavior_child(id, child_birth)
+                    && producer.contains_spawn_behavior_child(id, &child_birth)
                 {
-                    if producer.is_kind_of(crate::game_logic::KindOf::SpawnsAreTheWeapons) {
-                        // C++ SpawnBehavior::onSpawnDeath appends one absolute
-                        // replacement time before erasing the exact ID.
-                        if let Some(spec) = Self::resolve_host_spawn_behavior_spec(producer) {
-                            producer.enqueue_spawn_behavior_replacement(
-                                self.frame.wrapping_add(spec.replacement_delay),
-                            );
-                        }
+                    // onSpawnDeath appends one deadline for every authored
+                    // SpawnBehavior, not only SPAWNS_ARE_THE_WEAPONS.
+                    let spec = Self::resolve_host_spawn_behavior_spec(producer);
+                    if let Some(spec) = &spec {
+                        producer.enqueue_spawn_behavior_replacement(
+                            self.frame.wrapping_add(spec.replacement_delay),
+                        );
                     }
-                    let _ = producer.forget_spawn_behavior_child(id, child_birth);
+                    let _ = producer.forget_spawn_behavior_child(id, &child_birth);
+                    if spec.is_some_and(|spec| spec.aggregate_health)
+                        && producer.spawn_behavior_children.is_empty()
+                    {
+                        empty_aggregate = Some((producer_id, producer.visual_object_generation));
+                    }
+                }
+            }
+            if let Some((producer_id, birth)) = empty_aggregate {
+                if let Some(source) = input.and_then(|damage| damage.source) {
+                    self.record_owned_score_the_kill(source, producer_id);
+                }
+                if self.spawn_identity_matches(producer_id, birth, dying_epoch) {
+                    if let Err(error) = self.destroy_object_with_effects(producer_id, presentation_effects) {
+                        result = Err(error);
+                    }
                 }
             }
         }
         if result.is_ok()
-            && dying_birth.as_ref().is_some_and(|birth| {
-                self.objects.get(&id).is_some_and(|object| {
-                    object.status.on_die_started
-                        && birth.ptr_eq(&std::sync::Arc::downgrade(
-                            &object.visual_draw_identity_token,
-                        ))
-                })
+            && dying_generation.is_some_and(|birth| {
+                self.spawn_identity_matches(id, birth, dying_epoch)
+                    && self.objects.get(&id).is_some_and(|object| object.status.on_die_started)
             })
         {
             result = self.notify_owned_team_of_object_death_with_effects(

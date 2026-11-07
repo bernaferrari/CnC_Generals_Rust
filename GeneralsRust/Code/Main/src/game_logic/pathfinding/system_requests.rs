@@ -360,6 +360,9 @@ impl PathfindingSystem {
             }
         }
         for layer in &self.grid.bridge_layers {
+            if layer.id == LAYER_WALL_ID && self.grid.wall_layer_allocated && !self.grid.wall_classified_as_bridge {
+                continue;
+            }
             let pf_layer = PathfindLayerEnum::from_u32(layer.id as u32);
             for ((x, y), (ty, connect)) in &layer.cells {
                 let coord = GridCoord::new(*x, *y);
@@ -373,7 +376,7 @@ impl PathfindingSystem {
                 }
             }
         }
-        if !self.grid.wall_cells.is_empty() {
+        if !self.grid.wall_classified_as_bridge && !self.grid.wall_cells.is_empty() {
             let pf_layer = PathfindLayerEnum::Wall;
             for ((x, y), ty) in &self.grid.wall_cells {
                 finder.set_cell_type_on_layer(GridCoord::new(*x, *y), pf_layer, *ty);
@@ -1416,6 +1419,12 @@ impl PathfindingSystem {
             if obj.is_alive() && obj.is_kind_of(KindOf::WalkOnTopOfWall) {
                 self.add_wall_piece_from_object(obj, wall_height);
             }
+        }
+        if !self.grid.wall_map_initialized {
+            self.grid.allocate_and_classify_wall_layer();
+            self.grid.wall_map_initialized = true;
+        } else {
+            self.grid.classify_wall_layer();
         }
         if self.grid.wall_pieces.is_empty() {
             self.grid.terrain_gen = self.grid.terrain_gen.wrapping_add(1);

@@ -277,10 +277,12 @@ impl GameLogic {
         let object = self.objects.get(&id).unwrap();
         let position = object.get_position();
         let ground = self.parachute_raw_ground(position, object.ground_height);
-        let layer = self
-            .pathfinding_system
-            .grid
-            .highest_layer_at_or_below(position, ground, false);
+        let layer = super::super::super::FlightTerrainView {
+            grid: &self.pathfinding_system.grid,
+            logical: Some(self.world_services.terrain().as_ref()),
+            terrain: self.terrain.as_ref(),
+            samples: self.pathfinding_height_samples.as_ref(),
+        }.highest_layer(position, ground, false);
         self.set_parachute_pathfind_layer_owned(id, layer);
         if let Some(rider) = original_rider(self) {
             self.set_parachute_pathfind_layer_owned(rider, layer)

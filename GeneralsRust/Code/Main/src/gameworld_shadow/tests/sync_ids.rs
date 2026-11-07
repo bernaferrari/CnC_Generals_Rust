@@ -1378,14 +1378,10 @@ fn queue_exit_sole_tick_releases_one_then_waits_exact_nine_frames() {
     let runtime = logic
         .host_object(producer_id)
         .unwrap()
-        .building_data
-        .as_ref()
-        .unwrap()
-        .production_exit_runtime_state();
+        .production_exit_state;
     assert_eq!(runtime.delay_frames, 9);
     for _ in 0..8 {
-        logic.set_current_frame(u64::from(logic.get_frame()) + 1);
-        logic.update_production(1.0 / 30.0);
+        logic.update();
     }
     shadow.sync_from_host(&logic);
     assert_eq!(
@@ -1393,8 +1389,7 @@ fn queue_exit_sole_tick_releases_one_then_waits_exact_nine_frames() {
         1,
         "second member remains held after eight logic frames"
     );
-    logic.set_current_frame(u64::from(logic.get_frame()) + 1);
-    logic.update_production(1.0 / 30.0);
+    logic.update();
     shadow.sync_from_host(&logic);
     assert_eq!(
         spawned(&logic),

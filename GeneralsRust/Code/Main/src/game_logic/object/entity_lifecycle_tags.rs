@@ -143,6 +143,8 @@ pub const TAG_ACTIVE_BODY: &str = "ActiveBody";
 pub const TAG_PHYSICS_BEHAVIOR: &str = "PhysicsBehavior";
 /// C++ RailroadBehavior::xfer v3 conductor / track / hitch residual.
 pub const TAG_RAILROAD: &str = "RailroadBehavior";
+/// C++ DockUpdate and RailedTransportDockUpdate in-flight state.
+pub const TAG_RAILED_DOCK: &str = "RailedTransportDockUpdate";
 
 /// Declaration-order inventory. Producer emits tags in this sequence.
 pub const INVENTORY_TAGS: &[&str] = &[
@@ -215,6 +217,7 @@ pub const INVENTORY_TAGS: &[&str] = &[
     TAG_ACTIVE_BODY,
     TAG_PHYSICS_BEHAVIOR,
     TAG_RAILROAD,
+    TAG_RAILED_DOCK,
     TAG_PATH_EXTRA_DISTANCE,
     TAG_OVERLORD_ADDON,
 ];

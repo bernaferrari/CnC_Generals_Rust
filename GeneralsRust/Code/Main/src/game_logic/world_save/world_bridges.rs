@@ -112,9 +112,9 @@ impl GameLogic {
                 continue;
             };
 
-            self.pathfinding_system
-                .grid
-                .bind_reserved_bridge_object(layer, id.0);
+            if layer != gamelogic::path::PathfindLayerEnum::Ground as u8 {
+                self.pathfinding_system.grid.bind_reserved_bridge_object(layer, id.0);
+            }
             self.bridge_behavior.register_span(
                 id,
                 host(info.from_left),
@@ -194,10 +194,8 @@ impl GameLogic {
         state: gamelogic::common::BodyDamageType,
     ) {
         let owner = self.world_services.terrain().clone();
-        owner
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .set_bridge_damage_state_for_object(id.0, state);
+        let mut terrain = owner.write().unwrap_or_else(|e| e.into_inner());
+        terrain.set_bridge_damage_state_for_object(id.0, state);
     }
 
     /// CPP TerrainLogic::deleteBridge: unlink, disable exact layer, destroy,

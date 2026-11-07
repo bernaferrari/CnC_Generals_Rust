@@ -1345,11 +1345,10 @@ fn china_barracks_quantity_modifier_spawns_two_redguards_residual() {
     );
     let first_state = logic
         .host_object(bid)
-        .and_then(|o| o.building_data.as_ref())
         .expect("building after first Queue exit");
-    assert_eq!(first_state.exit_delay_remaining_frames, 9);
-    assert_eq!(first_state.exit_burst_remaining, 0);
-    assert_eq!(first_state.production_queue[0].quantity_produced, 1);
+    assert_eq!(first_state.production_exit_state.delay_frames, 9);
+    assert_eq!(first_state.production_exit_state.burst_remaining, 0);
+    assert_eq!(first_state.building_data.as_ref().unwrap().production_queue[0].quantity_produced, 1);
 
     for _ in 0..8 {
         logic.update();
@@ -2035,10 +2034,9 @@ fn parsed_queue_exit_runtime_uses_authored_initial_burst_and_delay() {
     );
     let state = logic
         .host_object(bid)
-        .and_then(|o| o.building_data.as_ref())
         .expect("Queue runtime state");
-    assert_eq!(state.exit_delay_remaining_frames, 9);
-    assert_eq!(state.exit_burst_remaining, 0);
+    assert_eq!(state.production_exit_state.delay_frames, 9);
+    assert_eq!(state.production_exit_state.burst_remaining, 0);
     for _ in 0..8 {
         logic.update();
     }

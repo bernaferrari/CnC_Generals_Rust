@@ -44,6 +44,10 @@ pub struct SpawnBehaviorRoster {
     /// Decoding an old SBRO frame (which had no deadline section) is distinct
     /// from a modern SBR2 frame with an intentionally empty queue.
     pub legacy_without_deadlines: bool,
+    /// SBR3 stores the cadence and exit occupiers independently of the roster.
+    pub door_state: Option<(u32, Vec<Option<u32>>)>,
+    /// Initial-list admission, active flag, one-shot countdown, template iterator.
+    pub runtime: Option<(bool, bool, u32, u32, u32)>,
     pub children: Vec<SpawnBehaviorRosterChild>,
 }
 
@@ -59,6 +63,8 @@ pub struct SpawnBehaviorRosterChild {
 
 const SPAWN_ROSTER_MAGIC: &[u8; 4] = b"SBRO";
 const SPAWN_ROSTER_V2_MAGIC: &[u8; 4] = b"SBR2";
+const SPAWN_ROSTER_V3_MAGIC: &[u8; 4] = b"SBR3";
+const SPAWN_ROSTER_V4_MAGIC: &[u8; 4] = b"SBR4";
 
 pub fn encode_lifecycle_tail(tail: &LifecycleTail) -> Vec<u8> {
     let mut out = encode_lifecycle_snapshot_block(&tail.envelopes);
@@ -94,6 +100,20 @@ pub fn encode_lifecycle_tail(tail: &LifecycleTail) -> Vec<u8> {
                     child.slot.map_or(0, |slot| u32::from(slot) + 1),
                 );
             }
+            let (wait, occupants) = roster.door_state.as_ref()
+                .expect("new SpawnBehavior snapshots require door state");
+            append_u32(&mut binary_payload, *wait);
+            append_u32(&mut binary_payload, occupants.len() as u32);
+            for occupant in occupants {
+                append_u32(&mut binary_payload, occupant.unwrap_or(0));
+            }
+            let (initialized, active, remaining, template_index, burst_remaining) = roster.runtime
+                .expect("new SpawnBehavior snapshots require runtime state");
+            append_u32(&mut binary_payload, u32::from(initialized));
+            append_u32(&mut binary_payload, u32::from(active));
+            append_u32(&mut binary_payload, remaining);
+            append_u32(&mut binary_payload, template_index);
+            append_u32(&mut binary_payload, burst_remaining);
         }
         const HEX: &[u8; 16] = b"0123456789abcdef";
         let mut payload = Vec::with_capacity(binary_payload.len() * 2);
@@ -101,7 +121,7 @@ pub fn encode_lifecycle_tail(tail: &LifecycleTail) -> Vec<u8> {
             payload.push(HEX[(byte >> 4) as usize]);
             payload.push(HEX[(byte & 0x0f) as usize]);
         }
-        out.extend_from_slice(SPAWN_ROSTER_V2_MAGIC);
+        out.extend_from_slice(SPAWN_ROSTER_V4_MAGIC);
         append_u32(&mut out, payload.len() as u32);
         out.extend_from_slice(&payload);
     }
@@ -165,8 +185,12 @@ pub fn decode_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<LifecycleTail> {
     // remain opaque to this decoder.
     let spawn_behavior_rosters = if rest.starts_with(SPAWN_ROSTER_MAGIC)
         || rest.starts_with(SPAWN_ROSTER_V2_MAGIC)
+        || rest.starts_with(SPAWN_ROSTER_V3_MAGIC)
+        || rest.starts_with(SPAWN_ROSTER_V4_MAGIC)
     {
-        let version_two = rest.starts_with(SPAWN_ROSTER_V2_MAGIC);
+        let version_four = rest.starts_with(SPAWN_ROSTER_V4_MAGIC);
+        let version_three = version_four || rest.starts_with(SPAWN_ROSTER_V3_MAGIC);
+        let version_two = version_three || rest.starts_with(SPAWN_ROSTER_V2_MAGIC);
         rest = &rest[4..];
         let payload_len = take_u32(&mut rest)? as usize;
         if rest.len() < payload_len {
@@ -248,10 +272,40 @@ pub fn decode_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<LifecycleTail> {
                     slot,
                 });
             }
+            let door_state = if version_three {
+                let wait = take_u32(&mut payload)?;
+                let count = take_u32(&mut payload)? as usize;
+                if wait > 15 || count > 10 || count > payload.len() / 4 {
+                    return Err(SaveLoadError::Corrupted("invalid SpawnPoint door state".into()));
+                }
+                let occupants = (0..count)
+                    .map(|_| take_u32(&mut payload).map(|id| (id != 0).then_some(id)))
+                    .collect::<SaveLoadResult<Vec<_>>>()?;
+                Some((wait, occupants))
+            } else {
+                None
+            };
+            let runtime = if version_four {
+                let initialized = match take_u32(&mut payload)? {
+                    0 => false,
+                    1 => true,
+                    _ => return Err(SaveLoadError::Corrupted("invalid SpawnBehavior initialization flag".into())),
+                };
+                let active = match take_u32(&mut payload)? {
+                    0 => false,
+                    1 => true,
+                    _ => return Err(SaveLoadError::Corrupted("invalid SpawnBehavior active flag".into())),
+                };
+                Some((initialized, active, take_u32(&mut payload)?, take_u32(&mut payload)?, take_u32(&mut payload)?))
+            } else {
+                None
+            };
             rosters.push(SpawnBehaviorRoster {
                 producer_id,
                 replacement_times,
                 legacy_without_deadlines: !version_two,
+                door_state,
+                runtime,
                 children,
             });
         }
@@ -332,6 +386,23 @@ pub fn capture_lifecycle_tail(game_logic: &GameLogic) -> SaveLoadResult<Lifecycl
                     producer_id: object.id.0,
                     replacement_times: object.spawn_behavior_replacement_times().to_vec(),
                     legacy_without_deadlines: false,
+                    runtime: Some((
+                        object.spawn_behavior_initial_times_inited,
+                        object.spawn_behavior_active,
+                        object.spawn_behavior_oneshot_remaining,
+                        object.spawn_behavior_template_index,
+                        object.spawn_behavior_initial_burst_remaining,
+                    )),
+                    door_state: Some((
+                        object.spawn_behavior_frames_to_wait,
+                        object.spawn_point_occupants.iter().map(|entry| {
+                            entry.as_ref().and_then(|(id, generation)|
+                                game_logic.host_object(*id)
+                                    .filter(|child| *generation != 0
+                                        && child.visual_object_generation == *generation)
+                                    .map(|_| id.0))
+                        }).collect(),
+                    )),
                     children,
                 });
         }
@@ -390,24 +461,21 @@ pub(super) fn preflight_spawn_behavior_rosters(
         let is_stinger = crate::game_logic::host_base_defense::is_stinger_site_structure(
             &parent.template_name,
         );
-        let stinger_slot_limit = if is_stinger {
-            receiving
-                .supported_stinger_spawn_slot_limit(&parent.template_name)
-                .map_err(|()| {
-                    SaveLoadError::Corrupted(format!(
-                        "Stinger template {} is ambiguous in the receiving catalog",
-                        parent.template_name
-                    ))
-                })?
-                .ok_or_else(|| {
-                    SaveLoadError::Corrupted(format!(
-                        "Stinger template {} has no receiving spawn-slot definition",
-                        parent.template_name
-                    ))
-                })?
-        } else {
-            0
-        };
+        let (frames_to_wait, occupants) = roster.door_state.as_ref().ok_or_else(||
+            SaveLoadError::Corrupted("legacy SpawnBehavior save lacks door state and cadence".into())
+        )?;
+        if *frames_to_wait > 15 || occupants.len() > 10 {
+            return Err(SaveLoadError::Corrupted("invalid SpawnPoint door state".into()));
+        }
+        let mut occupied_ids = std::collections::HashSet::new();
+        for id in occupants.iter().flatten() {
+            let id = ObjectId(*id);
+            if id == parent_id || !occupied_ids.insert(id) || !snapshots.contains_key(&id) {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "invalid SpawnPoint occupant {}", id.0
+                )));
+            }
+        }
         let mut live_stinger_slots = std::collections::HashSet::new();
         if roster.legacy_without_deadlines && is_stinger {
             return Err(SaveLoadError::Corrupted(format!(
@@ -427,8 +495,8 @@ pub(super) fn preflight_spawn_behavior_rosters(
                         parent_id.0, child_id.0
                     )));
                 };
-                if slot as u32 >= stinger_slot_limit
-                    || !live_stinger_slots.insert(slot)
+                if slot >= 10 || !live_stinger_slots.insert(slot)
+                    || occupants.get(slot as usize).copied().flatten() != Some(child_id.0)
                 {
                     return Err(SaveLoadError::Corrupted(format!(
                         "Stinger roster {} has an invalid or duplicate live spawn-point slot {}",
@@ -535,6 +603,11 @@ fn apply_lifecycle_tail_to_host_inner(
     commit_lifecycle_candidates(game_logic, candidates)?;
     game_logic.railroad = railroad;
     apply_host_contain_producer_fixup(tail, game_logic);
+    // Resolve saved rail rider IDs to births in this receiving world only
+    // after all candidate objects and containment links have been installed.
+    for envelope in &tail.envelopes {
+        game_logic.railed_dock_rebind_after_load(ObjectId(envelope.entity_id));
+    }
     Ok(())
 }
 
@@ -590,6 +663,33 @@ fn validate_spawn_behavior_rosters(
                 producer_id.0
             )));
         }
+        let (frames_to_wait, saved_occupants) = roster.door_state.as_ref().ok_or_else(||
+            SaveLoadError::Corrupted("legacy SpawnBehavior save lacks door state and cadence".into())
+        )?;
+        let runtime = roster.runtime.ok_or_else(||
+            SaveLoadError::Corrupted("legacy SpawnBehavior save lacks initialization and one-shot continuation".into())
+        )?;
+        let mut occupant_ids = std::collections::HashSet::new();
+        let mut occupants = Vec::with_capacity(saved_occupants.len());
+        for saved in saved_occupants {
+            let Some(raw_id) = saved else {
+                occupants.push(None);
+                continue;
+            };
+            let id = ObjectId(*raw_id);
+            if id == producer_id || !occupant_ids.insert(id) {
+                return Err(SaveLoadError::Corrupted("duplicate or self SpawnPoint occupant".into()));
+            }
+            let child = owner(id).ok_or_else(||
+                SaveLoadError::Corrupted(format!("SpawnPoint occupant {} is missing", id.0))
+            )?;
+            if child.visual_object_generation == 0 {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "SpawnPoint occupant {} has no receiving admission generation", id.0
+                )));
+            }
+            occupants.push(Some((id, child.visual_object_generation)));
+        }
         let mut children = Vec::with_capacity(roster.children.len());
         let mut local_live_ids = std::collections::HashSet::new();
         for child_entry in &roster.children {
@@ -616,11 +716,13 @@ fn validate_spawn_behavior_rosters(
                     child_id.0
                 )));
             }
-            children.push((
-                child_id,
-                Some(std::sync::Arc::downgrade(&child.visual_draw_identity_token)),
-                child_entry.slot,
-            ));
+            if child.visual_object_generation == 0 {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "SpawnBehavior roster child {} has no receiving admission generation",
+                    child_id.0
+                )));
+            }
+            children.push((child_id, Some(child.visual_object_generation), child_entry.slot));
         }
         if !candidates
             .iter()
@@ -642,7 +744,7 @@ fn validate_spawn_behavior_rosters(
         } else {
             roster.replacement_times.clone()
         };
-        resolved.push((producer_id, children, replacement_times));
+        resolved.push((producer_id, children, replacement_times, *frames_to_wait, occupants, runtime));
     }
 
     for (producer_id, candidate) in candidates.iter() {
@@ -655,7 +757,7 @@ fn validate_spawn_behavior_rosters(
             )));
         }
     }
-    for (producer_id, children, replacement_times) in resolved {
+    for (producer_id, children, replacement_times, frames_to_wait, occupants, runtime) in resolved {
         let candidate = candidates
             .iter_mut()
             .rev()
@@ -664,6 +766,14 @@ fn validate_spawn_behavior_rosters(
             .expect("candidate producer was validated");
         candidate.restore_spawn_behavior_children(children);
         candidate.restore_spawn_behavior_replacement_times(replacement_times);
+        candidate.spawn_behavior_frames_to_wait = frames_to_wait;
+        candidate.spawn_behavior_initial_times_inited = runtime.0;
+        candidate.spawn_behavior_active = runtime.1;
+        candidate.spawn_behavior_oneshot_remaining = runtime.2;
+        candidate.spawn_behavior_template_index = runtime.3;
+        candidate.spawn_behavior_initial_burst_remaining = runtime.4;
+        candidate.spawn_point_occupants = occupants;
+        candidate.spawn_point_world_poses = None;
         candidate.hive_slaves =
             [crate::game_logic::host_base_defense::ResidualHiveSlave::default(); 3];
         candidate.hive_slave_count = 0;
@@ -928,6 +1038,43 @@ fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn spawn_point_invalid_occupant_and_v43_fail_before_world_replacement() {
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use crate::save_load::snapshot::SnapshotBuilder;
+        let mut source = GameLogic::new();
+        let mut site = ThingTemplate::new("GLAStingerSite");
+        site.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::SpawnsAreTheWeapons)
+            .set_health(1000.0);
+        source.templates.insert("GLAStingerSite".into(), site);
+        source.create_object("GLAStingerSite", Team::GLA, glam::Vec3::ZERO).unwrap();
+        let builder = SnapshotBuilder::new();
+        let mut snapshot = builder.create_world_snapshot(&source).unwrap();
+        let prefix = super::super::combat_projectile_persist::historical_prefix_len(
+            &snapshot.lifecycle_tail,
+        ).unwrap();
+        let mut tail = decode_lifecycle_tail(&snapshot.lifecycle_tail[..prefix]).unwrap();
+        tail.spawn_behavior_rosters.as_mut().unwrap()[0].door_state =
+            Some((4, vec![Some(u32::MAX)]));
+        let mut damaged = encode_lifecycle_tail(&tail);
+        damaged.extend_from_slice(&snapshot.lifecycle_tail[prefix..]);
+        snapshot.lifecycle_tail = damaged;
+        let mut receiver = GameLogic::new();
+        receiver.templates = source.templates.clone();
+        receiver.templates.insert("Sentinel".into(), ThingTemplate::new("Sentinel"));
+        let sentinel = receiver.create_object("Sentinel", Team::USA, glam::Vec3::X).unwrap();
+        let before = receiver.host_object(sentinel).unwrap().get_position();
+        assert!(builder.restore_from_snapshot(&snapshot, &mut receiver).is_err());
+        assert_eq!(receiver.host_object(sentinel).unwrap().get_position(), before);
+        snapshot.version = 43;
+        assert!(matches!(
+            builder.restore_from_snapshot(&snapshot, &mut receiver),
+            Err(SaveLoadError::VersionMismatch { actual: 43, .. })
+        ));
+        assert_eq!(receiver.host_object(sentinel).unwrap().get_position(), before);
+    }
+
 
     #[test]
     fn corrupt_link_counts_reject_before_allocation_and_preserve_receiver() {
@@ -996,6 +1143,8 @@ mod tests {
                 producer_id: 4,
                 replacement_times: vec![5, 8, 21],
                 legacy_without_deadlines: false,
+                door_state: Some((9, vec![Some(12), None, Some(33)])),
+                runtime: Some((true, true, 2, 0, 0)),
                 children: vec![
                     SpawnBehaviorRosterChild {
                         child_id: 12,

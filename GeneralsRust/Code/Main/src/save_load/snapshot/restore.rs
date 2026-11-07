@@ -945,6 +945,12 @@ impl SnapshotBuilder {
                         ));
                     }
                 }
+                ModuleSnapshot::QueueExit(state) => {
+                    if !object.get_template().production_exit_metadata.is_some_and(|m| m.is_queue()) {
+                        return Err(SaveLoadError::Corrupted("QueueExit continuation has no receiving module".into()));
+                    }
+                    object.production_exit_state = *state;
+                }
                 ModuleSnapshot::Production(snapshot) => {
                     if object.building_data.is_none() {
                         let building_type = BuildingType::from_template_name(&object.template_name);
@@ -973,12 +979,6 @@ impl SnapshotBuilder {
                     };
                     if let Some(building_data) = object.building_data.as_mut() {
                         building_data.rally_point = snapshot.rally_point;
-                        building_data.exit_delay_remaining = snapshot.exit_delay_remaining.max(0.0);
-                        building_data.exit_delay_remaining_frames =
-                            snapshot.exit_delay_remaining_frames;
-                        building_data.exit_burst_remaining = snapshot.exit_burst_remaining;
-                        building_data.queue_exit_state_initialized =
-                            snapshot.queue_exit_state_initialized;
                         building_data.production_queue.clear();
 
                         for (index, entry) in snapshot.production_queue.iter().enumerate() {

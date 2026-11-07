@@ -19,6 +19,7 @@ fn overlapping_layers(deck_height: f32, wall_height: f32) -> PathfindingSystem {
     grid.flight_bridge_order.push(2);
     grid.set_wall_height(wall_height);
     grid.add_wall_piece(11, Vec3::new(15.0, 0.0, 15.0), 0.0, 30.0, 30.0);
+    grid.allocate_and_classify_wall_layer();
     system
 }
 

@@ -655,9 +655,22 @@ impl PathfindingGrid {
         if layer_id == PathfindLayerEnum::Ground as u8 {
             return;
         }
+        // newMap allocates bridge cells only below LAYER_LAST. Slot 15 is
+        // classified as a wall there, even when its bridge pointer is set.
+        if layer_id == LAYER_WALL_ID && !self.wall_layer_allocated {
+            if let Some(layer) = self.bridge_layers.iter_mut().find(|b| b.id == layer_id) {
+                layer.destroyed = destroyed;
+                layer.cells.clear();
+            }
+            self.terrain_gen = self.terrain_gen.wrapping_add(1);
+            return;
+        }
         let Some(layer) = self.bridge_layers.iter().find(|b| b.id == layer_id) else {
             return;
         };
+        if layer_id == LAYER_WALL_ID && layer.destroyed == destroyed {
+            return;
+        }
         let (from_left, from_right, to_left, to_right) = (
             layer.from_left,
             layer.from_right,
@@ -677,8 +690,14 @@ impl PathfindingGrid {
         }
         // Entry/side lines sit up to ~1 cell outside the deck AABB.
         let pad = self.grid_size;
-        let lo = self.world_to_grid(Vec3::new(min_x - pad, 0.0, min_z - pad));
-        let hi = self.world_to_grid(Vec3::new(max_x + pad, 0.0, max_z + pad));
+        let (lo, hi) = if layer_id == LAYER_WALL_ID {
+            self.wall_bounds.expect("allocated wall layer has bounds")
+        } else {
+            (
+                self.world_to_grid(Vec3::new(min_x - pad, 0.0, min_z - pad)),
+                self.world_to_grid(Vec3::new(max_x + pad, 0.0, max_z + pad)),
+            )
+        };
         self.disconnect_ground_from_layer(layer_id);
 
         let mut cells: HashMap<(i32, i32), (PathfindCellType, u8)> = HashMap::new();
@@ -729,6 +748,16 @@ impl PathfindingGrid {
                 *value = (PathfindCellType::BridgeImpassable, 0);
             }
         }
+        if layer_id == LAYER_WALL_ID {
+            if destroyed {
+                for y in lo.y..=hi.y {
+                    for x in lo.x..=hi.x {
+                        cells.insert((x, y), (PathfindCellType::BridgeImpassable, 0));
+                    }
+                }
+            }
+            self.wall_classified_as_bridge = true;
+        }
 
         if let Some(layer) = self
             .bridge_layers
@@ -750,7 +779,7 @@ impl PathfindingGrid {
 
     /// C++ `PathfindLayer::getCell` type (NULL/IMPASSABLE → None).
     pub fn layer_cell_type(&self, layer: u8, pos: GridPos) -> Option<PathfindCellType> {
-        if layer == LAYER_WALL_ID {
+        if layer == LAYER_WALL_ID && self.wall_layer_allocated && !self.wall_classified_as_bridge {
             return self.wall_cells.get(&(pos.x, pos.y)).copied();
         }
         self.bridge_layers
@@ -761,12 +790,12 @@ impl PathfindingGrid {
 
     /// C++ `Pathfinder::isPointOnWall` (AIPathfind.cpp:3929-3942).
     pub fn is_point_on_wall(&self, pos: Vec3) -> bool {
-        if self.wall_pieces.is_empty() || self.wall_cells.is_empty() {
+        if self.wall_pieces.is_empty() {
             return false;
         }
         let cell = self.world_to_grid(pos);
         matches!(
-            self.wall_cells.get(&(cell.x, cell.y)),
+            self.layer_cell_type(LAYER_WALL_ID, cell),
             Some(PathfindCellType::Clear)
         )
     }
@@ -847,16 +876,35 @@ impl PathfindingGrid {
         }
         let pad = self.grid_size / 100.0;
         let mut min_cell = self.world_to_grid(Vec3::new(lo_x - pad, 0.0, lo_z - pad));
-        let mut max_cell = self.world_to_grid(Vec3::new(hi_x + pad, 0.0, hi_z + pad));
+        // Native allocation uses ceil(hi + pad) + 1 as an exclusive end.
+        let mut max_cell = GridPos::new(
+            ((hi_x + pad - self.origin.x) / self.grid_size).ceil() as i32,
+            ((hi_z + pad - self.origin.z) / self.grid_size).ceil() as i32,
+        );
         min_cell.x -= 1;
         min_cell.y -= 1;
-        max_cell.x += 1;
-        max_cell.y += 1;
         min_cell.x = min_cell.x.max(0);
         min_cell.y = min_cell.y.max(0);
-        max_cell.x = max_cell.x.min(self.width.saturating_sub(1));
-        max_cell.y = max_cell.y.min(self.height.saturating_sub(1));
+        max_cell.x = max_cell.x.min(self.width.saturating_sub(2));
+        max_cell.y = max_cell.y.min(self.height.saturating_sub(2));
         if max_cell.x < min_cell.x || max_cell.y < min_cell.y {
+            self.terrain_gen = self.terrain_gen.wrapping_add(1);
+            return;
+        }
+        self.wall_layer_allocated = true;
+        self.wall_bounds = Some((min_cell, max_cell));
+        self.classify_wall_layer();
+    }
+
+    /// Reclassify existing wall storage without changing its allocation.
+    pub(super) fn classify_wall_layer(&mut self) {
+        self.wall_classified_as_bridge = false;
+        self.wall_cells.clear();
+        let Some((min_cell, max_cell)) = self.wall_bounds else {
+            self.terrain_gen = self.terrain_gen.wrapping_add(1);
+            return;
+        };
+        if self.bridge_layers.iter().any(|b| b.id == LAYER_WALL_ID && b.destroyed) {
             self.terrain_gen = self.terrain_gen.wrapping_add(1);
             return;
         }
@@ -913,9 +961,7 @@ impl PathfindingGrid {
         if self.wall_pieces.len() >= MAX_WALL_PIECES.saturating_sub(1) {
             return;
         }
-        if self.wall_pieces.iter().any(|p| p.id == id) {
-            return;
-        }
+        // Native records duplicates; removal searches for the first matching ID.
         self.wall_pieces.push(HostWallPiece {
             id,
             pos_x: pos.x,
@@ -924,7 +970,6 @@ impl PathfindingGrid {
             major: major.max(0.1),
             minor: minor.max(0.1),
         });
-        self.allocate_and_classify_wall_layer();
     }
 
     /// C++ `Pathfinder::removeWallPiece` (AIPathfind.cpp:3896-3923).
@@ -933,7 +978,7 @@ impl PathfindingGrid {
             let last = self.wall_pieces.len() - 1;
             self.wall_pieces.swap(i, last);
             self.wall_pieces.pop();
-            self.allocate_and_classify_wall_layer();
+            self.classify_wall_layer();
         }
     }
 
@@ -1031,27 +1076,17 @@ impl PathfindingGrid {
                 best_distance = delta;
             }
         }
-        for id in &self.flight_bridge_order {
-            let layer = self
-                .bridge_layers
-                .iter()
-                .find(|b| b.id == *id)
-                .expect("bridge visitation references an admitted slot");
-            let corners = [
-                layer.from_left,
-                layer.from_right,
-                layer.to_right,
-                layer.to_left,
-            ];
-            if super::grid_flight::flight_point_on_bridge(pos, &corners) {
-                let deck_y = bridge_deck_height(&corners, pos.x, pos.z);
-                let delta = (pos.y - deck_y).abs();
-                if delta < best_distance {
-                    best_layer = PathfindLayerEnum::from_u32(layer.id as u32);
-                    best_distance = delta;
-                }
+        let terrain = match ground_source {
+            PathfindingGround::Receiving(terrain) => Some(*terrain),
+            _ => None,
+        };
+        self.for_each_flight_bridge(terrain, pos, |layer, deck_y, _| {
+            let delta = (pos.y - deck_y).abs();
+            if delta < best_distance {
+                best_layer = PathfindLayerEnum::from_u32(layer as u32);
+                best_distance = delta;
             }
-        }
+        });
         if best_layer != PathfindLayerEnum::Ground {
             return best_layer;
         }
@@ -1060,6 +1095,9 @@ impl PathfindingGrid {
 
     pub(super) fn host_deck_layer_at(&self, pos: GridPos) -> Option<u8> {
         self.bridge_layers.iter().find_map(|layer| {
+            if layer.id == LAYER_WALL_ID && self.wall_layer_allocated && !self.wall_classified_as_bridge {
+                return None;
+            }
             layer.cells.get(&(pos.x, pos.y)).and_then(|(ty, _)| {
                 if matches!(
                     *ty,
@@ -1177,11 +1215,13 @@ impl PathfindingGrid {
         to_left: Vec3,
         to_right: Vec3,
     ) -> u8 {
-        let Some(id) = (2u8..=14).find(|id| !self.bridge_layers.iter().any(|b| b.id == *id)) else {
+        let Some(id) = (2u8..=LAYER_WALL_ID).find(|id| {
+            !self.bridge_layers.iter().any(|b| b.id == *id)
+                && (*id != LAYER_WALL_ID || !self.wall_layer_allocated)
+        }) else {
             return PathfindLayerEnum::Ground as u8;
         };
-        self.flight_bridge_order.insert(0, id);
-        self.bridge_layers.push(HostBridgeLayer {
+        let bridge = HostBridgeLayer {
             id,
             from_left,
             from_right,
@@ -1191,7 +1231,9 @@ impl PathfindingGrid {
             destroyed: false,
             object_id: 0,
             ground_connect_cells: Vec::new(),
-        });
+        };
+        self.flight_bridge_order.insert(0, id);
+        self.bridge_layers.push(bridge);
         id
     }
 
@@ -1494,8 +1536,8 @@ impl PathfindingGrid {
             }
             return None;
         }
-        if current as u8 == LAYER_WALL_ID {
-            return Some(PathfindLayerEnum::Ground);
+        if current as u8 == LAYER_WALL_ID && self.wall_layer_allocated && !self.wall_classified_as_bridge {
+            return None;
         }
         self.bridge_layers
             .iter()

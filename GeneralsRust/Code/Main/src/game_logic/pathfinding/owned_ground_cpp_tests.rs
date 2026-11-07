@@ -70,7 +70,14 @@ fn original_layer(layer: PathfindLayerEnum) -> u8 {
 #[test]
 fn original_layer_selection_reads_receiving_ground_and_preserves_strict_tie() {
     for row in inputs("layer") {
-        let owner = terrain(number(&row, 2));
+        let mut owner = terrain(number(&row, 2));
+        let deck = number(&row, 4);
+        let mut info = gamelogic::terrain::BridgeInfo::new();
+        info.from_left = gamelogic::common::Coord3D::new(20., 20., deck);
+        info.from_right = gamelogic::common::Coord3D::new(20., 80., deck);
+        info.to_left = gamelogic::common::Coord3D::new(90., 20., deck);
+        info.to_right = gamelogic::common::Coord3D::new(90., 80., deck);
+        owner.prepend_bridge_on_layer(info, "GroundOracleBridge".into(), gamelogic::path::PathfindLayerEnum::from_u32(2));
         let ground = PathfindingGround::receiving(&owner);
         let mut grid = PathfindingGrid::new(160., 160., 10.);
         assert_eq!(bridge(&mut grid, number(&row, 4)), 2);

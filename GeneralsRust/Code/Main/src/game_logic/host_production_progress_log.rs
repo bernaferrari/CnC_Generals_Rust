@@ -118,45 +118,6 @@ pub fn record_power_factor_only(producer: ObjectId, power_factor: f32) {
     });
 }
 
-/// Wave 480: sole-tick residual — arm factory exit delay after a unit exits.
-pub fn record_exit_delay_only(producer: ObjectId, exit_delay_remaining: f32) {
-    with_log_mut(|log| {
-        log.push(HostProductionProgressEvent {
-            producer,
-            items: Vec::new(),
-            exit_delay_remaining: exit_delay_remaining.max(0.0),
-            exit_delay_remaining_frames: 0,
-            exit_burst_remaining: 0,
-            queue_exit_state_initialized: false,
-            power_factor: 1.0,
-            power_factor_only: false,
-            exit_delay_only: true,
-        });
-    });
-}
-
-/// Sole-tick post-exit writeback with exact Queue mutable state.  This is
-/// intentionally separate from the legacy seconds-only arm used by unrelated
-/// pre-metadata producers and cancellation paths.
-pub fn record_exit_runtime_only(
-    producer: ObjectId,
-    exit_delay_remaining: f32,
-    exit_state: ProductionExitRuntimeState,
-) {
-    with_log_mut(|log| {
-        log.push(HostProductionProgressEvent {
-            producer,
-            items: Vec::new(),
-            exit_delay_remaining: exit_delay_remaining.max(0.0),
-            exit_delay_remaining_frames: exit_state.delay_frames,
-            exit_burst_remaining: exit_state.burst_remaining,
-            queue_exit_state_initialized: exit_state.initialized,
-            power_factor: 1.0,
-            power_factor_only: false,
-            exit_delay_only: true,
-        });
-    });
-}
 
 pub fn drain() -> Vec<HostProductionProgressEvent> {
     with_log_mut(std::mem::take)

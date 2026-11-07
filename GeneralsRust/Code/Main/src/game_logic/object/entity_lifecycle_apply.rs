@@ -37,6 +37,16 @@ pub(crate) fn apply_module_states(
     modules: &[EntityModuleState],
 ) -> Result<Option<crate::game_logic::host_railroad::HostRailroadCar>, EntityLifecycleCodecError> {
     validate_physics_owner(object.id, modules)?;
+    let mut rail_dock_seen = false;
+    for module in modules.iter().filter(|module| module.tag == TAG_RAILED_DOCK) {
+        if rail_dock_seen || !super::entity_lifecycle_inventory::has_railed_dock(object) {
+            return Err(EntityLifecycleCodecError::InvalidOwnerComponent {
+                component: "railed transport dock",
+            });
+        }
+        let _: crate::game_logic::host_railed_transport::RailedDockState = decode_payload(&module.payload)?;
+        rail_dock_seen = true;
+    }
     // Preflight the complete tracker payload before any earlier module can
     // mutate the receiving Object. Its owner comes from this exact envelope.
     let mut parachute_seen = false;
@@ -264,6 +274,7 @@ fn apply_one(
             let residual: PhysicsBehaviorResidual = decode_payload(payload)?;
             residual.apply(object);
         }
+        TAG_RAILED_DOCK => object.railed_dock = decode_payload(payload)?,
         TAG_OVERLORD_ADDON => {
             // Older residual payloads begin with a boolean and cannot safely
             // be interpreted as physical-rider state.

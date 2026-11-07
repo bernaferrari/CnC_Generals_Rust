@@ -52,6 +52,13 @@ pub(crate) fn model_pristine_bone_transforms(
     Ok(out)
 }
 
+/// Immutable model-selection inputs borrowed for one pristine bone query.
+pub(crate) struct PristineBoneSource<'a> {
+    pub drawings: &'a crate::game_logic::thing::ReceivingDrawModels,
+    pub condition_bits: u128,
+    pub mesh_scale: f32,
+}
+
 /// Device-independent content capability borrowed from the driving session.
 /// Missing authored assets are errors; an empty result means a genuine bone miss.
 pub(crate) trait PristineBoneAssets {
@@ -61,12 +68,30 @@ pub(crate) trait PristineBoneAssets {
         prefix: &str,
         start: i32,
         limit: usize,
+    ) -> Result<Vec<glam::Mat4>, String> {
+        self.pristine_bones_for_draws(
+            &PristineBoneSource {
+                drawings: source.receiving_draw_models.as_ref(),
+                condition_bits: source.condition_bits,
+                mesh_scale: source.mesh_scale,
+            },
+            prefix,
+            start,
+            limit,
+        )
+    }
+    fn pristine_bones_for_draws(
+        &self,
+        source: &PristineBoneSource<'_>,
+        prefix: &str,
+        start: i32,
+        limit: usize,
     ) -> Result<Vec<glam::Mat4>, String>;
 }
 impl PristineBoneAssets for crate::assets::AssetManager {
-    fn pristine_bone_transforms(
+    fn pristine_bones_for_draws(
         &self,
-        source: &crate::game_logic::NativeSlaveSource,
+        source: &PristineBoneSource<'_>,
         prefix: &str,
         start: i32,
         limit: usize,
@@ -77,9 +102,7 @@ impl PristineBoneAssets for crate::assets::AssetManager {
         if prefix.is_empty() || limit == 0 {
             return Ok(Vec::new());
         }
-        let models = source
-            .receiving_draw_models
-            .object_draws(source.condition_bits)
+        let models = source.drawings.object_draws(source.condition_bits)
             .map_err(|_| "unsupported receiving pristine Draw state".to_owned())?;
         let mut out = Vec::new();
         for selected in models {
@@ -130,9 +153,9 @@ impl PristineBoneAssets for crate::assets::AssetManager {
 /// synchronous query. Its mutex protects real asset-loader concurrency. The
 /// guard ends before returning transforms and before gameplay callbacks run.
 impl PristineBoneAssets for std::sync::Mutex<crate::assets::AssetManager> {
-    fn pristine_bone_transforms(
+    fn pristine_bones_for_draws(
         &self,
-        source: &crate::game_logic::NativeSlaveSource,
+        source: &PristineBoneSource<'_>,
         prefix: &str,
         start: i32,
         limit: usize,
@@ -140,9 +163,7 @@ impl PristineBoneAssets for std::sync::Mutex<crate::assets::AssetManager> {
         let mut assets = self
             .lock()
             .map_err(|_| "receiving pristine asset service poisoned".to_owned())?;
-        let models = source
-            .receiving_draw_models
-            .object_draws(source.condition_bits)
+        let models = source.drawings.object_draws(source.condition_bits)
             .map_err(|_| "unsupported receiving pristine Draw state".to_owned())?;
         for selected in models {
             if selected.model_key.is_empty() {
@@ -166,6 +187,6 @@ impl PristineBoneAssets for std::sync::Mutex<crate::assets::AssetManager> {
                 }
             }
         }
-        PristineBoneAssets::pristine_bone_transforms(&*assets, source, prefix, start, limit)
+        PristineBoneAssets::pristine_bones_for_draws(&*assets, source, prefix, start, limit)
     }
 }

@@ -51,6 +51,148 @@ fn failure(error: &gamelogic::GameLogicError) {
     );
 }
 #[test]
+fn spawn_point_occupant_generation_rejects_reused_id_and_foreign_world() {
+    fn owner() -> (GameLogic, ObjectId, ObjectId) {
+        let mut world = GameLogic::new();
+        let mut parent = ThingTemplate::new("GenerationHive");
+        parent.add_kind_of(KindOf::Structure).add_kind_of(KindOf::SpawnsAreTheWeapons);
+        let parent = world.add_object(Object::new(parent, ObjectId(701), Team::GLA));
+        let child = world.add_object(Object::new(
+            ThingTemplate::new("GenerationChild"), ObjectId(702), Team::GLA,
+        ));
+        let generation = world.host_object(child).unwrap().visual_object_generation;
+        world.host_object_mut(parent).unwrap().spawn_point_occupants =
+            vec![Some((child, generation))];
+        (world, parent, child)
+    }
+    let (mut world, parent, child) = owner();
+    let (mut peer, peer_parent, peer_child) = owner();
+    assert_eq!((parent, child), (peer_parent, peer_child));
+    let bones = [(Vec3::new(9.0, 0.0, 0.0), 0.0)];
+    world.host_object_mut(parent).unwrap().spawn_point_world_poses = Some(bones.to_vec());
+    let parent_generation = world.host_object(parent).unwrap().visual_object_generation;
+    let temporarily_removed = world.objects.remove(&parent).unwrap();
+    assert!(world.host_object(parent).is_none());
+    assert!(world.objects.insert(parent, temporarily_removed).is_none());
+    assert_eq!(world.host_object(parent).unwrap().visual_object_generation, parent_generation);
+    assert_eq!(world.host_object(parent).unwrap().spawn_point_world_poses.as_deref(), Some(&bones[..]));
+    assert!(world.reserve_spawn_point_exit(parent, &bones).is_none());
+    assert!(peer.reserve_spawn_point_exit(peer_parent, &bones).is_none());
+    let old_generation = world.host_object(child).unwrap().visual_object_generation;
+    world.destroy_object(child).unwrap();
+    world.process_destroy_list();
+    assert!(world.host_object(child).is_none());
+    world.try_add_object(Object::new(
+        ThingTemplate::new("GenerationChild"), child, Team::GLA,
+    )).unwrap();
+    assert_ne!(world.host_object(child).unwrap().visual_object_generation, old_generation);
+    assert_eq!(world.reserve_spawn_point_exit(parent, &bones).unwrap().2, Some(0));
+    assert!(peer.reserve_spawn_point_exit(peer_parent, &bones).is_none());
+    // A foreign producer clone has the same numeric parent/child IDs and may
+    // carry a coincidentally equal generation. New admission must discard both
+    // its foreign cached geometry and its source-world occupant leases.
+    let foreign = world.host_object(parent).unwrap().clone();
+    peer.destroy_object(peer_parent).unwrap();
+    peer.process_destroy_list();
+    peer.try_add_object(foreign).unwrap();
+    let admitted = peer.host_object(peer_parent).unwrap();
+    assert!(admitted.spawn_point_world_poses.is_none());
+    assert!(admitted.spawn_point_occupants.is_empty());
+    assert_eq!(peer.reserve_spawn_point_exit(peer_parent, &bones).unwrap().2, Some(0));
+    assert!(peer.host_object(peer_child).is_some());
+    let tail = crate::save_load::snapshot::capture_lifecycle_tail(&world).unwrap();
+    let roster = tail.spawn_behavior_rosters.unwrap().into_iter()
+        .find(|roster| roster.producer_id == parent.0).unwrap();
+    assert_eq!(roster.door_state.unwrap().1, vec![None]);
+}
+
+#[test]
+fn parking_spawn_rejection_precedes_birth_callbacks_and_score_in_same_id_worlds() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "parking_spawn_rejection_precedes_birth_callbacks_and_score_in_same_id_worlds",
+        || {
+            fn fixture() -> (GameLogic, ObjectId) {
+                let content = crate::assets::ReceivingObjectContent::from_sources([(
+                    "checked-parking-spawn.ini".to_owned(),
+                    r#"
+Object CheckedParkingSpawn
+ KindOf = STRUCTURE SCORE
+ Body = ActiveBody BodyTag
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ Behavior = ParkingPlaceBehavior Parking
+  NumRows = 1
+  NumCols = 1
+ End
+ Behavior = SpawnBehavior Spawn
+  SpawnNumber = 1
+  SpawnTemplateName = CheckedParkingChild
+ End
+ Behavior = GarrisonContain Contain
+  ContainMax = 1
+  AllowInsideKindOf = INFANTRY
+  InitialRoster = CheckedParkingChild 1
+ End
+End
+Object CheckedParkingChild
+ KindOf = INFANTRY SCORE
+ Body = ActiveBody BodyTag
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+End
+"#.to_owned(),
+                )]).unwrap();
+                let mut world = GameLogic::new();
+                world.admit_receiving_module_content(content).unwrap();
+                world.add_player(Player::new(1, Team::USA, "Owner", true));
+                let existing = world.add_object(Object::new(
+                    ThingTemplate::new("ExistingPeer"), ObjectId(701), Team::USA,
+                ));
+                (world, existing)
+            }
+
+            let (mut world, existing) = fixture();
+            let (mut peer, peer_existing) = fixture();
+            assert_eq!(existing, peer_existing);
+            let next = world.next_object_id_for_snapshot();
+            assert_eq!(next, peer.next_object_id_for_snapshot());
+            let world_score = world.get_player(1).unwrap().statistics.score_keeper().serialize();
+            let peer_score = peer.get_player(1).unwrap().statistics.score_keeper().serialize();
+            let error = world.create_map_object_with_effects_checked(
+                "CheckedParkingSpawn", Team::USA, Some(1), Vec3::ZERO,
+                &mut Default::default(),
+            ).unwrap_err();
+            let message = error.to_string();
+            assert!(message.contains("CheckedParkingSpawn"), "{message}");
+            assert!(message.contains("SpawnBehavior") && message.contains("ParkingPlaceBehavior")
+                && message.contains("NULL"), "{message}");
+            assert_eq!(world.next_object_id_for_snapshot(), next);
+            assert_eq!(peer.next_object_id_for_snapshot(), next);
+            for (world, id) in [(&world, existing), (&peer, peer_existing)] {
+                assert_eq!(world.host_objects().registered_values().count(), 1);
+                assert_eq!(world.host_object(id).unwrap().template_name, "ExistingPeer");
+                assert!(world.host_object(next).is_none());
+            }
+            assert_eq!(world.get_player(1).unwrap().statistics.score_keeper().serialize(), world_score);
+            assert_eq!(peer.get_player(1).unwrap().statistics.score_keeper().serialize(), peer_score);
+
+            let peer_error = peer.create_map_object_with_effects_checked(
+                "CheckedParkingSpawn", Team::USA, Some(1), Vec3::ZERO,
+                &mut Default::default(),
+            ).unwrap_err();
+            assert!(peer_error.to_string().contains("ParkingPlaceBehavior"));
+            assert_eq!(peer.next_object_id_for_snapshot(), next);
+            assert_eq!(peer.host_objects().registered_values().count(), 1);
+            assert_eq!(peer.get_player(1).unwrap().statistics.score_keeper().serialize(), peer_score);
+            assert_eq!(world.host_objects().registered_values().count(), 1);
+        },
+    );
+}
+
+#[test]
 fn checked_known_body_error_remains_distinct_from_unresolved_template() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),

@@ -1,10 +1,6 @@
 //! Live-host `FlightDeckBehavior` (C++ `FlightDeckBehavior.cpp`).
 //!
-//! Player-visible carrier path: a finished AmericaAircraftCarrier payload-spawns
-//! its deck jets, auto-rebuilds lost stalls, launches on attack/guard, and taxis
-//! rear jets forward with ramp / catapult timing. Host has no W3D logical bones,
-//! so stall / runway poses use the authored-count airfield layout
-//! (row-major `R1S1, R2S1, …`).
+//! Deck geometry comes from the receiving world's authored logical bones.
 //!
 //! Fail-closed: no FlightDeckBehavior module on the template means no deck.
 
@@ -35,6 +31,7 @@ pub enum HostFlightDeckCommand {
 #[derive(Debug, Clone, Copy)]
 pub struct HostFlightDeckSpace {
     pub object_id: Option<ObjectId>,
+    pub object_generation: u64,
     pub position: Vec3,
     pub orientation: f32,
     pub runway: usize,
@@ -59,7 +56,10 @@ pub struct HostFlightDeckRunway {
 pub struct HostFlightDeckState {
     pub spaces: Vec<HostFlightDeckSpace>,
     pub runways: Vec<HostFlightDeckRunway>,
+    pub owner_generation: u64,
     pub got_info: bool,
+    pub healing: Vec<(ObjectId, u32)>,
+    pub next_heal_frame: u32,
     pub next_cleanup_frame: u32,
     pub started_production_frame: u32,
     pub next_allowed_production_frame: u32,
@@ -80,14 +80,17 @@ impl Default for HostFlightDeckState {
         Self {
             spaces: Vec::new(),
             runways: Vec::new(),
+            owner_generation: 0,
             got_info: false,
+            healing: Vec::new(),
+            next_heal_frame: FOREVER,
             next_cleanup_frame: 0,
             started_production_frame: FOREVER,
             next_allowed_production_frame: 0,
             next_launch_wave_frame: [0; FLIGHT_DECK_MAX_RUNWAYS],
             ramp_up_frame: [0; FLIGHT_DECK_MAX_RUNWAYS],
-            catapult_system_frame: [FOREVER; FLIGHT_DECK_MAX_RUNWAYS],
-            lower_ramp_frame: [FOREVER; FLIGHT_DECK_MAX_RUNWAYS],
+            catapult_system_frame: [0; FLIGHT_DECK_MAX_RUNWAYS],
+            lower_ramp_frame: [0; FLIGHT_DECK_MAX_RUNWAYS],
             ramp_up: [false; FLIGHT_DECK_MAX_RUNWAYS],
             designated_target: None,
             designated_command: HostFlightDeckCommand::NoCommand,
@@ -134,7 +137,9 @@ impl GameLogic {
             self.flight_decks.remove(&carrier_id);
             return;
         };
-        let carrier_id_birth = std::sync::Arc::downgrade(&carrier.visual_draw_identity_token);
+        let carrier_id_birth = carrier.visual_object_generation;
+        let epoch = self.visual_world_epoch;
+        if carrier_id_birth == 0 { return; }
         if !carrier.is_alive() || carrier.status.destroyed || carrier.status.sold {
             self.kill_flight_deck_parked_units(carrier_id);
             self.flight_decks.remove(&carrier_id);
@@ -147,45 +152,34 @@ impl GameLogic {
             self.flight_decks.remove(&carrier_id);
             return;
         }
+        if self.flight_decks.get(&carrier_id).is_some_and(|state| state.owner_generation != carrier_id_birth) {
+            self.flight_decks.remove(&carrier_id);
+        }
 
         if !self
             .flight_decks
             .get(&carrier_id)
             .is_some_and(|state| state.got_info)
         {
-            self.flight_deck_build_info_with_effects(carrier_id, true, effects);
-            if !self.objects.get(&carrier_id).is_some_and(|object| {
-                carrier_id_birth.ptr_eq(&std::sync::Arc::downgrade(
-                    &object.visual_draw_identity_token,
-                ))
-            }) {
+            let create_units = !self.flight_decks.contains_key(&carrier_id);
+            self.flight_deck_build_info_with_effects(carrier_id, create_units, effects);
+            if !self.flight_decks.get(&carrier_id).is_some_and(|state| state.got_info) {
+                return;
+            }
+            if self.visual_world_epoch != epoch || !self.objects.get(&carrier_id).is_some_and(|object| object.visual_object_generation == carrier_id_birth) {
                 return;
             }
         }
         self.flight_deck_purge_dead(carrier_id);
-        self.flight_deck_adopt_unassigned_replacements(carrier_id, effects);
-        if !self.objects.get(&carrier_id).is_some_and(|object| {
-            carrier_id_birth.ptr_eq(&std::sync::Arc::downgrade(
-                &object.visual_draw_identity_token,
-            ))
-        }) {
-            return;
-        }
+        self.flight_deck_tick_healing(carrier_id, effects);
+        if self.visual_world_epoch != epoch || !self.objects.get(&carrier_id).is_some_and(|object| object.visual_object_generation == carrier_id_birth) { return; }
         self.flight_deck_update_parking_assignments(carrier_id);
         self.flight_deck_update_replacements_with_effects(carrier_id, effects);
-        if !self.objects.get(&carrier_id).is_some_and(|object| {
-            carrier_id_birth.ptr_eq(&std::sync::Arc::downgrade(
-                &object.visual_draw_identity_token,
-            ))
-        }) {
+        if self.visual_world_epoch != epoch || !self.objects.get(&carrier_id).is_some_and(|object| object.visual_object_generation == carrier_id_birth) {
             return;
         }
         self.flight_deck_update_launch_waves(carrier_id, effects);
-        if !self.objects.get(&carrier_id).is_some_and(|object| {
-            carrier_id_birth.ptr_eq(&std::sync::Arc::downgrade(
-                &object.visual_draw_identity_token,
-            ))
-        }) {
+        if self.visual_world_epoch != epoch || !self.objects.get(&carrier_id).is_some_and(|object| object.visual_object_generation == carrier_id_birth) {
             return;
         }
         self.flight_deck_update_no_attack(carrier_id);
@@ -205,10 +199,12 @@ impl GameLogic {
         let Some(carrier_id_birth) = self
             .objects
             .get(&carrier_id)
-            .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token))
+            .map(|object| object.visual_object_generation)
         else {
             return;
         };
+        let epoch = self.visual_world_epoch;
+        if carrier_id_birth == 0 { return; }
 
         let pose_frame = self.frame;
         if self
@@ -218,25 +214,16 @@ impl GameLogic {
         {
             return;
         }
-        let Some((metadata, origin, forward, right, team, owner)) =
+        let Some((metadata, authored, team, owner)) =
             self.objects.get(&carrier_id).and_then(|carrier| {
                 let metadata = carrier.thing().template.flight_deck.clone()?;
-                let mut forward = carrier.thing().get_direction_vector();
-                forward.y = 0.0;
-                if forward.length_squared() < 1.0e-6 {
-                    forward = Vec3::new(0.0, 0.0, -1.0);
-                } else {
-                    forward = forward.normalize();
-                }
-                let right = Vec3::new(forward.z, 0.0, -forward.x);
-                Some((
-                    metadata,
-                    carrier.get_position(),
-                    forward,
-                    right,
-                    carrier.team,
-                    carrier.owner_player_id,
-                ))
+                let module = carrier.get_template().receiving_client_template.as_ref()?
+                    .behavior_modules().iter()
+                    .find(|entry| entry.name.as_str().eq_ignore_ascii_case("FlightDeckBehavior"))?;
+                let authored = module.data.as_any().downcast_ref::<
+                    gamelogic::object::behavior::flight_deck_behavior::FlightDeckBehaviorModuleData
+                >()?.clone();
+                Some((metadata, authored, carrier.team, carrier.owner_player_id))
             })
         else {
             return;
@@ -253,22 +240,29 @@ impl GameLogic {
         let num_cols = usize::try_from(metadata.num_cols.max(0))
             .unwrap_or(0)
             .min(FLIGHT_DECK_MAX_RUNWAYS);
-        let deck = metadata.landing_deck_height_offset;
-        let spacing = crate::game_logic::host_dock_contain_exit_heal_residual::PARKING_PLACE_RUNWAY_PREP_SPACING;
-        let orientation = forward.x.atan2(forward.z);
+        let Some(carrier) = self.objects.get(&carrier_id) else { return };
+        let pose = |bone: &str| {
+            let poses = self.query_pristine_world_bone_poses(
+                carrier, effects.pristine_bones, bone, 0, 1, 0, 0,
+            ).ok()?;
+            // Object.cpp:5990-6003 uses the owner pose on a real bone miss.
+            Some(poses.into_iter().next().unwrap_or_else(|| {
+                (carrier.get_position(), carrier.get_orientation())
+            }))
+        };
 
         let mut spaces = Vec::with_capacity(num_rows.saturating_mul(num_cols));
         let mut spawn_jobs: Vec<(usize, Vec3, f32)> = Vec::new();
         for row in 0..num_rows {
             for col in 0..num_cols {
-                let pos = flight_deck_stall_pose(
-                    origin, forward, right, col, row, num_cols, deck, spacing,
-                );
+                let Some((pos, orientation)) = authored.runway_info[col]
+                    .spaces_bone_names.get(row).and_then(|bone| pose(bone)) else { return };
                 if create_units && !metadata.payload_template.is_empty() {
                     spawn_jobs.push((spaces.len(), pos, orientation));
                 }
                 spaces.push(HostFlightDeckSpace {
                     object_id: None,
+                    object_generation: 0,
                     position: pos,
                     orientation,
                     runway: col,
@@ -278,66 +272,46 @@ impl GameLogic {
 
         let mut runways = Vec::with_capacity(num_cols);
         for col in 0..num_cols {
-            let start = flight_deck_runway_pose(
-                origin,
-                forward,
-                right,
-                col,
-                num_cols,
-                deck,
-                spacing,
-                num_rows as f32 * spacing + spacing * 0.5,
-            );
-            let end = flight_deck_runway_pose(
-                origin,
-                forward,
-                right,
-                col,
-                num_cols,
-                deck,
-                spacing,
-                num_rows as f32 * spacing + spacing * 2.5,
-            );
-            let landing_end = end;
-            let landing_start = flight_deck_runway_pose(
-                origin, forward, right, col, num_cols, deck, spacing, -spacing,
-            );
-            let creation = flight_deck_runway_pose(
-                origin,
-                forward,
-                right,
-                col,
-                num_cols,
-                deck,
-                spacing,
-                -spacing * 1.5,
-            );
+            let definition = &authored.runway_info[col];
+            let Some((start, _)) = pose(&definition.takeoff_bone_names[0]) else { return };
+            let Some((end, _)) = pose(&definition.takeoff_bone_names[1]) else { return };
+            let Some((landing_start, _)) = pose(&definition.landing_bone_names[0]) else { return };
+            let Some((landing_end, _)) = pose(&definition.landing_bone_names[1]) else { return };
+            let Some(taxi) = definition.taxi_bone_names.iter()
+                .map(|bone| pose(bone).map(|p| p.0)).collect::<Option<Vec<_>>>() else { return };
+            let Some(creation_poses) = definition.creation_bone_names.iter()
+                .map(|bone| pose(bone)).collect::<Option<Vec<_>>>() else { return };
+            let Some(&(_, start_orient)) = creation_poses.first() else { return };
+            let creation = creation_poses.into_iter().map(|p| p.0).collect();
             runways.push(HostFlightDeckRunway {
                 start,
                 end,
                 landing_start,
                 landing_end,
-                taxi: vec![creation, start],
-                creation: vec![creation],
-                start_orient: orientation,
+                taxi,
+                creation,
+                start_orient,
                 in_use_by_for_takeoff: None,
                 in_use_by_for_landing: None,
             });
         }
 
-        let mut state = HostFlightDeckState {
-            spaces,
-            runways,
-            got_info: true,
-            ..HostFlightDeckState::default()
-        };
+        let mut state = self.flight_decks.remove(&carrier_id).unwrap_or_default();
+        state.owner_generation = carrier_id_birth;
+        for (new, old) in spaces.iter_mut().zip(&state.spaces) {
+            new.object_id = old.object_id;
+            new.object_generation = old.object_generation;
+        }
+        for (new, old) in runways.iter_mut().zip(&state.runways) {
+            new.in_use_by_for_takeoff = old.in_use_by_for_takeoff;
+            new.in_use_by_for_landing = old.in_use_by_for_landing;
+        }
+        state.spaces = spaces;
+        state.runways = runways;
+        state.got_info = true;
 
         for (index, pos, orient) in spawn_jobs {
-            if !self.objects.get(&carrier_id).is_some_and(|object| {
-                carrier_id_birth.ptr_eq(&std::sync::Arc::downgrade(
-                    &object.visual_draw_identity_token,
-                ))
-            }) {
+            if self.visual_world_epoch != epoch || !self.objects.get(&carrier_id).is_some_and(|object| object.visual_object_generation == carrier_id_birth) {
                 return;
             }
             let Some(jet_id) = self.create_object_for_owner_or_team_with_effects(
@@ -350,27 +324,24 @@ impl GameLogic {
             ) else {
                 continue;
             };
-            if !self.objects.get(&carrier_id).is_some_and(|object| {
-                carrier_id_birth.ptr_eq(&std::sync::Arc::downgrade(
-                    &object.visual_draw_identity_token,
-                ))
-            }) {
+            if self.visual_world_epoch != epoch || !self.objects.get(&carrier_id).is_some_and(|object| object.visual_object_generation == carrier_id_birth) {
                 return;
             }
+            let Some(jet_birth) = self.objects.get(&jet_id).map(|jet| jet.visual_object_generation).filter(|birth| *birth != 0) else { continue };
             if let Some(jet) = self.objects.get_mut(&jet_id) {
                 jet.producer_id = Some(carrier_id);
                 jet.airfield_parking_space_index = u32::try_from(index).ok();
+                let _ = jet.apply_status_bits_upgrade_masks(&["DECK_HEIGHT_OFFSET"], &[]);
             }
             // FlightDeckBehavior.cpp201-202 installs position before orientation.
             if !self.set_owned_object_position_with_effects(jet_id, pos, pose_frame, effects) {
                 continue;
             }
-            if !self.objects.get(&carrier_id).is_some_and(|object| {
-                carrier_id_birth.ptr_eq(&std::sync::Arc::downgrade(
-                    &object.visual_draw_identity_token,
-                ))
-            }) {
+            if self.visual_world_epoch != epoch || !self.objects.get(&carrier_id).is_some_and(|object| object.visual_object_generation == carrier_id_birth) {
                 return;
+            }
+            if !self.objects.get(&jet_id).is_some_and(|jet| jet.visual_object_generation == jet_birth) {
+                continue;
             }
             if let Some(jet) = self.objects.get_mut(&jet_id) {
                 jet.set_orientation_with_effects(
@@ -383,20 +354,14 @@ impl GameLogic {
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 jet.status.airborne_target = false;
-                if metadata.landing_deck_height_offset != 0.0 {
-                    let _ = jet.apply_status_bits_upgrade_masks(&["DECK_HEIGHT_OFFSET"], &[]);
-                }
             }
             if let Some(space) = state.spaces.get_mut(index) {
                 space.object_id = Some(jet_id);
+                space.object_generation = jet_birth;
             }
         }
 
-        if !self.objects.get(&carrier_id).is_some_and(|object| {
-            carrier_id_birth.ptr_eq(&std::sync::Arc::downgrade(
-                &object.visual_draw_identity_token,
-            ))
-        }) {
+        if self.visual_world_epoch != epoch || !self.objects.get(&carrier_id).is_some_and(|object| object.visual_object_generation == carrier_id_birth) {
             return;
         }
         self.flight_decks.insert(carrier_id, state);
@@ -409,11 +374,13 @@ impl GameLogic {
         for space in &mut state.spaces {
             let keep = space.object_id.is_some_and(|jet_id| {
                 self.objects.get(&jet_id).is_some_and(|jet| {
-                    jet.is_alive() && !jet.status.destroyed && !jet.status.effectively_dead
+                    jet.visual_object_generation == space.object_generation && space.object_generation != 0
+                        && jet.is_alive() && !jet.status.destroyed && !jet.status.effectively_dead
                 })
             });
             if !keep {
                 space.object_id = None;
+                space.object_generation = 0;
             }
         }
         for runway in &mut state.runways {
@@ -432,72 +399,84 @@ impl GameLogic {
         }
     }
 
-    /// C++ `exitObjectViaDoor`: adopt a just-produced payload jet into an empty stall.
-    fn flight_deck_adopt_unassigned_replacements(
+    /// FlightDeckBehavior::setHealee, called by the Jet/Chinook AI owner.
+    pub(crate) fn set_flight_deck_healee(&mut self, carrier_id: ObjectId, jet_id: ObjectId, add: bool) {
+        let Some(state) = self.flight_decks.get_mut(&carrier_id) else { return };
+        if add {
+            if state.healing.iter().any(|(id, _)| *id == jet_id) { return; }
+            state.healing.push((jet_id, self.frame));
+        } else {
+            let before = state.healing.len();
+            state.healing.retain(|(id, _)| *id != jet_id);
+            if before == state.healing.len() { return; }
+        }
+        state.next_heal_frame = if state.healing.is_empty() { FOREVER } else { self.frame.saturating_add(6) };
+    }
+
+    fn flight_deck_tick_healing(&mut self, carrier_id: ObjectId, effects: &mut crate::game_logic::ScriptPresentationEffects<'_>) {
+        let Some(amount) = self.objects.get(&carrier_id).and_then(|c| c.thing().template.flight_deck.as_ref())
+            .map(|data| data.heal_amount_per_second * (6.0 / 30.0)) else { return };
+        let Some(state) = self.flight_decks.get_mut(&carrier_id) else { return };
+        if self.frame < state.next_heal_frame { return; }
+        state.next_heal_frame = self.frame.saturating_add(6);
+        state.healing.retain(|(id, _)| self.objects.get(id).is_some_and(|o| o.is_alive() && !o.status.effectively_dead));
+        let healees: Vec<_> = state.healing.iter().map(|(id, _)| *id).collect();
+        let epoch = self.visual_world_epoch;
+        let Some(owner_birth) = self.objects.get(&carrier_id).map(|o| o.visual_object_generation) else { return };
+        for id in healees {
+            let _ = self.apply_owned_healing_with_effects(id, amount, Some(carrier_id), effects);
+            if self.visual_world_epoch != epoch || !self.objects.get(&carrier_id).is_some_and(|o| o.visual_object_generation == owner_birth) { return; }
+        }
+    }
+
+
+    /// C++ reserveDoorForExit always returns DOOR_1; occupancy is checked by
+    /// exitObjectViaDoor after the new object and creation callbacks exist.
+    pub(crate) fn flight_deck_spawn_exit(
         &mut self,
         carrier_id: ObjectId,
+        jet_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        let Some(carrier_id_birth) = self
-            .objects
-            .get(&carrier_id)
-            .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token))
-        else {
-            return;
-        };
-
-        let payload = self
-            .objects
-            .get(&carrier_id)
-            .and_then(|c| c.thing().template.flight_deck.as_ref())
-            .map(|m| m.payload_template.clone())
-            .filter(|name| !name.is_empty());
-        let Some(payload) = payload else {
-            return;
-        };
-        let assigned: Vec<ObjectId> = self
-            .flight_decks
-            .get(&carrier_id)
-            .map(|state| {
-                state
-                    .spaces
-                    .iter()
-                    .filter_map(|space| space.object_id)
-                    .collect()
-            })
-            .unwrap_or_default();
-        let mut candidates: Vec<_> = self
-            .objects
-            .registered()
-            .filter_map(|(&id, obj)| {
-                (obj.is_alive()
-                    && obj.producer_id == Some(carrier_id)
-                    && obj.template_name.eq_ignore_ascii_case(&payload)
-                    && !assigned.contains(&id))
-                .then(|| {
-                    (
-                        id,
-                        std::sync::Arc::downgrade(&obj.visual_draw_identity_token),
-                    )
-                })
-            })
-            .collect();
-        candidates.sort_by_key(|(id, _)| id.0);
-        for (jet_id, jet_birth) in candidates {
-            if !self.objects.get(&jet_id).is_some_and(|jet| {
-                jet_birth.ptr_eq(&std::sync::Arc::downgrade(&jet.visual_draw_identity_token))
-            }) {
-                continue;
-            }
-            self.flight_deck_exit_object_via_door(carrier_id, jet_id, effects);
-            if !self.objects.get(&carrier_id).is_some_and(|object| {
-                carrier_id_birth.ptr_eq(&std::sync::Arc::downgrade(
-                    &object.visual_draw_identity_token,
-                ))
-            }) {
-                return;
-            }
+    ) -> bool {
+        let epoch = self.visual_world_epoch;
+        let Some(carrier_birth) = self.host_object(carrier_id).map(|o| o.visual_object_generation) else { return false };
+        let Some(jet_birth) = self.host_object(jet_id).map(|o| o.visual_object_generation) else { return false };
+        if carrier_birth == 0 || jet_birth == 0 { return false; }
+        if self.flight_decks.get(&carrier_id).is_some_and(|s| s.owner_generation != carrier_birth) {
+            self.flight_decks.remove(&carrier_id);
         }
+        if !self.flight_decks.get(&carrier_id).is_some_and(|s| s.got_info) {
+            self.flight_deck_build_info_with_effects(carrier_id, false, effects);
+        }
+        let Some(state) = self.flight_decks.get_mut(&carrier_id) else { return false };
+        if !state.got_info { return false; }
+        let Some(index) = state.spaces.iter().position(|space| space.object_id.is_none()) else { return false };
+        let stall = state.spaces[index];
+        let Some(runway) = state.runways.get(stall.runway) else { return false };
+        let Some(&creation) = runway.creation.first() else { return false };
+        let start_orient = runway.start_orient;
+        state.spaces[index].object_id = Some(jet_id);
+        state.spaces[index].object_generation = jet_birth;
+        state.pending_replacement = false;
+        if let Some(jet) = self.objects.get_mut(&jet_id) {
+            jet.airfield_parking_space_index = u32::try_from(index).ok();
+        }
+        let frame = self.frame;
+        if !self.set_owned_object_position_with_effects(jet_id, creation, frame, effects)
+            || self.visual_world_epoch != epoch
+            || !self.host_object(carrier_id).is_some_and(|o| o.visual_object_generation == carrier_birth)
+            || !self.host_object(jet_id).is_some_and(|o| o.visual_object_generation == jet_birth)
+        { return false; }
+        if let Some((jet, partition)) = self.host_object_and_partition_mut(jet_id) {
+            jet.set_orientation_with_partition_owner(start_orient, partition);
+        }
+        self.update_owned_pathfinder_position(jet_id);
+        if self.host_object(jet_id).is_some_and(|jet| jet.has_ai_update_interface()) {
+            self.follow_exit_production_path(jet_id, &[stall.position], Some(carrier_id));
+        }
+        self.visual_world_epoch == epoch
+            && self.host_object(carrier_id).is_some_and(|o| o.visual_object_generation == carrier_birth)
+            && self.host_object(jet_id).is_some_and(|o| o.visual_object_generation == jet_birth)
     }
 
     fn flight_deck_exit_object_via_door(
@@ -506,83 +485,7 @@ impl GameLogic {
         jet_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        let Some(carrier_id_birth) = self
-            .objects
-            .get(&carrier_id)
-            .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token))
-        else {
-            return;
-        };
-
-        let pose_frame = self.frame;
-        let Some(state) = self.flight_decks.get_mut(&carrier_id) else {
-            return;
-        };
-        let Some(index) = state
-            .spaces
-            .iter()
-            .position(|space| space.object_id.is_none())
-        else {
-            return;
-        };
-        state.spaces[index].object_id = Some(jet_id);
-        state.pending_replacement = false;
-        let stall = state.spaces[index];
-        let runway = stall.runway;
-        let creation = state
-            .runways
-            .get(runway)
-            .and_then(|r| r.creation.first().copied())
-            .unwrap_or(stall.position);
-        let start_orient = state
-            .runways
-            .get(runway)
-            .map(|r| r.start_orient)
-            .unwrap_or(stall.orientation);
-        let deck_offset = self
-            .objects
-            .get(&carrier_id)
-            .and_then(|c| c.thing().template.flight_deck.as_ref())
-            .map(|m| m.landing_deck_height_offset)
-            .unwrap_or(0.0);
-        if let Some(jet) = self.objects.get_mut(&jet_id) {
-            jet.producer_id = Some(carrier_id);
-            jet.airfield_parking_space_index = u32::try_from(index).ok();
-        }
-        if !self.set_owned_object_position_with_effects(jet_id, creation, pose_frame, effects) {
-            return;
-        }
-        if !self.objects.get(&carrier_id).is_some_and(|object| {
-            carrier_id_birth.ptr_eq(&std::sync::Arc::downgrade(
-                &object.visual_draw_identity_token,
-            ))
-        }) {
-            return;
-        }
-        if let Some((jet, mut movement_events, audio_events, partition)) =
-            self.host_object_movement_audio_partition_mut(jet_id)
-        {
-            jet.set_orientation_with_effects(
-                start_orient,
-                &mut effects.reborrow_for_object(partition),
-            );
-            jet.set_destination_with_operation(
-                stall.position,
-                &mut movement_events,
-                &mut crate::game_logic::ObjectAudio::queue(audio_events),
-                pose_frame,
-                &mut effects.reborrow_for_object(partition),
-            );
-            jet.set_ai_state(
-                AIState::Moving,
-                pose_frame,
-                &mut crate::game_logic::ObjectAudio::queue(audio_events),
-            );
-            jet.status.airborne_target = false;
-            if deck_offset != 0.0 {
-                let _ = jet.apply_status_bits_upgrade_masks(&["DECK_HEIGHT_OFFSET"], &[]);
-            }
-        }
+        self.flight_deck_spawn_exit(carrier_id, jet_id, effects);
     }
 
     /// C++ `update` parking cleanup — promote idle/reloading rear jets.
@@ -652,11 +555,15 @@ impl GameLogic {
         if let Some(state) = self.flight_decks.get_mut(&carrier_id) {
             state.next_cleanup_frame = next_cleanup;
             for (front, rear, parked_id, old_front, _) in &promotions {
+                let front_birth = state.spaces[*front].object_generation;
+                let rear_birth = state.spaces[*rear].object_generation;
                 if let Some(space) = state.spaces.get_mut(*front) {
                     space.object_id = Some(*parked_id);
+                    space.object_generation = rear_birth;
                 }
                 if let Some(space) = state.spaces.get_mut(*rear) {
                     space.object_id = *old_front;
+                    space.object_generation = front_birth;
                 }
             }
         }
@@ -1026,7 +933,11 @@ impl GameLogic {
             .get(&carrier_id)
             .is_some_and(|state| state.got_info)
         {
-            self.flight_deck_build_info_with_effects(carrier_id, true, effects);
+            let create_units = !self.flight_decks.contains_key(&carrier_id);
+            self.flight_deck_build_info_with_effects(carrier_id, create_units, effects);
+            if !self.flight_decks.get(&carrier_id).is_some_and(|state| state.got_info) {
+                return false;
+            }
         }
         let Some(state) = self.flight_decks.get_mut(&carrier_id) else {
             return true;
@@ -1274,97 +1185,49 @@ impl GameLogic {
         dist_sqr < FLIGHT_DECK_TAKEOFF_RANGE_SQR
     }
 
-    /// C++ FlightDeckBehavior stall occupancy for WorldSnapshot.
-    pub fn snapshot_flight_deck_occupancy(
-        &self,
-    ) -> Vec<(
-        ObjectId,
-        bool,
-        Vec<(Option<ObjectId>, u32)>,
-        Vec<(Option<ObjectId>, Option<ObjectId>)>,
-        Option<ObjectId>,
-        u8,
-        bool,
-    )> {
-        let mut rows: Vec<_> = self
-            .flight_decks
-            .iter()
-            .map(|(&carrier_id, state)| {
-                (
-                    carrier_id,
-                    state.got_info,
-                    state
-                        .spaces
-                        .iter()
-                        .map(|space| (space.object_id, space.runway as u32))
-                        .collect(),
-                    state
-                        .runways
-                        .iter()
-                        .map(|runway| (runway.in_use_by_for_takeoff, runway.in_use_by_for_landing))
-                        .collect(),
-                    state.designated_target,
-                    state.designated_command as u8,
-                    state.pending_replacement,
-                )
-            })
-            .collect();
-        rows.sort_by_key(|(id, _, _, _, _, _, _)| id.0);
+    pub fn snapshot_flight_deck_occupancy(&self) -> Vec<crate::save_load::FlightDeckPersistSnapshot> {
+        use crate::save_load::{FlightDeckPersistSnapshot, FlightDeckRunwaySnapshot, FlightDeckSpaceSnapshot};
+        let mut rows: Vec<_> = self.flight_decks.iter().map(|(&carrier_id, state)| FlightDeckPersistSnapshot {
+            carrier_id,
+            got_info: state.got_info || !state.spaces.is_empty() || !state.runways.is_empty(),
+            spaces: state.spaces.iter().map(|s| FlightDeckSpaceSnapshot { object_id: s.object_id, runway: s.runway as u32 }).collect(),
+            runways: state.runways.iter().map(|r| FlightDeckRunwaySnapshot { in_use_takeoff: r.in_use_by_for_takeoff, in_use_landing: r.in_use_by_for_landing }).collect(),
+            designated_target: state.designated_target,
+            designated_command: state.designated_command as u8,
+            pending_replacement: state.pending_replacement,
+            healing: state.healing.clone(),
+            next_heal_frame: state.next_heal_frame,
+            next_cleanup_frame: state.next_cleanup_frame,
+            started_production_frame: state.started_production_frame,
+            next_allowed_production_frame: state.next_allowed_production_frame,
+            designated_position_bits: state.designated_position.to_array().map(f32::to_bits),
+            next_launch_wave_frame: state.next_launch_wave_frame,
+            ramp_up_frame: state.ramp_up_frame,
+            catapult_system_frame: state.catapult_system_frame,
+            lower_ramp_frame: state.lower_ramp_frame,
+            ramp_up: state.ramp_up,
+        }).collect();
+        rows.sort_by_key(|row| row.carrier_id.0);
         rows
     }
 
-    pub fn restore_flight_deck_occupancy(
-        &mut self,
-        rows: Vec<(
-            ObjectId,
-            bool,
-            Vec<(Option<ObjectId>, u32)>,
-            Vec<(Option<ObjectId>, Option<ObjectId>)>,
-            Option<ObjectId>,
-            u8,
-            bool,
-        )>,
-    ) {
+    pub fn restore_flight_deck_occupancy(&mut self, rows: &[crate::save_load::FlightDeckPersistSnapshot]) {
         self.flight_decks.clear();
-        for (
-            carrier_id,
-            got_info,
-            spaces,
-            runways,
-            designated_target,
-            designated_command,
-            pending_replacement,
-        ) in rows
-        {
+        for row in rows {
             let mut state = HostFlightDeckState::default();
-            state.got_info = got_info;
-            state.spaces = spaces
-                .into_iter()
-                .map(|(object_id, runway)| HostFlightDeckSpace {
-                    object_id,
-                    position: Vec3::ZERO,
-                    orientation: 0.0,
-                    runway: runway as usize,
-                })
-                .collect();
-            state.runways = runways
-                .into_iter()
-                .map(
-                    |(in_use_by_for_takeoff, in_use_by_for_landing)| HostFlightDeckRunway {
-                        start: Vec3::ZERO,
-                        end: Vec3::ZERO,
-                        landing_start: Vec3::ZERO,
-                        landing_end: Vec3::ZERO,
-                        taxi: Vec::new(),
-                        creation: Vec::new(),
-                        start_orient: 0.0,
-                        in_use_by_for_takeoff,
-                        in_use_by_for_landing,
-                    },
-                )
-                .collect();
-            state.designated_target = designated_target;
-            state.designated_command = match designated_command {
+            state.owner_generation = self.objects.get(&row.carrier_id).map_or(0, |o| o.visual_object_generation);
+            // The receiving world's pristine assets rebuild these poses before use.
+            state.spaces = row.spaces.iter().map(|s| HostFlightDeckSpace {
+                object_id: s.object_id, object_generation: s.object_id.and_then(|id| self.objects.get(&id)).map_or(0, |o| o.visual_object_generation),
+                runway: s.runway as usize, position: Vec3::ZERO, orientation: 0.0,
+            }).collect();
+            state.runways = row.runways.iter().map(|r| HostFlightDeckRunway {
+                start: Vec3::ZERO, end: Vec3::ZERO, landing_start: Vec3::ZERO, landing_end: Vec3::ZERO,
+                taxi: Vec::new(), creation: Vec::new(), start_orient: 0.0,
+                in_use_by_for_takeoff: r.in_use_takeoff, in_use_by_for_landing: r.in_use_landing,
+            }).collect();
+            state.designated_target = row.designated_target;
+            state.designated_command = match row.designated_command {
                 1 => HostFlightDeckCommand::GuardPosition,
                 2 => HostFlightDeckCommand::AttackPosition,
                 3 => HostFlightDeckCommand::AttackObject,
@@ -1373,41 +1236,23 @@ impl GameLogic {
                 6 => HostFlightDeckCommand::Idle,
                 _ => HostFlightDeckCommand::NoCommand,
             };
-            state.pending_replacement = pending_replacement;
-            self.flight_decks.insert(carrier_id, state);
+            state.pending_replacement = row.pending_replacement;
+            state.healing = row.healing.clone();
+            state.next_heal_frame = row.next_heal_frame;
+            state.next_cleanup_frame = row.next_cleanup_frame;
+            state.started_production_frame = row.started_production_frame;
+            state.next_allowed_production_frame = row.next_allowed_production_frame;
+            state.designated_position = Vec3::from_array(row.designated_position_bits.map(f32::from_bits));
+            state.next_launch_wave_frame = row.next_launch_wave_frame;
+            state.ramp_up_frame = row.ramp_up_frame;
+            state.catapult_system_frame = row.catapult_system_frame;
+            state.lower_ramp_frame = row.lower_ramp_frame;
+            state.ramp_up = row.ramp_up;
+            self.flight_decks.insert(row.carrier_id, state);
         }
     }
 }
 
-fn flight_deck_stall_pose(
-    origin: Vec3,
-    forward: Vec3,
-    right: Vec3,
-    col: usize,
-    row: usize,
-    num_cols: usize,
-    deck: f32,
-    spacing: f32,
-) -> Vec3 {
-    let col_center = col as f32 - (num_cols.saturating_sub(1) as f32 * 0.5);
-    let pos = origin + right * (col_center * spacing) + forward * (row as f32 * spacing);
-    Vec3::new(pos.x, origin.y + deck, pos.z)
-}
-
-fn flight_deck_runway_pose(
-    origin: Vec3,
-    forward: Vec3,
-    right: Vec3,
-    col: usize,
-    num_cols: usize,
-    deck: f32,
-    spacing: f32,
-    along: f32,
-) -> Vec3 {
-    let col_center = col as f32 - (num_cols.saturating_sub(1) as f32 * 0.5);
-    let pos = origin + right * (col_center * spacing) + forward * along;
-    Vec3::new(pos.x, origin.y + deck, pos.z)
-}
 
 /// C++ `FlightDeckBehavior.cpp:1248-1257`: `TheParticleSystemManager->createParticleSystem`
 /// then `setLocalTransform(startTransform)` + `setPosition(start)`.
@@ -1480,6 +1325,101 @@ mod tests {
         }
     }
 
+    fn authored_deck_assets(offset: f32) -> crate::assets::AssetManager {
+        use crate::assets::{W3dHierarchy, W3dHlod, W3dHlodLod, W3dPivot};
+        let mut model = crate::assets::W3DModel::new("DeckTest".into());
+        let pivot = |name: &str, parent_idx, translation| W3dPivot {
+            name: name.into(), parent_idx, translation, euler_angles: [0.0; 3], rotation: [0.0, 0.0, 0.0, 1.0],
+        };
+        model.hierarchy = Some(W3dHierarchy { name: "DeckHierarchy".into(), pivots: vec![
+            pivot("ROOT", u32::MAX, [0.0, 0.0, 0.0]),
+            pivot("Stall", 0, [4.0 + offset, 2.0, 3.0]),
+            pivot("TakeStart", 0, [5.0 + offset, 2.0, 3.0]),
+            pivot("TakeEnd", 0, [9.0 + offset, 2.0, 3.0]),
+            pivot("LandStart", 0, [-4.0 + offset, 2.0, 3.0]),
+            pivot("LandEnd", 0, [1.0 + offset, 2.0, 3.0]),
+            pivot("Create", 0, [2.0 + offset, 3.0, 4.0]),
+        ], pivot_fixups: Vec::new() });
+        model.hlods = vec![W3dHlod { version: 0, name: "DeckTest".into(), hierarchy_name: "DeckHierarchy".into(),
+            lods: vec![W3dHlodLod { max_screen_size: 1.0, subobjects: Vec::new() }],
+            aggregates: None, proxies: None, has_unrendered_aggregates: false, has_invalid_trailing_records: false }];
+        let mut assets = crate::assets::AssetManager::new().unwrap();
+        assets.admit_test_w3d_source("DeckTest", model);
+        assets
+    }
+
+    fn authored_spawn_deck() -> (GameLogic, ObjectId) {
+        let ini = r#"
+Object FlightDeckSpawnOwner
+ KindOf = STRUCTURE SELECTABLE
+ Draw = W3DModelDraw DeckDraw
+  DefaultConditionState
+   Model = DeckTest
+  End
+ End
+ Body = ActiveBody OwnerBody
+  MaxHealth = 500
+  InitialHealth = 500
+ End
+ Behavior = FlightDeckBehavior Deck
+  NumRunways = 1
+  NumSpacesPerRunway = 1
+  Runway1Spaces = Stall
+  Runway1Takeoff = TakeStart TakeEnd
+  Runway1Landing = LandStart LandEnd
+  Runway1Creation = Create
+ End
+ Behavior = SpawnBehavior Spawn
+  SpawnNumber = 1
+  SpawnTemplateName = FlightDeckSpawnChild
+  OneShot = Yes
+ End
+End
+Object FlightDeckSpawnChild
+ KindOf = AIRCRAFT SELECTABLE
+ Body = ActiveBody ChildBody
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+End
+"#;
+        let mut world = GameLogic::new();
+        world.admit_object_ini_sources([("deck-spawn.ini".into(), ini.into())]).unwrap();
+        let owner = world.create_object("FlightDeckSpawnOwner", Team::USA, Vec3::new(10.0, 0.0, 20.0)).unwrap();
+        (world, owner)
+    }
+
+    #[test]
+    fn authored_deck_spawn_uses_receiving_w3d_and_survives_save_load() {
+        let assets = authored_deck_assets(0.0);
+        let peer_assets = authored_deck_assets(100.0);
+        let (mut world, owner) = authored_spawn_deck();
+        let (mut peer, peer_owner) = authored_spawn_deck();
+        assert_eq!(owner, peer_owner);
+        world.set_current_frame(1);
+        world.update_spawn_behavior_with_effects(&mut crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: Some(&assets), ..Default::default()
+        }).unwrap();
+        let children = world.host_object(owner).unwrap().spawn_behavior_children();
+        assert_eq!(children.len(), 1);
+        let child = children[0].0;
+        let position = world.host_object(child).unwrap().get_position();
+        assert_ne!(position, Vec3::ZERO);
+        assert!(peer.host_object(peer_owner).unwrap().spawn_behavior_children().is_empty());
+        let snapshot = crate::save_load::SnapshotBuilder::new().create_world_snapshot(&world).unwrap();
+        let (mut restored, _) = authored_spawn_deck();
+        crate::save_load::SnapshotBuilder::new().restore_from_snapshot(&snapshot, &mut restored).unwrap();
+        assert_eq!(restored.host_object(owner).unwrap().spawn_behavior_children()[0].0, child);
+        assert_eq!(restored.host_object(child).unwrap().get_position(), position);
+        peer.set_current_frame(1);
+        peer.update_spawn_behavior_with_effects(&mut crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: Some(&peer_assets), ..Default::default()
+        }).unwrap();
+        let peer_child = peer.host_object(peer_owner).unwrap().spawn_behavior_children()[0].0;
+        assert_eq!(child, peer_child);
+        assert_ne!(peer.host_object(peer_child).unwrap().get_position(), position);
+    }
+
     fn seed_carrier(logic: &mut GameLogic) -> ObjectId {
         let mut carrier = ThingTemplate::new("AmericaAircraftCarrier");
         carrier
@@ -1508,122 +1448,64 @@ mod tests {
     }
 
     #[test]
-    fn finished_carrier_payload_spawns_deck_jets() {
+    fn carrier_without_receiving_bones_does_not_fabricate_deck() {
         let mut logic = GameLogic::new();
         let carrier = seed_carrier(&mut logic);
         logic.tick_flight_decks();
-        let state = logic.flight_decks.get(&carrier).expect("deck state");
-        assert!(state.got_info);
-        assert_eq!(state.spaces.len(), 4);
-        let parked = state
-            .spaces
-            .iter()
-            .filter(|space| space.object_id.is_some())
-            .count();
-        assert_eq!(
-            parked, 4,
-            "finished carrier must spawn PayloadTemplate jets"
-        );
+        assert!(!logic.flight_decks.get(&carrier).is_some_and(|state| state.got_info));
     }
 
     #[test]
-    fn lost_deck_jet_auto_rebuilds() {
-        let mut logic = GameLogic::new();
-        let carrier = seed_carrier(&mut logic);
-        logic.tick_flight_decks();
-        let lost = logic
-            .flight_decks
-            .get(&carrier)
-            .and_then(|state| state.spaces[3].object_id)
-            .expect("rear jet");
-        if let Some(jet) = logic.objects.get_mut(&lost) {
-            jet.health.current = 0.0;
-            jet.status.destroyed = true;
-            jet.status.effectively_dead = true;
-        }
-        logic.frame = 2;
-        logic.tick_flight_decks();
-        let state = logic.flight_decks.get(&carrier).expect("deck");
-        assert!(
-            state.spaces.iter().all(|space| space.object_id.is_some()),
-            "empty stall must rebuild payload jet"
-        );
-        assert_ne!(state.spaces[3].object_id, Some(lost));
+    fn flight_deck_xfer_timers_rebind_to_receiving_carrier() {
+        let mut source = GameLogic::new();
+        let carrier = seed_carrier(&mut source);
+        let mut state = HostFlightDeckState::default();
+        state.owner_generation = source.host_object(carrier).unwrap().visual_object_generation;
+        state.next_heal_frame = 17;
+        state.next_cleanup_frame = 23;
+        state.started_production_frame = 31;
+        state.next_allowed_production_frame = 37;
+        state.designated_position = Vec3::new(2.0, 3.0, 5.0);
+        state.next_launch_wave_frame = [41, 43];
+        state.ramp_up_frame = [47, 53];
+        state.catapult_system_frame = [59, 61];
+        state.lower_ramp_frame = [67, 71];
+        state.ramp_up = [true, false];
+        source.flight_decks.insert(carrier, state);
+        let snapshot = crate::save_load::SnapshotBuilder::new().create_world_snapshot(&source).unwrap();
+        let mut receiver = GameLogic::new();
+        let same_id = seed_carrier(&mut receiver);
+        assert_eq!(carrier, same_id);
+        crate::save_load::SnapshotBuilder::new().restore_from_snapshot(&snapshot, &mut receiver).unwrap();
+        let restored = receiver.flight_decks.get(&carrier).unwrap();
+        assert_eq!(restored.owner_generation, receiver.host_object(carrier).unwrap().visual_object_generation);
+        assert_eq!(restored.next_heal_frame, 17);
+        assert_eq!(restored.next_cleanup_frame, 23);
+        assert_eq!(restored.started_production_frame, 31);
+        assert_eq!(restored.next_allowed_production_frame, 37);
+        assert_eq!(restored.designated_position, Vec3::new(2.0, 3.0, 5.0));
+        assert_eq!(restored.next_launch_wave_frame, [41, 43]);
+        assert_eq!(restored.ramp_up_frame, [47, 53]);
+        assert_eq!(restored.catapult_system_frame, [59, 61]);
+        assert_eq!(restored.lower_ramp_frame, [67, 71]);
+        assert_eq!(restored.ramp_up, [true, false]);
     }
 
     #[test]
-    fn attack_on_carrier_launches_front_jets() {
-        let mut logic = GameLogic::new();
-        let carrier = seed_carrier(&mut logic);
-        let mut enemy = ThingTemplate::new("TestTank");
-        enemy
-            .add_kind_of(KindOf::Vehicle)
-            .add_kind_of(KindOf::Attackable)
-            .set_health(200.0);
-        logic.templates.insert("TestTank".into(), enemy);
-        let target = logic
-            .create_object("TestTank", Team::GLA, Vec3::new(200.0, 0.0, 0.0))
-            .expect("enemy");
-        logic.tick_flight_decks();
-        assert!(logic.flight_deck_ai_do_command(
-            carrier,
-            HostFlightDeckCommand::AttackObject,
-            Some(target),
-            None,
-        ));
-        logic.frame = 1;
-        logic.tick_flight_decks();
-        let front = logic.flight_decks.get(&carrier).unwrap().spaces[0]
-            .object_id
-            .expect("front jet");
-        let jet = logic.objects.get(&front).expect("jet");
-        assert!(
-            jet.status.airborne_target || jet.ai_state() == AIState::Attacking,
-            "front-row jet must take the carrier attack order after ramp"
-        );
-        assert!(
-            logic
-                .flight_decks
-                .get(&carrier)
-                .is_some_and(|s| s.catapult_fx_count > 0
-                    || s.ramp_up[0]
-                    || s.catapult_system_frame[0] == u32::MAX),
-            "launch must arm ramp/catapult timers"
-        );
+    fn duplicate_flight_deck_snapshot_is_rejected_before_world_mutation() {
+        let mut source = GameLogic::new();
+        let carrier = seed_carrier(&mut source);
+        let mut state = HostFlightDeckState::default();
+        state.owner_generation = source.host_object(carrier).unwrap().visual_object_generation;
+        source.flight_decks.insert(carrier, state);
+        let builder = crate::save_load::SnapshotBuilder::new();
+        let mut snapshot = builder.create_world_snapshot(&source).unwrap();
+        let duplicate = snapshot.airfield_parking.flight_decks[0].clone();
+        snapshot.airfield_parking.flight_decks.push(duplicate);
+        let mut receiver = GameLogic::new();
+        let receiver_id = seed_carrier(&mut receiver);
+        let birth = receiver.host_object(receiver_id).unwrap().visual_object_generation;
+        assert!(builder.restore_from_snapshot(&snapshot, &mut receiver).is_err());
+        assert_eq!(receiver.host_object(receiver_id).unwrap().visual_object_generation, birth);
     }
-
-    #[test]
-    fn rear_idle_jet_taxis_into_vacant_front_stall() {
-        let mut logic = GameLogic::new();
-        let carrier = seed_carrier(&mut logic);
-        logic.tick_flight_decks();
-        let front = logic.flight_decks.get(&carrier).unwrap().spaces[0]
-            .object_id
-            .expect("front");
-        let frame = logic.frame;
-        if let Some(jet) = logic.objects.get_mut(&front) {
-            jet.status.airborne_target = true;
-            jet.set_ai_state(
-                AIState::Attacking,
-                frame,
-                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-            );
-        }
-        logic.frame = 2;
-        logic.tick_flight_decks();
-        let state = logic.flight_decks.get(&carrier).expect("deck");
-        assert_ne!(
-            state.spaces[0].object_id,
-            Some(front),
-            "rear idle jet must promote into the vacant front stall"
-        );
-        let promoted = state.spaces[0].object_id.expect("promoted");
-        let jet = logic.objects.get(&promoted).expect("promoted jet");
-        assert!(
-            jet.has_object_status_bit("REASSIGN_PARKING") || jet.ai_state() == AIState::Moving,
-            "promoted jet taxis with REASSIGN_PARKING"
-        );
-    }
-
-    // C++ FlightDeckBehavior.cpp:1248-1257 createParticleSystem + setLocalTransform/setPosition.
 }

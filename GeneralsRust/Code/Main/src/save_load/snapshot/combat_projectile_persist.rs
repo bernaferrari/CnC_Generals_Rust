@@ -210,13 +210,18 @@ pub(super) fn historical_prefix_len(bytes: &[u8]) -> SaveLoadResult<usize> {
     let suffix = bytes.get(offset..).unwrap_or(&[]);
     const SPAWN_ROSTER_MAGIC: &[u8; 4] = b"SBRO";
     const SPAWN_ROSTER_V2_MAGIC: &[u8; 4] = b"SBR2";
-    if suffix.starts_with(SPAWN_ROSTER_MAGIC) || suffix.starts_with(SPAWN_ROSTER_V2_MAGIC) {
+    const SPAWN_ROSTER_V3_MAGIC: &[u8; 4] = b"SBR3";
+    const SPAWN_ROSTER_V4_MAGIC: &[u8; 4] = b"SBR4";
+    if suffix.starts_with(SPAWN_ROSTER_MAGIC) || suffix.starts_with(SPAWN_ROSTER_V2_MAGIC)
+        || suffix.starts_with(SPAWN_ROSTER_V3_MAGIC) || suffix.starts_with(SPAWN_ROSTER_V4_MAGIC) {
         offset += 4;
         let payload_len = word(bytes, &mut offset)? as usize;
         advance(bytes, &mut offset, payload_len)?;
     } else if !suffix.is_empty()
         && (SPAWN_ROSTER_MAGIC.starts_with(suffix)
-            || SPAWN_ROSTER_V2_MAGIC.starts_with(suffix))
+            || SPAWN_ROSTER_V2_MAGIC.starts_with(suffix)
+            || SPAWN_ROSTER_V3_MAGIC.starts_with(suffix)
+            || SPAWN_ROSTER_V4_MAGIC.starts_with(suffix))
     {
         return Err(corrupted("lifecycle spawn behavior frame truncated"));
     }
@@ -396,6 +401,8 @@ mod tests {
                 producer_id: 7,
                 replacement_times: vec![12, 48],
                 legacy_without_deadlines: false,
+                door_state: Some((7, vec![Some(9), None])),
+                runtime: Some((true, true, 2, 0, 0)),
                 children: vec![super::super::lifecycle_tail::SpawnBehaviorRosterChild {
                     child_id: u32::from_le_bytes(*b"WSFL"),
                     tombstone: true,

@@ -1134,131 +1134,107 @@ impl GameLogic {
         self.angry_mobs.honesty_damage_ok()
     }
 
-    /// Residual honesty: Angry Mob expand residual grew member count.
-    pub fn honesty_angry_mob_expand_ok(&self) -> bool {
-        self.angry_mobs.honesty_expand_ok()
-    }
 
     /// Combined host path honesty for Angry Mob residual.
     pub fn honesty_angry_mob_ok(&self) -> bool {
         self.angry_mobs.honesty_host_path_ok()
     }
 
-    /// Advance Angry Mob residual: SpawnBehavior members + aggregate fire.
-    ///
-    /// Retail: SpawnBehavior members fire pistol/rock/molotov; residual collapses
-    /// that into periodic AoE damage around the nexus within AttackRange 100.
-    /// C++ rapid-spawns all SpawnNumber, then SpawnReplaceDelay replacements.
-    ///
-    /// Fail-closed: not full member wander locomotor or slave AI matrix.
-    /// C++ SpawnBehavior member SpecialObject residual for AngryMob nexus.
-    pub fn spawn_angry_mob_member_object(
+    /// Bind an authored mob slave after canonical SpawnBehavior roster admission.
+    pub(crate) fn on_canonical_spawn_child_created(
         &mut self,
-        nexus_id: ObjectId,
-        team: Team,
-        template_name: &str,
-        slot_index: u32,
-    ) -> Option<ObjectId> {
-        self.spawn_angry_mob_member_object_with_effects(
-            nexus_id,
-            team,
-            template_name,
-            slot_index,
-            &mut Default::default(),
-        )
-    }
-
-    pub(crate) fn spawn_angry_mob_member_object_with_effects(
-        &mut self,
-        nexus_id: ObjectId,
-        team: Team,
-        template_name: &str,
-        slot_index: u32,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<ObjectId> {
-        use crate::game_logic::host_angry_mob::ANGRY_MOB_MEMBER_MAX_HEALTH;
-        use crate::game_logic::{KindOf, ThingTemplate};
-        use std::f32::consts::PI;
-        if !self.templates.contains_key(template_name) {
-            let mut t = ThingTemplate::new(template_name);
-            t.add_kind_of(KindOf::Infantry)
-                .add_kind_of(KindOf::Attackable)
-                .add_kind_of(KindOf::Selectable)
-                .add_kind_of(KindOf::IgnoredInGui)
-                .set_health(ANGRY_MOB_MEMBER_MAX_HEALTH)
-                .set_cost(0, 0);
-            self.templates.insert(template_name.to_string(), t);
-        } else if let Some(t) = self.templates.get_mut(template_name) {
-            t.add_kind_of(KindOf::Attackable)
-                .add_kind_of(KindOf::Selectable)
-                .add_kind_of(KindOf::IgnoredInGui);
+        parent_id: ObjectId,
+        child_id: ObjectId,
+    ) {
+        let is_mob_slave = self.objects.lookup(&child_id).is_some_and(|child| {
+            self.objects.lookup(&parent_id).is_some_and(|parent| {
+                parent.spawn_behavior_children().iter().any(|(id, birth)| {
+                    *id == child_id && parent.spawn_behavior_child_birth_matches(*id, birth, child)
+                })
+            }) && child.get_template().receiving_client_template.as_ref().is_some_and(|template| {
+                template.behavior_modules().iter().any(|module| {
+                    module.name.as_str().eq_ignore_ascii_case("MobMemberSlavedUpdate")
+                })
+            })
+        });
+        if !is_mob_slave {
+            return;
         }
-        let origin = self.objects.lookup(&nexus_id)?.get_position();
-        let angle = (slot_index as f32) * (2.0 * PI / 8.0);
-        let radius = 8.0 + (slot_index % 3) as f32 * 2.0;
-        let place = glam::Vec3::new(
-            origin.x + angle.cos() * radius,
-            origin.y,
-            origin.z + angle.sin() * radius,
-        );
-        let Some(mid) =
-            self.create_object_with_script_effects(template_name, team, place, None, effects)
-        else {
-            self.angry_mobs
-                .rollback_failed_member_spawn(nexus_id, self.frame);
-            return None;
-        };
-        if let Some(o) = self.objects.get_mut(&mid) {
-            o.angry_mob_member = true;
-            o.angry_mob_nexus_id = Some(nexus_id);
-            o.producer_id = Some(nexus_id);
-            o.health.maximum = ANGRY_MOB_MEMBER_MAX_HEALTH;
-            o.template_mut().add_kind_of(KindOf::Attackable);
-            o.template_mut().add_kind_of(KindOf::Selectable);
-            o.template_mut().add_kind_of(KindOf::IgnoredInGui);
-            Self::write_object_health_authority_aware(
-                o,
-                ANGRY_MOB_MEMBER_MAX_HEALTH,
-                &mut self.health_events,
-            );
-        }
-        if let Some(m) = self
-            .angry_mobs
-            .active_mobs_mut()
-            .iter_mut()
-            .find(|m| m.object_id == nexus_id)
-        {
-            m.member_ids.push(mid);
+        if let Some(child) = self.objects.get_mut(&child_id) {
+            child.angry_mob_member = true;
+            child.angry_mob_nexus_id = Some(parent_id);
         }
         self.angry_mobs.record_member_spawned(1);
-        Some(mid)
     }
-
-    pub fn flush_angry_mob_member_spawns(&mut self) {
-        self.flush_angry_mob_member_spawns_with_effects(&mut Default::default())
-    }
-
-    pub(crate) fn flush_angry_mob_member_spawns_with_effects(
-        &mut self,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        let pending = self.angry_mobs.take_pending_member_spawns();
-        for spawn in pending {
-            if self
-                .spawn_angry_mob_member_object_with_effects(
-                    spawn.nexus_id,
-                    spawn.team,
-                    &spawn.template_name,
-                    spawn.slot_index,
-                    effects,
-                )
-                .is_none()
-            {
-                self.angry_mobs
-                    .rollback_failed_member_spawn(spawn.nexus_id, self.frame);
+    /// C++ SpawnBehavior::computeAggregateStates for an authored aggregate parent.
+    pub(crate) fn compute_spawn_behavior_aggregate(&mut self, parent_id: ObjectId) {
+        let epoch = self.visual_world_epoch;
+        let Some((birth, children, parent_level, spawn_number)) = self.objects.lookup(&parent_id)
+            .and_then(|parent| {
+                let spec = Self::resolve_host_spawn_behavior_spec(parent)?;
+                spec.aggregate_health.then(|| (
+                    parent.visual_object_generation,
+                    parent.spawn_behavior_children(),
+                    parent.experience.level,
+                    spec.spawn_number,
+                ))
+            }) else { return; };
+        let rank = crate::game_logic::host_unit_training::veterancy_rank;
+        let mut sum_position = Vec3::ZERO;
+        let mut sum_health = 0.0;
+        let mut sum_max_health = 0.0;
+        let mut count = 0u32;
+        for (child_id, child_birth) in children {
+            if self.visual_world_epoch != epoch { return; }
+            let Some(parent) = self.objects.lookup(&parent_id)
+                .filter(|parent| parent.visual_object_generation == birth)
+            else { return; };
+            let Some(child) = self.objects.lookup(&child_id)
+                .filter(|child| parent.spawn_behavior_child_birth_matches(child_id, &child_birth, child))
+            else { continue; };
+            let child_level = child.experience.level;
+            let target = if rank(child_level) > rank(parent_level) {
+                Some((parent_id, child_level))
+            } else if rank(child_level) < rank(parent_level) {
+                Some((child_id, parent_level))
+            } else {
+                None
+            };
+            if let Some((id, level)) = target {
+                if let Err(error) = self.set_exact_veterancy_level_with_upgrade_callback(
+                    id, level, &mut Default::default(),
+                ) {
+                    log::error!("{error}");
+                }
             }
+            if self.visual_world_epoch != epoch { return; }
+            let Some(parent) = self.objects.lookup(&parent_id)
+                .filter(|parent| parent.visual_object_generation == birth)
+            else { return; };
+            let Some(child) = self.objects.lookup(&child_id)
+                .filter(|child| parent.spawn_behavior_child_birth_matches(child_id, &child_birth, child))
+            else { continue; };
+            sum_position += child.get_position();
+            sum_health += child.health.current;
+            sum_max_health += child.health.maximum;
+            count += 1;
         }
+        if self.visual_world_epoch != epoch { return; }
+        let Some(parent) = self.objects.get_mut(&parent_id)
+            .filter(|parent| parent.visual_object_generation == birth)
+        else { return; };
+        let offset = sum_position / count as f32 - parent.get_position();
+        parent.health_box_offset = [offset.x, offset.y, offset.z];
+        let percent = if count == 0 {
+            0
+        } else {
+            let perfect_health = sum_max_health / count as f32 * spawn_number as f32;
+            (100.0 * sum_health / perfect_health) as i32
+        };
+        parent.set_initial_health_percent(percent);
+        parent.set_status_masked(true);
     }
+
 
     /// MobMemberSlavedUpdate residual: members follow nexus position.
     pub fn update_angry_mob_member_follow(&mut self) {
@@ -1288,7 +1264,12 @@ impl GameLogic {
                 destroy.push(mid);
                 continue;
             };
-            if !nexus.is_alive() || nexus.status.destroyed {
+            let is_owned_birth = self.objects.lookup(&mid).is_some_and(|member| {
+                nexus.spawn_behavior_children().iter().any(|(id, birth)| {
+                    *id == mid && nexus.spawn_behavior_child_birth_matches(*id, birth, member)
+                })
+            });
+            if !nexus.is_alive() || nexus.status.destroyed || !is_owned_birth {
                 destroy.push(mid);
                 continue;
             }
@@ -1412,18 +1393,23 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        use crate::game_logic::host_angry_mob::{
-            ANGRY_MOB_FIRE_AUDIO, UPGRADE_GLA_ARM_THE_MOB, is_angry_mob_nexus_template,
-        };
+        use crate::game_logic::host_angry_mob::{ANGRY_MOB_FIRE_AUDIO, UPGRADE_GLA_ARM_THE_MOB};
 
         let frame = self.frame;
 
         // Living residual nexus sources.
-        let living: Vec<(ObjectId, Team, Vec3)> = self
+        let living: Vec<(ObjectId, Team, Vec3, u64)> = self
             .objects
             .registered()
             .filter_map(|(id, obj)| {
-                if !obj.is_alive() || !is_angry_mob_nexus_template(&obj.template_name) {
+                if !obj.is_alive() || !obj.spawn_behavior_children().into_iter().any(|(child_id, birth)| {
+                    self.objects.lookup(&child_id).is_some_and(|child| {
+                        obj.spawn_behavior_child_birth_matches(child_id, &birth, child)
+                            && child.angry_mob_member
+                            && child.angry_mob_nexus_id == Some(*id)
+                            && child.is_alive()
+                    })
+                }) {
                     return None;
                 }
                 if obj.status.under_construction || obj.construction_percent + 0.001 < 1.0 {
@@ -1436,96 +1422,14 @@ impl GameLogic {
                 {
                     return None;
                 }
-                Some((*id, obj.team, obj.get_position()))
+                Some((*id, obj.team, obj.get_position(), obj.visual_object_generation))
             })
             .collect();
 
         self.angry_mobs.sync_mobs(&living, frame);
 
-        // C++ SpawnBehavior::onSpawnDeath — shrink live count; last member kills nexus.
-        let destroy_nexuses =
-            self.angry_mobs
-                .process_dead_members(frame, |mid| match self.objects.lookup(&mid) {
-                    None => true,
-                    Some(o) => !o.is_alive() || o.status.destroyed || o.status.effectively_dead,
-                });
-        for nid in destroy_nexuses {
-            if let Some(o) = self.objects.get_mut(&nid) {
-                {
-                    o.internal_change_health(-o.health.current);
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-            }
-            self.mark_object_for_destruction_with_effects(nid, None, effects);
-        }
-        self.angry_mobs.evict_pending_destroyed_nexuses();
+        self.update_angry_mob_member_follow_with_effects(effects);
 
-        self.angry_mobs.apply_due_expands(frame);
-        self.flush_angry_mob_member_spawns_with_effects(effects);
-        // Wave 801: under coupled shadow, AngryMob member follow is owned by
-        // GW tick_status_timer_expirations + destroy logs.
-        {
-            self.update_angry_mob_member_follow_with_effects(effects);
-        }
-
-        // C++ MASKED is a weapon override. Live is_selectable treats MASKED as
-        // unselectable, so keep the nexus clear and Selectable. Weapons skip it
-        // via is_angry_mob_nexus_template.
-        let nexus_ids: Vec<ObjectId> = self
-            .angry_mobs
-            .active_mobs()
-            .iter()
-            .filter(|m| !m.pending_nexus_destroy)
-            .map(|m| m.object_id)
-            .collect();
-        for nid in nexus_ids {
-            if let Some(obj) = self.objects.get_mut(&nid) {
-                if obj.status.masked {
-                    obj.set_status_masked(false);
-                }
-                obj.template_mut().add_kind_of(KindOf::Selectable);
-                obj.template_mut().add_kind_of(KindOf::Infantry);
-            }
-        }
-
-        // C++ SpawnBehavior averages spawn positions into m_healthBoxOffset
-        // so the Angry Mob bar sits on the swarm, not the invisible nexus.
-        {
-            let plans: Vec<(ObjectId, Vec<ObjectId>)> = self
-                .angry_mobs
-                .active_mobs()
-                .iter()
-                .filter(|m| !m.pending_nexus_destroy)
-                .map(|m| (m.object_id, m.member_ids.clone()))
-                .collect();
-            for (nid, members) in plans {
-                let Some(nexus_pos) = self.objects.lookup(&nid).map(|o| o.get_position()) else {
-                    continue;
-                };
-                let mut sx = 0.0;
-                let mut sy = 0.0;
-                let mut sz = 0.0;
-                let mut n = 0u32;
-                for mid in members {
-                    if let Some(m) = self.objects.lookup(&mid) {
-                        if m.is_alive() {
-                            let p = m.get_position();
-                            sx += p.x - nexus_pos.x;
-                            sy += p.y - nexus_pos.y;
-                            sz += p.z - nexus_pos.z;
-                            n = n.saturating_add(1);
-                        }
-                    }
-                }
-                if n > 0 {
-                    let inv = 1.0 / n as f32;
-                    if let Some(obj) = self.objects.get_mut(&nid) {
-                        obj.health_box_offset = [sx * inv, sy * inv, sz * inv];
-                    }
-                }
-            }
-        }
 
         if self.angry_mobs.active_count() == 0 {
             return;
@@ -1596,6 +1500,16 @@ impl GameLogic {
                     tgt_id,
                     tgt_team,
                 )
+            },
+            |mob_id| {
+                let Some(parent) = objects.lookup(&mob_id) else { return Vec::new(); };
+                parent.spawn_behavior_children().into_iter().filter_map(|(id, birth)| {
+                    let child = objects.lookup(&id)?;
+                    (parent.spawn_behavior_child_birth_matches(id, &birth, child)
+                        && child.angry_mob_member && child.is_alive()
+                        && !child.status.destroyed && !child.status.effectively_dead)
+                        .then(|| child.get_position())
+                }).collect()
             },
         );
 
@@ -2297,7 +2211,7 @@ mod spawn_behavior_parity {
         for name in ANGRY_MOB_MEMBER_TEMPLATES {
             if defined.insert(*name) {
                 source.push_str(&format!(
-                    "Object {name}\nKindOf = INFANTRY SELECTABLE IGNORED_IN_GUI\nBody = ActiveBody MemberBody\nMaxHealth = 50\nInitialHealth = 50\nEnd\nEnd\n"
+                    "Object {name}\nKindOf = INFANTRY SELECTABLE IGNORED_IN_GUI\nBody = ActiveBody MemberBody\nMaxHealth = 50\nInitialHealth = 50\nEnd\nBehavior = MobMemberSlavedUpdate MemberSlave\nEnd\nEnd\n"
                 ));
             }
         }
@@ -2328,54 +2242,77 @@ mod spawn_behavior_parity {
         (logic, nid)
     }
 
+    fn tick_spawn_modules(logic: &mut GameLogic, nid: ObjectId) {
+        let parent = logic.host_object(nid).unwrap();
+        let metadata = parent.get_template().production_exit_metadata.unwrap();
+        let before_spawn = parent.get_template().queue_exit_precedes_spawn_behavior();
+        if before_spawn {
+            logic.objects.get_mut(&nid).unwrap().tick_queue_exit(&metadata);
+        }
+        logic.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
+        if !before_spawn {
+            logic.objects.get_mut(&nid).unwrap().tick_queue_exit(&metadata);
+        }
+    }
+
     fn fill_initial_members(logic: &mut GameLogic, nid: ObjectId) {
         let first = logic.frame;
+        tick_spawn_modules(logic, nid);
         logic.update_angry_mobs();
-        assert_eq!(
-            logic.angry_mobs().member_count_of(nid),
-            Some(ANGRY_MOB_INITIAL_MEMBERS)
-        );
         assert_eq!(
             live_members(logic, nid).len() as u32,
             ANGRY_MOB_INITIAL_MEMBERS
         );
-        // QueueProductionExitUpdate permits InitialBurst5, then one member per
-        // authored5000ms exit delay. Offer interior frames; this is not a proof
-        // of exact Spawn-vs-exit UpdateModule visitation at the deadline.
-        for extra in 1..=ANGRY_MOB_MAX_MEMBERS - ANGRY_MOB_INITIAL_MEMBERS {
-            logic.frame = first + extra * ANGRY_MOB_EXIT_DELAY_FRAMES + 1;
+        // Both SpawnBehavior and QueueProductionExitUpdate count visits, not
+        // elapsed frame numbers. Tick them in authored module order each frame.
+        for frame in first + 1..=first + ANGRY_MOB_EXIT_DELAY_FRAMES * ANGRY_MOB_MAX_MEMBERS {
+            logic.frame = frame;
+            tick_spawn_modules(logic, nid);
             logic.update_angry_mobs();
-            assert_eq!(
-                logic.angry_mobs().member_count_of(nid),
-                Some(ANGRY_MOB_INITIAL_MEMBERS + extra)
-            );
-            assert_eq!(
-                live_members(logic, nid).len() as u32,
-                ANGRY_MOB_INITIAL_MEMBERS + extra
-            );
+            if live_members(logic, nid).len() as u32 == ANGRY_MOB_MAX_MEMBERS {
+                return;
+            }
         }
+        assert_eq!(live_members(logic, nid).len() as u32, ANGRY_MOB_MAX_MEMBERS);
     }
 
     fn live_members(logic: &GameLogic, nid: ObjectId) -> Vec<ObjectId> {
-        logic
-            .host_objects()
-            .registered_values()
-            .filter(|o| {
-                o.angry_mob_member
-                    && o.angry_mob_nexus_id == Some(nid)
-                    && o.is_alive()
-                    && !o.status.destroyed
-            })
-            .map(|o| o.id)
-            .collect()
+        let Some(parent) = logic.host_object(nid) else { return Vec::new(); };
+        parent.spawn_behavior_children().into_iter().filter_map(|(id, birth)| {
+            let child = logic.host_object(id)?;
+            (parent.spawn_behavior_child_birth_matches(id, &birth, child)
+                && child.angry_mob_member && child.is_alive() && !child.status.destroyed)
+                .then_some(id)
+        }).collect()
     }
 
     fn kill_member(logic: &mut GameLogic, mid: ObjectId) {
-        if let Some(o) = logic.objects.get_mut(&mid) {
-            o.health.current = 0.0;
-            o.status.destroyed = true;
-            o.status.effectively_dead = true;
-        }
+        logic.apply_host_damage(mid, 1000.0);
+    }
+
+    #[test]
+    fn authored_slave_capability_binds_without_template_name_or_health_overrides() {
+        let source = "Object GenericSpawner\nKindOf = INFANTRY SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 500\nInitialHealth = 500\nEnd\nBehavior = SpawnBehavior Spawn\nSpawnNumber = 1\nSpawnTemplateName = GenericSlave\nInitialBurst = 1\nEnd\nBehavior = QueueProductionExitUpdate Exit\nInitialBurst = 1\nEnd\nEnd\nObject GenericSlave\nKindOf = INFANTRY SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 73\nInitialHealth = 41\nEnd\nBehavior = MobMemberSlavedUpdate Slave\nEnd\nEnd\n";
+        let content = crate::assets::ReceivingObjectContent::from_sources([
+            ("generic-mob-slave.ini".into(), source.into())
+        ]).unwrap();
+        let mut world = GameLogic::new();
+        world.admit_receiving_module_content(content).unwrap();
+        assert!(world.ensure_host_spawn_template("GenericSpawner"));
+        world.frame = 1;
+        let parent = world.create_object("GenericSpawner", Team::GLA, Vec3::ZERO).unwrap();
+        world.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
+        let children = live_members(&world, parent);
+        assert_eq!(children.len(), 1);
+        let child = world.host_object(children[0]).unwrap();
+        assert_eq!(child.angry_mob_nexus_id, Some(parent));
+        assert_eq!(child.producer_id, Some(parent));
+        assert_eq!(child.health.maximum, 73.0);
+        assert_eq!(child.health.current, 41.0);
+        world.compute_spawn_behavior_aggregate(parent);
+        let ordinary_parent = world.host_object(parent).unwrap();
+        assert!(!ordinary_parent.status.masked);
+        assert_eq!(ordinary_parent.health.current, 500.0);
     }
 
     #[test]
@@ -2384,10 +2321,6 @@ mod spawn_behavior_parity {
         // first5 and later150-frame exits (reserveDoor/isFreeToExit/budding).
         let (mut logic, nid) = make_nexus_logic();
         fill_initial_members(&mut logic, nid);
-        assert_eq!(
-            logic.angry_mobs().member_count_of(nid),
-            Some(ANGRY_MOB_MAX_MEMBERS)
-        );
         let members = live_members(&logic, nid);
         assert_eq!(members.len() as u32, ANGRY_MOB_MAX_MEMBERS);
         let mut births = members.clone();
@@ -2412,29 +2345,98 @@ mod spawn_behavior_parity {
         );
 
         kill_member(&mut logic, members[0]);
+        logic.compute_spawn_behavior_aggregate(nid);
         logic.update_angry_mobs();
-        assert_eq!(
-            logic.angry_mobs().member_count_of(nid),
-            Some(ANGRY_MOB_MAX_MEMBERS - 1)
-        );
+        assert_eq!(live_members(&logic, nid).len() as u32, ANGRY_MOB_MAX_MEMBERS - 1);
+        let nexus = logic.host_object(nid).unwrap();
+        assert!((nexus.health.current - nexus.initial_health * 0.9).abs() < 0.1);
 
         let death_frame = logic.frame;
         logic.frame = death_frame + ANGRY_MOB_EXPAND_INTERVAL_FRAMES - 1;
-        logic.update_angry_mobs();
-        assert_eq!(
-            logic.angry_mobs().member_count_of(nid),
-            Some(ANGRY_MOB_MAX_MEMBERS - 1)
-        );
+        logic.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
+        assert_eq!(live_members(&logic, nid).len() as u32, ANGRY_MOB_MAX_MEMBERS - 1);
         // CPP requires strictly AFTER replacementTime. The exact boundary is
         // an independent production gap, not established by this fixture.
         logic.frame = death_frame + ANGRY_MOB_EXPAND_INTERVAL_FRAMES + 1;
-        logic.update_angry_mobs();
-        assert_eq!(
-            logic.angry_mobs().member_count_of(nid),
-            Some(ANGRY_MOB_MAX_MEMBERS)
-        );
-        assert!(logic.honesty_angry_mob_expand_ok());
+        logic.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
+        assert_eq!(live_members(&logic, nid).len() as u32, ANGRY_MOB_MAX_MEMBERS);
     }
+    #[test]
+    fn same_id_peer_and_save_continue_independent_rosters() {
+        let (mut owner, nid) = make_nexus_logic();
+        let (mut peer, peer_nid) = make_nexus_logic();
+        assert_eq!(nid, peer_nid);
+        fill_initial_members(&mut owner, nid);
+        fill_initial_members(&mut peer, peer_nid);
+        let original = live_members(&owner, nid);
+        assert_eq!(original, live_members(&peer, peer_nid));
+        kill_member(&mut owner, original[0]);
+        let after_death = live_members(&owner, nid);
+        assert_eq!(after_death.len(), 9);
+        assert_eq!(live_members(&peer, peer_nid), original);
+
+        let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&owner).unwrap();
+        let (mut restored, restored_nid) = make_nexus_logic();
+        assert_eq!(restored_nid, nid);
+        restored.templates = owner.templates.clone();
+        builder.restore_from_snapshot(&snapshot, &mut restored).unwrap();
+        assert_eq!(live_members(&restored, nid), after_death);
+        let due = owner.frame + ANGRY_MOB_EXPAND_INTERVAL_FRAMES;
+        for world in [&mut owner, &mut restored] {
+            world.frame = due;
+            world.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
+            assert_eq!(live_members(world, nid).len(), 9);
+            world.frame = due + 1;
+            world.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
+            assert_eq!(live_members(world, nid).len(), 10);
+        }
+        assert_eq!(live_members(&owner, nid), live_members(&restored, nid));
+        assert_eq!(live_members(&peer, peer_nid), original);
+    }
+
+    #[test]
+    fn same_id_replacement_resets_only_receiving_world_combat_cadence() {
+        let (mut owner, nid) = make_nexus_logic();
+        let (mut peer, peer_nid) = make_nexus_logic();
+        assert_eq!(nid, peer_nid);
+        fill_initial_members(&mut owner, nid);
+        fill_initial_members(&mut peer, peer_nid);
+        assert_eq!(owner.angry_mobs().active_count(), 1);
+        assert_eq!(peer.angry_mobs().active_count(), 1);
+        let old_members = live_members(&owner, nid);
+        let frame = owner.frame;
+        owner.angry_mobs.record_tick_complete(nid, 4.0, 1, 0, frame, true);
+        peer.angry_mobs.record_tick_complete(peer_nid, 7.0, 1, 0, frame, true);
+
+        let old_generation = owner.host_object(nid).unwrap().visual_object_generation;
+        let template = owner.host_object(nid).unwrap().get_template().clone();
+        owner.destroy_object(nid).unwrap();
+        owner.process_destroy_list();
+        assert!(owner.host_object(nid).is_none());
+        let replacement = Object::new(template, nid, Team::GLA);
+        owner.try_admit_host_object(replacement).unwrap();
+        let replacement = owner.objects.get_mut(&nid).unwrap();
+        replacement.construction_percent = 1.0;
+        replacement.status.under_construction = false;
+        assert_ne!(replacement.visual_object_generation, old_generation);
+        assert!(replacement.spawn_behavior_children().is_empty());
+        owner.frame = frame + 1;
+        tick_spawn_modules(&mut owner, nid);
+        assert_eq!(live_members(&owner, nid).len() as u32, ANGRY_MOB_INITIAL_MEMBERS);
+        assert!(live_members(&owner, nid).iter().all(|id| !old_members.contains(id)));
+        owner.update_angry_mobs();
+        assert_eq!(owner.angry_mobs().active_count(), 1);
+        let state = &owner.angry_mobs().active_mobs()[0];
+        assert_eq!(state.next_tick_frame, frame + 1 + ANGRY_MOB_TICK_INTERVAL_FRAMES);
+        assert_eq!(state.total_damage_applied, 0.0);
+        peer.frame = frame + 1;
+        peer.update_angry_mobs();
+        let state = &peer.angry_mobs().active_mobs()[0];
+        assert_eq!(state.next_tick_frame, frame + 8);
+        assert_eq!(state.total_damage_applied, 7.0);
+    }
+
 
     #[test]
     fn last_member_death_destroys_nexus() {
@@ -2447,7 +2449,6 @@ mod spawn_behavior_parity {
             kill_member(&mut logic, mid);
         }
         logic.update_angry_mobs();
-        assert_eq!(logic.angry_mobs().member_count_of(nid), None);
         let nexus_gone = logic
             .host_object(nid)
             .map(|o| !o.is_alive() || o.status.destroyed)
@@ -2459,17 +2460,12 @@ mod spawn_behavior_parity {
     }
 
     #[test]
-    fn nexus_is_selectable_and_not_a_weapon_target() {
-        // Live MASKED made the playable mob unselectable. C++ isSelectable
-        // does not check MASKED; weapons skip the nexus via template.
+    fn aggregate_nexus_is_masked_and_not_a_weapon_target() {
         let (mut logic, nid) = make_nexus_logic();
+        logic.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
         logic.update_angry_mobs();
         let nexus = logic.host_object(nid).expect("nexus");
-        assert!(!nexus.status.masked, "nexus must stay selectable");
-        assert!(
-            nexus.is_selectable(),
-            "player can select the Angry Mob nexus"
-        );
+        assert!(nexus.status.masked, "AggregateHealth masks the nexus");
         assert!(nexus.can_move(), "nexus locomotor/AI accepts move orders");
         drop(nexus);
         if let Some(n) = logic.objects.get_mut(&nid) {

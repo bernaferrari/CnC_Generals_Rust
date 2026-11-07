@@ -1411,22 +1411,12 @@ impl GameLogic {
             Some([axis(value, b'X')?, axis(value, b'Y')?, axis(value, b'Z')?])
         }
 
-        let modules: Vec<_> = definition
-            .behavior_modules
-            .iter()
-            .filter(|module| {
-                module
-                    .class_name
-                    .eq_ignore_ascii_case("QueueProductionExitUpdate")
-                    || module
-                        .class_name
-                        .eq_ignore_ascii_case("DefaultProductionExitUpdate")
-                    || module
-                        .class_name
-                        .eq_ignore_ascii_case("SupplyCenterProductionExitUpdate")
-            })
-            .collect();
-        let [module] = modules.as_slice() else {
+        // Object::getObjectExitInterface selects the first admitted behavior.
+        let Some(module) = definition.behavior_modules.iter().find(|module| {
+            module.class_name.eq_ignore_ascii_case("QueueProductionExitUpdate")
+                || module.class_name.eq_ignore_ascii_case("DefaultProductionExitUpdate")
+                || module.class_name.eq_ignore_ascii_case("SupplyCenterProductionExitUpdate")
+        }) else {
             template.production_exit_metadata = None;
             return;
         };

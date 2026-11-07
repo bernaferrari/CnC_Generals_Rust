@@ -196,6 +196,45 @@ impl GameLogic {
         // ContainModule/owner/capacity authority at arrival.  Dock
         // deliberately stays on its separate state machine below.
         let normal_enter = state == AIState::Entering;
+        // A railed dock is an AI_DOCK action, not an OpenContain Enter.
+        // Once DockUpdate grants its active docker the action remains active
+        // while RailedTransportDockUpdate pulls that object in over time.
+        if !normal_enter && self.objects.get(&container_id).is_some_and(|dock| {
+            dock.thing().template.dock_kind == crate::game_logic::DockKind::RailedTransport
+        }) {
+            let Some(dock) = self.objects.get(&container_id) else { return Ok(()) };
+            if dock.railed_dock.docking.is_some_and(|reference| {
+                reference.id == object_id
+                    && self.objects.get(&object_id).is_some_and(|rider| {
+                        rider.visual_object_generation == reference.generation
+                    })
+            }) {
+                return Ok(());
+            }
+            if !is_alive || !dock.is_alive() || dock.status.under_construction || !can_move {
+                self.cancel_dock_reservation(object_id);
+                return Ok(());
+            }
+            // Closed docks cannot grant an enter/action, but an existing
+            // approach reservation is not an immediate containment operation.
+            if !dock.railed_dock.dock_open {
+                return Ok(());
+            }
+            if self.try_claim_dock(container_id, object_id)? {
+                let clear_to_enter = self.objects.get(&container_id).is_some_and(|dock| {
+                    dock.can_contain() && dock.has_capacity_for(1)
+                });
+                if clear_to_enter {
+                    let config = self.railed_dock_config(container_id).ok_or_else(|| {
+                        gamelogic::GameLogicError::Configuration(
+                            "railed dock requires receiving RailedTransportDockUpdate module data".into(),
+                        )
+                    })?;
+                    self.railed_dock_action(container_id, object_id, config);
+                }
+            }
+            return Ok(());
+        }
         let requested_container_id = container_id;
         let container_id = if normal_enter {
             self.redirected_containment_owner(container_id)

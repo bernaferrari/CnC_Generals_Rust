@@ -97,6 +97,8 @@ End
         .pathfinding_system
         .grid
         .add_wall_piece(9982, Vec3::ZERO, 0.0, 50.0, 50.0);
+    // newMap allocates the deck after addWallPiece registers the piece.
+    world.pathfinding_system.grid.allocate_and_classify_wall_layer();
     let id = world
         .create_object(
             "AmericaVehicleComanche",

@@ -1,16 +1,103 @@
 //! Behavior suite extracted from `combat_particles_and_economy`.
 use super::*;
 
+fn admit_supply_spawn_fixture(logic: &mut GameLogic, center: &str, child: &str, exit: bool) {
+    let exit_module = if exit {
+        "Behavior = SupplyCenterProductionExitUpdate ExitTag\n UnitCreatePoint = X:12 Y:-8 Z:0\n NaturalRallyPoint = X:24 Y:0 Z:0\n End\n"
+    } else {
+        ""
+    };
+    logic.admit_object_ini_sources([(
+        "SupplySpawnFixture.ini".into(),
+        format!("Object {center}\n KindOf = STRUCTURE FS_SUPPLY_CENTER SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = SupplyCenterCreate CenterCreate\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = {child}\n End\n {exit_module}End\nObject {child}\n KindOf = VEHICLE HARVESTER SCORE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SupplyTruckAIUpdate TruckAI\n End\nEnd\n"),
+    )]).expect("authored supply fixture");
+}
+
+fn advance_supply_spawns(logic: &mut GameLogic) {
+    for _ in 0..32 {
+        logic.frame += 1;
+        logic.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
+    }
+}
+
+#[test]
+fn authored_supply_spawn_requires_exit_and_is_isolated_between_same_id_worlds() {
+    fn world(exit: bool) -> (GameLogic, ObjectId) {
+        let mut logic = GameLogic::new();
+        admit_supply_spawn_fixture(&mut logic, "SupplyProbe", "SupplyProbeCollector", exit);
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+        let center = logic.create_object_for_player("SupplyProbe", 0, Vec3::ZERO).unwrap();
+        (logic, center)
+    }
+    let (mut missing, missing_center) = world(false);
+    let (mut peer, peer_center) = world(true);
+    assert_eq!(missing_center, peer_center);
+    advance_supply_spawns(&mut missing);
+    assert!(!missing.host_objects().registered_values().any(|unit| unit.producer_id == Some(missing_center)));
+    assert!(!peer.host_objects().registered_values().any(|unit| unit.producer_id == Some(peer_center)));
+    advance_supply_spawns(&mut peer);
+    assert_eq!(peer.host_objects().registered_values().filter(|unit| unit.producer_id == Some(peer_center)).count(), 1);
+    assert_eq!(peer.get_player(0).unwrap().statistics.units_built(), 1);
+    assert_eq!(missing.get_player(0).unwrap().statistics.units_built(), 0);
+    let collector = peer.host_objects().registered_values()
+        .find(|unit| unit.producer_id == Some(peer_center)).unwrap();
+    assert!(collector.supply_truck_force_pending, "exit forces wanting even before a warehouse is available");
+    assert_eq!(collector.supply_truck_state, crate::game_logic::SupplyTruckState::Wanting);
+    advance_supply_spawns(&mut missing);
+    assert!(!missing.host_objects().registered_values().any(|unit| unit.producer_id == Some(missing_center)));
+    assert_eq!(peer.host_objects().registered_values().filter(|unit| unit.producer_id == Some(peer_center)).count(), 1);
+}
+
+#[test]
+fn authored_supply_spawn_save_continuation_does_not_create_a_second_collector() {
+    fn world() -> GameLogic {
+        let mut logic = GameLogic::new();
+        admit_supply_spawn_fixture(&mut logic, "SavedSupply", "SavedCollector", true);
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+        logic
+    }
+    let mut logic = world();
+    let center = logic.create_object_for_player("SavedSupply", 0, Vec3::ZERO).unwrap();
+    advance_supply_spawns(&mut logic);
+    let child = logic.host_objects().registered_values()
+        .find(|object| object.producer_id == Some(center)).unwrap().id;
+    let directory = tempfile::TempDir::new().unwrap();
+    let mut saves = crate::save_load::SaveFileManager::with_save_directory(directory.path());
+    saves.init().unwrap();
+    let info = crate::save_load::SaveGameInfo {
+        pristine_map_name: None,
+        filename: "supply_spawn".into(),
+        display_name: "supply_spawn".into(),
+        description: String::new(),
+        map_name: "SupplySpawnMap".into(),
+        campaign_side: None,
+        mission_number: None,
+        save_date: std::time::SystemTime::now(),
+        game_version: env!("CARGO_PKG_VERSION").into(),
+        play_time: std::time::Duration::ZERO,
+        difficulty: crate::save_load::GameDifficulty::Medium,
+        save_type: crate::save_load::SaveFileType::Normal,
+    };
+    saves.save_game("supply_spawn", &logic, &info).unwrap();
+    let mut loaded = world();
+    saves.load_game("supply_spawn", &mut loaded).unwrap();
+    advance_supply_spawns(&mut loaded);
+    let children: Vec<_> = loaded.host_objects().registered_values()
+        .filter(|object| object.producer_id == Some(center)).map(|object| object.id).collect();
+    assert_eq!(children, vec![child]);
+}
+
 #[test]
 fn supply_center_one_shot_collector_enters_authored_wanting_route_without_passive_income() {
     use crate::game_logic::{DockKind, ProductionExitMetadata, ProductionExitStyle};
 
     let mut logic = GameLogic::new();
+    admit_supply_spawn_fixture(&mut logic, "AmericaSupplyCenter", "AmericaVehicleChinook", true);
     let mut player = Player::new(0, Team::USA, "USA", true);
     player.resources.supplies = 500;
     logic.add_player(player);
 
-    let mut truck = ThingTemplate::new("AmericaVehicleChinook");
+    let mut truck = logic.templates["AmericaVehicleChinook"].clone();
     truck.add_kind_of(KindOf::Harvester).set_health(100.0);
     logic.templates.insert(truck.name.clone(), truck);
 
@@ -25,7 +112,7 @@ fn supply_center_one_shot_collector_enters_authored_wanting_route_without_passiv
         .create_object("FiniteWarehouse", Team::Neutral, Vec3::new(80.0, 0.0, 0.0))
         .expect("finite supply source");
 
-    let mut center = ThingTemplate::new("AmericaSupplyCenter");
+    let mut center = logic.templates["AmericaSupplyCenter"].clone();
     center
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::SupplyCenter)
@@ -46,6 +133,7 @@ fn supply_center_one_shot_collector_enters_authored_wanting_route_without_passiv
     let center_id = logic
         .create_object_for_player("AmericaSupplyCenter", 0, Vec3::ZERO)
         .expect("supply center");
+    advance_supply_spawns(&mut logic);
     let collector_id = logic
         .host_objects()
         .registered_values()
@@ -72,9 +160,10 @@ fn supply_center_one_shot_collector_uses_exit_interface() {
     use crate::game_logic::{DockKind, ProductionExitMetadata, ProductionExitStyle};
 
     let mut logic = GameLogic::new();
+    admit_supply_spawn_fixture(&mut logic, "GLASupplyStash", "GLAInfantryWorker", true);
     logic.add_player(Player::new(0, Team::GLA, "GLA", true));
 
-    let mut worker = ThingTemplate::new("GLAInfantryWorker");
+    let mut worker = logic.templates["GLAInfantryWorker"].clone();
     worker.add_kind_of(KindOf::Harvester).set_health(100.0);
     logic.templates.insert(worker.name.clone(), worker);
 
@@ -91,7 +180,7 @@ fn supply_center_one_shot_collector_uses_exit_interface() {
 
     let unit_create = [12.0, -8.0, 0.0];
     let natural = [24.0, 0.0, 0.0];
-    let mut stash = ThingTemplate::new("GLASupplyStash");
+    let mut stash = logic.templates["GLASupplyStash"].clone();
     stash
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::SupplyCenter)
@@ -112,6 +201,7 @@ fn supply_center_one_shot_collector_uses_exit_interface() {
     let center_id = logic
         .create_object_for_player("GLASupplyStash", 0, center_pos)
         .expect("stash");
+    advance_supply_spawns(&mut logic);
     let first_id = logic
         .host_objects()
         .registered_values()
@@ -181,20 +271,20 @@ fn supply_center_one_shot_collector_uses_exit_interface() {
         "C++ supply exit does not add the 2-cell path offset, path={path:?} offset={offset_natural:?}"
     );
 
-    if let Some(first) = logic.host_object_mut(first_id) {
-        first.producer_id = None;
-    }
+    let second_center = logic
+        .create_object_for_player("GLASupplyStash", 0, Vec3::new(250.0, 0.0, 50.0))
+        .expect("second stash");
     let custom_rally = Vec3::new(200.0, 0.0, 80.0);
-    if let Some(center) = logic.host_object_mut(center_id) {
-        center.supply_center_spawn_behavior_fired = false;
+    if let Some(center) = logic.host_object_mut(second_center) {
         center.status.stealthed = true;
         if let Some(building) = center.building_data.as_mut() {
             building.rally_point = Some(custom_rally);
         }
     }
-    let second_id = logic
-        .spawn_supply_center_one_shot_collector(center_id)
-        .expect("stealthed one-shot");
+    advance_supply_spawns(&mut logic);
+    let second_id = logic.host_objects().registered_values()
+        .find(|object| object.producer_id == Some(second_center))
+        .map(|object| object.id).expect("stealthed one-shot");
     let second = logic.host_object(second_id).expect("second collector");
     assert!(
         second.status.stealthed,
@@ -2997,16 +3087,14 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
     game_logic.add_player(player);
     ensure_test_tank_template(&mut game_logic);
 
-    let mut mob_tpl = crate::game_logic::ThingTemplate::new("GLAInfantryAngryMobNexus");
-    mob_tpl
-        .add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(99999.0)
+    let source = "Object GLAInfantryAngryMobNexus\nKindOf = INFANTRY SELECTABLE ATTACKABLE\nBody = ImmortalBody NexusBody\nMaxHealth = 99999\nInitialHealth = 99999\nEnd\nBehavior = SpawnBehavior Spawn\nSpawnNumber = 10\nSpawnReplaceDelay = 30000\nSpawnTemplateName = CombatMobMember\nInitialBurst = 5\nAggregateHealth = Yes\nExitByBudding = Yes\nEnd\nBehavior = QueueProductionExitUpdate Exit\nUnitCreatePoint = X:0 Y:0 Z:0\nNaturalRallyPoint = X:0 Y:0 Z:0\nExitDelay = 5000\nInitialBurst = 5\nEnd\nEnd\nObject CombatMobMember\nKindOf = INFANTRY SELECTABLE ATTACKABLE IGNORED_IN_GUI\nBody = ActiveBody Body\nMaxHealth = 50\nInitialHealth = 50\nEnd\nBehavior = MobMemberSlavedUpdate Slave\nEnd\nEnd\n";
+    let content = crate::assets::ReceivingObjectContent::from_sources([
+        ("combat-mob.ini".into(), source.into())
+    ]).unwrap();
+    game_logic.admit_receiving_module_content(content).unwrap();
+    assert!(game_logic.ensure_host_spawn_template("GLAInfantryAngryMobNexus"));
+    game_logic.templates.get_mut("GLAInfantryAngryMobNexus").unwrap()
         .set_primary_weapon_name(ANGRY_MOB_RESIDUAL_WEAPON);
-    game_logic
-        .templates
-        .insert("GLAInfantryAngryMobNexus".to_string(), mob_tpl);
 
     let mob_id = game_logic
         .create_object(
@@ -3073,7 +3161,8 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
     let far_hp_before = game_logic.host_object(far_id).unwrap().health.current;
     let ally_hp_before = game_logic.host_object(ally_id).unwrap().health.current;
 
-    game_logic.set_current_frame(0);
+    game_logic.set_current_frame(1);
+    game_logic.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
     game_logic.update_angry_mobs();
 
     assert_eq!(
@@ -3084,10 +3173,7 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
     // Retail SpawnBehavior (WeaponObjects.ini GLAInfantryAngryMobNexus
     // ModuleTag_05): SpawnNumber 10, InitialBurst 5 — the first 5 members
     // spawn immediately, the rest replace one per ExitDelay 5000ms.
-    assert_eq!(
-        game_logic.angry_mobs().member_count_of(mob_id),
-        Some(ANGRY_MOB_INITIAL_MEMBERS)
-    );
+    assert_eq!(game_logic.host_object(mob_id).unwrap().spawn_behavior_children().len(), ANGRY_MOB_INITIAL_MEMBERS as usize);
 
     let hp_after_first = game_logic.host_object(enemy_id).unwrap().health.current;
     assert!(
@@ -3119,13 +3205,13 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
 
     // Second tick only after residual interval (damage over frames).
     let mid_hp = game_logic.host_object(enemy_id).unwrap().health.current;
-    game_logic.frame = 1;
+    game_logic.frame = 2;
     game_logic.update_angry_mobs();
     assert!(
         (game_logic.host_object(enemy_id).unwrap().health.current - mid_hp).abs() < 0.01,
         "no Angry Mob damage before tick interval"
     );
-    game_logic.frame = ANGRY_MOB_TICK_INTERVAL_FRAMES;
+    game_logic.frame = 1 + ANGRY_MOB_TICK_INTERVAL_FRAMES;
     game_logic.update_angry_mobs();
     let hp_after_second = game_logic.host_object(enemy_id).unwrap().health.current;
     assert!(
@@ -3141,18 +3227,16 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
     // By the retail replace cadence (InitialBurst 5 now, then one member per
     // ExitDelay 5000ms = 150 frames) all SpawnNumber=10 members are out by
     // frame 900.
-    game_logic.frame = ANGRY_MOB_EXPAND_INTERVAL_FRAMES;
+    for frame in [152, 303, 454, 605, 756] {
+        game_logic.frame = frame;
+        game_logic.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
+    }
     game_logic.update_angry_mobs();
-    assert_eq!(
-        game_logic.angry_mobs().member_count_of(mob_id),
-        Some(ANGRY_MOB_MAX_MEMBERS),
-        "replacement cadence fills SpawnNumber until a member dies"
-    );
+    assert_eq!(game_logic.host_object(mob_id).unwrap().spawn_behavior_children().len(), ANGRY_MOB_MAX_MEMBERS as usize);
     // C++ SpawnBehavior::computeAggregateStates sets OBJECT_STATUS_MASKED on
     // the nexus every update (SpawnBehavior.cpp:992-995) so enemies cannot
-    // shoot the 99999-HP nexus. Live keeps the nexus unmasked so is_selectable
-    // stays true (playable mob) and instead fails weapons closed via
-    // is_angry_mob_nexus_template — assert that observable.
+    // shoot the aggregate nexus.
+    assert!(game_logic.host_object(mob_id).unwrap().status.masked);
     assert!(
         !game_logic
             .host_object(mob_id)
@@ -3170,18 +3254,10 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
         .collect();
     assert_eq!(member_ids.len() as u32, ANGRY_MOB_MAX_MEMBERS);
     if let Some(first) = member_ids.first() {
-        if let Some(o) = game_logic.objects.get_mut(first) {
-            o.health.current = 0.0;
-            o.status.destroyed = true;
-            o.status.effectively_dead = true;
-        }
+        game_logic.apply_host_damage(*first, 1000.0);
     }
     game_logic.update_angry_mobs();
-    assert_eq!(
-        game_logic.angry_mobs().member_count_of(mob_id),
-        Some(ANGRY_MOB_MAX_MEMBERS - 1),
-        "onSpawnDeath must shrink live count"
-    );
+    assert_eq!(game_logic.host_object(mob_id).unwrap().spawn_behavior_children().len(), (ANGRY_MOB_MAX_MEMBERS - 1) as usize);
     let _ = ANGRY_MOB_INITIAL_MEMBERS;
 
     // ArmTheMob upgrade residual multiplies damage.

@@ -1151,14 +1151,12 @@ impl GameLogic {
         };
         if !self.object_birth_matches(object_id, master_birth) {
             let mut cleanup_error = None;
-            for (drone_id, drone_birth) in spawned {
-                match self.destroy_object_if_birth_matches_with_effects(
-                    drone_id,
-                    &drone_birth,
-                    presentation_effects,
-                ) {
-                    Ok(_) => {}
-                    Err(error) => {
+            for (drone_id, (generation, epoch)) in spawned {
+                if self.spawn_identity_matches(drone_id, generation, epoch) {
+                    if let Err(error) = self.destroy_object_with_effects(
+                        drone_id,
+                        presentation_effects,
+                    ) {
                         cleanup_error.get_or_insert(error);
                     }
                 }
@@ -1172,8 +1170,8 @@ impl GameLogic {
             return Err(gamelogic::GameLogicError::InvalidObject(object_id.0));
         }
         // C++ SlavedUpdate startSlavedEffects + UpgradeDie on the OCL spawn.
-        for (drone_id, drone_birth) in spawned {
-            if !self.object_birth_matches(drone_id, &drone_birth) {
+        for (drone_id, (generation, epoch)) in spawned {
+            if !self.spawn_identity_matches(drone_id, generation, epoch) {
                 continue;
             }
             if let Some(drone) = self.objects.get_mut(&drone_id) {

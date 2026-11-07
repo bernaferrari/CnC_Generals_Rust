@@ -414,7 +414,7 @@ fn saved_coincident_overflow_bridges_keep_source_bindings_after_ids_change() {
     isolated("saved_coincident_overflow_bridges_keep_source_bindings_after_ids_change", || {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("Coincident.map");
-        std::fs::write(&path, map_bytes(50.0, &[21.0; 16])).unwrap();
+        std::fs::write(&path, map_bytes(50.0, &[21.0; 17])).unwrap();
         let mut source = load(&path);
         let peer = load(&path);
         assert_eq!(bridges(&source), bridges(&peer));
@@ -428,6 +428,14 @@ fn saved_coincident_overflow_bridges_keep_source_bindings_after_ids_change() {
         };
         let original_ground = ground_observation(&peer);
         assert_eq!(ground_observation(&source), original_ground);
+        let flight_layer = |world: &GameLogic| {
+            let terrain = world.world_services.terrain().read().unwrap();
+            world.pathfinding_system.grid.highest_layer_at_or_below_in(
+                Some(&terrain), Vec3::new(50.0, 30.0, 50.0), 0.0, false,
+            )
+        };
+        assert_eq!(flight_layer(&source), 1, "newest coincident overflow wins the strict tie");
+        assert_eq!(flight_layer(&peer), 1);
         assert!(source.delete_owned_bridge_at(Vec3::new(50.0, 21.0, 50.0)));
         assert_eq!(ground_observation(&source), original_ground);
         let capture = |world: &GameLogic| {
@@ -439,7 +447,7 @@ fn saved_coincident_overflow_bridges_keep_source_bindings_after_ids_change() {
             rows
         };
         let expected = capture(&source);
-        assert_eq!(expected.len(), 15);
+        assert_eq!(expected.len(), 16);
         assert_eq!(expected.iter().filter(|row| row.1 == 1).count(), 2);
         let overflow_ids: Vec<_> = expected.iter().filter(|row| row.1 == 1).map(|row| row.2).collect();
         assert_ne!(overflow_ids[0], overflow_ids[1]);
@@ -471,9 +479,11 @@ fn saved_coincident_overflow_bridges_keep_source_bindings_after_ids_change() {
         restored.templates = source.templates.clone();
         SnapshotBuilder::new().restore_from_snapshot(&decoded.snapshot, &mut restored).unwrap();
         assert_eq!(capture(&restored), expected);
-        assert_eq!(capture(&peer).len(), 16);
+        assert_eq!(capture(&peer).len(), 17);
         assert_eq!(ground_observation(&peer), original_ground);
         assert_eq!(ground_observation(&restored), ground_observation(&source));
+        assert_eq!(flight_layer(&restored), 1);
+        assert_eq!(flight_layer(&peer), 1);
         assert!(restored.bridge_behavior.is_scaffold_present(scaffold_id));
         let cell = restored.pathfinding_system.grid.world_to_grid(Vec3::new(50.0, 21.0, 50.0));
         assert_eq!(

@@ -57,11 +57,11 @@ fn world(start_money: u32, map: &std::path::Path) -> GameLogic {
         ), (
             "SupplyOwner.ini".into(),
             format!(
-                "Object OwnedSupply\n KindOf = STRUCTURE SELECTABLE FS_SUPPLY_CENTER\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = {}\n End\nEnd\n\
+                "Object OwnedSupply\n KindOf = STRUCTURE SELECTABLE FS_SUPPLY_CENTER\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = {}\n End\n Behavior = DefaultProductionExitUpdate ExitTag\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:0 Y:0 Z:0\n End\nEnd\n\
                  Object FirstCollector\n KindOf = VEHICLE SELECTABLE HARVESTER\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
                  Object PeerCollector\n KindOf = VEHICLE SELECTABLE HARVESTER\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
-                 Object MissingSupply\n KindOf = STRUCTURE SELECTABLE FS_SUPPLY_CENTER\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = PeerOnlyCollector\n End\nEnd\n{}\
-                 Object OwnedNest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = {}\n SpawnTemplateName = PeerSoldier\n End\nEnd\n\
+                 Object MissingSupply\n KindOf = STRUCTURE SELECTABLE FS_SUPPLY_CENTER\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = PeerOnlyCollector\n End\n Behavior = DefaultProductionExitUpdate ExitTag\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:0 Y:0 Z:0\n End\nEnd\n{}\
+                 Object OwnedNest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = {}\n SpawnTemplateName = PeerSoldier\n End\n Behavior = DefaultProductionExitUpdate ExitTag\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:0 Y:0 Z:0\n End\nEnd\n\
                  Object FirstSoldier\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
                  Object PeerSoldier\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
                  Object OwnedOverlordVisual\n KindOf = VEHICLE SELECTABLE\n Geometry = BOX\n GeometryMajorRadius = {}\n GeometryMinorRadius = 2\n GeometryHeight = 3\n Draw = {} DrawTag\n DefaultConditionState\n Model = NONE\n End\n End\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
@@ -625,6 +625,10 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
     let peer_center = supply_peer
         .create_object_for_player("OwnedSupply", 1, position)
         .unwrap();
+    for _ in 0..32 {
+        supply_owner.update();
+        supply_peer.update();
+    }
     assert_eq!(center, peer_center);
     let children = |world: &GameLogic, producer| {
         world
@@ -642,6 +646,10 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
     let matching_center = supply_peer
         .create_object_for_player("MissingSupply", 1, position)
         .unwrap();
+    for _ in 0..32 {
+        supply_owner.update();
+        supply_peer.update();
+    }
     assert!(children(&supply_owner, missing_center).is_empty());
     assert_eq!(
         children(&supply_peer, matching_center),
@@ -653,6 +661,10 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
     let peer_nest = supply_peer
         .create_object_for_player("OwnedNest", 1, position)
         .unwrap();
+    for _ in 0..32 {
+        supply_owner.update();
+        supply_peer.update();
+    }
     assert_eq!(children(&supply_owner, nest), ["FirstSoldier"]);
     assert_eq!(children(&supply_peer, peer_nest), ["PeerSoldier"]);
 

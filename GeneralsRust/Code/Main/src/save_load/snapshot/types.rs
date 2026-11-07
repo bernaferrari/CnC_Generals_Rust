@@ -43,9 +43,10 @@ pub const WORLD_SNAPSHOT_PARTICLE_DRIVE_SETTINGS_VERSION: u32 = 38;
 /// Version41 persists one authoritative WeaponSet condition bitset.
 /// Version42 persists delayed strike delivery identities and queue-time draws.
 /// Version43 requires the PhysicsBehavior continuation for each Object.
-/// Older Rust bodies cannot recover these exact values and are rejected.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 43;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 43;
+/// Version44 persists SpawnPoint occupiers independently of the SpawnBehavior
+/// roster and preserves its update cadence. Older bodies are rejected.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 45;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 45;
 /// Version36 introduced mandatory exact original-Garrison-Team continuation.
 pub const WORLD_SNAPSHOT_GARRISON_TEAM_VERSION: u32 = 36;
 
@@ -512,6 +513,17 @@ pub struct FlightDeckPersistSnapshot {
     pub designated_target: Option<ObjectId>,
     pub designated_command: u8,
     pub pending_replacement: bool,
+    pub healing: Vec<(ObjectId, u32)>,
+    pub next_heal_frame: u32,
+    pub next_cleanup_frame: u32,
+    pub started_production_frame: u32,
+    pub next_allowed_production_frame: u32,
+    pub designated_position_bits: [u32; 3],
+    pub next_launch_wave_frame: [u32; 2],
+    pub ramp_up_frame: [u32; 2],
+    pub catapult_system_frame: [u32; 2],
+    pub lower_ramp_frame: [u32; 2],
+    pub ramp_up: [bool; 2],
 }
 
 /// C++ ParkingPlace / FlightDeck persist tail.

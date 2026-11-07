@@ -1,9 +1,9 @@
 use super::*;
 struct ActualMissingBones;
 impl crate::assets::pristine_bones::PristineBoneAssets for ActualMissingBones {
-    fn pristine_bone_transforms(
+    fn pristine_bones_for_draws(
         &self,
-        _: &NativeSlaveSource,
+        _: &crate::assets::pristine_bones::PristineBoneSource<'_>,
         _: &str,
         _: i32,
         _: usize,

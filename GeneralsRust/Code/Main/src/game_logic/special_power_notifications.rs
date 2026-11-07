@@ -14,6 +14,9 @@ impl<'a> ScriptEventRecipient<'a> {
     pub(crate) fn is_game_ending(self) -> bool {
         self.0.is_game_ending()
     }
+    pub(crate) fn notify_object_creation_or_destruction(self, frame: u32) {
+        self.0.set_frame_object_count_changed(frame);
+    }
     pub(crate) fn run_team_script(
         self,
         world: &mut GameLogic,

@@ -512,9 +512,10 @@ impl Object {
             return None;
         }
 
-        // HelixContain holds its riders but explicitly permits their passive
-        // passenger fire; all other disabled bits and construction still gate.
-        let held_passenger = matches!(route, WeaponShotRoute::Passive { allow_held: true, .. });
+        // Spawn-point soldiers are held in place yet autonomously fire.
+        // Passive passenger routes retain their explicit containment policy.
+        let held_passenger = (autonomous && self.contained_by.is_none())
+            || matches!(route, WeaponShotRoute::Passive { allow_held: true, .. });
         let disabled = if held_passenger {
             self.status.under_construction || self.has_disabled_type_except_held()
         } else {
@@ -1943,6 +1944,59 @@ mod tests {
             &mut _attack_output,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
         ));
+    }
+
+    #[test]
+    fn held_autonomous_weapon_fires_but_other_disabled_types_still_block() {
+        fn fire(held: bool, emp: bool, contained: bool) -> (bool, bool) {
+            let mut object = Object::new(ThingTemplate::new("HeldShooter"), ObjectId(1), Team::USA);
+            object.weapon = Some(Weapon {
+                damage: 20.0,
+                range: 150.0,
+                last_fire_time: -10.0,
+                ..Weapon::default()
+            });
+            object.status.disabled_held = held;
+            object.status.disabled_emp = emp;
+            object.contained_by = contained.then_some(ObjectId(3));
+            let capable = object.can_attack();
+            let fired = object.fire_at(
+                ObjectId(2),
+                1.0,
+                0,
+                &mut crate::game_logic::combat::CombatSystem::new(),
+                &mut crate::game_logic::host_attack_log::AttackEvents::default(),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+            );
+            (capable, fired)
+        }
+        assert_eq!(fire(false, false, false), (true, true));
+        assert_eq!(fire(true, false, false), (true, true));
+        assert_eq!(fire(true, true, false), (false, false));
+        assert_eq!(fire(true, false, true), (true, false));
+    }
+
+    #[test]
+    fn unarmed_victims_use_their_own_targetability_not_can_attack() {
+        let id = ObjectId(17);
+        let mut worker = Object::new(ThingTemplate::new("Worker"), id, Team::GLA);
+        let mut peer = Object::new(ThingTemplate::new("Worker"), id, Team::GLA);
+        assert!(!worker.is_kind_of(KindOf::Attackable));
+        assert!(worker.is_targetable_by_enemy_of(Team::USA));
+        assert!(peer.is_targetable_by_enemy_of(Team::USA));
+
+        worker.status.masked = true;
+        assert!(!worker.is_targetable_by_enemy_of(Team::USA));
+        assert!(peer.is_targetable_by_enemy_of(Team::USA));
+        worker.status.masked = false;
+        worker.status.destroyed = true;
+        assert!(!worker.is_targetable_by_enemy_of(Team::USA));
+        assert!(peer.is_targetable_by_enemy_of(Team::USA));
+
+        let mut protected_template = ThingTemplate::new("Protected");
+        protected_template.add_kind_of(KindOf::Unattackable);
+        peer = Object::new(protected_template, id, Team::GLA);
+        assert!(!peer.is_targetable_by_enemy_of(Team::USA));
     }
 }
 

@@ -347,13 +347,16 @@ fn factory_disable_visits_only_its_ordered_spawn_children_in_each_world() {
         };
         world.admit_object_ini_sources([(
             "SpawnFactory.ini".into(),
-            format!("Object SharedFactory\n KindOf = STRUCTURE SELECTABLE SPAWNS_ARE_THE_WEAPONS\n Body = ActiveBody FactoryBody\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = SpawnBehavior FactorySpawn\n OneShot = Yes\n SpawnNumber = 2\n SpawnTemplateName = SpawnedGuard\n End\nEnd\nObject SpawnedGuard\n KindOf = INFANTRY SELECTABLE\n Locomotor = SET_NORMAL GuardWalk\n Body = ActiveBody GuardBody\n MaxHealth = 100\n InitialHealth = 100\n End\n{ai_module}End\n"),
+            format!("Object SharedFactory\n KindOf = STRUCTURE SELECTABLE SPAWNS_ARE_THE_WEAPONS\n Body = ActiveBody FactoryBody\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = SpawnBehavior FactorySpawn\n OneShot = Yes\n SpawnNumber = 2\n SpawnTemplateName = SpawnedGuard\n End\n Behavior = DefaultProductionExitUpdate ExitTag\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:0 Y:0 Z:0\n End\nEnd\nObject SpawnedGuard\n KindOf = INFANTRY SELECTABLE\n Locomotor = SET_NORMAL GuardWalk\n Body = ActiveBody GuardBody\n MaxHealth = 100\n InitialHealth = 100\n End\n{ai_module}End\n"),
         )]).unwrap();
         let name = format!("{prefix}Player");
         world.add_player(Player::new(1, Team::USA, &name, false).with_script_identity(&name));
         let factory = world
             .create_object_for_player("SharedFactory", 1, glam::Vec3::ZERO)
             .unwrap();
+        for _ in 0..32 {
+            world.update();
+        }
         let tail = capture_lifecycle_tail(&world).unwrap();
         let roster = tail
             .spawn_behavior_rosters

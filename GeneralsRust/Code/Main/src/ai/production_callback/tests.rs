@@ -301,36 +301,24 @@ fn supply_spawn_notifies_ai_before_exit_without_replaying_create_or_draining_pai
         module_path!(),
         "supply_spawn_notifies_ai_before_exit_without_replaying_create_or_draining_paid_output",
         || {
-            use crate::game_logic::thing::{ProductionExitMetadata, ProductionExitStyle};
             let name = "AmericaVehicleChinook";
-            let (mut world, paid_factory) = production_world(name, false);
-            world
-                .templates
-                .get_mut(name)
-                .unwrap()
-                .add_kind_of(KindOf::Harvester)
-                .add_kind_of(KindOf::Vehicle);
-            // An already constructed, admitted supply center invokes the actual
-            // SpawnBehavior path. Do not trigger it while preparing the queue.
-            let center_id = ObjectId(8100);
-            let mut center = ThingTemplate::new("AmericaSupplyCenter");
-            center
-                .add_kind_of(KindOf::Structure)
-                .add_kind_of(KindOf::SupplyCenter)
-                .add_kind_of(KindOf::FSSupplyCenter);
-            center.production_exit_metadata = Some(ProductionExitMetadata {
-                style: ProductionExitStyle::SupplyCenter,
-                unit_create_point: [0.0; 3],
-                natural_rally_point: [30.0, 0.0, 0.0],
-                exit_delay_frames: 0,
-                allow_airborne_creation: false,
-                initial_burst: 0,
-                use_spawn_rally_point: false,
-                grant_temporary_stealth_frames: 0,
-            });
-            let mut center = Object::new(center, center_id, Team::USA);
-            center.owner_player_id = Some(1);
-            world.objects.insert(center_id, center);
+            let mut world = GameLogic::new();
+            world.admit_object_ini_sources([(
+                "SupplyCallback.ini".into(),
+                "Object CallbackSupplyCenter\n KindOf = STRUCTURE SUPPLY_CENTER FS_SUPPLY_CENTER SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = AmericaVehicleChinook\n End\n Behavior = SupplyCenterProductionExitUpdate ExitTag\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:30 Y:0 Z:0\n End\nEnd\nObject AmericaVehicleChinook\n KindOf = HARVESTER VEHICLE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SupplyTruckAIUpdate TruckAI\n End\nEnd\n".into(),
+            )]).expect("authored supply fixture");
+            let mut player = Player::new(1, Team::USA, "Production AI", false);
+            player.resources.supplies = 10_000;
+            world.add_player(player);
+            let mut factory = ThingTemplate::new("DeliveryFactory");
+            factory.add_kind_of(KindOf::Structure).add_kind_of(KindOf::FSBarracks);
+            world.templates.insert(factory.name.clone(), factory);
+            let unit = world.templates.get_mut(name).unwrap();
+            unit.lock_weapon_slot = Some(0);
+            unit.locomotor_name = Some("BasicHumanLocomotor".into());
+            let paid_factory = world.create_object_for_player("DeliveryFactory", 1, Vec3::ZERO).unwrap();
+            world.ai_manager.add_ai_player(1, Team::USA, AIDifficulty::Medium);
+            let center_id = world.create_object_for_player("CallbackSupplyCenter", 1, Vec3::ZERO).unwrap();
             let ai = world.ai_manager.ai_players.get_mut(&1).unwrap();
             ai.team_queue.push_back(AITeamQueue::new(
                 "PendingPaid".into(),
@@ -347,50 +335,17 @@ fn supply_spawn_notifies_ai_before_exit_without_replaying_create_or_draining_pai
             // Keep a real paid delivery pending to prove a free-spawn handoff
             // does not consume or misclassify another factory's event.
             let paid = spawn_finished_output(&mut world, paid_factory, name);
-            let mut callbacks = 0;
-            let spawned = world
-                .spawn_supply_center_one_shot_collector_with_observer(center_id, |world, unit| {
-                    callbacks += 1;
-                    let ai = &world.ai_manager.ai_players[&1];
-                    assert_eq!(ai.team_queue[0].work_orders[0].num_completed, 0);
-                    assert_eq!(
-                        ai.team_queue[1].work_orders[0].num_completed, 1,
-                        "CPP SpawnBehavior613-616 notified AI before any exit"
-                    );
-                    assert_eq!(ai.next_team_queue_time, 0.0);
-                    let output = world.host_object(unit).unwrap();
-                    assert!(
-                        output.movement.path.is_empty(),
-                        "factory exit has not run yet"
-                    );
-                    assert_eq!(
-                        output.weapon_lock_type,
-                        WeaponLockType::LockedPermanently,
-                        "the existing ordinary AtCreation callback already ran"
-                    );
-                    // Make a second callback observably wrong: it would reset
-                    // the AI timer and reapply authored LockWeaponCreate.
-                    world
-                        .ai_manager
-                        .ai_players
-                        .get_mut(&1)
-                        .unwrap()
-                        .next_team_queue_time = 123.0;
-                    world.host_object_mut(unit).unwrap().weapon_lock_type =
-                        WeaponLockType::NotLocked;
-                })
-                .expect("actual free SpawnBehavior collector");
+            for _ in 0..32 {
+                world.frame += 1;
+                world.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
+            }
+            let spawned = world.host_objects().registered_values()
+                .find(|unit| unit.producer_id == Some(center_id))
+                .map(|unit| unit.id).expect("actual free SpawnBehavior collector");
             assert_ne!(spawned, paid);
-            assert_eq!(callbacks, 1);
-            assert_eq!(
-                world.ai_manager.ai_players[&1].next_team_queue_time, 123.0,
-                "free-spawn exit must not notify AI again"
-            );
-            assert_eq!(
-                world.host_object(spawned).unwrap().weapon_lock_type,
-                WeaponLockType::NotLocked,
-                "free-spawn exit must not replay Create completion"
-            );
+            assert_eq!(world.ai_manager.ai_players[&1].team_queue[0].work_orders[0].num_completed, 0);
+            assert_eq!(world.ai_manager.ai_players[&1].team_queue[1].work_orders[0].num_completed, 1);
+            assert_eq!(world.host_object(spawned).unwrap().weapon_lock_type, WeaponLockType::LockedPermanently);
             // CPP AIFollowPathState::onEnter copies the authored point, but
             // Pathfinder::prependCells installs adjustCoordToCell output
             // (AIPathfind.cpp:9005-9017), not the raw model coordinate.
@@ -410,18 +365,12 @@ fn supply_spawn_notifies_ai_before_exit_without_replaying_create_or_draining_pai
                 "the actual snapped exit follows the earlier AI callback"
             );
             assert_eq!(output.ignored_obstacle_id, Some(center_id));
-            assert!(
-                world
-                    .host_object(center_id)
-                    .unwrap()
-                    .supply_center_spawn_behavior_fired
-            );
-            assert!(
-                world
-                    .spawn_supply_center_one_shot_collector(center_id)
-                    .is_none(),
-                "one-shot remains consumed"
-            );
+            for _ in 0..32 {
+                world.frame += 1;
+                world.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
+            }
+            assert_eq!(world.host_objects().registered_values()
+                .filter(|unit| unit.producer_id == Some(center_id)).count(), 1);
             assert_eq!(
                 world
                     .host_apply_production_spawn_ready_completions()

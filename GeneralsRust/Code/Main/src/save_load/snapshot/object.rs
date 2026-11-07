@@ -373,6 +373,7 @@ pub enum ModuleSnapshot {
         needs_build_complete: bool,
         cave_index: i32,
     },
+    QueueExit(crate::game_logic::buildings::ProductionExitRuntimeState),
 }
 
 /// AI update module snapshot
@@ -392,19 +393,6 @@ pub struct ProductionModuleSnapshot {
     pub is_producing: bool,
     pub production_progress: f32,
     pub rally_point: Option<glam::Vec3>,
-    /// C++ QueueProductionExitUpdate::m_currentDelay presentation mirror.
-    /// The integer field below is authoritative for parsed Queue exits.
-    #[serde(default)]
-    pub exit_delay_remaining: f32,
-    /// C++ QueueProductionExitUpdate::m_currentDelay in logic frames.
-    #[serde(default)]
-    pub exit_delay_remaining_frames: u32,
-    /// C++ QueueProductionExitUpdate::m_currentBurstCount.
-    #[serde(default)]
-    pub exit_burst_remaining: u32,
-    /// Distinguishes legacy float-only saves from parsed Queue runtime state.
-    #[serde(default)]
-    pub queue_exit_state_initialized: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1448,17 +1436,6 @@ impl XferData for ProductionModuleSnapshot {
         xfer.xfer_f32(&mut self.production_progress)?;
         xfer.xfer_marker_label("RallyPoint")?;
         xfer_option(xfer, &mut self.rally_point, glam::Vec3::ZERO)?;
-        // These are appended to the module record.  The active bincode save
-        // path uses serde defaults for old snapshots; paired Xfer save/load
-        // streams retain the full C++ Queue runtime counters.
-        xfer.xfer_marker_label("ExitDelayRemaining")?;
-        xfer.xfer_f32(&mut self.exit_delay_remaining)?;
-        xfer.xfer_marker_label("ExitDelayRemainingFrames")?;
-        xfer.xfer_u32(&mut self.exit_delay_remaining_frames)?;
-        xfer.xfer_marker_label("ExitBurstRemaining")?;
-        xfer.xfer_u32(&mut self.exit_burst_remaining)?;
-        xfer.xfer_marker_label("QueueExitStateInitialized")?;
-        xfer.xfer_bool(&mut self.queue_exit_state_initialized)?;
         Ok(())
     }
 }
@@ -1654,6 +1631,7 @@ impl XferData for ModuleSnapshot {
             ModuleSnapshot::OpenContainEntered(_) => 17,
             ModuleSnapshot::OpenContainDoor(_) => 18,
             ModuleSnapshot::CaveContain { .. } => 19,
+            ModuleSnapshot::QueueExit(_) => 20,
         };
         xfer.xfer_u32(&mut disc)?;
         if xfer.get_mode() == XferMode::Save {
@@ -1681,6 +1659,11 @@ impl XferData for ModuleSnapshot {
                     xfer.xfer_bool(needs_build_complete)?;
                     xfer.xfer_i32(cave_index)?;
                 }
+                ModuleSnapshot::QueueExit(state) => {
+                    xfer.xfer_u32(&mut state.delay_frames)?;
+                    xfer.xfer_u32(&mut state.burst_remaining)?;
+                    xfer.xfer_bool(&mut state.initialized)?;
+                }
             }
         } else {
             *self = match disc {
@@ -1701,10 +1684,6 @@ impl XferData for ModuleSnapshot {
                         is_producing: false,
                         production_progress: 0.0,
                         rally_point: None,
-                        exit_delay_remaining: 0.0,
-                        exit_delay_remaining_frames: 0,
-                        exit_burst_remaining: 0,
-                        queue_exit_state_initialized: false,
                     };
                     d.xfer(xfer)?;
                     ModuleSnapshot::Production(d)
@@ -1810,6 +1789,13 @@ impl XferData for ModuleSnapshot {
                         needs_build_complete,
                         cave_index,
                     }
+                }
+                20 => {
+                    let mut state = crate::game_logic::buildings::ProductionExitRuntimeState::default();
+                    xfer.xfer_u32(&mut state.delay_frames)?;
+                    xfer.xfer_u32(&mut state.burst_remaining)?;
+                    xfer.xfer_bool(&mut state.initialized)?;
+                    ModuleSnapshot::QueueExit(state)
                 }
                 _ => {
                     return Err(SaveLoadError::Corrupted(format!(

@@ -5,7 +5,7 @@ use super::super::*;
 
 pub(crate) struct CheckedFactoryError {
     pub(crate) error: gamelogic::GameLogicError,
-    pub(crate) committed: Option<(ObjectId, std::sync::Weak<()>)>,
+    pub(crate) committed: Option<(ObjectId, (u64, u64))>,
 }
 
 #[cfg(test)]
@@ -25,10 +25,14 @@ mod construction;
 mod death;
 mod factory_init;
 mod grant_upgrade;
+mod spawn_scheduler;
+mod spawn_scheduler_open_contain;
+mod spawn_scheduler_garrison;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum FactoryCreationPurpose {
     AtCreation,
+    SpawnBehavior,
     ProductionExit,
     InstantLineBuild,
     OrdinaryConstruction,
@@ -43,9 +47,12 @@ fn reset_continuous_fire_state(object: &mut Object) {
 
 /// Compact live-host peel of C++ `SpawnBehaviorModuleData` for Tunnel / Stinger.
 #[derive(Clone, Debug)]
-struct HostSpawnBehaviorSpec {
+pub(crate) struct HostSpawnBehaviorSpec {
     spawn_template: String,
-    spawn_number: u32,
+    spawn_templates: Vec<String>,
+    exit_by_budding: bool,
+    pub(crate) aggregate_health: bool,
+    pub(crate) spawn_number: u32,
     replacement_delay: u32,
     one_shot: bool,
     spawned_require_spawner: bool,
@@ -55,22 +62,7 @@ struct HostSpawnBehaviorSpec {
 
 /// C++ `MAX_SPAWN_POINTS` (`SpawnPointProductionExitUpdate.h:20`).
 const HOST_MAX_SPAWN_POINTS: usize = 10;
-/// Occupied-slot radius (world XZ) matching the prior hive occupancy peel.
-const SPAWN_POINT_OCCUPIED_DIST_SQ: f32 = 4.0;
 
-/// C++ Z-up bone translation → host Y-up local.
-fn spawn_point_cpp_bone_to_host_local(bone: gamelogic::common::Coord3D) -> Vec3 {
-    Vec3::new(bone.x, bone.z, bone.y)
-}
-
-fn spawn_point_rotate_yaw_host(origin: Vec3, yaw: f32, local: Vec3) -> Vec3 {
-    let (sin, cos) = yaw.sin_cos();
-    Vec3::new(
-        origin.x + local.x * cos - local.z * sin,
-        origin.y + local.y,
-        origin.z + local.x * sin + local.z * cos,
-    )
-}
 
 /// The actual Object's admitted `SpawnPointProductionExitUpdate` data.
 fn authored_spawn_point_bone_name(parent: &Object) -> Option<String> {
@@ -90,51 +82,127 @@ fn authored_spawn_point_bone_name(parent: &Object) -> Option<String> {
             .downcast_ref::<SpawnPointProductionExitModuleData>()?;
         return Some(data.spawn_point_bone_name.as_str().to_owned());
     }
-    if template.receiving_object_definition.is_some() {
+    None
+}
+
+/// Resolve pristine source-local C++ Z-up bone transforms from this world's
+/// receiving Draw definitions and immutable asset service.
+fn query_pristine_local_bones(
+    world: &GameLogic,
+    parent: &Object,
+    assets: Option<&dyn crate::assets::pristine_bones::PristineBoneAssets>,
+    prefix: &str,
+    start: i32,
+    limit: usize,
+    condition_clear: u128,
+    condition_set: u128,
+) -> Result<Vec<glam::Mat4>, String> {
+    if !parent.has_drawable {
+        return Ok(Vec::new());
+    }
+    let assets = assets.ok_or("receiving pristine asset service unavailable")?;
+    let name = crate::presentation_frame::current_object_visual_template(parent);
+    let drawings = world.templates.get(&name)
+        .and_then(|template| template.receiving_draw_models_ref())
+        .or_else(|| (name == parent.get_template().name)
+            .then(|| parent.get_template().receiving_draw_models_ref()).flatten())
+        .ok_or("receiving pristine Draw definitions unavailable")?;
+    let local_team = world.local_player_id().and_then(|id| world.get_player(id))
+        .map(|player| player.team).filter(|team| *team != Team::Neutral)
+        .unwrap_or(Team::USA);
+    let first_detected = parent.contained_units().first()
+        .and_then(|id| world.host_object(*id)).is_some_and(|object| object.status.detected);
+    let hide = parent.building_data.as_ref()
+        .is_some_and(|building| building.hide_garrisoned_state)
+        && !first_detected && parent.team != local_team;
+    let occupancy = world.host_authoritative_occupant_count(parent.id)
+        .unwrap_or_else(|| parent.building_data.as_ref()
+            .map_or(parent.occupants.len(), |building| building.garrisoned_units.len())
+            .min(u16::MAX as usize) as u16);
+    let weather = (
+        world.weather_state().current_weather.to_ascii_lowercase().contains("snow")
+            && world.lighting_rules().force_models_to_follow_weather,
+        matches!(world.lighting_rules().time_of_day,
+            game_engine::common::ini::ini_game_data::TimeOfDay::Night),
+    );
+    let facts = crate::presentation_frame::object_native_draw_observation(
+        parent, world.frame, weather, hide, occupancy,
+    );
+    let source = crate::assets::pristine_bones::PristineBoneSource {
+        drawings,
+        condition_bits: (facts.condition_bits & !condition_clear) | condition_set,
+        mesh_scale: parent.drawable_instance_scale,
+    };
+    assets.pristine_bones_for_draws(&source, prefix, start, limit)
+}
+
+/// C++ `initializeBonePositions` (`SpawnPointProductionExitUpdate.cpp:118-149`).
+fn collect_world_spawn_point_bones(
+    world: &GameLogic,
+    parent: &Object,
+    assets: Option<&dyn crate::assets::pristine_bones::PristineBoneAssets>,
+) -> Option<Vec<(Vec3, f32)>> {
+    if !parent.has_drawable {
         return None;
     }
-    // Programmatic fixtures have no admitted module data.
-    Some("SpawnPoint".to_owned())
-}
-
-/// C++ `initializeBonePositions` (`SpawnPointProductionExitUpdate.cpp:118-149`):
-/// `getPristineBonePositions(name, 1, …)` then `convertBonePosToWorldPos` +
-/// `Get_Z_Rotation`. World Z is left 0 and snapped at exit time.
-fn collect_world_spawn_point_bones(parent: &Object) -> Vec<(Vec3, f32)> {
-    let Some(prefix) = authored_spawn_point_bone_name(parent) else {
-        return Vec::new();
-    };
-    let model = &parent
-        .thing()
-        .template
-        .model_name_for_conditions(parent.model_condition_bits);
-    let scale = parent.thing().template.asset_scale;
-    let origin = parent.get_position();
-    let yaw = parent.get_orientation();
-    let mut bones = Vec::new();
-    for index in 1..=HOST_MAX_SPAWN_POINTS {
-        let name = format!("{prefix}{index:02}");
-        let Some((local, bone_z)) =
-            gamelogic::object::draw::lookup_pristine_bone_pose(model, scale, &name)
-        else {
-            break;
-        };
-        let world =
-            spawn_point_rotate_yaw_host(origin, yaw, spawn_point_cpp_bone_to_host_local(local));
-        bones.push((world, yaw + bone_z));
+    let prefix = authored_spawn_point_bone_name(parent)?;
+    match world.query_pristine_world_bone_poses(
+        parent, assets, &prefix, 1, HOST_MAX_SPAWN_POINTS, 0, 0,
+    ) {
+        Ok(poses) => Some(poses),
+        Err(error) => {
+            log::error!("SpawnPoint pristine bone query failed: {error}");
+            None
+        }
     }
-    bones
 }
 
-fn spawn_point_slot_occupied(existing: &[Vec3], bone: Vec3) -> bool {
-    existing.iter().any(|pos| {
-        let dx = pos.x - bone.x;
-        let dz = pos.z - bone.z;
-        dx * dx + dz * dz < SPAWN_POINT_OCCUPIED_DIST_SQ
-    })
-}
 
 impl GameLogic {
+    /// C++ Object::getSingleLogicalBonePosition and Drawable pristine bone
+    /// queries. Empty means a genuine miss (or no Drawable); unavailable
+    /// receiving content is an error. The caller chooses whether a miss uses
+    /// the original Object pose, as Object.cpp:5997-6003 specifies.
+    pub(crate) fn query_pristine_world_bone_poses(
+        &self,
+        parent: &Object,
+        assets: Option<&dyn crate::assets::pristine_bones::PristineBoneAssets>,
+        prefix: &str,
+        start: i32,
+        limit: usize,
+        condition_clear: u128,
+        condition_set: u128,
+    ) -> Result<Vec<(Vec3, f32)>, String> {
+        let transforms = query_pristine_local_bones(
+            self, parent, assets, prefix, start, limit, condition_clear, condition_set,
+        )?;
+        let world = parent.get_transform_matrix();
+        Ok(transforms.into_iter().map(|local| {
+            // C++ is Z-up; Main is Y-up. Conjugating the full local matrix
+            // by the Y/Z basis swap gives these position and first-column
+            // vectors. Get_Z_Rotation uses atan2(Row[1][0], Row[0][0]).
+            let point = local.w_axis;
+            let axis = local.x_axis;
+            let position = world.transform_point3(Vec3::new(point.x, point.z, point.y));
+            let x_axis = world.transform_vector3(Vec3::new(axis.x, axis.z, axis.y));
+            (position, x_axis.z.atan2(x_axis.x))
+        }).collect())
+    }
+
+    fn ensure_spawn_point_poses(
+        &mut self,
+        parent_id: ObjectId,
+        assets: Option<&dyn crate::assets::pristine_bones::PristineBoneAssets>,
+    ) -> Option<()> {
+        let parent = self.host_object(parent_id)?;
+        if parent.spawn_point_world_poses.is_some() {
+            return Some(());
+        }
+        let poses = collect_world_spawn_point_bones(self, parent, assets)?;
+        self.host_object_mut(parent_id)?.spawn_point_world_poses = Some(poses);
+        Some(())
+    }
+
     /// C++ `SupplyCenterProductionExitUpdate::exitObjectViaDoor` finishes the
     /// ordinary authored exit path before asking `SupplyTruckAIUpdate` to
     /// enter Wanting.  The compact host keeps that path on the unit and only
@@ -145,13 +213,12 @@ impl GameLogic {
         collector_id: ObjectId,
         center_id: ObjectId,
     ) -> bool {
-        let Some((collector_owner, collector_team, collector_pos, is_harvester, scan_distance)) =
+        let Some((collector_owner, collector_team, collector_pos, scan_distance)) =
             self.host_object(collector_id).map(|collector| {
                 (
                     self.player_owner_for_host_object(collector),
                     collector.team,
                     collector.get_position(),
-                    collector.is_kind_of(KindOf::Harvester),
                     collector
                         .thing()
                         .template
@@ -162,15 +229,13 @@ impl GameLogic {
         else {
             return false;
         };
-        let legal_center = self.host_object(center_id).is_some_and(|center| {
-            center.is_alive()
-                && center.is_constructed()
-                && (center.is_kind_of(KindOf::SupplyCenter)
-                    || center.is_kind_of(KindOf::FSSupplyCenter))
-                && self.player_owner_for_host_object(center) == collector_owner
-        });
-        if !is_harvester || !legal_center {
+        if scan_distance.is_none() || self.host_object(center_id).is_none() {
             return false;
+        }
+        if let Some(collector) = self.host_object_mut(collector_id) {
+            collector.supply_truck_force_pending = true;
+            collector.supply_truck_state = SupplyTruckState::Wanting;
+            collector.supply_truck_next_dock_action_frame = 0;
         }
         let is_computer =
             collector_owner.is_some_and(|pid| self.ai_manager.ai_players.contains_key(&pid));
@@ -224,23 +289,9 @@ impl GameLogic {
     /// `SpawnTemplateName` fields, so general-specific centers keep their
     /// own collector (for example Air Force Chinooks) instead of being
     /// rewritten to a base-faction name.
-    ///
-    /// Programmatic fixtures without admitted modules retain the base-game pairs.
     fn authored_supply_center_one_shot_template(center: &Object) -> Option<String> {
-        let template = center.get_template();
-        if template.receiving_client_template.is_some() {
-            let spec = Self::authored_spawn_behavior_spec(center)?;
-            return (spec.one_shot && spec.spawn_number == 1).then_some(spec.spawn_template);
-        }
-        if template.receiving_object_definition.is_some() {
-            return None;
-        }
-        match center.template_name.as_str() {
-            "AmericaSupplyCenter" => Some("AmericaVehicleChinook".to_string()),
-            "ChinaSupplyCenter" => Some("ChinaVehicleSupplyTruck".to_string()),
-            "GLASupplyStash" => Some("GLAInfantryWorker".to_string()),
-            _ => None,
-        }
+        let spec = Self::authored_spawn_behavior_spec(center)?;
+        spec.one_shot.then_some(spec.spawn_template)
     }
 
     /// Return the authored starter-collector template for a concrete supply
@@ -257,226 +308,64 @@ impl GameLogic {
         Self::authored_supply_center_one_shot_template(center)
     }
 
-    /// C++ `SpawnBehavior::createSpawn` slice for the SupplyCenter/Stash
-    /// starter collector.  This is deliberately separate from ProductionUpdate:
-    /// retail creates the first collector as a one-shot SpawnBehavior payload,
-    /// with the center as its producer, before AI later pays for replacements.
-    pub(crate) fn spawn_supply_center_one_shot_collector(
+    /// Complete an authored supply exit for a child already admitted by SpawnBehavior.
+    pub(crate) fn finish_canonical_supply_spawn_exit(
         &mut self,
-        center_id: ObjectId,
-    ) -> Option<ObjectId> {
-        self.spawn_supply_center_one_shot_collector_with_observer(center_id, |_, _| {})
-    }
-
-    /// Observe this same synchronous SpawnBehavior callback, before its exit.
-    pub(crate) fn spawn_supply_center_one_shot_collector_with_observer(
-        &mut self,
-        center_id: ObjectId,
-        after_player_created: impl FnOnce(&mut Self, ObjectId),
-    ) -> Option<ObjectId> {
-        self.spawn_supply_center_collector_with_effects_and_observer(
-            center_id,
-            None,
-            &mut Default::default(),
-            after_player_created,
-        )
-    }
-
-    pub(crate) fn spawn_supply_center_one_shot_collector_with_effects(
-        &mut self,
-        center_id: ObjectId,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<ObjectId> {
-        // Independent callers retain the existing nonfallible surface until their
-        // operation boundary is migrated; the selected factory never uses this adapter.
-        self.spawn_supply_center_one_shot_collector_with_effects_checked(center_id, interpreter, ui)
-            .unwrap_or_else(|error| {
-                log::error!("{error}");
-                None
+        parent_id: ObjectId,
+        child_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some((exit, origin, forward, orientation, rally, parent_birth)) =
+            self.host_object(parent_id).and_then(|parent| {
+                let exit = parent.get_template().production_exit_metadata.filter(|exit| exit.is_supply_center())?;
+                Some((exit, parent.get_position(), parent.thing().get_direction_vector(),
+                    parent.get_orientation(),
+                    parent.building_data.as_ref().and_then(|data| data.rally_point),
+                    parent.visual_object_generation))
             })
-    }
-
-    pub(crate) fn spawn_supply_center_one_shot_collector_with_effects_checked(
-        &mut self,
-        center_id: ObjectId,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
-        self.spawn_supply_center_collector_with_effects_and_observer_checked(
-            center_id,
-            interpreter,
-            ui,
-            |_, _| {},
-        )
-    }
-
-    fn spawn_supply_center_collector_with_effects_and_observer(
-        &mut self,
-        center_id: ObjectId,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        after_player_created: impl FnOnce(&mut Self, ObjectId),
-    ) -> Option<ObjectId> {
-        // Independent callers retain the existing nonfallible surface until their
-        // operation boundary is migrated; the selected factory never uses this adapter.
-        self.spawn_supply_center_collector_with_effects_and_observer_checked(
-            center_id,
-            interpreter,
-            ui,
-            after_player_created,
-        )
-        .unwrap_or_else(|error| {
-            log::error!("{error}");
-            None
-        })
-    }
-
-    fn spawn_supply_center_collector_with_effects_and_observer_checked(
-        &mut self,
-        center_id: ObjectId,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        after_player_created: impl FnOnce(&mut Self, ObjectId),
-    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
-        let (team, owner_player_id, mut spawn_pos, orientation, custom_rally) = {
-            let Some(center) = self.host_object(center_id) else {
-                return Ok(None);
-            };
-            if !center.is_alive()
-                || !center.is_constructed()
-                || center.status.under_construction
-                || center.status.sold
-                || center.status.reconstructing
-                || center.supply_center_spawn_behavior_fired
-                || center.team == Team::Neutral
-                || (!center.is_kind_of(KindOf::SupplyCenter)
-                    && !center.is_kind_of(KindOf::FSSupplyCenter))
-            {
-                return Ok(None);
-            }
-            // C++ SupplyCenterProductionExitUpdate::exitObjectViaDoor places
-            // at the transformed INI UnitCreatePoint, not the building origin.
-            let forward = center.thing().get_direction_vector();
-            let metadata = center.thing().template.production_exit_metadata;
-            let spawn = metadata
-                .map(|exit| {
-                    crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
-                        center.get_position(),
-                        forward,
-                        (
-                            exit.unit_create_point[0],
-                            exit.unit_create_point[1],
-                            exit.unit_create_point[2],
-                        ),
-                    )
-                })
-                .unwrap_or(center.get_position());
-            let rally = center
-                .building_data
-                .as_ref()
-                .and_then(|building| building.rally_point);
-            (
-                center.team,
-                center.owner_player_id,
-                spawn,
-                center.get_orientation(),
-                rally,
+        else {
+            return Ok(());
+        };
+        let Some(child_birth) = self.host_object(child_id)
+            .map(|child| child.visual_object_generation)
+        else {
+            return Err(gamelogic::GameLogicError::InvalidObject(child_id.0));
+        };
+        let epoch = self.visual_world_epoch;
+        let transform = |point: [f32; 3]| {
+            crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
+                origin, forward, (point[0], point[1], point[2]),
             )
         };
-        // C++ snaps create-point Z to terrain after the model transform.
-        if let Some(height) = self.terrain_height_at(spawn_pos) {
-            spawn_pos.y = height;
+        let mut spawn_pos = transform(exit.unit_create_point);
+        spawn_pos.y = self.terrain_height_at(spawn_pos).unwrap_or(0.0);
+        if !self.set_owned_object_position_with_effects(child_id, spawn_pos, self.frame, effects) {
+            return Err(gamelogic::GameLogicError::InvalidObject(child_id.0));
         }
-
-        let Some(spawn_template) = self.supply_center_one_shot_collector_template(center_id) else {
-            return Ok(None);
-        };
-
-        // Do not let create_object synthesize a visual/name fallback for a
-        // gameplay collector.  A loaded Object INI definition is sufficient to
-        // make a typed template here; otherwise the authored behavior simply
-        // waits for a valid template rather than inventing a unit.
-        if !self.templates.contains_key(&spawn_template) {
-            if self.receiving_module_content.is_some() {
-                return Ok(None);
+        if !self.spawn_identity_matches(parent_id, parent_birth, epoch) {
+            return Err(gamelogic::GameLogicError::InvalidObject(parent_id.0));
+        }
+        if !self.spawn_identity_matches(child_id, child_birth, epoch) {
+            return Err(gamelogic::GameLogicError::InvalidObject(child_id.0));
+        }
+        if let Some((child, partition)) = self.host_object_and_partition_mut(child_id) {
+            child.set_orientation_with_partition_owner(orientation, partition);
+        }
+        self.update_owned_pathfinder_position(child_id);
+        if self.host_object(child_id).is_some_and(|child| child.has_ai_update_interface()) {
+            let mut path = vec![transform(exit.natural_rally_point)];
+            if let Some(rally) = rally {
+                path.push(rally);
             }
-            let Some(template) = Self::build_template_from_asset_definition(&spawn_template) else {
-                return Ok(None);
-            };
-            if !template.is_kind_of(KindOf::Harvester) {
-                return Ok(None);
-            }
-            self.templates.insert(spawn_template.clone(), template);
+            self.follow_exit_production_path(child_id, &path, Some(parent_id));
+            self.force_supply_center_collector_wanting(child_id, parent_id);
         }
-        if !self
-            .templates
-            .get(&spawn_template)
-            .is_some_and(|template| template.is_kind_of(KindOf::Harvester))
-        {
-            return Ok(None);
-        }
-
-        // Both activation entry points are mutually exclusive in normal play,
-        // but retain an object-level guard so duplicate completion writeback
-        // cannot turn C++ OneShot into a second free collector.
-        if self.host_objects().registered_values().any(|object| {
-            object.producer_id == Some(center_id)
-                && object.template_name.eq_ignore_ascii_case(&spawn_template)
-        }) {
-            // Old snapshots did not carry the explicit one-shot bit. A live
-            // authored child is conclusive evidence this behavior already
-            // fired, so repair the state before declining a duplicate.
-            if let Some(center) = self.host_object_mut(center_id) {
-                center.supply_center_spawn_behavior_fired = true;
-            }
-            return Ok(None);
-        }
-
-        // The real module's UnitCreatePoint is parsed above.  Preserve
-        // producer identity here; the common exit handoff applies its
-        // authored route (raw natural rally, no 2-cell offset, custom rally,
-        // forceWanting, GrantTemporaryStealth) immediately after creation.
-        let Some(spawned_id) = self.create_object_for_owner_or_team_with_effects_checked(
-            &spawn_template,
-            team,
-            owner_player_id,
-            spawn_pos,
-            interpreter,
-            ui,
-        )?
-        else {
-            return Ok(None);
-        };
-        if let Some((spawned, partition)) = self.host_object_and_partition_mut(spawned_id) {
-            spawned.producer_id = Some(center_id);
-            spawned.set_orientation_with_partition_owner(orientation, partition);
-        }
-        // CPP SpawnBehavior.cpp:613-616 notifies Player/AI immediately after
-        // allocation, before exitObjectViaDoor (705). Paid production differs.
-        self.notify_owned_ai_unit_produced_with_effects(center_id, spawned_id, ui)?;
-        after_player_created(self, spawned_id);
-        let event =
-            crate::game_logic::host_production_spawn_ready_log::HostProductionSpawnReadyEvent {
-                unit: spawned_id,
-                producer: center_id,
-                template: spawn_template,
-                spawn_pos: [spawn_pos.x, spawn_pos.y, spawn_pos.z],
-                rally: custom_rally.map(|rally| [rally.x, rally.y, rally.z]),
-            };
-        self.host_apply_supply_spawn_ready_completion_with_effects(event, ui)?;
-        self.grant_supply_center_exit_temporary_stealth(center_id, spawned_id);
-        if let Some(center) = self.host_object_mut(center_id) {
-            center.supply_center_spawn_behavior_fired = true;
-        }
-        Ok(Some(spawned_id))
+        self.grant_supply_center_exit_temporary_stealth(parent_id, child_id);
+        Ok(())
     }
 
     /// C++ `SpawnBehavior::shouldTryToSpawn` (SpawnBehavior.cpp:802-823).
     fn spawn_behavior_should_try(obj: &Object, one_shot: bool) -> bool {
-        if !obj.is_alive() {
-            return false;
-        }
         if obj.status.reconstructing && one_shot {
             return false;
         }
@@ -489,26 +378,16 @@ impl GameLogic {
         true
     }
 
-    fn is_stinger_soldier_template(name: &str) -> bool {
-        let n = name.to_ascii_lowercase();
-        n.contains("stingersoldier") || n.contains("stinger_soldier")
-    }
-
-    fn resolve_host_spawn_behavior_spec(object: &Object) -> Option<HostSpawnBehaviorSpec> {
+    pub(crate) fn resolve_host_spawn_behavior_spec(object: &Object) -> Option<HostSpawnBehaviorSpec> {
         let template = object.get_template();
         Self::resolve_host_spawn_behavior_template(template, &object.template_name)
     }
 
     fn resolve_host_spawn_behavior_template(
         template: &ThingTemplate,
-        template_name: &str,
+        _template_name: &str,
     ) -> Option<HostSpawnBehaviorSpec> {
-        if template.receiving_client_template.is_some()
-            || template.receiving_object_definition.is_some()
-        {
-            return Self::authored_spawn_behavior_template(template);
-        }
-        Self::fallback_spawn_behavior_spec(template, template_name)
+        Self::authored_spawn_behavior_template(template)
     }
 
     pub(crate) fn supported_spawn_behavior_child_template(
@@ -535,54 +414,23 @@ impl GameLogic {
             .map(|spec| spec.spawn_template))
     }
 
-    /// Receiving Stinger spawn-point capacity used to validate persisted slot
-    /// identities before restore. Use the admitted behavior's authored bound;
-    /// detached restore validation must not consult an ambient model/bone
-    /// registry through a temporary Object.
-    pub(crate) fn supported_stinger_spawn_slot_limit(
-        &self,
-        parent_template_name: &str,
-    ) -> Result<Option<u32>, ()> {
-        let (name, template) =
-            if let Some((name, template)) = self.templates.get_key_value(parent_template_name) {
-                (name, template)
-            } else {
-                let mut matches = self
-                    .templates
-                    .iter()
-                    .filter(|(name, _)| name.eq_ignore_ascii_case(parent_template_name));
-                let Some(first) = matches.next() else {
-                    return Ok(None);
-                };
-                if matches.next().is_some() {
-                    return Err(());
-                }
-                first
-            };
-        // C++ Stinger hive identity is the authored SPAWNS_ARE_THE_WEAPONS bit.
-        if !template.is_kind_of(KindOf::SpawnsAreTheWeapons) {
-            return Ok(None);
-        }
-        let Some(spec) = Self::resolve_host_spawn_behavior_template(template, name) else {
-            return Ok(None);
-        };
-        let limit = spec.spawn_number.min(HOST_MAX_SPAWN_POINTS as u32);
-        Ok(Some(limit))
-    }
 
     pub(crate) fn is_supported_spawn_behavior_child_template_pair(
         &self,
         parent_template_name: &str,
         child_template_name: &str,
     ) -> Result<bool, ()> {
-        let Some(spawn_template) =
-            self.supported_spawn_behavior_child_template(parent_template_name)?
-        else {
-            return Ok(false);
+        let template = if let Some(template) = self.templates.get(parent_template_name) {
+            template
+        } else {
+            let mut matches = self.templates.iter()
+                .filter(|(name, _)| name.eq_ignore_ascii_case(parent_template_name));
+            let Some((_, template)) = matches.next() else { return Ok(false); };
+            if matches.next().is_some() { return Err(()); }
+            template
         };
-        Ok(child_template_name.eq_ignore_ascii_case(&spawn_template)
-            || (Self::is_stinger_soldier_template(child_template_name)
-                && Self::is_stinger_soldier_template(&spawn_template)))
+        Ok(Self::authored_spawn_behavior_template(template).is_some_and(|spec|
+            spec.spawn_templates.iter().any(|name| name.eq_ignore_ascii_case(child_template_name))))
     }
 
     pub(crate) fn supports_spawn_behavior_child_roster(object: &Object) -> bool {
@@ -593,31 +441,33 @@ impl GameLogic {
         let Some(spec) = Self::resolve_host_spawn_behavior_spec(producer) else {
             return false;
         };
-        child
-            .template_name
-            .eq_ignore_ascii_case(&spec.spawn_template)
-            || (Self::is_stinger_soldier_template(&child.template_name)
-                && Self::is_stinger_soldier_template(&spec.spawn_template))
+        spec.spawn_templates.iter().any(|name| name.eq_ignore_ascii_case(&child.template_name))
     }
 
-    fn authored_spawn_behavior_template(template: &ThingTemplate) -> Option<HostSpawnBehaviorSpec> {
-        use gamelogic::object::behavior::spawn_behavior::SpawnBehaviorModuleData;
-
+    fn authored_spawn_behavior_data(template: &ThingTemplate)
+        -> Option<&gamelogic::object::behavior::spawn_behavior::SpawnBehaviorModuleData>
+    {
         let receiving = template.receiving_client_template.as_ref()?;
         let module = receiving
             .behavior_modules()
             .iter()
             .find(|entry| entry.name.as_str().eq_ignore_ascii_case("SpawnBehavior"))?;
-        let data = module
-            .data
-            .as_any()
-            .downcast_ref::<SpawnBehaviorModuleData>()?;
-        let spawn_template = data.spawn_template_name_data.first()?.as_str().to_owned();
+        module.data.as_any().downcast_ref()
+    }
+
+    fn authored_spawn_behavior_template(template: &ThingTemplate) -> Option<HostSpawnBehaviorSpec> {
+        let data = Self::authored_spawn_behavior_data(template)?;
+        let spawn_templates: Vec<String> = data.spawn_template_name_data.iter()
+            .map(|name| name.as_str().to_owned()).collect();
+        let spawn_template = spawn_templates.first()?.clone();
         let spawn_number = u32::try_from(data.spawn_number_data)
             .ok()
             .filter(|count| *count > 0)?;
         (!spawn_template.is_empty()).then_some(HostSpawnBehaviorSpec {
             spawn_template,
+            spawn_templates,
+            exit_by_budding: data.exit_by_budding,
+            aggregate_health: data.aggregate_health,
             spawn_number,
             replacement_delay: data.spawn_replace_delay_data as u32,
             one_shot: data.is_one_shot_data,
@@ -631,98 +481,25 @@ impl GameLogic {
         Self::authored_spawn_behavior_template(object.get_template())
     }
 
+    /// Exit owners that cannot execute SpawnBehavior's `reserveDoorForExit(NULL, NULL)`.
+    fn unsupported_spawn_exit(template: &ThingTemplate) -> Option<&'static str> {
+        use crate::game_logic::thing::RallyPointExitOwner;
+        match template.rally_point_exit_owner() {
+            RallyPointExitOwner::Parking => Some("ParkingPlaceBehavior dereferences the NULL object type"),
+            _ => None,
+        }
+    }
+
     pub(crate) fn spawn_behavior_orders_slaves(object: &Object) -> bool {
         Self::resolve_host_spawn_behavior_spec(object)
             .is_some_and(|spec| !spec.slaves_have_free_will)
     }
 
-    fn fallback_spawn_behavior_spec(
-        template: &ThingTemplate,
-        template_name: &str,
-    ) -> Option<HostSpawnBehaviorSpec> {
-        use crate::game_logic::host_tunnel_network::{
-            TUNNEL_NETWORK_SPAWN_NUMBER, general_prefixed_spawn_template,
-            tunnel_network_has_oneshot_spawn, tunnel_network_spawn_template_for,
-        };
-        if tunnel_network_has_oneshot_spawn(template_name) {
-            return Some(HostSpawnBehaviorSpec {
-                spawn_template: tunnel_network_spawn_template_for(template_name),
-                spawn_number: TUNNEL_NETWORK_SPAWN_NUMBER,
-                replacement_delay: 0,
-                one_shot: true,
-                spawned_require_spawner: false,
-                slaves_have_free_will: false,
-                initial_burst: 0,
-            });
-        }
-        // C++ Stinger Site hive: authored KINDOF_SPAWNS_ARE_THE_WEAPONS (hq-2qedt.259).
-        if template.is_kind_of(KindOf::SpawnsAreTheWeapons) {
-            return Some(HostSpawnBehaviorSpec {
-                spawn_template: general_prefixed_spawn_template(
-                    template_name,
-                    crate::game_logic::host_base_defense::STINGER_SPAWN_TEMPLATE,
-                ),
-                spawn_number: crate::game_logic::host_base_defense::STINGER_SPAWN_NUMBER,
-                replacement_delay:
-                    crate::game_logic::host_base_defense::STINGER_SPAWN_REPLACE_DELAY_FRAMES,
-                one_shot: false,
-                spawned_require_spawner: true,
-                slaves_have_free_will: false,
-                initial_burst: 0,
-            });
-        }
-        None
-    }
 
     fn ensure_spawn_behavior_unit_template(&mut self, spawn_template: &str) -> bool {
         // SpawnBehavior::createSpawn uses the configured ThingTemplate as-is;
         // drones and other non-infantry children are valid authored spawns.
-        if self.templates.contains_key(spawn_template) {
-            return true;
-        }
-        if self.receiving_module_content.is_some() {
-            return false;
-        }
-        if self.ensure_host_spawn_template(spawn_template)
-            && self.templates.contains_key(spawn_template)
-        {
-            return true;
-        }
-        const FALLBACKS: &[&str] = &[
-            "GLAInfantryTunnelDefender",
-            "GLA_RPGTrooper",
-            "GLAInfantryStingerSoldier",
-        ];
-        for name in FALLBACKS {
-            if let Some(mut template) = self.templates.get(*name).cloned() {
-                if !template.is_kind_of(KindOf::Infantry) {
-                    continue;
-                }
-                template.name = spawn_template.to_string();
-                template.display_name = spawn_template.to_string();
-                self.templates.insert(spawn_template.to_string(), template);
-                return true;
-            }
-        }
-        let mut seeded = ThingTemplate::new(spawn_template);
-        seeded
-            .add_kind_of(KindOf::Infantry)
-            .add_kind_of(KindOf::Selectable)
-            .add_kind_of(KindOf::Attackable)
-            .set_health(100.0)
-            .set_cost(100, 0);
-        let lower = spawn_template.to_ascii_lowercase();
-        if lower.contains("stinger") {
-            seeded.set_primary_weapon_name(
-                crate::game_logic::weapon_bootstrap::STINGER_PRIMARY_WEAPON,
-            );
-        } else {
-            seeded.set_primary_weapon_name(
-                crate::game_logic::weapon_bootstrap::TUNNEL_DEFENDER_ROCKET_WEAPON,
-            );
-        }
-        self.templates.insert(spawn_template.to_string(), seeded);
-        true
+        self.templates.contains_key(spawn_template) || self.ensure_host_spawn_template(spawn_template)
     }
 
     fn create_spawn_behavior_child_checked(
@@ -745,14 +522,16 @@ impl GameLogic {
             (
                 parent.team,
                 parent.owner_player_id,
-                std::sync::Arc::downgrade(&parent.visual_draw_identity_token),
+                parent.visual_object_generation,
             )
         };
-        let creation = self.create_object_for_owner_or_team_with_birth_checked(
+        let epoch = self.visual_world_epoch;
+        let creation = self.create_object_for_owner_or_team_with_birth_and_purpose_checked(
             spawn_template,
             team,
             owner,
             position,
+            FactoryCreationPurpose::SpawnBehavior,
             interpreter,
             ui,
         );
@@ -761,17 +540,41 @@ impl GameLogic {
             Ok(None) => return Ok(None),
             Err(error) => {
                 if let Some((id, birth)) = error.committed {
-                    self.destroy_object_if_birth_matches_with_effects(id, &birth, ui)?;
+                    self.destroy_spawn_birth_with_effects(id, birth, ui)?;
                 }
                 return Err(error.error);
             }
         };
-        if !self.object_birth_matches(parent_id, &parent_birth) {
-            self.destroy_object_if_birth_matches_with_effects(spawned_id, &child_birth, ui)?;
+        if !self.spawn_identity_matches(parent_id, parent_birth, epoch) {
+            self.destroy_spawn_birth_with_effects(spawned_id, child_birth, ui)?;
             return Err(gamelogic::GameLogicError::InvalidObject(parent_id.0));
         }
-        if !self.object_birth_matches(spawned_id, &child_birth) {
+        if !self.spawn_identity_matches(spawned_id, child_birth.0, child_birth.1) {
             return Err(gamelogic::GameLogicError::InvalidObject(spawned_id.0));
+        }
+        // SpawnBehavior notifies the player before assigning the producer,
+        // enslaving the child, admitting its roster entry, or exiting it.
+        if let Some(recipient) = ui.script_events {
+            recipient.notify_object_creation_or_destruction(self.frame);
+        }
+        if self.host_object(spawned_id).is_some_and(|object| object.is_kind_of(KindOf::Structure)) {
+            self.record_structure_completion(spawned_id);
+        } else {
+            self.record_unit_production(spawned_id);
+        }
+        self.notify_owned_ai_unit_produced_with_effects(parent_id, spawned_id, ui)?;
+        if !self.spawn_identity_matches(parent_id, parent_birth, epoch) {
+            self.destroy_spawn_birth_with_effects(spawned_id, child_birth, ui)?;
+            return Err(gamelogic::GameLogicError::InvalidObject(parent_id.0));
+        }
+        if !self.spawn_identity_matches(spawned_id, child_birth.0, child_birth.1) {
+            return Err(gamelogic::GameLogicError::InvalidObject(spawned_id.0));
+        }
+        if let Some(parent) = self.host_object_mut(parent_id) {
+            if let Some(spec) = Self::resolve_host_spawn_behavior_spec(parent) {
+                parent.spawn_behavior_template_index =
+                    (parent.spawn_behavior_template_index + 1) % spec.spawn_templates.len() as u32;
+            }
         }
         if let Some((spawned, partition)) = self.host_object_and_partition_mut(spawned_id) {
             spawned.producer_id = Some(parent_id);
@@ -780,35 +583,31 @@ impl GameLogic {
         if self
             .host_object(spawned_id)
             .is_some_and(|child| child.slaved_update.is_some())
-            && !self.enslave_owned_drone(spawned_id, parent_id, &parent_birth)
+            && !self.enslave_owned_drone(spawned_id, parent_id, (parent_birth, epoch))
         {
-            self.destroy_object_if_birth_matches_with_effects(spawned_id, &child_birth, ui)?;
+            self.destroy_spawn_birth_with_effects(spawned_id, child_birth, ui)?;
             return Err(gamelogic::GameLogicError::InvalidObject(parent_id.0));
         }
         // C++ SpawnBehavior::createSpawn appends the child ID after assigning
         // its producer/slaved state and before the exit callback can observe it.
         let admitted = self.host_object_mut(parent_id).is_some_and(|parent| {
-            parent.remember_spawn_behavior_child(spawned_id, child_birth.clone(), slot)
+            parent.remember_spawn_behavior_child(spawned_id, child_birth.0, slot)
         });
         if !admitted {
             // Never leave an admitted child whose producer cannot own its
             // roster identity. This is an invariant failure, not a fallback
             // to deriving order from the world registry.
-            self.destroy_object_if_birth_matches_with_effects(spawned_id, &child_birth, ui)?;
+            self.destroy_spawn_birth_with_effects(spawned_id, child_birth, ui)?;
             return Ok(None);
-        }
-        // C++ SpawnBehavior::createSpawn appends the ID before
-        // SpawnPointProductionExitUpdate::exitObjectViaDoor calls
-        // `setDisabled(DISABLED_HELD)` (`SpawnPointProductionExitUpdate.cpp:87`).
-        if let Some(spawned) = self.host_object_mut(spawned_id) {
-            spawned.set_status_disabled_held(true);
         }
         Ok(Some(spawned_id))
     }
 
     /// C++ `getLayerHeight` snap (`SpawnPointProductionExitUpdate.cpp:68`).
-    fn snap_spawn_point_to_terrain(&self, mut pos: Vec3, fallback_y: f32) -> Vec3 {
-        pos.y = self.terrain_height_at(pos).unwrap_or(fallback_y);
+    fn snap_spawn_point_to_terrain(&self, mut pos: Vec3, layer: u8) -> Vec3 {
+        pos.y = self.terrain_height_at(pos)
+            .map(|height| self.pathfinding_system.grid.layer_height_clipped(pos, layer, height))
+            .unwrap_or(0.0);
         pos
     }
 
@@ -817,541 +616,32 @@ impl GameLogic {
     fn reserve_spawn_point_exit(
         &self,
         parent_id: ObjectId,
-        existing: &[Vec3],
-    ) -> Option<(Vec3, f32)> {
+        bones: &[(Vec3, f32)],
+    ) -> Option<(Vec3, f32, Option<u8>)> {
         let parent = self.host_object(parent_id)?;
-        let parent_y = parent.get_position().y;
-        let bones = collect_world_spawn_point_bones(parent);
-        if bones.is_empty() {
-            // Drawable bones missing (headless tests / no W3D hook). C++ would
-            // refuse the door; keep the SpawnBehavior child on the producer
-            // instead of inventing a 120° ring or forward*8 line.
-            return Some((
-                self.snap_spawn_point_to_terrain(parent.get_position(), parent_y),
-                parent.get_orientation(),
-            ));
-        }
-        for (world, yaw) in bones {
-            if !spawn_point_slot_occupied(existing, world) {
-                return Some((self.snap_spawn_point_to_terrain(world, parent_y), yaw));
+        let layer = parent.pathfind_layer;
+        for (slot, &(world, yaw)) in bones.iter().enumerate() {
+            let occupied = parent.spawn_point_occupants.get(slot).and_then(Option::as_ref)
+                .is_some_and(|(id, generation)| *generation != 0
+                    && self.host_object(*id).is_some_and(|object| object.visual_object_generation == *generation));
+            if !occupied {
+                return Some((self.snap_spawn_point_to_terrain(world, layer), yaw, Some(slot as u8)));
             }
         }
         None
     }
-
-    fn count_spawn_behavior_children(
-        &self,
-        parent_id: ObjectId,
-        spawn_template: &str,
-        live_only: bool,
-    ) -> u32 {
-        self.spawn_behavior_child_objects(parent_id, spawn_template)
-            .into_iter()
-            .filter(|object| {
-                !live_only
-                    || (object.is_alive()
-                        && !object.status.destroyed
-                        && !object.status.effectively_dead)
-            })
-            .count() as u32
-    }
-
-    /// Resolve only admitted SpawnBehavior roster entries. A producer link by
-    /// itself also represents ordinary production/OCL objects and is not
-    /// evidence of C++ m_spawnIDs membership.
-    pub(crate) fn spawn_behavior_child_objects(
-        &self,
-        parent_id: ObjectId,
-        spawn_template: &str,
-    ) -> Vec<&Object> {
-        let Some(parent) = self.host_object(parent_id) else {
-            return Vec::new();
-        };
-        parent
-            .spawn_behavior_children()
-            .into_iter()
-            .filter_map(|(child_id, birth)| {
-                let child = self.host_object(child_id)?;
-                (parent.spawn_behavior_child_birth_matches(child_id, &birth, child)
-                    && (child.template_name.eq_ignore_ascii_case(spawn_template)
-                        || (Self::is_stinger_soldier_template(&child.template_name)
-                            && Self::is_stinger_soldier_template(spawn_template))))
-                .then_some(child)
-            })
-            .collect()
-    }
-
-    /// C++ `SpawnBehavior::update` first-init + `createSpawn` for Tunnel Network
-    /// OneShot RPG troopers and Stinger Site world soldiers.
-    pub(crate) fn apply_spawn_behavior_on_build_complete(&mut self, object_id: ObjectId) {
-        self.apply_spawn_behavior_on_build_complete_with_effects(
-            object_id,
-            None,
-            &mut Default::default(),
-        );
-    }
-
-    fn apply_spawn_behavior_on_build_complete_with_effects(
-        &mut self,
-        object_id: ObjectId,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        // Independent callers retain the existing nonfallible surface until their
-        // operation boundary is migrated; the selected factory never uses this adapter.
-        if let Err(error) = self.apply_spawn_behavior_on_build_complete_with_effects_checked(
-            object_id,
-            interpreter,
-            ui,
-        ) {
-            log::error!("{error}");
-        }
-    }
-
-    fn apply_spawn_behavior_on_build_complete_with_effects_checked(
-        &mut self,
-        object_id: ObjectId,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
-        let Some(template_name) = self
-            .host_object(object_id)
-            .map(|object| object.template_name.clone())
-        else {
-            return Ok(());
-        };
-        if crate::game_logic::host_angry_mob::is_angry_mob_nexus_template(&template_name) {
-            return Ok(());
-        }
-        let is_supply = self.host_object(object_id).is_some_and(|object| {
-            object.is_kind_of(KindOf::SupplyCenter) || object.is_kind_of(KindOf::FSSupplyCenter)
+    /// C++ revalidateOccupiers runs during reservation, not during exit.
+    fn revalidate_spawn_point_occupiers(&mut self, parent_id: ObjectId) {
+        let Some(parent) = self.host_object(parent_id) else { return };
+        let stale: [bool; HOST_MAX_SPAWN_POINTS] = std::array::from_fn(|slot| {
+            parent.spawn_point_occupants.get(slot).and_then(Option::as_ref)
+                .is_some_and(|(id, generation)| *generation == 0
+                    || !self.host_object(*id).is_some_and(|object| object.visual_object_generation == *generation))
         });
-        if is_supply {
-            return Ok(());
-        }
-        let Some(spec) = self
-            .host_object(object_id)
-            .and_then(Self::resolve_host_spawn_behavior_spec)
-        else {
-            return Ok(());
-        };
-        let Some(object) = self.host_object(object_id) else {
-            return Ok(());
-        };
-        if !Self::spawn_behavior_should_try(object, spec.one_shot) {
-            if spec.one_shot && object.status.reconstructing {
-                self.tunnel_network.mark_oneshot_spawn_fired(object_id);
+        if let Some(parent) = self.host_object_mut(parent_id) {
+            for (entry, stale) in parent.spawn_point_occupants.iter_mut().zip(stale) {
+                if stale { *entry = None; }
             }
-            return Ok(());
-        }
-        if spec.one_shot {
-            self.spawn_oneshot_spawn_behavior_checked(object_id, &spec, interpreter, ui)?;
-        } else if self.host_object(object_id).is_some_and(|object| {
-            crate::game_logic::host_base_defense::is_stinger_site_structure(&object.template_name)
-        }) {
-            // C++ SpawnBehavior::update first pass (SpawnBehavior.cpp:176-248):
-            // build completion spawns nothing; the first update seeds the
-            // ordered replacement list (runtimeProduced or list index) and the
-            // per-frame drain spawns each entry where currentTime > time.
-            let live = self.count_spawn_behavior_children(object_id, &spec.spawn_template, true);
-            if let Some(object) = self.host_object_mut(object_id) {
-                if live == 0 && object.spawn_behavior_replacement_times().is_empty() {
-                    let runtime_produced = object.producer_id.is_some();
-                    for due in gamelogic::object::behavior::spawn_behavior::initial_burst_replacement_times(
-                        0,
-                        spec.spawn_number as i32,
-                        spec.initial_burst,
-                        runtime_produced,
-                    ) {
-                        object.enqueue_spawn_behavior_replacement(due.max(0) as u32);
-                    }
-                }
-            }
-        } else {
-            let _created = self.spawn_missing_hive_world_soldiers_with_effects_checked(
-                object_id,
-                &spec,
-                interpreter,
-                ui,
-                None,
-            )?;
-            if self
-                .host_object(object_id)
-                .is_some_and(|object| object.is_kind_of(KindOf::SpawnsAreTheWeapons))
-            {
-                let live =
-                    self.count_spawn_behavior_children(object_id, &spec.spawn_template, true);
-                if live < spec.spawn_number
-                    && self
-                        .host_object(object_id)
-                        .is_some_and(|object| object.spawn_behavior_replacement_times().is_empty())
-                {
-                    let due = self.frame.saturating_sub(1);
-                    if let Some(object) = self.host_object_mut(object_id) {
-                        for _ in 0..spec.spawn_number.saturating_sub(live) {
-                            object.enqueue_spawn_behavior_replacement(due);
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    fn spawn_oneshot_spawn_behavior(
-        &mut self,
-        parent_id: ObjectId,
-        spec: &HostSpawnBehaviorSpec,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        // Independent callers retain the existing nonfallible surface until their
-        // operation boundary is migrated; the selected factory never uses this adapter.
-        if let Err(error) =
-            self.spawn_oneshot_spawn_behavior_checked(parent_id, spec, interpreter, ui)
-        {
-            log::error!("{error}");
-        }
-    }
-
-    fn spawn_oneshot_spawn_behavior_checked(
-        &mut self,
-        parent_id: ObjectId,
-        spec: &HostSpawnBehaviorSpec,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
-        if self.tunnel_network.oneshot_spawn_fired(parent_id) {
-            return Ok(());
-        }
-        let have = self.count_spawn_behavior_children(parent_id, &spec.spawn_template, false);
-        if have >= spec.spawn_number {
-            self.tunnel_network.mark_oneshot_spawn_fired(parent_id);
-            return Ok(());
-        }
-        let (parent_pos, parent_ori, bones) = {
-            let Some(parent) = self.host_object(parent_id) else {
-                return Ok(());
-            };
-            (
-                parent.get_position(),
-                parent.get_orientation(),
-                collect_world_spawn_point_bones(parent),
-            )
-        };
-        if !bones.is_empty() && have >= bones.len() as u32 {
-            // C++ reserveDoorForExit: every bone occupier is live.
-            self.tunnel_network.mark_oneshot_spawn_fired(parent_id);
-            return Ok(());
-        }
-        let existing: Vec<Vec3> = self
-            .spawn_behavior_child_objects(parent_id, &spec.spawn_template)
-            .into_iter()
-            .map(|object| object.get_position())
-            .collect();
-        let mut created = 0u32;
-        let mut occupied = existing;
-        for _ in have..spec.spawn_number {
-            let Some((spawn_pos, orientation)) = (if bones.is_empty() {
-                Some((
-                    self.snap_spawn_point_to_terrain(parent_pos, parent_pos.y),
-                    parent_ori,
-                ))
-            } else {
-                self.reserve_spawn_point_exit(parent_id, &occupied)
-            }) else {
-                break;
-            };
-            if self
-                .create_spawn_behavior_child_checked(
-                    parent_id,
-                    &spec.spawn_template,
-                    spawn_pos,
-                    orientation,
-                    None,
-                    interpreter,
-                    ui,
-                )?
-                .is_some()
-            {
-                created = created.saturating_add(1);
-                occupied.push(spawn_pos);
-            }
-        }
-        let now = self.count_spawn_behavior_children(parent_id, &spec.spawn_template, false);
-        if now >= spec.spawn_number || created > 0 {
-            self.tunnel_network.mark_oneshot_spawn_fired(parent_id);
-        }
-
-        Ok(())
-    }
-
-    fn spawn_missing_hive_world_soldiers(
-        &mut self,
-        parent_id: ObjectId,
-        spec: &HostSpawnBehaviorSpec,
-    ) {
-        match self.spawn_missing_hive_world_soldiers_with_effects_checked(
-            parent_id,
-            spec,
-            None,
-            &mut Default::default(),
-            None,
-        ) {
-            Ok(_) => {}
-            Err(error) => log::error!("{error}"),
-        }
-    }
-
-    fn spawn_missing_hive_world_soldiers_with_effects_checked(
-        &mut self,
-        parent_id: ObjectId,
-        spec: &HostSpawnBehaviorSpec,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        maximum_new_children: Option<usize>,
-    ) -> gamelogic::GameLogicResult<u32> {
-        let have = self.count_spawn_behavior_children(parent_id, &spec.spawn_template, true);
-        if have >= spec.spawn_number {
-            return Ok(0);
-        }
-        let (parent_pos, parent_ori, is_stinger, bones, used_slots) = {
-            let Some(parent) = self.host_object(parent_id) else {
-                return Ok(0);
-            };
-            let used_slots = parent
-                .spawn_behavior_children_with_slots()
-                .into_iter()
-                .filter_map(|(child_id, birth, slot)| {
-                    let child = self.host_object(child_id)?;
-                    (parent.spawn_behavior_child_birth_matches(child_id, &birth, child)
-                        && child.is_alive()
-                        && !child.status.destroyed
-                        && !child.status.effectively_dead)
-                        .then_some(slot)
-                        .flatten()
-                })
-                .collect::<std::collections::HashSet<_>>();
-            (
-                parent.get_position(),
-                parent.get_orientation(),
-                parent.is_kind_of(KindOf::SpawnsAreTheWeapons),
-                collect_world_spawn_point_bones(parent),
-                used_slots,
-            )
-        };
-        if !bones.is_empty() && have >= bones.len() as u32 {
-            return Ok(0);
-        }
-        let existing: Vec<Vec3> = self
-            .spawn_behavior_child_objects(parent_id, &spec.spawn_template)
-            .into_iter()
-            .filter(|object| {
-                object.is_alive() && !object.status.destroyed && !object.status.effectively_dead
-            })
-            .map(|object| object.get_position())
-            .collect();
-        let mut occupied = existing;
-        let mut created = 0u32;
-        let limit = maximum_new_children.unwrap_or(usize::MAX);
-        if bones.is_empty() {
-            let slots = spec.spawn_number.min(3) as usize;
-            for slot in 0..slots {
-                if created as usize >= limit {
-                    break;
-                }
-                if is_stinger && used_slots.contains(&(slot as u8)) {
-                    continue;
-                }
-                if have + created >= spec.spawn_number {
-                    break;
-                }
-                let spawn_pos = self.snap_spawn_point_to_terrain(parent_pos, parent_pos.y);
-                if self
-                    .create_spawn_behavior_child_checked(
-                        parent_id,
-                        &spec.spawn_template,
-                        spawn_pos,
-                        parent_ori,
-                        is_stinger.then_some(slot as u8),
-                        interpreter,
-                        ui,
-                    )?
-                    .is_some()
-                {
-                    occupied.push(spawn_pos);
-                    created = created.saturating_add(1);
-                }
-            }
-            return Ok(created);
-        }
-        let slots = spec.spawn_number.min(bones.len() as u32) as usize;
-        for slot in 0..slots {
-            if created as usize >= limit || have + created >= spec.spawn_number {
-                break;
-            }
-            if is_stinger && used_slots.contains(&(slot as u8)) {
-                continue;
-            }
-            let (bone_pos, bone_yaw) = bones[slot];
-            if spawn_point_slot_occupied(&occupied, bone_pos) {
-                continue;
-            }
-            let spawn_pos = self.snap_spawn_point_to_terrain(bone_pos, parent_pos.y);
-            if self
-                .create_spawn_behavior_child_checked(
-                    parent_id,
-                    &spec.spawn_template,
-                    spawn_pos,
-                    bone_yaw,
-                    is_stinger.then_some(slot as u8),
-                    interpreter,
-                    ui,
-                )?
-                .is_some()
-            {
-                occupied.push(spawn_pos);
-                created = created.saturating_add(1);
-            }
-        }
-
-        Ok(created)
-    }
-
-    /// Test fixture: run the C++ SpawnBehavior first update for every Stinger
-    /// site so build-complete fixtures observe their initial roster.
-    #[doc(hidden)]
-    pub fn run_first_spawn_update_for_test(&mut self) {
-        let saved = self.frame;
-        self.frame = saved.max(crate::game_logic::host_base_defense::STINGER_SPAWN_NUMBER as u32 + 1);
-        self.update_stinger_hive_world_soldiers();
-        self.frame = saved;
-    }
-
-    /// Advance each Stinger's ordered SpawnBehavior replacement deadlines.
-    pub(crate) fn update_stinger_hive_world_soldiers(&mut self) {
-        self.update_stinger_hive_world_soldiers_with_effects(&mut Default::default())
-    }
-
-    pub(crate) fn update_stinger_hive_world_soldiers_with_effects(
-        &mut self,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        let frame = self.frame;
-        let sites: Vec<ObjectId> = self
-            .objects
-            .registered()
-            .filter_map(|(id, object)| {
-                if object.is_kind_of(KindOf::SpawnsAreTheWeapons) && object.is_alive() {
-                    Some(*id)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        for site_id in sites {
-            let Some(spec) = self
-                .host_object(site_id)
-                .and_then(Self::resolve_host_spawn_behavior_spec)
-            else {
-                continue;
-            };
-            if spec.one_shot {
-                continue;
-            }
-            let should_try = self
-                .host_object(site_id)
-                .is_some_and(|site| Self::spawn_behavior_should_try(site, false));
-            if !should_try {
-                continue;
-            }
-            // C++ uses currentTime > replacementTime and retains each failed
-            // createSpawn deadline while continuing later due entries.
-            let deadlines = self
-                .host_object(site_id)
-                .map(|site| site.spawn_behavior_replacement_times().to_vec())
-                .unwrap_or_default();
-            for due_frame in deadlines {
-                if frame <= due_frame {
-                    continue;
-                }
-                let created = self.spawn_missing_hive_world_soldiers_with_effects_checked(
-                    site_id,
-                    &spec,
-                    None,
-                    effects,
-                    Some(1),
-                );
-                match created {
-                    Ok(created) if created > 0 => {
-                        if let Some(site) = self.host_object_mut(site_id) {
-                            site.consume_spawn_behavior_replacement_time(due_frame);
-                        }
-                    }
-                    Ok(_) => {}
-                    Err(error) => log::error!("{error}"),
-                }
-            }
-            self.sync_spawn_behavior_veterancy(site_id, &spec.spawn_template);
-        }
-    }
-
-    /// C++ SpawnBehavior::computeAggregateStates (SpawnBehavior.cpp:855-897):
-    /// `vetLevel` is captured once, then each spawn in roster order is compared
-    /// to that captured rank; the lower side gets the exact
-    /// `ExperienceTracker::setVeterancyLevel(level)` with default feedback.
-    pub(super) fn sync_spawn_behavior_veterancy(&mut self, parent_id: ObjectId, spawn_template: &str) {
-        let Some(vet_level) = self
-            .host_object(parent_id)
-            .filter(|o| o.is_alive())
-            .map(|o| o.experience.level)
-        else {
-            return;
-        };
-        let children: Vec<(
-            crate::game_logic::ObjectId,
-            crate::game_logic::VeterancyLevel,
-        )> = self
-            .spawn_behavior_child_objects(parent_id, spawn_template)
-            .into_iter()
-            .filter(|object| object.is_alive() && !object.status.effectively_dead)
-            .map(|object| (object.id, object.experience.level))
-            .collect();
-        let rank = crate::game_logic::host_unit_training::veterancy_rank;
-        for (child_id, spawn_level) in children {
-            let (target, level) = if rank(spawn_level) > rank(vet_level) {
-                (parent_id, spawn_level)
-            } else if rank(spawn_level) < rank(vet_level) {
-                (child_id, vet_level)
-            } else {
-                continue;
-            };
-            if let Err(error) = self.set_exact_veterancy_level_with_upgrade_callback(
-                target,
-                level,
-                &mut Default::default(),
-            ) {
-                log::error!("{error}");
-            }
-        }
-    }
-
-    /// C++ SpawnBehavior::update computeAggregateStates for every live hive/spawner.
-    pub(crate) fn sync_all_spawn_behavior_veterancy(&mut self) {
-        let masters: Vec<(ObjectId, String)> = self
-            .objects
-            .registered()
-            .filter_map(|(id, object)| {
-                if !object.is_alive() {
-                    return None;
-                }
-                let spec = Self::resolve_host_spawn_behavior_spec(object)?;
-                Some((*id, spec.spawn_template))
-            })
-            .collect();
-        for (id, spawn_template) in masters {
-            self.sync_spawn_behavior_veterancy(id, &spawn_template);
         }
     }
 
@@ -1374,6 +664,7 @@ impl GameLogic {
         }) else {
             return;
         };
+        let epoch = self.visual_world_epoch;
         if children.is_empty() {
             return;
         }
@@ -1382,6 +673,7 @@ impl GameLogic {
         // pass over that same list. Resolve each original child birth before
         // invoking its SlavedUpdate and clearing its producer.
         for (child_id, birth) in &children {
+            if self.visual_world_epoch != epoch { return; }
             let still_owned_birth = self
                 .host_object(parent_id)
                 .zip(self.host_object(*child_id))
@@ -1399,10 +691,9 @@ impl GameLogic {
             return;
         }
         for (child_id, birth) in children {
+            if self.visual_world_epoch != epoch { return; }
             let live_child = self.host_object(child_id).is_some_and(|child| {
-                birth.ptr_eq(&std::sync::Arc::downgrade(
-                    &child.visual_draw_identity_token,
-                )) && !child.status.effectively_dead
+                birth != 0 && birth == child.visual_object_generation && !child.status.effectively_dead
             });
             if !live_child {
                 continue;
@@ -1790,7 +1081,22 @@ impl GameLogic {
         position: Vec3,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Result<Option<(ObjectId, std::sync::Weak<()>)>, CheckedFactoryError> {
+    ) -> Result<Option<(ObjectId, (u64, u64))>, CheckedFactoryError> {
+        self.create_object_for_owner_or_team_with_birth_and_purpose_checked(
+            template_name, team, owner_player_id, position, FactoryCreationPurpose::AtCreation, interpreter, ui,
+        )
+    }
+
+    fn create_object_for_owner_or_team_with_birth_and_purpose_checked(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        owner_player_id: Option<u32>,
+        position: Vec3,
+        creation_purpose: FactoryCreationPurpose,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Result<Option<(ObjectId, (u64, u64))>, CheckedFactoryError> {
         let (team, owner_player_id) = match owner_player_id {
             Some(owner) => {
                 let Some(player) = self.players.get(&owner) else {
@@ -1809,7 +1115,7 @@ impl GameLogic {
             team,
             owner_player_id,
             position,
-            FactoryCreationPurpose::AtCreation,
+            creation_purpose,
             None,
             interpreter,
             ui,
@@ -1821,8 +1127,8 @@ impl GameLogic {
     fn complete_birth_checked_creation(
         &mut self,
         creation: gamelogic::GameLogicResult<Option<ObjectId>>,
-        birth: Option<(ObjectId, std::sync::Weak<()>)>,
-    ) -> Result<Option<(ObjectId, std::sync::Weak<()>)>, CheckedFactoryError> {
+        birth: Option<(ObjectId, (u64, u64))>,
+    ) -> Result<Option<(ObjectId, (u64, u64))>, CheckedFactoryError> {
         let id = match creation {
             Ok(Some(id)) => id,
             Ok(None) => return Ok(None),
@@ -1840,11 +1146,7 @@ impl GameLogic {
             });
         };
         if birth_id != id
-            || !self.objects.get(&id).is_some_and(|object| {
-                birth.ptr_eq(&std::sync::Arc::downgrade(
-                    &object.visual_draw_identity_token,
-                ))
-            })
+            || !self.spawn_identity_matches(id, birth.0, birth.1)
         {
             return Err(CheckedFactoryError {
                 error: gamelogic::GameLogicError::InvalidObject(id.0),
@@ -1852,11 +1154,7 @@ impl GameLogic {
             });
         }
         self.apply_cash_bounty_on_object_created(id);
-        if !self.objects.get(&id).is_some_and(|object| {
-            birth.ptr_eq(&std::sync::Arc::downgrade(
-                &object.visual_draw_identity_token,
-            ))
-        }) {
+        if !self.spawn_identity_matches(id, birth.0, birth.1) {
             return Err(CheckedFactoryError {
                 error: gamelogic::GameLogicError::InvalidObject(id.0),
                 committed: Some((id, birth)),
@@ -1878,7 +1176,7 @@ impl GameLogic {
         position: Vec3,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Result<Option<(ObjectId, std::sync::Weak<()>)>, CheckedFactoryError> {
+    ) -> Result<Option<(ObjectId, (u64, u64))>, CheckedFactoryError> {
         let mut birth = None;
         let creation = self.create_object_with_initial_team_and_ui_birth_checked(
             template_name,
@@ -2277,7 +1575,7 @@ impl GameLogic {
         initial_team: Option<(&str, u32, bool)>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        birth_out: Option<&mut Option<(ObjectId, std::sync::Weak<()>)>>,
+        birth_out: Option<&mut Option<(ObjectId, (u64, u64))>>,
     ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
         // Bind World+Main for Object birth (asset manager / squish / NameKey).
         // Nested with outer create_object wraps is fine (same Arc stack).
@@ -2306,7 +1604,7 @@ impl GameLogic {
         initial_team: Option<(&str, u32, bool)>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        birth_out: Option<&mut Option<(ObjectId, std::sync::Weak<()>)>>,
+        birth_out: Option<&mut Option<(ObjectId, (u64, u64))>>,
     ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
         if let Some(error) = self.object_retirement_error() {
             return Err(error);
@@ -2354,6 +1652,13 @@ impl GameLogic {
             })?;
 
         if let Some(mut template) = self.templates.get(template_name).cloned() {
+            if Self::authored_spawn_behavior_template(&template).is_some()
+                && let Some(reason) = Self::unsupported_spawn_exit(&template)
+            {
+                return Err(gamelogic::GameLogicError::Configuration(format!(
+                    "Object '{template_name}': SpawnBehavior exit unsupported: {reason}"
+                )));
+            }
             if let Some(source) = &template.receiving_client_template {
                 source.validate_turret_slots().map_err(|error| {
                     gamelogic::GameLogicError::Configuration(format!(
@@ -3032,21 +2337,15 @@ impl GameLogic {
             self.try_admit_host_object(object)?;
             // Capture the admitted object's birth before any factory/onCreate
             // callback can synchronously remove it and reuse its numeric ID.
-            let birth = self
-                .objects
-                .get(&id)
-                .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token))
-                .ok_or(gamelogic::GameLogicError::InvalidObject(id.0))?;
+            let birth = (self.objects.get(&id)
+                .map(|object| object.visual_object_generation)
+                .ok_or(gamelogic::GameLogicError::InvalidObject(id.0))?, self.visual_world_epoch);
             if let Some(birth_out) = birth_out {
-                *birth_out = Some((id, std::sync::Weak::clone(&birth)));
+                *birth_out = Some((id, birth));
             }
             macro_rules! verify_factory_birth {
                 () => {
-                    if !self.objects.get(&id).is_some_and(|object| {
-                        birth.ptr_eq(&std::sync::Arc::downgrade(
-                            &object.visual_draw_identity_token,
-                        ))
-                    }) {
+                    if !self.spawn_identity_matches(id, birth.0, birth.1) {
                         return Err(gamelogic::GameLogicError::InvalidObject(id.0));
                     }
                 };
@@ -3317,7 +2616,7 @@ impl GameLogic {
                 );
             }
 
-            if !starts_under_construction && creation_purpose == FactoryCreationPurpose::AtCreation
+            if !starts_under_construction && matches!(creation_purpose, FactoryCreationPurpose::AtCreation | FactoryCreationPurpose::SpawnBehavior)
             {
                 // C++ GameLogic.cpp:1878-1885 every map object runs CreateModules
                 // onBuildComplete (SupplyCenter/GrantUpgrade/Preorder/LockWeapon/SP).
@@ -3329,23 +2628,6 @@ impl GameLogic {
                 verify_factory_birth!();
             }
 
-            // C++ SpawnBehavior ModuleTag_12 on stock and general-specific
-            // SupplyCenter/Stash objects.  `create_object_under_construction`
-            // intentionally does not call this; that path fires on the real
-            // construction-complete activation edge below.
-            if !matches!(
-                creation_purpose,
-                FactoryCreationPurpose::InstantLineBuild
-                    | FactoryCreationPurpose::OrdinaryConstruction
-                    | FactoryCreationPurpose::Reconstruction
-            ) {
-                let _ = self.spawn_supply_center_one_shot_collector_with_effects_checked(
-                    id,
-                    interpreter,
-                    ui,
-                )?;
-                verify_factory_birth!();
-            }
 
             if initial_team.is_none_or(|(_, _, activate)| activate) {
                 self.admit_team_for_host_object_with_effects_checked(id, interpreter, true, ui)?;
@@ -3353,9 +2635,13 @@ impl GameLogic {
             }
 
             if counts_as_unit {
-                self.record_unit_production(id);
+                if creation_purpose != FactoryCreationPurpose::SpawnBehavior {
+                    self.record_unit_production(id);
+                }
             } else if is_structure && !starts_under_construction {
-                self.record_structure_completion(id);
+                if creation_purpose != FactoryCreationPurpose::SpawnBehavior {
+                    self.record_structure_completion(id);
+                }
                 // Static path/LOS obstacle (C++ pathfind structure residual).
                 self.block_structure_object_path(id);
             }
@@ -3514,12 +2800,6 @@ impl GameLogic {
                 self.cave_system.register_cave(object_id, idx, team);
             }
         }
-        // C++ SpawnBehavior::update first-init after UNDER_CONSTRUCTION clears.
-        self.apply_spawn_behavior_on_build_complete_with_effects_checked(
-            object_id,
-            interpreter,
-            ui,
-        )?;
 
         Ok(())
     }

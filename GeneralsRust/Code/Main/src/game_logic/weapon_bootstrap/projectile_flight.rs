@@ -477,13 +477,13 @@ pub(crate) fn bridge_deck_detonate_pose(
     armed: bool,
 ) -> (Vec3, u8) {
     let ground = terrain.raw_ground(pos, 0.0);
-    let new_layer = terrain.grid.highest_layer_at_or_below(pos, ground, false);
+    let new_layer = terrain.highest_layer(pos, ground, false);
     if !armed || old_layer == LAYER_GROUND || new_layer != LAYER_GROUND {
         return (pos, new_layer);
     }
     let mut test = pos;
     test.y = 9999.0;
-    let test_layer = terrain.grid.highest_layer_at_or_below(test, ground, false);
+    let test_layer = terrain.highest_layer(test, ground, false);
     if test_layer != old_layer {
         return (pos, new_layer);
     }

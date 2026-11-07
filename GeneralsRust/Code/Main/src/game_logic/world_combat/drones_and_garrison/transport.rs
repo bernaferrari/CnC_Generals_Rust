@@ -47,39 +47,11 @@ impl GameLogic {
         let outer = container
             .contained_by
             .filter(|outer| self.redirected_containment_owner(*outer) == cid);
-        if outer
-            .and_then(|id| self.objects.get(&id))
-            .is_some_and(|host| {
-                host.contained_by.is_some()
-                    || host.status.disabled_held
-                    || host.status.disabled_subdued
-                    || !host.is_alive()
-            })
-        {
+        if !self.passenger_allowed_to_fire(passenger_id) {
             return;
         }
-        let nested = container.contained_by.is_some() && outer.is_none();
-        // HelixContain lets its portable rider fire independently of the
-        // ordinary passenger flag. OverlordContain delegates to that flag.
         let helix_rider = container.is_helix_transport
             && container.overlord_portable_occupant == Some(passenger_id);
-        if !container.passengers_allowed_to_fire && !helix_rider {
-            return;
-        }
-        if nested {
-            return;
-        }
-        // C++ TransportContain::isPassengerAllowedToFire (TransportContain.cpp:576-578):
-        // leftover helper — only infantry fire out. Vehicles ride silent
-        // (Combat Chinook AllowInsideKindOf = INFANTRY VEHICLE).
-        if !((container.is_overlord_style_container() || helix_rider)
-            && attacker.is_kind_of(KindOf::PortableStructure))
-            && !gamelogic::object::contain::transport_contain_passenger_kind_allowed_to_fire(
-                attacker.is_kind_of(KindOf::Infantry),
-            )
-        {
-            return;
-        }
 
         let is_battle_bus = container.is_battle_bus_style_container();
         let is_combat_chinook = container.is_combat_chinook_style_container();

@@ -326,17 +326,29 @@ impl GameLogic {
                 continue;
             }
 
-            // Hand-authored starter templates still own their unported host
-            // behavior, but Object INI remains authoritative for the Drawable
-            // asset scale.  Without this narrow enrichment every curated
-            // starter silently retained 1.0 even when the retail object said
-            // `Scale = ...`.
-            if let Some(template) = self.templates.get_mut(name) {
-                if receiving.is_some() {
-                    // The admitted source owns Body, even when the host retains
-                    // a curated movement/behavior adapter for this same name.
-                    Self::apply_authored_body_definition(template, &definition);
+            // A receiving Object replaces a curated starter in full. A
+            // partially enriched starter must never carry the canonical
+            // definition identity as if its other authored fields were bound.
+            if self.templates.contains_key(name) {
+                if let Some(content) = receiving {
+                    let mut template = Self::build_template_from_object_definition_with_receiving(
+                        name,
+                        &definition,
+                        definition.get_primary_texture(),
+                        Some(content),
+                        self.locomotor_definitions.as_ref(),
+                    )?;
+                    template.receiving_object_definition = self
+                        .receiving_object_definitions
+                        .as_ref()
+                        .and_then(|definitions| definitions.get(name))
+                        .cloned();
+                    self.templates.insert(name.to_owned(), template);
+                    continue;
                 }
+            }
+            // Compatibility-only curated templates retain their host behavior.
+            if let Some(template) = self.templates.get_mut(name) {
                 if let Some(kind_of) = Self::object_definition_attr(&definition, "kindof") {
                     Self::apply_authored_semantic_kind_bits(template, &kind_of);
                     // C++ ThingTemplate::parseKindOf carries EVERY authored token

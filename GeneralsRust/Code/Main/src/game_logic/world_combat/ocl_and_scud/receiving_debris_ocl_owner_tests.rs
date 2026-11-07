@@ -256,23 +256,13 @@ fn portable_containment_rejects_replaced_source_or_child_birth() {
         let child = world
             .create_object("ChinaTankOverlordGattlingCannon", Team::China, Vec3::ZERO)
             .expect("portable payload");
-        let source_birth = std::sync::Arc::downgrade(
-            &world
-                .host_object(source)
-                .unwrap()
-                .visual_draw_identity_token,
-        );
-        let child_birth = std::sync::Arc::downgrade(
-            &world.host_object(child).unwrap().visual_draw_identity_token,
-        );
+        let source_birth = (world.host_object(source).unwrap().visual_object_generation, world.visual_world_epoch);
+        let child_birth = (world.host_object(child).unwrap().visual_object_generation, world.visual_world_epoch);
         let replaced_id = if replace_source { source } else { child };
-        world
-            .objects
-            .get_mut(&replaced_id)
-            .unwrap()
-            .visual_draw_identity_token = std::sync::Arc::new(());
+        let replacement = world.objects.remove(&replaced_id).unwrap();
+        world.try_admit_host_object(replacement).unwrap();
 
-        assert!(!world.admit_ocl_portable_structure(source, child, &source_birth, &child_birth,));
+        assert!(!world.admit_ocl_portable_structure(source, child, source_birth, child_birth));
         assert_eq!(
             world
                 .host_object(source)
@@ -281,27 +271,14 @@ fn portable_containment_rejects_replaced_source_or_child_birth() {
             None
         );
         assert_eq!(world.host_object(child).unwrap().contained_by, None);
+        let child_matches = world.spawn_identity_matches(child, child_birth.0, child_birth.1);
+        assert_eq!(child_matches, replace_source);
+        if child_matches {
+            world.destroy_object_with_effects(child, &mut Default::default()).unwrap();
+        }
         if replace_source {
-            assert!(
-                world
-                    .destroy_object_if_birth_matches_with_effects(
-                        child,
-                        &child_birth,
-                        &mut Default::default(),
-                    )
-                    .unwrap()
-            );
             assert!(world.host_object(child).unwrap().status.destroyed);
         } else {
-            assert!(
-                !world
-                    .destroy_object_if_birth_matches_with_effects(
-                        child,
-                        &child_birth,
-                        &mut Default::default(),
-                    )
-                    .unwrap()
-            );
             assert!(!world.host_object(child).unwrap().status.destroyed);
         }
     }

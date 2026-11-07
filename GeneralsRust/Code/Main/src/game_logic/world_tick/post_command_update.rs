@@ -542,16 +542,52 @@ impl GameLogic {
         // C++ RailedTransportAIUpdate::update — park at nearest End, open dock
         // when the current End is reached. Crate leftover is dual-world gated.
         self.update_railed_transports();
+        for &id in &object_ids {
+            if let Some(config) = self.railed_dock_config(id) {
+                if let Err(error) = self.railed_dock_update(id, config, &mut ui) {
+                    return SimulationStepOutcome::Failed(gamelogic::GameLogicError::Configuration(error));
+                }
+            }
+        }
 
         // Host stealth residual: detector scans + DETECTED expiry.
         // Fail-closed vs full StealthUpdate/StealthDetectorUpdate modules
         // (no IR FX, kindof filters, or disguise).
         self.update_stealth_and_detection_with_effects(&mut ui);
 
-        // Stinger HiveStructureBody SpawnReplaceDelay residual slave respawns.
-        // Wave 814: host-sole unless movement authority live: hive respawn owned by GW expire + logs.
-        {
-            self.update_stinger_hive_respawns_with_effects(&mut ui);
+        // QueueProductionExitUpdate and SpawnBehavior are independent ordered
+        // object modules. Capture births once so a replacement object with the
+        // same ID, or a child created during spawning, is not ticked twice.
+        let queue_epoch = self.visual_world_epoch;
+        let queue_exit_updates: Vec<_> = self.objects.registered()
+            .filter_map(|(&id, object)| {
+                let metadata = object.get_template().production_exit_metadata?;
+                metadata.is_queue().then(|| (
+                    id,
+                    object.visual_object_generation,
+                    metadata,
+                    object.get_template().queue_exit_precedes_spawn_behavior(),
+                ))
+            })
+            .collect();
+        for (id, birth, metadata, before_spawn) in &queue_exit_updates {
+            if *before_spawn && self.visual_world_epoch == queue_epoch
+                && let Some(object) = self.objects.get_mut(id)
+                && object.visual_object_generation == *birth
+            {
+                object.tick_queue_exit(metadata);
+            }
+        }
+        if let Err(error) = self.update_spawn_behavior_with_effects(&mut ui) {
+            return SimulationStepOutcome::Failed(error);
+        }
+        for (id, birth, metadata, before_spawn) in &queue_exit_updates {
+            if !*before_spawn && self.visual_world_epoch == queue_epoch
+                && let Some(object) = self.objects.get_mut(id)
+                && object.visual_object_generation == *birth
+            {
+                object.tick_queue_exit(metadata);
+            }
         }
 
         // -----------------------------------------------------------------------

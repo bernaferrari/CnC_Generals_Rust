@@ -494,21 +494,12 @@ impl GameWorldShadow {
                 }
                 if let Some(head) = bd.production_queue.first() {
                     e.production_progress = head.progress;
-                    e.exit_delay_remaining = bd.exit_delay_remaining;
                     e.production_template = head.template_name.clone();
                 } else {
                     e.production_progress = 0.0;
                     e.production_template.clear();
                 }
             }
-            // QueueProductionExitUpdate owns these per-object
-            // counters even after the head is gone.  Mirror the
-            // exact state separately from (and without stomping)
-            // sole-tick queue progress.
-            e.exit_delay_remaining = bd.exit_delay_remaining;
-            e.exit_delay_remaining_frames = bd.exit_delay_remaining_frames;
-            e.exit_burst_remaining = bd.exit_burst_remaining;
-            e.queue_exit_state_initialized = bd.queue_exit_state_initialized;
             // Sole-tick GameWorld owns door phase after bootstrap.
             // Copy host only when the shadow door is still idle so a
             // host-started cycle is not lost, then never stomp GW.
@@ -527,14 +518,14 @@ impl GameWorldShadow {
             e.production_template.clear();
             e.production_queue_items.clear();
             e.production_paused = false;
-            e.exit_delay_remaining = 0.0;
-            e.exit_delay_remaining_frames = 0;
-            e.exit_burst_remaining = 0;
-            e.queue_exit_state_initialized = false;
             e.rally_point = None;
             e.garrison_count = 0;
             e.max_garrison = 0;
         }
+        e.exit_delay_remaining_frames = obj.production_exit_state.delay_frames;
+        e.exit_delay_remaining = obj.production_exit_state.delay_frames as f32 / 30.0;
+        e.exit_burst_remaining = obj.production_exit_state.burst_remaining;
+        e.queue_exit_state_initialized = obj.production_exit_state.initialized;
         e.has_weapon = obj.weapon.is_some();
         if let Some(w) = obj.weapon.as_ref() {
             e.weapon_damage = w.damage;

@@ -96,7 +96,9 @@ impl GameLogic {
         let created: Vec<_> = outcome
             .created
             .into_iter()
-            .filter_map(|(id, birth)| self.object_birth_matches(id, &birth).then_some(id))
+            .filter_map(|(id, (generation, epoch))| {
+                self.spawn_identity_matches(id, generation, epoch).then_some(id)
+            })
             .collect();
         let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl(
             pos, None, self.frame, source_id, None, "", "", ocl, "", 0.0, 0.0,

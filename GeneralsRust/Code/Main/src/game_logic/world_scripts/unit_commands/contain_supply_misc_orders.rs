@@ -349,85 +349,21 @@ impl GameLogic {
         true
     }
 
-    /// C++ `RailedTransportAIUpdate::privateEvacuate` → dock `unloadAll`.
-    /// Refuses in-transit / already loading-or-unloading. Does not walk ExitStart.
-    pub fn railed_transport_unload_all(&mut self, ferry_id: ObjectId) -> bool {
-        self.railed_transport_unload_all_with_effects(ferry_id, &mut Default::default())
-    }
-
+    /// C++ `RailedTransportAIUpdate::privateEvacuate` starts the dock's
+    /// ordered unload; each subsequent passenger is pushed over later frames.
     pub(crate) fn railed_transport_unload_all_with_effects(
         &mut self,
         ferry_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
-        let Some(ferry) = self.objects.get(&ferry_id) else {
-            return false;
-        };
-        if !ferry.is_railed_transport() {
-            return false;
+    ) -> gamelogic::GameLogicResult<bool> {
+        let Some(ferry) = self.objects.get(&ferry_id) else { return Ok(false) };
+        if !ferry.is_railed_transport() || ferry.railed_in_transit || ferry.railed_dock.busy() {
+            return Ok(false);
         }
-        if ferry.railed_in_transit {
-            return false;
-        }
-        if ferry.dock_active_docker.is_some() {
-            return false;
-        }
-        let passengers = ferry.contained_units();
-        if passengers.is_empty() {
-            return false;
-        }
-        let hull = ferry.get_position();
-        let yaw = ferry.get_orientation();
-        let (sin, cos) = yaw.sin_cos();
-        let dest = glam::Vec3::new(hull.x + 20.0 * cos, hull.y, hull.z + 20.0 * sin);
-        let first = passengers[0];
-        for pid in passengers {
-            if let Some(c) = self.objects.get_mut(&ferry_id) {
-                let _ = c.remove_occupant_with_partition_owner(
-                    pid,
-                    &mut self.ownership_events,
-                    &mut self.partition_manager,
-                );
-            }
-            if let Some(p) = self.objects.get_mut(&pid) {
-                let containment_actor_id = p.id;
-                Self::set_owned_containment_in_parts(
-                    &mut self.objects,
-                    &mut self.partition_manager,
-                    &mut self.ai_groups,
-                    &mut self.pathfinding_system,
-                    containment_actor_id,
-                    None,
-                    true,
-                );
-                let p = self
-                    .objects
-                    .get_mut(&containment_actor_id)
-                    .expect("containment operation preserves this birth");
-                p.target = None;
-                p.set_position_with_effects_and_pose_owners(
-                    hull,
-                    self.frame,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                    &self.host_trigger_world,
-                    &self.team_factory,
-                );
-                p.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
-                p.set_destination_with_operation(
-                    dest,
-                    &mut self.movement_events.writer(self.frame),
-                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                    self.frame,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
-                );
-                p.set_status_disabled_held(true);
-            }
-            self.admit_host_radar_disabled_edges(pid);
-        }
-        if let Some(c) = self.objects.get_mut(&ferry_id) {
-            c.dock_active_docker = Some(first);
-        }
-        true
+        let Some(config) = self.railed_dock_config(ferry_id) else { return Ok(false) };
+        self.railed_dock_unload(ferry_id, config, true, effects)
+            .map_err(gamelogic::GameLogicError::Configuration)?;
+        Ok(true)
     }
 
     /// Wave 233: waypoint-path prep — stop attack and clear guard anchors.

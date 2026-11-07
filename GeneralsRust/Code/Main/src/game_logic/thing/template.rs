@@ -1172,6 +1172,35 @@ impl ThingTemplate {
             .map_or(Ok(None), ReceivingClientTemplate::particle_swath_settings)
     }
 
+    /// Whether QueueProductionExitUpdate runs before SpawnBehavior in the
+    /// admitted behavior module list. Templates without a SpawnBehavior run
+    /// their Queue update before production.
+    pub(crate) fn queue_exit_precedes_spawn_behavior(&self) -> bool {
+        if let Some(receiving) = self.receiving_client_template.as_ref() {
+            for module in receiving.behavior_modules().iter() {
+                let name = module.name.as_str();
+                if name.eq_ignore_ascii_case("QueueProductionExitUpdate") {
+                    return true;
+                }
+                if name.eq_ignore_ascii_case("SpawnBehavior") {
+                    return false;
+                }
+            }
+        }
+        if let Some(definition) = self.receiving_object_definition.as_deref() {
+            for module in &definition.behavior_modules {
+                let name = module.class_name.as_str();
+                if name.eq_ignore_ascii_case("QueueProductionExitUpdate") {
+                    return true;
+                }
+                if name.eq_ignore_ascii_case("SpawnBehavior") {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
     /// C++ Object::getObjectExitInterface checks behavior modules in authored
     /// order before falling back to the OpenContain interface.
     pub(crate) fn rally_point_exit_owner(&self) -> RallyPointExitOwner {
@@ -2122,6 +2151,10 @@ impl ThingTemplate {
 
     pub(crate) fn receiving_draw_models(&self) -> Option<std::sync::Arc<ReceivingDrawModels>> {
         self.authored_draw_modules.clone()
+    }
+
+    pub(crate) fn receiving_draw_models_ref(&self) -> Option<&ReceivingDrawModels> {
+        self.authored_draw_modules.as_deref()
     }
 
     /// First actual model in original Draw-module order for this Object's

@@ -825,7 +825,7 @@ impl<'a> CommandExecutor<'a> {
         for ferry_id in railed_ferries {
             if self
                 .game_logic
-                .railed_transport_unload_all_with_effects(ferry_id, &mut self.ui)
+                .railed_transport_unload_all_with_effects(ferry_id, &mut self.ui)?
             {
                 any = true;
             }

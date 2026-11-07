@@ -266,6 +266,8 @@ impl<'a> CommandExecutor<'a> {
             }
             // SpawnBehavior::orderSlavesToAttackTarget always uses force
             // attack, even when the group's own order is not forced.
+            let owner_birth = self.game_logic.host_object(unit_id).map(|owner| owner.visual_object_generation);
+            let epoch = self.game_logic.host_visual_world_epoch();
             let children = self
                 .game_logic
                 .host_object(unit_id)
@@ -273,6 +275,7 @@ impl<'a> CommandExecutor<'a> {
                 .map(|owner| owner.spawn_behavior_children())
                 .unwrap_or_default();
             for (child_id, birth) in children {
+                if !owner_birth.is_some_and(|birth| self.game_logic.spawn_identity_matches(unit_id, birth, epoch)) { break; }
                 let admitted = self
                     .game_logic
                     .host_object(unit_id)
@@ -473,6 +476,8 @@ impl<'a> CommandExecutor<'a> {
 
             // C++ sends the parent's attack position to each locked spawn in
             // m_spawnIDs order, before ordering the parent itself.
+            let owner_birth = self.game_logic.host_object(unit_id).map(|owner| owner.visual_object_generation);
+            let epoch = self.game_logic.host_visual_world_epoch();
             let children = self
                 .game_logic
                 .host_object(unit_id)
@@ -480,6 +485,7 @@ impl<'a> CommandExecutor<'a> {
                 .map(|owner| owner.spawn_behavior_children())
                 .unwrap_or_default();
             for (child_id, birth) in children {
+                if !owner_birth.is_some_and(|birth| self.game_logic.spawn_identity_matches(unit_id, birth, epoch)) { break; }
                 let admitted = self
                     .game_logic
                     .host_object(unit_id)

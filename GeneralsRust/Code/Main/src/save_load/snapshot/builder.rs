@@ -349,6 +349,10 @@ impl SnapshotBuilder {
             ),
         );
 
+        if object.get_template().production_exit_metadata.is_some_and(|m| m.is_queue()) {
+            modules.insert("QueueExit".to_owned(), ModuleSnapshot::QueueExit(object.production_exit_state));
+        }
+
         if let Some(building_data) = &object.building_data {
             let production_queue = building_data
                 .production_queue
@@ -371,10 +375,6 @@ impl SnapshotBuilder {
                     is_producing: !building_data.production_queue.is_empty(),
                     production_progress: building_data.get_production_progress().unwrap_or(0.0),
                     rally_point: building_data.rally_point,
-                    exit_delay_remaining: building_data.exit_delay_remaining,
-                    exit_delay_remaining_frames: building_data.exit_delay_remaining_frames,
-                    exit_burst_remaining: building_data.exit_burst_remaining,
-                    queue_exit_state_initialized: building_data.queue_exit_state_initialized,
                 }),
             );
         }
@@ -1995,45 +1995,7 @@ impl SnapshotBuilder {
                 )
                 .collect(),
             jet_stalls,
-            flight_decks: game_logic
-                .snapshot_flight_deck_occupancy()
-                .into_iter()
-                .map(
-                    |(
-                        carrier_id,
-                        got_info,
-                        spaces,
-                        runways,
-                        designated_target,
-                        designated_command,
-                        pending_replacement,
-                    )| {
-                        FlightDeckPersistSnapshot {
-                            carrier_id,
-                            spaces: spaces
-                                .into_iter()
-                                .map(|(object_id, runway)| FlightDeckSpaceSnapshot {
-                                    object_id,
-                                    runway,
-                                })
-                                .collect(),
-                            runways: runways
-                                .into_iter()
-                                .map(
-                                    |(in_use_takeoff, in_use_landing)| FlightDeckRunwaySnapshot {
-                                        in_use_takeoff,
-                                        in_use_landing,
-                                    },
-                                )
-                                .collect(),
-                            got_info,
-                            designated_target,
-                            designated_command,
-                            pending_replacement,
-                        }
-                    },
-                )
-                .collect(),
+            flight_decks: game_logic.snapshot_flight_deck_occupancy(),
         }
     }
 
@@ -2097,30 +2059,7 @@ impl SnapshotBuilder {
                 object.airfield_parking_space_index = stall.space_index;
             }
         }
-        game_logic.restore_flight_deck_occupancy(
-            snapshot
-                .airfield_parking
-                .flight_decks
-                .iter()
-                .map(|deck| {
-                    (
-                        deck.carrier_id,
-                        deck.got_info,
-                        deck.spaces
-                            .iter()
-                            .map(|space| (space.object_id, space.runway))
-                            .collect(),
-                        deck.runways
-                            .iter()
-                            .map(|runway| (runway.in_use_takeoff, runway.in_use_landing))
-                            .collect(),
-                        deck.designated_target,
-                        deck.designated_command,
-                        deck.pending_replacement,
-                    )
-                })
-                .collect(),
-        );
+        game_logic.restore_flight_deck_occupancy(&snapshot.airfield_parking.flight_decks);
     }
 }
 

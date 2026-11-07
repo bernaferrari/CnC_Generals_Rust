@@ -14,12 +14,12 @@ mod tests;
 /// Results already created by an OCL stay committed if a later nugget fails.
 /// Receipts retain the birth identity needed by reentrant callers.
 pub(crate) struct OclExecutionOutcome {
-    pub(crate) created: Vec<(ObjectId, std::sync::Weak<()>)>,
+    pub(crate) created: Vec<(ObjectId, (u64, u64))>,
     pub(crate) error: Option<gamelogic::GameLogicError>,
 }
 
 impl OclExecutionOutcome {
-    fn success(created: Vec<(ObjectId, std::sync::Weak<()>)>) -> Self {
+    fn success(created: Vec<(ObjectId, (u64, u64))>) -> Self {
         Self {
             created,
             error: None,
@@ -27,7 +27,7 @@ impl OclExecutionOutcome {
     }
 
     fn failure(
-        created: Vec<(ObjectId, std::sync::Weak<()>)>,
+        created: Vec<(ObjectId, (u64, u64))>,
         error: gamelogic::GameLogicError,
     ) -> Self {
         Self {
@@ -203,7 +203,9 @@ impl GameLogic {
         outcome
             .created
             .into_iter()
-            .filter_map(|(id, birth)| self.object_birth_matches(id, &birth).then_some(id))
+            .filter_map(|(id, (generation, epoch))| {
+                self.spawn_identity_matches(id, generation, epoch).then_some(id)
+            })
             .collect()
     }
 
@@ -228,9 +230,9 @@ impl GameLogic {
             return OclExecutionOutcome::success(Vec::new());
         }
         let source_birth = source_id.and_then(|id| {
-            self.objects
-                .get(&id)
-                .map(|source| std::sync::Arc::downgrade(&source.visual_draw_identity_token))
+            self.objects.get(&id).map(|source| {
+                (source.visual_object_generation, self.visual_world_epoch)
+            })
         });
         let source_owner_player_id = source_id.and_then(|id| {
             self.objects
@@ -253,8 +255,8 @@ impl GameLogic {
         // matches — that means a same-ID replacement, not a missing original.
         let mut created = Vec::new();
         for nugget in ocl.nuggets() {
-            if let Some(birth) = source_birth.as_ref() {
-                if !source_id.is_some_and(|id| self.object_birth_matches(id, birth)) {
+            if let Some(birth) = source_birth {
+                if !source_id.is_some_and(|id| self.spawn_identity_matches(id, birth.0, birth.1)) {
                     break;
                 }
             }
@@ -305,7 +307,7 @@ impl GameLogic {
                 let debris = self.execute_receiving_create_debris(
                     generic,
                     source_id.expect("validated above"),
-                    source_birth.as_ref().expect("source birth captured"),
+                    source_birth.expect("source birth captured"),
                     source_team,
                     origin,
                     presentation_effects,
@@ -343,8 +345,7 @@ impl GameLogic {
             for _ in 0..count {
                 if !source_id.is_some_and(|id| {
                     source_birth
-                        .as_ref()
-                        .is_some_and(|birth| self.object_birth_matches(id, birth))
+                        .is_some_and(|birth| self.spawn_identity_matches(id, birth.0, birth.1))
                 }) {
                     return OclExecutionOutcome::success(created);
                 }
@@ -416,26 +417,20 @@ impl GameLogic {
                 };
                 // Registration is already committed, even if a later callback
                 // removes this birth before the OCL finishes.
-                created.push((created_id, std::sync::Weak::clone(&created_birth)));
+                created.push((created_id, created_birth));
                 let birth_matches = |world: &Self| {
-                    world.objects.get(&created_id).is_some_and(|object| {
-                        created_birth.ptr_eq(&std::sync::Arc::downgrade(
-                            &object.visual_draw_identity_token,
-                        ))
-                    })
+                    world.spawn_identity_matches(created_id, created_birth.0, created_birth.1)
                 };
                 if !birth_matches(self) {
                     continue;
                 }
                 if !source_id.is_some_and(|id| {
                     source_birth
-                        .as_ref()
-                        .is_some_and(|birth| self.object_birth_matches(id, birth))
+                        .is_some_and(|birth| self.spawn_identity_matches(id, birth.0, birth.1))
                 }) {
-                    if generic.contain_inside_source_object {
-                        if let Err(error) = self.destroy_object_if_birth_matches_with_effects(
+                    if generic.contain_inside_source_object && birth_matches(self) {
+                        if let Err(error) = self.destroy_object_with_effects(
                             created_id,
-                            &created_birth,
                             presentation_effects,
                         ) {
                             return OclExecutionOutcome::failure(created, error);
@@ -455,7 +450,7 @@ impl GameLogic {
                 // C++ ObjectCreationList.cpp:985-993: any created object with a
                 // SlavedUpdate is enslaved to the source (startSlavedEffects ->
                 // UNSELECTABLE), independent of upgrade/OCL spelling.
-                if let (Some(source), Some(birth)) = (source_id, source_birth.as_ref()) {
+                if let (Some(source), Some(birth)) = (source_id, source_birth) {
                     if self
                         .objects
                         .get(&created_id)
@@ -499,13 +494,11 @@ impl GameLogic {
                 }
                 if !source_id.is_some_and(|id| {
                     source_birth
-                        .as_ref()
-                        .is_some_and(|birth| self.object_birth_matches(id, birth))
+                        .is_some_and(|birth| self.spawn_identity_matches(id, birth.0, birth.1))
                 }) {
-                    if generic.contain_inside_source_object {
-                        if let Err(error) = self.destroy_object_if_birth_matches_with_effects(
+                    if generic.contain_inside_source_object && birth_matches(self) {
+                        if let Err(error) = self.destroy_object_with_effects(
                             created_id,
-                            &created_birth,
                             presentation_effects,
                         ) {
                             return OclExecutionOutcome::failure(created, error);
@@ -583,16 +576,13 @@ impl GameLogic {
                 if inherit_name {
                     if let Some(sid) = source_id {
                         if !source_birth
-                            .as_ref()
-                            .is_some_and(|birth| self.object_birth_matches(sid, birth))
+                            .is_some_and(|birth| self.spawn_identity_matches(sid, birth.0, birth.1))
                         {
-                            if generic.contain_inside_source_object {
-                                if let Err(error) = self
-                                    .destroy_object_if_birth_matches_with_effects(
-                                        created_id,
-                                        &created_birth,
-                                        presentation_effects,
-                                    )
+                            if generic.contain_inside_source_object && birth_matches(self) {
+                                if let Err(error) = self.destroy_object_with_effects(
+                                    created_id,
+                                    presentation_effects,
+                                )
                                 {
                                     return OclExecutionOutcome::failure(created, error);
                                 }
@@ -628,23 +618,22 @@ impl GameLogic {
                 // portable-structure case; other container kinds stay guarded.
                 if generic.contain_inside_source_object {
                     let admitted = source_id.is_some_and(|source_id| {
-                        source_birth.as_ref().is_some_and(|source_birth| {
+                        source_birth.is_some_and(|source_birth| {
                             birth_matches(self)
                                 && self.admit_ocl_portable_structure(
                                     source_id,
                                     created_id,
                                     source_birth,
-                                    &created_birth,
+                                    created_birth,
                                 )
                         })
                     });
-                    if !admitted {
+                    if !admitted && birth_matches(self) {
                         // C++ reallyCreate returns firstObject even when
                         // doStuffToObj schedules that birth for destruction;
                         // retain the receipt, but destroy only that birth.
-                        if let Err(error) = self.destroy_object_if_birth_matches_with_effects(
+                        if let Err(error) = self.destroy_object_with_effects(
                             created_id,
-                            &created_birth,
                             presentation_effects,
                         ) {
                             return OclExecutionOutcome::failure(created, error);
@@ -662,11 +651,11 @@ impl GameLogic {
         &mut self,
         source_id: ObjectId,
         child_id: ObjectId,
-        source_birth: &std::sync::Weak<()>,
-        child_birth: &std::sync::Weak<()>,
+        source_birth: (u64, u64),
+        child_birth: (u64, u64),
     ) -> bool {
-        if !self.object_birth_matches(source_id, source_birth)
-            || !self.object_birth_matches(child_id, child_birth)
+        if !self.spawn_identity_matches(source_id, source_birth.0, source_birth.1)
+            || !self.spawn_identity_matches(child_id, child_birth.0, child_birth.1)
         {
             return false;
         }
@@ -713,7 +702,7 @@ impl GameLogic {
         &mut self,
         generic: &gamelogic::object_creation_list::GenericObjectCreationNugget,
         source_id: ObjectId,
-        source_birth: &std::sync::Weak<()>,
+        source_birth: (u64, u64),
         source_team: Team,
         origin: Vec3,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
@@ -786,7 +775,7 @@ impl GameLogic {
         let mut created = Vec::new();
         let count = u32::try_from(generic.debris_to_generate).unwrap_or_default();
         for _ in 0..count {
-            if !self.object_birth_matches(source_id, source_birth) {
+            if !self.spawn_identity_matches(source_id, source_birth.0, source_birth.1) {
                 break;
             }
             // C++ selects ModelNames before calling GameLODManager::isDebrisSkipped.
@@ -826,12 +815,8 @@ impl GameLogic {
                     return OclExecutionOutcome::failure(created, error.error);
                 }
             };
-            created.push((id, std::sync::Weak::clone(&birth)));
-            if !self.objects.get(&id).is_some_and(|object| {
-                birth.ptr_eq(&std::sync::Arc::downgrade(
-                    &object.visual_draw_identity_token,
-                ))
-            }) {
+            created.push((id, birth));
+            if !self.spawn_identity_matches(id, birth.0, birth.1) {
                 continue;
             }
 

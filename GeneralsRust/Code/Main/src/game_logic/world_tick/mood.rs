@@ -898,6 +898,79 @@ impl GameLogic {
         (adj & ACTION_OK) != 0 && (adj & ACTION_TO_IDLE) == 0
     }
 
+    /// Object::isAbleToAttack delegates to the enclosing Contain interface.
+    /// OpenContain forwards nested checks without a passenger ID, except that
+    /// TransportContain delegates the original ID to an outer Overlord.
+    pub(in crate::game_logic) fn passenger_allowed_to_fire(&self, passenger_id: ObjectId) -> bool {
+        let Some(passenger) = self.objects.get(&passenger_id) else {
+            return false;
+        };
+        let Some(mut container_id) = passenger.contained_by else {
+            return true;
+        };
+        let mut checked_passenger = Some(passenger_id);
+        // A malformed containment cycle must not make attack admission loop.
+        for _ in 0..self.objects.registered().count() {
+            let Some(container) = self.objects.get(&container_id) else {
+                return false;
+            };
+            if container.is_garrison_contain() {
+                return !container.status.disabled_subdued;
+            }
+            let overlord = container.is_overlord_style_container();
+            let helix = container.is_helix_transport;
+            let kind = container.get_template().contain_module.kind;
+            let transport = kind.is_mobile_container()
+                || kind == crate::game_logic::ContainModuleKind::InternetHack;
+            if (overlord || helix) && container.contained_by.is_some() {
+                return false;
+            }
+            if helix && checked_passenger.is_none() {
+                return false;
+            }
+            if helix && checked_passenger.is_some()
+                && checked_passenger == container.overlord_portable_occupant
+            {
+                return true;
+            }
+            if let Some(id) = checked_passenger {
+                let Some(rider) = self.objects.get(&id) else {
+                    return false;
+                };
+                if helix && !rider.is_kind_of(KindOf::Infantry) {
+                    return false;
+                }
+                if overlord {
+                    if !rider.is_kind_of(KindOf::Infantry)
+                        && !rider.is_kind_of(KindOf::PortableStructure)
+                    {
+                        return false;
+                    }
+                } else if transport
+                    && !rider.is_kind_of(KindOf::Infantry)
+                {
+                    return false;
+                }
+            }
+            if let Some(outer_id) = container.contained_by {
+                let outer_is_overlord = self.objects.get(&outer_id)
+                    .is_some_and(|outer| outer.is_overlord_style_container() || outer.is_helix_transport);
+                if !transport
+                    || !outer_is_overlord
+                {
+                    if !container.passengers_allowed_to_fire {
+                        return false;
+                    }
+                    checked_passenger = None;
+                }
+                container_id = outer_id;
+            } else {
+                return container.passengers_allowed_to_fire;
+            }
+        }
+        false
+    }
+
     pub fn get_able_to_attack_specific_object(
         &self,
         unit_id: ObjectId,
@@ -998,24 +1071,8 @@ impl GameLogic {
             }
         }
 
-        // C++ Object::isAbleToAttack (Object.cpp:3167) consults
-        // ContainModule::isPassengerAllowedToFire(id). TransportContain is
-        // infantry-only — Combat Chinook vehicle riders never shoot out.
-        if let Some(cid) = source.contained_by {
-            if let Some(container) = self.objects.get(&cid) {
-                if (container.passengers_allowed_to_fire
-                    || container.is_combat_chinook_style_container())
-                    && !((container.is_overlord_style_container()
-                        || (container.is_helix_transport
-                            && container.overlord_portable_occupant == Some(source.id)))
-                        && source.is_kind_of(KindOf::PortableStructure))
-                    && !gamelogic::object::contain::transport_contain_passenger_kind_allowed_to_fire(
-                        source.is_kind_of(KindOf::Infantry),
-                    )
-                {
-                    return CanAttackResult::NotPossible;
-                }
-            }
+        if !self.passenger_allowed_to_fire(unit_id) {
+            return CanAttackResult::NotPossible;
         }
 
         // C++ WeaponSet.cpp:545-550 — reject only enclosing containers.

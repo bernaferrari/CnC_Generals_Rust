@@ -2,6 +2,50 @@
 use super::*;
 
 #[test]
+fn queue_exit_nonbuilding_snapshot_continues_without_affecting_same_id_world() {
+    let metadata = crate::game_logic::ProductionExitMetadata {
+        style: crate::game_logic::ProductionExitStyle::Queue,
+        unit_create_point: [0.0; 3],
+        natural_rally_point: [0.0; 3],
+        exit_delay_frames: 3,
+        allow_airborne_creation: false,
+        initial_burst: 2,
+        use_spawn_rally_point: false,
+        grant_temporary_stealth_frames: 0,
+    };
+    let mut template = ThingTemplate::new("QueueActor");
+    template.production_exit_metadata = Some(metadata);
+    let mut source = GameLogic::new();
+    source.add_player(Player::new(1, Team::USA, "USA", true));
+    source.templates.insert("QueueActor".into(), template.clone());
+    let id = source.create_object("QueueActor", Team::USA, Vec3::ZERO).unwrap();
+    let actor = source.host_object_mut(id).unwrap();
+    assert!(actor.building_data.is_none());
+    assert!(actor.queue_exit_available(&metadata));
+    actor.queue_exit_record(&metadata);
+    assert!(actor.queue_exit_available(&metadata));
+    actor.queue_exit_record(&metadata);
+    assert!(!actor.queue_exit_available(&metadata));
+    actor.tick_queue_exit(&metadata);
+
+    let builder = SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&source).unwrap();
+    source.update();
+    assert_eq!(source.host_object(id).unwrap().production_exit_state.delay_frames, 1);
+    let mut restored = GameLogic::new();
+    restored.add_player(Player::new(1, Team::USA, "USA", true));
+    restored.templates = source.templates.clone();
+    builder.restore_from_snapshot(&saved, &mut restored).unwrap();
+    let loaded = restored.host_object_mut(id).unwrap();
+    assert!(!loaded.queue_exit_available(&metadata));
+    loaded.tick_queue_exit(&metadata);
+    assert!(!loaded.queue_exit_available(&metadata));
+    loaded.tick_queue_exit(&metadata);
+    assert!(loaded.queue_exit_available(&metadata));
+    assert!(!source.host_object_mut(id).unwrap().queue_exit_available(&metadata));
+}
+
+#[test]
 fn snapshot_restore_rebuilds_state_and_object_id_counter() {
     let mut source = GameLogic::new();
     source
@@ -765,6 +809,16 @@ fn snapshot_restore_preserves_building_production_modules_and_object_upgrades() 
     barracks
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::Selectable);
+    barracks.production_exit_metadata = Some(crate::game_logic::ProductionExitMetadata {
+        style: crate::game_logic::ProductionExitStyle::Queue,
+        unit_create_point: [0.0; 3],
+        natural_rally_point: [0.0; 3],
+        exit_delay_frames: 9,
+        allow_airborne_creation: false,
+        initial_burst: 0,
+        use_spawn_rally_point: false,
+        grant_temporary_stealth_frames: 0,
+    });
     source
         .templates
         .insert("USA_Barracks".to_string(), barracks.clone());
@@ -799,10 +853,8 @@ fn snapshot_restore_preserves_building_production_modules_and_object_upgrades() 
         // rather than rebuilding an arbitrary fresh queue after load.
         building_data.production_queue[0].quantity_total = 2;
         building_data.production_queue[0].quantity_produced = 1;
-        building_data.exit_delay_remaining = 0.3;
-        building_data.exit_delay_remaining_frames = 9;
-        building_data.exit_burst_remaining = 0;
-        building_data.queue_exit_state_initialized = true;
+        building.production_exit_state.delay_frames = 9;
+        building.production_exit_state.initialized = true;
         building_data.rally_point = Some(Vec3::new(30.0, 0.0, 40.0));
         building.apply_upgrade_tag("UpgradeVeteranTraining");
     }
@@ -842,9 +894,9 @@ fn snapshot_restore_preserves_building_production_modules_and_object_upgrades() 
     assert_eq!(item.quantity_total, 2);
     assert_eq!(item.quantity_produced, 1);
     assert!(!item.is_upgrade());
-    assert_eq!(restored_data.exit_delay_remaining_frames, 9);
-    assert_eq!(restored_data.exit_burst_remaining, 0);
-    assert!(restored_data.queue_exit_state_initialized);
+    assert_eq!(restored_building.production_exit_state.delay_frames, 9);
+    assert_eq!(restored_building.production_exit_state.burst_remaining, 0);
+    assert!(restored_building.production_exit_state.initialized);
 }
 
 #[test]

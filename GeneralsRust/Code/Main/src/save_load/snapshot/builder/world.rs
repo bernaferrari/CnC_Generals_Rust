@@ -20,6 +20,43 @@ fn validate_cave_tracker(snapshot: &WorldSnapshot) -> SaveLoadResult<()> {
     Ok(())
 }
 
+fn validate_flight_decks(snapshot: &WorldSnapshot, world: &GameLogic) -> SaveLoadResult<()> {
+    let invalid = || SaveLoadError::Corrupted("invalid FlightDeck continuation".into());
+    let mut carriers = std::collections::HashSet::new();
+    let mut occupants = std::collections::HashSet::new();
+    for deck in &snapshot.airfield_parking.flight_decks {
+        if !carriers.insert(deck.carrier_id) || deck.designated_command > 6
+            || deck.designated_position_bits.iter().any(|v| !f32::from_bits(*v).is_finite())
+        { return Err(invalid()); }
+        let object = snapshot.objects.get(&deck.carrier_id).ok_or_else(invalid)?;
+        let template = super::super::receiving_template::resolve(world, &object.template_name)?
+            .ok_or_else(invalid)?;
+        let metadata = template.flight_deck.as_ref().ok_or_else(invalid)?;
+        let cols = metadata.num_cols as usize;
+        let capacity = metadata.capacity().ok_or_else(invalid)?;
+        if deck.got_info {
+            if deck.spaces.len() != capacity || deck.runways.len() != cols { return Err(invalid()); }
+        } else if !deck.spaces.is_empty() || !deck.runways.is_empty() {
+            return Err(invalid());
+        }
+        for (index, space) in deck.spaces.iter().enumerate() {
+            if cols == 0 || space.runway as usize != index % cols { return Err(invalid()); }
+            if let Some(id) = space.object_id {
+                if !snapshot.objects.contains_key(&id) || !occupants.insert(id) { return Err(invalid()); }
+            }
+        }
+        for runway in &deck.runways {
+            for id in [runway.in_use_takeoff, runway.in_use_landing].into_iter().flatten() {
+                if !snapshot.objects.contains_key(&id) { return Err(invalid()); }
+            }
+        }
+        for (id, _) in &deck.healing {
+            if !snapshot.objects.contains_key(id) { return Err(invalid()); }
+        }
+    }
+    Ok(())
+}
+
 impl SnapshotBuilder {
     pub fn new() -> Self {
         Self {}
@@ -35,6 +72,7 @@ impl SnapshotBuilder {
         validate_direct_world_snapshot_version(snapshot.version)?;
         snapshot.audio_policy.validate()?;
         validate_cave_tracker(snapshot)?;
+        validate_flight_decks(snapshot, candidate)?;
         for object in snapshot.objects.values() {
             super::super::receiving_template::validate_turret_source(
                 candidate,
@@ -402,6 +440,7 @@ impl SnapshotBuilder {
         }
         snapshot.audio_policy.validate()?;
         validate_cave_tracker(snapshot)?;
+        validate_flight_decks(snapshot, game_logic)?;
         // Reject malformed terrain before retiring or replacing the receiver.
         Self::validate_terrain_snapshot(&snapshot.terrain)?;
         for object in snapshot.objects.values() {

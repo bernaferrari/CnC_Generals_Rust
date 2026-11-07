@@ -10,10 +10,6 @@ struct RetainedUpgradeEntry {
     producer_identity: std::sync::Arc<()>,
 }
 
-enum SpawnReadyCallbacks {
-    AlreadyNotified,
-    NotifyAfterExit,
-}
 
 impl GameLogic {
     /// C++ DozerActionDoActionState BUILD (DozerAIUpdate.cpp:482-526):
@@ -242,14 +238,6 @@ impl GameLogic {
                 .and_then(|o| o.building_data.as_mut())
             {
                 if let Some(item) = building.cancel_production(0) {
-                    if building.production_queue.is_empty() && building.exit_delay_remaining > 0.0 {
-                        building.exit_delay_remaining = 0.0;
-                        #[cfg(test)]
-                        crate::game_logic::host_production_progress_log::record_exit_delay_only(
-                            producer_id,
-                            0.0,
-                        );
-                    }
                     cancelled.push((producer_id, owner_player_id, team, item));
                 }
             }
@@ -332,6 +320,23 @@ impl GameLogic {
             let producer_template = obj.template_name.clone();
             let parking_place = obj.thing().template.parking_place.clone();
             let is_airfield = obj.is_kind_of(KindOf::FSAirfield);
+            let (head_exit_available, exit_release_limit) = match exit_metadata.as_ref() {
+                Some(metadata) if metadata.is_queue() => {
+                    let available = obj.queue_exit_available(metadata);
+                    let state = obj.production_exit_state;
+                    let limit = if metadata.exit_delay_frames == 0 {
+                        u32::MAX
+                    } else if state.burst_remaining > 0 {
+                        state.burst_remaining
+                    } else {
+                        u32::from(available)
+                    };
+                    (available, limit)
+                }
+                _ => (true, u32::MAX),
+            };
+            #[cfg(test)]
+            let exit_state = obj.production_exit_state;
             if let Some(building) = obj.building_data.as_mut() {
                 let pf = power_factor;
                 // C++ ProductionUpdate checks an exit door only for completed
@@ -365,15 +370,14 @@ impl GameLogic {
                     // interface.  Splitting the residual here prevents a unit
                     // becoming ready on this terminal frame from bypassing a
                     // closed factory door.
-                    building.tick_production_exit(exit_metadata.as_ref(), dt);
+                    // QueueProductionExitUpdate is ticked separately for every object.
                     building.advance_production_progress(dt, pf);
                     let head_ready = building.production_head_complete_at_power(pf);
                     let head_is_unit = building
                         .production_queue
                         .first()
                         .is_some_and(|item| !item.is_upgrade());
-                    let head_exit_available =
-                        building.production_head_exit_available(exit_metadata.as_ref());
+                    let head_exit_available = !head_is_unit || head_exit_available;
                     if head_ready && !head_is_unit {
                         if let Some((name, entry_identity)) = building.ready_upgrade_entry(pf) {
                             ready_research = Some((obj.team, name, RetainedUpgradeEntry {
@@ -401,14 +405,13 @@ impl GameLogic {
                             // C++ ProductionUpdate.cpp:762-776: CLOSING pops to
                             // WAITING_OPEN so the next unit exits this frame.
                             pop_closing_door = true;
-                            building.try_complete_production_at_power_with_exit_metadata(
+                            building.try_complete_production_at_power_with_limit(
                                 pf,
-                                exit_metadata.as_ref(),
-                                if airfield_holds_parking {
-                                    Some(parking_free.min(u32::MAX as usize) as u32)
+                                Some(exit_release_limit.min(if airfield_holds_parking {
+                                    parking_free.min(u32::MAX as usize) as u32
                                 } else {
-                                    None
-                                },
+                                    u32::MAX
+                                })),
                             )
                         } else {
                             // C++ ProductionUpdate.cpp:746-754: start OPENING only
@@ -418,14 +421,13 @@ impl GameLogic {
                             None
                         }
                     } else {
-                        building.try_complete_production_at_power_with_exit_metadata(
+                        building.try_complete_production_at_power_with_limit(
                             pf,
-                            exit_metadata.as_ref(),
-                            if airfield_holds_parking {
-                                Some(parking_free.min(u32::MAX as usize) as u32)
+                            Some(exit_release_limit.min(if airfield_holds_parking {
+                                parking_free.min(u32::MAX as usize) as u32
                             } else {
-                                None
-                            },
+                                u32::MAX
+                            })),
                         )
                     }
                 };
@@ -456,8 +458,8 @@ impl GameLogic {
                     crate::game_logic::host_production_progress_log::record_with_exit_state(
                         id,
                         items,
-                        building.exit_delay_remaining,
-                        building.production_exit_runtime_state(),
+                        exit_state.delay_frames as f32 / 30.0,
+                        exit_state,
                         pf,
                     );
                 }
@@ -1126,7 +1128,7 @@ impl GameLogic {
     }
 
     /// C++ `Pathfinder::snapPosition` (AIPathfind.cpp:5082-5095).
-    fn snap_factory_exit_position(&self, pos: Vec3, unit_radius: f32) -> Vec3 {
+    pub(in crate::game_logic) fn snap_factory_exit_position(&self, pos: Vec3, unit_radius: f32) -> Vec3 {
         let cell_size = self.pathfinding_system.grid.grid_size();
         let (_, center_in_cell) = Self::factory_exit_radius_and_center(unit_radius);
         let mut adjust = pos;
@@ -1337,7 +1339,6 @@ impl GameLogic {
         let events = std::mem::take(&mut self.production_spawn_completions);
         self.apply_spawn_ready_events(
             events,
-            SpawnReadyCallbacks::NotifyAfterExit,
             |world, id, ui| world.apply_create_modules_on_build_complete_with_effects(id, None, ui),
             ui,
         )
@@ -1351,37 +1352,15 @@ impl GameLogic {
         let events = std::mem::take(&mut self.production_spawn_completions);
         self.apply_spawn_ready_events(
             events,
-            SpawnReadyCallbacks::NotifyAfterExit,
             |world, id, _| on_build_complete(world, id),
             &mut Default::default(),
         )
     }
 
-    /// SpawnBehavior already notified Player/AI at allocation. Admit only its
-    /// owned exit event, without draining another paid factory's pending output.
-    pub(crate) fn host_apply_supply_spawn_ready_completion(
-        &mut self,
-        event: crate::game_logic::host_production_spawn_ready_log::HostProductionSpawnReadyEvent,
-    ) -> gamelogic::GameLogicResult<usize> {
-        self.host_apply_supply_spawn_ready_completion_with_effects(event, &mut Default::default())
-    }
-    pub(crate) fn host_apply_supply_spawn_ready_completion_with_effects(
-        &mut self,
-        event: crate::game_logic::host_production_spawn_ready_log::HostProductionSpawnReadyEvent,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<usize> {
-        self.apply_spawn_ready_events(
-            std::iter::once(event),
-            SpawnReadyCallbacks::AlreadyNotified,
-            |_, _, _| {},
-            effects,
-        )
-    }
 
     fn apply_spawn_ready_events(
         &mut self,
         events: impl IntoIterator<Item = crate::game_logic::host_production_spawn_ready_log::HostProductionSpawnReadyEvent>,
-        callbacks: SpawnReadyCallbacks,
         mut on_build_complete: impl FnMut(
             &mut Self,
             ObjectId,
@@ -1447,12 +1426,8 @@ impl GameLogic {
                 // C++ QueueProductionExitUpdate mutates its own per-Object
                 // delay/burst state after each successful exit.  This is not
                 // a China/Barracks-name delay table.
-                if let Some(building) = prod.building_data.as_mut() {
-                    building.record_successful_production_exit(producer_exit_metadata.as_ref());
-                    // Under sole-tick, progress is shadow-owned.  Publish the
-                    // exact state transition so the next GameWorld update
-                    // decrements the same integer C++ counter.
-                    {}
+                if let Some(metadata) = producer_exit_metadata.as_ref().filter(|m| m.is_queue()) {
+                    prod.queue_exit_record(metadata);
                 }
             }
             // SCIENCE_StealthFighter residual: record gated production spawn.
@@ -1578,8 +1553,7 @@ impl GameLogic {
             // SupplyCenterProductionExitUpdate performs the ordinary exit
             // route first, then forces only SupplyTruckAI-capable outputs into
             // their Wanting state, then GrantTemporaryStealth (cpp:114-126).
-            // This shared completion path covers both paid ProductionUpdate
-            // output and the one-shot SpawnBehavior.
+            // This completion path handles paid ProductionUpdate output.
             if producer_exit_metadata.is_some_and(|exit| exit.is_supply_center()) {
                 let _ = self.force_supply_center_collector_wanting(new_id, producer_id);
                 self.grant_supply_center_exit_temporary_stealth(producer_id, new_id);
@@ -1588,20 +1562,13 @@ impl GameLogic {
             // and Create modules. AI home/dock orders must not be overwritten
             // by a factory exit installed after onBuildComplete.
             // C++ VoiceCreated + UnitReady residual.
-            if matches!(callbacks, SpawnReadyCallbacks::NotifyAfterExit) {
-                self.notify_unit_production_complete_with_build_complete(
-                    new_id,
-                    producer_id,
-                    &template,
-                    ui,
-                    |world, id, effects| on_build_complete(world, id, effects),
-                )?;
-            } else {
-                // SpawnBehavior notified AI before exit, and its ordinary
-                // AtCreation path already completed the host Create callbacks.
-                self.notify_unit_production_presentation(new_id, &template);
-                self.unit_ready_events = self.unit_ready_events.saturating_add(1);
-            }
+            self.notify_unit_production_complete_with_build_complete(
+                new_id,
+                producer_id,
+                &template,
+                ui,
+                |world, id, effects| on_build_complete(world, id, effects),
+            )?;
             // C++ ProductionUpdate.cpp:827-832: first unit of a QuantityModifier
             // batch also plays per-unit VoiceCreate (before oneProductionSuccessful).
             if voice_create_played.insert(producer_id) {

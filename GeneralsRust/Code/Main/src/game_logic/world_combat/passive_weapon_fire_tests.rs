@@ -53,10 +53,79 @@ fn health(game: &GameLogic) -> f32 {
 fn delayed(game: &GameLogic) -> usize {
     crate::game_logic::combat::live_projectileless_delayed_count_for_test(&game.combat_system)
 }
+fn admit_passive_container(game: &mut GameLogic, state: AIState) {
+    let mut template = ThingTemplate::new("PassiveTestContainer");
+    template.contain_module.kind = if state == AIState::Garrisoned {
+        crate::game_logic::ContainModuleKind::Garrison
+    } else {
+        crate::game_logic::ContainModuleKind::Transport
+    };
+    let mut container = Object::new(template, ObjectId(98403), Team::USA);
+    container.passengers_allowed_to_fire = true;
+    container.occupants.push(SOURCE);
+    game.add_object(container);
+}
+
+#[test]
+fn authored_held_passengers_obey_each_containers_fire_permission() {
+    fn session(container_name: &str, subdued: bool) -> (GameLogic, ObjectId, ObjectId) {
+        let mut game = GameLogic::new();
+        let mut weapon = gamelogic::weapon::WeaponTemplate::new("PassengerTestGun".into());
+        weapon.primary_damage = 25.0;
+        weapon.attack_range = 200.0;
+        weapon.projectile_name = "NONE".into();
+        game.admit_receiving_weapon_snapshot(vec![("PassengerTestGun".into(), weapon)]).unwrap();
+        game.admit_object_ini_sources([("PassengerPermission.ini".into(),
+            "Object ArmedCarrier\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 300\n InitialHealth = 300\n End\n Behavior = TransportContain Contain\n Slots = 2\n PassengersAllowedToFire = Yes\n AllowInsideKindOf = INFANTRY\n End\nEnd\nObject SilentCarrier\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 300\n InitialHealth = 300\n End\n Behavior = TransportContain Contain\n Slots = 2\n PassengersAllowedToFire = No\n AllowInsideKindOf = INFANTRY\n End\nEnd\nObject WindowBunker\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 300\n InitialHealth = 300\n End\n Behavior = GarrisonContain Contain\n ContainMax = 2\n End\nEnd\nObject Gunner\n KindOf = INFANTRY SELECTABLE CAN_ATTACK\n WeaponSet\n Conditions = None\n Weapon = PRIMARY PassengerTestGun\n End\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface AI\n End\nEnd\nObject Enemy\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\nEnd\n".into()
+        )]).unwrap();
+        let container = game.create_object(container_name, Team::USA, Vec3::ZERO).unwrap();
+        let rider = game.create_object("Gunner", Team::USA, Vec3::ZERO).unwrap();
+        let victim = game.create_object("Enemy", Team::GLA, Vec3::new(30.0, 0.0, 0.0)).unwrap();
+        let garrison = container_name == "WindowBunker";
+        let host = game.host_object_mut(container).unwrap();
+        host.occupants.push(rider);
+        host.status.disabled_subdued = subdued;
+        let child = game.host_object_mut(rider).unwrap();
+        child.contained_by = Some(container);
+        child.set_status_disabled_held(true);
+        child.restore_ai_state(if garrison { AIState::Garrisoned } else { AIState::Docked });
+        game.frame = 30;
+        (game, rider, victim)
+    }
+
+    for (container, subdued, allowed) in [
+        ("ArmedCarrier", false, true),
+        ("SilentCarrier", false, false),
+        ("WindowBunker", false, true),
+        ("WindowBunker", true, false),
+    ] {
+        let (mut owner, rider, victim) = session(container, subdued);
+        let (peer, peer_rider, peer_victim) = session(container, subdued);
+        assert_eq!((rider, victim), (peer_rider, peer_victim));
+        assert!(owner.host_object(rider).unwrap().can_attack());
+        assert_eq!(owner.passenger_allowed_to_fire(rider), allowed);
+        let hp = owner.host_object(victim).unwrap().health.current;
+        if container == "WindowBunker" {
+            owner.try_garrison_residual_fire(rider);
+        } else {
+            owner.try_transport_passenger_residual_fire(rider);
+        }
+        assert_eq!(owner.host_object(victim).unwrap().health.current < hp, allowed, "{container} subdued={subdued}");
+        assert_eq!(peer.host_object(peer_victim).unwrap().health.current, hp);
+    }
+    let (mut owner, rider, victim) = session("ArmedCarrier", false);
+    owner.host_object_mut(rider).unwrap().status.disabled_emp = true;
+    assert!(owner.passenger_allowed_to_fire(rider));
+    let hp = owner.host_object(victim).unwrap().health.current;
+    owner.try_transport_passenger_residual_fire(rider);
+    assert_eq!(owner.host_object(victim).unwrap().health.current, hp);
+}
+
 #[test]
 fn real_passive_secondary_preserves_container_state_and_delays_damage_from_actual_muzzle() {
     for state in [AIState::Garrisoned, AIState::Docked] {
         let mut game = world(state.clone(), 0.0);
+        admit_passive_container(&mut game, state.clone());
         let peer = world(state.clone(), 0.0);
         let hp = health(&game);
         let barrel = game
@@ -100,6 +169,7 @@ fn real_passive_secondary_preserves_container_state_and_delays_damage_from_actua
 #[test]
 fn actual_passive_windup_emits_nothing_until_deadline_and_keeps_prior_pending_shot() {
     let mut game = world(AIState::Garrisoned, 0.5);
+    admit_passive_container(&mut game, AIState::Garrisoned);
     let mut prior = Object::new(
         ThingTemplate::new("PriorPassiveShot"),
         ObjectId(98404),

@@ -150,16 +150,11 @@ impl GameLogic {
     pub(in crate::game_logic) fn on_supply_center_build_complete_with_effects_checked(
         &mut self,
         object_id: ObjectId,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        _interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        _ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        use crate::game_logic::host_upgrades::is_supply_center_template;
-        let is_supply_center = self.objects.get(&object_id).is_some_and(|obj| {
-            obj.thing().template.has_supply_center_create
-                || obj.is_kind_of(KindOf::SupplyCenter)
-                || obj.is_kind_of(KindOf::FSSupplyCenter)
-                || is_supply_center_template(&obj.template_name)
-        });
+        let is_supply_center = self.objects.get(&object_id)
+            .is_some_and(|obj| obj.thing().template.has_supply_center_create);
         if is_supply_center {
             self.supply_create_center_registers =
                 self.supply_create_center_registers.saturating_add(1);
@@ -167,15 +162,6 @@ impl GameLogic {
             for player in self.players.values_mut() {
                 player.add_supply_center(object_id);
             }
-
-            // C++ SupplyCenter/Stash SpawnBehavior ModuleTag_12 only becomes
-            // eligible after UNDER_CONSTRUCTION clears.  It creates the free
-            // starter collector outside the paid ProductionUpdate queue.
-            let _ = self.spawn_supply_center_one_shot_collector_with_effects_checked(
-                object_id,
-                interpreter,
-                ui,
-            )?;
         }
 
         Ok(())

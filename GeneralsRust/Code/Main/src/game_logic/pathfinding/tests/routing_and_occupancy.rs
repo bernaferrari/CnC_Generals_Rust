@@ -775,6 +775,7 @@ fn layer_wall_classify_and_search() {
     g.set_wall_height(12.0);
     // Fat enough that cell (8,8) and its 3x3 are 4-corner CLEAR (no pinch).
     g.add_wall_piece(1, Vec3::new(85.0, 0.0, 85.0), 0.0, 40.0, 40.0);
+    g.allocate_and_classify_wall_layer();
     assert!(g.wall_piece_count() == 1);
     let center = GridPos::new(8, 8);
     assert_eq!(
@@ -832,6 +833,7 @@ fn infantry_paths_along_classified_wall() {
     }
     sys.grid
         .add_wall_piece(7, Vec3::new(85.0, 0.0, 85.0), 0.0, 50.0, 25.0);
+    sys.grid.allocate_and_classify_wall_layer();
     let objects = HostObjectStore::new();
     let from = Vec3::new(50.0, 12.0, 85.0);
     let to = Vec3::new(110.0, 12.0, 85.0);
@@ -868,6 +870,7 @@ fn destroy_wall_piece_splats_units_on_deck() {
     sys.set_wall_height(12.0);
     sys.grid
         .add_wall_piece(1, Vec3::new(80.0, 0.0, 50.0), 0.0, 20.0, 8.0);
+    sys.grid.allocate_and_classify_wall_layer();
     let mut objects = HostObjectStore::new();
     let mut inf_t = ThingTemplate::new("RedGuard");
     inf_t.add_kind_of(KindOf::Infantry);

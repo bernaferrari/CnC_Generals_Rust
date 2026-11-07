@@ -1077,7 +1077,6 @@ impl GameLogic {
         // Resolve command-driven support states (guard/repair/docking/garrison) after AI decisions.
         // C++ SlavedUpdate.cpp:91-261 follow / guard / 2x GuardMaxRange recall.
         self.update_slaved_drone_follow_with_effects(object_ids, presentation_effects)?;
-        self.sync_all_spawn_behavior_veterancy();
         // C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.
         self.update_demo_trap_detonate_when_killed_with_effects(presentation_effects);
         self.update_support_states_with_effects(object_ids, dt, presentation_effects)?;

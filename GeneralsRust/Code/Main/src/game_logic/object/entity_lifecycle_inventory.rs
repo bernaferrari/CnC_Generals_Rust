@@ -67,6 +67,13 @@ pub(crate) fn decode_payload<T: for<'de> Deserialize<'de>>(
     })
 }
 
+pub(crate) fn has_railed_dock(object: &Object) -> bool {
+    object.get_template().receiving_client_template.as_ref().is_some_and(|template| {
+        template.behavior_modules().iter().any(|module|
+            module.name.as_str().eq_ignore_ascii_case("RailedTransportDockUpdate"))
+    })
+}
+
 fn push_opt<T: Serialize>(
     out: &mut Vec<EntityModuleState>,
     tag: &'static str,
@@ -364,6 +371,7 @@ pub(crate) fn collect_module_states(
             &RailroadBehaviorResidual { car: car.clone() },
         )?;
     }
+    push_present(&mut out, TAG_RAILED_DOCK, has_railed_dock(object), &object.railed_dock)?;
     push_present(
         &mut out,
         TAG_PATH_EXTRA_DISTANCE,

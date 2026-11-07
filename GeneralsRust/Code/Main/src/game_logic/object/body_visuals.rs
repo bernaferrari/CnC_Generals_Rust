@@ -55,6 +55,12 @@ impl Object {
         if self.is_inactive_body() {
             return old_state;
         }
+        // ImmortalBody overrides internalChangeHealth itself, not just damage.
+        let delta = if self.uses_immortal_body() {
+            delta.max(-self.health.current + 1.0)
+        } else {
+            delta
+        };
         self.previous_health = self.health.current;
         self.health.current += delta;
         if self.health.current > self.health.maximum {
@@ -390,6 +396,22 @@ mod tests {
         object.last_damage_timestamp = Some(9);
         object.last_healing_timestamp = Some(11);
         object
+    }
+
+    #[test]
+    fn immortal_body_initial_health_floor_and_healing_are_visible_to_consumers() {
+        let mut template = ThingTemplate::new("AuthoredImmortal");
+        template.body_kind = Some(crate::game_logic::thing::BodyKind::Immortal);
+        template.set_health(100.0);
+        let mut object = Object::new(template, ObjectId(8), Team::USA);
+        object.set_initial_health_percent(0);
+        assert_eq!(object.health.current, 1.0);
+        assert!(object.is_alive());
+        object.heal(20.0, &mut crate::game_logic::HostHealthEvents::default(), 1);
+        assert_eq!(object.health.current, 21.0);
+        object.set_initial_health_percent(0);
+        assert_eq!(object.health.current, 1.0);
+        assert!(object.is_alive());
     }
 
     #[test]

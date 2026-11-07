@@ -130,11 +130,12 @@ fn world_with_options(
 ) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
     let mut world = GameLogic::new();
     let mut source = "Object GroupUnit\n KindOf = SELECTABLE INFANTRY\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\nObject GroupInert\n KindOf = SELECTABLE\nEnd\n".to_owned();
-    source.push_str("Object LockedSpawn\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = SpawnAttacker\n SlavesHaveFreeWill = No\n End\nEnd\nObject FreeSpawn\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = SpawnAttacker\n SlavesHaveFreeWill = Yes\n End\nEnd\nObject SpawnAttacker\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n");
+    source.push_str("Object LockedSpawn\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = SpawnAttacker\n SlavesHaveFreeWill = No\n End\n Behavior = DefaultProductionExitUpdate Exit\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:0 Y:0 Z:0\n End\nEnd\nObject FreeSpawn\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = SpawnAttacker\n SlavesHaveFreeWill = Yes\n End\n Behavior = DefaultProductionExitUpdate Exit\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:0 Y:0 Z:0\n End\nEnd\nObject SpawnAttacker\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n");
     let mut locomotors = LocomotorStore::new_owned();
     locomotors.apply_source("Locomotor GroupGround\n Surfaces = GROUND\n Speed = 40\n Acceleration = 60\n TurnRate = 120\n Appearance = TWO_LEGS\nEnd\nLocomotor GroupHijackerGround\n Surfaces = GROUND\n Speed = 30\n Acceleration = 60\n TurnRate = 120\n Appearance = TWO_LEGS\nEnd\nLocomotor GroupHijackVehicle\n Surfaces = GROUND\n Speed = 30\n Acceleration = 60\n TurnRate = 120\n Appearance = FOUR_WHEELS\nEnd\n").unwrap();
     world.admit_locomotor_definitions(locomotors).unwrap();
     source.push_str("Object GLAInfantryHijacker\n IsTrainable = Yes\n KindOf = INFANTRY SELECTABLE\n Locomotor = SET_NORMAL GroupHijackerGround\n ExperienceRequired = 0 60 150 300\n Body = ActiveBody HijackerBody\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface HijackerAI\n End\n Behavior = HijackerUpdate HijackerRider\n End\n Behavior = ConvertToHijackedVehicleCrateCollide HijackerCollide\n End\nEnd\nObject GroupHijackVehicle\n KindOf = VEHICLE SELECTABLE SCORE\n Locomotor = SET_NORMAL GroupHijackVehicle\n Body = ActiveBody VehicleBody\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = AIUpdateInterface VehicleAI\n End\n Behavior = EjectPilotDie PilotEject\n End\nEnd\n");
+    source.push_str("Object FreeVehicleNest\n KindOf = STRUCTURE SELECTABLE\n Geometry = BOX\n GeometryMajorRadius = 15\n GeometryMinorRadius = 15\n GeometryHeight = 20\n Body = ActiveBody Body\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = FreeVehicle\n SlavesHaveFreeWill = Yes\n End\n Behavior = DefaultProductionExitUpdate Exit\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:40 Y:0 Z:0\n End\nEnd\nObject FreeVehicle\n KindOf = VEHICLE SELECTABLE\n Locomotor = SET_NORMAL GroupHijackVehicle\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = PhysicsBehavior Physics\n Mass = 40\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n");
     if with_transport {
         source = source.replace(" KindOf = SELECTABLE INFANTRY\n", " KindOf = SELECTABLE INFANTRY\n TransportSlotCount = 1\n Locomotor = SET_NORMAL GroupGround\n");
         source.push_str("Object GroupCarrier\n KindOf = SELECTABLE VEHICLE\n Body = ActiveBody BodyTag\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = TransportContain ContainTag\n ContainMax = 2\n Slots = 2\n AllowInsideKindOf = INFANTRY\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n");
@@ -153,16 +154,27 @@ fn world_with_options(
             1,
         );
     }
+    source = source.replacen(
+        "Object SpawnAttacker\n",
+        "Object SpawnAttacker\n WeaponSet\n Conditions = None\n Weapon = PRIMARY SpawnFixtureWeapon\n End\n",
+        1,
+    );
     world
         .admit_object_ini_sources([("AiGroupOwner.ini".into(), source)])
         .unwrap();
+    let mut spawn_weapon = gamelogic::weapon::WeaponTemplate::new("SpawnFixtureWeapon".into());
+    spawn_weapon.primary_damage = 10.0;
+    spawn_weapon.attack_range = 200.0;
+    spawn_weapon.projectile_name = "NONE".into();
+    let mut weapons = vec![("SpawnFixtureWeapon".into(), spawn_weapon)];
     if armed {
         let mut weapon = gamelogic::weapon::WeaponTemplate::new("GroupFixtureWeapon".into());
         weapon.primary_damage = 1.0;
         weapon.attack_range = 200.0;
         weapon.projectile_name = "NONE".into();
-        world.admit_receiving_weapon_snapshot(vec![("GroupFixtureWeapon".into(), weapon)]).unwrap();
+        weapons.push(("GroupFixtureWeapon".into(), weapon));
     }
+    world.admit_receiving_weapon_snapshot(weapons).unwrap();
     let mut templates = PlayerTemplateStore::new_owned();
     templates.apply_source(
         "PlayerTemplate FactionCivilian\n Side = Civilian\nEnd\nPlayerTemplate FactionAmerica\n Side = America\nEnd\n",
@@ -259,27 +271,77 @@ fn hunt(world: &mut GameLogic) {
 }
 
 #[test]
+fn ordinary_free_will_vehicle_spawn_moves_in_its_own_world() {
+    use generals_main::save_load::snapshot::capture_lifecycle_tail;
+
+    fn session(path: &std::path::Path) -> (GameLogic, ObjectId) {
+        let (mut game, _, _, _) = world(path);
+        let parent = game
+            .create_object_for_player("FreeVehicleNest", 1, Vec3::new(130.0, 0.0, 130.0))
+            .unwrap();
+        for _ in 0..32 {
+            game.update_with_dt(1.0 / 30.0);
+            if game.host_objects().registered_values().any(|unit| unit.producer_id == Some(parent)) {
+                break;
+            }
+        }
+        let child = capture_lifecycle_tail(&game)
+            .unwrap()
+            .spawn_behavior_rosters
+            .unwrap()
+            .into_iter()
+            .find(|roster| roster.producer_id == parent.0)
+            .unwrap()
+            .children[0]
+            .child_id;
+        (game, ObjectId(child))
+    }
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = map_file(directory.path());
+    let (mut owner, child) = session(&path);
+    let (peer, peer_child) = session(&path);
+    assert_eq!(child, peer_child);
+    let initial = owner.host_object(child).unwrap().get_position();
+    assert!(!owner.host_object(child).unwrap().status.disabled_held);
+    assert!(!peer.host_object(peer_child).unwrap().status.disabled_held);
+    for _ in 0..120 {
+        owner.update_with_dt(1.0 / 30.0);
+    }
+    assert!(
+        owner.host_object(child).unwrap().get_position().distance(initial) > 20.0,
+        "the authored exit path must carry the child out of the structure"
+    );
+    generals_main::command_executor::CommandExecutor::new(&mut owner, 1)
+        .execute_command(GameCommand {
+            command_type: CommandType::Move {
+                destination: Vec3::new(260.0, 0.0, 130.0),
+            },
+            player_id: 1,
+            command_id: 1,
+            timestamp: UNIX_EPOCH,
+            selected_units: vec![child],
+            modifier_keys: ModifierKeys::default(),
+        })
+        .unwrap();
+    for _ in 0..240 {
+        owner.update_with_dt(1.0 / 30.0);
+    }
+    assert!(owner.host_object(child).unwrap().get_position().distance(initial) > 1.0);
+    assert!(owner.host_object(child).unwrap().get_position().distance(Vec3::new(260.0, 0.0, 130.0)) < 12.0,
+        "vehicle failed to reach commanded destination: {:?}", owner.host_object(child).unwrap().get_position());
+    assert_eq!(peer.host_object(peer_child).unwrap().get_position(), initial);
+}
+
+#[test]
 fn team_attack_orders_only_spawned_slaves_without_free_will() {
-    use generals_main::game_logic::Weapon;
     use generals_main::save_load::snapshot::capture_lifecycle_tail;
 
     fn setup(path: &std::path::Path) -> (GameLogic, ObjectId, ObjectId, ObjectId, Vec<ObjectId>) {
         let (mut game, _, _, _) = world(path);
-        game.templates
-            .get_mut("SpawnAttacker")
-            .unwrap()
-            .set_primary_weapon(Weapon {
-                damage: 10.0,
-                range: 200.0,
-                ..Weapon::default()
-            });
         let mut enemy = Player::new(2, Team::GLA, "Enemy", false);
         enemy.alliance_team = 2;
         game.add_player(enemy);
-        let target = game
-            .create_object_for_player("GroupUnit", 2, Vec3::new(100.0, 0.0, 40.0))
-            .unwrap();
-        game.host_object_mut(target).unwrap().name = "SpawnOrderTarget".into();
         let mut children = Vec::new();
         let mut parents = Vec::new();
         for name in ["LockedSpawn", "FreeSpawn"] {
@@ -289,6 +351,12 @@ fn team_attack_orders_only_spawned_slaves_without_free_will() {
             game.host_object_mut(parent).unwrap().team_instance_name = "HuntTeam".into();
             game.activate_leftover_team_for_host_object(parent);
             parents.push(parent);
+            for _ in 0..32 {
+                game.update_with_dt(1.0 / 30.0);
+                if game.host_objects().registered_values().any(|unit| unit.producer_id == Some(parent)) {
+                    break;
+                }
+            }
             let roster = capture_lifecycle_tail(&game)
                 .unwrap()
                 .spawn_behavior_rosters
@@ -301,11 +369,13 @@ fn team_attack_orders_only_spawned_slaves_without_free_will() {
                     .children[0]
                     .child_id,
             );
-            game.host_object_mut(child)
-                .unwrap()
-                .set_status_disabled_held(false);
+            assert!(!game.host_object(child).unwrap().status.disabled_held);
             children.push(child);
         }
+        let target = game
+            .create_object_for_player("GroupUnit", 2, Vec3::new(100.0, 0.0, 40.0))
+            .unwrap();
+        game.host_object_mut(target).unwrap().name = "SpawnOrderTarget".into();
         (game, target, children[0], children[1], parents)
     }
 

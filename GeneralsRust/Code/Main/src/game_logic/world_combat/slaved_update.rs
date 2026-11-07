@@ -24,7 +24,7 @@ impl GameLogic {
         &mut self,
         drone: ObjectId,
         master: ObjectId,
-        expected_master_birth: &std::sync::Weak<()>,
+        expected_master_birth: (u64, u64),
     ) -> bool {
         let Some(data) = self
             .objects
@@ -36,9 +36,8 @@ impl GameLogic {
         let Some(master_object) = self.objects.get(&master) else {
             return false;
         };
-        if !expected_master_birth.ptr_eq(&std::sync::Arc::downgrade(
-            &master_object.visual_draw_identity_token,
-        )) {
+        if expected_master_birth.0 == 0 || self.visual_world_epoch != expected_master_birth.1
+            || expected_master_birth.0 != master_object.visual_object_generation {
             return false;
         }
         let master_stealthed = master_object.status.stealthed;

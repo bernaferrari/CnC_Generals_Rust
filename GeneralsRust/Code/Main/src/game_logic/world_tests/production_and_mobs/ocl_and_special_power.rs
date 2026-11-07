@@ -585,25 +585,19 @@ fn tunnel_network_oneshot_spawns_two_rpg_world_objects() {
     logic
         .players
         .insert(0, crate::game_logic::Player::new(0, Team::GLA, "GLA", true));
-    let mut tunnel = ThingTemplate::new("GLATunnelNetwork");
-    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
-    tunnel.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
-    tunnel
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(1000.0);
-    logic.templates.insert("GLATunnelNetwork".into(), tunnel);
-    let mut rpg = ThingTemplate::new("GLAInfantryTunnelDefender");
-    rpg.add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(100.0);
     logic
-        .templates
-        .insert("GLAInfantryTunnelDefender".into(), rpg);
+        .admit_object_ini_sources([(
+            "TunnelSpawn.ini".into(),
+            "Object GLATunnelNetwork\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = TunnelContain ContainTag\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 2\n SpawnTemplateName = GLAInfantryTunnelDefender\n End\n Behavior = DefaultProductionExitUpdate ExitTag\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:0 Y:0 Z:0\n End\nEnd\nObject GLAInfantryTunnelDefender\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
+        )])
+        .expect("tunnel spawn definitions");
 
     let tunnel_id = logic
         .create_object("GLATunnelNetwork", Team::GLA, Vec3::ZERO)
         .expect("tunnel");
+    for _ in 0..32 {
+        logic.update();
+    }
     let troopers: Vec<_> = logic
         .objects
         .registered_values()
@@ -622,12 +616,8 @@ fn tunnel_network_oneshot_spawns_two_rpg_world_objects() {
     for id in &troopers {
         let trooper = logic.host_object(*id).expect("trooper");
         assert!(
-            trooper.status.disabled_held,
-            "C++ exitObjectViaDoor setDisabled(DISABLED_HELD)"
-        );
-        assert!(
-            !trooper.can_move(),
-            "HELD spawn-point units cannot march off"
+            !trooper.status.disabled_held,
+            "an ordinary production exit does not hold its spawned child"
         );
         let pos = trooper.get_position();
         assert!(
@@ -640,7 +630,9 @@ fn tunnel_network_oneshot_spawns_two_rpg_world_objects() {
     for id in troopers {
         logic.mark_object_for_destruction(id, None);
     }
-    logic.apply_spawn_behavior_on_build_complete(tunnel_id);
+    for _ in 0..32 {
+        logic.update();
+    }
     let again = logic
         .objects
         .registered_values()
@@ -655,31 +647,51 @@ fn tunnel_network_oneshot_spawns_two_rpg_world_objects() {
 }
 
 #[test]
-fn stinger_site_spawns_three_soldier_world_objects() {
+fn stinger_without_a_receiving_bone_provider_has_no_available_exit() {
     let mut logic = GameLogic::new();
     logic
         .players
         .insert(0, crate::game_logic::Player::new(0, Team::GLA, "GLA", true));
-    let mut site = ThingTemplate::new("GLAStingerSite");
-    site.add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::FSBaseDefense)
-        .set_health(1000.0);
-    logic.templates.insert("GLAStingerSite".into(), site);
-    let mut soldier = ThingTemplate::new("GLAInfantryStingerSoldier");
-    soldier
-        .add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(100.0);
-    logic
-        .templates
-        .insert("GLAInfantryStingerSoldier".into(), soldier);
+    logic.admit_object_ini_sources([(
+        "StingerSpawn.ini".into(),
+        "Object GLAStingerSite
+ KindOf = STRUCTURE SELECTABLE FS_BASE_DEFENSE SPAWNS_ARE_THE_WEAPONS
+ Draw = W3DModelDraw SiteDraw
+  DefaultConditionState
+   Model = UBStingerS
+  End
+ End
+ Body = ActiveBody SiteBody
+  MaxHealth = 1000
+  InitialHealth = 1000
+ End
+ Behavior = SpawnBehavior SiteSpawn
+  OneShot = No
+  SpawnNumber = 3
+  SpawnReplaceDelay = 30000
+  SpawnTemplateName = GLAInfantryStingerSoldier
+ End
+ Behavior = SpawnPointProductionExitUpdate SiteExit
+  SpawnPointBoneName = SpawnPoint
+ End
+End
+Object GLAInfantryStingerSoldier
+ KindOf = INFANTRY SELECTABLE
+ Body = ActiveBody SoldierBody
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+End
+".into(),
+    )]).expect("stinger spawn definitions");
 
     let site_id = logic
         .create_object("GLAStingerSite", Team::GLA, Vec3::ZERO)
         .expect("stinger");
 
-    logic.run_first_spawn_update_for_test();
+    for _ in 0..32 {
+        logic.update();
+    }
     let soldiers: Vec<_> = logic
         .objects
         .registered_values()
@@ -690,93 +702,217 @@ fn stinger_site_spawns_three_soldier_world_objects() {
         })
         .map(|o| o.id)
         .collect();
-    assert_eq!(
-        soldiers.len(),
-        3,
-        "C++ SpawnBehavior must create three GLAInfantryStingerSoldier world objects"
-    );
-    for id in &soldiers {
-        let soldier = logic.host_object(*id).expect("soldier");
-        assert!(
-            soldier.status.disabled_held,
-            "C++ exitObjectViaDoor setDisabled(DISABLED_HELD)"
-        );
-        assert!(!soldier.can_move(), "HELD hive soldiers cannot march off");
-        let pos = soldier.get_position();
-        let ring_r2 = pos.x * pos.x + pos.z * pos.z;
-        assert!(
-            (ring_r2 - 144.0).abs() > 4.0,
-            "must not invent 12wu 120° stinger ring, got {pos:?}"
-        );
-    }
-
-    logic.mark_object_for_destruction(site_id, None);
-    let living = logic
-        .objects
-        .registered_values()
-        .filter(|o| {
-            o.producer_id == Some(site_id)
-                && o.template_name
-                    .eq_ignore_ascii_case("GLAInfantryStingerSoldier")
-                && o.is_alive()
-                && !o.status.effectively_dead
-        })
-        .count();
-    assert_eq!(
-        living, 0,
-        "SpawnedRequireSpawner must kill remaining stinger soldiers with the site"
-    );
+    assert!(soldiers.is_empty(), "a missing SpawnPoint Drawable cannot reserve a door");
+    assert!(!logic.host_object(site_id).unwrap().spawn_behavior_replacement_times().is_empty());
 }
 
+#[cfg(feature = "game_client")]
 #[test]
 fn spawn_point_exit_uses_pristine_bones_and_refuses_full_slots() {
-    use gamelogic::common::{Coord3D, Matrix3D};
-    use gamelogic::object::draw::register_pristine_bone_lookup_hook;
     use std::f32::consts::FRAC_PI_2;
-
-    register_pristine_bone_lookup_hook(Some(std::sync::Arc::new(|model, _scale, _frame, bone| {
-        if model != "UBStingerSTest" {
-            return None;
+    fn bones(offset: f32, with_spawn_points: bool) -> crate::assets::AssetManager {
+        use crate::assets::{W3dHierarchy, W3dHlod, W3dHlodLod, W3dPivot};
+        let mut model = crate::assets::W3DModel::new("UBStingerSTest".into());
+        let pivot = |name: &str, parent_idx, translation, rotation| W3dPivot {
+            name: name.into(), parent_idx, translation, euler_angles: [0.; 3], rotation,
+        };
+        let q = glam::Quat::from_rotation_z(FRAC_PI_2).to_array();
+        model.hierarchy = Some(W3dHierarchy {
+            name: "SpawnHierarchy".into(),
+            pivots: vec![
+                pivot("ROOT", u32::MAX, [0., 0., 0.], [0., 0., 0., 1.]),
+                pivot("SpawnPoint01", 0, [4. + offset, 0., 0.], q),
+                pivot("SpawnPoint02", 0, [offset, 5., 0.], [0., 0., 0., 1.]),
+                pivot("SpawnPoint03", 0, [-3. + offset, -2., 0.], [0., 0., 0., 1.]),
+            ],
+            pivot_fixups: Vec::new(),
+        });
+        if !with_spawn_points {
+            model.hierarchy.as_mut().unwrap().pivots.truncate(1);
         }
-        match bone {
-            "SpawnPoint01" => Some((
-                1,
-                Matrix3D::from_rotation_translation(
-                    glam::Quat::from_rotation_z(FRAC_PI_2),
-                    glam::Vec3::new(4.0, 0.0, 0.0),
-                ),
-            )),
-            "SpawnPoint02" => Some((2, Matrix3D::from_translation(Coord3D::new(0.0, 5.0, 0.0)))),
-            "SpawnPoint03" => Some((3, Matrix3D::from_translation(Coord3D::new(-3.0, -2.0, 0.0)))),
-            _ => None,
-        }
-    })));
+        model.hlods = vec![W3dHlod {
+            version: 0, name: "UBStingerSTest".into(), hierarchy_name: "SpawnHierarchy".into(),
+            lods: vec![W3dHlodLod { max_screen_size: 1., subobjects: Vec::new() }],
+            aggregates: None, proxies: None, has_unrendered_aggregates: false,
+            has_invalid_trailing_records: false,
+        }];
+        let mut assets = crate::assets::AssetManager::new().unwrap();
+        assets.admit_test_w3d_source("UBStingerSTest", model);
+        assets
+    }
 
-    let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, crate::game_logic::Player::new(0, Team::GLA, "GLA", true));
-    let mut site = ThingTemplate::new("GLAStingerSite");
-    site.add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::FSBaseDefense)
-        .set_health(1000.0);
-    site.model_name = Some("UBStingerSTest".into());
-    logic.templates.insert("GLAStingerSite".into(), site);
-    let mut soldier = ThingTemplate::new("GLAInfantryStingerSoldier");
-    soldier
-        .add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(100.0);
-    logic
-        .templates
-        .insert("GLAInfantryStingerSoldier".into(), soldier);
+    fn authored_world() -> GameLogic {
+        let mut world = GameLogic::new();
+        let mut weapon = gamelogic::weapon::WeaponTemplate::new("StingerMissileWeapon".into());
+        weapon.primary_damage = 20.0;
+        weapon.attack_range = 225.0;
+        weapon.projectile_name = "NONE".into();
+        world.admit_receiving_weapon_snapshot(vec![("StingerMissileWeapon".into(), weapon)]).unwrap();
+        world.admit_object_ini_sources([(
+            "spawn-bones.ini".into(),
+            "Object GLAStingerSite
+ KindOf = STRUCTURE SELECTABLE SPAWNS_ARE_THE_WEAPONS
+ Draw = W3DModelDraw TestDraw
+  DefaultConditionState
+   Model = UBStingerSTest
+  End
+ End
+ Body = ActiveBody SiteBody
+  MaxHealth = 1000
+  InitialHealth = 1000
+ End
+ Behavior = SpawnBehavior SiteSpawn
+  OneShot = No
+  SpawnNumber = 3
+  SpawnReplaceDelay = 30000
+  SpawnTemplateName = GLAInfantryStingerSoldier
+ End
+ Behavior = SpawnPointProductionExitUpdate SiteExit
+  SpawnPointBoneName = SpawnPoint
+ End
+End
+Object GLAInfantryStingerSoldier
+ KindOf = INFANTRY SELECTABLE CAN_ATTACK
+ VisionRange = 400
+ WeaponSet
+  Conditions = None
+  Weapon = PRIMARY StingerMissileWeapon
+ End
+ Body = ActiveBody SoldierBody
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ Behavior = AIUpdateInterface SoldierAI
+  AutoAcquireEnemiesWhenIdle = Yes Stealthed ATTACK_BUILDINGS
+ End
+End
+Object SpawnEnemy
+ KindOf = VEHICLE SELECTABLE
+ Body = ActiveBody EnemyBody
+  MaxHealth = 1000
+  InitialHealth = 1000
+ End
+End
+Object SpawnWorker
+ KindOf = INFANTRY DOZER HARVESTER SELECTABLE
+ Body = ActiveBody WorkerBody
+  MaxHealth = 1000
+  InitialHealth = 1000
+ End
+End
+Object SpawnStructure
+ KindOf = STRUCTURE SELECTABLE
+ Body = ActiveBody StructureBody
+  MaxHealth = 1000
+  InitialHealth = 1000
+ End
+End
+".into(),
+        )]).unwrap();
+        world.set_ai_definition_base(game_engine::common::ini::AIData {
+            guard_inner_modifier_ai: 1.1,
+            guard_outer_modifier_ai: 1.333,
+            aggressive_range_modifier: 1.5,
+            ..Default::default()
+        });
+        let mut owner = crate::game_logic::Player::new(0, Team::GLA, "GLA", false);
+        owner.alliance_team = 1;
+        world.add_player(owner);
+        let mut enemy = crate::game_logic::Player::new(1, Team::USA, "Enemy", true);
+        enemy.alliance_team = 2;
+        world.add_player(enemy);
+        assert!(world.select_local_player(Some(1)));
+        world.setup_skirmish_ai(1);
+        assert!(world.is_host_ai_active(0));
+        world
+    }
+    let mut logic = authored_world();
+    let mut peer = authored_world();
+    let peer_site = peer.create_object("GLAStingerSite", Team::GLA, Vec3::new(10.0, 2.0, 20.0)).unwrap();
 
     let site_id = logic
         .create_object("GLAStingerSite", Team::GLA, Vec3::new(10.0, 2.0, 20.0))
         .expect("stinger");
 
-    logic.run_first_spawn_update_for_test();
+    logic.frame = 4;
+    logic.update_spawn_behavior_with_effects(
+        &mut crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: Some(&bones(0.0, true)),
+            ..Default::default()
+        },
+    ).unwrap();
+    peer.frame = 4;
+    peer.update_spawn_behavior_with_effects(
+        &mut crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: Some(&bones(100.0, true)),
+            ..Default::default()
+        },
+    ).unwrap();
+    let mut missing = authored_world();
+    let missing_site = missing.create_object(
+        "GLAStingerSite", Team::GLA, Vec3::new(10.0, 2.0, 20.0),
+    ).unwrap();
+    missing.frame = 4;
+    missing.update_spawn_behavior_with_effects(
+        &mut crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: Some(&bones(0.0, false)),
+            ..Default::default()
+        },
+    ).unwrap();
+    assert!(missing.host_object(missing_site).unwrap().spawn_point_world_poses.as_ref().unwrap().is_empty());
+    assert!(missing.host_object(missing_site).unwrap().spawn_point_occupants.is_empty());
+    assert!(!missing.host_object(missing_site).unwrap().spawn_behavior_replacement_times().is_empty());
+    // C++ composes the complete Object transform with each pristine matrix.
+    // A +90° host Y rotation sends local +X toward world -Z; adding +90°
+    // host X rotation also sends local +Z toward world -Y.
+    for case in 0..3 {
+        let mut transformed = authored_world();
+        let origin = Vec3::new(10.0, 2.0, 20.0);
+        let owner = transformed.create_object("GLAStingerSite", Team::GLA, origin).unwrap();
+        let rotation = glam::Mat4::from_rotation_y(FRAC_PI_2)
+            * if case > 0 { glam::Mat4::from_rotation_x(FRAC_PI_2) } else { glam::Mat4::IDENTITY }
+            * if case > 1 { glam::Mat4::from_rotation_z(FRAC_PI_2) } else { glam::Mat4::IDENTITY };
+        assert!(transformed.set_registered_object_transform(
+            owner, glam::Mat4::from_translation(origin) * rotation,
+        ));
+        let assets = bones(0.0, true);
+        let parent = transformed.host_object(owner).unwrap();
+        let (name, expected, expected_angle) = match case {
+            0 => ("SpawnPoint01", Vec3::new(10.0, 2.0, 16.0), 0.0),
+            1 => ("SpawnPoint02", Vec3::new(10.0, -3.0, 20.0), -FRAC_PI_2),
+            _ => ("SpawnPoint02", Vec3::new(10.0, -3.0, 20.0), 0.0),
+        };
+        let poses = transformed.query_pristine_world_bone_poses(
+            parent, Some(&assets), name, 0, 1, 0, 0,
+        ).unwrap();
+        assert_eq!(poses.len(), 1);
+        assert!(poses[0].0.distance(expected) < 0.001);
+        assert!((poses[0].1 - expected_angle).abs() < 0.001);
+        assert!(transformed.query_pristine_world_bone_poses(
+            parent, Some(&assets), "NoSuchBone", 0, 1, 0, 0,
+        ).unwrap().is_empty());
+        assert!(transformed.query_pristine_world_bone_poses(
+            parent, None, name, 0, 1, 0, 0,
+        ).is_err());
+        transformed.frame = 4;
+        transformed.update_spawn_behavior_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects {
+                pristine_bones: Some(&assets),
+                ..Default::default()
+            },
+        ).unwrap();
+        let slot = if case > 0 { 1 } else { 0 };
+        let (child_id, _) = transformed.host_object(owner).unwrap().spawn_point_occupants[slot].unwrap();
+        let child = transformed.host_object(child_id).unwrap();
+        assert!((child.get_position().x - expected.x).abs() < 0.001);
+        assert!((child.get_position().z - expected.z).abs() < 0.001);
+        assert!((child.get_orientation() - expected_angle).abs() < 0.001);
+    }
+    let peer_positions: Vec<_> = peer.objects.registered_values()
+        .filter(|object| object.producer_id == Some(peer_site))
+        .map(|object| object.get_position()).collect();
+    assert_eq!(peer_positions.len(), 3);
+    assert!(peer_positions.iter().all(|position| position.x > 100.0));
     let mut soldiers: Vec<(ObjectId, Vec3, f32)> = logic
         .objects
         .registered_values()
@@ -805,9 +941,22 @@ fn spawn_point_exit_uses_pristine_bones_and_refuses_full_slots() {
         let obj = logic.host_object(*id).expect("held");
         assert!(obj.status.disabled_held);
         assert!(!obj.can_move());
+        assert_eq!(obj.vision_range, 400.0, "child uses the admitted VisionRange");
+        assert_eq!(obj.get_template().authored_ai_update_interface(), Some(true),
+            "child uses the admitted AIUpdateInterface");
+        assert!(!logic.skirmish_ai_auto_engage_paused(*id), "the authored AI owner is active");
     }
 
-    logic.apply_spawn_behavior_on_build_complete(site_id);
+    let site_bones = bones(0.0, true);
+    for _ in 0..15 {
+        logic.frame += 1;
+        logic.update_spawn_behavior_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects {
+                pristine_bones: Some(&site_bones),
+                ..Default::default()
+            },
+        ).unwrap();
+    }
     let again = logic
         .objects
         .registered_values()
@@ -822,8 +971,191 @@ fn spawn_point_exit_uses_pristine_bones_and_refuses_full_slots() {
         again, 3,
         "reserveDoorForExit refuses when every bone is occupied"
     );
+    let directory = tempfile::TempDir::new().unwrap();
+    let mut saves = crate::save_load::SaveFileManager::with_save_directory(directory.path());
+    saves.init().unwrap();
+    let info = crate::save_load::SaveGameInfo {
+        pristine_map_name: None,
+        filename: "spawn_pose".into(),
+        display_name: "spawn_pose".into(),
+        description: String::new(),
+        map_name: "SpawnPoseMap".into(),
+        campaign_side: None,
+        mission_number: None,
+        save_date: std::time::SystemTime::now(),
+        game_version: env!("CARGO_PKG_VERSION").into(),
+        play_time: std::time::Duration::ZERO,
+        difficulty: crate::save_load::GameDifficulty::Medium,
+        save_type: crate::save_load::SaveFileType::Normal,
+    };
+    saves.save_game("spawn_pose", &logic, &info).unwrap();
+    let mut loaded = authored_world();
+    saves.load_game("spawn_pose", &mut loaded).unwrap();
+    let restored_site = loaded.host_object(site_id).unwrap();
+    assert_eq!(restored_site.spawn_behavior_frames_to_wait, 15);
+    assert!(restored_site.spawn_point_world_poses.is_none());
+    assert_eq!(restored_site.spawn_point_occupants.iter().flatten().count(), 3);
+    for (id, generation) in restored_site.spawn_point_occupants.iter().flatten() {
+        assert_ne!(*generation, 0);
+        assert_eq!(*generation, loaded.host_object(*id).unwrap().visual_object_generation,
+            "saved door identity is rebound to the receiving object's admission");
+    }
+    for (id, position, _) in &soldiers {
+        assert_eq!(loaded.host_object(*id).unwrap().get_position(), *position);
+    }
+    for remaining in (1..15).rev() {
+        loaded.frame += 1;
+        loaded.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
+        assert_eq!(loaded.host_object(site_id).unwrap().spawn_behavior_frames_to_wait, remaining);
+    }
+    loaded.frame += 1;
+    loaded.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
+    assert_eq!(loaded.host_object(site_id).unwrap().spawn_behavior_frames_to_wait, 15);
+    let loaded_enemy = loaded.create_object_for_player(
+        "SpawnEnemy", 1, Vec3::new(50.0, 2.0, 20.0),
+    ).unwrap();
+    let loaded_hp = loaded.host_object(loaded_enemy).unwrap().health.current;
+    for _ in 0..240 {
+        loaded.update_with_dt(1.0 / 30.0);
+        if loaded.host_object(loaded_enemy).unwrap().health.current < loaded_hp { break; }
+    }
+    assert!(loaded.host_object(loaded_enemy).unwrap().health.current < loaded_hp,
+        "restored physical children must autonomously acquire and damage an enemy");
+    // The site itself cannot fire: only the physical held children can
+    // acquire this authored enemy and discharge the authored hitscan weapon.
+    logic.host_object_mut(site_id).unwrap().status.disabled_emp = true;
+    let blocked = soldiers[0].0;
+    logic.host_object_mut(blocked).unwrap().status.disabled_emp = true;
+    let enemy = logic.create_object_for_player(
+        "SpawnEnemy", 1, Vec3::new(50.0, 2.0, 20.0),
+    ).unwrap();
+    let peer_enemy = peer.create_object_for_player(
+        "SpawnEnemy", 1, Vec3::new(50.0, 2.0, 20.0),
+    ).unwrap();
+    assert_eq!(enemy, peer_enemy);
+    let peer_hp = peer.host_object(peer_enemy).unwrap().health.current;
+    let initial_hp = logic.host_object(enemy).unwrap().health.current;
+    let mut saw_target = false;
+    for _ in 0..240 {
+        logic.update_with_dt(1.0 / 30.0);
+        saw_target |= soldiers.iter().skip(1).any(|(id, _, _)|
+            logic.host_object(*id).is_some_and(|child| child.target == Some(enemy)));
+        assert!(logic.host_object(blocked).unwrap().target.is_none());
+        if logic.host_object(enemy).unwrap().health.current < initial_hp {
+            break;
+        }
+    }
+    assert!(saw_target, "an authored held child must autonomously acquire the enemy");
+    assert!(logic.host_object(enemy).unwrap().health.current < initial_hp,
+        "an authored held child must inflict real weapon damage");
+    assert_eq!(peer.host_object(peer_enemy).unwrap().health.current, peer_hp);
+    for victim_template in ["SpawnWorker", "SpawnStructure"] {
+        let mut world = authored_world();
+        let mut untouched = authored_world();
+        let pos = Vec3::new(10.0, 2.0, 20.0);
+        let site = world.create_object("GLAStingerSite", Team::GLA, pos).unwrap();
+        let other_site = untouched.create_object("GLAStingerSite", Team::GLA, pos).unwrap();
+        assert_eq!(site, other_site);
+        let content = bones(0.0, true);
+        for owner in [&mut world, &mut untouched] {
+            owner.frame = 4;
+            owner.update_spawn_behavior_with_effects(
+                &mut crate::game_logic::ScriptPresentationEffects {
+                    pristine_bones: Some(&content),
+                    ..Default::default()
+                },
+            ).unwrap();
+        }
+        let child_ids: Vec<_> = world.objects.registered_values()
+            .filter(|child| child.producer_id == Some(site))
+            .map(|child| child.id)
+            .collect();
+        assert_eq!(child_ids.len(), 3);
+        assert!(child_ids.iter().all(|id| world.host_object(*id).unwrap().status.disabled_held));
+        world.host_object_mut(site).unwrap().status.disabled_emp = true;
+        world.host_object_mut(child_ids[0]).unwrap().status.disabled_emp = true;
+        let target_pos = Vec3::new(50.0, 2.0, 20.0);
+        let victim = world.create_object_for_player(victim_template, 1, target_pos).unwrap();
+        let other_victim = untouched.create_object_for_player(victim_template, 1, target_pos).unwrap();
+        assert_eq!(victim, other_victim);
+        let hp = world.host_object(victim).unwrap().health.current;
+        let mut acquired = false;
+        for _ in 0..240 {
+            world.update_with_dt(1.0 / 30.0);
+            acquired |= child_ids.iter().skip(1).any(|id|
+                world.host_object(*id).is_some_and(|child| child.target == Some(victim)));
+            assert!(world.host_object(child_ids[0]).unwrap().target.is_none());
+            if world.host_object(victim).unwrap().health.current < hp {
+                break;
+            }
+        }
+        assert!(acquired, "held child must acquire unarmed {victim_template}");
+        assert!(world.host_object(victim).unwrap().health.current < hp,
+            "held child must damage unarmed {victim_template}");
+        assert_eq!(untouched.host_object(other_victim).unwrap().health.current, hp);
+    }
 
-    register_pristine_bone_lookup_hook(None);
+}
+
+#[test]
+fn retail_stinger_w3d_spawns_held_children_from_mounted_archives() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../windows_game");
+    let base = root.join("Command & Conquer Generals/W3D.big");
+    let expansion = root.join("Command & Conquer Generals Zero Hour/Data/W3DZH.big");
+    if !base.exists() || !expansion.exists() {
+        eprintln!("retail W3D archives unavailable");
+        return;
+    }
+    let mut manager = crate::assets::AssetManager::new().unwrap();
+    manager.load_user_mods("", base.to_str().unwrap()).unwrap();
+    manager.load_user_mods("", expansion.to_str().unwrap()).unwrap();
+    let assets = std::sync::Mutex::new(manager);
+    let mut world = GameLogic::new();
+    world.admit_object_ini_sources([(
+        "retail-stinger-w3d.ini".into(),
+        "Object GLAStingerSite
+ KindOf = STRUCTURE SELECTABLE SPAWNS_ARE_THE_WEAPONS
+ Draw = W3DModelDraw DrawTag
+  DefaultConditionState
+   Model = UBStingerS
+  End
+ End
+ Body = ActiveBody SiteBody
+  MaxHealth = 1000
+  InitialHealth = 1000
+ End
+ Behavior = SpawnBehavior SiteSpawn
+  SpawnNumber = 3
+  SpawnReplaceDelay = 30000
+  SpawnTemplateName = GLAInfantryStingerSoldier
+ End
+ Behavior = SpawnPointProductionExitUpdate SiteExit
+  SpawnPointBoneName = SpawnPoint
+ End
+End
+Object GLAInfantryStingerSoldier
+ KindOf = INFANTRY SELECTABLE
+ Body = ActiveBody SoldierBody
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+End
+".into(),
+    )]).unwrap();
+    world.add_player(crate::game_logic::Player::new(0, Team::GLA, "GLA", true));
+    let site = world.create_object("GLAStingerSite", Team::GLA, Vec3::ZERO).unwrap();
+    world.frame = 4;
+    world.update_spawn_behavior_with_effects(
+        &mut crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: Some(&assets),
+            ..Default::default()
+        },
+    ).unwrap();
+    let children: Vec<_> = world.objects.registered_values()
+        .filter(|object| object.producer_id == Some(site)).collect();
+    assert_eq!(children.len(), 3, "retail W3D must expose three available SpawnPoints");
+    assert!(children.iter().all(|child| child.status.disabled_held));
+    assert!(children.iter().any(|child| child.get_position().x != 0.0 || child.get_position().z != 0.0));
 }
 
 #[test]
@@ -918,7 +1250,7 @@ fn spawned_require_spawner_kills_children_through_their_own_die_modules() {
     logic
         .admit_object_ini_sources([(
             "RequiredSpawnLib.ini".into(),
-            "Object Nest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 2\n SpawnTemplateName = Child\n SpawnedRequireSpawner = Yes\n End\nEnd\nObject Child\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SlowDeathBehavior Death\n DestructionDelay = 3000\n End\nEnd\n"
+            "Object Nest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 2\n SpawnTemplateName = Child\n SpawnedRequireSpawner = Yes\n End\n Behavior = DefaultProductionExitUpdate ExitTag\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:0 Y:0 Z:0\n End\nEnd\nObject Child\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SlowDeathBehavior Death\n DestructionDelay = 3000\n End\nEnd\n"
                 .into(),
         )])
         .expect("ini");
@@ -928,6 +1260,9 @@ fn spawned_require_spawner_kills_children_through_their_own_die_modules() {
     let nest = logic
         .create_object_for_player("Nest", 1, Vec3::ZERO)
         .expect("nest");
+    for _ in 0..32 {
+        logic.update();
+    }
     let children: Vec<_> = logic
         .objects
         .registered_values()

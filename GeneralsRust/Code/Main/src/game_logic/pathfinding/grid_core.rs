@@ -68,6 +68,10 @@ impl PathfindingGrid {
             layer_occ: HashMap::new(),
             wall_pieces: Vec::new(),
             wall_cells: HashMap::new(),
+            wall_layer_allocated: false,
+            wall_bounds: None,
+            wall_classified_as_bridge: false,
+            wall_map_initialized: false,
             wall_height: 0.0,
             terrain_gen: 1,
             query_path_diameter: 1,
@@ -280,7 +284,10 @@ impl PathfindingGrid {
         z: f32,
         ground_source: &PathfindingGround<'_>,
     ) -> f32 {
-        if self.wall_cells.contains_key(&(pos.x, pos.y)) && self.wall_height > 0.0 {
+        if !self.wall_classified_as_bridge
+            && self.wall_cells.contains_key(&(pos.x, pos.y))
+            && self.wall_height > 0.0
+        {
             return self.wall_height;
         }
         if let Some(id) = self.host_deck_layer_at(pos) {
@@ -1170,7 +1177,7 @@ impl PathfindingGrid {
         self.flight_bridge_order.clear();
         // C++ classifyMap keeps m_layers[LAYER_WALL] when pieces remain
         // (AIPathfind.cpp:4650-4651). Do not drop the deck on terrain rebuild.
-        self.allocate_and_classify_wall_layer();
+        self.classify_wall_layer();
     }
 
     pub fn export_static_block_mask(&self) -> Vec<bool> {

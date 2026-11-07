@@ -504,7 +504,6 @@ fn production_progress_log_drives_set_production_queue() {
             BuildingData, BuildingType, ProductionItem, ProductionKind, Resources,
         };
         let mut data = BuildingData::new(BuildingType::Barracks);
-        data.exit_delay_remaining = 1.25;
         data.production_queue.push(ProductionItem {
             runtime_entry_identity: 0,
             template_name: "Ranger".into(),
@@ -520,6 +519,7 @@ fn production_progress_log_drives_set_production_queue() {
             kind: ProductionKind::Unit,
         });
         logic.host_object_mut(oid).unwrap().building_data = Some(data);
+        logic.host_object_mut(oid).unwrap().production_exit_state.delay_frames = 36;
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -532,7 +532,7 @@ fn production_progress_log_drives_set_production_queue() {
     assert!((e.production_queue_items[0].progress - 3.5).abs() < 1e-5);
     assert_eq!(e.production_queue_items[0].template_name, "Ranger");
     assert!((e.production_progress - 3.5).abs() < 1e-5);
-    assert!((e.exit_delay_remaining - 1.25).abs() < 1e-5);
+    assert!((e.exit_delay_remaining - 1.2).abs() < 1e-5);
 }
 
 #[test]
@@ -558,9 +558,7 @@ fn exit_delay_remaining_channel_via_production_progress() {
         .expect("id");
     {
         let o = logic.host_object_mut(oid).expect("o");
-        if let Some(bd) = o.building_data.as_mut() {
-            bd.exit_delay_remaining = 2.5;
-        }
+        o.production_exit_state.delay_frames = 75;
     }
 
     let mut shadow = GameWorldShadow::new(64);
@@ -579,10 +577,7 @@ fn exit_delay_remaining_channel_via_production_progress() {
         .host_objects()
         .lookup(&oid)
         .unwrap()
-        .building_data
-        .as_ref()
-        .map(|b| b.exit_delay_remaining)
-        .unwrap_or(-1.0);
+        .production_exit_state.delay_frames as f32 / 30.0;
     assert!((d - 2.5).abs() < 1e-5, "exit delay wb got {d}");
 }
 

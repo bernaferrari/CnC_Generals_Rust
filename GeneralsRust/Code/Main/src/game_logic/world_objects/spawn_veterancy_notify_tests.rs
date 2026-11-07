@@ -8,11 +8,13 @@ use glam::Vec3;
 fn session() -> (GameLogic, ObjectId, Vec<ObjectId>) {
     let mut world = GameLogic::new();
     world.admit_object_ini_sources([("SpawnVet.ini".into(),
-        "Object Nest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 2\n SpawnTemplateName = Child\n End\nEnd\nObject Child\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into())]).unwrap();
+        "Object Nest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n AggregateHealth = Yes\n SpawnNumber = 2\n SpawnTemplateName = Child\n End\nEnd\nObject Child\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into())]).unwrap();
     world.add_player(Player::new(1, Team::GLA, "Owner", true));
     let parent = world
         .create_object_for_player("Nest", 1, Vec3::ZERO)
         .unwrap();
+    world.frame = 1;
+    world.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
     let children: Vec<ObjectId> = world
         .host_object(parent)
         .unwrap()
@@ -37,12 +39,12 @@ fn spawn_veterancy_compares_each_child_to_captured_parent_rank_like_cpp() {
         .unwrap()
         .experience
         .level = VeterancyLevel::Elite;
-    world.sync_spawn_behavior_veterancy(parent, "Child");
+    world.compute_spawn_behavior_aggregate(parent);
     assert_eq!(level(&world, parent), VeterancyLevel::Elite);
     // Rookie child equals the captured Rookie vetLevel: untouched this pass.
     assert_eq!(level(&world, children[1]), VeterancyLevel::Rookie);
     // Next aggregate pass captures Elite and promotes the lagging child.
-    world.sync_spawn_behavior_veterancy(parent, "Child");
+    world.compute_spawn_behavior_aggregate(parent);
     assert_eq!(level(&world, children[1]), VeterancyLevel::Elite);
 }
 
@@ -61,7 +63,21 @@ fn spawn_veterancy_uses_exact_setter_in_roster_order_like_cpp() {
         .unwrap()
         .experience
         .level = VeterancyLevel::Veteran;
-    world.sync_spawn_behavior_veterancy(parent, "Child");
+    world.compute_spawn_behavior_aggregate(parent);
     // Both exceed captured Rookie: Elite then exact setVeterancyLevel(Veteran).
     assert_eq!(level(&world, parent), VeterancyLevel::Veteran);
+}
+
+#[test]
+fn aggregate_health_and_offset_use_ordinary_authored_children() {
+    let (mut world, parent, children) = session();
+    world.objects.get_mut(&children[0]).unwrap().health.current = 50.0;
+    world.compute_spawn_behavior_aggregate(parent);
+    let parent_object = world.host_object(parent).unwrap();
+    assert!(parent_object.status.masked);
+    assert_eq!(parent_object.health.current, 375.0);
+    let mean = (world.host_object(children[0]).unwrap().get_position()
+        + world.host_object(children[1]).unwrap().get_position()) / 2.0;
+    let expected = mean - parent_object.get_position();
+    assert_eq!(parent_object.health_box_offset, [expected.x, expected.y, expected.z]);
 }

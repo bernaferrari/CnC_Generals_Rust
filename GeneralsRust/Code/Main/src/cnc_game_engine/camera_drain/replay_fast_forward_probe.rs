@@ -130,24 +130,19 @@ fn install_replay_factory(engine: &mut CnCGameEngine) -> ObjectId {
         quantity_produced: 0,
         kind: ProductionKind::Unit,
     });
-    building.exit_delay_remaining_frames = 9;
-    building.exit_burst_remaining = 0;
-    building.queue_exit_state_initialized = true;
-    building.exit_delay_remaining = 9.0 / 30.0;
+    producer.production_exit_state.delay_frames = 9;
+    producer.production_exit_state.initialized = true;
     producer.building_data = Some(building);
     producer_id
 }
 
 fn host_queue_state(engine: &CnCGameEngine, producer_id: ObjectId) -> (u32, u32) {
-    let building = engine
-        .game_logic
-        .host_object(producer_id)
-        .and_then(|producer| producer.building_data.as_ref())
-        .expect("host producer queue");
+    let producer = engine.game_logic.host_object(producer_id).expect("host producer");
+    let building = producer.building_data.as_ref().expect("host producer queue");
     let head = building.production_queue.first().expect("queue head");
     (
         head.construction_frames,
-        building.exit_delay_remaining_frames,
+        producer.production_exit_state.delay_frames,
     )
 }
 
@@ -1096,13 +1091,10 @@ fn replay_factory_declares_queue_exit_before_counting_integer_delay() {
     assert!(metadata.is_queue());
     assert_eq!(metadata.exit_delay_frames, 9);
     assert_eq!(metadata.initial_burst, 0);
-    let mut building = BuildingData::new(BuildingType::Barracks);
-    building.exit_delay_remaining_frames = 9;
-    building.exit_burst_remaining = 0;
-    building.queue_exit_state_initialized = true;
-    building.exit_delay_remaining = 9.0 / 30.0;
-    building.tick_production_exit(Some(&metadata), 1.0 / 30.0);
-    assert_eq!(building.exit_delay_remaining_frames, 8);
+    let mut object = crate::game_logic::Object::new(template, ObjectId(1), Team::USA);
+    object.queue_exit_record(&metadata);
+    object.tick_queue_exit(&metadata);
+    assert_eq!(object.production_exit_state.delay_frames, 8);
 }
 
 #[cfg(test)]

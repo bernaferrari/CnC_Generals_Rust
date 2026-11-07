@@ -1376,9 +1376,8 @@ impl Object {
     }
 
     pub fn can_attack(&self) -> bool {
-        // Garrisoned units may still fire from the structure (residual
-        // fire-from-garrison). Docked transport cargo and units mid-enter cannot.
-        // Docked aircraft may attack (ParkingPlace takeoff/sortie residual).
+        // The driving world checks the enclosing Contain interface's
+        // passenger-fire permission; HELD itself only fixes position.
         // weapons_jammed: C++ canFireWeapon DISABLED_SUBDUED residual (ECM field).
         // shock stun: C++ Physics IS_STUNNED residual — cannot acquire/fire while stunned.
         // C++ Object::isAbleToAttack: OBJECT_STATUS_CAN_ATTACK (garrisoned building).
@@ -1387,17 +1386,16 @@ impl Object {
         if self.status.under_construction || self.status.sold {
             return false;
         }
-        let parked_aircraft = self.is_parked_at_airfield();
         let garrison_can = self.has_object_status_bit("CAN_ATTACK");
         let has_weapon = [0u8, 1, 2]
             .into_iter()
             .any(|slot| self.weapon_slot(slot).is_some());
         self.is_alive()
             && (has_weapon || garrison_can)
-            && !self.is_disabled()
+            && !self.has_disabled_type_except_held()
             && !self.is_shock_stunned()
             && !self.status.weapons_jammed
-            && (parked_aircraft || !matches!(self.ai_state(), AIState::Docked | AIState::Entering))
+            && self.ai_state() != AIState::Entering
     }
 
     /// Authoritative container for docked/garrisoned units.
@@ -1419,8 +1417,9 @@ impl Object {
             || self.contained_by.is_some()
     }
 
+    /// Whether this object is a valid weapon victim regardless of its own weapons.
     pub fn is_attackable(&self) -> bool {
-        self.is_alive() && self.is_kind_of(KindOf::Attackable)
+        self.is_alive() && !self.is_kind_of(KindOf::Unattackable) && !self.status.masked
     }
 }
 

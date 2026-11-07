@@ -826,6 +826,10 @@ fn active_loose_collector_rejoins_one_supply_center_before_paid_replacement() {
     // understaffed center and returns before `startTraining`, so losing a
     // supply center does not immediately buy a duplicate collector.
     let mut logic = crate::game_logic::GameLogic::new();
+    logic.admit_object_ini_sources([(
+        "SupplyReplacement.ini".into(),
+        "Object AmericaSupplyCenter\n KindOf = STRUCTURE SUPPLY_CENTER FS_SUPPLY_CENTER SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = AmericaVehicleChinook\n End\n Behavior = SupplyCenterProductionExitUpdate ExitTag\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:20 Y:0 Z:0\n End\nEnd\nObject AmericaVehicleChinook\n KindOf = VEHICLE HARVESTER SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SupplyTruckAIUpdate TruckAI\n End\nEnd\n".into(),
+    )]).expect("authored supply fixture");
     let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
     player.resources.supplies = 5_000;
     logic.add_player(player);
@@ -838,7 +842,7 @@ fn active_loose_collector_rejoins_one_supply_center_before_paid_replacement() {
         .templates
         .insert("TestOldSupplyCenter".into(), old_center_template);
 
-    let mut supply_center = crate::game_logic::ThingTemplate::new("AmericaSupplyCenter");
+    let mut supply_center = logic.templates["AmericaSupplyCenter"].clone();
     supply_center
         .add_kind_of(crate::game_logic::KindOf::Structure)
         .add_kind_of(crate::game_logic::KindOf::SupplyCenter)
@@ -849,7 +853,7 @@ fn active_loose_collector_rejoins_one_supply_center_before_paid_replacement() {
         .templates
         .insert("AmericaSupplyCenter".into(), supply_center);
 
-    let mut chinook = crate::game_logic::ThingTemplate::new("AmericaVehicleChinook");
+    let mut chinook = logic.templates["AmericaVehicleChinook"].clone();
     chinook
         .add_kind_of(crate::game_logic::KindOf::Vehicle)
         .add_kind_of(crate::game_logic::KindOf::Aircraft)
@@ -876,6 +880,10 @@ fn active_loose_collector_rejoins_one_supply_center_before_paid_replacement() {
     let replacement_center = logic
         .create_object("AmericaSupplyCenter", Team::USA, Vec3::new(100.0, 0.0, 0.0))
         .expect("replacement center");
+    for _ in 0..32 {
+        logic.frame += 1;
+        logic.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
+    }
     // Remove its authored starter so this test isolates the survivor from
     // the destroyed center.  The parent one-shot latch stays fired, as it
     // would in a real match after that starter had been lost in combat.
@@ -898,7 +906,9 @@ fn active_loose_collector_rejoins_one_supply_center_before_paid_replacement() {
     assert!(
         logic
             .host_object(replacement_center)
-            .is_some_and(|center| center.supply_center_spawn_behavior_fired)
+            .is_some_and(|center| center.spawn_behavior_initial_times_inited
+                && !center.spawn_behavior_active
+                && center.spawn_behavior_oneshot_remaining == 0)
     );
 
     let source_id = logic

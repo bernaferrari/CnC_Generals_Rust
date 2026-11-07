@@ -169,7 +169,7 @@ impl Ord for PathNode {
     }
 }
 
-/// C++ `PathfindLayer` slot 2..=14 — classified cells, not flattened onto `m_map`.
+/// A source bridge's geometry and, when allocated, its pathfinding cells.
 #[derive(Debug, Clone)]
 struct HostBridgeLayer {
     id: u8,
@@ -394,7 +394,7 @@ pub struct PathfindingGrid {
     player_ally_masks: [u16; 16],
     /// C++ `m_map[i][j].connectLayer` (0 = LAYER_INVALID).
     ground_connect: Vec<u8>,
-    /// C++ `Pathfinder::m_layers[2..=14]`.
+    /// Bridge identities occupying C++ `m_layers[2..=15]`.
     bridge_layers: Vec<HostBridgeLayer>,
     /// Terrain bridge visitation order, separate from pathfinder layer IDs.
     flight_bridge_order: Vec<u8>,
@@ -404,6 +404,11 @@ pub struct PathfindingGrid {
     wall_pieces: Vec<HostWallPiece>,
     /// C++ `m_layers[LAYER_WALL]` classified non-IMPASSABLE cells.
     wall_cells: HashMap<(i32, i32), PathfindCellType>,
+    /// Slot 15 has allocated wall cell storage, even after its pieces disappear.
+    wall_layer_allocated: bool,
+    wall_bounds: Option<(GridPos, GridPos)>,
+    wall_classified_as_bridge: bool,
+    wall_map_initialized: bool,
     /// C++ `m_wallHeight`.
     wall_height: f32,
 

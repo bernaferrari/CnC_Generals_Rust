@@ -96,6 +96,7 @@ fn overlord_bunker_infantry_residual_fire_without_helix_flag() {
         .set_health(1100.0);
     overlord.contain_module.kind = ContainModuleKind::Transport;
     overlord.contain_module.is_overlord_contain = true;
+    overlord.contain_module.passengers_allowed_to_fire = true;
     overlord.contain_module.slots = Some(1);
     let mut bunker = ThingTemplate::new("AuthoredBunkerRider");
     bunker.add_kind_of(KindOf::PortableStructure).set_health(100.0);

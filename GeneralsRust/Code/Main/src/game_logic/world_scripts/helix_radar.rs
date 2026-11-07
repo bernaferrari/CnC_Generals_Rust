@@ -481,12 +481,8 @@ impl GameLogic {
             Ok(None) => return Ok(None),
             Err(error) => {
                 if let Some((created_id, created_birth)) = error.committed {
-                    if self.object_birth_matches(created_id, &created_birth) {
-                        self.destroy_object_if_birth_matches_with_effects(
-                            created_id,
-                            &created_birth,
-                            effects,
-                        )?;
+                    if self.spawn_identity_matches(created_id, created_birth.0, created_birth.1) {
+                        self.destroy_object_with_effects(created_id, effects)?;
                     }
                 }
                 log::error!(
@@ -500,7 +496,7 @@ impl GameLogic {
         // The native constructor callbacks run before this test, matching
         // `newObject` followed by `findUpdateModule`. Do not destroy a normal
         // created object when it simply has no StickyBombUpdate behavior.
-        if !self.object_birth_matches(charge_id, &charge_birth) {
+        if !self.spawn_identity_matches(charge_id, charge_birth.0, charge_birth.1) {
             return Ok(None);
         }
         if !self.booby_trap_template_has_sticky_bomb_update(template_name) {
@@ -530,7 +526,7 @@ impl GameLogic {
             return Ok(Some(charge_id));
         }
         if !self.object_birth_matches(target_id, &target_birth)
-            || !self.object_birth_matches(charge_id, &charge_birth)
+            || !self.spawn_identity_matches(charge_id, charge_birth.0, charge_birth.1)
         {
             return Ok(Some(charge_id));
         }
@@ -544,7 +540,7 @@ impl GameLogic {
             );
         }
         if !self.object_birth_matches(target_id, &target_birth)
-            || !self.object_birth_matches(charge_id, &charge_birth)
+            || !self.spawn_identity_matches(charge_id, charge_birth.0, charge_birth.1)
         {
             return Ok(Some(charge_id));
         }
@@ -683,7 +679,7 @@ impl GameLogic {
             Ok(None) => return None,
             Err(error) => {
                 if let Some((created_id, created_birth)) = error.committed {
-                    if self.object_birth_matches(created_id, &created_birth) {
+                    if self.spawn_identity_matches(created_id, created_birth.0, created_birth.1) {
                         let _ = self
                             .mark_object_for_destruction_with_effects(created_id, None, effects);
                     }
@@ -697,15 +693,18 @@ impl GameLogic {
         // initStickyBomb; never write status onto a replacement at the same ID.
         if !self.object_birth_matches(structure_id, &target_birth)
             || !self.object_birth_matches(planter_id, &planter_birth)
-            || !self.object_birth_matches(bid, &charge_birth)
+            || !self.spawn_identity_matches(bid, charge_birth.0, charge_birth.1)
         {
-            let _ = self.destroy_object_if_birth_matches_with_effects(bid, &charge_birth, effects);
+            if self.spawn_identity_matches(bid, charge_birth.0, charge_birth.1) {
+                let _ = self.destroy_object_with_effects(bid, effects);
+            }
             return None;
         }
         if let Some(sink) = xp_sink {
             if !self.object_birth_matches(sink, &planter_birth) {
-                let _ =
-                    self.destroy_object_if_birth_matches_with_effects(bid, &charge_birth, effects);
+                if self.spawn_identity_matches(bid, charge_birth.0, charge_birth.1) {
+                    let _ = self.destroy_object_with_effects(bid, effects);
+                }
                 return None;
             }
             // SpecialAbilityUpdate::createSpecialObject calls setPosition,
@@ -726,10 +725,11 @@ impl GameLogic {
             }
             if !self.object_birth_matches(structure_id, &target_birth)
                 || !self.object_birth_matches(planter_id, &planter_birth)
-                || !self.object_birth_matches(bid, &charge_birth)
+                || !self.spawn_identity_matches(bid, charge_birth.0, charge_birth.1)
             {
-                let _ =
-                    self.destroy_object_if_birth_matches_with_effects(bid, &charge_birth, effects);
+                if self.spawn_identity_matches(bid, charge_birth.0, charge_birth.1) {
+                    let _ = self.destroy_object_with_effects(bid, effects);
+                }
                 return None;
             }
             let initial_orientation = self.objects.get(&planter_id)?.get_orientation();
@@ -743,10 +743,11 @@ impl GameLogic {
             }
             if !self.object_birth_matches(structure_id, &target_birth)
                 || !self.object_birth_matches(planter_id, &planter_birth)
-                || !self.object_birth_matches(bid, &charge_birth)
+                || !self.spawn_identity_matches(bid, charge_birth.0, charge_birth.1)
             {
-                let _ =
-                    self.destroy_object_if_birth_matches_with_effects(bid, &charge_birth, effects);
+                if self.spawn_identity_matches(bid, charge_birth.0, charge_birth.1) {
+                    let _ = self.destroy_object_with_effects(bid, effects);
+                }
                 return None;
             }
             if let Some(charge) = self.objects.get_mut(&bid) {
@@ -772,11 +773,9 @@ impl GameLogic {
                 // geometry, transform and RNG from the receiving target's
                 // current state, as ScriptActions.cpp does after newObject.
                 let Some(position) = self.booby_trap_script_perimeter_position(structure_id) else {
-                    let _ = self.destroy_object_if_birth_matches_with_effects(
-                        bid,
-                        &charge_birth,
-                        effects,
-                    );
+                    if self.spawn_identity_matches(bid, charge_birth.0, charge_birth.1) {
+                        let _ = self.destroy_object_with_effects(bid, effects);
+                    }
                     return None;
                 };
                 position
@@ -804,7 +803,7 @@ impl GameLogic {
             // StickyBombUpdate::initStickyBomb sets ProducerID to its target.
             o.producer_id = Some(structure_id);
         }
-        if !self.object_birth_matches(bid, &charge_birth) {
+        if !self.spawn_identity_matches(bid, charge_birth.0, charge_birth.1) {
             return None;
         }
         if let Some(charge) = self.objects.get_mut(&bid) {
@@ -822,9 +821,11 @@ impl GameLogic {
         // follows the charge move, then StickyBombCreated is admitted at the
         // resulting charge position.
         if !self.object_birth_matches(structure_id, &target_birth)
-            || !self.object_birth_matches(bid, &charge_birth)
+            || !self.spawn_identity_matches(bid, charge_birth.0, charge_birth.1)
         {
-            let _ = self.destroy_object_if_birth_matches_with_effects(bid, &charge_birth, effects);
+            if self.spawn_identity_matches(bid, charge_birth.0, charge_birth.1) {
+                let _ = self.destroy_object_with_effects(bid, effects);
+            }
             return None;
         }
         if let Some(target) = self.objects.get_mut(&structure_id) {

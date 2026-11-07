@@ -1246,17 +1246,6 @@ impl GameLogic {
         (result.destroyed, result.hp_lost == 0.0 && !result.destroyed)
     }
 
-    /// Advance Stinger SpawnBehavior residual slave respawns (SpawnReplaceDelay).
-    pub fn update_stinger_hive_respawns(&mut self) {
-        self.update_stinger_hive_respawns_with_effects(&mut Default::default())
-    }
-
-    pub(crate) fn update_stinger_hive_respawns_with_effects(
-        &mut self,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        self.update_stinger_hive_world_soldiers_with_effects(effects);
-    }
 
     /// Host GLA Worker residual registry.
     pub fn gla_worker_residual(

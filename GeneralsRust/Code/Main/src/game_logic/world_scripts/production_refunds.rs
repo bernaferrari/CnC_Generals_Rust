@@ -91,19 +91,6 @@ impl GameLogic {
         if let Some(item) = cancelled {
             self.refund_cancelled_production_item(owner_player_id, team, &item);
 
-            // Wave 485: last cancelled item clears factory exit-delay residual.
-            if let Some(producer) = self.objects.get_mut(&producer_id) {
-                if let Some(building) = producer.building_data.as_mut() {
-                    if building.production_queue.is_empty() && building.exit_delay_remaining > 0.0 {
-                        building.exit_delay_remaining = 0.0;
-                        #[cfg(test)]
-                        crate::game_logic::host_production_progress_log::record_exit_delay_only(
-                            producer_id,
-                            0.0,
-                        );
-                    }
-                }
-            }
             return true;
         }
 
@@ -155,21 +142,6 @@ impl GameLogic {
 
         self.refund_cancelled_production_item(owner_player_id, team, &item);
 
-        // The final cancellation releases the factory door immediately just as
-        // the name-based path does; otherwise stale exit-delay state can keep a
-        // completed producer visually occupied.
-        if let Some(producer) = self.objects.get_mut(&producer_id) {
-            if let Some(building) = producer.building_data.as_mut() {
-                if building.production_queue.is_empty() && building.exit_delay_remaining > 0.0 {
-                    building.exit_delay_remaining = 0.0;
-                    #[cfg(test)]
-                    crate::game_logic::host_production_progress_log::record_exit_delay_only(
-                        producer_id,
-                        0.0,
-                    );
-                }
-            }
-        }
         true
     }
 
@@ -200,17 +172,11 @@ impl GameLogic {
 
         let mut cancelled_items: Vec<ProductionItem> = Vec::new();
         let mut cancelled_any = false;
-        let mut cleared_exit_delay = false;
         if let Some(producer) = self.objects.get_mut(&producer_id) {
             if let Some(building) = producer.building_data.as_mut() {
                 for item in building.production_queue.drain(..) {
                     cancelled_items.push(item);
                     cancelled_any = true;
-                }
-                // Wave 485: empty queue clears QueueProductionExitUpdate residual.
-                if cancelled_any && building.exit_delay_remaining > 0.0 {
-                    building.exit_delay_remaining = 0.0;
-                    cleared_exit_delay = true;
                 }
             }
         }
@@ -219,14 +185,6 @@ impl GameLogic {
         if cancelled_any {
             for item in &cancelled_items {
                 self.refund_cancelled_production_item(owner_player_id, team, item);
-            }
-            // Tests may inspect the exit delay already cleared on BuildingData.
-            if cleared_exit_delay {
-                #[cfg(test)]
-                crate::game_logic::host_production_progress_log::record_exit_delay_only(
-                    producer_id,
-                    0.0,
-                );
             }
         }
 

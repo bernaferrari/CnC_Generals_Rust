@@ -1989,6 +1989,11 @@ impl AssetManager {
         self.w3d_render_object_prototypes.lookup(full_name)
     }
 
+    #[cfg(test)]
+    pub(crate) fn admit_test_w3d_source(&mut self, stem: &str, model: W3DModel) {
+        self.w3d_render_object_prototypes.register_source_model(stem, model);
+    }
+
     /// Resolve one exact C++ render-object prototype, loading the source W3D
     /// named by the portion before its first dot on a cache miss.
     ///

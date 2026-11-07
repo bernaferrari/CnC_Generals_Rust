@@ -190,6 +190,16 @@ impl GameLogic {
         object.attach_host_trigger_world(&self.host_trigger_world, &self.team_factory);
         object.visual_object_generation = self.allocate_visual_object_generation();
         object.visual_draw_identity_token = std::sync::Arc::new(());
+        // Roster birth generations are local to their admitting world. A clone
+        // cannot carry them into a new lifetime, even when IDs and generations
+        // happen to coincide. Snapshot restoration rebinds the saved roster
+        // after all objects have been admitted.
+        object.spawn_behavior_children.clear();
+        // A newly admitted lifetime must not inherit another producer's
+        // cached world poses or its receiving world's door occupants. Snapshot
+        // restoration rebinds occupants after all saved objects are admitted.
+        object.spawn_point_world_poses = None;
+        object.spawn_point_occupants.clear();
         object.partition_namespace = Default::default();
         let idle_bits = object
             .thing()
@@ -1985,6 +1995,30 @@ mod successful_script_owner_tests;
 #[cfg(test)]
 mod admission_lifetime_tests {
     use super::*;
+
+    #[test]
+    fn admitting_foreign_clone_does_not_bind_its_roster_to_colliding_births() {
+        let mut owner = GameLogic::new();
+        let mut peer = GameLogic::new();
+        let child_id = ObjectId(41);
+        let parent_id = ObjectId(42);
+        for world in [&mut owner, &mut peer] {
+            world.try_admit_host_object(Object::new(
+                ThingTemplate::new("Child"), child_id, Team::USA,
+            )).unwrap();
+        }
+        owner.try_admit_host_object(Object::new(
+            ThingTemplate::new("Parent"), parent_id, Team::USA,
+        )).unwrap();
+        let birth = owner.objects[&child_id].visual_object_generation;
+        assert_eq!(birth, peer.objects[&child_id].visual_object_generation);
+        assert!(owner.objects.get_mut(&parent_id).unwrap()
+            .remember_spawn_behavior_child(child_id, birth, Some(2)));
+        let cloned_parent = owner.objects[&parent_id].clone();
+        peer.try_admit_host_object(cloned_parent).unwrap();
+        assert!(peer.objects[&parent_id].spawn_behavior_children().is_empty());
+        assert!(owner.objects[&parent_id].contains_spawn_behavior_child(child_id, &birth));
+    }
 
     #[test]
     fn checked_public_admission_rejects_live_collision_without_resetting_query_or_score_state() {

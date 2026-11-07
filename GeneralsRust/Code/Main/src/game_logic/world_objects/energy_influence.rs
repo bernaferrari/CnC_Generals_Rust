@@ -112,8 +112,11 @@ impl GameLogic {
         if !parent.is_spawns_are_the_weapons() {
             return;
         }
+        let parent_birth = parent.visual_object_generation;
+        let epoch = self.visual_world_epoch;
         let children = parent.spawn_behavior_children();
         for (child_id, birth) in children {
+            if !self.spawn_identity_matches(parent_id, parent_birth, epoch) { return; }
             let still_member = self.host_object(parent_id).is_some_and(|parent| {
                 parent.contains_spawn_behavior_child(child_id, &birth)
             });
@@ -139,6 +142,7 @@ impl GameLogic {
                     &mut crate::game_logic::ScriptPresentationEffects::default(),
                 );
             }
+            if !self.spawn_identity_matches(parent_id, parent_birth, epoch) { return; }
             let still_exact = self.host_object(parent_id).is_some_and(|parent| {
                 parent.contains_spawn_behavior_child(child_id, &birth)
                     && self.host_object(child_id).is_some_and(|child| {

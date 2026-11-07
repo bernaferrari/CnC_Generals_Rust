@@ -1319,7 +1319,7 @@ impl GameLogic {
             SlaveDroneKind, drone_spawn_offset_from_master, is_slave_drone_master_template,
         };
 
-        let (team, master_pos, owner_player_id, master_birth) = {
+        let (team, master_pos, owner_player_id, master_spawn_birth) = {
             let Some(master) = self.objects.get(&master_id) else {
                 return Ok(None);
             };
@@ -1333,7 +1333,7 @@ impl GameLogic {
                 master.team,
                 master.get_position(),
                 master.owner_player_id,
-                std::sync::Arc::downgrade(&master.visual_draw_identity_token),
+                (master.visual_object_generation, self.visual_world_epoch),
             )
         };
 
@@ -1374,32 +1374,23 @@ impl GameLogic {
             Ok(Some(created)) => created,
             Ok(None) => return Ok(None),
             Err(error) => {
-                if let Some((child_id, child_birth)) = error.committed {
-                    let _ = self.destroy_object_if_birth_matches_with_effects(
-                        child_id,
-                        &child_birth,
-                        presentation_effects,
-                    )?;
+                if let Some((child_id, (generation, epoch))) = error.committed {
+                    if self.spawn_identity_matches(child_id, generation, epoch) {
+                        self.destroy_object_with_effects(child_id, presentation_effects)?;
+                    }
                 }
                 return Err(error.error);
             }
         };
         // Creation callbacks may remove or replace the intended master. C++
         // holds the original Object pointer; never bind by its recycled ID.
-        let original_master_survives = self.objects.get(&master_id).is_some_and(|master| {
-            master_birth.ptr_eq(&std::sync::Arc::downgrade(
-                &master.visual_draw_identity_token,
-            ))
-        });
-        if !original_master_survives {
-            self.destroy_object_if_birth_matches_with_effects(
-                drone_id,
-                &drone_birth,
-                presentation_effects,
-            )?;
+        if !self.spawn_identity_matches(master_id, master_spawn_birth.0, master_spawn_birth.1) {
+            if self.spawn_identity_matches(drone_id, drone_birth.0, drone_birth.1) {
+                self.destroy_object_with_effects(drone_id, presentation_effects)?;
+            }
             return Err(gamelogic::GameLogicError::InvalidObject(master_id.0));
         }
-        if !self.object_birth_matches(drone_id, &drone_birth) {
+        if !self.spawn_identity_matches(drone_id, drone_birth.0, drone_birth.1) {
             return Err(gamelogic::GameLogicError::InvalidObject(drone_id.0));
         }
 
@@ -1410,12 +1401,10 @@ impl GameLogic {
         } else {
             return Err(gamelogic::GameLogicError::InvalidObject(drone_id.0));
         }
-        if !self.enslave_owned_drone(drone_id, master_id, &master_birth) {
-            self.destroy_object_if_birth_matches_with_effects(
-                drone_id,
-                &drone_birth,
-                presentation_effects,
-            )?;
+        if !self.enslave_owned_drone(drone_id, master_id, master_spawn_birth) {
+            if self.spawn_identity_matches(drone_id, drone_birth.0, drone_birth.1) {
+                self.destroy_object_with_effects(drone_id, presentation_effects)?;
+            }
             return Err(gamelogic::GameLogicError::ModuleError(
                 "spawned slave drone could not bind to its original master birth".into(),
             ));
@@ -1427,8 +1416,8 @@ impl GameLogic {
             // UpgradeDie is bound at create from the drone's authored module
             // (UpgradeDie.cpp m_upgradeName); attach never names one by kind.
         }
-        if !self.object_birth_matches(drone_id, &drone_birth)
-            || !self.object_birth_matches(master_id, &master_birth)
+        if !self.spawn_identity_matches(drone_id, drone_birth.0, drone_birth.1)
+            || !self.spawn_identity_matches(master_id, master_spawn_birth.0, master_spawn_birth.1)
         {
             return Err(gamelogic::GameLogicError::InvalidObject(drone_id.0));
         }
@@ -1457,8 +1446,8 @@ impl GameLogic {
                 },
             );
         }
-        if !self.object_birth_matches(drone_id, &drone_birth)
-            || !self.object_birth_matches(master_id, &master_birth)
+        if !self.spawn_identity_matches(drone_id, drone_birth.0, drone_birth.1)
+            || !self.spawn_identity_matches(master_id, master_spawn_birth.0, master_spawn_birth.1)
         {
             return Err(gamelogic::GameLogicError::InvalidObject(drone_id.0));
         }
@@ -1476,8 +1465,8 @@ impl GameLogic {
                 },
             );
         }
-        if !self.object_birth_matches(drone_id, &drone_birth)
-            || !self.object_birth_matches(master_id, &master_birth)
+        if !self.spawn_identity_matches(drone_id, drone_birth.0, drone_birth.1)
+            || !self.spawn_identity_matches(master_id, master_spawn_birth.0, master_spawn_birth.1)
         {
             return Err(gamelogic::GameLogicError::InvalidObject(drone_id.0));
         }

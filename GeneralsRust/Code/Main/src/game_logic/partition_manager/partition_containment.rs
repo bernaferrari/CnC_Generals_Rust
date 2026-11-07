@@ -6,6 +6,13 @@ use crate::game_logic::pathfinding::PathfindingSystem;
 use crate::game_logic::{GameLogic, HostObjectStore, KindOf, ObjectId};
 use std::sync::Arc;
 impl GameLogic {
+    /// Split OpenContain world membership from onContainedBy/onRemovedFrom so
+    /// module callbacks observe the original intermediate state.
+    pub(crate) fn change_owned_containment_world_membership(&mut self, id: ObjectId, add: bool) {
+        change_world_membership(&mut self.objects, &mut self.partition_manager,
+            &mut self.ai_groups, &mut self.pathfinding_system, id, add, &mut Vec::new());
+    }
+
     /// Explicit split fields permit audio/movement loans to remain independent.
     /// Children follow their container's actual list order; no ID sorting or
     /// inverse contained_by scan is used to manufacture a hierarchy.

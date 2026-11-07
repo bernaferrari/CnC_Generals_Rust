@@ -40,17 +40,12 @@ impl GameLogic {
                 {
                     return Ok(None);
                 }
-                // HelixContain holds its riders while explicitly allowing
-                // passenger fire. HELD alone does not block that path.
-                let helix_passenger = attacker.contained_by
-                    .and_then(|id| self.objects.get(&id))
-                    .is_some_and(|host| host.is_helix_transport);
-                let disabled = if helix_passenger {
-                    attacker.status.under_construction || attacker.has_disabled_type_except_held()
-                } else {
-                    attacker.is_disabled()
-                };
-                if attacker.status.weapons_jammed || disabled {
+                // HELD fixes position; actual container permission is checked
+                // by its Contain interface below, independently of HELD.
+                if attacker.status.weapons_jammed
+                    || attacker.status.under_construction
+                    || attacker.has_disabled_type_except_held()
+                {
                     return Ok(None);
                 }
                 // Nested AttackStateMachine residual owns aim/fire/approach for these units.
@@ -98,6 +93,9 @@ impl GameLogic {
                     garrisoned,
                 )
             };
+            if !docked_sortie && !self.passenger_allowed_to_fire(attacker_id) {
+                return Ok(None);
+            }
             if docked_sortie {
                 let _ = self.try_runway_takeoff_from_airfield_with_effects(
                     attacker_id,

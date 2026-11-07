@@ -222,7 +222,7 @@ pub struct GameLogic {
     pub(super) weapon_discharge_log:
         crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeLog,
     /// Runtime-only world identity so recycled ObjectIds cannot inherit a stale plan.
-    pub(super) visual_world_epoch: u64,
+    pub(in crate::game_logic) visual_world_epoch: u64,
     pub(super) next_visual_object_generation: u64,
     /// Immutable identity token copied into presentation values. Runtime
     /// W3DModelDraw playback belongs to RenderPipeline, keeping GameLogic Send.

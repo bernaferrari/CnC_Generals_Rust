@@ -1066,6 +1066,7 @@ fn carrier_idle_replaces_the_jet_building_ignore_with_the_carrier() {
     state.got_info = true;
     state.spaces.push(HostFlightDeckSpace {
         object_id: Some(jet),
+        object_generation: logic.host_object(jet).expect("jet").visual_object_generation,
         position: Vec3::new(5.0, 0.0, 0.0),
         orientation: 0.0,
         runway: 0,

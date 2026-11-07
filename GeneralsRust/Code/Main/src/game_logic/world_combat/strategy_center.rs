@@ -844,31 +844,6 @@ impl GameLogic {
                 self.stinger_site_residual_ground_fires =
                     self.stinger_site_residual_ground_fires.saturating_add(1);
             }
-            // SpawnBehavior::orderSlavesToAttackTarget follows the exact
-            // admitted child order, revalidating each birth after callbacks.
-            let children = self
-                .host_object(defense_id)
-                .map(|site| site.spawn_behavior_children())
-                .unwrap_or_default();
-            for (child_id, birth) in children {
-                let admitted = self
-                    .host_object(defense_id)
-                    .zip(self.host_object(child_id))
-                    .is_some_and(|(site, child)| {
-                        site.spawn_behavior_child_birth_matches(child_id, &birth, child)
-                            && child.has_ai_update_interface()
-                    });
-                if admitted
-                    && self.unit_command_force_attack_with_effects(
-                        child_id,
-                        target_id,
-                        presentation_effects,
-                    )?
-                {
-                    self.stinger_slave_order_attack_count =
-                        self.stinger_slave_order_attack_count.saturating_add(1);
-                }
-            }
         }
         if is_patriot {
             if slot == air_slot {

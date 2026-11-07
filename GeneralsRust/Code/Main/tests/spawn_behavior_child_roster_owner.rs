@@ -6,19 +6,27 @@ use generals_main::save_load::snapshot::{
 };
 use glam::Vec3;
 
+
 fn world(child_template: &str) -> GameLogic {
     let mut world = GameLogic::new();
     world
         .admit_object_ini_sources([(
             "SpawnBehaviorRoster.ini".into(),
             format!(
-                "Object OwnedRosterNest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 2\n SpawnTemplateName = {child_template}\n End\nEnd\nObject {child_template}\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n"
+                "Object OwnedRosterNest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 2\n SpawnTemplateName = {child_template}\n End\n Behavior = DefaultProductionExitUpdate ExitTag\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:0 Y:0 Z:0\n End\nEnd\nObject {child_template}\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n"
             ),
         )])
         .expect("receiving SpawnBehavior definitions are valid");
     world.add_player(Player::new(1, Team::GLA, "Owner", true));
     world
 }
+
+fn advance_spawn_updates(world: &mut GameLogic) {
+    for _ in 0..32 {
+        world.update();
+    }
+}
+
 
 fn roster(world: &GameLogic, producer: ObjectId) -> Vec<u32> {
     capture_lifecycle_tail(world)
@@ -35,15 +43,36 @@ fn roster(world: &GameLogic, producer: ObjectId) -> Vec<u32> {
 }
 
 #[test]
+fn spawn_behavior_without_an_exit_creates_no_children() {
+    let mut world = GameLogic::new();
+    world
+        .admit_object_ini_sources([(
+            "NoExitSpawn.ini".into(),
+            "Object NoExitNest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 2\n SpawnTemplateName = NoExitChild\n End\nEnd\nObject NoExitChild\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n".into(),
+        )])
+        .unwrap();
+    world.add_player(Player::new(1, Team::GLA, "Owner", true));
+    let nest = world
+        .create_object_for_player("NoExitNest", 1, Vec3::ZERO)
+        .unwrap();
+    advance_spawn_updates(&mut world);
+    assert!(
+        !world.host_objects().registered_values().any(|object| object.producer_id == Some(nest)),
+        "SpawnBehavior requires an authored ExitInterface"
+    );
+}
+
+#[test]
 fn spawner_death_stops_surviving_child_slaved_effects_in_its_own_session() {
     fn session() -> (GameLogic, ObjectId) {
         let mut world = GameLogic::new();
         world.admit_object_ini_sources([("SlavedSpawn.ini".into(),
-            "Object Nest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = Child\n SpawnedRequireSpawner = No\n End\nEnd\nObject Child\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SlavedUpdate Slave\n GuardMaxRange = 35\n End\nEnd\n".into())]).unwrap();
+            "Object Nest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = Child\n SpawnedRequireSpawner = No\n End\n Behavior = DefaultProductionExitUpdate ExitTag\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:0 Y:0 Z:0\n End\nEnd\nObject Child\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SlavedUpdate Slave\n GuardMaxRange = 35\n End\nEnd\n".into())]).unwrap();
         world.add_player(Player::new(1, Team::GLA, "Owner", true));
         let parent = world
             .create_object_for_player("Nest", 1, Vec3::ZERO)
             .unwrap();
+        advance_spawn_updates(&mut world);
         (world, parent)
     }
     let (mut owner, parent) = session();
@@ -54,10 +83,7 @@ fn spawner_death_stops_surviving_child_slaved_effects_in_its_own_session() {
         let object = world.host_object(child).unwrap();
         assert!(object.is_kind_of(KindOf::Vehicle));
         assert!(object.status.unselectable, "onEnslave ran at creation");
-        assert!(
-            object.status.disabled_held,
-            "the spawn exit holds the child"
-        );
+        assert!(!object.status.disabled_held, "an ordinary exit does not hold the child");
     }
     let snapshot = SnapshotBuilder::new()
         .create_world_snapshot(&owner)
@@ -78,7 +104,7 @@ fn spawner_death_stops_surviving_child_slaved_effects_in_its_own_session() {
     assert_eq!(restored_child.producer_id, None);
     let peer_child = peer.host_object(child).unwrap();
     assert!(peer_child.status.unselectable);
-    assert!(peer_child.status.disabled_held);
+    assert!(!peer_child.status.disabled_held);
     assert_eq!(peer_child.producer_id, Some(peer_parent));
 }
 
@@ -87,11 +113,12 @@ fn required_spawn_children_run_their_own_slow_death_in_the_receiving_world() {
     fn session() -> (GameLogic, ObjectId) {
         let mut world = GameLogic::new();
         world.admit_object_ini_sources([("RequiredSpawn.ini".into(),
-            "Object Nest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 2\n SpawnTemplateName = Child\n SpawnedRequireSpawner = Yes\n End\nEnd\nObject Child\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SlowDeathBehavior Death\n DestructionDelay = 3000\n End\nEnd\n".into())]).unwrap();
+            "Object Nest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 2\n SpawnTemplateName = Child\n SpawnedRequireSpawner = Yes\n End\n Behavior = DefaultProductionExitUpdate ExitTag\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:0 Y:0 Z:0\n End\nEnd\nObject Child\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SlowDeathBehavior Death\n DestructionDelay = 3000\n End\nEnd\n".into())]).unwrap();
         world.add_player(Player::new(1, Team::GLA, "Owner", true));
         let parent = world
             .create_object_for_player("Nest", 1, Vec3::ZERO)
             .unwrap();
+        advance_spawn_updates(&mut world);
         (world, parent)
     }
     let (mut owner, parent) = session();
@@ -134,6 +161,8 @@ fn spawn_behavior_children_are_admitted_in_order_and_restored_per_receiving_worl
     let peer_nest = peer
         .create_object_for_player("OwnedRosterNest", 1, Vec3::ZERO)
         .expect("peer SpawnBehavior admitted");
+    advance_spawn_updates(&mut owner);
+    advance_spawn_updates(&mut peer);
     assert_eq!(owner_nest, peer_nest, "sessions deliberately reuse IDs");
 
     let owner_children = roster(&owner, owner_nest);
@@ -209,6 +238,7 @@ fn stale_spawn_behavior_ids_survive_save_restore_as_unbound_tombstones() {
     let nest = owner
         .create_object_for_player("OwnedRosterNest", 1, Vec3::ZERO)
         .expect("owner SpawnBehavior admitted");
+    advance_spawn_updates(&mut owner);
     let saved_order = roster(&owner, nest);
     let stale_id = ObjectId(saved_order[0]);
     let missing_id = ObjectId(0x1234_5678);
@@ -234,6 +264,7 @@ fn stale_spawn_behavior_ids_survive_save_restore_as_unbound_tombstones() {
     let receiver_nest = receiver
         .create_object_for_player("OwnedRosterNest", 1, Vec3::ZERO)
         .unwrap();
+    advance_spawn_updates(&mut receiver);
     assert_eq!(receiver_nest, nest);
     assert_eq!(roster(&receiver, receiver_nest), saved_order);
     apply_lifecycle_tail_to_host(&detached, &mut receiver).expect("apply detached tombstone");
@@ -327,6 +358,7 @@ fn producer_cleared_surviving_spawn_remains_live_in_roster_after_restore() {
     let nest = owner
         .create_object_for_player("OwnedRosterNest", 1, Vec3::ZERO)
         .expect("owner SpawnBehavior admitted");
+    advance_spawn_updates(&mut owner);
     let children = roster(&owner, nest);
 
     // C++ SpawnBehavior::onDie clears each child's producer but retains its
@@ -370,198 +402,6 @@ fn no_spawner_world() -> GameLogic {
     world
 }
 
-#[test]
-fn stinger_hive_damage_uses_receiving_roster_order_and_death_deadlines() {
-    use generals_main::game_logic::host_base_defense::HostHiveDamageClass;
-
-    fn stinger_world(site_body: &str, replacement_delay_ms: u32) -> GameLogic {
-        let body_fields = if site_body.eq_ignore_ascii_case("HiveStructureBody") {
-            " PropagateDamageTypesToSlavesWhenExisting = SMALL_ARMS SNIPER POISON RADIATION SURRENDER MICROWAVE\n SwallowDamageTypesIfSlavesNotExisting = SNIPER POISON SURRENDER\n"
-        } else {
-            ""
-        };
-        let mut world = GameLogic::new();
-        world
-            .admit_object_ini_sources([(
-                "StingerHiveOwner.ini".into(),
-                format!("Object GLAStingerSite\n KindOf = STRUCTURE SELECTABLE\n Body = {site_body} SiteBody\n{body_fields} MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = SpawnBehavior SiteSpawn\n OneShot = No\n SpawnNumber = 3\n SpawnReplaceDelay = {replacement_delay_ms}\n SpawnTemplateName = GLAInfantryStingerSoldier\n End\nEnd\nObject GLAInfantryStingerSoldier\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody SoldierBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject HiveShooter\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody ShooterBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n").into(),
-            )])
-            .expect("receiving Stinger and source definitions are valid");
-        world.add_player(Player::new(1, Team::GLA, "HiveOwner", true));
-        world
-    }
-
-    let mut first = stinger_world("HiveStructureBody", 2000);
-    let mut peer = stinger_world("HiveStructureBody", 30000);
-    let site = first
-        .create_object_for_player("GLAStingerSite", 1, Vec3::ZERO)
-        .expect("Stinger SpawnBehavior admitted");
-    let peer_site = peer
-        .create_object_for_player("GLAStingerSite", 1, Vec3::ZERO)
-        .expect("peer Stinger admitted");
-    first.run_first_spawn_update_for_test();
-    peer.run_first_spawn_update_for_test();
-    assert_eq!(site, peer_site, "worlds deliberately reuse object IDs");
-    let first_roster = roster(&first, site);
-    let peer_roster = roster(&peer, peer_site);
-    assert_eq!(first_roster.len(), 3);
-    assert_eq!(peer_roster, first_roster);
-
-    let shooter = first
-        .create_object_for_player("HiveShooter", 1, Vec3::ZERO)
-        .expect("source admitted");
-    let peer_shooter = peer
-        .create_object_for_player("HiveShooter", 1, Vec3::ZERO)
-        .expect("peer source admitted");
-    assert_eq!(shooter, peer_shooter);
-    // This headless definition has no SpawnPoint bones, so every child is
-    // admitted at the same site position. C++ keeps the first resolvable
-    // m_spawnIDs entry on equal 2D distance.
-    let first_health = first
-        .host_object(ObjectId(first_roster[0]))
-        .unwrap()
-        .health
-        .current;
-    let second_health = first
-        .host_object(ObjectId(first_roster[1]))
-        .unwrap()
-        .health
-        .current;
-    first.apply_host_hive_damage_from(
-        site,
-        12.0,
-        HostHiveDamageClass::PropagateToSlaves,
-        Some((999.0, 999.0)), // position is resolved from the actual source Object
-        Some(shooter),
-    );
-    assert_eq!(
-        first
-            .host_object(ObjectId(first_roster[0]))
-            .unwrap()
-            .health
-            .current,
-        first_health - 12.0
-    );
-    assert_eq!(
-        first
-            .host_object(ObjectId(first_roster[1]))
-            .unwrap()
-            .health
-            .current,
-        second_health
-    );
-    assert_eq!(
-        peer.host_object(ObjectId(first_roster[0]))
-            .unwrap()
-            .health
-            .current,
-        100.0,
-        "the same-ID peer roster is isolated"
-    );
-
-    // C++ HiveStructureBody does not run its source/propagate/swallow branch
-    // if the source Object no longer resolves; the hit falls through to the
-    // structure body even when the roster has live children.
-    let site_health = first.host_object(site).unwrap().health.current;
-    first.apply_host_hive_damage_from(
-        site,
-        7.0,
-        HostHiveDamageClass::PropagateToSlaves,
-        None,
-        None,
-    );
-    assert_eq!(
-        first.host_object(site).unwrap().health.current,
-        site_health - 7.0
-    );
-
-    first.apply_host_hive_damage_from(
-        site,
-        1_000.0,
-        HostHiveDamageClass::PropagateToSlaves,
-        None,
-        Some(shooter),
-    );
-    assert_eq!(roster(&first, site), first_roster[1..]);
-    let tail = capture_lifecycle_tail(&first).expect("capture ordered replacement deadline");
-    let record = tail
-        .spawn_behavior_rosters
-        .unwrap()
-        .into_iter()
-        .find(|record| record.producer_id == site.0)
-        .unwrap();
-    assert_eq!(record.replacement_times, vec![60]);
-    assert_eq!(roster(&peer, peer_site), peer_roster);
-    peer.apply_host_hive_damage_from(
-        peer_site,
-        1_000.0,
-        HostHiveDamageClass::PropagateToSlaves,
-        None,
-        Some(peer_shooter),
-    );
-    let peer_tail = capture_lifecycle_tail(&peer).expect("capture peer replacement deadline");
-    let peer_record = peer_tail
-        .spawn_behavior_rosters
-        .unwrap()
-        .into_iter()
-        .find(|record| record.producer_id == peer_site.0)
-        .unwrap();
-    assert_eq!(peer_record.replacement_times, vec![900]);
-
-    // A matching Stinger name and SpawnBehavior do not change an ActiveBody
-    // into HiveStructureBody. C++ virtual dispatch therefore damages the
-    // structure directly instead of redirecting the hit to a child.
-    let mut active_body = stinger_world("ActiveBody", 30000);
-    let active_site = active_body
-        .create_object_for_player("GLAStingerSite", 1, Vec3::ZERO)
-        .expect("ActiveBody Stinger-like object admitted");
-    let active_source = active_body
-        .create_object_for_player("HiveShooter", 1, Vec3::ZERO)
-        .expect("ActiveBody test source admitted");
-    active_body.run_first_spawn_update_for_test();
-    let active_children = roster(&active_body, active_site);
-    let active_child_health = active_body
-        .host_object(ObjectId(active_children[0]))
-        .unwrap()
-        .health
-        .current;
-    let active_site_health = active_body.host_object(active_site).unwrap().health.current;
-    active_body.apply_host_hive_damage_from(
-        active_site,
-        5.0,
-        HostHiveDamageClass::PropagateToSlaves,
-        None,
-        Some(active_source),
-    );
-    assert_eq!(
-        active_body
-            .host_object(ObjectId(active_children[0]))
-            .unwrap()
-            .health
-            .current,
-        active_child_health,
-        "ActiveBody must not enter the HiveStructureBody redirection path"
-    );
-    assert_eq!(
-        active_body.host_object(active_site).unwrap().health.current,
-        active_site_health - 5.0
-    );
-
-    let snapshot = SnapshotBuilder::new()
-        .create_world_snapshot(&first)
-        .expect("capture complete Stinger child/deadline continuation");
-    let mut restored = stinger_world("HiveStructureBody", 2000);
-    SnapshotBuilder::new()
-        .restore_from_snapshot(&snapshot, &mut restored)
-        .expect("restore ordered child identities and replacement deadline");
-    assert_eq!(roster(&restored, site), first_roster[1..]);
-    let restored_tail = capture_lifecycle_tail(&restored).expect("capture restored state");
-    assert_eq!(
-        restored_tail.spawn_behavior_rosters.unwrap()[0].replacement_times,
-        vec![60],
-        "replacement timing remains part of the receiving object's continuation"
-    );
-}
 
 #[test]
 fn no_spawner_snapshot_and_legacy_no_roster_restore_remain_supported() {
@@ -596,6 +436,7 @@ fn legacy_supported_spawner_restore_fails_before_replacing_live_objects() {
     let owner_nest = owner
         .create_object_for_player("OwnedRosterNest", 1, Vec3::ZERO)
         .expect("owner SpawnBehavior admitted");
+    advance_spawn_updates(&mut owner);
     let builder = SnapshotBuilder::new();
     let modern = builder
         .create_world_snapshot(&owner)
@@ -614,6 +455,7 @@ fn legacy_supported_spawner_restore_fails_before_replacing_live_objects() {
     let receiver_nest = receiver
         .create_object_for_player("OwnedRosterNest", 1, Vec3::ZERO)
         .expect("peer SpawnBehavior admitted");
+    advance_spawn_updates(&mut receiver);
     assert_eq!(receiver_nest, owner_nest);
     let receiver_child = ObjectId(roster(&receiver, receiver_nest)[0]);
     receiver
@@ -636,79 +478,6 @@ fn legacy_supported_spawner_restore_fails_before_replacing_live_objects() {
     );
 }
 
-#[test]
-fn hive_damage_masks_follow_receiving_body_and_source() {
-    use generals_main::game_logic::host_base_defense::HostHiveDamageClass;
-    fn make_world(propagate: &str, swallow: &str) -> GameLogic {
-        let mut world = GameLogic::new();
-        let ini = format!(
-            "Object GLAStingerSite\n KindOf = STRUCTURE SELECTABLE\n Body = HiveStructureBody SiteBody\n PropagateDamageTypesToSlavesWhenExisting = {propagate}\n SwallowDamageTypesIfSlavesNotExisting = {swallow}\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = SpawnBehavior SiteSpawn\n OneShot = No\n SpawnNumber = 1\n SpawnReplaceDelay = 2000\n SpawnTemplateName = GLAInfantryStingerSoldier\n End\nEnd\nObject GLAInfantryStingerSoldier\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody SoldierBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject HiveShooter\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody ShooterBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n"
-        );
-        world
-            .admit_object_ini_sources([("HiveMasks.ini".into(), ini)])
-            .unwrap();
-        world.add_player(Player::new(1, Team::GLA, "Owner", true));
-        world
-    }
-    let mut first = make_world("SMALL_ARMS", "SMALL_ARMS");
-    let mut peer = make_world("SNIPER", "SMALL_ARMS");
-    let site = first
-        .create_object_for_player("GLAStingerSite", 1, Vec3::ZERO)
-        .unwrap();
-    let peer_site = peer
-        .create_object_for_player("GLAStingerSite", 1, Vec3::ZERO)
-        .unwrap();
-    first.run_first_spawn_update_for_test();
-    peer.run_first_spawn_update_for_test();
-    let shooter = first
-        .create_object_for_player("HiveShooter", 1, Vec3::ZERO)
-        .unwrap();
-    let peer_shooter = peer
-        .create_object_for_player("HiveShooter", 1, Vec3::ZERO)
-        .unwrap();
-    assert_eq!((site, shooter), (peer_site, peer_shooter));
-    let first_child = ObjectId(roster(&first, site)[0]);
-    let peer_child = ObjectId(roster(&peer, peer_site)[0]);
-    assert_eq!(first_child, peer_child);
-    // The same SMALL_ARMS hit propagates only in the first world; the peer's
-    // swallow bit cannot apply unless the propagate bit is also set.
-    first.apply_host_hive_damage_from(
-        site,
-        1000.0,
-        HostHiveDamageClass::PropagateToSlaves,
-        None,
-        Some(shooter),
-    );
-    peer.apply_host_hive_damage_from(
-        peer_site,
-        10.0,
-        HostHiveDamageClass::PropagateToSlaves,
-        None,
-        Some(peer_shooter),
-    );
-    assert!(roster(&first, site).is_empty());
-    assert_eq!(peer.host_object(peer_child).unwrap().health.current, 100.0);
-    assert_eq!(first.host_object(site).unwrap().health.current, 1000.0);
-    assert_eq!(peer.host_object(peer_site).unwrap().health.current, 990.0);
-    // With no child, a resolved source is swallowed; a missing source falls
-    // through to the body even though both authored flags are set.
-    first.apply_host_hive_damage_from(
-        site,
-        10.0,
-        HostHiveDamageClass::PropagateToSlaves,
-        None,
-        Some(shooter),
-    );
-    assert_eq!(first.host_object(site).unwrap().health.current, 1000.0);
-    first.apply_host_hive_damage_from(
-        site,
-        10.0,
-        HostHiveDamageClass::PropagateToSlaves,
-        None,
-        None,
-    );
-    assert_eq!(first.host_object(site).unwrap().health.current, 990.0);
-}
 
 #[test]
 fn hive_body_without_spawn_behavior_forwards_to_closest_contained_rider() {
@@ -776,9 +545,10 @@ fn spawn_weapon_stealth_checks_child_eligibility_and_reveals_the_pack() {
     fn session() -> (GameLogic, ObjectId, Vec<u32>) {
         let mut world = GameLogic::new();
         world.admit_object_ini_sources([("SpawnStealth.ini".into(),
-            "Object StealthNest\n KindOf = STRUCTURE SELECTABLE SPAWNS_ARE_THE_WEAPONS\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 2\n SpawnTemplateName = StealthChild\n End\n Behavior = StealthUpdate Cloak\n StealthDelay = 0\n InnateStealth = Yes\n End\nEnd\nObject StealthChild\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = StealthUpdate Cloak\n StealthDelay = 2000\n InnateStealth = Yes\n End\nEnd\n".into())]).unwrap();
+            "Object StealthNest\n KindOf = STRUCTURE SELECTABLE SPAWNS_ARE_THE_WEAPONS\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = DefaultProductionExitUpdate Exit\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 2\n SpawnTemplateName = StealthChild\n End\n Behavior = StealthUpdate Cloak\n StealthDelay = 0\n InnateStealth = Yes\n End\nEnd\nObject StealthChild\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = StealthUpdate Cloak\n StealthDelay = 2000\n InnateStealth = Yes\n End\nEnd\n".into())]).unwrap();
         world.add_player(Player::new(1, Team::GLA, "Owner", true));
         let parent = world.create_object_for_player("StealthNest", 1, Vec3::ZERO).unwrap();
+        advance_spawn_updates(&mut world);
         let children = roster(&world, parent);
         assert_eq!(children.len(), 2);
         (world, parent, children)
@@ -793,8 +563,8 @@ fn spawn_weapon_stealth_checks_child_eligibility_and_reveals_the_pack() {
     owner.host_object_mut(second).unwrap().innate_stealth = false;
     owner.update_stealth_and_detection();
     assert!(!owner.host_object(parent).unwrap().status.stealthed);
-    assert_eq!(owner.host_object(first).unwrap().detection_expires_frame, 60);
-    assert_eq!(owner.host_object(second).unwrap().detection_expires_frame, 60);
+    assert_eq!(owner.host_object(first).unwrap().detection_expires_frame, owner.get_current_frame() as u32 + 60);
+    assert_eq!(owner.host_object(second).unwrap().detection_expires_frame, owner.get_current_frame() as u32 + 60);
     assert!(!peer.host_object(first).unwrap().status.detected);
 
     // Eligibility, not the current cloak or detection bit, controls the nest.

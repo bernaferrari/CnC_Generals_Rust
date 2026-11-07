@@ -1781,6 +1781,13 @@ impl GameLogic {
         jet_id: ObjectId,
         add: bool,
     ) {
+        if let Some(owner) = self.objects.get(&airfield_id).filter(|owner| owner.thing().template.flight_deck.is_some()) {
+            let generation = owner.visual_object_generation;
+            if generation != 0 && self.flight_decks.get(&airfield_id).is_some_and(|state| state.owner_generation == generation) {
+                self.set_flight_deck_healee(airfield_id, jet_id, add);
+            }
+            return;
+        }
         if add {
             let list = self.airfield_healing.entry(airfield_id).or_default();
             if list.iter().any(|info| info.getting_healed_id == jet_id) {
@@ -1828,6 +1835,8 @@ impl GameLogic {
             .get(&jet_id)
             .and_then(|jet| jet.contained_by.or(jet.producer_id))
             .into_iter()
+            .chain(self.objects.get(&jet_id).and_then(|jet| jet.chinook_ai.as_ref())
+                .and_then(|ai| ai.airfield_id).map(ObjectId))
             .chain(
                 self.airfield_parking_spaces
                     .iter()
@@ -1913,6 +1922,36 @@ impl GameLogic {
         }
         for (airfield_id, jet_id) in desired {
             self.set_airfield_healee(airfield_id, jet_id, true);
+        }
+
+        // JetAIUpdate::update talks to the producer's ParkingPlace interface
+        // only while the base AI is idle or in RELOAD_AMMO. A non-idle state
+        // leaves the previous registration unchanged; it is not a removal.
+        // ChinookAIUpdate instead uses its explicit m_airfieldForHealing.
+        let deck_updates: Vec<_> = self.objects.registered().filter_map(|(&jet_id, jet)| {
+            if !jet.is_alive() || !Self::is_aircraft(jet) { return None; }
+            let (owner, add) = if let Some(chinook) = &jet.chinook_ai {
+                let owner = ObjectId(chinook.airfield_id?);
+                let landed = chinook.flight_status == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed;
+                let pending = chinook.pending_evac_dest.is_some() || chinook.pending_ai_idle;
+                let full = jet.health.current == jet.health.maximum;
+                (owner, landed && (pending || !full))
+            } else {
+                let owner = jet.producer_id?;
+                if !matches!(jet.ai_state(), AIState::Idle | AIState::Docked)
+                    && jet.airfield_rearm_ready_frame.is_none()
+                { return None; }
+                let helipad_done = !jet.jet_ai.allow_air_loco && !jet.jet_ai.has_pending_command
+                    && Self::object_is_produced_at_helipad(jet)
+                    && jet.health.current == jet.health.maximum;
+                (owner, !jet.jet_ai.allow_air_loco && !helipad_done)
+            };
+            self.objects.get(&owner)
+                .filter(|carrier| carrier.thing().template.flight_deck.is_some())
+                .map(|_| (owner, jet_id, add))
+        }).collect();
+        for (owner, jet_id, add) in deck_updates {
+            self.set_airfield_healee(owner, jet_id, add);
         }
     }
 
@@ -3540,3 +3579,103 @@ mod owned_out_of_ammo_tests {
 #[cfg(test)]
 #[path = "afterburner_owner_tests.rs"]
 mod afterburner_owner_tests;
+
+#[cfg(test)]
+mod flight_deck_healing_tests {
+    use super::*;
+
+    fn world() -> (GameLogic, ObjectId, ObjectId) {
+        let ini = r#"
+Object HealingDeck
+ KindOf = STRUCTURE SELECTABLE
+ Body = ActiveBody Body
+  MaxHealth = 500
+  InitialHealth = 500
+ End
+ Behavior = FlightDeckBehavior Deck
+  NumRunways = 0
+  NumSpacesPerRunway = 0
+  HealAmountPerSecond = 10
+ End
+End
+Object HealingDeckJet
+ KindOf = AIRCRAFT SELECTABLE
+ Body = ActiveBody Body
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ Behavior = JetAIUpdate JetAI
+ End
+End
+Object HealingDeckChinook
+ KindOf = AIRCRAFT SELECTABLE
+ Body = ActiveBody Body
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ Behavior = ChinookAIUpdate ChinookAI
+ End
+End
+"#;
+        let mut world = GameLogic::new();
+        world.admit_object_ini_sources([("deck-heal.ini".into(), ini.into())]).unwrap();
+        let carrier = world.create_object("HealingDeck", Team::USA, glam::Vec3::ZERO).unwrap();
+        let jet = world.create_object("HealingDeckJet", Team::USA, glam::Vec3::ZERO).unwrap();
+        let object = world.host_object_mut(jet).unwrap();
+        object.producer_id = Some(carrier);
+        object.health.current = 50.0;
+        (world, carrier, jet)
+    }
+
+    #[test]
+    fn deck_heals_idle_grounded_jet_after_six_frames_and_stops_on_air_locomotion() {
+        let (mut owner, carrier, jet) = world();
+        let (mut peer, peer_carrier, peer_jet) = world();
+        assert_eq!((carrier, jet), (peer_carrier, peer_jet));
+        owner.frame = 1;
+        owner.tick_airfield_parking_heal().unwrap();
+        owner.frame = 6;
+        owner.tick_airfield_parking_heal().unwrap();
+        assert_eq!(owner.host_object(jet).unwrap().health.current, 50.0);
+        owner.frame = 7;
+        owner.tick_airfield_parking_heal().unwrap();
+        assert_eq!(owner.host_object(jet).unwrap().health.current, 52.0);
+        owner.host_object_mut(jet).unwrap().jet_ai.allow_air_loco = true;
+        owner.frame = 8;
+        owner.tick_airfield_parking_heal().unwrap();
+        owner.frame = 14;
+        owner.tick_airfield_parking_heal().unwrap();
+        assert_eq!(owner.host_object(jet).unwrap().health.current, 52.0);
+        assert_eq!(peer.host_object(peer_jet).unwrap().health.current, 50.0);
+        peer.frame = 1;
+        peer.tick_airfield_parking_heal().unwrap();
+        peer.frame = 7;
+        peer.tick_airfield_parking_heal().unwrap();
+        assert_eq!(peer.host_object(peer_jet).unwrap().health.current, 52.0);
+    }
+
+    #[test]
+    fn landed_chinook_heals_at_its_explicit_deck_and_stops_after_takeoff() {
+        use crate::game_logic::host_combat_chinook::{HostChinookAI, HostChinookFlightStatus};
+        let (mut world, carrier, _) = world();
+        let chinook = world.create_object("HealingDeckChinook", Team::USA, glam::Vec3::ZERO).unwrap();
+        let mut ai = HostChinookAI::new_vanilla([0.0; 3]);
+        ai.airfield_id = Some(carrier.0);
+        ai.flight_status = HostChinookFlightStatus::Landed;
+        let object = world.host_object_mut(chinook).unwrap();
+        object.chinook_ai = Some(ai);
+        object.health.current = 50.0;
+        world.frame = 1;
+        world.tick_airfield_parking_heal().unwrap();
+        world.frame = 7;
+        world.tick_airfield_parking_heal().unwrap();
+        assert_eq!(world.host_object(chinook).unwrap().health.current, 52.0);
+        world.host_object_mut(chinook).unwrap().chinook_ai.as_mut().unwrap().airfield_id = Some(carrier.0);
+        world.host_object_mut(chinook).unwrap().chinook_ai.as_mut().unwrap().flight_status = HostChinookFlightStatus::TakingOff;
+        world.frame = 8;
+        world.tick_airfield_parking_heal().unwrap();
+        world.frame = 14;
+        world.tick_airfield_parking_heal().unwrap();
+        assert_eq!(world.host_object(chinook).unwrap().health.current, 52.0);
+    }
+}

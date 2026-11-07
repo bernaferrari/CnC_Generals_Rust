@@ -11,6 +11,16 @@ pub(crate) struct FlightTerrainView<'a> {
 }
 
 impl FlightTerrainView<'_> {
+    pub(crate) fn highest_layer(&self, pos: Vec3, ground: f32, only_healthy: bool) -> u8 {
+        if let Some(owner) = self.logical {
+            let terrain = owner.read().unwrap_or_else(|error| error.into_inner());
+            if terrain.has_height_map() {
+                return self.grid.highest_layer_at_or_below_in(Some(&terrain), pos, ground, only_healthy);
+            }
+        }
+        self.grid.highest_layer_at_or_below(pos, ground, only_healthy)
+    }
+
     pub(crate) fn raw_ground(&self, pos: Vec3, fallback: f32) -> f32 {
         if let Some(owner) = self.logical {
             // One bounded observation: callbacks may change the same terrain
@@ -74,7 +84,7 @@ impl FlightTerrainView<'_> {
         let pos = obj.get_position();
         let ground = self.raw_ground(pos, obj.ground_height);
         let layer = if obj.pathfind_layer == 1 {
-            self.grid.highest_layer_at_or_below(pos, ground, false)
+            self.highest_layer(pos, ground, false)
         } else {
             obj.pathfind_layer
         };
@@ -94,7 +104,7 @@ impl crate::game_logic::GameLogic {
             samples: self.pathfinding_height_samples.as_ref(),
         };
         let ground = view.raw_ground(pos, fallback);
-        let layer = view.grid.highest_layer_at_or_below(pos, ground, false);
+        let layer = view.highest_layer(pos, ground, false);
         view.grid.layer_height_unclipped(pos, layer, ground)
     }
 }

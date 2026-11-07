@@ -3,8 +3,47 @@
 use super::*;
 
 impl PathfindingGrid {
+    pub(super) fn for_each_flight_bridge(
+        &self,
+        terrain: Option<&gamelogic::terrain::TerrainLogic>,
+        pos: Vec3,
+        mut visit: impl FnMut(u8, f32, bool),
+    ) {
+        if let Some(terrain) = terrain {
+            let point = gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y);
+            terrain.for_each_bridge(|bridge| {
+                if bridge.is_point_on_bridge(&point) {
+                    visit(
+                        bridge.get_layer() as u8,
+                        bridge.get_bridge_height(&point, None),
+                        bridge.get_bridge_info().cur_damage_state == gamelogic::common::BodyDamageType::Rubble,
+                    );
+                }
+            });
+        } else {
+            for id in &self.flight_bridge_order {
+                let bridge = self.bridge_layers.iter().find(|bridge| bridge.id == *id)
+                    .expect("flight visitation references an admitted bridge");
+                let corners = [bridge.from_left, bridge.from_right, bridge.to_right, bridge.to_left];
+                if flight_point_on_bridge(pos, &corners) {
+                    visit(bridge.id, bridge_deck_height(&corners, pos.x, pos.z), bridge.destroyed);
+                }
+            }
+        }
+    }
+
     pub(crate) fn highest_layer_at_or_below(
         &self,
+        pos: Vec3,
+        raw_ground: f32,
+        only_healthy: bool,
+    ) -> u8 {
+        self.highest_layer_at_or_below_in(None, pos, raw_ground, only_healthy)
+    }
+
+    pub(crate) fn highest_layer_at_or_below_in(
+        &self,
+        terrain: Option<&gamelogic::terrain::TerrainLogic>,
         pos: Vec3,
         raw_ground: f32,
         only_healthy: bool,
@@ -18,29 +57,16 @@ impl PathfindingGrid {
                 distance = delta;
             }
         }
-        for id in &self.flight_bridge_order {
-            let bridge = self
-                .bridge_layers
-                .iter()
-                .find(|b| b.id == *id)
-                .expect("flight visitation references an admitted bridge");
-            if only_healthy && bridge.destroyed {
-                continue;
+        self.for_each_flight_bridge(terrain, pos, |layer, height, destroyed| {
+            if only_healthy && destroyed {
+                return;
             }
-            let corners = [
-                bridge.from_left,
-                bridge.from_right,
-                bridge.to_right,
-                bridge.to_left,
-            ];
-            if flight_point_on_bridge(pos, &corners) {
-                let delta = pos.y - bridge_deck_height(&corners, pos.x, pos.z);
-                if delta >= 0.0 && delta.abs() < distance.abs() {
-                    best = bridge.id;
-                    distance = delta;
-                }
+            let delta = pos.y - height;
+            if delta >= 0.0 && delta.abs() < distance.abs() {
+                best = layer;
+                distance = delta;
             }
-        }
+        });
         best
     }
 
@@ -225,6 +251,7 @@ mod tests {
         let mut grid = PathfindingGrid::new(100.0, 100.0, 10.0);
         grid.set_wall_height(21.0);
         grid.add_wall_piece(1, Vec3::new(50.0, 0.0, 50.0), 0.0, 40.0, 40.0);
+        grid.allocate_and_classify_wall_layer();
         assert_eq!(
             grid.highest_layer_at_or_below(Vec3::new(50.0, 21.0, 50.0), 0.0, false),
             15
