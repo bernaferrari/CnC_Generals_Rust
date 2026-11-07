@@ -388,3 +388,112 @@ fn concurrent_primary_and_secondary_streams_stay_distinct() {
     assert!(streams.iter().all(|s| s.0 == source));
     assert!(streams.iter().all(|s| s.3 == Some(target)));
 }
+
+// Retail WeaponObjects.ini puts the uranium WeaponBonusUpgrade on the shell,
+// not on the Overlord. DumbProjectileBehavior.cpp:318-321 retains launcher
+// flags; :517 detonates with those flags plus the projectile's current flags.
+fn uranium_projectile_world() -> (GameLogic, ObjectId, ObjectId) {
+    const SHELL: &str = "Object OverlordTankShell\nKindOf = PROJECTILE\n\
+        Behavior = DumbProjectileBehavior Flight\nFirstHeight = 10\nSecondHeight = 10\n\
+        FirstPercentIndent = 50%\nSecondPercentIndent = 90%\nEnd\n\
+        Behavior = PhysicsBehavior Physics\nMass = 0.01\nEnd\n\
+        Behavior = WeaponBonusUpgrade Uranium\nTriggeredBy = Upgrade_ChinaUraniumShells\nEnd\nEnd\n";
+    let mut parser = crate::assets::ini_parser::IniParser::new();
+    parser.parse_ini_content(SHELL, "uranium-projectile.ini").unwrap();
+    let objects: Vec<_> = parser.get_all_definitions().iter()
+        .map(|(name, row)| (name.clone(), row.clone())).collect();
+    let mut weapons = HashMap::new();
+    crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+        &mut weapons,
+        "Weapon OverlordTankGun\nPrimaryDamage = 80\nPrimaryDamageRadius = 5\n\
+         SecondaryDamage = 20\nSecondaryDamageRadius = 10\nAttackRange = 175\n\
+         DamageType = ARMOR_PIERCING\nProjectileObject = OverlordTankShell\n\
+         WeaponSpeed = 30\nDelayBetweenShots = 300\nClipSize = 2\n\
+         ClipReloadTime = 2000\nAntiGround = Yes\nWeaponBonus = PLAYER_UPGRADE DAMAGE 125%\nEnd\n",
+        crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+    );
+    let mut world = GameLogic::new();
+    for (id, team) in [(0, Team::China), (1, Team::China), (2, Team::GLA)] {
+        let mut player = Player::new(id, team, "uranium test", id == 0);
+        player.alliance_team = id as i32;
+        world.add_player(player);
+    }
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &mut world, "Upgrade_ChinaUraniumShells", "PLAYER", 0, 1,
+    );
+    world.admit_receiving_module_content(
+        crate::assets::ReceivingObjectContent::from_sources([
+            ("uranium-projectile.ini".into(), SHELL.into()),
+        ]).unwrap(),
+    ).unwrap();
+    world.admit_weapon_content_snapshot(
+        weapons.into_values().map(|rule| (rule.name.clone(), rule)).collect(),
+        &objects,
+    ).unwrap();
+    let mut source = ThingTemplate::new("CustomOverlordGunCarrier");
+    source.set_health(1000.0).add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable).set_primary_weapon_name("OverlordTankGun");
+    world.templates.insert(source.name.clone(), source);
+    let mut target = ThingTemplate::new("UraniumProjectileTarget");
+    target.set_health(1000.0).add_kind_of(KindOf::Vehicle).add_kind_of(KindOf::Attackable);
+    world.templates.insert(target.name.clone(), target);
+    let source = world.create_object_for_player("CustomOverlordGunCarrier", 0, Vec3::ZERO).unwrap();
+    let target = world.create_object_for_player("UraniumProjectileTarget", 2, Vec3::new(30.0, 0.0, 0.0)).unwrap();
+    world.frame = 100;
+    let target_pos = world.objects[&target].get_position();
+    world.objects.get_mut(&source).unwrap().set_prev_victim_pos(Some(target_pos));
+    (world, source, target)
+}
+
+fn uranium_launch(world: &mut GameLogic, source: ObjectId, target: ObjectId) {
+    assert_eq!(world.attack_fire_weapon_update(source, target, 10.0), AttackFireResult::Success);
+    world.drain_pending_projectiles_into_combat();
+    assert_eq!(world.combat_system.projectile_count(), 1);
+    assert_eq!(world.objects[&target].health.current, 1000.0);
+}
+
+fn uranium_impact(world: &mut GameLogic, target: ObjectId) -> f32 {
+    for _ in 0..300 {
+        if world.combat_system.projectile_count() == 0 { break; }
+        let _ = world.update_with_dt(1.0 / 30.0);
+    }
+    assert_eq!(world.combat_system.projectile_count(), 0, "shell must actually arrive");
+    1000.0 - world.objects[&target].health.current
+}
+
+#[test]
+fn uranium_shell_upgrade_is_owner_scoped_at_launch_in_flight_and_after_load() {
+    const UPGRADE: &str = "Upgrade_ChinaUraniumShells";
+    let (mut unupgraded, source, target) = uranium_projectile_world();
+    unupgraded.add_completed_player_upgrade(1, UPGRADE);
+    uranium_launch(&mut unupgraded, source, target);
+    assert_eq!(uranium_impact(&mut unupgraded, target), 80.0);
+
+    let (mut before, source, target) = uranium_projectile_world();
+    before.add_completed_player_upgrade(0, UPGRADE);
+    assert!(!before.objects[&source].weapon_bonus_player_upgrade, "retail carrier has no upgrade module");
+    uranium_launch(&mut before, source, target);
+    assert_eq!(uranium_impact(&mut before, target), 100.0);
+
+    let (mut flying, source, target) = uranium_projectile_world();
+    uranium_launch(&mut flying, source, target);
+    flying.add_completed_player_upgrade(0, UPGRADE);
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&flying).unwrap();
+    let bytes = bincode_legacy::serialize(&saved).unwrap();
+    let saved = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    let (mut loaded, _, _) = uranium_projectile_world();
+    builder.restore_from_snapshot(&saved, &mut loaded).unwrap();
+    assert_eq!(uranium_impact(&mut flying, target), 100.0);
+    assert_eq!(uranium_impact(&mut loaded, target), 100.0);
+
+    let (mut before_load, source, target) = uranium_projectile_world();
+    uranium_launch(&mut before_load, source, target);
+    let saved = builder.create_world_snapshot(&before_load).unwrap();
+    let bytes = bincode_legacy::serialize(&saved).unwrap();
+    let saved = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    let (mut loaded_before_upgrade, _, _) = uranium_projectile_world();
+    builder.restore_from_snapshot(&saved, &mut loaded_before_upgrade).unwrap();
+    loaded_before_upgrade.add_completed_player_upgrade(0, UPGRADE);
+    assert_eq!(uranium_impact(&mut loaded_before_upgrade, target), 100.0);
+}
