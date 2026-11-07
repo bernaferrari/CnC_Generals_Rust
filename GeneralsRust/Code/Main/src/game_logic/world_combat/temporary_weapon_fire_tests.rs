@@ -466,10 +466,22 @@ fn authored_death_callbacks_fire_each_applicable_module_before_removal() {
     use crate::game_logic::host_usa_pilot::HostDeathType;
     use crate::game_logic::object::OnDieInput;
 
-    register_death_splash_weapon("AuthoredDeathDefault", 30, 10);
-    register_death_splash_weapon("AuthoredDeathUpgraded", 60, 10);
-    register_death_splash_weapon("AuthoredDeathExtra", 20, 10);
+    // Bind the definitions to this GameLogic, not the free INI registration
+    // helper's temporary WorldServices. Death must use the receiving catalog.
     let mut logic = GameLogic::new();
+    let mut weapons = std::collections::HashMap::new();
+    for (name, damage) in [
+        ("AuthoredDeathDefault", 30.0),
+        ("AuthoredDeathUpgraded", 60.0),
+        ("AuthoredDeathExtra", 20.0),
+    ] {
+        let mut weapon = gamelogic::weapon::WeaponTemplate::new(name.into());
+        weapon.primary_damage = damage;
+        weapon.primary_damage_radius = 10.0;
+        weapon.damage_dealt_at_self_position = true;
+        weapons.insert(name.to_ascii_lowercase(), std::sync::Arc::new(weapon));
+    }
+    logic.weapon_definitions = Some(weapons);
     let mut template = ThingTemplate::new("CustomAuthoredDemolitionUnit");
     let module = |source_index, weapon: &str, starts_active, upgrade_mux| {
         FireWeaponWhenDeadMetadata {
@@ -530,6 +542,11 @@ fn authored_death_callbacks_fire_each_applicable_module_before_removal() {
         actual_damage_clipped: 100.0,
     };
     logic.mark_object_for_destruction_with_topple(source, None, input, None).unwrap();
+    let source_after = logic.objects.get(&source).expect("death callback source remains installed");
+    assert!(source_after.native_die_runtime.completed.contains(&1));
+    assert!(source_after.native_die_runtime.completed.contains(&2));
+    assert!(source_after.temporary_weapon_runtime.dead[1].upgrade_executed);
+    assert!(source_after.temporary_weapon_runtime.dead[2].upgrade_executed);
     assert_eq!(logic.objects[&victim].health.current, 920.0);
     logic.fire_temporary_weapons_for_pending_deaths();
     logic.process_destroy_list();
