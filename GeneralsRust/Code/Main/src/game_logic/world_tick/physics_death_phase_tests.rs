@@ -253,9 +253,12 @@ fn saved_physics_continues_through_world_collision_callbacks_in_order() {
             admit_fx(&mut owner, &catalog);
             let (peer, peer_victim) = world(false);
             assert_eq!(victim, peer_victim);
-            owner.set_fixture_object_position(CRUSHER, Vec3::new(-3., 0., 0.));
+            // Begin just past the authored front crush point, as in the
+            // direct source-order fixture; retain a real nonzero Euler step.
+            owner.set_fixture_object_position(CRUSHER, Vec3::new(2.2, 0., 0.));
             {
                 let crusher = owner.objects.get_mut(&CRUSHER).unwrap();
+                crusher.movement.velocity = Vec3::new(0.25, 0., 0.);
                 crusher.physics_mass = 2.;
                 crusher.physics_accel = Vec3::new(0.1, 0., 0.);
                 crusher.physics_previous_accel = Vec3::new(0.2, 0., 0.);
