@@ -225,7 +225,7 @@ fn decode_map_bytes(path: PathBuf, raw_bytes: Vec<u8>) -> LoaderResult<ChunkyMap
             ))
         })?
     };
-    ChunkyMap::decode(path, bytes)
+    Ok(ChunkyMap::decode(path, bytes)?)
 }
 
 /// Resolve and decode geometry using the same mounted owner as its companions.
