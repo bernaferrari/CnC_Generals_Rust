@@ -77,6 +77,9 @@ fn world(
 
 fn helix_portable_world(position: Vec3) -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
+    world.admit_combat_bonus_ini_sources([
+        "GameData\n WeaponBonus = GARRISONED RANGE 133%\nEnd\n"
+    ]).unwrap();
     world
             .admit_object_creation_list_sources(["ObjectCreationList OCL_HelixGattlingCannon\nCreateObject\nObjectNames = ChinaTankOverlordGattlingCannon\nCount = 1\nContainInsideSourceObject = Yes\nEnd\nEnd".into()])
             .expect("retail Helix addon OCL parses");
@@ -142,6 +145,7 @@ fn retail_helix_contain_inside_source_ocl_attaches_in_each_receiving_world() {
         assert_eq!(payload.contained_by, Some(source));
         assert!(!payload.status.disabled_held, "Helix portable slot bypasses onContaining");
         assert!(!host.occupants.contains(&child));
+        assert!((world.receiving_weapon_bonus_fields_for_slot(payload, 0).1 - 1.0).abs() < 0.001);
         assert!(!host.is_enclosing_container_for(payload));
         assert_eq!(payload.template_name, "ChinaTankOverlordGattlingCannon");
     }

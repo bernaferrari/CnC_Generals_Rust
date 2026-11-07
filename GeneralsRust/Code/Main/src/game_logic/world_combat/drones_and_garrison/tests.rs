@@ -1968,6 +1968,11 @@ fn garrison_residual_fire_uses_garrisoned_133_range() {
 #[test]
 fn helix_infantry_residual_fire_uses_garrisoned_133_range() {
     let mut logic = GameLogic::new();
+    // The receiving world's GameData owns the GARRISONED multiplier; an
+    // empty GameLogic intentionally has no implicit retail bonus rows.
+    logic.admit_combat_bonus_ini_sources([
+        "GameData\n WeaponBonus = GARRISONED RANGE 133%\nEnd\n"
+    ]).unwrap();
     let mut helix = ThingTemplate::new("AuthoredAirCarrier");
     helix
         .add_kind_of(KindOf::Vehicle)
@@ -1994,9 +1999,13 @@ fn helix_infantry_residual_fire_uses_garrisoned_133_range() {
         .create_object("ChinaRedguard", Team::China, Vec3::ZERO)
         .unwrap();
     assert!(logic.host_object_mut(heli).unwrap().add_occupant(rider));
+    GameLogic::set_owned_containment_in_parts(
+        &mut logic.objects, &mut logic.partition_manager, &mut logic.ai_groups,
+        &mut logic.pathfinding_system, rider, Some(heli), true,
+    );
     {
-        let (r, fixture_partition_r) = logic.host_object_and_partition_mut(rider).unwrap();
-        r.set_contained_by_with_partition_owner(Some(heli), true, fixture_partition_r);
+        let r = logic.host_object_mut(rider).unwrap();
+        assert!(r.is_held_disabled());
         r.set_ai_state(
             AIState::Docked,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
@@ -2014,6 +2023,7 @@ fn helix_infantry_residual_fire_uses_garrisoned_133_range() {
     let victim = logic
         .create_object("UsaRanger", Team::USA, Vec3::new(120.0, 0.0, 0.0))
         .unwrap();
+    assert!((logic.receiving_weapon_bonus_fields_for_slot(logic.host_object(rider).unwrap(), 0).1 - 1.33).abs() < 0.001);
     let hp_before = logic.host_object(victim).unwrap().health.current;
     logic.set_current_frame(30);
     logic.try_transport_passenger_residual_fire(rider);

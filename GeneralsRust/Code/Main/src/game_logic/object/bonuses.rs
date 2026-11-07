@@ -512,7 +512,8 @@ impl Object {
             let garrisoned = if matches!(extra, ExtraWeaponBonus::Owned(_)) {
                 self.contained_by.is_some()
                     && container.is_some_and(|owner| {
-                        owner.is_helix_transport || owner.is_garrison_contain()
+                        (owner.is_helix_transport && owner.overlord_portable_occupant != Some(self.id))
+                            || owner.is_garrison_contain()
                     })
             } else {
                 self.contained_by.is_some()
