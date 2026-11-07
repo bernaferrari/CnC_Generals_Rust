@@ -2770,3 +2770,12 @@ the player lock for the callback. Main retains the ledger on its per-player AI
 and includes it in world snapshots. C++ reference: AIPlayer.cpp:1024–1095.
 The Core linked-list cursor currently rescans by index after each callback;
 reentrant edits before the cursor cannot preserve C++ node identity.
+
+## Bridge restoration identity
+
+Saved bridge bindings use the map bridge index or the placed landmark's map
+object index, not the layer or geometric center. Overflow spans sharing Ground
+do not bind or deactivate a reserved path layer. C++ references: AIPathfind.cpp
+`addBridge`, TerrainLogic bridge admission and deletion, and BridgeBehavior
+`xfer`. Slot 15's coupled wall and bridge allocation still needs original-order
+parity; it is not resolved by the restoration identity change.
