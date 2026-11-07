@@ -695,20 +695,26 @@ impl GameLogic {
 
         self.special_power_strikes.clear_frame_events();
 
-        let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
-            .objects
-            .registered()
-            .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
-            .collect();
-
-        let plans = self
-            .special_power_strikes
-            .plan_due_impacts(self.frame, &object_positions);
-
-        for plan in plans {
-            if !self.special_power_strikes.commit_plan_deliveries(&plan) {
-                continue;
-            }
+        loop {
+            // Each delivery can destroy, create, or move objects through its
+            // callbacks. Plan the next one against the resulting world.
+            let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
+                .objects
+                .registered()
+                .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
+                .collect();
+            let Some(plan) = self
+                .special_power_strikes
+                .plan_due_impacts(self.frame, &object_positions)
+                .into_iter()
+                .next()
+            else {
+                break;
+            };
+            assert!(
+                self.special_power_strikes.commit_plan_deliveries(&plan),
+                "a freshly planned strike delivery must remain uncommitted"
+            );
             let mut total_damage = 0.0_f32;
             let mut objects_hit = 0_u32;
             let mut objects_destroyed = 0_u32;

@@ -1138,9 +1138,11 @@ fn once_at_queue_multi_strike_ocl_residual_honesty() {
             .any(|p| p.strike_id == id)
     );
     let plans = reg.plan_due_impacts(first_frame, &objects);
-    let plan = plans.iter().find(|p| p.strike_id == id).unwrap();
-    assert_eq!(plan.wave_shell_count as usize, expected.len());
-    assert_eq!(plan.epicenters, expected);
+    let actual: Vec<_> = plans.iter()
+        .filter(|plan| plan.strike_id == id)
+        .flat_map(|plan| plan.epicenters.iter().copied())
+        .collect();
+    assert_eq!(actual, expected);
 }
 
 #[test]

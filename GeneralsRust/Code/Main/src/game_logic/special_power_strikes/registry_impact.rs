@@ -70,12 +70,8 @@ impl HostSpecialPowerStrikeRegistry {
     /// Build impact damage plans for all strikes whose impact frame has arrived.
     /// Does not mutate object health — GameLogic applies hits.
     ///
-    /// Multi-strike residuals (CarpetBomb line / ArtilleryBarrage scatter):
-    /// - Shells/bombs apply on their DelayDelivery / DropDelay residual frames.
-    /// - Each living enemy takes the max damage from any **due this wave**
-    ///   epicenter (not a single circular blast at the click point only).
-    /// - Jumping past several stagger frames applies all overdue shells/bombs
-    ///   in one wave (save/load and host tests).
+    /// Each due shell or bomb has its own plan, ordered by delivery frame
+    /// and then formation index. Overdue deliveries are not merged.
     pub fn plan_due_impacts(
         &self,
         current_frame: u32,
@@ -96,29 +92,25 @@ impl HostSpecialPowerStrikeRegistry {
                 continue;
             }
 
-            let (due_points, delivery_indices, wave_shell_count, is_final_wave) = if strike.kind.is_multi_strike() {
-                // Prefer once-at-queue residual plan (stored ADC draws); fall back
-                // to re-query for older snapshots without ocl_points.
+            let (mut due, remaining) = if strike.kind.is_multi_strike() {
+                // Prefer the once-at-queue residual plan.
+                let fallback;
                 let all_points = if !strike.ocl_points.is_empty() {
-                    strike.ocl_points.clone()
-                } else if strike.kind.is_line_multi_strike() {
-                    carpet_bomb_points_for_tier(strike.target_position, strike.carpet_tier)
+                    &strike.ocl_points
                 } else {
-                    strike
-                        .kind
-                        .multi_strike_points_with_tier(
+                    fallback = if strike.kind.is_line_multi_strike() {
+                        carpet_bomb_points_for_tier(strike.target_position, strike.carpet_tier)
+                    } else {
+                        strike.kind.multi_strike_points_with_tier(
                             strike.target_position,
                             strike.artillery_tier,
-                        )
-                        .unwrap_or_default()
+                        ).unwrap_or_default()
+                    };
+                    &fallback
                 };
-                let total = all_points.len() as u32;
-                if total == 0 || strike.committed_deliveries.len() >= total as usize {
-                    continue;
-                }
+                let total = all_points.len();
+                let remaining = total.saturating_sub(strike.committed_deliveries.len());
                 let mut due = Vec::new();
-                let mut indices = Vec::new();
-                let mut due_count = 0_u32;
                 for (i, p) in all_points.iter().enumerate() {
                     let idx = i as u32;
                     if strike.committed_deliveries.contains(&idx) {
@@ -138,99 +130,74 @@ impl HostSpecialPowerStrikeRegistry {
                         )
                     };
                     if shell_frame <= current_frame {
-                        due.push(*p);
-                        indices.push(idx);
-                        due_count = due_count.saturating_add(1);
+                        due.push((shell_frame, Some(idx), *p));
                     }
                 }
-                if due_count == 0 {
-                    continue;
-                }
-                let applied_after = strike.committed_deliveries.len() + due_count as usize;
-                let is_final = applied_after >= total as usize;
-                (due, indices, due_count, is_final)
+                (due, remaining)
             } else {
-                (vec![strike.target_position], Vec::new(), 1, true)
+                (vec![(strike.impact_frame, None, strike.target_position)], 1)
             };
-
-            // C++ AttackNugget leftover: flying missiles own ScudStormDamageWeapon.
-            // C++ one CarpetBombWeapon per drop: falling bombs own the blast.
-            // C++ one FireWeaponWhenDead on AnthraxBomb: falling bomb owns 200/100 + toxin.
-            // Registry blob is fallback only when leftover did not schedule.
-            let mut hits = Vec::new();
-            if !(strike.kind.is_scud_multi_strike() && strike.live_scud_delivery)
-                && !(strike.kind.is_line_multi_strike() && strike.live_carpet_delivery)
-                && !(strike.kind == HostSuperweaponKind::AnthraxBomb
-                    && strike.live_anthrax_delivery)
-            {
-                for &(id, pos, team, alive) in object_positions {
-                    if !alive || id == strike.source_object {
-                        continue;
-                    }
-                    // Retail RadiusDamageAffects ALLIES residual (wave 11).
-                    // Kinds without ALLIES still exclude same-team friendlies.
-                    if team == strike.source_team && !strike.kind.hits_allies() {
-                        continue;
-                    }
-                    let dmg = if strike.kind.is_multi_strike() {
-                        // Multi-strike wave: best (nearest) due shell/bomb epicenter.
-                        due_points
-                            .iter()
-                            .map(|epicenter| {
-                                Self::damage_at_distance_with_tiers(
-                                    strike.kind,
-                                    horizontal_distance(pos, *epicenter),
-                                    strike.scud_anthrax_tier,
-                                    strike.a10_tier,
-                                )
-                            })
-                            .fold(0.0_f32, f32::max)
-                    } else {
-                        let dist = horizontal_distance(pos, strike.target_position);
-                        let mut primary = Self::damage_at_distance_with_tiers(
-                            strike.kind,
-                            dist,
-                            strike.scud_anthrax_tier,
-                            strike.a10_tier,
-                        );
-                        // MOABFlameWeapon secondary residual (DaisyCutter / CruiseMissile).
-                        // Fail-closed: not full SlowDeath MIDPOINT timing / tree burn state.
-                        let flame = if strike.kind.spawns_moab_flame() && dist <= MOAB_FLAME_RADIUS
-                        {
-                            MOAB_FLAME_DAMAGE
+            due.sort_by_key(|(frame, index, _)| (*frame, *index));
+            for (ordinal, (delivery_frame, index, point)) in due.into_iter().enumerate() {
+                let is_final_wave = ordinal + 1 == remaining;
+                // Live payloads own their own weapon effects.
+                let mut hits = Vec::new();
+                if !(strike.kind.is_scud_multi_strike() && strike.live_scud_delivery)
+                    && !(strike.kind.is_line_multi_strike() && strike.live_carpet_delivery)
+                    && !(strike.kind == HostSuperweaponKind::AnthraxBomb
+                        && strike.live_anthrax_delivery)
+                {
+                    for &(id, pos, team, alive) in object_positions {
+                        if !alive || id == strike.source_object {
+                            continue;
+                        }
+                        if team == strike.source_team && !strike.kind.hits_allies() {
+                            continue;
+                        }
+                        let dmg = if strike.kind.is_multi_strike() {
+                            Self::damage_at_distance_with_tiers(
+                                strike.kind,
+                                horizontal_distance(pos, point),
+                                strike.scud_anthrax_tier,
+                                strike.a10_tier,
+                            )
                         } else {
-                            0.0
+                            let dist = horizontal_distance(pos, strike.target_position);
+                            let primary = Self::damage_at_distance_with_tiers(
+                                strike.kind,
+                                dist,
+                                strike.scud_anthrax_tier,
+                                strike.a10_tier,
+                            );
+                            // MOABFlameWeapon secondary residual.
+                            let flame = if strike.kind.spawns_moab_flame() && dist <= MOAB_FLAME_RADIUS {
+                                MOAB_FLAME_DAMAGE
+                            } else {
+                                0.0
+                            };
+                            primary + flame
                         };
-                        primary + flame
-                    };
-                    if dmg > 0.0 {
-                        hits.push(HostStrikeDamageHit {
-                            target_id: id,
-                            damage: dmg,
-                        });
+                        if dmg > 0.0 {
+                            hits.push(HostStrikeDamageHit { target_id: id, damage: dmg });
+                        }
                     }
                 }
+                plans.push((delivery_frame, HostStrikeImpactPlan {
+                    strike_id: strike.id,
+                    kind: strike.kind,
+                    target_position: point,
+                    source_object: strike.source_object,
+                    source_team: strike.source_team,
+                    hits,
+                    epicenters: vec![point],
+                    delivery_indices: index.into_iter().collect(),
+                    wave_shell_count: 1,
+                    is_final_wave,
+                }));
             }
-            // Presentation epicenter: first due point (or strike target).
-            let present_pos = due_points
-                .first()
-                .copied()
-                .unwrap_or(strike.target_position);
-            plans.push(HostStrikeImpactPlan {
-                strike_id: strike.id,
-                kind: strike.kind,
-                target_position: present_pos,
-                source_object: strike.source_object,
-                source_team: strike.source_team,
-                hits,
-                epicenters: due_points,
-                delivery_indices,
-                wave_shell_count,
-                is_final_wave,
-            });
         }
-        plans.sort_by_key(|p| p.strike_id);
-        plans
+        plans.sort_by_key(|(frame, plan)| (*frame, plan.strike_id, plan.delivery_indices.first().copied()));
+        plans.into_iter().map(|(_, plan)| plan).collect()
     }
 
     /// Reserve exactly the deliveries in this plan before applying its effects.

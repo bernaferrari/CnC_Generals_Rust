@@ -802,3 +802,52 @@ fn delayed_strikes_restore_out_of_order_deliveries_through_world_xfer() {
     }
     }
 }
+
+#[test]
+fn overlapping_delayed_artillery_deliveries_survive_world_restore() {
+    use crate::game_logic::special_power_strikes::ARTILLERY_BARRAGE_DAMAGE;
+    use crate::save_load::{Xfer, XferData, XferLoad, XferSave};
+
+    let mut source = GameLogic::new();
+    ensure_strike_test_tank(&mut source);
+    let caster = source.create_object("StrikeTestTank", Team::China, Vec3::new(-1000.0, 0.0, 0.0)).unwrap();
+    let victim = source.create_object("StrikeTestTank", Team::USA, Vec3::ZERO).unwrap();
+    let object = source.host_object_mut(victim).unwrap();
+    object.health.current = 10000.0;
+    object.health.maximum = 10000.0;
+    object.template_mut().armor = 0.0;
+    let strike_id = source.queue_special_power_strike(
+        &crate::command_system::SpecialPowerType::Artillery, caster, Vec3::ZERO,
+    ).expect("admit artillery through the world");
+    let strike = source.special_power_strikes_mut().get_mut(strike_id).unwrap();
+    let start = strike.impact_frame;
+    strike.ocl_points = vec![Vec3::ZERO; 3];
+    strike.ocl_shell_frames = vec![start + 2, start, start];
+
+    source.set_current_frame(u64::from(start));
+    source.update_special_power_strikes().unwrap();
+    assert_eq!(source.host_object(victim).unwrap().health.current, 10000.0 - 2.0 * ARTILLERY_BARRAGE_DAMAGE);
+    assert_eq!(source.special_power_strikes().get(strike_id).unwrap().committed_deliveries, [1, 2]);
+
+    let builder = SnapshotBuilder::new();
+    let mut snapshot = builder.create_world_snapshot(&source).unwrap();
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    snapshot.xfer(&mut XferSave::new(&mut bytes)).unwrap();
+    let mut decoded = WorldSnapshot::default();
+    decoded.xfer(&mut XferLoad::new(std::io::Cursor::new(bytes.into_inner()))).unwrap();
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+
+    for world in [&mut source, &mut restored] {
+        world.set_current_frame(u64::from(start));
+        world.update_special_power_strikes().unwrap();
+        assert_eq!(world.host_object(victim).unwrap().health.current, 10000.0 - 2.0 * ARTILLERY_BARRAGE_DAMAGE);
+        world.set_current_frame(u64::from(start + 2));
+        world.update_special_power_strikes().unwrap();
+        assert_eq!(world.host_object(victim).unwrap().health.current, 10000.0 - 3.0 * ARTILLERY_BARRAGE_DAMAGE);
+        assert_eq!(world.special_power_strikes().get(strike_id).unwrap().phase, HostStrikePhase::Completed);
+        world.update_special_power_strikes().unwrap();
+        assert_eq!(world.host_object(victim).unwrap().health.current, 10000.0 - 3.0 * ARTILLERY_BARRAGE_DAMAGE);
+    }
+}

@@ -664,41 +664,19 @@ fn carpet_bomb_delayed_line_multi_strike_damage() {
         CarpetBombFactionTier::China,
     );
     let plans = reg.plan_due_impacts(last, &objects);
-    assert_eq!(plans.len(), 1);
-    assert!(plans[0].is_final_wave);
-    // Remaining after first-wave apply: china_count - 1.
-    assert_eq!(plans[0].wave_shell_count, china_count.saturating_sub(1));
+    assert_eq!(plans.len(), china_count as usize - 1);
+    assert!(plans.last().unwrap().is_final_wave);
     // Center + outer-bomb enemies + friendly (ALLIES residual); far excluded.
-    assert!(
-        plans[0]
-            .hits
-            .iter()
-            .any(|h| h.target_id == ObjectId(2) && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1)
-    );
-    assert!(
-        plans[0]
-            .hits
-            .iter()
-            .any(|h| h.target_id == ObjectId(3) && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1)
-    );
-    assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(4)));
-    assert!(
-        plans[0]
-            .hits
-            .iter()
-            .any(|h| h.target_id == ObjectId(5) && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1)
-    );
-
-    assert!(reg.commit_plan_deliveries(&plans[0]));
-    reg.record_impact_wave(
-        id,
-        CARPET_BOMB_DAMAGE * 2.0,
-        2,
-        0,
-        plans[0].wave_shell_count,
-        plans[0].is_final_wave,
-        &plans[0].epicenters,
-    );
+    for id in [ObjectId(2), ObjectId(3), ObjectId(5)] {
+        assert!(plans.iter().any(|plan| plan.hits.iter().any(
+            |hit| hit.target_id == id && (hit.damage - CARPET_BOMB_DAMAGE).abs() < 0.1
+        )));
+    }
+    assert!(!plans.iter().any(|plan| plan.hits.iter().any(|hit| hit.target_id == ObjectId(4))));
+    for plan in &plans {
+        assert!(reg.commit_plan_deliveries(plan));
+        reg.record_impact_wave(id, 0.0, 0, 0, plan.wave_shell_count, plan.is_final_wave, &plan.epicenters);
+    }
     assert!(reg.honesty_complete_ok(HostSuperweaponKind::CarpetBomb));
     assert!(reg.honesty_host_path_ok(HostSuperweaponKind::CarpetBomb));
     assert!(reg.radiation_fields().is_empty());
@@ -846,22 +824,14 @@ fn artillery_barrage_delayed_multi_shell_scatter_damage() {
     // included); not necessarily final.
     let lead_frame = artillery_shell_impact_frame(0, 0);
     let first = reg.plan_due_impacts(lead_frame, &objects);
-    assert_eq!(first.len(), 1, "lead shell must be due at its own draw");
-    assert!(
-        first[0].hits.iter().any(
-            |h| h.target_id == ObjectId(2) && (h.damage - ARTILLERY_BARRAGE_DAMAGE).abs() < 0.1
-        )
-    );
-    assert!(reg.commit_plan_deliveries(&first[0]));
-    reg.record_impact_wave(
-        id,
-        ARTILLERY_BARRAGE_DAMAGE,
-        1,
-        0,
-        first[0].wave_shell_count,
-        first[0].is_final_wave,
-        &first[0].epicenters,
-    );
+    let lead = first.iter().find(|plan| plan.delivery_indices == [0]).unwrap();
+    assert!(lead.hits.iter().any(
+        |h| h.target_id == ObjectId(2) && (h.damage - ARTILLERY_BARRAGE_DAMAGE).abs() < 0.1
+    ));
+    for plan in &first {
+        assert!(reg.commit_plan_deliveries(plan));
+        reg.record_impact_wave(id, ARTILLERY_BARRAGE_DAMAGE, 1, 0, plan.wave_shell_count, plan.is_final_wave, &plan.epicenters);
+    }
 
     // Jump to last DelayDelivery shell frame: remaining scatter shells apply.
     let last = multi_strike_last_impact_frame(
@@ -870,35 +840,19 @@ fn artillery_barrage_delayed_multi_shell_scatter_damage() {
         ArtilleryBarrageScienceTier::Level1,
     );
     let plans = reg.plan_due_impacts(last, &objects);
-    if first[0].is_final_wave {
+    if first.last().unwrap().is_final_wave {
         // All shells had DelayDelivery 0 — already complete.
         assert!(reg.honesty_complete_ok(HostSuperweaponKind::ArtilleryBarrage));
     } else {
-        assert_eq!(plans.len(), 1);
-        assert!(plans[0].is_final_wave);
-        // Scatter-shell enemy hit when its shell is due; far excluded; ALLIES residual allows friendly.
-        assert!(
-            plans[0]
-                .hits
-                .iter()
-                .any(|h| h.target_id == ObjectId(3)
-                    && (h.damage - ARTILLERY_BARRAGE_DAMAGE).abs() < 0.1)
-                || first[0].hits.iter().any(|h| h.target_id == ObjectId(3))
-        );
-        assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(4)));
-        // Friendly at center may take shell damage under RadiusDamageAffects ALLIES.
-        let _friendly_ok = plans[0].hits.iter().any(|h| h.target_id == ObjectId(5))
-            || first[0].hits.iter().any(|h| h.target_id == ObjectId(5));
-        assert!(reg.commit_plan_deliveries(&plans[0]));
-        reg.record_impact_wave(
-            id,
-            ARTILLERY_BARRAGE_DAMAGE,
-            1,
-            0,
-            plans[0].wave_shell_count,
-            plans[0].is_final_wave,
-            &plans[0].epicenters,
-        );
+        assert!(plans.last().unwrap().is_final_wave);
+        assert!(plans.iter().chain(first.iter()).any(|plan| plan.hits.iter().any(
+            |h| h.target_id == ObjectId(3) && (h.damage - ARTILLERY_BARRAGE_DAMAGE).abs() < 0.1
+        )));
+        assert!(!plans.iter().any(|plan| plan.hits.iter().any(|h| h.target_id == ObjectId(4))));
+        for plan in &plans {
+            assert!(reg.commit_plan_deliveries(plan));
+            reg.record_impact_wave(id, ARTILLERY_BARRAGE_DAMAGE, 1, 0, plan.wave_shell_count, plan.is_final_wave, &plan.epicenters);
+        }
         assert!(reg.honesty_complete_ok(HostSuperweaponKind::ArtilleryBarrage));
     }
     assert!(reg.honesty_host_path_ok(HostSuperweaponKind::ArtilleryBarrage));
@@ -1788,18 +1742,11 @@ fn scud_storm_multi_missile_scatter_and_poison_residual() {
 
     // Jump to last missile: complete + more poison.
     let last_plans = reg.plan_due_impacts(last, &objects);
-    assert_eq!(last_plans.len(), 1);
-    assert!(last_plans[0].is_final_wave);
-    assert!(reg.commit_plan_deliveries(&last_plans[0]));
-    reg.record_impact_wave(
-        id,
-        100.0,
-        1,
-        0,
-        last_plans[0].wave_shell_count,
-        true,
-        &last_plans[0].epicenters,
-    );
+    assert!(last_plans.last().unwrap().is_final_wave);
+    for plan in &last_plans {
+        assert!(reg.commit_plan_deliveries(plan));
+        reg.record_impact_wave(id, 100.0, 1, 0, plan.wave_shell_count, plan.is_final_wave, &plan.epicenters);
+    }
     assert!(reg.honesty_complete_ok(kind));
     assert!(reg.honesty_toxin_ok());
     assert!(
@@ -2357,13 +2304,21 @@ fn independently_delayed_deliveries_are_not_a_formation_prefix() {
             (ObjectId(3), Vec3::new(1000.0, 0.0, 0.0), Team::USA, true),
             (ObjectId(4), Vec3::new(2000.0, 0.0, 0.0), Team::USA, true),
         ];
-        let first = reg.plan_due_impacts(start, &objects).remove(0);
-        assert_eq!(first.delivery_indices, [1, 2]);
-        assert_eq!(first.hits.iter().map(|hit| hit.target_id).collect::<Vec<_>>(), [ObjectId(3), ObjectId(4)]);
-        assert!(reg.commit_plan_deliveries(&first));
-        reg.record_impact_wave(id, 0.0, 2, 0, first.wave_shell_count, first.is_final_wave, &first.epicenters);
+        let overdue = reg.plan_due_impacts(start + 2, &objects);
+        assert_eq!(overdue.iter().map(|plan| plan.delivery_indices[0]).collect::<Vec<_>>(), [1, 2, 0]);
+        assert!(!overdue[0].is_final_wave && !overdue[1].is_final_wave && overdue[2].is_final_wave);
+        let first = reg.plan_due_impacts(start, &objects);
+        assert_eq!(first.len(), 2);
+        assert_eq!(first[0].delivery_indices, [1]);
+        assert_eq!(first[1].delivery_indices, [2]);
+        assert_eq!(first[0].hits.iter().map(|hit| hit.target_id).collect::<Vec<_>>(), [ObjectId(3)]);
+        assert_eq!(first[1].hits.iter().map(|hit| hit.target_id).collect::<Vec<_>>(), [ObjectId(4)]);
+        for plan in &first {
+            assert!(reg.commit_plan_deliveries(plan));
+            reg.record_impact_wave(id, 0.0, 1, 0, plan.wave_shell_count, plan.is_final_wave, &plan.epicenters);
+        }
         assert!(reg.plan_due_impacts(start, &objects).is_empty());
-        assert!(!reg.commit_plan_deliveries(&first));
+        assert!(!reg.commit_plan_deliveries(&first[0]));
         let last = reg.plan_due_impacts(start + 2, &objects).remove(0);
         assert_eq!(last.delivery_indices, [0]);
         assert_eq!(last.hits.iter().map(|hit| hit.target_id).collect::<Vec<_>>(), [ObjectId(2)]);
