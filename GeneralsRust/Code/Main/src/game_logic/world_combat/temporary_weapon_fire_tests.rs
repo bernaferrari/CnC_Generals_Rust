@@ -537,7 +537,7 @@ fn authored_death_callbacks_fire_each_applicable_module_before_removal() {
 }
 
 #[test]
-fn authored_temporary_death_weapon_executes_its_own_fire_ocl_once() {
+fn retail_bio_death_weapon_creates_one_authored_poison_field() {
     use crate::assets::ini_parser::BehaviorModuleDefinition;
     use crate::game_logic::object::OnDieInput;
     use gamelogic::effects::ObjectCreationList;
@@ -545,26 +545,32 @@ fn authored_temporary_death_weapon_executes_its_own_fire_ocl_once() {
     use std::sync::Arc;
 
     let mut logic = GameLogic::new();
-    let mut weapon = gamelogic::weapon::WeaponTemplate::new("UnusualDeathWeapon".into());
-    weapon.fire_ocl_names[0] = Some("UnusualDeathOCL".into());
+    // GLAVehicle.ini's BombTruckBioBombEffect fires this exact OCL.
+    let mut weapon = gamelogic::weapon::WeaponTemplate::new("BombTruckBioBombEffect".into());
+    weapon.fire_ocl_names[0] = Some("OCL_PoisonFieldMedium".into());
     logic.weapon_definitions = Some(std::collections::HashMap::from([
-        ("unusualdeathweapon".into(), Arc::new(weapon.clone()))
+        ("bombtruckbiobombeffect".into(), Arc::new(weapon.clone()))
     ]));
-    logic.admit_weapon_fire_definition("UnusualDeathWeapon", &weapon).unwrap();
+    logic.admit_weapon_fire_definition("BombTruckBioBombEffect", &weapon).unwrap();
     let mut ocl = ObjectCreationList::new();
     ocl.add_nugget(Arc::new(GenericObjectCreationNugget {
-        names: vec!["UnusualDeathChild".into()],
+        names: vec!["PoisonFieldMedium".into()],
         ..Default::default()
     }));
-    logic.admit_weapon_ocl_definition("UnusualDeathOCL", ocl).unwrap();
-    logic.templates.insert("UnusualDeathChild".into(), ThingTemplate::new("UnusualDeathChild"));
-    let mut template = ThingTemplate::new("UnusualDeathSource");
+    logic.admit_weapon_ocl_definition("OCL_PoisonFieldMedium", ocl).unwrap();
+    logic.templates.insert("PoisonFieldMedium".into(), ThingTemplate::new("PoisonFieldMedium"));
+    let mut template = ThingTemplate::new("GLAVehicleBombTruck");
     template.fire_weapon_when_dead_behaviors = vec![FireWeaponWhenDeadMetadata {
         module_source_index: 0,
         module_tag: None,
-        starts_active: true,
-        death_weapon: Some("UnusualDeathWeapon".into()),
-        upgrade_mux: FireWeaponUpgradeMuxMetadata::default(),
+        starts_active: false,
+        death_weapon: Some("BombTruckBioBombEffect".into()),
+        upgrade_mux: FireWeaponUpgradeMuxMetadata {
+            triggered_by: vec!["Upgrade_GLABombTruckBioBomb".into()],
+            conflicts_with: vec!["Upgrade_GLABombTruckHighExplosiveBomb".into(), "Upgrade_GLAAnthraxBeta".into()],
+            requires_all_triggers: true,
+            ..Default::default()
+        },
         death_types: Default::default(),
         veterancy_levels: Default::default(),
         exempt_status: Default::default(),
@@ -578,6 +584,7 @@ fn authored_temporary_death_weapon_executes_its_own_fire_ocl_once() {
     );
     let source = ObjectId(20003);
     let mut object = Object::new(template, source, Team::GLA);
+    object.apply_upgrade_tag("Upgrade_GLABombTruckBioBomb");
     object.status.destroyed = true;
     logic.objects.insert(source, object);
     let input = OnDieInput {
@@ -589,12 +596,13 @@ fn authored_temporary_death_weapon_executes_its_own_fire_ocl_once() {
     };
     logic.mark_object_for_destruction_with_topple(source, None, input, None).unwrap();
     let children = |world: &GameLogic| world.host_objects().registered_values()
-        .filter(|object| object.template_name == "UnusualDeathChild").count();
+        .filter(|object| object.template_name == "PoisonFieldMedium").count();
     assert_eq!(children(&logic), 1);
     logic.fire_temporary_weapons_for_pending_deaths();
     logic.process_destroy_list();
     assert_eq!(children(&logic), 1);
 }
+
 
 
 #[test]
