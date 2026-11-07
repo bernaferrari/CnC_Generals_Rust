@@ -151,6 +151,37 @@ fn possible_destination_uses_restored_world_relationships_and_goal_reservations(
     use gamelogic::common::Relationship;
     use generals_main::game_logic::pathfinding::GridPos;
     use generals_main::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
+    use game_engine::common::{
+        dict::Dict,
+        ini::INILoadType,
+        rts::player_template::PlayerTemplateStore,
+        well_known_keys::{
+            key_player_display_name, key_player_faction, key_player_is_human, key_player_name,
+            key_team_is_singleton, key_team_name, key_team_owner,
+        },
+    };
+
+    fn receiving_world(map: &std::path::Path) -> GameLogic {
+        let mut world = GameLogic::new();
+        let mut locomotors = LocomotorStore::new_owned();
+        locomotors.apply_source("Locomotor RetryWalk\n Surfaces = GROUND\n Speed = 30\n Acceleration = 60\n TurnRate = 360\n Appearance = TWO_LEGS\nEnd\n").unwrap();
+        world.admit_locomotor_definitions(locomotors).unwrap();
+        world.admit_object_ini_sources([(
+            "RetryWalk.ini".into(),
+            "Object RetryWalker\n KindOf = SELECTABLE INFANTRY\n Locomotor = SET_NORMAL RetryWalk\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into(),
+        )]).unwrap();
+        let mut players = PlayerTemplateStore::new_owned();
+        players.apply_source(
+            "PlayerTemplate FactionCivilian\n Side = Civilian\nEnd\n\
+             PlayerTemplate FactionAmerica\n Side = America\nEnd\n\
+             PlayerTemplate FactionChina\n Side = China\nEnd\n",
+            INILoadType::Overwrite,
+        ).unwrap();
+        world.admit_player_template_definitions(players).unwrap();
+        world.start_new_game(GameMode::SinglePlayer).unwrap();
+        assert!(world.load_map(map.to_str().unwrap()));
+        world
+    }
 
     let directory = tempfile::tempdir().unwrap();
     let map = directory.path().join("DestinationRestore.map");
@@ -163,15 +194,38 @@ fn possible_destination_uses_restored_world_relationships_and_goal_reservations(
         data.write_byte(0);
     }
     data.close_data_chunk();
+    data.open_data_chunk("SidesList", 2);
+    data.write_int(3);
+    for (name, faction, human) in [
+        ("", "FactionCivilian", false),
+        ("Owner", "FactionAmerica", true),
+        ("Other", "FactionChina", false),
+    ] {
+        let mut side = Dict::new();
+        side.set_ascii_string(key_player_name(), name);
+        side.set_ascii_string(key_player_faction(), faction);
+        side.set_unicode_string(key_player_display_name(), name);
+        side.set_bool(key_player_is_human(), human);
+        data.write_dict(&side);
+        data.write_int(0);
+    }
+    data.write_int(2);
+    for (name, owner) in [("SourceRoster", "Owner"), ("TargetRoster", "Other")] {
+        let mut team = Dict::new();
+        team.set_ascii_string(key_team_name(), name);
+        team.set_ascii_string(key_team_owner(), owner);
+        team.set_bool(key_team_is_singleton(), false);
+        data.write_dict(&team);
+    }
+    data.close_data_chunk();
     data.open_data_chunk("ObjectsList", 3);
     data.close_data_chunk();
     std::fs::write(&map, data.into_ckmp_bytes()).unwrap();
 
     let goal = Vec3::new(150.0, 0.0, 100.0);
-    let mut worlds = [world(&map), world(&map)];
+    let mut worlds = [receiving_world(&map), receiving_world(&map)];
     let mut ids = Vec::new();
     for (index, world) in worlds.iter_mut().enumerate() {
-        world.add_player(Player::new(2, Team::GLA, "Other", false));
         world.get_player_mut(1).unwrap().set_map_relationship(
             2,
             if index == 0 { Relationship::Allies } else { Relationship::Enemies },
@@ -210,10 +264,19 @@ fn possible_destination_uses_restored_world_relationships_and_goal_reservations(
     };
     saves.save_game("destination-a", &worlds[0], &info).unwrap();
     saves.save_game("destination-b", &worlds[1], &info).unwrap();
-    let mut restored = [world(&map), world(&map)];
+    let mut restored = [receiving_world(&map), receiving_world(&map)];
     saves.load_game("destination-a", &mut restored[0]).unwrap();
     saves.load_game("destination-b", &mut restored[1]).unwrap();
     for index in [0, 1, 0, 1] {
+        let expected = if index == 0 { Relationship::Allies } else { Relationship::Enemies };
+        assert_eq!(restored[index].player_relationship(1, 2), expected);
+        assert_eq!(
+            restored[index].object_relationship(
+                restored[index].host_object(ids[index].0).unwrap(),
+                restored[index].host_object(ids[index].1).unwrap(),
+            ),
+            expected,
+        );
         assert_eq!(restored[index].pathfinding_ground_goal(GridPos::new(15, 10)), Some(ids[index].1));
         assert_eq!(observe(&restored[index], ids[index].0), index == 1);
         assert_eq!(observe(&worlds[index], ids[index].0), index == 1);
