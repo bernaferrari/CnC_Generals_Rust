@@ -230,6 +230,74 @@ fn installed_overlap_completes_death_and_promotion_before_armor_in_both_crush_pa
 }
 
 #[test]
+fn saved_physics_continues_through_world_collision_callbacks_in_order() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "saved_physics_continues_through_world_collision_callbacks_in_order",
+        || {
+            let events = install();
+            let (mut owner, victim) = world(false);
+            let (peer, peer_victim) = world(false);
+            assert_eq!(victim, peer_victim);
+            owner.set_fixture_object_position(CRUSHER, Vec3::new(-3., 0., 0.));
+            {
+                let crusher = owner.objects.get_mut(&CRUSHER).unwrap();
+                crusher.physics_mass = 2.;
+                crusher.physics_accel = Vec3::new(0.1, 0., 0.);
+                crusher.physics_previous_accel = Vec3::new(0.2, 0., 0.);
+                crusher.motive_frames_remaining = 2;
+                crusher.extra_friction = 0.01;
+            }
+            {
+                let target = owner.objects.get_mut(&victim).unwrap();
+                target.shock_stun_frames = 24;
+                target.shock_yaw_rate = 0.02;
+                target.shock_allow_bounce = true;
+                target.extra_bounciness = 0.4;
+                target.immune_to_falling_damage = true;
+            }
+            let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+            let saved = builder.create_world_snapshot(&owner).unwrap();
+            let bytes = bincode_legacy::serialize(&saved).unwrap();
+            let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+            let (mut restored, restored_victim) = world(false);
+            assert_eq!(victim, restored_victim);
+            builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+            assert!(events.try_iter().next().is_none(), "load must not dispatch collide FX");
+
+            let source_contacts = owner.tick_physics_collisions_all();
+            let source_effects: Vec<_> = events.try_iter().collect();
+            let restored_contacts = restored.tick_physics_collisions_all();
+            let restored_effects: Vec<_> = events.try_iter().collect();
+            assert!(source_contacts > 0, "the world must dispatch a real contact");
+            assert_eq!(restored_contacts, source_contacts);
+            assert_eq!(source_effects, vec![(DIE, Some(CRUSHER.0)), (VETERAN, Some(CRUSHER.0))]);
+            assert_eq!(restored_effects, source_effects, "onDie must precede outer Armor FX");
+            for id in [CRUSHER, victim] {
+                let a = &owner.objects[&id];
+                let b = &restored.objects[&id];
+                assert_eq!(a.get_position(), b.get_position());
+                assert_eq!(a.movement.velocity, b.movement.velocity);
+                assert_eq!(a.physics_accel, b.physics_accel);
+                assert_eq!(a.previous_acceleration(), b.previous_acceleration());
+                assert_eq!(a.last_collidee, b.last_collidee);
+                assert_eq!(a.physics_current_overlap, b.physics_current_overlap);
+                assert_eq!(a.physics_previous_overlap, b.physics_previous_overlap);
+                assert_eq!(a.shock_stun_frames, b.shock_stun_frames);
+                assert_eq!(a.shock_allow_bounce, b.shock_allow_bounce);
+                assert_eq!(a.was_airborne_last_frame, b.was_airborne_last_frame);
+                assert_eq!(a.status.on_die_started, b.status.on_die_started);
+                assert_eq!(a.health.current, b.health.current);
+            }
+            assert_eq!(peer.objects[&victim].health.current, 100.);
+            assert!(!peer.objects[&victim].status.on_die_started);
+            assert_eq!(peer.objects[&CRUSHER].get_position(), Vec3::new(-20., 0., 0.));
+            assert_eq!(peer.session_view.impulse.intensity, 0.);
+        },
+    );
+}
+
+#[test]
 fn initial_contact_continuation_rereads_crush_flags_and_current_geometry() {
     use crate::game_logic::object::{OverlapCrushResume, OverlapCrushStep};
     for callback_crushed_both in [false, true] {
