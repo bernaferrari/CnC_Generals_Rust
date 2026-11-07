@@ -564,9 +564,6 @@ fn possible_destination_honors_directional_team_override_before_player_relation(
     for (index, (world, system)) in worlds.iter_mut().zip(&mut systems).enumerate() {
         let mut owner = Player::new(0, Team::USA, "Owner", true);
         owner.set_map_relationship(1, Relationship::Enemies);
-        if index == 0 {
-            owner.set_team_relationship_override(42, Relationship::Allies);
-        }
         world.add_player(owner);
         world.add_player(Player::new(1, Team::GLA, "Other", false));
         let mut template = ThingTemplate::new("TeamGoalContext");
@@ -574,7 +571,12 @@ fn possible_destination_honors_directional_team_override_before_player_relation(
         world.templates.insert("TeamGoalContext".into(), template);
         let mover = world.create_object_for_player("TeamGoalContext", 0, Vec3::new(25.0, 0.0, 25.0)).unwrap();
         let target = world.create_object_for_player("TeamGoalContext", 1, goal).unwrap();
-        world.host_object_mut(target).unwrap().team_instance_id = Some(42);
+        let target_team = world.host_object(target).unwrap().team_instance_identity()
+            .expect("created target belongs to its player's admitted Team");
+        if index == 0 {
+            world.get_player_mut(0).unwrap()
+                .set_team_relationship_override(target_team, Relationship::Allies);
+        }
         system.grid.update_ground_goal_cell(target.0, 1, 1.0, false, (-1, -1), goal);
         ids.push((mover, target));
     }
