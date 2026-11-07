@@ -401,12 +401,15 @@ fn uranium_projectile_world() -> (GameLogic, ObjectId, ObjectId) {
         Behavior = WeaponBonusUpgrade Uranium\nTriggeredBy = Upgrade_ChinaUraniumShells\nEnd\nEnd\n";
     const CARRIERS: &str = "\nObject CustomOverlordGunCarrier\nKindOf = VEHICLE SELECTABLE CAN_ATTACK\n\
         Body = ActiveBody BodyTag\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\n\
-        WeaponSet\nConditions = None\nWeapon = PRIMARY OverlordTankGun\nEnd\nEnd\n\
+        WeaponSet\nConditions = None\nWeapon = PRIMARY OverlordTankGun\nEnd\n\
+        Behavior = AIUpdateInterface CarrierAI\nEnd\nEnd\n\
         Object ChinaTankOverlord\nKindOf = VEHICLE SELECTABLE CAN_ATTACK\n\
         Body = ActiveBody BodyTag\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\n\
-        WeaponSet\nConditions = None\nWeapon = PRIMARY AlternateUraniumGun\nEnd\nEnd\n\
+        WeaponSet\nConditions = None\nWeapon = PRIMARY AlternateUraniumGun\nEnd\n\
+        Behavior = AIUpdateInterface CarrierAI\nEnd\nEnd\n\
         Object UraniumProjectileTarget\nKindOf = VEHICLE SELECTABLE CAN_ATTACK\n\
         Body = ActiveBody BodyTag\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\n\
+        Behavior = AIUpdateInterface TargetAI\nEnd\n\
         Geometry = Sphere\nGeometryMajorRadius = 0\nEnd\n";
     let object_content = format!("{SHELL}{CARRIERS}");
     let mut parser = crate::assets::ini_parser::IniParser::new();
