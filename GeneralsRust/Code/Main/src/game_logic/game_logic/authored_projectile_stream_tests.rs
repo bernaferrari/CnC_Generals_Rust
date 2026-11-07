@@ -419,7 +419,7 @@ fn uranium_projectile_world() -> (GameLogic, ObjectId, ObjectId) {
         "Weapon OverlordTankGun\nPrimaryDamage = 80\nPrimaryDamageRadius = 5\n\
          SecondaryDamage = 20\nSecondaryDamageRadius = 10\nAttackRange = 175\n\
          DamageType = ARMOR_PIERCING\nProjectileObject = OverlordTankShell\n\
-         WeaponSpeed = 30\nDelayBetweenShots = 300\nClipSize = 2\n\
+         WeaponSpeed = 30\nRadiusDamageAffects = ALLIES ENEMIES NEUTRALS\nDelayBetweenShots = 300\nClipSize = 2\n\
          ClipReloadTime = 2000\nAntiGround = Yes\nWeaponBonus = PLAYER_UPGRADE DAMAGE 125%\nEnd\n\
          Weapon AlternateUraniumGun\nPrimaryDamage = 40\nPrimaryDamageRadius = 5\n\
          AttackRange = 175\nDamageType = ARMOR_PIERCING\nProjectileObject = OverlordTankShell\n\
@@ -472,8 +472,11 @@ fn uranium_impact(world: &mut GameLogic, target: ObjectId) -> f32 {
 fn uranium_shell_upgrade_is_owner_scoped_at_launch_in_flight_and_after_load() {
     const UPGRADE: &str = "Upgrade_ChinaUraniumShells";
     let (mut unupgraded, source, target) = uranium_projectile_world();
+    // Collision detonates at the shell position, not the target center
+    // (DumbProjectileBehavior.cpp:500-517). A perpendicular offset stays
+    // between the 5 and 10 radii even when contact occurs before the center.
     let unupgraded_splash = unupgraded.create_object_for_player(
-        "UraniumProjectileTarget", 2, Vec3::new(38.0, 0.0, 0.0),
+        "UraniumProjectileTarget", 2, Vec3::new(30.0, 0.0, 7.0),
     ).unwrap();
     unupgraded.add_completed_player_upgrade(1, UPGRADE);
     uranium_launch(&mut unupgraded, source, target);
@@ -482,7 +485,7 @@ fn uranium_shell_upgrade_is_owner_scoped_at_launch_in_flight_and_after_load() {
 
     let (mut before, source, target) = uranium_projectile_world();
     let upgraded_splash = before.create_object_for_player(
-        "UraniumProjectileTarget", 2, Vec3::new(38.0, 0.0, 0.0),
+        "UraniumProjectileTarget", 2, Vec3::new(30.0, 0.0, 7.0),
     ).unwrap();
     before.add_completed_player_upgrade(0, UPGRADE);
     assert!(!before.objects[&source].weapon_bonus_player_upgrade, "retail carrier has no upgrade module");
