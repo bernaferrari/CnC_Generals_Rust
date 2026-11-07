@@ -119,6 +119,12 @@ impl GameLogic {
             }
             return Ok(());
         }
+        if let Some(portable) = self.objects.get(&id)
+            .filter(|object| object.is_helix_transport)
+            .and_then(|object| object.overlord_portable_occupant)
+        {
+            self.destroy_object_with_effects(portable, effects)?;
+        }
         let Some(object) = self.objects.get(&id) else {
             return Ok(());
         };

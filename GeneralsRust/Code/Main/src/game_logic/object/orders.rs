@@ -1929,9 +1929,6 @@ impl Object {
         if is_railed_transport {
             return self.max_transport;
         }
-        if self.is_overlord_style_container() {
-            return crate::game_logic::host_overlord_addons::OVERLORD_CONTAIN_SLOTS;
-        }
         if self
             .thing
             .template

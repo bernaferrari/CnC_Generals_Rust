@@ -297,7 +297,7 @@ pub use super::host_overlord_addons::{
     HELIX_TRANSPORT_SLOTS, HostOverlordAddonRegistry, OVERLORD_GATTLING_AIR_DAMAGE,
     OVERLORD_GATTLING_GROUND_DAMAGE, OVERLORD_PROPAGANDA_RADIUS, UPGRADE_HELIX_GATTLING,
     UPGRADE_HELIX_PROPAGANDA, UPGRADE_OVERLORD_GATTLING, UPGRADE_OVERLORD_PROPAGANDA,
-    is_emperor_template, is_helix_template, is_overlord_family_host, is_overlord_tank_template,
+    is_emperor_template, is_overlord_tank_template,
     overlord_gattling_air_weapon, should_apply_overlord_gattling_residual,
 };
 pub use super::host_paradrop::{

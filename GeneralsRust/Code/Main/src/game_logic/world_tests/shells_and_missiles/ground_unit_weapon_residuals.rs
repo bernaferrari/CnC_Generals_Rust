@@ -265,7 +265,6 @@ fn helix_minigun_residual_intended_only() {
     use crate::game_logic::host_helix_minigun::{
         HELIX_MINIGUN_DAMAGE, HELIX_MINIGUN_RANGE, HELIX_MINIGUN_WEAPON,
     };
-    use crate::game_logic::host_overlord_addons::is_helix_template;
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
     ensure_host_weapon_store();
@@ -284,6 +283,9 @@ fn helix_minigun_residual_intended_only() {
         .add_kind_of(KindOf::Attackable)
         .set_health(300.0)
         .set_primary_weapon_name(HELIX_MINIGUN_WEAPON);
+    helix_tpl.contain_module.kind = crate::game_logic::ContainModuleKind::Transport;
+    helix_tpl.contain_module.is_helix_contain = true;
+    helix_tpl.contain_module.slots = Some(crate::game_logic::HELIX_TRANSPORT_SLOTS);
     game_logic
         .templates
         .insert("ChinaVehicleHelix".to_string(), helix_tpl);
@@ -293,7 +295,6 @@ fn helix_minigun_residual_intended_only() {
         .expect("helix");
     {
         let h = game_logic.host_object(helix_id).expect("helix");
-        assert!(is_helix_template(&h.template_name));
         assert!(h.is_helix_transport);
         let w = h.weapon.as_ref().expect("Helix must bind minigun residual");
         assert!((w.damage - HELIX_MINIGUN_DAMAGE).abs() < 0.01);

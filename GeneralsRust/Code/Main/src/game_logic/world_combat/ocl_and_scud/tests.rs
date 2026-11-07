@@ -577,7 +577,7 @@ fn authored_helix_creation_uses_payload_and_weapon_not_carrier_name() {
          KindOf = VEHICLE AIRCRAFT\n\
          WeaponSet\n Conditions = None\n Weapon = PRIMARY HelixMinigunWeapon\n End\n\
          Behavior = HelixContain Cargo\n Slots = 2\n AllowInsideKindOf = INFANTRY\n\
-         PayloadTemplateName = CustomPortableGun\n PayloadTemplateName = CustomPassenger\n End\nEnd\n\
+         PayloadTemplateName = CustomPortableGun\n PayloadTemplateName = CustomPassenger CustomPassenger\n End\nEnd\n\
          Object CustomPortableGun\n KindOf = VEHICLE PORTABLE_STRUCTURE\n End\n\
          Object CustomPassenger\n KindOf = INFANTRY\n TransportSlotCount = 1\n End\n\
          Object ChinaVehicleHelix\n KindOf = VEHICLE AIRCRAFT\n End\n".into(),
@@ -590,7 +590,9 @@ fn authored_helix_creation_uses_payload_and_weapon_not_carrier_name() {
     assert_eq!(host.authored_weapon_name_for_slot(0), Some("HelixMinigunWeapon"));
     let payload = host.overlord_portable_occupant.expect("authored initial rider");
     assert_eq!(world.host_object(payload).unwrap().contained_by, Some(carrier));
+    assert!(!world.host_object(carrier).unwrap().occupants.contains(&payload));
     assert!(!world.host_object(payload).unwrap().is_held_disabled());
+    assert_eq!(world.host_object(carrier).unwrap().occupants.len(), 2);
     let passenger = world.host_object(carrier).unwrap().occupants.iter().copied()
         .find(|&id| id != payload).expect("second authored payload");
     assert_eq!(world.host_object(passenger).unwrap().contained_by, Some(carrier));
@@ -600,9 +602,42 @@ fn authored_helix_creation_uses_payload_and_weapon_not_carrier_name() {
     assert!(named.overlord_portable_occupant.is_none());
     assert_eq!(named.authored_weapon_name_for_slot(0), None);
     let saved = capture_lifecycle_tail(&world).unwrap();
+    assert!(!saved.contain_links.iter().any(|link| link.occupant_id == payload.0));
     world.host_object_mut(carrier).unwrap().occupants.clear();
     world.host_object_mut(payload).unwrap().contained_by = None;
     apply_lifecycle_tail_to_host(&saved, &mut world).unwrap();
     assert_eq!(world.host_object(carrier).unwrap().overlord_portable_occupant, Some(payload));
     assert_eq!(world.host_object(payload).unwrap().contained_by, Some(carrier));
+}
+
+#[test]
+fn authored_overlord_initial_payload_redirects_after_bunker_is_installed() {
+    use crate::save_load::snapshot::{apply_lifecycle_tail_to_host, capture_lifecycle_tail};
+    let mut world = GameLogic::new();
+    world.admit_object_ini_sources([(
+        "AuthoredOverlordPayload.ini".into(),
+        "Object CustomGroundCarrier\n KindOf = VEHICLE\n\
+         Behavior = OverlordContain Cargo\n Slots = 1\n AllowInsideKindOf = PORTABLE_STRUCTURE\n\
+         PayloadTemplateName = CustomRiderBunker\n PayloadTemplateName = CustomBunkerPassenger\n\
+         End\nEnd\n\
+         Object CustomRiderBunker\n KindOf = VEHICLE PORTABLE_STRUCTURE\n TransportSlotCount = 1\n\
+         Behavior = TransportContain Cargo\n Slots = 2\n AllowInsideKindOf = INFANTRY\n End\nEnd\n\
+         Object CustomBunkerPassenger\n KindOf = INFANTRY\n TransportSlotCount = 1\n End\n\
+         Object ChinaTankOverlord\n KindOf = VEHICLE\n End\n".into(),
+    )]).unwrap();
+    world.add_player(crate::game_logic::Player::new(1, Team::China, "Owner", true));
+    let host = world.create_object_for_player("CustomGroundCarrier", 1, Vec3::ZERO).unwrap();
+    let named = world.create_object_for_player("ChinaTankOverlord", 1, Vec3::ZERO).unwrap();
+    let bunker = world.host_object(host).unwrap().overlord_portable_occupant.unwrap();
+    let passenger = world.host_object(bunker).unwrap().contained_units()[0];
+    assert_eq!(world.host_object(host).unwrap().contained_units(), vec![bunker]);
+    assert_eq!(world.host_object(passenger).unwrap().contained_by, Some(bunker));
+    assert!(world.host_object(passenger).unwrap().is_held_disabled());
+    assert!(world.host_object(named).unwrap().occupants.is_empty());
+    let saved = capture_lifecycle_tail(&world).unwrap();
+    world.host_object_mut(bunker).unwrap().occupants.clear();
+    world.host_object_mut(passenger).unwrap().contained_by = None;
+    apply_lifecycle_tail_to_host(&saved, &mut world).unwrap();
+    assert_eq!(world.host_object(passenger).unwrap().contained_by, Some(bunker));
+    assert_eq!(world.host_object(bunker).unwrap().contained_units(), vec![passenger]);
 }

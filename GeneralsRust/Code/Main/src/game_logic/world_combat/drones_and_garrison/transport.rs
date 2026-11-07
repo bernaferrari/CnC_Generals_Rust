@@ -91,12 +91,18 @@ impl GameLogic {
             .iter()
             .position(|&id| id == passenger_id)
             .unwrap_or(0);
-        let fire_pos = transport_passenger_fire_origin(
-            outer
-                .and_then(|id| self.objects.get(&id))
-                .unwrap_or(container),
-            passenger_index,
-        );
+        let fire_pos = if helix_rider {
+            // The separate portable structure follows the hull itself; only
+            // the TransportContain passenger roster is redeployed at +8.
+            attacker.get_position()
+        } else {
+            transport_passenger_fire_origin(
+                outer
+                    .and_then(|id| self.objects.get(&id))
+                    .unwrap_or(container),
+                passenger_index,
+            )
+        };
         if portable_rider {
             let mut best = None;
             for (&id, target) in self.objects.registered() {

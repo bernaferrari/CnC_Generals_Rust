@@ -3108,34 +3108,48 @@ impl GameLogic {
                     continue;
                 };
                 verify_factory_birth!();
-                let (attach_portable, helix, admitted) = {
-                    let parent = &self.objects[&id];
+                // OverlordContain forwards both validation and insertion once
+                // its first rider supplies a contain interface.
+                let destination = self.redirected_containment_owner(id);
+                let (attach_portable, is_transport, admitted) = {
+                    let parent = &self.objects[&destination];
                     let child = &self.objects[&payload];
                     let portable = child.is_kind_of(KindOf::PortableStructure);
-                    let helix = parent.is_helix_transport;
                     let free_portable = parent.overlord_portable_occupant.is_none();
-                    let special_portable = helix && portable && free_portable;
-                    let used: usize = parent.occupants.iter()
+                    let special_helix = parent.is_helix_transport && portable && free_portable;
+                    let used: usize = parent.contained_unit_ids().iter()
                         .filter_map(|occupant| self.objects.get(occupant))
-                        .filter(|occupant| !helix || Some(occupant.id) != parent.overlord_portable_occupant)
                         .map(|occupant| occupant.transport_slot_count())
                         .sum();
-                    let ordinary = parent.thing().template.contain_module
-                        .leftover_kind_masks_admit(child.kind_of_cpp_mask())
-                        && used.saturating_add(child.transport_slot_count()) <= parent.transport_capacity();
-                    (portable && free_portable, helix, special_portable || ordinary)
+                    let slots = child.transport_slot_count();
+                    let ordinary = slots > 0
+                        && parent.thing().template.contain_module
+                            .leftover_kind_masks_admit(child.kind_of_cpp_mask())
+                        && used.saturating_add(slots) <= parent.transport_capacity();
+                    let attach_portable = portable && free_portable
+                        && (parent.is_helix_transport || parent.is_overlord_style_container());
+                    (attach_portable, parent.thing().template.contain_module.kind
+                        == crate::game_logic::ContainModuleKind::Transport, special_helix || ordinary)
                 };
                 if !admitted {
                     continue;
                 }
                 if attach_portable {
-                    self.attach_overlord_portable_occupant(id, payload);
-                } else if self.objects.get_mut(&id).is_some_and(|parent| parent.add_occupant(payload)) {
+                    self.attach_overlord_portable_occupant(destination, payload);
+                } else if self.objects.get_mut(&destination)
+                    .is_some_and(|parent| parent.add_occupant(payload))
+                {
                     Self::set_owned_containment_in_parts(
                         &mut self.objects, &mut self.partition_manager, &mut self.ai_groups,
-                        &mut self.pathfinding_system, payload, Some(id), true,
+                        &mut self.pathfinding_system, payload, Some(destination), true,
                     );
-                    self.stamp_player_who_entered(id, payload);
+                    if is_transport {
+                        self.objects.get_mut(&payload).unwrap().set_status_disabled_held(true);
+                        let bit = crate::game_logic::host_enum_table_residual::loaded_model_bit();
+                        self.objects.get_mut(&destination).unwrap().model_condition_bits |= 1u128 << bit;
+                        self.refresh_battle_bus_armed_riders_weapon_set(destination);
+                    }
+                    self.stamp_player_who_entered(destination, payload);
                 }
             }
 

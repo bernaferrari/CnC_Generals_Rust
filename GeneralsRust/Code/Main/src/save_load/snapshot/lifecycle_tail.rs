@@ -729,8 +729,24 @@ fn validate_overlord_containment_candidates(
             .map(|(_, candidate)| candidate)
             .or_else(|| game_logic.host_object(id))
     };
+    let mut helix_portables = std::collections::HashSet::new();
     for id in game_logic.host_objects().registered_keys().copied() {
         let owner = object(id).expect("existing candidate owner");
+        if owner.is_helix_transport {
+            if let Some(child_id) = owner.overlord_portable_occupant {
+                let valid = child_id != id && helix_portables.insert(child_id)
+                    && object(child_id).is_some_and(|child| {
+                        child.is_kind_of(crate::game_logic::KindOf::PortableStructure)
+                    })
+                    && !tail.contain_links.iter().any(|link| link.occupant_id == child_id.0);
+                if !valid {
+                    return Err(SaveLoadError::Corrupted(format!(
+                        "Helix {} has invalid portable structure ID", id.0
+                    )));
+                }
+            }
+            continue;
+        }
         if !owner.overlord_redirection_active {
             // Inactive-but-installed payload is an original onDie phase.
             continue;
@@ -823,6 +839,18 @@ fn apply_host_contain_producer_fixup(tail: &LifecycleTail, game_logic: &mut Game
                     building.garrisoned_units.push(occupant);
                 }
             }
+        }
+    }
+    // HelixContain::xfer stores its portable ID separately from the
+    // TransportContain list. Restore only friend_setContainedBy; this is not
+    // an OpenContain insertion and must not affect the passenger roster.
+    let portable_links: Vec<_> = game_logic.host_objects().registered_values()
+        .filter(|host| host.is_helix_transport)
+        .filter_map(|host| host.overlord_portable_occupant.map(|child| (host.id, child)))
+        .collect();
+    for (host, child) in portable_links {
+        if let Some(object) = game_logic.host_object_mut(child) {
+            object.contained_by = Some(host);
         }
     }
     for link in &tail.producer_links {

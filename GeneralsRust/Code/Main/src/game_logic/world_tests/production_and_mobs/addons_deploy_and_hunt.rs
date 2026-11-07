@@ -929,9 +929,7 @@ fn overlord_portable_addon_mirrors_host_body_damage() {
 
 #[test]
 fn emperor_innate_propaganda_and_helix_transport_residual() {
-    use crate::game_logic::host_overlord_addons::{
-        HELIX_TRANSPORT_SLOTS, is_helix_template,
-    };
+    use crate::game_logic::host_overlord_addons::HELIX_TRANSPORT_SLOTS;
 
     // hq-2qedt.256: Emperor innate tower is the authored PropagandaTowerBehavior
     // on an OverlordContain host (TankGeneral.ini), not a name peel.
@@ -992,6 +990,9 @@ fn emperor_innate_propaganda_and_helix_transport_residual() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(300.0);
+    helix_tpl.contain_module.kind = crate::game_logic::ContainModuleKind::Transport;
+    helix_tpl.contain_module.is_helix_contain = true;
+    helix_tpl.contain_module.slots = Some(HELIX_TRANSPORT_SLOTS);
     game_logic
         .templates
         .insert("ChinaVehicleHelix".to_string(), helix_tpl);
@@ -1000,7 +1001,6 @@ fn emperor_innate_propaganda_and_helix_transport_residual() {
         .expect("helix");
     {
         let h = game_logic.host_object(helix_id).unwrap();
-        assert!(is_helix_template(&h.template_name));
         assert!(h.is_helix_transport);
         assert_eq!(h.transport_capacity(), HELIX_TRANSPORT_SLOTS);
         assert!(

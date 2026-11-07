@@ -135,18 +135,6 @@ pub fn honesty_helix_minigun_residual_pack_ok() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::host_overlord_addons::is_helix_template;
-
-    #[test]
-    fn helix_template_matrix_for_minigun() {
-        assert!(is_helix_template("ChinaVehicleHelix"));
-        assert!(is_helix_template("China_Helix"));
-        assert!(is_helix_template("Nuke_ChinaVehicleHelix"));
-        assert!(is_helix_template("TestHelix"));
-        assert!(!is_helix_template("HelixMinigunWeapon"));
-        assert!(!is_helix_template("Upgrade_HelixNapalmBomb"));
-        assert!(!is_helix_template("ChinaTankOverlord"));
-    }
 
     #[test]
     fn legal_target_gate() {

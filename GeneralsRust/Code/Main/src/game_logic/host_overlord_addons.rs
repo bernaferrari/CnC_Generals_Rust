@@ -254,33 +254,6 @@ pub fn is_overlord_tank_template(template_name: &str) -> bool {
         || (n.contains("overlord") && (n.contains("tank") || n.contains("vehicle")))
 }
 
-/// Whether template is a residual China Helix helicopter (not portable payloads).
-pub fn is_helix_template(template_name: &str) -> bool {
-    let n = template_name.to_ascii_lowercase();
-    if n.is_empty() {
-        return false;
-    }
-    if n.contains("gattling")
-        || n.contains("gatling")
-        || n.contains("propaganda")
-        || n.contains("bunker")
-        || n.contains("weapon")
-        || n.contains("shell")
-        || n.contains("debris")
-        || n.contains("blade")
-        || n.contains("rubble")
-        || n.starts_with("upgrade")
-        || n.contains("command")
-        || n.contains("napalm")
-    {
-        return false;
-    }
-    n.contains("vehiclehelix")
-        || n.contains("helix") && (n.contains("vehicle") || n.contains("china"))
-        || n == "china_helix"
-        || n == "testhelix"
-        || n.ends_with("helix") && !n.contains("cannon") && !n.contains("tower")
-}
 
 /// Whether template is residual Emperor tank (Tank General Overlord variant).
 pub fn is_emperor_template(template_name: &str) -> bool {
@@ -294,12 +267,6 @@ pub fn is_emperor_template(template_name: &str) -> bool {
         || n == "testemperor"
 }
 
-/// Overlord family hosts that accept portable addons residual.
-pub fn is_overlord_family_host(template_name: &str) -> bool {
-    is_overlord_tank_template(template_name)
-        || is_helix_template(template_name)
-        || is_emperor_template(template_name)
-}
 
 /// Whether upgrade name installs residual portable gattling.
 pub fn is_gattling_addon_upgrade(name: &str) -> bool {
@@ -567,18 +534,9 @@ mod tests {
         assert!(!is_overlord_tank_template("ChinaTankOverlordBattleBunker"));
         assert!(!is_overlord_tank_template("Tank_ChinaTankEmperor"));
 
-        assert!(is_helix_template("ChinaVehicleHelix"));
-        assert!(is_helix_template("China_Helix"));
-        assert!(is_helix_template("TestHelix"));
-        assert!(!is_helix_template("ChinaHelixGattlingCannon"));
-        assert!(!is_helix_template("ChinaHelixPropagandaTower"));
-        assert!(!is_helix_template("ChinaHelixBattleBunker"));
 
         assert!(is_emperor_template("Tank_ChinaTankEmperor"));
         assert!(is_emperor_template("TestEmperor"));
-        assert!(is_overlord_family_host("ChinaTankOverlord"));
-        assert!(is_overlord_family_host("ChinaVehicleHelix"));
-        assert!(is_overlord_family_host("Tank_ChinaTankEmperor"));
     }
 
     #[test]

@@ -293,6 +293,19 @@ impl GameLogic {
             }
             self.car_bomb.record_airborne_parachute_free_fall();
         }
+        if applicable {
+            let portable = self.objects.get(&id)
+                .filter(|container| container.is_helix_transport)
+                .and_then(|container| container.overlord_portable_occupant);
+            if let Some(portable) = portable {
+                self.apply_owned_kill_with_effects(
+                    portable,
+                    crate::game_logic::combat::DamageType::Unresistable,
+                    crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                    presentation_effects,
+                );
+            }
+        }
         self.complete_open_contain_death_with_effects(id, killer, presentation_effects)
     }
 

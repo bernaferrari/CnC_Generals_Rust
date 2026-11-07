@@ -140,14 +140,15 @@ fn retail_helix_contain_inside_source_ocl_attaches_in_each_receiving_world() {
         let payload = world.host_object(child).unwrap();
         assert_eq!(host.overlord_portable_occupant, Some(child));
         assert_eq!(payload.contained_by, Some(source));
-        assert!(payload.status.disabled_held, "HelixContain holds its portable rider");
+        assert!(!payload.status.disabled_held, "Helix portable slot bypasses onContaining");
+        assert!(!host.occupants.contains(&child));
         assert!(!host.is_enclosing_container_for(payload));
         assert_eq!(payload.template_name, "ChinaTankOverlordGattlingCannon");
     }
 }
 
 #[test]
-fn held_helix_rider_fires_its_own_weapon_without_passenger_upgrade() {
+fn helix_portable_rider_fires_its_own_weapon_without_passenger_upgrade() {
     let (mut world, helix) = helix_portable_world(Vec3::ZERO);
     let rider = world.execute_parsed_weapon_ocl_at(
         "OCL_HelixGattlingCannon", Some(helix), Team::China,
@@ -155,7 +156,7 @@ fn held_helix_rider_fires_its_own_weapon_without_passenger_upgrade() {
     )[0];
     {
         let object = world.host_object_mut(rider).unwrap();
-        assert!(object.status.disabled_held);
+        assert!(!object.status.disabled_held);
         let mut weapon = crate::game_logic::Weapon::default();
         weapon.last_fire_time = -10.0;
         weapon.reload_time = 0.1;
@@ -700,4 +701,32 @@ fn authored_debris_model_choices_mass_and_lifetime_ranges_stay_with_each_owner()
             .unwrap();
         assert_eq!(submitted.model_key, expected);
     }
+}
+
+#[test]
+fn deleting_helix_destroys_separate_portable_rider() {
+    let (mut world, helix) = helix_portable_world(Vec3::ZERO);
+    let rider = world.execute_parsed_weapon_ocl_at(
+        "OCL_HelixGattlingCannon", Some(helix), Team::China,
+        VeterancyLevel::Rookie, 0.0, Vec3::ZERO, Vec3::ZERO,
+    )[0];
+    assert!(!world.host_object(helix).unwrap().occupants.contains(&rider));
+    world.destroy_object(helix).unwrap();
+    assert!(world.host_object(rider).is_none_or(|object| object.status.destroyed));
+}
+
+#[test]
+fn helix_portable_update_follows_hull_position_and_orientation() {
+    let (mut world, helix) = helix_portable_world(Vec3::new(20.0, 0.0, 30.0));
+    let rider = world.execute_parsed_weapon_ocl_at(
+        "OCL_HelixGattlingCannon", Some(helix), Team::China,
+        VeterancyLevel::Rookie, 0.0, Vec3::ZERO, Vec3::ZERO,
+    )[0];
+    {
+        let (host, partition) = world.host_object_and_partition_mut(helix).unwrap();
+        host.set_orientation_with_partition_owner(1.2, partition);
+    }
+    world.mirror_overlord_addon_damage_to_occupant(helix);
+    assert_eq!(world.host_object(rider).unwrap().get_position(), Vec3::new(20.0, 0.0, 30.0));
+    assert!((world.host_object(rider).unwrap().get_orientation() - 1.2).abs() < 0.0001);
 }
