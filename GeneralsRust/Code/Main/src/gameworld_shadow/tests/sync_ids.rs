@@ -1053,8 +1053,13 @@ fn production_authority_sole_ticks_queue_progress() {
 
 #[test]
 fn completed_production_waits_for_open_door_before_entity_first_spawn() {
-    let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "completed_production_waits_for_open_door_before_entity_first_spawn",
+        true,
+    ) {
+        return;
+    }
 
     use crate::game_logic::{
         BuildingData, BuildingType, KindOf, ProductionItem, ProductionKind, Resources,
@@ -1161,19 +1166,17 @@ fn completed_production_waits_for_open_door_before_entity_first_spawn() {
             .production_queue
             .is_empty()
     );
-    // Process-global thread-local logs must not leak into the next producer
-    // test (established clear-at-boundary pattern).
-
-    match prev_shadow {
-        Some(value) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", value),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-    }
 }
 
 #[test]
 fn completed_quantity_batch_emits_every_entity_first_unit_after_open_door() {
-    let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "completed_quantity_batch_emits_every_entity_first_unit_after_open_door",
+        true,
+    ) {
+        return;
+    }
 
     use crate::game_logic::{
         BuildingData, BuildingType, KindOf, ProductionExitMetadata, ProductionExitStyle,
@@ -1284,16 +1287,17 @@ fn completed_quantity_batch_emits_every_entity_first_unit_after_open_door() {
         "one open-door terminal update must create both shadow entities"
     );
 
-    match prev_shadow {
-        Some(value) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", value),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-    }
 }
 
 #[test]
 fn queue_exit_sole_tick_releases_one_then_waits_exact_nine_frames() {
-    let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "queue_exit_sole_tick_releases_one_then_waits_exact_nine_frames",
+        true,
+    ) {
+        return;
+    }
 
     use crate::game_logic::host_production_progress_log;
 
@@ -1407,10 +1411,6 @@ fn queue_exit_sole_tick_releases_one_then_waits_exact_nine_frames() {
             .production_queue
             .is_empty()
     );
-    match prev_shadow {
-        Some(value) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", value),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-    }
 }
 
 #[test]
@@ -1510,8 +1510,13 @@ fn special_power_authority_sole_ticks_cooldown() {
 
 #[test]
 fn shared_special_power_sole_ticks_player_cds() {
-    let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "shared_special_power_sole_ticks_player_cds",
+        true,
+    ) {
+        return;
+    }
     // Sole-tick tick path requires coupled engine frame (same as host freeze).
 
     use crate::command_system::SpecialPowerType;
@@ -1527,10 +1532,6 @@ fn shared_special_power_sole_ticks_player_cds() {
     ));
     let pid = 0u32;
     let Some(p) = logic.get_player_mut(pid) else {
-        match prev_s {
-            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-        }
         return;
     };
     p.reset_shared_special_power_timer(&SpecialPowerType::Airstrike, 5.0);
@@ -1550,10 +1551,6 @@ fn shared_special_power_sole_ticks_player_cds() {
         "expected ~3.0 remaining after 2s tick, got {rem}"
     );
 
-    match prev_s {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-    }
 }
 
 #[test]
