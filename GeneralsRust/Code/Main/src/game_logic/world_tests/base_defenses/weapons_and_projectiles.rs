@@ -1219,3 +1219,64 @@ End
     assert_eq!(named.host_object(victim).unwrap().health.current, 100.0,
         "retail carrier name alone does not install a point-defense module");
 }
+
+#[test]
+fn point_defense_zero_delay_rescan_tracks_before_a_new_target_arrives() {
+    let mut world = GameLogic::new();
+    let mut carrier_template = crate::game_logic::ThingTemplate::new("RescanCarrier");
+    carrier_template.add_kind_of(KindOf::Vehicle).set_health(500.0);
+    world.templates.insert("RescanCarrier".into(), carrier_template);
+    let mut target_template = crate::game_logic::ThingTemplate::new("RescanMissile");
+    target_template.add_kind_of(KindOf::Projectile).set_health(300.0);
+    world.templates.insert("RescanMissile".into(), target_template);
+    let carrier = world.create_object("RescanCarrier", Team::USA, Vec3::ZERO).unwrap();
+    author_test_point_defense(&mut world, carrier, 1, 80, 0, false, "NONE");
+    let mut parser = crate::assets::IniParser::new();
+    parser.parse_ini_content(
+        "Object RescanCarrier\n Behavior = PointDefenseLaserUpdate Defense\n WeaponTemplate = FixtureDefense\n PrimaryTargetTypes = SMALL_MISSILE\n ScanRange = 130\n ScanRate = 1000\n End\nEnd\n",
+        "rescan.ini",
+    ).unwrap();
+    world.host_object_mut(carrier).unwrap().template_mut().receiving_object_definition =
+        Some(std::sync::Arc::new(parser.get_definition("RescanCarrier").unwrap().clone()));
+    let first = world.create_object("RescanMissile", Team::GLA, Vec3::new(10.0, 0.0, 0.0)).unwrap();
+    let tracked = world.create_object("RescanMissile", Team::GLA, Vec3::new(40.0, 0.0, 0.0)).unwrap();
+    world.frame = 1;
+    step_test_point_defense(&mut world);
+    assert_eq!(world.host_object(first).unwrap().health.current, 200.0);
+
+    // The first target leaves firing range. Force exactly the zero branch of
+    // GameLogicRandomValue(0, 3), and check that this update consumes only it.
+    world.host_object_mut(first).unwrap().set_position(Vec3::new(100.0, 0.0, 0.0));
+    let reference = game_engine::common::random_value::SessionRandom::default();
+    let seed = (0..10_000).find(|&seed| {
+        reference.seed_random(seed);
+        reference.next_int(0, 3) == 0
+    }).unwrap();
+    world.set_logic_random_seed(seed);
+    world.frame = 2;
+    step_test_point_defense(&mut world);
+    assert_eq!(world.logic_random.seed_words(), reference.seed_words());
+    assert_eq!(world.host_object(tracked).unwrap().health.current, 300.0,
+        "an immediate rescan must not fire recursively");
+
+    let newcomer = world.create_object("RescanMissile", Team::GLA, Vec3::new(20.0, 0.0, 0.0)).unwrap();
+    world.frame = 3;
+    step_test_point_defense(&mut world);
+    assert_eq!(world.host_object(tracked).unwrap().health.current, 200.0);
+    assert_eq!(world.host_object(newcomer).unwrap().health.current, 300.0,
+        "the target selected on the preceding update stays tracked");
+
+    // An already-dead tracked target takes the same zero-delay path, even
+    // though no weapon fires on this update.
+    world.host_object_mut(tracked).unwrap().status.effectively_dead = true;
+    world.set_logic_random_seed(seed);
+    world.frame = 4;
+    step_test_point_defense(&mut world);
+    assert_eq!(world.logic_random.seed_words(), reference.seed_words());
+    assert_eq!(world.host_object(newcomer).unwrap().health.current, 300.0);
+    let later = world.create_object("RescanMissile", Team::GLA, Vec3::new(5.0, 0.0, 0.0)).unwrap();
+    world.frame = 5;
+    step_test_point_defense(&mut world);
+    assert_eq!(world.host_object(newcomer).unwrap().health.current, 200.0);
+    assert_eq!(world.host_object(later).unwrap().health.current, 300.0);
+}

@@ -1714,6 +1714,37 @@ impl GameLogic {
         self.point_defense_laser_beams_spawned > 0
     }
 
+    /// One scan only. Callers decide whether the acquired target may be fired
+    /// upon this update; C++ immediate rescans never recurse into fireWhenReady.
+    fn scan_point_defense_target(
+        &self,
+        carrier_id: ObjectId,
+        origin: glam::Vec3,
+        config: &crate::game_logic::host_point_defense::PointDefenseConfig,
+        weapon: &gamelogic::weapon::WeaponTemplate,
+    ) -> (Option<ObjectId>, bool) {
+        use gamelogic::weapon::WeaponAntiMask;
+        let mut best: Option<(u8, f32, ObjectId)> = None;
+        for (&id, target) in self.objects.registered() {
+            if id == carrier_id || !target.is_alive()
+                || self.objects.get(&carrier_id).is_none_or(|carrier| self.object_relationship(carrier, target) != gamelogic::common::Relationship::Enemies)
+                || (target.status.stealthed && !target.status.detected && !target.status.disguised)
+                || (!target.status.airborne_target && !weapon.anti_mask.contains(WeaponAntiMask::GROUND)) {
+                continue;
+            }
+            let mask = target.kind_of_cpp_mask();
+            let priority = if mask & config.primary != 0 { 0 } else if mask & config.secondary != 0 { 1 } else { continue };
+            let pos = target.get_position();
+            let distance = (pos.x - origin.x).powi(2) + (pos.z - origin.z).powi(2);
+            if distance > config.scan_range * config.scan_range { continue; }
+            let band = priority + if distance <= weapon.attack_range * weapon.attack_range { 0 } else { 2 };
+            if best.as_ref().is_none_or(|(b, d, _)| band < *b || (band == *b && distance < *d)) {
+                best = Some((band, distance, id));
+            }
+        }
+        (best.map(|(_, _, id)| id), best.is_some_and(|(band, _, _)| band < 2))
+    }
+
     pub fn update_point_defense_intercept(&mut self) {
         self.update_point_defense_intercept_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects::default(),
@@ -1725,7 +1756,6 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::host_point_defense::{authored_modules, PointDefenseState};
-        use gamelogic::weapon::WeaponAntiMask;
 
         let carriers: Vec<_> = self.objects.registered().filter_map(|(&id, object)| {
             if !object.is_alive() { return None; }
@@ -1745,80 +1775,70 @@ impl GameLogic {
                 let scan = state.next_scan == 0;
                 if scan {
                     state.next_scan = config.scan_frames;
-                    let mut best: Option<(u8, f32, ObjectId)> = None;
-                    for (&id, target) in self.objects.registered() {
-                        if id == carrier_id || !target.is_alive()
-                            || self.objects.get(&carrier_id).is_none_or(|carrier| self.object_relationship(carrier, target) != gamelogic::common::Relationship::Enemies)
-                            || (target.status.stealthed && !target.status.detected && !target.status.disguised)
-                            || (!target.status.airborne_target && !weapon.anti_mask.contains(WeaponAntiMask::GROUND)) {
-                            continue;
-                        }
-                        let mask = target.kind_of_cpp_mask();
-                        let priority = if mask & config.primary != 0 { 0 } else if mask & config.secondary != 0 { 1 } else { continue };
-                        let pos = target.get_position();
-                        let distance = (pos.x - origin.x).powi(2) + (pos.z - origin.z).powi(2);
-                        if distance > config.scan_range * config.scan_range { continue; }
-                        let band = priority + if distance <= weapon.attack_range * weapon.attack_range { 0 } else { 2 };
-                        if best.as_ref().is_none_or(|(b, d, _)| band < *b || (band == *b && distance < *d)) {
-                            best = Some((band, distance, id));
-                        }
-                    }
-                    state.target = best.map(|(_, _, id)| id);
-                    state.in_range = best.is_some_and(|(band, _, _)| band < 2);
+                    (state.target, state.in_range) = self.scan_point_defense_target(carrier_id, origin, config, &weapon);
                 } else {
                     state.next_scan -= 1;
                 }
                 // C++ calls fireWhenReady on every tracking frame, and immediately
                 // after a successful scan, even while its private weapon reloads.
                 if !scan || state.target.is_some() {
-                    let target = state.target.and_then(|id| self.objects.get(&id).map(|o| (id, o.get_position(), o.is_alive())));
+                    let mut target = state.target.and_then(|id| self.objects.get(&id).map(|o| (id, o.get_position(), o.is_alive())));
                     if let Some((_, pos, _)) = target {
                         let distance = (pos.x - origin.x).powi(2) + (pos.z - origin.z).powi(2);
                         if distance < weapon.attack_range * weapon.attack_range {
                             state.in_range = true;
                         } else if state.in_range {
                             state.target = None;
-                            state.in_range = false;
                             state.next_scan = self.logic_random.next_int(0, 3) as u32;
+                            if state.next_scan == 0 {
+                                (state.target, state.in_range) = self.scan_point_defense_target(carrier_id, origin, config, &weapon);
+                                state.next_scan = config.scan_frames;
+                                target = None;
+                            }
                         }
                     }
                     if state.next_shot > 0 {
                         state.next_shot -= 1;
-                    } else if let Some((target_id, impact, true)) = target.filter(|_| state.in_range && state.target.is_some()) {
-                        use crate::game_logic::host_temporary_weapon_behavior::{
-                            FireWeaponWhenDeadEphemeralWeaponSpec, TemporaryWeaponSlot,
-                        };
-                        let spec = FireWeaponWhenDeadEphemeralWeaponSpec {
-                            module_source_index: index as u32,
-                            weapon_template_name: config.weapon.clone(),
-                            weapon_slot: TemporaryWeaponSlot::Tertiary,
-                        };
-                        if self.fire_named_temporary_with_owned_state(carrier_id, &spec, None, Some(target_id), presentation_effects).is_some() {
-                            if !weapon.laser_name.is_empty() && !weapon.laser_name.eq_ignore_ascii_case("NONE") {
-                                self.weapon_lasers.push(crate::game_logic::host_weapon_laser::ResidualWeaponLaser::with_bone(
-                                    weapon.laser_name.clone(), weapon.laser_bone_name.clone(), carrier_id,
-                                    Some(target_id), (origin.x, origin.y, origin.z),
-                                    (impact.x, impact.y, impact.z), self.frame,
-                                ));
-                                self.spawn_weapon_laser_beam_object_with_effects(
-                                    &weapon.laser_name, carrier_id, Some(target_id), origin, impact, presentation_effects,
-                                );
+                    } else if let Some((target_id, impact, alive)) = target.filter(|_| state.in_range) {
+                        if alive {
+                            use crate::game_logic::host_temporary_weapon_behavior::{
+                                FireWeaponWhenDeadEphemeralWeaponSpec, TemporaryWeaponSlot,
+                            };
+                            let spec = FireWeaponWhenDeadEphemeralWeaponSpec {
+                                module_source_index: index as u32,
+                                weapon_template_name: config.weapon.clone(),
+                                weapon_slot: TemporaryWeaponSlot::Tertiary,
+                            };
+                            if self.fire_named_temporary_with_owned_state(carrier_id, &spec, None, Some(target_id), presentation_effects).is_some() {
+                                if !weapon.laser_name.is_empty() && !weapon.laser_name.eq_ignore_ascii_case("NONE") {
+                                    self.weapon_lasers.push(crate::game_logic::host_weapon_laser::ResidualWeaponLaser::with_bone(
+                                        weapon.laser_name.clone(), weapon.laser_bone_name.clone(), carrier_id,
+                                        Some(target_id), (origin.x, origin.y, origin.z),
+                                        (impact.x, impact.y, impact.z), self.frame,
+                                    ));
+                                    self.spawn_weapon_laser_beam_object_with_effects(
+                                        &weapon.laser_name, carrier_id, Some(target_id), origin, impact, presentation_effects,
+                                    );
+                                }
+                                let sound = weapon.fire_sound.name();
+                                if !sound.is_empty() {
+                                    self.queue_audio_event(AudioEventRequest::new(sound)
+                                        .with_object(carrier_id).with_position(origin).with_priority(160));
+                                }
+                                state.next_shot = if weapon.min_delay_between_shots == weapon.max_delay_between_shots {
+                                    weapon.min_delay_between_shots
+                                } else {
+                                    self.logic_random.next_int(weapon.min_delay_between_shots, weapon.max_delay_between_shots)
+                                }.max(0) as u32;
+                                self.point_defense_residual_intercepts = self.point_defense_residual_intercepts.saturating_add(1);
                             }
-                            let sound = weapon.fire_sound.name();
-                            if !sound.is_empty() {
-                                self.queue_audio_event(AudioEventRequest::new(sound)
-                                    .with_object(carrier_id).with_position(origin).with_priority(160));
-                            }
-                            state.next_shot = if weapon.min_delay_between_shots == weapon.max_delay_between_shots {
-                                weapon.min_delay_between_shots
-                            } else {
-                                self.logic_random.next_int(weapon.min_delay_between_shots, weapon.max_delay_between_shots)
-                            }.max(0) as u32;
-                            self.point_defense_residual_intercepts = self.point_defense_residual_intercepts.saturating_add(1);
-                            if self.objects.get(&target_id).is_none_or(|target| !target.is_alive()) {
-                                state.target = None;
-                                state.in_range = false;
-                                state.next_scan = self.logic_random.next_int(0, 3) as u32;
+                        }
+                        if self.objects.get(&target_id).is_none_or(|target| !target.is_alive()) {
+                            state.target = None;
+                            state.next_scan = self.logic_random.next_int(0, 3) as u32;
+                            if state.next_scan == 0 {
+                                (state.target, state.in_range) = self.scan_point_defense_target(carrier_id, origin, config, &weapon);
+                                state.next_scan = config.scan_frames;
                             }
                         }
                     }

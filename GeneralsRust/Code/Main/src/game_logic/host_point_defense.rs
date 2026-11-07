@@ -3,8 +3,8 @@
 //! The production update resolves each module's weapon in the owning world's
 //! catalog and targets its authored primary and secondary KindOf masks.
 //! The retail constants below remain reference data for existing consumers.
-//! C++ PointDefenseLaserUpdate.cpp:134-214 immediately rescans when its random
-//! post-kill/out-of-range delay is zero; the host currently scans next update.
+//! C++ PointDefenseLaserUpdate.cpp:134-214 performs one immediate rescan when
+//! its random post-kill/out-of-range delay is zero, without recursively firing.
 //! Snapshot and beam/FX parity still require runtime verification.
 
 /// Logic frames per second residual.
