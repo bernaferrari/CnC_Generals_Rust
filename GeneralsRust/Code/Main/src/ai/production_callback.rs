@@ -10,14 +10,12 @@ struct Delivery {
     team_id: Option<u32>,
     team_name: String,
     home: Option<Vec3>,
-    collector_dock: Option<(ObjectId, Option<ObjectId>)>,
     resource_gatherer: bool,
 }
 
 impl AIPlayer {
     fn prepare_delivery(
         &self,
-        world: &GameLogic,
         factory: ObjectId,
         unit: &Object,
     ) -> Option<Delivery> {
@@ -59,12 +57,6 @@ impl AIPlayer {
                     team_id: team.team_id,
                     team_name,
                     home,
-                    collector_dock: (unit.is_resource_collector() && work.is_resource_gatherer)
-                        .then_some(work.supply_center_id)
-                        .flatten()
-                        .map(|center| {
-                            (center, self.nearest_supply_source_for_center(world, center))
-                        }),
                     resource_gatherer: work.is_resource_gatherer,
                 });
             }
@@ -229,7 +221,7 @@ impl GameLogic {
         let Some(ai) = self.ai_manager.ai_players.get(&owner) else {
             return Ok(());
         };
-        let delivery = ai.prepare_delivery(self, factory_id, unit);
+        let delivery = ai.prepare_delivery(factory_id, unit);
         let dozer = unit.is_kind_of(KindOf::Dozer);
         let collector = unit.is_resource_collector();
         let unit_position = unit.get_position();
@@ -300,17 +292,29 @@ impl GameLogic {
                 if let Some(unit) = self.host_object_mut(unit_id) {
                     unit.supply_truck_force_pending = delivery.resource_gatherer;
                 }
-                if let Some((center, source)) = delivery.collector_dock {
-                    if let Some(unit) = self.host_object_mut(unit_id) {
-                        unit.preferred_dock_id = Some(center);
-                    }
-                    if let Some(source) = source {
-                        self.unit_command_stop_moving_order_target(unit_id, Some(source))?;
-                        self.unit_command_set_ai_state_with_effects(
-                            unit_id,
-                            AIState::Gathering,
-                            effects,
-                        )?;
+                if delivery.resource_gatherer {
+                    // BuildList is the player's ordered ledger. Increment and
+                    // issue each player-origin dock before visiting the next
+                    // row; a missing object never consumes a slot.
+                    let mut index = 0;
+                    loop {
+                        let candidate = self.ai_manager.ai_players[&owner]
+                            .building_queue.get(index)
+                            .map(|row| (row.supply_building, row.desired_gatherers,
+                                        row.current_gatherers, row.object_id));
+                        let Some((supply, desired, current, object_id)) = candidate else {
+                            break;
+                        };
+                        index += 1;
+                        let Some(center) = object_id else { continue };
+                        if !supply || desired <= 0 || desired <= current
+                            || !self.host_object(center).is_some_and(|object| object.is_alive())
+                        {
+                            continue;
+                        }
+                        self.ai_manager.ai_players.get_mut(&owner).unwrap()
+                            .building_queue[index - 1].current_gatherers += 1;
+                        self.unit_command_return_supplies(unit_id, center);
                     }
                 }
             }

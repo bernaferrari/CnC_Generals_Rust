@@ -598,3 +598,65 @@ fn production_completion_receipts_follow_actual_owner_fifo_across_peer_reset_and
     );
     assert!(owner.production_events.take_completed().is_empty());
 }
+
+#[test]
+fn produced_collector_visits_saved_build_list_in_order_without_touching_peer() {
+    use crate::save_load::snapshot::ai_player_queue_persist::{
+        append_to_lifecycle_tail, apply_from_lifecycle_tail,
+    };
+
+    fn setup() -> (GameLogic, ObjectId, Vec<ObjectId>) {
+        let (mut world, factory) = production_world("LedgerTruck", false);
+        world.templates.get_mut("LedgerTruck").unwrap().add_kind_of(KindOf::Harvester);
+        let mut centers = Vec::new();
+        for x in [100.0, 200.0, 300.0] {
+            centers.push(world.create_object_for_player(
+                "DeliveryFactory", 1, Vec3::new(x, 0.0, 0.0),
+            ).unwrap());
+        }
+        let ai = world.ai_manager.ai_players.get_mut(&1).unwrap();
+        ai.building_queue.clear();
+        for (object, desired, current) in [
+            (Some(centers[0]), 2, 0),
+            (None, 2, 0),
+            (Some(centers[1]), 1, 1),
+            (Some(centers[2]), 3, -1),
+        ] {
+            let mut row = AIBuildingInfo::new("DeliveryFactory".into(), Vec3::ZERO, 1);
+            row.object_id = object;
+            row.supply_building = true;
+            row.desired_gatherers = desired;
+            row.current_gatherers = current;
+            ai.building_queue.push(row);
+        }
+        let mut order = queued_order("LedgerTruck", factory, 1);
+        order.is_resource_gatherer = true;
+        ai.team_queue.push_back(AITeamQueue::new(
+            "Supply truck".into(), vec![order], true, 0,
+        ));
+        (world, factory, centers)
+    }
+
+    let (source, factory, centers) = setup();
+    let mut saved = Vec::new();
+    append_to_lifecycle_tail(&mut saved, &source);
+    let (mut restored, restored_factory, restored_centers) = setup();
+    let (peer, peer_factory, peer_centers) = setup();
+    assert_eq!((factory, &centers), (restored_factory, &restored_centers));
+    assert_eq!((factory, &centers), (peer_factory, &peer_centers));
+    apply_from_lifecycle_tail(&saved, &mut restored).unwrap();
+    let truck = spawn_finished_output(&mut restored, factory, "LedgerTruck");
+    restored.host_apply_production_spawn_ready_completions_with_build_complete(|_, _| {})
+        .unwrap();
+    let rows = &restored.ai_manager.ai_players[&1].building_queue;
+    assert_eq!(rows.iter().map(|r| r.current_gatherers).collect::<Vec<_>>(), [1, 0, 1, 0]);
+    let truck = restored.host_object(truck).unwrap();
+    assert_eq!(truck.preferred_dock_id, Some(centers[2]));
+    assert_eq!(truck.target, Some(centers[2]));
+    assert_eq!(truck.ai_state(), AIState::ReturningResources);
+    assert_eq!(
+        peer.ai_manager.ai_players[&1].building_queue.iter()
+            .map(|r| r.current_gatherers).collect::<Vec<_>>(),
+        [0, 0, 1, -1],
+    );
+}

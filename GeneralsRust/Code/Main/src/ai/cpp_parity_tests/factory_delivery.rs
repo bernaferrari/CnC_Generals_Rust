@@ -443,6 +443,31 @@ fn supply_center_spawns_free_collector_then_ai_pays_for_next_collector() {
     assert_eq!(free.target, Some(source_id));
     assert_eq!(free.preferred_dock_id, Some(center_id));
 
+    let second_center = logic
+        .create_object("AmericaSupplyCenter", Team::USA, Vec3::new(500.0, 0.0, 0.0))
+        .expect("second supply center");
+    let mut pad = AIBuildingInfo::new("AmericaSupplyCenter".into(), Vec3::ZERO, 1);
+    pad.object_id = Some(center_id);
+    pad.supply_building = true;
+    pad.desired_gatherers = 3;
+    pad.current_gatherers = 1;
+    ai.building_queue.push(pad);
+    let mut missing = AIBuildingInfo::new("MissingCenter".into(), Vec3::ZERO, 1);
+    missing.supply_building = true;
+    missing.desired_gatherers = 2;
+    ai.building_queue.push(missing);
+    let mut full = AIBuildingInfo::new("FullCenter".into(), Vec3::ZERO, 1);
+    full.object_id = Some(center_id);
+    full.supply_building = true;
+    full.desired_gatherers = 1;
+    full.current_gatherers = 1;
+    ai.building_queue.push(full);
+    let mut last = AIBuildingInfo::new("AmericaSupplyCenter".into(), Vec3::ZERO, 1);
+    last.object_id = Some(second_center);
+    last.supply_building = true;
+    last.desired_gatherers = 2;
+    ai.building_queue.push(last);
+
     ai.is_active = false;
     logic.ai_manager.ai_players.insert(1, ai);
     logic.update_with_dt(1.0 / LOGIC_FRAMES_PER_SECOND);
@@ -481,9 +506,13 @@ fn supply_center_spawns_free_collector_then_ai_pays_for_next_collector() {
     let paid = logic
         .host_object(paid_collector)
         .expect("paid collector live");
-    assert_eq!(paid.ai_state(), crate::game_logic::AIState::Gathering);
-    assert_eq!(paid.target, Some(source_id));
-    assert_eq!(paid.preferred_dock_id, Some(center_id));
+    assert_eq!(paid.ai_state(), crate::game_logic::AIState::ReturningResources);
+    assert_eq!(paid.target, Some(second_center));
+    assert_eq!(paid.preferred_dock_id, Some(second_center));
+    assert_eq!(
+        ai.building_queue.iter().map(|pad| pad.current_gatherers).collect::<Vec<_>>(),
+        [2, 0, 1, 1],
+    );
     assert!(
         ai.team_queue.is_empty(),
         "the paid collector work order completes only after its real output is routed"
