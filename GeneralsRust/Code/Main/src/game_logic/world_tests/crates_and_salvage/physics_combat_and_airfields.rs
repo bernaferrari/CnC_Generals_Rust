@@ -18,7 +18,7 @@ fn friction_slows_lateral_velocity() {
     o.lateral_friction = 0.15;
     o.forward_friction = 0.15;
     o.status.airborne_target = false;
-    o.apply_frictional_forces();
+    o.apply_frictional_forces(0);
     o.integrate_physics_accel();
     // Lateral friction force = -mass*lat_fric*lat_vel → accel reduces z
     assert!(
@@ -69,15 +69,15 @@ fn apply_physics_force_motive_lateral_only() {
     let id = ObjectId(801);
     let mut o = Object::new(t, id, Team::USA);
     o.set_orientation(0.0); // face +X
-    o.motive_frames_remaining = 10;
+    o.motive_force_expires = 10;
     o.physics_mass = 2.0;
     // Forward force should be rejected when motive; lateral accepted.
-    o.apply_physics_force(Vec3::new(10.0, 0.0, 0.0)); // along facing
+    o.apply_physics_force(Vec3::new(10.0, 0.0, 0.0), 0); // along facing
     assert!(
         o.physics_accel.length() < 1e-4,
         "forward force stripped when motive"
     );
-    o.apply_physics_force(Vec3::new(0.0, 0.0, 10.0)); // lateral +Z
+    o.apply_physics_force(Vec3::new(0.0, 0.0, 10.0), 0); // lateral +Z
     // accel = force/mass lateral
     assert!(o.physics_accel.z.abs() > 0.1, "lateral force kept");
     o.integrate_physics_accel();
@@ -1654,6 +1654,7 @@ fn instant_combat_scatter_can_miss_intended_target() {
         o.target = Some(inf);
         o.set_ai_state(
             AIState::Attacking,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.set_status_attacking(true);
@@ -1690,6 +1691,7 @@ fn instant_combat_scatter_can_miss_intended_target() {
             o.target = Some(inf);
             o.set_ai_state(
                 AIState::Attacking,
+                f,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
@@ -1758,6 +1760,7 @@ fn minimum_attack_range_too_close_backs_away() {
         o.target = Some(tgt);
         o.set_ai_state(
             AIState::Attacking,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.set_status_attacking(true);
@@ -1793,6 +1796,7 @@ fn minimum_attack_range_too_close_backs_away() {
         o.target = Some(tgt);
         o.set_ai_state(
             AIState::Attacking,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = o.weapon.as_mut() {
@@ -1825,6 +1829,7 @@ fn minimum_attack_range_too_close_backs_away() {
         o.target = Some(tgt);
         o.set_ai_state(
             AIState::Attacking,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = o.weapon.as_mut() {
@@ -1963,6 +1968,7 @@ fn airfield_runway_reservation_limits_parallel_takeoff() {
             o.object_type = ObjectType::Aircraft;
             o.set_ai_state(
                 AIState::Docked,
+                0,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             o.set_contained_by_with_partition_owner(Some(af), true, fixture_partition_o);
@@ -2305,6 +2311,7 @@ fn helipad_takeoff_is_two_point_climb_not_altitude_pop() {
                 );
                 heli.set_ai_state(
                     AIState::Docked,
+                    0,
                     &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
                 );
                 heli.status.airborne_target = false;
@@ -2366,6 +2373,7 @@ fn repaired_helipad_aircraft_auto_takeoff() {
         heli.target = None;
         heli.set_ai_state(
             AIState::Docked,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -2493,6 +2501,7 @@ fn target_pitch_gate_blocks_strategy_center_out_of_loft() {
         o.target = Some(tgt);
         o.set_ai_state(
             AIState::Attacking,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.set_status_attacking(true);
@@ -2539,6 +2548,7 @@ fn target_pitch_gate_blocks_strategy_center_out_of_loft() {
         o.target = Some(tgt);
         o.set_ai_state(
             AIState::Attacking,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.set_status_attacking(true);
@@ -2654,10 +2664,12 @@ fn force_fire_ground_position_ignores_target_pitch_like_cpp() {
         o.set_force_attack(true);
         o.set_target_location(
             Some(ground),
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.set_ai_state(
             AIState::AttackingGround,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.set_status_attacking(true);

@@ -555,6 +555,7 @@ mod tests {
                     let object = owner.objects.get_mut(&jet).unwrap();
                     object.set_ai_state(
                         AIState::Docked,
+                        owner.frame,
                         &mut ObjectAudio::queue(&mut owner.queued_audio_events),
                     );
                     object.weapon = Some(Weapon {

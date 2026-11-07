@@ -569,6 +569,7 @@ fn host_ai_state_is_canonical_and_shadow_only_observes() {
         .expect("id");
     logic.host_object_mut(id).expect("o").set_ai_state(
         AIState::GuardingObject,
+        0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert_eq!(
@@ -591,6 +592,7 @@ fn host_ai_state_is_canonical_and_shadow_only_observes() {
     );
     logic.host_object_mut(id).expect("o").set_ai_state(
         AIState::Idle,
+        0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert_eq!(logic.host_object(id).expect("o").ai_state(), AIState::Idle);

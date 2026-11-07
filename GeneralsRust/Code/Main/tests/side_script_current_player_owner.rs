@@ -27,7 +27,7 @@ fn script() -> ScriptEngine {
     list.append_script(Box::new(script));
     let engine = ScriptEngine::new().unwrap();
     engine
-        .set_script_list_for_player(0, Some(Box::new(list)))
+        .set_script_list_for_player(1, Some(Box::new(list)))
         .unwrap();
     engine
 }
@@ -117,10 +117,10 @@ fn missing_current_player_script() -> ScriptEngine {
     let mut list = ScriptList::new();
     list.append_script(Box::new(script));
     let engine = ScriptEngine::new().unwrap();
-    // Slot 1 has no receiving Player. The world still has a different local
-    // AI Player, which must not be substituted for THIS_PLAYER.
+    // Slot 0 is absent even though slot 1 holds a local AI Player; do not
+    // compact sparse IDs or substitute the local Player for THIS_PLAYER.
     engine
-        .set_script_list_for_player(1, Some(Box::new(list)))
+        .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();
     engine
 }
@@ -162,7 +162,7 @@ fn side_script_current_player_is_resolved_from_each_receiving_world() {
     );
 
     // The production ScriptEngine side walk resolves THIS_PLAYER through each
-    // receiving Main driver; both engines execute side 0 with colliding IDs.
+    // receiving Main driver; both engines execute slot 1 with colliding IDs.
     alpha
         .update_local_script_engine_with_owner(&script())
         .unwrap();

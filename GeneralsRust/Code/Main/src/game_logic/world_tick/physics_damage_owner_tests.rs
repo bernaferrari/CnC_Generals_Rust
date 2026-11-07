@@ -156,6 +156,60 @@ fn full_shipping_motion_landing_supplies_receiving_player_and_frame() {
     assert!(!peer.players[&1].get_attacked_by(1));
     assert_eq!(peer.host_object(victim).unwrap().health.current, 100.0);
 }
+/// PhysicsUpdate.cpp:609-610, 626-627, 746-747, 804-843: a HELD
+/// object can still receive its ground collision after an external move, but
+/// activeVelZ remains zero because Euler integration was skipped.
+#[test]
+fn held_airborne_to_ground_dispatches_collision_without_false_fall_damage() {
+    let (mut receiving, crusher, victim) = crush_world();
+    let (peer, _, peer_victim) = crush_world();
+    assert_eq!(victim, peer_victim);
+    receiving.set_fixture_object_position(crusher, Vec3::new(1000.0, 0.0, 1000.0));
+    receiving.host_object_mut(crusher).unwrap().movement.velocity = Vec3::ZERO;
+    receiving.set_fixture_object_position(victim, Vec3::new(0.0, 10.0, 0.0));
+    {
+        let object = receiving.host_object_mut(victim).unwrap();
+        object.status.disabled_held = true;
+        object.was_airborne_last_frame = true;
+        object.immune_to_falling_damage = false;
+        object.movement.velocity = Vec3::new(0.0, -10.0, 0.0);
+        object.physics_mass = 1.0;
+        object.min_fall_speed_for_damage = 0.0;
+        object.fall_height_damage_factor = 1.0;
+        object.last_collidee = Some(ObjectId(999));
+    }
+    // A carrier moves the held object onto the surface between Physics updates.
+    receiving.set_fixture_object_position(victim, Vec3::ZERO);
+    receiving.update_with_dt(1.0 / 30.0);
+    let actual = receiving.host_object(victim).unwrap();
+    assert_eq!(actual.health.current, 100.0);
+    assert!(!actual.status.destroyed);
+    assert_eq!(actual.movement.velocity.y, -10.0, "HELD skips Euler integration");
+    assert_eq!(actual.bounce_land_events, 1, "the landing edge still runs");
+    assert_eq!(actual.last_collidee, None, "ground onCollide(NULL) still dispatches");
+    assert!(!actual.was_airborne_last_frame);
+    assert_eq!(peer.host_object(peer_victim).unwrap().health.current, 100.0);
+    assert_eq!(peer.host_object(peer_victim).unwrap().bounce_land_events, 0);
+
+    // The same downward speed remains damaging when the object is not HELD.
+    let (mut falling, other_crusher, other_victim) = crush_world();
+    falling.set_fixture_object_position(other_crusher, Vec3::new(1000.0, 0.0, 1000.0));
+    falling.host_object_mut(other_crusher).unwrap().movement.velocity = Vec3::ZERO;
+    falling.set_fixture_object_position(other_victim, Vec3::new(0.0, 1.0, 0.0));
+    {
+        let object = falling.host_object_mut(other_victim).unwrap();
+        object.was_airborne_last_frame = true;
+        object.immune_to_falling_damage = false;
+        object.movement.velocity = Vec3::new(0.0, -10.0, 0.0);
+        object.physics_mass = 1.0;
+        object.min_fall_speed_for_damage = 0.0;
+        object.fall_height_damage_factor = 1.0;
+        object.allow_to_fall = true;
+    }
+    falling.update_with_dt(1.0 / 30.0);
+    assert!(falling.host_object(other_victim).unwrap().health.current < 100.0);
+}
+
 
 #[test]
 fn full_shipping_stun_fall_and_inverted_death_keep_self_then_null_source_order() {

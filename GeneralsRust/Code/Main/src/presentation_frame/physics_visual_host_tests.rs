@@ -80,6 +80,7 @@ fn physics_option_is_read_lazily_and_once_per_frozen_frame() {
         collect_facts(
             &object,
             objects.read(),
+            0,
             false,
             false,
             &mut cached,
@@ -95,6 +96,7 @@ fn physics_option_is_read_lazily_and_once_per_frozen_frame() {
     let first = collect_facts(
         &object,
         objects.read(),
+        0,
         false,
         false,
         &mut cached,
@@ -107,6 +109,7 @@ fn physics_option_is_read_lazily_and_once_per_frozen_frame() {
     let second = collect_facts(
         &object,
         objects.read(),
+        0,
         false,
         false,
         &mut cached,
@@ -130,6 +133,7 @@ fn physics_option_is_read_lazily_and_once_per_frozen_frame() {
     let disabled = collect_facts(
         &object,
         objects.read(),
+        0,
         false,
         false,
         &mut receiving_cache,
@@ -141,6 +145,31 @@ fn physics_option_is_read_lazily_and_once_per_frozen_frame() {
         !disabled.show_client_physics,
         "frozen facts use their receiving owner's value"
     );
+}
+
+#[test]
+fn visual_motive_observation_expires_at_world_frame() {
+    let mut object = test_object(1, "Motive");
+    object.loco_appearance = crate::game_logic::LocomotorAppearance::Hover;
+    object.motive_force_expires = 12;
+    let objects = registered_physics_objects([(object.id, object.clone())]);
+    let sample = |frame| {
+        collect_facts(
+            &object,
+            objects.read(),
+            frame,
+            false,
+            false,
+            &mut None,
+            || true,
+            |_| None,
+        )
+        .unwrap()
+        .body
+        .is_motive
+    };
+    assert!(sample(11));
+    assert!(!sample(12));
 }
 
 #[test]
@@ -270,6 +299,7 @@ fn treads_overlap_uses_ini_geometry_and_kindof_tokens() {
     let body = body_for_object(
         &tank,
         objects.read(),
+        0,
         |_| Some(0.0),
         |object| {
             definitions
@@ -290,6 +320,7 @@ fn treads_overlap_uses_ini_geometry_and_kindof_tokens() {
     let body = body_for_object(
         &tank,
         objects.read(),
+        0,
         |_| Some(0.0),
         |object| {
             definitions
@@ -307,6 +338,7 @@ fn treads_overlap_uses_ini_geometry_and_kindof_tokens() {
     let body = body_for_object(
         &missing,
         crate::game_logic::HostObjectStore::new().read(),
+        0,
         |_| None,
         |object| {
             definitions
@@ -371,6 +403,7 @@ fn same_name_local_definitions_remain_independent_in_shared_body_sampling() {
         body_for_object(
             &object,
             objects.read(),
+            0,
             |_| Some(0.0),
             |object| {
                 definitions

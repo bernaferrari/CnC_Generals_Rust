@@ -409,6 +409,7 @@ impl GameLogic {
                 occupant.set_status_moving(false);
                 occupant.set_ai_state(
                     AIState::Garrisoned,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
@@ -1217,6 +1218,7 @@ impl GameLogic {
                 }
                 unit.set_ai_state(
                     AIState::Moving,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 unit.last_command_source =
@@ -1242,7 +1244,7 @@ impl GameLogic {
                 if let Some(hull_vel) = hull_vel {
                     // TransportContain::onRemoving KeepContainerVelocityOnExit.
                     let mass = unit.physics_get_mass();
-                    unit.apply_motive_force(hull_vel * mass);
+                    unit.apply_motive_force(hull_vel * mass, self.frame);
                 }
                 if airborne {
                     // TransportContain::onRemoving isAboveTerrain → setAllowToFall.

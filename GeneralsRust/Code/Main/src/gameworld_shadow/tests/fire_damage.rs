@@ -179,6 +179,7 @@ fn private_idle_decision_authority() {
         o.status.attacking = true;
         o.set_ai_state(
             AIState::Attacking,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }

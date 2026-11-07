@@ -397,6 +397,7 @@ impl GameLogic {
                     if obj.ai_state() != AIState::Idle {
                         obj.set_ai_state(
                             AIState::Idle,
+                            self.frame,
                             &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),
@@ -470,6 +471,7 @@ impl GameLogic {
                             obj.requested_destination = Some(target_position);
                             obj.set_ai_state(
                                 AIState::AttackMoving,
+                                self.frame,
                                 &mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ),
@@ -482,6 +484,7 @@ impl GameLogic {
                             if obj.ai_state() != AIState::Idle {
                                 obj.set_ai_state(
                                     AIState::Idle,
+                                    self.frame,
                                     &mut crate::game_logic::ObjectAudio::queue(
                                         &mut self.queued_audio_events,
                                     ),
@@ -1532,6 +1535,7 @@ impl GameLogic {
                         if obj.ai_state() != AIState::Idle {
                             obj.set_ai_state(
                                 AIState::Idle,
+                                self.frame,
                                 &mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ),
@@ -1545,6 +1549,7 @@ impl GameLogic {
                 ) {
                     obj.set_ai_state(
                         AIState::Idle,
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }

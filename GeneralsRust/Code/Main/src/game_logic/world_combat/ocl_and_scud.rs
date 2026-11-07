@@ -917,7 +917,7 @@ impl GameLogic {
                 // Draw in C++ Coord3D x/y/z order, then map the vertical
                 // component to this host's Y-up force vector.
                 let force = Vec3::new(force_x, force_z, force_y);
-                object.apply_physics_force(force);
+                object.apply_physics_force(force, self.frame);
                 object.set_orientation_with_partition_owner(
                     source_orientation,
                     &mut self.partition_manager,

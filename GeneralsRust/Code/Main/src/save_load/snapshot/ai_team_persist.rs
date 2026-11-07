@@ -1967,6 +1967,7 @@ mod tests {
             Vec3::new(40.0, 0.0, 10.0),
             Vec3::new(80.0, 0.0, 10.0),
         ];
+        let frame = source.frame;
         if let Some(obj) = source.host_object_mut(id) {
             obj.movement.path = vec![Vec3::new(0.0, 0.0, 0.0)]
                 .into_iter()
@@ -1980,6 +1981,7 @@ mod tests {
             obj.is_attack_path = true;
             obj.set_ai_state(
                 AIState::AttackMoving,
+                frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             obj.set_status_moving(true);
@@ -2035,11 +2037,13 @@ mod tests {
             .expect("ranger");
         let dest = Vec3::new(90.0, 0.0, 30.0);
         let via = vec![Vec3::new(30.0, 0.0, 10.0), Vec3::new(60.0, 0.0, 20.0)];
+        let frame = source.frame;
         if let Some(obj) = source.host_object_mut(id) {
             obj.waiting_for_path = true;
             obj.requested_destination = Some(dest);
             obj.set_ai_state(
                 AIState::Moving,
+                frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             obj.set_status_moving(true);

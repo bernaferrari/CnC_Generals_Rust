@@ -42,9 +42,10 @@ pub const WORLD_SNAPSHOT_PARTICLE_DRIVE_SETTINGS_VERSION: u32 = 38;
 /// Version40 adds each Weapon's last-shot frame to the positional body.
 /// Version41 persists one authoritative WeaponSet condition bitset.
 /// Version42 persists delayed strike delivery identities and queue-time draws.
+/// Version43 requires the PhysicsBehavior continuation for each Object.
 /// Older Rust bodies cannot recover these exact values and are rejected.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 42;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 42;
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 43;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 43;
 /// Version36 introduced mandatory exact original-Garrison-Team continuation.
 pub const WORLD_SNAPSHOT_GARRISON_TEAM_VERSION: u32 = 36;
 

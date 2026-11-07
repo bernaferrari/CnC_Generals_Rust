@@ -772,6 +772,7 @@ impl GameLogic {
                     damager_id,
                     Some(anchor),
                     None,
+                    self.frame,
                     &mut self.attack_events,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
@@ -1639,10 +1640,12 @@ impl GameLogic {
                 AIState::Entering,
                 Some(target_id),
             )? {
+                let frame = self.frame;
                 if let Some((obj, audio_events)) = self.host_object_and_audio_events_mut(id) {
                     obj.ignored_obstacle_id = Some(target_id);
                     obj.set_ai_state(
                         AIState::Entering,
+                        frame,
                         &mut crate::game_logic::ObjectAudio::queue(audio_events),
                     );
                 }
@@ -1739,10 +1742,12 @@ impl GameLogic {
                 && self.object_birth_matches(unit, unit_birth)
                 && self.object_birth_matches(trans, transport_birth)
             {
+                let frame = self.frame;
                 if let Some((obj, audio_events)) = self.host_object_and_audio_events_mut(unit) {
                     obj.ignored_obstacle_id = Some(trans);
                     obj.set_ai_state(
                         AIState::Entering,
+                        frame,
                         &mut crate::game_logic::ObjectAudio::queue(audio_events),
                     );
                 }
@@ -2148,6 +2153,7 @@ impl GameLogic {
                 if keep_parent_state && u.ai_state() != parent_state {
                     u.set_ai_state(
                         parent_state,
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
@@ -2268,12 +2274,14 @@ mod tests {
         assert_hop(hop);
 
         logic.set_fixture_object_position(id, hop);
+        let frame = logic.frame;
         if let Some(obj) = logic.host_object_mut(id) {
             obj.movement.target_position = None;
             obj.requested_destination = None;
             obj.status.moving = false;
             obj.set_ai_state(
                 AIState::Idle,
+                frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
@@ -2462,9 +2470,11 @@ mod tests {
         let hop = logic
             .test_wander_in_place_hop(id)
             .expect("wander session started");
+        let frame = logic.frame;
         if let Some(obj) = logic.host_object_mut(id) {
             obj.set_ai_state(
                 AIState::Moving,
+                frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             obj.status.moving = true;
@@ -2506,9 +2516,11 @@ mod tests {
         let goal = glam::Vec3::new(origin.x + 200.0, origin.y, origin.z);
         logic.test_host_wander_issue_path(id, &[goal]);
         assert!(logic.test_wander_path_active(id));
+        let frame = logic.frame;
         if let Some(obj) = logic.host_object_mut(id) {
             obj.set_ai_state(
                 AIState::Moving,
+                frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             obj.status.moving = true;
@@ -2911,6 +2923,7 @@ mod tests {
                 dead,
                 Some(glam::Vec3::ZERO),
                 None,
+                logic.frame,
                 &mut logic.attack_events,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );

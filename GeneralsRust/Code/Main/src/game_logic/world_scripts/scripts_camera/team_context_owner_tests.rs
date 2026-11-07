@@ -143,12 +143,15 @@ fn sequential_start_keeps_same_name_chains_distinct_and_stops_only_selected_cont
     let (mut world, first, second) = world();
     let first_id = admit(&world, "SiblingRoster", first, 1);
     let second_id = admit(&world, "SiblingRoster", second, 2);
+    let frame = world.frame;
     world.host_object_mut(first).unwrap().set_ai_state(
         AIState::Moving,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     world.host_object_mut(second).unwrap().set_ai_state(
         AIState::Moving,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     let engine = sequence_engine();
@@ -319,12 +322,15 @@ fn sequence_idle_contains_cycle_is_bounded_and_still_visits_each_live_member() {
     let id = admit(&world, "CycleRoster", first, 1);
     world.host_object_mut(first).unwrap().occupants = vec![second];
     world.host_object_mut(second).unwrap().occupants = vec![first, ObjectId(u32::MAX)];
+    let frame = world.frame;
     world.host_object_mut(first).unwrap().set_ai_state(
         AIState::Moving,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     world.host_object_mut(second).unwrap().set_ai_state(
         AIState::Moving,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     let engine = sequence_engine();
@@ -437,10 +443,12 @@ fn team_attitude_modifies_dead_immobile_ai_but_skips_non_ai_and_missing_context(
 fn sequence_script_idle_admits_immobile_ai_without_locomotor_preparation() {
     let (mut world, first, _) = world();
     let id = admit(&world, "IdleRoster", first, 1);
+    let frame = world.frame;
     let unit = world.host_object_mut(first).unwrap();
     unit.template_mut().add_kind_of(KindOf::Immobile);
     unit.set_ai_state(
         AIState::Moving,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     let engine = sequence_engine();
@@ -487,9 +495,11 @@ fn sequence_script_idle_rejects_dead_sleep_surrender_and_projectile_members() {
             .write()
             .unwrap()
             .add_member(accepted.0);
+        let frame = world.frame;
         for id in [rejected, accepted] {
             world.host_object_mut(id).unwrap().set_ai_state(
                 AIState::Moving,
+                frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }

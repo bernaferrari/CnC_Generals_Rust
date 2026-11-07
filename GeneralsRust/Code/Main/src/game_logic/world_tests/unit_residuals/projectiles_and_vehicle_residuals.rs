@@ -418,10 +418,12 @@ fn avenger_object_hit_routes_on_authored_weapon_not_chassis_name_hq_2qedt_161() 
         .unwrap();
     game_logic.frame = 100;
     {
+        let frame = game_logic.frame;
         let a = game_logic.host_object_mut(shooter).unwrap();
         a.target = Some(tank_id);
         a.set_ai_state(
             AIState::Attacking,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         a.active_weapon_slot = 0;
@@ -515,10 +517,12 @@ fn humvee_tow_object_hit_and_unit_map_key_on_authored_weapon_not_chassis_name_hq
         .unwrap();
     game_logic.frame = 100;
     {
+        let frame = game_logic.frame;
         let a = game_logic.host_object_mut(shooter).unwrap();
         a.target = Some(victim_id);
         a.set_ai_state(
             AIState::Attacking,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         a.active_weapon_slot = 1;

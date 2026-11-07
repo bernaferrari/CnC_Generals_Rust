@@ -159,6 +159,7 @@ impl GameLogic {
         if let Some(object) = self.objects.get_mut(&id) {
             object.set_ai_state(
                 AIState::Moving,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             object.last_command_source =

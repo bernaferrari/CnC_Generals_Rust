@@ -261,16 +261,19 @@ fn dozer_construction_rate_applies_handicap_buildtime() {
         obj.builder_id = Some(dozer);
     }
     {
+        let ai_entry_frame = logic.frame;
         let (obj, attack_events) = logic
             .host_object_and_attack_events_mut(dozer)
             .expect("dozer");
         obj.set_target(
             Some(pad_id),
+            ai_entry_frame,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.set_ai_state(
             AIState::Constructing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.status.moving = false;
@@ -320,6 +323,7 @@ fn arrived_moving_dozer_builds_at_the_dock() {
         obj.builder_id = Some(dozer);
     }
     {
+        let ai_entry_frame = logic.frame;
         let (obj, attack_events, _fixture_audio_obj, fixture_partition_obj) = logic
             .host_object_attack_audio_partition_mut(dozer)
             .expect("dozer");
@@ -331,11 +335,13 @@ fn arrived_moving_dozer_builds_at_the_dock() {
         );
         obj.set_target(
             Some(pad_id),
+            ai_entry_frame,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.set_ai_state(
             AIState::Moving,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.movement.path.clear();
@@ -383,6 +389,7 @@ fn simulation_step_builds_when_dozer_is_at_the_pad() {
         obj.builder_id = Some(dozer);
     }
     {
+        let ai_entry_frame = logic.frame;
         let (obj, attack_events, _fixture_audio_obj, fixture_partition_obj) = logic
             .host_object_attack_audio_partition_mut(dozer)
             .expect("dozer");
@@ -394,11 +401,13 @@ fn simulation_step_builds_when_dozer_is_at_the_pad() {
         );
         obj.set_target(
             Some(pad_id),
+            ai_entry_frame,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.set_ai_state(
             AIState::Constructing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.movement.path.clear();
@@ -450,6 +459,7 @@ fn simulation_step_finishes_a_short_build() {
         obj.builder_id = Some(dozer);
     }
     {
+        let ai_entry_frame = logic.frame;
         let (obj, attack_events, _fixture_audio_obj, fixture_partition_obj) = logic
             .host_object_attack_audio_partition_mut(dozer)
             .expect("dozer");
@@ -461,11 +471,13 @@ fn simulation_step_finishes_a_short_build() {
         );
         obj.set_target(
             Some(pad_id),
+            ai_entry_frame,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.set_ai_state(
             AIState::Constructing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.movement.path.clear();
@@ -545,6 +557,7 @@ fn owned_construction_completion_walks_the_dozer_off_the_pad() {
         obj.builder_id = Some(dozer);
     }
     {
+        let ai_entry_frame = logic.frame;
         let (obj, attack_events, _fixture_audio_obj, fixture_partition_obj) = logic
             .host_object_attack_audio_partition_mut(dozer)
             .expect("dozer");
@@ -556,11 +569,13 @@ fn owned_construction_completion_walks_the_dozer_off_the_pad() {
         );
         obj.set_target(
             Some(pad_id),
+            ai_entry_frame,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.set_ai_state(
             AIState::Constructing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.movement.path.clear();

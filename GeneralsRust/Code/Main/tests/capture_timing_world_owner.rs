@@ -57,9 +57,10 @@ fn world(seed: u32) -> (GameLogic, ObjectId, ObjectId) {
 
 fn start_unpacking(game: &mut GameLogic, captor: ObjectId, target: ObjectId) -> f32 {
     let mut audio = SessionAudio::default();
+    let frame = game.get_frame();
     let object = game.host_object_mut(captor).expect("captor");
     object.target = Some(target);
-    object.set_ai_state(AIState::Capturing, &mut ObjectAudio::queue(&mut audio));
+    object.set_ai_state(AIState::Capturing, frame, &mut ObjectAudio::queue(&mut audio));
     assert_eq!(game.update_with_dt(1.0 / 30.0).steps_run, 1);
     let object = game.host_object(captor).expect("captor survives");
     let channel = object.capture_channel.expect("capture unpack channel");

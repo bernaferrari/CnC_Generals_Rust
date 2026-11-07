@@ -77,7 +77,7 @@ impl GameLogic {
             .is_some_and(|template| template.has_behavior_module("PhysicsBehavior"))
         {
             rider.allow_to_fall = true;
-            rider.apply_physics_force(Vec3::ZERO);
+            rider.apply_physics_force(Vec3::ZERO, self.frame);
         }
         self.objects
             .get_mut(&container_id)

@@ -229,14 +229,17 @@ fn construction_percent_cpp_scale_and_exclusive_dozer() {
     let did = logic
         .create_object("TestDozer", Team::USA, glam::Vec3::new(5.0, 0.0, 0.0))
         .expect("dozer");
+    let frame = logic.frame;
     if let Some((d, attack_events)) = logic.host_object_and_attack_events_mut(did) {
         d.set_target(
             Some(sid),
+            frame,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         d.set_ai_state(
             AIState::Constructing,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -286,14 +289,17 @@ fn exclusive_dozer_does_not_stack_build_rate() {
         .create_object("TestDozer", Team::USA, glam::Vec3::new(3.0, 0.0, 0.0))
         .expect("dozer2");
     assert_eq!(logic.resume_construction(&[d1], sid).expect("result"), true);
+    let frame = logic.frame;
     if let Some((d, attack_events)) = logic.host_object_and_attack_events_mut(d2) {
         d.set_target(
             Some(sid),
+            frame,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         d.set_ai_state(
             AIState::Constructing,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }

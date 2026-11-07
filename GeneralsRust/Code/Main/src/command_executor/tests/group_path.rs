@@ -596,11 +596,13 @@ fn combat_drop_sets_pending_evacuate() {
         t.max_transport = 8;
         let _ = t.add_occupant(pax);
     }
+    let frame = logic.frame;
     {
         let (p, fixture_partition_p) = logic.host_object_and_partition_mut(pax).unwrap();
         p.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_p);
         p.set_ai_state(
             crate::game_logic::AIState::Docked,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -873,11 +875,13 @@ fn object_attack_orders_passenger_fire() {
             ..Weapon::default()
         });
     }
+    let frame = logic.frame;
     {
         let (r, fixture_partition_r) = logic.host_object_and_partition_mut(rider).unwrap();
         r.set_contained_by_with_partition_owner(Some(humvee), true, fixture_partition_r);
         r.set_ai_state(
             crate::game_logic::AIState::Garrisoned,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         r.weapon = Some(Weapon {
@@ -941,11 +945,13 @@ fn object_attack_skips_vehicle_transport_riders() {
             ..Weapon::default()
         });
     }
+    let frame = logic.frame;
     {
         let (r, fixture_partition_r) = logic.host_object_and_partition_mut(rider).unwrap();
         r.set_contained_by_with_partition_owner(Some(chinook), true, fixture_partition_r);
         r.set_ai_state(
             crate::game_logic::AIState::Garrisoned,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         r.weapon = Some(Weapon {
@@ -1003,11 +1009,13 @@ fn stop_idles_garrison_occupants_and_hive_slaves() {
         s.hive_slave_count = 3;
         let _ = order_hive_slaves_to_attack_target(&mut s.hive_slaves, 99);
     }
+    let frame = logic.frame;
     {
         let (o, fixture_partition_o) = logic.host_object_and_partition_mut(occ).unwrap();
         o.set_contained_by_with_partition_owner(Some(site), true, fixture_partition_o);
         o.set_ai_state(
             crate::game_logic::AIState::Attacking,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1059,16 +1067,19 @@ fn stop_idles_ai_transport_occupants() {
         t.passengers_allowed_to_fire = true;
         assert!(t.add_occupant(rider), "load rider");
     }
+    let frame = logic.frame;
     {
         let (r, attack_events, _, partition) =
             logic.host_object_attack_audio_partition_mut(rider).unwrap();
         r.set_contained_by_with_partition_owner(Some(truck), true, partition);
         r.set_ai_state(
             crate::game_logic::AIState::Attacking,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         r.set_target(
             Some(ObjectId(99)),
+            frame,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );

@@ -283,6 +283,7 @@ impl AIPlayer {
                 if let Some(unit) = game_logic.objects.get_mut(&unit_id) {
                     unit.move_to(
                         enemy_base,
+                        game_logic.frame,
                         &mut game_logic.movement_events.writer(game_logic.frame),
                         &mut crate::game_logic::ObjectAudio::queue(
                             &mut game_logic.queued_audio_events,

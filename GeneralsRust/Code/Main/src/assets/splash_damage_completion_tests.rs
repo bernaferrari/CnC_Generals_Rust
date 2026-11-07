@@ -598,10 +598,12 @@ fn target_update(kind: Splash) {
         Splash::Scatter => Vec3::new(10.0, 0.0, 10.0),
     };
     let target = admit(&mut world, "SplashCompletionVictim", 1, pos);
+    let frame = world.frame;
     // Public target assignment selects host combat; AttackObject commands
     // select the separately scoped queued-damage attack-machine runtime.
     world.objects.get_mut(&source).unwrap().set_target(
         Some(anchor),
+        frame,
         &mut _attack_output,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );

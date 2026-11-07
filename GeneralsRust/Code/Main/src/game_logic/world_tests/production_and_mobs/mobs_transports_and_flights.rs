@@ -2973,10 +2973,12 @@ fn tunnel_network_residual_cross_exit_enter_a_evacuate_b() {
 
     // Enter A.
     {
+        let ai_entry_frame = game_logic.frame;
         let unit = game_logic.host_object_mut(infantry_id).unwrap();
         unit.target = Some(tunnel_a);
         unit.set_ai_state(
             AIState::Entering,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -3077,10 +3079,12 @@ fn tunnel_network_residual_shared_capacity_full_rejects_enter() {
             .expect("infantry");
         unit_ids.push(id);
         {
+            let ai_entry_frame = game_logic.frame;
             let unit = game_logic.host_object_mut(id).unwrap();
             unit.target = Some(tunnel);
             unit.set_ai_state(
                 AIState::Entering,
+                ai_entry_frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }

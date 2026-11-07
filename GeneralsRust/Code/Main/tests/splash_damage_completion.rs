@@ -194,9 +194,10 @@ End
     // AttackObject commands enter the separately scoped queued-damage runtime.
     // Public set_target drives the ordinary host-combat path being repaired.
     let mut attack_output = generals_main::game_logic::host_attack_log::AttackEvents::default();
+    let frame = world.get_frame();
     world
         .with_host_object_audio(shooter, |object, audio| {
-            object.set_target(Some(anchor), &mut attack_output, audio)
+            object.set_target(Some(anchor), frame, &mut attack_output, audio)
         })
         .unwrap();
     world.update();
@@ -369,9 +370,10 @@ fn fire_shock_relationship_weapon(
 ) {
     world.set_current_frame(100);
     let mut attack_output = generals_main::game_logic::host_attack_log::AttackEvents::default();
+    let frame = world.get_frame();
     world
         .with_host_object_audio(source, |object, audio| {
-            object.set_target(Some(anchor), &mut attack_output, audio)
+            object.set_target(Some(anchor), frame, &mut attack_output, audio)
         })
         .unwrap();
     world.update();

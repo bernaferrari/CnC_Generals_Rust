@@ -463,6 +463,7 @@ impl Object {
         &mut self,
         other_center: glam::Vec3,
         mass: f32,
+        frame: u32,
     ) -> glam::Vec3 {
         use crate::game_logic::host_partition_collision_physics_residual::structure_immobile_bounce_factor;
         let g = self.geometry_info();
@@ -490,7 +491,7 @@ impl Object {
         let dir = glam::Vec3::new(dx / dist, dy / dist, dz / dist);
         let force = dir * factor;
         let mut applied = force;
-        if self.is_motive() {
+        if self.is_motive(frame) {
             let facing = self.unit_direction_vector_2d();
             let lateral_dot = applied.x * (-facing.y) + applied.z * facing.x;
             applied.x = lateral_dot * (-facing.y);
@@ -762,7 +763,7 @@ impl Object {
         ground_y: f32,
         services: &mut super::PhysicsDamageServices<'_>,
     ) -> bool {
-        self.integrate_physics_force_phase();
+        self.integrate_physics_force_phase(services.frame);
         self.drive_standalone_contact(
             super::MotionContact::Start(ground_y),
             services,

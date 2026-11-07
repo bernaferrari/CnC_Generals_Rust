@@ -250,6 +250,7 @@ impl GameLogic {
                 );
                 obj.set_ai_state(
                     AIState::SpecialAbility,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
@@ -311,6 +312,7 @@ impl GameLogic {
             ));
             obj.set_ai_state(
                 AIState::SpecialAbility,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             obj.set_status_using_ability(true);
@@ -1230,6 +1232,7 @@ impl GameLogic {
             if entered_attack {
                 attacker.set_ai_state(
                     AIState::Attacking,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
@@ -1646,6 +1649,7 @@ impl GameLogic {
                 .expect("containment operation preserves this birth");
             occ.set_ai_state(
                 AIState::Idle,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             {}
@@ -1976,6 +1980,7 @@ impl GameLogic {
                 .expect("containment operation preserves this birth");
             occ.set_ai_state(
                 AIState::Idle,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             {}

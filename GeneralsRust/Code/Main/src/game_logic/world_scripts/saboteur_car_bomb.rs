@@ -291,6 +291,7 @@ impl GameLogic {
                 pilot.set_status_pilot_did_move_to_base(false);
                 pilot.set_ai_state(
                     AIState::Entering,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 pilot.ignored_obstacle_id = Some(vehicle_id);
@@ -625,6 +626,7 @@ impl GameLogic {
                         .expect("containment operation preserves this birth");
                     r.set_ai_state(
                         AIState::Idle,
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     {}

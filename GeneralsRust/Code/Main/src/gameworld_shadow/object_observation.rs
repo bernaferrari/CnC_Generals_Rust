@@ -575,7 +575,6 @@ impl GameWorldShadow {
         e.path_len = obj.movement.path.len().min(u16::MAX as usize) as u16;
         e.path_index = obj.movement.current_path_index.min(u16::MAX as usize) as u16;
         e.waiting_for_path = obj.waiting_for_path;
-        e.motive_frames_remaining = obj.motive_frames_remaining;
         e.kill_when_resting_on_ground = obj.kill_when_resting_on_ground;
         e.bounce_land_events = obj.bounce_land_events;
         e.last_bounce_fall_dy = obj.last_bounce_fall_dy;

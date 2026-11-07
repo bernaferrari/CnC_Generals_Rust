@@ -34,11 +34,13 @@ fn plant_approach_ignores_the_structure() {
         },
     );
     {
+        let ai_entry_frame = logic.frame;
         let (unit, attack_events) = logic
             .host_object_and_attack_events_mut(planter)
             .expect("planter");
         unit.set_ai_state(
             AIState::SpecialAbility,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_order_target(
@@ -114,11 +116,13 @@ fn successful_disguise_drops_the_vehicle_ignore() {
         PendingSpecialAbility::DisguiseAsVehicle { target_id: vehicle },
     );
     {
+        let ai_entry_frame = logic.frame;
         let (unit, attack_events) = logic
             .host_object_and_attack_events_mut(infantry)
             .expect("infantry");
         unit.set_ai_state(
             AIState::SpecialAbility,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_order_target(
@@ -160,12 +164,14 @@ fn flee_after_plant_ignores_the_structure() {
         .create_object_for_player("Planter", 0, Vec3::ZERO)
         .expect("planter");
     {
+        let ai_entry_frame = logic.frame;
         let (unit, fixture_partition_unit) = logic
             .host_object_and_partition_mut(planter)
             .expect("planter");
         unit.ignored_obstacle_id = None;
         unit.set_ai_state(
             AIState::SpecialAbility,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_orientation_with_partition_owner(0.0, fixture_partition_unit);
@@ -233,6 +239,7 @@ fn recrew_enter_ignores_the_empty_vehicle() {
         .expect("vehicle")
         .set_status_disabled_unmanned(true);
     {
+        let ai_entry_frame = logic.frame;
         let (unit, attack_events) = logic
             .host_object_and_attack_events_mut(infantry)
             .expect("infantry");
@@ -243,6 +250,7 @@ fn recrew_enter_ignores_the_empty_vehicle() {
         );
         unit.set_ai_state(
             AIState::Entering,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -567,6 +575,7 @@ fn reissued_build_stays_constructing() {
         );
     }
     {
+        let ai_entry_frame = logic.frame;
         let (obj, attack_events) = logic
             .host_object_and_attack_events_mut(dozer)
             .expect("dozer");
@@ -577,6 +586,7 @@ fn reissued_build_stays_constructing() {
         );
         obj.set_ai_state(
             AIState::Constructing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.pending_move = Some(to);
@@ -704,6 +714,7 @@ fn construction_complete_end_dock_uses_stored_action() {
         obj.builder_id = Some(dozer);
     }
     {
+        let ai_entry_frame = logic.frame;
         let (obj, attack_events, _fixture_audio_obj, fixture_partition_obj) = logic
             .host_object_attack_audio_partition_mut(dozer)
             .expect("dozer");
@@ -715,11 +726,13 @@ fn construction_complete_end_dock_uses_stored_action() {
         );
         obj.set_target(
             Some(pad_id),
+            ai_entry_frame,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.set_ai_state(
             AIState::Constructing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.status.moving = false;
@@ -1111,6 +1124,7 @@ fn battle_bus_residual_load_two_unload_both_free() {
 
     for unit_id in [unit_a, unit_b] {
         {
+            let ai_entry_frame = game_logic.frame;
             let unit = game_logic.host_object_mut(unit_id).expect("unit mut");
             unit.weapon = Some(Weapon {
                 damage: 20.0,
@@ -1122,6 +1136,7 @@ fn battle_bus_residual_load_two_unload_both_free() {
             unit.target = Some(bus_id);
             unit.set_ai_state(
                 AIState::Entering,
+                ai_entry_frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
@@ -1225,6 +1240,7 @@ fn battle_bus_residual_passenger_fire_damages_nearby_enemy() {
         .expect("enemy");
 
     {
+        let ai_entry_frame = game_logic.frame;
         let (unit, fixture_partition_unit) = game_logic
             .host_object_and_partition_mut(infantry_id)
             .unwrap();
@@ -1239,6 +1255,7 @@ fn battle_bus_residual_passenger_fire_damages_nearby_enemy() {
         unit.set_contained_by_with_partition_owner(Some(bus_id), true, fixture_partition_unit);
         unit.set_ai_state(
             AIState::Docked,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_position_with_partition_owner(
@@ -1304,10 +1321,12 @@ fn battle_bus_residual_capacity_full_rejects_enter() {
             )
             .expect("infantry");
         {
+            let ai_entry_frame = game_logic.frame;
             let unit = game_logic.host_object_mut(id).unwrap();
             unit.target = Some(bus_id);
             unit.set_ai_state(
                 AIState::Entering,
+                ai_entry_frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
@@ -2191,8 +2210,10 @@ fn deploy_style_must_center_turret_before_pack() {
         obj.turret_ai.turret_natural_pitch_deg = 0.0;
     }
 
+    let ai_entry_frame = logic.frame;
     logic.host_object_mut(id).unwrap().set_ai_state(
         AIState::Moving,
+        ai_entry_frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     logic.set_current_frame(0);
@@ -2640,10 +2661,12 @@ fn command_button_hunt_hijack_issues_nearest_enemy_vehicle() {
         .create_object("TestInfantry", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
         .expect("hijacker");
     {
+        let ai_entry_frame = logic.frame;
         let h = logic.host_object_mut(hijacker).unwrap();
         h.template_name = "GLAInfantryHijacker".into();
         h.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -2688,6 +2711,7 @@ fn command_button_hunt_named_arms_capture_and_flashbang() {
         .create_object("TestInfantry", Team::USA, Vec3::ZERO)
         .expect("ranger");
     {
+        let ai_entry_frame = logic.frame;
         let r = logic.host_object_mut(ranger).unwrap();
         r.template_name = "AmericaInfantryRanger".into();
         r.secondary_weapon = Some(Weapon {
@@ -2697,6 +2721,7 @@ fn command_button_hunt_named_arms_capture_and_flashbang() {
         });
         r.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -2727,10 +2752,12 @@ fn command_button_hunt_named_arms_capture_and_flashbang() {
         .create_object("TestInfantry", Team::USA, Vec3::new(5.0, 0.0, 0.0))
         .expect("lotus");
     {
+        let ai_entry_frame = logic.frame;
         let l = logic.host_object_mut(lotus).unwrap();
         l.template_name = "AmericaInfantryColonelBurton".into();
         l.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -2754,6 +2781,7 @@ fn fire_weapon_command_button_hunt_rearms_lock_every_frame() {
         .create_object("TestInfantry", Team::USA, Vec3::ZERO)
         .expect("ranger");
     {
+        let ai_entry_frame = logic.frame;
         let r = logic.host_object_mut(ranger).unwrap();
         r.template_name = "AmericaInfantryRanger".into();
         r.secondary_weapon = Some(Weapon {
@@ -2763,6 +2791,7 @@ fn fire_weapon_command_button_hunt_rearms_lock_every_frame() {
         });
         r.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -2819,10 +2848,12 @@ fn command_button_hunt_quits_after_player_move() {
         .create_object("TestInfantry", Team::GLA, Vec3::ZERO)
         .expect("hijacker");
     {
+        let ai_entry_frame = logic.frame;
         let h = logic.host_object_mut(hijacker).unwrap();
         h.template_name = "GLAInfantryHijacker".into();
         h.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -2878,11 +2909,13 @@ fn command_button_hunt_enter_skips_stealth_ally_and_drone() {
         .create_object("TestInfantry", Team::GLA, Vec3::ZERO)
         .expect("hijacker");
     {
+        let ai_entry_frame = logic.frame;
         let h = logic.host_object_mut(hijacker).unwrap();
         h.template_name = "GLAInfantryHijacker".into();
         h.owner_player_id = Some(2);
         h.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -2905,11 +2938,13 @@ fn command_button_hunt_enter_skips_stealth_ally_and_drone() {
         .create_object("TestInfantry", Team::USA, Vec3::new(5.0, 0.0, 0.0))
         .expect("usa hunter");
     {
+        let ai_entry_frame = logic.frame;
         let h = logic.host_object_mut(usa_hunter).unwrap();
         h.template_name = "GLAInfantryHijacker".into();
         h.owner_player_id = Some(0);
         h.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -2967,11 +3002,13 @@ fn command_button_hunt_special_skips_ally_mine_and_uses_priority() {
         .create_object("TestInfantry", Team::USA, Vec3::ZERO)
         .expect("lotus");
     {
+        let ai_entry_frame = logic.frame;
         let l = logic.host_object_mut(lotus).unwrap();
         l.template_name = "AmericaInfantryColonelBurton".into();
         l.owner_player_id = Some(0);
         l.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -3003,11 +3040,13 @@ fn command_button_hunt_special_skips_ally_mine_and_uses_priority() {
         .create_object("TestInfantry", Team::USA, Vec3::new(-180.0, 0.0, 0.0))
         .expect("th");
     {
+        let ai_entry_frame = logic.frame;
         let h = logic.host_object_mut(hunter).unwrap();
         h.template_name = "ChinaInfantryTankHunter".into();
         h.owner_player_id = Some(0);
         h.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -3048,12 +3087,14 @@ fn command_button_hunt_special_skips_ally_mine_and_uses_priority() {
         .create_object("TestInfantry", Team::USA, Vec3::new(120.0, 0.0, 0.0))
         .expect("prio");
     {
+        let ai_entry_frame = logic.frame;
         let h = logic.host_object_mut(prio_hunter).unwrap();
         h.template_name = "ChinaInfantryTankHunter".into();
         h.owner_player_id = Some(0);
         h.attack_priority_set = Some("HuntPrio".into());
         h.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -3156,11 +3197,13 @@ fn command_button_hunt_tnt_and_booby_reject_neutral() {
         .create_object("TestInfantry", Team::China, Vec3::ZERO)
         .expect("th");
     {
+        let ai_entry_frame = logic.frame;
         let h = logic.host_object_mut(hunter).unwrap();
         h.template_name = "ChinaInfantryTankHunter".into();
         h.owner_player_id = Some(0);
         h.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -3191,10 +3234,12 @@ fn command_button_hunt_tnt_and_booby_reject_neutral() {
     }
 
     logic.pending_special_abilities.remove(&hunter);
+    let ai_entry_frame = logic.frame;
     if let Some(h) = logic.host_object_mut(hunter) {
         h.clear_command_button_hunt();
         h.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         h.target = None;

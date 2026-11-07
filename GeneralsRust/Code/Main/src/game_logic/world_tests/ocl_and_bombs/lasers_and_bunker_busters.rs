@@ -1040,11 +1040,13 @@ fn neutron_shell_residual_primary_does_not_blast() {
         .create_object("TestInfantry", Team::USA, Vec3::new(50.0, 0.0, 0.0))
         .expect("infantry");
     {
+        let ai_entry_frame = game_logic.frame;
         let (c, attack_events) = game_logic
             .host_object_and_attack_events_mut(cannon_id)
             .unwrap();
         c.attack_target(
             infantry_id,
+            ai_entry_frame,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -1101,20 +1103,24 @@ fn bunker_buster_residual_without_upgrade_does_not_bust() {
         let bunker = game_logic.host_object_mut(bunker_id).unwrap();
         assert!(bunker.add_occupant(inf_id));
     }
+    let frame = game_logic.frame;
     {
         let (u, fixture_partition_u) = game_logic.host_object_and_partition_mut(inf_id).unwrap();
         u.set_contained_by_with_partition_owner(Some(bunker_id), true, fixture_partition_u);
         u.set_ai_state(
             AIState::Garrisoned,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
     {
+        let ai_entry_frame = game_logic.frame;
         let (f, attack_events) = game_logic
             .host_object_and_attack_events_mut(fighter_id)
             .unwrap();
         f.attack_target(
             bunker_id,
+            ai_entry_frame,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -1189,11 +1195,13 @@ fn kill_garrisoned_residual_microwave_clears_occupants() {
         assert!(bunker.add_occupant(inf_a));
         assert!(bunker.add_occupant(inf_b));
     }
+    let frame = game_logic.frame;
     for id in [inf_a, inf_b] {
         let (u, fixture_partition_u) = game_logic.host_object_and_partition_mut(id).unwrap();
         u.set_contained_by_with_partition_owner(Some(bunker_id), true, fixture_partition_u);
         u.set_ai_state(
             AIState::Garrisoned,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1204,11 +1212,13 @@ fn kill_garrisoned_residual_microwave_clears_occupants() {
         .unwrap_or(0.0);
 
     {
+        let ai_entry_frame = game_logic.frame;
         let (m, attack_events) = game_logic
             .host_object_and_attack_events_mut(micro_id)
             .unwrap();
         m.attack_target(
             bunker_id,
+            ai_entry_frame,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -1283,11 +1293,13 @@ fn ordinary_weapon_leftover_damages_garrisoned_structure() {
         let bunker = game_logic.host_object_mut(bunker_id).unwrap();
         assert!(bunker.add_occupant(inf_a));
     }
+    let frame = game_logic.frame;
     {
         let (u, fixture_partition_u) = game_logic.host_object_and_partition_mut(inf_a).unwrap();
         u.set_contained_by_with_partition_owner(Some(bunker_id), true, fixture_partition_u);
         u.set_ai_state(
             AIState::Garrisoned,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1298,11 +1310,13 @@ fn ordinary_weapon_leftover_damages_garrisoned_structure() {
         .unwrap_or(0.0);
 
     {
+        let ai_entry_frame = game_logic.frame;
         let (r, attack_events) = game_logic
             .host_object_and_attack_events_mut(rifle_id)
             .unwrap();
         r.attack_target(
             bunker_id,
+            ai_entry_frame,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );

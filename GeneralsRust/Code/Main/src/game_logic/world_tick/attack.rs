@@ -148,11 +148,11 @@ impl GameLogic {
                     let mut audio =
                         crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events);
                     if u.unit_ai_runtime.can_enter_child() {
-                        if !u.set_ai_child_state(AIState::Attacking, &mut audio) {
+                        if !u.set_ai_child_state(AIState::Attacking, self.frame, &mut audio) {
                             return Ok(AttackMachineResult::Failure);
                         }
                     } else {
-                        u.set_ai_state(AIState::Attacking, &mut audio);
+                        u.set_ai_state(AIState::Attacking, self.frame, &mut audio);
                     }
                 }
                 // Parent goals were captured by child admission before this target.
@@ -544,6 +544,7 @@ impl GameLogic {
             if entered_attack {
                 u.set_ai_state(
                     AIState::Attacking,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
@@ -2110,6 +2111,7 @@ impl GameLogic {
                 if entered_attack {
                     u.set_ai_state(
                         AIState::Attacking,
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
@@ -2287,6 +2289,7 @@ impl GameLogic {
             if entered_attack {
                 u.set_ai_state(
                     AIState::Attacking,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
@@ -2410,6 +2413,7 @@ impl GameLogic {
             if entered_attack {
                 u.set_ai_state(
                     AIState::Attacking,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
@@ -2683,7 +2687,7 @@ impl GameLogic {
         } else {
             pos
         };
-        let enter_model = if u.motive_frames_remaining > 0 {
+        let enter_model = if u.is_motive(self.frame) {
             let cell = self.pathfinding_system.grid.world_to_grid(u.get_position());
             let off_map = !self.pathfinding_system.grid.is_valid_pos(cell);
             let ground_cliff = self.pathfinding_system.grid.cell_type(cell)
@@ -2759,6 +2763,7 @@ impl GameLogic {
                 u.set_status_attacking(false);
                 u.set_ai_state(
                     AIState::Moving,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }

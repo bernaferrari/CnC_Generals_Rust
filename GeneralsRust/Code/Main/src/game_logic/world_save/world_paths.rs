@@ -112,7 +112,7 @@ impl GameLogic {
             unit.start_move_at_frame(self.frame);
             let entered_move = !matches!(unit.ai_state(), AIState::Moving | AIState::Panic);
             if entered_move {
-                unit.set_ai_state_at_frame(
+                unit.set_ai_state(
                     AIState::Moving,
                     self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
@@ -453,7 +453,7 @@ impl GameLogic {
                         | AIState::Panic
                 );
                 if entered_move {
-                    unit.set_ai_state_at_frame(
+                    unit.set_ai_state(
                         AIState::Moving,
                         frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
@@ -1032,6 +1032,7 @@ impl GameLogic {
         if entered_move {
             unit.set_ai_state(
                 AIState::Moving,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }
@@ -2222,6 +2223,7 @@ impl GameLogic {
                     if !matches!(unit.ai_state(), AIState::AttackMoving | AIState::Patrolling) {
                         unit.set_ai_state(
                             AIState::Attacking,
+                            self.frame,
                             &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),
@@ -2272,6 +2274,7 @@ impl GameLogic {
                 if !matches!(unit.ai_state(), AIState::AttackMoving | AIState::Patrolling) {
                     unit.set_ai_state(
                         AIState::Attacking,
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     if !unit.movement.path.is_empty() {
@@ -2483,6 +2486,7 @@ impl GameLogic {
                 if !already {
                     obj.set_ai_state(
                         state.clone(),
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
@@ -2498,6 +2502,7 @@ impl GameLogic {
             if !already {
                 obj.set_ai_state(
                     state,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
@@ -2561,11 +2566,13 @@ impl GameLogic {
             let unit = self.objects.get_mut(&unit_id).expect("checked above");
             Self::prepare_appended_waypoint(
                 unit,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             if !matches!(unit.ai_state(), AIState::Moving | AIState::Panic) {
                 unit.set_ai_state(
                     AIState::Moving,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
@@ -2655,6 +2662,7 @@ impl GameLogic {
         if !handoff {
             Self::prepare_appended_waypoint(
                 unit,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }
@@ -2686,6 +2694,7 @@ impl GameLogic {
         if entered_move {
             unit.set_ai_state(
                 AIState::Moving,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }
@@ -2700,11 +2709,12 @@ impl GameLogic {
 
     fn prepare_appended_waypoint(
         unit: &mut Object,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         // privateFollowPath clears the old Attack/Guard state before entering FollowPath.
-        unit.set_guard_position(None, audio);
-        unit.set_guard_target(None, audio);
+        unit.set_guard_position(None, frame, audio);
+        unit.set_guard_target(None, frame, audio);
         unit.end_guard_retaliate(audio);
         unit.set_hunting(false);
         unit.stop_attack(audio);

@@ -363,6 +363,7 @@ impl GameLogic {
                     u.target = Some(target_id);
                     u.set_ai_state(
                         AIState::SpecialAbility,
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     u.last_command_source = HUNT_CMD_FROM_AI;
@@ -637,6 +638,7 @@ impl GameLogic {
                     u.target = Some(target_id);
                     u.set_ai_state(
                         AIState::Capturing,
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
@@ -679,6 +681,7 @@ impl GameLogic {
                     u.target = Some(target_id);
                     u.set_ai_state(
                         AIState::SpecialAbility,
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
@@ -1141,6 +1144,7 @@ impl GameLogic {
                         c.requested_destination = Some(dest);
                         c.set_ai_state(
                             AIState::AttackMoving,
+                            self.frame,
                             &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),
@@ -1297,6 +1301,7 @@ impl GameLogic {
                     unit.requested_destination = Some(dest);
                     unit.set_ai_state(
                         AIState::AttackMoving,
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     unit.last_command_source = HUNT_CMD_FROM_PLAYER;
@@ -1387,6 +1392,7 @@ impl GameLogic {
         } else if let Some(unit) = self.objects.get_mut(&member_id) {
             unit.set_ai_state(
                 AIState::Entering,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             unit.ignored_obstacle_id = Some(crawler_id);

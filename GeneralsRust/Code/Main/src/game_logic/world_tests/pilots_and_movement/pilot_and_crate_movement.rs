@@ -162,6 +162,7 @@ fn worker_shoes_completion_pays_authored_worker_supply_boost() {
 
     // Drop-off residual: worker with cargo deposits +8 shoes boost.
     {
+        let ai_entry_frame = game_logic.frame;
         let (w, fixture_partition_w) = game_logic
             .host_object_and_partition_mut(worker_id)
             .expect("worker mut");
@@ -175,6 +176,7 @@ fn worker_shoes_completion_pays_authored_worker_supply_boost() {
         w.target = Some(supply_id);
         w.set_ai_state(
             AIState::ReturningResources,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1314,6 +1316,7 @@ fn plant_timed_demo_charge_command_plants_after_reach() {
     assert!(!game_logic.honesty_plant_timed_demo_charge_ok());
 
     {
+        let ai_entry_frame = game_logic.frame;
         let (burton, fixture_partition_burton) = game_logic
             .host_object_and_partition_mut(burton_id)
             .expect("burton should exist");
@@ -1325,6 +1328,7 @@ fn plant_timed_demo_charge_command_plants_after_reach() {
         );
         burton.set_ai_state(
             AIState::SpecialAbility,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         burton.target = Some(target_id);
@@ -1406,6 +1410,7 @@ fn plant_and_detonate_remote_demo_charge_residual() {
     assert!(!game_logic.honesty_plant_remote_demo_charge_ok());
 
     {
+        let ai_entry_frame = game_logic.frame;
         let (burton, fixture_partition_burton) = game_logic
             .host_object_and_partition_mut(burton_id)
             .expect("burton should exist");
@@ -1417,6 +1422,7 @@ fn plant_and_detonate_remote_demo_charge_residual() {
         );
         burton.set_ai_state(
             AIState::SpecialAbility,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         burton.target = Some(target_id);
@@ -2880,11 +2886,13 @@ fn hacker_internet_center_residual_deposits_cash() {
             .expect("Internet Center")
             .add_occupant(hacker_id)
     );
+    let ai_entry_frame = game_logic.frame;
     if let Some((obj, fixture_partition_obj)) = game_logic.host_object_and_partition_mut(hacker_id)
     {
         obj.set_contained_by_with_partition_owner(Some(ic_id), true, fixture_partition_obj);
         obj.set_ai_state(
             AIState::Docked,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }

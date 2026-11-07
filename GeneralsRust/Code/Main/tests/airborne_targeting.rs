@@ -343,7 +343,7 @@ fn live_case(token: &str, height: f32, initial: bool) {
         actual_height.to_bits(),
         host.status.airborne_target
     );
-    assert!(host.is_alive() && host.is_motive());
+    assert!(host.is_alive() && host.is_motive(tick.frame));
     assert!(host.status.moving && host.movement.target_position.is_some());
     assert!(
         host.get_position().x > 0.0,

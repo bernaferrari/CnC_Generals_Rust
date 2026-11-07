@@ -321,11 +321,13 @@ fn host_construction_completes_without_coupled_shadow() {
             .expect("dozer");
         dozer.set_target(
             Some(id),
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         dozer.set_ai_state(
             AIState::Constructing,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         dozer.status.moving = false;
@@ -397,11 +399,13 @@ fn host_construction_completes_when_sole_tick_unmapped() {
                 .expect("dozer");
             dozer.set_target(
                 Some(id),
+                0,
                 attack_events,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             dozer.set_ai_state(
                 AIState::Constructing,
+                0,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             dozer.status.moving = false;

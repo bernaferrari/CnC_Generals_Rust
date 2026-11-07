@@ -1209,6 +1209,7 @@ mod stealth_grant_tests {
         unit.status.attacking = true;
         unit.set_ai_state(
             super::AIState::AttackMoving,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         assert!(!unit.stealth_is_firing_weapon());

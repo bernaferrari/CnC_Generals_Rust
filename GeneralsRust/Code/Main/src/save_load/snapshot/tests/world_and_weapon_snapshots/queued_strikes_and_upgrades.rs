@@ -565,10 +565,12 @@ fn host_upgrade_capture_mid_flight_save_load_completes_unlock() {
     // this keeps the assertion about snapshot/research state independent of
     // autonomous movement during the elapsed research time.
     restored.set_fixture_object_position(captor_id, Vec3::ZERO);
+    let frame = restored.frame;
     if let Some(captor) = restored.host_object_mut(captor_id) {
         captor.target = None;
         captor.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }

@@ -262,7 +262,7 @@ fn saved_physics_continues_through_world_collision_callbacks_in_order() {
                 crusher.physics_mass = 2.;
                 crusher.physics_accel = Vec3::new(0.1, 0., 0.);
                 crusher.physics_previous_accel = Vec3::new(0.2, 0., 0.);
-                crusher.motive_frames_remaining = 2;
+                crusher.motive_force_expires = 2;
                 crusher.extra_friction = 0.01;
             }
             {

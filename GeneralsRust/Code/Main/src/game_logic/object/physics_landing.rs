@@ -184,7 +184,7 @@ impl Object {
         let (bounce, request) = self.begin_contact_bounce(old_y, new_y, ground_y);
         if let Some(request) = request {
             let killed = services.apply_contact(self, &request);
-            self.finish_stun_kill(killed, audio);
+            self.finish_stun_kill(killed, services.frame, audio);
             if killed {
                 return 0.0;
             }
@@ -223,7 +223,7 @@ impl Object {
             return false;
         };
         let killed = services.apply_contact(self, &request);
-        self.finish_stun_kill(killed, audio);
+        self.finish_stun_kill(killed, services.frame, audio);
         killed
     }
 }

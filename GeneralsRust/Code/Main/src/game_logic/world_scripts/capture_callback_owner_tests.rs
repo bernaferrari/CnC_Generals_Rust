@@ -28,8 +28,10 @@ fn transport_world() -> (GameLogic, ObjectId, ObjectId) {
             .add_occupant(passenger)
     );
     world.set_fixture_object_contained_by(passenger, Some(transport));
+    let frame = world.frame;
     world.objects.get_mut(&transport).unwrap().set_ai_state(
         AIState::Moving,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     (world, transport, passenger)

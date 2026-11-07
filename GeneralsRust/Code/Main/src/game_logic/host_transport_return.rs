@@ -239,7 +239,7 @@ impl GameLogic {
         if self.assign_unit_path(id, origin, &[]) {
             let frame = self.frame;
             if let Some((object, audio_events)) = self.host_object_and_audio_events_mut(id) {
-                object.set_ai_state_at_frame(
+                object.set_ai_state(
                     AIState::Moving,
                     frame,
                     &mut crate::game_logic::ObjectAudio::queue(audio_events),
@@ -367,10 +367,12 @@ mod tests {
         let goal = origin + Vec3::new(40.0, 0.0, 0.0);
         assert!(logic.unit_command_set_pending_evacuate(id, true, true, true));
         assert!(logic.assign_unit_path(id, goal, &[]));
+        let frame = logic.frame;
         {
             let (owner, output) = logic.host_object_and_audio_events_mut(id).unwrap();
             owner.set_ai_state(
                 AIState::Moving,
+                frame,
                 &mut crate::game_logic::ObjectAudio::queue(output),
             );
             owner.last_command_source =
@@ -438,10 +440,12 @@ mod tests {
             source.frame = 80;
             assert!(source.unit_command_set_pending_evacuate(id, true, true, true));
             assert!(source.assign_unit_path(id, goal, &[]));
+            let frame = source.frame;
             {
                 let (object, output) = source.host_object_and_audio_events_mut(id).unwrap();
                 object.set_ai_state(
                     AIState::Moving,
+                    frame,
                     &mut crate::game_logic::ObjectAudio::queue(output),
                 );
             }

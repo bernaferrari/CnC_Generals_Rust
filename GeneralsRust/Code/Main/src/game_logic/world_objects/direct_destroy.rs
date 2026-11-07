@@ -245,7 +245,7 @@ impl GameLogic {
                     child.allow_to_fall = true;
                 }
                 if let Some(velocity) = velocity {
-                    child.apply_motive_force(velocity * child.physics_get_mass());
+                    child.apply_motive_force(velocity * child.physics_get_mass(), self.frame);
                 }
                 if aggressive {
                     child.set_ai_attitude(
@@ -459,6 +459,7 @@ impl GameLogic {
                 if object.ai_state() == AIState::GuardingObject {
                     object.set_ai_state(
                         AIState::Idle,
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     {}

@@ -24,6 +24,7 @@ fn combat_chinook_residual_load_two_unload_both_free() {
 
     for unit_id in [unit_a, unit_b] {
         {
+            let ai_entry_frame = game_logic.frame;
             let unit = game_logic.host_object_mut(unit_id).expect("unit mut");
             unit.weapon = Some(Weapon {
                 damage: 20.0,
@@ -35,6 +36,7 @@ fn combat_chinook_residual_load_two_unload_both_free() {
             unit.target = Some(chinook_id);
             unit.set_ai_state(
                 AIState::Entering,
+                ai_entry_frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
@@ -154,6 +156,7 @@ fn combat_chinook_residual_passenger_fire_damages_nearby_enemy() {
         .expect("enemy");
 
     {
+        let ai_entry_frame = game_logic.frame;
         let (unit, fixture_partition_unit) = game_logic
             .host_object_and_partition_mut(infantry_id)
             .unwrap();
@@ -168,6 +171,7 @@ fn combat_chinook_residual_passenger_fire_damages_nearby_enemy() {
         unit.set_contained_by_with_partition_owner(Some(chinook_id), true, fixture_partition_unit);
         unit.set_ai_state(
             AIState::Docked,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_position_with_partition_owner(
@@ -236,10 +240,12 @@ fn combat_chinook_residual_capacity_full_rejects_enter() {
             )
             .expect("infantry");
         {
+            let ai_entry_frame = game_logic.frame;
             let unit = game_logic.host_object_mut(id).unwrap();
             unit.target = Some(chinook_id);
             unit.set_ai_state(
                 AIState::Entering,
+                ai_entry_frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
@@ -301,10 +307,12 @@ fn combat_chinook_residual_allows_vehicle_enter() {
         .expect("tank");
 
     {
+        let ai_entry_frame = game_logic.frame;
         let unit = game_logic.host_object_mut(tank_id).unwrap();
         unit.target = Some(chinook_id);
         unit.set_ai_state(
             AIState::Entering,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -331,6 +339,7 @@ fn combat_chinook_vehicle_rider_does_not_arm_weapon_set() {
         .create_object("TestTank", Team::USA, Vec3::new(2.0, 0.0, 0.0))
         .expect("tank");
     {
+        let ai_entry_frame = game_logic.frame;
         let (unit, fixture_partition_unit) =
             game_logic.host_object_and_partition_mut(tank_id).unwrap();
         unit.weapon = Some(Weapon {
@@ -341,6 +350,7 @@ fn combat_chinook_vehicle_rider_does_not_arm_weapon_set() {
         unit.set_contained_by_with_partition_owner(Some(chinook_id), true, fixture_partition_unit);
         unit.set_ai_state(
             AIState::Docked,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -515,9 +525,11 @@ fn listening_outpost_residual_detect_stealth_in_range() {
     // physics->getVelocityMagnitude() > m_stealthSpeed
     // (StealthUpdate.cpp:390-392), not the AI moving flag.
     {
+        let ai_entry_frame = game_logic.frame;
         let o = game_logic.host_object_mut(outpost_id).unwrap();
         o.set_ai_state(
             AIState::Moving,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.movement.velocity = Vec3::new(10.0, 0.0, 0.0);
@@ -534,9 +546,11 @@ fn listening_outpost_residual_detect_stealth_in_range() {
         );
     }
     {
+        let ai_entry_frame = game_logic.frame;
         let o = game_logic.host_object_mut(outpost_id).unwrap();
         o.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.movement.velocity = Vec3::ZERO;

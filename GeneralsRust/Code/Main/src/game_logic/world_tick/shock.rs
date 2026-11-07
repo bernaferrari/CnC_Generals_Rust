@@ -85,7 +85,7 @@ impl GameLogic {
                     || o.physics_accel.length_squared() > 1e-6
                     || o.allow_to_fall
                     || o.is_physics_held()
-                    || o.motive_frames_remaining > 0
+                    || o.is_motive(self.frame)
                     || (o.selected_locomotor_definition.is_some()
                         && o.has_ai_update_interface()
                         && !matches!(o.loco_behavior_z, LocomotorBehaviorZ::NoZMotiveForce))
@@ -127,7 +127,7 @@ impl GameLogic {
             if physics_ids.get(id).is_some_and(|birth| {
                 birth.ptr_eq(&std::sync::Arc::downgrade(&o.visual_draw_identity_token))
             }) {
-                o.integrate_physics_force_phase();
+                o.integrate_physics_force_phase(self.frame);
             }
         }
         let snap_ids: Vec<ObjectId> = self
@@ -1203,6 +1203,7 @@ impl GameLogic {
             if entered_attack {
                 a.set_ai_state(
                     AIState::Attacking,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
@@ -1414,6 +1415,7 @@ impl GameLogic {
             attacker.target = Some(next_id);
             attacker.set_ai_state(
                 AIState::Attacking,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             attacker.set_status_attacking(true);

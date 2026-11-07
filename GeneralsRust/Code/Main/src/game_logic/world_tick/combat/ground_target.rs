@@ -154,6 +154,7 @@ impl GameLogic {
             let aim_ok = if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                 attacker.set_ai_state(
                     AIState::AttackingGround,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 {}
@@ -260,6 +261,7 @@ impl GameLogic {
                     attacker.set_force_attack(false);
                     attacker.set_ai_state(
                         AIState::Idle,
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
@@ -334,6 +336,7 @@ impl GameLogic {
                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                     attacker.set_ai_state(
                         AIState::AttackingGround,
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     attacker.ignored_obstacle_id = None;
@@ -408,6 +411,7 @@ impl GameLogic {
                     attacker.set_status_moving(true);
                     attacker.set_ai_state(
                         AIState::AttackingGround,
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }

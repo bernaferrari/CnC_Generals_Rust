@@ -701,6 +701,7 @@ impl GameLogic {
             {}
             obj.set_ai_state(
                 __ai_st,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             obj.set_status_moving(false);

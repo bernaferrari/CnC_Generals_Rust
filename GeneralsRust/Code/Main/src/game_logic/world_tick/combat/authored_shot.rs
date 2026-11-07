@@ -177,6 +177,7 @@ impl GameLogic {
                 attacker.set_force_attack(false);
                 attacker.set_ai_state(
                     AIState::Idle,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }

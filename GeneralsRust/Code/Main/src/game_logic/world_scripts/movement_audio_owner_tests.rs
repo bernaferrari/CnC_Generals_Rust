@@ -197,11 +197,12 @@ fn nested_stop_and_overlay_exit_take_the_loop_handle_exactly_once() {
             );
             assert_eq!(owner.unit_command_stop(id).expect("result"), true);
             // stop -> stop_moving -> overlay exit all share one receiving loan.
+            let frame = owner.frame;
             let (object, output) = owner.host_object_and_audio_events_mut(id).unwrap();
             let mut audio = ObjectAudio::queue(output);
             object.stop_moving(&mut audio);
             object.end_temporary_move_overlay(&mut audio);
-            object.set_ai_state(AIState::Idle, &mut audio);
+            object.set_ai_state(AIState::Idle, frame, &mut audio);
             assert_eq!(owner.queued_audio_events.len(), 1);
             stop(&owner.queued_audio_events[0], id, "NestedLoop", Vec3::ZERO);
         },

@@ -560,20 +560,20 @@ impl Object {
     }
 
     /// C++ PhysicsBehavior::isMotive residual.
-    pub fn is_motive(&self) -> bool {
-        self.motive_frames_remaining > 0
+    pub fn is_motive(&self, frame: u32) -> bool {
+        self.motive_force_expires > frame
     }
 
     /// C++ PhysicsBehavior::applyForce residual.
     ///
     /// When motive, only lateral component (perp to unit facing) is accepted.
     /// Host XZ ground plane maps C++ XY; world Y is vertical.
-    pub fn apply_physics_force(&mut self, force: glam::Vec3) {
+    pub fn apply_physics_force(&mut self, force: glam::Vec3, frame: u32) {
         if !force.x.is_finite() || !force.y.is_finite() || !force.z.is_finite() {
             return;
         }
         let mut mod_force = force;
-        if self.is_motive() {
+        if self.is_motive(frame) {
             let dir = self.unit_direction_vector_2d(); // (x,z)
             // C++ lateralDot = force.x * (-dir.y) + force.y * dir.x
             // Host: force.x * (-dir.z_comp) + force.z * dir.x where dir=(x,z)
@@ -846,20 +846,21 @@ impl Object {
     /// Returns true if needs constant calling.
     /// Explicit component surface input. Live controllers use the receiving
     /// World observation/continuation below; this method never selects terrain.
-    pub fn handle_behavior_z(&mut self, surface_y: f32, goal_y: Option<f32>) -> bool {
-        self.handle_behavior_z_with_highest_surface(surface_y, goal_y, surface_y)
+    pub fn handle_behavior_z(&mut self, surface_y: f32, goal_y: Option<f32>, frame: u32) -> bool {
+        self.handle_behavior_z_with_highest_surface(surface_y, goal_y, surface_y, frame)
     }
     pub(crate) fn handle_behavior_z_with_highest_surface(
         &mut self,
         surface_y: f32,
         goal_y: Option<f32>,
         highest_surface: f32,
+        frame: u32,
     ) -> bool {
         self.handle_behavior_z_with_highest_surface_and_effects(
             surface_y,
             goal_y,
             highest_surface,
-            0,
+            frame,
             &mut Default::default(),
         )
     }
@@ -871,7 +872,7 @@ impl Object {
         frame: u32,
         effects: &mut ScriptPresentationEffects<'_>,
     ) -> bool {
-        let step = self.prepare_behavior_z(surface_y, goal_y, highest_surface);
+        let step = self.prepare_behavior_z(surface_y, goal_y, highest_surface, frame);
         if let Some(position) = step.position {
             self.set_position_with_effects(position, frame, effects)
         }
@@ -884,6 +885,7 @@ impl Object {
         surface_y: f32,
         goal_y: Option<f32>,
         highest_surface: f32,
+        frame: u32,
     ) -> ZBehaviorStep {
         let mut position = None;
         let requires_constant_calling = match self.loco_behavior_z {
@@ -910,12 +912,12 @@ impl Object {
                 true
             }
             LocomotorBehaviorZ::SurfaceRelativeHeight => {
-                self.apply_surface_relative_lift(surface_y, goal_y)
+                self.apply_surface_relative_lift(surface_y, goal_y, frame)
             }
             LocomotorBehaviorZ::SmoothRelativeToHighestLayer => {
-                self.apply_surface_relative_lift(highest_surface, goal_y)
+                self.apply_surface_relative_lift(highest_surface, goal_y, frame)
             }
-            LocomotorBehaviorZ::AbsoluteHeight => self.apply_surface_relative_lift(0., goal_y),
+            LocomotorBehaviorZ::AbsoluteHeight => self.apply_surface_relative_lift(0., goal_y, frame),
         };
         ZBehaviorStep {
             requires_constant_calling,
@@ -925,7 +927,7 @@ impl Object {
 
     /// C++ `Z_SURFACE_RELATIVE_HEIGHT` / `Z_SMOOTH_RELATIVE_TO_HIGHEST_LAYER`
     /// lift residual (`Locomotor.cpp:2288-2317` / `:2248-2285`).
-    fn apply_surface_relative_lift(&mut self, surface_y: f32, goal_y: Option<f32>) -> bool {
+    fn apply_surface_relative_lift(&mut self, surface_y: f32, goal_y: Option<f32>, frame: u32) -> bool {
         // A source AI with no current locomotor has no motive controller.
         // Physics still admits gravity through its ordinary receiving owner.
         if self.selected_locomotor_definition.is_none() {
@@ -955,17 +957,17 @@ impl Object {
                 } else {
                     1.0
                 };
-            self.apply_motive_force(glam::Vec3::new(0.0, force_y, 0.0));
+            self.apply_motive_force(glam::Vec3::new(0.0, force_y, 0.0), frame);
         }
         true
     }
 
     /// Appearance half of C++ maintainCurrentPosition. The driving locomotor
     /// applies altitude once, after this operation, using its current goal.
-    pub(crate) fn loco_maintain_appearance(&mut self, dt: f32) -> bool {
+    pub(crate) fn loco_maintain_appearance(&mut self, dt: f32, frame: u32) -> bool {
         self.loco_maintain_appearance_with_effects(
             dt,
-            0,
+            frame,
             self.ground_height,
             &mut Default::default(),
         )
@@ -1026,7 +1028,6 @@ impl Object {
         // Appearance-specific maintain residual.
         match self.loco_appearance {
             LocomotorAppearance::Wings => {
-                self.motive_frames_remaining = MOTIVE_FRAMES_RESIDUAL.max(1);
                 // 2D circle only. C++ handleBehaviorZ runs after with
                 // getSurfaceHtAtPt (hq-xlays) — not own altitude.
                 self.maintain_position_wings_with_team_factory_context(
@@ -1056,10 +1057,10 @@ impl Object {
             }
             LocomotorAppearance::Hover => {
                 self.physics_turning = PhysicsTurningType::TurnNone;
-                if self.is_motive() {
+                if self.is_motive(frame) {
                     // C++ maintainCurrentPositionHover (Locomotor.cpp:2527-2576):
                     // motive force along heading toward minSpeed. No vel scrub.
-                    self.apply_hover_maintain_brake();
+                    self.apply_hover_maintain_brake(frame);
                 }
                 return true;
             }
@@ -1085,10 +1086,10 @@ impl Object {
     }
 
     /// C++ Locomotor.cpp:2420-2474: appearance, then altitude at maintainPos.
-    pub fn loco_maintain_current_position(&mut self, ground_y: f32, dt: f32) -> bool {
-        let appearance_needs_update = self.loco_maintain_appearance(dt);
+    pub fn loco_maintain_current_position(&mut self, ground_y: f32, dt: f32, frame: u32) -> bool {
+        let appearance_needs_update = self.loco_maintain_appearance(dt, frame);
         let maintain_y = self.maintain_pos.map(|p| p.y);
-        let needs_z = self.handle_behavior_z(ground_y, maintain_y);
+        let needs_z = self.handle_behavior_z(ground_y, maintain_y, frame);
         appearance_needs_update || needs_z
     }
 
@@ -1333,7 +1334,7 @@ impl Object {
 
     /// C++ mobile collide force: -min(overlap, 5) * delta/dist via applyForce.
     /// Airborne (`isAboveTerrain`) uses full 3D delta including host Y.
-    pub fn apply_overlap_collide_force(&mut self, other_center: glam::Vec3, overlap: f32) {
+    pub fn apply_overlap_collide_force(&mut self, other_center: glam::Vec3, overlap: f32, frame: u32) {
         if !self.allow_collide_force {
             return;
         }
@@ -1360,7 +1361,7 @@ impl Object {
             factor * dx / dist,
             factor * dy / dist,
             factor * dz / dist,
-        ));
+        ), frame);
     }
 
     /// C++ Locomotor::getMaxLift residual (host world-Y).
@@ -1814,7 +1815,7 @@ impl Object {
     ///
     /// Fail-closed without full pathfinder neighbor scan: when
     /// `on_invalid_movement_terrain` or cliff cell, push toward valid via motive force.
-    pub fn fix_invalid_position(&mut self) -> bool {
+    pub fn fix_invalid_position(&mut self, frame: u32) -> bool {
         if self.is_dozer || self.is_kind_of(crate::game_logic::KindOf::Aircraft) {
             return false;
         }
@@ -1837,21 +1838,21 @@ impl Object {
                 return false;
             }
             let force = glam::Vec3::new(nx * mass / 5.0, 0.0, nz * mass / 5.0);
-            self.apply_motive_force(force);
+            self.apply_motive_force(force, frame);
             self.integrate_locomotor_horizontal_accel();
             return true;
         }
         // Stationary on invalid: nudge along facing.
         let d = self.unit_direction_vector_2d();
         let force = glam::Vec3::new(d.x * mass / 5.0, 0.0, d.y * mass / 5.0);
-        self.apply_motive_force(force);
+        self.apply_motive_force(force, frame);
         self.integrate_locomotor_horizontal_accel();
         true
     }
 
     /// C++ maintainCurrentPositionWings residual — circle around maintain pos.
-    pub fn maintain_position_wings(&mut self, dt: f32) {
-        self.maintain_position_wings_with_effects(dt, 0, &mut Default::default())
+    pub fn maintain_position_wings(&mut self, dt: f32, frame: u32) {
+        self.maintain_position_wings_with_effects(dt, frame, &mut Default::default())
     }
     pub(crate) fn maintain_position_wings_with_effects(
         &mut self,
@@ -1873,7 +1874,7 @@ impl Object {
     ) {
         self.physics_turning = PhysicsTurningType::TurnNone;
         // C++ maintainCurrentPositionWings: isMotive() && isAboveTerrain().
-        if !self.is_motive() || !self.is_above_terrain() {
+        if !self.is_motive(frame) || !self.is_above_terrain() {
             return;
         }
         let Some(maintain) = self.maintain_pos else {
@@ -1914,7 +1915,7 @@ impl Object {
             trigger_world,
             team_factory,
         );
-        self.apply_forward_speed_force(spd, dt);
+        self.apply_forward_speed_force(spd, dt, frame);
         let mut p = self.get_position();
         p.x += self.movement.velocity.x * dt;
         p.z += self.movement.velocity.z * dt;
@@ -1947,13 +1948,14 @@ impl Object {
         on_path_dist: f32,
         desired_speed: f32,
         dt: f32,
+        frame: u32,
     ) {
         self.move_towards_thrust_with_effects(
             goal,
             on_path_dist,
             desired_speed,
             dt,
-            0,
+            frame,
             &mut Default::default(),
         )
     }
@@ -2004,7 +2006,7 @@ impl Object {
             );
             self.finish_position_reaction(reaction);
         }
-        self.finish_thrust_force(step.force);
+        self.finish_thrust_force(step.force, frame);
     }
     pub(in crate::game_logic) fn prepare_thrust_step(
         &mut self,
@@ -2111,22 +2113,22 @@ impl Object {
         };
         ThrustStep { reaction, force }
     }
-    pub(in crate::game_logic) fn finish_owned_thrust_step(&mut self, step: ThrustStep) {
-        self.finish_thrust_force(step.force);
+    pub(in crate::game_logic) fn finish_owned_thrust_step(&mut self, step: ThrustStep, frame: u32) {
+        self.finish_thrust_force(step.force, frame);
     }
-    fn finish_thrust_force(&mut self, force: Option<(glam::Vec3, f32, f32)>) {
+    fn finish_thrust_force(&mut self, force: Option<(glam::Vec3, f32, f32)>, frame: u32) {
         if let Some((thrust_dir, max_accel_frame, max_speed_frame)) = force {
             let damping = (max_accel_frame / max_speed_frame).clamp(0., 1.);
             // Locomotor.cpp1989 rereads current velocity AFTER orientation.
             let accel_frame = thrust_dir * max_accel_frame - self.movement.velocity / 30. * damping;
             let mass = self.physics_get_mass();
-            self.apply_motive_force(accel_frame * (30. * mass));
+            self.apply_motive_force(accel_frame * (30. * mass), frame);
         }
     }
 
     /// C++ `Locomotor::maintainCurrentPositionHover` (Locomotor.cpp:2527-2576).
     /// Apply motive force along heading to close speedDelta; do not teleport vel.
-    fn apply_hover_maintain_brake(&mut self) {
+    fn apply_hover_maintain_brake(&mut self, frame: u32) {
         let min_speed = self.min_speed.max(1.0e-10);
         let actual = self.forward_speed_2d();
         let speed_delta = min_speed - actual;
@@ -2149,12 +2151,12 @@ impl Object {
             accel_force * dir.x,
             0.0,
             accel_force * dir.y,
-        ));
+        ), frame);
         self.integrate_locomotor_horizontal_accel();
     }
 
     /// Apply forward motive force to close speedDelta (C++ legs/other residual).
-    pub(super) fn apply_forward_speed_force(&mut self, goal_speed: f32, dt: f32) {
+    pub(super) fn apply_forward_speed_force(&mut self, goal_speed: f32, dt: f32, frame: u32) {
         let actual = self.forward_speed_2d();
         // When moving backwards residual, treat signed speed.
         let actual = if self.moving_backwards {
@@ -2185,7 +2187,7 @@ impl Object {
             accel_force * dir.x * sign,
             0.0,
             accel_force * dir.y * sign,
-        ));
+        ), frame);
         // Integrate immediately so this frame's movement sees it (host dt path).
         self.integrate_locomotor_horizontal_accel();
         // Also blend velocity toward goal for host-second dt residual.
@@ -2209,11 +2211,10 @@ impl Object {
     ///
     /// Temporarily accepts full force (clears motive), applies, then arms motive
     /// window for MOTIVE_FRAMES so subsequent collide forces are lateral-only.
-    pub fn apply_motive_force(&mut self, force: glam::Vec3) {
-        let prev = self.motive_frames_remaining;
-        self.motive_frames_remaining = 0;
-        self.apply_physics_force(force);
-        self.motive_frames_remaining = MOTIVE_FRAMES_RESIDUAL.max(prev);
+    pub fn apply_motive_force(&mut self, force: glam::Vec3, frame: u32) {
+        self.motive_force_expires = 0;
+        self.apply_physics_force(force, frame);
+        self.motive_force_expires = frame.wrapping_add(MOTIVE_FRAMES_RESIDUAL);
     }
 
     /// C++ PhysicsBehavior::resetDynamicPhysics residual.
@@ -2225,7 +2226,7 @@ impl Object {
         self.shock_yaw_rate = 0.0;
         self.shock_pitch_rate = 0.0;
         self.shock_roll_rate = 0.0;
-        self.motive_frames_remaining = 0;
+        self.physics_turning = PhysicsTurningType::TurnNone;
     }
 
     /// C++ `PhysicsBehavior::getAcceleration()` = previous-frame accel.
@@ -2238,7 +2239,7 @@ impl Object {
     ///
     /// C++ `getAcceleration()` returns `m_prevAccel` (previous frame). Store
     /// the current accel before zeroing so the visual calc can read it.
-    pub(in crate::game_logic) fn integrate_physics_force_phase(&mut self) {
+    pub(in crate::game_logic) fn integrate_physics_force_phase(&mut self, frame: u32) {
         // PhysicsUpdate.cpp622: previous acceleration excludes this phase's
         // gravity/friction. HELD still clears accumulated acceleration.
         self.physics_previous_accel = self.physics_accel;
@@ -2254,7 +2255,7 @@ impl Object {
                     1.
                 };
         }
-        self.apply_frictional_forces();
+        self.apply_frictional_forces(frame);
         self.integrate_physics_velocity();
     }
 
@@ -2264,9 +2265,6 @@ impl Object {
     }
     fn integrate_physics_velocity(&mut self) {
         self.integrate_physics_delta_velocity(self.physics_accel, true);
-        if self.motive_frames_remaining > 0 {
-            self.motive_frames_remaining -= 1
-        }
     }
     fn integrate_physics_delta_velocity(&mut self, delta: glam::Vec3, vertical: bool) {
         self.movement.velocity += delta;
@@ -2361,7 +2359,7 @@ impl Object {
     }
 
     /// C++ PhysicsBehavior::applyFrictionalForces residual (host XZ ground).
-    pub fn apply_frictional_forces(&mut self) {
+    pub fn apply_frictional_forces(&mut self, frame: u32) {
         // C++: APPLY_FRICTION2D_WHEN_AIRBORNE || !isSignificantlyAboveTerrain || deckTaxiing
         let use_2d = self.apply_friction_2d_when_airborne
             || !self.is_significantly_above_terrain()
@@ -2383,7 +2381,7 @@ impl Object {
                 let lat_z = lateral_dot * dir.x;
                 let lf = mass * self.get_lateral_friction();
                 let mut accel = glam::Vec3::new(-(lf * lat_x), 0.0, -(lf * lat_z));
-                if !self.is_motive() {
+                if !self.is_motive(frame) {
                     let forward_dot = v.x * dir.x + v.z * dir.y;
                     let fwd_x = forward_dot * dir.x;
                     let fwd_z = forward_dot * dir.y;
@@ -2391,7 +2389,7 @@ impl Object {
                     accel.x += -(ff * fwd_x);
                     accel.z += -(ff * fwd_z);
                 }
-                self.apply_physics_force(accel);
+                self.apply_physics_force(accel, frame);
             }
         } else {
             let aero = -self.get_aerodynamic_friction();

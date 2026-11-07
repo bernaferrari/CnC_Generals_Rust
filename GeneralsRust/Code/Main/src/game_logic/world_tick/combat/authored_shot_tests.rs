@@ -59,9 +59,11 @@ fn world(shooter: &str, weapon: &str) -> GameLogic {
 }
 
 fn engage(world: &mut GameLogic, shooter: ObjectId, victim: ObjectId) {
+    let frame = world.frame;
     let (attacker, events) = world.host_object_and_attack_events_mut(shooter).unwrap();
     attacker.attack_target(
         victim,
+        frame,
         events,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );

@@ -83,6 +83,7 @@ impl GameLogic {
                 end_hunt_on_player_parent_order(unit);
                 unit.set_ai_state(
                     AIState::Moving,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
@@ -173,6 +174,7 @@ impl GameLogic {
             end_hunt_on_player_parent_order(unit);
             unit.set_ai_state(
                 AIState::Moving,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }
@@ -337,6 +339,56 @@ impl GameLogic {
     ) -> gamelogic::GameLogicResult<bool> {
         self.unit_command_force_attack_with_effects(id, target_id, &mut Default::default())
     }
+    /// AIGroup's SpawnBehavior dispatch calls the child's AI directly, without
+    /// the passenger/command-translator weapon eligibility preflight.
+    pub(crate) fn unit_command_spawn_force_attack_with_effects(
+        &mut self,
+        id: ObjectId,
+        target_id: ObjectId,
+        effects: &mut ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        if !self.objects.contains_key(&target_id) {
+            return Ok(false);
+        }
+        self.stamp_player_command_source(id);
+        if self.note_hacker_ai_command(
+            id,
+            crate::game_logic::host_hacker_income::PendingHackerCommand::Attack(target_id),
+        ) {
+            return Ok(true);
+        }
+        let Some(switch_away) = self.objects.get(&id)
+            .map(|unit| unit.target.is_some_and(|previous| previous != target_id))
+        else {
+            return Ok(false);
+        };
+        if switch_away {
+            self.drop_jet_targeters_on_attack_exit(id);
+        }
+        let Some(unit) = self.objects.get_mut(&id) else {
+            return Ok(false);
+        };
+        unit.mark_jet_command_for_reload_interrupt(false);
+        unit.clear_guard_chase();
+        end_hunt_on_player_parent_order(unit);
+        unit.set_target_with_operation(
+            Some(target_id),
+            &mut self.attack_events,
+            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+            self.frame,
+            &mut effects.reborrow_for_object(&mut self.partition_manager),
+        );
+        unit.set_force_attack(true);
+        if unit.weapon.is_some() {
+            unit.set_max_shots_to_fire(-1);
+        }
+        if unit.ignored_obstacle_id.is_some_and(|old| old != target_id) {
+            unit.ignored_obstacle_id = None;
+        }
+        self.clear_unit_hunt_scan(id);
+        self.admit_jet_targeter_with_effects(target_id, id, true, effects)?;
+        Ok(true)
+    }
     pub(crate) fn unit_command_force_attack_with_effects(
         &mut self,
         id: ObjectId,
@@ -479,6 +531,7 @@ impl GameLogic {
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.set_guard_position(
                 None,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             unit.end_guard_retaliate_state();
@@ -560,10 +613,12 @@ impl GameLogic {
         unit.set_force_attack(false);
         unit.set_guard_position(
             None,
+            self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         unit.set_guard_target(
             None,
+            self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
 
@@ -653,6 +708,7 @@ impl GameLogic {
             unit.unit_ai_runtime.clear_guard();
             unit.set_guard_position(
                 Some(pos),
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             unit.set_hunting(false);
@@ -808,6 +864,7 @@ impl GameLogic {
             unit.unit_ai_runtime.clear_guard();
             unit.set_guard_target(
                 Some(target_id),
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             unit.set_hunting(false);
@@ -1005,6 +1062,7 @@ impl GameLogic {
                 if unit.ai_state() != AIState::AttackMoving {
                     unit.set_ai_state(
                         AIState::AttackMoving,
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
@@ -1014,6 +1072,7 @@ impl GameLogic {
                 unit.is_attack_path = false;
                 unit.set_ai_state(
                     AIState::Moving,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             } else if path_ok {
@@ -1071,6 +1130,7 @@ impl GameLogic {
             if unit.ai_state() != AIState::AttackMoving {
                 unit.set_ai_state(
                     AIState::AttackMoving,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }

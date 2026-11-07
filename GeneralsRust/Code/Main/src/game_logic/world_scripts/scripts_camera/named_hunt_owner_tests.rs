@@ -58,10 +58,12 @@ fn hunt_reentry_clears_previous_route_target_and_scan() {
         .unwrap()
         .unit_ai_runtime
         .set_hunt_scan_deadline(Some(9000));
+    let frame = world.frame;
     {
         let (object, attack_events) = world.host_object_and_attack_events_mut(id).unwrap();
         object.set_target(
             Some(target),
+            frame,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -113,10 +115,12 @@ fn hunt_snapshot_continues_on_restored_owner() {
     // Both continue the saved Hunt parent, with no new command. Model the
     // nested attack finishing: the real AI phase must resume its Hunt scan.
     for world in [&mut source, &mut restored] {
+        let frame = world.frame;
         let unit = world.host_object_mut(id).unwrap();
         unit.clear_target(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
         unit.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         world.frame = 1;
@@ -245,13 +249,16 @@ fn nonmobile_and_projectile_units_reject_hunt() {
 fn hunt_exits_attack_submachine_before_reentering_parent() {
     let (mut world, id, target) = world();
     hunt(&mut world, "NamedUnit");
+    let frame = world.frame;
     let (unit, attack_events) = world.host_object_and_attack_events_mut(id).unwrap();
     unit.set_ai_state(
         AIState::Attacking,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     unit.set_target(
         Some(target),
+        frame,
         attack_events,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );

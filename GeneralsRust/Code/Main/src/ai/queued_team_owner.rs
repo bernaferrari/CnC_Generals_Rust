@@ -1185,8 +1185,10 @@ mod tests {
         let parent = world.ai_manager.ai_players[&1].team_queue.front().unwrap();
         let parent_id = parent.team_id.unwrap();
         let unit = parent.work_orders[0].observed_unit_ids[0];
+        let frame = world.frame;
         world.host_object_mut(unit).unwrap().set_ai_state(
             AIState::Moving,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         prototype(&mut world, "Leaf", "CurrentOwner", "LeafReceipt");

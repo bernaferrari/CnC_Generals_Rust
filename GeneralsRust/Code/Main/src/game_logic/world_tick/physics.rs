@@ -617,7 +617,7 @@ impl GameLogic {
                     let overlap = radius_sum - dist;
                     if overlap > 0.0 {
                         let them_center = glam::Vec3::new(them.x, them.y + lift(&b_snap), them.z);
-                        a.apply_overlap_collide_force(them_center, overlap);
+                        a.apply_overlap_collide_force(them_center, overlap, self.frame);
                     }
                 }
             }
@@ -999,6 +999,7 @@ impl GameLogic {
             let _ = m.apply_structure_stiffness_bounce(
                 imm_center,
                 crate::game_logic::Object::SHOCK_MASS,
+                self.frame,
             );
             return true;
         }
@@ -1157,6 +1158,7 @@ impl GameLogic {
         u.set_status_force_attack(false);
         u.set_ai_state(
             AIState::FacingObject,
+            self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         true
@@ -1183,6 +1185,7 @@ impl GameLogic {
         u.set_status_force_attack(false);
         u.set_ai_state(
             AIState::FacingPosition,
+            self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         true
@@ -1210,6 +1213,7 @@ impl GameLogic {
             if u.ai_state() != AIState::Idle {
                 u.set_ai_state(
                     AIState::Idle,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
@@ -1420,7 +1424,7 @@ impl GameLogic {
             .objects
             .get_mut(&id)
             .expect("observations do not run callbacks");
-        let step = object.prepare_behavior_z(surface, goal_y, highest);
+        let step = object.prepare_behavior_z(surface, goal_y, highest, frame);
         let reaction = step.position.map(|position| {
             object.prepare_position_tree_reaction(
                 position,
@@ -1470,7 +1474,7 @@ impl GameLogic {
         }) else {
             return false;
         };
-        object.finish_owned_thrust_step(step);
+        object.finish_owned_thrust_step(step, frame);
         true
     }
     pub(in crate::game_logic) fn maintain_owned_locomotor_appearance_with_effects(
@@ -1588,7 +1592,7 @@ impl GameLogic {
     ) {
         // Explicit component surface input. Lift remains a force until the
         // actual Physics method is called, exactly as on the World route.
-        obj.handle_behavior_z_with_highest_surface(surface_y, goal_y, surface_y);
+        obj.handle_behavior_z_with_highest_surface(surface_y, goal_y, surface_y, 0);
     }
     #[cfg(test)]
     pub fn transfer_attack_for_test(&mut self, from_id: ObjectId, to_id: ObjectId) -> usize {

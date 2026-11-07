@@ -203,8 +203,10 @@ fn ordinary_player_completion_reaches_owned_ai_script_and_power_before_modules()
     prime_ai_completion(&mut world, id);
     world.frame = 8;
     world.dozer_new_task_build(builder, id);
+    let frame = world.frame;
     world.host_object_mut(builder).unwrap().set_ai_state(
         AIState::Constructing,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     let object = world.host_object_mut(id).unwrap();

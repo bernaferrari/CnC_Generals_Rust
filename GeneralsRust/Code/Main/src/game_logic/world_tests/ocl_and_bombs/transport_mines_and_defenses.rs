@@ -56,6 +56,7 @@ fn listening_outpost_residual_transport_load_unload() {
 
     for unit_id in [unit_a, unit_b] {
         {
+            let ai_entry_frame = game_logic.frame;
             let unit = game_logic.host_object_mut(unit_id).expect("unit mut");
             unit.weapon = Some(Weapon {
                 damage: 20.0,
@@ -67,6 +68,7 @@ fn listening_outpost_residual_transport_load_unload() {
             unit.target = Some(outpost_id);
             unit.set_ai_state(
                 AIState::Entering,
+                ai_entry_frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
@@ -104,10 +106,12 @@ fn listening_outpost_residual_transport_load_unload() {
         .create_object("TestInfantry", Team::China, Vec3::new(3.0, 0.0, 0.0))
         .expect("unit c");
     {
+        let ai_entry_frame = game_logic.frame;
         let unit = game_logic.host_object_mut(unit_c).unwrap();
         unit.target = Some(outpost_id);
         unit.set_ai_state(
             AIState::Entering,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -215,10 +219,12 @@ fn listening_outpost_residual_rejects_vehicle_enter() {
         .create_object("TestTank", Team::China, Vec3::new(2.0, 0.0, 0.0))
         .expect("tank");
     {
+        let ai_entry_frame = game_logic.frame;
         let unit = game_logic.host_object_mut(tank_id).unwrap();
         unit.target = Some(outpost_id);
         unit.set_ai_state(
             AIState::Entering,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -848,6 +854,7 @@ fn dozer_mine_clear_residual_approaches_then_clears() {
     }
 
     {
+        let ai_entry_frame = game_logic.frame;
         let (dozer, fixture_partition_dozer) =
             game_logic.host_object_and_partition_mut(dozer_id).unwrap();
         dozer.set_position_with_partition_owner(
@@ -858,6 +865,7 @@ fn dozer_mine_clear_residual_approaches_then_clears() {
         );
         dozer.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1308,9 +1316,11 @@ fn bored_dozer_arms_mine_clearing_weaponset() {
     let did = logic
         .create_object("TestDozer", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("dozer");
+    let ai_entry_frame = logic.frame;
     if let Some(o) = logic.host_object_mut(did) {
         o.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.idle_since_frame = 1;
@@ -1799,6 +1809,7 @@ fn stinger_site_residual_dual_fire_and_ap_rockets() {
         a.status.airborne_target = true;
     }
     {
+        let ai_entry_frame = game_logic.frame;
         let s = game_logic.host_object_mut(stinger_id).unwrap();
         if let Some(w) = s.secondary_weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -1807,6 +1818,7 @@ fn stinger_site_residual_dual_fire_and_ap_rockets() {
         s.target = None;
         s.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }

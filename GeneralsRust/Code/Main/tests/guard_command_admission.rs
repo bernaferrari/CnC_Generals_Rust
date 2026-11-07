@@ -107,9 +107,11 @@ fn guard_retaliation_exits_before_ineligible_guard_order_is_rejected() {
         .create_object("GuardAdmission", Team::USA, Vec3::ZERO)
         .unwrap();
     let mut audio = SessionAudio::default();
+    let frame = world.get_frame();
     let actor = world.host_object_mut(id).unwrap();
     actor.set_ai_state(
         AIState::GuardRetaliating,
+        frame,
         &mut ObjectAudio::queue(&mut audio),
     );
     actor.status.disabled_emp = true;
@@ -134,8 +136,9 @@ fn guard_orders_exit_the_receiving_attack_state() {
         assert_eq!(id, peer_id);
         let mut audio = SessionAudio::default();
         for session in [&mut world, &mut peer] {
+            let frame = session.get_frame();
             let actor = session.host_object_mut(id).unwrap();
-            actor.set_ai_state(AIState::Attacking, &mut ObjectAudio::queue(&mut audio));
+            actor.set_ai_state(AIState::Attacking, frame, &mut ObjectAudio::queue(&mut audio));
             actor.target = Some(id);
             actor.set_status_attacking(true);
             actor.set_status_firing_weapon(true);
@@ -180,11 +183,13 @@ fn replacing_retaliation_exits_its_active_attack_without_touching_peer() {
     let mut audio = SessionAudio::default();
     let mut attacks = AttackEvents::default();
     for world in [&mut owner, &mut peer] {
+        let frame = world.get_frame();
         let actor = world.host_object_mut(id).unwrap();
         actor.begin_guard_retaliate(
             id,
             Some(Vec3::ZERO),
             None,
+            frame,
             &mut attacks,
             &mut ObjectAudio::queue(&mut audio),
         );
@@ -222,11 +227,13 @@ fn outer_retaliation_exit_keeps_the_team_common_target() {
         .unwrap();
     let mut audio = SessionAudio::default();
     let mut attacks = AttackEvents::default();
+    let frame = world.get_frame();
     let actor = world.host_object_mut(id).unwrap();
     actor.begin_guard_retaliate(
         id,
         Some(Vec3::ZERO),
         None,
+        frame,
         &mut attacks,
         &mut ObjectAudio::queue(&mut audio),
     );
@@ -246,11 +253,13 @@ fn inner_retaliation_exit_clears_the_team_common_target() {
         .unwrap();
     let mut audio = SessionAudio::default();
     let mut attacks = AttackEvents::default();
+    let frame = world.get_frame();
     let actor = world.host_object_mut(id).unwrap();
     actor.begin_guard_retaliate(
         id,
         Some(Vec3::ZERO),
         None,
+        frame,
         &mut attacks,
         &mut ObjectAudio::queue(&mut audio),
     );

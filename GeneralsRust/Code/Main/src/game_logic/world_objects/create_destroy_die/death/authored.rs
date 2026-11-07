@@ -508,6 +508,7 @@ impl GameLogic {
             object.native_die_runtime.ai_dead = true;
             object.set_ai_state(
                 AIState::Idle,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             object.target = None;

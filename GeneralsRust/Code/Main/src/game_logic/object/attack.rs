@@ -472,7 +472,7 @@ impl Object {
             attack_events,
             content,
             audio,
-            0,
+            logic_frame,
             &mut Default::default(),
             None,
             None,
@@ -730,7 +730,7 @@ impl Object {
                     AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
                 );
                 if autonomous && entered_attack {
-                    self.set_ai_state(AIState::Attacking, audio);
+                    self.set_ai_state(AIState::Attacking, logic_frame, audio);
                 }
                 {}
                 return None;
@@ -754,7 +754,7 @@ impl Object {
             AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
         );
         if autonomous && entered_attack {
-            self.set_ai_state(AIState::Attacking, audio);
+            self.set_ai_state(AIState::Attacking, logic_frame, audio);
         }
         {}
 
@@ -1429,10 +1429,11 @@ impl Object {
     pub(crate) fn move_to(
         &mut self,
         position: Vec3,
+        frame: u32,
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        self.move_to_inner(position, None, movement_events, audio);
+        self.move_to_inner(position, frame, movement_events, audio);
     }
 
     pub(crate) fn move_to_at_frame(
@@ -1442,24 +1443,20 @@ impl Object {
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        self.move_to_inner(position, Some(frame), movement_events, audio);
+        self.move_to_inner(position, frame, movement_events, audio);
     }
 
     fn move_to_inner(
         &mut self,
         position: Vec3,
-        operation_frame: Option<u32>,
+        frame: u32,
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         if self.is_mobile() && self.is_alive() {
             self.movement_goal_object = None;
             self.movement.target_position = Some(position);
-            if let Some(frame) = operation_frame {
-                self.set_ai_state_at_frame(AIState::Moving, frame, audio);
-            } else {
-                self.set_ai_state(AIState::Moving, audio);
-            }
+            self.set_ai_state(AIState::Moving, frame, audio);
             self.set_status_moving(true);
             movement_events.record(self.id, Some([position.x, position.y, position.z]));
         }
@@ -1547,6 +1544,7 @@ impl Object {
     pub fn attack_target(
         &mut self,
         target_id: ObjectId,
+        frame: u32,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
@@ -1554,7 +1552,7 @@ impl Object {
             target_id,
             attack_events,
             audio,
-            0,
+            frame,
             &mut Default::default(),
         )
     }
@@ -1590,7 +1588,7 @@ impl Object {
             self.target = Some(target_id);
             self.target_location = None;
             self.set_status_force_attack(false);
-            self.set_ai_state(AIState::Attacking, audio);
+            self.set_ai_state(AIState::Attacking, operation_frame, audio);
             self.status.attacking = true;
             attack_events.record(self.id, target_id);
         }

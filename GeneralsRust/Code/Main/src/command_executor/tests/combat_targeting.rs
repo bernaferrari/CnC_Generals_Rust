@@ -137,14 +137,17 @@ fn do_command_button_dispatches_stop() {
     tpl.set_health(200.0);
     logic.templates.insert("DC_V".to_string(), tpl);
     let id = logic.create_object("DC_V", Team::USA, Vec3::ZERO).unwrap();
+    let frame = logic.frame;
     {
         let (u, attack_events) = logic.host_object_and_attack_events_mut(id).unwrap();
         u.set_ai_state(
             AIState::Moving,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         u.set_target(
             Some(id),
+            frame,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -785,11 +788,13 @@ fn move_to_and_evacuate_sets_pending_flag() {
         // Force containable capacity
         let _ = t.add_occupant(pax);
     }
+    let frame = logic.frame;
     {
         let (p, fixture_partition_p) = logic.host_object_and_partition_mut(pax).unwrap();
         p.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_p);
         p.set_ai_state(
             crate::game_logic::AIState::Docked,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -836,11 +841,13 @@ fn move_to_and_evacuate_unloads_when_path_completes() {
         let t = logic.host_object_mut(transport).unwrap();
         assert!(t.add_occupant(pax));
     }
+    let frame = logic.frame;
     {
         let (p, fixture_partition_p) = logic.host_object_and_partition_mut(pax).unwrap();
         p.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_p);
         p.set_ai_state(
             crate::game_logic::AIState::Docked,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1065,6 +1072,7 @@ fn stop_delays_mood_for_unstealthed_stealth_unit() {
         gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
     logic.templates.insert("ST_A".to_string(), tpl);
     let a = logic.create_object("ST_A", Team::USA, Vec3::ZERO).unwrap();
+    let frame = logic.frame;
     {
         let u = logic.host_object_mut(a).unwrap();
         u.innate_stealth = true;
@@ -1074,6 +1082,7 @@ fn stop_delays_mood_for_unstealthed_stealth_unit() {
         u.next_mood_check_time = 0;
         u.set_ai_state(
             AIState::Moving,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1270,15 +1279,18 @@ fn add_waypoint_breaks_off_attack() {
     let v = logic
         .create_object("WP_VIC", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
         .unwrap();
+    let frame = logic.frame;
     {
         let (u, attack_events) = logic.host_object_and_attack_events_mut(a).unwrap();
         u.set_target(
             Some(v),
+            frame,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         u.set_guard_target(
             Some(v),
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1659,6 +1671,7 @@ End
         .expect("passenger");
     let original_path = vec![Vec3::new(40.0, 0.0, 20.0), Vec3::new(80.0, 0.0, 25.0)];
     let original_target = Some(Vec3::new(80.0, 0.0, 25.0));
+    let frame = logic.frame;
     {
         let ferry = logic.host_object_mut(carrier).expect("carrier");
         assert!(ferry.add_occupant(rider));
@@ -1667,6 +1680,7 @@ End
         ferry.movement.current_path_index = 1;
         ferry.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1677,6 +1691,7 @@ End
         passenger.set_contained_by_with_partition_owner(Some(carrier), true, partition);
         passenger.set_ai_state(
             AIState::Docked,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1888,6 +1903,7 @@ fn attack_team_persist_never_bleeds_into_same_faction_team() {
         .unwrap()
         .team_instance_name = "GLA_TargetSquad".into();
     logic.host_object_mut(outsider).unwrap().team_instance_name = "GLA_OtherSquad".into();
+    let frame = logic.frame;
     {
         let unit = logic.host_object_mut(attacker).unwrap();
         unit.weapon = Some(Weapon {
@@ -1898,6 +1914,7 @@ fn attack_team_persist_never_bleeds_into_same_faction_team() {
         unit.target = Some(first);
         unit.set_ai_state(
             AIState::Attacking,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.attack_priority_set = Some("AIGroup.AttackTeam.GLA_TargetSquad".into());

@@ -79,10 +79,12 @@ End
         .unwrap();
     assert_eq!(world.airfield_parking_capacity(rack), Some(4));
     world.frame = 40;
+    let frame = world.frame;
     let airfield = world.host_object_mut(rack).unwrap();
     assert!(airfield.has_ai_update_interface());
     airfield.set_ai_state(
         AIState::GuardingArea,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     airfield.last_command_source =

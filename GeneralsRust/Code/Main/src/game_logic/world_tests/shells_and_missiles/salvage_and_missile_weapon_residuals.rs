@@ -60,6 +60,7 @@ fn tomahawk_residual_dual_radius_missile() {
             .unwrap();
         t.attack_target(
             enemy,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );

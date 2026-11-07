@@ -615,7 +615,7 @@ impl Object {
             shock_resistance,
             physics_accel: glam::Vec3::ZERO,
             physics_previous_accel: glam::Vec3::ZERO,
-            motive_frames_remaining: 0,
+            motive_force_expires: 0,
             waiting_for_path: false,
             do_final_position: false,
             final_position: glam::Vec3::ZERO,
@@ -1437,7 +1437,7 @@ impl Object {
             shock_resistance,
             physics_accel: glam::Vec3::ZERO,
             physics_previous_accel: glam::Vec3::ZERO,
-            motive_frames_remaining: 0,
+            motive_force_expires: 0,
             waiting_for_path: false,
             do_final_position: false,
             final_position: glam::Vec3::ZERO,
@@ -2364,6 +2364,7 @@ mod tests {
         obj.contained_by = Some(ObjectId(99));
         obj.set_ai_state(
             AIState::Garrisoned,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.status.masked = true;
@@ -2379,6 +2380,7 @@ mod tests {
         );
         obj.set_ai_state(
             AIState::Docked,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.status.unselectable = false;

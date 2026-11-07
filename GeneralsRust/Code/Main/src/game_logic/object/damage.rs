@@ -848,7 +848,7 @@ impl Object {
             health_events,
             player_effects,
             body_fx,
-            0,
+            frame,
             &mut Default::default(),
         )
     }
@@ -1009,6 +1009,7 @@ impl Object {
                 self.status.death_type = death_type;
                 self.set_ai_state(
                     AIState::Idle,
+                    frame,
                     &mut crate::game_logic::ObjectAudio::callback(&mut |object, request| {
                         body_fx(object, BodyStateFx::MovementStop(request), None)
                     }),
@@ -1248,6 +1249,7 @@ impl Object {
         }
         self.set_ai_state(
             AIState::Idle,
+            continuation.frame,
             &mut crate::game_logic::ObjectAudio::callback(&mut |object, request| {
                 body_fx(object, BodyStateFx::MovementStop(request), None)
             }),

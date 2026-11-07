@@ -76,6 +76,7 @@ fn microwave_tank_residual_disables_enemy_structure() {
             .unwrap();
         m.attack_target(
             barracks_id,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -133,6 +134,7 @@ fn microwave_tank_residual_disables_enemy_structure() {
             .unwrap();
         m.attack_target(
             ally_id,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -187,6 +189,7 @@ fn microwave_tank_residual_skips_non_microwave() {
             .unwrap();
         t.attack_target(
             barracks_id,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -401,6 +404,7 @@ fn comanche_rocket_pods_primary_does_not_area_attack() {
             .unwrap();
         c.attack_target(
             infantry_id,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -495,6 +499,7 @@ fn scud_launcher_residual_area_and_toxin() {
         );
         s.attack_target(
             tank_id,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -567,6 +572,7 @@ fn scud_launcher_residual_area_and_toxin() {
         s.active_weapon_slot = 1;
         s.attack_target(
             toxin_inf,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );

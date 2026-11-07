@@ -977,11 +977,13 @@ fn embedded_saved_map_restores_original_ai_companions_without_replacing_geometry
                     .create_object("StagedMovementUnit", Team::USA, glam::Vec3::ZERO)
                     .unwrap();
                 let saved_destination = glam::Vec3::new(23.0, 0.0, 24.0);
+                let frame = source.frame;
                 let (object, mut writer) = source
                     .host_object_and_movement_events_mut(mover_id)
                     .unwrap();
                 object.set_destination(
                     saved_destination,
+                    frame,
                     &mut writer,
                     &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
                 );
@@ -1140,12 +1142,14 @@ fn embedded_saved_map_restores_original_ai_companions_without_replacing_geometry
                         source_movement_receipts
                     );
                     let restored_movement_session = staged.logic.movement_events.session().clone();
+                    let frame = staged.logic.frame;
                     let (object, mut writer) = staged
                         .logic
                         .host_object_and_movement_events_mut(mover_id)
                         .unwrap();
                     object.set_destination(
                         glam::Vec3::new(43.0, 0.0, 44.0),
+                        frame,
                         &mut writer,
                         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
                     );

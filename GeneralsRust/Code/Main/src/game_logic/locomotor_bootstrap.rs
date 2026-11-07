@@ -2063,6 +2063,7 @@ mod tests {
         ground.update_movement(
             1.0 / 30.0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+            0,
         );
         assert!(
             ground.movement.target_position.is_none(),
@@ -2082,6 +2083,7 @@ mod tests {
         dive.update_movement(
             1.0 / 30.0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+            0,
         );
         assert!(
             dive.movement.target_position.is_some(),

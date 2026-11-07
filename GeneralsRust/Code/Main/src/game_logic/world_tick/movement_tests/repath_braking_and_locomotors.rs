@@ -898,7 +898,7 @@ fn wings_idle_hold_circles_at_min_speed() {
     jet.movement.max_speed = 80.0;
     jet.movement.acceleration = 10_000.0;
     jet.movement.velocity = Vec3::new(20.0, 0.0, 0.0);
-    jet.motive_frames_remaining = 10;
+    jet.motive_force_expires = 10;
     jet.status.airborne_target = true;
     jet.movement.path = vec![Vec3::new(0.0, 50.0, 0.0)];
     jet.movement.current_path_index = 0;
@@ -1089,7 +1089,7 @@ fn blocked_and_stuck_when_other_stopped() {
     let mut self_u = ranger_at(9705, Vec3::ZERO);
     bind_fixture_locomotor(&mut self_u, "BasicHumanLocomotor");
     self_u.set_orientation(0.0);
-    self_u.set_ai_state(AIState::Moving, &mut ObjectAudio::record(&mut Vec::new()));
+    self_u.set_ai_state(AIState::Moving, 0, &mut ObjectAudio::record(&mut Vec::new()));
     self_u.set_locomotor_goal_position_on_path();
     self_u.movement.velocity = Vec3::new(10.0, 0.0, 0.0);
     self_u.movement.target_position = Some(Vec3::new(80.0, 0.0, 0.0));
@@ -1111,19 +1111,20 @@ fn march_apply_motive_force_zero_flags_driven() {
     let mut unit = ranger_at(9801, Vec3::ZERO);
     unit.set_orientation(0.0);
     unit.movement.target_position = Some(Vec3::new(80.0, 0.0, 0.0));
-    unit.motive_frames_remaining = 0;
+    unit.motive_force_expires = 0;
     logic.objects.insert(ObjectId(9801), unit);
     logic.update_movement_for_test(&[ObjectId(9801)], 1.0 / 30.0);
     {
         let obj = logic.objects.get(&ObjectId(9801)).expect("unit");
         assert_eq!(
-            obj.motive_frames_remaining,
-            crate::game_logic::MOTIVE_FRAMES_RESIDUAL,
+            obj.motive_force_expires,
+            logic.frame + crate::game_logic::MOTIVE_FRAMES_RESIDUAL,
             "C++ applyMotiveForce(0) must arm motive so collide is lateral-only"
         );
     }
+    let frame = logic.frame;
     let obj = logic.objects.get_mut(&ObjectId(9801)).expect("unit");
-    obj.apply_physics_force(Vec3::new(10.0, 0.0, 0.0));
+    obj.apply_physics_force(Vec3::new(10.0, 0.0, 0.0), frame);
     assert!(
         obj.physics_accel.x.abs() < 1e-4,
         "motive march must reject forward collide force, accel.x={}",
@@ -1204,7 +1205,7 @@ fn maintain_resets_donut_and_clears_braking() {
     truck.loco_appearance = LocomotorAppearance::WheelsFour;
     truck.is_braking = true;
     truck.donut_timer = 0;
-    let _ = truck.loco_maintain_current_position(0.0, 1.0 / 30.0);
+    let _ = truck.loco_maintain_current_position(0.0, 1.0 / 30.0, 0);
     assert!(!truck.is_braking, "maintain must clear IS_BRAKING");
     assert_eq!(
         truck.donut_timer,
@@ -1227,8 +1228,8 @@ fn hover_maintain_bleeds_speed_not_scrub() {
     hover.set_orientation(0.0);
     let dir = hover.unit_direction_vector_2d();
     hover.movement.velocity = Vec3::new(dir.x * 20.0, 0.0, dir.y * 20.0);
-    hover.motive_frames_remaining = 3;
-    let _ = hover.loco_maintain_current_position(0.0, 1.0 / 30.0);
+    hover.motive_force_expires = 3;
+    let _ = hover.loco_maintain_current_position(0.0, 1.0 / 30.0, 0);
     let speed = hover.forward_speed_2d();
     assert!(
         speed > 1.0,
@@ -1336,7 +1337,7 @@ fn arrival_arms_final_position_at_path_last_node() {
     arriver.movement.target_position = Some(goal);
     arriver.set_locomotor_goal_position_on_path();
     arriver.set_status_moving(true);
-    arriver.set_ai_state(AIState::Moving, &mut ObjectAudio::record(&mut Vec::new()));
+    arriver.set_ai_state(AIState::Moving, 0, &mut ObjectAudio::record(&mut Vec::new()));
     let arriver_id = ObjectId(7002);
     logic.objects.insert(arriver_id, arriver);
     logic.register_path_goal(arriver_id, goal);

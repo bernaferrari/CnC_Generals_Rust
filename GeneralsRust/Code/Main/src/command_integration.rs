@@ -1389,6 +1389,7 @@ End
         old_rider.set_contained_by(Some(bike_id));
         old_rider.set_ai_state(
             AIState::Docked,
+            game_logic.frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
 

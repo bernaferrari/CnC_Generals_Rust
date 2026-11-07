@@ -54,15 +54,16 @@ impl Object {
     pub(crate) fn set_destination(
         &mut self,
         destination: Vec3,
+        frame: u32,
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         let _ =
-            self.takeoff_from_airfield_parking_with_operation(audio, 0, &mut Default::default());
+            self.takeoff_from_airfield_parking_with_operation(audio, frame, &mut Default::default());
         if self.status.deployed {
             self.set_deployed(false, audio);
         }
-        self.move_to(destination, movement_events, audio);
+        self.move_to(destination, frame, movement_events, audio);
     }
 
     pub(crate) fn set_destination_with_operation(
@@ -85,17 +86,21 @@ impl Object {
         self.move_to_at_frame(destination, operation_frame, movement_events, audio);
     }
 
-    pub fn clear_target(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) {
-        self.set_target_state(None, audio);
+    pub fn clear_target(&mut self, _audio: &mut crate::game_logic::ObjectAudio<'_>) {
+        self.target = None;
+        self.target_location = None;
+        self.set_status_force_attack(false);
+        self.set_status_attacking(false);
     }
 
     pub fn set_target(
         &mut self,
         target: Option<ObjectId>,
+        frame: u32,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        self.set_target_with_operation(target, attack_events, audio, 0, &mut Default::default())
+        self.set_target_with_operation(target, attack_events, audio, frame, &mut Default::default())
     }
 
     pub fn set_target_with_operation(
@@ -112,13 +117,6 @@ impl Object {
         }
     }
 
-    fn set_target_state(
-        &mut self,
-        target: Option<ObjectId>,
-        audio: &mut crate::game_logic::ObjectAudio<'_>,
-    ) {
-        self.set_target_state_with_operation(target, audio, 0, &mut Default::default())
-    }
 
     fn set_target_state_with_operation(
         &mut self,
@@ -138,7 +136,7 @@ impl Object {
         if target.is_some() {
             self.target_location = None;
 
-            self.set_ai_state(AIState::Attacking, audio);
+            self.set_ai_state(AIState::Attacking, operation_frame, audio);
             self.set_status_attacking(true);
         } else {
             self.target_location = None;
@@ -641,6 +639,7 @@ impl Object {
     pub fn consume_special_power_charge(
         &mut self,
         power: &SpecialPowerType,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         if !self.is_special_power_ready(power) {
@@ -674,7 +673,7 @@ impl Object {
                 self.missile_launcher_building = Some(data);
             }
         }
-        self.set_ai_state(AIState::Idle, audio);
+        self.set_ai_state(AIState::Idle, frame, audio);
     }
 
     /// Refresh legacy aggregate ready/remaining from per-power residual timers.
@@ -752,12 +751,13 @@ impl Object {
     pub fn set_target_location(
         &mut self,
         location: Option<Vec3>,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         self.target_location = location;
         if location.is_some() {
             self.target = None;
-            self.set_ai_state(AIState::Attacking, audio);
+            self.set_ai_state(AIState::Attacking, frame, audio);
             self.status.attacking = true;
         } else {
             self.set_status_force_attack(false);
@@ -779,13 +779,14 @@ impl Object {
     pub fn set_guard_position(
         &mut self,
         position: Option<Vec3>,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         if let Some(position) = position {
             self.unit_ai_runtime.set_raw_guard_position(Some(position));
             self.unit_ai_runtime
                 .set_guard_target_type(GuardTargetType::Location);
-            self.set_ai_state(AIState::GuardingArea, audio);
+            self.set_ai_state(AIState::GuardingArea, frame, audio);
         } else {
             self.unit_ai_runtime
                 .set_guard_target_type(GuardTargetType::None);
@@ -799,13 +800,14 @@ impl Object {
     pub fn set_guard_target(
         &mut self,
         target: Option<ObjectId>,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         if let Some(target) = target {
             self.unit_ai_runtime.set_raw_guard_target(Some(target));
             self.unit_ai_runtime
                 .set_guard_target_type(GuardTargetType::Object);
-            self.set_ai_state(AIState::GuardingObject, audio);
+            self.set_ai_state(AIState::GuardingObject, frame, audio);
         } else {
             self.unit_ai_runtime
                 .set_guard_target_type(GuardTargetType::None);
@@ -841,6 +843,7 @@ impl Object {
         victim: ObjectId,
         anchor: Option<glam::Vec3>,
         max_shots: Option<i32>,
+        frame: u32,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
@@ -854,13 +857,9 @@ impl Object {
         self.set_guard_retaliate_victim(Some(victim));
 
         self.set_guard_retaliate_anchor(Some(anchor_pos));
-        // Preserve ordinary guard anchors if already guarding.
-        if self.active_guard_position().is_none() && self.active_guard_target().is_none() {
-            self.set_guard_position_data(Some(anchor_pos));
-        }
         self.target = Some(victim);
         self.target_location = None;
-        self.set_ai_state(AIState::GuardRetaliating, audio);
+        self.set_ai_state(AIState::GuardRetaliating, frame, audio);
         // C++ AttackAggressor onEnter: chase timer + radius/owner leash.
         // Give-up frame is stamped on the first GuardRetaliate tick (needs GameLogic.frame).
         self.set_guard_chase_phase(crate::game_logic::GUARD_CHASE_PHASE_RETALIATE);
@@ -881,15 +880,13 @@ impl Object {
     pub(crate) fn end_guard_retaliate_state(&mut self) -> AIState {
         self.set_guard_retaliate_victim(None);
         self.set_guard_retaliate_anchor(None);
+        self.clear_guard_chase();
+        self.unit_ai_runtime.exit_guard_target_type();
         self.target = None;
         self.status.attacking = false;
-        if self.active_guard_target().is_some() {
-            AIState::GuardingObject
-        } else if self.active_guard_position().is_some() {
-            AIState::GuardingArea
-        } else {
-            AIState::Idle
-        }
+        // AIStates.cpp defines AI_GUARD_RETALIATE's success and failure
+        // successors as AI_IDLE; it does not resume a previous guard root.
+        AIState::Idle
     }
 
     /// Clear GuardRetaliate payload only. Its World state-machine caller owns

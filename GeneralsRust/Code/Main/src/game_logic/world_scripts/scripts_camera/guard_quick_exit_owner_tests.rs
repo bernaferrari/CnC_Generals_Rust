@@ -80,6 +80,7 @@ fn idle_world() -> (GameLogic, ObjectId) {
 }
 
 fn overlay(owner: &mut GameLogic, id: ObjectId, until: u32, distance: f32) -> Vec3 {
+    let frame = owner.frame;
     let unit = owner.host_object_mut(id).unwrap();
     let end = unit.get_position() + Vec3::new(distance, 0.0, 0.0);
     // Same explicit path/deadline admission as the real tunnel producer.
@@ -96,6 +97,7 @@ fn overlay(owner: &mut GameLogic, id: ObjectId, until: u32, distance: f32) -> Ve
     unit.unit_ai_runtime.set_quick_exit_deadline(Some(until));
     unit.set_ai_state(
         AIState::Moving,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     unit.set_status_moving(true);

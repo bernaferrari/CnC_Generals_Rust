@@ -1,9 +1,12 @@
 //! Public scheduled TWO_LEGS force: authored loader -> admission -> one tick.
 //! The unchanged original force-stage extraction supplies frozen expectations.
 //! Its rotation is explicitly supplied; this is not full trajectory parity.
+#[path = "common/physics_friction.rs"]
+mod physics_friction;
 
-use game_engine::common::ini::ini_locomotor::{get_locomotor_store, load_locomotors_from_str};
-use generals_main::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding;
+
+use game_engine::common::ini::ini_locomotor::LocomotorStore;
+use generals_main::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding_from_store;
 use generals_main::game_logic::{
     GameLogic, KindOf, LocomotorAppearance, Object, Team, ThingTemplate,
 };
@@ -111,15 +114,15 @@ fn run_case(name: &str, assert_original_force: bool) {
     let ini = format!(
         "Locomotor {loco}\nSurfaces = GROUND\nSpeed = {speed}\nAcceleration = {acceleration}\nBraking = {braking}\nTurnRate = {turn_rate}\nAppearance = TWO_LEGS\nMinSpeed = 0\nWanderWidthFactor = 0\nZAxisBehavior = NO_Z_MOTIVE_FORCE\nEnd\n"
     );
-    assert_eq!(load_locomotors_from_str(&ini).unwrap(), 1);
+    let mut store = LocomotorStore::new_owned();
+    assert_eq!(store.apply_source(&ini).unwrap(), 1);
     {
-        let store = get_locomotor_store();
         let parsed = store.find_template(&loco).unwrap();
         bits(parsed.max_speed, raw[14], "parsed frame speed");
         bits(parsed.acceleration, raw[15], "parsed frame acceleration");
         bits(parsed.braking, raw[16], "parsed frame braking");
     }
-    let binding = resolve_host_locomotor_binding(&loco).unwrap();
+    let binding = resolve_host_locomotor_binding_from_store(&store, &loco).unwrap();
     bits(binding.movement.max_speed, row[14], "bound host speed");
     bits(
         binding.movement.acceleration * DT,
@@ -127,6 +130,7 @@ fn run_case(name: &str, assert_original_force: bool) {
         "bound host acceleration step",
     );
     bits(binding.braking * DT, row[16], "bound host braking step");
+    game.admit_locomotor_definitions(store).unwrap();
     let mut template = ThingTemplate::new(&unit);
     template
         .set_health(100.0)
@@ -230,12 +234,11 @@ fn run_case(name: &str, assert_original_force: bool) {
     assert_eq!(object.movement.acceleration, binding.movement.acceleration);
     assert_eq!(object.braking, binding.braking);
     assert_eq!(object.movement.target_position, Some(target));
-    assert!(object.status.moving && object.is_motive());
+    assert!(object.status.moving && object.is_motive(tick.frame));
     let yaw = object.get_orientation();
     let direction = object.unit_direction_vector_2d();
-    let friction = object.previous_acceleration();
-    // Only XZ is reconstructed: later gravity/clamping can still modify Y.
-    let marched = object.movement.velocity - friction;
+    let marched = physics_friction::marched_velocity(object, START);
+    let friction = object.movement.velocity - marched;
     let impulse = marched - initial;
     let position = object.get_position();
     println!(

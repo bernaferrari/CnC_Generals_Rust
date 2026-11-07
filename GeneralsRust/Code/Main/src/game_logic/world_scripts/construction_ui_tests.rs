@@ -55,12 +55,14 @@ fn fixture() -> (GameLogic, ObjectId) {
             },
         )
         .unwrap().expect("ObjectId");
+    let frame = world.frame;
     let dozer = world.host_object_mut(builder).unwrap();
     dozer.set_dozer_task_build_target(Some(id));
     dozer.set_dozer_dock_action(Some(Vec3::ZERO));
     dozer.target = Some(id);
     dozer.set_ai_state(
         AIState::Constructing,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     world

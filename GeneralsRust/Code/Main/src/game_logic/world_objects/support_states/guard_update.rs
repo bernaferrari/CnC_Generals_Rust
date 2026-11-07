@@ -216,6 +216,7 @@ impl GameLogic {
                     if let Some(obj) = self.objects.get_mut(&object_id) {
                         obj.set_guard_target(
                             None,
+                            self.frame,
                             &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),

@@ -28,10 +28,12 @@ fn load(world: &mut GameLogic, passenger: ObjectId, container: ObjectId) {
             .unwrap()
             .add_occupant(passenger)
     );
+    let frame = world.frame;
     let (rider, fixture_partition_rider) = world.host_object_and_partition_mut(passenger).unwrap();
     rider.set_contained_by_with_partition_owner(Some(container), true, fixture_partition_rider);
     rider.set_ai_state(
         AIState::Garrisoned,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     rider.set_status_stealthed(true);
@@ -54,14 +56,17 @@ fn enter_rejected_noncontainer_preserves_ai_after_script_preparation() {
     let (b, foreign, _) = world();
     assert_eq!(id, foreign);
     let old = Vec3::new(250.0, 0.0, 250.0);
+    let frame = a.frame;
     let (unit, attack_events) = a.host_object_and_attack_events_mut(id).unwrap();
     unit.set_target(
         Some(target),
+        frame,
         attack_events,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     unit.set_ai_state(
         AIState::AttackMoving,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     unit.pending_move = Some(old);
@@ -223,10 +228,12 @@ fn malformed_exit_goal_cannot_remove_a_different_containers_passenger() {
     let container = transport(&mut a);
     load(&mut a, id, container);
     evacuate(&mut a);
+    let frame = a.frame;
     {
         let (object, attack_events) = a.host_object_and_attack_events_mut(id).unwrap();
         object.set_target(
             Some(id),
+            frame,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );

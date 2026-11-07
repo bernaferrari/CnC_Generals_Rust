@@ -1295,6 +1295,8 @@ Object OrderLockedNest
     MaxHealth = 200
     InitialHealth = 200
   End
+  Behavior = AIUpdateInterface Brain
+  End
   Behavior = SpawnBehavior Spawn
     OneShot = Yes
     SpawnNumber = 1
@@ -1308,6 +1310,8 @@ Object OrderFreeNest
     MaxHealth = 200
     InitialHealth = 200
   End
+  Behavior = AIUpdateInterface Brain
+  End
   Behavior = SpawnBehavior Spawn
     OneShot = Yes
     SpawnNumber = 1
@@ -1316,7 +1320,7 @@ Object OrderFreeNest
   End
 End
 Object OrderSpawnChild
-  KindOf = INFANTRY SELECTABLE
+  KindOf = VEHICLE SELECTABLE
   Body = ActiveBody Body
     MaxHealth = 100
     InitialHealth = 100
@@ -1352,7 +1356,7 @@ End
             world.host_object(parent).unwrap().spawn_behavior_children()[0].0
         };
         let children = [child(&world, locked), child(&world, free)];
-        for id in children {
+        for id in [children[0], children[1], locked, free] {
             let actor = world.host_object_mut(id).unwrap();
             actor.set_status_disabled_held(false);
             actor.weapon = Some(Weapon {
@@ -1401,6 +1405,10 @@ End
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
+    // SpawnBehavior dispatches the AI command even if a child currently has
+    // no usable weapon; attack-state admission is not a passenger preflight.
+    restored.host_object_mut(children[0]).unwrap().weapon = None;
+    restored.attack_events.clear();
     order(
         &mut restored,
         CommandType::AttackObject { target_id: victim },
@@ -1412,6 +1420,11 @@ End
     );
     assert!(restored.host_object(children[0]).unwrap().force_attack);
     assert_eq!(restored.host_object(children[1]).unwrap().target, None);
+    restored.attack_events.complete_boundary();
+    let events = restored.attack_events.take_completed();
+    let index = |id| events.iter().position(|event| event.attacker == id).unwrap();
+    assert!(index(children[0]) < index(parents[0]));
+    assert!(index(parents[0]) < index(parents[1]));
 
     order(
         &mut owner,
@@ -1423,6 +1436,18 @@ End
     assert_eq!(owner.host_object(children[1]).unwrap().target, None);
     assert_eq!(peer.host_object(children[0]).unwrap().target, None);
     assert_eq!(peer.host_object(children[1]).unwrap().target, None);
+
+    restored.destroy_object(children[0]).unwrap();
+    restored.process_destroy_list();
+    restored.attack_events.clear();
+    order(
+        &mut restored,
+        CommandType::ForceAttackObject { target_id: victim },
+        parents,
+    );
+    restored.attack_events.complete_boundary();
+    assert!(restored.attack_events.take_completed().iter().all(|event| event.attacker != children[0]));
+    assert!(peer.host_object(children[0]).is_some());
 }
 
 #[test]
@@ -1896,8 +1921,10 @@ fn group_idle_busy_dead_queries() {
         assert!(!exec.group_is_busy(&[a, b]));
         assert!(!exec.group_is_ai_dead(&[a, b]));
     }
+    let frame = logic.frame;
     logic.host_object_mut(a).unwrap().set_ai_state(
         AIState::Moving,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     {
@@ -1908,6 +1935,7 @@ fn group_idle_busy_dead_queries() {
     }
     logic.host_object_mut(b).unwrap().set_ai_state(
         AIState::Moving,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     {

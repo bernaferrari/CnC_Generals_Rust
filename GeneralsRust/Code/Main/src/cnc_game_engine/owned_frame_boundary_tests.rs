@@ -310,14 +310,17 @@ fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentati
     object.set_status_under_construction(true);
     object.construction_percent = 0.99;
     object.builder_id = Some(dozer);
+    let frame = logic.frame;
     let (builder, attack_events) = logic.host_object_and_attack_events_mut(dozer).unwrap();
     builder.set_target(
         Some(id),
+        frame,
         attack_events,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     builder.set_ai_state(
         AIState::Constructing,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     builder.set_dozer_task_build_target(Some(id));

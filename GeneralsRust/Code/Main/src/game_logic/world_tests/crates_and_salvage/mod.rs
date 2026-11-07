@@ -47,11 +47,13 @@ fn dock_helipad_comanche(logic: &mut GameLogic) -> (ObjectId, ObjectId) {
             Vec3::new(0.0, 4.0, 0.0),
         )
         .expect("comanche");
+    let frame = logic.frame;
     {
         let (heli, fixture_partition_heli) = logic.host_object_and_partition_mut(heli_id).unwrap();
         heli.set_contained_by_with_partition_owner(Some(pad_id), true, fixture_partition_heli);
         heli.set_ai_state(
             AIState::Docked,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         heli.status.airborne_target = false;

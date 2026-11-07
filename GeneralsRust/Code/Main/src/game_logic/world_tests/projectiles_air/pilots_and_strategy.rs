@@ -44,11 +44,13 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
         .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("pilot");
     {
+        let ai_entry_frame = game_logic.frame;
         let p = game_logic.host_object_mut(pilot_id).expect("pilot");
         assert!(is_pilot_template(&p.template_name));
         p.experience.level = VeterancyLevel::Veteran;
         p.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -181,9 +183,11 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
         .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("human pilot");
     {
+        let ai_entry_frame = human_logic.frame;
         let p = human_logic.host_object_mut(hp).expect("hp");
         p.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -266,9 +270,11 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
         .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("pilot");
     {
+        let ai_entry_frame = game_logic.frame;
         let p = game_logic.host_object_mut(pilot_id).expect("pilot");
         p.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         assert!(!p.status.pilot_did_move_to_base);
@@ -311,9 +317,11 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
     // Second scan while still idle must not re-issue (m_didMoveToBase).
     // Reset to Idle so residual is eligible again but did_move latches.
     {
+        let ai_entry_frame = game_logic.frame;
         let p = game_logic.host_object_mut(pilot_id).expect("pilot");
         p.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         p.stop_moving(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
@@ -363,9 +371,11 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
         .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("hp");
     {
+        let ai_entry_frame = human_logic.frame;
         let p = human_logic.host_object_mut(hp).expect("hp");
         p.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -415,11 +425,13 @@ fn pilot_auto_find_healing_hospital_path_residual() {
         .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("pilot");
     {
+        let ai_entry_frame = game_logic.frame;
         let p = game_logic.host_object_mut(pilot_id).expect("pilot");
         // Below NeverHeal 0.85 residual (50% HP).
         p.health.current = 50.0;
         p.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -488,11 +500,13 @@ fn pilot_auto_find_healing_hospital_path_residual() {
         .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("healthy pilot");
     {
+        let ai_entry_frame = healthy_logic.frame;
         let p = healthy_logic.host_object_mut(hpilot).expect("hp");
         // Just above NeverHeal threshold residual.
         p.health.current = 100.0 * AUTO_FIND_HEALING_NEVER_HEAL + 1.0;
         p.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -533,10 +547,12 @@ fn pilot_auto_find_healing_hospital_path_residual() {
         .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("human pilot");
     {
+        let ai_entry_frame = human_logic.frame;
         let p = human_logic.host_object_mut(hp2).expect("hp");
         p.health.current = 40.0;
         p.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -590,10 +606,12 @@ fn usa_infantry_auto_find_healing_hospital_path_residual() {
         .create_object("AmericaInfantryRanger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("ranger");
     {
+        let ai_entry_frame = game_logic.frame;
         let r = game_logic.host_object_mut(ranger_id).expect("ranger");
         r.health.current = 40.0;
         r.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -668,10 +686,12 @@ fn usa_infantry_auto_find_healing_hospital_path_residual() {
         )
         .expect("redguard");
     {
+        let ai_entry_frame = china_logic.frame;
         let r = china_logic.host_object_mut(cred).expect("rg");
         r.health.current = 30.0;
         r.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -904,10 +924,12 @@ fn pilot_find_vehicle_same_player_partition_filter_residual() {
         .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("pilot");
     {
+        let ai_entry_frame = game_logic.frame;
         let p = game_logic.host_object_mut(pilot_id).expect("pilot");
         p.experience.level = VeterancyLevel::Veteran;
         p.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1223,10 +1245,12 @@ fn strategy_center_turret_idle_scan_residual() {
     // Ensure idle: no target / not attacking; force scan due this frame.
     let due_frame = game_logic.frame;
     {
+        let ai_entry_frame = game_logic.frame;
         let sc = game_logic.host_object_mut(sc_id).expect("sc");
         sc.target = None;
         sc.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         sc.set_status_attacking(false);
@@ -1348,6 +1372,7 @@ fn strategy_center_turret_idle_scan_residual() {
 
     // Busy residual: attacking cancels mid-scan / hold.
     {
+        let ai_entry_frame = game_logic.frame;
         let sc = game_logic.host_object_mut(sc_id).expect("sc");
         sc.turret_ai.turret_idle_scanning = true;
         sc.turret_ai.turret_holding = false;
@@ -1355,6 +1380,7 @@ fn strategy_center_turret_idle_scan_residual() {
         sc.set_status_attacking(true);
         sc.set_ai_state(
             AIState::Attacking,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1411,10 +1437,12 @@ fn strategy_center_turret_hold_and_idle_recenter_residual() {
     let desired = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG + 30.0;
     let hold_start = game_logic.frame;
     {
+        let ai_entry_frame = game_logic.frame;
         let sc = game_logic.host_object_mut(sc_id).expect("sc");
         sc.target = None;
         sc.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         sc.set_status_attacking(false);
@@ -1577,10 +1605,12 @@ fn strategy_center_turret_mood_target_residual() {
         )
         .expect("enemy");
     {
+        let ai_entry_frame = game_logic.frame;
         let sc = game_logic.host_object_mut(sc_id).expect("sc");
         sc.target = None;
         sc.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         sc.set_status_attacking(false);

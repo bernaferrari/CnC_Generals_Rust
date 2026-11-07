@@ -107,6 +107,7 @@ impl HostPhysicsVisualState {
                     let facts = collect_facts(
                         object,
                         logic.host_objects(),
+                        logic.frame,
                         script_frozen,
                         camera_frozen,
                         &mut show_client_physics,
@@ -240,6 +241,7 @@ impl HostPhysicsVisualState {
 pub(super) fn collect_facts(
     obj: &Object,
     objects: crate::game_logic::HostObjectRead<'_>,
+    frame: u32,
     script_time_frozen: bool,
     script_camera_time_frozen: bool,
     show_client_physics: &mut Option<bool>,
@@ -251,7 +253,7 @@ pub(super) fn collect_facts(
         return None;
     }
     let params = params_for_object(obj);
-    let body = body_for_object(obj, objects, sample_height, object_visual_ini);
+    let body = body_for_object(obj, objects, frame, sample_height, object_visual_ini);
     let show_client_physics =
         cached_show_client_physics(show_client_physics, read_show_client_physics);
     Some(HostPhysicsVisualFacts {
@@ -328,6 +330,7 @@ fn params_for_object(obj: &Object) -> LocomotorVisualParams {
 pub(super) fn body_for_object(
     obj: &Object,
     objects: crate::game_logic::HostObjectRead<'_>,
+    frame: u32,
     sample_height: impl Fn(glam::Vec3) -> Option<f32>,
     definition: impl Fn(&Object) -> ObjectVisualIni,
 ) -> PhysicsVisualBody {
@@ -374,7 +377,7 @@ pub(super) fn body_for_object(
         accel_z: accel.y,
         velocity_magnitude: vel.length(),
         forward_speed_2d: obj.forward_speed_2d(),
-        is_motive: obj.motive_frames_remaining > 0,
+        is_motive: obj.is_motive(frame),
         turning: match obj.physics_turning {
             PhysicsTurningType::TurnNegative => -1,
             PhysicsTurningType::TurnNone => 0,

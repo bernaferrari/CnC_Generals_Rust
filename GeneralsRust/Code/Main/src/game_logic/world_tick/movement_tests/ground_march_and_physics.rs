@@ -512,6 +512,7 @@ fn ultra_accurate_doubles_turn_rate() {
     assert!((dozer.effective_turn_rate() - 2.0).abs() < 1e-5);
     dozer.set_ai_state(
         AIState::Constructing,
+        0,
         &mut ObjectAudio::record(&mut Vec::new()),
     );
     assert!(dozer.ultra_accurate);

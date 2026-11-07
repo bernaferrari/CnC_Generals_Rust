@@ -1373,12 +1373,14 @@ fn entering_state_docks_unit_into_transport_when_close() {
         .expect("unit should be created");
 
     {
+        let ai_entry_frame = game_logic.frame;
         let unit = game_logic
             .host_object_mut(unit_id)
             .expect("unit should exist");
         unit.target = Some(transport_id);
         unit.set_ai_state(
             AIState::Entering,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_status_moving(true);
@@ -1419,12 +1421,14 @@ fn docking_state_moves_unit_toward_transport_when_far() {
         .expect("unit should be created");
 
     {
+        let ai_entry_frame = game_logic.frame;
         let unit = game_logic
             .host_object_mut(unit_id)
             .expect("unit should exist");
         unit.target = Some(transport_id);
         unit.set_ai_state(
             AIState::Docking,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1468,12 +1472,14 @@ fn enter_command_rejects_enemy_occupied_transport() {
         );
     }
     {
+        let ai_entry_frame = game_logic.frame;
         let enemy_occupant = game_logic
             .host_object_mut(enemy_occupant_id)
             .expect("enemy occupant should exist");
         enemy_occupant.target = Some(enemy_transport_id);
         enemy_occupant.set_ai_state(
             AIState::Docked,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1552,12 +1558,14 @@ fn entering_state_clears_enemy_structure_target() {
         .expect("enemy barracks should be created");
 
     {
+        let ai_entry_frame = game_logic.frame;
         let unit = game_logic
             .host_object_mut(unit_id)
             .expect("unit should exist");
         unit.target = Some(enemy_barracks_id);
         unit.set_ai_state(
             AIState::Entering,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_status_moving(true);
@@ -1593,12 +1601,14 @@ fn entering_state_allows_empty_enemy_non_faction_structure() {
         .expect("enemy garrison should be created");
 
     {
+        let ai_entry_frame = game_logic.frame;
         let unit = game_logic
             .host_object_mut(unit_id)
             .expect("unit should exist");
         unit.target = Some(enemy_garrison_id);
         unit.set_ai_state(
             AIState::Entering,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_status_moving(true);
@@ -1632,11 +1642,13 @@ fn guard_state_engages_nearby_enemy() {
         .expect("enemy should be created");
 
     {
+        let ai_entry_frame = game_logic.frame;
         let guard = game_logic
             .host_object_mut(guard_id)
             .expect("guard should exist");
         guard.set_ai_state(
             AIState::GuardingArea,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         guard.set_guard_position_data(Some(Vec3::new(0.0, 0.0, 0.0)));
@@ -1824,12 +1836,14 @@ fn repairing_state_heals_target_in_range() {
         let _ = damaged.take_damage(80.0, 0, health_events);
     }
     {
+        let ai_entry_frame = game_logic.frame;
         let repairer = game_logic
             .host_object_mut(repairer_id)
             .expect("repairer should exist");
         repairer.target = Some(damaged_id);
         repairer.set_ai_state(
             AIState::Repairing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1873,6 +1887,7 @@ fn seeking_repair_state_heals_self_in_range() {
         .expect("unit should be created");
 
     {
+        let ai_entry_frame = game_logic.frame;
         let (unit, health_events) = game_logic
             .host_object_and_health_events_mut(unit_id)
             .expect("unit should exist");
@@ -1880,6 +1895,7 @@ fn seeking_repair_state_heals_self_in_range() {
         unit.target = Some(repair_bay_id);
         unit.set_ai_state(
             AIState::SeekingRepair,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1924,6 +1940,7 @@ fn seeking_repair_state_clears_under_construction_destination() {
         repair_bay.set_status_under_construction(true);
     }
     {
+        let ai_entry_frame = game_logic.frame;
         let (unit, health_events) = game_logic
             .host_object_and_health_events_mut(unit_id)
             .expect("unit should exist");
@@ -1931,6 +1948,7 @@ fn seeking_repair_state_clears_under_construction_destination() {
         unit.target = Some(repair_bay_id);
         unit.set_ai_state(
             AIState::SeekingRepair,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_status_moving(true);
@@ -1968,12 +1986,14 @@ fn evacuate_command_unloads_selected_transport_occupants() {
         assert!(transport.add_occupant(unit_id));
     }
     {
+        let ai_entry_frame = game_logic.frame;
         let (unit, fixture_partition_unit) = game_logic
             .host_object_and_partition_mut(unit_id)
             .expect("unit should exist");
         unit.target = Some(transport_id);
         unit.set_ai_state(
             AIState::Docked,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_position_with_partition_owner(
@@ -2140,12 +2160,14 @@ fn capture_channel_uses_authored_ranger_unpack_prepare_and_pack_timing() {
         .expect("building should be created");
 
     {
+        let ai_entry_frame = game_logic.frame;
         let captor = game_logic
             .host_object_mut(captor_id)
             .expect("captor should exist");
         captor.target = Some(building_id);
         captor.set_ai_state(
             AIState::Capturing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -2254,11 +2276,13 @@ fn capture_trigger_awards_ranger_award_xp_for_triggering() {
         .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
         .expect("building");
     {
+        let ai_entry_frame = game_logic.frame;
         let captor = game_logic.host_object_mut(captor_id).expect("captor");
         captor.template_mut().is_trainable = true;
         captor.target = Some(building_id);
         captor.set_ai_state(
             AIState::Capturing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         assert_eq!(captor.experience.current, 0.0);
@@ -2315,11 +2339,13 @@ fn capture_does_not_heal_building_to_full() {
         building.max_health = building.health.maximum;
     }
     {
+        let ai_entry_frame = game_logic.frame;
         let captor = game_logic.host_object_mut(captor_id).expect("captor");
         captor.template_mut().is_trainable = true;
         captor.target = Some(building_id);
         captor.set_ai_state(
             AIState::Capturing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -2383,12 +2409,14 @@ fn black_lotus_capture_uses_its_zero_reload_at_preparation_not_ranger_timer() {
         .create_object("TestBuilding", Team::GLA, Vec3::ZERO)
         .expect("target building");
     {
+        let ai_entry_frame = game_logic.frame;
         let lotus = game_logic
             .host_object_mut(lotus_id)
             .expect("Black Lotus object");
         lotus.target = Some(building_id);
         lotus.set_ai_state(
             AIState::Capturing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -2516,10 +2544,12 @@ fn infantry_capture_prep_stamps_raising_flag() {
         .create_object("TestBuilding", Team::GLA, Vec3::ZERO)
         .expect("building");
     {
+        let ai_entry_frame = game_logic.frame;
         let captor = game_logic.host_object_mut(captor_id).expect("captor");
         captor.target = Some(building_id);
         captor.set_ai_state(
             AIState::Capturing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -2556,11 +2586,13 @@ fn infantry_capture_start_range_requires_approach_los() {
     let building_id = blocked
         .create_object("TestBuilding", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
         .expect("building");
+    let ai_entry_frame = blocked.frame;
     if let Some(captor) = blocked.host_object_mut(captor_id) {
         captor.set_selection_radius(80.0);
         captor.target = Some(building_id);
         captor.set_ai_state(
             AIState::Capturing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -2588,11 +2620,13 @@ fn infantry_capture_start_range_requires_approach_los() {
     let building_id = clear
         .create_object("TestBuilding", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
         .expect("building");
+    let ai_entry_frame = clear.frame;
     if let Some(captor) = clear.host_object_mut(captor_id) {
         captor.set_selection_radius(80.0);
         captor.target = Some(building_id);
         captor.set_ai_state(
             AIState::Capturing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -2626,11 +2660,13 @@ fn capture_approach_keeps_capturing_and_requests_a_path() {
     let building = logic
         .create_object("TestBuilding", Team::GLA, to)
         .expect("building");
+    let ai_entry_frame = logic.frame;
     if let Some(unit) = logic.host_object_mut(captor) {
         unit.set_selection_radius(5.0);
         unit.target = Some(building);
         unit.set_ai_state(
             AIState::Capturing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -2707,10 +2743,12 @@ fn lotus_capture_prep_stamps_firing_a() {
         .create_object("TestBuilding", Team::USA, Vec3::ZERO)
         .expect("building");
     {
+        let ai_entry_frame = game_logic.frame;
         let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
         lotus.target = Some(building_id);
         lotus.set_ai_state(
             AIState::Capturing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -3114,12 +3152,14 @@ fn capturing_structure_refunds_old_owner_queued_production() {
     );
 
     {
+        let ai_entry_frame = game_logic.frame;
         let captor = game_logic
             .host_object_mut(captor_id)
             .expect("captor should exist");
         captor.target = Some(barracks_id);
         captor.set_ai_state(
             AIState::Capturing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }

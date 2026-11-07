@@ -26,9 +26,11 @@ fn rider_world(child: &str) -> (GameLogic, ObjectId) {
             glam::Vec3::new(40.0, 0.0, 50.0),
         )
         .expect("RiderChange vehicle");
+    let frame = world.frame;
     let vehicle = world.objects.get_mut(&id).unwrap();
     vehicle.set_ai_state(
         AIState::Moving,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     vehicle.set_status_moving(true);

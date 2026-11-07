@@ -684,6 +684,7 @@ impl SnapshotBuilder {
             if object.thing().template.hacker_disable_building.is_some() && object.is_alive() {
                 object.set_ai_state(
                     AIState::SpecialAbility,
+                    game_logic.get_frame(),
                     &mut crate::game_logic::ObjectAudio::queue(&mut game_logic.queued_audio_events),
                 );
                 object.restore_order_target(
@@ -1198,6 +1199,7 @@ impl SnapshotBuilder {
         // while approaching, unpacking, preparing, or packing; an absent or
         // dead target instead fails closed and cannot leave `IS_USING_ABILITY`
         // stuck on the restored source.
+        let receiving_frame = game_logic.get_frame();
         if let Some(channel) = snapshot.hacker_disable_channel {
             let source_live = game_logic.host_object(snapshot.id).is_some_and(|source| {
                 source.hacker_disable_channel == Some(channel)
@@ -1223,6 +1225,7 @@ impl SnapshotBuilder {
                 if source.ai_state() == AIState::SpecialAbility {
                     source.set_ai_state(
                         AIState::Idle,
+                        receiving_frame,
                         &mut crate::game_logic::ObjectAudio::queue(audio),
                     );
                 }

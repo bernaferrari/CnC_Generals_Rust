@@ -469,6 +469,12 @@ object lifecycle payload; movement velocity and geometry retain their existing
 owners. OXFR no longer owns a duplicate stun value. Validation happens before
 restoring module state. The source contract is PhysicsUpdate.cpp:1812–1883;
 world collision, bounce and callback-order regressions cover continuation.
+Motive force uses the original absolute logic-frame expiry and unsigned
+comparison, including while physics integration is skipped. State transitions
+and visual sampling borrow the driving frame explicitly; the shadow no longer
+owns a duplicate motive value. Rust world snapshot version 43 requires a
+validated physics continuation before replacing a live world and rejects
+older snapshots. Held ground contact uses zero active vertical impact velocity.
 
 The ray-effect pool rejects a 129th insertion and preserves all live drawables,
 matching C++ first-free allocation. Its global store still requires explicit FX
@@ -2796,3 +2802,12 @@ do not bind or deactivate a reserved path layer. C++ references: AIPathfind.cpp
 `addBridge`, TerrainLogic bridge admission and deletion, and BridgeBehavior
 `xfer`. Slot 15's coupled wall and bridge allocation still needs original-order
 parity; it is not resolved by the restoration identity change.
+
+## Spawned-unit attack dispatch
+
+Player group object attacks dispatch each owner's passenger, locked spawned
+children and owner phases in order. Spawned children receive the original
+force-attack admission without the passenger weapon preflight; free-will
+children are not forwarded. Retail Stinger autonomous admission still depends
+on an explicit receiving-world W3D SpawnPoint bone provider before its
+synthetic fallback can be retired safely.

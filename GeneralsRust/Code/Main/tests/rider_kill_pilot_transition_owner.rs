@@ -62,9 +62,10 @@ fn world(child_name: &str) -> (GameLogic, ObjectId, ObjectId) {
     let victim_id = world
         .create_object_for_player(VICTIM, 1, Vec3::new(10.0, 0.0, 0.0))
         .expect("RiderChange victim");
+    let frame = world.get_current_frame() as u32;
     let victim = world.host_object_mut(victim_id).expect("victim object");
     let mut audio = SessionAudio::default();
-    victim.set_ai_state(AIState::Moving, &mut ObjectAudio::queue(&mut audio));
+    victim.set_ai_state(AIState::Moving, frame, &mut ObjectAudio::queue(&mut audio));
     victim.set_status_moving(true);
     victim.target = Some(ObjectId(u32::MAX));
     (world, shooter_id, victim_id)

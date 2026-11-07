@@ -265,6 +265,7 @@ mod tests {
             let waiting = world
                 .create_object("SnapshotSupplyTruck", Team::USA, Vec3::ZERO)
                 .expect("waiting docker");
+            let frame = world.frame;
             for docker in [active, waiting] {
                 let object = world.host_object_mut(docker).expect("docker");
                 // This is a dock-session target, not a player AttackObject
@@ -273,6 +274,7 @@ mod tests {
                 object.target = Some(dock);
                 object.set_ai_state(
                     AIState::Gathering,
+                    frame,
                     &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
                 );
             }

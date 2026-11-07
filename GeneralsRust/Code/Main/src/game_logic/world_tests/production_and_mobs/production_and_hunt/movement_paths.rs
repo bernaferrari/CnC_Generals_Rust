@@ -16,10 +16,12 @@ fn finished_move_clears_the_ignored_obstacle() {
         .create_object_for_player("Mover", 0, Vec3::new(40.0, 0.0, 0.0))
         .expect("building");
     {
+        let ai_entry_frame = logic.frame;
         let unit = logic.host_object_mut(id).expect("unit");
         unit.ignored_obstacle_id = Some(building);
         unit.set_ai_state(
             AIState::Repairing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.movement.path.push(Vec3::new(10.0, 0.0, 0.0));
@@ -32,9 +34,11 @@ fn finished_move_clears_the_ignored_obstacle() {
         assert_eq!(unit.ai_state(), AIState::Repairing);
     }
     {
+        let ai_entry_frame = logic.frame;
         let (unit, fixture_partition_unit) = logic.host_object_and_partition_mut(id).expect("unit");
         unit.set_ai_state(
             AIState::Moving,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_position_with_partition_owner(
@@ -57,10 +61,12 @@ fn finished_move_clears_the_ignored_obstacle() {
         assert!(unit.movement.path.is_empty());
     }
     {
+        let ai_entry_frame = logic.frame;
         let (unit, fixture_partition_unit) = logic.host_object_and_partition_mut(id).expect("unit");
         let near = Vec3::new(1.0, 0.0, 0.0);
         unit.set_ai_state(
             AIState::Moving,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_position_with_partition_owner(
@@ -102,6 +108,7 @@ fn repair_abort_clears_the_ignored_obstacle() {
         .create_object_for_player("NotADozer", 0, Vec3::new(40.0, 0.0, 0.0))
         .expect("building");
     {
+        let ai_entry_frame = logic.frame;
         let (unit, attack_events) = logic.host_object_and_attack_events_mut(id).expect("unit");
         unit.set_order_target(
             Some(building),
@@ -110,6 +117,7 @@ fn repair_abort_clears_the_ignored_obstacle() {
         );
         unit.set_ai_state(
             AIState::Repairing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(building);
@@ -179,6 +187,7 @@ fn full_truck_returns_to_the_supply_center_approach() {
         pad.selection_radius = 40.0;
     }
     {
+        let ai_entry_frame = logic.frame;
         let (unit, attack_events) = logic
             .host_object_and_attack_events_mut(truck)
             .expect("truck");
@@ -189,6 +198,7 @@ fn full_truck_returns_to_the_supply_center_approach() {
         );
         unit.set_ai_state(
             AIState::Gathering,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_stored_supplies(VALUE_PER_SUPPLY_BOX as u32);
@@ -310,9 +320,11 @@ fn empty_truck_regroups_outside_the_supply_center() {
         pad.construction_percent = 1.0;
     }
     {
+        let ai_entry_frame = logic.frame;
         let unit = logic.host_object_mut(truck).expect("truck");
         unit.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.supply_truck_force_pending = true;
@@ -327,9 +339,11 @@ fn empty_truck_regroups_outside_the_supply_center() {
         "wanting with a box must dock the approach, end={to_center:?}"
     );
     {
+        let ai_entry_frame = logic.frame;
         let unit = logic.host_object_mut(truck).expect("truck");
         unit.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_stored_supplies(0);
@@ -371,6 +385,7 @@ fn empty_truck_regroups_outside_the_supply_center() {
         "the first +X ring is underwater and must be skipped, end={regroup:?}"
     );
     {
+        let ai_entry_frame = logic.frame;
         let (unit, fixture_partition_unit) =
             logic.host_object_and_partition_mut(truck).expect("truck");
         unit.set_position_with_partition_owner(
@@ -381,6 +396,7 @@ fn empty_truck_regroups_outside_the_supply_center() {
         );
         unit.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_status_moving(false);
@@ -452,16 +468,19 @@ fn repair_approach_crosses_the_buildings_obstacle() {
         );
     }
     {
+        let ai_entry_frame = logic.frame;
         let (obj, attack_events) = logic
             .host_object_and_attack_events_mut(dozer)
             .expect("dozer");
         obj.set_target(
             Some(pad_id),
+            ai_entry_frame,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.set_ai_state(
             AIState::Repairing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.movement.path.clear();
@@ -517,6 +536,7 @@ fn finished_repair_releases_the_dozer() {
         building.health.current = building.health.maximum - 1.0;
     }
     {
+        let ai_entry_frame = logic.frame;
         let (unit, attack_events) = logic
             .host_object_and_attack_events_mut(dozer)
             .expect("dozer");
@@ -527,6 +547,7 @@ fn finished_repair_releases_the_dozer() {
         );
         unit.set_ai_state(
             AIState::Repairing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_dozer_task_repair_target(Some(pad_id));
@@ -580,6 +601,7 @@ fn dead_repair_target_releases_the_dozer() {
         building.construction_percent = 1.0;
     }
     {
+        let ai_entry_frame = logic.frame;
         let (unit, attack_events) = logic
             .host_object_and_attack_events_mut(dozer)
             .expect("dozer");
@@ -590,6 +612,7 @@ fn dead_repair_target_releases_the_dozer() {
         );
         unit.set_ai_state(
             AIState::Repairing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_dozer_task_repair_target(Some(pad_id));
@@ -632,9 +655,11 @@ fn repair_without_a_target_does_not_keep_the_task() {
         building.construction_percent = 1.0;
     }
     {
+        let ai_entry_frame = logic.frame;
         let unit = logic.host_object_mut(dozer).expect("dozer");
         unit.set_ai_state(
             AIState::Repairing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_dozer_task_repair_target(Some(pad_id));
@@ -663,9 +688,11 @@ fn seeker_without_a_pad_goes_idle() {
         .create_object_for_player("SeekTank", 0, Vec3::ZERO)
         .expect("tank");
     {
+        let ai_entry_frame = logic.frame;
         let unit = logic.host_object_mut(id).expect("tank");
         unit.set_ai_state(
             AIState::SeekingRepair,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.ignored_obstacle_id = Some(id);
@@ -712,6 +739,7 @@ fn full_vehicle_leaves_the_repair_pad_for_its_rally() {
         building.construction_percent = 1.0;
     }
     {
+        let ai_entry_frame = logic.frame;
         let (unit, attack_events) = logic.host_object_and_attack_events_mut(tank).expect("tank");
         // C++ requestPath requires an active locomotor with nonzero valid
         // surfaces; synthetic vehicles default to an immobile fixture.
@@ -724,6 +752,7 @@ fn full_vehicle_leaves_the_repair_pad_for_its_rally() {
         );
         unit.set_ai_state(
             AIState::SeekingRepair,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.health.current = unit.health.maximum;
@@ -810,6 +839,7 @@ fn passthrough_rally_snapshots_the_pad() {
         building.construction_percent = 1.0;
     }
     {
+        let ai_entry_frame = logic.frame;
         let (unit, attack_events) = logic.host_object_and_attack_events_mut(tank).expect("tank");
         // C++ requestPath requires an active locomotor with nonzero valid
         // surfaces; synthetic vehicles default to an immobile fixture.
@@ -822,6 +852,7 @@ fn passthrough_rally_snapshots_the_pad() {
         );
         unit.set_ai_state(
             AIState::SeekingRepair,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.health.current = unit.health.maximum;
@@ -1195,6 +1226,7 @@ fn live_corner_refreshes_the_extra_distance() {
         .create_object_for_player("LiveExtraInf", 0, Vec3::new(40.0, 0.0, 0.0))
         .expect("unit");
     {
+        let ai_entry_frame = logic.frame;
         let unit = logic.host_object_mut(id).expect("unit");
         unit.movement.path = vec![
             Vec3::ZERO,
@@ -1210,6 +1242,7 @@ fn live_corner_refreshes_the_extra_distance() {
         unit.set_status_moving(true);
         unit.set_ai_state(
             crate::game_logic::AIState::Moving,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1532,6 +1565,7 @@ fn live_arrival_clears_the_ignored_obstacle() {
         .create_object_for_player("ArriveInf", 0, goal)
         .expect("unit");
     {
+        let ai_entry_frame = logic.frame;
         let unit = logic.host_object_mut(id).expect("unit");
         unit.movement.path = vec![Vec3::ZERO, goal];
         unit.movement.current_path_index = 1;
@@ -1542,6 +1576,7 @@ fn live_arrival_clears_the_ignored_obstacle() {
         unit.set_status_moving(true);
         unit.set_ai_state(
             crate::game_logic::AIState::Moving,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1565,6 +1600,7 @@ fn live_air_hold_clears_the_ignore_and_the_queue() {
         .create_object_for_player("HoldJet", 0, goal)
         .expect("jet");
     {
+        let ai_entry_frame = logic.frame;
         let unit = logic.host_object_mut(id).expect("jet");
         unit.loco_appearance = LocomotorAppearance::Wings;
         unit.movement.path = vec![Vec3::ZERO, goal];
@@ -1579,6 +1615,7 @@ fn live_air_hold_clears_the_ignore_and_the_queue() {
         unit.set_status_moving(true);
         unit.set_ai_state(
             crate::game_logic::AIState::Moving,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1627,6 +1664,7 @@ fn far_arrival_snaps_the_current_cell_not_the_goal() {
         .create_object_for_player("FarArrive", 0, here)
         .expect("unit");
     {
+        let ai_entry_frame = logic.frame;
         let unit = logic.host_object_mut(id).expect("unit");
         unit.selection_radius = 8.0;
         unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
@@ -1640,6 +1678,7 @@ fn far_arrival_snaps_the_current_cell_not_the_goal() {
         unit.set_status_moving(true);
         unit.set_ai_state(
             crate::game_logic::AIState::Moving,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1672,6 +1711,7 @@ fn close_arrival_plants_the_goal_cell_not_the_raw_point() {
         .create_object_for_player("CloseArrive", 0, here)
         .expect("unit");
     {
+        let ai_entry_frame = logic.frame;
         let unit = logic.host_object_mut(id).expect("unit");
         unit.selection_radius = 8.0;
         unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
@@ -1685,6 +1725,7 @@ fn close_arrival_plants_the_goal_cell_not_the_raw_point() {
         unit.set_status_moving(true);
         unit.set_ai_state(
             crate::game_logic::AIState::Moving,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }

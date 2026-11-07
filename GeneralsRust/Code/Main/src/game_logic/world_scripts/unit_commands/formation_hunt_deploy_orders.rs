@@ -36,10 +36,12 @@ impl GameLogic {
         unit.leftover_choose_best_reset_primary_for_ground();
         unit.set_target_location(
             Some(location),
+            self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         unit.set_ai_state(
             AIState::AttackingGround,
+            self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         drop(unit);
@@ -76,6 +78,7 @@ impl GameLogic {
                 unit.movement.path.clear();
                 unit.set_ai_state(
                     AIState::Moving,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
@@ -93,6 +96,7 @@ impl GameLogic {
             unit.ignored_obstacle_id = None;
             unit.set_ai_state(
                 AIState::Moving,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             self.clear_unit_hunt_scan(id);
@@ -259,6 +263,7 @@ impl GameLogic {
             }
             unit.set_ai_state(
                 AIState::Moving,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }
@@ -297,6 +302,7 @@ impl GameLogic {
                 Self::accept_tighten_order(
                     unit,
                     destination,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 unit.unit_ai_runtime.begin_tighten_path_check();
@@ -317,6 +323,7 @@ impl GameLogic {
             Self::accept_tighten_order(
                 unit,
                 destination,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             unit.unit_ai_runtime.begin_tighten_path_check();
@@ -328,19 +335,20 @@ impl GameLogic {
     pub(super) fn accept_tighten_order(
         unit: &mut crate::game_logic::Object,
         destination: glam::Vec3,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         unit.stop_attack(audio);
         unit.set_formation(0, glam::Vec2::ZERO);
-        unit.set_guard_position(None, audio);
-        unit.set_guard_target(None, audio);
+        unit.set_guard_position(None, frame, audio);
+        unit.set_guard_target(None, frame, audio);
         unit.end_guard_retaliate(audio);
         if !unit.can_move() {
             unit.pending_move = Some(destination);
             unit.movement.target_position = None;
             unit.movement.path.clear();
         }
-        unit.set_ai_state(AIState::Moving, audio);
+        unit.set_ai_state(AIState::Moving, frame, audio);
     }
 
     /// Wave 232: stamp formation id + offset (create/dissolve).
@@ -411,20 +419,24 @@ impl GameLogic {
                 unit.set_guard_position_data(None);
                 unit.set_guard_target(
                     Some(tid),
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             } else if let Some(pos) = position {
                 unit.set_guard_target(
                     None,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 unit.set_guard_position(
                     Some(pos),
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
             unit.set_ai_state(
                 ai_state.clone(),
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         } else {
@@ -620,10 +632,12 @@ impl GameLogic {
         unit.leftover_choose_best_reset_primary_for_ground();
         unit.set_target_location(
             Some(location),
+            self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         unit.set_ai_state(
             AIState::AttackingGround,
+            self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         // AIUpdate.cpp sets the shot limit after the attack state's onEnter.
@@ -688,10 +702,12 @@ impl GameLogic {
             unit.set_force_attack(false);
             unit.set_guard_position(
                 None,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             unit.set_guard_target(
                 None,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             unit.end_guard_retaliate(&mut crate::game_logic::ObjectAudio::queue(
@@ -702,6 +718,7 @@ impl GameLogic {
             unit.set_hunting(true);
             unit.set_ai_state(
                 AIState::Patrolling,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             unit.mark_jet_command_for_reload_interrupt(true);
@@ -733,6 +750,7 @@ impl GameLogic {
         unit.begin_cheer(
             cheer_secs,
             cheer_bit,
+            self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         true
@@ -1049,6 +1067,7 @@ impl GameLogic {
             }
             unit.set_ai_state(
                 AIState::Moving,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }

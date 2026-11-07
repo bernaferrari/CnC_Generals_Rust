@@ -236,10 +236,11 @@ impl Object {
     pub(super) fn finish_stun_kill(
         &mut self,
         killed: bool,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         if killed {
-            self.set_ai_state(AIState::Idle, audio);
+            self.set_ai_state(AIState::Idle, frame, audio);
             self.target = None;
             self.shock_stun_frames = 0;
             self.set_status_disabled_freefall(false);
@@ -398,7 +399,9 @@ impl Object {
                 // Landing onCollide / bounce still run outside that gate.
                 if self.is_physics_held() {
                     let old_y = self.get_position().y;
-                    let impact_vy = self.movement.velocity.y;
+                    // activeVelZ is initialized to zero before the HELD
+                    // gate and only updated by the non-HELD Euler branch.
+                    let impact_vy = 0.0;
                     let tail = LandingTail {
                         airborne: self.get_position().y > ground_y + 0.05,
                         old_y,
@@ -546,7 +549,7 @@ impl Object {
                     if self.shock_allow_bounce {
                         // PhysicsUpdate.cpp813: bounce force is admitted after
                         // this frame's Euler and remains pending for next update.
-                        self.apply_physics_force(force);
+                        self.apply_physics_force(force, frame);
                         if let Some(request) = self.prepare_stun_kill() {
                             return ContactStep::Damage {
                                 request,
@@ -561,7 +564,7 @@ impl Object {
                 self.begin_motion_landing(tail)
             }
             MotionContact::AfterBounce(tail) => {
-                self.finish_stun_kill(killed, audio);
+                self.finish_stun_kill(killed, frame, audio);
                 if !killed && !self.status.destroyed {
                     self.right_physics_pitch_keep_flip_with_operation(frame, effects);
                 }
@@ -731,7 +734,7 @@ impl Object {
                 })
             }
             StunContact::AfterBounce(mut data) => {
-                self.finish_stun_kill(killed, audio);
+                self.finish_stun_kill(killed, frame, audio);
                 if killed {
                     data.bounce = 0.0;
                 }

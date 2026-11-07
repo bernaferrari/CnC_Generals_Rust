@@ -684,6 +684,7 @@ End
         );
         bomber.set_ai_state(
             AIState::SpecialAbility,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         bomber.target = Some(target_id);
@@ -841,6 +842,7 @@ End
         );
         bomber.set_ai_state(
             AIState::SpecialAbility,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         bomber.target = Some(target_id);
@@ -906,6 +908,7 @@ fn carbomb_attack_structure_detonates_with_observable_damage() {
         }
         car.attack_target(
             structure_id,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -994,6 +997,7 @@ fn attack_order_chases_target_when_out_of_range() {
             .expect("attacker should exist");
         attacker.attack_target(
             target_id,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -1049,6 +1053,7 @@ fn attack_order_clears_dead_target() {
             .expect("attacker should exist");
         attacker.attack_target(
             target_id,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -1771,7 +1776,7 @@ fn queue_exit_applies_airborne_motive_and_pitch_after_ground_snap() {
         unit.physics_accel,
         producer_vel
     );
-    assert_eq!(unit.motive_frames_remaining, MOTIVE_FRAMES_RESIDUAL);
+    assert_eq!(unit.motive_force_expires, MOTIVE_FRAMES_RESIDUAL);
     assert!(
         (unit.shock_pitch_rate - 2.5 * 0.04).abs() < 1e-5,
         "setPitchRate(COM * 0.04), got {}",
@@ -1853,7 +1858,7 @@ fn queue_exit_airborne_kick_keeps_y_when_allow_airborne() {
         unit.get_position()
     );
     assert!((unit.physics_accel - producer_vel).length() < 1e-4);
-    assert_eq!(unit.motive_frames_remaining, MOTIVE_FRAMES_RESIDUAL);
+    assert_eq!(unit.motive_force_expires, MOTIVE_FRAMES_RESIDUAL);
     assert!((unit.shock_pitch_rate - (-1.25 * 0.04)).abs() < 1e-5);
 }
 
@@ -1923,7 +1928,7 @@ fn queue_exit_ground_spawn_skips_airborne_kick() {
 
     let unit = logic.host_object(uid).expect("unit after exit");
     assert_eq!(unit.physics_accel, glam::Vec3::ZERO);
-    assert_eq!(unit.motive_frames_remaining, 0);
+    assert_eq!(unit.motive_force_expires, 0);
     assert_eq!(unit.shock_pitch_rate, 0.0);
 }
 
@@ -2244,6 +2249,7 @@ fn can_make_aircraft_blocked_when_airfield_parking_full() {
             jet.set_contained_by_with_partition_owner(Some(af), true, fixture_partition_jet);
             jet.set_ai_state(
                 AIState::Docked,
+                0,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             jet.producer_id = Some(af);
@@ -2766,6 +2772,7 @@ fn script_idle_all_units_and_resume_supply_write_live() {
     if let Some(obj) = logic.host_object_mut(truck) {
         obj.set_ai_state(
             AIState::Idle,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.supply_truck_force_pending = false;

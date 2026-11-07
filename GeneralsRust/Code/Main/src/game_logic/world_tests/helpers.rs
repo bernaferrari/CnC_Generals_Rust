@@ -650,16 +650,19 @@ pub(super) fn setup_ground_attacker(
         .create_object("TestTank", Team::USA, position)
         .expect("attacker should be created from template");
 
+    let frame = game_logic.frame;
     let attacker = game_logic
         .host_object_mut(attacker_id)
         .expect("attacker should exist");
     attacker.set_force_attack(true);
     attacker.set_target_location(
         Some(target_location),
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     attacker.set_ai_state(
         AIState::AttackingGround,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     attacker.set_status_attacking(true);

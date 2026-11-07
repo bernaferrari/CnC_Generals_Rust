@@ -86,9 +86,11 @@ fn dozer_bored_mine_clear_assigns_enemy_mine() {
             glam::Vec3::new(0.0, 0.0, 0.0),
         )
         .expect("dozer");
+    let frame = logic.frame;
     if let Some(o) = logic.host_object_mut(did) {
         o.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.idle_since_frame = 1;
@@ -146,9 +148,11 @@ fn dozer_bored_auto_repair_assigns_damaged_structure() {
             glam::Vec3::new(5.0, 0.0, 0.0),
         )
         .expect("dozer");
+    let frame = logic.frame;
     if let Some(o) = logic.host_object_mut(did) {
         o.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.idle_since_frame = 1;

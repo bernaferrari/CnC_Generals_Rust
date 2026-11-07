@@ -42,11 +42,13 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
         .expect("enemy");
 
     // --- Sleep: IgnoreAll → no mood-target acquire ---
+    let frame = game_logic.frame;
     {
         let sc = game_logic.host_object_mut(sc_id).expect("sc");
         sc.target = None;
         sc.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         sc.set_status_attacking(false);
@@ -74,6 +76,7 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
     }
 
     // --- Passive without last damage: WaitForAttack blocks free acquire ---
+    let frame = game_logic.frame;
     {
         let sc = game_logic.host_object_mut(sc_id).expect("sc");
         sc.set_ai_attitude(HostAiAttitude::Passive);
@@ -82,6 +85,7 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
         sc.target = None;
         sc.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         sc.set_status_attacking(false);
@@ -100,6 +104,7 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
     }
 
     // --- Passive with last damage source = enemy → retaliate residual ---
+    let frame = game_logic.frame;
     {
         let sc = game_logic.host_object_mut(sc_id).expect("sc");
         sc.set_ai_attitude(HostAiAttitude::Passive);
@@ -108,6 +113,7 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
         sc.target = None;
         sc.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         sc.set_status_attacking(false);
@@ -483,6 +489,7 @@ fn strategy_center_bombardment_turret_fire_residual() {
     }
 
     // Fire residual (force readiness: last_fire_time far past).
+    let frame = game_logic.frame;
     {
         let sc = game_logic.host_object_mut(sc_id).expect("sc");
         if let Some(w) = sc.weapon.as_mut() {
@@ -490,6 +497,7 @@ fn strategy_center_bombardment_turret_fire_residual() {
         }
         sc.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -564,6 +572,7 @@ fn strategy_center_bombardment_turret_fire_residual() {
 
     // Switch to HoldTheLine → PACKING clears turret residual immediately.
     // Ensure turret is natural (busy + pitch/yaw) so pack starts without recenter.
+    let frame = game_logic.frame;
     {
         use crate::game_logic::host_strategy_center::{
             STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG, STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
@@ -572,6 +581,7 @@ fn strategy_center_bombardment_turret_fire_residual() {
         sc.target = None;
         sc.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         sc.set_status_attacking(false);
@@ -1225,11 +1235,13 @@ fn strategy_center_delayed_set_battle_plan_and_turret_recenter_residual() {
     // Make turret non-natural via pitch/yaw residual (off NaturalTurretAngle)
     // plus busy gate, then switch plan.
     let fire_time = game_logic.frame as f32 * LOGIC_FRAME_TIMESTEP;
+    let frame = game_logic.frame;
     {
         use crate::game_logic::host_strategy_center::STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
         let sc = game_logic.host_object_mut(sc_id).expect("sc");
         sc.set_ai_state(
             AIState::Attacking,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         sc.set_status_attacking(true);
@@ -1774,6 +1786,7 @@ fn gps_scrambler_residual_grants_stealth_to_ally_units() {
     assert!(ally_v.is_visible_to_team(Team::GLA));
 
     // Attack breaks stealth (STEALTH_NOT_WHILE_ATTACKING residual).
+    let frame = game_logic.frame;
     {
         let (ally, fixture_partition_ally) = game_logic
             .host_object_and_partition_mut(ally_vehicle_id)
@@ -1781,6 +1794,7 @@ fn gps_scrambler_residual_grants_stealth_to_ally_units() {
         ally.target = Some(enemy_id);
         ally.set_ai_state(
             AIState::Attacking,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         ally.set_status_attacking(true);

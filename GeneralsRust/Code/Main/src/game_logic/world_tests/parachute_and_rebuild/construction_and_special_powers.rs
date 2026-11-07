@@ -47,9 +47,11 @@ fn dozer_repair_sets_actively_constructing_and_completes() {
             glam::Vec3::new(2.0, 0.0, 0.0),
         )
         .expect("dozer");
+    let ai_entry_frame = logic.frame;
     if let Some(o) = logic.host_object_mut(did) {
         o.set_ai_state(
             AIState::Repairing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.target = Some(sid);
@@ -80,10 +82,12 @@ fn dozer_repair_sets_actively_constructing_and_completes() {
                 let msg = localization::localize("DOZER:RepairComplete", "Repair complete");
                 logic.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
                 logic.repair_complete_events = logic.repair_complete_events.saturating_add(1);
+                let ai_entry_frame = logic.frame;
                 if let Some(d) = logic.host_object_mut(did) {
                     d.clear_target(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
                     d.set_ai_state(
                         AIState::Idle,
+                        ai_entry_frame,
                         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
                     );
                     d.set_actively_constructing(false);
@@ -391,9 +395,11 @@ fn resume_construction_allows_dead_or_retasked_builder() {
             glam::Vec3::new(14.0, 0.0, 0.0),
         )
         .expect("dozer2");
+    let ai_entry_frame = logic.frame;
     if let Some(d) = logic.host_object_mut(did) {
         d.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         d.target = None;
@@ -511,9 +517,11 @@ fn mine_clear_drops_worker_supply_boxes() {
         2,
         "hq-6je29: not attacking yet — keep boxes"
     );
+    let ai_entry_frame = logic.frame;
     if let Some(w) = logic.host_object_mut(wid) {
         w.set_ai_state(
             AIState::Attacking,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         w.status.attacking = true;
@@ -566,9 +574,11 @@ fn cancel_construction_clears_dozer_actively_constructing() {
             glam::Vec3::new(5.0, 0.0, 0.0),
         )
         .expect("dozer");
+    let ai_entry_frame = logic.frame;
     if let Some(o) = logic.host_object_mut(did) {
         o.set_ai_state(
             AIState::Constructing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.target = Some(sid);
@@ -2356,10 +2366,12 @@ fn airfield_dock_reloads_countermeasures_residual() {
         )
         .expect("raptor");
     {
+        let ai_entry_frame = logic.frame;
         let (o, fixture_partition_o) = logic.host_object_and_partition_mut(air).unwrap();
         o.apply_upgrade_tag(UPGRADE_AMERICA_COUNTERMEASURES);
         o.set_ai_state(
             AIState::Docked,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.set_contained_by_with_partition_owner(Some(af_id), true, fixture_partition_o);
@@ -3012,6 +3024,7 @@ fn special_power_cooldowns_are_independent_per_power() {
     assert!(o.is_special_power_ready(&SpecialPowerType::SpySatellite));
     o.consume_special_power_charge(
         &SpecialPowerType::Airstrike,
+        0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     // A10 reloading must not block SpySatellite residual.
@@ -3019,6 +3032,7 @@ fn special_power_cooldowns_are_independent_per_power() {
     assert!(o.is_special_power_ready(&SpecialPowerType::SpySatellite));
     o.consume_special_power_charge(
         &SpecialPowerType::SpySatellite,
+        0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert!(!o.is_special_power_ready(&SpecialPowerType::SpySatellite));
@@ -3086,6 +3100,7 @@ fn special_power_reload_seconds_uses_retail_residual_table() {
         assert!(o.is_special_power_ready(&SpecialPowerType::Airstrike));
         o.consume_special_power_charge(
             &SpecialPowerType::Airstrike,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         assert!(!o.special_power_ready);

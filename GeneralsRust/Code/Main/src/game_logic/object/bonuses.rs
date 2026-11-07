@@ -1007,7 +1007,7 @@ impl Object {
         self.target_location = None;
         self.set_status_force_attack(false);
         if self.ai_state() != AIState::Idle {
-            self.set_ai_state(AIState::Idle, audio);
+            self.set_ai_state(AIState::Idle, frame, audio);
         }
         if let Some(d) = donor {
             // C++ setVisionRange / setShroudClearingRange from converter.
@@ -1055,19 +1055,21 @@ impl Object {
     pub fn begin_hijacker_in_vehicle(
         &mut self,
         vehicle_id: ObjectId,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         self.require_partition_owner(None);
-        self.begin_hijacker_in_vehicle_unattached(vehicle_id, audio);
+        self.begin_hijacker_in_vehicle_unattached(vehicle_id, frame, audio);
     }
 
     fn begin_hijacker_in_vehicle_unattached(
         &mut self,
         vehicle_id: ObjectId,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         self.prepare_hijacker_in_vehicle(vehicle_id);
-        self.finish_hijacker_in_vehicle(audio);
+        self.finish_hijacker_in_vehicle(frame, audio);
     }
 
     /// C++ HijackerUpdate setup and status bits run before Object::leaveGroup.
@@ -1083,15 +1085,17 @@ impl Object {
     /// C++ aiIdle and ride hiding happen after Object::leaveGroup.
     fn finish_hijacker_in_vehicle(
         &mut self,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        self.finish_hijacker_in_vehicle_ai_idle(audio);
+        self.finish_hijacker_in_vehicle_ai_idle(frame, audio);
         // C++ ConvertToHijackedVehicleCrateCollide: setDrawableHidden(true).
         self.set_drawable_hidden(true);
     }
 
     fn finish_hijacker_in_vehicle_ai_idle(
         &mut self,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
         self.status.attacking = false;
@@ -1099,18 +1103,19 @@ impl Object {
         self.stop_moving(audio);
         self.target = None;
         if self.ai_state() != AIState::Idle {
-            self.set_ai_state(AIState::Idle, audio);
+            self.set_ai_state(AIState::Idle, frame, audio);
         }
     }
 
     /// C++ ride path runs aiIdle, unregisters from the world, then hides.
     pub(crate) fn finish_hijacker_in_vehicle_after_group_leave_with_partition_owner(
         &mut self,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         partition: &mut crate::game_logic::partition_manager::PartitionManager,
     ) {
         self.require_partition_owner(Some(partition));
-        self.finish_hijacker_in_vehicle_ai_idle(audio);
+        self.finish_hijacker_in_vehicle_ai_idle(frame, audio);
         partition.unregister_object(self.id.0);
         self.set_drawable_hidden(true);
     }
@@ -1118,16 +1123,17 @@ impl Object {
     pub(crate) fn begin_hijacker_in_vehicle_with_partition_owner(
         &mut self,
         vehicle_id: ObjectId,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         partition: &mut crate::game_logic::partition_manager::PartitionManager,
     ) {
         self.require_partition_owner(Some(partition));
         partition.unregister_object(self.id.0);
-        self.begin_hijacker_in_vehicle_unattached(vehicle_id, audio);
+        self.begin_hijacker_in_vehicle_unattached(vehicle_id, frame, audio);
     }
 
-    pub fn apply_hijacked(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) {
-        self.apply_hijacked_from(None, audio);
+    pub fn apply_hijacked(&mut self, frame: u32, audio: &mut crate::game_logic::ObjectAudio<'_>) {
+        self.apply_hijacked_from(None, frame, audio);
     }
 
     /// Hijack with optional donor (hijacker) residual endowments.
@@ -1142,14 +1148,16 @@ impl Object {
     pub fn apply_hijacked_from(
         &mut self,
         donor: Option<&Object>,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        self.apply_hijacked_from_with_partition_context(donor, audio, None, None, None, 0, false);
+        self.apply_hijacked_from_with_partition_context(donor, audio, None, None, None, frame, false);
     }
     #[cfg(test)]
     pub(crate) fn apply_hijacked_from_with_partition_owner(
         &mut self,
         donor: Option<&Object>,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         partition: &mut crate::game_logic::partition_manager::PartitionManager,
     ) {
@@ -1159,13 +1167,14 @@ impl Object {
             Some(partition),
             None,
             None,
-            0,
+            frame,
             false,
         );
     }
     pub(crate) fn apply_hijacked_from_before_veterancy(
         &mut self,
         donor: Option<&Object>,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         partition: &mut crate::game_logic::partition_manager::PartitionManager,
     ) {
@@ -1175,7 +1184,7 @@ impl Object {
             Some(partition),
             None,
             None,
-            0,
+            frame,
             true,
         )
     }
@@ -1205,7 +1214,7 @@ impl Object {
         self.set_status_force_attack(false);
         // C++ aiMoveToPosition(self) then aiIdle — host: clear move + Idle.
         if self.ai_state() != AIState::Idle {
-            self.set_ai_state(AIState::Idle, audio);
+            self.set_ai_state(AIState::Idle, frame, audio);
         }
         if self.is_kind_of(KindOf::Worker) || self.is_worker() {
             self.target = None;
@@ -1274,9 +1283,10 @@ impl Object {
     /// Returns the airfield id that was left (if any).
     pub fn takeoff_from_airfield_parking(
         &mut self,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> Option<ObjectId> {
-        self.takeoff_from_airfield_parking_with_operation(audio, 0, &mut Default::default())
+        self.takeoff_from_airfield_parking_with_operation(audio, frame, &mut Default::default())
     }
 
     pub fn takeoff_from_airfield_parking_with_operation(
@@ -1330,7 +1340,7 @@ impl Object {
         let af = self.contained_by.take();
         // C++ JetAIUpdate.cpp:259-260 / :725-726 takeoff PRECISE_Z_POS + ULTRA_ACCURATE.
         self.set_precise_z_and_ultra_accurate(true);
-        self.set_ai_state(AIState::Idle, audio);
+        self.set_ai_state(AIState::Idle, operation_frame, audio);
         self.status.airborne_target = true;
         let helipad =
             crate::game_logic::host_helicopter_slow_death::is_helicopter_slow_death_template(

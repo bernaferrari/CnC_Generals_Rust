@@ -147,6 +147,7 @@ fn try_idle_repulse_flees_flagged_repulsor() {
     civ.vision_range = 200.0;
     civ.set_ai_state(
         AIState::Idle,
+        0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     // Ensure can_move
@@ -1084,6 +1085,7 @@ fn try_mood_auto_acquire_enters_attack() {
         o.set_orientation(0.0);
         o.set_ai_state(
             AIState::Idle,
+            10,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.ai_attitude = 2; // Aggressive
@@ -1145,6 +1147,7 @@ fn transfer_attack_retargets_attackers() {
         o.target = Some(from);
         o.set_ai_state(
             AIState::Attacking,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.turret_ai.turret_enabled = true;
@@ -2186,6 +2189,7 @@ fn private_idle_clears_state() {
         let mut o = Object::new(t, id, Team::USA);
         o.set_ai_state(
             AIState::Attacking,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.set_status_attacking(true);
@@ -2395,6 +2399,7 @@ fn private_stop_clears_attack() {
         let mut o = Object::new(t, id, Team::USA);
         o.set_ai_state(
             crate::game_logic::AIState::Attacking,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.set_status_attacking(true);
@@ -2629,6 +2634,7 @@ fn downhill_only_blocks_uphill() {
     o.update_movement(
         1.0 / 30.0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        0,
     );
     // Should not advance toward uphill goal.
     assert!((o.get_position() - p0).length() < 1e-3);
@@ -2678,6 +2684,7 @@ fn group_speed_factor_scales_desired() {
     o.update_movement(
         1.0 / 30.0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        0,
     );
     // With half group speed, shouldn't hit full 40 quickly.
     assert!(o.movement.velocity.length() < 35.0);
@@ -2786,14 +2793,14 @@ fn wings_maintain_circles() {
     o.loco_appearance = LocomotorAppearance::Wings;
     o.set_position(Vec3::new(100.0, 50.0, 0.0));
     o.movement.velocity = Vec3::new(10.0, 0.0, 0.0);
-    o.motive_frames_remaining = 5;
+    o.motive_force_expires = 5;
     o.status.airborne_target = true;
     o.min_speed = 20.0;
     o.circling_radius = 40.0;
     o.maintain_pos = Some(Vec3::new(0.0, 50.0, 0.0));
     o.maintain_pos_valid = true;
     let p0 = o.get_position();
-    o.maintain_position_wings(1.0 / 30.0);
+    o.maintain_position_wings(1.0 / 30.0, 0);
     let p1 = o.get_position();
     // Should have moved (circling), not stayed put.
     assert!(
@@ -2812,9 +2819,9 @@ fn fix_invalid_position_pushes_off_cliff() {
     o.cell_is_cliff = true;
     o.movement.velocity = Vec3::new(5.0, 0.0, 0.0);
     o.set_orientation(0.0);
-    assert!(o.fix_invalid_position());
+    assert!(o.fix_invalid_position(0));
     // Should have applied force (velocity changed or accel path ran).
-    assert!(o.motive_frames_remaining > 0 || o.movement.velocity.x < 5.0);
+    assert!(o.is_motive(0) || o.movement.velocity.x < 5.0);
 }
 
 #[test]
@@ -2829,7 +2836,7 @@ fn thrust_moves_toward_goal() {
     o.movement.max_speed = 50.0;
     o.movement.acceleration = 100.0;
     o.min_speed = 5.0;
-    o.move_towards_thrust(Vec3::new(100.0, 20.0, 0.0), 100.0, 40.0, 1.0 / 30.0);
+    o.move_towards_thrust(Vec3::new(100.0, 20.0, 0.0), 100.0, 40.0, 1.0 / 30.0, 0);
     assert!(o.get_position().length() > 1e-3 || o.movement.velocity.length() > 1e-3);
 }
 
@@ -2850,6 +2857,7 @@ fn wheels_cap_speed_while_turning() {
     o.update_movement(
         1.0 / 30.0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        0,
     );
     // Hard turn: wheels should not instantly reach 60.
     assert!(o.movement.velocity.length() < 40.0);
@@ -2906,6 +2914,7 @@ fn maintain_position_scrubs_ground_velocity() {
     o.update_movement(
         1.0 / 30.0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        0,
     );
     assert!(o.maintain_pos_valid);
     assert!(
@@ -2923,7 +2932,7 @@ fn handle_behavior_z_sea_level_snaps() {
     let mut o = Object::new(t, ObjectId(963), Team::USA);
     o.loco_behavior_z = LocomotorBehaviorZ::SeaLevel;
     o.set_position(Vec3::new(0.0, 12.0, 0.0));
-    assert!(o.handle_behavior_z(3.0, None));
+    assert!(o.handle_behavior_z(3.0, None, 0));
     assert!((o.get_position().y - 3.0).abs() < 1e-4);
 }
 
@@ -3005,8 +3014,9 @@ fn highest_layer_surface_falls_back_to_ground() {
         (surface - 3.).abs() < 0.001,
         "empty receiving layer view keeps explicit owned ground observation, got {surface}"
     );
+    let frame = world.frame;
     let object = world.objects.get_mut(&id).unwrap();
-    assert!(object.handle_behavior_z_with_highest_surface(3., None, surface));
+    assert!(object.handle_behavior_z_with_highest_surface(3., None, surface, frame));
     assert_eq!(
         object.get_position().y,
         4.,
@@ -3051,6 +3061,7 @@ fn loco_turn_modulates_speed() {
     o.update_movement(
         1.0 / 30.0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        0,
     );
     // 90° goal: treads residual clamps goal_speed via angleCoeff → near-zero thrust
     // while turning; orientation should advance toward +Z.
@@ -3101,13 +3112,13 @@ fn apply_motive_force_arms_lateral_window() {
     o.set_orientation(0.0);
     o.physics_mass = 1.0;
     // Motive force applies full forward push then arms motive.
-    o.apply_motive_force(Vec3::new(10.0, 0.0, 0.0));
-    assert_eq!(o.motive_frames_remaining, MOTIVE_FRAMES_RESIDUAL);
+    o.apply_motive_force(Vec3::new(10.0, 0.0, 0.0), 0);
+    assert_eq!(o.motive_force_expires, MOTIVE_FRAMES_RESIDUAL);
     o.integrate_physics_accel();
     assert!(o.movement.velocity.x > 1.0);
     // While motive, lateral-only on subsequent apply_physics_force.
     let vx_before = o.movement.velocity.x;
-    o.apply_physics_force(Vec3::new(5.0, 0.0, 0.0)); // forward stripped
+    o.apply_physics_force(Vec3::new(5.0, 0.0, 0.0), 0); // forward stripped
     o.integrate_physics_accel();
     assert!(
         (o.movement.velocity.x - vx_before).abs() < 1e-3,
@@ -3116,8 +3127,8 @@ fn apply_motive_force_arms_lateral_window() {
 }
 
 #[test]
-fn reset_dynamic_physics_clears_motion() {
-    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+fn reset_dynamic_physics_clears_motion_without_clearing_motive_deadline() {
+    use crate::game_logic::{KindOf, Object, ObjectId, PhysicsTurningType, Team, ThingTemplate};
     use glam::Vec3;
     let mut t = ThingTemplate::new("Rst");
     t.add_kind_of(KindOf::Vehicle);
@@ -3125,12 +3136,20 @@ fn reset_dynamic_physics_clears_motion() {
     o.movement.velocity = Vec3::new(1.0, 2.0, 3.0);
     o.physics_accel = Vec3::ONE;
     o.shock_yaw_rate = 0.5;
-    o.motive_frames_remaining = 5;
+    o.physics_turning = PhysicsTurningType::TurnPositive;
+    o.set_orientation(0.0);
+    // PhysicsUpdate.cpp:389-399, 403-418: reset clears motion and
+    // turning, but the existing motive deadline remains in force.
+    o.apply_motive_force(Vec3::ZERO, 100);
     o.reset_dynamic_physics();
     assert_eq!(o.movement.velocity, Vec3::ZERO);
     assert_eq!(o.physics_accel, Vec3::ZERO);
     assert_eq!(o.shock_yaw_rate, 0.0);
-    assert_eq!(o.motive_frames_remaining, 0);
+    assert_eq!(o.physics_turning, PhysicsTurningType::TurnNone);
+    o.apply_physics_force(Vec3::new(5.0, 0.0, 0.0), 101);
+    assert_eq!(o.physics_accel, Vec3::ZERO, "active motive rejects forward force");
+    o.apply_physics_force(Vec3::new(5.0, 0.0, 0.0), 110);
+    assert!(o.physics_accel.x > 0.0, "forward force resumes at expiry");
 }
 
 #[test]
@@ -3398,7 +3417,7 @@ fn private_face_uses_cpp_is_mobile_gate_not_can_move() {
         objects
             .get_mut(&cap)
             .unwrap()
-            .set_ai_state(AIState::Capturing, &mut ObjectAudio::queue(queued_audio_events));
+            .set_ai_state(AIState::Capturing, 0, &mut ObjectAudio::queue(queued_audio_events));
     }
     assert!(logic.private_face_object(cap, vid));
     assert_eq!(logic.objects[&cap].ai_state(), AIState::FacingObject);

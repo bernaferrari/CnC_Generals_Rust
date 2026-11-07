@@ -42,6 +42,7 @@ fn arm_attacker_then_attack(attacker: &mut Object, target_id: ObjectId, damage: 
     });
     attacker.attack_target(
         target_id,
+        0,
         &mut _attack_output,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );

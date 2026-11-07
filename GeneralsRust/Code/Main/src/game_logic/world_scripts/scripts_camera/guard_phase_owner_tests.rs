@@ -401,6 +401,7 @@ fn temporary_quick_exit_preserves_idle_and_resumes_once_on_completion_frame() {
     owner.set_fixture_object_position(id, last);
     owner.frame = 1;
     owner.tick_host_guard_states(&[id]);
+    let frame = owner.frame;
     let unit = owner.host_object_mut(id).unwrap();
     assert_eq!(unit.unit_ai_runtime.guard_phase(), Some(GuardPhase::Idle));
     let anchor = unit.unit_ai_runtime.guard_anchor();
@@ -414,6 +415,7 @@ fn temporary_quick_exit_preserves_idle_and_resumes_once_on_completion_frame() {
     unit.unit_ai_runtime.set_quick_exit_deadline(Some(10));
     unit.set_ai_state(
         AIState::Moving,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert_eq!(unit.unit_ai_runtime.guard_phase(), Some(GuardPhase::Idle));
@@ -440,9 +442,11 @@ fn temporary_quick_exit_preserves_idle_and_resumes_once_on_completion_frame() {
             .guard_scan_deadline(),
         Some(18)
     );
+    let frame = owner.frame;
     let unit = owner.host_object_mut(id).unwrap();
     unit.set_ai_state(
         AIState::Moving,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert_eq!(unit.unit_ai_runtime.guard_phase(), None);

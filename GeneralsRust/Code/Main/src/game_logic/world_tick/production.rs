@@ -1494,7 +1494,7 @@ impl GameLogic {
                         .map(|producer| producer.movement.velocity);
                     if let (Some(vel), Some(unit)) = (producer_vel, self.objects.get_mut(&new_id)) {
                         let mass = unit.physics_get_mass();
-                        unit.apply_motive_force(vel * mass);
+                        unit.apply_motive_force(vel * mass, self.frame);
                         const STARTING_PITCH_COEFF: f32 = 0.04;
                         unit.shock_pitch_rate = unit.center_of_mass_offset * STARTING_PITCH_COEFF;
                     }

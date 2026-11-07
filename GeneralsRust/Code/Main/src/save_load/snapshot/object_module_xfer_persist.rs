@@ -1605,6 +1605,201 @@ mod tests {
         apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
     }
 
+    // PhysicsUpdate.cpp:623-663: save after the motive force was applied but
+    // before Physics consumes it. Braking suppresses horizontal displacement,
+    // not acceleration or vertical displacement.
+    #[test]
+    fn saved_pending_motive_force_and_braking_continue_in_public_world_frames() {
+        fn world() -> (GameLogic, ObjectId) {
+            let mut world = GameLogic::new();
+            world.templates.insert("PhysicsFrame".into(), ThingTemplate::new("PhysicsFrame"));
+            world.add_player(Player::new(0, Team::USA, "USA", true));
+            let id = world.create_object("PhysicsFrame", Team::USA, Vec3::new(10., 100., 20.)).unwrap();
+            (world, id)
+        }
+        let (mut source, id) = world();
+        let (peer, peer_id) = world();
+        assert_eq!(id, peer_id);
+        {
+            let object = source.host_object_mut(id).unwrap();
+            object.physics_mass = 1.;
+            object.aerodynamic_friction = 0.;
+            object.allow_to_fall = true;
+            object.is_braking = true;
+            object.apply_motive_force(Vec3::new(2., 1., 0.), 0);
+            object.motive_force_expires = 2;
+        }
+        let builder = super::super::SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&source).unwrap();
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let snapshot = super::super::decode_bincode_world_snapshot(&bytes).unwrap();
+        let (mut loaded, loaded_id) = world();
+        assert_eq!(id, loaded_id);
+        builder.restore_from_snapshot(&snapshot, &mut loaded).unwrap();
+
+        for world in [&mut source, &mut loaded] {
+            world.update_with_dt(1. / 30.);
+            let object = world.host_object(id).unwrap();
+            assert_eq!(object.previous_acceleration(), Vec3::new(2., 1., 0.));
+            assert!(object.is_motive(1));
+            assert!((object.movement.velocity.x - 2.).abs() < 1e-5);
+            assert!((object.movement.velocity.y - (1. - 64. / 900.)).abs() < 1e-5);
+            assert!((object.get_position().x - 10.).abs() < 1e-5);
+            assert!((object.get_position().y - (101. - 64. / 900.)).abs() < 1e-5);
+            world.update_with_dt(1. / 30.);
+            assert!(!world.host_object(id).unwrap().is_motive(2));
+            world.host_object_mut(id).unwrap().apply_physics_force(Vec3::new(3., 0., 0.), 2);
+            world.update_with_dt(1. / 30.);
+            let object = world.host_object(id).unwrap();
+            assert!((object.movement.velocity.x - 5.).abs() < 1e-5);
+            assert!((object.get_position().x - 10.).abs() < 1e-5);
+        }
+        let untouched = peer.host_object(peer_id).unwrap();
+        assert_eq!(untouched.get_position(), Vec3::new(10., 100., 20.));
+        assert_eq!(untouched.movement.velocity, Vec3::ZERO);
+        assert_eq!(untouched.motive_force_expires, 0);
+    }
+
+    #[test]
+    fn motive_deadline_advances_while_held_and_structure_physics_is_skipped() {
+        fn world() -> (GameLogic, ObjectId, ObjectId) {
+            let mut world = GameLogic::new();
+            world.templates.insert("HeldDeadline".into(), ThingTemplate::new("HeldDeadline"));
+            let mut structure = ThingTemplate::new("StructureDeadline");
+            structure.add_kind_of(crate::game_logic::KindOf::Structure);
+            world.templates.insert("StructureDeadline".into(), structure);
+            world.add_player(Player::new(0, Team::USA, "USA", true));
+            let held = world.create_object("HeldDeadline", Team::USA, Vec3::new(10., 100., 20.)).unwrap();
+            let building = world.create_object("StructureDeadline", Team::USA, Vec3::new(50., 0., 20.)).unwrap();
+            (world, held, building)
+        }
+        let (mut source, held, building) = world();
+        let (peer, peer_held, peer_building) = world();
+        assert_eq!((held, building), (peer_held, peer_building));
+        source.host_object_mut(held).unwrap().status.disabled_held = true;
+        for id in [held, building] {
+            source.host_object_mut(id).unwrap().apply_motive_force(Vec3::ZERO, 0);
+        }
+        let builder = super::super::SnapshotBuilder::new();
+        let saved = builder.create_world_snapshot(&source).unwrap();
+        let bytes = bincode_legacy::serialize(&saved).unwrap();
+        let saved = super::super::decode_bincode_world_snapshot(&bytes).unwrap();
+        let (mut restored, _, _) = world();
+        builder.restore_from_snapshot(&saved, &mut restored).unwrap();
+        for world in [&mut source, &mut restored] {
+            for _ in 0..9 {
+                world.update_with_dt(1. / 30.);
+            }
+            for id in [held, building] {
+                assert!(world.host_object(id).unwrap().is_motive(9));
+            }
+            world.update_with_dt(1. / 30.);
+            for id in [held, building] {
+                let object = world.host_object(id).unwrap();
+                assert_eq!(object.motive_force_expires, 10);
+                assert!(!object.is_motive(10));
+            }
+            world.host_object_mut(held).unwrap().status.disabled_held = false;
+            world.host_object_mut(held).unwrap().apply_physics_force(Vec3::X, 10);
+            assert!(world.host_object(held).unwrap().physics_accel.x > 0.);
+        }
+        assert_eq!(peer.host_object(peer_held).unwrap().motive_force_expires, 0);
+        assert_eq!(peer.host_object(peer_building).unwrap().motive_force_expires, 0);
+    }
+
+    #[test]
+    fn motive_deadline_uses_original_unsigned_wrap_comparison() {
+        let mut world = GameLogic::new();
+        world.templates.insert("WrapDeadline".into(), ThingTemplate::new("WrapDeadline"));
+        world.add_player(Player::new(0, Team::USA, "USA", true));
+        let id = world.create_object("WrapDeadline", Team::USA, Vec3::ZERO).unwrap();
+        world.frame = u32::MAX - 1;
+        world.host_object_mut(id).unwrap().apply_motive_force(Vec3::ZERO, u32::MAX - 1);
+        let builder = super::super::SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&world).unwrap();
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let snapshot = super::super::decode_bincode_world_snapshot(&bytes).unwrap();
+        let mut restored = GameLogic::new();
+        restored.templates = world.templates.clone();
+        restored.add_player(Player::new(0, Team::USA, "USA", true));
+        builder.restore_from_snapshot(&snapshot, &mut restored).unwrap();
+        for object in [world.host_object(id).unwrap(), restored.host_object(id).unwrap()] {
+            assert_eq!(object.motive_force_expires, 8);
+            assert!(!object.is_motive(u32::MAX - 1));
+            assert!(object.is_motive(0));
+            assert!(!object.is_motive(8));
+        }
+    }
+
+    #[test]
+    fn malformed_physics_world_load_preserves_live_receiver_and_peer() {
+        fn world() -> (GameLogic, ObjectId) {
+            let mut world = GameLogic::new();
+            world.templates.insert("PhysicsReject".into(), ThingTemplate::new("PhysicsReject"));
+            world.add_player(Player::new(0, Team::USA, "USA", true));
+            let id = world.create_object("PhysicsReject", Team::USA, Vec3::new(10., 100., 20.)).unwrap();
+            (world, id)
+        }
+        let (mut source, id) = world();
+        source.host_object_mut(id).unwrap().apply_physics_force(Vec3::new(4., 0., 0.), 0);
+        let (mut receiver, receiver_id) = world();
+        let (peer, peer_id) = world();
+        assert_eq!((id, id), (receiver_id, peer_id));
+        receiver.host_object_mut(id).unwrap().apply_physics_force(Vec3::new(7., 0., 0.), 0);
+        let identity = receiver.host_object(id).unwrap().visual_draw_identity_token.clone();
+        let pending_before = receiver.host_object(id).unwrap().physics_accel;
+        assert!(pending_before.x > 0.);
+        let builder = super::super::SnapshotBuilder::new();
+        let valid = builder.create_world_snapshot(&source).unwrap();
+        let wire = bincode_legacy::serialize(&valid).unwrap();
+
+        // Bincode's PhysicsBehaviorResidual begins with the ObjectId and
+        // then m_accel. The fourth case appends a physics-less duplicate
+        // envelope which would otherwise overwrite the restored owner.
+        for corruption in 0..4 {
+            let mut bad = super::super::decode_bincode_world_snapshot(&wire).unwrap();
+            let prefix_len = super::super::combat_projectile_persist::historical_prefix_len(&bad.lifecycle_tail).unwrap();
+            let mut tail = super::super::lifecycle_tail::decode_lifecycle_tail(&bad.lifecycle_tail).unwrap();
+            let envelope = tail.envelopes.iter_mut().find(|entry| entry.entity_id == id.0).unwrap();
+            if corruption == 3 {
+                let mut duplicate = envelope.clone();
+                duplicate.module_states.retain(|module| module.tag != "PhysicsBehavior");
+                tail.envelopes.push(duplicate);
+            } else {
+                let physics = envelope.module_states.iter_mut().find(|module| module.tag == "PhysicsBehavior").unwrap();
+                match corruption {
+                    0 => physics.payload[4..8].copy_from_slice(&f32::NAN.to_le_bytes()),
+                    1 => physics.payload[..4].copy_from_slice(&(id.0 + 1).to_le_bytes()),
+                    _ => physics.tag = "PhysicsBehavioX".into(),
+                }
+            }
+            let prefix = super::super::lifecycle_tail::encode_lifecycle_tail(&tail);
+            bad.lifecycle_tail.splice(..prefix_len, prefix);
+            let error = builder.restore_from_snapshot(&bad, &mut receiver).unwrap_err();
+            let message = error.to_string();
+            if corruption == 3 {
+                assert!(message.contains("duplicate lifecycle owner"), "{error}");
+            } else {
+                assert!(message.contains("physics lifecycle"), "{error}");
+            }
+            assert!(std::sync::Arc::ptr_eq(
+                &identity,
+                &receiver.host_object(id).unwrap().visual_draw_identity_token,
+            ));
+            assert_eq!(receiver.host_object(id).unwrap().physics_accel, pending_before);
+            assert_eq!(peer.host_object(peer_id).unwrap().physics_accel, Vec3::ZERO);
+        }
+
+        let mut old = super::super::decode_bincode_world_snapshot(&wire).unwrap();
+        old.version -= 1;
+        assert!(builder.restore_from_snapshot(&old, &mut receiver).is_err());
+        assert!(std::sync::Arc::ptr_eq(&identity, &receiver.host_object(id).unwrap().visual_draw_identity_token));
+        builder.restore_from_snapshot(&valid, &mut receiver).unwrap();
+        assert!(!std::sync::Arc::ptr_eq(&identity, &receiver.host_object(id).unwrap().visual_draw_identity_token));
+        assert_eq!(receiver.host_object(id).unwrap().physics_accel, source.host_object(id).unwrap().physics_accel);
+        assert_eq!(peer.host_object(peer_id).unwrap().physics_accel, Vec3::ZERO);
+    }
+
     #[test]
     fn physics_world_snapshot_continues_collision_bounce_and_motion() {
         fn world() -> (GameLogic, ObjectId) {
@@ -1633,24 +1828,27 @@ mod tests {
             object.immune_to_falling_damage = true;
             object.physics_current_overlap = Some(ObjectId(8));
             object.physics_previous_overlap = Some(ObjectId(9));
-            object.motive_frames_remaining = 3;
+            object.motive_force_expires = 3;
         }
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).unwrap();
+        let wire = bincode_legacy::serialize(&snapshot).unwrap();
+        let snapshot = super::super::decode_bincode_world_snapshot(&wire).unwrap();
         let mut loaded = GameLogic::new();
         loaded.templates = source.templates.clone();
         loaded.add_player(Player::new(0, Team::USA, "USA", true));
         builder.restore_from_snapshot(&snapshot, &mut loaded).unwrap();
         let step = |world: &mut GameLogic| {
-            let contacts = world.tick_physics_collisions_all();
+            world.update_with_dt(1. / 30.);
             let object = world.host_object(id).unwrap();
-            (contacts, object.get_position(), object.movement.velocity,
+            (object.get_position(), object.movement.velocity,
              object.physics_accel, object.physics_previous_accel, object.shock_allow_bounce,
              object.was_airborne_last_frame, object.physics_current_overlap,
-             object.physics_previous_overlap, object.motive_frames_remaining)
+             object.physics_previous_overlap, object.motive_force_expires)
         };
         let expected = step(&mut source);
-        assert!(expected.3.y > 0.0, "world landing must retain its bounce force");
+        assert_eq!(expected.0.y, 0., "ground collision clamps to terrain");
+        assert!(expected.2.y > 0.0, "world landing must retain its bounce force");
         assert_eq!(expected, step(&mut loaded));
         assert_eq!(peer.host_object(peer_id).unwrap().movement.velocity, Vec3::ZERO);
     }

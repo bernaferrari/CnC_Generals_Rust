@@ -2150,6 +2150,7 @@ fn cash_bounty_zero_percent_does_not_award() {
             .expect("attacker exists");
         attacker.attack_target(
             target_id,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -2377,6 +2378,7 @@ fn combat_fire_queues_authored_fire_sound_audio_event() {
             .expect("attacker exists");
         attacker.attack_target(
             target_id,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -2456,6 +2458,7 @@ fn combat_fire_without_authored_fire_sound_queues_no_audio_token() {
             .expect("attacker exists");
         attacker.attack_target(
             target_id,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -2502,6 +2505,7 @@ fn weapon_discharge_world_tick_combat_preserves_preadvance_barrel_and_freezes_on
             .expect("attacker exists");
         attacker.attack_target(
             target_id,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );

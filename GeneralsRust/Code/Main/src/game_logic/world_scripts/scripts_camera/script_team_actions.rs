@@ -1625,10 +1625,12 @@ impl GameLogic {
         let _ = self.apply_unit_locomotor_set(unit, "normal");
         self.unit_command_stop_moving_order_target(unit, Some(dest))?;
         if !self.unit_command_path_with_state_ignoring(unit, pos, AIState::Entering, Some(dest))? {
+            let frame = self.frame;
             if let Some((obj, audio_events)) = self.host_object_and_audio_events_mut(unit) {
                 obj.ignored_obstacle_id = Some(dest);
                 obj.set_ai_state(
                     AIState::Entering,
+                    frame,
                     &mut crate::game_logic::ObjectAudio::queue(audio_events),
                 );
             }
@@ -2389,14 +2391,17 @@ impl GameLogic {
     ) -> gamelogic::GameLogicResult<()> {
         self.drop_jet_targeters_on_attack_exit(id);
         self.clear_unit_movement_path(id);
+        let frame = self.frame;
         let (object, audio_events) = self.host_object_and_audio_events_mut(id).unwrap();
         Self::clear_owned_named_ai_goal(
             object,
+            frame,
             &mut crate::game_logic::ObjectAudio::queue(audio_events),
         );
         object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(audio_events));
         object.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::queue(audio_events),
         );
         let identity = format!("owned:{team_id}");

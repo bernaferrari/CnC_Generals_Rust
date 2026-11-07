@@ -591,8 +591,6 @@ pub struct Entity {
     pub path_index: u16,
     /// Host Movement/Object::waiting_for_path residual.
     pub waiting_for_path: bool,
-    /// Host Object::motive_frames_remaining residual.
-    pub motive_frames_remaining: u32,
     /// Host Object::kill_when_resting_on_ground residual.
     pub kill_when_resting_on_ground: bool,
     /// Host Object::bounce_land_events residual.
@@ -1802,7 +1800,6 @@ impl EntityStore {
             path_len: 0,
             path_index: 0,
             waiting_for_path: false,
-            motive_frames_remaining: 0,
             kill_when_resting_on_ground: false,
             bounce_land_events: 0,
             last_bounce_fall_dy: 0.0,

@@ -287,6 +287,7 @@ fn seed_combat(logic: &mut GameLogic, id: ObjectId, target: ObjectId, worker: bo
     if worker {
         assert!(logic.move_object_to(id, Vec3::new(200.0, 0.0, 0.0)));
     }
+    let frame = logic.get_current_frame() as u32;
     logic
         .with_host_object_audio(id, |object, audio| {
             object.set_ai_state(
@@ -295,6 +296,7 @@ fn seed_combat(logic: &mut GameLogic, id: ObjectId, target: ObjectId, worker: bo
                 } else {
                     AIState::Attacking
                 },
+                frame,
                 audio,
             )
         })

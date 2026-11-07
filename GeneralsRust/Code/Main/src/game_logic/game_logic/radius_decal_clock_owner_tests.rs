@@ -217,9 +217,11 @@ End
     assert_eq!(world.host_object(source).unwrap().health.current, 100.0);
     assert!(world.host_object(source).unwrap().can_attack());
     {
+        let current_frame = world.frame;
         let (object, attack_events) = world.host_object_and_attack_events_mut(source).unwrap();
         object.attack_target(
             target,
+            current_frame,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );

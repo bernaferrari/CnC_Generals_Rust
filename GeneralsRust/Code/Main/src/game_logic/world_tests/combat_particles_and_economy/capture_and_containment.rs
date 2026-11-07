@@ -1237,11 +1237,13 @@ fn supply_lines_drop_off_yields_more_cash_than_without() {
         let chinook_id = game_logic
             .create_object("AmericaVehicleChinook", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("chinook");
+        let frame = game_logic.frame;
         {
             let chinook = game_logic.host_object_mut(chinook_id).expect("chinook mut");
             chinook.set_stored_supplies(CARGO);
             chinook.set_ai_state(
                 AIState::ReturningResources,
+                frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
@@ -1402,6 +1404,7 @@ fn supply_lines_does_not_boost_non_chinook_collector() {
         truck.set_stored_supplies(CARGO);
         truck.set_ai_state(
             AIState::ReturningResources,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1478,11 +1481,13 @@ fn loaded_combat_chinook_does_not_auto_gather() {
         });
         chinook.set_target(
             Some(source),
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         chinook.set_ai_state(
             AIState::Gathering,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         chinook.supply_truck_state = SupplyTruckState::DockingWarehouse;
@@ -1564,6 +1569,7 @@ fn supply_truck_force_wanting_reenters_gathering() {
         let collector = logic.host_object_mut(collector_id).expect("truck mut");
         collector.set_ai_state(
             AIState::Idle,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         collector.supply_truck_state = SupplyTruckState::Regrouping;
@@ -1640,11 +1646,13 @@ fn worker_gather_arms_mine_clearing_detail() {
             .expect("worker mut");
         worker.set_target(
             Some(source),
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         worker.set_ai_state(
             AIState::Gathering,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         worker.supply_truck_state = SupplyTruckState::DockingWarehouse;
@@ -1753,6 +1761,7 @@ fn garrison_residual_exit_frees_unit_and_capacity() {
         unit.target = Some(bunker_id);
         unit.set_ai_state(
             AIState::Entering,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1827,6 +1836,7 @@ fn garrison_residual_capacity_full_rejects_enter() {
         unit.target = Some(bunker_id);
         unit.set_ai_state(
             AIState::Entering,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1973,6 +1983,7 @@ fn garrison_really_damaged_edge_ejects_occupants() {
         unit.target = Some(bunker_id);
         unit.set_ai_state(
             AIState::Entering,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -2053,6 +2064,7 @@ fn garrisonable_until_destroyed_still_allows_occupy_when_really_damaged() {
         unit.target = Some(bunker_id);
         unit.set_ai_state(
             AIState::Entering,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -2121,6 +2133,7 @@ fn garrison_residual_fire_from_garrison_damages_nearby_enemy() {
         unit.set_contained_by_with_partition_owner(Some(bunker_id), true, fixture_partition_unit);
         unit.set_ai_state(
             AIState::Garrisoned,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_position_with_partition_owner(
@@ -2294,6 +2307,7 @@ fn transport_residual_load_two_unload_both_free() {
             unit.target = Some(transport_id);
             unit.set_ai_state(
                 AIState::Entering,
+                0,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
@@ -2399,6 +2413,7 @@ fn transport_residual_exit_command_unloads_all() {
             unit.target = Some(transport_id);
             unit.set_ai_state(
                 AIState::Entering,
+                0,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
@@ -2464,6 +2479,7 @@ fn transport_residual_capacity_full_rejects_enter() {
         unit.target = Some(transport_id);
         unit.set_ai_state(
             AIState::Entering,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -2762,6 +2778,7 @@ fn overlord_bunker_residual_load_two_unload_both_free() {
             unit.target = Some(overlord_id);
             unit.set_ai_state(
                 AIState::Entering,
+                0,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
@@ -2879,6 +2896,7 @@ fn overlord_bunker_residual_capacity_full_rejects_enter() {
         unit.target = Some(overlord_id);
         unit.set_ai_state(
             AIState::Entering,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }

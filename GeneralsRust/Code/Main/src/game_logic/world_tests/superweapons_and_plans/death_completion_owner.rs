@@ -76,6 +76,7 @@ End
             DeathKind::Jet => {
                 object.set_ai_state(
                     AIState::Moving,
+                    frame,
                     &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
                 );
                 let start = object.begin_jet_slow_death(
@@ -87,6 +88,7 @@ End
             DeathKind::Helicopter => {
                 object.set_ai_state(
                     AIState::Moving,
+                    frame,
                     &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
                 );
                 let start = object.begin_helicopter_slow_death(

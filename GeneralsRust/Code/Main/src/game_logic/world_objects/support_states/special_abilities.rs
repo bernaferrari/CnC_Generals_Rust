@@ -1076,6 +1076,7 @@ impl GameLogic {
             ));
             obj.set_ai_state(
                 AIState::SpecialAbility,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }
@@ -1617,6 +1618,7 @@ impl GameLogic {
             }
             object.set_ai_state(
                 AIState::SpecialAbility,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             object.set_status_using_ability(true);
@@ -1986,6 +1988,7 @@ impl GameLogic {
             obj.set_status_using_ability(false);
             obj.set_ai_state(
                 AIState::SpecialAbility,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }
@@ -2345,6 +2348,7 @@ impl GameLogic {
                     .expect("validated original rider");
                 rider.set_ai_state(
                     AIState::Docked,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 rider.set_status_moving(false);
@@ -2558,6 +2562,7 @@ impl GameLogic {
                 .expect("validated original rider");
             rider.set_ai_state(
                 AIState::Docked,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             rider.set_status_moving(false);
@@ -3013,6 +3018,7 @@ impl GameLogic {
         ));
         object.set_ai_state(
             AIState::Capturing,
+            self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         object.capture_channel = Some(crate::game_logic::CaptureChannelState::new(
@@ -3158,6 +3164,7 @@ impl GameLogic {
                 object.set_status_using_ability(false);
                 object.set_ai_state(
                     AIState::SpecialAbility,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
@@ -3376,6 +3383,7 @@ impl GameLogic {
         object.set_status_using_ability(true);
         object.set_ai_state(
             AIState::SpecialAbility,
+            self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         true
@@ -3464,6 +3472,7 @@ impl GameLogic {
             object.set_status_using_ability(true);
             object.set_ai_state(
                 AIState::SpecialAbility,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }
@@ -3652,6 +3661,7 @@ impl GameLogic {
                             object.set_status_using_ability(false);
                             object.set_ai_state(
                                 AIState::SpecialAbility,
+                                self.frame,
                                 &mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ),

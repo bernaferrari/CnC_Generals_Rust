@@ -27,6 +27,7 @@ fn fire_named_template_with_humvee_gun(template: &str, team: Team) -> GameLogic 
         let (t, attack_events) = game_logic.host_object_and_attack_events_mut(id).unwrap();
         t.attack_target(
             enemy,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -158,6 +159,7 @@ fn humvee_named_non_tow_secondary_skips_humvee_tow_object_hit_residual() {
         h.active_weapon_slot = 1;
         h.attack_target(
             enemy,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -211,6 +213,7 @@ fn troop_crawler_named_non_assault_weapon_skips_assault_deploy_object_hit_residu
         c.is_troop_crawler_transport = true;
         c.attack_target(
             enemy,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -259,6 +262,7 @@ fn raptor_named_non_jet_missile_weapon_skips_raptor_object_hit_residual() {
         let (c, attack_events) = game_logic.host_object_and_attack_events_mut(id).unwrap();
         c.attack_target(
             enemy,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -307,6 +311,7 @@ fn terrorist_named_non_suicide_weapon_skips_terrorist_object_hit_residual() {
         let (c, attack_events) = game_logic.host_object_and_attack_events_mut(id).unwrap();
         c.attack_target(
             enemy,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );

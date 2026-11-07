@@ -1162,6 +1162,7 @@ impl GameLogic {
             o.target_location = Some(location);
             o.set_ai_state(
                 crate::game_logic::AIState::Attacking,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             let shots = o

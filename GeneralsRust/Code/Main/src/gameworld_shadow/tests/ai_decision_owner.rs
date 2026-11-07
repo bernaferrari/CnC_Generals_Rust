@@ -24,6 +24,7 @@ mod ai_decision_owner_tests {
             .expect("created host object")
             .set_ai_state(
                 initial_state,
+                0,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         (logic, id)

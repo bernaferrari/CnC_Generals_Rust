@@ -67,6 +67,7 @@ fn aurora_world(frame: u32) -> (GameLogic, ObjectId, ObjectId) {
     let aurora = world.objects.get_mut(&target).unwrap();
     aurora.set_ai_state(
         AIState::Idle,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     aurora.status.airborne_target = true;

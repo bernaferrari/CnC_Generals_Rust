@@ -42,10 +42,12 @@ fn helipad_heals_landed_helo_without_stall() {
         )
         .unwrap();
     {
+        let frame = logic.frame;
         let (h, fixture_partition_h) = logic.host_object_and_partition_mut(heli).unwrap();
         h.set_contained_by_with_partition_owner(Some(pad), true, fixture_partition_h);
         h.set_ai_state(
             AIState::Docked,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         h.status.airborne_target = false;
@@ -1513,6 +1515,7 @@ fn update_combat_temp_lock_waits_instead_of_firing_primary() {
         o.target = Some(tgt);
         o.set_ai_state(
             AIState::Attacking,
+            logic.frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.set_status_attacking(true);
@@ -1646,6 +1649,7 @@ fn hijack_hides_in_eject_capable_vehicle() {
         let v = logic.objects.get_mut(&vid).unwrap();
         v.apply_hijacked_from_with_partition_owner(
             donor.as_ref(),
+            logic.frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             &mut logic.partition_manager,
         );
@@ -1660,6 +1664,7 @@ fn hijack_hides_in_eject_capable_vehicle() {
         let h = logic.objects.get_mut(&hid).unwrap();
         h.begin_hijacker_in_vehicle(
             vid,
+            logic.frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1738,6 +1743,7 @@ fn hijack_airborne_eject_puts_in_america_parachute() {
         let v = logic.objects.get_mut(&vid).unwrap();
         v.apply_hijacked_from_with_partition_owner(
             None,
+            logic.frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             &mut logic.partition_manager,
         );
@@ -1751,6 +1757,7 @@ fn hijack_airborne_eject_puts_in_america_parachute() {
         let h = logic.objects.get_mut(&hid).unwrap();
         h.begin_hijacker_in_vehicle(
             vid,
+            logic.frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1824,13 +1831,14 @@ fn hijacker_hill_tank_is_not_airborne() {
         .objects
         .get_mut(&vid)
         .unwrap()
-        .apply_hijacked(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
+        .apply_hijacked(logic.frame, &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
     logic
         .objects
         .get_mut(&hid)
         .unwrap()
         .begin_hijacker_in_vehicle(
             vid,
+            logic.frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     logic.tick_hijacker_updates();
@@ -1868,13 +1876,14 @@ fn hijacker_hill_tank_uses_height_above_terrain_not_world_y() {
         .objects
         .get_mut(&vid)
         .unwrap()
-        .apply_hijacked(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
+        .apply_hijacked(logic.frame, &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
     logic
         .objects
         .get_mut(&hid)
         .unwrap()
         .begin_hijacker_in_vehicle(
             vid,
+            logic.frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     logic.tick_hijacker_updates();
@@ -2235,9 +2244,11 @@ fn reconstructing_death_transfers_attackers_back_to_hole() {
             glam::Vec3::new(20.0, 0.0, 0.0),
         )
         .expect("atk");
+    let frame = logic.frame;
     if let Some(a) = logic.host_object_mut(aid) {
         a.set_ai_state(
             AIState::Attacking,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         a.target = Some(rid);
@@ -2349,9 +2360,11 @@ fn rebuild_hole_transfers_attackers_and_cancel_skips_refund() {
             glam::Vec3::new(20.0, 0.0, 0.0),
         )
         .expect("a");
+    let frame = logic.frame;
     if let Some(a) = logic.host_object_mut(aid) {
         a.set_ai_state(
             AIState::Attacking,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         a.target = Some(sid);

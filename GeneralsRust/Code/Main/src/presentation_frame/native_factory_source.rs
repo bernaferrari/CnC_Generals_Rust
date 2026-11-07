@@ -115,7 +115,7 @@ impl GameLogic {
                 vel_y: velocity.z,
                 accel_x: acceleration.x,
                 accel_y: acceleration.z,
-                is_motive: object.is_motive(),
+                is_motive: object.is_motive(frame),
                 airborne: object.is_above_terrain(),
                 turning: match object.physics_turning {
                     crate::game_logic::object::PhysicsTurningType::TurnNegative => -1.0,

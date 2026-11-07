@@ -203,6 +203,7 @@ impl GameLogic {
         unit.unit_ai_runtime.consume_idle_initialization();
         unit.set_ai_state(
             AIState::Dead,
+            self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         unit.unit_ai_runtime.lock_machine();

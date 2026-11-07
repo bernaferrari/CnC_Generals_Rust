@@ -2408,6 +2408,7 @@ fn detected_hero_wakes_idle_enemies() {
         let t = logic.host_object_mut(tank).unwrap();
         t.set_ai_state(
             AIState::Idle,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         t.target = None;
@@ -2719,6 +2720,7 @@ fn stealth_attack_move_does_not_destalth() {
         b.stealth_allowed_frame = 0;
         b.set_ai_state(
             AIState::AttackMoving,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         b.set_status_attacking(true);
@@ -2895,6 +2897,7 @@ fn pathfinder_grant_does_not_recloak_while_moving() {
         o.set_status_moving(true);
         o.set_ai_state(
             AIState::Moving,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         // Leftover destalths only when leftover velocity > leftover MoveThresholdSpeed.
@@ -2932,6 +2935,7 @@ fn pathfinder_move_order_below_threshold_stays_stealthed() {
         o.set_status_moving(true);
         o.set_ai_state(
             AIState::Moving,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.movement.velocity = Vec3::new(2.0, 0.0, 0.0);
@@ -2968,6 +2972,7 @@ fn pathfinder_sliding_stop_above_threshold_destalths() {
         o.set_status_moving(false);
         o.set_ai_state(
             AIState::Idle,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         // Sliding stop: leftover destalths while leftover velocity still exceeds 3.

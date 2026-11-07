@@ -396,6 +396,7 @@ impl GameLogic {
         if let Some(rider) = self.objects.get_mut(&rider_id) {
             rider.set_ai_state(
                 AIState::Moving,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             rider.status.moving = true;

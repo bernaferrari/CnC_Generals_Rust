@@ -326,6 +326,7 @@ fn fire_base_object_hit_residual_keys_on_authored_weapon_not_template_name() {
         let (t, attack_events) = game_logic.host_object_and_attack_events_mut(id).unwrap();
         t.attack_target(
             enemy,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -547,6 +548,7 @@ fn tomahawk_named_non_tomahawk_weapon_skips_tomahawk_object_hit_residual() {
             .unwrap();
         t.attack_target(
             enemy,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -854,6 +856,7 @@ fn fire_base_named_non_howitzer_weapon_skips_fire_base_object_hit_residual() {
         let (t, attack_events) = game_logic.host_object_and_attack_events_mut(fb_id).unwrap();
         t.attack_target(
             enemy,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -1083,6 +1086,7 @@ fn overlord_named_non_overlord_gun_skips_overlord_object_hit_residual() {
         let (t, attack_events) = game_logic.host_object_and_attack_events_mut(ol_id).unwrap();
         t.attack_target(
             enemy,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );

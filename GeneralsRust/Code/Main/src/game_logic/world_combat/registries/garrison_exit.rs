@@ -144,7 +144,7 @@ impl GameLogic {
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
             );
-            p.set_ai_state_at_frame(
+            p.set_ai_state(
                 AIState::Moving,
                 self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
@@ -226,7 +226,7 @@ impl GameLogic {
                 self.frame,
                 &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
             );
-            p.set_ai_state_at_frame(
+            p.set_ai_state(
                 AIState::Moving,
                 self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),

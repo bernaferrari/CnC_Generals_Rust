@@ -253,6 +253,7 @@ fn hunting_infantry_pair() -> (GameLogic, ObjectId, ObjectId) {
     let hunter_id = ObjectId(3203);
     let mut hunter_template = ThingTemplate::new("HuntAttackSource");
     hunter_template.add_kind_of(KindOf::Infantry);
+    let frame = logic.frame;
     logic.objects.insert(hunter_id, {
         let mut hunter = Object::new(hunter_template, hunter_id, Team::USA);
         hunter.set_position(glam::Vec3::ZERO);
@@ -271,6 +272,7 @@ fn hunting_infantry_pair() -> (GameLogic, ObjectId, ObjectId) {
         hunter.set_hunting(true);
         hunter.set_ai_state(
             AIState::Patrolling,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         let _ = hunter.set_weapon_lock(1, WeaponLockType::LockedTemporarily);
@@ -304,10 +306,12 @@ fn player_attack_ends_hunt_and_releases_temp_lock() {
         WeaponLockType::NotLocked,
         "AIHuntState::onExit releases LOCKED_TEMPORARILY"
     );
+    let frame = logic.frame;
     if let Some(unit) = logic.objects.get_mut(&hunter_id) {
         unit.clear_target(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
         unit.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -335,9 +339,11 @@ fn player_move_ends_hunt_and_does_not_resume() {
         WeaponLockType::NotLocked,
         "AIHuntState::onExit releases LOCKED_TEMPORARILY"
     );
+    let frame = logic.frame;
     if let Some(unit) = logic.objects.get_mut(&hunter_id) {
         unit.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.clear_target(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));

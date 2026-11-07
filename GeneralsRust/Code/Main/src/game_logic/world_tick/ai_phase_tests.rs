@@ -413,13 +413,13 @@ fn idle_wings_circle_without_a_second_altitude_step() {
     jet.movement.max_speed = 80.0;
     jet.movement.acceleration = 100.0;
     jet.movement.velocity = Vec3::new(20.0, 2.0, 0.0);
-    jet.motive_frames_remaining = 10;
+    jet.motive_force_expires = 10;
     jet.maintain_pos = Some(jet.get_position());
     jet.maintain_pos_valid = true;
     let start = jet.get_position();
     let mut altitude_only = jet.clone();
     GameLogic::apply_live_handle_behavior_z_for_test(&mut altitude_only, 0.0, Some(start.y));
-    let _ = jet.loco_maintain_appearance(LOGIC_FRAME_TIMESTEP);
+    let _ = jet.loco_maintain_appearance(LOGIC_FRAME_TIMESTEP, 0);
     assert_eq!(
         jet.get_position().y,
         start.y,

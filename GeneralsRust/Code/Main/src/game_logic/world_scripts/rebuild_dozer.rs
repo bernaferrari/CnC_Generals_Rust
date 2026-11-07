@@ -170,6 +170,7 @@ impl GameLogic {
                 veh.target = None;
                 veh.set_ai_state(
                     crate::game_logic::AIState::Idle,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 veh.set_team_and_owner_with_partition_owner(
@@ -441,6 +442,7 @@ impl GameLogic {
                 object.set_status_attacking(false);
                 object.set_ai_state(
                     AIState::Idle,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
@@ -777,6 +779,7 @@ impl GameLogic {
                     .expect("containment operation preserves this birth");
                 unit.set_ai_state(
                     AIState::Idle,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 {}
@@ -879,6 +882,7 @@ impl GameLogic {
                     .expect("containment operation preserves this birth");
                 unit.set_ai_state(
                     AIState::Idle,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 {}
@@ -962,6 +966,7 @@ impl GameLogic {
                                 .expect("containment operation preserves this birth");
                             unit.set_ai_state(
                                 AIState::Idle,
+                                self.frame,
                                 &mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ),

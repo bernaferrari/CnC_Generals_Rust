@@ -305,9 +305,11 @@ fn panic_snapshot_rejects_unreachable_timer_and_nonfinite_width_capsules() {
 
 fn moving_path_snapshot() -> crate::save_load::snapshot::WorldSnapshot {
     let mut source = panic_logic();
+    let frame = source.frame;
     let unit = source.objects.get_mut(&PANIC_UNIT).expect("moving unit");
     unit.set_ai_state(
         AIState::Moving,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     unit.movement.path = vec![

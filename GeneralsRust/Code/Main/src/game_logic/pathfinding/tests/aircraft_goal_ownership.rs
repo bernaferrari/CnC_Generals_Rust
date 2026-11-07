@@ -470,9 +470,11 @@ fn authored_aircraft_save_load_continues_owned_goal_changes() {
     let dest = Vec3::new(75.0, 40.0, 75.0);
     let (mut source, hover, wings) = authored_world(dest);
     let mut audio = crate::game_logic::SessionAudio::default();
+    let frame = source.frame;
     for id in [hover, wings] {
         source.objects.get_mut(&id).unwrap().set_ai_state(
             crate::game_logic::AIState::Moving,
+            frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut audio),
         );
         assert!(source.objects[&id].host_ai_is_moving());

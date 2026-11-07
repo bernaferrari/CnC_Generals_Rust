@@ -58,10 +58,12 @@ fn internet_center_subdual_idles_occupant_hackers_and_resumes() {
         .create_object("TestHackerSubdual", Team::China, Vec3::new(1.0, 0.0, 0.0))
         .expect("hacker");
     assert!(logic.host_object_mut(ic).expect("ic").add_occupant(hacker));
+    let ai_entry_frame = logic.frame;
     if let Some((obj, fixture_partition_obj)) = logic.host_object_and_partition_mut(hacker) {
         obj.set_contained_by_with_partition_owner(Some(ic), true, fixture_partition_obj);
         obj.set_ai_state(
             AIState::Docked,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -181,8 +183,10 @@ fn hacker_field_residual_deposits_cash_on_interval() {
         .update_hacker_income()
         .expect("receiving AI operation succeeds");
     assert!(!game_logic.hacker_income().is_hacking(hacker_id));
+    let ai_entry_frame = game_logic.frame;
     game_logic.host_object_mut(hacker_id).unwrap().set_ai_state(
         crate::game_logic::AIState::Moving,
+        ai_entry_frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
 
@@ -710,6 +714,7 @@ fn steal_cash_hack_command_transfers_cash_after_reach() {
 
     // StartAbilityRange 150 residual: mid-range should still complete.
     {
+        let ai_entry_frame = game_logic.frame;
         let (lotus, fixture_partition_lotus) = game_logic
             .host_object_and_partition_mut(lotus_id)
             .expect("lotus should exist");
@@ -721,6 +726,7 @@ fn steal_cash_hack_command_transfers_cash_after_reach() {
         );
         lotus.set_ai_state(
             AIState::SpecialAbility,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         lotus.target = Some(target_id);
@@ -811,6 +817,7 @@ fn steal_cash_hack_awards_lotus_award_xp_for_triggering() {
     });
     game_logic.process_commands();
     {
+        let ai_entry_frame = game_logic.frame;
         let (lotus, fixture_partition_lotus) = game_logic
             .host_object_and_partition_mut(lotus_id)
             .expect("lotus");
@@ -822,6 +829,7 @@ fn steal_cash_hack_awards_lotus_award_xp_for_triggering() {
         );
         lotus.set_ai_state(
             AIState::SpecialAbility,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         lotus.target = Some(target_id);
@@ -969,6 +977,7 @@ fn steal_cash_hack_uses_controlling_players_not_faction_slot() {
     });
     game_logic.process_commands();
     {
+        let ai_entry_frame = game_logic.frame;
         let (lotus, fixture_partition_lotus) = game_logic
             .host_object_and_partition_mut(lotus_id)
             .expect("lotus");
@@ -980,6 +989,7 @@ fn steal_cash_hack_uses_controlling_players_not_faction_slot() {
         );
         lotus.set_ai_state(
             AIState::SpecialAbility,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         lotus.target = Some(target_id);
@@ -1063,6 +1073,7 @@ fn leftover_lotus_prep_aborts_when_target_stealthed() {
     });
     game_logic.process_commands();
     {
+        let ai_entry_frame = game_logic.frame;
         let (lotus, fixture_partition_lotus) = game_logic
             .host_object_and_partition_mut(lotus_id)
             .expect("lotus");
@@ -1074,6 +1085,7 @@ fn leftover_lotus_prep_aborts_when_target_stealthed() {
         );
         lotus.set_ai_state(
             AIState::SpecialAbility,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         lotus.target = Some(target_id);
@@ -1150,6 +1162,7 @@ fn leftover_lotus_unpack_sets_model_and_unpack_sound() {
     });
     game_logic.process_commands();
     {
+        let ai_entry_frame = game_logic.frame;
         let (lotus, fixture_partition_lotus) = game_logic
             .host_object_and_partition_mut(lotus_id)
             .expect("lotus");
@@ -1161,6 +1174,7 @@ fn leftover_lotus_unpack_sets_model_and_unpack_sound() {
         );
         lotus.set_ai_state(
             AIState::SpecialAbility,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         lotus.target = Some(target_id);
@@ -1231,6 +1245,7 @@ fn leftover_sa_trigger_queues_ini_trigger_sound() {
     });
     game_logic.process_commands();
     {
+        let ai_entry_frame = game_logic.frame;
         let (lotus, fixture_partition_lotus) = game_logic
             .host_object_and_partition_mut(lotus_id)
             .expect("lotus");
@@ -1242,6 +1257,7 @@ fn leftover_sa_trigger_queues_ini_trigger_sound() {
         );
         lotus.set_ai_state(
             AIState::SpecialAbility,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         lotus.target = Some(target_id);
@@ -1321,6 +1337,7 @@ fn leftover_sa_hot_swap_aborts_in_flight_channel() {
     });
     game_logic.process_commands();
     {
+        let ai_entry_frame = game_logic.frame;
         let (lotus, fixture_partition_lotus) = game_logic
             .host_object_and_partition_mut(lotus_id)
             .expect("lotus");
@@ -1332,6 +1349,7 @@ fn leftover_sa_hot_swap_aborts_in_flight_channel() {
         );
         lotus.set_ai_state(
             AIState::SpecialAbility,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         lotus.target = Some(supply_id);
@@ -1366,6 +1384,7 @@ fn leftover_sa_hot_swap_aborts_in_flight_channel() {
         "new leftover SA must onExit the in-flight steal channel"
     );
     {
+        let ai_entry_frame = game_logic.frame;
         let (lotus, fixture_partition_lotus) = game_logic
             .host_object_and_partition_mut(lotus_id)
             .expect("lotus");
@@ -1377,6 +1396,7 @@ fn leftover_sa_hot_swap_aborts_in_flight_channel() {
         );
         lotus.set_ai_state(
             AIState::SpecialAbility,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         lotus.target = Some(tank_id);
@@ -1439,9 +1459,11 @@ fn leftover_burton_flips_180_after_unpack() {
         burton_id,
         crate::game_logic::PendingSpecialAbility::PlantTimedDemoCharge { target_id },
     );
+    let ai_entry_frame = game_logic.frame;
     if let Some(burton) = game_logic.host_object_mut(burton_id) {
         burton.set_ai_state(
             AIState::SpecialAbility,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         burton.target = Some(target_id);
@@ -1511,11 +1533,13 @@ fn plant_start_range_requires_approach_los() {
     let target_id = blocked
         .create_object("TestBuilding", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
         .expect("bldg");
+    let ai_entry_frame = blocked.frame;
     if let Some(unit) = blocked.host_object_mut(burton_id) {
         unit.set_selection_radius(80.0);
         unit.target = Some(target_id);
         unit.set_ai_state(
             AIState::SpecialAbility,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1559,11 +1583,13 @@ fn plant_start_range_requires_approach_los() {
     let target_id = clear
         .create_object("TestBuilding", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
         .expect("bldg");
+    let ai_entry_frame = clear.frame;
     if let Some(unit) = clear.host_object_mut(burton_id) {
         unit.set_selection_radius(80.0);
         unit.target = Some(target_id);
         unit.set_ai_state(
             AIState::SpecialAbility,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1698,9 +1724,11 @@ fn burton_and_tnt_plant_reject_bridges() {
             target_id: bridge_id,
         },
     );
+    let ai_entry_frame = game_logic.frame;
     if let Some(burton) = game_logic.host_object_mut(burton_id) {
         burton.set_ai_state(
             AIState::SpecialAbility,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         burton.target = Some(bridge_id);
@@ -1719,9 +1747,11 @@ fn burton_and_tnt_plant_reject_bridges() {
             target_id: bridge_id,
         },
     );
+    let ai_entry_frame = game_logic.frame;
     if let Some(hunter) = game_logic.host_object_mut(hunter_id) {
         hunter.set_ai_state(
             AIState::SpecialAbility,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         hunter.target = Some(bridge_id);
@@ -1928,6 +1958,7 @@ fn disable_vehicle_hack_command_disables_after_reach() {
 
     // Within StartAbilityRange 150 residual (not melee pad).
     {
+        let ai_entry_frame = game_logic.frame;
         let (lotus, fixture_partition_lotus) = game_logic
             .host_object_and_partition_mut(lotus_id)
             .expect("lotus should exist");
@@ -1939,6 +1970,7 @@ fn disable_vehicle_hack_command_disables_after_reach() {
         );
         lotus.set_ai_state(
             AIState::SpecialAbility,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         lotus.target = Some(target_id);
@@ -2094,6 +2126,7 @@ fn black_lotus_capture_building_without_upgrade() {
 
     // Within residual range 150.
     {
+        let ai_entry_frame = game_logic.frame;
         let (lotus, fixture_partition_lotus) = game_logic
             .host_object_and_partition_mut(lotus_id)
             .expect("lotus");
@@ -2109,6 +2142,7 @@ fn black_lotus_capture_building_without_upgrade() {
         lotus.stop_moving(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
         lotus.set_ai_state(
             AIState::Capturing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         lotus.target = Some(building_id);
@@ -2427,10 +2461,12 @@ fn ecm_jam_residual_jams_enemy_weapons_in_radius() {
 
     // Combat path must not fire while jammed.
     {
+        let ai_entry_frame = game_logic.frame;
         let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
         enemy.target = Some(ecm_id);
         enemy.set_ai_state(
             AIState::Attacking,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         enemy.set_status_attacking(true);
@@ -3018,10 +3054,12 @@ fn active_special_ability_channel_still_cancels_on_replacement_order() {
         .expect("active unit");
     let unpacking = 1u128 << unpacking_model_bit();
     {
+        let ai_entry_frame = logic.frame;
         let object = logic.objects.get_mut(&id).unwrap();
         object.model_condition_bits |= unpacking;
         object.set_ai_state(
             AIState::Moving,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         object.set_status_using_ability(true);

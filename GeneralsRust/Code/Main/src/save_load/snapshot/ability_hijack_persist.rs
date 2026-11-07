@@ -223,6 +223,7 @@ fn apply_payload(game_logic: &mut GameLogic, payload: AbilityHijackPersistPayloa
                 .host_object(vid)
                 .is_some_and(|vehicle| vehicle.is_alive())
         });
+        let frame = game_logic.frame;
         let Some((object, _, audio, partition)) =
             game_logic.host_object_attack_audio_partition_mut(object_id)
         else {
@@ -232,6 +233,7 @@ fn apply_payload(game_logic: &mut GameLogic, payload: AbilityHijackPersistPayloa
             if let Some(vehicle_id) = vehicle_id.filter(|_| vehicle_alive) {
                 object.begin_hijacker_in_vehicle_with_partition_owner(
                     vehicle_id,
+                    frame,
                     &mut crate::game_logic::ObjectAudio::queue(audio),
                     partition,
                 );
@@ -321,6 +323,7 @@ mod tests {
             .create_object("AmericaBarracks", Team::USA, Vec3::new(40.0, 0.0, 8.0))
             .expect("barracks");
 
+        let frame = source.frame;
         {
             let (ranger, audio) = source
                 .host_object_and_audio_events_mut(ranger_id)
@@ -331,6 +334,7 @@ mod tests {
             });
             ranger.set_ai_state(
                 AIState::Capturing,
+                frame,
                 &mut crate::game_logic::ObjectAudio::queue(audio),
             );
             ranger.set_status_using_ability(true);
@@ -343,6 +347,7 @@ mod tests {
             burton.charge_plant_unpack_remaining_seconds = Some(2.2);
             burton.set_ai_state(
                 AIState::SpecialAbility,
+                frame,
                 &mut crate::game_logic::ObjectAudio::queue(audio),
             );
             burton.set_status_using_ability(true);
@@ -439,12 +444,14 @@ mod tests {
         let vid = source
             .create_object("AmericaTankCrusader", Team::GLA, Vec3::new(8.0, 0.0, 6.0))
             .expect("tank");
+        let frame = source.frame;
         {
             let (tank, _, audio, partition) = source
                 .host_object_attack_audio_partition_mut(vid)
                 .expect("tank");
             tank.apply_hijacked_from_with_partition_owner(
                 None,
+                frame,
                 &mut crate::game_logic::ObjectAudio::queue(audio),
                 partition,
             );
@@ -455,6 +462,7 @@ mod tests {
                 .expect("hijacker");
             hijacker.begin_hijacker_in_vehicle_with_partition_owner(
                 vid,
+                frame,
                 &mut crate::game_logic::ObjectAudio::queue(audio),
                 partition,
             );

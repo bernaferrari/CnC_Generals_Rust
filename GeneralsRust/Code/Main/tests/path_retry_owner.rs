@@ -141,8 +141,9 @@ fn aircraft_world(map: &std::path::Path) -> GameLogic {
 fn mark_unit_moving(world: &mut GameLogic, id: ObjectId) {
     use generals_main::game_logic::{AIState, ObjectAudio, SessionAudio};
     let mut audio = SessionAudio::default();
+    let frame = world.get_frame();
     let actor = world.host_object_mut(id).unwrap();
-    actor.set_ai_state(AIState::Moving, &mut ObjectAudio::queue(&mut audio));
+    actor.set_ai_state(AIState::Moving, frame, &mut ObjectAudio::queue(&mut audio));
     assert!(actor.host_ai_is_moving());
 }
 
@@ -1930,8 +1931,9 @@ fn tighten_continuation_is_actor_owned_and_survives_pending_save() {
     {
         use generals_main::game_logic::{ObjectAudio, SessionAudio};
         let mut audio = SessionAudio::default();
+        let frame = locked.get_frame();
         let actor = locked.host_object_mut(stuck_id).unwrap();
-        actor.set_ai_state(AIState::Idle, &mut ObjectAudio::queue(&mut audio));
+        actor.set_ai_state(AIState::Idle, frame, &mut ObjectAudio::queue(&mut audio));
         assert_eq!(
             actor.ai_state(),
             AIState::Moving,
@@ -1967,8 +1969,9 @@ fn tighten_continuation_is_actor_owned_and_survives_pending_save() {
     {
         use generals_main::game_logic::{ObjectAudio, SessionAudio};
         let mut audio = SessionAudio::default();
+        let frame = locked_reloaded.get_frame();
         let actor = locked_reloaded.host_object_mut(stuck_id).unwrap();
-        actor.set_ai_state(AIState::Moving, &mut ObjectAudio::queue(&mut audio));
+        actor.set_ai_state(AIState::Moving, frame, &mut ObjectAudio::queue(&mut audio));
         assert_eq!(
             actor.ai_state(),
             AIState::Idle,

@@ -64,6 +64,7 @@ fn gameworld_step_movement_advances_move_target() {
         o.movement.velocity = glam::Vec3::ZERO;
         o.move_to(
             glam::Vec3::new(100.0, 0.0, 0.0),
+            0,
             &mut movement_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -291,6 +292,7 @@ fn host_update_movement_skips_when_gameworld_movement_authority() {
         o.movement.acceleration = 240.0;
         o.move_to(
             glam::Vec3::new(50.0, 0.0, 0.0),
+            0,
             &mut movement_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -716,6 +718,7 @@ fn attack_target_logs_host_attack_event() {
         // Ensure can_attack path: weapon or kind
         o.attack_target(
             b,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -756,6 +759,7 @@ fn attack_log_feeds_set_attack_target_mutation() {
     if let Some((obj, attack_events)) = logic.host_object_and_attack_events_mut(a) {
         obj.set_target(
             Some(b),
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -814,6 +818,7 @@ fn attack_target_syncs_to_shadow_entity() {
     if let Some((obj, attack_events)) = logic.host_object_and_attack_events_mut(a) {
         obj.set_target(
             Some(b),
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -855,6 +860,7 @@ fn attack_target_writeback_updates_host() {
         let (object, attack_events) = logic.host_object_and_attack_events_mut(a).unwrap();
         object.set_target(
             Some(b),
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -947,6 +953,7 @@ fn move_to_logs_destination_for_mobile_unit() {
     let (object, mut events) = logic.host_object_and_movement_events_mut(a).unwrap();
     object.set_destination(
         glam::Vec3::new(10.0, 0.0, 0.0),
+        0,
         &mut events,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
@@ -974,6 +981,7 @@ fn move_target_writeback_updates_host() {
         let (object, mut writer) = logic.host_object_and_movement_events_mut(a).unwrap();
         object.set_destination(
             glam::Vec3::new(50.0, 0.0, 25.0),
+            0,
             &mut writer,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -1359,6 +1367,7 @@ fn owned_damage_and_move_do_not_implicitly_publish_to_comparison_world() {
         let (o, mut movement_events) = logic.host_object_and_movement_events_mut(oid).expect("o");
         o.move_to(
             glam::Vec3::new(40.0, 0.0, 0.0),
+            0,
             &mut movement_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -2202,9 +2211,11 @@ fn canonical_attack_receipts_keep_owner_fifo_across_same_id_peer_lifecycle() {
         (logic, attacker, first, second)
     }
     fn order(logic: &mut GameLogic, attacker: ObjectId, target: ObjectId) {
+        let frame = logic.get_frame();
         let (object, output) = logic.host_object_and_attack_events_mut(attacker).unwrap();
         object.attack_target(
             target,
+            frame,
             output,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );

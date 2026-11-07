@@ -136,6 +136,7 @@ impl GameLogic {
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.set_ai_state(
                 AIState::Panic,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             if unit.ai_state() != AIState::Panic {
@@ -455,6 +456,7 @@ impl GameLogic {
             if let Some(unit) = self.objects.get_mut(&id) {
                 unit.set_ai_state(
                     AIState::Panic,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 unit.panic_runtime = Some(panic);

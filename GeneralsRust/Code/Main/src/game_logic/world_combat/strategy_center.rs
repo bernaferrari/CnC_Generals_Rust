@@ -294,6 +294,7 @@ impl GameLogic {
             if entered_attack {
                 attacker.set_ai_state(
                     AIState::Attacking,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
@@ -722,6 +723,7 @@ impl GameLogic {
             if entered_attack {
                 attacker.set_ai_state(
                     AIState::Attacking,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }

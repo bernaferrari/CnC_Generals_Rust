@@ -30,9 +30,11 @@ fn command_non_attack_order_target() -> bool {
         return false;
     };
 
+    let frame = logic.frame;
     if let Some((unit, attack_events, audio_events)) = logic.host_object_attack_audio_mut(u) {
         unit.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::queue(audio_events),
         );
         unit.set_order_target(
@@ -42,6 +44,7 @@ fn command_non_attack_order_target() -> bool {
         );
         unit.set_ai_state(
             AIState::Docking,
+            frame,
             &mut crate::game_logic::ObjectAudio::queue(audio_events),
         );
         if unit.target != Some(pad) {

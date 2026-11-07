@@ -2,8 +2,8 @@
 //! Expected live values are the explicitly adapted column of the extracted C++
 //! force oracle. Raw original frame values are retained separately in the fixture.
 
-use game_engine::common::ini::ini_locomotor::{get_locomotor_store, load_locomotors_from_str};
-use generals_main::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding;
+use game_engine::common::ini::ini_locomotor::LocomotorStore;
+use generals_main::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding_from_store;
 use generals_main::game_logic::{
     GameLogic, KindOf, LocoGoalType, LocomotorAppearance, Object, Team, ThingTemplate,
 };
@@ -92,16 +92,17 @@ fn run_case(name: &str) {
         "Locomotor {loco_name}\nSurfaces = GROUND\nSpeed = 60\nAcceleration = 30\nBraking = {}\nAppearance = OTHER\nMinSpeed = {minimum}\nWanderWidthFactor = 0\nZAxisBehavior = NO_Z_MOTIVE_FORCE\nEnd\n",
         row[2]
     );
-    assert_eq!(load_locomotors_from_str(&ini).unwrap(), 1);
+    let mut store = LocomotorStore::new_owned();
+    assert_eq!(store.apply_source(&ini).unwrap(), 1);
     {
-        let store = get_locomotor_store();
         let parsed = store.find_template(&loco_name).unwrap();
         eq_bits(parsed.braking, row[8], "parsed original frame braking");
         eq_bits(parsed.max_speed, row[7], "parsed original frame goal");
     }
-    let binding = resolve_host_locomotor_binding(&loco_name).unwrap();
+    let binding = resolve_host_locomotor_binding_from_store(&store, &loco_name).unwrap();
     eq_bits(binding.braking, row[5], "bound host braking");
     eq_bits(binding.movement.max_speed, row[4], "bound host goal");
+    game.admit_locomotor_definitions(store).unwrap();
     let mut template = ThingTemplate::new(&unit_name);
     template
         .set_health(100.0)
@@ -167,7 +168,7 @@ fn run_case(name: &str) {
     let object = game.host_object(id).unwrap();
     assert_isolated(object);
     assert!(object.is_alive());
-    assert!(object.is_motive());
+    assert!(object.is_motive(tick.frame));
     assert!(object.status.moving);
     assert_eq!(object.movement.target_position, Some(TARGET));
     assert!(object.get_position().x < TARGET.x - 100.0);

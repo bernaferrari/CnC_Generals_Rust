@@ -424,6 +424,7 @@ fn repair_complete_removes_scaffolding() {
         d.set_dozer_task_repair_target(Some(tower));
         d.set_target(
             Some(tower),
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );

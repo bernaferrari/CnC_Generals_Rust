@@ -12,21 +12,31 @@ use super::entity_lifecycle_residuals::{
 };
 use super::entity_lifecycle_tags::*;
 use gamelogic::world::entities::{EntityLifecycleCodecError, EntityModuleState};
+/// Validate the same Physics payload used by lifecycle application before
+/// world replacement retires any receiving Object.
+pub(crate) fn validate_physics_owner(
+    owner: super::ObjectId,
+    modules: &[EntityModuleState],
+) -> Result<(), EntityLifecycleCodecError> {
+    let mut seen = false;
+    for module in modules.iter().filter(|module| module.tag == TAG_PHYSICS_BEHAVIOR) {
+        let state: PhysicsBehaviorResidual = decode_payload(&module.payload)?;
+        if seen || !state.valid_for_owner(owner) {
+            return Err(EntityLifecycleCodecError::InvalidOwnerComponent {
+                component: "physics behavior",
+            });
+        }
+        seen = true;
+    }
+    Ok(())
+}
+
 
 pub(crate) fn apply_module_states(
     object: &mut Object,
     modules: &[EntityModuleState],
 ) -> Result<Option<crate::game_logic::host_railroad::HostRailroadCar>, EntityLifecycleCodecError> {
-    let mut physics_seen = false;
-    for module in modules.iter().filter(|module| module.tag == TAG_PHYSICS_BEHAVIOR) {
-        let state: PhysicsBehaviorResidual = decode_payload(&module.payload)?;
-        if physics_seen || !state.valid_for(object) {
-            return Err(EntityLifecycleCodecError::InvalidOwnerComponent {
-                component: "physics behavior",
-            });
-        }
-        physics_seen = true;
-    }
+    validate_physics_owner(object.id, modules)?;
     // Preflight the complete tracker payload before any earlier module can
     // mutate the receiving Object. Its owner comes from this exact envelope.
     let mut parachute_seen = false;

@@ -658,17 +658,20 @@ mod tests {
         let id = logic
             .create_object("TestComanche", Team::USA, glam::Vec3::new(5.0, 20.0, 0.0))
             .unwrap();
+        let frame = logic.frame;
         {
             let (o, attack_events) = logic.host_object_and_attack_events_mut(id).unwrap();
             o.health.current = 40.0;
             o.status.airborne_target = true;
             o.set_target(
                 Some(af),
+                frame,
                 attack_events,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             o.set_ai_state(
                 AIState::SeekingRepair,
+                frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
@@ -706,16 +709,19 @@ mod tests {
         let drone_id = logic
             .create_object("TestBattleDrone", Team::USA, glam::Vec3::new(3.0, 0.0, 0.0))
             .unwrap();
+        let frame = logic.frame;
         {
             let (o, attack_events) = logic.host_object_and_attack_events_mut(master).unwrap();
             o.health.current = 40.0;
             o.set_target(
                 Some(pad_id),
+                frame,
                 attack_events,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             o.set_ai_state(
                 AIState::SeekingRepair,
+                frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
@@ -758,16 +764,19 @@ mod tests {
         let wid = logic
             .create_object("GLAInfantryWorker", Team::GLA, glam::Vec3::ZERO)
             .unwrap();
+        let frame = logic.frame;
         {
             let (o, attack_events) = logic.host_object_and_attack_events_mut(wid).unwrap();
             o.model_condition_bits |= 1u128 << moving_model_bit();
             o.set_target(
                 Some(dock),
+                frame,
                 attack_events,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             o.set_ai_state(
                 AIState::Gathering,
+                frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }

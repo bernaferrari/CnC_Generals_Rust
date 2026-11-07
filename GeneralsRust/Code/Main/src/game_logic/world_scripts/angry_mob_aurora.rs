@@ -1683,6 +1683,7 @@ impl GameLogic {
                         }
                         mob.set_ai_state(
                             AIState::Attacking,
+                            self.frame,
                             &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),
@@ -2474,6 +2475,7 @@ mod spawn_behavior_parity {
         if let Some(n) = logic.objects.get_mut(&nid) {
             n.set_destination(
                 glam::Vec3::new(80.0, 0.0, 0.0),
+                logic.frame,
                 &mut logic.movement_events.writer(logic.frame),
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );

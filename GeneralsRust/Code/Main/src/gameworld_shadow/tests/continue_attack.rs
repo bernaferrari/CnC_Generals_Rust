@@ -81,6 +81,7 @@ fn ai_decision_authority_applies_attack_via_gameworld() {
         let (object, attack_events) = logic.host_object_and_attack_events_mut(oid).unwrap();
         object.set_target(
             Some(vid),
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -690,6 +691,7 @@ fn mood_auto_acquire_logs_decision_under_authority() {
         // the try_mood_auto_acquire_enters_attack precedent sets Idle explicitly.
         o.set_ai_state(
             crate::game_logic::AIState::Idle,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.set_auto_acquire_when_idle(true);

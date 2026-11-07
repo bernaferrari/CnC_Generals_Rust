@@ -536,6 +536,7 @@ fn comanche_cannon_object_hit_residual_keys_on_authored_weapon_not_template_name
             let (f, ev) = gl.host_object_and_attack_events_mut(shooter).unwrap();
             f.attack_target(
                 enemy,
+                0,
                 ev,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );

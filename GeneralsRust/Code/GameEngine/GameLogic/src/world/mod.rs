@@ -660,7 +660,6 @@ pub enum WorldMutation {
     /// Host PhysicsBehavior / AI motive residual pack.
     SetPhysicsMotive {
         target: EntityId,
-        motive_frames_remaining: u32,
         physics_mass: f32,
         physics_accel: [f32; 3],
         forward_friction: f32,
@@ -1651,7 +1650,6 @@ impl GameWorld {
                 }
                 WorldMutation::SetPhysicsMotive {
                     target,
-                    motive_frames_remaining,
                     physics_mass,
                     physics_accel,
                     forward_friction,
@@ -1673,7 +1671,6 @@ impl GameWorld {
                     physics_previous_overlap_id,
                 } => {
                     if let Some(e) = self.inner.entity_mut(target) {
-                        e.motive_frames_remaining = motive_frames_remaining;
                         e.physics_mass = physics_mass;
                         e.physics_accel = physics_accel;
                         e.forward_friction = forward_friction;

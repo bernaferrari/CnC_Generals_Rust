@@ -139,10 +139,12 @@ End
         !logic.can_unit_enter_normal_target(unit, pad),
         "C++ ActionManager.cpp:636-644 rejects full-health HealContain enter"
     );
+    let frame = logic.frame;
     if let Some(obj) = logic.host_object_mut(unit) {
         obj.internal_change_health(20.0 - obj.health.current);
         obj.set_ai_state(
             AIState::Entering,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.target = Some(pad);

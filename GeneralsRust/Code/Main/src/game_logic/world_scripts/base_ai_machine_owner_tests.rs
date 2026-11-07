@@ -482,8 +482,10 @@ fn containment_exit_drop_uses_owned_idle_entry_for_the_receiving_actor() {
     let id = world
         .create_object("Ranger", Team::USA, Vec3::ZERO)
         .expect("ranger");
+    let frame = world.frame;
     world.host_object_mut(id).unwrap().set_ai_state(
         AIState::Attacking,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert!(
@@ -504,8 +506,10 @@ fn subdual_passenger_idle_uses_receiving_world_entry() {
     let passenger_id = world
         .create_object_for_player("JetIdleOwner", 1, Vec3::new(20.0, 0.0, 0.0))
         .unwrap();
+    let frame = world.frame;
     world.host_object_mut(passenger_id).unwrap().set_ai_state(
         AIState::Moving,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     {
@@ -545,6 +549,7 @@ fn real_attack_move_child_attack_returns_to_idle_without_losing_parent_goal() {
     attacker.last_command_source = crate::game_logic::HUNT_CMD_FROM_AI;
     attacker.set_ai_state(
         AIState::AttackMoving,
+        world.frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     let mut victim = Object::new(ThingTemplate::new("AttackMoveVictim"), victim_id, Team::GLA);

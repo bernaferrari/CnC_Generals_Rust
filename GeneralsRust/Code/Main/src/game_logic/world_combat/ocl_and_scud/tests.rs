@@ -452,9 +452,10 @@ fn overlord_gattling_independent_acquire_not_stacked_primary() {
         .create_object("AuthoredPortableGun", Team::China, Vec3::ZERO)
         .expect("portable gun");
     logic.attach_overlord_portable_occupant(tank, turret);
+    let frame = logic.frame;
     {
         let o = logic.host_object_mut(turret).unwrap();
-        o.set_ai_state(AIState::Idle, &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
+        o.set_ai_state(AIState::Idle, frame, &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
         let mut weapon = crate::game_logic::Weapon::default();
         weapon.last_fire_time = -10.0;
         weapon.reload_time = 0.1;

@@ -1002,10 +1002,12 @@ mod tests {
             )
             .expect("hacker");
         assert!(logic.host_object_mut(ic).expect("ic").add_occupant(hacker));
+        let frame = logic.frame;
         if let Some(obj) = logic.host_object_mut(hacker) {
             obj.set_contained_by(Some(ic));
             obj.set_ai_state(
                 crate::game_logic::AIState::Docked,
+                frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }

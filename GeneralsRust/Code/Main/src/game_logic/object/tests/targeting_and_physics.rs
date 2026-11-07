@@ -214,12 +214,14 @@ fn out_of_ammo_damage_ticks_empty_rtb_jet() {
     jet.health.current = 100.0;
     jet.set_ai_state(
         AIState::Docked,
+        0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert_eq!(jet.apply_out_of_ammo_damage_frame(&mut health_events), 0.0);
     // Rearmed: no damage.
     jet.set_ai_state(
         AIState::Idle,
+        0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     jet.rearm_return_to_base_weapons();
@@ -342,6 +344,7 @@ fn parked_jet_takeoff_on_attack_and_move() {
     jet.contained_by = Some(ObjectId(99));
     jet.set_ai_state(
         AIState::Docked,
+        0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     jet.status.airborne_target = false;
@@ -349,6 +352,7 @@ fn parked_jet_takeoff_on_attack_and_move() {
     assert!(jet.can_attack()); // parked aircraft may sortie
     jet.attack_target(
         ObjectId(7),
+        0,
         &mut _attack_output,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
@@ -363,6 +367,7 @@ fn parked_jet_takeoff_on_attack_and_move() {
     jet.contained_by = Some(ObjectId(99));
     jet.set_ai_state(
         AIState::Docked,
+        0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     jet.status.airborne_target = false;
@@ -371,6 +376,7 @@ fn parked_jet_takeoff_on_attack_and_move() {
     let mut movement_writer = movement_events.writer(0);
     jet.set_destination(
         Vec3::new(100.0, 0.0, 0.0),
+        0,
         &mut movement_writer,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
@@ -864,7 +870,7 @@ fn scrub_velocity_and_structure_stiffness_bounce() {
     // Structure stiffness bounce.
     o.set_position(glam::Vec3::new(0.0, 2.0, 0.0));
     o.movement.velocity = glam::Vec3::new(6.0, -2.0, 0.0);
-    let f = o.apply_structure_stiffness_bounce(glam::Vec3::new(5.0, 2.0, 0.0), 1.0);
+    let f = o.apply_structure_stiffness_bounce(glam::Vec3::new(5.0, 2.0, 0.0), 1.0, 0);
     assert!(f.x < 0.0, "push back -X force={f:?}");
     assert!(
         (o.movement.velocity.x - f.x).abs() < 1e-4,
@@ -1062,7 +1068,7 @@ fn physics_wave10_held_wreck_friction_stun_shock() {
     hop.movement.velocity = Vec3::new(0.0, 0.0, 10.0);
     hop.physics_mass = 1.0;
     hop.lateral_friction = 0.15;
-    hop.apply_frictional_forces();
+    hop.apply_frictional_forces(0);
     hop.integrate_physics_accel();
     assert!(
         hop.movement.velocity.z.abs() < 10.0,
@@ -1917,6 +1923,7 @@ fn shock_stun_blocks_attack_fire_and_flail_move() {
     o.shock_stun_frames = 20;
     o.attack_target(
         ObjectId(99),
+        0,
         &mut _attack_output,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
@@ -1983,6 +1990,7 @@ End
     aurora.status.airborne_target = true;
     aurora.set_ai_state(
         AIState::Idle,
+        world.frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     aurora.status.attacking = true;
@@ -1991,6 +1999,7 @@ End
     aurora.status.attacking = false;
     aurora.set_ai_state(
         AIState::Idle,
+        10,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     let _ = aurora.tick_jet_ai_update(11);
@@ -2050,6 +2059,7 @@ End
     raptor.status.airborne_target = true;
     raptor.set_ai_state(
         AIState::GuardingArea,
+        0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     raptor.mark_jet_command_for_reload_interrupt(true);
@@ -2070,6 +2080,7 @@ End
 
     raptor.set_ai_state(
         AIState::Attacking,
+        3,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     raptor.target = Some(ObjectId(9));
@@ -2080,6 +2091,7 @@ End
         ObjectId(9),
         Some(Vec3::ZERO),
         None,
+        3,
         &mut _attack_output,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
@@ -2365,6 +2377,7 @@ fn jet_stop_and_enter_airfield_land() {
     let jet = logic
         .create_object("AmericaJetRaptor", Team::USA, Vec3::new(80.0, 40.0, 0.0))
         .expect("jet");
+    let frame = logic.frame;
     {
         let j = logic.objects.get_mut(&jet).unwrap();
         j.status.airborne_target = true;
@@ -2372,6 +2385,7 @@ fn jet_stop_and_enter_airfield_land() {
         j.producer_id = Some(af);
         j.set_ai_state(
             AIState::Attacking,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         j.target = Some(ObjectId(99));
@@ -2615,21 +2629,21 @@ fn extra_friction_overlap_force_and_rest_kill() {
     inf.set_position(Vec3::new(0.0, 0.0, 0.0));
     inf.physics_mass = 1.0;
     inf.physics_accel = Vec3::ZERO;
-    inf.apply_overlap_collide_force(Vec3::new(2.0, 0.0, 0.0), 4.0);
+    inf.apply_overlap_collide_force(Vec3::new(2.0, 0.0, 0.0), 4.0, 0);
     // force = -4 * (2,0,0)/2 = (-4, 0, 0); accel = force/mass.
     assert!((inf.physics_accel.x + 4.0).abs() < 1e-4);
     assert!(inf.physics_accel.z.abs() < 1e-5);
 
     // Overlap cap 5.
     inf.physics_accel = Vec3::ZERO;
-    inf.apply_overlap_collide_force(Vec3::new(1.0, 0.0, 0.0), 9.0);
+    inf.apply_overlap_collide_force(Vec3::new(1.0, 0.0, 0.0), 9.0, 0);
     assert!((inf.physics_accel.x + 5.0).abs() < 1e-4);
 
     // Airborne: 3D delta includes host Y (hq-xvcet).
     inf.set_position(Vec3::new(0.0, 10.0, 0.0));
     inf.ground_height = 0.0;
     inf.physics_accel = Vec3::ZERO;
-    inf.apply_overlap_collide_force(Vec3::new(0.0, 2.0, 0.0), 4.0);
+    inf.apply_overlap_collide_force(Vec3::new(0.0, 2.0, 0.0), 4.0, 0);
     // force = -4 * (0,-8,0)/8 = (0, 4, 0); accel = force/mass (mass 1).
     assert!((inf.physics_accel.y - 4.0).abs() < 1e-4);
     assert!(inf.physics_accel.z.abs() < 1e-5);

@@ -2,9 +2,12 @@
 //! Phase expectations are extracted original C++ arithmetic with a documented
 //! host-seconds adapter. Gate expectations are source-derived, not execution of
 //! the original dispatcher. Explicit phase inputs do not test constructor RNG.
+#[path = "common/physics_friction.rs"]
+mod physics_friction;
 
-use game_engine::common::ini::ini_locomotor::{get_locomotor_store, load_locomotors_from_str};
-use generals_main::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding;
+
+use game_engine::common::ini::ini_locomotor::LocomotorStore;
+use generals_main::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding_from_store;
 use generals_main::game_logic::{
     GameLogic, KindOf, LocomotorAppearance, Object, ObjectId, Team, ThingTemplate,
 };
@@ -84,16 +87,18 @@ fn admit(
         if downhill { "Yes" } else { "No" },
         if airborne { "Yes" } else { "No" }
     );
-    assert_eq!(load_locomotors_from_str(&ini).unwrap(), 1);
-    let binding = resolve_host_locomotor_binding(&loco).unwrap();
+    let mut locomotors = LocomotorStore::new_owned();
+    locomotors.apply_source(&ini).unwrap();
+    let binding = resolve_host_locomotor_binding_from_store(&locomotors, &loco).unwrap();
     assert_eq!(
-        get_locomotor_store()
+        locomotors
             .find_template(&loco)
             .unwrap()
             .wander_width_factor,
         width
     );
     assert_eq!(binding.wander_width_factor, width);
+    game.admit_locomotor_definitions(locomotors).unwrap();
     let mut template = ThingTemplate::new(&unit);
     // Worker is mobile but does not trigger Infantry/Vehicle appearance repair.
     // No WorkerAI module is installed by this synthetic authored template.
@@ -158,17 +163,18 @@ fn prepare_motion(
     );
     target
 }
-fn tick(game: &mut GameLogic, expected_frame: u32) {
+fn tick(game: &mut GameLogic, expected_frame: u32) -> u32 {
     let result = game.update_with_dt(DT);
     assert_eq!((result.frame, result.steps_run), (expected_frame, 1));
     assert!(!result.budget_hit);
     assert_eq!(result.accumulated_time_seconds, 0.0);
 
     assert_eq!(game.host_objects().registered_len(), 1);
+    result.frame
 }
-fn assert_active_result(object: &Object, row: &[&str], before: Vec3, target: Vec3) {
+fn assert_active_result(object: &Object, row: &[&str], before: Vec3, target: Vec3, frame: u32) {
     active_guards(object, LocomotorAppearance::LegsTwo);
-    assert!(object.is_motive() && object.status.moving);
+    assert!(object.is_motive(frame) && object.status.moving);
     assert!(!object.is_braking);
     assert_eq!(object.movement.target_position, Some(target));
     assert_eq!(object.num_frames_blocked, 0);
@@ -182,10 +188,8 @@ fn assert_active_result(object: &Object, row: &[&str], before: Vec3, target: Vec
     // Consumer guard for the existing host impulse/integration path; this is
     // not an original C++ force oracle. The authored rates bound impulse to 1.
     let initial = Vec3::new(scalar(row[2]), scalar(row[3]), scalar(row[4]));
-    // Movement integrates position before shock.rs applies friction. The public
-    // previous acceleration records that later velocity increment, so subtract
-    // it to observe the marched velocity without disabling/repairing physics.
-    let marched_velocity = object.movement.velocity - object.previous_acceleration();
+    let heading = Vec3::new(desired.cos(), 0.0, -desired.sin());
+    let marched_velocity = physics_friction::marched_velocity(object, before);
     let change = marched_velocity - initial;
     let planar_change = Vec3::new(change.x, 0.0, change.z);
     assert!(
@@ -196,7 +200,7 @@ fn assert_active_result(object: &Object, row: &[&str], before: Vec3, target: Vec
         planar_change.length() < 1.001,
         "single authored acceleration step"
     );
-    let heading = Vec3::new(desired.cos(), 0.0, -desired.sin());
+    // The recovered movement impulse follows the authored wander heading.
     close(
         planar_change.x * heading.z - planar_change.z * heading.x,
         0.0,
@@ -236,8 +240,8 @@ fn active_case(name: &str) {
     let target = prepare_motion(&mut game, id, &row, Vec3::ZERO, 0.0);
     let object = game.host_object(id).unwrap();
     assert!(!object.height_treats_as_airborne(object.get_position().y));
-    tick(&mut game, 2);
-    assert_active_result(game.host_object(id).unwrap(), &row, Vec3::ZERO, target);
+    let frame = tick(&mut game, 2);
+    assert_active_result(game.host_object(id).unwrap(), &row, Vec3::ZERO, target, frame);
 }
 
 #[test]
@@ -281,8 +285,8 @@ fn consecutive_ticks_preserve_phase_across_speed_reversal() {
     let object = game.host_object_mut(id).unwrap();
     install_phase(object, &first);
     let target = prepare_motion(&mut game, id, &first, Vec3::ZERO, 0.0);
-    tick(&mut game, 2);
-    assert_active_result(game.host_object(id).unwrap(), &first, Vec3::ZERO, target);
+    let frame = tick(&mut game, 2);
+    assert_active_result(game.host_object(id).unwrap(), &first, Vec3::ZERO, target, frame);
     let object = game.host_object_mut(id).unwrap();
     let previous = phase(object);
     let start = object.get_position();
@@ -290,8 +294,8 @@ fn consecutive_ticks_preserve_phase_across_speed_reversal() {
     let object = game.host_object(id).unwrap();
     assert_eq!(phase(object), previous, "motion setup must preserve phase");
     assert_eq!(previous.0, scalar(second[7]).to_bits());
-    tick(&mut game, 3);
-    assert_active_result(game.host_object(id).unwrap(), &second, start, target);
+    let frame = tick(&mut game, 3);
+    assert_active_result(game.host_object(id).unwrap(), &second, start, target, frame);
 }
 
 fn excluded_appearance(name: &str, appearance: &str, expected: LocomotorAppearance, width: f32) {
@@ -302,14 +306,14 @@ fn excluded_appearance(name: &str, appearance: &str, expected: LocomotorAppearan
     let target = prepare_motion(&mut game, id, &input, Vec3::ZERO, 0.0);
     let object = game.host_object(id).unwrap();
     let initial = phase(object);
-    tick(&mut game, 2);
+    let frame = tick(&mut game, 2);
     let object = game.host_object(id).unwrap();
     assert_eq!(
         object.loco_appearance, expected,
         "appearance survived dispatch"
     );
     assert_eq!(object.wander_width_factor, width);
-    assert!(object.status.moving && object.is_motive());
+    assert!(object.status.moving && object.is_motive(frame));
     assert_eq!(object.movement.target_position, Some(target));
     assert!(
         object.get_position().x > 0.1,
@@ -399,10 +403,10 @@ fn skip_then_resume(gate: &str) {
     }
     active_guards(object, LocomotorAppearance::LegsTwo);
     let initial = phase(object);
-    tick(&mut game, 2);
+    let frame = tick(&mut game, 2);
     let object = game.host_object(id).unwrap();
     assert_eq!(object.movement.target_position, Some(target));
-    assert!(object.is_motive() && object.status.moving);
+    assert!(object.is_motive(frame) && object.status.moving);
     close(
         object.get_orientation(),
         0.0,
@@ -435,7 +439,7 @@ fn skip_then_resume(gate: &str) {
     assert_eq!(phase(object), initial, "resume setup never rewrites phase");
     assert!(!object.downhill_only_blocks_goal(0.0, 0.0));
     assert!(!object.height_treats_as_airborne(0.0));
-    tick(&mut game, 3);
+    let frame = tick(&mut game, 3);
     let object = game.host_object(id).unwrap();
     assert_eq!(
         phase(object),
@@ -447,7 +451,7 @@ fn skip_then_resume(gate: &str) {
         scalar(input[19]),
         "resumed heading",
     );
-    assert!(object.get_position().x > 0.1 && object.is_motive());
+    assert!(object.get_position().x > 0.1 && object.is_motive(frame));
     assert_eq!(object.movement.target_position, Some(target));
     assert_eq!(object.num_frames_blocked, 0);
 }
@@ -477,8 +481,8 @@ fn authored_airborne_motive_permission_admits_wander() {
             .unwrap()
             .height_treats_as_airborne(start.y)
     );
-    tick(&mut game, 2);
-    assert_active_result(game.host_object(id).unwrap(), &input, start, target);
+    let frame = tick(&mut game, 2);
+    assert_active_result(game.host_object(id).unwrap(), &input, start, target, frame);
 }
 
 #[test]

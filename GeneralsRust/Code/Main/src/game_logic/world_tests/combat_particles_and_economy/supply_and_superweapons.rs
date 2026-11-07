@@ -307,11 +307,13 @@ fn supply_truck_gather_credits_retail_value_per_box() {
             .expect("collector mut");
         collector.set_target(
             Some(source),
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         collector.set_ai_state(
             AIState::Gathering,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         collector.supply_truck_state = SupplyTruckState::DockingWarehouse;
@@ -704,11 +706,13 @@ fn warehouse_action_does_not_debit_when_collector_already_at_max_boxes() {
             .expect("collector mut");
         collector.set_target(
             Some(source),
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         collector.set_ai_state(
             AIState::Gathering,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         collector.supply_truck_state = SupplyTruckState::DockingWarehouse;
@@ -796,6 +800,7 @@ fn supply_center_deposits_credit_center_owner_and_reject_allies() {
         collector.set_stored_supplies(75);
         collector.set_ai_state(
             AIState::ReturningResources,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         collector.supply_truck_state = SupplyTruckState::DockingCenter;
@@ -844,6 +849,7 @@ fn supply_center_deposits_credit_center_owner_and_reject_allies() {
         collector.set_stored_supplies(75);
         collector.set_ai_state(
             AIState::ReturningResources,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         collector.supply_truck_state = SupplyTruckState::DockingCenter;
@@ -945,6 +951,7 @@ fn supply_wanting_skips_enemy_warehouse_even_when_players_share_faction() {
         object.supply_truck_state = crate::game_logic::SupplyTruckState::Wanting;
         object.set_ai_state(
             AIState::Idle,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1016,6 +1023,7 @@ fn supply_wanting_prefers_valid_dock_past_scan_limit_and_falls_back_when_empty()
         object.supply_truck_state = SupplyTruckState::Wanting;
         object.set_ai_state(
             AIState::Idle,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1041,6 +1049,7 @@ fn supply_wanting_prefers_valid_dock_past_scan_limit_and_falls_back_when_empty()
         object.supply_truck_state = SupplyTruckState::Wanting;
         object.set_ai_state(
             AIState::Idle,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1108,11 +1117,13 @@ fn supply_wanting_falls_back_when_preferred_warehouse_approach_is_full() {
                 .expect("blocker mut");
             object.set_target(
                 Some(preferred),
+                0,
                 attack_events,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             object.set_ai_state(
                 AIState::Gathering,
+                0,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
@@ -1129,6 +1140,7 @@ fn supply_wanting_falls_back_when_preferred_warehouse_approach_is_full() {
         object.supply_truck_state = SupplyTruckState::Wanting;
         object.set_ai_state(
             AIState::Idle,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1181,11 +1193,13 @@ fn admitted_supply_dock_still_transfers_if_relationship_changes_in_transit() {
         let (object, attack_events) = logic.host_object_and_attack_events_mut(collector).unwrap();
         object.set_target(
             Some(dock),
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         object.set_ai_state(
             AIState::Gathering,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         object.supply_truck_state = SupplyTruckState::DockingWarehouse;
@@ -1268,6 +1282,7 @@ fn supply_warehouse_scan_uses_cpp_strict_radius_and_zero_semantics() {
             object.supply_truck_state = SupplyTruckState::Wanting;
             object.set_ai_state(
                 AIState::Idle,
+                0,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
@@ -1360,6 +1375,7 @@ fn supply_center_deposit_reselects_preference_instead_of_reusing_enemy_source() 
         let (object, attack_events) = logic.host_object_and_attack_events_mut(collector).unwrap();
         object.set_target(
             Some(former_source),
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -1367,6 +1383,7 @@ fn supply_center_deposit_reselects_preference_instead_of_reusing_enemy_source() 
         object.set_stored_supplies(75);
         object.set_ai_state(
             AIState::ReturningResources,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         object.supply_truck_state = SupplyTruckState::DockingCenter;

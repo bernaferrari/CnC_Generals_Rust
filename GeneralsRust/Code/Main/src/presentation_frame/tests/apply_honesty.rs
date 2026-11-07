@@ -1179,6 +1179,7 @@ fn presentation_frame_observes_combat_kill_particle_systems() {
         });
         a.attack_target(
             victim,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );

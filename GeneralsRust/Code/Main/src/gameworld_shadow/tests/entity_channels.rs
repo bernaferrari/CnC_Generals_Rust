@@ -107,6 +107,7 @@ fn guard_radius_is_owned_and_shadow_only_observes() {
     let position = glam::Vec3::new(55.0, 0.0, 55.0);
     logic.host_object_mut(oid).unwrap().set_guard_position(
         Some(position),
+        0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert!(logic.unit_command_set_guard_radius(oid, 175.0));
@@ -194,7 +195,7 @@ fn physics_motive_channel_via_set_physics_motive() {
         .expect("id");
     {
         let o = logic.host_object_mut(oid).expect("o");
-        o.motive_frames_remaining = 12;
+        o.motive_force_expires = 12;
         o.physics_mass = 2.5;
         o.physics_accel = glam::Vec3::new(1.0, 0.0, 0.5);
         o.forward_friction = 0.15;
@@ -217,7 +218,6 @@ fn physics_motive_channel_via_set_physics_motive() {
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).unwrap();
-    assert_eq!(e.motive_frames_remaining, 12);
     assert!((e.physics_mass - 2.5).abs() < 1e-5);
     assert!((e.physics_accel[0] - 1.0).abs() < 1e-5);
     assert!(e.can_path_through_units);
@@ -231,7 +231,7 @@ fn physics_motive_channel_via_set_physics_motive() {
     shadow.sync_from_host(&logic);
 
     let o = logic.host_objects().lookup(&oid).unwrap();
-    assert_eq!(o.motive_frames_remaining, 12);
+    assert_eq!(o.motive_force_expires, 12);
     assert!((o.physics_mass - 2.5).abs() < 1e-5);
     assert!(o.can_path_through_units);
     assert!(o.is_panicking);

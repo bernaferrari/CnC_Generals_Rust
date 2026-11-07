@@ -1874,6 +1874,7 @@ mod select_object_cpp_parity_tests {
         let mut logic = two_player_logic();
         let walker = spawn(&mut logic, "SelectParityUnit", 0, 0.0);
         let rider = spawn(&mut logic, "SelectParityUnit", 0, 10.0);
+        let frame = logic.frame;
         {
             let (o, partition) = logic.host_object_and_partition_mut(rider).expect("rider");
             o.set_contained_by_with_partition_owner(Some(ObjectId(99)), true, partition);
@@ -1883,6 +1884,7 @@ mod select_object_cpp_parity_tests {
             o.set_status_unselectable(false);
             o.set_ai_state(
                 crate::game_logic::AIState::Garrisoned,
+                frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             o.status.masked = true;

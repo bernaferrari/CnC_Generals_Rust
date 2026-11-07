@@ -142,7 +142,7 @@ impl GameLogic {
         {
             rider.allow_to_fall = true;
             rider.is_in_freefall = true;
-            rider.apply_physics_force(Vec3::ZERO);
+            rider.apply_physics_force(Vec3::ZERO, self.frame);
         }
         Ok(())
     }

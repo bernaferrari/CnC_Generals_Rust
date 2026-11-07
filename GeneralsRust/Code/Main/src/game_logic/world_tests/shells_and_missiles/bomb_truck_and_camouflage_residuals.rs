@@ -147,6 +147,7 @@ fn bomb_truck_disguise_residual_reveals_near_attack_target() {
         truck.target = Some(usa_tank_id);
         truck.set_ai_state(
             AIState::SpecialAbility,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -169,11 +170,13 @@ fn bomb_truck_disguise_residual_reveals_near_attack_target() {
     );
 
     // Enter attack state on nearby victim → reveal distance residual.
+    let frame = game_logic.frame;
     {
         let truck = game_logic.host_object_mut(truck_id).expect("truck");
         truck.target = Some(victim_id);
         truck.set_ai_state(
             AIState::Attacking,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         truck.set_status_attacking(true);
@@ -225,6 +228,7 @@ fn bomb_truck_disguise_holds_without_victim() {
         truck.target = Some(usa_tank_id);
         truck.set_ai_state(
             AIState::SpecialAbility,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -246,11 +250,13 @@ fn bomb_truck_disguise_holds_without_victim() {
         "disguise must apply before no-victim hold"
     );
 
+    let frame = game_logic.frame;
     {
         let truck = game_logic.host_object_mut(truck_id).expect("truck");
         truck.target = None;
         truck.set_ai_state(
             AIState::AttackMoving,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         truck.set_status_attacking(true);
@@ -269,6 +275,7 @@ fn bomb_truck_disguise_holds_without_victim() {
         truck.target = None;
         truck.set_ai_state(
             AIState::AttackingGround,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         truck.set_status_attacking(true);
@@ -753,6 +760,7 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
         let rebel = game_logic.objects.get_mut(&rebel_id).expect("rebel");
         rebel.set_ai_state(
             AIState::Idle,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         rebel.set_status_attacking(false);
@@ -808,6 +816,7 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
         let rebel = game_logic.objects.get_mut(&rebel_id).expect("rebel");
         rebel.set_ai_state(
             AIState::Idle,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         rebel.set_status_attacking(false);

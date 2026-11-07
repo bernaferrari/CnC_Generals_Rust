@@ -257,10 +257,12 @@ fn sentry_drone_residual_detect_and_auto_fire() {
             fixture_partition_e,
         );
     }
+    let frame = game_logic.frame;
     {
         let s = game_logic.host_object_mut(sentry_id).unwrap();
         s.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         s.target = None;
@@ -378,10 +380,12 @@ fn sentry_drone_uncloaks_while_moving_and_recloaks_after_fire_delay() {
     }
 
     // MOVING forbids stealth.
+    let frame = game_logic.frame;
     {
         let s = game_logic.host_object_mut(sentry_id).unwrap();
         s.set_ai_state(
             AIState::Moving,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         s.status.moving = true;
@@ -396,10 +400,12 @@ fn sentry_drone_uncloaks_while_moving_and_recloaks_after_fire_delay() {
     );
 
     // Stop: stay visible until StealthDelay elapses.
+    let frame = game_logic.frame;
     {
         let s = game_logic.host_object_mut(sentry_id).unwrap();
         s.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         s.status.moving = false;
@@ -440,10 +446,12 @@ fn sentry_drone_uncloaks_while_moving_and_recloaks_after_fire_delay() {
         !game_logic.host_object(sentry_id).unwrap().status.stealthed,
         "sentry must uncloak while firing"
     );
+    let frame = game_logic.frame;
     {
         let s = game_logic.host_object_mut(sentry_id).unwrap();
         s.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         s.set_status_attacking(false);
@@ -480,6 +488,7 @@ fn sentry_drone_residual_skips_non_sentry_units() {
     let tank_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("tank");
+    let frame = game_logic.frame;
     {
         let t = game_logic.host_object_mut(tank_id).unwrap();
         t.is_detector = true;
@@ -491,6 +500,7 @@ fn sentry_drone_residual_skips_non_sentry_units() {
         }
         t.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         t.target = None;
@@ -666,10 +676,12 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
 
     // Hellfire auto-fire residual damages the nearby Vehicle. The separate
     // hellfire_scatter_misses_infantry_residual case retains scatter coverage.
+    let frame = game_logic.frame;
     {
         let (h, fixture_partition_h) = game_logic.host_object_and_partition_mut(hf_id).unwrap();
         h.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         h.target = None;
@@ -893,9 +905,11 @@ fn hellfire_scatter_misses_infantry_residual() {
     if let Some(o) = logic.objects.get_mut(&inf) {
         o.set_selection_radius(0.5);
     }
+    let frame = logic.frame;
     if let Some(h) = logic.objects.get_mut(&hf) {
         h.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         h.target = None;

@@ -29,7 +29,7 @@ fn main_only_todo_groups_round_trip_when_present() {
     src.preferred_dock_id = Some(ObjectId(8));
     src.shock_stun_frames = 12;
     src.shock_yaw_rate = 0.4;
-    src.motive_frames_remaining = 7;
+    src.motive_force_expires = 7;
     src.locomotor_upgrade = true;
     src.loco_preferred_height = 18.0;
     src.weapon = Some(Weapon {
@@ -92,7 +92,7 @@ fn main_only_todo_groups_round_trip_when_present() {
     );
     assert_eq!(dst.supply_truck_state, SupplyTruckState::Wanting);
     assert_eq!(dst.shock_stun_frames, 12);
-    assert_eq!(dst.motive_frames_remaining, 7);
+    assert_eq!(dst.motive_force_expires, 7);
     assert!(dst.locomotor_upgrade);
     assert_eq!(dst.loco_preferred_height, 18.0);
     assert_eq!(dst.weapon.as_ref().map(|w| w.damage), Some(33.0));

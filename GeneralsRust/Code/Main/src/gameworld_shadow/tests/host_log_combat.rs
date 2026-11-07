@@ -666,10 +666,12 @@ fn host_guard_is_canonical_and_shadow_only_observes() {
     let position = glam::Vec3::new(3.0, 0.0, 5.0);
     logic.host_object_mut(oid).unwrap().set_guard_position(
         Some(position),
+        0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     logic.host_object_mut(oid).unwrap().set_guard_target(
         Some(tid),
+        0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     let mut shadow = GameWorldShadow::new(64);
@@ -700,10 +702,12 @@ fn host_guard_is_canonical_and_shadow_only_observes() {
     );
     logic.host_object_mut(oid).unwrap().set_guard_position(
         None,
+        0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     logic.host_object_mut(oid).unwrap().set_guard_target(
         None,
+        0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     shadow.sync_from_host(&logic);
@@ -837,6 +841,7 @@ fn host_target_location_log_drives_set_target_location_channel() {
         let o = logic.host_object_mut(oid).expect("o");
         o.set_target_location(
             Some(glam::Vec3::new(11.0, 0.0, 13.0)),
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }

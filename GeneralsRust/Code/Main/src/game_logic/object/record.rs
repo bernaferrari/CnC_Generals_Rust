@@ -130,9 +130,10 @@ impl Object {
         &mut self,
         duration_secs: f32,
         cheer_bit: Option<usize>,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        self.set_ai_state(AIState::SpecialAbility, audio);
+        self.set_ai_state(AIState::SpecialAbility, frame, audio);
         self.cheer_timer = duration_secs.max(0.0);
         if let Some(bit) = cheer_bit {
             if bit < 128 {

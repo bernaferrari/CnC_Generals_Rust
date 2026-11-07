@@ -1143,7 +1143,7 @@ impl PresentationFrame {
                         vel_y: velocity.z,
                         accel_x: acceleration.x,
                         accel_y: acceleration.z,
-                        is_motive: obj.is_motive(),
+                        is_motive: obj.is_motive(logic.frame),
                         airborne: obj.is_above_terrain(),
                         turning: match obj.physics_turning {
                             crate::game_logic::object::PhysicsTurningType::TurnNegative => -1.0,

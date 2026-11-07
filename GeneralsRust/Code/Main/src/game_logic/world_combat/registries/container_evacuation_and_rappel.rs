@@ -501,6 +501,7 @@ impl GameLogic {
                     }
                     p.set_ai_state(
                         AIState::Moving,
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     p.status.moving = true;
@@ -543,6 +544,7 @@ impl GameLogic {
                     );
                     p.set_ai_state(
                         AIState::Moving,
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     p.status.moving = true;
@@ -803,6 +805,7 @@ impl GameLogic {
             p.begin_rappel(dest_y, target_is_bldg, drop_target);
             p.set_ai_state(
                 AIState::Moving,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             p.status.moving = true;
@@ -1141,6 +1144,7 @@ impl GameLogic {
             }
             obj.set_ai_state(
                 AIState::Garrisoned,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             obj.set_status_moving(false);
@@ -1197,6 +1201,7 @@ impl GameLogic {
             obj.refresh_follow_path_extra_distance();
             obj.set_ai_state(
                 AIState::Moving,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             obj.status.moving = true;

@@ -41,10 +41,12 @@ fn world_with_warehouse_and_workers() -> (GameLogic, ObjectId, Vec<ObjectId>) {
 }
 
 fn make_gathering(world: &mut GameLogic, dock: ObjectId, docker: ObjectId) {
+    let frame = world.frame;
     let worker = world.host_object_mut(docker).expect("worker");
     worker.target = Some(dock);
     worker.set_ai_state(
         AIState::Gathering,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
 }
@@ -178,14 +180,17 @@ fn leaving_and_reentering_dock_state_before_observation_cancels_old_slot() {
 
     // No queue observer runs between these writes. A callback epoch must
     // retain the exit event even though the current state is live again.
+    let frame = world.frame;
     {
         let owner = world.host_object_mut(docker_ids[0]).expect("first owner");
         owner.set_ai_state(
             AIState::Moving,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         owner.set_ai_state(
             AIState::Gathering,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -219,10 +224,12 @@ fn query_clone_is_inert_and_readmission_requires_completed_retirement() {
     let mut query_clone = world.host_object(owner_id).expect("owner").clone();
     query_clone.set_ai_state(
         AIState::Moving,
+        world.frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     query_clone.set_ai_state(
         AIState::Gathering,
+        world.frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert_eq!(
@@ -372,11 +379,13 @@ fn setter_only_dock_retask_releases_active_docker_side_effects_per_world() {
     // C++ AIDockMachine::halt calls DockUpdate::cancelDock on a session
     // exit. Exercise only the Object callback here; no GameLogic cancel
     // helper is called before the next normal dock update/query.
+    let frame = world_a.frame;
     world_a
         .host_object_mut(active_a)
         .expect("active docker")
         .set_ai_state(
             AIState::Moving,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     assert_eq!(
@@ -461,17 +470,20 @@ fn seeking_repair_path_keeps_existing_dock_reservation_hq_z0490() {
             glam::Vec3::new(520.0, 0.0, 0.0),
         )
         .expect("second repairer");
+    let frame = world.frame;
     for id in [first, second] {
         let (object, attack_events) = world
             .host_object_and_attack_events_mut(id)
             .expect("repairer object");
         object.set_target(
             Some(dock),
+            frame,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         object.set_ai_state(
             AIState::SeekingRepair,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }

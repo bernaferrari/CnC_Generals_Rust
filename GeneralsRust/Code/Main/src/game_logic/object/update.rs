@@ -420,7 +420,7 @@ impl Object {
         }
         extra
     }
-    pub fn update_movement(&mut self, dt: f32, audio: &mut crate::game_logic::ObjectAudio<'_>) {
+    pub fn update_movement(&mut self, dt: f32, audio: &mut crate::game_logic::ObjectAudio<'_>, frame: u32) {
         // C++ AIUpdate::doLocomotor returns immediately for KINDOF_IMMOBILE.
         if self.is_kind_of(KindOf::Immobile) {
             return;
@@ -462,7 +462,7 @@ impl Object {
         }
 
         // C++ fixInvalidPosition residual when on invalid terrain.
-        if self.fix_invalid_position() {
+        if self.fix_invalid_position(frame) {
             return;
         }
 
@@ -470,14 +470,14 @@ impl Object {
             // C++ maintainCurrentPosition when no move order.
             // ground_y unknown here — use current y as layer residual.
             let gy = self.get_position().y;
-            let _ = self.loco_maintain_current_position(gy, dt);
+            let _ = self.loco_maintain_current_position(gy, dt, frame);
             return;
         }
 
         // Moving: invalidate maintain pos residual.
         self.maintain_pos_valid = false;
         // C++ locoUpdate_moveTowardsPosition applyMotiveForce(0) (Locomotor.cpp:1010-1014).
-        self.apply_motive_force(glam::Vec3::ZERO);
+        self.apply_motive_force(glam::Vec3::ZERO, frame);
 
         if let Some(target_pos) = self.movement.target_position {
             let current_pos = self.get_position();
@@ -656,21 +656,21 @@ impl Object {
 
             // Wings/Thrust specialized residual (may set position itself).
             if matches!(self.loco_appearance, LocomotorAppearance::Thrust) {
-                self.move_towards_thrust(target_pos, dist_2d, goal_speed, dt);
-                let _ = self.handle_behavior_z(self.get_position().y, Some(target_pos.y));
+                self.move_towards_thrust(target_pos, dist_2d, goal_speed, dt, frame);
+                let _ = self.handle_behavior_z(self.get_position().y, Some(target_pos.y), frame);
             } else if matches!(self.loco_appearance, LocomotorAppearance::Wings) {
                 // 2D other-like + preferred height via BehaviorZ.
-                self.apply_forward_speed_force(goal_speed, dt);
+                self.apply_forward_speed_force(goal_speed, dt, frame);
                 let new_position = current_pos + self.movement.velocity * dt;
                 self.set_position(new_position);
-                let _ = self.handle_behavior_z(new_position.y, Some(target_pos.y));
+                let _ = self.handle_behavior_z(new_position.y, Some(target_pos.y), frame);
             } else {
                 // Force/velocity apply residual (legs/wheels/treads/hover/other).
-                self.apply_forward_speed_force(goal_speed, dt);
+                self.apply_forward_speed_force(goal_speed, dt, frame);
 
                 // Arm motive window so collide forces stay lateral while driving.
                 if goal_speed.abs() > 0.1 {
-                    self.motive_frames_remaining = MOTIVE_FRAMES_RESIDUAL;
+                    self.motive_force_expires = frame.wrapping_add(MOTIVE_FRAMES_RESIDUAL);
                 }
 
                 // Position integrate (host dt seconds).
@@ -679,7 +679,7 @@ impl Object {
 
                 // C++ handleBehaviorZ residual after loco XY step.
                 let ground_y = new_position.y; // caller/physics motion step samples terrain
-                let _ = self.handle_behavior_z(ground_y, Some(target_pos.y));
+                let _ = self.handle_behavior_z(ground_y, Some(target_pos.y), frame);
             }
 
             // Arrival residual.

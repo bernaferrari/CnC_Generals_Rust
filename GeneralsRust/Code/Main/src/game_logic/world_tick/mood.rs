@@ -1978,6 +1978,7 @@ mod common_target_parity {
         let id = logic
             .create_object("Ranger", Team::USA, glam::Vec3::ZERO)
             .expect("ranger");
+        let frame = logic.frame;
         if let Some(o) = logic.host_object_mut(id) {
             assert!(
                 o.idle_mood_reset_pending,
@@ -1985,10 +1986,12 @@ mod common_target_parity {
             );
             o.set_ai_state(
                 crate::game_logic::AIState::Moving,
+                frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             o.set_ai_state(
                 crate::game_logic::AIState::Idle,
+                frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             assert!(o.idle_mood_reset_pending);
@@ -2031,9 +2034,11 @@ mod common_target_parity {
         assert!(logic.get_next_mood_target(id, true, true).is_none());
         assert!(logic.host_object(id).unwrap().randomly_offset_mood_check);
 
+        let frame = logic.frame;
         if let Some(o) = logic.host_object_mut(id) {
             o.set_ai_state(
                 crate::game_logic::AIState::Idle,
+                frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             assert!(!o.idle_mood_reset_pending, "already idle must not rearm");
@@ -2064,9 +2069,11 @@ mod common_target_parity {
             jet_id,
             Object::new(ThingTemplate::new("IdleEntryTarget"), jet_id, Team::GLA),
         );
+        let frame = logic.frame;
         if let Some(unit) = logic.host_object_mut(id) {
             unit.set_ai_state(
                 crate::game_logic::AIState::Moving,
+                frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             unit.target = Some(jet_id);
@@ -2201,13 +2208,16 @@ mod common_target_parity {
             "frame <= 1 must setPosition to the stored goal cell"
         );
 
+        let frame = logic.frame;
         if let Some(o) = logic.host_object_mut(id) {
             o.set_ai_state(
                 crate::game_logic::AIState::Moving,
+                frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             o.set_ai_state(
                 crate::game_logic::AIState::Idle,
+                frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
@@ -2218,13 +2228,16 @@ mod common_target_parity {
         assert_eq!(o.get_position(), start, "later frames must not slide");
         assert_eq!(o.pathfind_goal_cell, (cell.x, cell.y));
         let far = glam::Vec3::new(80.0, 0.0, 80.0);
+        let frame = logic.frame;
         if let Some(o) = logic.host_object_mut(id) {
             o.set_ai_state(
                 crate::game_logic::AIState::Moving,
+                frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             o.set_ai_state(
                 crate::game_logic::AIState::Idle,
+                frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }

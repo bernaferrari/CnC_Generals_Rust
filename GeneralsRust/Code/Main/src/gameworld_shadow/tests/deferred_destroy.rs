@@ -69,6 +69,7 @@ fn phase0_probe_pose_target_weapon_contain_fields() {
         let (o, attack_events) = logic.host_object_and_attack_events_mut(a).expect("o");
         o.attack_target(
             b,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );

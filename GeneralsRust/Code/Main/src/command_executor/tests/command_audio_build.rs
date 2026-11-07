@@ -1707,11 +1707,13 @@ fn tighten_scatter_include_stunned_members() {
             exec.execute_tighten_to_position(&[a, b], Vec3::new(15.0, 0.0, 0.0)) == CommandResult::Success);
     }
     assert_eq!(logic.host_object(b).unwrap().ai_state(), AIState::Moving);
+    let frame = logic.frame;
     {
         let u = logic.host_object_mut(b).unwrap();
         u.shock_stun_frames = 40;
         u.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }

@@ -152,6 +152,7 @@ impl GameLogic {
         let birth = Arc::downgrade(&actor.visual_draw_identity_token);
         self.ai_groups.remove_if_birth(object, &birth);
         actor.finish_hijacker_in_vehicle_after_group_leave_with_partition_owner(
+            self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             &mut self.partition_manager,
         );

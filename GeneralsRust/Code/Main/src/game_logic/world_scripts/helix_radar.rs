@@ -2728,7 +2728,7 @@ impl GameLogic {
             o.movement.velocity += vel;
             o.invalidate_velocity_magnitude();
             let (mx, my, mz) = flare_volley_motive_force(facing, volley_index, VOLLEY_SIZE, speed);
-            o.apply_motive_force(glam::Vec3::new(mx, my, mz));
+            o.apply_motive_force(glam::Vec3::new(mx, my, mz), self.frame);
             o.integrate_physics_accel();
             o.countermeasure_flare = true;
             o.countermeasure_flare_expires_frame = Some(expires);

@@ -1097,40 +1097,33 @@ impl Object {
     /// Does not re-log host_ai_state (state already last-written). Syncs
     /// moving/attacking status bits from the authoritative ordinal.
 
-    pub fn set_ai_state(&mut self, state: AIState, audio: &mut crate::game_logic::ObjectAudio<'_>) {
-        self.set_ai_state_entry(state, audio, false, None, AiTransitionOrigin::External);
-    }
-    pub(crate) fn set_ai_state_at_frame(
+    pub fn set_ai_state(
         &mut self,
         state: AIState,
         frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        self.set_ai_state_entry(
-            state,
-            audio,
-            false,
-            Some(frame),
-            AiTransitionOrigin::External,
-        );
+        self.set_ai_state_entry(state, audio, false, frame, AiTransitionOrigin::External);
     }
     /// Apply a root state's own result without unlocking external commands.
     pub(crate) fn set_ai_root_state_from_result(
         &mut self,
         state: AIState,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        self.set_ai_state_entry(state, audio, false, None, AiTransitionOrigin::StateResult);
+        self.set_ai_state_entry(state, audio, false, frame, AiTransitionOrigin::StateResult);
     }
     pub(crate) fn set_ai_child_state(
         &mut self,
         state: AIState,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         if !self.unit_ai_runtime.can_enter_child() || self.unit_ai_runtime.machine_locked() {
             return false;
         }
-        self.set_ai_state_entry(state, audio, true, None, AiTransitionOrigin::External);
+        self.set_ai_state_entry(state, audio, true, frame, AiTransitionOrigin::External);
         true
     }
     fn set_ai_state_entry(
@@ -1138,7 +1131,7 @@ impl Object {
         state: AIState,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
         nested: bool,
-        frame: Option<u32>,
+        frame: u32,
         origin: AiTransitionOrigin,
     ) {
         if self.unit_ai_runtime.machine_locked() && origin == AiTransitionOrigin::External {
@@ -1261,12 +1254,8 @@ impl Object {
             self.num_frames_blocked = 0;
             self.is_blocked_and_stuck = false;
             self.set_status_moving(true);
-            if let Some(frame) = frame {
-                self.start_move_at_frame(frame);
-            } else {
-                self.start_move();
-            }
-            if self.is_motive()
+            self.start_move_at_frame(frame);
+            if self.is_motive(frame)
                 || (self.is_kind_of(crate::game_logic::KindOf::Dozer)
                     && self.is_kind_of(crate::game_logic::KindOf::Harvester))
             {

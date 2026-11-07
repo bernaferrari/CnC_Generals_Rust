@@ -654,6 +654,29 @@ impl SnapshotBuilder {
             super::super::body_rules_persist::prepare(lifecycle_tail, snapshot.version)?;
         let lifecycle_for_a10 =
             super::super::lifecycle_tail::decode_lifecycle_tail(lifecycle_tail)?;
+        let mut physics_owner_count = 0;
+        for envelope in &lifecycle_for_a10.envelopes {
+            let owner = ObjectId(envelope.entity_id);
+            let has_physics = envelope.module_states.iter().any(|module| module.tag == "PhysicsBehavior");
+            if !snapshot.objects.contains_key(&owner) && has_physics
+            {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "physics lifecycle references absent object {}", owner.0
+                )));
+            }
+            if has_physics {
+                physics_owner_count += 1;
+            }
+            crate::game_logic::object::validate_physics_owner(owner, &envelope.module_states)
+                .map_err(|error| SaveLoadError::Corrupted(format!(
+                    "physics lifecycle object {}: {error}", owner.0
+                )))?;
+        }
+        if physics_owner_count != snapshot.objects.len() {
+            return Err(SaveLoadError::Corrupted(
+                "snapshot is missing an Object physics lifecycle continuation".into(),
+            ));
+        }
         super::super::lifecycle_tail::preflight_spawn_behavior_rosters(
             &lifecycle_for_a10,
             &snapshot.objects,

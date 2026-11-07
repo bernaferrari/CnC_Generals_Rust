@@ -146,18 +146,22 @@ fn world_with_options(
             "KindOf = SELECTABLE INFANTRY IGNORED_IN_GUI",
         );
     }
+    if armed {
+        source = source.replacen(
+            "Object GroupUnit\n",
+            "Object GroupUnit\n WeaponSet\n Conditions = None\n Weapon = PRIMARY GroupFixtureWeapon\n End\n",
+            1,
+        );
+    }
     world
         .admit_object_ini_sources([("AiGroupOwner.ini".into(), source)])
         .unwrap();
     if armed {
-        use generals_main::game_logic::{KindOf, Weapon};
-        let template = world.templates.get_mut("GroupUnit").unwrap();
-        template.add_kind_of(KindOf::Attackable);
-        template.set_primary_weapon(Weapon {
-            damage: 1.0,
-            range: 200.0,
-            ..Weapon::default()
-        });
+        let mut weapon = gamelogic::weapon::WeaponTemplate::new("GroupFixtureWeapon".into());
+        weapon.primary_damage = 1.0;
+        weapon.attack_range = 200.0;
+        weapon.projectile_name = "NONE".into();
+        world.admit_receiving_weapon_snapshot(vec![("GroupFixtureWeapon".into(), weapon)]).unwrap();
     }
     let mut templates = PlayerTemplateStore::new_owned();
     templates.apply_source(
@@ -187,6 +191,23 @@ fn world_with_options(
         .unwrap()
         .set_formation(17, glam::Vec2::new(5.0, -7.0));
     (world, first, second, inert)
+}
+
+#[test]
+fn armed_group_fixture_survives_match_initialization_and_accepts_attack() {
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut world, actor, _, _) = world_with_options(&map, true, true, false);
+    world.get_player_mut(1).unwrap().alliance_team = 1;
+    let mut enemy = Player::new(2, Team::GLA, "Enemy", false);
+    enemy.alliance_team = 2;
+    world.add_player(enemy);
+    let victim = world
+        .create_object_for_player("GroupUnit", 2, Vec3::new(45.0, 0.0, 40.0))
+        .unwrap();
+    assert!(world.host_object(actor).unwrap().weapon.is_some());
+    assert!(world.host_object(victim).unwrap().is_alive());
+    assert!(world.unit_command_attack(actor, victim).unwrap());
 }
 
 fn run_action(world: &mut GameLogic, kind: ScriptActionType, parameter: Parameter) {
@@ -964,8 +985,9 @@ fn script_guard_exits_attack_move_in_the_receiving_world() {
     assert_eq!(first, peer_first);
     let mut audio = SessionAudio::default();
     for session in [&mut owner, &mut peer] {
+        let frame = session.get_current_frame() as u32;
         let actor = session.host_object_mut(first).unwrap();
-        actor.set_ai_state(AIState::AttackMoving, &mut ObjectAudio::queue(&mut audio));
+        actor.set_ai_state(AIState::AttackMoving, frame, &mut ObjectAudio::queue(&mut audio));
         actor.randomly_offset_mood_check = false;
     }
     guard_position(&mut owner, "HuntTeam", "OwnedWaypoint");
@@ -1076,10 +1098,11 @@ fn locked_attack_move_parent_allows_child_attack_to_finish() {
         machine(&saved, actor)
     );
     let mut audio = SessionAudio::default();
+    let frame = receiver.get_current_frame() as u32;
     receiver
         .host_object_mut(actor)
         .unwrap()
-        .set_ai_state(AIState::Idle, &mut ObjectAudio::queue(&mut audio));
+        .set_ai_state(AIState::Idle, frame, &mut ObjectAudio::queue(&mut audio));
     assert_eq!(
         receiver.host_object(actor).unwrap().ai_state(),
         AIState::AttackMoving
@@ -1097,10 +1120,11 @@ fn locked_attack_move_parent_allows_child_attack_to_finish() {
         machine(&builder.create_world_snapshot(&reloaded).unwrap(), actor),
         body
     );
+    let frame = reloaded.get_current_frame() as u32;
     reloaded
         .host_object_mut(actor)
         .unwrap()
-        .set_ai_state(AIState::Idle, &mut ObjectAudio::queue(&mut audio));
+        .set_ai_state(AIState::Idle, frame, &mut ObjectAudio::queue(&mut audio));
     assert_eq!(
         reloaded.host_object(actor).unwrap().ai_state(),
         AIState::AttackMoving
@@ -1204,14 +1228,15 @@ fn guard_retaliate_restores_its_victim_and_anchor_in_the_receiving_session() {
             .guard_retaliate_victim(),
         Some(absent)
     );
+    let old_phase = missing_peer.host_object(actor).unwrap().guard_chase_phase();
     missing_peer.update_with_dt(1.0 / 30.0);
-    assert_ne!(
-        missing_peer
-            .host_object(actor)
-            .unwrap()
-            .guard_retaliate_victim(),
-        Some(absent)
-    );
+    // Missing nemesis makes the restored attack child complete; C++ keeps
+    // the serialized nemesis ID until another target is acquired or the
+    // enclosing machine exits, so the stale ID itself is not the oracle.
+    let resumed = missing_peer.host_object(actor).unwrap();
+    assert_eq!(resumed.ai_state(), AIState::Idle);
+    assert_eq!(resumed.target, None);
+    assert_ne!(resumed.guard_chase_phase(), old_phase);
     assert_eq!(
         owner.host_object(actor).unwrap().guard_retaliate_victim(),
         Some(attacker)
@@ -2179,10 +2204,11 @@ fn locked_hunt_parent_allows_child_attack_to_finish() {
         machine(&saved, actor)
     );
     let mut audio = SessionAudio::default();
+    let frame = receiver.get_current_frame() as u32;
     receiver
         .host_object_mut(actor)
         .unwrap()
-        .set_ai_state(AIState::Idle, &mut ObjectAudio::queue(&mut audio));
+        .set_ai_state(AIState::Idle, frame, &mut ObjectAudio::queue(&mut audio));
     assert!(receiver.host_object(actor).unwrap().is_hunting());
     let (mut reloaded, reloaded_id, _, _) = world_with_options(&map, true, true, false);
     admit_players(&mut reloaded);
@@ -2194,10 +2220,11 @@ fn locked_hunt_parent_allows_child_attack_to_finish() {
         machine(&builder.create_world_snapshot(&reloaded).unwrap(), actor),
         body
     );
+    let frame = reloaded.get_current_frame() as u32;
     reloaded
         .host_object_mut(actor)
         .unwrap()
-        .set_ai_state(AIState::Idle, &mut ObjectAudio::queue(&mut audio));
+        .set_ai_state(AIState::Idle, frame, &mut ObjectAudio::queue(&mut audio));
     assert!(reloaded.host_object(actor).unwrap().is_hunting());
 }
 
@@ -2244,13 +2271,16 @@ fn repeated_direct_guard_assignment_does_not_save_a_phantom_pending_type() {
     let map = map_file_with_area(root.path(), 0);
     let (mut owner, first, _, _) = world(&map);
     let mut audio = SessionAudio::default();
+    let frame = owner.get_current_frame() as u32;
     let actor = owner.host_object_mut(first).unwrap();
     actor.set_guard_position(
         Some(Vec3::new(10., 0., 20.)),
+        frame,
         &mut ObjectAudio::queue(&mut audio),
     );
     actor.set_guard_position(
         Some(Vec3::new(30., 0., 40.)),
+        frame,
         &mut ObjectAudio::queue(&mut audio),
     );
     let saved = generals_main::save_load::snapshot::SnapshotBuilder::new()
@@ -2386,10 +2416,12 @@ fn same_named_teams_own_independent_targets_through_retaliation_and_restore() {
     );
     let mut audio = SessionAudio::default();
     let mut attacks = AttackEvents::default();
+    let frame = owner.get_current_frame() as u32;
     owner.host_object_mut(first).unwrap().begin_guard_retaliate(
         inert,
         None,
         None,
+        frame,
         &mut attacks,
         &mut ObjectAudio::queue(&mut audio),
     );

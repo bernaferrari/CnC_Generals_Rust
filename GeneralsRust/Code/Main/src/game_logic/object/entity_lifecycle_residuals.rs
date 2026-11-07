@@ -85,7 +85,7 @@ pub(crate) struct PhysicsBehaviorResidual {
     pub previous_overlap: Option<ObjectId>,
     pub ignore_collisions_with: Option<ObjectId>,
     pub last_collidee: Option<ObjectId>,
-    pub motive_frames_remaining: u32,
+    pub motive_force_expires: u32,
     pub extra_friction: f32,
 }
 
@@ -234,7 +234,11 @@ impl PhysicsBehaviorResidual {
     }
 
     pub(crate) fn valid_for(&self, object: &Object) -> bool {
-        self.owner == object.id
+        self.valid_for_owner(object.id)
+    }
+
+    pub(crate) fn valid_for_owner(&self, owner: ObjectId) -> bool {
+        self.owner == owner
             && self.accel.is_finite()
             && self.previous_accel.is_finite()
             && self.mass.is_finite()
@@ -277,7 +281,7 @@ impl PhysicsBehaviorResidual {
             previous_overlap: object.physics_previous_overlap,
             ignore_collisions_with: object.ignore_collisions_with,
             last_collidee: object.last_collidee,
-            motive_frames_remaining: object.motive_frames_remaining,
+            motive_force_expires: object.motive_force_expires,
             extra_friction: object.extra_friction,
         }
     }
@@ -309,7 +313,7 @@ impl PhysicsBehaviorResidual {
         object.physics_previous_overlap = self.previous_overlap;
         object.ignore_collisions_with = self.ignore_collisions_with;
         object.last_collidee = self.last_collidee;
-        object.motive_frames_remaining = self.motive_frames_remaining;
+        object.motive_force_expires = self.motive_force_expires;
         object.extra_friction = self.extra_friction;
         object.refresh_model_condition_bits();
     }
@@ -371,7 +375,7 @@ mod tests {
         src.physics_current_overlap = Some(ObjectId(7));
         src.physics_previous_overlap = Some(ObjectId(8));
         src.ignore_collisions_with = Some(ObjectId(3));
-        src.motive_frames_remaining = 5;
+        src.motive_force_expires = 5;
         src.extra_friction = -0.02;
         src.refresh_model_condition_bits();
         let envelope = src
@@ -392,7 +396,7 @@ mod tests {
         assert_eq!(dst.physics_current_overlap, Some(ObjectId(7)));
         assert_eq!(dst.physics_previous_overlap, Some(ObjectId(8)));
         assert_eq!(dst.ignore_collisions_with, Some(ObjectId(3)));
-        assert_eq!(dst.motive_frames_remaining, 5);
+        assert_eq!(dst.motive_force_expires, 5);
         assert!((dst.extra_friction + 0.02).abs() < 1e-6);
         assert!(host_model_condition_has(
             dst.model_condition_bits,

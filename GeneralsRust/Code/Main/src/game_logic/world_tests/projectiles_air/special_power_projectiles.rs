@@ -1458,10 +1458,12 @@ fn emp_pulse_residual_disables_vehicles_in_radius() {
 
     // Combat path: EMP'd vehicle must not fire.
     {
+        let ai_entry_frame = game_logic.frame;
         let vehicle = game_logic.host_object_mut(vehicle_id).expect("vehicle");
         vehicle.target = Some(far_vehicle_id);
         vehicle.set_ai_state(
             AIState::Attacking,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         vehicle.set_status_attacking(true);
@@ -1721,12 +1723,14 @@ fn frenzy_residual_buffs_allies_and_boosts_damage() {
         .health
         .current;
     {
+        let ai_entry_frame = game_logic.frame;
         let (ally, fixture_partition_ally) = game_logic
             .host_object_and_partition_mut(ally_id)
             .expect("ally");
         ally.target = Some(enemy_id);
         ally.set_ai_state(
             AIState::Attacking,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         ally.set_status_attacking(true);
@@ -2142,12 +2146,14 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
         .health
         .current;
     {
+        let ai_entry_frame = game_logic.frame;
         let (ally, fixture_partition_ally) = game_logic
             .host_object_and_partition_mut(ally_id)
             .expect("ally");
         ally.target = Some(enemy_id);
         ally.set_ai_state(
             AIState::Attacking,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         ally.set_status_attacking(true);
@@ -2233,6 +2239,7 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
     }
     let ally_hp_before = game_logic.host_object(ally_id).unwrap().health.current;
     {
+        let ai_entry_frame = game_logic.frame;
         let (enemy, fixture_partition_enemy) = game_logic
             .host_object_and_partition_mut(enemy_id)
             .expect("enemy");
@@ -2246,6 +2253,7 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
         enemy.target = Some(ally_id);
         enemy.set_ai_state(
             AIState::Attacking,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         enemy.set_status_attacking(true);
@@ -2310,6 +2318,7 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
     game_logic.pathfinding_height_samples = None;
     game_logic.pathfinding_system.clear_static_blocks();
     {
+        let ai_entry_frame = game_logic.frame;
         let (ally, fixture_partition_ally) = game_logic
             .host_object_and_partition_mut(ally_id)
             .expect("ally");
@@ -2331,6 +2340,7 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
         ally.target = Some(enemy_id);
         ally.set_ai_state(
             AIState::Attacking,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         ally.set_status_attacking(true);
@@ -2469,12 +2479,14 @@ fn strategy_center_battle_plan_paralyze_residual_on_plan_change() {
     // Observable: paralyzed unit cannot fire residual.
     let enemy_hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
     {
+        let ai_entry_frame = game_logic.frame;
         let (ally, fixture_partition_ally) = game_logic
             .host_object_and_partition_mut(ally_id)
             .expect("ally");
         ally.target = Some(enemy_id);
         ally.set_ai_state(
             AIState::Attacking,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         ally.set_status_attacking(true);
@@ -2527,10 +2539,12 @@ fn strategy_center_battle_plan_paralyze_residual_on_plan_change() {
 
     // After expiry, fire residual works again (HoldTheLine has no damage mult).
     {
+        let ai_entry_frame = game_logic.frame;
         let ally = game_logic.host_object_mut(ally_id).expect("ally");
         ally.target = Some(enemy_id);
         ally.set_ai_state(
             AIState::Attacking,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         ally.set_status_attacking(true);
@@ -3040,6 +3054,7 @@ fn eject_pilot_die_mux_death_types_and_hijacked_residual() {
             Vec3::new(160.0, 0.0, 160.0),
         )
         .expect("hijacked humvee");
+    let frame = game_logic.frame;
     {
         let (h, health_events, partition) = game_logic
             .host_object_health_partition_mut(hijack_id)
@@ -3047,6 +3062,7 @@ fn eject_pilot_die_mux_death_types_and_hijacked_residual() {
         h.experience.level = VeterancyLevel::Veteran;
         h.apply_hijacked_from_with_partition_owner(
             None,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             partition,
         );
@@ -3145,10 +3161,12 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
         .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("pilot");
     {
+        let ai_entry_frame = game_logic.frame;
         let p = game_logic.host_object_mut(pilot_id).expect("pilot");
         p.experience.level = VeterancyLevel::Veteran; // levels_to_gain = 1
         p.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }

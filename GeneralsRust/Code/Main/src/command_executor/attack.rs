@@ -201,7 +201,7 @@ impl<'a> CommandExecutor<'a> {
             let Some(unit) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
-            if unit.contained_by.is_some() || unit.status.disabled_held {
+            if unit.status.disabled_held {
                 continue;
             }
             let p = unit.get_position();
@@ -210,46 +210,60 @@ impl<'a> CommandExecutor<'a> {
         }
         ordered.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
-        let mut extra_passengers: Vec<ObjectId> = Vec::new();
-        for &(unit_id, _) in &ordered {
-            let Some(unit) = self.game_logic.host_object(unit_id) else {
-                continue;
-            };
-            if unit.passengers_allowed_to_fire {
-                for p in unit.contained_units() {
-                    if p != target_id
-                        && !extra_passengers.contains(&p)
-                        && self.game_logic.host_object(p).is_some_and(|o| {
-                            o.is_alive()
-                                && o.can_attack()
-                                && gamelogic::object::contain::transport_contain_passenger_kind_allowed_to_fire(
-                                    o.is_kind_of(KindOf::Infantry),
-                                )
-                        })
-                    {
-                        extra_passengers.push(p);
+        let mut any_attacker = false;
+
+        for (unit_id, _) in ordered {
+            let contain_owner = self.game_logic.redirected_containment_owner(unit_id);
+            let (may_fire, helix_rider) = self.game_logic.host_object(contain_owner).map(|owner| {
+                let nested = ((owner.is_overlord_style_container() || owner.is_helix_transport)
+                    && owner.contained_by.is_some())
+                    || owner.contained_by.and_then(|id| self.game_logic.host_object(id))
+                        .is_some_and(|outer| outer.is_overlord_style_container() && outer.contained_by.is_some());
+                let ordinary = !nested && if owner.is_garrison_contain() {
+                    !owner.is_subdued_disabled()
+                } else {
+                    owner.passengers_allowed_to_fire
+                };
+                let rider = if owner.is_helix_transport && owner.contained_by.is_none() {
+                    owner.overlord_portable_occupant
+                } else {
+                    None
+                };
+                (ordinary, rider)
+            }).unwrap_or((false, None));
+            if may_fire || helix_rider.is_some() {
+                for passenger in self.game_logic.contained_units_for_interface(unit_id) {
+                    if !may_fire && helix_rider != Some(passenger) {
+                        continue;
                     }
+                    let attack_type = if forced {
+                        AbleToAttackType::NewTargetForced
+                    } else {
+                        AbleToAttackType::NewTarget
+                    };
+                    if !self.game_logic.host_object(passenger)
+                        .is_some_and(|object| object.has_ai_update_interface())
+                        || !matches!(
+                            self.game_logic.get_able_to_attack_specific_object(
+                                passenger, target_id, attack_type, forced,
+                            ),
+                            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                        )
+                    {
+                        continue;
+                    }
+                    let ok = if forced {
+                        self.game_logic.unit_command_force_attack_with_effects(
+                            passenger, target_id, &mut self.ui,
+                        )?
+                    } else {
+                        self.game_logic.unit_command_attack_with_effects(
+                            passenger, target_id, &mut self.ui,
+                        )?
+                    };
+                    any_attacker |= ok;
                 }
             }
-        }
-
-        let mut any_attacker = false;
-        for p in extra_passengers {
-            let ok = if forced {
-                self.game_logic.unit_command_force_attack_with_effects(
-                    p,
-                    target_id,
-                    &mut self.ui,
-                )?
-            } else {
-                self.game_logic
-                    .unit_command_attack_with_effects(p, target_id, &mut self.ui)?
-            };
-            if ok {
-                any_attacker = true;
-            }
-        }
-        for (unit_id, _) in ordered {
             // SpawnBehavior::orderSlavesToAttackTarget always uses force
             // attack, even when the group's own order is not forced.
             let children = self
@@ -265,10 +279,11 @@ impl<'a> CommandExecutor<'a> {
                     .zip(self.game_logic.host_object(child_id))
                     .is_some_and(|(owner, child)| {
                         owner.spawn_behavior_child_birth_matches(child_id, &birth, child)
+                            && owner.contains_spawn_behavior_child(child_id, &birth)
                             && child.has_ai_update_interface()
                     });
                 if admitted
-                    && self.game_logic.unit_command_force_attack_with_effects(
+                    && self.game_logic.unit_command_spawn_force_attack_with_effects(
                         child_id,
                         target_id,
                         &mut self.ui,
@@ -471,6 +486,7 @@ impl<'a> CommandExecutor<'a> {
                     .zip(self.game_logic.host_object(child_id))
                     .is_some_and(|(owner, child)| {
                         owner.spawn_behavior_child_birth_matches(child_id, &birth, child)
+                            && owner.contains_spawn_behavior_child(child_id, &birth)
                             && child.has_ai_update_interface()
                     });
                 if admitted
@@ -1097,6 +1113,7 @@ impl crate::game_logic::GameLogic {
                     ));
                     unit.set_ai_state(
                         AIState::Idle,
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     unit.attack_priority_set = None;

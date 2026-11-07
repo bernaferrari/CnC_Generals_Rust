@@ -91,6 +91,7 @@ impl GameLogic {
         unit.set_status_using_ability(false);
         unit.set_ai_state(
             AIState::Capturing,
+            self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         true
@@ -133,6 +134,7 @@ impl GameLogic {
         unit.set_status_using_ability(false);
         unit.set_ai_state(
             AIState::SpecialAbility,
+            self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         true
@@ -250,6 +252,7 @@ impl GameLogic {
             );
             unit.set_ai_state(
                 AIState::ReturningResources,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             unit.ignored_obstacle_id = None;
@@ -299,6 +302,7 @@ impl GameLogic {
             );
             unit.set_ai_state(
                 AIState::Gathering,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             unit.ignored_obstacle_id = None;
@@ -339,6 +343,7 @@ impl GameLogic {
         );
         unit.set_ai_state(
             AIState::Docking,
+            self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         true
@@ -436,10 +441,12 @@ impl GameLogic {
         ));
         unit.set_guard_position(
             None,
+            self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         unit.set_guard_target(
             None,
+            self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         unit.end_guard_retaliate(&mut crate::game_logic::ObjectAudio::queue(
@@ -718,10 +725,12 @@ impl GameLogic {
             obj.set_force_attack(false);
             obj.set_guard_position(
                 None,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             obj.set_guard_target(
                 None,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             obj.end_guard_retaliate(&mut crate::game_logic::ObjectAudio::queue(
@@ -746,6 +755,7 @@ impl GameLogic {
         );
         unit.set_ai_state(
             AIState::Entering,
+            self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         // C++ AIEnterState::onEnter ignoreObstacle(goalObject).
@@ -879,11 +889,13 @@ impl GameLogic {
 
             unit.set_target_location(
                 Some(pos),
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             unit.set_force_attack(true);
             unit.set_ai_state(
                 AIState::AttackingGround,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             unit.set_max_shots_to_fire(max_shots_to_fire);
@@ -1021,6 +1033,7 @@ impl GameLogic {
         let _ = unit.set_weapon_lock(next, WeaponLockType::LockedPermanently);
         unit.set_ai_state(
             AIState::SpecialAbility,
+            self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         true

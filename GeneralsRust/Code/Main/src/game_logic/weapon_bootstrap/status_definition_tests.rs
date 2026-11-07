@@ -155,6 +155,7 @@ fn accepted_status_hit(name: &str, status: &str, expected: bool) {
     let before_fire = source_obj.weapon.as_ref().unwrap().last_fire_time;
     source_obj.attack_target(
         target,
+        world.frame,
         &mut world.attack_events,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
@@ -246,6 +247,7 @@ fn accepted_actual_avenger_status_hit(name: &str, expected_paint: bool) {
     let before_fire = source_obj.weapon.as_ref().unwrap().last_fire_time;
     source_obj.attack_target(
         target,
+        world.frame,
         &mut world.attack_events,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );

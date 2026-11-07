@@ -7,6 +7,7 @@ fn stop_attack_clears_force_attack_and_targets() {
     let mut object = make_test_object();
     object.set_target(
         Some(ObjectId(99)),
+        0,
         &mut _attack_output,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
@@ -14,12 +15,14 @@ fn stop_attack_clears_force_attack_and_targets() {
     assert_eq!(object.ai_state(), AIState::Attacking);
     object.set_target(
         Some(ObjectId(99)),
+        0,
         &mut _attack_output,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     object.set_force_attack(true);
     object.set_target_location(
         Some(Vec3::new(1.0, 0.0, 2.0)),
+        0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert!(object.set_weapon_lock(0, WeaponLockType::LockedTemporarily));
@@ -83,11 +86,13 @@ fn setting_target_location_clears_object_target() {
     let mut object = make_test_object();
     object.set_target(
         Some(ObjectId(77)),
+        0,
         &mut _attack_output,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     object.set_target_location(
         Some(Vec3::new(10.0, 0.0, 10.0)),
+        0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
 
@@ -457,6 +462,7 @@ fn garrison_range_bonus_extends_is_within_attack_range() {
     atk.contained_by = Some(ObjectId(99));
     atk.set_ai_state(
         AIState::Docked,
+        0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert!(
@@ -465,6 +471,7 @@ fn garrison_range_bonus_extends_is_within_attack_range() {
     );
     atk.set_ai_state(
         AIState::Garrisoned,
+        0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert!(

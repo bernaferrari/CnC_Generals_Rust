@@ -692,6 +692,7 @@ impl AIPlayer {
             } else if let Some(unit) = game_logic.objects.get_mut(&obj_id) {
                 unit.move_to(
                     other_pos,
+                    game_logic.frame,
                     &mut game_logic.movement_events.writer(game_logic.frame),
                     &mut crate::game_logic::ObjectAudio::queue(&mut game_logic.queued_audio_events),
                 );
@@ -1860,6 +1861,7 @@ impl AIPlayer {
             if let Some(obj) = game_logic.objects.get_mut(&unit_id) {
                 obj.set_ai_state(
                     AIState::Idle,
+                    game_logic.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut game_logic.queued_audio_events),
                 );
             }
@@ -2225,6 +2227,7 @@ impl AIPlayer {
                 if let Some(obj) = game_logic.objects.get_mut(&unit_id) {
                     obj.set_ai_state(
                         AIState::Idle,
+                        game_logic.frame,
                         &mut crate::game_logic::ObjectAudio::queue(
                             &mut game_logic.queued_audio_events,
                         ),

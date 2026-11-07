@@ -263,8 +263,10 @@ fn authored_helipad_takeoff_completion_enters_owned_idle() {
             let (mut logic, pad, heli) = authored_match();
             let parking = Vec3::new(40.0, 100.0, 40.0);
             let approach = Vec3::new(50.0, 100.0, 40.0);
+            let frame = logic.frame;
             logic.host_object_mut(heli).unwrap().set_ai_state(
                 AIState::Attacking,
+                frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             logic.begin_heli_takeoff_or_landing(heli, pad, parking, approach, false);

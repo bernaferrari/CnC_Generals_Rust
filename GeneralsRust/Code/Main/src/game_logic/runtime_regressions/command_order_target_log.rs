@@ -31,9 +31,11 @@ fn command_order_target_log() -> bool {
         return false;
     };
 
+    let frame = logic.frame;
     if let Some((unit, attack_events, audio_events)) = logic.host_object_attack_audio_mut(u) {
         unit.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::queue(audio_events),
         );
         unit.set_order_target(

@@ -219,8 +219,9 @@ fn queue_veterancy_promote_fx_skips_rider_swap_and_hijack_without_feedback() {
     let mut vehicle = make_test_object();
     let mut hijacker = make_test_object();
     hijacker.experience.level = VeterancyLevel::Elite;
+    let frame = owner.frame;
     owner.with_veterancy_feedback(&mut vehicle, |object, audio, _feedback| {
-        object.apply_hijacked_from(Some(&hijacker), audio);
+        object.apply_hijacked_from(Some(&hijacker), frame, audio);
     });
     assert_eq!(vehicle.experience.level, VeterancyLevel::Elite);
     assert!(
@@ -351,6 +352,7 @@ fn disabled_status_does_not_issue_ai_idle() {
     let mut obj = make_test_object();
     obj.set_ai_state(
         crate::game_logic::AIState::Moving,
+        0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     obj.apply_disabled_emp(
@@ -366,6 +368,7 @@ fn prone_and_cheer_timers_do_not_rewrite_ai_machine() {
     let mut obj = make_test_object();
     obj.set_ai_state(
         crate::game_logic::AIState::Moving,
+        0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     obj.go_prone(
@@ -376,6 +379,7 @@ fn prone_and_cheer_timers_do_not_rewrite_ai_machine() {
 
     obj.set_ai_state(
         crate::game_logic::AIState::SpecialAbility,
+        0,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     obj.cheer_timer = 0.1;

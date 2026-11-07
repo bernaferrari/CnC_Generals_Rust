@@ -1025,6 +1025,7 @@ impl UnitControlSystem {
             if let Some(obj) = logic.objects.get_mut(&object_id) {
                 obj.set_guard_position(
                     None,
+                    logic.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut logic.queued_audio_events),
                 );
             }
@@ -1049,6 +1050,7 @@ impl UnitControlSystem {
             if let Some(obj) = logic.objects.get_mut(&object_id) {
                 obj.set_guard_target(
                     None,
+                    logic.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut logic.queued_audio_events),
                 );
             }

@@ -30,6 +30,7 @@ fn neutron_unman_deselects_and_idles_ai() {
         let obj = logic.host_object_mut(tank_id).expect("tank mut");
         obj.set_ai_state(
             AIState::Moving,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         obj.target_location = Some(Vec3::new(80.0, 0.0, 0.0));
@@ -138,6 +139,7 @@ fn overlord_bunker_infantry_residual_fire_without_helix_flag() {
         r.contained_by = Some(bunker);
         r.set_ai_state(
             AIState::Docked,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if r.weapon.is_none() {
@@ -225,6 +227,7 @@ fn combat_chinook_vehicle_rider_does_not_residual_fire() {
         r.contained_by = Some(bird);
         r.set_ai_state(
             AIState::Docked,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         r.weapon = Some(crate::game_logic::Weapon {
@@ -297,6 +300,7 @@ fn subdued_transport_stops_passenger_residual_fire() {
         r.contained_by = Some(truck);
         r.set_ai_state(
             AIState::Docked,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         r.weapon = Some(crate::game_logic::Weapon {
@@ -677,6 +681,7 @@ fn support_states_enter_sets_unselectable_and_masked() {
         r.owner_player_id = Some(0);
         r.set_ai_state(
             AIState::Entering,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         r.target = Some(bunker);
@@ -723,6 +728,7 @@ fn support_states_firebase_enter_does_not_mask() {
         r.owner_player_id = Some(0);
         r.set_ai_state(
             AIState::Entering,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         r.target = Some(fb);
@@ -1002,6 +1008,7 @@ fn really_damaged_ejects_garrison_with_burst_walk() {
         r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1048,6 +1055,7 @@ fn firebase_really_damaged_does_not_eject() {
         r.set_contained_by_with_partition_owner(Some(fb), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1134,6 +1142,7 @@ fn garrison_fire_releases_old_firepoint_before_taking_closer() {
         r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1197,6 +1206,7 @@ fn garrison_fire_frees_firepoint_when_no_in_range_victim() {
         r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1483,7 +1493,7 @@ fn walk_unit_via_open_contain_exit_airborne_falls_without_invented_hull_kick() {
     logic.walk_unit_via_open_contain_exit(rider, transport);
     let u = logic.host_object(rider).unwrap();
     assert!(u.allow_to_fall);
-    assert_eq!(u.motive_frames_remaining, 0);
+    assert_eq!(u.motive_force_expires, 0);
     assert_eq!(u.physics_accel, Vec3::ZERO);
 }
 
@@ -1520,7 +1530,7 @@ fn walk_unit_via_open_contain_exit_keep_velocity_applies_authored_kick() {
     logic.walk_unit_via_open_contain_exit(rider, transport);
     let u = logic.host_object(rider).unwrap();
     assert_eq!(
-        u.motive_frames_remaining,
+        u.motive_force_expires,
         crate::game_logic::MOTIVE_FRAMES_RESIDUAL
     );
     assert!((u.physics_accel.x - 9.0).abs() < 1e-4);
@@ -1806,10 +1816,12 @@ fn defector_idles_and_kicks_cargo() {
     if let Some((v, attack_events)) = logic.host_object_and_attack_events_mut(victim) {
         v.set_ai_state(
             AIState::Attacking,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         v.set_target(
             Some(caster),
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -1873,6 +1885,7 @@ fn garrison_residual_fire_skips_undetected_stealth() {
         r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1944,6 +1957,7 @@ fn garrison_residual_fire_uses_garrisoned_133_range() {
         r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         assert!(
@@ -2008,6 +2022,7 @@ fn helix_infantry_residual_fire_uses_garrisoned_133_range() {
         assert!(r.is_held_disabled());
         r.set_ai_state(
             AIState::Docked,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         r.weapon = Some(crate::game_logic::Weapon {
@@ -2166,6 +2181,7 @@ fn tunnel_occupants_do_not_garrison_fire() {
         });
         r.set_ai_state(
             AIState::Entering,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         r.target = Some(tunnel);
@@ -2193,9 +2209,11 @@ fn tunnel_occupants_do_not_garrison_fire() {
     assert_eq!(logic.garrison_residual_fires(), 0);
 
     // Defense: even a wrongly stamped Garrisoned occupant stays silent.
+    let frame = logic.frame;
     if let Some(r) = logic.host_object_mut(rebel) {
         r.set_ai_state(
             AIState::Garrisoned,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -2254,6 +2272,7 @@ fn firebase_does_not_spawn_garrison_gun() {
         r.set_contained_by_with_partition_owner(Some(fb), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -2330,6 +2349,7 @@ fn poison_garrison_shot_skips_muzzle_flash() {
         r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -2401,6 +2421,7 @@ fn garrison_gun_aims_at_occupant_target() {
         r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
+            0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }

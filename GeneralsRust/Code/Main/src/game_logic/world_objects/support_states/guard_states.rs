@@ -444,6 +444,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&object_id) {
                 o.set_ai_state(
                     state,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
@@ -466,6 +467,7 @@ impl GameLogic {
         if let Some(o) = self.objects.get_mut(&object_id) {
             o.set_ai_state(
                 state,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             o.unit_ai_runtime.set_machine_goal_position(goal);
@@ -796,6 +798,7 @@ impl GameLogic {
                 o.target = Some(target_id);
                 o.set_ai_state(
                     AIState::SpecialAbility,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
@@ -825,6 +828,7 @@ impl GameLogic {
                 );
                 o.set_ai_state(
                     AIState::Entering,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 // C++ AIEnterState::onEnter ignoreObstacle(goalObject).

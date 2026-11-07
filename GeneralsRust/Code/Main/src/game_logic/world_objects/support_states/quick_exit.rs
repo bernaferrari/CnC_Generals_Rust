@@ -57,6 +57,7 @@ impl GameLogic {
                     u.set_precise_z_pos(false);
                     u.set_ai_state(
                         state,
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }

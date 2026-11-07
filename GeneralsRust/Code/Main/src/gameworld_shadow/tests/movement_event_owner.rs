@@ -28,6 +28,7 @@ fn missing_mapping_retains_whole_suffix_until_a_later_session_case() {
         let (object, mut writer) = logic.host_object_and_movement_events_mut(id).unwrap();
         object.set_destination(
             Vec3::new(x, 0.0, 0.0),
+            0,
             &mut writer,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -117,6 +118,7 @@ fn eager_prefix_late_suffix_and_foreign_session_remain_once_and_ordered_case() {
         let (object, mut writer) = owner.host_object_and_movement_events_mut(a).unwrap();
         object.set_destination(
             Vec3::new(20.0, 0.0, 0.0),
+            0,
             &mut writer,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -136,12 +138,14 @@ fn eager_prefix_late_suffix_and_foreign_session_remain_once_and_ordered_case() {
     let (object, mut writer) = owner.host_object_and_movement_events_mut(b).unwrap();
     object.set_destination(
         Vec3::new(30.0, 0.0, 0.0),
+        0,
         &mut writer,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     let (object, mut writer) = other.host_object_and_movement_events_mut(other_a).unwrap();
     object.set_destination(
         Vec3::new(80.0, 0.0, 0.0),
+        0,
         &mut writer,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
@@ -202,6 +206,7 @@ fn restoring_a_snapshot_baselines_only_the_receiving_world_output_case() {
     let (object, mut writer) = owner.host_object_and_movement_events_mut(id).unwrap();
     object.set_destination(
         Vec3::new(20.0, 0.0, 30.0),
+        0,
         &mut writer,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
@@ -214,6 +219,7 @@ fn restoring_a_snapshot_baselines_only_the_receiving_world_output_case() {
     let (object, mut writer) = receiver.host_object_and_movement_events_mut(id).unwrap();
     object.set_destination(
         Vec3::new(80.0, 0.0, 90.0),
+        0,
         &mut writer,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
@@ -241,9 +247,11 @@ fn restoring_a_snapshot_baselines_only_the_receiving_world_output_case() {
     assert!(receiver.movement_events.snapshot_pending().is_empty());
     assert!(receiver.movement_events.snapshot_completed().is_empty());
     let restored_session = receiver.movement_events.session().clone();
+    let frame = receiver.get_frame();
     let (object, mut writer) = receiver.host_object_and_movement_events_mut(id).unwrap();
     object.set_destination(
         Vec3::new(40.0, 0.0, 50.0),
+        frame,
         &mut writer,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );

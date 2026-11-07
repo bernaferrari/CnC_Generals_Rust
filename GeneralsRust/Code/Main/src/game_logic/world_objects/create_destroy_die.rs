@@ -212,6 +212,7 @@ impl GameLogic {
             // normal Gathering update proceeds to this acquired warehouse.
             collector.set_ai_state(
                 AIState::Gathering,
+                operation_frame,
                 &mut crate::game_logic::ObjectAudio::queue(audio_events),
             );
         }

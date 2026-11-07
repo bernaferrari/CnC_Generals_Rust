@@ -581,6 +581,7 @@ fn troop_crawler_residual_transport_load_unload() {
         .expect("unit b");
 
     for unit_id in [unit_a, unit_b] {
+        let frame = game_logic.frame;
         {
             let unit = game_logic.host_object_mut(unit_id).expect("unit mut");
             unit.weapon = Some(Weapon {
@@ -593,6 +594,7 @@ fn troop_crawler_residual_transport_load_unload() {
             unit.target = Some(crawler_id);
             unit.set_ai_state(
                 AIState::Entering,
+                frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
@@ -1955,12 +1957,14 @@ fn troop_crawler_assault_keeps_wounded_and_retrieves_outside() {
         assert!(c.add_occupant(healthy_id));
     }
     {
+        let frame = game_logic.frame;
         let (h, fixture_partition_h) = game_logic
             .host_object_and_partition_mut(healthy_id)
             .unwrap();
         h.set_contained_by_with_partition_owner(Some(crawler_id), true, fixture_partition_h);
         h.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         h.health.current = 100.0;
@@ -2347,10 +2351,12 @@ fn troop_crawler_assault_walks_enter_and_exit() {
         assert!(c.add_occupant(fighter));
     }
     {
+        let frame = game_logic.frame;
         let (h, fixture_partition_h) = game_logic.host_object_and_partition_mut(fighter).unwrap();
         h.set_contained_by_with_partition_owner(Some(crawler_id), true, fixture_partition_h);
         h.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         h.health.current = 100.0;
@@ -2403,10 +2409,12 @@ fn troop_crawler_residual_rejects_vehicle_enter() {
         .create_object("TestTank", Team::China, Vec3::new(2.0, 0.0, 0.0))
         .expect("tank");
     {
+        let frame = game_logic.frame;
         let unit = game_logic.host_object_mut(tank_id).unwrap();
         unit.target = Some(crawler_id);
         unit.set_ai_state(
             AIState::Entering,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }

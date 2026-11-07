@@ -42,7 +42,7 @@ fn thrust_cpp_force_only_leaves_velocity_and_translation_until_physics() {
     let start = object.get_position();
     let goal = start + glam::Vec3::X * 1000.0;
     object.movement.target_position = Some(goal);
-    object.move_towards_thrust(goal, 99999.0, 30.0, 1.0 / 30.0);
+    object.move_towards_thrust(goal, 99999.0, 30.0, 1.0 / 30.0, 0);
     assert_eq!(
         object.get_position(),
         start,
@@ -73,7 +73,7 @@ fn thrust_cpp_orients_in_3d_without_pivot_translation() {
     object.turn_pivot_offset = 100.0;
     let start = object.get_position();
     let goal = start + glam::Vec3::X * 1000.0;
-    object.move_towards_thrust(goal, 99999.0, 30.0, 1.0 / 30.0);
+    object.move_towards_thrust(goal, 99999.0, 30.0, 1.0 / 30.0, 0);
     assert_eq!(object.get_position(), start);
     let forward = object.get_transform_matrix().x_axis.truncate();
     let expected = glam::Vec3::new(0.0, 1.0, 1.0).normalize();
@@ -206,7 +206,7 @@ fn source_thrust_continuation_rereads_current_physics_velocity_after_orientation
     actor.movement.velocity = glam::Vec3::new(9., 12., 15.);
     let damping = (acceleration / max_speed).clamp(0., 1.);
     let expected = (direction * acceleration - actor.movement.velocity / 30. * damping) * 30.;
-    actor.finish_owned_thrust_step(step);
+    actor.finish_owned_thrust_step(step, 0);
     assert!((actor.physics_accel - expected).length() < 0.0001);
 }
 #[test]

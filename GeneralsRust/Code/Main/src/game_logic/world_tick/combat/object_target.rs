@@ -23,6 +23,15 @@ impl GameLogic {
             overcharge,
             ..
         } = input;
+        // A restored GuardRetaliate attack child is recreated from the
+        // machine's nemesis, not the Object's stale target projection.
+        // A missing nemesis makes that child succeed without firing.
+        if self.objects.get(&attacker_id).is_some_and(|attacker| {
+            attacker.ai_state() == AIState::GuardRetaliating
+                && attacker.guard_retaliate_victim() != Some(target_id)
+        }) {
+            return CombatShotResult::NoShot;
+        }
         let mut shot = CombatShotResult::NoShot;
         let target_status = self.objects.get(&target_id).map(|target| {
             (
@@ -307,10 +316,11 @@ impl GameLogic {
                     );
                     if !matches!(
                         attacker.ai_state(),
-                        AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
+                        AIState::Patrolling | AIState::AttackMoving | AIState::Attacking | AIState::GuardRetaliating
                     ) {
                         attacker.set_ai_state(
                             AIState::Attacking,
+                            self.frame,
                             &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),
@@ -396,10 +406,11 @@ impl GameLogic {
                         );
                         if !matches!(
                             attacker.ai_state(),
-                            AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
+                            AIState::Patrolling | AIState::AttackMoving | AIState::Attacking | AIState::GuardRetaliating
                         ) {
                             attacker.set_ai_state(
                                 AIState::Attacking,
+                                self.frame,
                                 &mut crate::game_logic::ObjectAudio::queue(
                                     &mut self.queued_audio_events,
                                 ),
@@ -456,11 +467,12 @@ impl GameLogic {
                             );
                             let entered_attack = !matches!(
                                 attacker.ai_state(),
-                                AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
+                                AIState::Patrolling | AIState::AttackMoving | AIState::Attacking | AIState::GuardRetaliating
                             );
                             if entered_attack {
                                 attacker.set_ai_state(
                                     AIState::Attacking,
+                                    self.frame,
                                     &mut crate::game_logic::ObjectAudio::queue(
                                         &mut self.queued_audio_events,
                                     ),

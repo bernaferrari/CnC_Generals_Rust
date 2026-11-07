@@ -145,6 +145,7 @@ impl GameLogic {
                     {
                         obj.set_ai_state(
                             AIState::Capturing,
+                            self.frame,
                             &mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ),
@@ -342,6 +343,7 @@ impl GameLogic {
 
                 object.set_ai_state(
                     AIState::Capturing,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }

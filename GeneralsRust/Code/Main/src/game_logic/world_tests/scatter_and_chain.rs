@@ -41,6 +41,7 @@ fn continue_attack_range_chains_to_nearby_same_team_target() {
         o.target = Some(mine1);
         o.set_ai_state(
             AIState::Attacking,
+            logic.frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         o.set_status_attacking(true);

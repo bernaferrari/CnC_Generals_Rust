@@ -327,6 +327,7 @@ fn helix_minigun_residual_intended_only() {
             .expect("helix");
         h.attack_target(
             enemy_id,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -481,6 +482,7 @@ fn battle_drone_residual_attach_fire_and_repair() {
             .unwrap();
         d.attack_target(
             enemy,
+            0,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );

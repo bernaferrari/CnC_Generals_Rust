@@ -205,6 +205,7 @@ impl GameLogic {
                     obj.refresh_follow_path_extra_distance();
                     obj.set_ai_state(
                         AIState::Moving,
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     obj.status.moving = true;
@@ -622,6 +623,7 @@ impl GameLogic {
                     .expect("containment operation preserves this birth");
                 hunter.set_ai_state(
                     AIState::Docked,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 {}
@@ -781,6 +783,7 @@ impl GameLogic {
                     .expect("containment operation preserves this birth");
                 guard.set_ai_state(
                     AIState::Docked,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 {}

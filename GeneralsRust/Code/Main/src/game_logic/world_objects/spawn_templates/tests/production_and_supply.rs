@@ -634,6 +634,7 @@ End
         burton_id,
         PendingSpecialAbility::PlantTimedDemoCharge { target_id },
     );
+    let frame = logic.frame;
     {
         let (burton, attack_events) = logic
             .host_object_and_attack_events_mut(burton_id)
@@ -648,6 +649,7 @@ End
         burton.movement.turn_rate = std::f32::consts::PI;
         burton.set_ai_state(
             AIState::SpecialAbility,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         // set_target admits an ordinary attack and replaces the ability

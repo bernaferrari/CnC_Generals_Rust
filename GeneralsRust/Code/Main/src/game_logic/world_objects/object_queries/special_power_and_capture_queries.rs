@@ -128,6 +128,7 @@ impl GameLogic {
                     power,
                 )
             });
+        let frame = self.frame;
         if shared_n_sync {
             if let Some(pid) = owner_id {
                 if let Some(player) = self.get_player_mut(pid) {
@@ -159,11 +160,13 @@ impl GameLogic {
                 obj.start_power_recharge_with_frames(power, module.reload_time_frames);
                 obj.set_ai_state(
                     AIState::Idle,
+                    frame,
                     &mut crate::game_logic::ObjectAudio::queue(audio_events),
                 );
             } else {
                 obj.consume_special_power_charge(
                     power,
+                    frame,
                     &mut crate::game_logic::ObjectAudio::queue(audio_events),
                 );
             }

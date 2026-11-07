@@ -834,7 +834,7 @@ impl GameLogic {
                     AIState::Idle | AIState::Moving | AIState::Attacking
                 ) || obj.target.is_none()
                 {
-                    obj.set_ai_state_at_frame(
+                    obj.set_ai_state(
                         AIState::Moving,
                         frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),

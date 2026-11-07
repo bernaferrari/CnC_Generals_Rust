@@ -314,18 +314,11 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     }
 
     fn side_script_current_player(&self, side_index: usize) -> ScriptOwnerQuery<Option<String>> {
-        // ScriptEngine's no-map fallback mirrors C++ PlayerList::getNthPlayer:
-        // the side index is an ordinal. Do not let the shared host-side helper
-        // treat a matching numeric Player ID as a hit before that ordinal
-        // lookup (e.g. side 1 must be absent when only Player ID 1 exists).
-        let player_id = if self.world.prepared_map_sides.get_num_sides() > 0 {
-            self.world.host_player_id_for_side_index(side_index as u32)
-        } else {
-            let mut player_ids: Vec<_> = self.world.players.keys().copied().collect();
-            player_ids.sort_unstable();
-            player_ids.get(side_index).copied()
-        };
-        let player = player_id.and_then(|id| self.world.players.get(&id));
+        // ScriptEngine.cpp:5555-5557 reads the PlayerList slot at the script
+        // list's ordinal, not the side dictionary's player-name key.
+        let player = u32::try_from(side_index)
+            .ok()
+            .and_then(|id| self.world.players.get(&id));
         ScriptOwnerQuery::Present(player.map(|player| player.map_side.map_player_name.clone()))
     }
 

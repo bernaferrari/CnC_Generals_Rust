@@ -17,22 +17,26 @@ pub trait CommandableObject {
     fn set_target(
         &mut self,
         target: Option<ObjectId>,
+        frame: u32,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     );
     fn set_target_location(
         &mut self,
         location: Option<Vec3>,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     );
     fn set_guard_position(
         &mut self,
         position: Option<Vec3>,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     );
     fn set_guard_target(
         &mut self,
         target: Option<ObjectId>,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     );
     fn set_force_attack(&mut self, force: bool);
@@ -106,34 +110,38 @@ impl CommandableObject for Object {
     fn set_target(
         &mut self,
         target: Option<ObjectId>,
+        frame: u32,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        Object::set_target(self, target, attack_events, audio);
+        Object::set_target(self, target, frame, attack_events, audio);
     }
 
     fn set_target_location(
         &mut self,
         location: Option<Vec3>,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        Object::set_target_location(self, location, audio);
+        Object::set_target_location(self, location, frame, audio);
     }
 
     fn set_guard_position(
         &mut self,
         position: Option<Vec3>,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        Object::set_guard_position(self, position, audio);
+        Object::set_guard_position(self, position, frame, audio);
     }
 
     fn set_guard_target(
         &mut self,
         target: Option<ObjectId>,
+        frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        Object::set_guard_target(self, target, audio);
+        Object::set_guard_target(self, target, frame, audio);
     }
 
     fn set_force_attack(&mut self, force: bool) {

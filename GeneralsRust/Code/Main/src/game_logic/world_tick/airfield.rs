@@ -217,9 +217,10 @@ impl GameLogic {
                         continue;
                     }
                     if let Some(jet) = self.objects.get_mut(&id) {
-                        jet.apply_pending_jet_resume(&mut crate::game_logic::ObjectAudio::queue(
-                            &mut self.queued_audio_events,
-                        ));
+                        jet.apply_pending_jet_resume(
+                            self.frame,
+                            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                        );
                     }
                     if self
                         .objects
@@ -429,6 +430,7 @@ impl GameLogic {
                 if jet.ai_state() != AIState::Moving {
                     jet.set_ai_state(
                         AIState::Moving,
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
@@ -724,6 +726,7 @@ impl GameLogic {
             if jet.ai_state() != AIState::Moving {
                 jet.set_ai_state(
                     AIState::Moving,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
@@ -825,6 +828,7 @@ impl GameLogic {
             );
             jet.set_ai_state(
                 AIState::Docked,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             jet.set_status_moving(false);
@@ -1976,6 +1980,7 @@ impl GameLogic {
         );
         jet.set_ai_state(
             AIState::Docked,
+            self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         jet.set_status_moving(false);
@@ -2398,6 +2403,7 @@ impl GameLogic {
                 if jet.ai_state() != AIState::Moving {
                     jet.set_ai_state(
                         AIState::Moving,
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
@@ -3046,6 +3052,7 @@ impl GameLogic {
                 if entered_move {
                     jet.set_ai_state(
                         AIState::Moving,
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                 }
@@ -3116,6 +3123,7 @@ impl GameLogic {
             if jet.ai_state() != AIState::Moving {
                 jet.set_ai_state(
                     AIState::Moving,
+                    self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
             }
@@ -3173,6 +3181,7 @@ impl GameLogic {
             );
             jet.set_ai_state(
                 AIState::Docked,
+                self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             jet.set_status_moving(false);

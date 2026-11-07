@@ -773,9 +773,9 @@ pub struct Object {
     /// C++ PhysicsBehavior::m_prevAccel, retained for drawable locomotor visuals.
     #[serde(default)]
     pub(crate) physics_previous_accel: glam::Vec3,
-    /// C++ isMotive residual frames remaining (0 = not motive / accept full force).
+    /// C++ PhysicsBehavior::m_motiveForceExpires, an absolute logic frame.
     #[serde(default)]
-    pub motive_frames_remaining: u32,
+    pub motive_force_expires: u32,
     /// C++ AIUpdate m_waitingForPath residual.
     #[serde(default)]
     pub waiting_for_path: bool,
@@ -2884,6 +2884,7 @@ mod damage;
 pub(in crate::game_logic) use damage::{BridgeBodyCallbacks, DamageApplication};
 mod death;
 mod entity_lifecycle_apply;
+pub(crate) use entity_lifecycle_apply::validate_physics_owner;
 #[cfg(test)]
 mod entity_lifecycle_audit;
 mod entity_lifecycle_envelope;

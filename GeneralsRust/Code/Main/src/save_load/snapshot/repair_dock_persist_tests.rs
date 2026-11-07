@@ -256,11 +256,13 @@ fn repair_cache_save_load_continues_real_docked_action_without_recomputing_rate(
     let master = source
         .create_object_for_player("SavedRepairDock", 1, glam::Vec3::ZERO)
         .unwrap();
+    let frame = source.frame;
     {
         let object = source.objects.get_mut(&master).unwrap();
         object.target = Some(dock);
         object.set_ai_state(
             AIState::SeekingRepair,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }

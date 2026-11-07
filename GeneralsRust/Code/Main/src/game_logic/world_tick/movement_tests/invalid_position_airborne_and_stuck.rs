@@ -26,7 +26,7 @@ fn fix_invalid_position_3x3_shoves_off_water() {
     logic.update_movement_for_test(&[id], 1.0 / 30.0);
     let obj = logic.objects.get(&id).expect("unit");
     assert!(
-        obj.motive_frames_remaining > 0,
+        obj.is_motive(logic.frame),
         "3x3 shove must applyMotiveForce"
     );
     assert!(
@@ -79,12 +79,12 @@ fn allow_invalid_position_skips_3x3_shove() {
 fn enter_state_sets_allow_invalid_position() {
     let mut unit = ranger_at(9722, Vec3::ZERO);
     assert!(!unit.allow_invalid_position);
-    unit.set_ai_state(AIState::Entering, &mut ObjectAudio::record(&mut Vec::new()));
+    unit.set_ai_state(AIState::Entering, 0, &mut ObjectAudio::record(&mut Vec::new()));
     assert!(
         unit.allow_invalid_position,
         "AIEnterState::onEnter setAllowInvalidPosition(true)"
     );
-    unit.set_ai_state(AIState::Idle, &mut ObjectAudio::record(&mut Vec::new()));
+    unit.set_ai_state(AIState::Idle, 0, &mut ObjectAudio::record(&mut Vec::new()));
     assert!(
         !unit.allow_invalid_position,
         "AIEnterState::onExit setAllowInvalidPosition(false)"
@@ -217,7 +217,7 @@ fn lift_ignores_goal_y_without_precise_z_pos() {
     heli.ultra_accurate = true;
     heli.physics_mass = 1.0;
     heli.physics_accel = Vec3::ZERO;
-    let _ = heli.handle_behavior_z(40.0, Some(80.0));
+    let _ = heli.handle_behavior_z(40.0, Some(80.0), 0);
     assert!(
         heli.physics_accel.y < -1.0,
         "without PRECISE_Z_POS lift must seek preferred+surface (50), not hold 80; accel.y={}",
@@ -226,7 +226,7 @@ fn lift_ignores_goal_y_without_precise_z_pos() {
 
     heli.physics_accel = Vec3::ZERO;
     heli.precise_z_pos = true;
-    let _ = heli.handle_behavior_z(40.0, Some(80.0));
+    let _ = heli.handle_behavior_z(40.0, Some(80.0), 0);
     assert!(
         heli.physics_accel.y > -1.0,
         "PRECISE_Z_POS may hold goal_y=80; accel.y={}",
@@ -598,7 +598,7 @@ fn wings_idle_maintain_z_uses_terrain_not_own_altitude() {
     jet.physics_mass = 1.0;
     jet.min_speed = 10.0;
     jet.circling_radius = 40.0;
-    jet.motive_frames_remaining = 4;
+    jet.motive_force_expires = 4;
     jet.movement.max_speed = 40.0;
     // Idle: no target. C++ maintain then handleBehaviorZ(terrain).
     logic.objects.insert(id, jet);
@@ -613,6 +613,46 @@ fn wings_idle_maintain_z_uses_terrain_not_own_altitude() {
     );
     assert!(y > 5.0, "must not slam to ground; y={y}");
 }
+/// Locomotor.cpp:2412-2474, 2488-2492: maintaining Wings may
+/// circle only while the existing Physics motive deadline is active.
+#[test]
+fn wings_maintain_does_not_rearm_an_expired_motive_deadline() {
+    fn wing() -> Object {
+        let mut template = ThingTemplate::new("WingsMotiveDeadline");
+        template.add_kind_of(KindOf::Aircraft);
+        let mut object = Object::new(template, ObjectId(98233), Team::USA);
+        object.set_position(Vec3::new(0.0, 50.0, 0.0));
+        object.ground_height = 0.0;
+        object.loco_appearance = LocomotorAppearance::Wings;
+        object.loco_behavior_z = LocomotorBehaviorZ::NoZMotiveForce;
+        object.physics_mass = 1.0;
+        object.min_speed = 10.0;
+        object.circling_radius = 40.0;
+        object.movement.acceleration = 30.0;
+        object.motive_force_expires = 10;
+        object
+    }
+
+    let mut active = wing();
+    active.loco_maintain_current_position(0.0, 1.0 / 30.0, 9);
+    assert!(
+        active.movement.velocity.x != 0.0 || active.movement.velocity.z != 0.0,
+        "an airborne wing with an active deadline must circle"
+    );
+    assert!(active.is_motive(9));
+
+    let mut expired = wing();
+    let position = expired.get_position();
+    expired.loco_maintain_current_position(0.0, 1.0 / 30.0, 10);
+    assert_eq!(expired.get_position(), position);
+    assert_eq!(expired.movement.velocity, Vec3::ZERO);
+    assert_eq!(expired.physics_accel, Vec3::ZERO);
+    assert_eq!(expired.motive_force_expires, 10);
+    assert!(!expired.is_motive(10));
+    expired.apply_physics_force(Vec3::X, 10);
+    assert!(expired.physics_accel.x > 0.0, "expired motive must not filter forward force");
+}
+
 
 /// hq-jg55x: FACE leftover handleBehaviorZ is leftover-terrain, not pose-Y.
 /// Hover at preferred must not climb via preferredHeight+currentY.

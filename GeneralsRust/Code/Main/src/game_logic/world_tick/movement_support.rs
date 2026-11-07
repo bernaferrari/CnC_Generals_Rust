@@ -62,6 +62,7 @@ impl GameLogic {
             if let Some(obj) = logic.objects.get_mut(&object_id) {
                 obj.set_ai_state(
                     state,
+                    logic.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut logic.queued_audio_events),
                 );
             }
@@ -1314,7 +1315,7 @@ impl GameLogic {
                     }
                     blocked_out = angle_position_goal.is_none() && obj.num_frames_blocked > 0;
                     if has_move_goal && !skip_loco_move {
-                        obj.apply_motive_force(glam::Vec3::ZERO);
+                        obj.apply_motive_force(glam::Vec3::ZERO, self.frame);
                     }
                     let here = obj.get_position();
                     let cell = self.pathfinding_system.grid.world_to_grid(here);
@@ -1367,6 +1368,7 @@ impl GameLogic {
                                 obj,
                                 &self.pathfinding_system.grid,
                                 surfaces,
+                                self.frame,
                             ) {
                                 let z_goal = None;
                                 let _ = obj;
@@ -3483,7 +3485,7 @@ impl GameLogic {
             let has_move_goal =
                 obj.movement.target_position.is_some() || !obj.movement.path.is_empty();
             if has_move_goal {
-                obj.apply_motive_force(glam::Vec3::ZERO);
+                obj.apply_motive_force(glam::Vec3::ZERO, self.frame);
             }
         }
     }
@@ -3670,6 +3672,7 @@ fn try_fix_invalid_position_3x3(
     obj: &mut crate::game_logic::Object,
     grid: &crate::game_logic::PathfindingGrid,
     surfaces: u32,
+    frame: u32,
 ) -> bool {
     if obj.is_dozer || obj.is_kind_of(crate::game_logic::KindOf::Dozer) {
         return false;
@@ -3715,9 +3718,9 @@ fn try_fix_invalid_position_3x3(
     }
     if dot < 0.0 {
         let mag = (-dot).sqrt();
-        obj.apply_motive_force(glam::Vec3::new(nx * mag * mass, 0.0, nz * mag * mass));
+        obj.apply_motive_force(glam::Vec3::new(nx * mag * mass, 0.0, nz * mag * mass), frame);
     }
-    obj.apply_motive_force(correction);
+    obj.apply_motive_force(correction, frame);
 
     true
 }

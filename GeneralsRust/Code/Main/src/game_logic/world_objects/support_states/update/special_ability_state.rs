@@ -384,6 +384,7 @@ impl GameLogic {
                 if let Some(target) = self.objects.get_mut(&special_target_id) {
                     target.apply_hijacked_from_before_veterancy(
                         donor_snap.as_ref(),
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                         &mut self.partition_manager,
                     );

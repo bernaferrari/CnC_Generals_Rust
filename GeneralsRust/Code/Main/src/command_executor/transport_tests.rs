@@ -27,11 +27,13 @@ fn contain_pair(logic: &mut GameLogic, transport: ObjectId, pax: ObjectId) {
         let t = logic.host_object_mut(transport).unwrap();
         assert!(t.add_occupant(pax));
     }
+    let frame = logic.frame;
     {
         let (p, partition) = logic.host_object_and_partition_mut(pax).unwrap();
         p.set_contained_by_with_partition_owner(Some(transport), true, partition);
         p.set_ai_state(
             AIState::Docked,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -107,11 +109,13 @@ fn execute_combat_drop_uses_hover_not_land_evac() {
         t.install_combat_chinook_transport(frame);
         let _ = t.add_occupant(pax);
     }
+    let frame = logic.frame;
     {
         let (p, fixture_partition_p) = logic.host_object_and_partition_mut(pax).unwrap();
         p.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_p);
         p.set_ai_state(
             AIState::Docked,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -170,11 +174,13 @@ fn execute_combat_drop_plays_voice_combat_drop() {
         t.install_combat_chinook_transport(frame);
         let _ = t.add_occupant(pax);
     }
+    let frame = logic.frame;
     {
         let (p, fixture_partition_p) = logic.host_object_and_partition_mut(pax).unwrap();
         p.set_contained_by_with_partition_owner(Some(transport), true, fixture_partition_p);
         p.set_ai_state(
             AIState::Docked,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -881,7 +887,7 @@ fn execute_exit_airborne_allows_fall_without_hull_velocity_kick() {
         "C++ onRemoving setAllowToFall when hull is above terrain"
     );
     assert_eq!(
-        rider.motive_frames_remaining, 0,
+        rider.motive_force_expires, 0,
         "hq-qhzox: default KeepContainerVelocityOnExit is false; airborne must not invent a hull kick"
     );
     assert_eq!(
@@ -960,10 +966,12 @@ fn execute_exit_tunnel_walks_exit_start_not_idle_drop() {
         t.construction_percent = 1.0;
         let _ = t.add_occupant(pax);
     }
+    let frame = logic.frame;
     if let Some((p, partition)) = logic.host_object_and_partition_mut(pax) {
         p.set_contained_by_with_partition_owner(Some(tunnel), true, partition);
         p.set_ai_state(
             AIState::Garrisoned,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1214,11 +1222,13 @@ fn garrison_bunker(
         let t = logic.host_object_mut(bunker).unwrap();
         assert!(t.add_occupant(ranger));
     }
+    let frame = logic.frame;
     {
         let (p, fixture_partition_p) = logic.host_object_and_partition_mut(ranger).unwrap();
         p.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_p);
         p.set_ai_state(
             AIState::Garrisoned,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1317,11 +1327,13 @@ fn execute_evacuate_marks_stealth_garrison_detected() {
         let t = logic.host_object_mut(bunker).unwrap();
         assert!(t.add_occupant(ninja));
     }
+    let frame = logic.frame;
     {
         let (n, fixture_partition_n) = logic.host_object_and_partition_mut(ninja).unwrap();
         n.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_n);
         n.set_ai_state(
             AIState::Garrisoned,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         n.set_status_stealthed(true);
@@ -1413,8 +1425,10 @@ fn execute_exit_garrison_walks_without_garrisoned_ai_state() {
     let mut logic = GameLogic::new();
     let origin = Vec3::new(1.0, 0.0, 1.0);
     let (bunker, ranger) = garrison_bunker(&mut logic, "EXIT_GI", "EXIT_GIR", origin, None);
+    let frame = logic.frame;
     logic.host_object_mut(ranger).unwrap().set_ai_state(
         AIState::Idle,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     {

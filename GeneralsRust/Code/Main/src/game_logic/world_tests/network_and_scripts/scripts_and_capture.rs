@@ -20,12 +20,14 @@ fn capturing_state_does_not_transfer_under_construction_building() {
         building.set_status_under_construction(true);
     }
     {
+        let ai_entry_frame = game_logic.frame;
         let captor = game_logic
             .host_object_mut(captor_id)
             .expect("captor should exist");
         captor.target = Some(building_id);
         captor.set_ai_state(
             AIState::Capturing,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1800,12 +1802,14 @@ fn special_ability_state_without_pending_order_resets_to_idle() {
         .expect("target should be created");
 
     {
+        let ai_entry_frame = game_logic.frame;
         let actor = game_logic
             .host_object_mut(actor_id)
             .expect("actor should exist");
         actor.target = Some(target_id);
         actor.set_ai_state(
             AIState::SpecialAbility,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -2037,12 +2041,14 @@ fn hijack_rejects_already_hijacked_vehicle() {
     let target_id = game_logic
         .create_object("TestTank", Team::GLA, Vec3::new(4.0, 0.0, 0.0))
         .expect("target should be created");
+    let frame = game_logic.frame;
     {
         let (target, fixture_partition_target) = game_logic
             .host_object_and_partition_mut(target_id)
             .expect("target should exist");
         target.apply_hijacked_from_with_partition_owner(
             None,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             fixture_partition_target,
         );
@@ -2134,6 +2140,7 @@ fn hijack_command_applies_only_after_unit_reaches_target() {
     );
 
     {
+        let ai_entry_frame = game_logic.frame;
         let (hijacker, fixture_partition_hijacker) = game_logic
             .host_object_and_partition_mut(hijacker_id)
             .expect("hijacker should exist");
@@ -2145,6 +2152,7 @@ fn hijack_command_applies_only_after_unit_reaches_target() {
         );
         hijacker.set_ai_state(
             AIState::SpecialAbility,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         hijacker.target = Some(target_id);
@@ -2205,6 +2213,7 @@ fn sabotage_command_applies_only_after_unit_reaches_target() {
     assert!(!game_logic.honesty_saboteur_power_ok());
 
     {
+        let ai_entry_frame = game_logic.frame;
         let (saboteur, fixture_partition_saboteur) = game_logic
             .host_object_and_partition_mut(saboteur_id)
             .expect("saboteur should exist");
@@ -2216,6 +2225,7 @@ fn sabotage_command_applies_only_after_unit_reaches_target() {
         );
         saboteur.set_ai_state(
             AIState::SpecialAbility,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         saboteur.target = Some(target_id);
@@ -2298,6 +2308,7 @@ fn saboteur_military_factory_residual_disables_production() {
     });
     game_logic.process_commands();
     {
+        let ai_entry_frame = game_logic.frame;
         let (s, fixture_partition_s) = game_logic
             .host_object_and_partition_mut(saboteur_id)
             .unwrap();
@@ -2309,6 +2320,7 @@ fn saboteur_military_factory_residual_disables_production() {
         );
         s.set_ai_state(
             AIState::SpecialAbility,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         s.target = Some(target_id);
@@ -2413,6 +2425,7 @@ fn snipe_vehicle_command_applies_only_after_unit_reaches_target() {
     assert!(!target_after_far_update.is_unmanned());
 
     {
+        let ai_entry_frame = game_logic.frame;
         let (sniper, fixture_partition_sniper) = game_logic
             .host_object_and_partition_mut(sniper_id)
             .expect("sniper should exist");
@@ -2426,6 +2439,7 @@ fn snipe_vehicle_command_applies_only_after_unit_reaches_target() {
         );
         sniper.set_ai_state(
             AIState::SpecialAbility,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         sniper.target = Some(target_id);
@@ -3169,6 +3183,7 @@ fn live_named_enter_and_exit_all_drain_ai_enter_evacuate() {
             .unwrap()
             .occupants
             .push(infantry);
+        let ai_entry_frame = logic.frame;
         let (infantry, fixture_partition_infantry) =
             logic.host_object_and_partition_mut(infantry).unwrap();
         infantry.set_contained_by_with_partition_owner(
@@ -3178,6 +3193,7 @@ fn live_named_enter_and_exit_all_drain_ai_enter_evacuate() {
         );
         infantry.set_ai_state(
             AIState::Idle,
+            ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         infantry.target = None;

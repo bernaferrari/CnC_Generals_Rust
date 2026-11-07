@@ -226,6 +226,7 @@ fn authored_evacuation_retains_passenger_through_takeoff_and_landing() {
                     .unwrap()
                     .add_occupant(second)
             );
+            let frame = logic.frame;
             let (rider, fixture_partition_rider) =
                 logic.host_object_and_partition_mut(second).unwrap();
             rider.set_contained_by_with_partition_owner(
@@ -235,6 +236,7 @@ fn authored_evacuation_retains_passenger_through_takeoff_and_landing() {
             );
             rider.set_ai_state(
                 AIState::Docked,
+                frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             // The initial condition is a landed, loaded transport. Every

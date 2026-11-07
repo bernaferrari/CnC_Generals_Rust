@@ -1,10 +1,13 @@
 //! Public scheduled OTHER force direction from rest: loader -> admission -> tick.
 //! Frozen unchanged original force-stage rows supply the expected impulse.
 //! Rotation is supplied in that extraction; this is not trajectory parity.
+#[path = "common/physics_friction.rs"]
+mod physics_friction;
 
-use game_engine::common::ini::ini_locomotor::{get_locomotor_store, load_locomotors_from_str};
+
+use game_engine::common::ini::ini_locomotor::LocomotorStore;
 use generals_main::game_logic::host_enum_table_residual::HostBodyDamageType;
-use generals_main::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding;
+use generals_main::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding_from_store;
 use generals_main::game_logic::{
     GameLogic, KindOf, LocoGoalType, LocomotorAppearance, Object, Team, ThingTemplate,
 };
@@ -145,15 +148,15 @@ fn run_case(name: &str, assert_original_force: bool) {
     let ini = format!(
         "Locomotor {loco}\nSurfaces = GROUND\nSpeed = 36\nAcceleration = 90\nBraking = 90\nTurnRate = 3600\nAppearance = OTHER\nMinSpeed = 0\nWanderWidthFactor = 0\nZAxisBehavior = NO_Z_MOTIVE_FORCE\nSlideIntoPlaceTime = {slide_msec}\nEnd\n"
     );
-    assert_eq!(load_locomotors_from_str(&ini).unwrap(), 1);
+    let mut store = LocomotorStore::new_owned();
+    assert_eq!(store.apply_source(&ini).unwrap(), 1);
     {
-        let store = get_locomotor_store();
         let parsed = store.find_template(&loco).unwrap();
         bits(parsed.max_speed, raw[19], "parsed frame speed");
         bits(parsed.acceleration, raw[20], "parsed frame acceleration");
         bits(parsed.braking, raw[21], "parsed frame braking");
     }
-    let binding = resolve_host_locomotor_binding(&loco).unwrap();
+    let binding = resolve_host_locomotor_binding_from_store(&store, &loco).unwrap();
     bits(binding.movement.max_speed, expected[19], "bound host speed");
     bits(
         binding.movement.acceleration * DT,
@@ -171,6 +174,7 @@ fn run_case(name: &str, assert_original_force: bool) {
         2.0e-6,
         "bound slide factor in frames",
     );
+    game.admit_locomotor_definitions(store).unwrap();
     let mut template = ThingTemplate::new(&unit);
     template
         .set_health(100.0)
@@ -296,13 +300,11 @@ fn run_case(name: &str, assert_original_force: bool) {
         binding.ultra_accurate_slide_factor
     );
     assert_eq!(object.movement.target_position, Some(target));
-    assert!(object.status.moving && object.is_motive());
+    assert!(object.status.moving && object.is_motive(tick.frame));
     let yaw = object.get_orientation();
     let direction = object.unit_direction_vector_2d();
-    let friction = object.previous_acceleration();
-    // This snapshot is the later apply_frictional_forces/integrate_physics_accel
-    // contribution. Recover XZ only; gravity/clamping can still affect host Y.
-    let marched = object.movement.velocity - friction;
+    let marched = physics_friction::marched_velocity(object, start);
+    let friction = object.movement.velocity - marched;
     let position = object.get_position();
     println!(
         "RESULT {name} yaw={:08x} direction={:08x},{:08x} marched={:08x},{:08x} final={:08x},{:08x} friction={:08x},{:08x} position={:08x},{:08x}",

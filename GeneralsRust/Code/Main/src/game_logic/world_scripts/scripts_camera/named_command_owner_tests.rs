@@ -141,10 +141,12 @@ fn named_face_retains_object_goal_and_clears_route_without_idling_passengers() {
     let passenger = world
         .create_object_for_player("OwnedNamedInfantry", 1, Vec3::ZERO)
         .unwrap();
+    let frame = world.frame;
     {
         let (object, attack_events) = world.host_object_and_attack_events_mut(passenger).unwrap();
         object.set_target(
             Some(target),
+            frame,
             attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
@@ -486,8 +488,10 @@ fn face_position_snapshot_preserves_explicit_goal() {
 fn world_snapshot_capture_rejects_invalid_continuation_without_dropping_objects() {
     let (mut source, id, target) = world();
     source.frame = 9;
+    let frame = source.frame;
     source.host_object_mut(id).unwrap().set_ai_state(
         AIState::Panic,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert!(source.host_object(id).unwrap().panic_runtime.is_none());

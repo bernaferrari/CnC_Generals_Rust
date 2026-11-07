@@ -1219,7 +1219,7 @@ impl Object {
         pending
     }
 
-    pub fn apply_pending_jet_resume(&mut self, audio: &mut crate::game_logic::ObjectAudio<'_>) {
+    pub fn apply_pending_jet_resume(&mut self, frame: u32, audio: &mut crate::game_logic::ObjectAudio<'_>) {
         let resume = self.jet_ai.pending_resume;
         self.jet_ai.has_pending_command = false;
         self.jet_ai.pending_resume = HostJetPendingResume::None;
@@ -1227,23 +1227,23 @@ impl Object {
             HostJetPendingResume::None | HostJetPendingResume::AiIdle => {}
             HostJetPendingResume::GuardArea => {
                 self.set_hunting(false);
-                self.set_ai_state(AIState::GuardingArea, audio);
+                self.set_ai_state(AIState::GuardingArea, frame, audio);
                 self.jet_ai.allow_interrupt_for_reload = true;
             }
             HostJetPendingResume::GuardObject => {
                 self.set_hunting(false);
-                self.set_ai_state(AIState::GuardingObject, audio);
+                self.set_ai_state(AIState::GuardingObject, frame, audio);
                 self.jet_ai.allow_interrupt_for_reload = true;
             }
             HostJetPendingResume::Hunt => {
                 self.set_hunting(true);
                 self.set_auto_acquire_when_idle(true);
-                self.set_ai_state(AIState::Patrolling, audio);
+                self.set_ai_state(AIState::Patrolling, frame, audio);
                 self.jet_ai.allow_interrupt_for_reload = true;
             }
             HostJetPendingResume::GuardRetaliate => {
                 self.set_hunting(false);
-                self.set_ai_state(AIState::GuardRetaliating, audio);
+                self.set_ai_state(AIState::GuardRetaliating, frame, audio);
                 self.jet_ai.allow_interrupt_for_reload = true;
             }
         }

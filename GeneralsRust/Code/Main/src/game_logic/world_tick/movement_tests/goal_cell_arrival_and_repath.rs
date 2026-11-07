@@ -128,7 +128,7 @@ fn moving_unit_already_on_goal_finishes_once() {
     let mut unit = Object::new(tmpl, ObjectId(9535), Team::USA);
     bind_fixture_locomotor(&mut unit, "RaptorJetLocomotor");
     unit.loco_appearance = LocomotorAppearance::Wings;
-    unit.set_ai_state(AIState::Moving, &mut ObjectAudio::record(&mut Vec::new()));
+    unit.set_ai_state(AIState::Moving, logic.frame, &mut ObjectAudio::record(&mut Vec::new()));
     unit.queue_for_path_frame = 15;
     unit.ignored_obstacle_id = Some(ObjectId(7));
     unit.ground_height = 0.0;
@@ -351,7 +351,7 @@ fn failed_move_path_returns_to_idle() {
     let mut tmpl = ThingTemplate::new("Ranger");
     tmpl.add_kind_of(KindOf::Infantry);
     let mut unit = Object::new(tmpl, ObjectId(9609), Team::USA);
-    unit.set_ai_state(AIState::Moving, &mut ObjectAudio::record(&mut Vec::new()));
+    unit.set_ai_state(AIState::Moving, logic.frame, &mut ObjectAudio::record(&mut Vec::new()));
     unit.waiting_for_path = true;
     logic.objects.insert(ObjectId(9609), unit);
     logic.on_waited_path_failed(ObjectId(9609)).unwrap();
@@ -362,6 +362,7 @@ fn failed_move_path_returns_to_idle() {
     let mut attacker = Object::new(ThingTemplate::new("Ranger"), ObjectId(9610), Team::USA);
     attacker.set_ai_state(
         AIState::Attacking,
+        logic.frame,
         &mut ObjectAudio::record(&mut Vec::new()),
     );
     attacker.waiting_for_path = true;
@@ -672,7 +673,7 @@ fn stopping_clears_the_moving_model_condition() {
     let mc = 1u128 << MC_BIT_MOVING;
     let dock = 1u128 << moving_model_bit();
     unit.model_condition_bits |= mc | dock;
-    unit.set_ai_state(AIState::Moving, &mut ObjectAudio::record(&mut Vec::new()));
+    unit.set_ai_state(AIState::Moving, 0, &mut ObjectAudio::record(&mut Vec::new()));
     unit.set_status_moving(true);
     assert_ne!(unit.model_condition_bits & mc, 0);
     unit.stop_moving(&mut ObjectAudio::record(&mut Vec::new()));
@@ -712,7 +713,7 @@ fn flying_projectile_repaths_to_a_moved_goal_every_frame() {
     unit.loco_appearance = LocomotorAppearance::Thrust;
     unit.movement.max_speed = 40.0;
     unit.set_position(Vec3::new(0.0, 20.0, 0.0));
-    unit.set_ai_state(AIState::Moving, &mut ObjectAudio::record(&mut Vec::new()));
+    unit.set_ai_state(AIState::Moving, logic.frame, &mut ObjectAudio::record(&mut Vec::new()));
     unit.movement.path = vec![Vec3::ZERO, Vec3::new(10.0, 20.0, 0.0)];
     let goal = Vec3::new(80.0, 30.0, 40.0);
     unit.requested_destination = Some(goal);
@@ -736,7 +737,7 @@ fn flying_projectile_repaths_to_a_moved_goal_every_frame() {
     close.loco_appearance = LocomotorAppearance::Thrust;
     close.movement.max_speed = 40.0;
     close.set_position(Vec3::new(0.0, 20.0, 0.0));
-    close.set_ai_state(AIState::Moving, &mut ObjectAudio::record(&mut Vec::new()));
+    close.set_ai_state(AIState::Moving, logic.frame, &mut ObjectAudio::record(&mut Vec::new()));
     let close_goal = Vec3::new(10.1, 20.0, 0.0);
     close.movement.path = vec![Vec3::ZERO, close_goal];
     close.requested_destination = Some(close_goal);
@@ -760,6 +761,7 @@ fn flying_projectile_repaths_to_a_moved_goal_every_frame() {
     attack.set_position(Vec3::new(0.0, 20.0, 0.0));
     attack.set_ai_state(
         AIState::Attacking,
+        logic.frame,
         &mut ObjectAudio::record(&mut Vec::new()),
     );
     let attack_path = vec![Vec3::ZERO, Vec3::new(12.0, 20.0, 0.0)];
@@ -787,7 +789,7 @@ fn move_state_repaths_after_ten_frames_when_the_goal_moves() {
     let mut unit = Object::new(tmpl, id, Team::USA);
     unit.movement.max_speed = 20.0;
     unit.set_position(Vec3::ZERO);
-    unit.set_ai_state(AIState::Moving, &mut ObjectAudio::record(&mut Vec::new()));
+    unit.set_ai_state(AIState::Moving, logic.frame, &mut ObjectAudio::record(&mut Vec::new()));
     let old = Vec3::new(30.0, 0.0, 0.0);
     let next = Vec3::new(120.0, 0.0, 40.0);
     unit.movement.path = vec![Vec3::ZERO, old];
@@ -829,7 +831,7 @@ fn arrival_clears_locomotor_goal_only_when_adjusting() {
     let mut keep = Object::new(keep_tmpl, ObjectId(9726), Team::USA);
     keep.movement.max_speed = 20.0;
     keep.set_position(here);
-    keep.set_ai_state(AIState::Moving, &mut ObjectAudio::record(&mut Vec::new()));
+    keep.set_ai_state(AIState::Moving, logic.frame, &mut ObjectAudio::record(&mut Vec::new()));
     keep.movement.path = vec![Vec3::ZERO, here];
     keep.movement.current_path_index = 1;
     keep.set_status_parachuting(true);
@@ -850,7 +852,7 @@ fn arrival_clears_locomotor_goal_only_when_adjusting() {
     let mut clear = Object::new(clear_tmpl, ObjectId(9727), Team::USA);
     clear.movement.max_speed = 20.0;
     clear.set_position(here);
-    clear.set_ai_state(AIState::Moving, &mut ObjectAudio::record(&mut Vec::new()));
+    clear.set_ai_state(AIState::Moving, logic.frame, &mut ObjectAudio::record(&mut Vec::new()));
     clear.movement.path = vec![Vec3::ZERO, here];
     clear.movement.current_path_index = 1;
     clear.is_final_goal = false;
@@ -877,7 +879,7 @@ fn zero_delta_arrival_keeps_goal_unless_adjusting() {
     let mut keep = Object::new(keep_tmpl, ObjectId(9728), Team::USA);
     keep.movement.max_speed = 20.0;
     keep.set_position(here);
-    keep.set_ai_state(AIState::Moving, &mut ObjectAudio::record(&mut Vec::new()));
+    keep.set_ai_state(AIState::Moving, logic.frame, &mut ObjectAudio::record(&mut Vec::new()));
     keep.movement.path = vec![Vec3::ZERO, here];
     keep.movement.current_path_index = 1;
     keep.is_final_goal = false;
@@ -898,7 +900,7 @@ fn zero_delta_arrival_keeps_goal_unless_adjusting() {
     let mut clear = Object::new(clear_tmpl, ObjectId(9729), Team::USA);
     clear.movement.max_speed = 20.0;
     clear.set_position(here);
-    clear.set_ai_state(AIState::Moving, &mut ObjectAudio::record(&mut Vec::new()));
+    clear.set_ai_state(AIState::Moving, logic.frame, &mut ObjectAudio::record(&mut Vec::new()));
     clear.movement.path.clear();
     clear.movement.target_position = Some(here);
     clear.set_status_parachuting(true);
@@ -921,13 +923,13 @@ fn entering_move_clears_blocked_frames() {
     let mut unit = Object::new(ThingTemplate::new("Ranger"), ObjectId(9640), Team::USA);
     unit.num_frames_blocked = 12;
     unit.is_blocked_and_stuck = true;
-    unit.set_ai_state(AIState::Moving, &mut ObjectAudio::record(&mut Vec::new()));
+    unit.set_ai_state(AIState::Moving, 0, &mut ObjectAudio::record(&mut Vec::new()));
     assert_eq!(unit.num_frames_blocked, 0);
     assert!(!unit.is_blocked_and_stuck);
     assert!(unit.status.moving);
     unit.num_frames_blocked = 9;
     unit.is_blocked_and_stuck = true;
-    unit.set_ai_state(AIState::Moving, &mut ObjectAudio::record(&mut Vec::new()));
+    unit.set_ai_state(AIState::Moving, 0, &mut ObjectAudio::record(&mut Vec::new()));
     assert_eq!(
         unit.num_frames_blocked, 9,
         "staying in Moving is not another onEnter"

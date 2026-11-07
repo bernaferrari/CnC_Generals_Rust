@@ -43,10 +43,12 @@ fn movement_goal_v12_round_trip_retains_missing_target_and_future_goal() {
         .create_object("Ranger", Team::USA, Vec3::new(80.0, 0.0, 20.0))
         .unwrap();
     let goal = source.host_object(target).unwrap().get_position();
+    let frame = source.frame;
     {
         let object = source.host_object_mut(id).unwrap();
         object.set_ai_state(
             AIState::Moving,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         object.set_movement_goal_object(Some(target));
@@ -147,10 +149,12 @@ fn ordinary_positional_movement_runtime_round_trips_exact_prior_path_goal() {
     let id = world
         .create_object("Ranger", Team::USA, Vec3::ZERO)
         .unwrap();
+    let frame = world.frame;
     {
         let mover = world.host_object_mut(id).unwrap();
         mover.set_ai_state(
             AIState::Moving,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         mover.requested_destination = Some(Vec3::new(90.0, 0.0, 50.0));

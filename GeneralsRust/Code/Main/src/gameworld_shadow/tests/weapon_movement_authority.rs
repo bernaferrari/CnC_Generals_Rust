@@ -137,6 +137,7 @@ fn movement_authority_path_follow_matches_host_only_golden() {
             o.movement.max_speed = speed;
             o.move_to(
                 dest,
+                0,
                 &mut movement_events,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
@@ -167,6 +168,7 @@ fn movement_authority_path_follow_matches_host_only_golden() {
         o.movement.max_speed = speed;
         o.move_to(
             dest,
+            0,
             &mut movement_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );

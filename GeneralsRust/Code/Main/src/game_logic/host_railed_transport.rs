@@ -129,6 +129,7 @@ impl GameLogic {
         unit.set_ultra_accurate(true);
         unit.set_ai_state(
             AIState::Moving,
+            self.frame,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         );
         unit.set_status_moving(true);
@@ -375,12 +376,14 @@ mod tests {
             assert_eq!(ferry.movement.path, vec![Vec3::new(10.0, 0.0, 0.0)]);
         }
 
+        let frame = logic.frame;
         {
             let ferry = logic.host_object_mut(id).expect("arrive");
             ferry.set_position(Vec3::new(10.0, 0.0, 0.0));
             ferry.movement.path.clear();
             ferry.set_ai_state(
                 AIState::Idle,
+                frame,
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }

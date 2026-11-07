@@ -22,10 +22,12 @@ fn command_cheer_science_log() -> bool {
         return false;
     };
 
+    let frame = logic.frame;
     let cheer_ok = if let Some((unit, audio_events)) = logic.host_object_and_audio_events_mut(uid) {
         unit.begin_cheer(
             3.0,
             Some(0),
+            frame,
             &mut crate::game_logic::ObjectAudio::queue(audio_events),
         );
         (unit.cheer_timer - 3.0).abs() < 1e-5 && unit.model_condition_bits & 1 != 0

@@ -786,12 +786,14 @@ fn collector_returns_to_assigned_supply_center_over_nearer_center() {
         .host_object(assigned_center)
         .expect("assigned center live")
         .get_position();
+    let frame = logic.frame;
     {
         let collector = logic.host_object_mut(collector_id).expect("collector live");
         collector.preferred_dock_id = Some(assigned_center);
         collector.set_stored_supplies(100);
         collector.set_ai_state(
             crate::game_logic::AIState::ReturningResources,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -918,6 +920,7 @@ fn active_loose_collector_rejoins_one_supply_center_before_paid_replacement() {
             Vec3::new(140.0, 0.0, 0.0),
         )
         .expect("surviving collector");
+    let frame = logic.frame;
     {
         let (collector, attack_events) = logic
             .host_object_and_attack_events_mut(loose_collector)
@@ -930,6 +933,7 @@ fn active_loose_collector_rejoins_one_supply_center_before_paid_replacement() {
         );
         collector.set_ai_state(
             crate::game_logic::AIState::Gathering,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1519,10 +1523,12 @@ fn queue_units_recruits_existing_idle_units() {
             Vec3::new(10.0, 0.0, 0.0),
         )
         .expect("idle ranger");
+    let frame = logic.frame;
     if let Some(obj) = logic.host_object_mut(existing) {
         obj.owner_player_id = Some(1);
         obj.set_ai_state(
             crate::game_logic::AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1584,11 +1590,13 @@ fn queue_units_skips_disabled_held_units() {
             Vec3::new(10.0, 0.0, 0.0),
         )
         .expect("held ranger");
+    let frame = logic.frame;
     if let Some(obj) = logic.host_object_mut(existing) {
         obj.owner_player_id = Some(1);
         obj.status.disabled_held = true;
         obj.set_ai_state(
             crate::game_logic::AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1629,10 +1637,12 @@ fn try_to_recruit_takes_structures_and_contained() {
     let pad = logic
         .create_object("AmericaWarFactory", Team::USA, Vec3::new(10.0, 0.0, 0.0))
         .expect("pad");
+    let frame = logic.frame;
     if let Some(obj) = logic.host_object_mut(pad) {
         obj.owner_player_id = Some(1);
         obj.set_ai_state(
             crate::game_logic::AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1659,11 +1669,13 @@ fn try_to_recruit_takes_structures_and_contained() {
             Vec3::new(20.0, 0.0, 0.0),
         )
         .expect("garrisoned");
+    let frame = logic.frame;
     if let Some(obj) = logic.host_object_mut(garrisoned) {
         obj.owner_player_id = Some(1);
         obj.contained_by = Some(crate::game_logic::ObjectId(99));
         obj.set_ai_state(
             crate::game_logic::AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1701,10 +1713,12 @@ fn w21_ranger_logic() -> (crate::game_logic::GameLogic, crate::game_logic::Objec
             Vec3::new(10.0, 0.0, 0.0),
         )
         .expect("ranger");
+    let frame = logic.frame;
     if let Some(obj) = logic.host_object_mut(existing) {
         obj.owner_player_id = Some(1);
         obj.set_ai_state(
             crate::game_logic::AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1844,10 +1858,12 @@ fn try_to_recruit_ranks_leftover_xy_not_host_3d() {
             Vec3::new(10.0, 0.0, 0.0),
         )
         .expect("leftover-XY nearer ranger");
+    let frame = logic.frame;
     if let Some(obj) = logic.host_object_mut(closer_xy) {
         obj.owner_player_id = Some(1);
         obj.set_ai_state(
             crate::game_logic::AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1862,6 +1878,7 @@ fn try_to_recruit_ranks_leftover_xy_not_host_3d() {
         obj.owner_player_id = Some(1);
         obj.set_ai_state(
             crate::game_logic::AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1952,9 +1969,11 @@ fn check_ready_teams_execute_actions_requires_production_condition_action() {
             Vec3::new(20.0, 0.0, 0.0),
         )
         .expect("busy");
+    let frame = logic.frame;
     if let Some(o) = logic.host_object_mut(busy) {
         o.set_ai_state(
             crate::game_logic::AIState::Moving,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
@@ -1999,9 +2018,11 @@ fn check_ready_teams_reinforcement_idles_only_reinforcement_unit() {
             Vec3::new(20.0, 0.0, 0.0),
         )
         .expect("fielded");
+    let frame = logic.frame;
     if let Some(o) = logic.host_object_mut(fielded) {
         o.set_ai_state(
             crate::game_logic::AIState::Moving,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }

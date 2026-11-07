@@ -35,14 +35,17 @@ fn owned_dozer_phase_completes_structure_without_ready_writeback() {
         let (builder, partition) = logic.host_object_and_partition_mut(dozer).unwrap();
         builder.set_position_with_partition_owner(action, 0, &mut Default::default(), partition);
     }
+    let frame = logic.frame;
     let (builder, attack_events) = logic.host_object_and_attack_events_mut(dozer).unwrap();
     builder.set_target(
         Some(id),
+        frame,
         attack_events,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     builder.set_ai_state(
         AIState::Constructing,
+        frame,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     builder.movement.path.clear();

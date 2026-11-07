@@ -115,6 +115,7 @@ impl Object {
         self.movement.target_position = None;
         self.set_ai_state(
             AIState::Idle,
+            frame,
             &mut crate::game_logic::ObjectAudio::callback(&mut |object, request| {
                 body_fx(object, BodyStateFx::MovementStop(request), None)
             }),
@@ -232,7 +233,7 @@ impl Object {
             self.set_status_disabled_held(true);
             self.stop_moving(audio);
             if self.ai_state() != AIState::Idle {
-                self.set_ai_state(AIState::Idle, audio);
+                self.set_ai_state(AIState::Idle, current_frame, audio);
             }
             self.refresh_model_condition_bits();
             // Leftover `finish_first_death` / C++ `FXList::doFXObj(m_fxHitGround, me)`.

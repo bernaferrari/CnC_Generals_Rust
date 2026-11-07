@@ -237,6 +237,7 @@ impl super::super::GameLogic {
                 if let Some(us) = self.objects.get_mut(&self_id) {
                     us.set_ai_state(
                         state,
+                        self.frame,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     us.status.moving = false;
