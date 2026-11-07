@@ -394,17 +394,18 @@ fn concurrent_primary_and_secondary_streams_stay_distinct() {
 // flags; :517 detonates with those flags plus the projectile's current flags.
 fn uranium_projectile_world() -> (GameLogic, ObjectId, ObjectId) {
     const SHELL: &str = "Object OverlordTankShell\nKindOf = PROJECTILE\n\
+        Body = ActiveBody ShellBody\nMaxHealth = 100\nInitialHealth = 100\nEnd\n\
         Behavior = DumbProjectileBehavior Flight\nFirstHeight = 10\nSecondHeight = 10\n\
         FirstPercentIndent = 50%\nSecondPercentIndent = 90%\nEnd\n\
         Behavior = PhysicsBehavior Physics\nMass = 0.01\nEnd\n\
         Behavior = WeaponBonusUpgrade Uranium\nTriggeredBy = Upgrade_ChinaUraniumShells\nEnd\nEnd\n";
-    const CARRIERS: &str = "\nObject CustomOverlordGunCarrier\nKindOf = VEHICLE SELECTABLE ATTACKABLE\n\
+    const CARRIERS: &str = "\nObject CustomOverlordGunCarrier\nKindOf = VEHICLE SELECTABLE CAN_ATTACK\n\
         Body = ActiveBody BodyTag\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\n\
         WeaponSet\nConditions = None\nWeapon = PRIMARY OverlordTankGun\nEnd\nEnd\n\
-        Object ChinaTankOverlord\nKindOf = VEHICLE SELECTABLE ATTACKABLE\n\
+        Object ChinaTankOverlord\nKindOf = VEHICLE SELECTABLE CAN_ATTACK\n\
         Body = ActiveBody BodyTag\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\n\
         WeaponSet\nConditions = None\nWeapon = PRIMARY AlternateUraniumGun\nEnd\nEnd\n\
-        Object UraniumProjectileTarget\nKindOf = VEHICLE SELECTABLE ATTACKABLE\n\
+        Object UraniumProjectileTarget\nKindOf = VEHICLE SELECTABLE CAN_ATTACK\n\
         Body = ActiveBody BodyTag\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\n\
         Geometry = Sphere\nGeometryMajorRadius = 0\nEnd\n";
     let object_content = format!("{SHELL}{CARRIERS}");
