@@ -84,36 +84,26 @@ fn map_admission_rejects_unreturned_interpreter_before_mutating_world() {
     assert!(world.script_debug_frozen(None).is_ok());
 }
 
-#[test]
-fn interleaved_real_maps_and_companions_use_the_receiving_filesystem() {
-    use std::path::{Path, PathBuf};
+fn exercise_receiving_map_filesystems(first_map: &[u8], second_map: &[u8]) {
+    use std::path::Path;
     use std::sync::{Arc, Mutex};
 
-    fn retail_map(relative: &str) -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .ancestors()
-            .map(|root| root.join("windows_game/extracted_big_files/MapsZH/Maps").join(relative))
-            .find(|path| path.is_file())
-            .expect("extracted retail maps required for the two-root map regression")
-    }
     fn owner(root: &Path) -> Arc<Mutex<crate::assets::AssetManager>> {
         let mut manager = crate::assets::AssetManager::new().unwrap();
         manager.archive_file_system_mut().set_local_search_roots([root.to_path_buf()]);
         Arc::new(Mutex::new(manager))
     }
-    fn copy_map(root: &Path, source: &Path, cash: u32) {
+    fn copy_map(root: &Path, source: &[u8], cash: u32) {
         let directory = root.join("Maps/Shared");
         std::fs::create_dir_all(&directory).unwrap();
-        std::fs::copy(source, directory.join("Shared.map")).unwrap();
+        std::fs::write(directory.join("Shared.map"), source).unwrap();
         std::fs::write(directory.join("map.ini"), "GameData\n DefaultStartingCash = 111\nEnd\n").unwrap();
         std::fs::write(directory.join("solo.ini"), format!("GameData\n DefaultStartingCash = {cash}\nEnd\n")).unwrap();
     }
     let first_root = tempfile::tempdir().unwrap();
     let second_root = tempfile::tempdir().unwrap();
-    let first_map = retail_map("Lone Eagle/Lone Eagle.map");
-    let second_map = retail_map("ShellMapMD/ShellMapMD.map");
-    copy_map(first_root.path(), &first_map, 1234);
-    copy_map(second_root.path(), &second_map, 5678);
+    copy_map(first_root.path(), first_map, 1234);
+    copy_map(second_root.path(), second_map, 5678);
     let mut first = GameLogic::new();
     let mut second = GameLogic::new();
     // GameData.ini supplies this required PartitionManager rule in application
@@ -141,7 +131,7 @@ fn interleaved_real_maps_and_companions_use_the_receiving_filesystem() {
         "second map admission failed after phase {phase}"
     );
     assert_eq!(second.skirmish_rules.starting_cash, 5678);
-    assert_ne!(first_bounds, second.world_bounds(), "distinct retail geometry must not resolve to one owner");
+    assert_ne!(first_bounds, second.world_bounds(), "distinct map geometry must not resolve to one owner");
     assert_eq!(first.world_bounds(), first_bounds);
     assert_eq!(first.skirmish_rules.starting_cash, 1234);
     phase.clear();
@@ -152,4 +142,49 @@ fn interleaved_real_maps_and_companions_use_the_receiving_filesystem() {
     assert_eq!(first.world_bounds(), first_bounds);
     assert_eq!(first.skirmish_rules.starting_cash, 1234);
     assert_eq!(second.skirmish_rules.starting_cash, 5678);
+}
+
+#[test]
+fn interleaved_maps_and_companions_use_the_receiving_filesystem() {
+    fn map(size: i32, height: u8) -> Vec<u8> {
+        let mut out = game_engine::common::system::DataChunkOutput::new();
+        out.open_data_chunk("HeightMapData", 3);
+        for value in [size, size, 1, size * size] {
+            out.write_int(value);
+        }
+        for _ in 0..size * size {
+            out.write_byte(height);
+        }
+        out.close_data_chunk();
+        out.open_data_chunk("SidesList", 2);
+        out.write_int(2);
+        for name in ["", "FixtureCivilian"] {
+            let mut side = game_engine::common::dict::Dict::new();
+            side.set_ascii_string(game_engine::common::well_known_keys::key_player_name(), name);
+            side.set_ascii_string(game_engine::common::well_known_keys::key_player_faction(), "FactionCivilian");
+            out.write_dict(&side);
+            out.write_int(0);
+        }
+        out.write_int(0);
+        out.close_data_chunk();
+        out.into_ckmp_bytes()
+    }
+    exercise_receiving_map_filesystems(&map(21, 3), &map(31, 7));
+}
+
+#[test]
+#[ignore = "requires extracted retail maps"]
+fn interleaved_real_maps_and_companions_use_the_receiving_filesystem() {
+    fn retail_map(relative: &str) -> Vec<u8> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .map(|root| root.join("windows_game/extracted_big_files/MapsZH/Maps").join(relative))
+            .find(|path| path.is_file())
+            .expect("extracted retail maps required for this explicit retail test");
+        std::fs::read(path).unwrap()
+    }
+    exercise_receiving_map_filesystems(
+        &retail_map("Lone Eagle/Lone Eagle.map"),
+        &retail_map("ShellMapMD/ShellMapMD.map"),
+    );
 }
