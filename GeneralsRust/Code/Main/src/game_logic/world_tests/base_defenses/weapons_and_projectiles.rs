@@ -1331,10 +1331,12 @@ fn point_defense_save_restores_independent_module_clocks_without_touching_peer()
         }
         let objects = r#"
 Object SnapshotDefenseCarrier
-  KindOf = VEHICLE ATTACKABLE
+  KindOf = VEHICLE
   Body = ActiveBody BodyTag
     MaxHealth = 1000
     InitialHealth = 1000
+  End
+  Behavior = AIUpdateInterface CarrierAI
   End
   Behavior = PointDefenseLaserUpdate FastModule
     WeaponTemplate = SnapshotFastDefense
@@ -1350,17 +1352,21 @@ Object SnapshotDefenseCarrier
   End
 End
 Object SnapshotDefenseInfantry
-  KindOf = INFANTRY ATTACKABLE
+  KindOf = INFANTRY
   Body = ActiveBody BodyTag
     MaxHealth = 1000
     InitialHealth = 1000
   End
+  Behavior = AIUpdateInterface InfantryAI
+  End
 End
 Object SnapshotDefenseVehicle
-  KindOf = VEHICLE ATTACKABLE
+  KindOf = VEHICLE
   Body = ActiveBody BodyTag
     MaxHealth = 1000
     InitialHealth = 1000
+  End
+  Behavior = AIUpdateInterface VehicleAI
   End
 End
 "#;
@@ -1383,6 +1389,11 @@ End
         let carrier = world.create_object_for_player("SnapshotDefenseCarrier", 1, Vec3::ZERO).unwrap();
         let infantry = world.create_object_for_player("SnapshotDefenseInfantry", 2, Vec3::new(20.0, 0.0, 0.0)).unwrap();
         let vehicle = world.create_object_for_player("SnapshotDefenseVehicle", 2, Vec3::new(30.0, 0.0, 0.0)).unwrap();
+        for id in [carrier, infantry, vehicle] {
+            assert!(world.host_object(id).unwrap().thing().template.receiving_client_template
+                .as_ref().and_then(|template| template.receiving_ai_identity()).is_some(),
+                "snapshot actors must retain their authored AI identity");
+        }
         (world, carrier, infantry, vehicle)
     }
     fn fire_frame(world: &mut GameLogic, frame: u32) {
