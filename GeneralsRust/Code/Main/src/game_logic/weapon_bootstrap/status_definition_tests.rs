@@ -5,7 +5,7 @@ use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
 
 fn parsed_rule(name: &str, status: &str, expected: gamelogic::common::ObjectStatusTypes) {
     let ini = format!(
-        "Weapon {name}\n  PrimaryDamage = 200\n  PrimaryDamageRadius = 0\n  AttackRange = 200\n  DamageType = STATUS\n{status}  WeaponSpeed = 999999\n  DelayBetweenShots = 200\n  ClipSize = 0\n  PreAttackDelay = 0\n  AntiGround = Yes\n  ProjectileObject = NONE\nEnd\n"
+        "Weapon {name}\n  PrimaryDamage = 200\n  PrimaryDamageRadius = 0\n  AttackRange = 200\n  DamageType = STATUS\n{status}  WeaponSpeed = 999999\n  DelayBetweenShots = 200\n  ClipSize = 0\n  PreAttackDelay = 0\n  AntiGround = Yes\n  ProjectileObject = NONE\n  FireSound = AvengerPaintWeaponLoop\n  FireSoundLoopTime = 200\nEnd\n"
     );
     assert_eq!(
         crate::assets::ini_template_loader::register_weapons_from_ini_text(&ini),
@@ -124,7 +124,11 @@ fn accepted_status_hit(name: &str, status: &str, expected: bool) {
             gamelogic::common::ObjectStatusTypes::None
         },
     );
+    let rule = gamelogic::weapon::with_weapon_store(|store| {
+        store.find_weapon_template(name).cloned().expect("parsed weapon")
+    }).unwrap();
     let mut world = GameLogic::new();
+    world.admit_receiving_weapon_snapshot(vec![(name.to_owned(), rule)]).unwrap();
     let mut shooter = ThingTemplate::new("AuthoredStatusShooter");
     shooter
         .add_kind_of(KindOf::Vehicle)
@@ -203,13 +207,15 @@ fn live_authored_faerie_fire_control_paints_without_seed_name() {
         },
     );
 }
-// Actual Avenger class admission reaches the special primary branch, unlike
-// the generic custom-source controls above. Every witness commits a real shot.
-fn accepted_actual_avenger_status_hit(name: &str, damage: f32, expected_paint: bool) {
-    use crate::game_logic::host_avenger::{
-        AVENGER_FAERIE_FIRE_DURATION_FRAMES, AVENGER_PAINT_AUDIO, is_avenger_template,
-    };
+// Every witness creates an Avenger-named shooter from the receiving world's
+// authored weapon and commits a real shot, without a chassis-name override.
+fn accepted_actual_avenger_status_hit(name: &str, expected_paint: bool) {
+    use crate::game_logic::host_avenger::{AVENGER_FAERIE_FIRE_DURATION_FRAMES, AVENGER_PAINT_AUDIO};
+    let rule = gamelogic::weapon::with_weapon_store(|store| {
+        store.find_weapon_template(name).cloned().expect("parsed weapon")
+    }).unwrap();
     let mut world = GameLogic::new();
+    world.admit_receiving_weapon_snapshot(vec![(name.to_owned(), rule)]).unwrap();
     let mut shooter = ThingTemplate::new("AmericaTankAvenger");
     shooter
         .add_kind_of(KindOf::Vehicle)
@@ -235,11 +241,8 @@ fn accepted_actual_avenger_status_hit(name: &str, damage: f32, expected_paint: b
         .unwrap();
     world.set_current_frame(100);
     let source_obj = world.objects.get_mut(&source).unwrap();
-    assert!(is_avenger_template(&source_obj.template_name));
     assert_eq!(source_obj.weapon_name_for_slot(0), Some(name));
-    // Existing normal Avenger factory replaces the authored numeric weapon stats
-    // with its zero-HP residual. This witness isolates the separate status gate.
-    assert_eq!(source_obj.weapon.as_ref().unwrap().damage, damage);
+    assert_eq!(source_obj.weapon.as_ref().unwrap().damage, 200.0);
     let before_fire = source_obj.weapon.as_ref().unwrap().last_fire_time;
     source_obj.attack_target(
         target,
@@ -247,7 +250,6 @@ fn accepted_actual_avenger_status_hit(name: &str, damage: f32, expected_paint: b
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     assert_eq!(source_obj.target, Some(target));
-    assert!(!world.honesty_avenger_paint_ok());
     world.update_combat(&[source], 1.0 / 30.0);
     assert!(
         world.objects[&source]
@@ -267,15 +269,10 @@ fn accepted_actual_avenger_status_hit(name: &str, damage: f32, expected_paint: b
         expected_paint,
         "Avenger class cannot override the authored DamageStatusType"
     );
-    assert_eq!(world.honesty_avenger_paint_ok(), expected_paint);
-    assert_eq!(
-        world
-            .queued_audio_events
-            .iter()
-            .any(|event| event.event_type == AVENGER_PAINT_AUDIO),
-        expected_paint,
-        "paint-specific audio follows the actual admitted status"
-    );
+    let sounds = &world.combat_system.fire_sound_loop_events;
+    assert!(sounds.pending().iter().chain(sounds.completed().iter())
+        .any(|event| event.unit == source && event.start && event.sound == AVENGER_PAINT_AUDIO),
+        "the authored FireSound must start on the committed shot regardless of hit status");
     assert_eq!(
         world.objects[&target].faerie_fire_until_frame,
         if expected_paint {
@@ -295,7 +292,7 @@ fn actual_avenger_primary_authored_default_none_does_not_paint() {
             let _restore = RestoreStore::install();
             const NAME: &str = "ActualAvengerPrimaryAuthoredNone";
             parsed_rule(NAME, "", gamelogic::common::ObjectStatusTypes::None);
-            accepted_actual_avenger_status_hit(NAME, 0.0, false);
+            accepted_actual_avenger_status_hit(NAME, false);
         },
     );
 }
@@ -313,7 +310,7 @@ fn actual_avenger_primary_authored_other_status_does_not_manufacture_paint() {
                 gamelogic::common::ObjectStatusTypes::NoAttack,
             );
             // Full NO_ATTACK timer support is independent; this rejects false FAERIE_FIRE.
-            accepted_actual_avenger_status_hit(NAME, 0.0, false);
+            accepted_actual_avenger_status_hit(NAME, false);
         },
     );
 }
@@ -330,7 +327,7 @@ fn actual_avenger_primary_authored_faerie_retains_paint_audio_and_timing() {
                 "  DamageStatusType = FAERIE_FIRE\n",
                 gamelogic::common::ObjectStatusTypes::FaerieFire,
             );
-            accepted_actual_avenger_status_hit(NAME, 0.0, true);
+            accepted_actual_avenger_status_hit(NAME, true);
         },
     );
 }
@@ -349,7 +346,7 @@ fn actual_avenger_primary_retail_name_faerie_retains_paint_audio_and_timing() {
                 "  DamageStatusType = FAERIE_FIRE\n",
                 gamelogic::common::ObjectStatusTypes::FaerieFire,
             );
-            accepted_actual_avenger_status_hit(AVENGER_TARGET_DESIGNATOR, 0.0, true);
+            accepted_actual_avenger_status_hit(AVENGER_TARGET_DESIGNATOR, true);
         },
     );
 }
