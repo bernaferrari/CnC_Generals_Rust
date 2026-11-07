@@ -2381,7 +2381,9 @@ fn launch_attack_sets_target_and_logs_host_attack() {
         [(
             "ai-attack-fixture.ini".into(),
             "Object AiAtkU\n KindOf = INFANTRY SELECTABLE CAN_ATTACK\n Body = ActiveBody BodyTag\n  MaxHealth = 100\n  InitialHealth = 100\n End\nEnd\n\
-             Object AiAtkE\n KindOf = INFANTRY SELECTABLE CAN_ATTACK\n Body = ActiveBody BodyTag\n  MaxHealth = 100\n  InitialHealth = 100\n End\nEnd\n"
+             Object AiAtkE\n KindOf = INFANTRY SELECTABLE CAN_ATTACK\n Body = ActiveBody BodyTag\n  MaxHealth = 100\n  InitialHealth = 100\n End\nEnd\n\
+             Object AiAtkAmericaCommandCenter\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n  MaxHealth = 1000\n  InitialHealth = 1000\n End\nEnd\n\
+             Object AiAtkGLACommandCenter\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody BodyTag\n  MaxHealth = 1000\n  InitialHealth = 1000\n End\nEnd\n"
                 .into(),
         )],
         Arc::new(game_engine::common::rts::science::ScienceNameFacts::default()),
@@ -2396,8 +2398,8 @@ fn launch_attack_sets_target_and_logs_host_attack() {
     let mut players = PlayerTemplateStore::new_owned();
     players
         .apply_source(
-            "PlayerTemplate FactionAmerica\n Side = America\n BaseSide = America\nEnd\n\
-             PlayerTemplate FactionGLA\n Side = GLA\n BaseSide = GLA\nEnd\n",
+            "PlayerTemplate FactionAmerica\n Side = America\n BaseSide = America\n StartingBuilding = AiAtkAmericaCommandCenter\n StartingUnit0 = AiAtkU\nEnd\n\
+             PlayerTemplate FactionGLA\n Side = GLA\n BaseSide = GLA\n StartingBuilding = AiAtkGLACommandCenter\n StartingUnit0 = AiAtkE\nEnd\n",
             INILoadType::Overwrite,
         )
         .expect("authored attack player definitions");
