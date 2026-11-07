@@ -559,6 +559,12 @@ access remain separate dependencies. The cumulative counter and residual request
 queue are now owned scalars/storage. See hq-e5hpo and hq-1tq1l. Queue scheduling
 and version-only Xfer are unchanged by this storage migration.
 
+Main destination adjustment borrows the receiving world's live goal objects
+and directional team/player relationships for each query. A restored session
+reconstructs its own reservations and relationship context. Classic fallback
+entrypoints without object observations still resolve through the registry;
+this change does not establish full pathfinder isolation.
+
 These are classic GameLogic changes. The default Main host already has owned
 Object storage and a separate pathfinder. This work establishes neither full
 classic world isolation nor a measured Main frame-rate gain.
