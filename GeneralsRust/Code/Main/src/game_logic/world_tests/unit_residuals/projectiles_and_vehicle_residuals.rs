@@ -391,6 +391,12 @@ fn avenger_object_hit_routes_on_authored_weapon_not_chassis_name_hq_2qedt_161() 
     game_logic
         .templates
         .insert(carrier.name.clone(), carrier);
+    let mut decoy = crate::game_logic::ThingTemplate::new("USA_Avenger");
+    decoy.add_kind_of(KindOf::Vehicle).set_health(300.0);
+    game_logic.templates.insert(decoy.name.clone(), decoy);
+    let decoy_id = game_logic.create_object("USA_Avenger", Team::USA, Vec3::ZERO).unwrap();
+    assert!(game_logic.host_object(decoy_id).unwrap().weapon.is_none(),
+        "an Avenger name alone must not create a designator");
     let mut tank = crate::game_logic::ThingTemplate::new("PaintVictimTank");
     tank.add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Attackable)

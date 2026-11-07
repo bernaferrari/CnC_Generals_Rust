@@ -325,9 +325,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_sentry_drone::is_sentry_drone_template(template_name) {
                 return None;
             }
-            if crate::game_logic::host_avenger::is_avenger_template(template_name) {
-                return Some(AVENGER_TARGET_DESIGNATOR);
-            }
             if crate::game_logic::host_rocket_buggy::is_rocket_buggy_template(template_name) {
                 return Some(BUGGY_ROCKET_WEAPON);
             }
