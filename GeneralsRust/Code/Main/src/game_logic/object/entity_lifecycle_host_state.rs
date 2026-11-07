@@ -43,22 +43,6 @@ pub(crate) struct SupplyTruckResidual {
     pub preferred_dock_id: Option<ObjectId>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub(crate) struct ShockStunResidual {
-    pub frames: u32,
-    pub yaw_rate: f32,
-    pub pitch_rate: f32,
-    pub roll_rate: f32,
-    pub allow_bounce: bool,
-    pub was_airborne: bool,
-    pub grounded_once: bool,
-    pub up_z: f32,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub(crate) struct PhysicsMotiveResidual {
-    pub frames_remaining: u32,
-}
 
 impl RadarExtendResidual {
     pub(crate) fn present(object: &Object) -> bool {
@@ -150,53 +134,6 @@ impl SupplyTruckResidual {
     }
 }
 
-impl ShockStunResidual {
-    pub(crate) fn present(object: &Object) -> bool {
-        object.shock_stun_frames != 0
-            || object.shock_yaw_rate != 0.0
-            || object.shock_pitch_rate != 0.0
-            || object.shock_roll_rate != 0.0
-            || object.shock_allow_bounce
-            || object.shock_was_airborne
-            || object.shock_grounded_once
-    }
-    pub(crate) fn from_object(object: &Object) -> Self {
-        Self {
-            frames: object.shock_stun_frames,
-            yaw_rate: object.shock_yaw_rate,
-            pitch_rate: object.shock_pitch_rate,
-            roll_rate: object.shock_roll_rate,
-            allow_bounce: object.shock_allow_bounce,
-            was_airborne: object.shock_was_airborne,
-            grounded_once: object.shock_grounded_once,
-            up_z: object.shock_up_z,
-        }
-    }
-    pub(crate) fn apply(self, object: &mut Object) {
-        object.shock_stun_frames = self.frames;
-        object.shock_yaw_rate = self.yaw_rate;
-        object.shock_pitch_rate = self.pitch_rate;
-        object.shock_roll_rate = self.roll_rate;
-        object.shock_allow_bounce = self.allow_bounce;
-        object.shock_was_airborne = self.was_airborne;
-        object.shock_grounded_once = self.grounded_once;
-        object.shock_up_z = self.up_z;
-    }
-}
-
-impl PhysicsMotiveResidual {
-    pub(crate) fn present(object: &Object) -> bool {
-        object.motive_frames_remaining != 0
-    }
-    pub(crate) fn from_object(object: &Object) -> Self {
-        Self {
-            frames_remaining: object.motive_frames_remaining,
-        }
-    }
-    pub(crate) fn apply(self, object: &mut Object) {
-        object.motive_frames_remaining = self.frames_remaining;
-    }
-}
 
 pub(crate) fn collect(
     object: &Object,
@@ -226,18 +163,7 @@ pub(crate) fn collect(
         SupplyTruckResidual::present(object),
         &SupplyTruckResidual::from_object(object),
     )?;
-    push_present(
-        out,
-        TAG_SHOCK_STUN,
-        ShockStunResidual::present(object),
-        &ShockStunResidual::from_object(object),
-    )?;
-    push_present(
-        out,
-        TAG_PHYSICS_MOTIVE,
-        PhysicsMotiveResidual::present(object),
-        &PhysicsMotiveResidual::from_object(object),
-    )
+    Ok(())
 }
 
 pub(crate) fn apply(
@@ -250,8 +176,6 @@ pub(crate) fn apply(
         TAG_PRODUCTION_DOOR => decode_payload::<ProductionDoorResidual>(payload)?.apply(object),
         TAG_REBUILD_HOLE => decode_payload::<RebuildHoleResidual>(payload)?.apply(object),
         TAG_SUPPLY_TRUCK => decode_payload::<SupplyTruckResidual>(payload)?.apply(object),
-        TAG_SHOCK_STUN => decode_payload::<ShockStunResidual>(payload)?.apply(object),
-        TAG_PHYSICS_MOTIVE => decode_payload::<PhysicsMotiveResidual>(payload)?.apply(object),
         _ => return Ok(false),
     }
     Ok(true)

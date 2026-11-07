@@ -17,6 +17,16 @@ pub(crate) fn apply_module_states(
     object: &mut Object,
     modules: &[EntityModuleState],
 ) -> Result<Option<crate::game_logic::host_railroad::HostRailroadCar>, EntityLifecycleCodecError> {
+    let mut physics_seen = false;
+    for module in modules.iter().filter(|module| module.tag == TAG_PHYSICS_BEHAVIOR) {
+        let state: PhysicsBehaviorResidual = decode_payload(&module.payload)?;
+        if physics_seen || !state.valid_for(object) {
+            return Err(EntityLifecycleCodecError::InvalidOwnerComponent {
+                component: "physics behavior",
+            });
+        }
+        physics_seen = true;
+    }
     // Preflight the complete tracker payload before any earlier module can
     // mutate the receiving Object. Its owner comes from this exact envelope.
     let mut parachute_seen = false;

@@ -12,8 +12,9 @@
 //!
 //! Persist a Rust-only tagged suffix after the contain/producer payload and
 //! before the terminal owner-footer chain.
-//! OXFR v11 retains the per-object OFF_MAP private bit. OXFR v10 adds
-//! queued/active Particle Cannon manual-drive settings. OXFR v9
+//! OXFR v12 reserves the former stun row empty; PhysicsBehavior's lifecycle
+//! component is the sole owner of that continuation. OXFR v11 retains OFF_MAP.
+//! OXFR v10 adds queued/active Particle Cannon manual-drive settings. OXFR v9
 //! adds a typed terminal locator for persisted names. OXFR v8 carries
 //! Object-completion provenance. OXFR v7 adds per-module CostModifierUpgrade
 //! execution state. OXFR v6 adds
@@ -36,7 +37,7 @@ use serde::{Deserialize, Serialize};
 
 const OXFR_MAGIC: &[u8; 4] = b"OXFR";
 const OXFR_FOOTER: &[u8; 4] = b"OXFE";
-const OXFR_VERSION: u32 = 11;
+const OXFR_VERSION: u32 = 12;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ObjectModuleXferPersistPayload {
@@ -845,7 +846,6 @@ fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {
         .collect();
     ids.sort();
 
-    let mut stun = Vec::new();
     let mut battle_bus = Vec::new();
     let mut slow_death = Vec::new();
     let mut radar = Vec::new();
@@ -891,26 +891,6 @@ fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {
                 }),
         });
 
-        if object.shock_stun_frames > 0
-            || object.shock_yaw_rate != 0.0
-            || object.shock_pitch_rate != 0.0
-            || object.shock_roll_rate != 0.0
-            || object.shock_allow_bounce
-            || object.shock_was_airborne
-            || object.shock_grounded_once
-        {
-            stun.push(StunPersist {
-                object_id: id.0,
-                shock_stun_frames: object.shock_stun_frames,
-                shock_yaw_rate: object.shock_yaw_rate,
-                shock_pitch_rate: object.shock_pitch_rate,
-                shock_roll_rate: object.shock_roll_rate,
-                shock_allow_bounce: object.shock_allow_bounce,
-                shock_was_airborne: object.shock_was_airborne,
-                shock_grounded_once: object.shock_grounded_once,
-                shock_up_z: object.shock_up_z,
-            });
-        }
 
         if object.armor_set_second_life || object.battle_bus_body.is_some() {
             battle_bus.push(BattleBusPersist {
@@ -986,7 +966,7 @@ fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {
     particle_drive_beams.sort_by_key(|row| row.beam_id);
 
     ObjectModuleXferPersistPayload {
-        stun,
+        stun: Vec::new(),
         battle_bus,
         slow_death,
         radar,
@@ -1045,19 +1025,6 @@ fn apply_payload(
         }
     }
 
-    for entry in payload.stun {
-        if let Some(object) = game_logic.host_object_mut(ObjectId(entry.object_id)) {
-            object.shock_stun_frames = entry.shock_stun_frames;
-            object.shock_yaw_rate = entry.shock_yaw_rate;
-            object.shock_pitch_rate = entry.shock_pitch_rate;
-            object.shock_roll_rate = entry.shock_roll_rate;
-            object.shock_allow_bounce = entry.shock_allow_bounce;
-            object.shock_was_airborne = entry.shock_was_airborne;
-            object.shock_grounded_once = entry.shock_grounded_once;
-            object.shock_up_z = entry.shock_up_z;
-            apply_stun_bits(object);
-        }
-    }
     for entry in payload.battle_bus {
         if let Some(object) = game_logic.host_object_mut(ObjectId(entry.object_id)) {
             object.armor_set_second_life = entry.armor_set_second_life;
@@ -1190,6 +1157,9 @@ fn validate_payload_before_apply(
     payload: &ObjectModuleXferPersistPayload,
 ) -> SaveLoadResult<()> {
     let corrupted = |message: &str| SaveLoadError::Corrupted(message.to_owned());
+    if !payload.stun.is_empty() {
+        return Err(corrupted("obsolete OXFR stun authority"));
+    }
     if let Some(rows) = &payload.off_map {
         let mut seen = std::collections::HashSet::new();
         for row in rows {
@@ -1399,22 +1369,6 @@ fn validate_payload_before_apply(
     Ok(())
 }
 
-fn apply_stun_bits(object: &mut crate::game_logic::Object) {
-    use crate::game_logic::host_enum_table_residual::{
-        stunned_flailing_model_bit, stunned_model_bit,
-    };
-    let stunned = stunned_model_bit();
-    let flailing = stunned_flailing_model_bit();
-    object.model_condition_bits &= !(1u128 << stunned);
-    object.model_condition_bits &= !(1u128 << flailing);
-    if object.shock_stun_frames > 0 {
-        if object.shock_grounded_once {
-            object.model_condition_bits |= 1u128 << stunned;
-        } else {
-            object.model_condition_bits |= 1u128 << flailing;
-        }
-    }
-}
 
 #[cfg(test)]
 mod object_creation_upgrade_state_tests {
@@ -1478,7 +1432,7 @@ mod object_creation_upgrade_state_tests {
     }
 
     #[test]
-    fn invalid_later_ocu_row_is_rejected_before_earlier_stun_mutation() {
+    fn invalid_later_ocu_row_is_rejected_before_earlier_bus_mutation() {
         let mut world = GameLogic::new();
         world.templates.insert(
             "OXFRPreflightOwner".into(),
@@ -1487,19 +1441,13 @@ mod object_creation_upgrade_state_tests {
         let id = world
             .create_object("OXFRPreflightOwner", Team::USA, Vec3::ZERO)
             .unwrap();
-        world.host_object_mut(id).unwrap().shock_stun_frames = 3;
+        world.host_object_mut(id).unwrap().armor_set_second_life = false;
 
         let mut payload = ObjectModuleXferPersistPayload::default();
-        payload.stun.push(StunPersist {
+        payload.battle_bus.push(BattleBusPersist {
             object_id: id.0,
-            shock_stun_frames: 99,
-            shock_yaw_rate: 1.0,
-            shock_pitch_rate: 0.0,
-            shock_roll_rate: 0.0,
-            shock_allow_bounce: false,
-            shock_was_airborne: false,
-            shock_grounded_once: false,
-            shock_up_z: 1.0,
+            armor_set_second_life: true,
+            battle_bus_body: None,
         });
         payload
             .object_creation_upgrade
@@ -1511,25 +1459,19 @@ mod object_creation_upgrade_state_tests {
             });
 
         assert!(apply_payload(&mut world, payload).is_err());
-        assert_eq!(world.host_object(id).unwrap().shock_stun_frames, 3);
+        assert!(!world.host_object(id).unwrap().armor_set_second_life);
     }
 
     #[test]
     fn duplicate_ocu_owner_rows_are_rejected_before_mutation() {
         let (mut world, id) = world_with_creation_modules();
-        world.host_object_mut(id).unwrap().shock_stun_frames = 3;
+        world.host_object_mut(id).unwrap().armor_set_second_life = false;
 
         let mut payload = ObjectModuleXferPersistPayload::default();
-        payload.stun.push(StunPersist {
+        payload.battle_bus.push(BattleBusPersist {
             object_id: id.0,
-            shock_stun_frames: 99,
-            shock_yaw_rate: 1.0,
-            shock_pitch_rate: 0.0,
-            shock_roll_rate: 0.0,
-            shock_allow_bounce: false,
-            shock_was_airborne: false,
-            shock_grounded_once: false,
-            shock_up_z: 1.0,
+            armor_set_second_life: true,
+            battle_bus_body: None,
         });
         payload.object_creation_upgrade = vec![
             ObjectCreationUpgradePersist {
@@ -1547,7 +1489,7 @@ mod object_creation_upgrade_state_tests {
         ];
 
         assert!(apply_payload(&mut world, payload).is_err());
-        assert_eq!(world.host_object(id).unwrap().shock_stun_frames, 3);
+        assert!(!world.host_object(id).unwrap().armor_set_second_life);
     }
 
     #[test]
@@ -1661,6 +1603,57 @@ mod tests {
         assert!(find_oxfr_suffix(b"no-magic-here").is_none());
         let mut logic = GameLogic::new();
         apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
+    }
+
+    #[test]
+    fn physics_world_snapshot_continues_collision_bounce_and_motion() {
+        fn world() -> (GameLogic, ObjectId) {
+            let mut world = GameLogic::new();
+            world.templates.insert("PhysicsSave".into(), ThingTemplate::new("PhysicsSave"));
+            world.add_player(Player::new(0, Team::USA, "USA", true));
+            let id = world.create_object("PhysicsSave", Team::USA, Vec3::new(3.0, 1.0, 4.0)).unwrap();
+            (world, id)
+        }
+        let (mut source, id) = world();
+        let (peer, peer_id) = world();
+        assert_eq!(id, peer_id);
+        {
+            let object = source.host_object_mut(id).unwrap();
+            object.movement.velocity = Vec3::new(2.0, -3.0, 1.0);
+            object.physics_accel = Vec3::new(0.3, 0.2, -0.1);
+            object.physics_previous_accel = Vec3::new(0.4, 0.5, 0.6);
+            object.physics_mass = 4.0;
+            object.extra_bounciness = 0.6;
+            object.extra_friction = 0.1;
+            object.shock_stun_frames = 24;
+            object.shock_yaw_rate = 0.3;
+            object.shock_allow_bounce = true;
+            object.allow_to_fall = true;
+            object.was_airborne_last_frame = true;
+            object.physics_current_overlap = Some(ObjectId(8));
+            object.physics_previous_overlap = Some(ObjectId(9));
+            object.motive_frames_remaining = 3;
+        }
+        let builder = super::super::SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&source).unwrap();
+        let mut loaded = GameLogic::new();
+        loaded.templates = source.templates.clone();
+        loaded.add_player(Player::new(0, Team::USA, "USA", true));
+        builder.restore_from_snapshot(&snapshot, &mut loaded).unwrap();
+        let step = |world: &mut GameLogic| {
+            let object = world.host_object_mut(id).unwrap();
+            object.apply_overlap_collide_force(Vec3::new(5.0, 1.0, 4.0), 2.0);
+            let force = object.compute_ground_bounce_force(1.0, -0.1, 0.0);
+            let bounced = object.tick_physics_motion_step(1, 0.0, &mut Default::default());
+            (force, bounced, object.get_position(), object.movement.velocity,
+             object.physics_accel, object.physics_previous_accel, object.shock_allow_bounce,
+             object.was_airborne_last_frame, object.physics_current_overlap,
+             object.physics_previous_overlap, object.motive_frames_remaining)
+        };
+        let expected = step(&mut source);
+        assert!(expected.0.is_some(), "landing must produce a bounce force");
+        assert_eq!(expected, step(&mut loaded));
+        assert_eq!(peer.host_object(peer_id).unwrap().movement.velocity, Vec3::ZERO);
     }
 
     #[test]

@@ -344,12 +344,13 @@ pub(crate) fn collect_module_states(
         ActiveBodyCrushResidual::present(object),
         &ActiveBodyCrushResidual::from_object(object),
     )?;
-    push_present(
-        &mut out,
-        TAG_PHYSICS_BEHAVIOR,
-        PhysicsBehaviorResidual::present(object),
-        &PhysicsBehaviorResidual::from_object(object),
-    )?;
+    let physics = PhysicsBehaviorResidual::from_object(object);
+    if !physics.valid_for(object) {
+        return Err(EntityLifecycleCodecError::InvalidOwnerComponent {
+            component: "physics behavior",
+        });
+    }
+    push_present(&mut out, TAG_PHYSICS_BEHAVIOR, true, &physics)?;
     if let Some(car) = railroad {
         if car.object_id != object.id {
             return Err(EntityLifecycleCodecError::InvalidOwnerComponent {

@@ -58,6 +58,21 @@ pub(crate) struct ActiveBodyCrushResidual {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub(crate) struct PhysicsBehaviorResidual {
+    pub owner: ObjectId,
+    pub accel: glam::Vec3,
+    pub previous_accel: glam::Vec3,
+    pub turning: super::PhysicsTurningType,
+    pub mass: f32,
+    pub extra_bounciness: f32,
+    pub velocity_magnitude_cache: f32,
+    pub apply_friction_2d_when_airborne: bool,
+    pub stick_to_ground: bool,
+    pub allow_to_fall: bool,
+    pub is_in_freefall: bool,
+    pub was_airborne_last_frame: bool,
+    pub immune_to_falling_damage: bool,
+    pub pending_ground_collide: bool,
+    pub landing_splat_done: bool,
     pub shock_stun_frames: u32,
     pub shock_yaw_rate: f32,
     pub shock_pitch_rate: f32,
@@ -214,24 +229,42 @@ impl ActiveBodyCrushResidual {
 }
 
 impl PhysicsBehaviorResidual {
-    pub(crate) fn present(object: &Object) -> bool {
-        object.shock_stun_frames != 0
-            || object.shock_yaw_rate != 0.0
-            || object.shock_pitch_rate != 0.0
-            || object.shock_roll_rate != 0.0
-            || object.shock_allow_bounce
-            || object.shock_was_airborne
-            || object.shock_grounded_once
-            || object.physics_current_overlap.is_some()
-            || object.physics_previous_overlap.is_some()
-            || object.ignore_collisions_with.is_some()
-            || object.last_collidee.is_some()
-            || object.motive_frames_remaining != 0
-            || object.extra_friction != 0.0
+    pub(crate) fn present(_object: &Object) -> bool {
+        true
+    }
+
+    pub(crate) fn valid_for(&self, object: &Object) -> bool {
+        self.owner == object.id
+            && self.accel.is_finite()
+            && self.previous_accel.is_finite()
+            && self.mass.is_finite()
+            && self.mass > 0.0
+            && self.extra_bounciness.is_finite()
+            && self.extra_friction.is_finite()
+            && self.velocity_magnitude_cache.is_finite()
+            && self.shock_yaw_rate.is_finite()
+            && self.shock_pitch_rate.is_finite()
+            && self.shock_roll_rate.is_finite()
+            && self.shock_up_z.is_finite()
     }
 
     pub(crate) fn from_object(object: &Object) -> Self {
         Self {
+            owner: object.id,
+            accel: object.physics_accel,
+            previous_accel: object.physics_previous_accel,
+            turning: object.physics_turning,
+            mass: object.physics_mass,
+            extra_bounciness: object.extra_bounciness,
+            velocity_magnitude_cache: object.velocity_magnitude_cache,
+            apply_friction_2d_when_airborne: object.apply_friction_2d_when_airborne,
+            stick_to_ground: object.stick_to_ground,
+            allow_to_fall: object.allow_to_fall,
+            is_in_freefall: object.is_in_freefall,
+            was_airborne_last_frame: object.was_airborne_last_frame,
+            immune_to_falling_damage: object.immune_to_falling_damage,
+            pending_ground_collide: object.pending_ground_collide,
+            landing_splat_done: object.landing_splat_done,
             shock_stun_frames: object.shock_stun_frames,
             shock_yaw_rate: object.shock_yaw_rate,
             shock_pitch_rate: object.shock_pitch_rate,
@@ -250,6 +283,20 @@ impl PhysicsBehaviorResidual {
     }
 
     pub(crate) fn apply(self, object: &mut Object) {
+        object.physics_accel = self.accel;
+        object.physics_previous_accel = self.previous_accel;
+        object.physics_turning = self.turning;
+        object.physics_mass = self.mass;
+        object.extra_bounciness = self.extra_bounciness;
+        object.velocity_magnitude_cache = self.velocity_magnitude_cache;
+        object.apply_friction_2d_when_airborne = self.apply_friction_2d_when_airborne;
+        object.stick_to_ground = self.stick_to_ground;
+        object.allow_to_fall = self.allow_to_fall;
+        object.is_in_freefall = self.is_in_freefall;
+        object.was_airborne_last_frame = self.was_airborne_last_frame;
+        object.immune_to_falling_damage = self.immune_to_falling_damage;
+        object.pending_ground_collide = self.pending_ground_collide;
+        object.landing_splat_done = self.landing_splat_done;
         object.shock_stun_frames = self.shock_stun_frames;
         object.shock_yaw_rate = self.shock_yaw_rate;
         object.shock_pitch_rate = self.shock_pitch_rate;
@@ -351,6 +398,31 @@ mod tests {
             dst.model_condition_bits,
             MC_BIT_STUNNED_FLAILING
         ));
+    }
+
+    #[test]
+    fn invalid_physics_is_rejected_before_other_modules_mutate_owner() {
+        use super::super::entity_lifecycle_inventory::encode_payload;
+        use super::super::entity_lifecycle_tags::TAG_PHYSICS_BEHAVIOR;
+        let mut source = test_object();
+        source.front_crushed = true;
+        let envelope = source.entity_lifecycle_envelope().unwrap();
+        for mode in 0..3 {
+            let mut invalid = envelope.clone();
+            let index = invalid.module_states.iter().position(|m| m.tag == TAG_PHYSICS_BEHAVIOR).unwrap();
+            let mut physics = PhysicsBehaviorResidual::from_object(&source);
+            match mode {
+                0 => physics.accel.x = f32::NAN,
+                1 => physics.owner = ObjectId(22),
+                _ => invalid.module_states.push(invalid.module_states[index].clone()),
+            }
+            if mode != 2 {
+                invalid.module_states[index].payload = encode_payload(&physics).unwrap();
+            }
+            let mut receiver = test_object();
+            assert!(receiver.entity_apply_lifecycle_envelope(&invalid).is_err());
+            assert!(!receiver.front_crushed);
+        }
     }
 
     #[test]

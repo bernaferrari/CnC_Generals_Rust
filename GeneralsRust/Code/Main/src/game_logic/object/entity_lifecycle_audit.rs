@@ -107,8 +107,6 @@ const MAIN_ONLY_TODO_GROUPS: &[&str] = &[
     "ProductionDoor",
     "RebuildHole",
     "SupplyTruckRuntime",
-    "ShockStun",
-    "PhysicsMotive",
     "Locomotor",
     "Turret",
     "StatusBits",
@@ -199,7 +197,7 @@ fn read_inventory_audit_buckets() {
     assert_eq!(covered, EXPECTED_INVENTORY_LEN);
     assert_eq!(envelope_only, 0);
     assert_eq!(entity_only, 14);
-    assert_eq!(main_only, 12);
+    assert_eq!(main_only, 10);
 
     for todo in MAIN_ONLY_TODO_GROUPS {
         assert!(
