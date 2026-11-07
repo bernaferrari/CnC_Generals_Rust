@@ -1140,6 +1140,7 @@ impl Object {
                 source_veterancy: veterancy,
                 source_orientation: self.get_orientation(),
                 source_velocity: self.movement.velocity,
+                launcher_bonus_mask: self.projectile_launch_bonus_mask(),
             }),
             // Weapon.cpp uses the intended target to determine travel time,
             // even when the eventual projectileless damage is at the source.

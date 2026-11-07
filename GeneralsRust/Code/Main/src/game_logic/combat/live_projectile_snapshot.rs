@@ -76,6 +76,11 @@ fn validate_projectile(p: &Projectile) -> Result<(), String> {
     {
         return Err("Nonfinite combat projectile continuation".into());
     }
+    if p.computed_bonus_mask.is_some_and(|mask| {
+        mask != (p.launcher_bonus_mask | p.projectile_bonus_mask)
+    }) {
+        return Err("Invalid combat projectile bonus continuation".into());
+    }
     // A completed Dumb path legitimately retains step == len until its next update.
     if runtime.step > runtime.path.len() || p.lifetime < 0.0 || p.max_lifetime < 0.0 {
         return Err("Invalid combat projectile flight continuation".into());

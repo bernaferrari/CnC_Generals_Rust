@@ -2,6 +2,7 @@
 use super::super::*;
 use super::AcceptedWeaponDischarge;
 
+#[derive(Clone, Copy)]
 struct AcceptedSelfDamagePose {
     epoch: u64,
     generation: u64,
@@ -87,6 +88,13 @@ impl GameLogic {
             return false;
         }
         self.refresh_accepted_self_damage_pose(&mut shot, source_pose);
+        if let Some(source) = self.objects.get(&shot.shooter_id).filter(|object| {
+            source_pose.generation != 0 && object.visual_object_generation == source_pose.generation
+        }) {
+            if let Some(context) = shot.source_context.as_mut() {
+                context.launcher_bonus_mask = source.projectile_launch_bonus_mask();
+            }
+        }
         self.materialize_owned_passive_shot_with_effects(
             shot,
             stream_binding,

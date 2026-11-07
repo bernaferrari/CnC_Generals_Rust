@@ -334,6 +334,8 @@ pub struct ProjectileLaunchContext {
     pub source_veterancy: crate::game_logic::VeterancyLevel,
     pub source_orientation: f32,
     pub source_velocity: Vec3,
+    /// Launcher Object conditions captured by projectileLaunchAtObjectOrPosition.
+    pub launcher_bonus_mask: u64,
 }
 
 /// Data needed to spawn a projectile (enqueued by Object::fire_at).
@@ -625,6 +627,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
                 source_veterancy: source.experience.level,
                 source_orientation: source.get_orientation(),
                 source_velocity: source.movement.velocity,
+                launcher_bonus_mask: source.projectile_launch_bonus_mask(),
             })
     });
     let source_context = source_context.unwrap_or(ProjectileLaunchContext {
@@ -634,6 +637,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         source_veterancy: crate::game_logic::VeterancyLevel::Rookie,
         source_orientation: 0.0,
         source_velocity: Vec3::ZERO,
+        launcher_bonus_mask: 0,
     });
     let has_fire_fx =
         !p.fire_fx_name.trim().is_empty() && !p.fire_fx_name.trim().eq_ignore_ascii_case("None");
@@ -812,6 +816,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         proj.detonation_ocl_name = p.detonation_ocl_name.clone();
         proj.exhaust_name = p.exhaust_name.clone();
         proj.source_team = source_context.source_team;
+        proj.launcher_bonus_mask = source_context.launcher_bonus_mask;
         proj.source_projectile_team_id = source_context.projectile_team_id;
         proj.source_owner_player_id = source_context.source_owner_player_id.or_else(|| {
             objects

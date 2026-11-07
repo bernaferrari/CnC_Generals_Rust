@@ -1693,6 +1693,7 @@ impl GameLogic {
             &mut self.next_object_id,
             &self.logic_random,
         );
+        self.update_projectile_weapon_bonus_upgrades(None);
         if let Some(shot) = ready {
             let limit = self.combat_system.historic_damage_limit();
             let events = self.combat_system.prepare_projectileless_delayed_shot(
@@ -1780,6 +1781,39 @@ impl GameLogic {
         historic_damage_limit: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Vec<ObjectId> {
+        // Weapon.cpp:1504-1508 and 1797-1816 compute the detonation
+        // weapon's bonus from the projectile's live conditions OR the
+        // launcher conditions captured by its flight module at launch.
+        let projectile_bonus = self.combat_system.get_projectiles().get(&id).and_then(|shot| {
+            let mask = shot.launcher_bonus_mask | shot.projectile_bonus_mask;
+            if shot.computed_bonus_mask == Some(mask) {
+                return None;
+            }
+            let definition = self.weapon_definitions.as_ref()?
+                .get(&shot.historic_weapon_key.to_ascii_lowercase())?;
+            let flags = gamelogic::weapon::WeaponBonusConditionFlags::from_bits(mask);
+            let mut bonus = gamelogic::WeaponBonus::new();
+            self.solo_weapon_bonus_set.append_bonuses(flags, &mut bonus);
+            if let Some(extra) = definition.extra_bonus.as_ref() {
+                extra.append_bonuses(flags, &mut bonus);
+            }
+            Some((
+                mask,
+                definition.get_primary_damage(&bonus),
+                definition.get_secondary_damage(&bonus),
+                definition.get_primary_damage_radius(&bonus),
+                definition.get_secondary_damage_radius(&bonus),
+            ))
+        });
+        if let Some((mask, primary, secondary, primary_radius, secondary_radius)) = projectile_bonus {
+            if let Some(shot) = self.combat_system.projectile_mut(id) {
+                shot.damage = primary;
+                shot.secondary_damage = secondary;
+                shot.explosion_radius = primary_radius;
+                shot.secondary_damage_radius = secondary_radius;
+                shot.computed_bonus_mask = Some(mask);
+            }
+        }
         #[cfg(feature = "game_client")]
         let fx_operation_environment = self.observe_object_fx_environment();
 

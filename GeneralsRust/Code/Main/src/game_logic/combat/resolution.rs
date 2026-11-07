@@ -117,6 +117,10 @@ impl CombatSystem {
         self.projectiles.len()
     }
 
+    pub(in crate::game_logic) fn projectiles_mut(&mut self) -> impl Iterator<Item = &mut Projectile> {
+        self.projectiles.values_mut()
+    }
+
     pub fn projectile_mut(&mut self, id: ObjectId) -> Option<&mut Projectile> {
         self.projectiles.get_mut(&id)
     }

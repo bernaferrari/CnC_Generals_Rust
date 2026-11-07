@@ -397,6 +397,9 @@ impl GameLogic {
         if !object_scoped {
             let _ = self.apply_player_unlock_upgrade(ledger, upgrade_name, upgrade_name);
         }
+        if !object_scoped {
+            self.update_projectile_weapon_bonus_upgrades(Some(player_id));
+        }
         let mut units_affected = 0u32;
         if object_scoped {
             if let Some(id) = source {
@@ -445,6 +448,47 @@ impl GameLogic {
         }
 
         units_affected
+    }
+
+    /// Run the projectile's authored WeaponBonusUpgrade against its own
+    /// controlling player's mask. `None` initializes newly materialized shots;
+    /// completion revisits only the receiving player's existing shots.
+    pub(in crate::game_logic) fn update_projectile_weapon_bonus_upgrades(
+        &mut self,
+        completed_player: Option<u32>,
+    ) {
+        use gamelogic::weapon::WeaponBonusConditionType;
+        let players = &self.players;
+        let definitions = &self.projectile_definitions;
+        for projectile in self.combat_system.projectiles_mut() {
+            if let Some(player_id) = completed_player {
+                if projectile.source_owner_player_id != Some(player_id) {
+                    continue;
+                }
+            } else if projectile.projectile_upgrades_initialized {
+                continue;
+            }
+            projectile.projectile_upgrades_initialized = true;
+            let Some(player) = projectile.source_owner_player_id.and_then(|id| players.get(&id)) else {
+                continue;
+            };
+            let Some(profile) = definitions.get(&projectile.projectile_object_name) else {
+                continue;
+            };
+            for module in &profile.behaviors {
+                if module.authored.class_name.eq_ignore_ascii_case("WeaponBonusUpgrade")
+                    && super::authored_upgrade_modules::upgrade_mux_data(&module.authored)
+                        .satisfied_by(&|name| player.has_unlocked_upgrade(name))
+                {
+                    let old = projectile.projectile_bonus_mask;
+                    projectile.projectile_bonus_mask |=
+                        1u64 << WeaponBonusConditionType::PlayerUpgrade as u8;
+                    if projectile.projectile_bonus_mask != old {
+                        projectile.computed_bonus_mask = None;
+                    }
+                }
+            }
+        }
     }
 
     fn apply_upgrade_to_exact_recipient(

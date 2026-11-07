@@ -3593,6 +3593,7 @@ impl GameLogic {
             &mut self.next_object_id,
             &self.logic_random,
         );
+        self.update_projectile_weapon_bonus_upgrades(None);
         self.apply_owned_projectileless_delayed_damage_with_effects(effects);
         self.execute_pending_weapon_fire_ocls_with_effects(effects);
     }

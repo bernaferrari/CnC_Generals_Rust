@@ -167,6 +167,12 @@ pub struct Projectile {
     /// C++ `MissileAIUpdate::m_exhaustID` from `createAttachedParticleSystemID`.
     #[serde(default)]
     pub leftover_exhaust_id: u32,
+    /// Conditions retained by the flight module, and conditions set on the
+    /// projectile itself by its authored upgrade modules.
+    pub launcher_bonus_mask: u64,
+    pub projectile_bonus_mask: u64,
+    pub projectile_upgrades_initialized: bool,
+    pub computed_bonus_mask: Option<u64>,
 }
 
 impl Projectile {
@@ -231,6 +237,10 @@ impl Projectile {
             cm_reported: false,
             is_small_missile: false,
             leftover_exhaust_id: 0,
+            launcher_bonus_mask: 0,
+            projectile_bonus_mask: 0,
+            projectile_upgrades_initialized: false,
+            computed_bonus_mask: None,
         }
     }
 

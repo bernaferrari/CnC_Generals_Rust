@@ -308,6 +308,11 @@ impl WeaponBonusConditionFlags {
     pub fn empty() -> Self {
         Self::new()
     }
+    /// Reconstitute the persisted condition mask captured by a projectile.
+    pub fn from_bits(bits: u64) -> Self {
+        Self(bits)
+    }
+
 
     pub fn set(&mut self, condition: WeaponBonusConditionType) {
         self.0 |= 1 << (condition as u8);

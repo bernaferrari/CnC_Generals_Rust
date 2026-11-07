@@ -409,7 +409,10 @@ fn uranium_projectile_world() -> (GameLogic, ObjectId, ObjectId) {
          SecondaryDamage = 20\nSecondaryDamageRadius = 10\nAttackRange = 175\n\
          DamageType = ARMOR_PIERCING\nProjectileObject = OverlordTankShell\n\
          WeaponSpeed = 30\nDelayBetweenShots = 300\nClipSize = 2\n\
-         ClipReloadTime = 2000\nAntiGround = Yes\nWeaponBonus = PLAYER_UPGRADE DAMAGE 125%\nEnd\n",
+         ClipReloadTime = 2000\nAntiGround = Yes\nWeaponBonus = PLAYER_UPGRADE DAMAGE 125%\nEnd\n\
+         Weapon AlternateUraniumGun\nPrimaryDamage = 40\nPrimaryDamageRadius = 5\n\
+         AttackRange = 175\nDamageType = ARMOR_PIERCING\nProjectileObject = OverlordTankShell\n\
+         WeaponSpeed = 30\nClipSize = 2\nAntiGround = Yes\nWeaponBonus = PLAYER_UPGRADE DAMAGE 150%\nEnd\n",
         crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
     );
     let mut world = GameLogic::new();
@@ -434,8 +437,14 @@ fn uranium_projectile_world() -> (GameLogic, ObjectId, ObjectId) {
     source.set_health(1000.0).add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Attackable).set_primary_weapon_name("OverlordTankGun");
     world.templates.insert(source.name.clone(), source);
+    let mut named = ThingTemplate::new("ChinaTankOverlord");
+    named.set_health(1000.0).add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable).set_primary_weapon_name("AlternateUraniumGun");
+    world.templates.insert(named.name.clone(), named);
     let mut target = ThingTemplate::new("UraniumProjectileTarget");
     target.set_health(1000.0).add_kind_of(KindOf::Vehicle).add_kind_of(KindOf::Attackable);
+    target.geometry_info.major_radius = 0.0;
+    target.geometry_info.authored = true;
     world.templates.insert(target.name.clone(), target);
     let source = world.create_object_for_player("CustomOverlordGunCarrier", 0, Vec3::ZERO).unwrap();
     let target = world.create_object_for_player("UraniumProjectileTarget", 2, Vec3::new(30.0, 0.0, 0.0)).unwrap();
@@ -465,15 +474,44 @@ fn uranium_impact(world: &mut GameLogic, target: ObjectId) -> f32 {
 fn uranium_shell_upgrade_is_owner_scoped_at_launch_in_flight_and_after_load() {
     const UPGRADE: &str = "Upgrade_ChinaUraniumShells";
     let (mut unupgraded, source, target) = uranium_projectile_world();
+    let unupgraded_splash = unupgraded.create_object_for_player(
+        "UraniumProjectileTarget", 2, Vec3::new(38.0, 0.0, 0.0),
+    ).unwrap();
     unupgraded.add_completed_player_upgrade(1, UPGRADE);
     uranium_launch(&mut unupgraded, source, target);
     assert_eq!(uranium_impact(&mut unupgraded, target), 80.0);
+    assert_eq!(unupgraded.objects[&unupgraded_splash].health.current, 980.0);
 
     let (mut before, source, target) = uranium_projectile_world();
+    let upgraded_splash = before.create_object_for_player(
+        "UraniumProjectileTarget", 2, Vec3::new(38.0, 0.0, 0.0),
+    ).unwrap();
     before.add_completed_player_upgrade(0, UPGRADE);
     assert!(!before.objects[&source].weapon_bonus_player_upgrade, "retail carrier has no upgrade module");
     uranium_launch(&mut before, source, target);
+    let (mut independent, independent_source, independent_target) = uranium_projectile_world();
+    uranium_launch(&mut independent, independent_source, independent_target);
+    assert_eq!(uranium_impact(&mut independent, independent_target), 80.0);
     assert_eq!(uranium_impact(&mut before, target), 100.0);
+    assert_eq!(before.objects[&upgraded_splash].health.current, 975.0);
+
+    // The retail chassis name must not select the retail gun's 125% rule.
+    // This carrier is born after research and authors a different 150% gun.
+    let (mut mismatch, _, target) = uranium_projectile_world();
+    mismatch.add_completed_player_upgrade(0, UPGRADE);
+    let named = mismatch.create_object_for_player("ChinaTankOverlord", 0, Vec3::ZERO).unwrap();
+    let target_pos = mismatch.objects[&target].get_position();
+    mismatch.objects.get_mut(&named).unwrap().set_prev_victim_pos(Some(target_pos));
+    uranium_launch(&mut mismatch, named, target);
+    assert_eq!(uranium_impact(&mut mismatch, target), 60.0);
+
+    // The flight module retains launcher conditions even if the launcher
+    // loses them before the shell hits (DumbProjectileBehavior.cpp:319).
+    let (mut captured, source, target) = uranium_projectile_world();
+    captured.objects.get_mut(&source).unwrap().set_weapon_bonus_player_upgrade(true);
+    uranium_launch(&mut captured, source, target);
+    captured.objects.get_mut(&source).unwrap().set_weapon_bonus_player_upgrade(false);
+    assert_eq!(uranium_impact(&mut captured, target), 100.0);
 
     let (mut flying, source, target) = uranium_projectile_world();
     uranium_launch(&mut flying, source, target);

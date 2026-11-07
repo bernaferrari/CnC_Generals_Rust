@@ -7,6 +7,48 @@ enum ExtraWeaponBonus<'a> {
 }
 
 impl Object {
+    /// The object's own WeaponBonusCondition mask, captured by projectile
+    /// launch (DumbProjectileBehavior.cpp:319). Container flags are not part
+    /// of this snapshot; Weapon::computeBonus handles them separately.
+    pub(crate) fn projectile_launch_bonus_mask(&self) -> u64 {
+        use gamelogic::weapon::WeaponBonusConditionType as C;
+        let mut bits = 0u64;
+        let mut set = |condition: C, enabled: bool| {
+            if enabled { bits |= 1u64 << condition as u8; }
+        };
+        set(C::Garrisoned, self.contained_by.is_some()
+            && self.is_kind_of(KindOf::Infantry)
+            && matches!(self.ai_state(), AIState::Garrisoned));
+        set(C::Horde, self.weapon_bonus_horde);
+        set(C::ContinuousFireMean, self.continuous_fire_level == 1);
+        set(C::ContinuousFireFast, self.continuous_fire_level == 2);
+        set(C::Nationalism, self.weapon_bonus_nationalism);
+        set(C::PlayerUpgrade, self.weapon_bonus_player_upgrade);
+        set(C::DroneSpotting, self.weapon_bonus_drone_spotting);
+        set(C::Enthusiastic, self.weapon_bonus_enthusiastic);
+        set(C::Subliminal, self.weapon_bonus_subliminal);
+        set(C::Veteran, self.weapon_bonus_veteran);
+        set(C::Elite, self.weapon_bonus_elite);
+        set(C::Hero, self.weapon_bonus_hero);
+        set(C::BattleplanBombardment, self.weapon_bonus_battle_plan_bombardment);
+        set(C::BattleplanHoldtheLine, self.weapon_bonus_battle_plan_hold_the_line);
+        set(C::BattleplanSearchAndDestroy, self.weapon_bonus_battle_plan_search_and_destroy);
+        set(C::Fanaticism, self.weapon_bonus_fanaticism);
+        set(C::FrenzyOne, self.weapon_bonus_frenzy && self.weapon_bonus_frenzy_level <= 1);
+        set(C::FrenzyTwo, self.weapon_bonus_frenzy && self.weapon_bonus_frenzy_level == 2);
+        set(C::FrenzyThree, self.weapon_bonus_frenzy && self.weapon_bonus_frenzy_level == 3);
+        match self.weapon_bonus_solo {
+            16 => set(C::SoloHumanEasy, true),
+            17 => set(C::SoloHumanNormal, true),
+            18 => set(C::SoloHumanHard, true),
+            19 => set(C::SoloAiEasy, true),
+            20 => set(C::SoloAiNormal, true),
+            21 => set(C::SoloAiHard, true),
+            _ => {}
+        }
+        bits
+    }
+
     /// Whether Frenzy / Rage temporary attack buff residual is active.
     pub fn is_frenzy_buffed(&self) -> bool {
         self.weapon_bonus_frenzy

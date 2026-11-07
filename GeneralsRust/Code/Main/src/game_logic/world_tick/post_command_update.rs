@@ -621,6 +621,7 @@ impl GameLogic {
                 &self.logic_random,
             );
         }
+        self.update_projectile_weapon_bonus_upgrades(None);
         self.apply_owned_projectileless_delayed_damage_with_effects(&mut ui);
 
         // C++ Weapon::fireWeaponTemplate runs FireOCL at shot acceptance,

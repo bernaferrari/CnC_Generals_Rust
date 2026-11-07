@@ -9,15 +9,10 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
 const TAG: &[u8; 4] = b"CPRJ";
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
 
-/// The nested arena preserves the exact CPRJ v1 positional payload. Bindings
-/// are derived from canonical flight fields, never a second mutable registry.
-#[derive(Serialize, Deserialize)]
-struct ArenaWithStreamsV2 {
-    arena: Vec<u8>,
-    bindings: Vec<(crate::game_logic::ObjectId, ProjectileStreamBinding)>,
-}
+/// The nested arena includes each flight's captured and live bonus conditions.
+/// Stream and Team bindings are kept in the outer frame.
 
 #[derive(Serialize, Deserialize)]
 struct ArenaWithStreamsV3 {
@@ -105,7 +100,7 @@ pub(super) fn decode(bytes: &[u8], required_new: bool) -> SaveLoadResult<Decoded
     let mut offset = 4;
     let version = word(suffix, &mut offset)?;
     let length = word(suffix, &mut offset)? as usize;
-    if !matches!(version, 1 | 2 | VERSION) {
+    if version != VERSION {
         return Err(corrupted("invalid projectile arena version or length"));
     }
     let end = offset
@@ -115,13 +110,6 @@ pub(super) fn decode(bytes: &[u8], required_new: bool) -> SaveLoadResult<Decoded
         .get(offset..end)
         .ok_or_else(|| corrupted("projectile arena truncated"))?;
     let record: LiveProjectileArenaSnapshot = match version {
-        1 => decode_exact(payload)?,
-        2 => {
-            let framed: ArenaWithStreamsV2 = decode_exact(payload)?;
-            let mut arena: LiveProjectileArenaSnapshot = decode_exact(&framed.arena)?;
-            apply_bindings(&mut arena, framed.bindings)?;
-            arena
-        }
         VERSION => {
             let framed: ArenaWithStreamsV3 = decode_exact(payload)?;
             let mut arena: LiveProjectileArenaSnapshot = decode_exact(&framed.arena)?;
@@ -322,6 +310,10 @@ mod tests {
             Some(crate::game_logic::ObjectId(2)),
         );
         projectile.source_projectile_team_id = Some(42);
+        projectile.launcher_bonus_mask = 1 << 5;
+        projectile.projectile_bonus_mask = 1 << 8;
+        projectile.projectile_upgrades_initialized = true;
+        projectile.computed_bonus_mask = Some((1 << 5) | (1 << 8));
         projectile.stream_binding = Some(ProjectileStreamBinding {
             slot: 2,
             name: String::new(),
@@ -333,16 +325,8 @@ mod tests {
     }
 
     #[test]
-    fn stream_v3_preserves_projectile_team_and_v1_is_explicitly_unbound() {
+    fn stream_v4_preserves_projectile_team_and_binding() {
         let record = one_bound_flight();
-        let old_payload = bincode_legacy::serialize(&record).unwrap();
-        let mut unbound = record.clone();
-        unbound.projectiles[0].stream_binding = None;
-        assert_eq!(
-            old_payload,
-            bincode_legacy::serialize(&unbound).unwrap(),
-            "stream binding never changes the v1 arena positional bytes"
-        );
         let current = frame(&record);
         let decoded = decode(&current, true).unwrap();
         let mut world = GameLogic::new();
@@ -357,47 +341,11 @@ mod tests {
             world.combat_system.projectiles_snapshot()[0].source_projectile_team_id,
             Some(42)
         );
-        let old_wrapper = ArenaWithStreamsV2 {
-            arena: old_payload.clone(),
-            bindings: vec![(
-                record.projectiles[0].id,
-                record.projectiles[0].stream_binding.clone().unwrap(),
-            )],
-        };
-        let old_v2_payload = bincode_legacy::serialize(&old_wrapper).unwrap();
-        let mut old_v2 = super::super::lifecycle_tail::encode_lifecycle_tail(&Default::default());
-        old_v2.extend_from_slice(TAG);
-        old_v2.extend_from_slice(&2u32.to_le_bytes());
-        old_v2.extend_from_slice(&(old_v2_payload.len() as u32).to_le_bytes());
-        old_v2.extend_from_slice(&old_v2_payload);
-        let decoded = decode(&old_v2, true).unwrap();
-        world
-            .combat_system
-            .restore_live_projectile_arena(decoded.arena);
-        assert_eq!(
-            world.combat_system.projectiles_snapshot()[0].source_projectile_team_id,
-            None,
-            "v2 continuation remains readable without a projectile-owned Team id"
-        );
-        assert!(
-            world.combat_system.projectiles_snapshot()[0]
-                .stream_binding
-                .is_some()
-        );
-        let mut old = super::super::lifecycle_tail::encode_lifecycle_tail(&Default::default());
-        old.extend_from_slice(TAG);
-        old.extend_from_slice(&1u32.to_le_bytes());
-        old.extend_from_slice(&(old_payload.len() as u32).to_le_bytes());
-        old.extend_from_slice(&old_payload);
-        let decoded = decode(&old, true).unwrap();
-        world
-            .combat_system
-            .restore_live_projectile_arena(decoded.arena);
-        assert!(
-            world.combat_system.projectiles_snapshot()[0]
-                .stream_binding
-                .is_none()
-        );
+        let restored = world.combat_system.projectiles_snapshot();
+        assert_eq!(restored[0].launcher_bonus_mask, 1 << 5);
+        assert_eq!(restored[0].projectile_bonus_mask, 1 << 8);
+        assert!(restored[0].projectile_upgrades_initialized);
+        assert_eq!(restored[0].computed_bonus_mask, Some((1 << 5) | (1 << 8)));
     }
 
     #[test]
