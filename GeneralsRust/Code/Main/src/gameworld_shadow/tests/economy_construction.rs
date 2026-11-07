@@ -173,7 +173,13 @@ fn economy_authority_writeback_supplies() {
 
 #[test]
 fn economy_authority_pending_blocks_double_spend() {
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "economy_authority_pending_blocks_double_spend",
+        true,
+    ) {
+        return;
+    }
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("EconDbl");
@@ -225,8 +231,13 @@ fn economy_authority_pending_blocks_double_spend() {
 
 #[test]
 fn economy_authority_mutates_host_supplies_when_shadow_disabled() {
-    let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "economy_authority_mutates_host_supplies_when_shadow_disabled",
+        false,
+    ) {
+        return;
+    }
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("EconNoShadow");
@@ -250,15 +261,17 @@ fn economy_authority_mutates_host_supplies_when_shadow_disabled() {
             "host supplies must apply immediately"
         );
     }
-    match prev_s {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-    }
 }
 
 #[test]
 fn credit_supplies_defers_under_economy_authority() {
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "credit_supplies_defers_under_economy_authority",
+        true,
+    ) {
+        return;
+    }
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("EconCredit");

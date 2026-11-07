@@ -1166,7 +1166,13 @@ fn production_enqueue_commits_queue_before_any_completion_receipt() {
 fn stale_engine_id_does_not_skip_host_movement() {
     {}
     // Host-only update_with_dt (no shadow session): keep host integrator on.
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "stale_engine_id_does_not_skip_host_movement",
+        true,
+    ) {
+        return;
+    }
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MoveBridge");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -1314,7 +1320,13 @@ fn engine_object_bridge_off_by_default() {
 
 #[test]
 fn owned_damage_and_move_do_not_implicitly_publish_to_comparison_world() {
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "owned_damage_and_move_do_not_implicitly_publish_to_comparison_world",
+        true,
+    ) {
+        return;
+    }
     assert!(
         matches!(
             crate::authoritative_world::dual_tick_policy(),
@@ -1384,7 +1396,13 @@ fn owned_damage_and_move_do_not_implicitly_publish_to_comparison_world() {
 
 #[test]
 fn host_object_mut_borrows_owned_fields_without_observation_ingress() {
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "host_object_mut_borrows_owned_fields_without_observation_ingress",
+        true,
+    ) {
+        return;
+    }
     assert!(gameworld_shadow_enabled());
 
     let mut logic = GameLogic::new();
@@ -1427,7 +1445,13 @@ fn host_object_mut_borrows_owned_fields_without_observation_ingress() {
 
 #[test]
 fn owned_fat_fields_remain_visible_without_implicit_shadow_publication() {
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "owned_fat_fields_remain_visible_without_implicit_shadow_publication",
+        true,
+    ) {
+        return;
+    }
     assert!(
         matches!(
             crate::authoritative_world::dual_tick_policy(),
@@ -1553,7 +1577,13 @@ fn owned_fat_fields_remain_visible_without_implicit_shadow_publication() {
 
 #[test]
 fn host_object_store_mutation_is_canonical_without_shadow_writeback() {
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "host_object_store_mutation_is_canonical_without_shadow_writeback",
+        true,
+    ) {
+        return;
+    }
     assert!(
         matches!(
             crate::authoritative_world::dual_tick_policy(),
@@ -1631,7 +1661,13 @@ fn host_object_store_mutation_is_canonical_without_shadow_writeback() {
 /// C++ Object HP is its BodyModule. A comparison session cannot replace it.
 #[test]
 fn is_alive_uses_owned_body_even_with_conflicting_comparison_health() {
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "is_alive_uses_owned_body_even_with_conflicting_comparison_health",
+        true,
+    ) {
+        return;
+    }
 
     let mut logic = GameLogic::new();
 
@@ -1672,7 +1708,13 @@ fn is_alive_uses_owned_body_even_with_conflicting_comparison_health() {
 /// C++ Object::xfer writes getBodyModule()->getHealth(). Snapshot must do the same.
 #[test]
 fn snapshot_builder_uses_authoritative_health() {
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "snapshot_builder_uses_authoritative_health",
+        true,
+    ) {
+        return;
+    }
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SnapAuth");

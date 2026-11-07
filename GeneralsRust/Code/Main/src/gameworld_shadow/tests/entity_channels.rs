@@ -875,7 +875,13 @@ fn parsed_missile_kill_self_snapshot_holds_shadow_pose_and_retires() {
 
 #[test]
 fn projectile_authority_steps_flight_and_writeback() {
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "projectile_authority_steps_flight_and_writeback",
+        true,
+    ) {
+        return;
+    }
     let mut logic = GameLogic::new();
 
     // Seed one ballistic projectile on host combat system.
