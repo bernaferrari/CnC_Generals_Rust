@@ -210,6 +210,10 @@ pub fn load_chunky_map(map_name: &str) -> LoaderResult<Option<ChunkyMap>> {
             path.display()
         ))
     })?;
+    decode_map_bytes(path, raw_bytes).map(Some)
+}
+
+fn decode_map_bytes(path: PathBuf, raw_bytes: Vec<u8>) -> LoaderResult<ChunkyMap> {
     let bytes = if raw_bytes.starts_with(CHUNK_MAGIC) {
         raw_bytes
     } else {
@@ -221,6 +225,46 @@ pub fn load_chunky_map(map_name: &str) -> LoaderResult<Option<ChunkyMap>> {
             ))
         })?
     };
+    ChunkyMap::decode(path, bytes)
+}
 
-    Ok(Some(ChunkyMap::decode(path, bytes)?))
+/// Resolve and decode geometry using the same mounted owner as its companions.
+pub(crate) fn load_owned_chunky_map(
+    filesystem: &mut crate::assets::archive::ArchiveFileSystem,
+    map_name: &str,
+) -> LoaderResult<Option<ChunkyMap>> {
+    let normalized = normalize_virtual_path_str(map_name);
+    if normalized.is_empty() {
+        return Ok(None);
+    }
+    let path = PathBuf::from(&normalized);
+    let mut candidates = if path.is_absolute() {
+        vec![path.clone()]
+    } else {
+        build_relative_candidates(&normalized)
+    };
+    if path.extension().is_none() {
+        if path.is_absolute() {
+            let mut with_extension = path.clone();
+            with_extension.set_extension("map");
+            push_unique(&mut candidates, with_extension);
+        } else if path.components().count() == 1 {
+            push_unique(
+                &mut candidates,
+                PathBuf::from("Maps").join(&path).join(format!("{normalized}.map")),
+            );
+        }
+    }
+    for candidate in candidates {
+        let filename = candidate.to_string_lossy();
+        let bytes = filesystem
+            .read_optional_definition_source(&filename)
+            .map_err(|error| configuration_error(format!(
+                "Failed to read map '{}': {error}", candidate.display()
+            )))?;
+        if let Some(bytes) = bytes {
+            return decode_map_bytes(candidate, bytes).map(Some);
+        }
+    }
+    Ok(None)
 }

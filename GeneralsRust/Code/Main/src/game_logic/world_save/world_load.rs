@@ -451,11 +451,25 @@ impl GameLogic {
             0.30,
             "Resolving map resources",
         )?;
-        let resolved_map = super::script_loader::find_map_file(map_name);
+        let application_assets = self.application_assets();
+        let chunky_result = if let Some(assets) = application_assets.as_ref() {
+            let mut assets = assets.lock().unwrap_or_else(|error| error.into_inner());
+            super::script_loader::load_owned_chunky_map(assets.archive_file_system_mut(), map_name)
+        } else {
+            super::script_loader::load_chunky_map(map_name)
+        };
+        let chunky = match chunky_result {
+            Ok(chunky) => chunky,
+            Err(error) => {
+                log::error!("Cannot decode map '{map_name}': {error}");
+                return Ok(false);
+            }
+        };
         let mut decoded_map = None;
-        if let Some(path) = &resolved_map {
+        if let Some(chunky) = chunky {
+            let path = &chunky.source;
             log::info!("Resolved map '{}' to '{}'", map_name, path.display());
-            if let Ok(Some(chunky)) = super::script_loader::load_chunky_map(map_name) {
+            {
                 // An ordinary bare/virtual name must retain the directory
                 // actually resolved by this decode for future saved companions.
                 // Saved pristine identities remain explicit, independent from
@@ -465,7 +479,6 @@ impl GameLogic {
                     str::to_string,
                 );
                 self.map_definition_source = Some(definition_source.clone());
-                let application_assets = self.application_assets();
                 let companion_sources = if let Some(assets) = application_assets.as_ref() {
                     let mut assets = assets.lock().unwrap_or_else(|error| error.into_inner());
                     match super::script_loader::read_owned_definition_companions(
@@ -588,6 +601,9 @@ impl GameLogic {
                     "Reading map settings",
                 )?;
                 let mut ai_draft = self.ai_definitions.map_override_draft();
+                let mut asset_guard = application_assets.as_ref().map(|assets| {
+                    assets.lock().unwrap_or_else(|error| error.into_inner())
+                });
                 let parsed =
                     super::script_loader::parse_map_settings_from_chunky_with_owned_definition_catalogs(
                         &chunky,
@@ -611,7 +627,9 @@ impl GameLogic {
                             .map(|content| content.science_facts())
                             .unwrap_or_default(),
                         self.player_template_definitions.is_some(),
+                        asset_guard.as_mut().map(|assets| assets.archive_file_system_mut()),
                     );
+                drop(asset_guard);
                 let parsed_settings = match parsed {
                     Ok(meta) => match self.admit_ai_map_overrides(ai_draft) {
                         Ok(()) => {
@@ -1228,17 +1246,10 @@ impl GameLogic {
                     bounds_started.elapsed().as_secs_f32()
                 );
                 decoded_map = Some(chunky);
-            } else {
-                log::error!(
-                    "Map '{}' was found at '{}' but could not be decoded as a chunky map",
-                    map_name,
-                    path.display()
-                );
-                return Ok(false);
             }
         } else {
             // Development-only fallback maps: keep the legacy test layout for demos.
-            if matches!(map_name, "TestMap" | "demo_map") {
+            if application_assets.is_none() && matches!(map_name, "TestMap" | "demo_map") {
                 log::warn!(
                     "Map '{}' not found on disk; using built-in test layout",
                     map_name

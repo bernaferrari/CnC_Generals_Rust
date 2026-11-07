@@ -133,7 +133,7 @@ pub fn parse_map_settings(map_name: &str) -> LoaderResult<MapMetadata> {
     let Some(chunky) = load_chunky_map(map_name)? else {
         return Ok(meta);
     };
-    parse_map_settings_from_loaded_chunky(map_name, &chunky, meta, None, None, None, false)
+    parse_map_settings_from_loaded_chunky(map_name, &chunky, meta, None, None, None, false, None)
 }
 
 /// C++ `WorldHeightMap::ParseLightingDataChunk` (WorldHeightMap.cpp:758-829).
@@ -375,6 +375,7 @@ pub fn parse_map_settings_from_chunky(chunky: &ChunkyMap) -> LoaderResult<MapMet
         None,
         None,
         false,
+        None,
     )
 }
 
@@ -490,6 +491,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_owned_terrain_definitions(
         None,
         None,
         false,
+        None,
     )
 }
 
@@ -513,6 +515,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_owned_definition_catalogs(
     upgrade_definitions: gamelogic::upgrade::center::UpgradeCenter,
     science_facts: std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>,
     player_templates_admitted: bool,
+    filesystem: Option<&mut crate::assets::archive::ArchiveFileSystem>,
 ) -> LoaderResult<MapMetadata> {
     parse_map_settings_from_loaded_chunky(
         definition_source,
@@ -535,6 +538,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_owned_definition_catalogs(
         Some(science_facts),
         admitted_object_sources,
         player_templates_admitted,
+        filesystem,
     )
 }
 
@@ -546,6 +550,7 @@ fn parse_map_settings_from_loaded_chunky(
     science_facts: Option<std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>>,
     admitted_object_sources: Option<&[(PathBuf, String)]>,
     player_templates_admitted: bool,
+    mut filesystem: Option<&mut crate::assets::archive::ArchiveFileSystem>,
 ) -> LoaderResult<MapMetadata> {
     let mut terrain_definitions = meta
         .terrain_definitions
@@ -863,7 +868,14 @@ fn parse_map_settings_from_loaded_chunky(
 
                 let mut candidate = dir.join(stem);
                 candidate.set_extension(ext);
-                if let Some(heightmap_path) = resolve_runtime_path(&candidate) {
+                let heightmap_path = if let Some(filesystem) = filesystem.as_deref_mut() {
+                    let name = candidate.to_string_lossy();
+                    filesystem.read_optional_definition_source(&name).ok().flatten()
+                        .and_then(|bytes| materialize_to_temporary(&name, &bytes))
+                } else {
+                    resolve_runtime_path(&candidate)
+                };
+                if let Some(heightmap_path) = heightmap_path {
                     meta.heightmap_path = Some(heightmap_path);
                     break;
                 }
@@ -875,7 +887,15 @@ fn parse_map_settings_from_loaded_chunky(
             for (i, face) in faces.iter().enumerate() {
                 let mut candidate = dir.to_path_buf();
                 candidate.push(format!("Sky{}.tga", face));
-                if path_is_accessible(&candidate) {
+                let exists = |filesystem: &mut Option<&mut crate::assets::archive::ArchiveFileSystem>, path: &Path| {
+                    if let Some(filesystem) = filesystem.as_deref_mut() {
+                        filesystem.read_optional_definition_source(&path.to_string_lossy())
+                            .ok().flatten().is_some()
+                    } else {
+                        path_is_accessible(path)
+                    }
+                };
+                if exists(&mut filesystem, &candidate) {
                     textures[i] = Some(candidate.to_string_lossy().to_string());
                     continue;
                 }
@@ -885,7 +905,7 @@ fn parse_map_settings_from_loaded_chunky(
                     map_path.file_stem().unwrap_or_default().to_string_lossy(),
                     face
                 ));
-                if path_is_accessible(&alt) {
+                if exists(&mut filesystem, &alt) {
                     textures[i] = Some(alt.to_string_lossy().to_string());
                 }
             }
