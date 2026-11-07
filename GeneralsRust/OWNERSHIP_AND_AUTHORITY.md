@@ -88,6 +88,12 @@ discharge recording before testing foreign drains, reset/reused IDs, FIFO
 repeated shots and frozen source data after source destruction. Separate actual
 materialization tests cover delayed damage across interleaved worlds.
 
+Moving projectiles retain launch-time weapon conditions and their own authored
+upgrade state. Research completed in flight updates only projectiles belonging
+to that player; impact combines the captured and current conditions before
+applying the authored weapon bonus. Both survive Rust snapshot restoration.
+`DumbProjectileBehavior.cpp` defines the original condition lifetime.
+
 Unsigned deadlines use `wrapping_add`, following C++ `Weapon.cpp:1057`. The
 existing raw current-frame comparison is retained: an overflowing deadline can
 already be due during the current high frame. Actual materialization tests
