@@ -320,7 +320,31 @@ impl UndeadBody {
     }
 }
 
+// The native damage driver owns callbacks and cannot enter the legacy
+// registry-based start_second_life. Admit ordinary hits only until that
+// continuation is available, rejecting the original raw-damage intercept
+// before ActiveBody changes health.
 impl BodyModuleInterface for UndeadBody {
+    fn assess_owned_native_damage(&mut self, damage: &DamageInfo) -> BodyResult<bool> {
+        if !self.is_second_life
+            && damage.input.damage_type != DamageType::Unresistable
+            && Self::is_health_damaging_damage(damage.input.damage_type)
+            && damage.input.amount >= self.get_health()
+        {
+            return Err(BodyError::OperationNotSupported);
+        }
+        self.active_body.assess_owned_native_damage(damage)
+    }
+
+    fn begin_owned_native_damage(
+        &mut self,
+        damage: &mut DamageInfo,
+        observations: super::active_body::OwnedDamageObservation,
+    ) -> BodyResult<super::active_body::OwnedDamageOutcome> {
+        self.assess_owned_native_damage(damage)?;
+        self.active_body.begin_owned_native_damage(damage, observations)
+    }
+
     fn attempt_damage(&mut self, damage_info: &mut DamageInfo) -> BodyResult<()> {
         self.attempt_damage_with_context_inner(damage_info, None)
     }

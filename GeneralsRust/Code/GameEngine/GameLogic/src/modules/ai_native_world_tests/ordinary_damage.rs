@@ -152,6 +152,64 @@ fn hit(source: u32, amount: f32) -> DamageInfo {
     damage
 }
 #[test]
+fn undead_native_nonlethal_damage_is_owned_and_first_death_is_rejected_before_mutation() {
+    fn receiving_undead() -> NativeMatch {
+        let mut game = NativeMatch::new(150.0);
+        let mut base = DefaultThingTemplate::new("OwnedUndead".into());
+        base.add_kind_of(KindOf::Infantry);
+        let data = crate::object::body::undead_body::UndeadBodyModuleData {
+            base: ActiveBodyModuleData {
+                max_health: 100.0,
+                initial_health: 100.0,
+                ..Default::default()
+            },
+            second_life_max_health: 200.0,
+        };
+        let template: Arc<dyn ThingTemplate> = Arc::new(EntryTemplate {
+            base,
+            modules: vec![TemplateModuleInfo {
+                name: "UndeadBody".into(),
+                module_tag: "OwnedUndeadBody".into(),
+                data: Arc::new(data),
+                interface_mask: ModuleInterfaceType::BODY,
+            }],
+        });
+        let mut catalog = game_engine::common::thing::module_factory::ModuleFactory::new();
+        crate::contain_module_overrides::register_native_module_overrides(&mut catalog).unwrap();
+        for entry in template.get_behavior_module_info() {
+            catalog.add_module_internal(None, None,
+                game_engine::common::thing::module::ModuleType::Behavior,
+                &entry.name, entry.interface_flags());
+        }
+        let definitions = Arc::new(BodyDefinitionCatalog::new(
+            Some(&game_engine::common::global_data::GlobalData::default()),
+            HashMap::new(), HashMap::new(),
+        ).unwrap());
+        let mut factory = ObjectFactory::new();
+        factory.prepare_saved_object(template, 1, &mut |_name: &str| Ok(None), definitions, &catalog).unwrap();
+        game.source = factory.get_object(1).unwrap().get_base_object().unwrap();
+        game.factory = factory;
+        game
+    }
+    let mut first = receiving_undead();
+    let peer = receiving_undead();
+    let owner = Arc::clone(&first.source);
+    let peer_guard = peer.source.write().unwrap();
+    let mut damage = hit(0, 20.0);
+    damage.input.damage_type = DamageType::SmallArms;
+    first.operate(100, |world| {
+        assert_eq!(world.attempt_damage_owned(&owner, &mut damage).unwrap(), 20.0);
+    });
+    assert_eq!(health(&first.source), 80.0);
+    let mut lethal = hit(0, 80.0);
+    lethal.input.damage_type = DamageType::SmallArms;
+    first.operate(101, |world| assert!(world.attempt_damage_owned(&owner, &mut lethal).is_err()));
+    assert_eq!(health(&first.source), 80.0);
+    drop(peer_guard);
+    assert_eq!(health(&peer.source), 100.0);
+}
+
+#[test]
 fn actual_damage_releases_body_owner_before_installed_autoheal_wake() {
     let mut first = receiving_damage_world();
     let peer = receiving_damage_world();
