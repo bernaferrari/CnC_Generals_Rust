@@ -34,6 +34,14 @@ its model state, and rider state. This is a Rust snapshot cutover,
 not original-executable save interoperability. Before merging rider changes,
 the stealth-filtered run passed 223 tests with 10 baseline failures.
 
+## Authored death weapons
+
+Each object's authored FireWeaponWhenDead modules dispatch through its receiving
+world's weapon and OCL content; Bomb Truck names no longer select a detonation.
+FireWeaponUpdate cadence belongs to the live object's lifecycle state and
+survives Rust save/load. HE/Bio coverage exercises blast, field creation, and
+resumed poison damage; original Xfer byte parity remains unverified.
+
 ## Authored radar and cash bounty
 
 Radar contributions come from the receiving object's authored RadarUpgrade
