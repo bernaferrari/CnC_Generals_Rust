@@ -1318,3 +1318,117 @@ fn point_defense_zero_delay_rescan_tracks_before_a_new_target_arrives() {
     assert!(world.host_object(later).unwrap().health.current < 300.0,
         "after actual removal the next periodic scan can fire on the live target");
 }
+
+#[test]
+fn point_defense_save_restores_independent_module_clocks_without_touching_peer() {
+    fn world(fast_damage: u32, slow_damage: u32) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
+        let mut world = GameLogic::new();
+        for (id, team, name) in [(1, Team::USA, "DefenseOwner"), (2, Team::GLA, "DefenseEnemy")] {
+            let mut player = crate::game_logic::Player::new(id, team, name, id == 1);
+            player.alliance_team = id as i32;
+            player.set_map_relationship(if id == 1 { 2 } else { 1 }, gamelogic::common::Relationship::Enemies);
+            world.add_player(player);
+        }
+        let objects = r#"
+Object SnapshotDefenseCarrier
+  KindOf = VEHICLE ATTACKABLE
+  Body = ActiveBody BodyTag
+    MaxHealth = 1000
+    InitialHealth = 1000
+  End
+  Behavior = PointDefenseLaserUpdate FastModule
+    WeaponTemplate = SnapshotFastDefense
+    PrimaryTargetTypes = INFANTRY
+    ScanRange = 120
+    ScanRate = 0
+  End
+  Behavior = PointDefenseLaserUpdate SlowModule
+    WeaponTemplate = SnapshotSlowDefense
+    PrimaryTargetTypes = VEHICLE
+    ScanRange = 120
+    ScanRate = 0
+  End
+End
+Object SnapshotDefenseInfantry
+  KindOf = INFANTRY ATTACKABLE
+  Body = ActiveBody BodyTag
+    MaxHealth = 1000
+    InitialHealth = 1000
+  End
+End
+Object SnapshotDefenseVehicle
+  KindOf = VEHICLE ATTACKABLE
+  Body = ActiveBody BodyTag
+    MaxHealth = 1000
+    InitialHealth = 1000
+  End
+End
+"#;
+        world.admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([
+                ("snapshot-defense.ini".to_owned(), objects.to_owned()),
+            ]).unwrap(),
+        ).unwrap();
+        let mut weapons = std::collections::HashMap::new();
+        let ini = format!(
+            "Weapon SnapshotFastDefense\n PrimaryDamage = {fast_damage}\n DamageType = UNRESISTABLE\n DeathType = NORMAL\n AttackRange = 80\n WeaponSpeed = 999999\n ProjectileObject = NONE\n DelayBetweenShots = 100\n AntiGround = Yes\nEnd\n\
+             Weapon SnapshotSlowDefense\n PrimaryDamage = {slow_damage}\n DamageType = UNRESISTABLE\n DeathType = NORMAL\n AttackRange = 80\n WeaponSpeed = 999999\n ProjectileObject = NONE\n DelayBetweenShots = 200\n AntiGround = Yes\nEnd\n"
+        );
+        assert_eq!(crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+            &mut weapons, &ini, crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+        ), 2);
+        world.admit_weapon_content_snapshot(
+            weapons.into_values().map(|weapon| (weapon.name.clone(), weapon)).collect(), &[],
+        ).unwrap();
+        let carrier = world.create_object_for_player("SnapshotDefenseCarrier", 1, Vec3::ZERO).unwrap();
+        let infantry = world.create_object_for_player("SnapshotDefenseInfantry", 2, Vec3::new(20.0, 0.0, 0.0)).unwrap();
+        let vehicle = world.create_object_for_player("SnapshotDefenseVehicle", 2, Vec3::new(30.0, 0.0, 0.0)).unwrap();
+        (world, carrier, infantry, vehicle)
+    }
+    fn fire_frame(world: &mut GameLogic, frame: u32) {
+        world.set_current_frame(u64::from(frame));
+        world.update_point_defense_intercept();
+        world.apply_owned_projectileless_delayed_damage();
+    }
+    fn health(world: &GameLogic, infantry: ObjectId, vehicle: ObjectId) -> (f32, f32) {
+        (world.host_object(infantry).unwrap().health.current, world.host_object(vehicle).unwrap().health.current)
+    }
+
+    let (mut source, carrier, infantry, vehicle) = world(10, 20);
+    let (mut peer, peer_carrier, peer_infantry, peer_vehicle) = world(31, 37);
+    assert_eq!((carrier, infantry, vehicle), (peer_carrier, peer_infantry, peer_vehicle));
+    fire_frame(&mut source, 0);
+    fire_frame(&mut peer, 0);
+    assert_eq!(health(&source, infantry, vehicle), (990.0, 980.0));
+    assert_eq!(health(&peer, peer_infantry, peer_vehicle), (969.0, 963.0));
+    fire_frame(&mut source, 1);
+    fire_frame(&mut source, 2);
+
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&source).unwrap();
+    let encoded = bincode_legacy::serialize(&snapshot).unwrap();
+    let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&encoded).unwrap();
+    let (mut restored, restored_carrier, restored_infantry, restored_vehicle) = world(10, 20);
+    assert_eq!((carrier, infantry, vehicle), (restored_carrier, restored_infantry, restored_vehicle));
+    builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+    assert_eq!(health(&restored, infantry, vehicle), (990.0, 980.0));
+    assert_eq!(health(&peer, peer_infantry, peer_vehicle), (969.0, 963.0));
+
+    for frame in 3..=7 {
+        fire_frame(&mut source, frame);
+        fire_frame(&mut restored, frame);
+        let expected = match frame {
+            3 => (990.0, 980.0),
+            4..=6 => (980.0, 980.0),
+            7 => (980.0, 960.0),
+            _ => unreachable!(),
+        };
+        assert_eq!(health(&source, infantry, vehicle), expected, "source frame {frame}");
+        assert_eq!(health(&restored, infantry, vehicle), expected, "restored frame {frame}");
+        assert_eq!(health(&peer, peer_infantry, peer_vehicle), (969.0, 963.0),
+            "interleaving another same-ID world must not advance its clocks or damage");
+    }
+    fire_frame(&mut peer, 1);
+    assert_eq!(health(&peer, peer_infantry, peer_vehicle), (969.0, 963.0));
+    assert_eq!(health(&restored, infantry, vehicle), (980.0, 960.0));
+}
