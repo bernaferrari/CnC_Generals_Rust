@@ -2333,14 +2333,13 @@ impl TerrainVisualImpl {
                 .transparent_diffuse_color,
         );
 
-        let (mut patch_vertices, list_indices) = bake_water_tiles_world_with_lights(
+        let (mut patch_vertices, list_indices) = bake_water_tiles_world(
             min_x,
             min_z,
             max_x,
             max_z,
             water_y,
             packed,
-            &self.dynamic_lights,
         );
         if patch_vertices.is_empty() || list_indices.is_empty() {
             self.water_plane = None;

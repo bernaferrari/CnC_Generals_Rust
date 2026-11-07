@@ -2776,6 +2776,17 @@ the player lock for the callback. Main retains the ledger on its per-player AI
 and includes it in world snapshots. C++ reference: AIPlayer.cpp:1024–1095.
 The Core linked-list cursor currently rescans by index after each callback;
 reentrant edits before the cursor cannot preserve C++ node identity.
+Supply-center selection uses only an acquired AI enemy, and an enemy without
+structures has origin bounds (AIPlayer.cpp:2156–2212). Demand-driven enemy
+acquisition and reentrant AI roster access remain unresolved.
+
+## Terrain lighting
+
+The receiving terrain visual admits its client's point lights for terrain and
+road bakes. Sea-water vertices use the authored transparent diffuse directly,
+as in W3DWater.cpp:656–668. Scene-light advancement still needs a receiving
+render-phase owner: the current presentation snapshot precedes the client
+effect update, and paused or gated paths can skip that update.
 
 ## Bridge restoration identity
 

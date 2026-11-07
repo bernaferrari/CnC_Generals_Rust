@@ -10,7 +10,7 @@
 //!
 //! These bakes feed the shipped wgpu TerrainVisual overlay pipelines (TriangleList).
 
-use crate::fx_list::{DisplayDynamicLight, do_the_dynamic_light, far_atten_factor};
+use crate::fx_list::{DisplayDynamicLight, far_atten_factor};
 use gamelogic::common::types::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
 
 /// C++ `PATCH_SIZE` — vertices on one water-patch edge.
@@ -204,33 +204,13 @@ pub fn bake_water_patch_world(
     water_y: f32,
     transparent_water_diffuse: u32,
 ) -> (Vec<SeaPatchVertex>, Vec<u16>, Vec<u32>) {
-    bake_water_patch_world_with_lights(
-        min_x,
-        min_z,
-        max_x,
-        max_z,
-        water_y,
-        transparent_water_diffuse,
-        &[],
-    )
-}
-
-pub fn bake_water_patch_world_with_lights(
-    min_x: f32,
-    min_z: f32,
-    max_x: f32,
-    max_z: f32,
-    water_y: f32,
-    transparent_water_diffuse: u32,
-    lights: &[DisplayDynamicLight],
-) -> (Vec<SeaPatchVertex>, Vec<u16>, Vec<u32>) {
     let local =
         generate_water_vertex_buffer(PATCH_SIZE, PATCH_SIZE, water_y, transparent_water_diffuse);
     let strip = generate_water_index_buffer(PATCH_SIZE, PATCH_SIZE);
     let list = triangle_list_from_strip(&strip);
     let span_x = max_x - min_x;
     let span_z = max_z - min_z;
-    let mut world: Vec<SeaPatchVertex> = local
+    let world: Vec<SeaPatchVertex> = local
         .into_iter()
         .map(|v| SeaPatchVertex {
             x: min_x + (v.x / PATCH_WIDTH as f32) * span_x,
@@ -241,7 +221,6 @@ pub fn bake_water_patch_world_with_lights(
             tv: v.tv,
         })
         .collect();
-    apply_water_point_lights(&mut world, lights);
     (world, strip, list)
 }
 
@@ -255,26 +234,6 @@ pub fn bake_water_tiles_world(
     max_z: f32,
     water_y: f32,
     transparent_water_diffuse: u32,
-) -> (Vec<SeaPatchVertex>, Vec<u32>) {
-    bake_water_tiles_world_with_lights(
-        min_x,
-        min_z,
-        max_x,
-        max_z,
-        water_y,
-        transparent_water_diffuse,
-        &[],
-    )
-}
-
-pub fn bake_water_tiles_world_with_lights(
-    min_x: f32,
-    min_z: f32,
-    max_x: f32,
-    max_z: f32,
-    water_y: f32,
-    transparent_water_diffuse: u32,
-    lights: &[DisplayDynamicLight],
 ) -> (Vec<SeaPatchVertex>, Vec<u32>) {
     const MAX_TILES_PER_AXIS: usize = 24;
     let span_x = (max_x - min_x).max(0.0);
@@ -303,14 +262,13 @@ pub fn bake_water_tiles_world_with_lights(
             } else {
                 z0 + step_z
             };
-            let (patch, _strip, list) = bake_water_patch_world_with_lights(
+            let (patch, _strip, list) = bake_water_patch_world(
                 x0,
                 z0,
                 x1,
                 z1,
                 water_y,
                 transparent_water_diffuse,
-                lights,
             );
             let base = verts.len() as u32;
             indices.extend(list.into_iter().map(|i| i + base));
@@ -374,18 +332,6 @@ pub fn compute_standing_water_diffuse(
     packed | (water_diffuse & 0xFF00_0000)
 }
 
-/// Apply live `createLightPulse` POINT lights to a Y-up water patch (HeightMap formula).
-pub fn apply_water_point_lights(vertices: &mut [SeaPatchVertex], lights: &[DisplayDynamicLight]) {
-    if lights.is_empty() {
-        return;
-    }
-    for vertex in vertices {
-        // Water patch is Y-up; C++ map XYZ is Z-up.
-        let xyz = [vertex.x, vertex.z, vertex.y];
-        let normal = [0.0, 0.0, 1.0];
-        vertex.c = do_the_dynamic_light(xyz, normal, vertex.c, lights);
-    }
-}
 
 #[derive(Clone, Copy)]
 struct RoadColumn {
@@ -1331,40 +1277,20 @@ mod tests {
     }
 
     #[test]
-    fn bake_water_patch_world_applies_point_lights_like_heightmap() {
-        crate::test_support::ensure_ambient_host();
-        use crate::fx_list::{DisplayLightPulse, DisplayLightScene, do_the_dynamic_light};
-        let mut scene = DisplayLightScene::default();
-        assert!(scene.create_pulse(DisplayLightPulse {
-            pos: [0.0, 0.0, 3.0],
-            color: [1.0, 0.0, 0.0],
-            inner_radius: 10.0,
-            outer_radius: 80.0,
-            increase_frames: 0,
-            decay_frames: 0,
-        }));
-        let lights = scene.lights();
+    fn bake_water_patch_preserves_authored_transparent_diffuse() {
+        // W3DWater.cpp writes transparentWaterDiffuse directly to the sea VB.
         let (verts, _, _) =
-            bake_water_patch_world_with_lights(-20.0, -20.0, 20.0, 20.0, 3.0, 0x8033_3333, lights);
+            bake_water_patch_world(-20.0, -20.0, 20.0, 20.0, 3.0, 0x8033_3333);
         assert!(!verts.is_empty());
-        let v = verts[0];
-        let expected = do_the_dynamic_light([v.x, v.z, v.y], [0.0, 0.0, 1.0], 0x8033_3333, &lights);
-        assert_eq!(v.c, expected);
         let gpu = fill_water_gpu_upload_vertices(&verts);
         assert_eq!(gpu.len(), verts.len());
         for (cpu, uploaded) in verts.iter().zip(gpu.iter()) {
-            let expected_c =
-                do_the_dynamic_light([cpu.x, cpu.z, cpu.y], [0.0, 0.0, 1.0], 0x8033_3333, &lights);
-            assert_eq!(cpu.c, expected_c);
-            assert_eq!(
-                uploaded.packed_c, expected_c,
-                "wgpu VB must keep SeaPatchVertex.c"
-            );
+            assert_eq!(cpu.c, 0x8033_3333);
+            assert_eq!(uploaded.packed_c, 0x8033_3333);
             assert_eq!(uploaded.position, [cpu.x, cpu.y, cpu.z]);
-            assert_eq!(uploaded.color, unpack_bgra_rgb(expected_c));
+            assert_eq!(uploaded.color, unpack_bgra_rgb(0x8033_3333));
             assert_eq!(uploaded.tex_coords, [cpu.tu, cpu.tv]);
-            let expect_a = ((expected_c >> 24) & 0xFF) as f32 / 255.0;
-            assert!((uploaded.alpha - expect_a).abs() < 1e-5);
+            assert!((uploaded.alpha - 128.0 / 255.0).abs() < 1e-5);
         }
         let shader = include_str!("../shaders/water.wgsl");
         assert!(
@@ -1374,10 +1300,6 @@ mod tests {
         assert!(
             shader.contains("return vec4<f32>(in.color, in.alpha)"),
             "water FS must use packed c, not fake shallow/deep"
-        );
-        assert!(
-            !shader.contains("shallow = vec3<f32>(0.05, 0.16, 0.22)"),
-            "water FS must not ignore HeightMap POINT/global light bake"
         );
     }
 

@@ -15,6 +15,7 @@ use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn missing_skybox_face_retries_after_receiving_visual_reset() {
+    let _common = game_engine::common::common_services::CommonServicesScope::new();
     use game_engine::common::system::file_system::get_file_system;
     use game_engine::common::system::local_file_system::LocalFileSystem;
 
@@ -166,22 +167,26 @@ fn first_render_color(visual: &TerrainVisualImpl) -> [f32; 4] {
 
 #[test]
 fn interleaved_terrain_owners_keep_their_own_baked_lighting() {
-    let mut first = visual(lighting([0.8, 0.4, 0.4]));
+    let _common = game_engine::common::common_services::CommonServicesScope::new();
+    let first_world = gamelogic::system::engine_stores::new_world_services();
+    let peer_world = gamelogic::system::engine_stores::new_world_services();
+    use gamelogic::system::engine_stores::with_world_services as with_world;
+    let mut first = with_world(&first_world, || visual(lighting([0.8, 0.4, 0.4])));
     let first_color_before = first_color(&first);
-    let mut peer = visual(lighting([0.4, 0.8, 0.4]));
+    let mut peer = with_world(&peer_world, || visual(lighting([0.4, 0.8, 0.4])));
     let peer_color_before = first_color(&peer);
     assert!(first_color_before[0] > first_color_before[1]);
     assert!(peer_color_before[1] > peer_color_before[0]);
 
     assert!(peer.admit_static_lighting(lighting([0.4, 0.4, 0.8])));
-    peer.update().unwrap();
+    with_world(&peer_world, || peer.update().unwrap());
     assert!(first_color(&peer)[2] > first_color(&peer)[0]);
-    first.update().unwrap();
+    with_world(&first_world, || first.update().unwrap());
     assert_eq!(first_color(&first), first_color_before);
 
-    peer.reset().unwrap();
+    with_world(&peer_world, || peer.reset().unwrap());
     drop(peer);
-    first.update().unwrap();
+    with_world(&first_world, || first.update().unwrap());
     assert_eq!(first_color(&first), first_color_before);
 }
 
@@ -212,10 +217,14 @@ fn client_display_lighting_and_skybox_use_the_receiving_owner() {
 #[test]
 fn dynamic_light_and_expiry_are_isolated_between_terrain_owners() {
     use game_client_rust::terrain::w3d_overlay_mesh::{
-        bake_straight_road_segment, bake_water_patch_world_with_lights, light_road_seg_vertices,
+        bake_straight_road_segment, bake_water_patch_world, light_road_seg_vertices,
     };
-    let mut first = visual(lighting([0.4; 3]));
-    let mut peer = visual(lighting([0.4; 3]));
+    let _common = game_engine::common::common_services::CommonServicesScope::new();
+    let first_world = gamelogic::system::engine_stores::new_world_services();
+    let peer_world = gamelogic::system::engine_stores::new_world_services();
+    use gamelogic::system::engine_stores::with_world_services as with_world;
+    let mut first = with_world(&first_world, || visual(lighting([0.4; 3])));
+    let mut peer = with_world(&peer_world, || visual(lighting([0.4; 3])));
     let peer_before = first_render_color(&peer);
     let mut scene = DisplayLightScene::default();
     assert!(scene.create_pulse(DisplayLightPulse {
@@ -224,19 +233,18 @@ fn dynamic_light_and_expiry_are_isolated_between_terrain_owners() {
         inner_radius: 10.0,
         outer_radius: 100.0,
         increase_frames: 0,
-        decay_frames: 0,
+        decay_frames: 1,
     }));
     first.admit_dynamic_lights(scene.lights());
-    first.update().unwrap();
-    peer.update().unwrap();
+    with_world(&first_world, || first.update().unwrap());
+    with_world(&peer_world, || peer.update().unwrap());
     assert!(first_render_color(&first)[0] > peer_before[0]);
     assert_eq!(first_render_color(&peer), peer_before);
 
-    let (lit_water, _, _) =
-        bake_water_patch_world_with_lights(0.0, 0.0, 20.0, 20.0, 0.0, 0xff33_3333, scene.lights());
-    let (peer_water, _, _) =
-        bake_water_patch_world_with_lights(0.0, 0.0, 20.0, 20.0, 0.0, 0xff33_3333, &[]);
-    assert!(lit_water[0].c > peer_water[0].c);
+    // Sea vertex colour is authored water diffuse, not terrain point light.
+    let (water, _, _) =
+        bake_water_patch_world(0.0, 0.0, 20.0, 20.0, 0.0, 0xff33_3333);
+    assert!(water.iter().all(|vertex| vertex.c == 0xff33_3333));
     let (mut road, _) =
         bake_straight_road_segment([0.0, 0.0], [30.0, 0.0], 10.0, 1.0, 0.0, 0.0, 1.0, |_, _| {
             0.0
@@ -248,9 +256,9 @@ fn dynamic_light_and_expiry_are_isolated_between_terrain_owners() {
     light_road_seg_vertices(&mut road, 0xff33_3333, scene.lights());
     assert!(road[0].diffuse > 0xff33_3333);
 
-    scene.clear_lights();
+    scene.update();
     first.admit_dynamic_lights(scene.lights());
-    first.update().unwrap();
+    with_world(&first_world, || first.update().unwrap());
     assert_eq!(first_render_color(&first), peer_before);
     assert_eq!(first_render_color(&peer), peer_before);
 }

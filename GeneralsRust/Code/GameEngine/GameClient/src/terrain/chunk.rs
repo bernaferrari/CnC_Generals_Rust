@@ -1891,8 +1891,6 @@ mod tests {
 
     #[test]
     fn generate_geometry_uses_p0_p2_split_like_cpp_heightmap() {
-        crate::test_support::ensure_ambient_host();
-        let _ = crate::core::game_client::with_live_game_client_mut(|client| client.fx_mut().clear_scene_dynamic_lights());
         let mut chunk = TerrainChunk::new(1, Vec3::new(32.0, 0.0, 32.0), 64.0);
         chunk.heights = vec![vec![0.0, 10.0], vec![20.0, 30.0]];
 
