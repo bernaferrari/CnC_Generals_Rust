@@ -481,41 +481,82 @@ fn placed_landmark_identity_survives_coincident_spans_and_changed_object_ids() {
     isolated("placed_landmark_identity_survives_coincident_spans_and_changed_object_ids", || {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("Landmarks.map");
-        std::fs::write(&path, map_bytes(50.0, &[])).unwrap();
-        let setup = |world: &mut GameLogic| {
+        let mut out = game_engine::common::system::DataChunkOutput::new();
+        out.open_data_chunk("HeightMapData", 3);
+        for value in [21, 21, 1, 441] {
+            out.write_int(value);
+        }
+        for _ in 0..441 {
+            out.write_byte(0);
+        }
+        out.close_data_chunk();
+        out.open_data_chunk("ObjectsList", 3);
+        for angle in [0.0, std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_4] {
+            out.open_data_chunk("Object", 3);
+            for value in [50.0, 50.0, 21.0, angle] {
+                out.write_real(value);
+            }
+            out.write_int(0);
+            out.write_ascii_string("IdentityLandmark");
+            out.write_dict(&game_engine::common::dict::Dict::new());
+            out.close_data_chunk();
+        }
+        out.close_data_chunk();
+        std::fs::write(&path, out.into_ckmp_bytes()).unwrap();
+        let prepare = |world: &mut GameLogic| {
             let mut template = crate::game_logic::ThingTemplate::new("IdentityLandmark");
             template.add_kind_of(KindOf::Structure)
                 .add_kind_of(KindOf::LandmarkBridge)
                 .add_kind_of(KindOf::Bridge)
                 .set_health(400.0);
+            template.geometry_info.authored = false;
             template.geometry_info.geom_type = crate::game_logic::HostGeometryType::Box;
             template.geometry_info.major_radius = 25.0;
             template.geometry_info.minor_radius = 10.0;
+            let mut neutral = crate::game_logic::Player::new(0, Team::Neutral, "", false);
+            neutral.map_side.role = crate::game_logic::PlayerSideRole::Neutral;
+            neutral.map_side.map_player_name.clear();
+            world.add_player(neutral);
             world.templates.insert("IdentityLandmark".into(), template);
-            let mut ids = Vec::new();
-            for index in 0..3 {
-                let id = world.create_object("IdentityLandmark", Team::Neutral, Vec3::new(50.0, 21.0, 50.0)).unwrap();
-                world.register_landmark_bridge_object_with_effects_checked(
-                    id, "IdentityLandmark", Some(index), &mut Default::default(),
-                ).unwrap();
-                ids.push(id);
-            }
-            ids
         };
-        let mut source = load(&path);
-        let ids = setup(&mut source);
-        let mut peer = load(&path);
-        assert_eq!(setup(&mut peer), ids);
+        let mut source = GameLogic::new();
+        prepare(&mut source);
+        assert!(source.load_map(path.to_str().unwrap()));
+        let mut peer = GameLogic::new();
+        prepare(&mut peer);
+        assert!(peer.load_map(path.to_str().unwrap()));
+        let source_ids: Vec<_> = source.spawned_map_object_ids.iter().map(|(id, _)| *id).collect();
+        let peer_ids: Vec<_> = peer.spawned_map_object_ids.iter().map(|(id, _)| *id).collect();
+        assert_eq!(source_ids.len(), 3);
+        assert_eq!(source_ids, peer_ids);
         assert!(source.delete_owned_bridge_at(Vec3::new(50.0, 21.0, 50.0)));
-        assert!(source.bridge_behavior.create_scaffolding(ids[1]));
+        assert!(source.bridge_behavior.create_scaffolding(source_ids[1]));
         source.refresh_owned_bridge_pathfinder_states();
-        let snapshot = SnapshotBuilder::new().create_world_snapshot(&source).unwrap();
+        let mut saves = SaveFileManager::with_save_directory(temp.path().join("landmark_saves"));
+        saves.init().unwrap();
+        saves.save_game("landmarks", &source, &SaveGameInfo {
+            filename: "landmarks".into(),
+            display_name: "Landmarks".into(),
+            description: "placed bridge source identity".into(),
+            map_name: path.to_string_lossy().into_owned(),
+            pristine_map_name: source.map_definition_source.clone(),
+            campaign_side: None,
+            mission_number: None,
+            save_date: std::time::SystemTime::now(),
+            game_version: env!("CARGO_PKG_VERSION").into(),
+            play_time: std::time::Duration::ZERO,
+            difficulty: GameDifficulty::Medium,
+            save_type: SaveFileType::Normal,
+        }).unwrap();
+        let decoded = saves.load_game_snapshot("landmarks").unwrap();
         let mut restored = GameLogic::new();
+        prepare(&mut restored);
         restored.set_next_object_id_for_restore(ObjectId(1000));
-        assert!(restored.load_map(path.to_str().unwrap()));
-        let reconstructed = setup(&mut restored);
-        assert_ne!(reconstructed, ids);
-        SnapshotBuilder::new().restore_from_snapshot(&snapshot, &mut restored).unwrap();
+        assert!(restored.load_map(&decoded.save_info.map_name));
+        let reconstructed: Vec<_> = restored.spawned_map_object_ids.iter().map(|(id, _)| *id).collect();
+        assert_eq!(reconstructed.len(), 3);
+        assert_ne!(reconstructed, source_ids);
+        SnapshotBuilder::new().restore_from_snapshot(&decoded.snapshot, &mut restored).unwrap();
         let rows = |world: &GameLogic| {
             let mut rows = Vec::new();
             world.world_services.terrain().read().unwrap().for_each_bridge(|bridge| {
@@ -525,10 +566,22 @@ fn placed_landmark_identity_survives_coincident_spans_and_changed_object_ids() {
             rows
         };
         assert_eq!(rows(&restored), rows(&source));
+        assert_eq!(
+            rows(&restored),
+            vec![(Some(1), source_ids[1].0), (Some(0), source_ids[0].0)]
+        );
         assert_eq!(rows(&peer).len(), 3);
-        assert!(restored.bridge_behavior.is_scaffold_present(ids[1]));
-        assert!(restored.bridge_behavior.span(ids[0]).unwrap().point_on_deck(Vec3::new(50.0, 21.0, 50.0)));
-        let cell = restored.pathfinding_system.grid.world_to_grid(Vec3::new(50.0, 21.0, 50.0));
+        assert!(!peer.bridge_behavior.is_scaffold_present(source_ids[1]));
+        assert!(restored.bridge_behavior.is_scaffold_present(source_ids[1]));
+        let east = Vec3::new(70.0, 21.0, 50.0);
+        let north = Vec3::new(50.0, 21.0, 70.0);
+        let east_span = restored.bridge_behavior.span(source_ids[0]).unwrap();
+        let north_span = restored.bridge_behavior.span(source_ids[1]).unwrap();
+        assert!(east_span.point_on_deck(east));
+        assert!(!east_span.point_on_deck(north));
+        assert!(north_span.point_on_deck(north));
+        assert!(!north_span.point_on_deck(east));
+        let cell = restored.pathfinding_system.grid.world_to_grid(north);
         assert_eq!(restored.pathfinding_system.grid.layer_cell_type(3, cell),
             Some(gamelogic::ai::pathfind_astar::PathfindCellType::BridgeImpassable));
     });
