@@ -576,11 +576,6 @@ pub struct GameLogic {
     pub(super) ecm_laser_beams_spawned: u32,
     /// Honesty: PointDefenseLaserBeam objects spawned on intercept residual.
     pub(super) point_defense_laser_beams_spawned: u32,
-    /// Per-carrier next ready frame for leftover PDL module 0 (DelayBetweenShots).
-    pub(crate) point_defense_next_ready_frame: HashMap<ObjectId, u32>,
-    /// Avenger leftover PointDefenseLaserUpdate module 1 fire clock (independent
-    /// 500ms stream). Paladin / Chinook / King Raptor residual do not use this.
-    pub(crate) point_defense_next_ready_frame_1: HashMap<ObjectId, u32>,
 
     /// Host America Avenger residual honesty (FAERIE_FIRE paint / air laser / ROF).
     /// Fail-closed: not full portable laser turret / dual AirLaser stream matrix.

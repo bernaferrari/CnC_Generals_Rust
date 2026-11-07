@@ -872,31 +872,29 @@ fn point_defense_intercept_spawns_laser_beam_object() {
     let carrier = logic
         .create_object("AmericaTankPaladin", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .unwrap();
+    author_test_point_defense(&mut logic, carrier, 1, 65, 1000, true, PDL_LASER_BEAM_DEFAULT);
     let threat = logic
         .create_object("ScudStormMissile", Team::GLA, Vec3::new(30.0, 20.0, 0.0))
         .unwrap();
-    // Force ready and run intercept.
-    logic.point_defense_next_ready_frame.insert(carrier, 0);
     logic.frame = 1;
-    logic.update_point_defense_intercept();
+    step_test_point_defense(&mut logic);
     assert!(
         logic.point_defense_residual_intercepts >= 1,
         "PDL must intercept residual missile"
     );
-    assert!(logic.honesty_point_defense_laser_beam_ok());
-    assert!(logic.point_defense_laser_beams_spawned >= 1);
+    assert!(logic.weapon_laser_beams_spawned >= 1);
     let beam = logic
         .host_objects()
         .registered_values()
-        .find(|o| o.point_defense_laser_beam)
+        .find(|o| o.weapon_laser_beam)
         .expect("PDL beam object");
     assert_eq!(beam.template_name, PDL_LASER_BEAM_DEFAULT);
     let bid = beam.id;
-    assert!(logic.point_defense_laser_beams_spawned >= 1);
+    assert!(logic.weapon_laser_beams_spawned >= 1);
     logic.frame = logic
         .frame
         .saturating_add(PDL_LASER_BEAM_LIFETIME_FRAMES + 2);
-    logic.update_point_defense_laser_beam_objects();
+    logic.update_weapon_laser_beam_objects();
     assert!(
         logic
             .host_object(bid)

@@ -253,7 +253,7 @@ impl GameLogic {
             let rate = self.receiving_weapon_bonus_fields(object, Some(rule)).2;
             bonus.set_field(gamelogic::weapon::WeaponBonusField::RateOfFire, rate);
         }
-        if self.fire_named_temporary_with_owned_state(source, &spec, Some(fire_state), effects).is_none() {
+        if self.fire_named_temporary_with_owned_state(source, &spec, Some(fire_state), None, effects).is_none() {
             return;
         }
         if let Some(rule) = rule {

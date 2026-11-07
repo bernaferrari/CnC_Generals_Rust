@@ -86,7 +86,7 @@ impl GameLogic {
         spec: &crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<u32> {
-        self.fire_named_temporary_with_owned_state(source, spec, None, effects)
+        self.fire_named_temporary_with_owned_state(source, spec, None, None, effects)
     }
 
     pub(super) fn fire_named_temporary_with_owned_state(
@@ -94,6 +94,7 @@ impl GameLogic {
         source: ObjectId,
         spec: &crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec,
         state: Option<(i32, u32, u32)>,
+        target: Option<ObjectId>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<u32> {
         if let Some(rule) = self.weapon_definitions.as_ref()
@@ -102,6 +103,7 @@ impl GameLogic {
         {
             let object = self.objects.get(&source)?;
             let position = object.get_position();
+            let target_position = target.and_then(|id| self.objects.get(&id).map(|o| o.get_position())).unwrap_or(position);
             let bonuses = self.receiving_weapon_bonus_fields(object, Some(&rule));
             let rank = object.experience.level;
             let native_rank = match rank {
@@ -126,8 +128,8 @@ impl GameLogic {
                     source_velocity: object.movement.velocity,
                     launcher_bonus_mask: object.projectile_launch_bonus_mask(),
                 }),
-                target_id: None,
-                target_pos: Some(position),
+                target_id: target,
+                target_pos: Some(target_position),
                 self_damage_position: rule.damage_dealt_at_self_position.then_some(position),
                 selected_weapon_is_laser: Some(rule.is_laser()),
                 damage: rule.primary_damage * bonuses.0,
@@ -171,10 +173,14 @@ impl GameLogic {
                 state.map_or(0, |weapon| weapon.0),
                 state.map_or(0, |weapon| weapon.1),
                 state.map(|weapon| weapon.2),
-                self.frame, position,
+                self.frame, target_position,
             );
-            let capture = object.take_pending_weapon_visual_capture();
-            self.deliver_owned_weapon_shot_with_rule_and_effects(0, shot, capture, Some(rule), effects);
+            let mut capture = object.take_pending_weapon_visual_capture();
+            if let Some(capture) = capture.as_mut() {
+                capture.weapon_slot = spec.weapon_slot as u8;
+                capture.target_id = target;
+            }
+            self.deliver_owned_weapon_shot_with_rule_and_effects(spec.weapon_slot as u8, shot, capture, Some(rule), effects);
             return Some(0);
         }
         let fields = self.temporary_weapon_fields(&spec.weapon_template_name)?;

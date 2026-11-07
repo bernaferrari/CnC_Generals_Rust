@@ -238,6 +238,7 @@ fn king_raptor_residual_laser_intercepts_missile() {
     let raptor_id = game_logic
         .create_object("AirF_AmericaJetRaptor", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("king raptor");
+    author_test_point_defense(&mut game_logic, raptor_id, 1, KING_RAPTOR_PDL_FIRE_RANGE as u32, 125, false, "AirF_PointDefenseLaserBeam");
     let missile_id = game_logic
         .create_object(
             "TestMissile",
@@ -260,7 +261,7 @@ fn king_raptor_residual_laser_intercepts_missile() {
     assert!(!game_logic.honesty_point_defense_intercept_ok());
 
     game_logic.frame = 1;
-    game_logic.update_point_defense_intercept();
+    step_test_point_defense(&mut game_logic);
 
     assert!(
         game_logic.honesty_point_defense_intercept_ok(),
@@ -284,15 +285,17 @@ fn king_raptor_residual_laser_intercepts_missile() {
     let _missile2 = game_logic
         .create_object("TestMissile", Team::China, Vec3::new(20.0, 0.0, 0.0))
         .expect("missile2");
-    game_logic.update_point_defense_intercept();
+    step_test_point_defense(&mut game_logic);
     assert_eq!(
         game_logic.point_defense_residual_intercepts(),
         intercepts_after_first,
         "King Raptor PDL must respect residual dual-laser delay"
     );
 
-    game_logic.frame = 1 + KING_RAPTOR_PDL_DELAY_FRAMES;
-    game_logic.update_point_defense_intercept();
+    for frame in 3..=1 + KING_RAPTOR_PDL_DELAY_FRAMES + 4 {
+        game_logic.frame = frame;
+        step_test_point_defense(&mut game_logic);
+    }
     assert!(
         game_logic.point_defense_residual_intercepts() > intercepts_after_first,
         "King Raptor PDL must fire again after residual delay"
@@ -1043,11 +1046,11 @@ fn combat_chinook_pdl_world(author_pdl: bool) -> GameLogic {
     let chinook_id = game_logic
         .create_object("AirF_AmericaVehicleChinook", Team::USA, Vec3::ZERO)
         .expect("combat chinook");
-    game_logic
-        .host_object_mut(chinook_id)
-        .expect("combat chinook")
-        .template_mut()
-        .receiving_object_definition = Some(std::sync::Arc::new(definition));
+    author_test_point_defense(&mut game_logic, chinook_id, 1, 100, 250, false, "AirF_PointDefenseLaserBeam");
+    if !author_pdl {
+        game_logic.host_object_mut(chinook_id).unwrap().template_mut().receiving_object_definition =
+            Some(std::sync::Arc::new(definition));
+    }
     game_logic
         .create_object("TestMissile", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
         .expect("missile");
@@ -1058,7 +1061,7 @@ fn combat_chinook_pdl_world(author_pdl: bool) -> GameLogic {
 fn combat_chinook_pdl_carrier_requires_authored_point_defense_module() {
     let mut without = combat_chinook_pdl_world(false);
     without.frame = 1;
-    without.update_point_defense_intercept();
+    step_test_point_defense(&mut without);
     assert!(
         !without.honesty_point_defense_intercept_ok(),
         "AirF_AmericaVehicleChinook name without PointDefenseLaserUpdate must not intercept"
@@ -1066,7 +1069,7 @@ fn combat_chinook_pdl_carrier_requires_authored_point_defense_module() {
 
     let mut with = combat_chinook_pdl_world(true);
     with.frame = 1;
-    with.update_point_defense_intercept();
+    step_test_point_defense(&mut with);
     assert!(
         with.honesty_point_defense_intercept_ok(),
         "authored PointDefenseLaserUpdate Combat Chinook must intercept"
@@ -1125,4 +1128,94 @@ fn rpg_trooper_ap_rockets_keys_on_authored_weapon_not_template_name() {
         !game_logic.apply_rpg_trooper_ap_rockets_upgrade(named),
         "name-matching template without authored weapon must not take AP Rockets"
     );
+}
+
+#[test]
+fn authored_point_defense_modules_use_world_owned_weapons_and_independent_clocks() {
+    fn world(damage: u32) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
+        let mut world = GameLogic::new();
+        for (id, team, name) in [(1, Team::USA, "Owner"), (2, Team::GLA, "Enemy")] {
+            let mut player = crate::game_logic::Player::new(id, team, name, id == 1);
+            player.alliance_team = id as i32;
+            player.set_map_relationship(if id == 1 { 2 } else { 1 }, gamelogic::common::Relationship::Enemies);
+            world.add_player(player);
+        }
+        let source = r#"
+Object UnusualDefenseCarrier
+  KindOf = VEHICLE
+  Body = ActiveBody BodyTag
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+  Behavior = PointDefenseLaserUpdate First
+    WeaponTemplate = DefenseFast
+    PrimaryTargetTypes = INFANTRY
+    ScanRange = 100
+    ScanRate = 0
+  End
+  Behavior = PointDefenseLaserUpdate Second
+    WeaponTemplate = DefenseSlow
+    PrimaryTargetTypes = VEHICLE
+    ScanRange = 100
+    ScanRate = 0
+  End
+End
+Object DefenseInfantry
+  KindOf = INFANTRY
+  Body = ActiveBody BodyTag
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+End
+Object DefenseVehicle
+  KindOf = VEHICLE
+  Body = ActiveBody BodyTag
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+End
+Object AmericaTankPaladin
+  KindOf = VEHICLE
+  Body = ActiveBody BodyTag
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+End
+"#;
+        world.admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([("defense.ini".to_owned(), source.to_owned())]).unwrap()
+        ).unwrap();
+        let mut weapons = std::collections::HashMap::new();
+        let ini = format!("Weapon DefenseFast\n PrimaryDamage = {damage}\n DamageType = UNRESISTABLE\n DeathType = NORMAL\n AttackRange = 80\n WeaponSpeed = 999999\n ProjectileObject = NONE\n DelayBetweenShots = 0\n AntiGround = Yes\nEnd\nWeapon DefenseSlow\n PrimaryDamage = 7\n DamageType = UNRESISTABLE\n DeathType = NORMAL\n AttackRange = 80\n WeaponSpeed = 999999\n ProjectileObject = NONE\n DelayBetweenShots = 1000\n AntiGround = Yes\nEnd\n");
+        crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(&mut weapons, &ini,
+            crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal);
+        world.admit_weapon_content_snapshot(weapons.into_values().map(|w| (w.name.clone(), w)).collect(), &[]).unwrap();
+        let carrier = world.create_object_for_player("UnusualDefenseCarrier", 1, Vec3::ZERO).unwrap();
+        let infantry = world.create_object_for_player("DefenseInfantry", 2, Vec3::new(20.0, 0.0, 0.0)).unwrap();
+        let vehicle = world.create_object_for_player("DefenseVehicle", 2, Vec3::new(30.0, 0.0, 0.0)).unwrap();
+        (world, carrier, infantry, vehicle)
+    }
+    let (mut a, carrier, infantry, vehicle) = world(11);
+    let (mut b, other_carrier, other_infantry, other_vehicle) = world(23);
+    assert_eq!((carrier, infantry, vehicle), (other_carrier, other_infantry, other_vehicle));
+    a.update_point_defense_intercept();
+    a.apply_owned_projectileless_delayed_damage();
+    assert_eq!(a.host_object(infantry).unwrap().health.current, 89.0);
+    assert_eq!(a.host_object(vehicle).unwrap().health.current, 93.0);
+    assert_eq!(b.host_object(other_infantry).unwrap().health.current, 100.0);
+    b.update_point_defense_intercept();
+    b.apply_owned_projectileless_delayed_damage();
+    assert_eq!(b.host_object(other_infantry).unwrap().health.current, 77.0);
+    a.frame += 1;
+    a.update_point_defense_intercept();
+    a.apply_owned_projectileless_delayed_damage();
+    assert_eq!(a.host_object(infantry).unwrap().health.current, 78.0);
+    assert_eq!(a.host_object(vehicle).unwrap().health.current, 93.0);
+    assert_eq!(b.host_object(other_vehicle).unwrap().health.current, 93.0);
+    let (mut named, authored, victim, _) = world(11);
+    named.host_object_mut(authored).unwrap().status.destroyed = true;
+    named.create_object_for_player("AmericaTankPaladin", 1, Vec3::ZERO).unwrap();
+    named.update_point_defense_intercept();
+    assert_eq!(named.host_object(victim).unwrap().health.current, 100.0,
+        "retail carrier name alone does not install a point-defense module");
 }

@@ -702,6 +702,7 @@ fn point_defense_laser_residual_intercepts_missile() {
     let paladin_id = game_logic
         .create_object("USA_Paladin", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("paladin");
+    author_test_point_defense(&mut game_logic, paladin_id, 1, 65, 1000, true, "PointDefenseLaserBeam");
     // Missile inside Paladin residual fire range (65).
     let missile_id = game_logic
         .create_object(
@@ -729,7 +730,7 @@ fn point_defense_laser_residual_intercepts_missile() {
     assert!(!game_logic.honesty_point_defense_intercept_ok());
 
     game_logic.frame = 1;
-    game_logic.update_point_defense_intercept();
+    step_test_point_defense(&mut game_logic);
 
     assert!(
         game_logic.honesty_point_defense_intercept_ok(),
@@ -766,7 +767,7 @@ fn point_defense_laser_residual_intercepts_missile() {
     let missile2 = game_logic
         .create_object("TestMissile", Team::China, Vec3::new(20.0, 0.0, 0.0))
         .expect("missile2");
-    game_logic.update_point_defense_intercept();
+    step_test_point_defense(&mut game_logic);
     assert_eq!(
         game_logic.point_defense_residual_intercepts(),
         intercepts_after_first,
@@ -781,8 +782,10 @@ fn point_defense_laser_residual_intercepts_missile() {
     );
 
     // After Paladin delay frames, intercept again.
-    game_logic.frame = 1 + crate::game_logic::host_point_defense::PALADIN_PDL_DELAY_FRAMES;
-    game_logic.update_point_defense_intercept();
+    for frame in 3..=1 + crate::game_logic::host_point_defense::PALADIN_PDL_DELAY_FRAMES + 4 {
+        game_logic.frame = frame;
+        step_test_point_defense(&mut game_logic);
+    }
     assert!(
         game_logic.point_defense_residual_intercepts() > intercepts_after_first,
         "PDL must fire again after residual delay"
@@ -809,6 +812,7 @@ fn paladin_pdl_skips_stealthed_undetected_infantry() {
     let paladin_id = game_logic
         .create_object("USA_Paladin", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("paladin");
+    author_test_point_defense(&mut game_logic, paladin_id, 1, 65, 1000, true, "PointDefenseLaserBeam");
     let infantry_id = game_logic
         .create_object(
             "TestInfantry",
@@ -831,7 +835,7 @@ fn paladin_pdl_skips_stealthed_undetected_infantry() {
         .unwrap_or(0.0);
 
     game_logic.frame = 1;
-    game_logic.update_point_defense_intercept();
+    step_test_point_defense(&mut game_logic);
     assert_eq!(
         game_logic.point_defense_residual_intercepts(),
         0,
@@ -851,7 +855,7 @@ fn paladin_pdl_skips_stealthed_undetected_infantry() {
         let inf = game_logic.host_object_mut(infantry_id).expect("infantry");
         inf.status.detected = true;
     }
-    game_logic.update_point_defense_intercept();
+    step_test_point_defense(&mut game_logic);
     assert!(
         game_logic.point_defense_residual_intercepts() >= 1,
         "Paladin PDL must fire on detected stealthed infantry"
@@ -897,6 +901,7 @@ fn avenger_pdl_two_independent_lasers() {
     let avenger_id = game_logic
         .create_object("AmericaVehicleAvenger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("avenger");
+    author_test_point_defense(&mut game_logic, avenger_id, 2, 100, 500, false, "AvengerPointDefenseLaserBeam");
     assert!(is_avenger_carrier(
         &game_logic.host_object(avenger_id).unwrap().template_name
     ));
@@ -918,7 +923,7 @@ fn avenger_pdl_two_independent_lasers() {
         .expect("missile b");
 
     game_logic.frame = 1;
-    game_logic.update_point_defense_intercept();
+    step_test_point_defense(&mut game_logic);
     assert_eq!(
         game_logic.point_defense_residual_intercepts(),
         2,
@@ -940,7 +945,7 @@ fn avenger_pdl_two_independent_lasers() {
     let missile_c = game_logic
         .create_object("TestMissile", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
         .expect("missile c");
-    game_logic.update_point_defense_intercept();
+    step_test_point_defense(&mut game_logic);
     assert_eq!(
         game_logic.point_defense_residual_intercepts(),
         intercepts_after_dual,
@@ -954,8 +959,10 @@ fn avenger_pdl_two_independent_lasers() {
         "third missile survives while both Avenger clocks are cooling"
     );
 
-    game_logic.frame = 1 + AVENGER_PDL_DELAY_FRAMES;
-    game_logic.update_point_defense_intercept();
+    for frame in 3..=1 + AVENGER_PDL_DELAY_FRAMES + 4 {
+        game_logic.frame = frame;
+        step_test_point_defense(&mut game_logic);
+    }
     assert!(
         game_logic.point_defense_residual_intercepts() > intercepts_after_dual,
         "Avenger PDL must fire again after per-module delay"

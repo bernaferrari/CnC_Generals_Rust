@@ -1724,224 +1724,109 @@ impl GameLogic {
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        use crate::game_logic::host_point_defense::{
-            PDL_INTERCEPT_AUDIO, intercept_priority, is_live_point_defense_carrier,
-            is_primary_intercept_target, is_secondary_intercept_target, pdl_damage,
-            pdl_delay_frames, pdl_fire_range, pdl_module_count,
-        };
+        use crate::game_logic::host_point_defense::{authored_modules, PointDefenseState};
+        use gamelogic::weapon::WeaponAntiMask;
 
-        // Snapshot carriers first (immutable pass).
-        let carriers: Vec<(ObjectId, String, Team, glam::Vec3)> = self
-            .objects
-            .registered()
-            .filter_map(|(id, obj)| {
-                // C++ PointDefenseLaserBeam objects carry only Draw +
-                // LifetimeUpdate — never a PointDefenseLaserUpdate module — so
-                // the spawned beam visual must not rescan as a carrier.
-                if obj.point_defense_laser_beam {
-                    return None;
+        let carriers: Vec<_> = self.objects.registered().filter_map(|(&id, object)| {
+            if !object.is_alive() { return None; }
+            let modules = authored_modules(object);
+            if modules.is_empty() { None } else { Some((id, modules)) }
+        }).collect();
+        for (carrier_id, modules) in carriers {
+            for (index, config) in modules.iter().enumerate() {
+                let Some(weapon) = self.weapon_definitions.as_ref()
+                    .and_then(|rules| rules.get(&config.weapon)).cloned() else { continue };
+                let Some(carrier) = self.objects.get_mut(&carrier_id) else { break };
+                if carrier.point_defense_states.len() < modules.len() {
+                    carrier.point_defense_states.resize_with(modules.len(), PointDefenseState::default);
                 }
-                if !obj.is_alive() || obj.is_disabled() {
-                    return None;
-                }
-                if !is_live_point_defense_carrier(obj) {
-                    return None;
-                }
-                // Under construction / unmanned residual: no laser.
-                if obj.status.under_construction || obj.status.disabled_unmanned {
-                    return None;
-                }
-                // Weapons jam residual: cannot fire laser either.
-                if obj.status.weapons_jammed {
-                    return None;
-                }
-                Some((*id, obj.template_name.clone(), obj.team, obj.get_position()))
-            })
-            .collect();
-
-        if carriers.is_empty() {
-            return;
-        }
-
-        let frame = self.frame;
-        let mut intercepts_this_pass = 0u32;
-
-        for (carrier_id, template_name, team, carrier_pos) in carriers {
-            let fire_range = pdl_fire_range(&template_name);
-            let damage = pdl_damage(&template_name);
-            let delay = pdl_delay_frames(&template_name);
-            let carrier_xz = (carrier_pos.x, carrier_pos.z);
-            // Leftover PointDefenseLaserUpdate is per-module. Avenger authors two
-            // independent 500ms clocks; each update scans after prior modules fire
-            // so two missiles in the same window can both die.
-            let module_count = pdl_module_count(&template_name);
-
-            for module_i in 0..module_count {
-                let ready_frame = if module_i == 0 {
-                    self.point_defense_next_ready_frame
-                        .get(&carrier_id)
-                        .copied()
-                        .unwrap_or(0)
-                } else {
-                    self.point_defense_next_ready_frame_1
-                        .get(&carrier_id)
-                        .copied()
-                        .unwrap_or(0)
-                };
-                if frame < ready_frame {
-                    continue;
-                }
-
-                // Pure residual acquire: primary missiles first, then secondary infantry;
-                // closer wins within the same priority band (XZ range / 3D tiebreak).
-                let allow_secondary =
-                    crate::game_logic::host_usa_tanks::paladin_allows_secondary_infantry_intercept(
-                        &template_name,
-                    );
-                let candidates: Vec<_> = self
-                    .objects
-                    .registered()
-                    .map(|(&tid, target)| {
-                        let same_team = target.team == team;
-                        let stealthed = target.status.stealthed;
-                        let detected = target.status.detected;
-                        let disguised = target.status.disguised;
-                        // Leftover scan_closest_target: STEALTHED && !DETECTED &&
-                        // !DISGUISED continue (primary and secondary).
-                        let cloaked = stealthed && !detected && !disguised;
-                        let is_primary = !cloaked
-                            && is_primary_intercept_target(
-                                target.is_kind_of(KindOf::Projectile)
-                                    || target.object_type == ObjectType::Projectile,
-                                target.is_alive(),
-                                same_team,
-                                &target.template_name,
-                            );
-                        // Retail: only Paladin has SecondaryTargetTypes = INFANTRY.
-                        // Avenger / King Raptor / Combat Chinook: missiles only.
-                        let is_secondary = if allow_secondary {
-                            is_secondary_intercept_target(
-                                target.is_kind_of(KindOf::Infantry),
-                                target.is_alive(),
-                                same_team,
-                                target.status.under_construction,
-                                stealthed,
-                                detected,
-                                disguised,
-                            )
-                        } else {
-                            false
-                        };
-                        crate::game_logic::host_residual_acquire::PriorityAcquireCandidate {
-                            id: tid,
-                            position: target.get_position(),
-                            is_alive: target.is_alive(),
-                            priority: intercept_priority(is_primary, is_secondary),
+                let mut state = carrier.point_defense_states[index].clone();
+                let origin = carrier.get_position();
+                let scan = state.next_scan == 0;
+                if scan {
+                    state.next_scan = config.scan_frames;
+                    let mut best: Option<(u8, f32, ObjectId)> = None;
+                    for (&id, target) in self.objects.registered() {
+                        if id == carrier_id || !target.is_alive()
+                            || self.objects.get(&carrier_id).is_none_or(|carrier| self.object_relationship(carrier, target) != gamelogic::common::Relationship::Enemies)
+                            || (target.status.stealthed && !target.status.detected && !target.status.disguised)
+                            || (!target.status.airborne_target && !weapon.anti_mask.contains(WeaponAntiMask::GROUND)) {
+                            continue;
                         }
-                    })
-                    .collect();
-                let Some((target_id, prio, _)) =
-                    crate::game_logic::host_residual_acquire::pick_best_priority_residual_target(
-                        carrier_id,
-                        carrier_pos,
-                        carrier_xz,
-                        fire_range,
-                        candidates,
-                    )
-                else {
-                    continue;
-                };
-
-                // Primary missiles / projectiles: destroy residual (laser one-shots).
-                // Secondary infantry: apply PDL damage residual.
-                let mut destroyed = false;
-                let mut impact_pos = carrier_pos;
-                if prio == 0 {
-                    if let Some(target) = self.objects.get_mut(&target_id) {
-                        impact_pos = target.get_position();
+                        let mask = target.kind_of_cpp_mask();
+                        let priority = if mask & config.primary != 0 { 0 } else if mask & config.secondary != 0 { 1 } else { continue };
+                        let pos = target.get_position();
+                        let distance = (pos.x - origin.x).powi(2) + (pos.z - origin.z).powi(2);
+                        if distance > config.scan_range * config.scan_range { continue; }
+                        let band = priority + if distance <= weapon.attack_range * weapon.attack_range { 0 } else { 2 };
+                        if best.as_ref().is_none_or(|(b, d, _)| band < *b || (band == *b && distance < *d)) {
+                            best = Some((band, distance, id));
+                        }
                     }
-                    // Instant destroy residual for interceptable missiles.
-                    // Damage-authority aware: HP last-write via damage log; destroy flag host-local.
-                    self.mark_destroyed_authority_aware(target_id, Some(carrier_id));
-                    destroyed = self
-                        .objects
-                        .get(&target_id)
-                        .map(|t| t.status.destroyed || !t.is_alive() || t.health.current <= 0.0)
-                        .unwrap_or(true);
-                } else if let Some(target) = self.objects.get_mut(&target_id) {
-                    impact_pos = target.get_position();
-                    let receiving_damage_target_id = target.id;
-                    destroyed = self.apply_residual_damage_owned_with_effects(
-                        receiving_damage_target_id,
-                        damage,
-                        Some(carrier_id),
-                        crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
-                            crate::game_logic::host_usa_tanks::PALADIN_PDL_DAMAGE_TYPE,
-                        ),
-                        crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
-                            crate::game_logic::host_usa_tanks::PALADIN_PDL_DEATH_TYPE,
-                        ),
-                        None,
-                        presentation_effects,
-                    );
-                    // Under damage authority take_damage does not zero host HP; project kill for
-                    // mark_object_for_destruction when lethal residual is logged.
-                    {}
-                }
-
-                if module_i == 0 {
-                    self.point_defense_next_ready_frame
-                        .insert(carrier_id, frame.saturating_add(delay));
+                    state.target = best.map(|(_, _, id)| id);
+                    state.in_range = best.is_some_and(|(band, _, _)| band < 2);
                 } else {
-                    self.point_defense_next_ready_frame_1
-                        .insert(carrier_id, frame.saturating_add(delay));
+                    state.next_scan -= 1;
                 }
-                intercepts_this_pass = intercepts_this_pass.saturating_add(1);
-                self.point_defense_residual_intercepts =
-                    self.point_defense_residual_intercepts.saturating_add(1);
-                // C++ Weapon::createLaser / PointDefenseLaserBeam Lifetime residual.
-                let _ = self.spawn_point_defense_laser_beam_with_effects(
-                    carrier_id,
-                    &template_name,
-                    carrier_pos,
-                    impact_pos,
-                    Some(target_id),
-                    presentation_effects,
-                );
-                // AI attack authority: PDL discharge records fire-intent for GameWorld last-writer.
-                {}
-                {}
-
-                if destroyed {
-                    self.mark_object_for_destruction_with_effects(
-                        target_id,
-                        Some(team),
-                        presentation_effects,
-                    );
+                // C++ calls fireWhenReady on every tracking frame, and immediately
+                // after a successful scan, even while its private weapon reloads.
+                if !scan || state.target.is_some() {
+                    let target = state.target.and_then(|id| self.objects.get(&id).map(|o| (id, o.get_position(), o.is_alive())));
+                    if let Some((_, pos, _)) = target {
+                        let distance = (pos.x - origin.x).powi(2) + (pos.z - origin.z).powi(2);
+                        if distance < weapon.attack_range * weapon.attack_range {
+                            state.in_range = true;
+                        } else if state.in_range {
+                            state.target = None;
+                            state.in_range = false;
+                            state.next_scan = self.logic_random.next_int(0, 3) as u32;
+                        }
+                    }
+                    if state.next_shot > 0 {
+                        state.next_shot -= 1;
+                    } else if let Some((target_id, impact, true)) = target.filter(|_| state.in_range && state.target.is_some()) {
+                        use crate::game_logic::host_temporary_weapon_behavior::{
+                            FireWeaponWhenDeadEphemeralWeaponSpec, TemporaryWeaponSlot,
+                        };
+                        let spec = FireWeaponWhenDeadEphemeralWeaponSpec {
+                            module_source_index: index as u32,
+                            weapon_template_name: config.weapon.clone(),
+                            weapon_slot: TemporaryWeaponSlot::Tertiary,
+                        };
+                        if self.fire_named_temporary_with_owned_state(carrier_id, &spec, None, Some(target_id), presentation_effects).is_some() {
+                            if !weapon.laser_name.is_empty() && !weapon.laser_name.eq_ignore_ascii_case("NONE") {
+                                self.weapon_lasers.push(crate::game_logic::host_weapon_laser::ResidualWeaponLaser::with_bone(
+                                    weapon.laser_name.clone(), weapon.laser_bone_name.clone(), carrier_id,
+                                    Some(target_id), (origin.x, origin.y, origin.z),
+                                    (impact.x, impact.y, impact.z), self.frame,
+                                ));
+                                self.spawn_weapon_laser_beam_object_with_effects(
+                                    &weapon.laser_name, carrier_id, Some(target_id), origin, impact, presentation_effects,
+                                );
+                            }
+                            let sound = weapon.fire_sound.name();
+                            if !sound.is_empty() {
+                                self.queue_audio_event(AudioEventRequest::new(sound)
+                                    .with_object(carrier_id).with_position(origin).with_priority(160));
+                            }
+                            state.next_shot = if weapon.min_delay_between_shots == weapon.max_delay_between_shots {
+                                weapon.min_delay_between_shots
+                            } else {
+                                self.logic_random.next_int(weapon.min_delay_between_shots, weapon.max_delay_between_shots)
+                            }.max(0) as u32;
+                            self.point_defense_residual_intercepts = self.point_defense_residual_intercepts.saturating_add(1);
+                            if self.objects.get(&target_id).is_none_or(|target| !target.is_alive()) {
+                                state.target = None;
+                                state.in_range = false;
+                                state.next_scan = self.logic_random.next_int(0, 3) as u32;
+                            }
+                        }
+                    }
                 }
-
-                let _ = self.combat_particles.spawn_weapon_fire_fx(
-                    carrier_pos,
-                    Some(impact_pos),
-                    frame,
-                    carrier_id,
-                    Some(target_id),
-                );
-                self.queue_audio_event(
-                    AudioEventRequest::new(PDL_INTERCEPT_AUDIO)
-                        .with_object(carrier_id)
-                        .with_position(carrier_pos)
-                        .with_priority(150),
-                );
+                if let Some(carrier) = self.objects.get_mut(&carrier_id) {
+                    carrier.point_defense_states[index] = state;
+                }
             }
-        }
-
-        if intercepts_this_pass > 0 {
-            log::debug!(
-                "PointDefenseLaser residual: {} intercept(s) this pass (total={})",
-                intercepts_this_pass,
-                self.point_defense_residual_intercepts
-            );
         }
     }
 

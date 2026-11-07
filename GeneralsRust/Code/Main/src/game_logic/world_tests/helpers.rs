@@ -1079,3 +1079,49 @@ pub(super) fn step_authored_combat(game_logic: &mut GameLogic, ids: &[ObjectId])
     game_logic.apply_owned_projectileless_delayed_damage();
     let _ = game_logic.update_owned_projectile_impacts(LOGIC_FRAME_TIMESTEP);
 }
+
+/// Admit authored module/weapon content for older mapless PDL behavior tests.
+pub(super) fn author_test_point_defense(
+    world: &mut GameLogic, carrier: ObjectId, modules: usize,
+    range: u32, delay_ms: u32, secondary: bool, laser: &str,
+) {
+    for (id, team, name) in [(1, Team::USA, "PDL owner"), (2, Team::GLA, "PDL enemy"), (3, Team::China, "PDL enemy 2")] {
+        let mut player = Player::new(id, team, name, id == 1);
+        player.alliance_team = id as i32;
+        for other in 1..=3 { if other != id {
+            player.set_map_relationship(other, gamelogic::common::Relationship::Enemies);
+        }}
+        world.add_player(player);
+    }
+    let name = world.host_object(carrier).unwrap().template_name.clone();
+    let mut source = format!("Object {name}\n");
+    for index in 0..modules {
+        source.push_str(&format!(" Behavior = PointDefenseLaserUpdate PDL{index}\n WeaponTemplate = FixtureDefense\n PrimaryTargetTypes = SMALL_MISSILE\n {} ScanRange = {}\n ScanRate = 0\n End\n",
+            if secondary { "SecondaryTargetTypes = INFANTRY\n" } else { "" }, range + 50));
+    }
+    source.push_str("End\n");
+    let mut parser = crate::assets::IniParser::new();
+    parser.parse_ini_content(&source, "pdl-fixture.ini").unwrap();
+    world.host_object_mut(carrier).unwrap().template_mut().receiving_object_definition =
+        Some(std::sync::Arc::new(parser.get_definition(&name).unwrap().clone()));
+    let mut weapons = std::collections::HashMap::new();
+    crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+        &mut weapons,
+        &format!("Weapon FixtureDefense\n PrimaryDamage = 100\n DamageType = UNRESISTABLE\n DeathType = NORMAL\n AttackRange = {range}\n WeaponSpeed = 999999\n ProjectileObject = NONE\n DelayBetweenShots = {delay_ms}\n AntiGround = Yes\n LaserName = {laser}\nEnd\n"),
+        crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+    );
+    world.admit_weapon_content_snapshot(weapons.into_values().map(|w| (w.name.clone(), w)).collect(), &[]).unwrap();
+}
+
+pub(super) fn step_test_point_defense(world: &mut GameLogic) {
+    for object in world.objects.registered_values_mut() {
+        object.owner_player_id = match object.team {
+            Team::USA => Some(1), Team::GLA => Some(2), Team::China => Some(3), _ => None,
+        };
+        if object.is_kind_of(KindOf::Projectile) {
+            object.template_mut().add_kind_of(KindOf::SmallMissile);
+        }
+    }
+    world.update_point_defense_intercept();
+    world.apply_owned_projectileless_delayed_damage();
+}

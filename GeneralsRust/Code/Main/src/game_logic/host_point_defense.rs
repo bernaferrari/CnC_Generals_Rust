@@ -1,29 +1,11 @@
-//! Host PointDefenseLaser intercept residual (Paladin / Avenger / King Raptor).
+//! PointDefenseLaserUpdate authored module definitions and object-owned state.
 //!
-//! Residual slice (playability):
-//! - Paladin / Avenger / King Raptor (and name residual variants) scan for
-//!   interceptable missiles / projectiles in residual fire range and destroy
-//!   them without a manual AttackObject order (C++ PointDefenseLaserUpdate
-//!   scan + fire path).
-//! - Retail Paladin: WeaponTemplate PaladinPointDefenseLaser, AttackRange **65**,
-//!   DelayBetweenShots **1000**ms, PrimaryDamage **100**, ScanRange **120**,
-//!   ScanRate **500**ms, PredictTargetVelocityFactor **3.0**,
-//!   PrimaryTargetTypes BALLISTIC_MISSILE SMALL_MISSILE,
-//!   SecondaryTargetTypes INFANTRY.
-//! - Avenger leftover dual PointDefenseLaserUpdate modules: AttackRange **100**,
-//!   Delay **500**ms each, ScanRange **200**, ScanRate 0 / 100ms, Predict **1.0**
-//!   (no Secondary). Two independent 500ms streams (not one collapsed clock).
-//! - King Raptor (AirF_AmericaJetRaptor): dual modules
-//!   (AirF_RaptorPointDefenseLaser ScanRate **10** + AirF_PointDefenseLaser
-//!   ScanRate **0**), AttackRange **65** / Delay **250**ms / ScanRange **200**,
-//! - Combat Chinook: ScanRange **250**, ScanRate **33**ms, Predict **1.0**.
-//!
-//! Fail-closed honesty:
-//! - Not full PointDefenseLaserUpdate live velocity-prediction seeker math
-//! - Not full KindOf bitmask Primary/SecondaryTargetTypes beyond residual names
-//! - PointDefenseLaserBeam Object spawn residual closed (W3DLaserDraw GPU fail-closed)
-//! - Not full FireFX particle attach bone path / TERTIARY WeaponStore allocateNewWeapon
-//! - Not network PDL replication (network deferred)
+//! The production update resolves each module's weapon in the owning world's
+//! catalog and targets its authored primary and secondary KindOf masks.
+//! The retail constants below remain reference data for existing consumers.
+//! C++ PointDefenseLaserUpdate.cpp:134-214 immediately rescans when its random
+//! post-kill/out-of-range delay is zero; the host currently scans next update.
+//! Snapshot and beam/FX parity still require runtime verification.
 
 /// Logic frames per second residual.
 pub const PDL_LOGIC_FPS: f32 = 30.0;
@@ -190,6 +172,43 @@ pub fn is_combat_chinook_pdl_carrier(template_name: &str) -> bool {
     crate::game_logic::host_combat_chinook::is_combat_chinook_template(template_name)
 }
 
+/// Mutable state of one authored PointDefenseLaserUpdate, owned by its object.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub(crate) struct PointDefenseState {
+    pub target: Option<crate::game_logic::ObjectId>,
+    pub in_range: bool,
+    pub next_scan: u32,
+    pub next_shot: u32,
+}
+
+/// Authored module fields; weapon data is resolved from the owning world.
+#[derive(Debug, Clone)]
+pub(crate) struct PointDefenseConfig {
+    pub weapon: String,
+    pub primary: u128,
+    pub secondary: u128,
+    pub scan_frames: u32,
+    pub scan_range: f32,
+}
+
+pub(crate) fn authored_modules(object: &crate::game_logic::Object) -> Vec<PointDefenseConfig> {
+    use game_engine::common::system::kind_of::KindOfMask;
+    let mask = |value: Option<&str>| {
+        value.and_then(|s| KindOfMask::parse_ini(KindOfMask::empty(), s).ok())
+            .map(|m| m.bits()).unwrap_or(0)
+    };
+    object.thing().template.receiving_object_definition.as_ref()
+        .into_iter().flat_map(|d| d.behavior_modules.iter())
+        .filter(|m| m.class_name.eq_ignore_ascii_case("PointDefenseLaserUpdate"))
+        .map(|m| PointDefenseConfig {
+            weapon: m.attribute("WeaponTemplate").unwrap_or("").trim().to_ascii_lowercase(),
+            primary: mask(m.attribute("PrimaryTargetTypes")),
+            secondary: mask(m.attribute("SecondaryTargetTypes")),
+            scan_frames: m.attribute("ScanRate").and_then(|s| s.trim().parse::<u32>().ok()).unwrap_or(0).saturating_mul(30).saturating_add(999) / 1000,
+            scan_range: m.attribute("ScanRange").and_then(|s| s.trim().parse().ok()).unwrap_or(0.0),
+        }).collect()
+}
+
 /// Whether the object authors a `PointDefenseLaserUpdate` behavior module in its
 /// parsed INI definition (hq-2qedt.285). Combat Chinook PDL keys on this, not
 /// the `AirF_AmericaVehicleChinook` name.
@@ -208,19 +227,9 @@ pub fn authors_point_defense_laser_update(object: &crate::game_logic::Object) ->
         })
 }
 
-/// Live carrier gate: Chinook hulls need an authored `PointDefenseLaserUpdate`
-/// module (hq-2qedt.285); other carriers keep their name residual.
+/// A live carrier must actually author the behavior.
 pub fn is_live_point_defense_carrier(object: &crate::game_logic::Object) -> bool {
-    if authors_point_defense_laser_update(object) {
-        return true;
-    }
-    let name = object.template_name.as_str();
-    if crate::game_logic::host_combat_chinook::is_chinook_hull_template(name)
-        && !name.eq_ignore_ascii_case("TestCombatChinook")
-    {
-        return false;
-    }
-    is_point_defense_carrier(name)
+    authors_point_defense_laser_update(object)
 }
 
 /// Whether template is a residual PointDefenseLaser carrier

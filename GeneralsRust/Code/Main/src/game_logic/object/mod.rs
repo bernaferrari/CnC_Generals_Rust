@@ -1898,6 +1898,9 @@ pub struct Object {
     /// Absolute frame when PointDefenseLaserBeam Lifetime residual expires.
     #[serde(default)]
     pub point_defense_laser_beam_expires_frame: Option<u32>,
+    /// Runtime state for each authored PointDefenseLaserUpdate in module order.
+    #[serde(skip)]
+    pub(crate) point_defense_states: Vec<crate::game_logic::host_point_defense::PointDefenseState>,
     /// C++ MissileDefender SpecialAbilityUpdate SpecialObject = LaserBeam residual.
     #[serde(default)]
     pub missile_defender_laser_beam: bool,
