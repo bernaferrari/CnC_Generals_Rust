@@ -128,7 +128,7 @@ fn accepted_status_hit(name: &str, status: &str, expected: bool) {
         store.find_weapon_template(name).cloned().expect("parsed weapon")
     }).unwrap();
     let mut world = GameLogic::new();
-    world.admit_receiving_weapon_snapshot(vec![(name.to_owned(), rule)]).unwrap();
+    world.admit_receiving_weapon_snapshot(vec![(name.to_owned(), rule.as_ref().clone())]).unwrap();
     let mut shooter = ThingTemplate::new("AuthoredStatusShooter");
     shooter
         .add_kind_of(KindOf::Vehicle)
@@ -215,7 +215,7 @@ fn accepted_actual_avenger_status_hit(name: &str, expected_paint: bool) {
         store.find_weapon_template(name).cloned().expect("parsed weapon")
     }).unwrap();
     let mut world = GameLogic::new();
-    world.admit_receiving_weapon_snapshot(vec![(name.to_owned(), rule)]).unwrap();
+    world.admit_receiving_weapon_snapshot(vec![(name.to_owned(), rule.as_ref().clone())]).unwrap();
     let mut shooter = ThingTemplate::new("AmericaTankAvenger");
     shooter
         .add_kind_of(KindOf::Vehicle)
