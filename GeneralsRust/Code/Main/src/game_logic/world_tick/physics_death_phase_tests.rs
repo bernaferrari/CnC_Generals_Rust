@@ -31,8 +31,9 @@ impl game_client::fx_list::FXNugget for Observe {
             .unwrap();
     }
 }
-fn install() -> Receiver<(&'static str, Option<u32>)> {
+fn install() -> (Receiver<(&'static str, Option<u32>)>, game_client::fx_list::FXListStore) {
     let (send, receive) = channel();
+    let mut catalog = game_client::fx_list::FXListStore::new();
     for name in [ZERO, DIE, NORMAL, VETERAN] {
         let mut definition = fx::FXList::new(name.into());
         definition.add_nugget(fx::FXNugget::ViewShake {
@@ -41,6 +42,9 @@ fn install() -> Receiver<(&'static str, Option<u32>)> {
         let mut list = game_client::fx_list::FXList::from_definition(&definition);
         list.add_fx_nugget(Box::new(Observe(name, send.clone())));
         game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list(name.into(), list); });
+        let mut owned = game_client::fx_list::FXList::from_definition(&definition);
+        owned.add_fx_nugget(Box::new(Observe(name, send.clone())));
+        catalog.add_fx_list(name.into(), owned);
     }
     let mut rules = damage::DamageFX::new();
     rules.set_major_minor_fx(
@@ -60,7 +64,14 @@ fn install() -> Receiver<(&'static str, Option<u32>)> {
     damage::get_damage_fx_store_mut()
         .unwrap()
         .add_damage_fx("DamageFX_CrushPhase".into(), rules);
-    receive
+    (receive, catalog)
+}
+fn admit_fx(world: &mut GameLogic, catalog: &game_client::fx_list::FXListStore) {
+    world.admit_fx_baseline(catalog.clone());
+    if let Some(definitions) = damage::get_damage_fx_store() {
+        world.damage_fx_base = definitions.clone();
+        world.damage_fx_definitions = definitions.clone();
+    }
 }
 fn world(squish: bool) -> (GameLogic, ObjectId) {
     let content = crate::assets::ReceivingObjectContent::from_sources([(
@@ -84,6 +95,7 @@ Object CrushPhaseSource
 End
 Object CrushPhaseVictim
   KindOf = INFANTRY SCORE
+  CrushableLevel = 0
   Geometry = CYLINDER
   GeometryMajorRadius = 4
   GeometryMinorRadius = 4
@@ -154,9 +166,10 @@ fn installed_overlap_completes_death_and_promotion_before_armor_in_both_crush_pa
         module_path!(),
         "installed_overlap_completes_death_and_promotion_before_armor_in_both_crush_paths",
         || {
-            let events = install();
+            let (events, catalog) = install();
             for squish in [false, true] {
                 let (mut owner, victim) = world(squish);
+                admit_fx(&mut owner, &catalog);
                 let (peer, peer_victim) = world(squish);
                 assert_eq!(victim, peer_victim);
                 assert!(owner.apply_overlap_crush_check(CRUSHER, victim, false));
@@ -235,8 +248,9 @@ fn saved_physics_continues_through_world_collision_callbacks_in_order() {
         module_path!(),
         "saved_physics_continues_through_world_collision_callbacks_in_order",
         || {
-            let events = install();
+            let (events, catalog) = install();
             let (mut owner, victim) = world(false);
+            admit_fx(&mut owner, &catalog);
             let (peer, peer_victim) = world(false);
             assert_eq!(victim, peer_victim);
             owner.set_fixture_object_position(CRUSHER, Vec3::new(-3., 0., 0.));
@@ -261,6 +275,7 @@ fn saved_physics_continues_through_world_collision_callbacks_in_order() {
             let bytes = bincode_legacy::serialize(&saved).unwrap();
             let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
             let (mut restored, restored_victim) = world(false);
+            admit_fx(&mut restored, &catalog);
             assert_eq!(victim, restored_victim);
             builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
             assert!(events.try_iter().next().is_none(), "load must not dispatch collide FX");
