@@ -1993,7 +1993,7 @@ impl GameLogic {
                 &self.pathfinding_system.grid,
             );
             self.pathfinding_system
-                .adjust_to_possible_destination_for(obj, dest, &ground_source)
+                .adjust_to_possible_destination_for(obj, self.objects.read().with_players(&self.players), dest, &ground_source)
         })
     }
 

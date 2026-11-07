@@ -510,9 +510,27 @@ impl PathfindingSystem {
 
     /// C++ dozerHack: obstacle object exists AND relationship != ENEMIES.
     /// Missing obstacle object → false (fail-closed, not dozerHack).
-    pub(crate) fn dozer_hack_allows_obstacle(dozer_id: ObjectID, obstacle_id: ObjectID) -> bool {
+    pub(crate) fn dozer_hack_allows_obstacle(
+        dozer_id: ObjectID,
+        obstacle_id: ObjectID,
+        observations: Option<&PathfindObservations<'_>>,
+    ) -> bool {
         if dozer_id == INVALID_ID || obstacle_id == INVALID_ID {
             return false;
+        }
+        if let Some(world) = observations {
+            let Some(dozer) = world.object(dozer_id) else {
+                return false;
+            };
+            if dozer_id == obstacle_id {
+                return true;
+            }
+            let Some(obstacle) = world.object(obstacle_id) else {
+                return false;
+            };
+            let dozer = dozer.read().expect("admitted dozer poisoned");
+            let obstacle = obstacle.read().expect("admitted obstacle poisoned");
+            return world.relationship(&dozer, &obstacle) != Relationship::Enemies;
         }
         OBJECT_REGISTRY
             .with_object(dozer_id, |dozer| {

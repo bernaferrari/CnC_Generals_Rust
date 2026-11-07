@@ -1813,6 +1813,7 @@ impl PathfindingGrid {
             player: seeker_player,
             crusher_level,
             source_layer: PathfindLayerEnum::Ground,
+            live: None,
         };
         self.adjust_to_possible_destination_with_receiver(
             start,
@@ -1829,6 +1830,7 @@ impl PathfindingGrid {
     pub(super) fn adjust_to_possible_destination_for_object(
         &self,
         obj: &Object,
+        objects: HostObjectRead<'_>,
         start: Vec3,
         dest: &mut Vec3,
         surfaces: u32,
@@ -1841,6 +1843,7 @@ impl PathfindingGrid {
             player: obj.owner_player_id.or(Some(obj.team as u32)),
             crusher_level: obj.crusher_level,
             source_layer: PathfindLayerEnum::from_u32(obj.pathfind_layer as u32),
+            live: Some((obj, objects)),
         };
         self.adjust_to_possible_destination_with_receiver(
             start,
@@ -1860,7 +1863,7 @@ impl PathfindingGrid {
         surfaces: u32,
         is_crusher: bool,
         unit_radius: f32,
-        receiver: PossibleDestinationReceiver,
+        receiver: PossibleDestinationReceiver<'_>,
         ground_source: &PathfindingGround<'_>,
     ) -> bool {
         let (radius, center_in_cell) = Self::radius_and_center(unit_radius, self.grid_size);
@@ -2009,8 +2012,13 @@ impl PathfindingGrid {
         layer: PathfindLayerEnum,
         radius: i32,
         center_in_cell: bool,
-        receiver: PossibleDestinationReceiver,
+        receiver: PossibleDestinationReceiver<'_>,
     ) -> bool {
+        if let Some((mover, objects)) = receiver.live {
+            return self.check_destination_for_object(
+                cell, layer, radius, center_in_cell, mover, objects,
+            );
+        }
         let above = radius + i32::from(center_in_cell);
         for x in (cell.x - radius)..(cell.x + above) {
             for y in (cell.y - radius)..(cell.y + above) {
@@ -2085,7 +2093,7 @@ impl PathfindingGrid {
         terrain_zones: Option<&[u16]>,
         surfaces: u32,
         is_crusher: bool,
-        receiver: PossibleDestinationReceiver,
+        receiver: PossibleDestinationReceiver<'_>,
         dest: &mut Vec3,
         radius: i32,
         center_in_cell: bool,

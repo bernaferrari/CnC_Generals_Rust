@@ -3283,6 +3283,7 @@ impl GameLogic {
                             self.pathfinding_system
                                 .adjust_to_possible_destination_for_inputs(
                                     obj,
+                                    self.objects.read().with_players(&self.players),
                                     start,
                                     &mut dest,
                                     loco,

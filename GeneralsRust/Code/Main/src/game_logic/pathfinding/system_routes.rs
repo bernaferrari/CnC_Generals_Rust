@@ -207,6 +207,7 @@ impl PathfindingSystem {
                             if let Some(obj) = self.seeker_id.and_then(|id| objects.lookup(&id)) {
                                 self.grid.adjust_to_possible_destination_for_object(
                                     obj,
+                                    objects,
                                     start,
                                     &mut possible,
                                     surfaces,
@@ -319,6 +320,7 @@ impl PathfindingSystem {
     pub fn adjust_to_possible_destination_for(
         &self,
         obj: &Object,
+        objects: HostObjectRead<'_>,
         dest: &mut Vec3,
         ground_source: &PathfindingGround<'_>,
     ) -> bool {
@@ -329,6 +331,7 @@ impl PathfindingSystem {
         };
         self.adjust_to_possible_destination_for_inputs(
             obj,
+            objects,
             obj.get_position(),
             dest,
             surfaces,
@@ -339,6 +342,7 @@ impl PathfindingSystem {
     pub(crate) fn adjust_to_possible_destination_for_inputs(
         &self,
         obj: &Object,
+        objects: HostObjectRead<'_>,
         start: Vec3,
         dest: &mut Vec3,
         surfaces: u32,
@@ -346,6 +350,7 @@ impl PathfindingSystem {
     ) -> bool {
         self.grid.adjust_to_possible_destination_for_object(
             obj,
+            objects,
             start,
             dest,
             surfaces,

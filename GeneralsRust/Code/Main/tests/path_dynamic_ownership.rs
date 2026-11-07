@@ -481,11 +481,13 @@ fn possible_destination_uses_each_receivers_ignore_and_goal_identity() {
     let mut ordinary = goal;
     assert!(systems[0].adjust_to_possible_destination_for(
         worlds[0].host_object(ids[0]).unwrap(),
+        worlds[0].host_objects(),
         &mut ignored,
         &ground
     ));
     assert!(systems[1].adjust_to_possible_destination_for(
         worlds[1].host_object(ids[1]).unwrap(),
+        worlds[1].host_objects(),
         &mut ordinary,
         &ground
     ));
@@ -511,10 +513,44 @@ fn possible_destination_uses_each_receivers_ignore_and_goal_identity() {
     let mut own_goal = goal;
     assert!(systems[0].adjust_to_possible_destination_for(
         worlds[0].host_object(ids[0]).unwrap(),
+        worlds[0].host_objects(),
         &mut own_goal,
         &ground
     ));
     assert_eq!(own_goal, goal, "the receiver must recognize its own goal");
+}
+
+#[test]
+fn possible_destination_reads_each_worlds_live_goal_object() {
+    let ground = PathfindingGround::Flat(0.0);
+    let goal = Vec3::new(55.0, 0.0, 55.0);
+    let mut worlds = [GameLogic::new(), GameLogic::new()];
+    let mut ids = Vec::new();
+    let mut systems = [PathfindingSystem::new(200.0, 200.0), PathfindingSystem::new(200.0, 200.0)];
+    for (world, system) in worlds.iter_mut().zip(&mut systems) {
+        world.add_player(Player::new(0, Team::USA, "Owner", true));
+        world.add_player(Player::new(1, Team::GLA, "Enemy", false));
+        let mut template = ThingTemplate::new("LiveGoalContext");
+        template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        world.templates.insert("LiveGoalContext".into(), template);
+        let mover = world.create_object_for_player("LiveGoalContext", 0, Vec3::new(25.0, 0.0, 25.0)).unwrap();
+        let target = world.create_object_for_player("LiveGoalContext", 0, goal).unwrap();
+        system.grid.update_ground_goal_cell(target.0, 0, 1.0, false, (-1, -1), goal);
+        ids.push((mover, target));
+    }
+    assert_eq!(ids[0], ids[1]);
+    // The reservation remains unchanged while the target changes controller.
+    worlds[1].host_object_mut(ids[1].1).unwrap().owner_player_id = Some(1);
+    for index in [0, 1, 0, 1] {
+        let mut actual = goal;
+        assert!(systems[index].adjust_to_possible_destination_for(
+            worlds[index].host_object(ids[index].0).unwrap(),
+            worlds[index].host_objects(),
+            &mut actual,
+            &ground,
+        ));
+        assert_eq!(actual == goal, index == 1);
+    }
 }
 
 #[test]
@@ -548,6 +584,7 @@ fn possible_destination_uses_the_receivers_aircraft_goal_rules() {
     let mut own_goal = goal;
     assert!(system.adjust_to_possible_destination_for(
         world.host_object(id).unwrap(),
+        world.host_objects(),
         &mut own_goal,
         &ground
     ));
@@ -561,6 +598,7 @@ fn possible_destination_uses_the_receivers_aircraft_goal_rules() {
     let mut occupied = goal;
     assert!(system.adjust_to_possible_destination_for(
         world.host_object(id).unwrap(),
+        world.host_objects(),
         &mut occupied,
         &ground
     ));
@@ -582,6 +620,7 @@ fn possible_destination_uses_the_receivers_aircraft_goal_rules() {
     let mut ignored_ground = goal;
     assert!(system.adjust_to_possible_destination_for(
         world.host_object(ground_id).unwrap(),
+        world.host_objects(),
         &mut ignored_ground,
         &ground
     ));
@@ -592,6 +631,7 @@ fn possible_destination_uses_the_receivers_aircraft_goal_rules() {
     let mut occupied_again = goal;
     assert!(system.adjust_to_possible_destination_for(
         world.host_object(id).unwrap(),
+        world.host_objects(),
         &mut occupied_again,
         &ground
     ));
@@ -611,6 +651,7 @@ fn possible_destination_uses_the_receivers_aircraft_goal_rules() {
     let original_bridge_goal = bridge_goal;
     assert!(system.adjust_to_possible_destination_for(
         world.host_object(id).unwrap(),
+        world.host_objects(),
         &mut bridge_goal,
         &ground,
     ));
@@ -1347,6 +1388,7 @@ fn possible_destination_uses_bridge_zone_instead_of_ground_beneath_it() {
     let mut actual = goal;
     assert!(finder.adjust_to_possible_destination_for(
         world.host_object(mover).unwrap(),
+        world.host_objects(),
         &mut actual,
         &ground
     ));
@@ -1358,6 +1400,7 @@ fn possible_destination_uses_bridge_zone_instead_of_ground_beneath_it() {
     let mut actual_ground = ground_goal;
     assert!(finder.adjust_to_possible_destination_for(
         world.host_object(bridge_mover).unwrap(),
+        world.host_objects(),
         &mut actual_ground,
         &ground
     ));

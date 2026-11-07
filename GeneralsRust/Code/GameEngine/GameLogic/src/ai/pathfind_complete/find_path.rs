@@ -293,22 +293,7 @@ impl PathfindingSystem {
             let Some(&obs_id) = obstacle_owners.get(&(coord.x, coord.y)) else {
                 return false;
             };
-            if let Some(world) = observations {
-                let Some(source) = world.object(dozer_id) else {
-                    return false;
-                };
-                let Some(target) = world.object(obs_id) else {
-                    return false;
-                };
-                let source = source.read().expect("admitted dozer poisoned");
-                if dozer_id == obs_id {
-                    return true;
-                }
-                let target = target.read().expect("admitted obstacle poisoned");
-                world.relationship(&source, &target) != Relationship::Enemies
-            } else {
-                Self::dozer_hack_allows_obstacle(dozer_id, obs_id)
-            }
+            Self::dozer_hack_allows_obstacle(dozer_id, obs_id, observations)
         };
         // C++ examineCellsCallback: abort line on enemyFixed / allyFixedCount.
         let line_ok = |cell: GridCoord, from_layer: PathfindLayerEnum| -> bool {
