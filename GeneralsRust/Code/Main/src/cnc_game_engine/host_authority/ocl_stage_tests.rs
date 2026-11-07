@@ -158,8 +158,30 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
             source
                 .admit_ocl_application_sources(&[list("Application")])
                 .unwrap();
+            // The source and restored candidate must receive their own authored
+            // PlayerTemplates; the lobby helper only seeds the legacy config
+            // builder and does not admit definitions to either world.
+            let mut player_templates =
+                game_engine::common::rts::player_template::PlayerTemplateStore::new_owned();
+            player_templates
+                .apply_source(
+                    "PlayerTemplate FactionAmerica\n Side = America\n BaseSide = America\n StartingBuilding = AmericaCommandCenter\nEnd\n\
+                     PlayerTemplate FactionGLA\n Side = GLA\n BaseSide = GLA\n StartingBuilding = GLACommandCenter\nEnd\n\
+                     PlayerTemplate FactionObserver\n IsObserver = Yes\n Side = Observer\n BaseSide = Observer\nEnd\n\
+                     PlayerTemplate FactionCivilian\n Side = Civilian\n BaseSide = Civilian\nEnd\n",
+                    game_engine::common::ini::INILoadType::Overwrite,
+                )
+                .unwrap();
             crate::skirmish_config::lobby_definition_tests::admit_slot_definitions();
-            let config = crate::skirmish_config::golden_skirmish_config(path.to_str().unwrap());
+            let mut config = crate::skirmish_config::golden_skirmish_config(path.to_str().unwrap());
+            for (slot, name) in config.slots.iter_mut().zip(["FactionAmerica", "FactionGLA"]) {
+                slot.player_template = crate::skirmish_config::SkirmishPlayerTemplateSelection::Exact {
+                    template_name: name.into(),
+                    template_index: i32::try_from(player_templates.find_template_index(name).unwrap())
+                        .unwrap(),
+                };
+            }
+            source.admit_player_template_definitions(player_templates).unwrap();
             crate::skirmish_config::apply_skirmish_config(&mut source, &config).unwrap();
             assert!(source.load_map(path.to_str().unwrap()));
             assert_eq!(selected(&source), "SavedSolo");
