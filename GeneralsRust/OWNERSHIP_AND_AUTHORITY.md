@@ -183,6 +183,13 @@ and HEALING type, matching ActiveBody and Guard retaliation; water damage and
 health assertions remain intact (hq-mkwhn). Remaining Object/shadow and visibility
 failures are tracked separately (hq-xi5wa, hq-972tr).
 
+## Core Drawable update timing
+
+Core Drawable updates no longer suppress repeated or frozen client-frame
+updates through a Rust-only frequency gate. Decal and expiration order follows
+Drawable.cpp. Core ClientUpdate callbacks and retirement still require a
+receiving-world runtime; this timing cutover does not establish their ownership.
+
 ## Death completion and ambient retry ownership (2026-10-04)
 
 Ambient sound retry pacing belongs to the driving GameLogic and reads its
