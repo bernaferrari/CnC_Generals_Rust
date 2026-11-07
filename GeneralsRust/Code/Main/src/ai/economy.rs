@@ -989,27 +989,13 @@ impl AIPlayer {
         game_logic: &(impl AiReadSource + ?Sized),
     ) -> Option<Vec3> {
         let game_logic = &AiWorldView::new(game_logic);
-        let enemy_player_id = self.skirmish_enemy_player(game_logic)?;
-        let mut lo_x = f32::MAX;
-        let mut lo_z = f32::MAX;
-        let mut hi_x = f32::MIN;
-        let mut hi_z = f32::MIN;
-        let mut any = false;
-        for obj in game_logic.host_objects().registered_values() {
-            if !obj.is_alive()
-                || !game_logic.object_owned_by_player(obj, enemy_player_id)
-                || !obj.is_kind_of(KindOf::Structure)
-            {
-                continue;
-            }
-            let p = obj.get_position();
-            lo_x = lo_x.min(p.x);
-            lo_z = lo_z.min(p.z);
-            hi_x = hi_x.max(p.x);
-            hi_z = hi_z.max(p.z);
-            any = true;
-        }
-        any.then_some(Vec3::new((lo_x + hi_x) * 0.5, 0.0, (lo_z + hi_z) * 0.5))
+        let enemy_player_id = self.enemy_player_id?;
+        game_logic.get_player(enemy_player_id)?;
+        // AIPlayer::findSupplyCenter calls getAiEnemy directly, not the script
+        // engine's human fallback. Empty structure bounds are the origin.
+        let (lo_x, lo_z, hi_x, hi_z) =
+            self.player_structure_bounds(game_logic, enemy_player_id);
+        Some(Vec3::new((lo_x + hi_x) * 0.5, 0.0, (lo_z + hi_z) * 0.5))
     }
 
     /// C++ `AIPlayer::isLocationSafe`.

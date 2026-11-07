@@ -3660,6 +3660,43 @@ fn insert_warehouse_template(logic: &mut crate::game_logic::GameLogic, name: &st
 }
 
 #[test]
+fn find_supply_center_without_acquired_enemy_does_not_use_human_as_enemy() {
+    let mut logic = crate::game_logic::GameLogic::new();
+    logic.add_player(crate::game_logic::Player::new(1, Team::USA, "AI", false));
+    logic.add_player(crate::game_logic::Player::new(2, Team::China, "Human", true));
+    logic.select_local_player(Some(2));
+    insert_warehouse_template(&mut logic, "SupplyWarehouse");
+    let mut building = crate::game_logic::ThingTemplate::new("HumanBuilding");
+    building.add_kind_of(crate::game_logic::KindOf::Structure);
+    logic.templates.insert("HumanBuilding".into(), building);
+    logic.create_object_for_player("HumanBuilding", 2, Vec3::new(100.0, 0.0, 0.0)).unwrap();
+    let warehouse = logic
+        .create_object("SupplyWarehouse", Team::Neutral, Vec3::new(90.0, 0.0, 0.0))
+        .unwrap();
+    logic.host_object_mut(warehouse).unwrap().stored_resources.supplies = 5_000;
+
+    let ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    assert_eq!(ai.find_supply_center(&logic, 100), Some(warehouse));
+}
+
+#[test]
+fn find_supply_center_uses_origin_for_enemy_without_structures() {
+    let mut logic = crate::game_logic::GameLogic::new();
+    logic.add_player(crate::game_logic::Player::new(1, Team::USA, "AI", false));
+    logic.add_player(crate::game_logic::Player::new(2, Team::China, "Enemy", true));
+    insert_warehouse_template(&mut logic, "SupplyWarehouse");
+    let warehouse = logic
+        .create_object("SupplyWarehouse", Team::Neutral, Vec3::new(20.0, 0.0, 0.0))
+        .unwrap();
+    logic.host_object_mut(warehouse).unwrap().stored_resources.supplies = 5_000;
+
+    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    ai.base_center = Vec3::new(100.0, 0.0, 0.0);
+    ai.enemy_player_id = Some(2);
+    assert_eq!(ai.find_supply_center(&logic, 100), None);
+}
+
+#[test]
 fn find_supply_center_uses_warehouse_dock_and_cash_gen_and_sixty_forty() {
     let mut logic = crate::game_logic::GameLogic::new();
     logic.add_player(crate::game_logic::Player::new(
