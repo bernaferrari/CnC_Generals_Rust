@@ -124,6 +124,7 @@ impl GameLogic {
                     source_veterancy: rank,
                     source_orientation: object.get_orientation(),
                     source_velocity: object.movement.velocity,
+                    launcher_bonus_mask: object.projectile_launch_bonus_mask(),
                 }),
                 target_id: None,
                 target_pos: Some(position),
