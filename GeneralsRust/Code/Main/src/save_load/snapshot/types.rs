@@ -41,9 +41,10 @@ pub const WORLD_SNAPSHOT_PARTICLE_DRIVE_SETTINGS_VERSION: u32 = 38;
 /// Version39 requires OpenContain's runtime passenger-fire permission.
 /// Version40 adds each Weapon's last-shot frame to the positional body.
 /// Version41 persists one authoritative WeaponSet condition bitset.
-/// Older Rust bodies cannot recover these exact flags and are rejected.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 41;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 41;
+/// Version42 persists delayed strike delivery identities and queue-time draws.
+/// Older Rust bodies cannot recover these exact values and are rejected.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 42;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 42;
 /// Version36 introduced mandatory exact original-Garrison-Team continuation.
 pub const WORLD_SNAPSHOT_GARRISON_TEAM_VERSION: u32 = 36;
 

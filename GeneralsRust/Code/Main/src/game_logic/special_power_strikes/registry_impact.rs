@@ -96,7 +96,7 @@ impl HostSpecialPowerStrikeRegistry {
                 continue;
             }
 
-            let (due_points, wave_shell_count, is_final_wave) = if strike.kind.is_multi_strike() {
+            let (due_points, delivery_indices, wave_shell_count, is_final_wave) = if strike.kind.is_multi_strike() {
                 // Prefer once-at-queue residual plan (stored ADC draws); fall back
                 // to re-query for older snapshots without ocl_points.
                 let all_points = if !strike.ocl_points.is_empty() {
@@ -113,14 +113,15 @@ impl HostSpecialPowerStrikeRegistry {
                         .unwrap_or_default()
                 };
                 let total = all_points.len() as u32;
-                if total == 0 || strike.multi_strike_applied >= total {
+                if total == 0 || strike.committed_deliveries.len() >= total as usize {
                     continue;
                 }
                 let mut due = Vec::new();
+                let mut indices = Vec::new();
                 let mut due_count = 0_u32;
                 for (i, p) in all_points.iter().enumerate() {
                     let idx = i as u32;
-                    if idx < strike.multi_strike_applied {
+                    if strike.committed_deliveries.contains(&idx) {
                         continue;
                     }
                     let shell_frame = if let Some(&f) = strike.ocl_shell_frames.get(i) {
@@ -138,17 +139,18 @@ impl HostSpecialPowerStrikeRegistry {
                     };
                     if shell_frame <= current_frame {
                         due.push(*p);
+                        indices.push(idx);
                         due_count = due_count.saturating_add(1);
                     }
                 }
                 if due_count == 0 {
                     continue;
                 }
-                let applied_after = strike.multi_strike_applied.saturating_add(due_count);
-                let is_final = applied_after >= total;
-                (due, due_count, is_final)
+                let applied_after = strike.committed_deliveries.len() + due_count as usize;
+                let is_final = applied_after >= total as usize;
+                (due, indices, due_count, is_final)
             } else {
-                (vec![strike.target_position], 1, true)
+                (vec![strike.target_position], Vec::new(), 1, true)
             };
 
             // C++ AttackNugget leftover: flying missiles own ScudStormDamageWeapon.
@@ -222,12 +224,27 @@ impl HostSpecialPowerStrikeRegistry {
                 source_team: strike.source_team,
                 hits,
                 epicenters: due_points,
+                delivery_indices,
                 wave_shell_count,
                 is_final_wave,
             });
         }
         plans.sort_by_key(|p| p.strike_id);
         plans
+    }
+
+    /// Reserve exactly the deliveries in this plan before applying its effects.
+    pub fn commit_plan_deliveries(&mut self, plan: &HostStrikeImpactPlan) -> bool {
+        let Some(strike) = self.strikes.get_mut(&plan.strike_id) else {
+            return false;
+        };
+        if strike.phase != HostStrikePhase::Queued
+            || plan.delivery_indices.iter().any(|index| strike.committed_deliveries.contains(index))
+        {
+            return false;
+        }
+        strike.committed_deliveries.extend_from_slice(&plan.delivery_indices);
+        true
     }
 
     /// Record impact results after GameLogic applied damage.

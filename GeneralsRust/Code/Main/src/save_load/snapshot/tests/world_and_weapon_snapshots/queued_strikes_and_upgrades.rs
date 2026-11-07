@@ -728,3 +728,62 @@ fn save_file_roundtrip_preserves_pending_host_upgrade() {
         "file-loaded registry must record complete"
     );
 }
+
+#[test]
+fn delayed_artillery_restores_out_of_order_delivery_through_world_xfer() {
+    use crate::save_load::{Xfer, XferData, XferLoad, XferSave};
+
+    let mut source = GameLogic::new();
+    ensure_strike_test_tank(&mut source);
+    let caster = source.create_object("StrikeTestTank", Team::China, Vec3::new(-1000.0, 0.0, 0.0)).unwrap();
+    let early = source.create_object("StrikeTestTank", Team::USA, Vec3::new(1000.0, 0.0, 0.0)).unwrap();
+    let late = source.create_object("StrikeTestTank", Team::USA, Vec3::ZERO).unwrap();
+    for id in [early, late] {
+        let object = source.host_object_mut(id).unwrap();
+        object.health.current = 10000.0;
+        object.health.maximum = 10000.0;
+        object.template_mut().armor = 0.0;
+    }
+    let strike_id = source.special_power_strikes_mut().queue(
+        HostSuperweaponKind::ArtilleryBarrage, caster, Team::China, Vec3::ZERO, 0,
+    );
+    let strike = source.special_power_strikes_mut().get_mut(strike_id).unwrap();
+    let start = strike.impact_frame;
+    strike.ocl_points = vec![Vec3::ZERO, Vec3::new(1000.0, 0.0, 0.0)];
+    strike.ocl_shell_frames = vec![start + 2, start];
+    source.set_current_frame(start);
+    source.update_special_power_strikes();
+    let early_health = source.host_object(early).unwrap().health.current;
+    assert!(early_health < 10000.0);
+    assert_eq!(source.host_object(late).unwrap().health.current, 10000.0);
+
+    let builder = SnapshotBuilder::new();
+    let mut snapshot = builder.create_world_snapshot(&source).unwrap();
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    {
+        let mut writer = XferSave::new(&mut bytes);
+        snapshot.xfer(&mut writer).unwrap();
+        writer.xfer_u32(&mut 0x51a7_cafe).unwrap();
+    }
+    let mut decoded = WorldSnapshot::default();
+    let mut reader = XferLoad::new(std::io::Cursor::new(bytes.into_inner()));
+    decoded.xfer(&mut reader).unwrap();
+    let mut sentinel = 0;
+    reader.xfer_u32(&mut sentinel).unwrap();
+    assert_eq!(sentinel, 0x51a7_cafe);
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+
+    for world in [&mut source, &mut restored] {
+        world.set_current_frame(start);
+        world.update_special_power_strikes();
+        assert_eq!(world.host_object(early).unwrap().health.current, early_health);
+        assert_eq!(world.host_object(late).unwrap().health.current, 10000.0);
+        world.set_current_frame(start + 2);
+        world.update_special_power_strikes();
+        assert_eq!(world.host_object(early).unwrap().health.current, early_health);
+        assert!(world.host_object(late).unwrap().health.current < 10000.0);
+        assert_eq!(world.special_power_strikes().get(strike_id).unwrap().phase, HostStrikePhase::Completed);
+    }
+}

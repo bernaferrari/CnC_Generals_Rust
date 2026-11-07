@@ -60,6 +60,9 @@ pub struct HostSpecialPowerStrike {
     /// One-shot kinds leave this at 0 and complete in a single wave.
     #[serde(default)]
     pub multi_strike_applied: u32,
+    /// Formation indices already committed, independent of delivery order.
+    #[serde(default)]
+    pub committed_deliveries: Vec<u32>,
     /// ParticleCannon intensity-schedule status residual (pre-fire countdown).
     /// Ignored for non-ParticleCannon kinds.
     #[serde(default)]
@@ -362,6 +365,8 @@ pub struct HostStrikeImpactPlan {
     pub hits: Vec<HostStrikeDamageHit>,
     /// Shell/bomb epicenters applied in this wave (presentation residual).
     pub epicenters: Vec<Vec3>,
+    /// Formation indices corresponding to `epicenters`, in formation order.
+    pub delivery_indices: Vec<u32>,
     /// How many multi-strike shells/bombs this wave covers.
     pub wave_shell_count: u32,
     /// True when this wave finishes the strike (spawn fields / complete honesty).

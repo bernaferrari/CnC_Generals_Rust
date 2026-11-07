@@ -706,6 +706,9 @@ impl GameLogic {
             .plan_due_impacts(self.frame, &object_positions);
 
         for plan in plans {
+            if !self.special_power_strikes.commit_plan_deliveries(&plan) {
+                continue;
+            }
             let mut total_damage = 0.0_f32;
             let mut objects_hit = 0_u32;
             let mut objects_destroyed = 0_u32;

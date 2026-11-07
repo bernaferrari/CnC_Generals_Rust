@@ -278,6 +278,30 @@ impl XferData for HostSpecialPowerStrike {
         // Appended: skip registry impact wave when leftover flight owns A10 missiles.
         xfer.xfer_marker_label("LiveA10Delivery")?;
         xfer.xfer_bool(&mut self.live_a10_delivery)?;
+        // Delayed deliveries must retain their original draws and identities:
+        // a count cannot reconstruct independently delayed formation members.
+        let mut deliveries = Some((
+            self.artillery_tier,
+            self.scud_anthrax_tier,
+            self.carpet_tier,
+            self.ocl_points.clone(),
+            self.ocl_shell_frames.clone(),
+            self.committed_deliveries.clone(),
+            self.multi_strike_applied,
+            self.live_scud_delivery,
+        ));
+        xfer.xfer_marker_label("StrikeDeliveries")?;
+        super::xfer_helpers::xfer_serde_blob(xfer, &mut deliveries)?;
+        if let Some((artillery, scud, carpet, points, frames, committed, applied, live_scud)) = deliveries {
+            self.artillery_tier = artillery;
+            self.scud_anthrax_tier = scud;
+            self.carpet_tier = carpet;
+            self.ocl_points = points;
+            self.ocl_shell_frames = frames;
+            self.committed_deliveries = committed;
+            self.multi_strike_applied = applied;
+            self.live_scud_delivery = live_scud;
+        }
         Ok(())
     }
 }
@@ -820,6 +844,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 a10_tier: crate::game_logic::special_power_strikes::A10StrikeScienceTier::Level1,
                 a10_formation_size_applications: 0,
                 multi_strike_applied: 0,
+                committed_deliveries: Vec::new(),
                 particle_status:
                     crate::game_logic::special_power_strikes::ParticleUplinkStatus::Idle,
                 particle_status_peak:

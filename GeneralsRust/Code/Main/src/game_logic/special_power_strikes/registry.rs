@@ -902,6 +902,7 @@ impl HostSpecialPowerStrikeRegistry {
             a10_tier,
             a10_formation_size_applications: 0,
             multi_strike_applied: 0,
+            committed_deliveries: Vec::new(),
             particle_status: ParticleUplinkStatus::Idle,
             particle_status_peak: ParticleUplinkStatus::Idle,
             particle_intensity_transitions: 0,
