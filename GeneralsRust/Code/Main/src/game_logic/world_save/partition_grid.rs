@@ -85,9 +85,6 @@ impl GameLogic {
                     .expect("registered boundary object")
                     .forget_retired_partition_scalar_receipt();
             }
-            self.vision_last_looks.clear();
-            self.vision_last_reveal_all.clear();
-            self.vision_last_shroud.clear();
             shroud_owner
                 .lock()
                 .map_err(|_| "receiving shroud owner is poisoned")?
@@ -291,6 +288,12 @@ impl GameLogic {
         shroud.install_prepared_shroud_grid(prepared);
         self.partition_manager.configure_grid_from_shroud(&shroud);
         drop(shroud);
+        // These receipts describe counters in the retired grid, not object
+        // state. Reusing them would suppress the first look on the new grid
+        // for stationary objects with unchanged owner, position and range.
+        self.vision_last_looks.clear();
+        self.vision_last_reveal_all.clear();
+        self.vision_last_shroud.clear();
         if refresh_objects {
             self.refresh_receiving_object_map_status();
         } else {

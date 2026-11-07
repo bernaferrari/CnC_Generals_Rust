@@ -49,6 +49,11 @@ struct StatusSnap {
     render_fow_filtered: u32,
     render_frustum_culled: u32,
     radar_pixels: u32,
+    camera_pos: String,
+    camera_target: String,
+    sample_unit_pos: String,
+    render_frame_stats: String,
+    presentation_fow: String,
     present_ms: f32,
     present_collect_ms: f32,
     present_terrain_ms: f32,
@@ -199,6 +204,11 @@ fn parse_status(path: &Path) -> Option<StatusSnap> {
             "radar_pixels" => {
                 snap.radar_pixels = v.trim().parse().unwrap_or(0);
             }
+            "camera_pos" => snap.camera_pos = v.trim().to_string(),
+            "camera_target" => snap.camera_target = v.trim().to_string(),
+            "sample_unit_pos" => snap.sample_unit_pos = v.trim().to_string(),
+            "render_frame_stats" => snap.render_frame_stats = v.trim().to_string(),
+            "presentation_fow" => snap.presentation_fow = v.trim().to_string(),
             "present_ms" => {
                 snap.present_ms = v.trim().parse().unwrap_or(0.0);
             }

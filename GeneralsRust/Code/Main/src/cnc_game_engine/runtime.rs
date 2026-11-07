@@ -107,6 +107,7 @@ pub(super) struct RuntimeHostSnapshot {
     pub(super) camera_pos: String,
     pub(super) camera_target: String,
     pub(super) sample_unit_pos: String,
+    pub(super) presentation_fow: String,
     /// Physical OS window outer origin X (diagnostic clicker aim). Headless = 0.
     pub(super) window_outer_x: i32,
     /// Physical OS window outer origin Y (diagnostic clicker aim). Headless = 0.
@@ -413,6 +414,7 @@ impl RuntimeHostBridge {
             camera_pos: String::new(),
             camera_target: String::new(),
             sample_unit_pos: String::new(),
+            presentation_fow: String::new(),
             window_outer_x: 0,
             window_outer_y: 0,
             window_outer_w: 0,
@@ -614,6 +616,7 @@ impl RuntimeHostBridge {
         payload.push_str(&format!("camera_pos={}\n", snapshot.camera_pos));
         payload.push_str(&format!("camera_target={}\n", snapshot.camera_target));
         payload.push_str(&format!("sample_unit_pos={}\n", snapshot.sample_unit_pos));
+        payload.push_str(&format!("presentation_fow={}\n", snapshot.presentation_fow));
         payload.push_str(&format_clicker_aim_status(
             snapshot.window_outer_x,
             snapshot.window_outer_y,

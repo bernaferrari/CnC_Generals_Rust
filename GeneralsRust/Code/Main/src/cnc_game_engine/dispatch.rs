@@ -1384,6 +1384,15 @@ impl CnCGameEngine {
                 self.game_logic.session_view.target.z
             ),
             sample_unit_pos,
+            presentation_fow: self.last_presentation_frame.as_ref().map(|frame| {
+                let grid = &frame.fow_grid;
+                let visible = grid.cells.iter().filter(|&&cell| cell == crate::fow_rendering::PresentationFowGrid::CELL_VISIBLE).count();
+                let target = self.game_logic.session_view.target;
+                format!("player:{} active:{} size:{}x{} origin:{:.1},{:.1} cell:{:.1} visible:{} target_cell:{}",
+                    frame.local_player_id, grid.active, grid.width, grid.height,
+                    grid.world_origin_xy[0], grid.world_origin_xy[1], grid.cell_size,
+                    visible, grid.state_at_world_xy(target.x, target.z))
+            }).unwrap_or_else(|| "no_frame".to_owned()),
             window_outer_x,
             window_outer_y,
             window_outer_w,

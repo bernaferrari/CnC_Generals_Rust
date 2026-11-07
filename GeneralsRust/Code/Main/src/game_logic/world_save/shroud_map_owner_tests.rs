@@ -68,6 +68,36 @@ fn admit_units(world: &mut GameLogic, range: f32) -> (ObjectId, ObjectId) {
 }
 
 #[test]
+fn replacing_partition_grid_reestablishes_stationary_unit_vision() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "replacing_partition_grid_reestablishes_stationary_unit_vision",
+        || {
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().join("Vision.map");
+            std::fs::write(&path, map_bytes([-140.0, 480.0])).unwrap();
+            let mut world = load(&path);
+            let (_, enemy) = admit_units(&mut world, 80.0);
+            world.update_main_crate_vision();
+            assert_eq!(
+                world.world_services.shroud().lock().unwrap()
+                    .get_host_object_shroud_status(1, enemy.0),
+                Some(ObjectShroudStatus::Clear)
+            );
+
+            world.initialize_receiving_partition_grid().unwrap();
+            world.update_main_crate_vision();
+            assert_eq!(
+                world.world_services.shroud().lock().unwrap()
+                    .get_host_object_shroud_status(1, enemy.0),
+                Some(ObjectShroudStatus::Clear),
+                "a fresh partition grid must receive stationary units' looks"
+            );
+        },
+    );
+}
+
+#[test]
 fn offset_map_vision_and_frozen_grid_use_driving_map_cells() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),
