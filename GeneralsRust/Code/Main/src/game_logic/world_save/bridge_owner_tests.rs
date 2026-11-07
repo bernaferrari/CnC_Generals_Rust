@@ -418,7 +418,18 @@ fn saved_coincident_overflow_bridges_keep_source_bindings_after_ids_change() {
         let mut source = load(&path);
         let peer = load(&path);
         assert_eq!(bridges(&source), bridges(&peer));
+        let ground_observation = |world: &GameLogic| {
+            let grid = &world.pathfinding_system.grid;
+            [Vec3::new(50.0, 0.0, 50.0), Vec3::new(10.0, 0.0, 10.0)]
+                .map(|position| {
+                    let cell = grid.world_to_grid(position);
+                    (grid.cell_type(cell), grid.is_static_blocked(cell))
+                })
+        };
+        let original_ground = ground_observation(&peer);
+        assert_eq!(ground_observation(&source), original_ground);
         assert!(source.delete_owned_bridge_at(Vec3::new(50.0, 21.0, 50.0)));
+        assert_eq!(ground_observation(&source), original_ground);
         let capture = |world: &GameLogic| {
             let mut rows = Vec::new();
             world.world_services.terrain().read().unwrap().for_each_bridge(|bridge| {
@@ -430,6 +441,8 @@ fn saved_coincident_overflow_bridges_keep_source_bindings_after_ids_change() {
         let expected = capture(&source);
         assert_eq!(expected.len(), 15);
         assert_eq!(expected.iter().filter(|row| row.1 == 1).count(), 2);
+        let overflow_ids: Vec<_> = expected.iter().filter(|row| row.1 == 1).map(|row| row.2).collect();
+        assert_ne!(overflow_ids[0], overflow_ids[1]);
         let scaffold_id = ObjectId(expected.iter().find(|row| row.1 == 3).unwrap().2);
         assert!(source.bridge_behavior.create_scaffolding(scaffold_id));
         source.refresh_owned_bridge_pathfinder_states();
@@ -459,8 +472,15 @@ fn saved_coincident_overflow_bridges_keep_source_bindings_after_ids_change() {
         SnapshotBuilder::new().restore_from_snapshot(&decoded.snapshot, &mut restored).unwrap();
         assert_eq!(capture(&restored), expected);
         assert_eq!(capture(&peer).len(), 16);
+        assert_eq!(ground_observation(&peer), original_ground);
+        assert_eq!(ground_observation(&restored), ground_observation(&source));
         assert!(restored.bridge_behavior.is_scaffold_present(scaffold_id));
         let cell = restored.pathfinding_system.grid.world_to_grid(Vec3::new(50.0, 21.0, 50.0));
+        assert_eq!(
+            restored.pathfinding_system.grid.layer_cell_type(2, cell),
+            peer.pathfinding_system.grid.layer_cell_type(2, cell),
+            "removing an overflow span cannot overwrite a reserved bridge layer"
+        );
         assert_eq!(
             restored.pathfinding_system.grid.layer_cell_type(3, cell),
             Some(gamelogic::ai::pathfind_astar::PathfindCellType::BridgeImpassable)

@@ -650,6 +650,11 @@ impl PathfindingGrid {
         destroyed: bool,
         ground_source: &PathfindingGround<'_>,
     ) {
+        // C++ changeBridgeState returns on the unused Ground layer. A
+        // Ground result from addBridge did not allocate a bridge slot.
+        if layer_id == PathfindLayerEnum::Ground as u8 {
+            return;
+        }
         let Some(layer) = self.bridge_layers.iter().find(|b| b.id == layer_id) else {
             return;
         };

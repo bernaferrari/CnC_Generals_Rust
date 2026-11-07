@@ -58,6 +58,10 @@ impl PathfindingGrid {
     }
 
     pub(crate) fn bind_reserved_bridge_object(&mut self, layer: u8, object: u32) {
+        // Overflow returned Ground without reserving a bridge slot.
+        if layer == PathfindLayerEnum::Ground as u8 {
+            return;
+        }
         if let Some(bridge) = self.bridge_layers.iter_mut().find(|b| b.id == layer) {
             bridge.object_id = object;
         }
@@ -65,6 +69,9 @@ impl PathfindingGrid {
 
     /// Deleted bridges retain their slot but leave terrain-list visitation.
     pub(crate) fn deactivate_bridge_layer(&mut self, layer: u8) {
+        if layer == PathfindLayerEnum::Ground as u8 {
+            return;
+        }
         self.flight_bridge_order.retain(|id| *id != layer);
         self.bind_reserved_bridge_object(layer, 0);
     }
