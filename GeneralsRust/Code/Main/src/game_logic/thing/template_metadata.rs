@@ -247,6 +247,12 @@ pub struct ContainModuleMetadata {
     /// OCL ContainInsideSourceObject). Never part of a positional save record.
     #[serde(skip)]
     pub is_overlord_contain: bool,
+    /// Ordered HelixContain/OverlordContain onObjectCreated payload templates.
+    #[serde(skip)]
+    pub payload_template_names: Vec<String>,
+    /// OverlordContain defaults to transferring rider experience to its host.
+    #[serde(skip)]
+    pub experience_sink_for_rider: bool,
     /// `Slots` for Transport/RiderChange/RailedTransport, or `ContainMax` for
     /// GarrisonContain / HealContain. `Some(0)` is an authored zero-capacity
     /// module and must remain distinct from no contain module.
@@ -434,6 +440,8 @@ impl Default for ContainModuleMetadata {
             kind: ContainModuleKind::None,
             is_helix_contain: false,
             is_overlord_contain: false,
+            payload_template_names: Vec::new(),
+            experience_sink_for_rider: true,
             slots: None,
             passengers_in_turret: false,
             damage_percent_to_units: None,

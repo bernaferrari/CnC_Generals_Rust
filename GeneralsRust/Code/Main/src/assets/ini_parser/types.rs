@@ -826,7 +826,8 @@ impl BehaviorModuleDefinition {
             || key.eq_ignore_ascii_case("FX")
             || key.eq_ignore_ascii_case("FXList")
             || key.eq_ignore_ascii_case("OCL")
-            || key.eq_ignore_ascii_case("Weapon");
+            || key.eq_ignore_ascii_case("Weapon")
+            || key.eq_ignore_ascii_case("PayloadTemplateName");
         if let Some((_, existing)) = self
             .attributes
             .iter_mut()

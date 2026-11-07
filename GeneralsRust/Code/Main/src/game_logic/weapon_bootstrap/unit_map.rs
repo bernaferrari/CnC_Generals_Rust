@@ -312,9 +312,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             }
             // Comanche: explicit retail rows above only; no fuzzy name peel
             // (C++ PRIMARY comes from the authored WeaponSet, hq-2qedt.123).
-            if crate::game_logic::host_overlord_addons::is_helix_template(template_name) {
-                return Some(HELIX_MINIGUN_WEAPON);
-            }
             if crate::game_logic::host_pathfinder::is_pathfinder_template(template_name) {
                 return Some(PATHFINDER_SNIPER_WEAPON);
             }

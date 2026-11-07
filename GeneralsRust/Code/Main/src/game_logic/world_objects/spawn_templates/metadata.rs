@@ -618,13 +618,9 @@ impl GameLogic {
                 }
             }
 
-            if module.class_name.eq_ignore_ascii_case("OverlordContain") {
-                // hq-2qedt.1: OverlordContain's portable-structure slot only;
-                // its TransportContain rider/redirect surface stays separate.
-                template.contain_module.is_overlord_contain = true;
-            }
             let kind_and_slots = if module.class_name.eq_ignore_ascii_case("TransportContain")
                 || module.class_name.eq_ignore_ascii_case("HelixContain")
+                || module.class_name.eq_ignore_ascii_case("OverlordContain")
             {
                 Some((ContainModuleKind::Transport, parse_slots(module, "Slots")))
             } else if module.class_name.eq_ignore_ascii_case("ParachuteContain") {
@@ -761,7 +757,20 @@ impl GameLogic {
                 let candidate = ContainModuleMetadata {
                     kind,
                     is_helix_contain: module.class_name.eq_ignore_ascii_case("HelixContain"),
-                    is_overlord_contain: template.contain_module.is_overlord_contain,
+                    is_overlord_contain: module.class_name.eq_ignore_ascii_case("OverlordContain"),
+                    payload_template_names: if module.class_name.eq_ignore_ascii_case("HelixContain")
+                        || module.class_name.eq_ignore_ascii_case("OverlordContain")
+                    {
+                        module.attribute("PayloadTemplateName")
+                            .into_iter()
+                            .flat_map(str::split_whitespace)
+                            .map(str::to_owned)
+                            .collect()
+                    } else {
+                        Vec::new()
+                    },
+                    experience_sink_for_rider: module.attribute("ExperienceSinkForRider")
+                        .and_then(parse_bool).unwrap_or(true),
                     slots,
                     passengers_in_turret: module
                         .attribute("PassengersInTurret")

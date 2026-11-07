@@ -566,3 +566,42 @@ fn overlord_contain_gattling_ocl_case(host_name: &str) {
         Some(payload)
     );
 }
+
+#[test]
+fn authored_helix_creation_uses_payload_and_weapon_not_carrier_name() {
+    use crate::save_load::snapshot::{apply_lifecycle_tail_to_host, capture_lifecycle_tail};
+    let mut world = GameLogic::new();
+    world.admit_object_ini_sources([(
+        "AuthoredHelixPayload.ini".into(),
+        "Object CustomAirCarrier\n\
+         KindOf = VEHICLE AIRCRAFT\n\
+         WeaponSet\n Conditions = None\n Weapon = PRIMARY HelixMinigunWeapon\n End\n\
+         Behavior = HelixContain Cargo\n Slots = 2\n AllowInsideKindOf = INFANTRY\n\
+         PayloadTemplateName = CustomPortableGun\n PayloadTemplateName = CustomPassenger\n End\nEnd\n\
+         Object CustomPortableGun\n KindOf = VEHICLE PORTABLE_STRUCTURE\n End\n\
+         Object CustomPassenger\n KindOf = INFANTRY\n TransportSlotCount = 1\n End\n\
+         Object ChinaVehicleHelix\n KindOf = VEHICLE AIRCRAFT\n End\n".into(),
+    )]).unwrap();
+    world.add_player(crate::game_logic::Player::new(1, Team::China, "Owner", true));
+    let carrier = world.create_object_for_player("CustomAirCarrier", 1, Vec3::ZERO).unwrap();
+    let decoy = world.create_object_for_player("ChinaVehicleHelix", 1, Vec3::ZERO).unwrap();
+    let host = world.host_object(carrier).unwrap();
+    assert!(host.is_helix_transport);
+    assert_eq!(host.authored_weapon_name_for_slot(0), Some("HelixMinigunWeapon"));
+    let payload = host.overlord_portable_occupant.expect("authored initial rider");
+    assert_eq!(world.host_object(payload).unwrap().contained_by, Some(carrier));
+    let passenger = world.host_object(carrier).unwrap().occupants.iter().copied()
+        .find(|&id| id != payload).expect("second authored payload");
+    assert_eq!(world.host_object(passenger).unwrap().contained_by, Some(carrier));
+    assert!(world.host_object(passenger).unwrap().is_held_disabled());
+    let named = world.host_object(decoy).unwrap();
+    assert!(!named.is_helix_transport);
+    assert!(named.overlord_portable_occupant.is_none());
+    assert_eq!(named.authored_weapon_name_for_slot(0), None);
+    let saved = capture_lifecycle_tail(&world).unwrap();
+    world.host_object_mut(carrier).unwrap().occupants.clear();
+    world.host_object_mut(payload).unwrap().contained_by = None;
+    apply_lifecycle_tail_to_host(&saved, &mut world).unwrap();
+    assert_eq!(world.host_object(carrier).unwrap().overlord_portable_occupant, Some(payload));
+    assert_eq!(world.host_object(payload).unwrap().contained_by, Some(carrier));
+}

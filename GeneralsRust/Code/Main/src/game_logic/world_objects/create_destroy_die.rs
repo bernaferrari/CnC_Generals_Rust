@@ -3084,6 +3084,61 @@ impl GameLogic {
             )?;
             verify_factory_birth!();
 
+            // HelixContain/OverlordContain::onObjectCreated creates each
+            // PayloadTemplateName on the carrier's exact Team, in INI order.
+            // Missing templates are ignored by the original factory lookup.
+            let payloads = self.objects[&id]
+                .thing().template.contain_module.payload_template_names.clone();
+            for payload_name in payloads {
+                if !self.templates.contains_key(&payload_name)
+                    && !(self.receiving_module_content.is_some()
+                        && self.ensure_host_spawn_template(&payload_name))
+                {
+                    continue;
+                }
+                let (team_name, team_id) = {
+                    let parent = &self.objects[&id];
+                    (parent.team_instance_name.clone(), parent.team_instance_id)
+                };
+                let payload_team = team_id.map(|team_id| (team_name.as_str(), team_id, false));
+                let Some(payload) = self.create_object_with_initial_team_and_ui_checked(
+                    &payload_name, team, owner_player_id, Vec3::ZERO,
+                    FactoryCreationPurpose::AtCreation, payload_team, interpreter, ui,
+                )? else {
+                    continue;
+                };
+                verify_factory_birth!();
+                let (attach_portable, helix, admitted) = {
+                    let parent = &self.objects[&id];
+                    let child = &self.objects[&payload];
+                    let portable = child.is_kind_of(KindOf::PortableStructure);
+                    let helix = parent.is_helix_transport;
+                    let free_portable = parent.overlord_portable_occupant.is_none();
+                    let special_portable = helix && portable && free_portable;
+                    let used: usize = parent.occupants.iter()
+                        .filter_map(|occupant| self.objects.get(occupant))
+                        .filter(|occupant| !helix || Some(occupant.id) != parent.overlord_portable_occupant)
+                        .map(|occupant| occupant.transport_slot_count())
+                        .sum();
+                    let ordinary = parent.thing().template.contain_module
+                        .leftover_kind_masks_admit(child.kind_of_cpp_mask())
+                        && used.saturating_add(child.transport_slot_count()) <= parent.transport_capacity();
+                    (portable && free_portable, helix, special_portable || ordinary)
+                };
+                if !admitted {
+                    continue;
+                }
+                if attach_portable {
+                    self.attach_overlord_portable_occupant(id, payload);
+                } else if self.objects.get_mut(&id).is_some_and(|parent| parent.add_occupant(payload)) {
+                    Self::set_owned_containment_in_parts(
+                        &mut self.objects, &mut self.partition_manager, &mut self.ai_groups,
+                        &mut self.pathfinding_system, payload, Some(id), true,
+                    );
+                    self.stamp_player_who_entered(id, payload);
+                }
+            }
+
             // Object ctor: modules are ready before radar/list admission and
             // before ThingFactory enters its ordered Create callbacks.
             self.host_radar_add_object_with_effects(id, ui);

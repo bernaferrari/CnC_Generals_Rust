@@ -11,8 +11,11 @@ impl GameLogic {
         host_id: ObjectId,
         occupant_id: ObjectId,
     ) {
-        let mut grant_stealth = self.objects.get(&host_id)
-            .is_some_and(|host| host.status.stealthed);
+        let (mut grant_stealth, experience_sink) = self.objects.get(&host_id)
+            .map(|host| (host.status.stealthed,
+                host.is_overlord_style_container()
+                    && host.thing().template.contain_module.experience_sink_for_rider))
+            .unwrap_or((false, false));
         if let Some(occ) = self.objects.get_mut(&occupant_id) {
             let newly_contained = occ.contained_by != Some(host_id);
             let containment_actor_id = occ.id;
@@ -29,7 +32,9 @@ impl GameLogic {
                 .objects
                 .get_mut(&containment_actor_id)
                 .expect("containment operation preserves this birth");
-            occ.set_experience_sink(Some(host_id));
+            if experience_sink {
+                occ.set_experience_sink(Some(host_id));
+            }
             grant_stealth &= newly_contained && occ.is_kind_of(KindOf::PortableStructure);
         }
         if grant_stealth {

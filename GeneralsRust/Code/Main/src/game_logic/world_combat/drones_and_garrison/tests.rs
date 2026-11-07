@@ -1968,14 +1968,18 @@ fn garrison_residual_fire_uses_garrisoned_133_range() {
 #[test]
 fn helix_infantry_residual_fire_uses_garrisoned_133_range() {
     let mut logic = GameLogic::new();
-    let mut helix = ThingTemplate::new("ChinaHelix");
+    let mut helix = ThingTemplate::new("AuthoredAirCarrier");
     helix
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Aircraft)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(600.0);
-    logic.templates.insert("ChinaHelix".into(), helix);
+    helix.contain_module.kind = ContainModuleKind::Transport;
+    helix.contain_module.is_helix_contain = true;
+    helix.contain_module.slots = Some(3);
+    helix.contain_module.passengers_allowed_to_fire = true;
+    logic.templates.insert("AuthoredAirCarrier".into(), helix);
     logic
         .templates
         .insert("ChinaRedguard".into(), infantry_template("ChinaRedguard"));
@@ -1984,13 +1988,8 @@ fn helix_infantry_residual_fire_uses_garrisoned_133_range() {
         .insert("UsaRanger".into(), infantry_template("UsaRanger"));
 
     let heli = logic
-        .create_object("ChinaHelix", Team::China, Vec3::ZERO)
+        .create_object("AuthoredAirCarrier", Team::China, Vec3::ZERO)
         .unwrap();
-    {
-        let h = logic.host_object_mut(heli).unwrap();
-        h.install_helix_transport();
-        h.passengers_allowed_to_fire = true;
-    }
     let rider = logic
         .create_object("ChinaRedguard", Team::China, Vec3::ZERO)
         .unwrap();
