@@ -11,10 +11,8 @@ use generals_main::command_system::{CommandSystem, CommandType, GameCommand, Mod
 use generals_main::game_logic::{GameLogic, GameMode, ObjectId, Team};
 #[cfg(feature = "dev-tools")]
 use generals_main::save_load::{
-    CampaignId, CampaignManager, GAME_STATE_MANAGER, GameDifficulty, MissionCompletionData, MissionDifficulty,
-    ReplayPlayerInfo, ReplayTeamInfo, SaveFileType, init_game_state_system, init_save_load_system,
-    list_available_saves, load_game, quick_save, record_replay_command, register_game_systems,
-    save_game, try_auto_save, update_replay_system,
+    CampaignId, CampaignManager, GameDifficulty, GameStateManager, MissionCompletionData,
+    MissionDifficulty, ReplayPlayerInfo, ReplayTeamInfo, SaveFileType, init_save_load_system,
 };
 #[cfg(feature = "dev-tools")]
 use glam::Vec3;
@@ -22,7 +20,7 @@ use glam::Vec3;
 use std::time::{Duration, SystemTime};
 
 #[cfg(feature = "dev-tools")]
-fn build_demo_state() -> anyhow::Result<()> {
+fn build_demo_state(manager: &mut GameStateManager) -> anyhow::Result<()> {
     let mut logic = GameLogic::new();
     generals_main::cnc_game_engine::start_standalone_game(&mut logic, GameMode::Skirmish)
         .map_err(anyhow::Error::msg)?;
@@ -34,30 +32,30 @@ fn build_demo_state() -> anyhow::Result<()> {
     let command_system = CommandSystem::new();
     let ai_system = AIManager::new();
 
-    register_game_systems(logic, command_system, ai_system);
+    manager.register_systems(logic, command_system, ai_system);
     Ok(())
 }
 
 #[cfg(feature = "dev-tools")]
-fn demo_save_load() -> anyhow::Result<()> {
-    save_game(
+fn demo_save_load(manager: &mut GameStateManager) -> anyhow::Result<()> {
+    manager.save_game(
         "demo_slot",
         "Save/load API smoke test",
         SaveFileType::Normal,
     )?;
 
-    quick_save()?;
-    let _ = try_auto_save()?;
-    let saves = list_available_saves()?;
+    manager.quick_save()?;
+    let _ = manager.try_auto_save()?;
+    let saves = manager.list_saves()?;
     println!("Available saves: {}", saves.len());
 
-    load_game("demo_slot")?;
+    manager.load_game("demo_slot")?;
     println!("Save/load round-trip succeeded");
     Ok(())
 }
 
 #[cfg(feature = "dev-tools")]
-fn demo_replay() -> anyhow::Result<()> {
+fn demo_replay(manager: &mut GameStateManager) -> anyhow::Result<()> {
     let players = vec![
         ReplayPlayerInfo {
             player_id: 0,
@@ -96,16 +94,13 @@ fn demo_replay() -> anyhow::Result<()> {
         },
     ];
 
-    {
-        let mut manager = GAME_STATE_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
-        manager.start_replay_recording(
-            "demo_map",
-            GameMode::Skirmish,
-            GameDifficulty::Medium,
-            &players,
-            &teams,
-        )?;
-    }
+    manager.start_replay_recording(
+        "demo_map",
+        GameMode::Skirmish,
+        GameDifficulty::Medium,
+        &players,
+        &teams,
+    )?;
 
     let command = GameCommand {
         command_type: CommandType::Move {
@@ -118,13 +113,9 @@ fn demo_replay() -> anyhow::Result<()> {
         modifier_keys: ModifierKeys::default(),
     };
 
-    record_replay_command(&command)?;
-    update_replay_system()?;
-
-    {
-        let mut manager = GAME_STATE_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
-        manager.stop_replay_recording()?;
-    }
+    manager.record_command(&command)?;
+    manager.update_replay()?;
+    manager.stop_replay_recording()?;
 
     println!("Replay record/update/stop cycle succeeded");
     Ok(())
@@ -166,11 +157,12 @@ fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     init_save_load_system()?;
-    init_game_state_system()?;
+    let mut manager = GameStateManager::new();
+    manager.init()?;
 
-    build_demo_state()?;
-    demo_save_load()?;
-    demo_replay()?;
+    build_demo_state(&mut manager)?;
+    demo_save_load(&mut manager)?;
+    demo_replay(&mut manager)?;
     demo_campaign()?;
 
     println!("save_load_demo completed");

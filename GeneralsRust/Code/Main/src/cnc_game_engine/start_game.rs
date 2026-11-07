@@ -2124,9 +2124,17 @@ impl CnCGameEngine {
     }
 
     pub(super) fn drain_renderer_attachments(&mut self) {
-        let records = self.render_pipeline.drain_pending_attachments();
-        if !records.is_empty() {
-            dispatch_attachments(records);
+        // No production code registers attachment listeners. Consume the owned
+        // renderer's records here instead of retaining a process-wide hook API.
+        for record in self.render_pipeline.drain_pending_attachments() {
+            log::trace!(
+                "Attachment generated: {} (parent {})",
+                record.name, record.parent_label
+            );
+            log::trace!(
+                "Attachment dispatch with no listeners: {} (parent {})",
+                record.name, record.parent_label
+            );
         }
     }
 

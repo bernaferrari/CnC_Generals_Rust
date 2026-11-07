@@ -1825,7 +1825,14 @@ impl ApplicationServices {
         if self.save_load_initialized {
             return Ok(());
         }
-        crate::save_load::game_state::init_game_state_system_for_user_data(root)
+        // Preserve the startup cleanup order without constructing a session
+        // manager that has no receiving game world.
+        crate::save_load::SaveFileManager::with_save_directory(root.join("Save"))
+            .init()
+            .and_then(|()| {
+                crate::save_load::ReplayManager::with_replay_directory(root.join("Save/Replays"))
+                    .init()
+            })
             .map_err(|error| anyhow!("Game state system init failed: {error}"))?;
         self.save_load_initialized = true;
         Ok(())

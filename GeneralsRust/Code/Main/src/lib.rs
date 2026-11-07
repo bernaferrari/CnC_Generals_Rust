@@ -201,7 +201,6 @@ pub use subsystem_interfaces::*;
 pub use subsystem_manager::*;
 pub use version::*;
 
-pub mod runtime;
 // Test modules (opt-in so `cargo test` can run lightweight unit tests without heavy UI harness)
 #[cfg(all(test, feature = "integration-tests"))]
 pub mod tests {

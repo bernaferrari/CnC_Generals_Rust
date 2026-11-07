@@ -3,13 +3,9 @@ use crate::command_system::{CommandSystem, GameCommand};
 use crate::game_logic::*;
 use crate::save_load::*;
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::time::SystemTime;
 
-/// Central game state manager.
-///
-/// Application compatibility manager for save/replay operations. Campaign
-/// metadata is owned by the receiving CnCGameEngine, not this legacy facade.
+/// Save and replay state for one standalone session.
 pub struct GameStateManager {
     // Core components
     save_file_manager: SaveFileManager,
@@ -447,88 +443,75 @@ impl Default for GameStateManager {
     }
 }
 
-// Global game state manager instance.
-// THREAD: process-wide singleton. `Mutex` is the interior-mutability boundary
-// for the free functions below; every accessor holds it for one call only.
-lazy_static::lazy_static! {
-    pub static ref GAME_STATE_MANAGER: Mutex<GameStateManager> =
-        Mutex::new(GameStateManager::new());
-}
-
-/// Initialize the global game state system
-pub fn init_game_state_system() -> SaveLoadResult<()> {
-    let mut manager = GAME_STATE_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
-    manager.init()
-}
-
-/// Application startup admission, before any campaign/progress IO. Rebuild only
-/// this legacy application manager against the accepted root; session state is
-/// subsequently registered through the existing production API.
-pub(crate) fn init_game_state_system_for_user_data(root: &std::path::Path) -> SaveLoadResult<()> {
-    let mut manager = GAME_STATE_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
-    *manager = GameStateManager::with_user_data_root(Some(root));
-    manager.init()
-}
-
-/// Register game systems with the state manager
-pub fn register_game_systems(
-    game_logic: GameLogic,
-    command_system: CommandSystem,
-    ai_system: AIManager,
-) {
-    let mut manager = GAME_STATE_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
-    manager.register_systems(game_logic, command_system, ai_system);
-}
-
-/// Convenience functions for common operations
-
-pub fn save_game(
-    slot_name: &str,
-    description: &str,
-    save_type: SaveFileType,
-) -> SaveLoadResult<()> {
-    let mut manager = GAME_STATE_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
-    manager.save_game(slot_name, description, save_type)
-}
-
-pub fn load_game(slot_name: &str) -> SaveLoadResult<()> {
-    let mut manager = GAME_STATE_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
-    manager.load_game(slot_name)
-}
-
-pub fn quick_save() -> SaveLoadResult<()> {
-    let mut manager = GAME_STATE_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
-    manager.quick_save()
-}
-
-pub fn quick_load() -> SaveLoadResult<()> {
-    let mut manager = GAME_STATE_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
-    manager.quick_load()
-}
-
-pub fn try_auto_save() -> SaveLoadResult<bool> {
-    let mut manager = GAME_STATE_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
-    manager.try_auto_save()
-}
-
-pub fn list_available_saves() -> SaveLoadResult<Vec<AvailableGameInfo>> {
-    let manager = GAME_STATE_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
-    manager.list_saves()
-}
-
-pub fn record_replay_command(command: &GameCommand) -> SaveLoadResult<()> {
-    let mut manager = GAME_STATE_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
-    manager.record_command(command)
-}
-
-pub fn update_replay_system() -> SaveLoadResult<()> {
-    let mut manager = GAME_STATE_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
-    manager.update_replay()
-}
 
 #[cfg(test)]
 mod receiving_replay_owner_tests {
     use super::*;
+    use game_engine::common::{
+        ini::INILoadType, rts::player_template::PlayerTemplateStore, system::DataChunkOutput,
+    };
+
+    fn session(root: &std::path::Path, height: u8, frame: u64) -> GameStateManager {
+        let mut map = DataChunkOutput::new();
+        map.open_data_chunk("HeightMapData", 3);
+        for value in [21, 21, 1, 441] {
+            map.write_int(value);
+        }
+        for _ in 0..441 {
+            map.write_byte(height);
+        }
+        map.close_data_chunk();
+        map.open_data_chunk("SidesList", 2);
+        map.write_int(0);
+        map.write_int(0);
+        map.close_data_chunk();
+        map.open_data_chunk("ObjectsList", 3);
+        map.close_data_chunk();
+        let map_path = root.join("world.map");
+        std::fs::write(&map_path, map.into_ckmp_bytes()).unwrap();
+
+        let mut definitions = PlayerTemplateStore::new_owned();
+        definitions.apply_source(
+            "PlayerTemplate FactionCivilian\n Side = Civilian\nEnd\n",
+            INILoadType::Overwrite,
+        ).unwrap();
+        let mut world = GameLogic::new();
+        world.admit_player_template_definitions(definitions).unwrap();
+        world.admit_object_ini_sources(std::iter::empty()).unwrap();
+        world.start_new_game(crate::game_logic::GameMode::SinglePlayer).unwrap();
+        assert!(world.load_map(map_path.to_str().unwrap()));
+        world.set_current_frame(frame);
+        let mut manager = GameStateManager::with_user_data_root(Some(root));
+        manager.init().unwrap();
+        manager.register_systems(world, CommandSystem::new(), AIManager::new());
+        manager
+    }
+
+    #[test]
+    fn independent_sessions_save_and_restore_their_own_worlds_and_roots() {
+        // GameState.cpp:533-545 resolves the save under its save directory;
+        // :650-688 loads that file before post-processing.
+        let first_root = tempfile::tempdir().unwrap();
+        let second_root = tempfile::tempdir().unwrap();
+        let mut first = session(first_root.path(), 8, 123);
+        let mut second = session(second_root.path(), 12, 456);
+        first.quick_save().unwrap();
+        assert!(first.save_exists("quicksave"));
+        assert!(!second.save_exists("quicksave"));
+        second.quick_save().unwrap();
+        assert!(first_root.path().join("Save/quicksave.sav").exists());
+        assert!(second_root.path().join("Save/quicksave.sav").exists());
+
+        first.game_logic.as_mut().unwrap().set_current_frame(900);
+        second.game_logic.as_mut().unwrap().set_current_frame(901);
+        first.quick_load().unwrap();
+        assert_eq!(first.game_logic.as_ref().unwrap().get_current_frame(), 123);
+        assert_eq!(second.game_logic.as_ref().unwrap().get_current_frame(), 901);
+        second.quick_load().unwrap();
+        assert_eq!(second.game_logic.as_ref().unwrap().get_current_frame(), 456);
+        assert_eq!(first.game_logic.as_ref().unwrap().get_current_frame(), 123);
+    }
+
     #[test]
     fn missing_world_rejects_recording_before_any_record_file_or_mode_change() {
         let root = tempfile::tempdir().unwrap();

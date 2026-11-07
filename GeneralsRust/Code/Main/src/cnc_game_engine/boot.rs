@@ -386,9 +386,7 @@ impl CnCGameEngine {
             .map_err(|err| warn!("Game state system init failed: {err}"))
             .ok();
 
-        // Main's campaign metadata/progress manager follows this receiving
-        // engine and its accepted user-data root. It is no longer stored in
-        // GAME_STATE_MANAGER or selected through a process-global accessor.
+        // Campaign metadata and progress follow the receiving engine and root.
         let mut campaign_manager = crate::save_load::CampaignManager::with_campaign_directory(
             application_paths.root().join("Save/Campaign"),
         );
