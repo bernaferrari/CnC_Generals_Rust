@@ -1270,6 +1270,10 @@ fn staged_restore_continues_logic_rng_stream_from_save_point() {
                     game_engine::common::ini::INILoadType::Overwrite,
                 )
                 .unwrap();
+            let america_index = i32::try_from(
+                player_templates.find_template_index("FactionAmerica").unwrap(),
+            )
+            .unwrap();
             source.admit_player_template_definitions(player_templates).unwrap();
             source
                 .admit_receiving_module_content(
@@ -1306,7 +1310,45 @@ End
                     .unwrap(),
                 )
                 .unwrap();
-            admit_skirmish_fixture(&mut source, &map_name, "Human", false);
+            let rules = source
+                .session_view
+                .camera
+                .movement_policy
+                .current()
+                .overlay_ini_text("GameData\n PartitionCellSize = 40\nEnd\n")
+                .unwrap();
+            source.admit_camera_application_movement(rules);
+            let config = crate::skirmish_config::SkirmishMatchConfig {
+                source_game_info: None,
+                map: map_name.clone(),
+                random_seed: 0,
+                old_factions_only: false,
+                rules: crate::skirmish_config::GameRulesSnapshot {
+                    starting_cash: 10_000,
+                    game_speed: 1.0,
+                    limit_superweapons: false,
+                    allow_tech_buildings: true,
+                    crates_enabled: true,
+                    fog_of_war: true,
+                },
+                slots: vec![crate::skirmish_config::SkirmishSlotConfig {
+                    slot_index: 0,
+                    is_human: true,
+                    is_active: true,
+                    player_template: crate::skirmish_config::SkirmishPlayerTemplateSelection::Exact {
+                        template_name: "FactionAmerica".into(),
+                        template_index: america_index,
+                    },
+                    faction: "USA".into(),
+                    color_rgb: (0, 0, 200),
+                    team: 0,
+                    start_position: 0,
+                    player_name: "Human".into(),
+                    ai_difficulty: None,
+                }],
+            };
+            crate::skirmish_config::apply_skirmish_config(&mut source, &config)
+                .expect("admit owned authored Skirmish participants");
             assert!(source.load_map(&map_name), "load authored map");
             let stealth_id = source
                 .create_object("RngStealthActor", Team::USA, glam::Vec3::ZERO)
