@@ -5,7 +5,13 @@ use super::*;
 #[test]
 fn ai_decision_buffer_channel_via_push_ai_decision() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "ai_decision_buffer_channel_via_push_ai_decision",
+        true,
+    ) {
+        return;
+    }
 
     let mut logic = GameLogic::new();
 
@@ -47,7 +53,13 @@ fn ai_decision_buffer_channel_via_push_ai_decision() {
 #[test]
 fn ai_decision_authority_applies_attack_via_gameworld() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "ai_decision_authority_applies_attack_via_gameworld",
+        true,
+    ) {
+        return;
+    }
     let mut logic = GameLogic::new();
 
     // Attack writeback must also be on for last-write.
@@ -88,7 +100,13 @@ fn apply_ai_command_logs_and_host_applies_under_authority() {
     use crate::game_logic::game_logic::AICommand;
 
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "apply_ai_command_logs_and_host_applies_under_authority",
+        true,
+    ) {
+        return;
+    }
 
     let mut logic = GameLogic::new();
 
@@ -140,7 +158,13 @@ fn apply_ai_command_logs_and_host_applies_under_authority() {
 #[test]
 fn continue_attack_after_kill_decision_authority() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "continue_attack_after_kill_decision_authority",
+        true,
+    ) {
+        return;
+    }
 
     let mut logic = GameLogic::new();
 
@@ -187,7 +211,13 @@ fn continue_attack_after_kill_decision_authority() {
 #[test]
 fn assign_unit_attack_path_decision_authority() {
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "assign_unit_attack_path_decision_authority",
+        true,
+    ) {
+        return;
+    }
 
     let mut logic = GameLogic::new();
 
@@ -241,7 +271,13 @@ fn assign_unit_attack_path_decision_authority() {
 #[test]
 fn path_approach_with_state_decision_authority() {
     use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "path_approach_with_state_decision_authority",
+        true,
+    ) {
+        return;
+    }
 
     let mut logic = GameLogic::new();
 
@@ -277,7 +313,13 @@ fn path_approach_with_state_decision_authority() {
 #[test]
 fn troop_crawler_assault_decision_authority() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "troop_crawler_assault_decision_authority",
+        true,
+    ) {
+        return;
+    }
 
     let mut logic = GameLogic::new();
 
@@ -344,7 +386,13 @@ fn troop_crawler_assault_decision_authority() {
 #[test]
 fn missile_defender_laser_guided_decision_authority() {
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "missile_defender_laser_guided_decision_authority",
+        true,
+    ) {
+        return;
+    }
 
     let mut logic = GameLogic::new();
 
@@ -424,7 +472,13 @@ fn missile_defender_laser_guided_decision_authority() {
 #[test]
 fn private_attack_object_decision_authority() {
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "private_attack_object_decision_authority",
+        true,
+    ) {
+        return;
+    }
 
     let mut logic = GameLogic::new();
 
@@ -477,7 +531,13 @@ fn private_attack_object_decision_authority() {
 #[test]
 fn transfer_attack_decision_authority() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "transfer_attack_decision_authority",
+        true,
+    ) {
+        return;
+    }
 
     let mut logic = GameLogic::new();
 
@@ -527,7 +587,13 @@ fn transfer_attack_decision_authority() {
 #[test]
 fn apply_engagement_decision_aware_writeback() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "apply_engagement_decision_aware_writeback",
+        true,
+    ) {
+        return;
+    }
 
     let mut logic = GameLogic::new();
 
@@ -570,7 +636,13 @@ fn apply_engagement_decision_aware_writeback() {
 #[test]
 fn mood_auto_acquire_logs_decision_under_authority() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "mood_auto_acquire_logs_decision_under_authority",
+        true,
+    ) {
+        return;
+    }
 
     let mut logic = GameLogic::new();
     logic.set_ai_definition_base(game_engine::common::ini::AIData {
@@ -667,7 +739,13 @@ fn mood_auto_acquire_logs_decision_under_authority() {
 #[test]
 fn support_guard_engage_uses_decision_authority() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "support_guard_engage_uses_decision_authority",
+        true,
+    ) {
+        return;
+    }
 
     let mut logic = GameLogic::new();
 
@@ -707,7 +785,13 @@ fn faction_ai_launch_attack_decision_authority_writeback() {
 
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
 
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "faction_ai_launch_attack_decision_authority_writeback",
+        true,
+    ) {
+        return;
+    }
 
     let mut logic = GameLogic::new();
 
@@ -783,7 +867,13 @@ fn faction_ai_launch_attack_decision_authority_writeback() {
 #[test]
 fn stop_attack_decision_authority_clears_via_writeback() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "stop_attack_decision_authority_clears_via_writeback",
+        true,
+    ) {
+        return;
+    }
 
     let mut logic = GameLogic::new();
 
@@ -832,8 +922,13 @@ fn fire_spawn_authority_defers_queue_until_shadow() {
     use crate::game_logic::combat::{self, DamageType, PendingProjectile};
     use crate::game_logic::host_usa_pilot::HostDeathType;
 
-    let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "fire_spawn_authority_defers_queue_until_shadow",
+        true,
+    ) {
+        return;
+    }
     let mut logic = GameLogic::new();
 
     ensure_template(&mut logic, "PendingShotOwner", 100.0);
@@ -919,10 +1014,6 @@ fn fire_spawn_authority_defers_queue_until_shadow() {
         logic.combat_system.projectile_count() >= 1,
         "actual owner admits its queued projectile"
     );
-    match prev_shadow {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-    }
 }
 
 #[test]
@@ -930,8 +1021,13 @@ fn fire_spawn_authority_enqueues_host_when_shadow_disabled() {
     use crate::game_logic::combat::{self, DamageType, PendingProjectile};
     use crate::game_logic::host_usa_pilot::HostDeathType;
 
-    let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "fire_spawn_authority_enqueues_host_when_shadow_disabled",
+        false,
+    ) {
+        return;
+    }
     let mut logic = GameLogic::new();
 
     // Projectile ownership is independent of the diagnostic observation flag.
@@ -993,16 +1089,17 @@ fn fire_spawn_authority_enqueues_host_when_shadow_disabled() {
         "shadow-off + fire_spawn auth must enqueue this world's accepted shots immediately"
     );
     combat::clear_pending_projectile_queue_for_test(&mut logic.combat_system);
-    match prev_shadow {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-    }
 }
 
 #[test]
 fn ai_decision_authority_applies_host_state_when_shadow_disabled() {
-    let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "ai_decision_authority_applies_host_state_when_shadow_disabled",
+        false,
+    ) {
+        return;
+    }
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("AiDecNoShadow");
@@ -1028,30 +1125,32 @@ fn ai_decision_authority_applies_host_state_when_shadow_disabled() {
         "host-only must set Moving immediately under AI_DECISION_AUTH, got {st:?}"
     );
 
-    match prev_s {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-    }
 }
 
 #[test]
 fn projectile_authority_steps_host_when_shadow_disabled() {
-    let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "projectile_authority_steps_host_when_shadow_disabled",
+        false,
+    ) {
+        return;
+    }
     let mut logic = GameLogic::new();
 
     // Source must contain live gate so host update_projectiles is not skipped.
 
-    match prev_s {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-    }
 }
 
 #[test]
 fn movement_authority_integrates_host_when_shadow_disabled() {
-    let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "movement_authority_integrates_host_when_shadow_disabled",
+        false,
+    ) {
+        return;
+    }
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("MoveNoShadow");
@@ -1103,10 +1202,6 @@ fn movement_authority_integrates_host_when_shadow_disabled() {
         dist > 0.01,
         "host-only movement must integrate path; pre={pre:?} post={post:?} dist={dist}"
     );
-    match prev_s {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-    }
 }
 #[test]
 fn constructed_host_birth_has_completed_percent_without_shadow_admission() {
@@ -1128,8 +1223,14 @@ fn constructed_host_birth_has_completed_percent_without_shadow_admission() {
 fn ai_attack_authority_gates_fire_intent_writeback() {
     use crate::game_logic::host_fire_intent_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
+    if super::harness::isolated_shadow_case(
+        module_path!(),
+        "ai_attack_authority_gates_fire_intent_writeback",
+        true,
+    ) {
+        return;
+    }
     host_fire_intent_log::clear();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("AiAtkAuth");
