@@ -398,8 +398,18 @@ fn uranium_projectile_world() -> (GameLogic, ObjectId, ObjectId) {
         FirstPercentIndent = 50%\nSecondPercentIndent = 90%\nEnd\n\
         Behavior = PhysicsBehavior Physics\nMass = 0.01\nEnd\n\
         Behavior = WeaponBonusUpgrade Uranium\nTriggeredBy = Upgrade_ChinaUraniumShells\nEnd\nEnd\n";
+    const CARRIERS: &str = "\nObject CustomOverlordGunCarrier\nKindOf = VEHICLE SELECTABLE ATTACKABLE\n\
+        Body = ActiveBody BodyTag\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\n\
+        WeaponSet\nConditions = None\nWeapon = PRIMARY OverlordTankGun\nEnd\nEnd\n\
+        Object ChinaTankOverlord\nKindOf = VEHICLE SELECTABLE ATTACKABLE\n\
+        Body = ActiveBody BodyTag\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\n\
+        WeaponSet\nConditions = None\nWeapon = PRIMARY AlternateUraniumGun\nEnd\nEnd\n\
+        Object UraniumProjectileTarget\nKindOf = VEHICLE SELECTABLE ATTACKABLE\n\
+        Body = ActiveBody BodyTag\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\n\
+        Geometry = Sphere\nGeometryMajorRadius = 0\nEnd\n";
+    let object_content = format!("{SHELL}{CARRIERS}");
     let mut parser = crate::assets::ini_parser::IniParser::new();
-    parser.parse_ini_content(SHELL, "uranium-projectile.ini").unwrap();
+    parser.parse_ini_content(&object_content, "uranium-projectile.ini").unwrap();
     let objects: Vec<_> = parser.get_all_definitions().iter()
         .map(|(name, row)| (name.clone(), row.clone())).collect();
     let mut weapons = HashMap::new();
@@ -426,26 +436,13 @@ fn uranium_projectile_world() -> (GameLogic, ObjectId, ObjectId) {
     );
     world.admit_receiving_module_content(
         crate::assets::ReceivingObjectContent::from_sources([
-            ("uranium-projectile.ini".into(), SHELL.into()),
+            ("uranium-projectile.ini".into(), object_content),
         ]).unwrap(),
     ).unwrap();
     world.admit_weapon_content_snapshot(
         weapons.into_values().map(|rule| (rule.name.clone(), rule)).collect(),
         &objects,
     ).unwrap();
-    let mut source = ThingTemplate::new("CustomOverlordGunCarrier");
-    source.set_health(1000.0).add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Attackable).set_primary_weapon_name("OverlordTankGun");
-    world.templates.insert(source.name.clone(), source);
-    let mut named = ThingTemplate::new("ChinaTankOverlord");
-    named.set_health(1000.0).add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Attackable).set_primary_weapon_name("AlternateUraniumGun");
-    world.templates.insert(named.name.clone(), named);
-    let mut target = ThingTemplate::new("UraniumProjectileTarget");
-    target.set_health(1000.0).add_kind_of(KindOf::Vehicle).add_kind_of(KindOf::Attackable);
-    target.geometry_info.major_radius = 0.0;
-    target.geometry_info.authored = true;
-    world.templates.insert(target.name.clone(), target);
     let source = world.create_object_for_player("CustomOverlordGunCarrier", 0, Vec3::ZERO).unwrap();
     let target = world.create_object_for_player("UraniumProjectileTarget", 2, Vec3::new(30.0, 0.0, 0.0)).unwrap();
     world.frame = 100;
