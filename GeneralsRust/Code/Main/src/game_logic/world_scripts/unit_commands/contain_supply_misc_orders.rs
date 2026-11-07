@@ -217,11 +217,19 @@ impl GameLogic {
 
     /// Wave 233: return-supplies order target + ReturningResources state.
     pub fn unit_command_return_supplies(&mut self, id: ObjectId, supply_center: ObjectId) -> bool {
-        if !self
-            .objects
-            .get(&supply_center)
-            .is_some_and(|dock| dock.is_alive())
-        {
+        if !self.objects.get(&supply_center).is_some_and(|dock| dock.is_alive()) {
+            return false;
+        }
+        self.unit_command_ai_dock_supply_center(id, supply_center)
+    }
+
+    /// AIPlayer.cpp passes the resolved object to aiDock even if it is dying.
+    pub(crate) fn unit_command_ai_dock_supply_center(
+        &mut self,
+        id: ObjectId,
+        supply_center: ObjectId,
+    ) -> bool {
+        if self.objects.get(&supply_center).is_none() {
             return false;
         }
         if self.objects.get(&id).is_none() {

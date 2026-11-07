@@ -206,6 +206,18 @@ impl GameLogic {
         unit_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        self.deliver_owned_ai_unit_with_dock(factory_id, unit_id, effects, |world, unit, center| {
+            world.unit_command_ai_dock_supply_center(unit, center);
+        })
+    }
+
+    fn deliver_owned_ai_unit_with_dock(
+        &mut self,
+        factory_id: ObjectId,
+        unit_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        mut dock: impl FnMut(&mut GameLogic, ObjectId, ObjectId),
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(factory) = self.host_object(factory_id) else {
             return Ok(());
         };
@@ -308,13 +320,13 @@ impl GameLogic {
                         index += 1;
                         let Some(center) = object_id else { continue };
                         if !supply || desired <= 0 || desired <= current
-                            || !self.host_object(center).is_some_and(|object| object.is_alive())
+                            || self.host_object(center).is_none()
                         {
                             continue;
                         }
                         self.ai_manager.ai_players.get_mut(&owner).unwrap()
                             .building_queue[index - 1].current_gatherers += 1;
-                        self.unit_command_return_supplies(unit_id, center);
+                        dock(self, unit_id, center);
                     }
                 }
             }

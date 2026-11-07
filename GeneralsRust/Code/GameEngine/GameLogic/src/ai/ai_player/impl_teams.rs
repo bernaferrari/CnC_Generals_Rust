@@ -138,38 +138,45 @@ impl AIPlayer {
         (Coord3D::new(0.0, 0.0, 0.0), false)
     }
 
-    /// C++ onUnitProduced supply assignment: every build-list supply building
-    /// with desiredGatherers > currentGatherers and a live object is incremented.
-    /// There is no `break`. The last dock command wins, so return that object id.
-    pub(super) fn take_supply_gatherer_slot(&mut self) -> Option<ObjectID> {
-        // Wave 255: empty dual-world → None.
+    /// Visit BuildList rows in order, releasing the player lock before aiDock.
+    pub(super) fn visit_supply_gatherer_slots(&mut self, mut dock: impl FnMut(ObjectID)) {
         if dual_world_registry_unavailable() {
-            return None;
+            return;
         }
-
-        let player_arc = self.get_player()?;
-        let Ok(mut pg) = player_arc.write() else {
-            return None;
+        let Some(player) = self.get_player() else {
+            return;
         };
-        let Some(info_head) = pg.get_build_list_mut() else {
-            return None;
-        };
-        let mut last_dock = None;
-        let mut node = Some(&mut *info_head);
-        while let Some(info) = node {
-            if info.is_supply_building()
-                && info.get_desired_gatherers() > 0
-                && info.get_desired_gatherers() > info.get_current_gatherers()
-            {
-                let oid = info.get_object_id();
-                if oid != INVALID_ID && OBJECT_REGISTRY.with_object(oid, |_| ()).is_some() {
-                    info.set_current_gatherers(info.get_current_gatherers() + 1);
-                    last_dock = Some(oid);
+        let mut index = 0;
+        loop {
+            let selected = {
+                let Ok(mut player) = player.write() else {
+                    return;
+                };
+                let mut node = player.get_build_list_mut();
+                for _ in 0..index {
+                    node = node.and_then(|row| row.get_next_mut());
                 }
+                let Some(row) = node else {
+                    return;
+                };
+                let id = row.get_object_id();
+                if row.is_supply_building()
+                    && row.get_desired_gatherers() > 0
+                    && row.get_desired_gatherers() > row.get_current_gatherers()
+                    && id != INVALID_ID
+                    && OBJECT_REGISTRY.with_object(id, |_| ()).is_some()
+                {
+                    row.set_current_gatherers(row.get_current_gatherers() + 1);
+                    Some(id)
+                } else {
+                    None
+                }
+            };
+            index += 1;
+            if let Some(id) = selected {
+                dock(id);
             }
-            node = info.get_next_mut();
         }
-        last_dock
     }
 
     /// C++ `AIPlayer::checkForSupplyCenter` (AIPlayer.cpp).

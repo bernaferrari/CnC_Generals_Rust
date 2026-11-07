@@ -813,11 +813,9 @@ impl AIPlayer {
                     }
                 }
                 if supply_truck {
-                    // C++: assign to first supply build-list entry needing gatherers,
-                    // then aiDock(obj, CMD_FROM_PLAYER).
-                    if let Some(dock_id) = self.take_supply_gatherer_slot() {
+                    self.visit_supply_gatherer_slots(|dock_id| {
                         ai.ai_dock(dock_id, CommandSourceType::FromPlayer);
-                    }
+                    });
                 }
             }
         }

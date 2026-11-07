@@ -601,9 +601,6 @@ fn production_completion_receipts_follow_actual_owner_fifo_across_peer_reset_and
 
 #[test]
 fn produced_collector_visits_saved_build_list_in_order_without_touching_peer() {
-    use crate::save_load::snapshot::ai_player_queue_persist::{
-        append_to_lifecycle_tail, apply_from_lifecycle_tail,
-    };
 
     fn setup() -> (GameLogic, ObjectId, Vec<ObjectId>) {
         let (mut world, factory) = production_world("LedgerTruck", false);
@@ -638,22 +635,47 @@ fn produced_collector_visits_saved_build_list_in_order_without_touching_peer() {
     }
 
     let (source, factory, centers) = setup();
-    let mut saved = Vec::new();
-    append_to_lifecycle_tail(&mut saved, &source);
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&source).unwrap();
     let (mut restored, restored_factory, restored_centers) = setup();
     let (peer, peer_factory, peer_centers) = setup();
     assert_eq!((factory, &centers), (restored_factory, &restored_centers));
     assert_eq!((factory, &centers), (peer_factory, &peer_centers));
-    apply_from_lifecycle_tail(&saved, &mut restored).unwrap();
-    let truck = spawn_finished_output(&mut restored, factory, "LedgerTruck");
-    restored.host_apply_production_spawn_ready_completions_with_build_complete(|_, _| {})
-        .unwrap();
+    builder.restore_from_snapshot(&saved, &mut restored).unwrap();
+    // C++ finds an object by ID even if it has begun dying.
+    restored.host_object_mut(centers[0]).unwrap().health.current = 0.0;
+    let truck = restored.create_object_for_player(
+        "LedgerTruck", 1, Vec3::new(12.0, 0.0, 0.0),
+    ).unwrap();
+    let mut visits = Vec::new();
+    restored.deliver_owned_ai_unit_with_dock(
+        factory, truck, &mut Default::default(),
+        |world, truck, center| {
+            let counts = world.ai_manager.ai_players[&1].building_queue.iter()
+                .map(|row| row.current_gatherers).collect::<Vec<_>>();
+            visits.push((center, counts));
+            assert!(world.unit_command_ai_dock_supply_center(truck, center));
+            assert_eq!(world.host_object(truck).unwrap().preferred_dock_id, Some(center));
+        },
+    ).unwrap();
+    assert_eq!(visits, [
+        (centers[0], vec![1, 0, 1, -1]),
+        (centers[2], vec![1, 0, 1, 0]),
+    ]);
     let rows = &restored.ai_manager.ai_players[&1].building_queue;
     assert_eq!(rows.iter().map(|r| r.current_gatherers).collect::<Vec<_>>(), [1, 0, 1, 0]);
     let truck = restored.host_object(truck).unwrap();
     assert_eq!(truck.preferred_dock_id, Some(centers[2]));
     assert_eq!(truck.target, Some(centers[2]));
     assert_eq!(truck.ai_state(), AIState::ReturningResources);
+    let after = builder.create_world_snapshot(&restored).unwrap();
+    let (mut loaded_again, _, _) = setup();
+    builder.restore_from_snapshot(&after, &mut loaded_again).unwrap();
+    assert_eq!(
+        loaded_again.ai_manager.ai_players[&1].building_queue.iter()
+            .map(|r| r.current_gatherers).collect::<Vec<_>>(),
+        [1, 0, 1, 0],
+    );
     assert_eq!(
         peer.ai_manager.ai_players[&1].building_queue.iter()
             .map(|r| r.current_gatherers).collect::<Vec<_>>(),
