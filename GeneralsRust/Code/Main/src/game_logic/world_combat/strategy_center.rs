@@ -1726,7 +1726,7 @@ impl GameLogic {
         use gamelogic::weapon::WeaponAntiMask;
         let mut best: Option<(u8, f32, ObjectId)> = None;
         for (&id, target) in self.objects.registered() {
-            if id == carrier_id || !target.is_alive()
+            if id == carrier_id
                 || self.objects.get(&carrier_id).is_none_or(|carrier| self.object_relationship(carrier, target) != gamelogic::common::Relationship::Enemies)
                 || (target.status.stealthed && !target.status.detected && !target.status.disguised)
                 || (!target.status.airborne_target && !weapon.anti_mask.contains(WeaponAntiMask::GROUND)) {
@@ -1758,7 +1758,7 @@ impl GameLogic {
         use crate::game_logic::host_point_defense::{authored_modules, PointDefenseState};
 
         let carriers: Vec<_> = self.objects.registered().filter_map(|(&id, object)| {
-            if !object.is_alive() { return None; }
+            if object.status.effectively_dead { return None; }
             let modules = authored_modules(object);
             if modules.is_empty() { None } else { Some((id, modules)) }
         }).collect();
@@ -1782,7 +1782,7 @@ impl GameLogic {
                 // C++ calls fireWhenReady on every tracking frame, and immediately
                 // after a successful scan, even while its private weapon reloads.
                 if !scan || state.target.is_some() {
-                    let mut target = state.target.and_then(|id| self.objects.get(&id).map(|o| (id, o.get_position(), o.is_alive())));
+                    let mut target = state.target.and_then(|id| self.objects.get(&id).map(|o| (id, o.get_position(), !o.status.effectively_dead)));
                     if let Some((_, pos, _)) = target {
                         let distance = (pos.x - origin.x).powi(2) + (pos.z - origin.z).powi(2);
                         if distance < weapon.attack_range * weapon.attack_range {
@@ -1833,7 +1833,7 @@ impl GameLogic {
                                 self.point_defense_residual_intercepts = self.point_defense_residual_intercepts.saturating_add(1);
                             }
                         }
-                        if self.objects.get(&target_id).is_none_or(|target| !target.is_alive()) {
+                        if self.objects.get(&target_id).is_none_or(|target| target.status.effectively_dead) {
                             state.target = None;
                             state.next_scan = self.logic_random.next_int(0, 3) as u32;
                             if state.next_scan == 0 {

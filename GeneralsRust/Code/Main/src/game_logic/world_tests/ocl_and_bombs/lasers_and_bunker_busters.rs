@@ -759,6 +759,8 @@ fn point_defense_laser_residual_intercepts_missile() {
     } else {
         assert!(missile_gone, "missile removed after intercept");
     }
+    game_logic.destroy_object(missile_id).unwrap();
+    game_logic.process_destroy_list();
 
     // Reload residual: second shot not instant on same frame window.
     let intercepts_after_first = game_logic.point_defense_residual_intercepts();
@@ -893,7 +895,7 @@ fn avenger_pdl_two_independent_lasers() {
     missile_tpl
         .add_kind_of(KindOf::Projectile)
         .add_kind_of(KindOf::Attackable)
-        .set_health(50.0);
+        .set_health(150.0);
     game_logic
         .templates
         .insert("TestMissile".to_string(), missile_tpl);
@@ -927,17 +929,13 @@ fn avenger_pdl_two_independent_lasers() {
     assert_eq!(
         game_logic.point_defense_residual_intercepts(),
         2,
-        "Avenger dual PDL must intercept two missiles in one 500ms window"
+        "both Avenger PDL modules must fire in the same update"
     );
-    for (id, label) in [(missile_a, "a"), (missile_b, "b")] {
-        if let Some(m) = game_logic.host_object(id) {
-            assert!(
-                !m.is_alive() || m.health.current <= 0.0,
-                "missile {label} must die in the dual-laser pass (hp={})",
-                m.health.current
-            );
-        }
-    }
+    assert!(game_logic.host_object(missile_a).is_none_or(|m| !m.is_alive()));
+    assert!(game_logic.host_object(missile_b).is_some_and(|m| m.is_alive()),
+        "both modules select the same closest live target");
+    game_logic.destroy_object(missile_a).unwrap();
+    game_logic.process_destroy_list();
 
     // Both clocks spent: a third missile in the same delay window survives.
     let intercepts_after_dual = game_logic.point_defense_residual_intercepts();

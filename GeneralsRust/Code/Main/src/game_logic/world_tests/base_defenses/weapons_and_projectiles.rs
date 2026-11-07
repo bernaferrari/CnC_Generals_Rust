@@ -278,6 +278,8 @@ fn king_raptor_residual_laser_intercepts_missile() {
             m.health.current
         );
     }
+    game_logic.destroy_object(missile_id).unwrap();
+    game_logic.process_destroy_list();
 
     // Reload residual: dual-laser residual delay (4 frames).
     let intercepts_after_first = game_logic.point_defense_residual_intercepts();
@@ -1213,7 +1215,7 @@ End
     assert_eq!(a.host_object(vehicle).unwrap().health.current, 93.0);
     assert_eq!(b.host_object(other_vehicle).unwrap().health.current, 93.0);
     let (mut named, authored, victim, _) = world(11);
-    named.host_object_mut(authored).unwrap().status.destroyed = true;
+    named.host_object_mut(authored).unwrap().status.effectively_dead = true;
     named.create_object_for_player("AmericaTankPaladin", 1, Vec3::ZERO).unwrap();
     named.update_point_defense_intercept();
     assert_eq!(named.host_object(victim).unwrap().health.current, 100.0,
@@ -1246,7 +1248,10 @@ fn point_defense_zero_delay_rescan_tracks_before_a_new_target_arrives() {
 
     // The first target leaves firing range. Force exactly the zero branch of
     // GameLogicRandomValue(0, 3), and check that this update consumes only it.
-    world.host_object_mut(first).unwrap().set_position(Vec3::new(100.0, 0.0, 0.0));
+    {
+        let (object, partition) = world.host_object_and_partition_mut(first).unwrap();
+        object.set_position_with_partition_owner(Vec3::new(100.0, 0.0, 0.0), 2, &mut Default::default(), partition);
+    }
     let reference = game_engine::common::random_value::SessionRandom::default();
     let seed = (0..10_000).find(|&seed| {
         reference.seed_random(seed);
@@ -1279,4 +1284,37 @@ fn point_defense_zero_delay_rescan_tracks_before_a_new_target_arrives() {
     step_test_point_defense(&mut world);
     assert_eq!(world.host_object(newcomer).unwrap().health.current, 200.0);
     assert_eq!(world.host_object(later).unwrap().health.current, 300.0);
+
+    // The closest registered corpse remains eligible for scanning until the
+    // world actually drains its destruction list (PartitionManager.cpp:3267-94).
+    {
+        let (object, partition) = world.host_object_and_partition_mut(newcomer).unwrap();
+        object.set_position_with_partition_owner(Vec3::new(5.0, 0.0, 0.0), 6, &mut Default::default(), partition);
+    }
+    {
+        let (object, partition) = world.host_object_and_partition_mut(later).unwrap();
+        object.set_position_with_partition_owner(Vec3::new(20.0, 0.0, 0.0), 6, &mut Default::default(), partition);
+    }
+    world.host_object_mut(newcomer).unwrap().status.effectively_dead = true;
+    world.set_logic_random_seed(seed);
+    world.frame = 6;
+    step_test_point_defense(&mut world);
+    assert_eq!(world.logic_random.seed_words(), reference.seed_words());
+    assert_eq!(world.host_object(later).unwrap().health.current, 300.0);
+    world.set_logic_random_seed(seed);
+    world.frame = 7;
+    step_test_point_defense(&mut world);
+    assert_eq!(world.logic_random.seed_words(), reference.seed_words());
+    assert_eq!(world.host_object(later).unwrap().health.current, 300.0,
+        "zero-delay rescans retain the closest registered corpse without firing");
+
+    world.destroy_object(newcomer).unwrap();
+    world.process_destroy_list();
+    assert!(world.host_object(newcomer).is_none());
+    for frame in 8..=40 {
+        world.frame = frame;
+        step_test_point_defense(&mut world);
+    }
+    assert!(world.host_object(later).unwrap().health.current < 300.0,
+        "after actual removal the next periodic scan can fire on the live target");
 }
