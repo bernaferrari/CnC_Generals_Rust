@@ -94,9 +94,13 @@ impl<'a> CommandExecutor<'a> {
             .game_logic
             .player_command_center_position(self.current_player_id)
         {
-            self.game_logic
-                .request_player_camera_look_at_with_effects(position, &mut self.ui);
-            CommandResult::Success
+            match self.game_logic.request_player_camera_look_at_with_effects(position, &mut self.ui) {
+                Ok(()) => CommandResult::Success,
+                Err(error) => {
+                    log::warn!("camera LookAt admission: {error}");
+                    CommandResult::InvalidCommand
+                }
+            }
         } else {
             CommandResult::InvalidCommand
         }

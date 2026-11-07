@@ -235,6 +235,34 @@ fn owned_radius_cursor_guard_range(
     seed.map_or(0.0, |id| world.host_std_guard_ranges(id).0)
 }
 
+// The source shortcut is a local client command, not an order to selected
+// objects. Execute the mapped command synchronously on the receiving world so
+// its actual result can be reported without a process-wide receipt.
+fn execute_named_view_command_center(
+    world: &mut crate::game_logic::GameLogic,
+    effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+) -> bool {
+    let Some(player_id) = world.local_player_id() else {
+        return false;
+    };
+    let Some(command_type) = crate::command_system::command_type_from_button_name("Command_ViewCommandCenter") else {
+        return false;
+    };
+    let command = crate::command_system::GameCommand {
+        command_type,
+        player_id,
+        command_id: 0,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: Vec::new(),
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    };
+    matches!(
+        crate::command_executor::CommandExecutor::new_with_effects(world, player_id, effects.reborrow())
+            .execute_command(command),
+        Ok(crate::command_system::CommandResult::Success)
+    )
+}
+
 impl CnCGameEngine {
     /// C++ `TheInGameUI->getGUICommand()` option bits, or `None` when no
     /// GUI command is armed (force-attack then uses current-selection pick).
@@ -2610,12 +2638,26 @@ impl CnCGameEngine {
         self.arm_radius_cursor_for_pending("OFFENSIVE_SPECIALPOWER");
     }
 
+    pub(super) fn issue_view_command_center_from_ui(&mut self) -> bool {
+        if self.pending_structure_placement.is_some() {
+            self.cancel_structure_placement_from_ui();
+        }
+        play_named_command_button_unit_specific_sound("Command_ViewCommandCenter", self.local_player_id_for_ui());
+        self.with_native_camera_input_effects(|world, effects, _input| {
+            execute_named_view_command_center(world, effects)
+        })
+    }
+
     pub(super) fn issue_named_command_from_ui(&mut self, command_name: &str) {
         let Some(command_type) = crate::command_system::command_type_from_button_name(command_name)
         else {
             log::debug!("IssueCommand unmapped: {command_name}");
             return;
         };
+        if matches!(command_type, crate::command_system::CommandType::ViewCommandCenter) {
+            self.issue_view_command_center_from_ui();
+            return;
+        }
 
         if self.pending_structure_placement.is_some() {
             self.cancel_structure_placement_from_ui();
@@ -2994,6 +3036,73 @@ fn special_power_pending_options(power: &crate::command_system::SpecialPowerType
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn named_view_command_center_moves_only_receiving_world_and_requires_owned_structure() {
+        use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+        use glam::Vec3;
+
+        fn world(position: Vec3) -> GameLogic {
+            let mut world = GameLogic::new();
+            let mut map = gamelogic::system::map_loader::MapData::new();
+            map.width = 128;
+            map.height = 128;
+            map.heightmap = vec![0; 128 * 128];
+            map.boundaries = vec![gamelogic::common::ICoord2D::new(128, 128)];
+            world.world_services.terrain().write().unwrap().load_map_data(map);
+            world.get_players_mut().insert(0, Player::new(0, Team::USA, "local", true));
+            world.get_players_mut().insert(1, Player::new(1, Team::USA, "other", false));
+            assert!(world.select_local_player(Some(0)));
+            let mut center = ThingTemplate::new("TestCameraCenter");
+            center.add_kind_of(KindOf::CommandCenter).add_kind_of(KindOf::Structure).set_health(1000.0);
+            world.templates.insert("TestCameraCenter".into(), center);
+            let own = world.create_object_for_player("TestCameraCenter", 0, position).unwrap();
+            let foreign = world.create_object_for_player("TestCameraCenter", 1, Vec3::new(200., 0., 200.)).unwrap();
+            assert_ne!(own, foreign);
+            world.get_player_mut(0).unwrap().selected_objects = vec![foreign];
+            world.session_view.target = Vec3::new(640., 0., 640.);
+            world.session_view.camera.native_camera.initialize_map(0., 300., 37.5, 0.);
+            world.session_view.camera.native_camera.set_height(200., 100., 300.);
+            world.commit_native_camera_with_effects(&mut Default::default()).unwrap();
+            world
+        }
+
+        let mut owner = world(Vec3::new(850., 0., 850.));
+        let peer = world(Vec3::new(350., 0., 350.));
+        assert_eq!(owner.get_player(0).unwrap().selected_objects, peer.get_player(0).unwrap().selected_objects);
+        let peer_target = peer.session_view.target;
+        let peer_view = peer.session_view.camera.view_matrix;
+        let old_view = owner.session_view.camera.view_matrix;
+        assert!(execute_named_view_command_center(&mut owner, &mut Default::default()));
+        assert!((owner.session_view.target.x - 850.).abs() < 0.1);
+        assert!((owner.session_view.target.z - 850.).abs() < 0.1);
+        assert_ne!(owner.session_view.camera.view_matrix, old_view);
+        assert_eq!(peer.session_view.target, peer_target);
+        assert_eq!(peer.session_view.camera.view_matrix, peer_view);
+        let foreign = owner.get_player(0).unwrap().selected_objects[0];
+        owner.session_view.target = Vec3::new(640., 0., 640.);
+        let command = crate::command_system::GameCommand {
+            command_type: crate::command_system::command_type_from_button_name("Command_ViewCommandCenter").unwrap(),
+            player_id: 0,
+            command_id: 0,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![foreign],
+            modifier_keys: Default::default(),
+        };
+        assert!(matches!(
+            crate::command_executor::CommandExecutor::new(&mut owner, 0).execute_command(command),
+            Ok(crate::command_system::CommandResult::Success)
+        ));
+        assert!((owner.session_view.target.x - 850.).abs() < 0.1);
+        assert_eq!(peer.session_view.target, peer_target);
+
+        let mut no_owned = world(Vec3::new(850., 0., 850.));
+        no_owned.get_players_mut().insert(2, Player::new(2, Team::USA, "empty", true));
+        assert!(no_owned.select_local_player(Some(2)));
+        let before = no_owned.session_view.target;
+        assert!(!execute_named_view_command_center(&mut no_owned, &mut Default::default()));
+        assert_eq!(no_owned.session_view.target, before);
+    }
 
     #[test]
     fn attack_objects_position_weapon_uses_click_location_and_keeps_shot_budget() {

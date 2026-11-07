@@ -23,18 +23,20 @@ impl<'a> CommandExecutor<'a> {
     /// Direct camera jump to requested radar location (e.g., from replay/HUD ping).
     pub(super) fn execute_view_radar_at(&mut self, position: Vec3) -> CommandResult {
         let _bind = self.bind_services();
-        self.game_logic
-            .request_player_camera_look_at_with_effects(position, &mut self.ui);
-        CommandResult::Success
+        match self.game_logic.request_player_camera_look_at_with_effects(position, &mut self.ui) {
+            Ok(()) => CommandResult::Success,
+            Err(error) => {
+                warn!("camera LookAt admission: {error}");
+                CommandResult::InvalidCommand
+            }
+        }
     }
 
     /// Mirror CommandSystem routing: request camera snap to last radar event.
     pub(super) fn execute_view_last_radar_event(&mut self) -> CommandResult {
         let _bind = self.bind_services();
         if let Some(position) = self.game_logic.last_the_radar_event_host_position() {
-            self.game_logic
-                .request_player_camera_look_at_with_effects(position, &mut self.ui);
-            CommandResult::Success
+            self.execute_view_radar_at(position)
         } else {
             CommandResult::InvalidCommand
         }

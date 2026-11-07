@@ -463,29 +463,23 @@ impl GameLogic {
     /// (`CommandXlat.cpp:780-793`), then most expensive structure via
     /// `calcCostToBuild(controllingPlayer)`.
     pub fn player_command_center_position(&self, id: u32) -> Option<glam::Vec3> {
-        let team = self.player_team(id)?;
+        self.players.get(&id)?;
         let mut fallback = None;
-        let mut highest_cost = i32::MIN;
-        let sole_team_owner = self
-            .players
-            .values()
-            .filter(|p| p.team == team && p.is_alive)
-            .count()
-            <= 1;
+        let mut center = None;
+        let mut highest_cost = -1;
 
         for obj in self.objects.registered_values() {
             if !obj.is_alive() {
                 continue;
             }
-            let ours = match obj.owner_player_id {
-                Some(owner) => owner == id,
-                None => sole_team_owner && obj.team == team,
-            };
-            if !ours {
+            if obj.owner_player_id != Some(id) {
                 continue;
             }
             if obj.is_kind_of(KindOf::CommandCenter) {
-                return Some(obj.get_position());
+                // The source callback continues iterating and retains the last
+                // command center visited, despite its "first" comment.
+                center = Some(obj.get_position());
+                continue;
             }
             if obj.is_kind_of(KindOf::Structure) {
                 let cost = self.modified_build_cost_supplies(
@@ -499,7 +493,7 @@ impl GameLogic {
                 }
             }
         }
-        fallback
+        center.or(fallback)
     }
 
     /// Wave 240: existence probe without exposing `&Player`.

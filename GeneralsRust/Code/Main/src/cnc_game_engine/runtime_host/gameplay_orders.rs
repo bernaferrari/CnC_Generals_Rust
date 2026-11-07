@@ -720,8 +720,12 @@ impl CnCGameEngine {
         if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
             self.runtime_host_last_gameplay_cmd = "view_cc_fail_not_ingame".into();
         } else {
-            self.issue_named_command_from_ui("Command_ViewCommandCenter");
-            self.runtime_host_last_gameplay_cmd = "view_cc_ok".into();
+            self.runtime_host_last_gameplay_cmd = if self.issue_view_command_center_from_ui() {
+                let target = self.game_logic.session_view.target;
+                format!("view_cc_ok:{:.1},{:.1},{:.1}", target.x, target.y, target.z)
+            } else {
+                "view_cc_fail_no_camera_focus".into()
+            };
         }
     }
 

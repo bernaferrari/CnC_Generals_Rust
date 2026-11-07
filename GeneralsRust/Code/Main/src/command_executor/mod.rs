@@ -621,6 +621,11 @@ impl<'a> CommandExecutor<'a> {
     // === Validation Helpers ===
 
     fn validate_player_ownership(&self, command: &GameCommand) -> bool {
+        // The local view shortcut is a client operation, independent of what
+        // is selected (CommandXlat.cpp:780-793).
+        if matches!(command.command_type, CommandType::ViewCommandCenter) {
+            return true;
+        }
         // Check if player owns all selected units. Units without a
         // controlling player (faction-only spawns) fall back to the C++
         // PlayerList faction test (`player_team`), matching the original
