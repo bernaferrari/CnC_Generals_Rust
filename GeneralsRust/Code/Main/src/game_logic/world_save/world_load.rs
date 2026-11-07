@@ -465,7 +465,20 @@ impl GameLogic {
                     str::to_string,
                 );
                 self.map_definition_source = Some(definition_source.clone());
-                let companion_sources = if self.receiving_module_content.is_some() {
+                let application_assets = self.application_assets();
+                let companion_sources = if let Some(assets) = application_assets.as_ref() {
+                    let mut assets = assets.lock().unwrap_or_else(|error| error.into_inner());
+                    match super::script_loader::read_owned_definition_companions(
+                        assets.archive_file_system_mut(),
+                        &definition_source,
+                    ) {
+                        Ok(sources) => sources,
+                        Err(error) => {
+                            log::error!("Cannot read receiving map definitions: {error}");
+                            return Ok(false);
+                        }
+                    }
+                } else if self.receiving_module_content.is_some() {
                     match super::script_loader::read_receiving_definition_companions(
                         &definition_source,
                     ) {
@@ -590,7 +603,8 @@ impl GameLogic {
                         Arc::clone(self.effective_terrain_definitions()),
                         self.terrain_road_baseline().clone(),
                         self.current_armor_definitions().cloned(),
-                        self.receiving_module_content.as_ref().map(|_| companion_sources.as_slice()),
+                        (application_assets.is_some() || self.receiving_module_content.is_some())
+                            .then_some(companion_sources.as_slice()),
                         self.upgrade_definition_base.clone(),
                         self.receiving_module_content
                             .as_ref()

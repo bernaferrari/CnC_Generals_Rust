@@ -47,6 +47,32 @@ pub(crate) fn read_receiving_definition_companions(
     }
     Ok(sources)
 }
+/// Read the pristine map's ordered INI overrides through the receiving
+/// application's mounted local/BIG filesystem.
+pub(crate) fn read_owned_definition_companions(
+    filesystem: &mut crate::assets::archive::ArchiveFileSystem,
+    source: &str,
+) -> Result<Vec<(PathBuf, String)>, String> {
+    let normalized = source.replace('\\', "/");
+    let Some(directory) = Path::new(&normalized).parent() else {
+        return Ok(Vec::new());
+    };
+    let mut sources = Vec::new();
+    for name in ["Map.ini", "Solo.ini"] {
+        let path = directory.join(name);
+        let filename = path.to_string_lossy();
+        let bytes = filesystem
+            .read_optional_definition_source(&filename)
+            .map_err(|error| format!("Cannot read definition '{}': {error}", path.display()))?;
+        if let Some(bytes) = bytes {
+            let text = String::from_utf8(bytes)
+                .map_err(|error| format!("Cannot decode definition '{}': {error}", path.display()))?;
+            sources.push((path, text));
+        }
+    }
+    Ok(sources)
+}
+
 
 fn selected_map_definition_companion(
     directory: &Path,
@@ -616,9 +642,11 @@ fn parse_map_settings_from_loaded_chunky(
     }
 
     // Heightmap hint: look for common heightmap filenames next to the .map.
-    if let Some(map_path) = resolve_map_companion_source(map_name)
-        .or_else(|| admitted_object_sources.map(|_| PathBuf::from(map_name)))
-    {
+    if let Some(map_path) = if admitted_object_sources.is_some() {
+        Some(PathBuf::from(map_name.replace('\\', "/")))
+    } else {
+        resolve_map_companion_source(map_name)
+    } {
         if let Some(dir) = map_path.parent() {
             if let Some((_, contents)) = selected_map_definition_companion(
                 dir,

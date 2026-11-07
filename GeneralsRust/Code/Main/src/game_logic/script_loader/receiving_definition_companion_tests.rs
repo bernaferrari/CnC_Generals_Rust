@@ -57,3 +57,26 @@ fn strict_receiving_companions_reject_present_utf8_and_read_errors() {
     fs::create_dir(&map_ini).unwrap();
     assert!(read_receiving_definition_companions(map.to_str().unwrap()).is_err());
 }
+
+#[test]
+fn receiving_filesystems_keep_interleaved_map_and_solo_overrides_separate() {
+    let first_root = tempfile::tempdir().unwrap();
+    let second_root = tempfile::tempdir().unwrap();
+    for (root, marker) in [(first_root.path(), "First"), (second_root.path(), "Second")] {
+        let directory = root.join("Maps/Shared");
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(directory.join("map.ini"), format!("Object {marker}Map\nEnd\n")).unwrap();
+        fs::write(directory.join("solo.ini"), format!("Object {marker}Solo\nEnd\n")).unwrap();
+    }
+    let mut first = crate::assets::archive::ArchiveFileSystem::new();
+    let mut second = crate::assets::archive::ArchiveFileSystem::new();
+    first.set_local_search_roots([first_root.path().to_path_buf()]);
+    second.set_local_search_roots([second_root.path().to_path_buf()]);
+    let read = |fs: &mut crate::assets::archive::ArchiveFileSystem| {
+        read_owned_definition_companions(fs, r"Maps\Shared\Shared.map").unwrap()
+            .into_iter().map(|(_, text)| text).collect::<Vec<_>>()
+    };
+    assert_eq!(read(&mut first), ["Object FirstMap\nEnd\n", "Object FirstSolo\nEnd\n"]);
+    assert_eq!(read(&mut second), ["Object SecondMap\nEnd\n", "Object SecondSolo\nEnd\n"]);
+    assert_eq!(read(&mut first), ["Object FirstMap\nEnd\n", "Object FirstSolo\nEnd\n"]);
+}
