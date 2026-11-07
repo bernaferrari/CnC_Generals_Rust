@@ -9,6 +9,9 @@ use std::{cell::Cell, rc::Rc};
 
 #[test]
 fn initialization_and_checkbox_notifications_preserve_each_clients_lobby() {
+    let _services = game_engine::common::common_services::CommonServicesScope::new();
+    let world = gamelogic::system::engine_stores::new_world_services();
+    gamelogic::system::engine_stores::with_world_services(&world, || {
     let mut client =
         GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted).unwrap();
     let other =
@@ -107,4 +110,5 @@ fn initialization_and_checkbox_notifications_preserve_each_clients_lobby() {
             .get_superweapon_restriction(),
         1
     );
+    });
 }
