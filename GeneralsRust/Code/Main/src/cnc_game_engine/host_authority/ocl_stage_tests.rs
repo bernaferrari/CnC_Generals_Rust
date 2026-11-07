@@ -1,7 +1,7 @@
 //! Actual map-loading candidate uses the receiving application OCL base.
 use super::*;
 use crate::save_load::{GameDifficulty, SaveFileType};
-const MAPPED_ARMOR_SOURCE: &str = "Object MappedArmorActor\n KindOf = VEHICLE\n Geometry = CYLINDER\n GeometryMajorRadius = 4\n GeometryHeight = 6\n ArmorSet\n Conditions = NONE\n Armor = SharedArmor\n DamageFX = None\n End\n Body = ActiveBody MappedArmorBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n";
+const MAPPED_ARMOR_SOURCE: &str = "Object MappedArmorActor\n KindOf = VEHICLE\n Geometry = CYLINDER\n GeometryMajorRadius = 4\n GeometryHeight = 6\n ArmorSet\n Conditions = NONE\n Armor = SharedArmor\n DamageFX = None\n End\n Body = ActiveBody MappedArmorBody\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\nObject Application\nEnd\nObject SavedMap\nEnd\nObject SavedSolo\nEnd\nObject ActiveApplication\nEnd\nObject ActiveMap\nEnd\nObject Peer\nEnd\n";
 
 struct OclNativeStageHarness {
     #[cfg(feature = "game_client")]
@@ -68,7 +68,7 @@ impl OclNativeStageHarness {
 }
 fn list(model: &str) -> String {
     format!(
-        "ObjectCreationList SameOCL\n CreateDebris\n ModelNames={model}\n Count=1\n End\n End\n"
+        "ObjectCreationList SameOCL\n CreateObject\n ObjectNames={model}\n Count=1\n End\n End\n"
     )
 }
 fn selected(world: &GameLogic) -> String {
@@ -79,6 +79,19 @@ fn selected(world: &GameLogic) -> String {
         .unwrap()
         .names[0]
         .clone()
+}
+fn execute(world: &mut GameLogic, source: crate::game_logic::ObjectId) -> String {
+    let created = world.execute_parsed_weapon_ocl_at(
+        "SameOCL",
+        Some(source),
+        crate::game_logic::Team::USA,
+        crate::game_logic::VeterancyLevel::Rookie,
+        0.0,
+        glam::Vec3::ZERO,
+        glam::Vec3::ZERO,
+    );
+    assert_eq!(created.len(), 1);
+    world.host_object(created[0]).unwrap().template_name.clone()
 }
 #[test]
 fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active_or_peer() {
@@ -227,7 +240,10 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                 source_owner.map_side.map_player_name.clone();
             receiving_owner.map_side.role = source_owner.map_side.role;
             peer.add_player(receiving_owner);
+            peer.templates = source.templates.clone();
             peer.add_object(source.host_object(actor_id).unwrap().clone());
+            assert_eq!(execute(&mut source, actor_id), "SavedSolo");
+            assert_eq!(execute(&mut peer, actor_id), "Peer");
             assert_eq!(
                 adjusted(&peer, actor_id),
                 200.0,
@@ -400,6 +416,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                 })
                 .unwrap();
             assert_eq!(selected(&staged.logic), "SavedSolo");
+            assert_eq!(execute(&mut staged.logic, actor_id), "SavedSolo");
             assert_eq!(adjusted(&staged.logic, actor_id), 25.0);
             assert!(Arc::ptr_eq(
                 &active.ocl_application_definitions(),
@@ -407,6 +424,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
             ));
             staged.logic.reset_ocl_map_definitions();
             assert_eq!(selected(&staged.logic), "ActiveApplication");
+            assert_eq!(execute(&mut staged.logic, actor_id), "ActiveApplication");
             // A successfully staged candidate retains the transaction gate
             // through its combined commit/drop. Finish this candidate's real
             // assertions and retire its token before starting a second stage.
@@ -485,6 +503,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                     )
                 })
                 .unwrap();
+            assert_eq!(execute(&mut archived.logic, actor_id), "SavedSolo");
             assert_eq!(
                 adjusted(&archived.logic, actor_id),
                 25.0,

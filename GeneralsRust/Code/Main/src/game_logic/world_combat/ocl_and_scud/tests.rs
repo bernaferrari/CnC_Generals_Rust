@@ -54,6 +54,39 @@ fn fire_ocl_never_uses_a_foreign_list_or_foreign_object_template() {
     peer.templates.remove("OwnedChild");
     assert!(execute(&mut peer, peer_id).is_empty());
 }
+#[test]
+fn receiving_ocl_effects_follow_overlays_and_world_reset() {
+    let text = |child: &str| format!(
+        "ObjectCreationList SameEffect\n CreateObject\n ObjectNames = {child}\n Count = 1\n End\nEnd\n"
+    );
+    let mut left = GameLogic::new();
+    let mut right = GameLogic::new();
+    left.admit_ocl_application_sources(&[text("LeftBase")]).unwrap();
+    right.admit_ocl_application_sources(&[text("RightBase")]).unwrap();
+    for world in [&mut left, &mut right] {
+        for name in ["Source", "LeftBase", "LeftMap", "LeftSolo", "RightBase"] {
+            world.templates.insert(name.into(), ThingTemplate::new(name));
+        }
+    }
+    let source = left.create_object("Source", Team::USA, Vec3::ZERO).unwrap();
+    let peer_source = right.create_object("Source", Team::USA, Vec3::ZERO).unwrap();
+    assert_eq!(source, peer_source);
+    left.apply_receiving_ocl_overrides(&[text("LeftMap"), text("LeftSolo")]).unwrap();
+    let execute = |world: &mut GameLogic, id| {
+        let ids = world.execute_parsed_weapon_ocl_at(
+            "SameEffect", Some(id), Team::USA, VeterancyLevel::Rookie,
+            0.0, Vec3::ZERO, Vec3::ZERO,
+        );
+        assert_eq!(ids.len(), 1);
+        world.objects[&ids[0]].template_name.clone()
+    };
+    assert_eq!(execute(&mut left, source), "LeftSolo");
+    assert_eq!(execute(&mut right, peer_source), "RightBase");
+    left.reset();
+    let source = left.create_object("Source", Team::USA, Vec3::ZERO).unwrap();
+    assert_eq!(execute(&mut left, source), "LeftBase");
+    assert_eq!(execute(&mut right, peer_source), "RightBase");
+}
 
 #[test]
 fn retail_fire_field_ocl_creates_the_authored_object_for_the_source_team() {
