@@ -59,8 +59,10 @@ ObjectCreationUpgrade and its receiving OCL create the actual portable object;
 the hull no longer synthesizes a bunker, weapon or propaganda source from an
 upgrade name. Overlord contain queries redirect to the contained rider's real
 module, including presentation capacity and roster. The rider owns its weapon,
-propaganda behavior and body damage. Helix containment holds its passengers;
-its portable rider may still fire, while nested containment forbids firing.
+propaganda behavior and body damage. Helix keeps its portable rider separate
+from its passenger roster; authored initial payloads enter their receiving
+contain module, including Overlord redirection through an installed rider.
+The portable rider may fire, while nested containment forbids firing.
 PassengersFireUpgrade participates in authored UpgradeMux order and its
 execution marker persists with the object's upgrade snapshot. The lifecycle
 record carries the physical rider identity and redirection phase and rejects
