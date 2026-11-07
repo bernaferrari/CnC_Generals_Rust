@@ -116,19 +116,40 @@ fn interleaved_real_maps_and_companions_use_the_receiving_filesystem() {
     copy_map(second_root.path(), &second_map, 5678);
     let mut first = GameLogic::new();
     let mut second = GameLogic::new();
+    // GameData.ini supplies this required PartitionManager rule in application
+    // startup; GameLogic::new deliberately has no admitted application rules.
+    let movement = game_engine::common::ini::ini_game_data::CameraMovementRules::default()
+        .overlay_ini_text("GameData\n PartitionCellSize = 40\nEnd\n")
+        .unwrap();
+    first.admit_camera_application_movement(movement);
+    second.admit_camera_application_movement(movement);
+    first.admit_new_game_starting_cash(None, 10_000);
+    second.admit_new_game_starting_cash(None, 10_000);
     first.bind_application_assets(owner(first_root.path()));
     second.bind_application_assets(owner(second_root.path()));
     let name = "Maps/Shared/Shared.map";
-    assert!(first.load_map(name));
+    let mut phase = String::new();
+    assert!(
+        first.load_map_with_progress(name, |_, current| phase = current.to_owned()),
+        "first map admission failed after phase {phase}"
+    );
     let first_bounds = first.world_bounds();
-    assert_eq!(first.skirmish_rules.starting_cash_default, Some(1234));
-    assert!(second.load_map(name));
-    assert_eq!(second.skirmish_rules.starting_cash_default, Some(5678));
+    assert_eq!(first.skirmish_rules.starting_cash, 1234);
+    phase.clear();
+    assert!(
+        second.load_map_with_progress(name, |_, current| phase = current.to_owned()),
+        "second map admission failed after phase {phase}"
+    );
+    assert_eq!(second.skirmish_rules.starting_cash, 5678);
     assert_ne!(first_bounds, second.world_bounds(), "distinct retail geometry must not resolve to one owner");
     assert_eq!(first.world_bounds(), first_bounds);
-    assert_eq!(first.skirmish_rules.starting_cash_default, Some(1234));
-    assert!(first.load_map(name));
+    assert_eq!(first.skirmish_rules.starting_cash, 1234);
+    phase.clear();
+    assert!(
+        first.load_map_with_progress(name, |_, current| phase = current.to_owned()),
+        "first map readmission failed after phase {phase}"
+    );
     assert_eq!(first.world_bounds(), first_bounds);
-    assert_eq!(first.skirmish_rules.starting_cash_default, Some(1234));
-    assert_eq!(second.skirmish_rules.starting_cash_default, Some(5678));
+    assert_eq!(first.skirmish_rules.starting_cash, 1234);
+    assert_eq!(second.skirmish_rules.starting_cash, 5678);
 }
