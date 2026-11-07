@@ -201,6 +201,16 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         self.play_container_exit_sound(container_id, effects);
+        self.play_container_on_removing_template_sounds(container_id, rider_id, effects);
+    }
+
+    /// OpenContain::onRemoving cues, without removeFromContain's doUnloadSound.
+    pub(crate) fn play_container_on_removing_template_sounds(
+        &mut self,
+        container_id: ObjectId,
+        rider_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if let Some(event) =
             self.contain_template_audio(container_id, ThingTemplateAudioType::SoundExit)
         {

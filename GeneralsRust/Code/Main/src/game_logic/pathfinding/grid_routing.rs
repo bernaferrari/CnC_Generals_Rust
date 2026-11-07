@@ -1436,8 +1436,12 @@ impl PathfindingGrid {
         objects: HostObjectRead<'_>,
     ) -> bool {
         let above = radius + i32::from(center_in_cell);
-        let ignored = mover.ignored_obstacle_id.map_or(0, |id| id.0);
-        let checks_aircraft = Self::is_aircraft_that_adjusts_destination(mover);
+        // C++ initializes all three values to INVALID_ID/false unless the
+        // object actually has an AIUpdateInterface (AIPathfind.cpp:4907-4913).
+        let has_ai = mover.has_ai_update_interface();
+        let seeker = if has_ai { mover.id.0 } else { 0 };
+        let ignored = if has_ai { mover.ignored_obstacle_id.map_or(0, |id| id.0) } else { 0 };
+        let checks_aircraft = has_ai && Self::is_aircraft_that_adjusts_destination(mover);
         for x in cell.x - radius..cell.x + above {
             for y in cell.y - radius..cell.y + above {
                 let pos = GridPos::new(x, y);
@@ -1451,7 +1455,7 @@ impl PathfindingGrid {
                     } else {
                         0
                     };
-                    if aircraft_goal != 0 && aircraft_goal != mover.id.0 {
+                    if aircraft_goal != 0 && aircraft_goal != seeker {
                         return false;
                     }
                     continue;
@@ -1475,28 +1479,17 @@ impl PathfindingGrid {
                 }
                 let bits = self.raw_occupancy_bits(pos, actual_layer);
                 let goal_id = bits.goal_unit;
-                if goal_id == 0 || goal_id == mover.id.0 || goal_id == ignored {
+                if goal_id == 0 || goal_id == seeker || goal_id == ignored {
                     continue;
                 }
                 let Some(goal) = objects.lookup(&ObjectId(goal_id)) else {
                     continue;
                 };
-                let allied = objects.relationship(mover, goal).map_or_else(
-                    || {
-                        if mover.is_undetected_defector() {
-                            false
-                        } else if goal.is_undetected_defector() {
-                            true
-                        } else if let (Some(source), Some(target)) =
-                            (mover.owner_player_id, goal.owner_player_id)
-                        {
-                            source == target || (self.ally_mask_for(source) & (1u16 << target.min(15))) != 0
-                        } else {
-                            mover.team == goal.team
-                        }
-                    },
-                    |relationship| relationship == gamelogic::common::Relationship::Allies,
-                );
+                let Some(relationship) = objects.relationship(mover, goal) else {
+                    // Only the receiver's world can resolve this relationship.
+                    return false;
+                };
+                let allied = relationship == gamelogic::common::Relationship::Allies;
                 if allied || (bits.pos_unit == goal_id && !mover.can_crush_or_squish(goal, false)) {
                     return false;
                 }
@@ -1777,62 +1770,8 @@ impl PathfindingGrid {
             .unwrap_or(zone)
     }
 
-    /// C++ `Pathfinder::adjustToPossibleDestination` (AIPathfind.cpp:5510-5617).
-    /// Weaker than `adjustDestination` / checkForAdjust — same-zone spiral.
-    pub fn adjust_to_possible_destination(
-        &self,
-        start: Vec3,
-        dest: &mut Vec3,
-        surfaces: u32,
-        is_crusher: bool,
-        unit_radius: f32,
-        ground_source: &PathfindingGround<'_>,
-    ) -> bool {
-        self.adjust_to_possible_destination_ex(
-            start,
-            dest,
-            surfaces,
-            is_crusher,
-            unit_radius,
-            None,
-            if is_crusher { 1 } else { 0 },
-            ground_source,
-        )
-    }
-
-    pub fn adjust_to_possible_destination_ex(
-        &self,
-        start: Vec3,
-        dest: &mut Vec3,
-        surfaces: u32,
-        is_crusher: bool,
-        unit_radius: f32,
-        seeker_player: Option<u32>,
-        crusher_level: u8,
-        ground_source: &PathfindingGround<'_>,
-    ) -> bool {
-        let receiver = PossibleDestinationReceiver {
-            seeker_id: 0,
-            ignore_id: 0,
-            aircraft: false,
-            player: seeker_player,
-            crusher_level,
-            source_layer: PathfindLayerEnum::Ground,
-            live: None,
-        };
-        self.adjust_to_possible_destination_with_receiver(
-            start,
-            dest,
-            surfaces,
-            is_crusher,
-            unit_radius,
-            receiver,
-            ground_source,
-        )
-    }
-
     /// Resolve the C++ checkDestination receiver from the object for this call.
-    pub(super) fn adjust_to_possible_destination_for_object(
+    pub fn adjust_to_possible_destination_for_object(
         &self,
         obj: &Object,
         objects: HostObjectRead<'_>,
@@ -1841,14 +1780,17 @@ impl PathfindingGrid {
         surfaces: u32,
         ground_source: &PathfindingGround<'_>,
     ) -> bool {
+        // The receiver and relationship owner must belong to the same world.
+        // IDs alone are not unique across independent sessions.
+        if !objects.lookup(&obj.id).is_some_and(|live| std::ptr::eq(live, obj))
+            || objects.relationship(obj, obj).is_none()
+        {
+            return false;
+        }
         let receiver = PossibleDestinationReceiver {
-            seeker_id: obj.id.0,
-            ignore_id: obj.ignored_obstacle_id.map_or(0, |id| id.0),
-            aircraft: Self::is_aircraft_that_adjusts_destination(obj),
-            player: obj.owner_player_id.or(Some(obj.team as u32)),
-            crusher_level: obj.crusher_level,
             source_layer: PathfindLayerEnum::from_u32(obj.pathfind_layer as u32),
-            live: Some((obj, objects)),
+            mover: obj,
+            objects,
         };
         self.adjust_to_possible_destination_with_receiver(
             start,
@@ -2019,75 +1961,9 @@ impl PathfindingGrid {
         center_in_cell: bool,
         receiver: PossibleDestinationReceiver<'_>,
     ) -> bool {
-        if let Some((mover, objects)) = receiver.live {
-            return self.check_destination_for_object(
-                cell, layer, radius, center_in_cell, mover, objects,
-            );
-        }
-        let above = radius + i32::from(center_in_cell);
-        for x in (cell.x - radius)..(cell.x + above) {
-            for y in (cell.y - radius)..(cell.y + above) {
-                let pos = GridPos::new(x, y);
-                if !self.is_valid_pos(pos) {
-                    return false;
-                }
-                if receiver.aircraft {
-                    // updateAircraftGoal registers on ground cells. A present
-                    // bridge/wall cell has its own aircraft-goal field in C++.
-                    if layer != PathfindLayerEnum::Ground
-                        && self.layer_cell_type(layer as u8, pos).is_some()
-                    {
-                        continue;
-                    }
-                    let aircraft_goal = self.goal_aircraft(pos);
-                    if aircraft_goal != 0 && aircraft_goal != receiver.seeker_id {
-                        return false;
-                    }
-                    continue;
-                }
-                match self.resolved_cell_type(layer, pos) {
-                    PathfindCellType::Obstacle => {
-                        let ignored = receiver.ignore_id != 0
-                            && self
-                                .obstacle_owner(pos)
-                                .is_some_and(|(id, _, _)| id == receiver.ignore_id);
-                        if !ignored {
-                            return false;
-                        }
-                        continue;
-                    }
-                    PathfindCellType::Impassable | PathfindCellType::BridgeImpassable => {
-                        return false;
-                    }
-                    _ => {}
-                }
-                let bits = self.raw_occupancy_bits(pos, layer);
-                if bits.goal_unit == 0
-                    || bits.goal_unit == receiver.seeker_id
-                    || bits.goal_unit == receiver.ignore_id
-                {
-                    continue;
-                }
-                let Some(player) = receiver.player else {
-                    return false;
-                };
-                // A missing goal object has no owner and is ignored by C++.
-                if bits.goal == 0 {
-                    continue;
-                }
-                if bits.goal & (self.ally_mask_for(player) | (1u16 << player.min(15))) != 0 {
-                    return false;
-                }
-                // UNIT_PRESENT_FIXED means the position and goal are the
-                // same unit; check that unit's crushability.
-                if bits.pos_unit == bits.goal_unit
-                    && (receiver.crusher_level == 0 || receiver.crusher_level <= bits.pos_crushable)
-                {
-                    return false;
-                }
-            }
-        }
-        true
+        self.check_destination_for_object(
+            cell, layer, radius, center_in_cell, receiver.mover, receiver.objects,
+        )
     }
 
     /// C++ checkForPossible + checkDestination for adjustToPossibleDestination spiral.

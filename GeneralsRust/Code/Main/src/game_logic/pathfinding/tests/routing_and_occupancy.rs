@@ -3,6 +3,19 @@ use super::super::*;
 fn open_grid(w: i32, h: i32) -> PathfindingGrid {
     PathfindingGrid::new(w as f32 * 10.0, h as f32 * 10.0, 10.0)
 }
+
+fn sphere(template: &mut crate::game_logic::ThingTemplate, radius: f32) {
+    template.geometry_info.geom_type = crate::game_logic::HostGeometryType::Sphere;
+    template.geometry_info.major_radius = radius;
+    template.geometry_info.authored = true;
+}
+
+fn stamp_position(grid: &mut PathfindingGrid, actor: &crate::game_logic::Object) {
+    let footprint = grid.path_position_footprint(actor);
+    grid.update_path_position_cell(&footprint, (-1, -1), actor.get_position());
+    // AIIdleState::doInitIdleState registers the same cell as the idle goal.
+    grid.update_ground_goal_cell(actor.id.0, footprint.player, footprint.radius, false, (-1, -1), actor.get_position());
+}
 /// hq-9jz4r: layer change only looks ALLOWED_STEPS=3 past the ramp.
 #[test]
 fn optimize_caps_bridge_layer_steps() {
@@ -66,12 +79,14 @@ fn optimize_respects_occupancy_and_unpinched_cliff() {
     let mut objects = HostObjectStore::new();
     let mut tmpl = ThingTemplate::new("Ranger");
     tmpl.add_kind_of(KindOf::Infantry);
+    sphere(&mut tmpl, 1.0);
     let mut ally = Object::new(tmpl, ObjectId(4), Team::USA);
     ally.set_position(g.grid_to_world(
         GridPos::new(8, 4),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     ));
     ally.owner_player_id = Some(0);
+    stamp_position(&mut g, &ally);
     objects.admit(ally.id, ally);
     g.update_dynamic_obstacles(
         objects.read(),
@@ -653,7 +668,7 @@ fn adjust_to_possible_destination_walks_near_blocked_goal() {
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     assert!(
-        g.adjust_to_possible_destination(
+        super::adjust_fixture(&g,
             start,
             &mut dest,
             SURFACE_GROUND,
@@ -676,7 +691,7 @@ fn adjust_to_possible_destination_out_of_bounds_fails() {
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     let mut dest = Vec3::new(50_000.0, 0.0, 50_000.0);
-    assert!(!g.adjust_to_possible_destination(
+    assert!(!super::adjust_fixture(&g,
         start,
         &mut dest,
         SURFACE_GROUND,
@@ -898,10 +913,12 @@ fn infantry_occupancy_is_single_cell() {
     let mut objects = HostObjectStore::new();
     let mut tmpl = ThingTemplate::new("Ranger");
     tmpl.add_kind_of(KindOf::Infantry);
+    sphere(&mut tmpl, 5.0);
     let mut inf = Object::new(tmpl, ObjectId(1), Team::USA);
     inf.set_position(Vec3::new(55.0, 0.0, 55.0));
     inf.owner_player_id = Some(0);
     inf.selection_radius = 5.0;
+    stamp_position(&mut g, &inf);
     objects.admit(inf.id, inf);
     g.update_dynamic_obstacles(
         objects.read(),
@@ -1002,6 +1019,7 @@ fn move_allies_uses_allies_radius_and_ignore() {
     let mut objects = HostObjectStore::new();
     let mut mover_t = ThingTemplate::new("Overlord");
     mover_t.add_kind_of(KindOf::Vehicle);
+    sphere(&mut mover_t, 25.0);
     let mut mover = Object::new(mover_t, ObjectId(1), Team::USA);
     mover.set_position(Vec3::new(10.0, 0.0, 10.0));
     mover.selection_radius = 25.0;
@@ -1222,8 +1240,10 @@ fn ground_movement_requires_live_ground_locomotor_and_not_held_or_falling() {
 
     // AIUpdate.cpp:2342-2345 special-cases an unmanned helicopter produced
     // at a helipad before checking current locomotor/surface state.
+    let mut heli_template = ThingTemplate::new("AmericaHelicopterComanche");
+    heli_template.add_kind_of(crate::game_logic::KindOf::ProducedAtHelipad);
     let mut parked_heli = Object::new(
-        ThingTemplate::new("AmericaHelicopterComanche"),
+        heli_template,
         ObjectId(71),
         Team::USA,
     );
@@ -1362,6 +1382,14 @@ fn dozer_hack_reaches_live_astar() {
     dozer.set_position(Vec3::new(20.0, 0.0, 35.0));
     dozer.owner_player_id = Some(0);
     objects.admit(dozer.id, dozer);
+    // dozerHack resolves the live obstacle object, not cached owner metadata.
+    for (id, player, team) in [(20, 0, Team::USA), (21, 2, Team::GLA)] {
+        let mut template = ThingTemplate::new("DozerGapOwner");
+        template.add_kind_of(KindOf::Structure).set_health(100.0);
+        let mut obstacle = Object::new(template, ObjectId(id), team);
+        obstacle.owner_player_id = Some(player);
+        objects.admit(obstacle.id, obstacle);
+    }
 
     let start = Vec3::new(20.0, 0.0, 35.0);
     let goal = Vec3::new(90.0, 0.0, 35.0);
@@ -1857,6 +1885,7 @@ fn final_position_stamps_only_after_the_path_is_cleared() {
     let mut objects = HostObjectStore::new();
     let mut tmpl = ThingTemplate::new("Ranger");
     tmpl.add_kind_of(KindOf::Infantry);
+    sphere(&mut tmpl, 5.0);
     let mut inf = Object::new(tmpl, ObjectId(7), Team::USA);
     let stand = g.grid_to_world(
         GridPos::new(4, 4),
@@ -1877,6 +1906,7 @@ fn final_position_stamps_only_after_the_path_is_cleared() {
     inf.movement.current_path_index = 1;
     inf.do_final_position = true;
     inf.final_position = planted;
+    let old_goal = g.update_ground_goal_cell(inf.id.0, 0, inf.geometry_info().bounding_circle_radius(), false, (-1, -1), path_end);
     objects.admit(inf.id, inf);
     g.update_dynamic_obstacles(
         objects.read(),
@@ -1896,6 +1926,8 @@ fn final_position_stamps_only_after_the_path_is_cleared() {
         0
     );
     objects.get_mut(&ObjectId(7)).unwrap().movement.path.clear();
+    let actor = objects.get(&ObjectId(7)).unwrap();
+    g.update_ground_goal_cell(actor.id.0, 0, actor.geometry_info().bounding_circle_radius(), false, old_goal, actor.final_position);
     g.update_dynamic_obstacles(
         objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
@@ -1920,6 +1952,7 @@ fn aircraft_final_cell_stamps_only_after_the_path_is_cleared() {
     let mut objects = HostObjectStore::new();
     let mut tmpl = ThingTemplate::new("Raptor");
     tmpl.add_kind_of(KindOf::Aircraft);
+    sphere(&mut tmpl, 5.0);
     let mut jet = Object::new(tmpl, ObjectId(8), Team::USA);
     let stand = g.grid_to_world(
         GridPos::new(4, 6),
@@ -1941,6 +1974,7 @@ fn aircraft_final_cell_stamps_only_after_the_path_is_cleared() {
     jet.movement.path = vec![stand, path_end];
     jet.do_final_position = true;
     jet.final_position = planted;
+    let old_goal = g.update_aircraft_goal_cell(jet.id.0, jet.geometry_info().bounding_circle_radius(), (-1, -1), 0, path_end, true);
     objects.admit(jet.id, jet);
     g.update_dynamic_obstacles(
         objects.read(),
@@ -1951,6 +1985,8 @@ fn aircraft_final_cell_stamps_only_after_the_path_is_cleared() {
     assert_eq!(g.goal_aircraft(path_cell), 8);
     assert_eq!(g.goal_aircraft(final_cell), 0);
     objects.get_mut(&ObjectId(8)).unwrap().movement.path.clear();
+    let actor = objects.get(&ObjectId(8)).unwrap();
+    g.update_aircraft_goal_cell(actor.id.0, actor.geometry_info().bounding_circle_radius(), old_goal, 0, actor.final_position, true);
     g.update_dynamic_obstacles(
         objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),

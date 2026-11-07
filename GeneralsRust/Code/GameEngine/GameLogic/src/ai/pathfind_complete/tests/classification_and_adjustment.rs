@@ -445,7 +445,19 @@ fn adjust_to_possible_destination_out_of_bounds_fails() {
     let system = PathfindingSystem::new(8, 8);
     let start = Coord3D::new(10.0, 10.0, 0.0);
     let mut dest = Coord3D::new(50_000.0, 50_000.0, 0.0);
-    assert!(!system.adjust_to_possible_destination(&start, &mut dest, SURFACE_GROUND, false, 0.0));
+    let object = crate::object::Object::new_test(100, 100.0);
+    let owner = AdjustmentOwner {
+        source: &object,
+        request: PathRequest {
+            object_id: 100, from: start, to: dest, surfaces: SURFACE_GROUND,
+            is_crusher: false, unit_radius: 0.0, allow_partial: false,
+            move_allies: false, ignore_obstacle_id: None, is_human: false,
+        },
+        aircraft_goal_only: false,
+    };
+    assert!(!system.adjust_to_possible_destination_with_observations(
+        &start, &mut dest, SURFACE_GROUND, false, 0.0, None, &owner,
+    ));
 }
 
 #[test]

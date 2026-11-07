@@ -424,8 +424,15 @@ impl GameLogic {
             self.apply_owned_script_idle(passenger);
             return;
         }
+        let rail_contain = container.thing().template.contain_module.kind
+            == crate::game_logic::ContainModuleKind::RailedTransport;
+        if rail_contain && self.railed_dock_config(container_id).is_some()
+            && !self.railed_dock_reserve_exit(container_id)
+        {
+            return;
+        }
         if container.is_subdued_disabled()
-            || container.is_transport_exit_busy(self.frame)
+            || (!rail_contain && container.is_transport_exit_busy(self.frame))
             || container.chinook_ai.as_ref().is_some_and(|ai| {
                 ai.ai_free_to_exit(can_rappel)
                     == crate::game_logic::host_combat_chinook::HostChinookFreeToExit::WaitToExit

@@ -63,7 +63,7 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         self.cost_modifier_on_delete(id);
-        self.detach_destroyed_object_from_contain(id);
+        self.detach_destroyed_object_from_contain(id, effects)?;
         self.delete_direct_containment_with_effects(id, effects)?;
         self.remove_host_radar_provider(id);
         if let Some(object) = self.objects.get_mut(&id) {
@@ -189,6 +189,11 @@ impl GameLogic {
                 .teardown_object(child_id)
                 .is_some_and(|child| child.contained_by == Some(container_id))
         {
+            return Ok(());
+        }
+        if container.thing().template.contain_module.kind == ContainModuleKind::RailedTransport {
+            self.railed_remove_contained_with_effects(container_id, child_id, effects)
+                .map_err(gamelogic::GameLogicError::Configuration)?;
             return Ok(());
         }
         if container.thing().template.contain_module.kind == ContainModuleKind::Parachute {
@@ -361,9 +366,18 @@ impl GameLogic {
 
     /// Object::onDestroy removes the exact occupant while both identities are
     /// still installed. Physical deletion must not be needed to free its slot.
-    fn detach_destroyed_object_from_contain(&mut self, id: ObjectId) {
+    fn detach_destroyed_object_from_contain(
+        &mut self, id: ObjectId, effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         let containing = self.objects.get(&id).and_then(|o| o.contained_by);
         if let Some(cid) = containing {
+            if self.objects.get(&cid).is_some_and(|container| {
+                container.thing().template.contain_module.kind == ContainModuleKind::RailedTransport
+            }) {
+                self.railed_remove_contained_with_effects(cid, id, effects)
+                    .map_err(gamelogic::GameLogicError::Configuration)?;
+                return Ok(());
+            }
             let garrison = self
                 .objects
                 .get(&cid)
@@ -407,6 +421,7 @@ impl GameLogic {
         if self.cave_system.index_holding_unit(id).is_some() {
             let _ = self.exit_cave_unit(id, containing.unwrap_or(id));
         }
+        Ok(())
     }
 
     /// Physical-only queue completion: no onDie, body damage, bounty or death FX.

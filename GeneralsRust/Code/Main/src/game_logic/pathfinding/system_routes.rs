@@ -60,6 +60,10 @@ impl PathfindingSystem {
         mover: Option<ObjectId>,
         ground_source: &PathfindingGround<'_>,
     ) -> Option<Vec<Vec3>> {
+        // An object-bound request cannot be retargeted to stale search state.
+        if mover.is_some_and(|id| objects.lookup(&id).is_none()) {
+            return None;
+        }
         self.last_found_path_layers.clear();
         self.ensure_dynamic_obstacles(objects, ground_source);
         self.bind_seeker_from_mover(objects, mover);
@@ -203,26 +207,15 @@ impl PathfindingSystem {
                         // C++ doPathfind / dozer packed goal: adjustToPossibleDestination
                         // then retry computePath (weaker than checkForAdjust).
                         let mut possible = goal;
-                        let adjusted =
-                            if let Some(obj) = self.seeker_id.and_then(|id| objects.lookup(&id)) {
-                                self.grid.adjust_to_possible_destination_for_object(
-                                    obj,
-                                    objects,
-                                    start,
-                                    &mut possible,
-                                    surfaces,
-                                    ground_source,
-                                )
-                            } else {
-                                self.adjust_to_possible_destination(
-                                    start,
-                                    &mut possible,
-                                    surfaces,
-                                    is_crusher,
-                                    0.0,
-                                    ground_source,
-                                )
-                            };
+                        let obj = mover.and_then(|id| objects.lookup(&id))?;
+                        let adjusted = self.grid.adjust_to_possible_destination_for_object(
+                            obj,
+                            objects,
+                            start,
+                            &mut possible,
+                            surfaces,
+                            ground_source,
+                        );
                         if !adjusted {
                             return None;
                         }
@@ -291,29 +284,6 @@ impl PathfindingSystem {
     /// C++ `Pathfinder::findBrokenBridge` on the live host grid.
     pub fn find_broken_bridge(&self, from: Vec3, to: Vec3) -> Option<ObjectId> {
         self.grid.find_broken_bridge(from, to)
-    }
-
-    /// C++ `Pathfinder::adjustToPossibleDestination` (AIPathfind.cpp:5510-5617).
-    pub fn adjust_to_possible_destination(
-        &self,
-        start: Vec3,
-        dest: &mut Vec3,
-        surfaces: u32,
-        is_crusher: bool,
-        unit_radius: f32,
-        ground_source: &PathfindingGround<'_>,
-    ) -> bool {
-        let crusher_level = if is_crusher { 1 } else { 0 };
-        self.grid.adjust_to_possible_destination_ex(
-            start,
-            dest,
-            surfaces,
-            is_crusher,
-            unit_radius,
-            None,
-            crusher_level,
-            ground_source,
-        )
     }
 
     /// C++ `adjustToPossibleDestination(obj, locomotorSet, dest)`.

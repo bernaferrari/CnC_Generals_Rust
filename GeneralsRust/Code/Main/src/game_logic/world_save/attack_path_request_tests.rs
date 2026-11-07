@@ -32,6 +32,95 @@ fn world(loaded: bool, target: Vec3) -> GameLogic {
 fn resolve(world: &mut GameLogic) {
     world.process_pathfind_queue();
 }
+#[test]
+fn queued_attack_fallback_uses_receiver_ignore_after_snapshot() {
+    use game_engine::common::{ini::ini_locomotor::LocomotorStore, system::DataChunkOutput};
+    use crate::game_logic::{GameMode, Player};
+    use crate::save_load::{Snapshot, SnapshotBuilder, WorldSnapshot, XferLoad, XferSave};
+    // AIUpdate.cpp:435-437 adjusts before replacing the ignored obstacle with
+    // the victim. A reservation belonging to another ally exposes that order.
+    let directory = tempfile::tempdir().unwrap();
+    let map = directory.path().join("AttackDestination.map");
+    let mut data = DataChunkOutput::new();
+    data.open_data_chunk("HeightMapData", 3);
+    for value in [41, 41, 1, 1681] {
+        data.write_int(value);
+    }
+    for _ in 0..1681 {
+        data.write_byte(0);
+    }
+    data.close_data_chunk();
+    data.open_data_chunk("ObjectsList", 3);
+    data.close_data_chunk();
+    std::fs::write(&map, data.into_ckmp_bytes()).unwrap();
+    let make_world = |map: &std::path::Path| {
+        let mut world = GameLogic::new();
+        let mut locomotors = LocomotorStore::new_owned();
+        locomotors.apply_source("Locomotor RetryWalk\n Surfaces = GROUND\n Speed = 30\n Acceleration = 60\n TurnRate = 360\n Appearance = TWO_LEGS\nEnd\n").unwrap();
+        world.admit_locomotor_definitions(locomotors).unwrap();
+        world.admit_object_ini_sources([
+            ("RetryWalk.ini".into(), "Object RetryWalker\n KindOf = SELECTABLE INFANTRY\n Locomotor = SET_NORMAL RetryWalk\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into()),
+        ]).unwrap();
+        world.start_new_game(GameMode::SinglePlayer).unwrap();
+        assert!(world.load_map(map.to_str().unwrap()));
+        world.add_player(Player::new(1, Team::USA, "Owner", true));
+        world
+    };
+    let goal = Vec3::new(155.0, 0.0, 105.0);
+    let mut worlds = [make_world(&map), make_world(&map)];
+    let mut ids = Vec::new();
+    for receiver in &mut worlds {
+        let attacker = receiver.create_object_for_player("RetryWalker", 1, Vec3::new(105.0, 0.0, 105.0)).unwrap();
+        let victim = receiver.create_object_for_player("RetryWalker", 1, goal).unwrap();
+        let reserving = receiver.create_object_for_player("RetryWalker", 1, Vec3::new(200.0, 0.0, 100.0)).unwrap();
+        // requestAttackPath retains an existing path until doPathfind; keep
+        // that path in flight across the object-update/queue boundary.
+        assert!(receiver.assign_unit_path_exact(attacker, Vec3::new(105.0, 0.0, 205.0), &[]));
+        // A moving victim rebuilds its separate saved goal on load. An idle
+        // victim would correctly reserve its current position during
+        // AIUpdate.cpp:5231-5245 and replace the reservation under test.
+        receiver.host_object_mut(victim).unwrap().is_final_goal = true;
+        assert!(receiver.assign_unit_path_exact(victim, Vec3::new(255.0, 0.0, 105.0), &[]));
+        assert!(receiver.host_object(victim).unwrap().host_ai_is_moving());
+        assert_ne!(receiver.host_object(victim).unwrap().pathfind_goal_cell, (15, 10));
+        receiver.host_object_mut(reserving).unwrap().is_final_goal = true;
+        assert!(receiver.assign_unit_path_exact(reserving, goal, &[]));
+        ids.push((attacker, victim, reserving));
+    }
+    assert_eq!(ids[0], ids[1]);
+    worlds[0].host_object_mut(ids[0].0).unwrap().ignored_obstacle_id = Some(ids[0].2);
+    for receiver in &mut worlds {
+        assert!(receiver.request_attack_path(ids[0].0, Some(ids[0].1), goal).unwrap());
+    }
+    let builder = SnapshotBuilder::new();
+    let mut snapshot = builder.create_world_snapshot(&worlds[0]).unwrap();
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    snapshot.xfer(&mut XferSave::new(&mut bytes)).unwrap();
+    let mut snapshot = WorldSnapshot::default();
+    snapshot.xfer(&mut XferLoad::new(std::io::Cursor::new(bytes.into_inner()))).unwrap();
+    let mut restored = make_world(&map);
+    builder.restore_from_snapshot(&snapshot, &mut restored).unwrap();
+    let [owner, peer] = &mut worlds;
+    for (label, receiver, ignored) in [("owner", owner, true), ("restored", &mut restored, true), ("peer", peer, false)] {
+        assert!(receiver.host_object(ids[0].1).unwrap().host_ai_is_moving(), "{label}: victim must retain its separate moving goal");
+        let before = receiver.host_object(ids[0].0).unwrap();
+        assert!(before.waiting_for_path, "{label}: attack request was not restored/queued");
+        assert_eq!(before.ignored_obstacle_id, ignored.then_some(ids[0].2), "{label}: receiver ignore before queue drain");
+        assert_eq!(receiver.pathfinding_ground_goal(crate::game_logic::pathfinding::GridPos::new(15, 10)), Some(ids[0].2), "{label}: reservation before queue drain");
+        let mut initial_destination = goal;
+        assert!(receiver.adjust_to_possible_destination(ids[0].0, &mut initial_destination));
+        assert_eq!(initial_destination == goal, ignored, "{label}: receiver context before queue drain, destination {initial_destination:?}");
+        // Drive AI::update's real queue boundary directly; a full frame also
+        // runs object updates before this boundary.
+        receiver.process_pathfind_queue().unwrap();
+        let attacker = receiver.host_object(ids[0].0).unwrap();
+        assert!(!attacker.waiting_for_path);
+        assert!(!attacker.is_attack_path, "the weaponless request must take the fallback");
+        assert_eq!(attacker.ignored_obstacle_id, Some(ids[0].1));
+        let actual = attacker.requested_destination.expect("fallback destination");
+        assert_eq!(actual == goal, ignored, "{label}: queued fallback destination {actual:?}, victim position {:?}", receiver.host_object(ids[0].1).unwrap().get_position());
+    }
+}
 
 #[test]
 fn attack_request_mapless_fallback_keeps_victim_and_skips_move_initializer() {

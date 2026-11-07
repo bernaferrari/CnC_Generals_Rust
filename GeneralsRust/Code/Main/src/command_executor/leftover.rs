@@ -268,13 +268,17 @@ impl<'a> CommandExecutor<'a> {
 
             self.game_logic
                 .unit_command_stop_moving_order_target(unit_id, Some(target_id))?;
-            let slots = self.game_logic.host_object(target_id).map(|dock| {
-                crate::game_logic::host_supply_gather::number_approach_positions_for_dock(
-                    &dock.template_name,
-                    dock.thing().template.dock_kind,
-                    dock.is_kind_of(KindOf::RepairPad),
-                    dock.thing().template.dock_delete_when_empty,
-                )
+            let slots = self.game_logic.host_object(target_id).and_then(|dock| {
+                if dock.thing().template.dock_kind == crate::game_logic::DockKind::RailedTransport {
+                    self.game_logic.railed_dock_approach_settings(target_id).map(|settings| settings.0)
+                } else {
+                    Some(crate::game_logic::host_supply_gather::number_approach_positions_for_dock(
+                        &dock.template_name,
+                        dock.thing().template.dock_kind,
+                        dock.is_kind_of(KindOf::RepairPad),
+                        dock.thing().template.dock_delete_when_empty,
+                    ))
+                }
             });
             if slots.is_some_and(|n| n != 0) {
                 let _ = self.game_logic.try_claim_dock(target_id, unit_id);

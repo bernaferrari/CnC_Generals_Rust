@@ -147,6 +147,106 @@ fn mark_unit_moving(world: &mut GameLogic, id: ObjectId) {
     assert!(actor.host_ai_is_moving());
 }
 
+fn xfer_world_snapshot(world: &GameLogic) -> generals_main::save_load::WorldSnapshot {
+    use generals_main::save_load::{Snapshot, WorldSnapshot, XferLoad, XferSave};
+    let mut snapshot = SnapshotBuilder::new().create_world_snapshot(world).unwrap();
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    snapshot.xfer(&mut XferSave::new(&mut bytes)).unwrap();
+    let mut loaded = WorldSnapshot::default();
+    loaded.xfer(&mut XferLoad::new(std::io::Cursor::new(bytes.into_inner()))).unwrap();
+    loaded
+}
+
+#[test]
+fn collision_unstack_uses_each_worlds_receiver_ignore_after_snapshot() {
+    // AIUpdate.cpp:1551-1560 adjusts each idle object's position with that
+    // object's own checkDestination receiver before issuing its move.
+    let directory = tempfile::tempdir().unwrap();
+    let map = directory.path().join("CollisionDestination.map");
+    let mut data = DataChunkOutput::new();
+    data.open_data_chunk("HeightMapData", 3);
+    for value in [41, 41, 1, 1681] {
+        data.write_int(value);
+    }
+    for _ in 0..1681 {
+        data.write_byte(0);
+    }
+    data.close_data_chunk();
+    data.open_data_chunk("ObjectsList", 3);
+    data.close_data_chunk();
+    std::fs::write(&map, data.into_ckmp_bytes()).unwrap();
+    let position = Vec3::new(100.0, 0.0, 100.0);
+    let mut worlds = [world(&map), world(&map)];
+    let mut ids = Vec::new();
+    for world in &mut worlds {
+        let first = world.create_object_for_player("RetryWalker", 1, position).unwrap();
+        let second = world.create_object_for_player("RetryWalker", 1, position).unwrap();
+        let reserving = world.create_object_for_player("RetryWalker", 1, Vec3::new(150.0, 0.0, 100.0)).unwrap();
+        world.host_object_mut(reserving).unwrap().is_final_goal = true;
+        assert!(world.assign_unit_path_exact(reserving, position, &[]));
+        for id in [first, second] {
+            world.host_object_mut(id).unwrap().ultra_accurate = true;
+        }
+        ids.push((first, second, reserving));
+    }
+    assert_eq!(ids[0], ids[1]);
+    worlds[0].host_object_mut(ids[0].0).unwrap().ignored_obstacle_id = Some(ids[0].2);
+    let builder = SnapshotBuilder::new();
+    let snapshot = xfer_world_snapshot(&worlds[0]);
+    let mut restored = world(&map);
+    builder.restore_from_snapshot(&snapshot, &mut restored).unwrap();
+
+    let [owner, peer] = &mut worlds;
+    for (receiver, ignored) in [(owner, true), (&mut restored, true), (peer, false)] {
+        receiver.try_physics_collide(ids[0].0, ids[0].1, 1.0).unwrap();
+        let first_goal = receiver.host_object(ids[0].0).unwrap().requested_destination
+            .expect("unstack must issue the first receiver's move");
+        let second_goal = receiver.host_object(ids[0].1).unwrap().requested_destination
+            .expect("unstack must issue the second receiver's move");
+        assert_eq!(first_goal == position, ignored);
+        assert_ne!(second_goal, position, "the second receiver must not inherit the first receiver's ignore");
+    }
+}
+
+
+#[test]
+fn idle_victim_reserves_its_cell_before_queued_attack_fallback() {
+    // AIStates.cpp:1311-1356 updates an idle unit's goal during object
+    // updates; GameLogic.cpp:3698-3744 drains paths only afterwards.
+    let directory = tempfile::tempdir().unwrap();
+    let map = directory.path().join("IdleVictimReservation.map");
+    let mut data = DataChunkOutput::new();
+    data.open_data_chunk("HeightMapData", 3);
+    for value in [41, 41, 1, 1681] {
+        data.write_int(value);
+    }
+    for _ in 0..1681 {
+        data.write_byte(0);
+    }
+    data.close_data_chunk();
+    data.open_data_chunk("ObjectsList", 3);
+    data.close_data_chunk();
+    std::fs::write(&map, data.into_ckmp_bytes()).unwrap();
+    let goal = Vec3::new(155.0, 0.0, 105.0);
+    let mut world = world(&map);
+    let attacker = world.create_object_for_player("RetryWalker", 1, Vec3::new(105.0, 0.0, 105.0)).unwrap();
+    let victim = world.create_object_for_player("RetryWalker", 1, goal).unwrap();
+    let reserved = world.create_object_for_player("RetryWalker", 1, Vec3::new(200.0, 0.0, 100.0)).unwrap();
+    world.host_object_mut(reserved).unwrap().is_final_goal = true;
+    assert!(world.assign_unit_path_exact(reserved, goal, &[]));
+    world.host_object_mut(attacker).unwrap().ignored_obstacle_id = Some(reserved);
+    assert!(world.request_attack_path(attacker, Some(victim), goal).unwrap());
+    let cell = generals_main::game_logic::pathfinding::GridPos::new(15, 10);
+    assert_eq!(world.pathfinding_ground_goal(cell), Some(reserved));
+    world.update_with_dt(1.0 / 30.0);
+    assert_eq!(world.pathfinding_ground_goal(cell), Some(victim));
+    let actor = world.host_object(attacker).unwrap();
+    assert!(!actor.waiting_for_path);
+    assert!(!actor.is_attack_path);
+    assert_eq!(actor.ignored_obstacle_id, Some(victim));
+    assert_eq!(actor.requested_destination, Some(Vec3::new(165.0, 0.0, 105.0)));
+}
+
 #[test]
 fn possible_destination_uses_restored_world_relationships_and_goal_reservations() {
     use gamelogic::common::Relationship;

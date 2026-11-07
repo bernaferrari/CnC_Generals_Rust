@@ -5,6 +5,37 @@ use generals_main::game_logic::pathfinding::{
 use generals_main::game_logic::{GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate};
 use glam::Vec3;
 
+fn adjust_fixture(
+    grid: &PathfindingGrid,
+    start: Vec3,
+    dest: &mut Vec3,
+    surfaces: u32,
+    is_crusher: bool,
+    radius: f32,
+    ground: &PathfindingGround<'_>,
+) -> bool {
+    use generals_main::game_logic::HostGeometryType;
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "Owner", true));
+    let mut template = ThingTemplate::new("DestinationFixture");
+    template.add_kind_of(KindOf::Infantry).set_health(100.0);
+    template.geometry_info.geom_type = HostGeometryType::Sphere;
+    template.geometry_info.major_radius = radius;
+    template.geometry_info.authored = true;
+    world.templates.insert("DestinationFixture".into(), template);
+    let mover = world.create_object_for_player("DestinationFixture", 0, start).unwrap();
+    // Layered fixtures reserve IDs 17 and 18; admit real same-world owners.
+    for _ in 1..18 {
+        world.create_object_for_player("DestinationFixture", 0, start).unwrap();
+    }
+    let object = world.host_object_mut(mover).unwrap();
+    object.pathfind_layer = grid.layer_for_destination(start, ground) as u8;
+    object.crusher_level = u8::from(is_crusher);
+    grid.adjust_to_possible_destination_for_object(
+        world.host_object(mover).unwrap(), world.host_objects(), start, dest, surfaces, ground,
+    )
+}
+
 fn register_position(grid: &mut PathfindingGrid, world: &GameLogic, id: ObjectId, layer: u8) {
     let object = world.host_object(id).unwrap();
     grid.update_path_position_cell(
@@ -518,6 +549,149 @@ fn possible_destination_uses_each_receivers_ignore_and_goal_identity() {
         &ground
     ));
     assert_eq!(own_goal, goal, "the receiver must recognize its own goal");
+}
+
+#[test]
+fn destination_and_path_requests_refuse_missing_receiver_context() {
+    use generals_main::game_logic::HostObjectStore;
+
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "Owner", true));
+    let mut template = ThingTemplate::new("MissingReceiverContext");
+    template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+    world.templates.insert("MissingReceiverContext".into(), template);
+    let id = world
+        .create_object_for_player("MissingReceiverContext", 0, Vec3::new(20.0, 0.0, 20.0))
+        .unwrap();
+    let store = HostObjectStore::new();
+    let ground = PathfindingGround::Flat(0.0);
+    let mut system = PathfindingSystem::new(200.0, 200.0);
+    let goal = Vec3::new(50.0, 0.0, 50.0);
+    let mut dest = goal;
+    assert!(!system.adjust_to_possible_destination_for(
+        world.host_object(id).unwrap(),
+        store.read(),
+        &mut dest,
+        &ground,
+    ));
+    assert_eq!(dest, goal);
+    let mut peer = GameLogic::new();
+    peer.add_player(Player::new(0, Team::USA, "Peer", true));
+    let mut peer_template = ThingTemplate::new("MissingReceiverContext");
+    peer_template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+    peer.templates.insert("MissingReceiverContext".into(), peer_template);
+    let peer_id = peer
+        .create_object_for_player("MissingReceiverContext", 0, Vec3::new(20.0, 0.0, 20.0))
+        .unwrap();
+    assert_eq!(id, peer_id);
+    let mut mixed = goal;
+    assert!(!system.adjust_to_possible_destination_for(
+        world.host_object(id).unwrap(),
+        peer.host_objects(),
+        &mut mixed,
+        &ground,
+    ));
+    assert_eq!(mixed, goal);
+    assert!(system.find_path_ex(
+        Vec3::new(20.0, 0.0, 20.0),
+        goal,
+        store.read(),
+        false,
+        Some(id),
+        &ground,
+    ).is_none());
+}
+
+#[test]
+fn possible_destination_does_not_use_ai_context_when_receiver_has_no_ai() {
+    use generals_main::game_logic::ObjectId;
+    use generals_main::game_logic::object::LocomotorAppearance;
+
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "Owner", true));
+    let mut template = ThingTemplate::new("NoAiDestinationReceiver");
+    template.add_kind_of(KindOf::Structure).set_health(100.0);
+    world.templates.insert("NoAiDestinationReceiver".into(), template);
+    let id = world
+        .create_object_for_player("NoAiDestinationReceiver", 0, Vec3::new(20.0, 0.0, 20.0))
+        .unwrap();
+    let actor = world.host_object_mut(id).unwrap();
+    assert!(!actor.has_ai_update_interface());
+    // These fields cannot supply C++ AIUpdateInterface facts without an AI.
+    actor.ignored_obstacle_id = Some(ObjectId(99));
+    actor.cur_locomotor_name = Some("AirLocomotor".into());
+    actor.loco_appearance = LocomotorAppearance::Wings;
+    let mut system = PathfindingSystem::new(200.0, 200.0);
+    system.grid.set_cell_obstacle_owned(GridPos::new(5, 5), false, false, 99, None, None);
+    let goal = Vec3::new(50.0, 0.0, 50.0);
+    let mut actual = goal;
+    assert!(system.adjust_to_possible_destination_for(
+        world.host_object(id).unwrap(),
+        world.host_objects(),
+        &mut actual,
+        &PathfindingGround::Flat(0.0),
+    ));
+    assert_ne!(actual, goal, "an actor without AI must not ignore the obstacle or use aircraft rules");
+
+    system.grid.set_cell_type(
+        GridPos::new(5, 5),
+        gamelogic::ai::pathfind_astar::PathfindCellType::Clear,
+    );
+    system.grid.update_ground_goal_cell(id.0, 0, 1.0, false, (-1, -1), goal);
+    let mut own_goal = goal;
+    assert!(system.adjust_to_possible_destination_for(
+        world.host_object(id).unwrap(),
+        world.host_objects(),
+        &mut own_goal,
+        &PathfindingGround::Flat(0.0),
+    ));
+    assert_ne!(own_goal, goal, "without AI the object ID is not exempted from goal checks");
+}
+
+#[test]
+fn blocked_route_retry_uses_receiver_ignore_and_aircraft_stays_direct() {
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    use generals_main::game_logic::object::{LOCO_SURFACE_AIR, LocomotorAppearance};
+    let mut worlds = [GameLogic::new(), GameLogic::new()];
+    let mut systems = [PathfindingSystem::new(200.0, 200.0), PathfindingSystem::new(200.0, 200.0)];
+    let mut ids = Vec::new();
+    let start = Vec3::new(20.0, 0.0, 20.0);
+    let goal = Vec3::new(50.0, 0.0, 50.0);
+    for (world, system) in worlds.iter_mut().zip(&mut systems) {
+        world.add_player(Player::new(0, Team::USA, "Owner", true));
+        let mut ground = ThingTemplate::new("RouteRetryGround");
+        ground.add_kind_of(KindOf::Infantry).set_health(100.0);
+        world.templates.insert("RouteRetryGround".into(), ground);
+        let mut air = ThingTemplate::new("RouteRetryAircraft");
+        air.add_kind_of(KindOf::Aircraft).add_kind_of(KindOf::Vehicle).set_health(100.0);
+        world.templates.insert("RouteRetryAircraft".into(), air);
+        let mover = world.create_object_for_player("RouteRetryGround", 0, start).unwrap();
+        let reservation = world.create_object_for_player("RouteRetryGround", 0, Vec3::new(120.0, 0.0, 120.0)).unwrap();
+        let flyer = world.create_object_for_player("RouteRetryAircraft", 0, start).unwrap();
+        let aircraft = world.host_object_mut(flyer).unwrap();
+        aircraft.cur_locomotor_name = Some("AirLocomotor".into());
+        aircraft.loco_appearance = LocomotorAppearance::Wings;
+        aircraft.locomotor_surfaces = LOCO_SURFACE_AIR;
+        system.set_adjust_goal(false);
+        system.grid.set_cell_type(GridPos::new(5, 5), PathfindCellType::Impassable);
+        system.grid.rebuild_path_zones();
+        system.grid.update_ground_goal_cell(reservation.0, 0, 1.0, false, (-1, -1), Vec3::new(60.0, 0.0, 50.0));
+        ids.push((mover, reservation, flyer));
+    }
+    assert_eq!(ids[0], ids[1]);
+    worlds[0].host_object_mut(ids[0].0).unwrap().ignored_obstacle_id = Some(ids[0].1);
+    let ground = PathfindingGround::Flat(0.0);
+    let mut ends = Vec::new();
+    for index in [0, 1] {
+        // An impassable seed rejects the initial search before A* is seeded.
+        let path = systems[index].find_path_ex(start, goal, worlds[index].host_objects(), false, Some(ids[index].0), &ground)
+            .expect("the ground retry should find a nearby reachable destination");
+        ends.push(*path.last().unwrap());
+        let air_path = systems[index].find_path_ex(start, goal, worlds[index].host_objects(), true, Some(ids[index].2), &ground)
+            .expect("aircraft take the direct branch");
+        assert_eq!(air_path.last(), Some(&goal));
+    }
+    assert_ne!(ends[0], ends[1], "the retry must use the receiver's ignored reservation");
 }
 
 #[test]
@@ -1263,7 +1437,7 @@ fn possible_destination_uses_terrain_zone_when_starting_inside_a_structure() {
     let start = Vec3::new(35.0, 0.0, 35.0);
     let goal = Vec3::new(65.0, 0.0, 65.0);
     let mut dest = goal;
-    assert!(owner.adjust_to_possible_destination(
+    assert!(adjust_fixture(&owner,
         start,
         &mut dest,
         SURFACE_GROUND,
@@ -1276,7 +1450,7 @@ fn possible_destination_uses_terrain_zone_when_starting_inside_a_structure() {
         "the original permits reaching clear terrain from a structure"
     );
     let mut peer_dest = goal;
-    assert!(peer.adjust_to_possible_destination(
+    assert!(adjust_fixture(&peer,
         start,
         &mut peer_dest,
         SURFACE_GROUND,
@@ -1289,7 +1463,7 @@ fn possible_destination_uses_terrain_zone_when_starting_inside_a_structure() {
         "a terrain wall still separates the peer's zones"
     );
     let mut repeated = goal;
-    assert!(owner.adjust_to_possible_destination(
+    assert!(adjust_fixture(&owner,
         start,
         &mut repeated,
         SURFACE_GROUND,
@@ -1304,7 +1478,7 @@ fn possible_destination_uses_terrain_zone_when_starting_inside_a_structure() {
     owner.set_cell_type(GridPos::new(6, 6), PathfindCellType::Obstacle);
     owner.rebuild_path_zones();
     let mut blocked_goal = goal;
-    assert!(owner.adjust_to_possible_destination(
+    assert!(adjust_fixture(&owner,
         start,
         &mut blocked_goal,
         SURFACE_GROUND,
@@ -1327,7 +1501,7 @@ fn possible_destination_checks_the_whole_footprint_on_every_candidate() {
     grid.set_cell_type(GridPos::new(5, 6), PathfindCellType::Impassable);
     grid.set_cell_type(GridPos::new(7, 5), PathfindCellType::Impassable);
     let mut dest = Vec3::new(60.0, 0.0, 60.0);
-    assert!(grid.adjust_to_possible_destination(
+    assert!(adjust_fixture(&grid,
         Vec3::new(30.0, 0.0, 30.0),
         &mut dest,
         SURFACE_GROUND,
@@ -1347,7 +1521,7 @@ fn possible_destination_does_not_treat_neighboring_water_as_impassable() {
     grid.set_cell_type(GridPos::new(5, 6), PathfindCellType::Water);
     let original = Vec3::new(60.0, 0.0, 60.0);
     let mut dest = original;
-    assert!(grid.adjust_to_possible_destination(
+    assert!(adjust_fixture(&grid,
         Vec3::new(30.0, 0.0, 30.0),
         &mut dest,
         SURFACE_GROUND,
@@ -1373,7 +1547,7 @@ fn rejected_possible_destinations_leave_the_last_zone_candidate() {
     grid.set_cell_type(GridPos::new(7, 6), PathfindCellType::Clear);
     let original = Vec3::new(60.0, 0.0, 60.0);
     let mut dest = original;
-    assert!(!grid.adjust_to_possible_destination(
+    assert!(!adjust_fixture(&grid,
         Vec3::new(30.0, 0.0, 30.0),
         &mut dest,
         SURFACE_GROUND,
@@ -1481,7 +1655,7 @@ fn possible_destination_keeps_the_original_bridge_layer_while_spiraling() {
     });
     // The first candidate is clear on the bridge but blocked on the ground.
     grid.set_cell_type(GridPos::new(9, 5), PathfindCellType::Impassable);
-    assert!(grid.adjust_to_possible_destination(
+    assert!(adjust_fixture(&grid,
         Vec3::new(60.0, 20.0, 50.0),
         &mut dest,
         SURFACE_GROUND,
@@ -1522,7 +1696,7 @@ fn possible_destination_stays_on_ground_under_a_bridge() {
         new_on_ground: false,
         goal: bridge_goal,
     });
-    assert!(grid.adjust_to_possible_destination(
+    assert!(adjust_fixture(&grid,
         Vec3::new(60.0, 0.0, 50.0),
         &mut dest,
         SURFACE_GROUND,

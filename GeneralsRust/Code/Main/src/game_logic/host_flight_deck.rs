@@ -47,6 +47,9 @@ pub struct HostFlightDeckRunway {
     pub taxi: Vec<Vec3>,
     pub creation: Vec<Vec3>,
     pub start_orient: f32,
+    /// First creation bone's complete C++ Z-up world matrix.
+    /// None only while saved occupancy awaits receiving-asset reconstruction.
+    pub start_transform: Option<glam::Mat4>,
     pub in_use_by_for_takeoff: Option<ObjectId>,
     pub in_use_by_for_landing: Option<ObjectId>,
 }
@@ -185,6 +188,24 @@ impl GameLogic {
         self.flight_deck_update_no_attack(carrier_id);
     }
 
+    /// Object::getSingleLogicalBonePosition in the original Z-up basis.
+    /// Unlike a yaw-only pose this preserves every axis of both transforms.
+    fn flight_deck_world_creation_transform(
+        &self,
+        carrier: &crate::game_logic::Object,
+        bone: &str,
+        assets: Option<&dyn crate::assets::pristine_bones::PristineBoneAssets>,
+    ) -> Option<glam::Mat4> {
+        let local = self.query_pristine_local_bone_transforms(carrier, assets, bone, 0, 1, 0, 0).ok()?;
+        let swap = glam::Mat4::from_cols(glam::Vec4::X, glam::Vec4::Z, glam::Vec4::Y, glam::Vec4::W);
+        let owner_cpp = swap * carrier.get_transform_matrix() * swap;
+        // Object.cpp:5997-6003 returns the object transform for an actual miss.
+        Some(match local.into_iter().next() {
+            Some(local) => owner_cpp * local,
+            None => owner_cpp,
+        })
+    }
+
     /// C++ `FlightDeckBehavior::buildInfo`.
     fn flight_deck_build_info(&mut self, carrier_id: ObjectId, create_units: bool) {
         self.flight_deck_build_info_with_effects(carrier_id, create_units, &mut Default::default())
@@ -279,10 +300,16 @@ impl GameLogic {
             let Some((landing_end, _)) = pose(&definition.landing_bone_names[1]) else { return };
             let Some(taxi) = definition.taxi_bone_names.iter()
                 .map(|bone| pose(bone).map(|p| p.0)).collect::<Option<Vec<_>>>() else { return };
-            let Some(creation_poses) = definition.creation_bone_names.iter()
-                .map(|bone| pose(bone)).collect::<Option<Vec<_>>>() else { return };
-            let Some(&(_, start_orient)) = creation_poses.first() else { return };
-            let creation = creation_poses.into_iter().map(|p| p.0).collect();
+            let Some(first_bone) = definition.creation_bone_names.first() else { return };
+            let Some(first_transform) = self.flight_deck_world_creation_transform(carrier, first_bone, effects.pristine_bones) else { return };
+            let first_pos = first_transform.w_axis.truncate();
+            let start_orient = first_transform.x_axis.y.atan2(first_transform.x_axis.x);
+            let mut creation = Vec::with_capacity(definition.creation_bone_names.len());
+            creation.push(Vec3::new(first_pos.x, first_pos.z, first_pos.y));
+            for bone in &definition.creation_bone_names[1..] {
+                let Some((position, _)) = pose(bone) else { return };
+                creation.push(position);
+            }
             runways.push(HostFlightDeckRunway {
                 start,
                 end,
@@ -291,6 +318,7 @@ impl GameLogic {
                 taxi,
                 creation,
                 start_orient,
+                start_transform: Some(first_transform),
                 in_use_by_for_takeoff: None,
                 in_use_by_for_landing: None,
             });
@@ -804,19 +832,14 @@ impl GameLogic {
             return;
         }
         if state.catapult_system_frame[runway] <= now {
-            state.catapult_system_frame[runway] = FOREVER;
-            state.catapult_fx_count = state.catapult_fx_count.saturating_add(1);
-            let (start, start_orient) = state
-                .runways
-                .get(runway)
-                .map(|r| (r.start, r.start_orient))
-                .unwrap_or((Vec3::ZERO, 0.0));
-            let system = metadata
-                .catapult_system
-                .get(runway)
-                .and_then(|name| name.as_deref())
-                .unwrap_or("AircraftCarrierCatapultSteam");
-            spawn_carrier_catapult_steam(system, start, start_orient, effects);
+            if let (Some(system), Some((start, start_transform))) = (
+                metadata.catapult_system.get(runway).and_then(|name| name.as_deref()),
+                state.runways.get(runway).and_then(|r| r.start_transform.map(|transform| (r.start, transform))),
+            ) {
+                state.catapult_system_frame[runway] = FOREVER;
+                state.catapult_fx_count = state.catapult_fx_count.saturating_add(1);
+                spawn_carrier_catapult_steam(system, start, start_transform, effects);
+            }
         }
         if state.ramp_up[runway] && state.lower_ramp_frame[runway] <= now {
             state.ramp_up[runway] = false;
@@ -1223,7 +1246,7 @@ impl GameLogic {
             }).collect();
             state.runways = row.runways.iter().map(|r| HostFlightDeckRunway {
                 start: Vec3::ZERO, end: Vec3::ZERO, landing_start: Vec3::ZERO, landing_end: Vec3::ZERO,
-                taxi: Vec::new(), creation: Vec::new(), start_orient: 0.0,
+                taxi: Vec::new(), creation: Vec::new(), start_orient: 0.0, start_transform: None,
                 in_use_by_for_takeoff: r.in_use_takeoff, in_use_by_for_landing: r.in_use_landing,
             }).collect();
             state.designated_target = row.designated_target;
@@ -1260,7 +1283,7 @@ impl GameLogic {
 fn spawn_carrier_catapult_steam(
     template_name: &str,
     start: Vec3,
-    start_orient: f32,
+    start_transform: glam::Mat4,
     effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
 ) {
     if template_name.is_empty() || template_name.eq_ignore_ascii_case("None") {
@@ -1285,14 +1308,15 @@ fn spawn_carrier_catapult_steam(
             return;
         };
         if let Some(system) = manager.find_particle_system_mut(system_id) {
-            // C++ order: setLocalTransform(startTransform), then setPosition(start).
-            system.set_local_transform(glam::Mat3::from_rotation_z(start_orient));
+            // setPosition immediately replaces the matrix translation. The
+            // particle API stores its local 3x3 and translation separately.
+            system.set_local_transform(glam::Mat3::from_mat4(start_transform));
             // Host Y-up `(x, height, z)` → C++ Z-up `(x, y_ground, z_height)`.
             system.set_position(Vec3::new(start.x, start.z, start.y));
         }
     }
     #[cfg(not(feature = "game_client"))]
-    let _ = (template_name, start, start_orient, effects);
+    let _ = (template_name, start, start_transform, effects);
 }
 
 #[allow(dead_code)]
@@ -1340,6 +1364,9 @@ mod tests {
             pivot("LandEnd", 0, [1.0 + offset, 2.0, 3.0]),
             pivot("Create", 0, [2.0 + offset, 3.0, 4.0]),
         ], pivot_fixups: Vec::new() });
+        // W3D authored creation pivot pitches 90 degrees about C++ Y.
+        model.hierarchy.as_mut().unwrap().pivots.last_mut().unwrap().rotation =
+            glam::Quat::from_rotation_y(std::f32::consts::FRAC_PI_2).to_array();
         model.hlods = vec![W3dHlod { version: 0, name: "DeckTest".into(), hierarchy_name: "DeckHierarchy".into(),
             lods: vec![W3dHlodLod { max_screen_size: 1.0, subobjects: Vec::new() }],
             aggregates: None, proxies: None, has_unrendered_aggregates: false, has_invalid_trailing_records: false }];
@@ -1368,6 +1395,7 @@ Object FlightDeckSpawnOwner
   Runway1Takeoff = TakeStart TakeEnd
   Runway1Landing = LandStart LandEnd
   Runway1Creation = Create
+  Runway1CatapultSystem = DeckSteam
  End
  Behavior = SpawnBehavior Spawn
   SpawnNumber = 1
@@ -1418,6 +1446,86 @@ End
         let peer_child = peer.host_object(peer_owner).unwrap().spawn_behavior_children()[0].0;
         assert_eq!(child, peer_child);
         assert_ne!(peer.host_object(peer_child).unwrap().get_position(), position);
+    }
+
+    #[cfg(feature = "game_client")]
+    struct DeckParticleView(game_client::effects::particle_manager::ParticleSystemManager);
+
+    #[cfg(feature = "game_client")]
+    impl crate::game_logic::NativeViewEffects for DeckParticleView {
+        fn local_player_id(&self) -> u32 { 0 }
+        fn sample_slave(&mut self, _: &crate::game_logic::NativeSlaveSource, _: &str)
+            -> crate::presentation_frame::camera::build::SlaveCameraSample {
+            crate::presentation_frame::camera::build::SlaveCameraSample::MissingObject
+        }
+        fn retire_physical_object_drawable(&mut self, _: &crate::game_logic::NativeObjectRetirement<'_>) -> Result<(), String> { Ok(()) }
+        fn host_epoch(&self) -> u64 { 1 }
+        fn admit_factory_drawable(&mut self, _: crate::game_logic::NativeFactoryDrawableSource,
+            _: game_client::core::game_client::NativeDrawableBirthContext,
+            _: &mut game_engine::common::thing::module_factory::ModuleFactory) -> Result<(), String> { Ok(()) }
+        fn body_visual_changed(&mut self, _: &crate::game_logic::NativeBodyVisualChange,
+            _: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>) -> Result<bool, String> { Ok(false) }
+        fn particle_systems_mut(&mut self) -> Option<&mut game_client::effects::ParticleSystemManager> { Some(&mut self.0) }
+    }
+
+    #[cfg(feature = "game_client")]
+    fn deck_particle_view() -> DeckParticleView {
+        let mut manager = game_client::effects::particle_manager::ParticleSystemManager::new();
+        manager.new_template("DeckSteam".into());
+        manager.finish_definition_admission();
+        DeckParticleView(manager)
+    }
+
+    #[test]
+    #[cfg(feature = "game_client")]
+    fn authored_creation_bone_and_carrier_tilt_reach_catapult_and_rebuild_after_load() {
+        let assets = authored_deck_assets(0.0);
+        let (mut world, owner) = authored_spawn_deck();
+        assert!(world.set_registered_object_transform(owner,
+            glam::Mat4::from_rotation_translation(
+                glam::Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+                Vec3::new(10.0, 0.0, 20.0),
+            ),
+        ));
+        let mut view = deck_particle_view();
+        let metadata = world.host_object(owner).unwrap().thing().template.flight_deck.clone().unwrap();
+        let mut effects = crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: Some(&assets), view: Some(&mut view), ..Default::default()
+        };
+        world.flight_deck_build_info_with_effects(owner, false, &mut effects);
+        world.flight_deck_tick_ramp_and_catapult(owner, 0, 1, &metadata, &mut effects);
+        drop(effects);
+        let system = view.0.all_particle_systems().next().expect("authored catapult particle");
+        // S * host-Rx(90) * S * source-Ry(90), in C++ Z-up axes.
+        let expected = glam::Mat3::from_cols(
+            Vec3::new(0.0, -1.0, 0.0), Vec3::new(0.0, 0.0, -1.0), Vec3::new(1.0, 0.0, 0.0),
+        );
+        assert!((system.local_transform() - expected).to_cols_array().iter().all(|x| x.abs() < 1e-5));
+        // setPosition replaces the creation-bone translation with takeoff start.
+        assert!((system.position() - Vec3::new(15.0, 23.0, -2.0)).length() < 1e-5);
+
+        let (mut source, carrier) = authored_spawn_deck();
+        source.flight_deck_build_info_with_effects(carrier, false, &mut crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: Some(&assets), ..Default::default()
+        });
+        let builder = crate::save_load::SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&source).unwrap();
+        let (mut restored, _) = authored_spawn_deck();
+        builder.restore_from_snapshot(&snapshot, &mut restored).unwrap();
+        let mut restored_view = deck_particle_view();
+        let metadata = restored.host_object(carrier).unwrap().thing().template.flight_deck.clone().unwrap();
+        let mut effects = crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: Some(&assets), view: Some(&mut restored_view), ..Default::default()
+        };
+        restored.flight_deck_build_info_with_effects(carrier, false, &mut effects);
+        restored.flight_deck_tick_ramp_and_catapult(carrier, 0, 1, &metadata, &mut effects);
+        drop(effects);
+        let restored_system = restored_view.0.all_particle_systems().next().expect("restored catapult particle");
+        let expected = glam::Mat3::from_cols(
+            Vec3::new(0.0, 0.0, -1.0), Vec3::Y, Vec3::new(1.0, 0.0, 0.0),
+        );
+        assert!((restored_system.local_transform() - expected).to_cols_array().iter().all(|x| x.abs() < 1e-5));
+        assert!((restored_system.position() - Vec3::new(15.0, 22.0, 3.0)).length() < 1e-5);
     }
 
     fn seed_carrier(logic: &mut GameLogic) -> ObjectId {

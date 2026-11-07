@@ -159,6 +159,22 @@ fn collect_world_spawn_point_bones(
 
 
 impl GameLogic {
+    /// Source-local pristine bone transforms, in the original Z-up basis.
+    pub(crate) fn query_pristine_local_bone_transforms(
+        &self,
+        parent: &Object,
+        assets: Option<&dyn crate::assets::pristine_bones::PristineBoneAssets>,
+        prefix: &str,
+        start: i32,
+        limit: usize,
+        condition_clear: u128,
+        condition_set: u128,
+    ) -> Result<Vec<glam::Mat4>, String> {
+        query_pristine_local_bones(
+            self, parent, assets, prefix, start, limit, condition_clear, condition_set,
+        )
+    }
+
     /// C++ Object::getSingleLogicalBonePosition and Drawable pristine bone
     /// queries. Empty means a genuine miss (or no Drawable); unavailable
     /// receiving content is an error. The caller chooses whether a miss uses

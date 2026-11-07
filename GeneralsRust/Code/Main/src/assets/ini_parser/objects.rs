@@ -976,6 +976,7 @@ impl DrawModuleDefinition {
             animation_speed_range_bits: state.animation_speed_range_bits,
             subobject_visibility: state.subobject_visibility.clone(),
             primary_turret: state.primary_turret.clone(),
+            attach_to_drawable_bone: self.attach_to_drawable_bone.clone(),
             weapon_bone_bindings: state.weapon_bone_bindings.clone(),
             projectile_bone_feedback: self.projectile_bone_feedback.clone(),
             recoil_kinematics: self.recoil_kinematics.clone(),

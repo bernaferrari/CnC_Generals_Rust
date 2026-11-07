@@ -2054,6 +2054,20 @@ impl Object {
         }
         self.add_occupant_to_local_roster(unit_id)
     }
+    /// OpenContain::addToContainList is the physical push after admission;
+    /// it does not repeat the earlier isValidContainerFor capacity check.
+    pub(crate) fn push_railed_contained_rider(&mut self, unit_id: ObjectId) -> bool {
+        if self.thing.template.contain_module.kind != crate::game_logic::ContainModuleKind::RailedTransport {
+            return false;
+        }
+        if let Some(building) = self.building_data.as_mut() {
+            building.garrisoned_units.push(unit_id);
+        } else {
+            self.occupants.push(unit_id);
+        }
+        true
+    }
+
 
     /// Stage a mirror entry only when the caller will commit or roll back the
     /// session-owned CaveSystem/TunnelTracker admission in the same operation.

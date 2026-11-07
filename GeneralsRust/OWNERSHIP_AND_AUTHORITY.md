@@ -2816,9 +2816,16 @@ forwarding has been removed. Spawn cadence and slot occupancy survive v45 saves.
 Flight-deck poses use the receiving world's pristine W3D bones; stall occupants,
 healing and frame deadlines belong to that carrier. Rail dock pull and push
 state belongs to the ferry and persists object IDs for rebinding to receiving
-births. Remaining parity work includes the rail DockAction approach and generic
-containment-removal callbacks, and the flight-deck catapult's full bone transform.
+births. The authored DockStart and DockAction bones drive boarding; removal
+callbacks reopen an emptied rail dock. Lifetime-wide dock-position caching and
+passenger-AI exit ordering still need source comparison. Catapult particles
+retain the full pristine creation-bone transform, including carrier tilt.
 
 ImmortalBody's health floor applies to ordinary internal health changes as well
 as damage. This keeps an initially empty, aggregate-health Angry Mob alive
 until its authored SpawnBehavior creates its members.
+
+Possible-destination adjustment resolves the queried object and its current
+ignore/aircraft context from the receiving world. Idle object updates precede
+queued path requests, so an idle victim may replace an earlier goal reservation
+before the attack fallback runs. Core dozer ownership remains a separate gap.

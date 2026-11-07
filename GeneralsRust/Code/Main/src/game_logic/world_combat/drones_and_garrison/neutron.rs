@@ -5,6 +5,40 @@ impl GameLogic {
         self.neutron_shells_spawned > 0
     }
 
+    fn neutron_kill_railed_contained(
+        &mut self, container_id: ObjectId, destroy_ids: &mut Vec<ObjectId>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> u32 {
+        let Some(birth) = self.objects.get(&container_id).and_then(|container| {
+            (container.thing().template.contain_module.kind == crate::game_logic::ContainModuleKind::RailedTransport)
+                .then_some(container.visual_object_generation)
+        }) else { return 0 };
+        let mut killed = 0u32;
+        loop {
+            let Some(rider) = self.objects.get(&container_id)
+                .filter(|container| container.visual_object_generation == birth)
+                .and_then(|container| container.contained_unit_ids().first().copied()) else { break };
+            let Some(rider_birth) = self.objects.get(&rider).map(|object| object.visual_object_generation) else { break };
+            if !self.railed_kill_contained_with_effects(container_id, rider, effects)
+                .expect("rail killAllContained requires its receiving services")
+            {
+                break;
+            }
+            if !self.objects.get(&rider).is_some_and(|object| object.visual_object_generation == rider_birth) {
+                continue;
+            }
+            self.apply_owned_kill_with_effects(
+                rider, crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal, effects,
+            );
+            if self.objects.get(&rider).is_some_and(|object| object.visual_object_generation == rider_birth) {
+                destroy_ids.push(rider);
+            }
+            killed = killed.saturating_add(1);
+        }
+        killed
+    }
+
     /// Apply NeutronBlast residual: kill infantry, unman vehicles, and
     /// `killAllContained` on every in-radius container (including structures).
     /// Returns (infantry_kills, vehicles_unmanned, vehicle_kills).
@@ -87,6 +121,9 @@ impl GameLogic {
             .iter()
             .filter_map(|id| {
                 let obj = self.objects.get(id)?;
+                if obj.thing().template.contain_module.kind == crate::game_logic::ContainModuleKind::RailedTransport {
+                    return None;
+                }
                 let mut occupants = obj.contained_units();
                 let is_tunnel = obj.is_tunnel_network_style_container();
                 if is_tunnel {
@@ -117,6 +154,15 @@ impl GameLogic {
                 obj.is_kind_of(KindOf::Drone),
                 &obj.template_name,
             );
+            let birth = obj.visual_object_generation;
+            let _ = obj;
+            if !matches!(effect, NeutronEffect::KillInfantry) {
+                let count = self.neutron_kill_railed_contained(id, &mut destroy_ids, presentation_effects);
+                passengers_killed = passengers_killed.saturating_add(count);
+                infantry_kills = infantry_kills.saturating_add(count);
+            }
+            let Some(obj) = self.objects.get_mut(&id)
+                .filter(|obj| obj.visual_object_generation == birth) else { continue };
             match effect {
                 NeutronEffect::KillInfantry => {
                     // Residual: kill infantry (take full health damage).
@@ -161,6 +207,9 @@ impl GameLogic {
                         infantry_kills = infantry_kills.saturating_add(1);
                         destroy_ids.push(id);
                     }
+                    let count = self.neutron_kill_railed_contained(id, &mut destroy_ids, presentation_effects);
+                    passengers_killed = passengers_killed.saturating_add(count);
+                    infantry_kills = infantry_kills.saturating_add(count);
                 }
                 NeutronEffect::UnmanVehicle => {
                     if obj.is_car_bomb() {

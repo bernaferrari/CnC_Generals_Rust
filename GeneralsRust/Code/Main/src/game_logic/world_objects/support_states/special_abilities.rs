@@ -1531,7 +1531,7 @@ impl GameLogic {
         )
     }
 
-    pub(in super::super::super) fn should_cancel_containment_after_booby_trap_with_effects(
+    pub(in crate::game_logic) fn should_cancel_containment_after_booby_trap_with_effects(
         &mut self,
         container_id: ObjectId,
         rider_id: ObjectId,
@@ -2833,6 +2833,12 @@ impl GameLogic {
         entering_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        if self.objects.get(&container_id).is_some_and(|container| {
+            container.thing().template.contain_module.kind == crate::game_logic::ContainModuleKind::RailedTransport
+        }) {
+            self.kick_other_controller_occupants_for_enter_with_effects(container_id, entering_id, effects);
+            return Ok(());
+        }
         let Some(enterer) = self.objects.get(&entering_id) else {
             return Ok(());
         };

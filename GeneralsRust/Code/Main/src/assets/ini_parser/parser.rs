@@ -493,6 +493,13 @@ impl IniParser {
                                 value,
                             )
                         }
+                        "attachtoboneinanothermodule" if active_condition_state.is_none() => {
+                            if let Some(module) = active_draw_module.and_then(|index| obj.draw_modules.get_mut(index)) {
+                                module.attach_to_drawable_bone = value.split_whitespace().next()
+                                    .filter(|name| !name.eq_ignore_ascii_case("none"))
+                                    .map(str::to_ascii_lowercase);
+                            }
+                        }
                         // C++ W3DModelDraw stores the primary `m_turrets[0]`
                         // binding on every ModelConditionInfo. These fields
                         // are presentation-only but must survive the exact

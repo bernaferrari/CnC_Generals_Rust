@@ -286,6 +286,12 @@ impl GameLogic {
         );
     }
 
+    /// DockUpdate::onEnterReached releases the slot after the docker reaches
+    /// DockStart, while the dock retains its active docker.
+    pub(crate) fn host_dock_enter_reached(&mut self, dock_id: ObjectId, docker_id: ObjectId) {
+        self.host_dock_approach_queues.on_enter_reached(dock_id, docker_id);
+    }
+
 
     pub(crate) fn try_claim_dock(&mut self, dock_id: ObjectId, docker_id: ObjectId) -> gamelogic::GameLogicResult<bool> {
         self.with_own_services_mut(|this| this.try_claim_dock_bound(dock_id, docker_id))
@@ -354,12 +360,16 @@ impl GameLogic {
             .get(&docker_id)
             .map(|o| o.get_position())
             .unwrap_or(dock_pos);
-        let n = crate::game_logic::host_supply_gather::number_approach_positions_for_dock(
-            &template_name,
-            dock_kind,
-            is_repair,
-            delete_when_empty,
-        );
+        let n = if dock_kind == crate::game_logic::DockKind::RailedTransport {
+            self.railed_dock_approach_settings(dock_id)
+                .ok_or_else(|| gamelogic::GameLogicError::Configuration(
+                    "railed dock requires receiving RailedTransportDockUpdate module data".into()
+                ))?.0
+        } else {
+            crate::game_logic::host_supply_gather::number_approach_positions_for_dock(
+                &template_name, dock_kind, is_repair, delete_when_empty,
+            )
+        };
         let waiting_bones = if ignore_bones || n <= 0 {
             Vec::new()
         } else {
@@ -386,6 +396,7 @@ impl GameLogic {
                 &waiting_bones,
                 self.frame,
                 dock_crippled,
+                dock_kind == crate::game_logic::DockKind::RailedTransport,
                 |id| {
                     objects.get(&id).is_some_and(|object| {
                         object.is_alive()
@@ -407,7 +418,7 @@ impl GameLogic {
                 if let Some(dock) = self.objects.get_mut(&dock_id) {
                     dock.dock_active_docker = Some(docker_id);
                 }
-                if current != Some(docker_id) {
+                if current != Some(docker_id) && dock_kind != crate::game_logic::DockKind::RailedTransport {
                     self.apply_docking_model_conditions(dock_id, docker_id, true);
                 }
                 self.clear_worker_moving_while_docking(dock_id, docker_id);
@@ -489,6 +500,7 @@ impl GameLogic {
             .get(&dock_id)
             .is_some_and(|dock| dock.dock_active_docker == Some(docker_id));
         if let Some(dock) = self.objects.get_mut(&dock_id) {
+            dock.railed_dock.cancel_approach(docker_id);
             if dock.dock_active_docker == Some(docker_id) {
                 dock.dock_active_docker = None;
             }

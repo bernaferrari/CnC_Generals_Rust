@@ -723,19 +723,6 @@ impl PathfindingSystem {
         false
     }
 
-    pub fn adjust_to_possible_destination(
-        &self,
-        start: &Coord3D,
-        dest: &mut Coord3D,
-        surfaces: LocomotorSurfaceTypeMask,
-        is_crusher: bool,
-        unit_radius: f32,
-    ) -> bool {
-        self.adjust_to_possible_destination_with_observations(
-            start, dest, surfaces, is_crusher, unit_radius, None, None,
-        )
-    }
-
     pub(crate) fn adjust_to_possible_destination_with_observations(
         &self,
         start: &Coord3D,
@@ -744,7 +731,7 @@ impl PathfindingSystem {
         is_crusher: bool,
         unit_radius: f32,
         observations: Option<&PathfindObservations<'_>>,
-        owner: Option<&AdjustmentOwner<'_>>,
+        owner: &AdjustmentOwner<'_>,
     ) -> bool {
         let (radius, center) = Self::compute_radius_and_center(unit_radius);
         let mut adjusted = *dest;
@@ -761,9 +748,7 @@ impl PathfindingSystem {
             || self.get_layer_for_coord(goal),
             |world| PathfindLayerEnum::from_u32(world.terrain.get_layer_for_destination(dest) as u32),
         );
-        let start_layer = owner.map_or(PathfindLayerEnum::Ground, |owner| {
-            PathfindLayerEnum::from_u32(owner.source.get_layer() as u32)
-        });
+        let start_layer = PathfindLayerEnum::from_u32(owner.source.get_layer() as u32);
         let raw_start = GridCoord::from_world(start);
         let start_cell = GridCoord::new(
             raw_start.x.clamp(0, self.width.saturating_sub(1) as i32),
@@ -781,15 +766,10 @@ impl PathfindingSystem {
             from_zone = self.zones.get_effective_terrain_zone(from_zone);
             from_zone = self.zones.get_effective_zone(surfaces, is_crusher, from_zone);
         }
-        let valid = |cell| match owner {
-            Some(owner) => self.check_destination_with_source(
-                &owner.request, cell, layer, radius, center,
-                Some(owner.aircraft_goal_only), observations, Some(owner.source),
-            ),
-            None => self.is_destination_valid_with_observations(
-                cell, layer, surfaces, is_crusher, radius, center, None, observations,
-            ),
-        };
+        let valid = |cell| self.check_destination_with_source(
+            &owner.request, cell, layer, radius, center,
+            Some(owner.aircraft_goal_only), observations, Some(owner.source),
+        );
         if from_zone == self.zones.get_effective_zone(surfaces, is_crusher, goal_zone)
             && valid(goal)
         {

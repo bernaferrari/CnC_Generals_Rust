@@ -50,7 +50,7 @@ fn possible_destination_uses_each_borrowed_receiver_on_every_footprint_check() {
         let mut destination = goal;
         assert!(world.adjust_to_possible_destination_with_observations(
             &start, &mut destination, SURFACE_GROUND, false, 0.0,
-            Some(&observations), Some(owner),
+            Some(&observations), owner,
         ));
         assert_eq!(destination == goal, keep);
     }

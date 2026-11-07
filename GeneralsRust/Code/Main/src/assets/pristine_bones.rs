@@ -87,8 +87,41 @@ pub(crate) trait PristineBoneAssets {
         start: i32,
         limit: usize,
     ) -> Result<Vec<glam::Mat4>, String>;
+    /// Resolve a particular selected ObjectDraw module rather than searching
+    /// the Drawable's whole ordered Draw roster.
+    fn pristine_bones_for_selected_draw(
+        &self,
+        _draw: &AuthoredDrawModel,
+        _scale: f32,
+        _prefix: &str,
+        _start: i32,
+        _limit: usize,
+    ) -> Result<Vec<glam::Mat4>, String> {
+        Err("receiving asset service cannot query a selected Draw".into())
+    }
 }
 impl PristineBoneAssets for crate::assets::AssetManager {
+    fn pristine_bones_for_selected_draw(
+        &self, draw: &AuthoredDrawModel, scale: f32, prefix: &str, start: i32, limit: usize,
+    ) -> Result<Vec<glam::Mat4>, String> {
+        if !scale.is_finite() || start < 0 {
+            return Err("invalid pristine pose source".into());
+        }
+        if draw.model_key.is_empty() || prefix.is_empty() || limit == 0 {
+            return Ok(Vec::new());
+        }
+        let prototype = self.cached_w3d_render_object_prototype(&draw.model_key)
+            .ok_or_else(|| format!("pristine authored prototype unavailable: {}", draw.model_key))?;
+        let model = self.cached_w3d_render_object_source_model(&prototype)
+            .ok_or_else(|| "pristine prototype lost its receiving decoded model".to_owned())?;
+        let binding = match draw.animations.first() {
+            Some(animation) => Some(self.cached_w3d_draw_animation_binding(model, &animation.name)
+                .ok_or_else(|| "pristine authored animation binding unavailable".to_owned())?),
+            None => None,
+        };
+        model_pristine_bone_transforms(model, draw, binding.as_ref(), scale, prefix, start, limit)
+    }
+
     fn pristine_bones_for_draws(
         &self,
         source: &PristineBoneSource<'_>,
@@ -153,6 +186,22 @@ impl PristineBoneAssets for crate::assets::AssetManager {
 /// synchronous query. Its mutex protects real asset-loader concurrency. The
 /// guard ends before returning transforms and before gameplay callbacks run.
 impl PristineBoneAssets for std::sync::Mutex<crate::assets::AssetManager> {
+    fn pristine_bones_for_selected_draw(
+        &self, draw: &AuthoredDrawModel, scale: f32, prefix: &str, start: i32, limit: usize,
+    ) -> Result<Vec<glam::Mat4>, String> {
+        let mut assets = self.lock().map_err(|_| "receiving pristine asset service poisoned".to_owned())?;
+        if !draw.model_key.is_empty() {
+            assets.resolve_w3d_render_object_prototype_blocking(&draw.model_key)
+                .ok_or_else(|| format!("pristine authored prototype unavailable: {}", draw.model_key))?;
+            if let Some(animation) = draw.animations.first() {
+                if !assets.prewarm_w3d_draw_animation_binding(&draw.model_key, &animation.name) {
+                    return Err(format!("pristine authored animation unavailable: {}", animation.name));
+                }
+            }
+        }
+        PristineBoneAssets::pristine_bones_for_selected_draw(&*assets, draw, scale, prefix, start, limit)
+    }
+
     fn pristine_bones_for_draws(
         &self,
         source: &PristineBoneSource<'_>,

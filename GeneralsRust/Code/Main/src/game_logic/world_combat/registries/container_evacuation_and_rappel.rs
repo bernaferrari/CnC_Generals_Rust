@@ -188,6 +188,31 @@ impl GameLogic {
         if subdued && mode == TransportEvacuationMode::Command {
             return false;
         }
+        let rail_ai = self.objects.get(&container_id).is_some_and(|object| {
+            object.thing().template.receiving_client_template.as_ref()
+                .and_then(|template| template.receiving_ai_module_name())
+                .is_some_and(|name| name.eq_ignore_ascii_case("RailedTransportAIUpdate"))
+        });
+        if rail_ai && mode == TransportEvacuationMode::Command {
+            return self.railed_transport_unload_all_with_effects(container_id, presentation_effects)
+                .expect("rail evacuation requires its receiving services");
+        }
+        if mode == TransportEvacuationMode::Command && self.objects.get(&container_id).is_some_and(|object| {
+            object.thing().template.contain_module.kind == crate::game_logic::ContainModuleKind::RailedTransport
+        }) {
+            if !self.railed_dock_reserve_exit(container_id) { return false; }
+            let Some(config) = self.railed_dock_config(container_id) else { return false };
+            let riders = self.objects.get(&container_id).unwrap().contained_units();
+            let mut any = false;
+            for rider in riders {
+                if self.objects.get(&rider).is_some_and(|object| object.has_ai_update_interface()) {
+                    self.railed_dock_unload(container_id, config, false, presentation_effects)
+                        .expect("rail evacuation requires its receiving services");
+                    any = true;
+                }
+            }
+            return any;
+        }
         // C++ privateEvacuate: markAllPassengersDetected before dump.
         if mode == TransportEvacuationMode::Command {
             self.mark_all_passengers_detected(container_id);
@@ -1035,6 +1060,16 @@ impl GameLogic {
             }) else {
                 break;
             };
+            let enemy_birth = self.objects.get(&enemy_id).map(|object| object.visual_object_generation);
+            if self.objects.get(&bldg_id).is_some_and(|container| {
+                container.thing().template.contain_module.kind == crate::game_logic::ContainModuleKind::RailedTransport
+            }) {
+                if !self.railed_remove_contained_with_effects(bldg_id, enemy_id, presentation_effects)
+                    .expect("rail enemy removal requires its receiving services")
+                {
+                    break;
+                }
+            } else {
             if let Some(b) = self.objects.get_mut(&bldg_id) {
                 let _ = b.remove_occupant_with_partition_owner(
                     enemy_id,
@@ -1057,6 +1092,10 @@ impl GameLogic {
                     .objects
                     .get_mut(&containment_actor_id)
                     .expect("containment operation preserves this birth");
+            }
+            }
+            if !self.objects.get(&enemy_id).is_some_and(|object| Some(object.visual_object_generation) == enemy_birth) {
+                continue;
             }
             // CPP AIStates.cpp435 scores while the enemy is still alive,
             // before the receiving Body/onDie continuation can change it.

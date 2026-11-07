@@ -2218,19 +2218,6 @@ impl Pathfinder {
             .adjust_to_landing_destination_for(&from, dest, unit_radius, obj.get_id())
     }
 
-    /// C++ Pathfinder::adjustToPossibleDestination — spiral search for a reachable cell.
-    pub fn adjust_to_possible_destination(
-        &self,
-        start: &Coord3D,
-        dest: &mut Coord3D,
-        surfaces: u32,
-        is_crusher: bool,
-        unit_radius: f32,
-    ) -> bool {
-        self.inner
-            .adjust_to_possible_destination(start, dest, surfaces, is_crusher, unit_radius)
-    }
-
     pub(crate) fn adjust_exit_destination_with_observations(
         &self,
         object: &Object,
@@ -2276,7 +2263,7 @@ impl Pathfinder {
         };
         self.inner.adjust_to_possible_destination_with_observations(
             object.get_position(), destination, surfaces, is_crusher, unit_radius,
-            observations, Some(&owner),
+            observations, &owner,
         )
     }
 

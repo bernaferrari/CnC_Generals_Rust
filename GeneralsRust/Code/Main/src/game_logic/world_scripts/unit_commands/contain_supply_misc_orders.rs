@@ -414,6 +414,14 @@ impl GameLogic {
         occupant_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
+        if self.objects.get(&container_id).is_some_and(|container| {
+            container.thing().template.contain_module.kind == crate::game_logic::ContainModuleKind::RailedTransport
+        }) {
+            return match self.railed_remove_contained_with_effects(container_id, occupant_id, effects) {
+                Ok(removed) => removed,
+                Err(error) => { log::error!("rail removal failed: {error}"); false }
+            };
+        }
         // C++ TransportContain onRemoving: bike secondary → Kell secondary.
         self.transfer_kell_snipe_reload_from_bike(container_id, occupant_id);
         let is_rider_change = self.objects.get(&container_id).is_some_and(|container| {
@@ -449,7 +457,7 @@ impl GameLogic {
     }
 
     /// C++ TransportContain patch 1.01: CLIFF_JUMPER + HERO/SALVAGER shot-stat copy.
-    pub(super) fn transfer_kell_snipe_reload_from_bike(
+    pub(crate) fn transfer_kell_snipe_reload_from_bike(
         &mut self,
         container_id: ObjectId,
         occupant_id: ObjectId,
@@ -596,6 +604,14 @@ impl GameLogic {
     ) -> bool {
         if !self.objects.contains_key(&id) || !self.objects.contains_key(&container_id) {
             return false;
+        }
+        if self.objects.get(&container_id).is_some_and(|container| {
+            container.thing().template.contain_module.kind == crate::game_logic::ContainModuleKind::RailedTransport
+        }) {
+            let Some(config) = self.railed_dock_config(container_id) else { return false };
+            self.railed_dock_unload(container_id, config, false, effects)
+                .expect("rail passenger exit requires its receiving services");
+            return true;
         }
         if self
             .objects

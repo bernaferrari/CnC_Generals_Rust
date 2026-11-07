@@ -1592,15 +1592,22 @@ impl GameLogic {
         let had_occupants = !occupants.is_empty();
         let mut kills = 0u32;
         let mut destroy_ids: Vec<ObjectId> = Vec::new();
+        let rail_birth = self.objects.get(&target_id).and_then(|target| {
+            (target.thing().template.contain_module.kind == crate::game_logic::ContainModuleKind::RailedTransport)
+                .then_some(target.visual_object_generation)
+        });
+        let rail = rail_birth.is_some();
 
         // Remove occupants from container bookkeeping first.
-        if let Some(target) = self.objects.get_mut(&target_id) {
-            for &occ_id in &occupants {
-                target.remove_occupant_with_partition_owner(
-                    occ_id,
-                    &mut self.ownership_events,
-                    &mut self.partition_manager,
-                );
+        if !rail {
+            if let Some(target) = self.objects.get_mut(&target_id) {
+                for &occ_id in &occupants {
+                    target.remove_occupant_with_partition_owner(
+                        occ_id,
+                        &mut self.ownership_events,
+                        &mut self.partition_manager,
+                    );
+                }
             }
         }
         // C++ OpenContain/TunnelContain::harmAndForceExitAllContained:
@@ -1616,6 +1623,7 @@ impl GameLogic {
 
         let mut ejected: Vec<ObjectId> = Vec::new();
         for occ_id in occupants {
+            if rail { continue; }
             let Some(occ) = self.objects.get_mut(&occ_id) else {
                 continue;
             };
@@ -1661,7 +1669,26 @@ impl GameLogic {
             }
         }
 
-        for occ_id in ejected {
+        let mut ejected = ejected.into_iter();
+        loop {
+            let occ_id = if rail {
+                let Some(id) = self.objects.get(&target_id)
+                    .filter(|target| Some(target.visual_object_generation) == rail_birth)
+                    .and_then(|target| target.contained_unit_ids().first().copied()) else { break };
+                let Some(rider_birth) = self.objects.get(&id).map(|rider| rider.visual_object_generation) else { break };
+                if !self.railed_remove_contained_with_effects(target_id, id, presentation_effects)
+                    .expect("rail bunker-buster removal requires its receiving services")
+                {
+                    break;
+                }
+                if !self.objects.get(&id).is_some_and(|rider| rider.visual_object_generation == rider_birth) {
+                    continue;
+                }
+                id
+            } else {
+                let Some(id) = ejected.next() else { break };
+                id
+            };
             let context = crate::game_logic::object::DamageHitContext::new(
                 attacker_id.and_then(|id| self.objects.get(&id)),
                 Some(BUNKER_BUSTER_OCCUPANT_WEAPON),

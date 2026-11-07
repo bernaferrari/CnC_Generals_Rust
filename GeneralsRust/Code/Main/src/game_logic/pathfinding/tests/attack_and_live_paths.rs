@@ -4,6 +4,22 @@ fn open_grid(w: i32, h: i32) -> PathfindingGrid {
     PathfindingGrid::new(w as f32 * 10.0, h as f32 * 10.0, 10.0)
 }
 
+// C++ updatePos/updateGoal are object-lifecycle events, not roster scans.
+fn stamp_fixed(grid: &mut PathfindingGrid, object: &crate::game_logic::Object, old: (i32, i32)) -> (i32, i32) {
+    let footprint = grid.path_position_footprint(object);
+    let radius = footprint.radius;
+    let position = object.get_position();
+    let cell = grid.update_path_position_cell(&footprint, old, position);
+    grid.update_ground_goal_cell(object.id.0, footprint.player, radius, false, old, position);
+    cell
+}
+
+fn sphere(template: &mut crate::game_logic::ThingTemplate, radius: f32) {
+    template.geometry_info.geom_type = crate::game_logic::HostGeometryType::Sphere;
+    template.geometry_info.major_radius = radius;
+    template.geometry_info.authored = true;
+}
+
 /// hq-6a3ks: attack LOS leftover airborne + KINDOF gates.
 #[test]
 fn attack_los_airborne_and_kindof_gates() {
@@ -227,6 +243,7 @@ fn attack_step_occupancy_matches_leftover() {
     let mut objects = HostObjectStore::new();
     let mut enemy_t = ThingTemplate::new("Bunker");
     enemy_t.add_kind_of(KindOf::Vehicle);
+    sphere(&mut enemy_t, 1.0);
     let mut enemy = Object::new(enemy_t, ObjectId(1), Team::GLA);
     enemy.set_position(g.grid_to_world(
         GridPos::new(5, 5),
@@ -234,24 +251,28 @@ fn attack_step_occupancy_matches_leftover() {
     ));
     enemy.owner_player_id = Some(2);
     enemy.crushable_level = 0;
+    stamp_fixed(&mut g, &enemy, (-1, -1));
     objects.admit(enemy.id, enemy);
 
     let mut ally_t = ThingTemplate::new("Humvee");
     ally_t.add_kind_of(KindOf::Vehicle);
+    sphere(&mut ally_t, 1.0);
     let mut ally = Object::new(ally_t, ObjectId(2), Team::China);
     ally.set_position(g.grid_to_world(
         GridPos::new(6, 6),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     ));
-    // selection_radius 1.0 keeps the ally's pos-stamp to ONE cell (radius 0);
+    // Authored radius 1.0 keeps the ally's pos-stamp to ONE cell (radius 0);
     // a default-vehicle 3x3 footprint would overlap (5,5) and evict the
     // enemy's single m_posUnitID (last writer wins, AIPathfind.cpp:1405).
     ally.selection_radius = 1.0;
     ally.owner_player_id = Some(1);
+    stamp_fixed(&mut g, &ally, (-1, -1));
     objects.admit(ally.id, ally);
 
     let mut goal_t = ThingTemplate::new("Ranger");
     goal_t.add_kind_of(KindOf::Infantry);
+    sphere(&mut goal_t, 1.0);
     let mut goaled = Object::new(goal_t, ObjectId(3), Team::USA);
     goaled.set_position(g.grid_to_world(
         GridPos::new(1, 1),
@@ -262,6 +283,7 @@ fn attack_step_occupancy_matches_leftover() {
         GridPos::new(8, 8),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     ));
+    g.update_ground_goal_cell(goaled.id.0, 0, goaled.geometry_info().bounding_circle_radius(), false, (-1, -1), goaled.movement.target_position.unwrap());
     objects.admit(goaled.id, goaled);
 
     g.update_dynamic_obstacles(
@@ -342,6 +364,9 @@ fn attack_vehicle_strip_back_retreats_off_busy_ally() {
     let mut tank_t = ThingTemplate::new("Crusader");
     tank_t.add_kind_of(KindOf::Vehicle);
     tank_t.add_kind_of(KindOf::AttackNeedsLineOfSight);
+    tank_t.geometry_info.geom_type = crate::game_logic::HostGeometryType::Sphere;
+    tank_t.geometry_info.major_radius = 8.0;
+    tank_t.geometry_info.authored = true;
     let mut tank = Object::new(tank_t, ObjectId(1), Team::USA);
     tank.set_position(Vec3::new(20.0, 0.0, 50.0));
     tank.owner_player_id = Some(0);
@@ -351,11 +376,13 @@ fn attack_vehicle_strip_back_retreats_off_busy_ally() {
 
     let mut ally_t = ThingTemplate::new("Humvee");
     ally_t.add_kind_of(KindOf::Vehicle);
+    sphere(&mut ally_t, 1.0);
     let mut ally = Object::new(ally_t, ObjectId(2), Team::China);
     // Parked, not idle: ally-fixed on the approach parent chain.
     ally.set_position(Vec3::new(70.0, 0.0, 50.0));
     ally.owner_player_id = Some(1);
     ally.restore_ai_state(crate::game_logic::AIState::Attacking);
+    stamp_fixed(&mut sys.grid, &ally, (-1, -1));
     objects.admit(ally.id, ally);
 
     let path = sys.find_attack_firing_position(
@@ -431,6 +458,7 @@ fn find_closest_path_accepts_occupied_goal_when_can_path_through_units() {
     let mut objects = HostObjectStore::new();
     let mut inf_t = ThingTemplate::new("Ranger");
     inf_t.add_kind_of(KindOf::Infantry);
+    sphere(&mut inf_t, 1.0);
     let mut seeker = Object::new(inf_t.clone(), ObjectId(1), Team::USA);
     seeker.set_position(from);
     seeker.owner_player_id = Some(0);
@@ -443,6 +471,7 @@ fn find_closest_path_accepts_occupied_goal_when_can_path_through_units() {
     parked.set_position(to);
     parked.owner_player_id = Some(0);
     parked.selection_radius = 1.0;
+    stamp_fixed(&mut sys.grid, &parked, (-1, -1));
     objects.admit(parked.id, parked);
 
     sys.grid.update_dynamic_obstacles(
@@ -602,6 +631,7 @@ fn snap_closest_goal_avoids_fixed_occupant() {
     let mut objects = HostObjectStore::new();
     let mut tmpl = ThingTemplate::new("Ranger");
     tmpl.add_kind_of(KindOf::Infantry);
+    sphere(&mut tmpl, 1.0);
     let mut parked = Object::new(tmpl, ObjectId(7), Team::USA);
     let pad = sys.grid.grid_to_world(
         GridPos::new(8, 8),
@@ -610,6 +640,7 @@ fn snap_closest_goal_avoids_fixed_occupant() {
     parked.set_position(pad);
     parked.owner_player_id = Some(0);
     parked.selection_radius = 1.0;
+    stamp_fixed(&mut sys.grid, &parked, (-1, -1));
     objects.admit(parked.id, parked);
     sys.grid.update_dynamic_obstacles(
         objects.read(),
@@ -655,7 +686,14 @@ fn process_pathfind_queue_stops_at_cell_budget() {
     assert!(sys.queue_path(mk(2, 30.0)));
     assert!(sys.queue_path(mk(3, 50.0)));
     assert_eq!(sys.pending_path_count(), 3);
-    let objects = HostObjectStore::new();
+    let mut objects = HostObjectStore::new();
+    for id in 1..=3 {
+        let mut template = crate::game_logic::ThingTemplate::new("QueuedRanger");
+        template.add_kind_of(crate::game_logic::KindOf::Infantry);
+        let mut actor = crate::game_logic::Object::new(template, ObjectId(id), crate::game_logic::Team::USA);
+        actor.set_position(Vec3::new(10.0, 0.0, 10.0 + 20.0 * (id - 1) as f32));
+        objects.admit(actor.id, actor);
+    }
     sys.begin_pathfind_queue_frame();
     let mut processed = 0usize;
     while sys.pathfind_budget_remaining() {
@@ -1160,6 +1198,9 @@ fn crate_path_uses_adjust_coord_to_cell_not_corners() {
     let mut veh_objects = HostObjectStore::new();
     let mut veh_t = ThingTemplate::new("CrusaderTank");
     veh_t.add_kind_of(KindOf::Vehicle);
+    veh_t.geometry_info.geom_type = crate::game_logic::HostGeometryType::Sphere;
+    veh_t.geometry_info.major_radius = 8.0;
+    veh_t.geometry_info.authored = true;
     let mut veh = Object::new(veh_t, ObjectId(2), Team::USA);
     veh.set_position(start);
     veh.selection_radius = 8.0;
@@ -1219,11 +1260,13 @@ fn patch_path_skips_occupied_ally_waypoints() {
     objects.admit(seeker.id, seeker);
     let mut parked_t = ThingTemplate::new("Humvee");
     parked_t.add_kind_of(KindOf::Vehicle);
+    sphere(&mut parked_t, 4.0);
     let mut parked = Object::new(parked_t, ObjectId(9), Team::USA);
     parked.set_position(dest);
     parked.owner_player_id = Some(0);
     parked.crushable_level = 1;
     parked.selection_radius = 4.0;
+    let parked_cell = stamp_fixed(&mut sys.grid, &parked, (-1, -1));
     objects.admit(parked.id, parked);
     assert!(
         sys.patch_path(
@@ -1240,6 +1283,7 @@ fn patch_path_skips_occupied_ally_waypoints() {
     );
 
     objects.get_mut(&ObjectId(9)).unwrap().set_position(mid);
+    stamp_fixed(&mut sys.grid, objects.get(&ObjectId(9)).unwrap(), parked_cell);
     let patched = sys
         .patch_path(
             from,
@@ -1291,6 +1335,9 @@ fn find_attack_path_binds_leftover_seeker() {
 
     let mut tank_t = ThingTemplate::new("Crusader");
     tank_t.add_kind_of(KindOf::Vehicle);
+    tank_t.geometry_info.geom_type = crate::game_logic::HostGeometryType::Sphere;
+    tank_t.geometry_info.major_radius = 8.0;
+    tank_t.geometry_info.authored = true;
     let mut tank = Object::new(tank_t, ObjectId(2), Team::GLA);
     tank.set_position(Vec3::new(20.0, 0.0, 50.0));
     tank.owner_player_id = Some(2);
@@ -1458,7 +1505,7 @@ fn adjust_to_possible_destination_spirals_off_obstacle() {
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     assert!(
-        g.adjust_to_possible_destination(
+        super::adjust_fixture(&g,
             start,
             &mut dest,
             SURFACE_GROUND,

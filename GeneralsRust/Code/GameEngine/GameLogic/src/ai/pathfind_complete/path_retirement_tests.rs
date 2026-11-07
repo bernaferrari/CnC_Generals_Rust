@@ -230,24 +230,20 @@ fn crusher_find_path_goes_around_solid_building_not_through() {
         let request = request(SURFACE_GROUND, crusher);
         let path = owner.find_path_result(request.clone());
         assert_endpoints(&path, &request);
-        // Sampling the optimized segments also rejects a corner-cut through
-        // the building; testing raw waypoint positions alone is insufficient.
+        // AIPathfind.cpp:9085-9178 converts the endpoints to cells and
+        // walks those cells with Bresenham, including its intermediate
+        // orthogonal callback. Sampling the geometric segment instead checks
+        // different cells when the endpoints are not at cell centers.
         for pair in path.waypoints.windows(2) {
-            let dx = pair[1].x - pair[0].x;
-            let dy = pair[1].y - pair[0].y;
-            let steps = ((dx * dx + dy * dy).sqrt() / 2.5).ceil().max(1.0) as usize;
-            for step in 0..=steps {
-                let t = step as f32 / steps as f32;
-                let cell = GridCoord::from_world(&Coord3D::new(
-                    pair[0].x + dx * t,
-                    pair[0].y + dy * t,
-                    0.0,
-                ));
-                assert!(
-                    !(3..=5).contains(&cell.x) || !(1..=3).contains(&cell.y),
-                    "path must go around solid building: {cell:?}"
-                );
-            }
+            let blocked = owner.inner.iterate_cells_along_line_world(
+                &pair[0],
+                &pair[1],
+                PathfindLayerEnum::Ground,
+                |_, cell, _, _| i32::from(
+                    (3..=5).contains(&cell.x) && (1..=3).contains(&cell.y),
+                ),
+            );
+            assert_eq!(blocked, 0, "C++ line traversal must not cross the solid building: {pair:?}");
         }
     }
 }

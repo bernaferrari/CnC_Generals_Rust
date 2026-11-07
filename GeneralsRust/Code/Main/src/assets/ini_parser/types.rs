@@ -586,6 +586,8 @@ impl DrawConditionStateDefinition {
 pub struct DrawModuleDefinition {
     pub declaration: String,
     pub ignored_condition_tokens: Vec<String>,
+    /// W3DModelDrawModuleData::m_attachToDrawableBone.
+    pub attach_to_drawable_bone: Option<String>,
     /// Module-scoped W3DModelDraw recoil coefficients. These are frozen on
     /// each selected Draw model so a same-mesh condition state cannot borrow
     /// kinetics from an unrelated module or basename.
@@ -604,6 +606,7 @@ impl DrawModuleDefinition {
         Self {
             declaration,
             ignored_condition_tokens: Vec::new(),
+            attach_to_drawable_bone: None,
             recoil_kinematics: AuthoredDrawRecoilKinematics::default(),
             projectile_bone_feedback: AuthoredDrawProjectileBoneFeedback::default(),
             animations_require_power: AuthoredAnimationsRequirePower::default(),
@@ -690,6 +693,9 @@ pub struct AuthoredDrawModel {
     /// entire vehicle hull.
     #[serde(default)]
     pub primary_turret: AuthoredDrawPrimaryTurret,
+    /// The owning Draw module's pristine attachment bone, when authored.
+    #[serde(default)]
+    pub attach_to_drawable_bone: Option<String>,
     /// Frozen exact weapon-bone bases from the selected source state. A
     /// renderer may consume this only after validating the active hierarchy;
     /// empty/default remains no recoil topology, never a model-name fallback.

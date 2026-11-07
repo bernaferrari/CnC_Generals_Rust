@@ -215,22 +215,21 @@ impl GameLogic {
                 self.cancel_dock_reservation(object_id);
                 return Ok(());
             }
-            // Closed docks cannot grant an enter/action, but an existing
-            // approach reservation is not an immediate containment operation.
+            // AIDock cancels an active entry/dock move when the dock closes.
             if !dock.railed_dock.dock_open {
+                self.cancel_dock_reservation(object_id);
                 return Ok(());
             }
             if self.try_claim_dock(container_id, object_id)? {
-                let clear_to_enter = self.objects.get(&container_id).is_some_and(|dock| {
-                    dock.can_contain() && dock.has_capacity_for(1)
-                });
+                let clear_to_enter = self.railed_dock_accepts_rider(container_id, object_id);
                 if clear_to_enter {
                     let config = self.railed_dock_config(container_id).ok_or_else(|| {
                         gamelogic::GameLogicError::Configuration(
                             "railed dock requires receiving RailedTransportDockUpdate module data".into(),
                         )
                     })?;
-                    self.railed_dock_action(container_id, object_id, config);
+                    self.railed_dock_approach(container_id, object_id, config, effects)
+                        .map_err(gamelogic::GameLogicError::Configuration)?;
                 }
             }
             return Ok(());
@@ -575,6 +574,31 @@ impl GameLogic {
             if !allow {
                 return Ok(());
             }
+        }
+
+        if normal_enter && self.objects.get(&container_id).is_some_and(|container| {
+            container.thing().template.contain_module.kind == crate::game_logic::ContainModuleKind::RailedTransport
+        }) {
+            let birth = self.objects.get(&object_id).map(|object| object.visual_object_generation);
+            let entered = if container_has_unit { true } else {
+                self.railed_add_contained_with_effects(container_id, object_id, effects)
+                    .map_err(gamelogic::GameLogicError::Configuration)?
+            };
+            if entered {
+                if let Some(object) = self.objects.get_mut(&object_id)
+                    .filter(|object| Some(object.visual_object_generation) == birth)
+                {
+                    object.stop_moving(&mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events));
+                    object.set_status_attacking(false);
+                    object.target_location = None;
+                    object.set_status_force_attack(false);
+                    object.target = Some(container_id);
+                    object.set_ai_state(AIState::Docked, self.frame,
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events));
+                    object.set_status_moving(false);
+                }
+            }
+            return Ok(());
         }
 
         // C++ OpenContain::addToContain checkAndDetonateBoobyTrap(rider).

@@ -316,13 +316,9 @@ impl OccBits {
 /// Receiver-specific state for one synchronous possible-destination query.
 #[derive(Clone, Copy)]
 struct PossibleDestinationReceiver<'a> {
-    seeker_id: u32,
-    ignore_id: u32,
-    aircraft: bool,
-    player: Option<u32>,
-    crusher_level: u8,
     source_layer: PathfindLayerEnum,
-    live: Option<(&'a Object, HostObjectRead<'a>)>,
+    mover: &'a Object,
+    objects: HostObjectRead<'a>,
 }
 
 /// C++ `LAYER_WALL = LAYER_LAST = 15` (GameType.h:167).

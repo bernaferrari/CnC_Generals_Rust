@@ -734,6 +734,14 @@ impl GameLogic {
             return;
         }
         for (i, uid) in occupants.into_iter().enumerate() {
+            if self.objects.get(&container_id).is_some_and(|container| {
+                container.thing().template.contain_module.kind == crate::game_logic::ContainModuleKind::RailedTransport
+            }) {
+                self.railed_remove_contained_with_effects(container_id, uid, effects)
+                    .expect("rail capture removal requires its receiving services");
+                self.capture_kick_outs = self.capture_kick_outs.saturating_add(1);
+                continue;
+            }
             if let Some(unit) = self.objects.get_mut(&uid) {
                 let angle = (uid.0 as f32 + i as f32 * 1.11) * 0.7;
                 let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 10.0;
@@ -836,6 +844,18 @@ impl GameLogic {
 
         // Eject passengers around structure (OpenContain::onSelling).
         for (i, uid) in occupants.iter().copied().enumerate() {
+            if self.objects.get(&structure_id).is_some_and(|container| {
+                container.thing().template.contain_module.kind == crate::game_logic::ContainModuleKind::RailedTransport
+            }) {
+                if self.objects.get(&uid).is_some_and(|rider| rider.has_ai_update_interface()) {
+                    if let Some(config) = self.railed_dock_config(structure_id) {
+                        self.railed_dock_unload(structure_id, config, false, effects)
+                            .expect("rail selling exit requires its receiving services");
+                    }
+                }
+                self.sell_passengers_ejected = self.sell_passengers_ejected.saturating_add(1);
+                continue;
+            }
             // Eject residual.
             if let Some(unit) = self.objects.get_mut(&uid) {
                 let angle = (uid.0 as f32 + i as f32 * 1.11) * 0.7;

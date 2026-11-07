@@ -36,6 +36,7 @@ impl HostDockApproachQueues {
         waiting_bones: &[Vec3],
         current_frame: u32,
         crippled: bool,
+        defer_enter_reached: bool,
         is_alive: impl FnMut(ObjectId) -> bool,
         mut has_active_owner: impl FnMut(ObjectId) -> bool,
     ) -> DockApproachTick {
@@ -57,6 +58,7 @@ impl HostDockApproachQueues {
             waiting_bones,
             current_frame,
             crippled,
+            defer_enter_reached,
             is_alive,
         );
         let current_owners: Vec<_> = self
@@ -85,6 +87,12 @@ impl HostDockApproachQueues {
                 .insert(docker_id, docker_cancel_epoch);
         }
         result
+    }
+
+    pub(crate) fn on_enter_reached(&mut self, dock_id: ObjectId, docker_id: ObjectId) {
+        if let Some(queue) = self.queues.get_mut(&dock_id) {
+            queue.on_enter_reached(docker_id);
+        }
     }
 
     pub(crate) fn cancel_dock(
@@ -302,6 +310,7 @@ fn tick_dock_approach(
     waiting_bones: &[Vec3],
     current_frame: u32,
     crippled: bool,
+    defer_enter_reached: bool,
     is_alive: impl FnMut(ObjectId) -> bool,
 ) -> DockApproachTick {
     queue.evict_dead(is_alive);
@@ -313,7 +322,7 @@ fn tick_dock_approach(
         return DockApproachTick::Blocked;
     }
     if current_active == Some(docker_id) && current_active_alive && !crippled {
-        queue.on_enter_reached(docker_id);
+        if !defer_enter_reached { queue.on_enter_reached(docker_id); }
         queue.clear_wait_started(docker_id);
         return DockApproachTick::ClearToAct;
     }
@@ -331,7 +340,7 @@ fn tick_dock_approach(
     }
     queue.on_approach_reached(docker_id);
     if queue.promote_active(current_active, current_active_alive, crippled) == Some(docker_id) {
-        queue.on_enter_reached(docker_id);
+        if !defer_enter_reached { queue.on_enter_reached(docker_id); }
         queue.clear_wait_started(docker_id);
         DockApproachTick::ClearToAct
     } else if let Some(index) = queue.index_of(docker_id) {
@@ -601,6 +610,10 @@ pub fn number_approach_positions_for_dock(
     is_repair_dock: bool,
     delete_when_empty: bool,
 ) -> i32 {
+    // Rail docks use their parsed module data at both call sites.
+    if dock_kind == DockKind::RailedTransport {
+        return 0;
+    }
     let name = template_name.to_ascii_lowercase();
     if is_repair_dock {
         return super::host_repair::REPAIR_DOCK_NUMBER_APPROACH_POSITIONS as i32;
@@ -626,7 +639,7 @@ pub fn number_approach_positions_for_dock(
                 9
             }
         }
-        DockKind::RailedTransport => 9,
+        DockKind::RailedTransport => unreachable!("rail approach count is typed module data"),
         DockKind::None => 0,
     }
 }
@@ -1561,6 +1574,7 @@ mod tests {
             &[bone],
             0,
             true,
+            false,
             |_| true,
             |_| false,
         );
@@ -1605,6 +1619,7 @@ mod tests {
             &[bone],
             0,
             false,
+            false,
             |_| true,
             |_| false,
         );
@@ -1622,6 +1637,7 @@ mod tests {
             20.0,
             &[bone],
             1,
+            false,
             false,
             |_| true,
             |_| false,
@@ -1653,6 +1669,7 @@ mod tests {
                 &[point],
                 0,
                 false,
+                false,
                 |_| true,
                 |_| false,
             ),
@@ -1675,6 +1692,7 @@ mod tests {
             20.0,
             &[point],
             1,
+            false,
             false,
             |id| id == new_waiter,
             |id| id == former_waiter,
@@ -1709,6 +1727,7 @@ mod tests {
                 20.0,
                 &[point],
                 10,
+                false,
                 false,
                 |_| true,
                 |_| false,
@@ -1757,6 +1776,7 @@ mod tests {
                 &[bone_a, bone_b],
                 0,
                 false,
+                false,
                 |_| true,
                 |_| false,
             ),
@@ -1777,6 +1797,7 @@ mod tests {
                 &[bone_a, bone_b],
                 10,
                 false,
+                false,
                 |_| true,
                 |_| false,
             ),
@@ -1796,6 +1817,7 @@ mod tests {
                 10.0,
                 &[bone_a, bone_b],
                 10 + WAIT_FOR_CLEARANCE_FRAMES,
+                false,
                 false,
                 |_| true,
                 |_| false,
@@ -1823,6 +1845,7 @@ mod tests {
             20.0,
             &[],
             0,
+            false,
             false,
             |_| true,
             |_| false,

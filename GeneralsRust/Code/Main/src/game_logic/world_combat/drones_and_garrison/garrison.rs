@@ -882,6 +882,20 @@ impl GameLogic {
             if stealth_garrison {
                 self.mark_stealth_detected(pid, 0);
             }
+            if self.objects.get(&container_id).is_some_and(|container| {
+                container.thing().template.contain_module.kind == crate::game_logic::ContainModuleKind::RailedTransport
+            }) {
+                if self.objects.get(&pid).is_some_and(|rider| rider.has_ai_update_interface()) {
+                    if let Some(config) = self.railed_dock_config(container_id) {
+                        self.railed_dock_unload(container_id, config, false, presentation_effects)
+                            .expect("rail collision exit requires its receiving services");
+                    }
+                } else {
+                    self.railed_remove_contained_with_effects(container_id, pid, presentation_effects)
+                        .expect("rail collision removal requires its receiving services");
+                }
+                continue;
+            }
             if let Some(c) = self.objects.get_mut(&container_id) {
                 let _ = c.remove_occupant_with_partition_owner(
                     pid,
