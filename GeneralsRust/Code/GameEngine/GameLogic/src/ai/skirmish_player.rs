@@ -190,7 +190,13 @@ impl AISkirmishPlayer {
     }
 
     /// Called when a unit is produced
-    pub fn on_unit_produced(&mut self, factory: &Arc<RwLock<Object>>, unit: &Arc<RwLock<Object>>) {
+    pub fn on_unit_produced(
+        &mut self,
+        world: &crate::system::game_logic::GameLogic,
+        player: &RwLock<Player>,
+        factory: &Arc<RwLock<Object>>,
+        unit: &Arc<RwLock<Object>>,
+    ) {
         let (factory_id, unit_id) = {
             let (Ok(factory_guard), Ok(unit_guard)) = (factory.read(), unit.read()) else {
                 return;
@@ -199,7 +205,7 @@ impl AISkirmishPlayer {
         };
         // C++ delegates directly. Base AI can assign this unit to its team,
         // so no Object guard may survive into that callback.
-        let _ = self.base.on_unit_produced(factory_id, unit_id);
+        let _ = self.base.on_unit_produced(world, player, factory_id, unit_id);
     }
 
     /// Build a specific AI team immediately

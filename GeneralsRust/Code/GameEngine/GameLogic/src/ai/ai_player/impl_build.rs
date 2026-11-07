@@ -694,6 +694,8 @@ impl AIPlayer {
     /// scheduling when a factory is present.
     pub fn on_unit_produced(
         &mut self,
+        world: &crate::system::game_logic::GameLogic,
+        player: &RwLock<Player>,
         factory_id: ObjectID,
         unit_id: ObjectID,
     ) -> Result<(), AiError> {
@@ -702,15 +704,17 @@ impl AIPlayer {
             return Ok(());
         }
 
-        let Some((unit_template_name, is_dozer)) = OBJECT_REGISTRY.with_object(unit_id, |unit_g| {
-            (
-                unit_g.get_template_name().to_string(),
-                unit_g.is_kind_of(KindOf::Dozer),
-            )
-        }) else {
+        let Some(unit) = world.find_object_by_id(unit_id) else {
             self.team_delay = 0;
             return Ok(());
         };
+        let Ok(unit_guard) = unit.read() else {
+            self.team_delay = 0;
+            return Ok(());
+        };
+        let unit_template_name = unit_guard.get_template_name().to_string();
+        let is_dozer = unit_guard.is_kind_of(KindOf::Dozer);
+        drop(unit_guard);
 
         let mut found = false;
         let mut supply_truck = false;
@@ -772,10 +776,10 @@ impl AIPlayer {
                         .or_else(|| factory.find_team(&team_name))
                 })
             });
-            if let Some(ref team_arc) = team_arc {
-                let _ = OBJECT_REGISTRY.with_object_mut(unit_id, |ug| {
-                    let _ = ug.set_team(Some(team_arc.clone()));
-                });
+            if let Some(team_arc) = &team_arc {
+                if let Ok(mut unit) = unit.write() {
+                    let _ = unit.set_team(Some(team_arc.clone()));
+                }
             }
 
             // C++: if team has homeLocation → aiFollowExitProductionPath(goal, home).
@@ -784,28 +788,23 @@ impl AIPlayer {
                 self.queue_units_home_for_team(team_arc.as_ref(), team_name.as_str());
             // has_home is true only for prototype homeLocation (not base-center fallback).
             if has_home {
-                if let Some(ai) = OBJECT_REGISTRY
-                    .with_object(unit_id, |unit_g| {
-                        unit_g.get_ai_update_interface().map(|ai| {
-                            let start = ai
-                                .get_goal_position()
-                                .unwrap_or_else(|| *unit_g.get_position());
-                            (ai, start)
-                        })
+                let exit_ai = unit.read().ok().and_then(|unit_g| {
+                    unit_g.get_ai_update_interface().map(|ai| {
+                        let start = ai
+                            .get_goal_position()
+                            .unwrap_or_else(|| *unit_g.get_position());
+                        (ai, start)
                     })
-                    .flatten()
-                {
-                    let (ai, start) = ai;
+                });
+                if let Some((ai, start)) = exit_ai {
                     let path = [start, home];
                     ai.ai_follow_exit_production_path(&path, None, CommandSourceType::FromAi);
                 }
             }
 
             // Supply truck force-wanting + dock (C++ SupplyTruckAIInterface).
-            if let Some(ai) = OBJECT_REGISTRY
-                .with_object(unit_id, |unit_g| unit_g.get_ai_update_interface())
-                .flatten()
-            {
+            let unit_ai = unit.read().ok().and_then(|unit| unit.get_ai_update_interface());
+            if let Some(ai) = unit_ai {
                 if let Ok(mut ai_g) = ai.lock() {
                     if let Some(truck) = ai_g.get_supply_truck_ai_interface_mut() {
                         supply_truck = is_resource_gatherer_order;
@@ -813,7 +812,7 @@ impl AIPlayer {
                     }
                 }
                 if supply_truck {
-                    self.visit_supply_gatherer_slots(|dock_id| {
+                    Self::visit_supply_gatherer_slots(player, world, |dock_id| {
                         ai.ai_dock(dock_id, CommandSourceType::FromPlayer);
                     });
                 }

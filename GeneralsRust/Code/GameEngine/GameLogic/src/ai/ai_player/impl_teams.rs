@@ -138,14 +138,15 @@ impl AIPlayer {
         (Coord3D::new(0.0, 0.0, 0.0), false)
     }
 
-    /// Visit BuildList rows in order, releasing the player lock before aiDock.
-    pub(super) fn visit_supply_gatherer_slots(&mut self, mut dock: impl FnMut(ObjectID)) {
-        if dual_world_registry_unavailable() {
-            return;
-        }
-        let Some(player) = self.get_player() else {
-            return;
-        };
+    /// Visit the receiving player's canonical BuildList, releasing its lock for
+    /// each dock callback. Box-linked rows have no stable cursor across that
+    /// release, so rescan by index; reentrant insertion/removal before the
+    /// cursor cannot preserve the original C++ node identity.
+    pub(super) fn visit_supply_gatherer_slots(
+        player: &RwLock<Player>,
+        world: &crate::system::game_logic::GameLogic,
+        mut dock: impl FnMut(ObjectID),
+    ) {
         let mut index = 0;
         loop {
             let selected = {
@@ -164,7 +165,7 @@ impl AIPlayer {
                     && row.get_desired_gatherers() > 0
                     && row.get_desired_gatherers() > row.get_current_gatherers()
                     && id != INVALID_ID
-                    && OBJECT_REGISTRY.with_object(id, |_| ()).is_some()
+                    && world.find_object_by_id(id).is_some()
                 {
                     row.set_current_gatherers(row.get_current_gatherers() + 1);
                     Some(id)

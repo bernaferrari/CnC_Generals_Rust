@@ -13,6 +13,8 @@ use std::io::Cursor;
 struct ProductionObjects {
     factory: Arc<RwLock<Object>>,
     unit: Arc<RwLock<Object>>,
+    world: crate::system::game_logic::GameLogic,
+    player: RwLock<Player>,
 }
 
 impl ProductionObjects {
@@ -27,10 +29,12 @@ impl ProductionObjects {
             100.0,
             Arc::new(template),
         )));
+        let mut world = crate::system::game_logic::GameLogic::new();
         for object in [&factory, &unit] {
             OBJECT_REGISTRY.register_object(object.read().unwrap().get_id(), object);
+            world.track_object_in_update_list(Arc::clone(object)).unwrap();
         }
-        Self { factory, unit }
+        Self { factory, unit, world, player: RwLock::new(Player::new(0)) }
     }
 }
 
@@ -107,7 +111,7 @@ fn restored_skirmish_delivery_completes_first_order_and_assigns_team() {
             .unwrap(),
         &team
     ));
-    ai.on_unit_produced(&objects.factory, &objects.unit);
+    ai.on_unit_produced(&objects.world, &objects.player, &objects.factory, &objects.unit);
     let queued = &ai.base_for_test().team_build_queue[0];
     assert_eq!(queued.work_orders[0].num_completed, 0);
     assert_eq!(queued.work_orders[1].num_completed, 2);
@@ -139,7 +143,7 @@ fn unqueued_dozer_delivery_preserves_cpp_repair_and_build_shortcuts() {
         ai.base_for_test().team_delay = 99;
         ai.base_for_test().build_delay = 80;
         ai.base_for_test().structure_timer = 60;
-        ai.on_unit_produced(&objects.factory, &objects.unit);
+        ai.on_unit_produced(&objects.world, &objects.player, &objects.factory, &objects.unit);
         assert_eq!(ai.base_for_test().team_delay, 0);
         assert_eq!(ai.base_for_test().build_delay, if repair { 80 } else { 0 });
         assert_eq!(
@@ -155,6 +159,8 @@ fn unqueued_dozer_delivery_preserves_cpp_repair_and_build_shortcuts() {
 fn no_object_production_notifications_keep_local_timer_and_null_factory_contracts() {
     let _isolation = test_isolation_lock().lock().unwrap();
     OBJECT_REGISTRY.clear();
+    let world = crate::system::game_logic::GameLogic::new();
+    let player = RwLock::new(Player::new(0));
     assert!(OBJECT_REGISTRY.is_empty());
     let mut ai = AIPlayer::new(0);
     let mut other = AIPlayer::new(1);
@@ -164,9 +170,9 @@ fn no_object_production_notifications_keep_local_timer_and_null_factory_contract
     other.team_delay = 77;
     other.build_delay = 66;
     // C++ null factory is the one early return before the wake-up.
-    ai.on_unit_produced(INVALID_ID, INVALID_ID).unwrap();
+    ai.on_unit_produced(&world, &player, INVALID_ID, INVALID_ID).unwrap();
     assert_eq!(ai.team_delay, 99);
-    ai.on_unit_produced(0xB0_8101, 0xB0_8102).unwrap();
+    ai.on_unit_produced(&world, &player, 0xB0_8101, 0xB0_8102).unwrap();
     assert_eq!(ai.team_delay, 0);
     assert_eq!(ai.build_delay, 80);
     assert_eq!(ai.structure_timer, 60);
@@ -184,4 +190,63 @@ fn no_object_production_notifications_keep_local_timer_and_null_factory_contract
     let other_loaded = roundtrip(&mut other);
     assert_eq!(other_loaded.team_delay, 77);
     assert_eq!(other_loaded.build_delay, 66);
+}
+
+#[test]
+fn supply_ledger_uses_receiving_world_and_unlocks_player_before_each_dock() {
+    fn player() -> RwLock<Player> {
+        let mut tail = crate::build_list_info::BuildListInfo::new();
+        tail.set_object_id(0xB0_8302);
+        tail.set_supply_building(true);
+        tail.set_desired_gatherers(2);
+        let mut missing = crate::build_list_info::BuildListInfo::new();
+        missing.set_object_id(0xB0_8303);
+        missing.set_supply_building(true);
+        missing.set_desired_gatherers(2);
+        missing.set_next_build_list(Some(tail));
+        let mut first = crate::build_list_info::BuildListInfo::new();
+        first.set_object_id(0xB0_8301);
+        first.set_supply_building(true);
+        first.set_desired_gatherers(2);
+        first.set_next_build_list(Some(missing));
+        let mut player = Player::new(0);
+        player.set_build_list(Some(first));
+        RwLock::new(player)
+    }
+    fn counts(player: &Player) -> Vec<i32> {
+        let mut counts = Vec::new();
+        let mut row = player.get_build_list();
+        while let Some(info) = row {
+            counts.push(info.get_current_gatherers());
+            row = info.get_next();
+        }
+        counts
+    }
+    let mut world = crate::system::game_logic::GameLogic::new();
+    let mut peer = crate::system::game_logic::GameLogic::new();
+    for id in [0xB0_8301, 0xB0_8302] {
+        world.track_object_in_update_list(
+            Arc::new(RwLock::new(Object::new_test(id, 100.0)))
+        ).unwrap();
+    }
+    peer.track_object_in_update_list(
+        Arc::new(RwLock::new(Object::new_test(0xB0_8302, 100.0)))
+    ).unwrap();
+    let owner = player();
+    let other = player();
+    let mut visits = Vec::new();
+    AIPlayer::visit_supply_gatherer_slots(&owner, &world, |id| {
+        let guard = owner.try_read().expect("dock must not hold the player lock");
+        visits.push((id, counts(&guard)));
+    });
+    assert_eq!(visits, [
+        (0xB0_8301, vec![1, 0, 0]),
+        (0xB0_8302, vec![1, 0, 1]),
+    ]);
+    assert_eq!(counts(&other.read().unwrap()), [0, 0, 0]);
+    let mut peer_visits = Vec::new();
+    AIPlayer::visit_supply_gatherer_slots(&other, &peer, |id| peer_visits.push(id));
+    assert_eq!(peer_visits, [0xB0_8302]);
+    assert_eq!(counts(&other.read().unwrap()), [0, 0, 1]);
+    assert_eq!(counts(&owner.read().unwrap()), [1, 0, 1]);
 }

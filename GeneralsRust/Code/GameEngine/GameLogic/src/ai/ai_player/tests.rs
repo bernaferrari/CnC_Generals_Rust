@@ -335,13 +335,15 @@ fn queue_units_empty_queue_ok() {
 #[test]
 fn on_unit_produced_shortcuts_team_delay() {
     let mut ai = AIPlayer::new(1);
+    let world = crate::system::game_logic::GameLogic::new();
+    let player = RwLock::new(Player::new(1));
     ai.team_delay = 99;
     // C++ returns before resetting teamDelay when factory is null.
-    ai.on_unit_produced(INVALID_ID, INVALID_ID).expect("oop");
+    ai.on_unit_produced(&world, &player, INVALID_ID, INVALID_ID).expect("oop");
     assert_eq!(ai.team_delay, 99);
     // A nonnull factory wakes scheduling even if Rust cannot resolve the unit.
     ai.team_delay = 99;
-    let _ = ai.on_unit_produced(1, 999999);
+    let _ = ai.on_unit_produced(&world, &player, 1, 999999);
     assert_eq!(
         ai.team_delay, 0,
         "A nonnull factory must wake team scheduling"
