@@ -41,13 +41,17 @@ impl GameLogic {
 
     /// Native load recreates map geometry rather than serializing layer IDs.
     /// Resolve only this world's restored BridgeBehavior/object records.
-    pub(crate) fn restore_owned_bridge_bindings(&mut self) {
-        self.restore_owned_bridge_bindings_with_effects(&mut Default::default())
+    pub(crate) fn restore_owned_bridge_bindings(
+        &mut self,
+        map_bridges: Option<&[(i32, Option<usize>, u32)]>,
+    ) {
+        self.restore_owned_bridge_bindings_with_effects(map_bridges, &mut Default::default())
     }
 
     pub(crate) fn restore_owned_bridge_bindings_with_effects(
         &mut self,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        map_bridges: Option<&[(i32, Option<usize>, u32)]>,
+        _effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let owner = self.world_services.terrain().clone();
         let mut spans = Vec::new();
@@ -57,24 +61,26 @@ impl GameLogic {
             .for_each_bridge(|bridge| {
                 spans.push((bridge.get_layer() as u8, bridge.get_bridge_info().clone()));
             });
-        let mut used = std::collections::HashSet::new();
         for (layer, info) in spans {
             let host = |p: gamelogic::common::Coord3D| Vec3::new(p.x, p.z, p.y);
-            let center = (host(info.from_left) + host(info.to_right)) * 0.5;
-            let mut ids: Vec<ObjectId> = self
-                .objects
-                .registered_values()
-                .filter(|object| {
-                    object.is_kind_of(KindOf::Bridge)
-                        && !used.contains(&object.id)
-                        && (object.get_position() - center).length_squared() < 0.01
+            let saved_id = if info.bridge_index >= 0 || info.source_map_object_index.is_some() {
+                map_bridges.and_then(|bridges| {
+                    bridges.iter().find(|(index, source, _)| {
+                        if info.bridge_index >= 0 {
+                            *index == info.bridge_index
+                        } else {
+                            *index < 0 && *source == info.source_map_object_index
+                        }
+                    }).map(|(_, _, id)| *id)
                 })
-                .map(|o| o.id)
-                .collect();
-            // The saved canonical ID is preferred; geometry only rebinds after
-            // a native map reconstruction assigned fresh IDs before object xfer.
-            ids.sort_by_key(|id| (id.0 != info.bridge_object_id, id.0));
-            let Some(id) = ids.first().copied() else {
+            } else {
+                Some(info.bridge_object_id)
+            };
+            let id = saved_id.map(ObjectId).filter(|id| {
+                self.objects.get(id).is_some_and(|object| object.is_kind_of(KindOf::Bridge))
+                    && self.bridge_behavior.span(*id).is_some()
+            });
+            let Some(id) = id else {
                 ({
                     let ground_owner = self.world_services.terrain();
                     let ground_loan = ground_owner
@@ -95,13 +101,17 @@ impl GameLogic {
                     )
                 });
                 self.pathfinding_system.grid.deactivate_bridge_layer(layer);
-                owner
-                    .write()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .detach_bridge_by_object_id(info.bridge_object_id);
+                let mut terrain = owner.write().unwrap_or_else(|e| e.into_inner());
+                if info.bridge_index >= 0 {
+                    terrain.detach_bridge_by_index(info.bridge_index);
+                } else if let Some(index) = info.source_map_object_index {
+                    terrain.detach_bridge_by_map_object_index(index);
+                } else {
+                    terrain.detach_bridge_by_object_id(info.bridge_object_id);
+                }
                 continue;
             };
-            used.insert(id);
+
             self.pathfinding_system
                 .grid
                 .bind_reserved_bridge_object(layer, id.0);
@@ -121,7 +131,15 @@ impl GameLogic {
                 .write()
                 .unwrap_or_else(|e| e.into_inner())
                 .for_each_bridge_mut(|bridge| {
-                    if bridge.get_layer() as u8 == layer {
+                    if bridge.get_layer() as u8 == layer
+                        && if info.bridge_index >= 0 {
+                            bridge.get_bridge_info().bridge_index == info.bridge_index
+                        } else if info.source_map_object_index.is_some() {
+                            bridge.get_bridge_info().source_map_object_index == info.source_map_object_index
+                        } else {
+                            bridge.get_bridge_info().bridge_object_id == info.bridge_object_id
+                        }
+                    {
                         bridge.set_bridge_object_id(id.0);
                         for (i, tower) in towers.iter().enumerate() {
                             if let Some(kind) = gamelogic::common::BridgeTowerType::from_index(i) {
@@ -131,7 +149,9 @@ impl GameLogic {
                     }
                 });
         }
-        self.seed_pathfinding_from_terrain_with_effects(effects);
+        let terrain = owner.read().unwrap_or_else(|e| e.into_inner());
+        self.reclassify_pathfinding_from_terrain(&terrain);
+        drop(terrain);
         self.refresh_owned_bridge_pathfinder_states();
     }
 

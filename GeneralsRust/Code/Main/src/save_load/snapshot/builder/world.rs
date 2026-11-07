@@ -1043,7 +1043,7 @@ impl SnapshotBuilder {
             lifecycle_tail,
             game_logic,
         )?;
-        super::super::bridge_behavior_persist::apply_from_lifecycle_tail(
+        let map_bridge_bindings = super::super::bridge_behavior_persist::apply_from_lifecycle_tail(
             lifecycle_tail,
             game_logic,
         )?;
@@ -1125,7 +1125,20 @@ impl SnapshotBuilder {
         // Rebuild only after all object/status tails (including disabled_held)
         // are transferred, before the first script/construction observer.
         game_logic.restore_player_power();
-        game_logic.restore_owned_bridge_bindings();
+        if map_bridge_bindings.is_none() {
+            let mut has_source_bridges = false;
+            game_logic.world_services.terrain().read().unwrap_or_else(|e| e.into_inner())
+                .for_each_bridge(|bridge| {
+                    let info = bridge.get_bridge_info();
+                    has_source_bridges |= info.bridge_index >= 0 || info.source_map_object_index.is_some();
+                });
+            if has_source_bridges {
+                return Err(SaveLoadError::Corrupted(
+                    "saved map bridge source identities are missing".into(),
+                ));
+            }
+        }
+        game_logic.restore_owned_bridge_bindings(map_bridge_bindings.as_deref());
 
         for (id, saved) in &snapshot.objects {
             let object = game_logic.host_object_mut(*id).ok_or_else(|| {

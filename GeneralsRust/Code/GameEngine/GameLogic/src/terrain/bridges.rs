@@ -235,6 +235,35 @@ impl TerrainLogic {
             link = &mut link.as_mut()?.next;
         }
     }
+    /// Unlink the particular drawable bridge, including when several spans
+    /// share both a pathfinder layer and an object position.
+    pub fn detach_bridge_by_index(&mut self, index: i32) -> Option<Box<Bridge>> {
+        let mut link = &mut self.bridge_list_head;
+        loop {
+            if link.as_ref()?.get_bridge_info().bridge_index == index {
+                let mut removed = link.take()?;
+                *link = removed.next.take();
+                self.bridge_damage_states_changed = true;
+                return Some(removed);
+            }
+            link = &mut link.as_mut()?.next;
+        }
+    }
+
+    /// Unlink a landmark by its original placed-map-object index.
+    pub fn detach_bridge_by_map_object_index(&mut self, index: usize) -> Option<Box<Bridge>> {
+        let mut link = &mut self.bridge_list_head;
+        loop {
+            if link.as_ref()?.get_bridge_info().source_map_object_index == Some(index) {
+                let mut removed = link.take()?;
+                *link = removed.next.take();
+                self.bridge_damage_states_changed = true;
+                return Some(removed);
+            }
+            link = &mut link.as_mut()?.next;
+        }
+    }
+
 
     /// Find bridge at layer
     pub fn find_bridge_layer_at(

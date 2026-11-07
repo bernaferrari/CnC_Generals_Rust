@@ -13,8 +13,9 @@
 //! Those records were live-only — a mid-repair save dropped the rise and
 //! re-fired `createScaffolding`.
 //!
-//! Append a tagged suffix after the historical v9 contain/producer payload
-//! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
+//! The tagged lifecycle suffix is versioned separately from WorldSnapshot.
+//! Version 2 also records the original drawable or placed-map-object identity;
+//! reconstructed object IDs and pathfinder layers are not source identities.
 //! Restore replaces the live registry and never calls `create_scaffolding`.
 
 use crate::game_logic::host_bridge_behavior::HostBridgeBehaviorRegistry;
@@ -23,18 +24,18 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const BRBH_MAGIC: &[u8; 4] = b"BRBH";
-const BRBH_VERSION: u32 = 1;
+const BRBH_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct BridgeBehaviorPersistPayload {
     registry: HostBridgeBehaviorRegistry,
+    /// Drawable bridge index or placed landmark index, and saved ObjectID.
+    map_bridges: Vec<(i32, Option<usize>, u32)>,
 }
 
 pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     let payload = capture(game_logic);
-    if payload.registry.is_empty() {
-        return;
-    }
+    // Even an empty table matters: all source bridges may have been deleted.
     let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
@@ -44,9 +45,12 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(
+    bytes: &[u8],
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<Option<Vec<(i32, Option<usize>, u32)>>> {
     let Some(suffix) = find_brbh_suffix(bytes) else {
-        return Ok(());
+        return Ok(None);
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
@@ -65,12 +69,29 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
         bincode_legacy::deserialize(&rest[..payload_len])
             .map_err(|err| SaveLoadError::Corrupted(format!("BRBH payload decode: {err}")))?;
     game_logic.bridge_behavior.restore(payload.registry);
-    Ok(())
+    Ok(Some(payload.map_bridges))
 }
 
 fn capture(game_logic: &GameLogic) -> BridgeBehaviorPersistPayload {
+    let mut map_bridges = Vec::new();
+    game_logic
+        .world_services
+        .terrain()
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .for_each_bridge(|bridge| {
+            let info = bridge.get_bridge_info();
+            if info.bridge_index >= 0 || info.source_map_object_index.is_some() {
+                map_bridges.push((
+                    info.bridge_index,
+                    info.source_map_object_index,
+                    info.bridge_object_id,
+                ));
+            }
+        });
     BridgeBehaviorPersistPayload {
         registry: game_logic.bridge_behavior.clone(),
+        map_bridges,
     }
 }
 

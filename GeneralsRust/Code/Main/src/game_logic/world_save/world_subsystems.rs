@@ -1525,7 +1525,13 @@ if let Ok(mut list) = __arc_bind.write() {
             .map(|obj| (obj.id, obj.template_name.clone()))
             .collect();
         for (id, template_name) in jobs {
-            self.register_landmark_bridge_object_with_effects_checked(id, &template_name, effects)?;
+            let source_index = self
+                .spawned_map_object_ids
+                .iter()
+                .find_map(|(object, index)| (*object == id).then_some(*index));
+            self.register_landmark_bridge_object_with_effects_checked(
+                id, &template_name, source_index, effects,
+            )?;
         }
 
         Ok(())
@@ -1569,20 +1575,22 @@ if let Ok(mut list) = __arc_bind.write() {
         spawned_object_ids: &[(ObjectId, usize)],
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        let jobs: Vec<(ObjectId, String)> = spawned_object_ids
+        let jobs: Vec<(ObjectId, usize, String)> = spawned_object_ids
             .iter()
             .filter_map(|&(id, index)| {
                 let placed = objects.get(index)?;
                 let name = placed.template.as_str();
                 if self.template_is_landmark_bridge(name, id) {
-                    Some((id, name.to_string()))
+                    Some((id, index, name.to_string()))
                 } else {
                     None
                 }
             })
             .collect();
-        for (id, template_name) in jobs {
-            self.register_landmark_bridge_object_with_effects_checked(id, &template_name, effects)?;
+        for (id, index, template_name) in jobs {
+            self.register_landmark_bridge_object_with_effects_checked(
+                id, &template_name, Some(index), effects,
+            )?;
         }
 
         Ok(())
@@ -1625,9 +1633,13 @@ if let Ok(mut list) = __arc_bind.write() {
     ) {
         // Independent callers retain the existing nonfallible surface until their
         // operation boundary is migrated; the selected factory never uses this adapter.
-        if let Err(error) =
-            self.register_landmark_bridge_object_with_effects_checked(id, template_name, effects)
-        {
+        let source_index = self
+            .spawned_map_object_ids
+            .iter()
+            .find_map(|(object, index)| (*object == id).then_some(*index));
+        if let Err(error) = self.register_landmark_bridge_object_with_effects_checked(
+            id, template_name, source_index, effects,
+        ) {
             log::error!("{error}");
         }
     }
@@ -1636,14 +1648,18 @@ if let Ok(mut list) = __arc_bind.write() {
         &mut self,
         id: ObjectId,
         template_name: &str,
+        source_map_object_index: Option<usize>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        if self
-            .pathfinding_system
-            .grid
-            .bridge_layer_for_object(id.0)
-            .is_some()
-        {
+        let owner = self.world_services.terrain().clone();
+        let mut already_admitted = false;
+        owner
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .for_each_bridge(|bridge| {
+                already_admitted |= bridge.get_bridge_info().bridge_object_id == id.0;
+            });
+        if already_admitted {
             return Ok(());
         }
         let Some(obj) = self.objects.get(&id) else {
@@ -1656,13 +1672,14 @@ if let Ok(mut list) = __arc_bind.write() {
         let geometry = obj.geometry_info();
         let (half_x, half_y) = (geometry.major_radius, geometry.minor_radius);
         let team = obj.team;
-        let info = gamelogic::terrain::TerrainLogic::bridge_info_from_parts(
+        let mut info = gamelogic::terrain::TerrainLogic::bridge_info_from_parts(
             gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y),
             angle,
             half_x,
             half_y,
             id.0,
         );
+        info.source_map_object_index = source_map_object_index;
         let layer = self.reserve_owned_bridge(&info);
         let owner = self.world_services.terrain().clone();
         owner

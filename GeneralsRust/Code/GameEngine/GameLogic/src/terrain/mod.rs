@@ -195,6 +195,8 @@ pub struct BridgeInfo {
     pub to_right: Coord3D,
     /// The index to the drawable bridges
     pub bridge_index: i32,
+    /// Original placed-map-object index for landmark bridges, if map-authored.
+    pub source_map_object_index: Option<usize>,
     /// Current damage state
     pub cur_damage_state: BodyDamageType,
     /// Associated object IDs
@@ -215,6 +217,7 @@ impl BridgeInfo {
             to_left: Coord3D::origin(),
             to_right: Coord3D::origin(),
             bridge_index: -1,
+            source_map_object_index: None,
             cur_damage_state: BodyDamageType::Pristine,
             bridge_object_id: crate::common::INVALID_ID,
             tower_object_id: [crate::common::INVALID_ID; BRIDGE_MAX_TOWERS],
