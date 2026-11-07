@@ -1256,6 +1256,21 @@ fn staged_restore_continues_logic_rng_stream_from_save_point() {
             saves.init().expect("initialize temporary save directory");
 
             let mut source = GameLogic::new();
+            // Keep the participant definitions with this session, as real
+            // startup does. Otherwise admission and staged rebinding both scan
+            // the entire installation for a global PlayerTemplate.ini.
+            let mut player_templates =
+                game_engine::common::rts::player_template::PlayerTemplateStore::new_owned();
+            player_templates
+                .apply_source(
+                    "PlayerTemplate FactionAmerica\n Side = America\n BaseSide = America\n StartingBuilding = AmericaCommandCenter\nEnd\n\
+                     PlayerTemplate FactionGLA\n Side = GLA\n BaseSide = GLA\n StartingBuilding = GLACommandCenter\nEnd\n\
+                     PlayerTemplate FactionObserver\n IsObserver = Yes\n Side = Observer\n BaseSide = Observer\nEnd\n\
+                     PlayerTemplate FactionCivilian\n Side = Civilian\n BaseSide = Civilian\nEnd\n",
+                    game_engine::common::ini::INILoadType::Overwrite,
+                )
+                .unwrap();
+            source.admit_player_template_definitions(player_templates).unwrap();
             source
                 .admit_receiving_module_content(
                     crate::assets::ReceivingObjectContent::from_sources([(
