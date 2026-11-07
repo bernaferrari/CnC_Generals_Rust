@@ -2760,3 +2760,13 @@ regression uses two real same-name W3D files, interleaves actual GameClient
 admission and camera-pose reads, and checks both managers' and renderers' caches,
 including a resident-model-over-disk-change case. The new regression and
 native/WASM and save/load gates remain unexecuted for hq-8d70a.
+
+## Supply delivery ownership
+
+Supply production visits the receiving player's ordered build ledger and issues
+each eligible dock command in order, updating its gatherer count before the
+command. Core delivery receives its world and player explicitly and releases
+the player lock for the callback. Main retains the ledger on its per-player AI
+and includes it in world snapshots. C++ reference: AIPlayer.cpp:1024–1095.
+The Core linked-list cursor currently rescans by index after each callback;
+reentrant edits before the cursor cannot preserve C++ node identity.
