@@ -1630,6 +1630,7 @@ mod tests {
             object.shock_allow_bounce = true;
             object.allow_to_fall = true;
             object.was_airborne_last_frame = true;
+            object.immune_to_falling_damage = true;
             object.physics_current_overlap = Some(ObjectId(8));
             object.physics_previous_overlap = Some(ObjectId(9));
             object.motive_frames_remaining = 3;
@@ -1641,17 +1642,15 @@ mod tests {
         loaded.add_player(Player::new(0, Team::USA, "USA", true));
         builder.restore_from_snapshot(&snapshot, &mut loaded).unwrap();
         let step = |world: &mut GameLogic| {
-            let object = world.host_object_mut(id).unwrap();
-            object.apply_overlap_collide_force(Vec3::new(5.0, 1.0, 4.0), 2.0);
-            let force = object.compute_ground_bounce_force(1.0, -0.1, 0.0);
-            let bounced = object.tick_physics_motion_step(1, 0.0, &mut Default::default());
-            (force, bounced, object.get_position(), object.movement.velocity,
+            let contacts = world.tick_physics_collisions_all();
+            let object = world.host_object(id).unwrap();
+            (contacts, object.get_position(), object.movement.velocity,
              object.physics_accel, object.physics_previous_accel, object.shock_allow_bounce,
              object.was_airborne_last_frame, object.physics_current_overlap,
              object.physics_previous_overlap, object.motive_frames_remaining)
         };
         let expected = step(&mut source);
-        assert!(expected.0.is_some(), "landing must produce a bounce force");
+        assert!(expected.3.y > 0.0, "world landing must retain its bounce force");
         assert_eq!(expected, step(&mut loaded));
         assert_eq!(peer.host_object(peer_id).unwrap().movement.velocity, Vec3::ZERO);
     }
