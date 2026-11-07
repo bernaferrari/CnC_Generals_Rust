@@ -1582,12 +1582,12 @@ impl GameWindow {
 
         if selected >= 0 && !self.owner_is_self {
             if let Some(owner) = self.get_owner() {
-                let _ = owner.borrow_mut().send_system_message(
-                    WindowMessage::User(GCM_SELECTED),
-                    self.id as WindowMsgData,
-                    0,
-                    effects,
-                );
+                let id = self.id;
+                effects.with_lent_window(self, |effects| {
+                    let _ = effects.send_system_message_to_rc(
+                        &owner, WindowMessage::User(GCM_SELECTED), id as WindowMsgData, 0,
+                    );
+                });
             }
         }
 

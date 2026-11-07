@@ -757,7 +757,11 @@ fn combo_box_selection_hides_list_updates_edit_and_notifies_owner_like_cpp() {
         let owner_seen = owner_seen.clone();
         owner
             .borrow_mut()
-            .set_system_callback(move |_window, msg, data1, data2| {
+            .set_system_callback_with_message_sink(move |_window, msg, data1, data2, effects| {
+                assert!(
+                    effects.lent_windows.iter().any(|window| window.id == data1 as i32),
+                    "the selected combo must be lent to its synchronous owner callback"
+                );
                 owner_seen.borrow_mut().push((msg, data1, data2));
                 WindowMsgHandled::Handled
             });

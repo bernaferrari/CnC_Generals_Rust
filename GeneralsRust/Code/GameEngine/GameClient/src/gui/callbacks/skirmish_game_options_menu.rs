@@ -300,16 +300,14 @@ fn update_map_start_spots(
     state: &mut SkirmishGameOptionsState,
     meta: Option<&MapMetaData>,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    receiving_window: Option<&GameWindow>,
+    effects: &mut WindowEventEffects<'_>,
 ) {
     for button_id in state.start_position_ids {
-        if let Some(button) = (|manager: &mut crate::gui::window_manager::WindowManager| {
-            manager.get_window_by_id(button_id)
-        })(receiving_manager)
-        {
-            let mut guard = button.borrow_mut();
-            let _ = guard.set_text("");
-            guard.set_tooltip(&GameText::fetch("TOOLTIP:StartPosition"));
-        }
+        with_menu_window(button_id, receiving_manager, receiving_window, effects, |button| {
+            let _ = button.set_text("");
+            button.set_tooltip(&GameText::fetch("TOOLTIP:StartPosition"));
+        });
     }
 
     let Some(meta) = meta else {
@@ -327,17 +325,13 @@ fn update_map_start_spots(
         let pos = slot.get_start_pos();
         if pos >= 0 && pos < max_players && slot.get_player_template() > PLAYERTEMPLATE_MIN {
             let button_id = state.start_position_ids[pos as usize];
-            if let Some(button) = (|manager: &mut crate::gui::window_manager::WindowManager| {
-                manager.get_window_by_id(button_id)
-            })(receiving_manager)
-            {
-                let mut guard = button.borrow_mut();
+            with_menu_window(button_id, receiving_manager, receiving_window, effects, |button| {
                 let number_key = format!("NUMBER:{}", i + 1);
                 let label = GameText::fetch(&number_key);
-                let _ = guard.set_text(&label);
+                let _ = button.set_text(&label);
                 let tooltip = format_game_text_number("TOOLTIP:StartPositionN", (i + 1) as i32);
-                guard.set_tooltip(&tooltip);
-            }
+                button.set_tooltip(&tooltip);
+            });
         }
     }
 }
@@ -359,6 +353,7 @@ fn map_display_name(map_name: &str, meta: Option<&MapMetaData>) -> String {
 fn update_map_preview(
     state: &mut SkirmishGameOptionsState,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut WindowEventEffects<'_>,
 ) {
     let Some(map_name) = state.selected_map.clone() else {
         return;
@@ -380,7 +375,7 @@ fn update_map_preview(
         state.map_window.as_ref(),
         true,
     );
-    update_map_start_spots(state, meta.as_ref(), receiving_manager);
+    update_map_start_spots(state, meta.as_ref(), receiving_manager, None, effects);
     if let Some(text_entry) = state.text_entry_map_display.as_ref() {
         let label = map_display_name(&map_name, meta.as_ref());
         let _ = text_entry.borrow_mut().set_text(&label);
@@ -419,37 +414,42 @@ fn ensure_default_slots(setup: &std::sync::Mutex<crate::gui::skirmish_setup::Ski
     }
 }
 
+// A callback's receiving window and its synchronous source windows are already
+// borrowed. Traverse through those exact loans, and mutate a lent target through
+// its existing borrow rather than borrowing its RefCell again.
+fn with_menu_window<R>(
+    window_id: i32,
+    manager: &crate::gui::window_manager::WindowManager,
+    selected: Option<&GameWindow>,
+    effects: &mut WindowEventEffects<'_>,
+    f: impl FnOnce(&mut GameWindow) -> R,
+) -> Option<R> {
+    let window = manager.win_get_window_from_id_with_loans(
+        None, window_id, selected, &effects.lent_windows,
+    )?;
+    if let Some(lent) = effects.lent_windows.iter_mut()
+        .find(|lent| std::ptr::eq(window.as_ptr(), std::ptr::from_ref(&***lent)))
+    {
+        Some(f(lent))
+    } else {
+        Some(f(&mut window.borrow_mut()))
+    }
+}
+
 fn combo_selected_id(
     window_id: i32,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    selected: Option<&GameWindow>,
+    effects: &mut WindowEventEffects<'_>,
 ) -> Option<u32> {
-    (|manager: &mut crate::gui::window_manager::WindowManager| manager.get_window_by_id(window_id))(
-        receiving_manager,
-    )
-    .and_then(|window| {
-        let guard = window.borrow();
-        guard.widget().and_then(|widget| match widget {
+    with_menu_window(window_id, receiving_manager, selected, effects, |window| {
+        window.widget().and_then(|widget| match widget {
             crate::gui::WindowWidget::ComboBox(combo) => combo.selected_id(),
             _ => None,
         })
-    })
+    }).flatten()
 }
 
-fn checkbox_is_checked(
-    window_id: i32,
-    receiving_manager: &mut crate::gui::window_manager::WindowManager,
-) -> Option<bool> {
-    (|manager: &mut crate::gui::window_manager::WindowManager| manager.get_window_by_id(window_id))(
-        receiving_manager,
-    )
-    .and_then(|window| {
-        let guard = window.borrow();
-        guard.widget().and_then(|widget| match widget {
-            crate::gui::WindowWidget::CheckBox(check) => Some(check.is_checked()),
-            _ => None,
-        })
-    })
-}
 
 fn local_player_name(state: &SkirmishGameOptionsState) -> String {
     if let Some(text_entry) = state.text_entry_player_name.as_ref() {
@@ -589,13 +589,14 @@ fn populate_team_combo(
 fn populate_slot_controls(
     state: &mut SkirmishGameOptionsState,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    effects: &mut WindowEventEffects<'_>,
 ) {
     for i in 0..MAX_SLOTS {
         populate_player_combo(state.combo_box_player_ids[i], receiving_manager);
         populate_color_combo(state.combo_box_color_ids[i], receiving_manager);
         populate_template_combo(state.combo_box_template_ids[i], receiving_manager);
         populate_team_combo(state.combo_box_team_ids[i], receiving_manager);
-        update_slot_selection(state, i, receiving_manager);
+        update_slot_selection(state, i, receiving_manager, None, effects);
     }
 }
 
@@ -603,6 +604,8 @@ fn update_slot_selection(
     state: &mut SkirmishGameOptionsState,
     index: usize,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    receiving_window: Option<&GameWindow>,
+    effects: &mut WindowEventEffects<'_>,
 ) {
     let setup_handle = state.setup_handle();
 
@@ -633,12 +636,8 @@ fn update_slot_selection(
         (state.combo_box_template_ids[index], template_id),
         (state.combo_box_team_ids[index], team_id),
     ] {
-        (|manager: &mut crate::gui::window_manager::WindowManager| manager.get_window_by_id(id))(
-            receiving_manager,
-        )
-        .map(|window| {
-            let mut guard = window.borrow_mut();
-            if let Some(combo) = guard.combo_box_mut() {
+        with_menu_window(id, receiving_manager, receiving_window, effects, |window| {
+            if let Some(combo) = window.combo_box_mut() {
                 let _ = combo.select_item(value);
             }
         });
@@ -650,12 +649,9 @@ fn update_slot_selection(
         state.combo_box_template_ids[index],
         state.combo_box_team_ids[index],
     ] {
-        if let Some(window) = (|manager: &mut crate::gui::window_manager::WindowManager| {
-            manager.get_window_by_id(id)
-        })(receiving_manager)
-        {
-            let _ = window.borrow_mut().enable(enable);
-        }
+        with_menu_window(id, receiving_manager, receiving_window, effects, |window| {
+            let _ = window.enable(enable);
+        });
     }
 }
 
@@ -818,10 +814,10 @@ pub(crate) fn refresh_skirmish_game_options_from_setup(
 
         if !selected_map.is_empty() {
             state.selected_map = Some(selected_map);
-            update_map_preview(state, receiving_manager);
+            update_map_preview(state, receiving_manager, effects);
             sync_map_to_game_info(state);
             update_skirmish_game_options(state, receiving_manager, effects);
-            skirmish_update_slot_list(state, receiving_manager, effects);
+            skirmish_update_slot_list(state, receiving_manager, None, effects);
             return;
         }
 
@@ -829,9 +825,9 @@ pub(crate) fn refresh_skirmish_game_options_from_setup(
             // C++ parity: map-select back/restore still repaints start spots and map label
             // from the active skirmish game info map, even without an explicit setup selection.
             state.selected_map = Some(game_info_map);
-            update_map_preview(state, receiving_manager);
+            update_map_preview(state, receiving_manager, effects);
             update_skirmish_game_options(state, receiving_manager, effects);
-            skirmish_update_slot_list(state, receiving_manager, effects);
+            skirmish_update_slot_list(state, receiving_manager, None, effects);
         }
     });
 }
@@ -957,6 +953,7 @@ fn update_skirmish_game_options(
 fn skirmish_update_slot_list(
     state: &mut SkirmishGameOptionsState,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    receiving_window: Option<&GameWindow>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
     // Guard checks matching C++: if(!AreSlotListUpdatesEnabled() || s_isIniting) return;
@@ -992,9 +989,9 @@ fn skirmish_update_slot_list(
     }
 
     for i in 0..MAX_SLOTS {
-        update_slot_selection(state, i, receiving_manager);
+        update_slot_selection(state, i, receiving_manager, receiving_window, effects);
     }
-    update_map_start_spots(state, meta.as_ref(), receiving_manager);
+    update_map_start_spots(state, meta.as_ref(), receiving_manager, receiving_window, effects);
 }
 
 fn populate_skirmish_battle_honors(
@@ -1013,13 +1010,15 @@ fn handle_combo_selection(
     state: &mut SkirmishGameOptionsState,
     control_id: i32,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    receiving_window: Option<&GameWindow>,
+    effects: &mut WindowEventEffects<'_>,
 ) -> bool {
     for index in 0..MAX_SLOTS {
         if control_id == state.combo_box_player_ids[index] {
             if index == 0 {
                 return true;
             }
-            if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
+            if let Some(selected) = combo_selected_id(control_id, receiving_manager, receiving_window, effects) {
                 let setup_handle = state.setup_handle();
 
                 let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
@@ -1040,12 +1039,13 @@ fn handle_combo_selection(
                     };
                     slot.set_state(state_value, name, 0);
                 }
-                update_slot_selection(state, index, receiving_manager);
+                drop(setup);
+                update_slot_selection(state, index, receiving_manager, receiving_window, effects);
             }
             return true;
         }
         if control_id == state.combo_box_color_ids[index] {
-            if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
+            if let Some(selected) = combo_selected_id(control_id, receiving_manager, receiving_window, effects) {
                 let setup_handle = state.setup_handle();
 
                 let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
@@ -1059,18 +1059,20 @@ fn handle_combo_selection(
                         .game_info()
                         .game_info()
                         .is_color_taken(color, index as i32);
-                if let Some(slot) = setup.game_info_mut().game_info_mut().get_slot_mut(index) {
-                    if color_taken {
-                        update_slot_selection(state, index, receiving_manager);
-                    } else {
+                if !color_taken {
+                    if let Some(slot) = setup.game_info_mut().game_info_mut().get_slot_mut(index) {
                         slot.set_color(color);
                     }
+                }
+                drop(setup);
+                if color_taken {
+                    update_slot_selection(state, index, receiving_manager, receiving_window, effects);
                 }
             }
             return true;
         }
         if control_id == state.combo_box_template_ids[index] {
-            if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
+            if let Some(selected) = combo_selected_id(control_id, receiving_manager, receiving_window, effects) {
                 let setup_handle = state.setup_handle();
 
                 let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
@@ -1086,7 +1088,7 @@ fn handle_combo_selection(
             return true;
         }
         if control_id == state.combo_box_team_ids[index] {
-            if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
+            if let Some(selected) = combo_selected_id(control_id, receiving_manager, receiving_window, effects) {
                 let setup_handle = state.setup_handle();
 
                 let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
@@ -1104,7 +1106,7 @@ fn handle_combo_selection(
     }
 
     if control_id == state.combo_box_starting_cash_id {
-        if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
+        if let Some(selected) = combo_selected_id(control_id, receiving_manager, receiving_window, effects) {
             let setup_handle = state.setup_handle();
 
             let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
@@ -1796,7 +1798,7 @@ pub fn skirmish_game_options_menu_init(
         apply_skirmish_preferences(state);
         ensure_default_slots(&state.setup);
         effects.with_manager(|receiving_manager, effects| {
-            populate_slot_controls(state, receiving_manager)
+            populate_slot_controls(state, receiving_manager, effects)
         });
         effects.with_manager(|receiving_manager, effects| {
             populate_global_controls(receiving_manager, effects)
@@ -1831,10 +1833,10 @@ pub fn skirmish_game_options_menu_init(
             update_skirmish_game_options(state, receiving_manager, effects)
         });
         effects.with_manager(|receiving_manager, effects| {
-            update_map_preview(state, receiving_manager)
+            update_map_preview(state, receiving_manager, effects)
         });
         effects.with_manager(|receiving_manager, effects| {
-            skirmish_update_slot_list(state, receiving_manager, effects)
+            skirmish_update_slot_list(state, receiving_manager, None, effects)
         });
         effects.with_manager(|manager, _effects| {
             populate_skirmish_battle_honors(state, manager, _effects)
@@ -1945,14 +1947,14 @@ pub fn skirmish_game_options_menu_update(
         if !setup_map.is_empty() && state.selected_map.as_deref() != Some(setup_map.as_str()) {
             state.selected_map = Some(setup_map);
             effects.with_manager(|receiving_manager, effects| {
-                update_map_preview(state, receiving_manager)
+                update_map_preview(state, receiving_manager, effects)
             });
             sync_map_to_game_info(state);
             effects.with_manager(|receiving_manager, effects| {
                 update_skirmish_game_options(state, receiving_manager, effects)
             });
             effects.with_manager(|receiving_manager, effects| {
-                skirmish_update_slot_list(state, receiving_manager, effects)
+                skirmish_update_slot_list(state, receiving_manager, None, effects)
             });
         }
 
@@ -2334,13 +2336,14 @@ pub fn skirmish_game_options_menu_system(
     {
         let owner = effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner");
         if !skirmish_button_pushed(owner) {
-            let checked = effects.lent_windows.iter()
-                .find(|window| window.id == data1 as i32)
-                .and_then(|window| match window.widget() {
-                    Some(crate::gui::WindowWidget::CheckBox(check)) => Some(check.is_checked()),
-                    _ => None,
-                })
-                .or_else(|| effects.with_manager(|manager, _| checkbox_is_checked(data1 as i32, manager)));
+            let checked = effects.with_manager(|manager, effects| {
+                with_menu_window(data1 as i32, manager, Some(_window), effects, |window| {
+                    match window.widget() {
+                        Some(crate::gui::WindowWidget::CheckBox(check)) => Some(check.is_checked()),
+                        _ => None,
+                    }
+                }).flatten()
+            });
             if let Some(checked) = checked {
                 let setup_handle = owner.skirmish_setup();
                 let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
@@ -2414,28 +2417,28 @@ pub fn skirmish_game_options_menu_system(
                 return;
             }
             if effects.with_manager(|receiving_manager, effects| {
-                handle_combo_selection(state, control_id, receiving_manager)
+                handle_combo_selection(state, control_id, receiving_manager, Some(_window), effects)
             }) {
                 effects.with_manager(|receiving_manager, effects| {
-                    skirmish_update_slot_list(state, receiving_manager, effects)
+                    skirmish_update_slot_list(state, receiving_manager, Some(_window), effects)
                 });
                 handled = true;
                 return;
             }
             if handle_start_position_click(state, control_id) {
                 effects.with_manager(|receiving_manager, effects| {
-                    skirmish_update_slot_list(state, receiving_manager, effects)
+                    skirmish_update_slot_list(state, receiving_manager, Some(_window), effects)
                 });
                 handled = true;
             }
         }
-        WindowMessage::GadgetValueChanged => {
+        WindowMessage::GadgetValueChanged | WindowMessage::User(crate::gui::GCM_SELECTED) => {
             let control_id = data1 as i32;
             if effects.with_manager(|receiving_manager, effects| {
-                handle_combo_selection(state, control_id, receiving_manager)
+                handle_combo_selection(state, control_id, receiving_manager, Some(_window), effects)
             }) {
                 effects.with_manager(|receiving_manager, effects| {
-                    skirmish_update_slot_list(state, receiving_manager, effects)
+                    skirmish_update_slot_list(state, receiving_manager, Some(_window), effects)
                 });
                 handled = true;
                 return;
@@ -2474,7 +2477,7 @@ pub fn skirmish_game_options_menu_system(
             let control_id = data1 as i32;
             if handle_start_position_right_click(state, control_id) {
                 effects.with_manager(|receiving_manager, effects| {
-                    skirmish_update_slot_list(state, receiving_manager, effects)
+                    skirmish_update_slot_list(state, receiving_manager, Some(_window), effects)
                 });
                 handled = true;
             }

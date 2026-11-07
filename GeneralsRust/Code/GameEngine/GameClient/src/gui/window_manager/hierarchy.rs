@@ -15,15 +15,15 @@ use super::*;
 
 /// Read windows lent by the current synchronous callback chain directly.
 /// Other entries retain their ordinary borrow; no subtree is skipped.
-fn with_lookup_window<R>(
+fn with_lookup_window<R, T: std::borrow::Borrow<GameWindow>>(
     window: &Rc<RefCell<GameWindow>>,
     selected: Option<&GameWindow>,
-    lent: &[&GameWindow],
+    lent: &[T],
     read: impl FnOnce(&GameWindow) -> R,
 ) -> R {
     if let Some(selected) = selected
         .into_iter()
-        .chain(lent.iter().copied())
+        .chain(lent.iter().map(std::borrow::Borrow::borrow))
         .find(|selected| std::ptr::eq(window.as_ptr(), std::ptr::from_ref(*selected)))
     {
         read(selected)
@@ -32,12 +32,12 @@ fn with_lookup_window<R>(
     }
 }
 
-fn lookup_window_chain(
+fn lookup_window_chain<T: std::borrow::Borrow<GameWindow>>(
     windows: &[Rc<RefCell<GameWindow>>],
     start: usize,
     matches: &impl Fn(&GameWindow) -> bool,
     selected: Option<&GameWindow>,
-    lent: &[&GameWindow],
+    lent: &[T],
 ) -> Option<Rc<RefCell<GameWindow>>> {
     for window in windows.iter().skip(start) {
         // The lookup only reads the tree; keep this immutable borrow while
@@ -237,6 +237,16 @@ impl WindowManager {
         id: WindowId,
         selected: Option<&GameWindow>,
         lent: &[&GameWindow],
+    ) -> Option<Rc<RefCell<GameWindow>>> {
+        self.win_get_window_from_id_with_loans(base_window, id, selected, lent)
+    }
+
+    pub(crate) fn win_get_window_from_id_with_loans<T: std::borrow::Borrow<GameWindow>>(
+        &self,
+        base_window: Option<&Rc<RefCell<GameWindow>>>,
+        id: WindowId,
+        selected: Option<&GameWindow>,
+        lent: &[T],
     ) -> Option<Rc<RefCell<GameWindow>>> {
         let matches = |window: &GameWindow| window.get_id() == id;
         if let Some(base_window) = base_window {
