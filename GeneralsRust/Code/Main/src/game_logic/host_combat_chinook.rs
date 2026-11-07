@@ -89,31 +89,6 @@ pub const LISTENING_OUTPOST_DUMMY_AIM_DELTA: f32 = 180.0;
 /// Retail AntiAirborneVehicle residual on dummy.
 pub const LISTENING_OUTPOST_DUMMY_ANTI_AIR: bool = true;
 
-// --- PointDefenseLaser residual (Combat Chinook "minigun"/PDL residual) ---
-
-/// Retail AirF_PointDefenseLaser weapon name residual.
-pub const COMBAT_CHINOOK_PDL_WEAPON: &str = "AirF_PointDefenseLaser";
-/// Retail PDL PrimaryDamage residual.
-pub const COMBAT_CHINOOK_PDL_DAMAGE: f32 = 100.0;
-/// Retail PDL AttackRange residual.
-pub const COMBAT_CHINOOK_PDL_RANGE: f32 = 65.0;
-/// Retail PDL DelayBetweenShots residual (msec).
-pub const COMBAT_CHINOOK_PDL_DELAY_MS: u32 = 250;
-/// Delay 250ms → 8 frames @ 30 FPS.
-pub const COMBAT_CHINOOK_PDL_DELAY_FRAMES: u32 = 8;
-/// Retail PointDefenseLaserUpdate ScanRange residual.
-pub const COMBAT_CHINOOK_PDL_SCAN_RANGE: f32 = 250.0;
-/// Retail ScanRate residual (msec).
-pub const COMBAT_CHINOOK_PDL_SCAN_RATE_MS: u32 = 33;
-/// ScanRate 33ms → 1 frame @ 30 FPS (round half-up).
-pub const COMBAT_CHINOOK_PDL_SCAN_RATE_FRAMES: u32 = 1;
-/// Retail PredictTargetVelocityFactor residual.
-pub const COMBAT_CHINOOK_PDL_PREDICT_VELOCITY_FACTOR: f32 = 1.0;
-/// Retail FireFX residual name.
-pub const COMBAT_CHINOOK_PDL_FIRE_FX: &str = "WeaponFX_PaladinPointDefenseLaser";
-/// Retail LaserName residual.
-pub const COMBAT_CHINOOK_PDL_LASER_NAME: &str = "AirF_PointDefenseLaserBeam";
-
 // --- ChinookAIUpdate residual ---
 
 /// Retail MaxBoxes residual.
@@ -416,27 +391,6 @@ pub fn listening_outpost_upgraded_dummy_weapon() -> Weapon {
     }
 }
 
-/// Residual AirF_PointDefenseLaser weapon (Combat Chinook PDL residual).
-pub fn combat_chinook_pdl_weapon() -> Weapon {
-    Weapon {
-        damage: COMBAT_CHINOOK_PDL_DAMAGE,
-        range: COMBAT_CHINOOK_PDL_RANGE,
-        min_range: 0.0,
-        reload_time: (COMBAT_CHINOOK_PDL_DELAY_FRAMES.max(1) as f32) / 30.0,
-        last_fire_time: 0.0,
-        ammo: None,
-        clip_size: 0,
-        clip_reload_time: 0.0,
-        // AntiSmallMissile residual honesty — air/missile residual target.
-        can_target_air: true,
-        can_target_ground: false,
-        projectile_speed: 999_999.0,
-        pre_attack_delay: 0.0,
-        splash_radius: 0.0,
-        suspend_fx_frame: 0,
-        ..Weapon::default()
-    }
-}
 
 /// Residual of C++ TransportContain `letRidersUpgradeWeaponSet`
 /// (TransportContain.cpp:226-229): only infantry with a non-contact damage
@@ -519,22 +473,6 @@ pub fn honesty_combat_chinook_minigun_dummy_residual_ok() -> bool {
         && is_passenger_dummy_weapon(&listening_outpost_upgraded_dummy_weapon())
 }
 
-/// Wave 58 residual honesty: PointDefenseLaser residual.
-pub fn honesty_combat_chinook_pdl_residual_ok() -> bool {
-    COMBAT_CHINOOK_PDL_WEAPON == "AirF_PointDefenseLaser"
-        && (COMBAT_CHINOOK_PDL_DAMAGE - 100.0).abs() < 0.01
-        && (COMBAT_CHINOOK_PDL_RANGE - 65.0).abs() < 0.01
-        && COMBAT_CHINOOK_PDL_DELAY_MS == 250
-        && COMBAT_CHINOOK_PDL_DELAY_FRAMES
-            == combat_chinook_ms_to_frames(COMBAT_CHINOOK_PDL_DELAY_MS)
-        && (COMBAT_CHINOOK_PDL_SCAN_RANGE - 250.0).abs() < 0.01
-        && COMBAT_CHINOOK_PDL_SCAN_RATE_MS == 33
-        && COMBAT_CHINOOK_PDL_SCAN_RATE_FRAMES
-            == combat_chinook_ms_to_frames(COMBAT_CHINOOK_PDL_SCAN_RATE_MS)
-        && (COMBAT_CHINOOK_PDL_PREDICT_VELOCITY_FACTOR - 1.0).abs() < 0.01
-        && COMBAT_CHINOOK_PDL_FIRE_FX == "WeaponFX_PaladinPointDefenseLaser"
-        && COMBAT_CHINOOK_PDL_LASER_NAME == "AirF_PointDefenseLaserBeam"
-}
 
 /// Wave 58 residual honesty: ChinookAIUpdate / body residual.
 pub fn honesty_combat_chinook_ai_body_residual_ok() -> bool {
@@ -571,7 +509,6 @@ pub fn honesty_combat_chinook_ai_body_residual_ok() -> bool {
 pub fn honesty_combat_chinook_residual_pack_ok() -> bool {
     honesty_combat_chinook_transport_residual_ok()
         && honesty_combat_chinook_minigun_dummy_residual_ok()
-        && honesty_combat_chinook_pdl_residual_ok()
         && honesty_combat_chinook_ai_body_residual_ok()
 }
 
@@ -1314,15 +1251,6 @@ mod tests {
             false
         ));
         assert!(!combat_chinook_rider_has_viable_weapon(None, true, false));
-    }
-
-    #[test]
-    fn pdl_weapon_stats() {
-        let w = combat_chinook_pdl_weapon();
-        assert!((w.damage - 100.0).abs() < 0.01);
-        assert!((w.range - 65.0).abs() < 0.01);
-        assert!(w.can_target_air && !w.can_target_ground);
-        assert!((w.reload_time - (8.0 / 30.0)).abs() < 0.001);
     }
 
     #[test]
