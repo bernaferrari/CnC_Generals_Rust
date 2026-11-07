@@ -1,10 +1,7 @@
 //! Shared terrain vertex definition used by CPU terrain generation and GPU rendering.
 //!
-//! The original C++ `TerrainGeometryClass` packed each vertex as 3 floats for position,
-//! 3 floats for the normal, 2 floats for base UVs, followed by four blend weights and
-//! vertex colour.  Keeping the exact layout here ensures our CPU generated buffers
-//! remain binary compatible with the renderer and any tooling that expects the legacy
-//! structure.
+//! The live WGPU mesh carries C++ terrain's two independent tile coordinates
+//! along with texture bindings, per-corner blend weights, and baked lighting.
 
 use glam::Vec3;
 
@@ -18,6 +15,9 @@ pub struct TerrainVertex {
     pub blend_indices: [u16; 4],
     pub blend_weights: [f32; 4],
     pub color: [f32; 4],
+    /// UV and weight index for the authored second terrain layer.
+    pub blend_tex_coords: [f32; 2],
+    pub blend_texture_slot: u32,
 }
 
 impl TerrainVertex {
@@ -37,6 +37,8 @@ impl TerrainVertex {
             blend_indices,
             blend_weights,
             color,
+            blend_tex_coords: [tex_coords.0, tex_coords.1],
+            blend_texture_slot: u32::MAX,
         }
     }
 
@@ -70,7 +72,7 @@ impl TerrainVertex {
         self.blend_indices = indices;
     }
 
-    /// GPU vertex buffer layout descriptor matching the legacy C++ structure.
+    /// GPU vertex buffer layout descriptor for the live terrain shader.
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         use std::mem::size_of;
 
@@ -107,6 +109,16 @@ impl TerrainVertex {
                     offset: size_of::<[f32; 14]>() as wgpu::BufferAddress,
                     shader_location: 5,
                     format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: size_of::<[f32; 18]>() as wgpu::BufferAddress,
+                    shader_location: 6,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                wgpu::VertexAttribute {
+                    offset: size_of::<[f32; 20]>() as wgpu::BufferAddress,
+                    shader_location: 7,
+                    format: wgpu::VertexFormat::Uint32,
                 },
             ],
         }

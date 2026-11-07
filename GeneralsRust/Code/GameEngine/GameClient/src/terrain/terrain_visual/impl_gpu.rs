@@ -469,6 +469,22 @@ impl TerrainVisualImpl {
                             cell_centers[vert_index],
                             [vertex.position[0], vertex.position[2]],
                         );
+                        if let Some((base_slot, blend_slot, alpha, blend_uv)) =
+                            authored_blend_vertex(
+                                hm,
+                                &self.source_tile_classes,
+                                &self.texture_system,
+                                &stable_texture_ids,
+                                &shared_slot_map,
+                                cell_centers[vert_index],
+                                [vertex.position[0], vertex.position[2]],
+                            )
+                        {
+                            vertex.blend_indices = [base_slot, blend_slot, 0, 0];
+                            vertex.blend_weights = [1.0 - alpha, alpha, 0.0, 0.0];
+                            vertex.blend_tex_coords = blend_uv;
+                            vertex.blend_texture_slot = 1;
+                        }
                     }
                     // C++ vbMirror / getStaticDiffuse, then doTheDynamicLight.
                     // Leftover chunk.vertices may already be pulse-lit; start
@@ -725,6 +741,19 @@ impl TerrainVisualImpl {
                     texture_class_index_from_ndx(packed_tile, &self.source_tile_classes)
                 {
                     *class_usage.entry(class_idx).or_insert(0) += 1;
+                }
+            }
+            for &blend_index in height_map.blend_tile_ndxes.iter().chain(&height_map.extra_blend_tile_ndxes) {
+                if blend_index <= 0 {
+                    continue;
+                }
+                if let Some(blend) = height_map.blended_tiles.get(blend_index as usize) {
+                    let packed_tile = (blend.blend_ndx >> 2).max(0) as u32;
+                    if let Some(class_idx) =
+                        texture_class_index_from_ndx(packed_tile, &self.source_tile_classes)
+                    {
+                        *class_usage.entry(class_idx).or_insert(0) += 1;
+                    }
                 }
             }
         }
@@ -1099,6 +1128,8 @@ impl TerrainVisualImpl {
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
             }
         }
+        // HeightMap.cpp draws feathered shorelines before the 3-way overlay.
+        self.record_shoreline_draws(pass);
         self.record_extra_blend_pass(pass);
         self.record_road_draws(pass);
         self.record_overlay_draws(pass);
@@ -1107,10 +1138,6 @@ impl TerrainVisualImpl {
         // independent of changing fog cells and darken the road depth itself.
         self.record_shroud_ground_pass(pass);
         self.record_tree_draws(pass);
-        // C++ shoreline blend tiles render inside the terrain pass; the water
-        // surfaces themselves are sort level 2 (W3DWater.cpp:1019) and move to
-        // the post-scene water pass (record_water_scene_draws).
-        self.record_shoreline_draws(pass);
         self.record_shroud_water_pass(pass, true);
         self.record_shroud_tree_pass(pass);
     }
@@ -2375,9 +2402,15 @@ impl TerrainVisualImpl {
         // C++ extra-blend tiles bake through getStaticDiffuse (doTheLight):
         // every global light contributes clamped N·L diffuse.
         let lighting = self.chunk_manager.static_lighting();
+        let stable_ids = self.active_chunk_texture_ids.unwrap_or([0; MAX_TEXTURES_PER_CHUNK]);
+        let mut slots = HashMap::new();
+        for (slot, id) in stable_ids.iter().enumerate() {
+            slots.entry(*id).or_insert(slot);
+        }
         mesh.vertices
             .iter()
-            .map(|vertex| {
+            .enumerate()
+            .map(|(vertex_index, vertex)| {
                 let position = Vec3::from_array(vertex.position);
                 let normal = self
                     .height_map
@@ -2396,16 +2429,43 @@ impl TerrainVisualImpl {
                     color,
                     &self.dynamic_lights,
                 );
+                let mut uv = vertex.tex_coords;
+                let mut slot = 0;
+                if let Some(hm) = self.height_map.as_ref() {
+                    // The draw mesh expands each tile to six indexed vertices.
+                    let first = vertex_index / 6 * 6;
+                    let origin = mesh.vertices[first..first + 6].iter().fold(
+                        [f32::INFINITY; 2],
+                        |p, v| [p[0].min(v.position[0]), p[1].min(v.position[2])],
+                    );
+                    let (x, y) = height_map_cell_at_world(
+                        hm, origin[0] + hm.scale * 0.5, origin[1] + hm.scale * 0.5,
+                    );
+                    let index = hm.get_extra_blend_tile_index(x, y);
+                    if index > 0 {
+                        if let Some(blend) = hm.blended_tiles.get(index as usize) {
+                            let tile = blend.blend_ndx as i16;
+                            let packed = ((blend.blend_ndx >> 2).max(0)) as u32;
+                            if let Some(id) = bound_texture_id_for_source_tile(
+                                packed, &self.source_tile_classes, &self.texture_system,
+                                &stable_ids, &slots,
+                            ) {
+                                slot = slots.get(&id).copied().unwrap_or(0) as u16;
+                            }
+                            let fx = ((vertex.position[0] - origin[0]) / hm.scale).clamp(0.0, 1.0);
+                            let fy = ((vertex.position[2] - origin[1]) / hm.scale).clamp(0.0, 1.0);
+                            uv = class_uv_for_tile(hm, &self.source_tile_classes, x, y, tile, fx, fy);
+                        }
+                    }
+                }
                 TerrainVertex {
                     position: vertex.position,
                     normal: [normal.x, normal.y, normal.z],
-                    tex_coords: vertex.tex_coords,
-                    // C++ second pass samples extra-blend tile art (blend.blend_ndx),
-                    // not the base slot-0 procedural texture (hq-qar9).
-                    // Weight 0 is slot 0 of the chunk binding (what the
-                    // pre-index shader sampled for this pass).
-                    blend_indices: [0, 0, 0, 0],
+                    tex_coords: uv,
+                    blend_indices: [slot, 0, 0, 0],
                     blend_weights: [1.0, 0.0, 0.0, 0.0],
+                    blend_tex_coords: vertex.tex_coords,
+                    blend_texture_slot: u32::MAX,
                     color,
                 }
             })
@@ -2735,18 +2795,16 @@ fn cpp_blend_corner_alpha(blend: &crate::terrain::textures::BlendTileInfo) -> ([
 fn unique_bound_texture_ids(
     stable_ids: &[TextureId; MAX_TEXTURES_PER_CHUNK],
     shared_slot_map: &HashMap<TextureId, usize>,
-) -> Vec<TextureId> {
-    let mut unique = Vec::new();
+) -> ([TextureId; MAX_TEXTURES_PER_CHUNK], usize) {
+    let mut unique = [0; MAX_TEXTURES_PER_CHUNK];
+    let mut len = 0;
     for &id in stable_ids {
-        if !shared_slot_map.contains_key(&id) {
-            continue;
-        }
-
-        if unique.iter().all(|existing| *existing != id) {
-            unique.push(id);
+        if shared_slot_map.contains_key(&id) && !unique[..len].contains(&id) {
+            unique[len] = id;
+            len += 1;
         }
     }
-    unique
+    (unique, len)
 }
 
 fn texture_class_index_from_ndx(
@@ -2838,6 +2896,70 @@ fn expand_cells_to_unique_vertices(
     (out_vertices, out_indices, out_colors, centers)
 }
 
+/// C++ getAlphaUVData supplies a second tile's UVs independently of the base.
+/// Keep both weight entries even when the tiles share a texture class.
+fn authored_blend_vertex(
+    hm: &HeightMap,
+    classes: &[TerrainSourceTileClass],
+    textures: &TerrainTextures,
+    stable_ids: &[TextureId; MAX_TEXTURES_PER_CHUNK],
+    slots: &HashMap<TextureId, usize>,
+    center: [f32; 2],
+    position: [f32; 2],
+) -> Option<(u16, u16, f32, [f32; 2])> {
+    let (x, y) = height_map_cell_at_world(hm, center[0], center[1]);
+    let blend_index = hm.get_blend_tile_index(x, y);
+    if blend_index <= 0 {
+        return None;
+    }
+    let blend = hm.blended_tiles.get(blend_index as usize)?;
+    let base = hm.get_packed_terrain_tile_at_world(center[0], center[1]);
+    let other = (blend.blend_ndx >> 2).max(0) as u32;
+    let base_id = bound_texture_id_for_source_tile(base, classes, textures, stable_ids, slots)?;
+    let blend_id = bound_texture_id_for_source_tile(other, classes, textures, stable_ids, slots)?;
+    let base_slot = *slots.get(&base_id)? as u16;
+    let blend_slot = *slots.get(&blend_id)? as u16;
+    let scale = if hm.scale.abs() > f32::EPSILON {
+        hm.scale
+    } else {
+        gamelogic::common::types::MAP_XY_FACTOR
+    };
+    let fx = (position[0] / scale + hm.border_size as f32 - x as f32).clamp(0.0, 1.0);
+    let fy = (position[1] / scale + hm.border_size as f32 - y as f32).clamp(0.0, 1.0);
+    let alpha = cpp_blend_corner_alpha(blend).0[cell_corner(fx, fy)];
+    let uv = class_uv_for_tile(hm, classes, x, y, blend.blend_ndx as i16, fx, fy);
+    Some((base_slot, blend_slot, alpha, uv))
+}
+
+fn class_uv_for_tile(
+    hm: &HeightMap,
+    classes: &[TerrainSourceTileClass],
+    x: i32,
+    y: i32,
+    tile: i16,
+    fx: f32,
+    fy: f32,
+) -> [f32; 2] {
+    let uv = hm.get_uv_for_tile_index((y * hm.width as i32 + x) as usize, tile, false);
+    let interpolate = |v: [f32; 4]| {
+        v[0] * (1.0 - fx) * (1.0 - fy)
+            + v[1] * fx * (1.0 - fy)
+            + v[2] * fx * fy
+            + v[3] * (1.0 - fx) * fy
+    };
+    let mut result = [interpolate(uv.u), interpolate(uv.v)];
+    if !uv.stretched {
+        let packed = ((tile as i32 >> 2).max(0)) as u32;
+        if let Some(class) = texture_class_index_from_ndx(packed, classes).and_then(|i| classes.get(i)) {
+            let width = class.width.max(1);
+            let index = (packed as i32 - class.first_tile).max(0);
+            result[0] = (result[0] + (index % width) as f32) / width as f32;
+            result[1] = (result[1] + (width - 1 - (index / width).min(width - 1)) as f32) / width as f32;
+        }
+    }
+    result
+}
+
 /// UV of a cell vertex in its texture class's source image: the cell's
 /// quarter of its 64-px tile (`getUVForNdx`), offset to that tile's place in
 /// the class grid (`readTiles`: tile = firstTile + column + row * width).
@@ -2886,8 +3008,8 @@ fn bound_texture_id_for_source_tile(
     stable_ids: &[TextureId; MAX_TEXTURES_PER_CHUNK],
     shared_slot_map: &HashMap<TextureId, usize>,
 ) -> Option<TextureId> {
-    let unique = unique_bound_texture_ids(stable_ids, shared_slot_map);
-    if unique.is_empty() {
+    let (unique, len) = unique_bound_texture_ids(stable_ids, shared_slot_map);
+    if len == 0 {
         return None;
     }
 
@@ -2898,7 +3020,7 @@ fn bound_texture_id_for_source_tile(
     };
 
     if let Some(class) = classes.get(class_idx) {
-        for &id in &unique {
+        for &id in &unique[..len] {
             if let Some(texture) = textures.get_texture(id) {
                 if texture_matches_class_name(texture, &class.name) {
                     return Some(id);
@@ -2908,7 +3030,7 @@ fn bound_texture_id_for_source_tile(
     }
 
     // Map the texture class onto the 4 bound slots via TextureId keys.
-    Some(unique[class_idx % unique.len()])
+    Some(unique[class_idx % len])
 }
 
 /// C++ `loadSetting` packs `RGBAColorInt` as A<<24 | R<<16 | G<<8 | B.
@@ -3057,6 +3179,56 @@ mod splat_texture_class_tests {
             class(12, 4, "Dirt"),
         ];
         (textures, classes, stable, slot_map)
+    }
+
+    #[test]
+    fn authored_mixed_cell_carries_independent_uvs_and_corner_coverage() {
+        let (textures, classes, stable, slots) = bound_fixture();
+        let mut hm = HeightMap::new(3, 2, 255.0, 1.0);
+        hm.tile_ndxes[0] = 0;
+        let mut blend = crate::terrain::textures::BlendTileInfo::new();
+        blend.blend_ndx = 5; // same class, next tile, right-hand quadrant
+        blend.horiz = 1;
+        hm.blended_tiles = vec![crate::terrain::textures::BlendTileInfo::new(), blend];
+        hm.blend_tile_ndxes[0] = 1;
+
+        let left = authored_blend_vertex(&hm, &classes, &textures, &stable, &slots,
+            [0.5, 0.5], [0.0, 0.0]).unwrap();
+        let right = authored_blend_vertex(&hm, &classes, &textures, &stable, &slots,
+            [0.5, 0.5], [1.0, 0.0]).unwrap();
+        assert_eq!((left.0, left.1), (0, 0), "same-class tiles still need two UVs");
+        assert_eq!((left.2, right.2), (0.0, 1.0));
+        assert_eq!(left.3, [0.75, 1.0]);
+        assert_eq!(right.3, [1.0, 1.0]);
+        assert_eq!(cell_class_uv(&hm, &classes, [0.5, 0.5], [0.0, 0.0]), [0.0, 1.0]);
+        assert!(authored_blend_vertex(&hm, &classes, &textures, &stable, &slots,
+            [1.5, 0.5], [1.0, 0.0]).is_none(), "unblended neighbor stays opaque");
+    }
+
+    #[test]
+    fn extra_blend_gpu_mesh_uses_authored_class_uv_and_alpha() {
+        crate::test_support::ensure_ambient_host();
+        let (textures, classes, stable, _) = bound_fixture();
+        let mut hm = HeightMap::new(3, 2, 255.0, 1.0);
+        let mut blend = crate::terrain::textures::BlendTileInfo::new();
+        blend.blend_ndx = 16;
+        blend.horiz = 1;
+        hm.blended_tiles = vec![crate::terrain::textures::BlendTileInfo::new(), blend];
+        hm.extra_blend_tile_ndxes[0] = 1;
+        let mesh = hm.build_extra_blend_draw_mesh(&[]);
+        assert_eq!(mesh.tile_count, 1, "the unblended adjacent cell emits no overlay");
+        let mut visual = TerrainVisualImpl::new();
+        visual.height_map = Some(hm);
+        visual.texture_system = textures;
+        visual.source_tile_classes = classes;
+        visual.active_chunk_texture_ids = Some(stable);
+        let gpu = visual.extra_blend_mesh_to_terrain_vertices(&mesh);
+        assert_eq!(gpu.len(), 6);
+        for vertex in &gpu {
+            assert_eq!(vertex.blend_indices[0], 1);
+            assert_eq!(vertex.color[3], vertex.position[0]);
+            assert_eq!(vertex.tex_coords[0], vertex.position[0] * 0.25);
+        }
     }
 
     #[test]

@@ -20,6 +20,8 @@ struct TerrainVertex {
     @location(3) blend_indices: vec4<u32>,
     @location(4) blend_weights: vec4<f32>,
     @location(5) color: vec4<f32>,
+    @location(6) blend_tex_coords: vec2<f32>,
+    @location(7) blend_texture_slot: u32,
 }
 
 struct VertexOutput {
@@ -33,6 +35,8 @@ struct VertexOutput {
     // Bound texture-class slot of each blend weight; the four corners of a
     // cell carry the same slots (sorted by slot), so flat is exact.
     @location(6) @interpolate(flat) blend_indices: vec4<u32>,
+    @location(7) blend_tex_coords: vec2<f32>,
+    @location(8) @interpolate(flat) blend_texture_slot: u32,
 }
 
 @group(0) @binding(0)
@@ -84,6 +88,8 @@ fn vs_main(vertex: TerrainVertex) -> VertexOutput {
     out.tex_coords = vertex.tex_coords;
     out.blend_weights = vertex.blend_weights;
     out.blend_indices = vertex.blend_indices;
+    out.blend_tex_coords = vertex.blend_tex_coords;
+    out.blend_texture_slot = vertex.blend_texture_slot;
     // C++ HeightMap VB `diffuse` already includes doTheDynamicLight.
     out.color = vertex.color;
     // DX8Wrapper sets FOGVERTEXMODE=LINEAR and enables range fog when supported.
@@ -106,11 +112,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // (non-uniform control flow).
     let ddx = dpdx(in.tex_coords);
     let ddy = dpdy(in.tex_coords);
+    let blend_ddx = dpdx(in.blend_tex_coords);
+    let blend_ddy = dpdy(in.blend_tex_coords);
     var final_color = vec4<f32>(0.0);
     for (var i = 0u; i < 4u; i = i + 1u) {
         let w = blend[i];
         if (w > 0.0) {
-            final_color = final_color + sample_slot(in.blend_indices[i], in.tex_coords, ddx, ddy) * w;
+            let is_blend = i == in.blend_texture_slot;
+            let uv = select(in.tex_coords, in.blend_tex_coords, is_blend);
+            let dx = select(ddx, blend_ddx, is_blend);
+            let dy = select(ddy, blend_ddy, is_blend);
+            final_color = final_color + sample_slot(in.blend_indices[i], uv, dx, dy) * w;
         }
     }
 
