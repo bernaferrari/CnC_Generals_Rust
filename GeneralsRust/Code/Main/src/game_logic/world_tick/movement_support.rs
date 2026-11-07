@@ -97,7 +97,7 @@ impl GameLogic {
             self.pathfinding_system.find_path_ex_surfaces(
                 start_pos,
                 target_position,
-                self.objects.read().with_players(&self.players),
+                self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                 is_aircraft,
                 loco,
                 is_crusher,
@@ -233,7 +233,7 @@ impl GameLogic {
             path,
             previous_path,
             &ground_source,
-            self.objects.read().with_players(&self.players),
+            self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
             mover,
             other,
         );
@@ -247,7 +247,7 @@ impl GameLogic {
             path,
             previous_path,
             &ground_source,
-            self.objects.read().with_players(&self.players),
+            self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
             mover,
             other,
         )
@@ -471,7 +471,7 @@ impl GameLogic {
                             is_crusher,
                             is_human,
                             &ground_source,
-                            self.objects.read().with_players(&self.players),
+                            self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                             id,
                         )
                     }) {
@@ -534,7 +534,7 @@ impl GameLogic {
                                 self.pathfinding_system.find_path_ex_surfaces(
                                     from,
                                     goal,
-                                    self.objects.read().with_players(&self.players),
+                                    self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                                     true,
                                     surfaces,
                                     is_crusher,
@@ -649,7 +649,7 @@ impl GameLogic {
                                 is_human,
                                 0.0,
                                 &ground_source,
-                                self.objects.read().with_players(&self.players),
+                                self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                                 id,
                             )
                         }) {
@@ -680,7 +680,7 @@ impl GameLogic {
                             &original,
                             surfaces,
                             is_crusher,
-                            self.objects.read().with_players(&self.players),
+                            self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                             Some(id),
                             &ground_source,
                         )
@@ -718,7 +718,7 @@ impl GameLogic {
                                     is_human,
                                     0.0,
                                     &ground_source,
-                                    self.objects.read().with_players(&self.players),
+                                    self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                                     id,
                                 )
                             }) {
@@ -775,7 +775,7 @@ impl GameLogic {
                             self.pathfinding_system.find_path_ex_surfaces(
                                 from,
                                 goal,
-                                self.objects.read().with_players(&self.players),
+                                self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                                 aircraft,
                                 surfaces,
                                 is_crusher,
@@ -820,7 +820,7 @@ impl GameLogic {
                                     is_human,
                                     0.0,
                                     &ground_source,
-                                    self.objects.read().with_players(&self.players),
+                                    self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                                     id,
                                 )
                             }) {

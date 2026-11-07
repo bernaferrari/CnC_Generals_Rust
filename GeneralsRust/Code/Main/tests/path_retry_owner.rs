@@ -147,6 +147,80 @@ fn mark_unit_moving(world: &mut GameLogic, id: ObjectId) {
 }
 
 #[test]
+fn possible_destination_uses_restored_world_relationships_and_goal_reservations() {
+    use gamelogic::common::Relationship;
+    use generals_main::game_logic::pathfinding::GridPos;
+    use generals_main::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
+
+    let directory = tempfile::tempdir().unwrap();
+    let map = directory.path().join("DestinationRestore.map");
+    let mut data = DataChunkOutput::new();
+    data.open_data_chunk("HeightMapData", 3);
+    for value in [41, 41, 1, 1681] {
+        data.write_int(value);
+    }
+    for _ in 0..1681 {
+        data.write_byte(0);
+    }
+    data.close_data_chunk();
+    data.open_data_chunk("ObjectsList", 3);
+    data.close_data_chunk();
+    std::fs::write(&map, data.into_ckmp_bytes()).unwrap();
+
+    let goal = Vec3::new(150.0, 0.0, 100.0);
+    let mut worlds = [world(&map), world(&map)];
+    let mut ids = Vec::new();
+    for (index, world) in worlds.iter_mut().enumerate() {
+        world.add_player(Player::new(2, Team::GLA, "Other", false));
+        world.get_player_mut(1).unwrap().set_map_relationship(
+            2,
+            if index == 0 { Relationship::Allies } else { Relationship::Enemies },
+        );
+        let mover = world.create_object_for_player("RetryWalker", 1, Vec3::new(60.0, 0.0, 100.0)).unwrap();
+        let target = world.create_object_for_player("RetryWalker", 2, Vec3::new(80.0, 0.0, 100.0)).unwrap();
+        world.host_object_mut(target).unwrap().is_final_goal = true;
+        assert!(world.assign_unit_path_exact(target, goal, &[]));
+        assert_eq!(world.pathfinding_ground_goal(GridPos::new(15, 10)), Some(target));
+        ids.push((mover, target));
+    }
+    assert_eq!(ids[0], ids[1]);
+    let observe = |world: &GameLogic, mover| {
+        let mut destination = goal;
+        assert!(world.adjust_to_possible_destination(mover, &mut destination));
+        destination == goal
+    };
+    assert!(!observe(&worlds[0], ids[0].0));
+    assert!(observe(&worlds[1], ids[1].0));
+
+    let mut saves = SaveFileManager::with_save_directory(directory.path());
+    saves.init().unwrap();
+    let info = SaveGameInfo {
+        pristine_map_name: None,
+        filename: "destination".into(),
+        display_name: "Destination ownership".into(),
+        description: String::new(),
+        map_name: map.to_string_lossy().into_owned(),
+        campaign_side: None,
+        mission_number: None,
+        save_date: std::time::UNIX_EPOCH + std::time::Duration::from_secs(1),
+        game_version: env!("CARGO_PKG_VERSION").into(),
+        play_time: std::time::Duration::ZERO,
+        difficulty: GameDifficulty::Medium,
+        save_type: SaveFileType::Normal,
+    };
+    saves.save_game("destination-a", &worlds[0], &info).unwrap();
+    saves.save_game("destination-b", &worlds[1], &info).unwrap();
+    let mut restored = [world(&map), world(&map)];
+    saves.load_game("destination-a", &mut restored[0]).unwrap();
+    saves.load_game("destination-b", &mut restored[1]).unwrap();
+    for index in [0, 1, 0, 1] {
+        assert_eq!(restored[index].pathfinding_ground_goal(GridPos::new(15, 10)), Some(ids[index].1));
+        assert_eq!(observe(&restored[index], ids[index].0), index == 1);
+        assert_eq!(observe(&worlds[index], ids[index].0), index == 1);
+    }
+}
+
+#[test]
 fn ground_goal_lifecycle_uses_live_geometry_in_each_world() {
     use generals_main::game_logic::pathfinding::GridPos;
     let directory = tempfile::tempdir().unwrap();

@@ -58,6 +58,15 @@ impl GameLogic {
         source: &Object,
         target: &Object,
     ) -> gamelogic::common::Relationship {
+        Self::object_relationship_with_world(&self.team_factory, &self.players, source, target)
+    }
+
+    pub(crate) fn object_relationship_with_world(
+        team_factory: &gamelogic::team::TeamFactoryHandle,
+        players: &std::collections::HashMap<u32, crate::game_logic::Player>,
+        source: &Object,
+        target: &Object,
+    ) -> gamelogic::common::Relationship {
         use gamelogic::common::Relationship;
         if source.is_undetected_defector() {
             return Relationship::Neutral;
@@ -66,8 +75,8 @@ impl GameLogic {
             return Relationship::Allies;
         }
         Self::object_relationship_from_identities(
-            &self.team_factory,
-            &self.players,
+            team_factory,
+            players,
             source.owner_player_id,
             source.team_instance_id,
             &source.team_instance_name,

@@ -1024,7 +1024,7 @@ impl GameLogic {
     /// ```
     #[inline]
     pub fn host_objects(&self) -> crate::game_logic::HostObjectRead<'_> {
-        self.objects.read().with_players(&self.players)
+        self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory)
     }
 
     /// Borrow one live object and this session's audio queue for one operation.

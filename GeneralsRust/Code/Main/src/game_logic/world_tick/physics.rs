@@ -540,7 +540,7 @@ impl GameLogic {
                             );
                         self.pathfinding_system.adjust_to_possible_destination_for(
                             a,
-                            self.objects.read().with_players(&self.players),
+                            self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                             &mut dest,
                             &ground_source,
                         )
@@ -566,7 +566,7 @@ impl GameLogic {
                             );
                         self.pathfinding_system.adjust_to_possible_destination_for(
                             b,
-                            self.objects.read().with_players(&self.players),
+                            self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                             &mut dest,
                             &ground_source,
                         )

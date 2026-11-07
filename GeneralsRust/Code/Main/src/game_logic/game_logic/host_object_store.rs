@@ -350,6 +350,7 @@ pub(in crate::game_logic) struct ConstructorLookupReceipt {
 pub struct HostObjectRead<'a> {
     store: &'a HostObjectStore,
     players: Option<&'a HashMap<u32, Player>>,
+    team_factory: Option<&'a gamelogic::team::TeamFactoryHandle>,
 }
 
 impl std::ops::Index<&ObjectId> for HostObjectRead<'_> {
@@ -366,6 +367,17 @@ impl<'a> HostObjectRead<'a> {
         self.players = Some(players);
         self
     }
+    pub(crate) fn with_team_factory(mut self, team_factory: &'a gamelogic::team::TeamFactoryHandle) -> Self {
+        self.team_factory = Some(team_factory);
+        self
+    }
+
+    pub(crate) fn relationship(self, source: &Object, target: &Object) -> Option<gamelogic::common::Relationship> {
+        Some(crate::game_logic::GameLogic::object_relationship_with_world(
+            self.team_factory?, self.players?, source, target,
+        ))
+    }
+
 
     pub(crate) fn controller_is_human(self, id: u32) -> Option<bool> {
         self.players?.get(&id).map(|player| player.is_human)
@@ -410,6 +422,7 @@ impl HostObjectStore {
         HostObjectRead {
             store: self,
             players: None,
+            team_factory: None,
         }
     }
 

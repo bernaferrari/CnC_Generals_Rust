@@ -1425,7 +1425,7 @@ impl PathfindingGrid {
     /// C++ checkDestination for the receiving object. Unlike
     /// adjustDestination, this examines the requested footprint once and does
     /// not apply surface, logical-extent or path-diameter checks to each cell.
-    /// Team relationships still use the session's player masks pending hq-6xymwm.
+    /// World-backed views use the receiving object's directional relationship.
     pub(super) fn check_destination_for_object(
         &self,
         cell: GridPos,
@@ -1481,17 +1481,22 @@ impl PathfindingGrid {
                 let Some(goal) = objects.lookup(&ObjectId(goal_id)) else {
                     continue;
                 };
-                let allied = if mover.is_undetected_defector() {
-                    false
-                } else if goal.is_undetected_defector() {
-                    true
-                } else if let (Some(source), Some(target)) =
-                    (mover.owner_player_id, goal.owner_player_id)
-                {
-                    source == target || (self.ally_mask_for(source) & (1u16 << target.min(15))) != 0
-                } else {
-                    mover.team == goal.team
-                };
+                let allied = objects.relationship(mover, goal).map_or_else(
+                    || {
+                        if mover.is_undetected_defector() {
+                            false
+                        } else if goal.is_undetected_defector() {
+                            true
+                        } else if let (Some(source), Some(target)) =
+                            (mover.owner_player_id, goal.owner_player_id)
+                        {
+                            source == target || (self.ally_mask_for(source) & (1u16 << target.min(15))) != 0
+                        } else {
+                            mover.team == goal.team
+                        }
+                    },
+                    |relationship| relationship == gamelogic::common::Relationship::Allies,
+                );
                 if allied || (bits.pos_unit == goal_id && !mover.can_crush_or_squish(goal, false)) {
                     return false;
                 }

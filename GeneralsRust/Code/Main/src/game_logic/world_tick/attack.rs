@@ -3254,7 +3254,7 @@ impl GameLogic {
                 self.pathfinding_system.find_path_ex_surfaces(
                     start,
                     dest,
-                    self.objects.read().with_players(&self.players),
+                    self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                     is_aircraft,
                     loco,
                     is_crusher,
@@ -3283,7 +3283,7 @@ impl GameLogic {
                             self.pathfinding_system
                                 .adjust_to_possible_destination_for_inputs(
                                     obj,
-                                    self.objects.read().with_players(&self.players),
+                                    self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                                     start,
                                     &mut dest,
                                     loco,
@@ -3314,7 +3314,7 @@ impl GameLogic {
                         self.pathfinding_system.find_path_ex_surfaces(
                             start,
                             dest,
-                            self.objects.read().with_players(&self.players),
+                            self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                             is_aircraft,
                             loco,
                             is_crusher,

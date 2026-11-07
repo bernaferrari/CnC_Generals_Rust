@@ -590,7 +590,7 @@ impl GameLogic {
                 self.pathfinding_system.find_path_ex_surfaces(
                     start,
                     destination,
-                    self.objects.read().with_players(&self.players),
+                    self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                     true,
                     surfaces,
                     crusher,
@@ -842,7 +842,7 @@ impl GameLogic {
                         &original,
                         loco,
                         is_crusher,
-                        self.objects.read().with_players(&self.players),
+                        self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                         Some(unit_id),
                         &ground_source,
                     )
@@ -864,7 +864,7 @@ impl GameLogic {
                     self.pathfinding_system.find_path_ex_surfaces(
                         segment_start,
                         goal,
-                        self.objects.read().with_players(&self.players),
+                        self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                         flying,
                         loco,
                         is_crusher,
@@ -1162,7 +1162,7 @@ impl GameLogic {
             self.pathfinding_system.find_group_ground_path(
                 start,
                 destination,
-                self.objects.read().with_players(&self.players),
+                self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                 &ground_source,
             )
         }) else {
@@ -1766,7 +1766,7 @@ impl GameLogic {
                 is_human,
                 0.0,
                 &ground_source,
-                self.objects.read().with_players(&self.players),
+                self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                 unit_id,
             )
         });
@@ -1993,7 +1993,7 @@ impl GameLogic {
                 &self.pathfinding_system.grid,
             );
             self.pathfinding_system
-                .adjust_to_possible_destination_for(obj, self.objects.read().with_players(&self.players), dest, &ground_source)
+                .adjust_to_possible_destination_for(obj, self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory), dest, &ground_source)
         })
     }
 
@@ -2110,7 +2110,7 @@ impl GameLogic {
                     is_human,
                     0.2,
                     &ground_source,
-                    self.objects.read().with_players(&self.players),
+                    self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                     unit_id,
                 )
             })
@@ -2131,7 +2131,7 @@ impl GameLogic {
                     from,
                     target_pos,
                     path_range,
-                    self.objects.read().with_players(&self.players),
+                    self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                     is_crusher,
                     Some(unit_id),
                     &ground_source,
@@ -2602,7 +2602,7 @@ impl GameLogic {
             self.pathfinding_system.find_path_ex(
                 last_goal,
                 waypoint,
-                self.objects.read().with_players(&self.players),
+                self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
                 false,
                 Some(unit_id),
                 &ground_source,

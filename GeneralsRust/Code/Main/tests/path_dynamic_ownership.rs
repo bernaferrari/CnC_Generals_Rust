@@ -554,6 +554,44 @@ fn possible_destination_reads_each_worlds_live_goal_object() {
 }
 
 #[test]
+fn possible_destination_honors_directional_team_override_before_player_relation() {
+    use gamelogic::common::Relationship;
+    let goal = Vec3::new(55.0, 0.0, 55.0);
+    let ground = PathfindingGround::Flat(0.0);
+    let mut worlds = [GameLogic::new(), GameLogic::new()];
+    let mut systems = [PathfindingSystem::new(200.0, 200.0), PathfindingSystem::new(200.0, 200.0)];
+    let mut ids = Vec::new();
+    for (index, (world, system)) in worlds.iter_mut().zip(&mut systems).enumerate() {
+        let mut owner = Player::new(0, Team::USA, "Owner", true);
+        owner.set_map_relationship(1, Relationship::Enemies);
+        if index == 0 {
+            owner.set_team_relationship_override(42, Relationship::Allies);
+        }
+        world.add_player(owner);
+        world.add_player(Player::new(1, Team::GLA, "Other", false));
+        let mut template = ThingTemplate::new("TeamGoalContext");
+        template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        world.templates.insert("TeamGoalContext".into(), template);
+        let mover = world.create_object_for_player("TeamGoalContext", 0, Vec3::new(25.0, 0.0, 25.0)).unwrap();
+        let target = world.create_object_for_player("TeamGoalContext", 1, goal).unwrap();
+        world.host_object_mut(target).unwrap().team_instance_id = Some(42);
+        system.grid.update_ground_goal_cell(target.0, 1, 1.0, false, (-1, -1), goal);
+        ids.push((mover, target));
+    }
+    assert_eq!(ids[0], ids[1]);
+    for index in [0, 1, 0, 1] {
+        let mut actual = goal;
+        assert!(systems[index].adjust_to_possible_destination_for(
+            worlds[index].host_object(ids[index].0).unwrap(),
+            worlds[index].host_objects(),
+            &mut actual,
+            &ground,
+        ));
+        assert_eq!(actual == goal, index == 1);
+    }
+}
+
+#[test]
 fn possible_destination_uses_the_receivers_aircraft_goal_rules() {
     use generals_main::game_logic::object::{LOCO_SURFACE_AIR, LocomotorAppearance};
     let mut world = GameLogic::new();
