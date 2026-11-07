@@ -58,6 +58,9 @@ world's weapon and OCL content; Bomb Truck names no longer select a detonation.
 FireWeaponUpdate cadence belongs to the live object's lifecycle state and
 survives Rust save/load. HE/Bio coverage exercises blast, field creation, and
 resumed poison damage; original Xfer byte parity remains unverified.
+Native UndeadBody ordinary damage uses the receiving world; its first-death
+transition remains unsupported until the owned slow-death and OCL continuation
+can execute in original callback order.
 
 ## Authored radar and cash bounty
 
