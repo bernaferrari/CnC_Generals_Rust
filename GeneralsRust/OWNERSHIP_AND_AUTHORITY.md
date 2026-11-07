@@ -34,6 +34,15 @@ its model state, and rider state. This is a Rust snapshot cutover,
 not original-executable save interoperability. Before merging rider changes,
 the stealth-filtered run passed 223 tests with 10 baseline failures.
 
+## Authored point defense
+
+Each carrier owns a separate clock and target for each authored
+PointDefenseLaserUpdate module. The receiving world resolves its weapon and
+target relationships; carrier names do not install point defense. Scan,
+cooldown, target and in-range state survive Rust save/load. Native module
+timing and target selection follow PointDefenseLaserUpdate.cpp; full original
+Xfer byte compatibility has not been verified.
+
 ## Authored death weapons
 
 Each object's authored FireWeaponWhenDead modules dispatch through its receiving
