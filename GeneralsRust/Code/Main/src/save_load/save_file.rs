@@ -1079,10 +1079,7 @@ impl SaveFileManager {
             client
                 .as_deref_mut()
                 .map(|client| {
-                    let mut bytes =
-                        capture_particle_system_xfer_bytes(client.particle_systems_mut())?;
-                    game_logic.append_fx_random_capsule(&mut bytes);
-                    Ok::<_, SaveLoadError>(bytes)
+                    capture_particle_system_xfer_bytes(client.particle_systems_mut())
                 })
                 .transpose()?
         };

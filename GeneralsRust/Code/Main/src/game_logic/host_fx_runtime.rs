@@ -27,45 +27,6 @@ impl crate::game_logic::GameLogic {
         self.session_view.client_random.seed_random(seed);
         self.session_view.audio_random.seed_random(seed);
     }
-    pub(crate) fn append_fx_random_capsule(&self, bytes: &mut Vec<u8>) {
-        for word in self
-            .session_view
-            .client_random
-            .seed_words()
-            .into_iter()
-            .chain(self.session_view.audio_random.seed_words())
-        {
-            bytes.extend_from_slice(&word.to_le_bytes());
-        }
-        bytes.extend_from_slice(b"FXR1");
-    }
-    pub(crate) fn restore_fx_random_capsule(&mut self, words: Option<[[u32; 6]; 2]>) {
-        if let Some(words) = words {
-            self.session_view.client_random.set_seed_words(words[0]);
-            self.session_view.audio_random.set_seed_words(words[1]);
-        }
-    }
-    pub(crate) fn split_fx_random_capsule(
-        bytes: &[u8],
-    ) -> Result<(&[u8], Option<[[u32; 6]; 2]>), String> {
-        if bytes.len() < 4 || &bytes[bytes.len() - 4..] != b"FXR1" {
-            return Ok((bytes, None));
-        }
-        if bytes.len() < 52 {
-            return Err("truncated native FX random capsule".into());
-        }
-        let start = bytes.len() - 52;
-        let words = std::array::from_fn(|stream| {
-            std::array::from_fn(|word| {
-                u32::from_le_bytes(
-                    bytes[start + stream * 24 + word * 4..start + stream * 24 + word * 4 + 4]
-                        .try_into()
-                        .unwrap(),
-                )
-            })
-        });
-        Ok((&bytes[..start], Some(words)))
-    }
 
     /// App/content admission hands the selected immutable catalog to one
     /// session. Fixtures use this same receiver without process registrations.

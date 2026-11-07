@@ -26,6 +26,7 @@ fn stage_decoded(
         slot,
         GameMode::Shell,
         RestoreTemplateCatalog {
+            random_source: &source.session_view,
             templates: &catalog,
             upgrade_definition_base: &source.upgrade_definition_base,
             modules: &source.receiving_module_content,

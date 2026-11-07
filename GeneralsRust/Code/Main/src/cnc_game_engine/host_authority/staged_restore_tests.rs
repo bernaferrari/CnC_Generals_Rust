@@ -136,6 +136,7 @@ fn staged_restore_rejects_unavailable_map_before_snapshot_restore() {
                 GameMode::Shell,
                 std::sync::Arc::new(crate::game_logic::victory_conditions::MapVictoryRules::default()),
                 RestoreTemplateCatalog {
+                    random_source: &source.session_view,
                     templates: &catalog,
                     upgrade_definition_base: &source.upgrade_definition_base,
                     modules: &source.receiving_module_content,
@@ -212,6 +213,7 @@ fn malformed_client_chunk_rejects_candidate_before_touching_live_client() {
                 "corrupt_client",
                 GameMode::SinglePlayer,
                 RestoreTemplateCatalog {
+                    random_source: &logic.session_view,
                     templates: &catalog,
                     upgrade_definition_base: &logic.upgrade_definition_base,
                     modules: &logic.receiving_module_content,
@@ -363,6 +365,7 @@ fn staged_restore_requires_the_saved_retail_map_before_snapshot_restore() {
                 GameMode::Shell,
                 std::sync::Arc::new(crate::game_logic::victory_conditions::MapVictoryRules::default()),
                 RestoreTemplateCatalog {
+                    random_source: &source.session_view,
                     templates: &catalog,
                     upgrade_definition_base: &receiving_rules.upgrade_definition_base,
                     modules: &source.receiving_module_content,
@@ -687,6 +690,7 @@ fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
                 "forced_stage_failure",
                 GameMode::Skirmish,
                 RestoreTemplateCatalog {
+                    random_source: &source.session_view,
                     templates: &catalog,
                     upgrade_definition_base: &source.upgrade_definition_base,
                     modules: &source.receiving_module_content,
@@ -1039,6 +1043,7 @@ fn embedded_saved_map_restores_original_ai_companions_without_replacing_geometry
                         "owned_companions",
                         GameMode::Skirmish,
                         RestoreTemplateCatalog {
+                            random_source: &source.session_view,
                             templates: &catalog,
                             upgrade_definition_base: &source.upgrade_definition_base,
                             modules: &source.receiving_module_content,
@@ -1265,6 +1270,14 @@ fn staged_restore_continues_logic_rng_stream_from_save_point() {
                     &save_info("rng_continue", map_name.clone()),
                 )
                 .expect("write RNG continuation save");
+            // Cosmetic streams are not in C++ saves. Loading after further
+            // play starts from the receiving session, not the save point.
+            source.seed_fx_random(0x65a1_2345);
+            source.session_view.client_random.next_real(0.0, 1.0);
+            source.session_view.audio_random.next_real(0.0, 1.0);
+            let client_before_load = source.session_view.client_random.clone();
+            let audio_before_load = source.session_view.audio_random.clone();
+
 
             // Branch A: the live match continues from the save point.
             let branch_a_draws = draw_through_instance(&mut source, 6);
@@ -1278,6 +1291,7 @@ fn staged_restore_continues_logic_rng_stream_from_save_point() {
                 GameMode::Shell,
                 std::sync::Arc::new(crate::game_logic::victory_conditions::MapVictoryRules::default()),
                 RestoreTemplateCatalog {
+                    random_source: &source.session_view,
                     templates: &catalog,
                     upgrade_definition_base: &source.upgrade_definition_base,
                     modules: &source.receiving_module_content,
@@ -1318,6 +1332,28 @@ fn staged_restore_continues_logic_rng_stream_from_save_point() {
                 &source.world_services,
             )
             .expect("stage RNG continuation save");
+            fn is_continuation(
+                mut start: game_engine::common::random_value::RandomState,
+                end: [u32; 6],
+            ) -> bool {
+                for _ in 0..100_000 {
+                    if start.seed_words() == end {
+                        return true;
+                    }
+                    start.next_real(0.0, 1.0);
+                }
+                false
+            }
+            assert!(is_continuation(
+                client_before_load.clone(),
+                staged.logic.session_view.client_random.seed_words(),
+            ));
+            assert!(is_continuation(
+                audio_before_load.clone(),
+                staged.logic.session_view.audio_random.seed_words(),
+            ));
+            assert_eq!(source.session_view.client_random.seed_words(), client_before_load.seed_words());
+            assert_eq!(source.session_view.audio_random.seed_words(), audio_before_load.seed_words());
             assert_eq!(
                 staged.logic_rng_seed_words, saved_words,
                 "the snapshot must carry the save-point driving-instance words"
@@ -1891,6 +1927,7 @@ End
                     GameMode::Skirmish,
                     crate::save_load::CampaignMapContext::default(),
                     RestoreTemplateCatalog {
+                        random_source: &source.session_view,
                         templates: &catalog,
                         upgrade_definition_base: &source.upgrade_definition_base,
                         modules: &source.receiving_module_content,
@@ -2029,6 +2066,7 @@ End
                     GameMode::Skirmish,
                     crate::save_load::CampaignMapContext::default(),
                     RestoreTemplateCatalog {
+                        random_source: &source.session_view,
                         templates: &catalog,
                         upgrade_definition_base: &source.upgrade_definition_base,
                         modules: &source.receiving_module_content,

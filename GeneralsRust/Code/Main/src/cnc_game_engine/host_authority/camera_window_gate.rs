@@ -114,6 +114,7 @@ impl CnCGameEngine {
             mode,
             Arc::clone(&self.map_victory_rules),
             RestoreTemplateCatalog {
+                random_source: &self.game_logic.session_view,
                 templates: &catalog,
                 upgrade_definition_base: &self.game_logic.upgrade_definition_base,
                 modules: &self.game_logic.receiving_module_content,

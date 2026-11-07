@@ -263,6 +263,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                     GameMode::Skirmish,
                     crate::save_load::CampaignMapContext::default(),
                     RestoreTemplateCatalog {
+                        random_source: &source.session_view,
                         templates: &source.templates,
                         upgrade_definition_base: &source.upgrade_definition_base,
                         modules: &source.receiving_module_content,
@@ -349,6 +350,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                         GameMode::Skirmish,
                         crate::save_load::CampaignMapContext::default(),
                         RestoreTemplateCatalog {
+                            random_source: &source.session_view,
                             templates: &source.templates,
                             upgrade_definition_base: &source.upgrade_definition_base,
                             modules: &source.receiving_module_content,
@@ -440,6 +442,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                         GameMode::Skirmish,
                         crate::save_load::CampaignMapContext::default(),
                         RestoreTemplateCatalog {
+                            random_source: &source.session_view,
                             templates: &source.templates,
                             upgrade_definition_base: &source.upgrade_definition_base,
                             modules: &source.receiving_module_content,

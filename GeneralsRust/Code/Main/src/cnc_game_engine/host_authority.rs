@@ -139,6 +139,7 @@ mod restore_viewport_owner_tests;
 /// a detached saved-world candidate. This borrow cannot select another world.
 #[derive(Clone, Copy)]
 pub(super) struct RestoreTemplateCatalog<'a> {
+    random_source: &'a crate::presentation_frame::SessionView,
     body_damage_baseline: crate::game_logic::body_damage_rules::BodyDamagePolicy,
     damage_fx_base: &'a game_engine::common::ini::ini_damage_fx::DamageFXStore,
     #[cfg(feature = "game_client")]
@@ -170,6 +171,7 @@ pub(super) struct RestoreTemplateCatalog<'a> {
 impl<'a> RestoreTemplateCatalog<'a> {
     pub(super) fn from_world(world: &'a crate::game_logic::GameLogic) -> Self {
         Self {
+            random_source: &world.session_view,
             templates: &world.templates,
             modules: &world.receiving_module_content,
             player_templates: &world.player_template_definitions,
@@ -2347,6 +2349,7 @@ impl CnCGameEngine {
             slot,
             live.game_mode(),
             RestoreTemplateCatalog {
+                random_source: &live.session_view,
                 templates: &live.templates,
                 upgrade_definition_base: &live.upgrade_definition_base,
                 modules: &live.receiving_module_content,
@@ -2809,6 +2812,11 @@ impl CnCGameEngine {
         let runtime_stage =
             gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(live_services);
         let mut staged = crate::game_logic::GameLogic::new_unpublished();
+        // C++ client/audio random streams outlive a map reload. The detached
+        // candidate starts at the receiving world's current position; only a
+        // successful candidate commits the draws made while rebuilding it.
+        staged.session_view.client_random = template_catalog.random_source.client_random.clone();
+        staged.session_view.audio_random = template_catalog.random_source.audio_random.clone();
         // Match the receiving application's pristine Upgrade.ini catalog before
         // GameLogic startup/reset and saved-map INI parsing. Current is reset to
         // this base, then map-owned definitions are reapplied in original order.
@@ -2930,9 +2938,6 @@ impl CnCGameEngine {
                 native.admit_restored_object_drawables(&mut staged)?;
             }
             if let Some(bytes) = snapshot.particle_system_companion.as_deref() {
-                let (bytes, fx_random) =
-                    crate::game_logic::GameLogic::split_fx_random_capsule(bytes)?;
-
                 let native = native
                     .as_mut()
                     .ok_or("particle companion requires a detached native presentation owner")?;
@@ -2957,7 +2962,6 @@ impl CnCGameEngine {
                         .combat_particles_mut()
                         .adopt_loaded_client_systems(manager, &receipt)?;
                     staged.adopt_loaded_bone_particle_systems(manager, &receipt)?;
-                    staged.restore_fx_random_capsule(fx_random);
                 }
             }
             if let Some(prepared) = &terrain_visual {
@@ -3099,6 +3103,7 @@ impl CnCGameEngine {
                 active_mode,
                 campaign_context.clone(),
                 RestoreTemplateCatalog {
+                    random_source: &self.game_logic.session_view,
                     templates: &template_catalog,
                     upgrade_definition_base: &self.game_logic.upgrade_definition_base,
                     modules: &self.game_logic.receiving_module_content,
@@ -3156,6 +3161,7 @@ impl CnCGameEngine {
             active_mode,
             campaign_context,
             RestoreTemplateCatalog {
+                random_source: &self.game_logic.session_view,
                 templates: &template_catalog,
                 upgrade_definition_base: &self.game_logic.upgrade_definition_base,
                 modules: &self.game_logic.receiving_module_content,
