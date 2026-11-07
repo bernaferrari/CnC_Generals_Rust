@@ -2355,8 +2355,13 @@ fn retain_queue_object_ids_drops_missing_pad_binding() {
 
 #[test]
 fn launch_attack_sets_target_and_logs_host_attack() {
-    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate, Weapon};
-    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
+    use crate::game_logic::{GameLogic, Team, Weapon};
+    use crate::skirmish_config::{
+        apply_skirmish_config, golden_skirmish_config, SkirmishPlayerTemplateSelection,
+    };
+    use game_engine::common::ini::INILoadType;
+    use game_engine::common::rts::player_template::PlayerTemplateStore;
+    use std::sync::Arc;
 
     // Opt into AI decision authority via GameLogic::set_ai_decision_authority(true)
     // (retired GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY env): launch_attack engages
@@ -2372,17 +2377,46 @@ fn launch_attack_sets_target_and_logs_host_attack() {
 
     let mut logic = GameLogic::new();
 
-    let cfg = golden_skirmish_config("AiAtk");
+    let content = crate::assets::ReceivingStartupContent::from_sources(
+        [(
+            "ai-attack-fixture.ini".into(),
+            "Object AiAtkU\n KindOf = INFANTRY SELECTABLE ATTACKABLE\n Body = ActiveBody BodyTag\n  MaxHealth = 100\n  InitialHealth = 100\n End\nEnd\n\
+             Object AiAtkE\n KindOf = INFANTRY SELECTABLE ATTACKABLE\n Body = ActiveBody BodyTag\n  MaxHealth = 100\n  InitialHealth = 100\n End\nEnd\n"
+                .into(),
+        )],
+        Arc::new(game_engine::common::rts::science::ScienceNameFacts::default()),
+        Arc::new(
+            game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions::default(),
+        ),
+        Vec::new(),
+    )
+    .expect("authored attack object definitions");
+    logic.admit_startup_content(content).expect("admit attack objects");
+
+    let mut players = PlayerTemplateStore::new_owned();
+    players
+        .apply_source(
+            "PlayerTemplate FactionAmerica\n Side = America\n BaseSide = America\nEnd\n\
+             PlayerTemplate FactionGLA\n Side = GLA\n BaseSide = GLA\nEnd\n",
+            INILoadType::Overwrite,
+        )
+        .expect("authored attack player definitions");
+    let mut cfg = golden_skirmish_config("AiAtk");
+    for (slot, name) in cfg.slots.iter_mut().zip(["FactionAmerica", "FactionGLA"]) {
+        slot.player_template = SkirmishPlayerTemplateSelection::Exact {
+            template_name: name.into(),
+            template_index: i32::try_from(players.find_template_index(name).expect("player template"))
+                .expect("player template index"),
+        };
+    }
+    logic
+        .admit_player_template_definitions(players)
+        .expect("admit attack players");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    for (name, team, x) in [("AiAtkU", Team::USA, 0.0f32), ("AiAtkE", Team::GLA, 80.0)] {
-        if !logic.templates.contains_key(name) {
-            let mut tmpl = ThingTemplate::new(name);
-            tmpl.set_health(100.0);
-            tmpl.add_kind_of(KindOf::Infantry);
-            tmpl.add_kind_of(KindOf::Attackable);
-            logic.templates.insert(name.into(), tmpl);
-        }
-        let _ = logic.create_object(name, team, glam::Vec3::new(x, 0.0, 0.0));
+    for (name, player, x) in [("AiAtkU", 0, 0.0f32), ("AiAtkE", 1, 80.0)] {
+        logic
+            .create_object_for_player(name, player, glam::Vec3::new(x, 0.0, 0.0))
+            .expect("create authored attack object");
     }
     let usa_id = logic
         .get_players()
