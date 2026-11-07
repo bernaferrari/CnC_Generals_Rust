@@ -28,11 +28,19 @@ recipient speaker.
 The live host Object owns native-indexed weapon condition bits, including
 RiderChange flags that overlap other writers. Each native set or clear updates
 the selected weapon row immediately; slot runtime survives when the row does
-not change. Rust world schema 41 rejects older positional layouts; WS5 carries
+not change. Rust world schema 42 rejects older positional layouts; WS5 carries
 weapon-slot continuation and WSFL v3 carries the complete condition bitset,
 its model state, and rider state. This is a Rust snapshot cutover,
 not original-executable save interoperability. Before merging rider changes,
 the stealth-filtered run passed 223 tests with 10 baseline failures.
+
+## Delayed strike delivery
+
+Each queued artillery, Scud, or carpet-bomb delivery retains its own committed
+identity and is applied separately. Overlapping damage is not collapsed into a
+formation prefix. Rust snapshots preserve delivery identities and queue-time
+draws. Equal-frame ordering uses formation index; equivalence to the original
+native scheduler's heap order remains unverified.
 
 ## Authored point defense
 
