@@ -2716,21 +2716,13 @@ fn smoke_drive_present_frame_chain(
         st.present_image_ok = image_ok;
         if !image_ok {
             result.detail = format!(
-                "present_frame_fail; image lacks on-screen radar terrain or retail tile variance; screenshot={} terrain={} models={} ui={} selection={} radar_pixels={} alive={} fow_filtered={} frustum_culled={} camera_pos={} camera_target={} sample_unit_pos={} frame_stats={} fow=[{}]",
+                "present_frame_fail; image lacks on-screen radar terrain or retail tile variance; screenshot={} terrain={} models={} ui={} selection={} radar_pixels={}",
                 st.present_screenshot_path,
                 st.max_terrain_chunks,
                 st.max_render_models,
                 st.max_render_ui,
                 st.max_render_selection,
-                st.max_radar_pixels,
-                snap.render_alive_objects,
-                snap.render_fow_filtered,
-                snap.render_frustum_culled,
-                snap.camera_pos,
-                snap.camera_target,
-                snap.sample_unit_pos,
-                snap.render_frame_stats,
-                snap.presentation_fow
+                st.max_radar_pixels
             );
             // Keep failing closed: do not latch present_frame_ok on sky-only frames.
             let _ = write_control(control_path, &["exit"]);
