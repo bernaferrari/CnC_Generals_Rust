@@ -1,5 +1,6 @@
 use super::*;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub(super) fn get_rodio_stream_handle() -> Option<OutputStreamHandle> {
     type Payload = Option<(OutputStream, OutputStreamHandle)>;
     let services = crate::common::common_services::common_services();
