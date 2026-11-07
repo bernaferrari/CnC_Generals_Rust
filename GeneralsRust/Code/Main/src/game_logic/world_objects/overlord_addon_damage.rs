@@ -12,7 +12,7 @@ impl GameLogic {
         occupant_id: ObjectId,
     ) {
         let (mut grant_stealth, experience_sink) = self.objects.get(&host_id)
-            .map(|host| (host.status.stealthed,
+            .map(|host| (host.status.stealthed && !host.is_helix_transport,
                 host.is_overlord_style_container()
                     && host.thing().template.contain_module.experience_sink_for_rider))
             .unwrap_or((false, false));

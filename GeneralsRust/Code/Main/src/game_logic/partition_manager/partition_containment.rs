@@ -31,7 +31,11 @@ impl GameLogic {
             .is_some_and(|parent| parent.is_helix_transport);
         let will_be_in_helix = container
             .and_then(|id| objects.get(&id))
-            .is_some_and(|parent| parent.is_helix_transport);
+            .is_some_and(|parent| {
+                parent.is_helix_transport
+                    && !(actor.is_kind_of(KindOf::PortableStructure)
+                        && parent.overlord_portable_occupant.is_none())
+            });
         if container.is_some() && enclosing && is_new_container {
             change_world_membership(
                 objects,

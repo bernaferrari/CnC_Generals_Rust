@@ -590,6 +590,7 @@ fn authored_helix_creation_uses_payload_and_weapon_not_carrier_name() {
     assert_eq!(host.authored_weapon_name_for_slot(0), Some("HelixMinigunWeapon"));
     let payload = host.overlord_portable_occupant.expect("authored initial rider");
     assert_eq!(world.host_object(payload).unwrap().contained_by, Some(carrier));
+    assert!(!world.host_object(payload).unwrap().is_held_disabled());
     let passenger = world.host_object(carrier).unwrap().occupants.iter().copied()
         .find(|&id| id != payload).expect("second authored payload");
     assert_eq!(world.host_object(passenger).unwrap().contained_by, Some(carrier));
