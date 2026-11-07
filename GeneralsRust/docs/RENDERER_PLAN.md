@@ -32,6 +32,12 @@ shell captures differed run to run on the sea; they now step once per client
 frame like C++ (`W3DDisplay::draw` syncTime, `WaterRenderObjClass::update`),
 see `ecbfce083`.
 
+Terrain blending now carries separate authored UVs for the base and primary
+blend tiles and resolves the extra-blend class and UVs from its authored tile.
+Shoreline rendering precedes the extra-blend pass. Mixed-cell and non-blend
+controls pass; a native Lone Eagle capture was inspected. Cliff/custom-edge
+fidelity, the 16-class binding limit, and a wasm frame remain unverified.
+
 | Step | State | Evidence |
 |---|---|---|
 | prerequisite | done | `drive_frame` self-deadlocked on the WW3D mutex on the first Menu frame (lock temporary in a `match` scrutinee); the shell then failed on object-less drawables (`missing native material observation`). Both fixed, so headless/windowed runs get past the menu again. |
