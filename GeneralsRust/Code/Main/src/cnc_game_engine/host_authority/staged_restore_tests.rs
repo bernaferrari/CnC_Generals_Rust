@@ -1223,7 +1223,32 @@ fn staged_restore_continues_logic_rng_stream_from_save_point() {
         module_path!(),
         "staged_restore_continues_logic_rng_stream_from_save_point",
         || {
-            let map_name = retail_map_path_for_test();
+            // A small authored map keeps this RNG continuation test independent
+            // of retail map size while still exercising map load and staged
+            // reconstruction through the ordinary save path.
+            let map_directory = tempfile::tempdir().unwrap();
+            let map_path = map_directory.path().join("RngContinuation.map");
+            let mut map = game_engine::common::system::DataChunkOutput::new();
+            map.open_data_chunk("HeightMapData", 3);
+            for value in [8, 8, 0, 64] {
+                map.write_int(value);
+            }
+            for _ in 0..64 {
+                map.write_byte(40);
+            }
+            map.close_data_chunk();
+            map.open_data_chunk("GlobalLighting", 1);
+            map.write_int(2);
+            for _ in 0..4 {
+                for _ in 0..2 {
+                    for value in [0.1, 0.2, 0.3, 0.8, 0.8, 0.8, 0.0, 0.0, -1.0] {
+                        map.write_real(value);
+                    }
+                }
+            }
+            map.close_data_chunk();
+            std::fs::write(&map_path, map.into_ckmp_bytes()).unwrap();
+            let map_name = map_path.to_str().unwrap().to_string();
             const FRAME_TIMESTEP: f32 = 1.0 / 30.0;
 
             let temp = tempfile::tempdir().expect("temporary save directory");
@@ -1231,8 +1256,46 @@ fn staged_restore_continues_logic_rng_stream_from_save_point() {
             saves.init().expect("initialize temporary save directory");
 
             let mut source = GameLogic::new();
+            source
+                .admit_receiving_module_content(
+                    crate::assets::ReceivingObjectContent::from_sources([(
+                        "rng-continuation-objects.ini".to_owned(),
+                        r#"
+Object AmericaVehicleDozer
+ KindOf = VEHICLE DOZER SELECTABLE
+ Body = ActiveBody BodyTag
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+End
+Object AmericaCommandCenter
+ KindOf = STRUCTURE COMMANDCENTER IMMOBILE SELECTABLE
+ Body = ActiveBody BodyTag
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+End
+Object RngStealthActor
+ KindOf = INFANTRY SELECTABLE
+ Body = ActiveBody BodyTag
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ Behavior = StealthUpdate StealthTag
+  InnateStealth = Yes
+ End
+End
+"#
+                        .to_owned(),
+                    )])
+                    .unwrap(),
+                )
+                .unwrap();
             admit_skirmish_fixture(&mut source, &map_name, "Human", false);
-            assert!(source.load_map(&map_name), "load source retail map");
+            assert!(source.load_map(&map_name), "load authored map");
+            let stealth_id = source
+                .create_object("RngStealthActor", Team::USA, glam::Vec3::ZERO)
+                .expect("admit authored stealth actor");
             // Admit the source seed explicitly, then advance its owned continuation.
             source.set_logic_random_seed(0x1BAD_B002);
             for _ in 0..8 {
@@ -1332,6 +1395,11 @@ fn staged_restore_continues_logic_rng_stream_from_save_point() {
                 &source.world_services,
             )
             .expect("stage RNG continuation save");
+            assert_eq!(
+                staged.logic.host_object(stealth_id).unwrap().camo_opacity_pulse_phase,
+                source.host_object(stealth_id).unwrap().camo_opacity_pulse_phase,
+                "actual staged restoration overlays the constructor draw with saved phase"
+            );
             fn is_continuation(
                 mut start: game_engine::common::random_value::RandomState,
                 end: [u32; 6],
