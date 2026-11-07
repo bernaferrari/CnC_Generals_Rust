@@ -746,15 +746,23 @@ fn delayed_strikes_restore_out_of_order_deliveries_through_world_xfer() {
         object.health.maximum = 10000.0;
         object.template_mut().armor = 0.0;
     }
-    let strike_id = source.special_power_strikes_mut().queue(
-        kind, caster, Team::China, Vec3::ZERO, 0,
-    );
+    let strike_id = if kind == HostSuperweaponKind::ArtilleryBarrage {
+        source.queue_special_power_strike(
+            &crate::command_system::SpecialPowerType::Artillery,
+            caster,
+            Vec3::ZERO,
+        ).expect("admit artillery through the world")
+    } else {
+        source.special_power_strikes_mut().queue(
+            kind, caster, Team::China, Vec3::ZERO, 0,
+        )
+    };
     let strike = source.special_power_strikes_mut().get_mut(strike_id).unwrap();
     let start = strike.impact_frame;
     strike.ocl_points = vec![Vec3::ZERO, Vec3::new(1000.0, 0.0, 0.0), Vec3::new(2000.0, 0.0, 0.0)];
     strike.ocl_shell_frames = vec![start + 2, start, start];
-    source.set_current_frame(start);
-    source.update_special_power_strikes();
+    source.set_current_frame(u64::from(start));
+    source.update_special_power_strikes().unwrap();
     let early_health = source.host_object(early).unwrap().health.current;
     let tied_health = source.host_object(tied).unwrap().health.current;
     assert!(tied_health < 10000.0);
@@ -780,13 +788,13 @@ fn delayed_strikes_restore_out_of_order_deliveries_through_world_xfer() {
     builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
 
     for world in [&mut source, &mut restored] {
-        world.set_current_frame(start);
-        world.update_special_power_strikes();
+        world.set_current_frame(u64::from(start));
+        world.update_special_power_strikes().unwrap();
         assert_eq!(world.host_object(early).unwrap().health.current, early_health);
         assert_eq!(world.host_object(tied).unwrap().health.current, tied_health);
         assert_eq!(world.host_object(late).unwrap().health.current, 10000.0);
-        world.set_current_frame(start + 2);
-        world.update_special_power_strikes();
+        world.set_current_frame(u64::from(start + 2));
+        world.update_special_power_strikes().unwrap();
         assert_eq!(world.host_object(early).unwrap().health.current, early_health);
         assert_eq!(world.host_object(tied).unwrap().health.current, tied_health);
         assert!(world.host_object(late).unwrap().health.current < 10000.0);
