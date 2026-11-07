@@ -1,5 +1,5 @@
-//! Immutable authored definitions for C++ LifetimeUpdate, DeletionUpdate and
-//! HeightDieUpdate. Parsing does not construct or publish a simulation owner.
+//! Immutable authored definitions for C++ LifetimeUpdate, DeletionUpdate,
+//! HeightDieUpdate and FireWeaponUpdate. Parsing does not publish a simulation owner.
 use crate::assets::ini_parser::BehaviorModuleDefinition;
 use serde::{Deserialize, Serialize};
 
@@ -14,13 +14,14 @@ pub(crate) enum NativeLifecycleKind {
     Lifetime(LifetimeFrameRange),
     Deletion(LifetimeFrameRange),
     HeightDie(HeightDieDefinition),
+    FireWeapon(FireWeaponUpdateDefinition),
 }
 
 impl NativeLifecycleDefinition {
     /// A versioned snapshot decoder must validate decoded configuration before
     /// admitting it, just as the INI parser validates authored configuration.
     pub(crate) fn validate(&self) -> Result<(), String> {
-        let valid = match self.kind {
+        let valid = match &self.kind {
             NativeLifecycleKind::Lifetime(range) | NativeLifecycleKind::Deletion(range) => {
                 range.minimum <= range.maximum
             }
@@ -28,6 +29,7 @@ impl NativeLifecycleDefinition {
                 height.target_height.is_finite()
                     && height.destroy_attached_particles_at_height.is_finite()
             }
+            NativeLifecycleKind::FireWeapon(_) => true,
         };
         if valid {
             Ok(())
@@ -54,6 +56,13 @@ pub(crate) struct HeightDieDefinition {
     pub(crate) destroy_attached_particles_at_height: f32,
     pub(crate) snap_to_ground_on_death: bool,
     pub(crate) initial_delay: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct FireWeaponUpdateDefinition {
+    pub(crate) weapon_name: String,
+    pub(crate) initial_delay: u32,
+    pub(crate) exclusive_delay: u32,
 }
 
 impl Default for HeightDieDefinition {
@@ -97,6 +106,13 @@ pub(crate) fn parse_native_lifecycle_definitions(
                     )?,
                     snap_to_ground_on_death: boolean(module, "SnapToGroundOnDeath")?,
                     initial_delay: duration(module, "InitialDelay")?,
+                })
+            }
+            name if name.eq_ignore_ascii_case("FireWeaponUpdate") => {
+                NativeLifecycleKind::FireWeapon(FireWeaponUpdateDefinition {
+                    weapon_name: module.attribute("Weapon").unwrap_or("").trim().to_owned(),
+                    initial_delay: duration(module, "InitialDelay")?,
+                    exclusive_delay: duration(module, "ExclusiveWeaponDelay")?,
                 })
             }
             _ => continue,

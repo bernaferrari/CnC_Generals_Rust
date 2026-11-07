@@ -14,7 +14,7 @@ use crate::game_logic::host_temporary_weapon_behavior::{
 };
 
 impl GameLogic {
-    fn temporary_weapon_fields(&self, name: &str) -> Option<TemporaryWeaponStoreFields> {
+    pub(super) fn temporary_weapon_fields(&self, name: &str) -> Option<TemporaryWeaponStoreFields> {
         match self.weapon_definitions.as_ref() {
             // A receiving catalog miss is a miss, never another world's rule.
             Some(definitions) => definitions
@@ -86,12 +86,23 @@ impl GameLogic {
         spec: &crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<u32> {
+        self.fire_named_temporary_with_owned_state(source, spec, None, effects)
+    }
+
+    pub(super) fn fire_named_temporary_with_owned_state(
+        &mut self,
+        source: ObjectId,
+        spec: &crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec,
+        state: Option<(i32, u32, u32)>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<u32> {
         if let Some(rule) = self.weapon_definitions.as_ref()
             .and_then(|definitions| definitions.get(&spec.weapon_template_name.to_ascii_lowercase()))
             .cloned()
         {
             let object = self.objects.get(&source)?;
             let position = object.get_position();
+            let bonuses = self.receiving_weapon_bonus_fields(object, Some(&rule));
             let rank = object.experience.level;
             let native_rank = match rank {
                 VeterancyLevel::Rookie => gamelogic::common::VeterancyLevel::Regular,
@@ -118,10 +129,10 @@ impl GameLogic {
                 target_pos: Some(position),
                 self_damage_position: rule.damage_dealt_at_self_position.then_some(position),
                 selected_weapon_is_laser: Some(rule.is_laser()),
-                damage: object.effective_weapon_damage_with_solo_set(rule.primary_damage, &self.solo_weapon_bonus_set),
+                damage: rule.primary_damage * bonuses.0,
                 speed: rule.weapon_speed,
                 speed_unit: crate::game_logic::combat::ProjectileSpeedUnit::DistancePerLogicFrame,
-                splash_radius: rule.primary_damage_radius,
+                splash_radius: rule.primary_damage_radius * bonuses.4,
                 is_homing: false,
                 damage_type: crate::game_logic::host_armor_residual::map_store_damage_type(rule.damage_type),
                 death_type: crate::game_logic::host_usa_pilot::HostDeathType::from_store(rule.death_type),
@@ -132,8 +143,8 @@ impl GameLogic {
                 detonation_fx_name: rule.get_projectile_detonate_fx(native_rank).map(|fx| fx.name().to_owned()).unwrap_or_default(),
                 detonation_ocl_name: rule.get_projectile_detonation_ocl_name(native_rank).unwrap_or_default().to_owned(),
                 exhaust_name: rule.get_projectile_exhaust_name(native_rank).unwrap_or_default().to_owned(),
-                secondary_damage: object.effective_weapon_damage_with_solo_set(rule.secondary_damage, &self.solo_weapon_bonus_set),
-                secondary_damage_radius: rule.secondary_damage_radius,
+                secondary_damage: rule.secondary_damage * bonuses.0,
+                secondary_damage_radius: rule.secondary_damage_radius * bonuses.4,
                 shock_wave_amount: rule.shock_wave_amount,
                 shock_wave_radius: rule.shock_wave_radius,
                 shock_wave_taper_off: rule.shock_wave_taper_off,
@@ -155,7 +166,11 @@ impl GameLogic {
             };
             let object = self.objects.get_mut(&source)?;
             let _ = object.capture_pending_temporary_weapon_visual_dispatch(
-                &spec.weapon_template_name, 0, 0, None, self.frame, position,
+                &spec.weapon_template_name,
+                state.map_or(0, |weapon| weapon.0),
+                state.map_or(0, |weapon| weapon.1),
+                state.map(|weapon| weapon.2),
+                self.frame, position,
             );
             let capture = object.take_pending_weapon_visual_capture();
             self.deliver_owned_weapon_shot_with_rule_and_effects(0, shot, capture, Some(rule), effects);

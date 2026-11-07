@@ -571,9 +571,25 @@ fn retail_he_bio_death_fires_one_blast_and_one_poison_field() {
     blast.damage_dealt_at_self_position = true;
     let mut weapon = gamelogic::weapon::WeaponTemplate::new("BombTruckHighExplosiveBioBombEffect".into());
     weapon.fire_ocl_names[0] = Some("OCL_PoisonFieldMedium".into());
+    let mut poison = gamelogic::weapon::WeaponTemplate::new("MediumPoisonFieldWeapon".into());
+    poison.primary_damage = 2.0;
+    poison.primary_damage_radius = 80.0;
+    poison.damage_type = gamelogic::damage::DamageType::Poison;
+    poison.death_type = gamelogic::damage::DeathType::Poisoned;
+    poison.affects_mask.insert(gamelogic::weapon::WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE);
+    poison.min_delay_between_shots = 15;
+    poison.max_delay_between_shots = 15;
+    let mut core = gamelogic::weapon::WeaponTemplate::new("HazardFieldCoreWeapon".into());
+    core.primary_damage = 200.0;
+    core.primary_damage_radius = 10.0;
+    core.damage_type = gamelogic::damage::DamageType::HazardCleanup;
+    core.clip_size = 1;
+    core.clip_reload_time = 3000;
     logic.weapon_definitions = Some(std::collections::HashMap::from([
         ("bombtruckhighexplosionbombdamage".into(), Arc::new(blast)),
         ("bombtruckhighexplosivebiobombeffect".into(), Arc::new(weapon.clone())),
+        ("mediumpoisonfieldweapon".into(), Arc::new(poison)),
+        ("hazardfieldcoreweapon".into(), Arc::new(core)),
     ]));
     logic.admit_weapon_fire_definition("BombTruckHighExplosiveBioBombEffect", &weapon).unwrap();
     let mut ocl = ObjectCreationList::new();
@@ -582,7 +598,29 @@ fn retail_he_bio_death_fires_one_blast_and_one_poison_field() {
         ..Default::default()
     }));
     logic.admit_weapon_ocl_definition("OCL_PoisonFieldMedium", ocl).unwrap();
-    logic.templates.insert("PoisonFieldMedium".into(), ThingTemplate::new("PoisonFieldMedium"));
+    let field_modules = [
+        BehaviorModuleDefinition {
+            class_name: "FireWeaponUpdate".into(),
+            module_tag: Some("Poison".into()),
+            attributes: [("Weapon".into(), "MediumPoisonFieldWeapon".into())].into(),
+        },
+        BehaviorModuleDefinition {
+            class_name: "LifetimeUpdate".into(),
+            module_tag: Some("Lifetime".into()),
+            attributes: [("MinLifetime".into(), "30000".into()), ("MaxLifetime".into(), "30000".into())].into(),
+        },
+        BehaviorModuleDefinition {
+            class_name: "FireWeaponUpdate".into(),
+            module_tag: Some("Core".into()),
+            attributes: [("Weapon".into(), "HazardFieldCoreWeapon".into())].into(),
+        },
+    ];
+    let mut field = ThingTemplate::new("PoisonFieldMedium");
+    field.native_lifecycle_definitions = Some(
+        crate::game_logic::native_lifecycle_definition::parse_native_lifecycle_definitions(&field_modules)
+            .unwrap().into_boxed_slice(),
+    );
+    logic.templates.insert(field.name.clone(), field);
     let mut template = ThingTemplate::new("GLAVehicleBombTruck");
     let module = |module_source_index, death_weapon: &str, upgrade_mux| FireWeaponWhenDeadMetadata {
         module_source_index,
@@ -623,7 +661,7 @@ fn retail_he_bio_death_fires_one_blast_and_one_poison_field() {
     victim_template.set_health(5000.0);
     logic.templates.insert(victim_template.name.clone(), victim_template);
     let victim = logic.create_object(
-        "RetailBombTruckBlastVictim", Team::USA, glam::Vec3::new(3.0, 0.0, 0.0),
+        "RetailBombTruckBlastVictim", Team::USA, glam::Vec3::new(30.0, 0.0, 0.0),
     ).unwrap();
     let input = OnDieInput {
         source: None,
@@ -641,6 +679,68 @@ fn retail_he_bio_death_fires_one_blast_and_one_poison_field() {
     logic.process_destroy_list();
     assert_eq!(children(&logic), 1);
     assert_eq!(logic.objects[&victim].health.current, 3000.0);
+    let field_id = logic.host_objects().registered()
+        .find_map(|(id, object)| (object.template_name == "PoisonFieldMedium").then_some(*id))
+        .expect("authored poison field");
+    logic.frame = 1;
+    logic.tick_native_lifecycle(field_id);
+    assert_eq!(logic.objects[&victim].health.current, 2998.0);
+
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&logic).unwrap();
+    let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+    let snapshot = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    let mut loaded = GameLogic::new();
+    loaded.weapon_definitions = logic.weapon_definitions.clone();
+    loaded.templates = logic.templates.clone();
+    builder.restore_from_snapshot(&snapshot, &mut loaded).unwrap();
+    loaded.frame = 15;
+    loaded.tick_native_lifecycle(field_id);
+    assert_eq!(loaded.objects[&victim].health.current, 2998.0);
+    loaded.frame = 16;
+    loaded.tick_native_lifecycle(field_id);
+    assert_eq!(loaded.objects[&victim].health.current, 2996.0);
+}
+
+#[test]
+fn authored_fire_weapon_update_suppresses_for_real_weapon_exclusive_delay() {
+    use crate::game_logic::native_lifecycle_definition::{
+        FireWeaponUpdateDefinition, NativeLifecycleDefinition, NativeLifecycleKind,
+    };
+    let mut logic = GameLogic::new();
+    let mut pulse = gamelogic::weapon::WeaponTemplate::new("ExclusiveFieldPulse".into());
+    pulse.primary_damage = 5.0;
+    pulse.primary_damage_radius = 20.0;
+    pulse.min_delay_between_shots = 15;
+    pulse.max_delay_between_shots = 15;
+    logic.weapon_definitions = Some(std::collections::HashMap::from([
+        ("exclusivefieldpulse".into(), std::sync::Arc::new(pulse))
+    ]));
+    let mut field = ThingTemplate::new("ExclusiveAuthoredField");
+    field.native_lifecycle_definitions = Some(vec![NativeLifecycleDefinition {
+        module_tag: Some("Pulse".into()),
+        kind: NativeLifecycleKind::FireWeapon(FireWeaponUpdateDefinition {
+            weapon_name: "ExclusiveFieldPulse".into(),
+            initial_delay: 0,
+            exclusive_delay: 10,
+        }),
+    }].into_boxed_slice());
+    logic.templates.insert(field.name.clone(), field);
+    let mut victim_template = ThingTemplate::new("ExclusiveFieldVictim");
+    victim_template.set_health(100.0);
+    logic.templates.insert(victim_template.name.clone(), victim_template);
+    let source = logic.create_object("ExclusiveAuthoredField", Team::GLA, glam::Vec3::ZERO).unwrap();
+    let victim = logic.create_object("ExclusiveFieldVictim", Team::USA, glam::Vec3::new(3.0, 0.0, 0.0)).unwrap();
+    logic.objects.get_mut(&source).unwrap().weapon = Some(Weapon {
+        last_fire_frame: 5,
+        ..Default::default()
+    });
+    logic.frame = 14;
+    logic.tick_native_lifecycle(source);
+    assert_eq!(logic.objects[&victim].health.current, 100.0);
+    logic.frame = 15;
+    logic.tick_native_lifecycle(source);
+    assert_eq!(logic.objects[&victim].health.current, 95.0);
 }
 
 

@@ -2490,6 +2490,7 @@ impl GameLogic {
                 self.frame,
                 &self.logic_random,
                 self.native_hulk_max_lifetime_override,
+                self.weapon_definitions.as_ref(),
             );
             object.bind_physics_rules(
                 self.physics_definitions.effective,

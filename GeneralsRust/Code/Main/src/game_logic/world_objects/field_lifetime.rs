@@ -126,6 +126,15 @@ impl GameLogic {
             .objects
             .registered()
             .filter_map(|(id, object)| {
+                // A native weapon update can precede LifetimeUpdate in the
+                // authored module list. Its ordered lifecycle walk owns both.
+                if object.native_lifecycle.as_ref().is_some_and(|runtime| {
+                    runtime.definitions.iter().any(|definition| {
+                        matches!(&definition.kind, crate::game_logic::native_lifecycle_definition::NativeLifecycleKind::FireWeapon(_))
+                    })
+                }) {
+                    return None;
+                }
                 kind.deadline(object)
                     .filter(|deadline| *deadline <= frame)
                     .map(|deadline| (*id, deadline))

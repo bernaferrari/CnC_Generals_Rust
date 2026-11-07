@@ -204,6 +204,76 @@ impl GameLogic {
             let _ = self.execute_temporary_weapon_on_die_with_effects(id, effects);
         }
     }
+    /// FireWeaponUpdate owns a private Weapon, independent of Object's slots.
+    /// The native lifecycle walker calls this at the declaration's position.
+    pub(in crate::game_logic) fn tick_native_fire_weapon_update_with_effects(
+        &mut self,
+        source: ObjectId,
+        index: usize,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        use crate::game_logic::native_lifecycle::NativeLifecycleState;
+        use crate::game_logic::native_lifecycle_definition::NativeLifecycleKind;
+        use crate::game_logic::host_temporary_weapon_behavior::{
+            FireWeaponWhenDeadEphemeralWeaponSpec, TemporaryWeaponSlot,
+        };
+        let Some(object) = self.objects.get_mut(&source) else { return; };
+        if object.status.under_construction { return; }
+        let last_shot = (0..3)
+            .filter_map(|slot| object.weapon_slot(slot).map(|weapon| weapon.last_fire_frame))
+            .max().unwrap_or(0);
+        let identity = object.visual_draw_identity_token.clone();
+        let Some(runtime) = object.native_lifecycle.as_mut() else { return; };
+        let Some(NativeLifecycleKind::FireWeapon(definition)) =
+            runtime.definitions.get(index).map(|definition| &definition.kind)
+        else { return; };
+        if definition.exclusive_delay > 0
+            && self.frame < last_shot.wrapping_add(definition.exclusive_delay)
+        {
+            return;
+        }
+        let Some(NativeLifecycleState::FireWeapon { initial_delay_frame, weapon: Some(weapon) }) =
+            runtime.states.get_mut(index)
+        else { return; };
+        if self.frame < *initial_delay_frame
+            || promote_temporary_weapon_status(weapon, self.frame) != TemporaryWeaponStatus::ReadyToFire
+        {
+            return;
+        }
+        let spec = FireWeaponWhenDeadEphemeralWeaponSpec {
+            module_source_index: weapon.key.module_source_index,
+            weapon_template_name: weapon.weapon_template_name.clone(),
+            weapon_slot: TemporaryWeaponSlot::Primary,
+        };
+        let fire_state = (weapon.current_barrel, weapon.suspend_fx_frame, weapon.ammo_in_clip);
+        let Some(mut fields) = self.temporary_weapon_fields(&spec.weapon_template_name) else { return; };
+        let rule = self.weapon_definitions.as_ref()
+            .and_then(|catalog| catalog.get(&spec.weapon_template_name.to_ascii_lowercase()))
+            .cloned();
+        let mut bonus = gamelogic::weapon::WeaponBonus::new();
+        if let (Some(object), Some(rule)) = (self.objects.get(&source), rule.as_ref()) {
+            let rate = self.receiving_weapon_bonus_fields(object, Some(rule)).2;
+            bonus.set_field(gamelogic::weapon::WeaponBonusField::RateOfFire, rate);
+        }
+        if self.fire_named_temporary_with_owned_state(source, &spec, Some(fire_state), effects).is_none() {
+            return;
+        }
+        if let Some(rule) = rule {
+            if fire_state.2 > 1 {
+                fields.delay_between_shots =
+                    rule.get_delay_between_shots_with_random(&bonus, &self.logic_random).max(0) as u32;
+            } else {
+                fields.defaults.clip_reload_frames = rule.get_clip_reload_time(&bonus).max(0) as u32;
+            }
+        }
+        let Some(object) = self.objects.get_mut(&source) else { return; };
+        if !std::sync::Arc::ptr_eq(&identity, &object.visual_draw_identity_token) { return; }
+        if let Some(NativeLifecycleState::FireWeapon { weapon: Some(weapon), .. }) =
+            object.native_lifecycle.as_mut().and_then(|runtime| runtime.states.get_mut(index))
+        {
+            super::temporary_weapon_status::apply_private_fire_mutation(weapon, fields, self.frame);
+        }
+    }
 
     pub(in super::super) fn damaged_reaction_plan(
         &mut self,

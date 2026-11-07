@@ -23,6 +23,10 @@ pub(crate) enum NativeLifecycleState {
         has_died: bool,
         particles_destroyed: bool,
     },
+    FireWeapon {
+        initial_delay_frame: u32,
+        weapon: Option<crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponRuntimeState>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -47,7 +51,7 @@ impl NativeLifecycleRuntime {
             NativeLifecycleState::Deletion { die_frame, active } => {
                 (die_frame, active, NativeTimerAction::Delete)
             }
-            NativeLifecycleState::HeightDie { .. } => return None,
+            NativeLifecycleState::HeightDie { .. } | NativeLifecycleState::FireWeapon { .. } => return None,
         };
         if !*active || frame < *die_frame {
             return None;
@@ -71,7 +75,8 @@ impl NativeLifecycleRuntime {
                 .definitions
                 .iter()
                 .zip(self.states.iter())
-                .all(|(definition, state)| {
+                .enumerate()
+                .all(|(index, (definition, state))| {
                     definition.validate().is_ok()
                         && match (&definition.kind, state) {
                             (
@@ -86,6 +91,12 @@ impl NativeLifecycleRuntime {
                                 NativeLifecycleKind::HeightDie(_),
                                 NativeLifecycleState::HeightDie { last_position, .. },
                             ) => last_position.is_finite(),
+                            (NativeLifecycleKind::FireWeapon(definition), NativeLifecycleState::FireWeapon { weapon, .. }) => {
+                                weapon.as_ref().is_none_or(|weapon| {
+                                    weapon.key.module_source_index as usize == index
+                                        && weapon.weapon_template_name.eq_ignore_ascii_case(&definition.weapon_name)
+                                })
+                            }
                             _ => false,
                         }
                 })
@@ -112,6 +123,7 @@ impl Object {
         frame: u32,
         random: &game_engine::common::random_value::SessionRandom,
         hulk_override: i32,
+        weapon_definitions: Option<&std::collections::HashMap<String, std::sync::Arc<gamelogic::weapon::WeaponTemplate>>>,
     ) {
         let Some(definitions) = self.thing().template.native_lifecycle_definitions.as_ref() else {
             return;
@@ -119,8 +131,10 @@ impl Object {
         let is_hulk = self.is_kind_of(KindOf::Hulk);
         let states = definitions
             .iter()
-            .map(|definition| match definition.kind {
-                NativeLifecycleKind::Lifetime(mut range) => {
+            .enumerate()
+            .map(|(index, definition)| match &definition.kind {
+                NativeLifecycleKind::Lifetime(range) => {
+                    let mut range = *range;
                     if is_hulk && hulk_override != -1 {
                         range = LifetimeFrameRange {
                             minimum: hulk_override.max(0) as u32,
@@ -133,7 +147,7 @@ impl Object {
                     }
                 }
                 NativeLifecycleKind::Deletion(range) => NativeLifecycleState::Deletion {
-                    die_frame: deadline(frame, range, random),
+                    die_frame: deadline(frame, *range, random),
                     active: true,
                 },
                 NativeLifecycleKind::HeightDie(_) => NativeLifecycleState::HeightDie {
@@ -142,6 +156,34 @@ impl Object {
                     has_died: false,
                     particles_destroyed: false,
                 },
+                NativeLifecycleKind::FireWeapon(definition) => {
+                    use crate::game_logic::host_temporary_weapon_behavior::{
+                        FireWeaponWhenDamagedWeaponRole, TemporaryWeaponConstructionDefaults,
+                        TemporaryWeaponRuntimeKey, TemporaryWeaponRuntimeSpec,
+                        TemporaryWeaponRuntimeState, TemporaryWeaponSlot,
+                    };
+                    let weapon = weapon_definitions
+                        .and_then(|definitions| definitions.get(&definition.weapon_name.to_ascii_lowercase()))
+                        .map(|template| {
+                            let spec = TemporaryWeaponRuntimeSpec {
+                                key: TemporaryWeaponRuntimeKey {
+                                    module_source_index: index as u32,
+                                    role: FireWeaponWhenDamagedWeaponRole::ReactionPristine,
+                                },
+                                weapon_template_name: definition.weapon_name.clone(),
+                                weapon_slot: TemporaryWeaponSlot::Primary,
+                            };
+                            let mut defaults = TemporaryWeaponConstructionDefaults::from_weapon_template(template);
+                            let mut weapon = TemporaryWeaponRuntimeState::from_cxx_constructor(&spec, defaults, frame);
+                            defaults.clip_reload_frames = 0;
+                            weapon.reload_ammo_from_cxx(defaults, frame);
+                            weapon
+                        });
+                    NativeLifecycleState::FireWeapon {
+                        initial_delay_frame: frame.wrapping_add(definition.initial_delay),
+                        weapon,
+                    }
+                }
             })
             .collect();
         self.native_lifecycle = Some(NativeLifecycleRuntime {
@@ -255,6 +297,11 @@ impl GameLogic {
                             super::host_usa_pilot::HostDeathType::Normal,
                             effects,
                         );
+                    }
+                }
+                NativeLifecycleKind::FireWeapon(_) => {
+                    if !timers_only {
+                        self.tick_native_fire_weapon_update_with_effects(id, index, effects);
                     }
                 }
                 NativeLifecycleKind::HeightDie(definition) => {

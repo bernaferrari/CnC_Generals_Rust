@@ -63,6 +63,7 @@ fn actual_encoded_no_team_controller_continuation_does_not_acquire_a_peer_factio
         source.frame,
         &source.logic_random,
         source.native_hulk_max_lifetime_override,
+        source.weapon_definitions.as_ref(),
     );
     source.try_add_object(object).unwrap();
     let builder = crate::save_load::SnapshotBuilder::new();
