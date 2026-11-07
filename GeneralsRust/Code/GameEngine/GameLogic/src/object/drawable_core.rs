@@ -106,10 +106,6 @@ impl Drawable {
 
             modules: Vec::new(),
 
-            last_update_frame: 0,
-            update_frequency: 1,
-            frozen: false,
-
             stealth_factor: 1.0,
             effective_stealth_opacity: 1.0,
             stealth_look: StealthLookType::None,

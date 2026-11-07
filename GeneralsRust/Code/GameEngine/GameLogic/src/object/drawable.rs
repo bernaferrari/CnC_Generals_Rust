@@ -1296,11 +1296,6 @@ pub struct Drawable {
     /// Registered draw modules
     modules: Vec<Arc<DrawModuleEntry>>,
 
-    /// Performance optimization
-    last_update_frame: u32,
-    update_frequency: u32, // Update every N frames
-    frozen: bool,          // Completely frozen for optimization
-
     /// Stealth and cloaking
     stealth_factor: Real, // C++ m_stealthOpacity: minimum opacity floor while stealthed
     effective_stealth_opacity: Real, // C++ m_effectiveStealthOpacity

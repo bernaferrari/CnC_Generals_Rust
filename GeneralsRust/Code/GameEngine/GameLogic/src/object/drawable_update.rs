@@ -13,43 +13,25 @@ impl Drawable {
         client_frame: u32,
         logic_frame: u32,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // C++ Drawable::updateDrawable always advances fade even when other
-        // client work is skipped (frozen / lod frequency).
+        // Drawable.cpp runs fade and decal on every call, before expiration.
+        // ClientUpdate dispatch still requires a receiving Core runtime.
         self.update_fade();
 
-        // Skip update if frozen or not time to update
-        if self.frozen || client_frame.wrapping_sub(self.last_update_frame) < self.update_frequency
-        {
-            return Ok(());
-        }
-
-        self.last_update_frame = client_frame;
-
-        // Update animations
-        self.update_animation(delta_time)?;
-
-        // Update particle systems
-        self.update_particle_systems(delta_time)?;
-
-        // Update visual effects
-        self.update_visual_effects(delta_time)?;
-
-        // Update terrain decal opacity fade
+        // Update terrain decal opacity fade, only when a draw module exists.
         if self.terrain_decal != TerrainDecalType::None {
-            if self.decal_opacity_fade_rate != 0.0 {
-                self.decal_opacity += self.decal_opacity_fade_rate;
-                if let Some(first) = self
-                    .get_draw_modules_with_interface(ModuleInterfaceType::DRAW)
-                    .first()
-                    .cloned()
-                {
+            if let Some(first) = self
+                .get_draw_modules_with_interface(ModuleInterfaceType::DRAW)
+                .first()
+                .cloned()
+            {
+                if self.decal_opacity_fade_rate != 0.0 {
                     first.with_module(|module| {
                         with_draw_module_mut(module, |draw| {
                             draw.set_terrain_decal_opacity(self.decal_opacity)
                         });
                     });
+                    self.decal_opacity += self.decal_opacity_fade_rate;
                 }
-
                 if self.decal_opacity_fade_rate < 0.0 && self.decal_opacity <= 0.0 {
                     self.decal_opacity_fade_rate = 0.0;
                     self.decal_opacity = 0.0;
@@ -57,6 +39,11 @@ impl Drawable {
                 } else if self.decal_opacity_fade_rate > 0.0 && self.decal_opacity >= 1.0 {
                     self.decal_opacity = 1.0;
                     self.decal_opacity_fade_rate = 0.0;
+                    first.with_module(|module| {
+                        with_draw_module_mut(module, |draw| {
+                            draw.set_terrain_decal_opacity(self.decal_opacity)
+                        });
+                    });
                 }
             }
         } else {
@@ -70,12 +57,15 @@ impl Drawable {
             return Ok(());
         }
 
-        // CPP Drawable1218: only the admitted client update emits the pulse.
-        // colorFlash changes the tint envelope, never the scripted countdown.
+        // Each invocation at a flash boundary emits a pulse.
         if self.flash_count > 0 && client_frame % 15 == 0 {
             self.color_flash(Some(self.flash_color), 4, 0, false);
             self.flash_count -= 1;
         }
+
+        self.update_animation(delta_time)?;
+        self.update_particle_systems(delta_time)?;
+        self.update_visual_effects(delta_time)?;
 
         // Update damage visualization
         self.update_damage_state()?;
@@ -90,7 +80,7 @@ impl Drawable {
         self.update_environmental_effects(delta_time)?;
 
         // Update attachments
-        self.update_attachments(delta_time, logic_frame)?;
+        self.update_attachments(delta_time, client_frame, logic_frame)?;
 
         Ok(())
     }
@@ -702,6 +692,7 @@ impl Drawable {
     fn update_attachments(
         &mut self,
         delta_time: Real,
+        client_frame: u32,
         logic_frame: u32,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let attachment_keys: Vec<String> = self.attachments.keys().cloned().collect();
@@ -723,7 +714,7 @@ impl Drawable {
                         attached_drawable.set_transform(attachment_transform);
                         attached_drawable.update(
                             delta_time,
-                            self.last_update_frame,
+                            client_frame,
                             logic_frame,
                         )?;
                         let expiration = attached_drawable.expiration_date();

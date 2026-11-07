@@ -50,10 +50,10 @@ fn named_flash_sets_drawable_flash_count_for_presentation() {
     drawable.update(1.0 / 30.0, 15, 15).unwrap();
     assert_eq!(
         drawable.get_flash_count(),
-        3,
-        "repeating a client frame does not emit another pulse"
+        2,
+        "each update invocation on a flash boundary emits a pulse"
     );
-    // Persist the actual Drawable, then continue its admitted pulse schedule.
+    // Persist the actual Drawable, then continue its pulse schedule.
     let mut saved = Vec::new();
     crate::common::Snapshot::xfer(
         drawable,
@@ -72,11 +72,11 @@ fn named_flash_sets_drawable_flash_count_for_presentation() {
         &mut restored,
         &mut game_engine::common::system::xfer_load::XferLoad::new(std::io::Cursor::new(saved), 1),
     );
-    assert_eq!(restored.get_flash_count(), 3);
+    assert_eq!(restored.get_flash_count(), 2);
     drawable.update(1.0 / 30.0, 30, 30).unwrap();
     restored.update(1.0 / 30.0, 30, 30).unwrap();
-    assert_eq!(drawable.get_flash_count(), 2);
-    assert_eq!(restored.get_flash_count(), 2);
+    assert_eq!(drawable.get_flash_count(), 1);
+    assert_eq!(restored.get_flash_count(), 1);
     peer.drawable = None;
     dispatcher
         .execute_action_with_driver(&action, &mut peer)
