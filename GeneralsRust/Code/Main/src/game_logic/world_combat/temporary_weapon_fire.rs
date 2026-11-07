@@ -148,9 +148,8 @@ impl GameLogic {
                 hits = hits.saturating_add(fired_hits);
             }
         }
-        // C++ has no leftover fired latch. Stamp only after at least one
-        // module actually entered createAndFireTempWeapon so a store miss
-        // still lets the residual HE/Bio blast run.
+        // The legacy pending-death adapter can revisit the same object.
+        // Authored die declarations have independent callback receipts instead.
         if fired {
             if let Some(object) = self.objects.get_mut(&source) {
                 object.fire_weapon_when_dead_fired = true;
@@ -195,8 +194,7 @@ impl GameLogic {
             .registered()
             .filter_map(|(id, object)| {
                 ((object.status.destroyed || object.health.current <= 0.0)
-                    && !(object.status.on_die_started
-                        && object.thing().template.native_die_declarations.is_some()))
+                    && object.thing().template.native_die_declarations.is_none())
                 .then_some(*id)
             })
             .collect();
@@ -407,7 +405,9 @@ impl GameLogic {
         let Some(object) = self.objects.get(&source) else {
             return Vec::new();
         };
-        if object.fire_weapon_when_dead_fired || object.status.under_construction {
+        if object.status.under_construction
+            || (source_index.is_none() && object.fire_weapon_when_dead_fired)
+        {
             return Vec::new();
         }
         let death_ordinal = u32::from(death_type.unwrap_or(object.status.death_type).ordinal());

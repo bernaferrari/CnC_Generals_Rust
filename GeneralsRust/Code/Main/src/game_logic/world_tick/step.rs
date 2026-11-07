@@ -177,7 +177,6 @@ pub(in super::super) mod residual_gate_seam {
         (CLEANUP_AREA_ORDERS, "update_cleanup_area_orders"),
         (CLEANUP_STREAM_MISSILES, "update_cleanup_stream_projectiles"),
         (HELIX_NAPALM_FIRESTORMS, "update_helix_napalm_firestorms"),
-        (BOMB_TRUCK_POISON_ZONES, "update_bomb_truck_poison_zones"),
     );
 
     /// Count one skipped residual pass.

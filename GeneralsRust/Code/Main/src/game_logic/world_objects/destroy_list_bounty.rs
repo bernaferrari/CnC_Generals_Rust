@@ -301,6 +301,7 @@ impl GameLogic {
                         is_chem_general_template, is_toxin_tractor_template,
                     };
                     if !obj.fire_weapon_when_dead_fired
+                        && obj.thing().template.native_die_declarations.is_none()
                         && is_toxin_tractor_template(&obj.template_name)
                     {
                         let has_gamma = obj.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA)
@@ -329,41 +330,6 @@ impl GameLogic {
                     }
                 }
 
-                // GLA Bomb Truck FireWeaponWhenDead residual: HE/Bio detonation matrix.
-                // Fail-closed: not full exclusive module / SubObjectsUpgrade payload visuals.
-                // Note: object already removed from map — use `obj` snapshot for upgrades/pos.
-                {
-                    use crate::game_logic::host_bomb_truck_detonate::{
-                        BombTruckDetonationProfile, UPGRADE_BOMB_TRUCK_BIO, UPGRADE_BOMB_TRUCK_HE,
-                        UPGRADE_GLA_ANTHRAX_BETA, is_bomb_truck_template,
-                    };
-                    if !obj.fire_weapon_when_dead_fired
-                        && is_bomb_truck_template(&obj.template_name)
-                    {
-                        let he = obj.has_upgrade_tag(UPGRADE_BOMB_TRUCK_HE)
-                            || obj.has_upgrade_tag("Upgrade_GLABombTruckHighExplosiveBomb");
-                        let bio = obj.has_upgrade_tag(UPGRADE_BOMB_TRUCK_BIO)
-                            || obj.has_upgrade_tag("Upgrade_GLABombTruckBioBomb");
-                        let anthrax = obj.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_BETA)
-                            || obj.has_upgrade_tag("Upgrade_GLAAnthraxBeta")
-                            || obj.has_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma")
-                            || obj.has_upgrade_tag("Upgrade_GLAAnthraxGamma")
-                            || obj.has_upgrade_tag(
-                                crate::game_logic::host_toxin_tractor::UPGRADE_GLA_ANTHRAX_GAMMA,
-                            )
-                            || obj.has_upgrade_tag(
-                                crate::game_logic::host_toxin_tractor::UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
-                            );
-                        let profile = BombTruckDetonationProfile::from_upgrades(he, bio, anthrax);
-                        let _ = self.apply_bomb_truck_death_detonation_at_with_effects(
-                            event.id,
-                            obj.team,
-                            death_pos,
-                            profile,
-                            presentation_effects,
-                        );
-                    }
-                }
 
                 // China Nuclear Tanks FireWeaponWhenDead residual: dual-radius + radiation.
                 // Fail-closed: not full exclusive module / Nuclear*Locomotor visual matrix.
@@ -373,6 +339,7 @@ impl GameLogic {
                         is_nuke_general_nuclear_tanks,
                     };
                     if !obj.fire_weapon_when_dead_fired
+                        && obj.thing().template.native_die_declarations.is_none()
                         && is_nuclear_tanks_eligible(&obj.template_name)
                         && has_nuclear_tanks_upgrade(&obj.applied_upgrades)
                     {

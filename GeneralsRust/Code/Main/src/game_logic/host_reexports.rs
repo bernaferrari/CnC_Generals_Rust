@@ -67,12 +67,6 @@ pub use super::host_black_market::{
     BLACK_MARKET_DEPOSIT_TIMING_MS, HostBlackMarketRegistry, deposit_interval_frames_from_ms,
     is_black_market_structure, is_black_market_template, is_legal_black_market_income_source,
 };
-pub use super::host_bomb_truck_detonate::{
-    BOMB_TRUCK_DEFAULT_PRIMARY_DAMAGE, BOMB_TRUCK_DEFAULT_PRIMARY_RADIUS,
-    BOMB_TRUCK_HE_PRIMARY_DAMAGE, BOMB_TRUCK_HE_PRIMARY_RADIUS, BombTruckDetonationProfile,
-    HostBombTruckDetonateRegistry, UPGRADE_BOMB_TRUCK_BIO, UPGRADE_BOMB_TRUCK_HE,
-    bomb_truck_blast_damage_at, is_bomb_truck_template as is_bomb_truck_detonate_template,
-};
 pub use super::host_bunker_buster::{
     BUNKER_BUSTER_STRUCTURE_DAMAGE_MULT, HostBunkerBusterRegistry, STEALTH_JET_MISSILE_WEAPON,
     UPGRADE_AMERICA_BUNKER_BUSTERS, bunker_buster_structure_damage, is_bunker_buster_carrier,

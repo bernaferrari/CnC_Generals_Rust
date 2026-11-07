@@ -44,8 +44,6 @@ pub mod host_smart_bomb_target_homing;
 #[path = "host_aurora_bomb.rs"]
 pub mod host_aurora_bomb;
 
-#[path = "host_bomb_truck_detonate.rs"]
-pub mod host_bomb_truck_detonate;
 
 #[path = "host_bomb_truck_disguise.rs"]
 pub mod host_bomb_truck_disguise;

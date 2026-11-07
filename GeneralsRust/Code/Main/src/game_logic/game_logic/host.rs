@@ -696,10 +696,6 @@ pub struct GameLogic {
     pub(super) bomb_truck_disguise:
         crate::game_logic::host_bomb_truck_disguise::HostBombTruckDisguiseRegistry,
 
-    /// Host GLA Bomb Truck HE/Bio FireWeaponWhenDead detonation residual.
-    /// Fail-closed: not full exclusive FireWeaponWhenDead module / SubObjects matrix.
-    pub(super) bomb_truck_detonate:
-        crate::game_logic::host_bomb_truck_detonate::HostBombTruckDetonateRegistry,
     /// Host China Nuclear Tanks residual (death blast + speed + radiation).
     /// Fail-closed: not full FireWeaponWhenDead exclusive / locomotor visual matrix.
     pub(super) nuclear_tanks: crate::game_logic::host_nuclear_tanks::HostNuclearTanksRegistry,

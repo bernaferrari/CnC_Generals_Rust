@@ -68,8 +68,7 @@ impl GameLogic {
         }
     }
 
-    /// C++ FireWeaponWhenDeadBehavior::onDie leftover — death weapon splash.
-    /// Specialized leftovers (bomb truck / toxin / nuke / demo) own exclusive modules.
+    /// Legacy fallback for templates without receiving die declarations.
     pub(in super::super::super) fn apply_fire_weapon_when_dead(&mut self, dying_id: ObjectId) {
         self.apply_fire_weapon_when_dead_with_effects(
             dying_id,
@@ -89,7 +88,7 @@ impl GameLogic {
         let Some(obj) = self.objects.get(&dying_id) else {
             return;
         };
-        if obj.fire_weapon_when_dead_fired {
+        if obj.fire_weapon_when_dead_fired || obj.thing().template.native_die_declarations.is_some() {
             return;
         }
         if obj.status.under_construction {

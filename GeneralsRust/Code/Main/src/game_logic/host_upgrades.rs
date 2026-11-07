@@ -1735,9 +1735,34 @@ pub fn is_black_market_for_stealth(
 /// Retail Chem Anthrax Gamma upgrade name.
 pub const UPGRADE_CHEM_ANTHRAX_GAMMA: &str = "Chem_Upgrade_GLAAnthraxGamma";
 
+pub fn is_bomb_truck_template(template_name: &str) -> bool {
+    let n = template_name.to_ascii_lowercase();
+    if n.is_empty() {
+        return false;
+    }
+    if n == "testbombtruck" || n == "test_bomb_truck" {
+        return true;
+    }
+    // Exclude weapons / effects / death hulks / projectiles (not vehicles).
+    if n.contains("damage")
+        || n.contains("deatheffect")
+        || n.contains("hulk")
+        || n.contains("effect")
+        || n.contains("weapon")
+        || n.contains("projectile")
+        || n.contains("shell")
+        || n.contains("disguise")
+        || n.starts_with("upgrade")
+    {
+        return false;
+    }
+    n.contains("vehiclebombtruck")
+        || n.contains("vehicle_bombtruck")
+        || n.contains("bombtruck")
+        || n.contains("bomb_truck")
+}
 /// Units that receive Anthrax Gamma residual combat tag on research complete.
 pub fn is_anthrax_gamma_unit_template(name: &str) -> bool {
-    use crate::game_logic::host_bomb_truck_detonate::is_bomb_truck_template;
     use crate::game_logic::host_scud_launcher::is_scud_launcher_template;
     use crate::game_logic::host_toxin_tractor::is_toxin_tractor_template;
     is_toxin_tractor_template(name)

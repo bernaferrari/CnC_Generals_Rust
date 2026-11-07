@@ -456,7 +456,119 @@ fn dead_behavior_store_miss_does_not_stamp_fired() {
             .host_object(source)
             .expect("source")
             .fire_weapon_when_dead_fired,
-        "hq-ys6gk: store miss must not stamp fired (residual blast still allowed)"
+        "a missing authored weapon must not report a successful firing"
+    );
+}
+
+fn retail_named_authored_die_health(modules: Vec<FireWeaponWhenDeadMetadata>) -> f32 {
+    use crate::assets::ini_parser::BehaviorModuleDefinition;
+    use crate::game_logic::object::OnDieInput;
+
+    let mut logic = GameLogic::new();
+    let mut weapon = gamelogic::weapon::WeaponTemplate::new("TestAuthoredDeathWeapon".into());
+    weapon.primary_damage = 25.0;
+    weapon.primary_damage_radius = 10.0;
+    weapon.damage_dealt_at_self_position = true;
+    logic.weapon_definitions = Some(std::collections::HashMap::from([
+        ("testauthoreddeathweapon".into(), std::sync::Arc::new(weapon)),
+    ]));
+    let mut template = ThingTemplate::new("GLAVehicleBombTruck");
+    let declarations: Vec<_> = modules.iter().map(|_| BehaviorModuleDefinition {
+        class_name: "FireWeaponWhenDeadBehavior".into(),
+        module_tag: None,
+        attributes: Default::default(),
+    }).chain(std::iter::once(BehaviorModuleDefinition {
+        class_name: "DestroyDie".into(),
+        module_tag: None,
+        attributes: Default::default(),
+    })).collect();
+    template.native_die_declarations = Some(
+        crate::game_logic::native_die_definition::bind(&declarations).into_boxed_slice(),
+    );
+    template.fire_weapon_when_dead_behaviors = modules;
+    let source = ObjectId(21000);
+    let mut object = Object::new(template, source, Team::GLA);
+    object.status.destroyed = true;
+    logic.objects.insert(source, object);
+    let mut victim_template = ThingTemplate::new("AuthoredDieAdmissionVictim");
+    victim_template.set_health(1000.0);
+    logic.templates.insert(victim_template.name.clone(), victim_template);
+    let victim = logic.create_object(
+        "AuthoredDieAdmissionVictim", Team::USA, glam::Vec3::new(3.0, 0.0, 0.0),
+    ).unwrap();
+    let input = OnDieInput {
+        source: None,
+        damage_type: crate::game_logic::combat::DamageType::Unresistable,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+        actual_damage_dealt: 100.0,
+        actual_damage_clipped: 100.0,
+    };
+    logic.mark_object_for_destruction_with_topple(source, None, input, None).unwrap();
+    assert!(!logic.objects[&source].fire_weapon_when_dead_fired);
+    let health_after_callbacks = logic.objects[&victim].health.current;
+    logic.fire_temporary_weapons_for_pending_deaths();
+    logic.process_destroy_list();
+    assert_eq!(logic.objects[&victim].health.current, health_after_callbacks);
+    health_after_callbacks
+}
+
+fn authored_die_module(index: u32, weapon: &str) -> FireWeaponWhenDeadMetadata {
+    FireWeaponWhenDeadMetadata {
+        module_source_index: index,
+        module_tag: None,
+        starts_active: true,
+        death_weapon: Some(weapon.into()),
+        upgrade_mux: FireWeaponUpgradeMuxMetadata::default(),
+        death_types: Default::default(),
+        veterancy_levels: Default::default(),
+        exempt_status: Default::default(),
+        required_status: Default::default(),
+    }
+}
+
+#[test]
+fn retail_bomb_truck_name_without_die_module_does_not_detonate() {
+    assert_eq!(retail_named_authored_die_health(Vec::new()), 1000.0);
+    // The older, unbound template path must not infer a weapon from the name either.
+    let mut logic = GameLogic::new();
+    let source = ObjectId(21001);
+    logic.objects.insert(source, Object::new(
+        ThingTemplate::new("GLAVehicleBombTruck"), source, Team::GLA,
+    ));
+    let mut victim_template = ThingTemplate::new("UnboundRetailNameVictim");
+    victim_template.set_health(1000.0);
+    logic.templates.insert(victim_template.name.clone(), victim_template);
+    let victim = logic.create_object(
+        "UnboundRetailNameVictim", Team::USA, glam::Vec3::new(3.0, 0.0, 0.0),
+    ).unwrap();
+    logic.mark_object_for_destruction(source, None).unwrap();
+    logic.process_destroy_list();
+    assert_eq!(logic.objects[&victim].health.current, 1000.0);
+}
+
+#[test]
+fn missing_death_weapon_neither_detonates_nor_suppresses_later_module() {
+    assert_eq!(
+        retail_named_authored_die_health(vec![authored_die_module(0, "MissingAuthoredWeapon")]),
+        1000.0,
+    );
+    assert_eq!(
+        retail_named_authored_die_health(vec![
+            authored_die_module(0, "MissingAuthoredWeapon"),
+            authored_die_module(1, "TestAuthoredDeathWeapon"),
+        ]),
+        975.0,
+    );
+}
+
+#[test]
+fn filtered_death_module_does_not_fire_or_suppress_a_later_module() {
+    let mut filtered = authored_die_module(0, "TestAuthoredDeathWeapon");
+    filtered.death_types = crate::game_logic::host_temporary_weapon_behavior::FireWeaponDeathTypeMask::NONE;
+    assert_eq!(retail_named_authored_die_health(vec![filtered.clone()]), 1000.0);
+    assert_eq!(
+        retail_named_authored_die_health(vec![filtered, authored_die_module(1, "TestAuthoredDeathWeapon")]),
+        975.0,
     );
 }
 

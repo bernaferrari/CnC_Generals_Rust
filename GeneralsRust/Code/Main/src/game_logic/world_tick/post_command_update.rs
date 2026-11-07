@@ -365,16 +365,6 @@ impl GameLogic {
             self.update_helix_napalm_bomb_projectiles_with_effects(&mut ui);
         }
 
-        // Host GLA Bomb Truck BioBomb residual: tick MediumPoisonField DoT.
-        // Fail-closed vs full FireWeaponWhenDead exclusive effect matrix.
-        // Gate: no active poison zone -> the object-position snapshot and
-        // plan_due_ticks are provable no-ops (registry iterates only zones).
-        if !self.bomb_truck_detonate.active_poison_zones().is_empty() {
-            self.update_bomb_truck_poison_zones_with_effects(&mut ui);
-        } else {
-            #[cfg(test)]
-            residual_gate_seam::note(&residual_gate_seam::BOMB_TRUCK_POISON_ZONES);
-        }
         // Nuclear Tanks SmallRadiationField residual ticks.
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
         {

@@ -352,8 +352,6 @@ impl GameLogic {
             gla_worker: crate::game_logic::host_gla_worker::HostGlaWorkerRegistry::new(),
             bomb_truck_disguise:
                 crate::game_logic::host_bomb_truck_disguise::HostBombTruckDisguiseRegistry::new(),
-            bomb_truck_detonate:
-                crate::game_logic::host_bomb_truck_detonate::HostBombTruckDetonateRegistry::new(),
             nuclear_tanks: crate::game_logic::host_nuclear_tanks::HostNuclearTanksRegistry::new(),
             booby_trap: crate::game_logic::host_booby_trap::HostBoobyTrapRegistry::new(),
             booby_trap_objects_spawned: 0,
@@ -1243,7 +1241,6 @@ impl GameLogic {
         self.usa_pilot.clear();
         self.gla_worker.clear();
         self.bomb_truck_disguise.clear();
-        self.bomb_truck_detonate.clear();
         self.nuclear_tanks.clear();
         self.booby_trap.clear();
         self.booby_trap_objects_spawned = 0;

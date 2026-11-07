@@ -22,11 +22,9 @@ pub struct DeathWeaponSplash {
     pub weapon_name: &'static str,
 }
 
-/// Templates whose specialized leftover already applies the exclusive death weapon.
-/// C++ fires **one** FireWeaponWhenDead module; do not dual-ring again here.
+/// Templates whose separate legacy death residual owns their weapon.
 fn specialized_death_residual_covers(template_name: &str) -> bool {
-    crate::game_logic::host_bomb_truck_detonate::is_bomb_truck_template(template_name)
-        || crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(template_name)
+    crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(template_name)
         || crate::game_logic::host_nuclear_tanks::is_nuclear_tanks_eligible(template_name)
 }
 
@@ -113,16 +111,6 @@ pub fn death_weapon_for_template(template_name: &str) -> Option<DeathWeaponSplas
             weapon_name: "SuicideDynamitePack",
         });
     }
-    // Bomb truck default death (non-carbomb).
-    if n.contains("bombtruck") {
-        return Some(DeathWeaponSplash {
-            primary_damage: 400.0,
-            primary_radius: 40.0,
-            secondary_damage: 100.0,
-            secondary_radius: 70.0,
-            weapon_name: "BombTruckDefaultDeathWeapon",
-        });
-    }
     // Anthrax bomb / toxin truck death residual peel.
     if n.contains("anthraxbomb") || (n.contains("toxin") && n.contains("truck")) {
         return Some(DeathWeaponSplash {
@@ -163,7 +151,6 @@ mod tests {
         assert!(death_weapon_for_template("GLAInfantryTerrorist").is_some());
         assert!(death_weapon_for_template("GLAScudStorm").is_some());
         assert!(death_weapon_for_template("AmericaTankCrusader").is_none());
-        assert!(death_weapon_for_template("GLAVehicleBombTruck").is_none());
         assert!(
             death_weapon_for_dying_object(
                 "GLAInfantryTerrorist",
