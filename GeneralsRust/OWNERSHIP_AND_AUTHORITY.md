@@ -464,6 +464,12 @@ through wake, execution and destruction, and preserve C++ immediate rebalancing
 and destroy-before-next-callback visibility. Changing only a Weak pointer would
 leave the same global scheduler discovery and shared module ownership.
 
+Main snapshots now preserve the mapped PhysicsBehavior continuation in the
+object lifecycle payload; movement velocity and geometry retain their existing
+owners. OXFR no longer owns a duplicate stun value. Validation happens before
+restoring module state. The source contract is PhysicsUpdate.cpp:1812–1883;
+world collision, bounce and callback-order regressions cover continuation.
+
 The ray-effect pool rejects a 129th insertion and preserves all live drawables,
 matching C++ first-free allocation. Its global store still requires explicit FX
 execution and renderer snapshot inputs (hq-1y3ry, hq-pvayo); this parity fix does
