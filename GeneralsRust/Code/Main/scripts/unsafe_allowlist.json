@@ -748,10 +748,6 @@
       "constructs": 8,
       "undocumented": 0
     },
-    "Code/Main/src/env_compat.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
     "Code/Main/src/graphics/occlusion_bridge.rs": {
       "constructs": 2,
       "undocumented": 0

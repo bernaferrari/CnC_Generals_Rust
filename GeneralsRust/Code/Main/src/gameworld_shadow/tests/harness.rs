@@ -3,7 +3,7 @@
 /// Run an environment-dependent libtest case in a fresh process, rather than
 /// mutating the environment shared by the test runner and native libraries.
 /// Returns true in the parent after the exact child test has passed.
-pub(super) fn isolated_shadow_case(module: &str, test: &str, enabled: bool) -> bool {
+pub(crate) fn isolated_shadow_case(module: &str, test: &str, enabled: bool) -> bool {
     const MARKER: &str = "GENERALS_ISOLATED_SHADOW_TEST";
     let module = module.split_once("::").expect("test module path").1;
     let name = format!("{module}::{test}");

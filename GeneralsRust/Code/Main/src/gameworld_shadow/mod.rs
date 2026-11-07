@@ -59,5 +59,7 @@ pub struct GameWorldShadow {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+pub(crate) use tests::harness::isolated_shadow_case;
 
 // Concatenated live gameworld_shadow sources for residual `include_str` scans.

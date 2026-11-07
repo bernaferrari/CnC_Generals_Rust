@@ -1555,7 +1555,13 @@ mod tests {
 
         // C++ ActiveBody::internalChangeHealth (ActiveBody.cpp:1188+).
         // Pre-fix: gameworld_damage_authority_live left health.current stale.
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+        if crate::gameworld_shadow::isolated_shadow_case(
+            module_path!(),
+            "take_damage_applies_host_hp_same_frame",
+            true,
+        ) {
+            return;
+        }
         let mut logic = crate::game_logic::GameLogic::new();
 
         let mut tank = vehicle("SameFrameHp", 24, 100.0);

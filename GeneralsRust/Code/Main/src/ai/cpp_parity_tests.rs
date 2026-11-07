@@ -2361,7 +2361,13 @@ fn launch_attack_sets_target_and_logs_host_attack() {
     // Opt into AI decision authority via GameLogic::set_ai_decision_authority(true)
     // (retired GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY env): launch_attack engages
     // host + logs decisions.
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    if crate::gameworld_shadow::isolated_shadow_case(
+        module_path!(),
+        "launch_attack_sets_target_and_logs_host_attack",
+        true,
+    ) {
+        return;
+    }
     // Decision logs require coupled shadow writeback frame (live gate).
 
     let mut logic = GameLogic::new();

@@ -5,7 +5,7 @@ pub(super) use crate::game_logic::{KindOf, Team, ThingTemplate};
 pub(super) use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 pub(super) use glam::Vec3;
 
-mod harness;
+pub(super) mod harness;
 pub(super) use harness::{perform_owner_damage, perform_owner_health};
 
 pub(super) fn ensure_template(logic: &mut GameLogic, name: &str, hp: f32) {
