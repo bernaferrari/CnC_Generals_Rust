@@ -1,13 +1,9 @@
 //! Typed source contracts for C++ `FireWeaponWhenDamagedBehavior` and
 //! `FireWeaponWhenDeadBehavior`.
 //!
-//! This is intentionally a data/runtime-state foundation, not a second live
-//! firing path.  The existing host residuals still own their explicitly
-//! bounded heuristics.  C++ owns eight *independent* `Weapon` instances for
-//! every `FireWeaponWhenDamagedBehavior`; those instances carry clip,
-//! cooldown, barrel, projectile-stream, and SuspendFX state and are Xferred
-//! independently.  Main must not activate these metadata records until an
-//! Object snapshot tail can preserve that state in the exact C++ order.
+//! The receiving Object owns the runtime bundle. Damaged behaviors retain
+//! independent weapon state; dead behaviors retain UpgradeMux state and
+//! create an ephemeral weapon for each applicable death callback.
 //!
 //! C++ references:
 //! - `FireWeaponWhenDamagedBehavior.{h,cpp}`

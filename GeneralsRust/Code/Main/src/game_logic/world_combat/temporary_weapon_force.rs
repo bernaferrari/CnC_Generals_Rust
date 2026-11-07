@@ -86,6 +86,81 @@ impl GameLogic {
         spec: &crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<u32> {
+        if let Some(rule) = self.weapon_definitions.as_ref()
+            .and_then(|definitions| definitions.get(&spec.weapon_template_name.to_ascii_lowercase()))
+            .cloned()
+        {
+            let object = self.objects.get(&source)?;
+            let position = object.get_position();
+            let rank = object.experience.level;
+            let native_rank = match rank {
+                VeterancyLevel::Rookie => gamelogic::common::VeterancyLevel::Regular,
+                VeterancyLevel::Veteran => gamelogic::common::VeterancyLevel::Veteran,
+                VeterancyLevel::Elite => gamelogic::common::VeterancyLevel::Elite,
+                VeterancyLevel::Heroic => gamelogic::common::VeterancyLevel::Heroic,
+            };
+            let projectile_team_id = object.owner_player_id
+                .and_then(|player| self.host_default_team_id(player));
+            let projectile_lifecycle = self.projectile_definitions.get(&rule.projectile_name)
+                .map(|definition| definition.lifecycle);
+            let shot = crate::game_logic::combat::PendingProjectile {
+                shooter_id: source,
+                shooter_pos: position,
+                source_context: Some(crate::game_logic::combat::ProjectileLaunchContext {
+                    source_team: object.team,
+                    projectile_team_id,
+                    source_owner_player_id: object.owner_player_id,
+                    source_veterancy: rank,
+                    source_orientation: object.get_orientation(),
+                    source_velocity: object.movement.velocity,
+                }),
+                target_id: None,
+                target_pos: Some(position),
+                self_damage_position: rule.damage_dealt_at_self_position.then_some(position),
+                selected_weapon_is_laser: Some(rule.is_laser()),
+                damage: object.effective_weapon_damage_with_solo_set(rule.primary_damage, &self.solo_weapon_bonus_set),
+                speed: rule.weapon_speed,
+                speed_unit: crate::game_logic::combat::ProjectileSpeedUnit::DistancePerLogicFrame,
+                splash_radius: rule.primary_damage_radius,
+                is_homing: false,
+                damage_type: crate::game_logic::host_armor_residual::map_store_damage_type(rule.damage_type),
+                death_type: crate::game_logic::host_usa_pilot::HostDeathType::from_store(rule.death_type),
+                projectile_object_name: rule.projectile_name.clone(),
+                projectile_lifecycle,
+                fire_fx_name: rule.get_fire_fx(native_rank).map(|fx| fx.name().to_owned()).unwrap_or_default(),
+                fire_ocl_name: rule.get_fire_ocl_name(native_rank).unwrap_or_default().to_owned(),
+                detonation_fx_name: rule.get_projectile_detonate_fx(native_rank).map(|fx| fx.name().to_owned()).unwrap_or_default(),
+                detonation_ocl_name: rule.get_projectile_detonation_ocl_name(native_rank).unwrap_or_default().to_owned(),
+                exhaust_name: rule.get_projectile_exhaust_name(native_rank).unwrap_or_default().to_owned(),
+                secondary_damage: object.effective_weapon_damage_with_solo_set(rule.secondary_damage, &self.solo_weapon_bonus_set),
+                secondary_damage_radius: rule.secondary_damage_radius,
+                shock_wave_amount: rule.shock_wave_amount,
+                shock_wave_radius: rule.shock_wave_radius,
+                shock_wave_taper_off: rule.shock_wave_taper_off,
+                radius_damage_affects: rule.affects_mask.bits(),
+                projectile_collides: rule.collide_mask.bits(),
+                scatter_radius: rule.scatter_radius,
+                scatter_table_offset: None,
+                min_weapon_speed: rule.min_weapon_speed,
+                scale_weapon_speed: rule.is_scale_weapon_speed,
+                attack_range: rule.attack_range,
+                min_attack_range: rule.minimum_attack_range,
+                historic_weapon_key: rule.name.clone(),
+                damage_status_type: Some(rule.damage_status_type.into()),
+                historic_bonus_time_frames: rule.historic_bonus_time,
+                historic_bonus_count: rule.historic_bonus_count,
+                historic_bonus_radius: rule.historic_bonus_radius.max(0.0),
+                historic_bonus_weapon: rule.historic_bonus_weapon_name.clone(),
+                die_on_detonate: rule.die_on_detonate,
+            };
+            let object = self.objects.get_mut(&source)?;
+            let _ = object.capture_pending_temporary_weapon_visual_dispatch(
+                &spec.weapon_template_name, 0, 0, None, self.frame, position,
+            );
+            let capture = object.take_pending_weapon_visual_capture();
+            self.deliver_owned_weapon_shot_with_rule_and_effects(0, shot, capture, Some(rule), effects);
+            return Some(0);
+        }
         let fields = self.temporary_weapon_fields(&spec.weapon_template_name)?;
         let runtime_spec = TemporaryWeaponRuntimeSpec {
             key: TemporaryWeaponRuntimeKey {

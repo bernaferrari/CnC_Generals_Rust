@@ -159,25 +159,15 @@ impl GameLogic {
         hits
     }
 
-    pub(in super::super) fn execute_temporary_weapon_die_slot(
-        &mut self,
-        source: ObjectId,
-        source_index: usize,
-    ) -> u32 {
-        self.execute_temporary_weapon_die_slot_with_effects(
-            source,
-            source_index,
-            &mut Default::default(),
-        )
-    }
 
     pub(in super::super) fn execute_temporary_weapon_die_slot_with_effects(
         &mut self,
         source: ObjectId,
         source_index: usize,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> u32 {
-        let specs = self.dead_ephemeral_specs_for(source, Some(source_index));
+        let specs = self.dead_ephemeral_specs_for(source, Some(source_index), Some(death_type));
         let mut hits = 0;
         for spec in specs
             .into_iter()
@@ -334,13 +324,14 @@ impl GameLogic {
         source: ObjectId,
     ) -> Vec<crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec>
     {
-        self.dead_ephemeral_specs_for(source, None)
+        self.dead_ephemeral_specs_for(source, None, None)
     }
 
     fn dead_ephemeral_specs_for(
         &mut self,
         source: ObjectId,
         source_index: Option<usize>,
+        death_type: Option<crate::game_logic::host_usa_pilot::HostDeathType>,
     ) -> Vec<crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec>
     {
         let Some(object) = self.objects.get(&source) else {
@@ -349,7 +340,7 @@ impl GameLogic {
         if object.fire_weapon_when_dead_fired || object.status.under_construction {
             return Vec::new();
         }
-        let death_ordinal = u32::from(object.status.death_type.ordinal());
+        let death_ordinal = u32::from(death_type.unwrap_or(object.status.death_type).ordinal());
         let veterancy_ordinal = object.experience.level as u32;
         let statuses = object.object_status_mask_for_queries();
         let Some((object_tags, player_tags)) = self.fire_when_owned_upgrade_tags(source) else {
@@ -364,7 +355,10 @@ impl GameLogic {
             if source_index.is_some_and(|index| metadata.module_source_index as usize != index) {
                 continue;
             }
-            if metadata.starts_active || metadata.upgrade_mux.triggered_by_owned(&owned) {
+            if !runtime.upgrade_executed
+                && !metadata.upgrade_mux.conflicts_with_owned(&owned)
+                && metadata.upgrade_mux.triggered_by_owned(&owned)
+            {
                 runtime.upgrade_executed = true;
             }
             if !runtime.upgrade_executed {

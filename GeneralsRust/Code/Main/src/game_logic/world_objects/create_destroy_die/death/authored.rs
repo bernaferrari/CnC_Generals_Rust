@@ -405,6 +405,7 @@ impl GameLogic {
                     let _ = self.execute_temporary_weapon_die_slot_with_effects(
                         id,
                         declaration.source_index as usize,
+                        input.death_type,
                         presentation_effects,
                     );
                 }

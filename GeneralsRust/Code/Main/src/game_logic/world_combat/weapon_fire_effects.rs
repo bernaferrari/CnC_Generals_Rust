@@ -37,29 +37,45 @@ impl GameLogic {
     pub(in crate::game_logic) fn deliver_owned_weapon_shot_with_effects(
         &mut self,
         slot: u8,
+        shot: crate::game_logic::combat::PendingProjectile,
+        capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        self.deliver_owned_weapon_shot_with_rule_and_effects(
+            slot, shot, capture, None, presentation_effects,
+        )
+    }
+
+    pub(in crate::game_logic) fn deliver_owned_weapon_shot_with_rule_and_effects(
+        &mut self,
+        slot: u8,
         mut shot: crate::game_logic::combat::PendingProjectile,
         capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
+        explicit_rule: Option<std::sync::Arc<gamelogic::weapon::WeaponTemplate>>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         // Retain the selected immutable template before FireFX/FireOCL callbacks
         // can change content, selection, ownership or the firing object itself.
-        let stream_binding = self.objects.get(&shot.shooter_id).and_then(|object| {
-            object.selected_native_weapon_rule(slot).map(|rule| {
-                crate::game_logic::combat::ProjectileStreamBinding {
-                    slot,
-                    name: rule.projectile_stream_name.clone(),
-                }
-            })
+        let stream_rule = explicit_rule.clone().or_else(|| {
+            self.objects.get(&shot.shooter_id)
+                .and_then(|object| object.selected_native_weapon_rule(slot))
+        });
+        let stream_binding = stream_rule.map(|rule| {
+            crate::game_logic::combat::ProjectileStreamBinding {
+                slot,
+                name: rule.projectile_stream_name.clone(),
+            }
         });
         let source_pose = self.prepare_accepted_self_damage_pose(shot.shooter_id);
         let epoch = source_pose.epoch;
-        let accepted = self.begin_owned_weapon_effects_with_effects(
+        let accepted = self.begin_owned_weapon_effects_with_rule_and_effects(
             shot.shooter_id,
             slot,
             shot.target_id,
             shot.target_pos,
             shot.shooter_pos,
             capture,
+            explicit_rule,
             presentation_effects,
         );
         // Accepted effects belong to this callback, never to later flight.
@@ -140,9 +156,27 @@ impl GameLogic {
         prepared_capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<AcceptedWeaponDischarge> {
+        self.begin_owned_weapon_effects_with_rule_and_effects(
+            source, slot, target, target_position, origin, prepared_capture, None,
+            presentation_effects,
+        )
+    }
+
+    fn begin_owned_weapon_effects_with_rule_and_effects(
+        &mut self,
+        source: ObjectId,
+        slot: u8,
+        target: Option<ObjectId>,
+        target_position: Option<Vec3>,
+        origin: Vec3,
+        prepared_capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
+        explicit_rule: Option<std::sync::Arc<gamelogic::weapon::WeaponTemplate>>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<AcceptedWeaponDischarge> {
         let object = self.objects.get(&source)?;
-        let name = object.weapon_name_for_slot(slot).map(str::to_owned);
-        let native = object.selected_native_weapon_rule(slot);
+        let name = explicit_rule.as_ref().map(|rule| rule.name.clone())
+            .or_else(|| object.weapon_name_for_slot(slot).map(str::to_owned));
+        let native = explicit_rule.or_else(|| object.selected_native_weapon_rule(slot));
         let native_rank = |rank| match rank {
             VeterancyLevel::Rookie => gamelogic::common::VeterancyLevel::Regular,
             VeterancyLevel::Veteran => gamelogic::common::VeterancyLevel::Veteran,

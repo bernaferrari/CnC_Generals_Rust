@@ -251,7 +251,7 @@ fn dead_behavior_honors_triggered_by_and_conflicts_with_ownership() {
     object.temporary_weapon_runtime.dead = vec![
         FireWeaponWhenDeadRuntimeState {
             module_source_index: 0,
-            upgrade_executed: false,
+            upgrade_executed: true,
         },
         FireWeaponWhenDeadRuntimeState {
             module_source_index: 1,
@@ -293,7 +293,7 @@ fn dead_behavior_honors_triggered_by_and_conflicts_with_ownership() {
     let mut object = logic.objects.remove(&source).expect("obj");
     object.fire_weapon_when_dead_fired = false;
     object.apply_upgrade_tag("Upgrade_GLABombTruckHighExplosiveBomb");
-    object.temporary_weapon_runtime.dead[0].upgrade_executed = false;
+    object.temporary_weapon_runtime.dead[0].upgrade_executed = true;
     object.temporary_weapon_runtime.dead[1].upgrade_executed = false;
     logic.objects.insert(source, object);
     // Phase 1's 1000-damage default blast killed the first splash victim;
@@ -380,7 +380,7 @@ fn dead_behavior_fires_every_matching_module() {
     object.temporary_weapon_runtime.dead = vec![
         FireWeaponWhenDeadRuntimeState {
             module_source_index: 0,
-            upgrade_executed: false,
+            upgrade_executed: true,
         },
         FireWeaponWhenDeadRuntimeState {
             module_source_index: 1,
@@ -459,6 +459,143 @@ fn dead_behavior_store_miss_does_not_stamp_fired() {
         "hq-ys6gk: store miss must not stamp fired (residual blast still allowed)"
     );
 }
+
+#[test]
+fn authored_death_callbacks_fire_each_applicable_module_before_removal() {
+    use crate::assets::ini_parser::BehaviorModuleDefinition;
+    use crate::game_logic::host_usa_pilot::HostDeathType;
+    use crate::game_logic::object::OnDieInput;
+
+    register_death_splash_weapon("AuthoredDeathDefault", 30, 10);
+    register_death_splash_weapon("AuthoredDeathUpgraded", 60, 10);
+    register_death_splash_weapon("AuthoredDeathExtra", 20, 10);
+    let mut logic = GameLogic::new();
+    let mut template = ThingTemplate::new("CustomAuthoredDemolitionUnit");
+    let module = |source_index, weapon: &str, starts_active, upgrade_mux| {
+        FireWeaponWhenDeadMetadata {
+            module_source_index: source_index,
+            module_tag: None,
+            starts_active,
+            death_weapon: Some(weapon.into()),
+            upgrade_mux,
+            death_types: Default::default(),
+            veterancy_levels: Default::default(),
+            exempt_status: Default::default(),
+            required_status: Default::default(),
+        }
+    };
+    template.fire_weapon_when_dead_behaviors = vec![
+        module(0, "AuthoredDeathDefault", true, FireWeaponUpgradeMuxMetadata {
+            conflicts_with: vec!["Upgrade_TestHE".into()],
+            ..Default::default()
+        }),
+        module(1, "AuthoredDeathUpgraded", false, FireWeaponUpgradeMuxMetadata {
+            triggered_by: vec!["Upgrade_TestHE".into()],
+            ..Default::default()
+        }),
+        module(2, "AuthoredDeathExtra", false, FireWeaponUpgradeMuxMetadata {
+            triggered_by: vec!["Upgrade_TestBio".into()],
+            ..Default::default()
+        }),
+    ];
+    let declarations: Vec<_> = (0..3).map(|_| BehaviorModuleDefinition {
+        class_name: "FireWeaponWhenDeadBehavior".into(),
+        module_tag: None,
+        attributes: Default::default(),
+    }).chain(std::iter::once(BehaviorModuleDefinition {
+        class_name: "DestroyDie".into(),
+        module_tag: None,
+        attributes: Default::default(),
+    })).collect();
+    template.native_die_declarations = Some(
+        crate::game_logic::native_die_definition::bind(&declarations).into_boxed_slice()
+    );
+    let source = ObjectId(20001);
+    let mut object = Object::new(template, source, Team::GLA);
+    object.apply_upgrade_tag("Upgrade_TestHE");
+    object.apply_upgrade_tag("Upgrade_TestBio");
+    object.status.destroyed = true;
+    logic.objects.insert(source, object);
+    let mut victim_template = ThingTemplate::new("AuthoredDeathVictim");
+    victim_template.set_health(1000.0);
+    logic.templates.insert(victim_template.name.clone(), victim_template);
+    let victim = logic.create_object(
+        "AuthoredDeathVictim", Team::USA, glam::Vec3::new(3.0, 0.0, 0.0)
+    ).unwrap();
+    let input = OnDieInput {
+        source: None,
+        damage_type: crate::game_logic::combat::DamageType::Unresistable,
+        death_type: HostDeathType::Normal,
+        actual_damage_dealt: 100.0,
+        actual_damage_clipped: 100.0,
+    };
+    logic.mark_object_for_destruction_with_topple(source, None, input, None).unwrap();
+    assert_eq!(logic.objects[&victim].health.current, 920.0);
+    logic.fire_temporary_weapons_for_pending_deaths();
+    logic.process_destroy_list();
+    assert_eq!(logic.objects[&victim].health.current, 920.0);
+}
+
+#[test]
+fn authored_temporary_death_weapon_executes_its_own_fire_ocl_once() {
+    use crate::assets::ini_parser::BehaviorModuleDefinition;
+    use crate::game_logic::object::OnDieInput;
+    use gamelogic::effects::ObjectCreationList;
+    use gamelogic::object_creation_list::GenericObjectCreationNugget;
+    use std::sync::Arc;
+
+    let mut logic = GameLogic::new();
+    let mut weapon = gamelogic::weapon::WeaponTemplate::new("UnusualDeathWeapon".into());
+    weapon.fire_ocl_names[0] = Some("UnusualDeathOCL".into());
+    logic.weapon_definitions = Some(std::collections::HashMap::from([
+        ("unusualdeathweapon".into(), Arc::new(weapon.clone()))
+    ]));
+    logic.admit_weapon_fire_definition("UnusualDeathWeapon", &weapon).unwrap();
+    let mut ocl = ObjectCreationList::new();
+    ocl.add_nugget(Arc::new(GenericObjectCreationNugget {
+        names: vec!["UnusualDeathChild".into()],
+        ..Default::default()
+    }));
+    logic.admit_weapon_ocl_definition("UnusualDeathOCL", ocl).unwrap();
+    logic.templates.insert("UnusualDeathChild".into(), ThingTemplate::new("UnusualDeathChild"));
+    let mut template = ThingTemplate::new("UnusualDeathSource");
+    template.fire_weapon_when_dead_behaviors = vec![FireWeaponWhenDeadMetadata {
+        module_source_index: 0,
+        module_tag: None,
+        starts_active: true,
+        death_weapon: Some("UnusualDeathWeapon".into()),
+        upgrade_mux: FireWeaponUpgradeMuxMetadata::default(),
+        death_types: Default::default(),
+        veterancy_levels: Default::default(),
+        exempt_status: Default::default(),
+        required_status: Default::default(),
+    }];
+    let declarations = ["FireWeaponWhenDeadBehavior", "DestroyDie"].map(|class_name| {
+        BehaviorModuleDefinition { class_name: class_name.into(), module_tag: None, attributes: Default::default() }
+    });
+    template.native_die_declarations = Some(
+        crate::game_logic::native_die_definition::bind(&declarations).into_boxed_slice()
+    );
+    let source = ObjectId(20003);
+    let mut object = Object::new(template, source, Team::GLA);
+    object.status.destroyed = true;
+    logic.objects.insert(source, object);
+    let input = OnDieInput {
+        source: None,
+        damage_type: crate::game_logic::combat::DamageType::Unresistable,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+        actual_damage_dealt: 100.0,
+        actual_damage_clipped: 100.0,
+    };
+    logic.mark_object_for_destruction_with_topple(source, None, input, None).unwrap();
+    let children = |world: &GameLogic| world.host_objects().registered_values()
+        .filter(|object| object.template_name == "UnusualDeathChild").count();
+    assert_eq!(children(&logic), 1);
+    logic.fire_temporary_weapons_for_pending_deaths();
+    logic.process_destroy_list();
+    assert_eq!(children(&logic), 1);
+}
+
 
 #[test]
 fn damaged_reaction_rejects_non_matching_damage_type() {
