@@ -76,6 +76,13 @@ fn decode_dxt5_alpha_palette(alpha0: u8, alpha1: u8) -> [u8; 8] {
 }
 
 pub fn decode_dxt1(data: &[u8], width: u32, height: u32) -> ImageDecodeResult<Vec<u8>> {
+    let mut rgba_data = Vec::new();
+    decode_dxt1_into(data, width, height, &mut rgba_data)?;
+    Ok(rgba_data)
+}
+
+/// Decode into reusable RGBA storage.
+pub fn decode_dxt1_into(data: &[u8], width: u32, height: u32, rgba_data: &mut Vec<u8>) -> ImageDecodeResult<()> {
     let blocks_x = width.div_ceil(4);
     let blocks_y = height.div_ceil(4);
     let expected_size = (blocks_x * blocks_y * 8) as usize;
@@ -83,7 +90,7 @@ pub fn decode_dxt1(data: &[u8], width: u32, height: u32) -> ImageDecodeResult<Ve
         return Err(Error::InvalidData("DXT1 data truncated".to_string()));
     }
 
-    let mut rgba_data = vec![0u8; (width * height * 4) as usize];
+    rgba_data.resize((width * height * 4) as usize, 0);
 
     for by in 0..blocks_y {
         for bx in 0..blocks_x {
@@ -115,10 +122,17 @@ pub fn decode_dxt1(data: &[u8], width: u32, height: u32) -> ImageDecodeResult<Ve
         }
     }
 
-    Ok(rgba_data)
+    Ok(())
 }
 
 pub fn decode_dxt3(data: &[u8], width: u32, height: u32) -> ImageDecodeResult<Vec<u8>> {
+    let mut rgba_data = Vec::new();
+    decode_dxt3_into(data, width, height, &mut rgba_data)?;
+    Ok(rgba_data)
+}
+
+/// Decode into reusable RGBA storage.
+pub fn decode_dxt3_into(data: &[u8], width: u32, height: u32, rgba_data: &mut Vec<u8>) -> ImageDecodeResult<()> {
     let blocks_x = width.div_ceil(4);
     let blocks_y = height.div_ceil(4);
     let expected_size = (blocks_x * blocks_y * 16) as usize;
@@ -126,7 +140,7 @@ pub fn decode_dxt3(data: &[u8], width: u32, height: u32) -> ImageDecodeResult<Ve
         return Err(Error::InvalidData("DXT3 data truncated".to_string()));
     }
 
-    let mut rgba_data = vec![0u8; (width * height * 4) as usize];
+    rgba_data.resize((width * height * 4) as usize, 0);
 
     for by in 0..blocks_y {
         for bx in 0..blocks_x {
@@ -175,10 +189,17 @@ pub fn decode_dxt3(data: &[u8], width: u32, height: u32) -> ImageDecodeResult<Ve
         }
     }
 
-    Ok(rgba_data)
+    Ok(())
 }
 
 pub fn decode_dxt5(data: &[u8], width: u32, height: u32) -> ImageDecodeResult<Vec<u8>> {
+    let mut rgba_data = Vec::new();
+    decode_dxt5_into(data, width, height, &mut rgba_data)?;
+    Ok(rgba_data)
+}
+
+/// Decode into reusable RGBA storage.
+pub fn decode_dxt5_into(data: &[u8], width: u32, height: u32, rgba_data: &mut Vec<u8>) -> ImageDecodeResult<()> {
     let blocks_x = width.div_ceil(4);
     let blocks_y = height.div_ceil(4);
     let expected_size = (blocks_x * blocks_y * 16) as usize;
@@ -186,7 +207,7 @@ pub fn decode_dxt5(data: &[u8], width: u32, height: u32) -> ImageDecodeResult<Ve
         return Err(Error::InvalidData("DXT5 data truncated".to_string()));
     }
 
-    let mut rgba_data = vec![0u8; (width * height * 4) as usize];
+    rgba_data.resize((width * height * 4) as usize, 0);
 
     for by in 0..blocks_y {
         for bx in 0..blocks_x {
@@ -234,5 +255,5 @@ pub fn decode_dxt5(data: &[u8], width: u32, height: u32) -> ImageDecodeResult<Ve
         }
     }
 
-    Ok(rgba_data)
+    Ok(())
 }

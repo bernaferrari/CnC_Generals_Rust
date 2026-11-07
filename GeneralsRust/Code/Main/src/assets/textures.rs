@@ -14,6 +14,7 @@ use ww3d_assets::image::dds::{
     DdsCompression, DdsTextureType, decode_dxt1, decode_dxt3, decode_dxt5, load_dds_from_memory,
 };
 use ww3d_assets::image::tga::load_tga_from_memory;
+#[cfg(test)]
 use ww3d_renderer_3d::rendering::texture_system::image_upload_format::image_format_to_wgpu;
 
 /// Texture formats supported by C&C Generals
@@ -55,6 +56,8 @@ pub struct RawTexture {
     pub format: TextureFormat,
     pub has_alpha: bool,
     pub dds_compression: Option<DdsCompression>,
+    /// Byte ranges of authored DDS levels in `data`.
+    pub dds_levels: Vec<(u32, u32)>,
 }
 
 #[derive(Debug, Clone)]
@@ -73,6 +76,13 @@ pub struct WaterTextureAssetSet {
 }
 
 impl RawTexture {
+    /// Borrow one authored compressed mip level.
+    pub fn dds_level(&self, level: u32) -> Option<&[u8]> {
+        let &(offset, size) = self.dds_levels.get(level as usize)?;
+        let start = offset as usize;
+        self.data.get(start..start.checked_add(size as usize)?)
+    }
+
     pub fn new(name: String) -> Self {
         Self {
             name,
@@ -82,6 +92,7 @@ impl RawTexture {
             format: TextureFormat::Unknown,
             has_alpha: false,
             dds_compression: None,
+            dds_levels: Vec::new(),
         }
     }
 
@@ -102,6 +113,7 @@ impl RawTexture {
             format: TextureFormat::Unknown,
             has_alpha: color[3] < 255,
             dds_compression: None,
+            dds_levels: Vec::new(),
         }
     }
 
@@ -137,6 +149,7 @@ impl RawTexture {
             format: TextureFormat::Unknown,
             has_alpha: color1[3] < 255 || color2[3] < 255,
             dds_compression: None,
+            dds_levels: Vec::new(),
         }
     }
 }
@@ -348,7 +361,21 @@ impl TextureManager {
             return Ok(self.get_default_texture());
         }
 
-        // Return cached texture if available
+        self.gpu_texture_for_cached_raw(device, queue, &texture_key)
+    }
+
+    /// Upload a cached raw texture once; missing assets are errors, not fallbacks.
+    pub fn gpu_texture_for_cached_raw(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        texture_name: &str,
+    ) -> Result<&GPUTexture> {
+        let texture_key = self.resolved_cache_key_for_lookup(texture_name);
+        if self.known_missing_textures.contains(&texture_key) || !self.raw_cache.contains_key(&texture_key) {
+            return Err(anyhow!("Raw texture '{}' is not cached", texture_name));
+        }
+        // Return cached texture if available.
         if self.gpu_cache.contains_key(&texture_key) {
             return Ok(self
                 .gpu_cache
@@ -656,12 +683,18 @@ impl TextureManager {
         let raw = self
             .get_raw_texture(texture_name)
             .ok_or_else(|| anyhow!("Water texture '{}' was not cached", texture_name))?;
+        let rgba = match raw.dds_compression {
+            Some(DdsCompression::Dxt1) => decode_dxt1(&raw.data, raw.width, raw.height),
+            Some(DdsCompression::Dxt3) => decode_dxt3(&raw.data, raw.width, raw.height),
+            Some(DdsCompression::Dxt5) => decode_dxt5(&raw.data, raw.width, raw.height),
+            None => Ok(raw.data.clone()),
+        }.map_err(|err| anyhow!("Water texture '{}' decode: {err}", texture_name))?;
 
         Ok(WaterTextureAssetPayload {
             name: texture_name.to_string(),
             width: raw.width,
             height: raw.height,
-            rgba: raw.data.clone(),
+            rgba,
         })
     }
 
@@ -719,118 +752,21 @@ impl TextureManager {
         raw: &RawTexture,
     ) -> Result<GPUTexture> {
         if let Some(compression) = raw.dds_compression {
-            if device
-                .features()
-                .contains(wgpu::Features::TEXTURE_COMPRESSION_BC)
-            {
-                let block_size = compression.block_size_bytes();
-                let blocks_x = raw.width.div_ceil(4);
-                let blocks_y = raw.height.div_ceil(4);
-                let expected_size = compression.expected_payload_size(raw.width, raw.height);
-
-                if raw.data.len() >= expected_size {
-                    let texture_size = wgpu::Extent3d {
-                        width: raw.width,
-                        height: raw.height,
-                        depth_or_array_layers: 1,
-                    };
-
-                    let texture = device.create_texture(&wgpu::TextureDescriptor {
-                        label: Some(&raw.name),
-                        size: texture_size,
-                        mip_level_count: 1,
-                        sample_count: 1,
-                        dimension: wgpu::TextureDimension::D2,
-                        format: image_format_to_wgpu(compression.format()),
-                        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                        view_formats: &[],
-                    });
-
-                    queue.write_texture(
-                        wgpu::TexelCopyTextureInfo {
-                            aspect: wgpu::TextureAspect::All,
-                            texture: &texture,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d::ZERO,
-                        },
-                        &raw.data[..expected_size],
-                        wgpu::TexelCopyBufferLayout {
-                            offset: 0,
-                            bytes_per_row: Some(block_size * blocks_x),
-                            rows_per_image: Some(blocks_y),
-                        },
-                        texture_size,
-                    );
-
-                    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-                    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-                        address_mode_u: wgpu::AddressMode::Repeat,
-                        address_mode_v: wgpu::AddressMode::Repeat,
-                        address_mode_w: wgpu::AddressMode::Repeat,
-                        mag_filter: wgpu::FilterMode::Linear,
-                        min_filter: wgpu::FilterMode::Nearest,
-                        mipmap_filter: wgpu::MipmapFilterMode::Nearest,
-                        ..Default::default()
-                    });
-
-                    return Ok(GPUTexture {
-                        texture,
-                        view,
-                        sampler,
-                        width: raw.width,
-                        height: raw.height,
-                    });
-                }
-
-                warn!(
-                    "DDS '{}' compressed payload size mismatch (expected {}, got {}), falling back to CPU decode",
-                    raw.name,
-                    expected_size,
-                    raw.data.len()
-                );
-            } else {
-                debug!(
-                    "DDS '{}' BC formats unsupported by adapter, falling back to CPU decode",
-                    raw.name
-                );
-            }
-
-            let decode_result = match compression {
-                DdsCompression::Dxt1 => decode_dxt1(&raw.data, raw.width, raw.height)
-                    .map_err(|e| anyhow!("DXT1 decode: {}", e)),
-                DdsCompression::Dxt3 => decode_dxt3(&raw.data, raw.width, raw.height)
-                    .map_err(|e| anyhow!("DXT3 decode: {}", e)),
-                DdsCompression::Dxt5 => decode_dxt5(&raw.data, raw.width, raw.height)
-                    .map_err(|e| anyhow!("DXT5 decode: {}", e)),
-            };
-
-            let rgba_data = match decode_result {
-                Ok(data) => data,
-                Err(e) => {
-                    warn!(
-                        "DDS '{}' CPU decode fallback failed; using solid fallback texture: {}",
-                        raw.name, e
-                    );
-                    let fallback = RawTexture::solid_color(
-                        raw.name.clone(),
-                        raw.width.max(1),
-                        raw.height.max(1),
-                        [150, 100, 50, 255],
-                    );
-                    return self.create_gpu_texture_from_rgba(
-                        device,
-                        queue,
-                        &fallback.name,
-                        fallback.width,
-                        fallback.height,
-                        &fallback.data,
-                    );
-                }
-            };
-
-            return self.create_gpu_texture_from_rgba(
-                device, queue, &raw.name, raw.width, raw.height, &rgba_data,
-            );
+            let texture = ww3d_renderer_3d::texture_system::upload_dds_levels(
+                device, queue, &raw.name, raw.width, raw.height, raw.dds_levels.len() as u32,
+                compression, |level| raw.dds_level(level),
+            ).map_err(|e| anyhow!("DDS upload for '{}': {e}", raw.name))?;
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+                address_mode_u: wgpu::AddressMode::Repeat,
+                address_mode_v: wgpu::AddressMode::Repeat,
+                address_mode_w: wgpu::AddressMode::Repeat,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Nearest,
+                mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+                ..Default::default()
+            });
+            return Ok(GPUTexture { texture, view, sampler, width: raw.width, height: raw.height });
         }
 
         self.create_gpu_texture_from_rgba(
@@ -925,6 +861,7 @@ impl TextureManager {
             format: TextureFormat::TGA,
             has_alpha: tga.bits_per_pixel == 32,
             dds_compression: None,
+            dds_levels: Vec::new(),
         })
     }
 
@@ -933,9 +870,9 @@ impl TextureManager {
 
         let dds = load_dds_from_memory(data).map_err(|e| anyhow!("DDS parse error: {}", e))?;
 
-        let level0_data = dds
-            .get_level_data(0)
-            .ok_or_else(|| anyhow!("DDS level 0 data missing"))?;
+        if dds.texture_type != DdsTextureType::Texture2D {
+            return Err(anyhow!("DDS is not a 2D texture"));
+        }
 
         let has_alpha = dds
             .compression
@@ -945,10 +882,11 @@ impl TextureManager {
             name,
             width: dds.width,
             height: dds.height,
-            data: level0_data.to_vec(),
+            data: dds.data,
             format: TextureFormat::DDS,
             has_alpha,
             dds_compression: dds.compression,
+            dds_levels: dds.level_offsets.into_iter().zip(dds.level_sizes).collect(),
         })
     }
 
@@ -1148,6 +1086,7 @@ impl TextureManager {
             format: TextureFormat::BMP,
             has_alpha: bits_per_pixel == 32,
             dds_compression: None,
+            dds_levels: Vec::new(),
         })
     }
 
@@ -1397,5 +1336,51 @@ mod tests {
         assert!(matches!(raw.format, TextureFormat::DDS));
         assert_eq!(raw.dds_compression, Some(DdsCompression::Dxt1));
         assert_eq!(raw.data, payload);
+    }
+
+    #[test]
+    fn archive_dds_retains_each_cpp_visible_authored_level() {
+        let mut payload = vec![1; 128];
+        payload.extend_from_slice(&[2; 32]);
+        payload.extend_from_slice(&[3; 8]);
+        payload.extend_from_slice(&[4; 8]);
+        payload.extend_from_slice(&[5; 8]);
+        let mut bytes = build_dds(16, 16, *b"DXT1", &payload);
+        bytes[8..12].copy_from_slice(&0x000a_1007u32.to_le_bytes());
+        bytes[28..32].copy_from_slice(&5u32.to_le_bytes());
+        let raw = TextureManager::new().parse_dds(&bytes, "chain.dds".into()).unwrap();
+        assert_eq!(raw.dds_levels, [(0, 128), (128, 32), (160, 8)]);
+        assert_eq!(raw.dds_level(0), Some(&[1; 128][..]));
+        assert_eq!(raw.dds_level(1), Some(&[2; 32][..]));
+        assert_eq!(raw.dds_level(2), Some(&[3; 8][..]));
+    }
+
+    #[test]
+    fn cached_dds_upload_is_shared_without_copying_raw_levels() {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .expect("texture cache regression requires a GPU adapter");
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+            .expect("texture cache regression requires a device");
+        let mut manager = TextureManager::new();
+        let mut raw = RawTexture::new("skin.dds".into());
+        raw.width = 8;
+        raw.height = 8;
+        raw.dds_compression = Some(DdsCompression::Dxt1);
+        raw.data = vec![0; 40];
+        raw.dds_levels = vec![(0, 32), (32, 8)];
+        let blocks = raw.data.as_ptr();
+        manager.raw_cache.insert("skin.dds".into(), raw);
+        let first = manager.gpu_texture_for_cached_raw(&device, &queue, "skin.dds").unwrap().texture.clone();
+        let second = &manager.gpu_texture_for_cached_raw(&device, &queue, "SKIN.DDS").unwrap().texture;
+        assert_eq!(&first, second);
+        assert_eq!(first.mip_level_count(), 2);
+        assert_eq!(first.format(), wgpu::TextureFormat::Rgba8Unorm);
+        assert_eq!(manager.raw_cache["skin.dds"].data.as_ptr(), blocks);
+        assert_eq!(manager.gpu_cache.len(), 1);
+        assert!(manager.gpu_texture_for_cached_raw(&device, &queue, "missing.dds").is_err());
     }
 }

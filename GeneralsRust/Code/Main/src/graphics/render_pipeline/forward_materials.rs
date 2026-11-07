@@ -8,9 +8,6 @@
     clippy::all
 )]
 use super::*;
-use ww3d_renderer_3d::rendering::texture_system::dds_loader::{
-    DdsCompression, decode_dxt1, decode_dxt3, decode_dxt5,
-};
 
 /// A W3D material pass may carry one texture/shader ID for the whole mesh or
 /// one ID for each polygon. C++ `MeshModelClass::read_texture_ids` installs
@@ -844,7 +841,7 @@ impl ForwardPass {
     ) -> Result<Arc<TextureClass>> {
         let asset_manager = self.application_assets.as_ref()
             .ok_or_else(|| anyhow::anyhow!("Asset manager unavailable"))?;
-        let asset_manager = asset_manager
+        let mut asset_manager = asset_manager
             .lock()
             .map_err(|_| anyhow::anyhow!("Asset manager mutex poisoned"))?;
         let texture_key = texture_name.to_lowercase();
@@ -852,6 +849,11 @@ impl ForwardPass {
         let raw = asset_manager
             .get_raw_texture(&texture_key)
             .ok_or_else(|| anyhow::anyhow!("Texture '{}' not cached", texture_name))?;
+        if raw.dds_compression.is_some() {
+            let gpu = asset_manager.gpu_texture_for_cached_raw(&self.device, &self.queue, &texture_key)?;
+            return Ok(Arc::new(TextureClass::from_gpu_texture(texture_name, gpu.view.clone())
+                .map_err(|e| anyhow::anyhow!("Invalid GPU texture '{}': {e}", texture_name))?));
+        }
         Self::build_texture(texture_name, raw)
     }
 
@@ -961,32 +963,8 @@ impl ForwardPass {
     /// Alpha content does not change the format; `raw.has_alpha` stays on
     /// RawTexture for blend consumers.
     fn build_texture(texture_name: &str, raw: &RawTexture) -> Result<Arc<TextureClass>> {
-        // C++ W3DTextureLoad (W3DAssetManager) hands the rasterizer uncompressed
-        // 32-bit surfaces. The mesh bind path (MeshRenderManager::
-        // ensure_gpu_texture_view) can only upload 32-bit RGBA payloads — a DXT
-        // payload fails its width*height*4 length guard and the pass falls back
-        // to the missing-texture. Decode block-compressed payloads to RGBA8
-        // here, matching the asset-lane fallback in
-        // TextureManager::create_gpu_texture. Shipped-archive coverage:
-        // DXT1 (1975 files), DXT5 (1515), DXT3 (6); no DXT2/DXT4/paletted DDS
-        // exists in TexturesZH/TerrainZH/W3DZH/PatchZH .big, and the dds_loader
-        // FourCC table maps DXT2→BC2/DXT4→BC3 anyway if one ever surfaces.
-        let data = match raw.dds_compression {
-            Some(DdsCompression::Dxt1) => Some(
-                decode_dxt1(&raw.data, raw.width, raw.height)
-                    .map_err(|e| anyhow::anyhow!("DXT1 decode for '{}': {e}", texture_name)),
-            ),
-            Some(DdsCompression::Dxt3) => Some(
-                decode_dxt3(&raw.data, raw.width, raw.height)
-                    .map_err(|e| anyhow::anyhow!("DXT3 decode for '{}': {e}", texture_name)),
-            ),
-            Some(DdsCompression::Dxt5) => Some(
-                decode_dxt5(&raw.data, raw.width, raw.height)
-                    .map_err(|e| anyhow::anyhow!("DXT5 decode for '{}': {e}", texture_name)),
-            ),
-            None => None,
-        };
-        let data = data.transpose()?.unwrap_or_else(|| raw.data.clone());
+        debug_assert!(raw.dds_compression.is_none());
+        let data = raw.data.clone();
 
         let mut texture = TextureClass::with_format(
             texture_name,
@@ -1063,51 +1041,8 @@ mod build_texture_tests {
     use super::*;
     use crate::assets::textures::RawTexture;
 
-    /// DXT1 is 8 bytes per 4x4 block; DXT3/DXT5 are 16 bytes per block.
-    fn solid_red_block(compression: DdsCompression) -> Vec<u8> {
-        match compression {
-            // color0 = red565, color1 = unused, all indices select color0.
-            DdsCompression::Dxt1 => {
-                let mut block = Vec::new();
-                block.extend_from_slice(&0xF800u16.to_le_bytes());
-                block.extend_from_slice(&0x0000u16.to_le_bytes());
-                block.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
-                block
-            }
-            // Explicit 4-bit alpha nibbles all 0xF (opaque) + red color block.
-            DdsCompression::Dxt3 => {
-                let mut block = vec![0xFF; 8];
-                block.extend_from_slice(&0xF800u16.to_le_bytes());
-                block.extend_from_slice(&0x0000u16.to_le_bytes());
-                block.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
-                block
-            }
-            // Interpolated alpha: a0 = a1 = 255, indices 0 + red color block.
-            DdsCompression::Dxt5 => {
-                let mut block = vec![0xFF, 0xFF];
-                block.extend_from_slice(&[0; 6]);
-                block.extend_from_slice(&0xF800u16.to_le_bytes());
-                block.extend_from_slice(&0x0000u16.to_le_bytes());
-                block.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
-                block
-            }
-        }
-    }
-
-    fn raw_with(compression: Option<DdsCompression>, width: u32, height: u32) -> RawTexture {
-        let data = match compression {
-            Some(c) => solid_red_block(c).repeat((width.div_ceil(4) * height.div_ceil(4)) as usize),
-            None => vec![128, 128, 128, 255].repeat((width * height) as usize),
-        };
-        RawTexture {
-            name: String::new(),
-            width,
-            height,
-            data,
-            format: crate::assets::textures::TextureFormat::DDS,
-            has_alpha: false,
-            dds_compression: compression,
-        }
+    fn raw_with(width: u32, height: u32) -> RawTexture {
+        RawTexture::solid_color("plain".to_string(), width, height, [128, 128, 128, 255])
     }
 
     #[test]
@@ -1115,47 +1050,11 @@ mod build_texture_tests {
         // Uncompressed payload: the format choice itself is the contract. The
         // scene target is *Unorm; DX8 samples and blends stored bytes as-is.
         let texture =
-            ForwardPass::build_texture("plain", &raw_with(None, 4, 4)).expect("uncompressed build");
+            ForwardPass::build_texture("plain", &raw_with(4, 4)).expect("uncompressed build");
         assert_eq!(
             texture.format,
             TextureFormat::Rgba8Unorm,
             "color pass textures are never linearized"
         );
-    }
-
-    #[test]
-    fn dxt1_payload_decodes_to_32_bit_rgba_passing_the_bind_guard() {
-        // MeshRenderManager::ensure_gpu_texture_view only uploads payloads of
-        // exactly width*height*4 bytes — an undecoded DXT payload fails that
-        // guard and the unit would bind the missing texture. DXT1 is the most
-        // common unit-skin variant in the shipped archives (1975 files).
-        let texture =
-            ForwardPass::build_texture("skin", &raw_with(Some(DdsCompression::Dxt1), 8, 4))
-                .expect("DXT1 build");
-        assert_eq!(texture.format, TextureFormat::Rgba8Unorm);
-        assert_eq!(texture.raw_pixels().len(), 8 * 4 * 4);
-        // color0 = 0xF800 decodes to opaque red in the first pixel.
-        assert_eq!(&texture.raw_pixels()[..4], &[255, 0, 0, 255]);
-    }
-
-    #[test]
-    fn dxt3_and_dxt5_payloads_decode_to_32_bit_rgba() {
-        // DXT3 (explicit alpha, 6 files) and DXT5 (interpolated alpha, 1515
-        // files) are the remaining shipped variants; both must decode to the
-        // 32-bit layout the mesh bind path accepts.
-        for compression in [DdsCompression::Dxt3, DdsCompression::Dxt5] {
-            let texture =
-                ForwardPass::build_texture("skin_alpha", &raw_with(Some(compression), 8, 8))
-                    .unwrap_or_else(|e| panic!("{compression:?} build failed: {e}"));
-            assert_eq!(texture.format, TextureFormat::Rgba8Unorm);
-            assert_eq!(texture.raw_pixels().len(), 8 * 8 * 4);
-            // First pixel keeps full alpha from its block encoding.
-            assert_eq!(texture.raw_pixels()[3], 255, "{compression:?} alpha");
-            assert_eq!(
-                &texture.raw_pixels()[..3],
-                &[255, 0, 0],
-                "{compression:?} color"
-            );
-        }
     }
 }

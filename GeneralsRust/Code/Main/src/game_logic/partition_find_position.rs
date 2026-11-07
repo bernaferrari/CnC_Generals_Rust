@@ -59,7 +59,7 @@ impl GameLogic {
             building_radius * 0.7,
             building_radius * 1.3,
             start,
-            |candidate, angle| self.try_owned_ground_position(candidate, center.y, angle, None),
+            |candidate, angle| self.try_owned_ground_position(candidate, center.y, angle, None, None),
         )
     }
 
@@ -96,7 +96,7 @@ impl GameLogic {
         let start = std::f32::consts::TAU * (self.logic_random.next_u32() as f32 / u32::MAX as f32);
         Ok(
             find_position_around(center, 0., 100., start, |candidate, angle| {
-                self.try_owned_ground_position(candidate, center.y, angle, None)
+                self.try_owned_ground_position(candidate, center.y, angle, None, None)
             })
             .unwrap_or(center),
         )
@@ -107,6 +107,7 @@ impl GameLogic {
         center_height: f32,
         angle: f32,
         ignore: Option<ObjectId>,
+        source: Option<ObjectId>,
     ) -> Option<Vec3> {
         let owner = self.world_services.terrain();
         let cliff = {
@@ -152,7 +153,7 @@ impl GameLogic {
             .partition_manager
             .ids_in_radius(candidate.x, candidate.z, 5.5)
             .into_iter()
-            .filter(|id| Some(ObjectId(*id)) != ignore)
+            .filter(|id| Some(ObjectId(*id)) != ignore && Some(ObjectId(*id)) != source)
             .filter_map(|id| self.objects.get(&ObjectId(id)))
             .any(|object| {
                 crate::game_logic::partition_geometry::object_would_collide_2d(
@@ -165,6 +166,45 @@ impl GameLogic {
                 )
             });
         (!blocked).then_some(candidate)
+    }
+
+    /// DockUpdate::computeApproachPosition: query the receiving partition,
+    /// ignoring the source and, for airborne locomotors, the dock.
+    pub(crate) fn find_owned_dock_approach_position(
+        &self, dock_id: ObjectId, source_id: ObjectId, center: Vec3,
+    ) -> gamelogic::GameLogicResult<Vec3> {
+        let source = self.objects.get(&source_id)
+            .ok_or(gamelogic::GameLogicError::InvalidObject(source_id.0))?;
+        if center.x < self.world_min.x || center.x > self.world_max.x
+            || center.z < self.world_min.z || center.z > self.world_max.z {
+            return Ok(center);
+        }
+        {
+            let terrain_owner = self.world_services.terrain();
+            let terrain = terrain_owner.read().unwrap_or_else(|error| error.into_inner());
+            if self.map_loaded && !terrain.has_height_map() && self.terrain.is_none()
+                && self.pathfinding_height_samples.is_none() {
+                return Err(gamelogic::GameLogicError::Configuration(
+                    "Partition dock query lacks receiving terrain".into(),
+                ));
+            }
+        }
+        let ignore = source.selected_locomotor_is_airborne().then_some(dock_id);
+        let start_pos = source.get_position();
+        let ai = source.has_ai_update_interface();
+        let surfaces = if source.locomotor_surfaces == 0 {
+            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+        } else {
+            source.locomotor_surfaces
+        };
+        let crusher = source.crusher_level > 0;
+        let start = std::f32::consts::TAU * (self.logic_random.next_u32() as f32 / u32::MAX as f32);
+        Ok(find_position_around(center, 0., 100., start, |candidate, angle| {
+            let position = self.try_owned_ground_position(candidate, center.y, angle, ignore, Some(source_id))?;
+            (!ai || self.pathfinding_system.client_safe_quick_does_path_exist_for_crusher(
+                start_pos, position, surfaces, crusher,
+            )).then_some(position)
+        }).unwrap_or(center))
     }
 
     /// AIUpdate::privateAttackPosition: a contact weapon must be able to
@@ -217,7 +257,7 @@ impl GameLogic {
         Ok(
             find_position_around(center, 0., 100., start, |candidate, angle| {
                 let position =
-                    self.try_owned_ground_position(candidate, center.y, angle, Some(source_id))?;
+                    self.try_owned_ground_position(candidate, center.y, angle, Some(source_id), None)?;
                 path_exists(position).then_some(position)
             })
             .unwrap_or(center),
@@ -262,6 +302,13 @@ mod tests {
             let id = world
                 .create_object("LandingObstacle", Team::USA, blocker)
                 .unwrap();
+            // New objects enter the partition as dirty; the native update
+            // phase installs their collision cells before spatial queries.
+            world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+            assert!(world.object_ids_near(blocker, 5.5).contains(&id));
+            let geometry = world.objects[&id].geometry_info();
+            assert_eq!(geometry.geom_type, HostGeometryType::Box);
+            assert_eq!((geometry.major_radius, geometry.minor_radius, geometry.height), (20., 20., 40.));
             (world, id)
         }
         let center = Vec3::new(100., 80., 100.);
@@ -271,13 +318,42 @@ mod tests {
         drop(peer);
         assert!(
             world
-                .try_owned_ground_position(Vec3::new(100., 0., 100.), 80., 0., None)
+                .try_owned_ground_position(Vec3::new(100., 0., 100.), 80., 0., None, None)
                 .is_none()
         );
         let found = world.find_owned_parachute_landing_position(center).unwrap();
         assert_eq!(found.y, 0.);
         assert!((found.x - 100.).abs() > 20. || (found.z - 100.).abs() > 20.);
     }
+    #[test]
+    fn dock_search_ignores_source_but_avoids_other_receiving_objects() {
+        let mut world = GameLogic::new();
+        world.world_min = Vec3::ZERO;
+        world.world_max = Vec3::splat(640.);
+        world.pathfinding_system.grid = PathfindingGrid::new(640., 640., 10.);
+        let mut template = ThingTemplate::new("DockSearchObject");
+        template.add_kind_of(KindOf::Vehicle);
+        template.geometry_info = HostGeometryInfo {
+            geom_type: HostGeometryType::Box, is_small: false, height: 40.,
+            major_radius: 20., minor_radius: 20., authored: true,
+        };
+        world.templates.insert(template.name.clone(), template);
+        let center = Vec3::new(100., 0., 100.);
+        let source = world.create_object("DockSearchObject", Team::USA, center).unwrap();
+        let dock = world.create_object("DockSearchObject", Team::USA, Vec3::new(500., 0., 500.)).unwrap();
+        world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+        assert!(world.object_ids_near(center, 5.5).contains(&source));
+        assert_eq!(world.find_owned_dock_approach_position(dock, source, center).unwrap(), center);
+        let blocker = world.create_object("DockSearchObject", Team::USA, center).unwrap();
+        world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+        assert!(world.object_ids_near(center, 5.5).contains(&blocker));
+        let geometry = world.objects[&blocker].geometry_info();
+        assert_eq!(geometry.geom_type, HostGeometryType::Box);
+        assert_eq!((geometry.major_radius, geometry.minor_radius, geometry.height), (20., 20., 40.));
+        let found = world.find_owned_dock_approach_position(dock, source, center).unwrap();
+        assert!((found.x - center.x).abs() > 20. || (found.z - center.z).abs() > 20.);
+    }
+
     #[test]
     fn scripted_offmap_target_preserves_original_height() {
         let world = GameLogic::new();

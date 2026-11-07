@@ -16,7 +16,7 @@ use super::*;
 /// uploads the returned pixels through the same first-bind path as CPU-only
 /// pass textures.
 
-pub type MeshPassTextureProvider = Arc<dyn Fn(&str) -> Option<TextureClass> + Send + Sync>;
+pub type MeshPassTextureProvider = Box<dyn Fn(&str) -> Option<TextureClass> + Send + Sync>;
 
 #[derive(Clone)]
 pub struct PreparedMeshModel {
@@ -1488,11 +1488,11 @@ impl MeshRenderManager {
             if let Some(gpu_texture) = texture.gpu_texture.as_ref() {
                 let sampler = self.stage_sampler(&texture.stage_settings);
                 StageResources {
-                    view_2d: self.bind_cache.texture_view(gpu_texture),
+                    view_2d: self.bind_cache.texture_view(gpu_texture, texture.gpu_view()),
                     view_cube: self.fallback_textures.view_cube.clone(),
                     sampler,
                 }
-            } else if let Some(view) = if texture.raw_pixels().is_empty() {
+            } else if let Some(view) = if texture.raw_pixels().is_empty() && texture.dds_data().is_none() {
                 self.gpu_texture_views
                     .get(&texture.get_name().to_ascii_lowercase())
                     .cloned()
@@ -1584,24 +1584,10 @@ impl MeshRenderManager {
         }
     }
 
-    /// Upload a CPU-only pass texture on first bind and cache its view,
-    /// keyed by texture name. Only 32-bit uncompressed payloads are accepted;
-    /// anything else keeps the magenta missing texture (warn-once).
-    ///
-    /// DDS variant acceptance: the shipped archives (TexturesZH.big,
-    /// TerrainZH.big, W3DZH.big, PatchZH.big) contain exactly three compressed
-    /// variants — DXT1 (1975), DXT5 (1515) and DXT3 (6) files; no DXT2, DXT4,
-    /// paletted or DX10 DDS exists. Host-side decode (ForwardPass::build_texture
-    /// and the archive pass-texture provider) covers DXT1/DXT3/DXT5 through the
-    /// dds_loader decoders, whose FourCC table also maps DXT2→BC2 and DXT4→BC3
-    /// should one ever appear. Paletted DDS stays rejected (unrepresented in
-    /// the shipped content) and binds magenta.
-    ///
-    /// Colour space: DX8 never linearizes. Texture bytes, vertex/material
-    /// colours, blending and fog all run on the stored (gamma-space) values
-    /// and the back buffer is presented as-is. The scene target is therefore a
-    /// plain *Unorm format (color_format below) and every 32-bit pass texture
-    /// uploads as *Unorm, whatever its source tagged (renderer plan R8 / G6).
+    /// Upload a pass texture on first bind and cache its view by name.
+    /// DDS textures retain their authored levels and use BC when enabled on
+    /// the actual device; otherwise each level is decoded to RGBA8.
+    /// All formats are uploaded as Unorm to preserve DX8 gamma-space math.
     fn ensure_gpu_texture_view(
         &mut self,
         texture: &TextureClass,
@@ -1620,7 +1606,7 @@ impl MeshRenderManager {
         &mut self,
         texture: &Arc<TextureClass>,
     ) -> Option<Arc<wgpu::TextureView>> {
-        if texture.raw_pixels().is_empty() {
+        if texture.raw_pixels().is_empty() && texture.dds_data().is_none() {
             return None;
         }
         let key = Arc::as_ptr(texture) as usize;
@@ -1642,7 +1628,16 @@ impl MeshRenderManager {
         Some(view)
     }
 
-    fn upload_gpu_texture_view(&self, texture: &TextureClass) -> Option<Arc<wgpu::TextureView>> {
+    fn upload_gpu_texture_view(&mut self, texture: &TextureClass) -> Option<Arc<wgpu::TextureView>> {
+        if let Some(gpu_texture) = &texture.gpu_texture {
+            return Some(self.bind_cache.texture_view(gpu_texture, texture.gpu_view()));
+        }
+        if let Some(dds) = texture.dds_data() {
+            let gpu_texture = crate::texture_system::upload_dds_texture(
+                self.gpu_device.wgpu_device(), self.gpu_device.queue(), texture.get_name(), dds,
+            ).ok()?;
+            return Some(self.bind_cache.texture_view(&gpu_texture, None));
+        }
         let pixels = texture.raw_pixels();
         let (width, height) = (texture.width, texture.height);
         if pixels.is_empty() || width == 0 || height == 0 {
@@ -2184,6 +2179,21 @@ mod per_mesh_lighting_tests {
             &independent,
             &second.ensure_gpu_texture_view(&texture).unwrap()
         ));
+        let gpu_texture = second.gpu_device.wgpu_device().create_texture(&wgpu::TextureDescriptor {
+            label: Some("owner-view-test"),
+            size: wgpu::Extent3d { width: 4, height: 4, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let owner_view = gpu_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let wrapped = TextureClass::from_gpu_texture("owner-view", owner_view.clone()).unwrap();
+        let cached = second.ensure_gpu_texture_view(&wrapped).unwrap();
+        assert_eq!(*cached, owner_view);
+        assert!(Arc::ptr_eq(&cached, &second.ensure_gpu_texture_view(&wrapped).unwrap()));
     }
 
     #[test]

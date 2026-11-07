@@ -81,27 +81,30 @@ pub(crate) fn gameplay_to_render_transform(matrix: Mat4) -> Mat4 {
     matrix
 }
 
-/// C++ `WW3DAssetManager::Get_Texture` parity for the ww3d mesh pass-texture
-/// lane: resolve a W3D texture name against the archive-backed TextureManager
-/// raw cache and hand the ww3d renderer decoded RGBA8 pixels. The mesh lane's
-/// `MaterialPassClass` textures are W3D placeholders (name only), so without
-/// this bridge every unit/building material binds the white fallback.
+/// Resolve an archive texture while retaining authored DDS blocks and mips.
 fn resolve_archive_pass_texture(
     asset_manager: &Mutex<crate::assets::AssetManager>,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
     name: &str,
 ) -> Option<TextureClass> {
     let requested = name.trim();
-    let (data, width, height) = archive_texture_rgba8(asset_manager, name)?;
-    let mut texture =
-        TextureClass::with_format(requested, width, height, TextureFormat::Rgba8Unorm);
-    texture.replace_pixels(data).ok()?;
+    if requested.is_empty() || requested.eq_ignore_ascii_case("none") {
+        return None;
+    }
+    let mut manager = asset_manager.lock().unwrap_or_else(|e| e.into_inner());
+    manager.prime_texture_raw_blocking(requested);
+    let raw = manager.get_raw_texture(requested)?;
+    if raw.dds_compression.is_some() {
+        let gpu = manager.gpu_texture_for_cached_raw(device, queue, requested).ok()?;
+        return TextureClass::from_gpu_texture(requested, gpu.view.clone()).ok();
+    }
+    let mut texture = TextureClass::with_format(requested, raw.width, raw.height, TextureFormat::Rgba8Unorm);
+    texture.replace_pixels(raw.data.clone()).ok()?;
     Some(texture)
 }
 
-/// Resolve a W3D texture name through the archive-backed TextureManager raw
-/// cache into decoded RGBA8 pixels (first visible use loads synchronously,
-/// W3DAssetManager.cpp:127-225). Block-compressed DDS payloads decode to
-/// RGBA8 because every bind path only uploads 32-bit surfaces.
+/// Resolve a W3D texture name into decoded RGBA8 pixels for CPU consumers.
 fn archive_texture_rgba8(
     asset_manager: &Mutex<crate::assets::AssetManager>,
     name: &str,
@@ -112,8 +115,7 @@ fn archive_texture_rgba8(
     }
     let mut manager = asset_manager.lock().unwrap_or_else(|e| e.into_inner());
     manager.prime_texture_raw_blocking(requested);
-    let raw = manager.get_raw_texture(requested)?.clone();
-    drop(manager);
+    let raw = manager.get_raw_texture(requested)?;
 
     let decoded = match raw.dds_compression {
         Some(DdsCompression::Dxt1) => decode_dxt1(&raw.data, raw.width, raw.height),
@@ -157,8 +159,10 @@ pub(crate) fn install_archive_pass_texture_provider(
     renderer: &WgpuMainRenderer,
     asset_manager: Arc<Mutex<crate::assets::AssetManager>>,
 ) {
+    let device = renderer.device().as_ref().clone();
+    let queue = renderer.queue().as_ref().clone();
     let provider: MeshPassTextureProvider =
-        Arc::new(move |name| resolve_archive_pass_texture(&asset_manager, name));
+        Box::new(move |name| resolve_archive_pass_texture(&asset_manager, &device, &queue, name));
     if let Err(err) = renderer.set_pass_texture_provider(provider) {
         warn!("Failed to install ww3d pass-texture provider: {err:?}");
     }

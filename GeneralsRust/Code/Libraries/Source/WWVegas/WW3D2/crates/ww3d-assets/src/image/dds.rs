@@ -188,6 +188,7 @@ impl DdsCompression {
 }
 
 /// DDS compressed data
+#[derive(Debug, Clone)]
 pub struct DdsData {
     pub width: u32,
     pub height: u32,
@@ -224,14 +225,9 @@ impl DdsData {
             return None;
         }
 
-        let offset = self.level_offsets[level as usize] as usize;
-        let size = self.level_sizes[level as usize] as usize;
-
-        if offset + size <= self.data.len() {
-            Some(&self.data[offset..offset + size])
-        } else {
-            None
-        }
+        let offset = *self.level_offsets.get(level as usize)? as usize;
+        let size = *self.level_sizes.get(level as usize)? as usize;
+        self.data.get(offset..offset.checked_add(size)?)
     }
 }
 
@@ -323,6 +319,9 @@ pub fn load_dds_from_memory(data: &[u8]) -> ImageDecodeResult<DdsData> {
     // Validate header
     if header.size != header_size as u32 {
         return Err(Error::InvalidData("Invalid DDS header size".to_string()));
+    }
+    if header.width == 0 || header.height == 0 {
+        return Err(Error::InvalidData("Invalid DDS dimensions".to_string()));
     }
 
     // Determine texture format
@@ -513,6 +512,9 @@ pub fn load_dds_from_memory(data: &[u8]) -> ImageDecodeResult<DdsData> {
     } else {
         1
     };
+    if width == 0 || height == 0 || mip_levels > 32 - width.max(height).leading_zeros() {
+        return Err(Error::InvalidData("Invalid DDS dimensions or mip count".into()));
+    }
 
     if mip_levels > 2 {
         mip_levels -= 2;
@@ -564,7 +566,7 @@ pub fn load_dds_from_memory(data: &[u8]) -> ImageDecodeResult<DdsData> {
 }
 
 mod block_decode;
-pub use block_decode::{decode_dxt1, decode_dxt3, decode_dxt5};
+pub use block_decode::{decode_dxt1, decode_dxt1_into, decode_dxt3, decode_dxt3_into, decode_dxt5, decode_dxt5_into};
 
 #[cfg(test)]
 mod tests {

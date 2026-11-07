@@ -181,12 +181,12 @@ impl MeshBindCache {
         )
     }
 
-    /// The default view of `texture`, created once while the texture is used.
-    pub(super) fn texture_view(&mut self, texture: &wgpu::Texture) -> Arc<wgpu::TextureView> {
+    /// The default view of `texture`, reusing the owner's view when available.
+    pub(super) fn texture_view(&mut self, texture: &wgpu::Texture, existing: Option<&wgpu::TextureView>) -> Arc<wgpu::TextureView> {
         let frame = self.frame;
         let entry = self.texture_views.entry(texture.clone()).or_insert_with(|| {
             (
-                Arc::new(texture.create_view(&wgpu::TextureViewDescriptor::default())),
+                Arc::new(existing.cloned().unwrap_or_else(|| texture.create_view(&wgpu::TextureViewDescriptor::default()))),
                 frame,
             )
         });

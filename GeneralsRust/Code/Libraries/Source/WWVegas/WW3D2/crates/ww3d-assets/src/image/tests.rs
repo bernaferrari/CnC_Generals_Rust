@@ -86,6 +86,20 @@ fn software_dxt_blocks_keep_row_order_and_alpha() {
     assert_eq!(&decode_dxt5(&dxt5, 4, 4).unwrap()[..4], &[255, 0, 0, 200]);
 }
 
+#[test]
+fn software_decode_reuses_storage_for_distinct_authored_levels() {
+    let red = [0x00, 0xf8, 0, 0, 0, 0, 0, 0];
+    let blue = [0x1f, 0, 0, 0, 0, 0, 0, 0];
+    let mut pixels = Vec::new();
+    dds::decode_dxt1_into(&red.repeat(4), 8, 8, &mut pixels).unwrap();
+    let allocation = pixels.as_ptr();
+    assert_eq!(&pixels[..4], &[255, 0, 0, 255]);
+    dds::decode_dxt1_into(&blue, 4, 4, &mut pixels).unwrap();
+    assert_eq!(pixels.as_ptr(), allocation);
+    assert_eq!(pixels.len(), 64);
+    assert_eq!(&pixels[..4], &[0, 0, 255, 255]);
+}
+
 fn tga_bytes(descriptor: u8, image_type: u8, bits: u8, pixels: &[u8]) -> Vec<u8> {
     let mut header = tga::TgaHeader::zeroed();
     header.width = 2;

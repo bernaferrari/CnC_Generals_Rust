@@ -94,6 +94,17 @@ impl HostDockApproachQueues {
             queue.on_enter_reached(docker_id);
         }
     }
+    pub(crate) fn on_approach_reached(&mut self, dock_id: ObjectId, docker_id: ObjectId) {
+        if let Some(queue) = self.queues.get_mut(&dock_id) {
+            queue.on_approach_reached(docker_id);
+        }
+    }
+    pub(crate) fn owns_approach(&self, dock_id: ObjectId, docker_id: ObjectId) -> bool {
+        self.queues.get(&dock_id).is_some_and(|queue| queue.index_of(docker_id).is_some())
+    }
+
+
+
 
     pub(crate) fn cancel_dock(
         &mut self,
@@ -334,7 +345,12 @@ fn tick_dock_approach(
     };
     let goal =
         queue.approach_world_position(slot as usize, docker_pos, dock_pos, dock_major_radius);
-    if docker_pos.distance(goal) > DOCK_APPROACH_ARRIVAL_SLOP {
+    let reached = if defer_enter_reached {
+        queue.index_of(docker_id).and_then(|index| queue.reached.get(index as usize)).copied().unwrap_or(false)
+    } else {
+        docker_pos.distance(goal) <= DOCK_APPROACH_ARRIVAL_SLOP
+    };
+    if !reached {
         queue.clear_wait_started(docker_id);
         return DockApproachTick::PathTo(goal);
     }
@@ -459,10 +475,10 @@ impl HostDockApproachQueue {
 
     /// C++ `DockUpdate::reserveApproachPosition` — returns the reserved index.
     pub fn reserve_approach_position(&mut self, docker: ObjectId) -> Option<i32> {
+        if let Some(index) = self.index_of(docker) {
+            return Some(index);
+        }
         for (index, owner) in self.owners.iter().enumerate() {
-            if *owner == Some(docker) {
-                return Some(index as i32);
-            }
             if owner.is_none() {
                 self.owners[index] = Some(docker);
                 self.reached[index] = false;
@@ -472,7 +488,6 @@ impl HostDockApproachQueue {
         if self.number_approach_positions == DYNAMIC_APPROACH_VECTOR_FLAG {
             self.owners.push(Some(docker));
             self.reached.push(false);
-            self.waiting_bones.push(Vec3::ZERO);
             return Some((self.owners.len() - 1) as i32);
         }
         None
@@ -561,12 +576,9 @@ impl HostDockApproachQueue {
         dock_major_radius: f32,
     ) -> Vec3 {
         if self.number_approach_position_bones > 0 {
-            if let Some(&bone) = self.waiting_bones.get(slot) {
-                return bone;
-            }
+            return self.waiting_bones.get(slot).copied().unwrap_or(dock_pos);
         }
         let mut offset = docker_pos - dock_pos;
-        offset.y = 0.0;
         if offset.length_squared() > 0.0001 {
             offset = offset.normalize() * (dock_major_radius.max(0.0) * 0.5);
         }

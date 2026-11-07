@@ -265,7 +265,7 @@ impl Render2DGpuContext {
     ) -> wgpu::BindGroup {
         let (view, sampler) = match texture {
             Some(texture) => {
-                if texture.gpu_texture.is_none() && !texture.data.is_empty() {
+                if texture.gpu_texture.is_none() && (!texture.data.is_empty() || texture.dds_data().is_some()) {
                     // Upload CPU texture data on demand.
                     if let Err(err) = texture.create_wgpu_texture(self.device(), self.queue()) {
                         warn!(

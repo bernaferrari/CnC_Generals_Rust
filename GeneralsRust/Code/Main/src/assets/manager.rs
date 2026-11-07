@@ -1325,6 +1325,17 @@ impl AssetManager {
         self.texture_manager.get_raw_texture(texture_name)
     }
 
+    /// Upload an already cached raw texture through this manager's GPU cache.
+    /// Unlike the general loader this never substitutes a missing texture.
+    pub fn gpu_texture_for_cached_raw(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        texture_name: &str,
+    ) -> Result<&GPUTexture> {
+        self.texture_manager.gpu_texture_for_cached_raw(device, queue, texture_name)
+    }
+
     pub fn is_known_missing_texture(&self, texture_name: &str) -> bool {
         self.texture_manager.is_known_missing_texture(texture_name)
     }

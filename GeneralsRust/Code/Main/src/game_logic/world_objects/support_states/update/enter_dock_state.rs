@@ -220,7 +220,7 @@ impl GameLogic {
                 self.cancel_dock_reservation(object_id);
                 return Ok(());
             }
-            if self.try_claim_dock(container_id, object_id)? {
+            if self.try_claim_railed_dock(container_id, object_id, effects)? {
                 let clear_to_enter = self.railed_dock_accepts_rider(container_id, object_id);
                 if clear_to_enter {
                     let config = self.railed_dock_config(container_id).ok_or_else(|| {

@@ -30,7 +30,9 @@ pub struct TextureClass {
     pub height: u32,
     pub format: TextureFormat,
     pub data: Vec<u8>,
+    dds: Option<ww3d_assets::image::DdsData>,
     pub gpu_texture: Option<wgpu::Texture>,
+    gpu_view: Option<wgpu::TextureView>,
     pub stage_settings: TextureStageSettings,
 }
 
@@ -43,7 +45,17 @@ impl Clone for TextureClass {
             height: self.height,
             format: self.format,
             data: self.data.clone(),
-            gpu_texture: None, // Don't clone the GPU texture, recreate it when needed
+            dds: self.dds.clone(),
+            gpu_texture: if self.data.is_empty() && self.dds.is_none() {
+                self.gpu_texture.clone()
+            } else {
+                None
+            },
+            gpu_view: if self.data.is_empty() && self.dds.is_none() {
+                self.gpu_view.clone()
+            } else {
+                None
+            },
             stage_settings: self.stage_settings,
         }
     }
@@ -73,10 +85,70 @@ impl TextureClass {
             height,
             format,
             data: vec![0; Self::storage_size(width, height, format)],
+            dds: None,
             gpu_texture: None,
+            gpu_view: None,
             stage_settings: TextureStageSettings::default(),
         }
     }
+
+    /// Wrap an already uploaded texture without allocating CPU pixel storage.
+    pub fn from_gpu_texture(name: &str, view: wgpu::TextureView) -> Result<Self> {
+        let texture = view.texture().clone();
+        let format = match texture.format() {
+            wgpu::TextureFormat::Bc1RgbaUnorm => TextureFormat::Bc1RgbaUnorm,
+            wgpu::TextureFormat::Bc2RgbaUnorm => TextureFormat::Bc2RgbaUnorm,
+            wgpu::TextureFormat::Bc3RgbaUnorm => TextureFormat::Bc3RgbaUnorm,
+            wgpu::TextureFormat::Bgra8Unorm => TextureFormat::Bgra8Unorm,
+            wgpu::TextureFormat::Rgba8Unorm => TextureFormat::Rgba8Unorm,
+            format => return Err(Error::InvalidData(format!("Unsupported GPU texture format: {format:?}"))),
+        };
+        Ok(Self {
+            name: name.to_owned(), width: texture.width(), height: texture.height(),
+            format, data: Vec::new(), dds: None, gpu_texture: Some(texture),
+            gpu_view: Some(view),
+            stage_settings: TextureStageSettings::default(),
+        })
+    }
+    /// Retain a two-dimensional DDS block chain for upload or software decode.
+    pub fn from_dds_data(name: &str, dds: ww3d_assets::image::DdsData) -> Result<Self> {
+        use ww3d_assets::image::{DdsCompression, DdsTextureType};
+        let format = match dds.compression {
+            Some(DdsCompression::Dxt1) => TextureFormat::Bc1RgbaUnorm,
+            Some(DdsCompression::Dxt3) => TextureFormat::Bc2RgbaUnorm,
+            Some(DdsCompression::Dxt5) => TextureFormat::Bc3RgbaUnorm,
+            None => return Err(Error::InvalidData("DDS is not block compressed".into())),
+        };
+        if dds.texture_type != DdsTextureType::Texture2D || dds.width == 0 || dds.height == 0
+            || dds.mip_levels == 0 || dds.mip_levels > ww3d_gpu::mips::full_mip_count(dds.width, dds.height)
+            || dds.level_offsets.len() != dds.mip_levels as usize
+            || dds.level_sizes.len() != dds.mip_levels as usize
+        {
+            return Err(Error::InvalidData("Invalid 2D DDS mip chain".into()));
+        }
+        let compression = dds.compression.unwrap();
+        for level in 0..dds.mip_levels {
+            let width = (dds.width >> level).max(1);
+            let height = (dds.height >> level).max(1);
+            if dds.get_level_data(level).map(|bytes| bytes.len())
+                != Some(compression.expected_payload_size(width, height))
+            {
+                return Err(Error::InvalidData("Invalid DDS mip payload".into()));
+            }
+        }
+        Ok(Self {
+            name: name.to_owned(), width: dds.width, height: dds.height, format,
+            data: Vec::new(), dds: Some(dds), gpu_texture: None,
+            gpu_view: None,
+            stage_settings: TextureStageSettings::default(),
+        })
+    }
+
+    /// Authored compressed levels, when this texture came from a DDS.
+    pub fn dds_data(&self) -> Option<&ww3d_assets::image::DdsData> {
+        self.dds.as_ref()
+    }
+
 
     /// Create a placeholder texture from W3D metadata, deferring actual image
     /// loading until the texture manager resolves the resource.
@@ -121,11 +193,18 @@ impl TextureClass {
             )));
         }
         self.data = data;
+        self.dds = None;
+        self.gpu_view = None;
         Ok(())
     }
 
     /// Produce a CPU surface clone of this texture.
     pub fn to_surface(&self) -> Result<SurfaceClass> {
+        if let Some(dds) = &self.dds {
+            let pixels = dds.get_level_data(0)
+                .ok_or_else(|| Error::InvalidData("DDS base level missing".into()))?;
+            return SurfaceClass::from_bytes(self.width, self.height, self.format, pixels);
+        }
         let base_size = Self::storage_size(self.width, self.height, self.format);
         if self.data.len() < base_size {
             return Err(Error::InvalidData(format!(
@@ -181,6 +260,11 @@ impl TextureClass {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<()> {
+        if let Some(dds) = &self.dds {
+            self.gpu_texture = Some(upload_dds_texture(device, queue, &self.name, dds)?);
+            self.gpu_view = None;
+            return Ok(());
+        }
         if self.data.is_empty() {
             return Err(Error::Generic("No texture data available".to_string()));
         }
@@ -257,6 +341,7 @@ impl TextureClass {
         );
 
         self.gpu_texture = Some(texture);
+        self.gpu_view = None;
         Ok(())
     }
 
@@ -270,11 +355,16 @@ impl TextureClass {
         self.stage_settings = settings;
     }
 
+    /// Previously created default view, when supplied by the texture owner.
+    pub fn gpu_view(&self) -> Option<&wgpu::TextureView> {
+        self.gpu_view.as_ref()
+    }
+
     /// Get WGPU texture view for binding
     pub fn get_texture_view(&self) -> Option<wgpu::TextureView> {
-        self.gpu_texture
+        self.gpu_view.clone().or_else(|| self.gpu_texture
             .as_ref()
-            .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default()))
+            .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default())))
     }
 
     /// Get sort level for texture batching
@@ -340,6 +430,91 @@ impl TextureClass {
         (Self::calculate_bytes_per_row(width, format) * Self::rows_per_image(height, format))
             as usize
     }
+}
+
+/// Upload authored BC mip levels, decoding each level when BC is unavailable.
+pub fn upload_dds_texture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    label: &str,
+    dds: &ww3d_assets::image::DdsData,
+) -> Result<wgpu::Texture> {
+    if dds.texture_type != ww3d_assets::image::DdsTextureType::Texture2D {
+        return Err(Error::InvalidData("DDS is not a 2D texture".into()));
+    }
+    let compression = dds.compression.ok_or_else(|| Error::InvalidData("DDS is not compressed".into()))?;
+    upload_dds_levels(device, queue, label, dds.width, dds.height, dds.mip_levels, compression,
+        |level| dds.get_level_data(level))
+}
+
+/// Upload a borrowed sequence of compressed DDS levels without duplicating blocks.
+pub fn upload_dds_levels<'a>(
+    device: &wgpu::Device, queue: &wgpu::Queue, label: &str,
+    base_width: u32, base_height: u32, mip_levels: u32,
+    compression: ww3d_assets::image::DdsCompression,
+    level_data: impl Fn(u32) -> Option<&'a [u8]>,
+) -> Result<wgpu::Texture> {
+    use ww3d_assets::image::dds::{DdsCompression, decode_dxt1_into, decode_dxt3_into, decode_dxt5_into};
+    if base_width == 0 || base_height == 0 || mip_levels == 0
+        || mip_levels > ww3d_gpu::mips::full_mip_count(base_width, base_height)
+        || (0..mip_levels).any(|level| {
+            let width = (base_width >> level).max(1);
+            let height = (base_height >> level).max(1);
+            level_data(level).map(|data| data.len())
+                != Some(compression.expected_payload_size(width, height))
+        })
+    {
+        return Err(Error::InvalidData("Invalid 2D DDS mip chain".into()));
+    }
+    let compressed = device.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC)
+        && base_width % 4 == 0 && base_height % 4 == 0;
+    let format = if compressed {
+        match compression {
+            DdsCompression::Dxt1 => wgpu::TextureFormat::Bc1RgbaUnorm,
+            DdsCompression::Dxt3 => wgpu::TextureFormat::Bc2RgbaUnorm,
+            DdsCompression::Dxt5 => wgpu::TextureFormat::Bc3RgbaUnorm,
+        }
+    } else {
+        wgpu::TextureFormat::Rgba8Unorm
+    };
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size: wgpu::Extent3d { width: base_width, height: base_height, depth_or_array_layers: 1 },
+        mip_level_count: mip_levels, sample_count: 1,
+        dimension: wgpu::TextureDimension::D2, format,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let mut decoded = Vec::new();
+    for level in 0..mip_levels {
+        let width = (base_width >> level).max(1);
+        let height = (base_height >> level).max(1);
+        let blocks = level_data(level)
+            .ok_or_else(|| Error::InvalidData("Missing DDS mip payload".into()))?;
+        let data = if compressed {
+            blocks
+        } else {
+            match compression {
+                DdsCompression::Dxt1 => decode_dxt1_into(blocks, width, height, &mut decoded),
+                DdsCompression::Dxt3 => decode_dxt3_into(blocks, width, height, &mut decoded),
+                DdsCompression::Dxt5 => decode_dxt5_into(blocks, width, height, &mut decoded),
+            }.map_err(|err| Error::InvalidData(err.to_string()))?;
+            decoded.as_slice()
+        };
+        let (copy_width, copy_height, bytes_per_row, rows_per_image) = if compressed {
+            (width.div_ceil(4) * 4, height.div_ceil(4) * 4,
+             width.div_ceil(4) * compression.block_size_bytes(), height.div_ceil(4))
+        } else {
+            (width, height, width * 4, height)
+        };
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo { texture: &texture, mip_level: level, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            data,
+            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(bytes_per_row), rows_per_image: Some(rows_per_image) },
+            wgpu::Extent3d { width: copy_width, height: copy_height, depth_or_array_layers: 1 },
+        );
+    }
+    Ok(texture)
 }
 
 /// Texture formats
@@ -492,6 +667,11 @@ impl DDSLoader {
         if data.len() < 4 || &data[0..4] != b"DDS " {
             return Err(Error::Generic("Not a valid DDS file".to_string()));
         }
+        if data.get(84..88).is_some_and(|fourcc| matches!(fourcc, b"DXT1" | b"DXT2" | b"DXT3" | b"DXT4" | b"DXT5")) {
+            let dds = ww3d_assets::image::load_dds_from_memory(data)
+                .map_err(|err| Error::InvalidData(err.to_string()))?;
+            return TextureClass::from_dds_data(name, dds);
+        }
 
         let mut cursor = std::io::Cursor::new(&data[4..]);
         let header: DDSHeader = DDSHeader::read_le(&mut cursor)
@@ -605,6 +785,57 @@ impl DDSLoader {
 mod tests {
     use super::*;
     use image::{ImageBuffer, Rgba};
+
+    #[test]
+    fn compressed_texture_retains_authored_mips() {
+        let dds = ww3d_assets::image::DdsData {
+            width: 8, height: 8, depth: 1, mip_levels: 2,
+            format: ww3d_assets::image::ImageFormat::Bc1RgbaUnorm,
+            texture_type: ww3d_assets::image::DdsTextureType::Texture2D,
+            data: [vec![7; 32], vec![9; 8]].concat(),
+            level_offsets: vec![0, 32], level_sizes: vec![32, 8],
+            compression: Some(ww3d_assets::image::DdsCompression::Dxt1),
+        };
+        let texture = TextureClass::from_dds_data("mips", dds).unwrap();
+        assert_eq!(texture.dds_data().unwrap().get_level_data(1), Some(&[9; 8][..]));
+    }
+
+    #[test]
+    fn dds_upload_uses_enabled_device_features_and_preserves_levels() {
+        use ww3d_assets::image::{DdsCompression, DdsData, DdsTextureType};
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower, compatible_surface: None,
+            force_fallback_adapter: false, apply_limit_buckets: false,
+        })).expect("DDS upload test requires a GPU adapter");
+        for features in [wgpu::Features::empty(), adapter.features() & wgpu::Features::TEXTURE_COMPRESSION_BC] {
+            let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+                required_features: features, ..Default::default()
+            })).expect("DDS upload test device");
+            for compression in [DdsCompression::Dxt1, DdsCompression::Dxt3, DdsCompression::Dxt5] {
+                let block = compression.block_size_bytes();
+                let dds = DdsData {
+                    width: 8, height: 8, depth: 1, mip_levels: 2,
+                    format: compression.format(), texture_type: DdsTextureType::Texture2D,
+                    data: vec![0; (block * 5) as usize], level_offsets: vec![0, block * 4],
+                    level_sizes: vec![block * 4, block], compression: Some(compression),
+                };
+                let texture = upload_dds_texture(&device, &queue, "DDS test", &dds).unwrap();
+                assert_eq!(texture.mip_level_count(), 2);
+                let expected = if features.contains(wgpu::Features::TEXTURE_COMPRESSION_BC) {
+                    match compression {
+                        DdsCompression::Dxt1 => wgpu::TextureFormat::Bc1RgbaUnorm,
+                        DdsCompression::Dxt3 => wgpu::TextureFormat::Bc2RgbaUnorm,
+                        DdsCompression::Dxt5 => wgpu::TextureFormat::Bc3RgbaUnorm,
+                    }
+                } else { wgpu::TextureFormat::Rgba8Unorm };
+                assert_eq!(texture.format(), expected);
+            }
+        }
+    }
 
     #[test]
     fn load_from_file_decodes_png_with_real_dimensions() {

@@ -2243,6 +2243,7 @@ async fn acquire_or_create_gpu_device(
         .max_samplers_per_shader_stage
         .max(limits.max_samplers_per_shader_stage);
     let limits = limits.using_resolution(adapter_limits);
+    let features = features | (adapter.features() & wgpu::Features::TEXTURE_COMPRESSION_BC);
     Ok(Arc::new(
         GpuDevice::create_device(adapter, features, limits, authority)
             .await
@@ -2365,6 +2366,23 @@ pub fn enumerate_adapters(backends: wgpu::Backends) -> Vec<wgpu::AdapterInfo> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn engine_negotiates_bc_from_the_actual_adapter() {
+        let _guard = engine_test_lock();
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
+        let adapter = pollster::block_on(request_adapter(&instance, None, wgpu::PowerPreference::LowPower))
+            .expect("BC negotiation test requires an adapter");
+        let expected = adapter.features() & wgpu::Features::TEXTURE_COMPRESSION_BC;
+        let authority = DeviceAuthority::new();
+        let device = pollster::block_on(acquire_or_create_gpu_device(
+            &adapter, wgpu::Features::empty(), wgpu::Limits::downlevel_defaults(), &authority,
+        )).expect("BC negotiation test device");
+        assert_eq!(device.wgpu_device().features() & wgpu::Features::TEXTURE_COMPRESSION_BC, expected);
+    }
+
 
     #[test]
     fn config_defaults_are_sensible() {

@@ -244,11 +244,20 @@ impl GameLogic {
 
     pub(crate) fn restore_host_dock_approach_queues(
         &mut self,
-        entries: Vec<(
+        mut entries: Vec<(
             ObjectId,
             crate::game_logic::host_supply_gather::HostDockApproachQueue,
         )>,
     ) {
+        // DockUpdate::xfer reads the packed reached booleans into a temporary
+        // and does not write them back to the newly constructed vector.
+        for (dock_id, queue) in &mut entries {
+            if self.objects.get(dock_id).is_some_and(|dock|
+                dock.thing().template.dock_kind == crate::game_logic::DockKind::RailedTransport
+            ) {
+                queue.reached.fill(false);
+            }
+        }
         let owner_ids: std::collections::HashSet<_> = entries
             .iter()
             .flat_map(|(_, queue)| queue.owned_dockers())
@@ -294,11 +303,51 @@ impl GameLogic {
 
 
     pub(crate) fn try_claim_dock(&mut self, dock_id: ObjectId, docker_id: ObjectId) -> gamelogic::GameLogicResult<bool> {
-        self.with_own_services_mut(|this| this.try_claim_dock_bound(dock_id, docker_id))
+        self.with_own_services_mut(|this| this.try_claim_dock_bound(dock_id, docker_id, None))
     }
 
-    fn try_claim_dock_bound(&mut self, dock_id: ObjectId, docker_id: ObjectId) -> gamelogic::GameLogicResult<bool> {
+    pub(crate) fn try_claim_railed_dock(
+        &mut self, dock_id: ObjectId, docker_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        let waiting = self.railed_dock_waiting_world(dock_id, effects)
+            .map_err(gamelogic::GameLogicError::Configuration)?;
+        self.with_own_services_mut(|this| this.try_claim_dock_bound(dock_id, docker_id, Some(waiting)))
+    }
+
+    fn try_claim_dock_bound(&mut self, dock_id: ObjectId, docker_id: ObjectId, rail_waiting: Option<Vec<Vec3>>) -> gamelogic::GameLogicResult<bool> {
         self.reconcile_host_dock_cancellations_for_dock(dock_id);
+        if rail_waiting.is_some() {
+            let pending = self.objects.get(&dock_id)
+                .and_then(|dock| dock.railed_dock.queue_moves.get(&docker_id).copied());
+            if let Some(pending) = pending {
+                if !self.railed_birth_alive(pending.docker)
+                    || !self.host_dock_approach_queues.owns_approach(dock_id, docker_id) {
+                    if let Some(dock) = self.objects.get_mut(&dock_id) {
+                        dock.railed_dock.queue_moves.remove(&docker_id);
+                    }
+                } else {
+                    let rider = &self.objects[&docker_id];
+                    if rider.get_position() != pending.goal
+                        && !(pending.started && Self::host_internal_move_reached_goal(rider))
+                    {
+                        if !pending.started {
+                            let state = rider.ai_state().clone();
+                            let started = self.dock_approach_with_state(docker_id, pending.goal, state);
+                            if let Some(stage) = self.objects.get_mut(&dock_id)
+                                .and_then(|dock| dock.railed_dock.queue_moves.get_mut(&docker_id)) {
+                                stage.started = started;
+                            }
+                        }
+                        return Ok(false);
+                    }
+                    self.host_dock_approach_queues.on_approach_reached(dock_id, docker_id);
+                    if let Some(dock) = self.objects.get_mut(&dock_id) {
+                        dock.railed_dock.queue_moves.remove(&docker_id);
+                    }
+                }
+            }
+        }
         let (
             current,
             template_name,
@@ -370,7 +419,9 @@ impl GameLogic {
                 &template_name, dock_kind, is_repair, delete_when_empty,
             )
         };
-        let waiting_bones = if ignore_bones || n <= 0 {
+        let waiting_bones = if let Some(waiting) = rail_waiting.as_ref() {
+            waiting.clone()
+        } else if ignore_bones || n <= 0 {
             Vec::new()
         } else {
             self.load_dock_waiting_bones_world(dock_id, n as usize)
@@ -425,12 +476,24 @@ impl GameLogic {
                 Ok(true)
             }
             crate::game_logic::host_supply_gather::DockApproachTick::PathTo(goal) => {
+                let goal = if rail_waiting.is_some() {
+                    self.find_owned_dock_approach_position(dock_id, docker_id, goal)?
+                } else {
+                    goal
+                };
                 let state = self
                     .objects
                     .get(&docker_id)
                     .map(|o| o.ai_state().clone())
                     .unwrap_or(AIState::Idle);
-                self.dock_approach_with_state(docker_id, goal, state);
+                let started = self.dock_approach_with_state(docker_id, goal, state);
+                if rail_waiting.is_some() {
+                    if let Some(docker) = self.railed_birth(docker_id) {
+                        if let Some(dock) = self.objects.get_mut(&dock_id) {
+                            dock.railed_dock.queue_moves.insert(docker_id, crate::game_logic::host_railed_transport::RailedQueueMove { docker, goal, started });
+                        }
+                    }
+                }
                 Ok(false)
             }
             crate::game_logic::host_supply_gather::DockApproachTick::TimedOut => {
@@ -538,7 +601,8 @@ impl GameLogic {
         }
         for (id, obj) in self.objects.registered() {
             if (obj.dock_active_docker == Some(docker_id)
-                || obj.repair_dock_last_id == Some(docker_id))
+                || obj.repair_dock_last_id == Some(docker_id)
+                || obj.railed_dock.queue_moves.contains_key(&docker_id))
                 && !docks.contains(id)
             {
                 docks.push(*id);

@@ -302,7 +302,32 @@ pub(crate) struct RailedDockState {
     pub push_per_frame: f32,
     pub unload_count: i32,
     pub approach: Option<RailedDockApproach>,
+    /// DockUpdate::xfer persists the pristine local coordinates and loaded flag.
+    pub positions: Option<RailedDockPositions>,
+    pub queue_moves: HashMap<ObjectId, RailedQueueMove>,
 }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct RailedDockPositions {
+    enter: Vec3,
+    action: Vec3,
+    exit: Vec3,
+    waiting: Vec<Vec3>,
+    /// m_numberApproachPositionBones is not transferred by DockUpdate::xfer.
+    #[serde(skip)]
+    restored: bool,
+}
+impl RailedDockPositions {
+    fn empty() -> Self { Self { enter: Vec3::ZERO, action: Vec3::ZERO, exit: Vec3::ZERO, waiting: Vec::new(), restored: false } }
+}
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub(crate) struct RailedQueueMove {
+    pub docker: RailedDockObject,
+    pub goal: Vec3,
+    pub started: bool,
+}
+
+
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub(crate) struct RailedDockApproach {
@@ -328,7 +353,7 @@ pub(crate) struct RailedDockObject {
 
 impl Default for RailedDockState {
     fn default() -> Self {
-        Self { dock_open: true, docking: None, pull_per_frame: 0.0, unloading: None, push_per_frame: 0.0, unload_count: -1, approach: None }
+        Self { dock_open: true, docking: None, pull_per_frame: 0.0, unloading: None, push_per_frame: 0.0, unload_count: -1, approach: None, positions: None, queue_moves: HashMap::new() }
     }
 }
 
@@ -345,6 +370,7 @@ impl RailedDockState {
     }
 
     pub(crate) fn cancel_approach(&mut self, docker: ObjectId) {
+        self.queue_moves.remove(&docker);
         if self.approach.is_some_and(|stage| stage.docker.id == docker) {
             self.approach = None;
         }
@@ -440,21 +466,29 @@ impl GameLogic {
             state.docker = self.railed_birth(state.docker.id).unwrap_or(RailedDockObject { id: state.docker.id, generation: 0 });
             state
         });
+        let queue_moves = dock.railed_dock.queue_moves.iter().map(|(&id, &state)| {
+            let docker = self.railed_birth(id).unwrap_or(RailedDockObject { id, generation: 0 });
+            (id, RailedQueueMove { docker, ..state })
+        }).collect();
         if let Some(dock) = self.objects.get_mut(&ferry) {
             dock.railed_dock.docking = docking;
             dock.railed_dock.unloading = unloading;
             dock.railed_dock.approach = approach;
+            dock.railed_dock.queue_moves = queue_moves;
+            if let Some(positions) = dock.railed_dock.positions.as_mut() {
+                positions.restored = true;
+            }
         }
     }
 
-    fn railed_birth(&self, id: ObjectId) -> Option<RailedDockObject> {
+    pub(crate) fn railed_birth(&self, id: ObjectId) -> Option<RailedDockObject> {
         let object = self.objects.get(&id)?;
         (object.visual_object_generation != 0).then_some(RailedDockObject {
             id, generation: object.visual_object_generation,
         })
     }
 
-    fn railed_birth_alive(&self, reference: RailedDockObject) -> bool {
+    pub(crate) fn railed_birth_alive(&self, reference: RailedDockObject) -> bool {
         reference.generation != 0 && self.objects.get(&reference.id)
             .is_some_and(|object| object.visual_object_generation == reference.generation)
     }
@@ -496,18 +530,72 @@ impl GameLogic {
         Ok(self.railed_bone_local_optional(ferry, name, effects)?.unwrap_or(Vec3::ZERO))
     }
 
+    /// DockUpdate loads all three coordinates together once per drawable
+    /// lifetime. With no drawable the source leaves positionsLoaded false.
+    pub(crate) fn railed_dock_positions(
+        &mut self, ferry: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Result<RailedDockPositions, String> {
+        let dock = self.objects.get(&ferry).ok_or("rail dock disappeared")?;
+        if let Some(positions) = dock.railed_dock.positions.clone() {
+            return Ok(positions);
+        }
+        if !dock.has_drawable {
+            return Ok(RailedDockPositions::empty());
+        }
+        let ignore = dock.kind_of_cpp_mask() & (1u128 << crate::game_logic::host_enum_table_residual::KINDOF_IGNORE_DOCKING_BONES) != 0;
+        let positions = if ignore {
+            RailedDockPositions::empty()
+        } else {
+            RailedDockPositions {
+                enter: self.railed_bone_local(ferry, "DockStart", effects)?,
+                action: self.railed_bone_local(ferry, "DockAction", effects)?,
+                exit: self.railed_bone_local(ferry, "DockEnd", effects)?,
+                waiting: {
+                    let count = self.railed_dock_approach_settings(ferry).map_or(0, |settings| settings.0);
+                    if count > 0 {
+                        self.railed_pristine_bones(ferry, "DockWaiting", 1, count as usize, effects)?
+                            .into_iter().map(|matrix| {
+                                let p = matrix.w_axis;
+                                Vec3::new(p.x, p.z, p.y)
+                            }).collect()
+                    } else {
+                        Vec::new()
+                    }
+                },
+                restored: false,
+            }
+        };
+        self.objects.get_mut(&ferry).ok_or("rail dock disappeared")?.railed_dock.positions = Some(positions.clone());
+        Ok(positions)
+    }
+
+    pub(crate) fn railed_dock_waiting_world(
+        &mut self, ferry: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Result<Vec<Vec3>, String> {
+        let positions = self.railed_dock_positions(ferry, effects)?;
+        let dock = self.objects.get(&ferry).ok_or("rail dock disappeared")?;
+        let transform = dock.get_transform_matrix();
+        if positions.restored && positions.waiting.is_empty() {
+            // The constructor's -1 bone count survives Xfer, so unlike the
+            // runtime zero count the restored dock does not apply boneless bias.
+            return Ok(vec![dock.get_position()]);
+        }
+        Ok(positions.waiting.into_iter().map(|point| transform.transform_point3(point)).collect())
+    }
+
     fn railed_exit_position(
-        &self, ferry: ObjectId, passenger: ObjectId,
+        &mut self, ferry: ObjectId, passenger: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Result<Vec3, String> {
-        let start = self.railed_bone_local(ferry, "DockStart", effects)?;
-        let end = self.railed_bone_local(ferry, "DockEnd", effects)?;
+        let positions = self.railed_dock_positions(ferry, effects)?;
         let ferry = self.objects.get(&ferry).ok_or("rail dock disappeared")?;
-        if start == Vec3::ZERO {
+        if positions.enter == Vec3::ZERO {
             return self.objects.get(&passenger).map(|p| p.get_position())
                 .ok_or_else(|| "rail passenger disappeared".to_owned());
         }
-        Ok(ferry.get_transform_matrix().transform_point3(end))
+        Ok(ferry.get_transform_matrix().transform_point3(positions.exit))
     }
 
     /// Clearance leads to DockStart and then DockAction, not directly to
@@ -520,8 +608,9 @@ impl GameLogic {
         let prior = self.objects.get(&ferry).and_then(|dock| dock.railed_dock.approach)
             .filter(|stage| stage.docker.id == docker && stage.docker.generation == birth.generation);
         if prior.is_none() {
-            let start = self.railed_bone_local(ferry, "DockStart", effects)?;
-            let action = self.railed_bone_local(ferry, "DockAction", effects)?;
+            let positions = self.railed_dock_positions(ferry, effects)?;
+            let start = positions.enter;
+            let action = positions.action;
             let dock = self.objects.get(&ferry).ok_or("rail dock disappeared")?;
             let rider = self.objects.get(&docker).ok_or("rail docker disappeared")?;
             let goal = if start == Vec3::ZERO {
@@ -875,7 +964,6 @@ impl GameLogic {
         let position = container.get_position();
         let yaw = container.get_orientation();
         let layer = container.pathfind_layer;
-        let _ = self.railed_exit_position(ferry, passenger, effects)?;
         if !self.railed_remove_contained_with_effects(ferry, passenger, effects)?
             || !self.railed_birth_alive(birth) || !self.railed_birth_alive(ferry_birth) { return Ok(()); }
         self.set_owned_pathfinder_layer(passenger, layer);
@@ -966,13 +1054,16 @@ impl GameLogic {
                 object.clear_moving_model_bits();
                 let has_ai = object.has_ai_update_interface();
                 if has_ai {
-                    object.set_ai_state(AIState::Idle, self.frame,
-                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events));
+                    self.unit_command_ai_idle_owned_with_effects(unloader.id, effects)
+                        .map_err(|error| error.to_string())?;
+                    if !self.railed_birth_alive(unloader) || !self.railed_birth_alive(ferry_birth) { return Ok(()); }
                 }
+                let object = self.objects.get_mut(&unloader.id).unwrap();
                 object.set_status_disabled_held(false);
                 object.set_status_unselectable(false);
                 if has_ai && self.objects.get(&ferry).is_some_and(|object| object.has_drawable) {
-                    let waiting = self.railed_bone_local(ferry, "DOCKWAITING07", effects)?;
+                    let waiting = self.railed_bone_local_optional(ferry, "DOCKWAITING07", effects)?
+                        .ok_or("rail dock exit requires DOCKWAITING07")?;
                     if let Some(ferry_object) = self.objects.get(&ferry) {
                         let waiting_world = ferry_object.get_transform_matrix().transform_point3(waiting);
                         self.unit_command_ai_move_to(unloader.id, waiting_world);
@@ -1275,6 +1366,7 @@ End
         let mut assets = crate::assets::AssetManager::new().unwrap();
         assets.admit_test_w3d_source("RailHull", make_model("RailHull", &[
             ("DockStart", [20., 0., 0.]), ("DockAction", [10., 0., 0.]),
+            ("DockWaiting01", [50., 0., 0.]),
             ("FIREPOINT01", [10., 0., 0.]), ("attach", [2., 0., 0.]),
             ("turret", [90., 0., 0.]),
         ]));
@@ -1282,7 +1374,7 @@ End
             ("turret", [4., 0., 0.]),
         ]));
         let mut world = GameLogic::new();
-        world.admit_object_ini_sources([("rail-turret.ini".into(), "
+        let ini = "
 Object TurretRailFerry
  KindOf = VEHICLE TRANSPORT SELECTABLE
  Draw = W3DModelDraw Hull
@@ -1308,6 +1400,7 @@ Object TurretRailFerry
   PassengersInTurret = Yes
  End
  Behavior = RailedTransportDockUpdate Dock
+  NumberApproachPositions = 1
  End
 End
 Object TurretRailRider
@@ -1317,7 +1410,8 @@ Object TurretRailRider
   InitialHealth = 100
  End
 End
-".into())]).unwrap();
+";
+        world.admit_object_ini_sources([("rail-turret.ini".into(), ini.into())]).unwrap();
         let ferry = world.create_object("TurretRailFerry", Team::USA, Vec3::ZERO).unwrap();
         let rider = world.create_object("TurretRailRider", Team::USA, Vec3::new(40., 0., 0.)).unwrap();
         let hull = world.objects.get_mut(&ferry).unwrap();
@@ -1327,7 +1421,33 @@ End
         let mut effects = crate::game_logic::ScriptPresentationEffects {
             pristine_bones: Some(&assets), ..Default::default()
         };
+        assert!(!world.try_claim_railed_dock(ferry, rider, &mut effects).unwrap());
+        assert_eq!(world.objects[&ferry].dock_active_docker, None,
+            "being within a pathfinding cell must not complete the approach");
+        let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+        let queued = builder.create_world_snapshot(&world).unwrap();
+        let queued_bytes = bincode_legacy::serialize(&queued).unwrap();
+        let queued: crate::save_load::snapshot::WorldSnapshot = bincode_legacy::deserialize(&queued_bytes).unwrap();
+        let mut queued_world = GameLogic::new();
+        queued_world.admit_object_ini_sources([("rail-turret.ini".into(), ini.into())]).unwrap();
+        builder.restore_from_snapshot(&queued, &mut queued_world).unwrap();
+        assert!(!queued_world.try_claim_railed_dock(ferry, rider, &mut Default::default()).unwrap());
+        assert_eq!(queued_world.objects[&ferry].dock_active_docker, None);
+        assert_eq!(queued_world.objects[&ferry].railed_dock.queue_moves[&rider].goal, Vec3::new(50., 0., 0.));
+        world.cancel_dock_reservation(rider);
         world.railed_dock_approach(ferry, rider, config, &mut effects).unwrap();
+        // DockUpdate::xfer owns the loaded coordinates; the receiving world
+        // must not consult a later model state when continuing the approach.
+        let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&world).unwrap();
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let snapshot: crate::save_load::snapshot::WorldSnapshot = bincode_legacy::deserialize(&bytes).unwrap();
+        let mut restored = GameLogic::new();
+        restored.admit_object_ini_sources([("rail-turret.ini".into(), ini.into())]).unwrap();
+        builder.restore_from_snapshot(&snapshot, &mut restored).unwrap();
+        let saved = restored.railed_dock_positions(ferry, &mut Default::default()).unwrap();
+        assert_eq!(saved.enter, Vec3::new(20., 0., 0.));
+        assert_eq!(saved.action, Vec3::new(10., 0., 0.));
         assert!(world.objects[&ferry].railed_dock.docking.is_none(), "DockStart must precede action");
         world.set_fixture_object_position(rider, Vec3::new(20., 0., 0.));
         world.railed_dock_approach(ferry, rider, config, &mut effects).unwrap();
@@ -1394,6 +1514,8 @@ Object RailPassenger
   MaxHealth = 100
   InitialHealth = 100
  End
+ Behavior = AIUpdateInterface Ai
+ End
 End
 ".into())]).unwrap();
         let ferry = world.create_object("RailFerry", Team::USA, Vec3::ZERO).unwrap();
@@ -1427,6 +1549,8 @@ End
         }
         assert!(!world.objects[&ferry].railed_dock.busy());
         assert!(!world.objects[&first].status.disabled_held);
+        assert_eq!(world.objects[&first].last_command_source,
+            crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI);
         assert_eq!(world.objects[&ferry].contained_unit_ids(), &[second]);
     }
 
