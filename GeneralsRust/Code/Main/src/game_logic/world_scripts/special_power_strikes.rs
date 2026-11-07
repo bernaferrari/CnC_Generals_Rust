@@ -746,8 +746,18 @@ impl GameLogic {
                 }
             }
 
+            // Damage is already applied and the deliveries reserved. Finish this
+            // wave even if one death callback fails, then propagate the error:
+            // retrying the wave would duplicate damage or lose its residuals.
+            let mut destruction_error = None;
             for (id, killer_team) in destroy_ids {
-                self.mark_object_for_destruction_with_effects(id, Some(killer_team), effects)?;
+                if let Err(error) =
+                    self.mark_object_for_destruction_with_effects(id, Some(killer_team), effects)
+                {
+                    if destruction_error.is_none() {
+                        destruction_error = Some(error);
+                    }
+                }
             }
 
             // C++ one SlowDeath on the flying missile — no registry instant blast.
@@ -913,6 +923,9 @@ impl GameLogic {
                         effects.script_events,
                     );
                 }
+            }
+            if let Some(error) = destruction_error {
+                return Err(error);
             }
         }
 
