@@ -2380,8 +2380,8 @@ fn launch_attack_sets_target_and_logs_host_attack() {
     let content = crate::assets::ReceivingStartupContent::from_sources(
         [(
             "ai-attack-fixture.ini".into(),
-            "Object AiAtkU\n KindOf = INFANTRY SELECTABLE ATTACKABLE\n Body = ActiveBody BodyTag\n  MaxHealth = 100\n  InitialHealth = 100\n End\nEnd\n\
-             Object AiAtkE\n KindOf = INFANTRY SELECTABLE ATTACKABLE\n Body = ActiveBody BodyTag\n  MaxHealth = 100\n  InitialHealth = 100\n End\nEnd\n"
+            "Object AiAtkU\n KindOf = INFANTRY SELECTABLE CAN_ATTACK\n Body = ActiveBody BodyTag\n  MaxHealth = 100\n  InitialHealth = 100\n End\nEnd\n\
+             Object AiAtkE\n KindOf = INFANTRY SELECTABLE CAN_ATTACK\n Body = ActiveBody BodyTag\n  MaxHealth = 100\n  InitialHealth = 100\n End\nEnd\n"
                 .into(),
         )],
         Arc::new(game_engine::common::rts::science::ScienceNameFacts::default()),
