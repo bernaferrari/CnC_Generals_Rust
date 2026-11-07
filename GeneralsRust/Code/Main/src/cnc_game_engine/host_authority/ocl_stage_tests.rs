@@ -19,13 +19,18 @@ impl OclNativeStageHarness {
                 ..Default::default()
             })
             .unwrap();
-            let graphics = GraphicsSystem::new(
-                engine.lock().device(),
-                engine.lock().queue(),
-                engine.lock().color_format(),
-                engine.lock().depth_format(),
-            )
-            .unwrap();
+            // Keep one guard for these reads: separate lock() temporaries in
+            // one call would retain the first guard until the statement ends.
+            let (device, queue, color_format, depth_format) = {
+                let engine = engine.lock();
+                (
+                    engine.device(),
+                    engine.queue(),
+                    engine.color_format(),
+                    engine.depth_format(),
+                )
+            };
+            let graphics = GraphicsSystem::new(device, queue, color_format, depth_format).unwrap();
             let pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
             Self { graphics, pipeline }
         }
@@ -241,6 +246,8 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
             receiving_owner.map_side.role = source_owner.map_side.role;
             peer.add_player(receiving_owner);
             peer.templates = source.templates.clone();
+            peer.receiving_module_content = source.receiving_module_content.clone();
+            peer.receiving_object_definitions = source.receiving_object_definitions.clone();
             peer.add_object(source.host_object(actor_id).unwrap().clone());
             assert_eq!(execute(&mut source, actor_id), "SavedSolo");
             assert_eq!(execute(&mut peer, actor_id), "Peer");
