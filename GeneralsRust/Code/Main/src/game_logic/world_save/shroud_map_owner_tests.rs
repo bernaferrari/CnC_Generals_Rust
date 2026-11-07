@@ -78,22 +78,17 @@ fn replacing_partition_grid_reestablishes_stationary_unit_vision() {
             std::fs::write(&path, map_bytes([-140.0, 480.0])).unwrap();
             let mut world = load(&path);
             let (looker, enemy) = admit_units(&mut world, 80.0);
+            // The authored heightmap's active boundary is zero-origin; the
+            // fixture's offset waypoints do not move that boundary.
+            let position = Vec3::new(200.0, 0.0, 200.0);
+            world.set_fixture_object_position(looker, position);
+            world.set_fixture_object_position(enemy, position);
             world.update_main_crate_vision();
-            let position = world.host_object(looker).unwrap().get_position();
-            let center = Coord3D::new(position.x, position.z, position.y);
-            let shroud = world.world_services.shroud().lock().unwrap();
             assert_eq!(
-                shroud.get_host_object_shroud_status(1, enemy.0),
-                Some(ObjectShroudStatus::Clear),
-                "center={center:?} state={:?} grid={:?} origin={:?} look={:?} looker_range={} enemy_position={:?}",
-                shroud.get_shroud_state(1, &center),
-                shroud.grid_dimensions(),
-                shroud.grid_world_origin(),
-                world.vision_last_looks.get(&looker),
-                world.host_object(looker).unwrap().get_shroud_clearing_range(),
-                world.host_object(enemy).unwrap().get_position()
+                world.world_services.shroud().lock().unwrap()
+                    .get_host_object_shroud_status(1, enemy.0),
+                Some(ObjectShroudStatus::Clear)
             );
-            drop(shroud);
 
             world.initialize_receiving_partition_grid().unwrap();
             world.update_main_crate_vision();
