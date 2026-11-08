@@ -1,10 +1,8 @@
-//! Audio backend descriptors mirroring the original Miles provider tables.
+//! Audio backend descriptors.
 //!
-//! This module does not yet swap concrete mixer implementations, but it
-//! centralises knowledge about the legacy DirectSound/WaveOut/EAX providers so
-//! the higher-level device code can report the same options the C++ version
-//! exposes. As platform specific backends arrive, they can plug into this
-//! registry.
+//! The 3D provider table retains legacy Miles identifiers for compatibility.
+//! Audio is mixed in software and sent to the platform through CPAL; selecting
+//! a legacy provider does not enable a separate hardware backend.
 
 use crate::{Driver2DKind, formats::AudioFormat, wwaudio::DriverType3D};
 
@@ -46,7 +44,7 @@ pub struct DriverDescriptor {
     pub hardware_accelerated: bool,
 }
 
-/// Registry of available audio backends mirroring the original tables.
+/// Registry of legacy 3D provider labels and the CPAL-backed 2D driver.
 #[derive(Debug, Clone)]
 pub struct BackendManager {
     providers: Vec<BackendDescriptor>,
@@ -104,24 +102,9 @@ impl BackendManager {
             },
         ];
 
-        // Names mirrored from the DirectSound/WaveOut driver selection.
         let drivers = vec![
             DriverDescriptor {
-                name: "Miles Fast 2D DirectSound",
-                backend: BackendKind::DirectSound,
-                driver_kind: Driver2DKind::DirectSound,
-                preferred_format: Some(default_format),
-                hardware_accelerated: true,
-            },
-            DriverDescriptor {
-                name: "Miles 2D WaveOut",
-                backend: BackendKind::WaveOut,
-                driver_kind: Driver2DKind::WaveOut,
-                preferred_format: Some(default_format),
-                hardware_accelerated: false,
-            },
-            DriverDescriptor {
-                name: "Software Mixer (Rodio)",
+                name: "Software Mixer (CPAL)",
                 backend: BackendKind::Software,
                 driver_kind: Driver2DKind::Unknown,
                 preferred_format: Some(default_format),
@@ -137,7 +120,7 @@ impl BackendManager {
         &self.providers
     }
 
-    /// Enumerate known 2D drivers.
+    /// Enumerate the available 2D output implementation.
     pub fn drivers(&self) -> &[DriverDescriptor] {
         &self.drivers
     }

@@ -7,7 +7,7 @@ authors = ["Westwood Studios", "Community Contributors"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/your-repo/cnc-generals-zero-hour"
 description = "WestWood Studios Audio Library - Rust conversion of the original WPAudio C++ library"
-keywords = ["audio", "gaming", "westwood", "cnc", "directsound"]
+keywords = ["audio", "gaming", "westwood", "cnc", "cpal"]
 categories = ["multimedia::audio", "game-development"]
 readme = "README.md"
 
@@ -21,7 +21,6 @@ examples = []
 internal = []
 
 # Audio backend features
-directsound = ["dep:windows", "dep:winapi"]
 alsa = ["dep:alsa"]
 pulseaudio = ["dep:pulse"] 
 coreaudio = ["dep:coreaudio-rs", "dep:core-foundation"]
@@ -59,13 +58,15 @@ parking_lot = {workspace = true}
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { workspace = true, optional = true, features = [
     "Win32_System_Threading",
+    "Win32_System_Kernel",
+    "Win32_System_Diagnostics_Debug",
     "Win32_System_Memory",
     "Win32_Media",
     "Win32_Media_Audio",
     "Win32_System_Com",
     "Win32_Foundation"
 ]}
-winapi = { workspace = true, optional = true, features = ["winuser", "mmsystem", "dsound"] }
+winapi = { workspace = true, optional = true, features = ["winuser", "mmsystem", "sysinfoapi"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 alsa = { workspace = true, optional = true }

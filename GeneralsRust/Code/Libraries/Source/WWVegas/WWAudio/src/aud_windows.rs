@@ -24,8 +24,7 @@ use windows::{
     Win32::{
         Foundation::*,
         Media::Audio::*,
-        System::{Memory::*, SystemServices::*, Threading::*},
-        UI::WindowsAndMessaging::*,
+        System::{Diagnostics::Debug::OutputDebugStringA, Memory::*, SystemServices::*, Threading::*},
     },
     core::*,
 };
@@ -538,36 +537,24 @@ pub fn read_wave_file_format<R: std::io::Read + std::io::Seek>(
                 let mut format_data = vec![0u8; format_size];
                 reader.read_exact(&mut format_data[..chunk_length])?;
 
-                if chunk_length >= std::mem::size_of::<WaveFormatEx>() {
-                    // SAFETY: Reads a WaveFormatEx (#[repr(C, packed)] POD)
-                    // straight from the fmt chunk; the branch guard ensures
-                    // format_data.len() >= size_of::<WaveFormatEx>(), so the
-                    // read is in bounds, initialized, and any bit pattern of
-                    // the POD struct is valid.
-                    wave_format = Some(unsafe {
-                        std::ptr::read(format_data.as_ptr() as *const WaveFormatEx)
-                    });
-                } else {
-                    // Create minimal format structure
-                    // SAFETY: mem::zeroed is valid for the all-POD
-                    // #[repr(C, packed)] WaveFormatEx; every field accepts
-                    // an all-zero bit pattern.
-                    let mut wf: WaveFormatEx = unsafe { mem::zeroed() };
-                    // SAFETY: Copies chunk_length bytes from the fmt-chunk
-                    // buffer into `wf`; the enclosing else branch guarantees
-                    // chunk_length < size_of::<WaveFormatEx>() and
-                    // format_data holds chunk_length readable bytes, so both
-                    // regions are valid for read/write and non-overlapping.
-                    unsafe {
-                        std::ptr::copy_nonoverlapping(
-                            format_data.as_ptr(),
-                            &mut wf as *mut _ as *mut u8,
-                            chunk_length,
-                        );
-                    }
-                    wf.cb_size = chunk_length as u16;
-                    wave_format = Some(wf);
-                }
+                // The buffer is at least 18 bytes; missing fmt bytes remain zero.
+                wave_format = Some(WaveFormatEx {
+                    format_tag: u16::from_le_bytes([format_data[0], format_data[1]]),
+                    channels: u16::from_le_bytes([format_data[2], format_data[3]]),
+                    samples_per_sec: u32::from_le_bytes([
+                        format_data[4], format_data[5], format_data[6], format_data[7],
+                    ]),
+                    avg_bytes_per_sec: u32::from_le_bytes([
+                        format_data[8], format_data[9], format_data[10], format_data[11],
+                    ]),
+                    block_align: u16::from_le_bytes([format_data[12], format_data[13]]),
+                    bits_per_sample: u16::from_le_bytes([format_data[14], format_data[15]]),
+                    cb_size: if chunk_length < std::mem::size_of::<WaveFormatEx>() {
+                        chunk_length as u16
+                    } else {
+                        u16::from_le_bytes([format_data[16], format_data[17]])
+                    },
+                });
             }
             FOURCC_DATA => {
                 data_size = chunk_length;
@@ -592,7 +579,8 @@ pub fn read_wave_file_format<R: std::io::Read + std::io::Seek>(
         )));
     }
 
-    let (compression, block_size, sample_width) = match wformat.format_tag {
+    let format_tag = wformat.format_tag;
+    let (compression, block_size, sample_width) = match format_tag {
         WAVE_FORMAT_PCM => (AudioCompression::None, None, wformat.bits_per_sample / 8),
         WAVE_FORMAT_IMA_ADPCM => (AudioCompression::ImaAdpcm, Some(wformat.block_align), 2),
         WAVE_FORMAT_ADPCM => {
@@ -605,7 +593,7 @@ pub fn read_wave_file_format<R: std::io::Read + std::io::Seek>(
         }
         _ => {
             return Err(Error::Source(crate::error::SourceError::InvalidFormat(
-                format!("Unsupported wave format: {}", wformat.format_tag),
+                format!("Unsupported wave format: {}", format_tag),
             )));
         }
     };
@@ -712,6 +700,53 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    fn wave_with_format(format: &[u8]) -> std::io::Cursor<Vec<u8>> {
+        let mut bytes = b"RIFF\0\0\0\0WAVEfmt ".to_vec();
+        bytes.extend_from_slice(&(format.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(format);
+        bytes.extend_from_slice(b"data\x34\x12\0\0");
+        std::io::Cursor::new(bytes)
+    }
+
+    #[test]
+    fn wave_format_decodes_complete_and_extended_fmt_chunks() {
+        let format = [
+            2, 0, 2, 0, 0x44, 0xac, 0, 0, 0x78, 0x56, 0x34, 0x12,
+            0x23, 0x01, 4, 0, 2, 0, 0xaa, 0xbb,
+        ];
+        for length in [16, 18, 20] {
+            let (result, size) =
+                read_wave_file_format(&mut wave_with_format(&format[..length])).unwrap();
+            assert_eq!(size, 0x1234);
+            assert_eq!(result.compression, AudioCompression::MsAdpcm);
+            assert_eq!(result.block_size, Some(0x123));
+            assert_eq!(result.bytes_per_second, 0x12345678);
+            assert_eq!(result.base_format.channels, 2);
+            assert_eq!(result.base_format.sample_rate, crate::formats::SampleRate::Hz44100);
+            assert_eq!(result.base_format.sample_width, crate::formats::SampleWidth::S16);
+        }
+    }
+
+    #[test]
+    fn wave_format_zero_fills_short_fmt_chunks() {
+        let format = [1, 0, 1, 0, 0x80, 0x3e, 0, 0, 0xab];
+        let (result, size) = read_wave_file_format(&mut wave_with_format(&format)).unwrap();
+        assert_eq!(size, 0x1234);
+        assert_eq!(result.compression, AudioCompression::None);
+        assert_eq!(result.bytes_per_second, 0xab);
+        assert_eq!(result.base_format.channels, 1);
+        assert_eq!(result.base_format.sample_rate, crate::formats::SampleRate::Hz16000);
+        assert_eq!(result.base_format.sample_width, crate::formats::SampleWidth::S16);
+    }
+
+    #[test]
+    fn wave_format_rejects_truncated_fmt_chunk() {
+        let mut bytes = b"RIFF\0\0\0\0WAVEfmt \x12\0\0\0".to_vec();
+        bytes.extend_from_slice(&[1, 0, 2]);
+        let error = read_wave_file_format(&mut std::io::Cursor::new(bytes)).unwrap_err();
+        assert!(matches!(error, Error::Io(error) if error.kind() == std::io::ErrorKind::UnexpectedEof));
+    }
+
     #[test]
     fn test_thread_creation() {
         let counter = Arc::new(AtomicUsize::new(0));
@@ -737,9 +772,10 @@ mod tests {
 
     #[test]
     fn test_window_handle() {
+        let runtime = crate::process_state::WwAudioRuntime::new();
         let handle = 12345isize;
-        set_windows_handle(handle);
-        assert_eq!(get_windows_handle(), Some(handle));
+        set_windows_handle(&runtime, handle);
+        assert_eq!(get_windows_handle(&runtime), Some(handle));
     }
 
     #[test]

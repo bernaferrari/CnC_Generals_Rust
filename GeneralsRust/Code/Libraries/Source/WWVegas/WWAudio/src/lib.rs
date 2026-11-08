@@ -26,7 +26,7 @@
 //! - Real-time audio streaming for large files  
 //! - Audio caching and memory management
 //! - 3D positional audio capabilities
-//! - Hardware-accelerated audio where available
+//! - Software mixing through CPAL's platform output
 //! - Thread-safe audio operations
 //!
 //! ## Architecture
@@ -35,7 +35,7 @@
 //!
 //! ### Device Layer
 //! - **AudioDevice**: Hardware abstraction and device management
-//! - **AudioDriver**: Platform-specific audio drivers (DirectSound, ALSA, etc.)
+//! - **Audio output**: CPAL's default platform audio host
 //! - **DeviceEnumeration**: Audio device discovery and capability detection
 //!
 //! ### Channel Management  
@@ -173,10 +173,6 @@ pub use wwaudio::{DriverInfo, DriverType2D, DriverType3D};
 // Platform-specific implementations
 #[cfg(windows)]
 pub mod aud_windows;
-#[cfg(windows)]
-pub mod dsound;
-#[cfg(windows)]
-pub mod windows;
 
 #[cfg(unix)]
 pub mod unix;
@@ -380,29 +376,9 @@ impl Default for AudioSystemInfo {
     }
 }
 
-/// Get information about available audio backends on this platform
+/// Report the output implementation compiled into this library.
 fn get_available_backends() -> Vec<String> {
-    let mut backends = Vec::new();
-
-    #[cfg(windows)]
-    {
-        backends.push("DirectSound".to_string());
-        backends.push("WASAPI".to_string());
-    }
-
-    #[cfg(unix)]
-    {
-        backends.push("ALSA".to_string());
-        backends.push("PulseAudio".to_string());
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        backends.push("CoreAudio".to_string());
-    }
-
-    backends.push("Cross-platform (cpal)".to_string());
-    backends
+    vec!["Cross-platform (cpal)".to_string()]
 }
 
 /// Initialize the WPAudio system with default configuration
@@ -423,6 +399,7 @@ pub fn system_info() -> AudioSystemInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+
 
     #[test]
     fn test_priority_ordering() {
