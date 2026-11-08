@@ -1,5 +1,4 @@
 use super::{Matrix3D, Vector3, WWMath};
-use crate::EPSILON;
 
 /// A 3D line segment defined by two endpoints
 ///
@@ -64,28 +63,26 @@ impl LineSegment {
         self.dp = self.p1 - self.p0;
 
         // Rotate the direction vector (assuming orthogonal transform)
-        self.direction = transform.transform_vector(other.direction);
+        self.direction = transform.rotate_vector(other.direction);
 
         // Length should be unchanged for orthogonal transforms
         self.length = other.length;
     }
 
     /// Set the line segment to random points within the given bounds
-    pub fn set_random(&mut self, min: Vector3, max: Vector3) {
-                let mut rng = crate::WwMathRng::default();
-
-        let mut frac = WWMath::random_float(&mut rng);
+    pub fn set_random(&mut self, min: Vector3, max: Vector3, rng: &mut crate::WwMathRng) {
+        let mut frac = WWMath::random_float(rng);
         self.p0.x = min.x + frac * (max.x - min.x);
-        frac = WWMath::random_float(&mut rng);
+        frac = WWMath::random_float(rng);
         self.p0.y = min.y + frac * (max.y - min.y);
-        frac = WWMath::random_float(&mut rng);
+        frac = WWMath::random_float(rng);
         self.p0.z = min.z + frac * (max.z - min.z);
 
-        frac = WWMath::random_float(&mut rng);
+        frac = WWMath::random_float(rng);
         self.p1.x = min.x + frac * (max.x - min.x);
-        frac = WWMath::random_float(&mut rng);
+        frac = WWMath::random_float(rng);
         self.p1.y = min.y + frac * (max.y - min.y);
-        frac = WWMath::random_float(&mut rng);
+        frac = WWMath::random_float(rng);
         self.p1.z = min.z + frac * (max.z - min.z);
 
         self.recalculate();
@@ -150,8 +147,8 @@ impl LineSegment {
 
     /// Find the closest points between this line segment and another
     /// Returns (success, point1, fraction1, point2, fraction2)
-    /// where point1 is on this line, point2 is on the other line,
-    /// and fractions are the parameters along each line
+    /// where the points lie on the respective infinite lines. As in C++,
+    /// both fractions use this segment's length as the denominator.
     pub fn find_intersection(&self, other: &LineSegment) -> (bool, Vector3, f32, Vector3, f32) {
         let cross1 = self.direction.cross(other.direction);
         let cross2 = (other.p0 - self.p0).cross(other.direction);
@@ -163,8 +160,8 @@ impl LineSegment {
         let top2 = cross4.dot(cross3);
         let bottom2 = cross3.dot(cross3);
 
-        // If either divisor is 0, the lines are parallel
-        if bottom1.abs() < EPSILON || bottom2.abs() < EPSILON {
+        // C++ rejects only exactly parallel directions.
+        if bottom1 == 0.0 || bottom2 == 0.0 {
             return (false, Vector3::ZERO, 0.0, Vector3::ZERO, 0.0);
         }
 
@@ -175,17 +172,9 @@ impl LineSegment {
         let p1 = self.p0 + self.direction * length1;
         let p2 = other.p0 + other.direction * length2;
 
-        // Convert to fractions along the line segments
-        let fraction1 = if self.length > EPSILON {
-            length1 / self.length
-        } else {
-            0.0
-        };
-        let fraction2 = if other.length > EPSILON {
-            length2 / other.length
-        } else {
-            0.0
-        };
+        // The original uses this segment's length for both fractions.
+        let fraction1 = length1 / self.length;
+        let fraction2 = length2 / self.length;
 
         (true, p1, fraction1, p2, fraction2)
     }
@@ -204,19 +193,19 @@ impl LineSegment {
     /// Recalculate cached values after changing endpoints
     fn recalculate(&mut self) {
         self.dp = self.p1 - self.p0;
-        self.length = self.dp.length();
-
-        if self.length > EPSILON {
-            self.direction = self.dp / self.length;
-        } else {
-            self.direction = Vector3::new(1.0, 0.0, 0.0); // Default direction
+        self.direction = self.dp;
+        let length_squared = self.dp.length_squared();
+        if length_squared != 0.0 {
+            self.direction *= 1.0 / length_squared.sqrt();
         }
+        self.length = self.dp.length();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::EPSILON;
 
     #[test]
     fn test_line_segment_new() {

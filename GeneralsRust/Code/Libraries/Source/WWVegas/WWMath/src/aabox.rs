@@ -109,23 +109,22 @@ impl AABox {
         *self = Self::from_min_max(min, max);
     }
 
-    /// Initialize to random values within given ranges
+    /// Initialize from the caller's random stream within the given ranges.
     pub fn init_random(
         &mut self,
         min_center: f32,
         max_center: f32,
         min_extent: f32,
         max_extent: f32,
+        rng: &mut crate::WwMathRng,
     ) {
-                let mut rng = crate::WwMathRng::default();
+        self.center.x = min_center + WWMath::random_float(rng) * (max_center - min_center);
+        self.center.y = min_center + WWMath::random_float(rng) * (max_center - min_center);
+        self.center.z = min_center + WWMath::random_float(rng) * (max_center - min_center);
 
-        self.center.x = min_center + WWMath::random_float(&mut rng) * (max_center - min_center);
-        self.center.y = min_center + WWMath::random_float(&mut rng) * (max_center - min_center);
-        self.center.z = min_center + WWMath::random_float(&mut rng) * (max_center - min_center);
-
-        self.extent.x = min_extent + WWMath::random_float(&mut rng) * (max_extent - min_extent);
-        self.extent.y = min_extent + WWMath::random_float(&mut rng) * (max_extent - min_extent);
-        self.extent.z = min_extent + WWMath::random_float(&mut rng) * (max_extent - min_extent);
+        self.extent.x = min_extent + WWMath::random_float(rng) * (max_extent - min_extent);
+        self.extent.y = min_extent + WWMath::random_float(rng) * (max_extent - min_extent);
+        self.extent.z = min_extent + WWMath::random_float(rng) * (max_extent - min_extent);
     }
 
     /// Get the minimum corner of the box
@@ -214,12 +213,12 @@ impl AABox {
         let min = self.min_corner();
         let max = self.max_corner();
 
-        other.min_corner.x >= min.x
-            && other.min_corner.y >= min.y
-            && other.min_corner.z >= min.z
-            && other.max_corner.x <= max.x
-            && other.max_corner.y <= max.y
-            && other.max_corner.z <= max.z
+        !(other.min_corner.x < min.x
+            || other.min_corner.y < min.y
+            || other.min_corner.z < min.z
+            || other.max_corner.x > max.x
+            || other.max_corner.y > max.y
+            || other.max_corner.z > max.z)
     }
 
     /// Test overlap with a point
@@ -227,20 +226,20 @@ impl AABox {
     pub fn overlap_test_point(&self, point: Vector3) -> OverlapResult {
         let diff = point - self.center;
 
-        if diff.x.abs() <= self.extent.x
-            && diff.y.abs() <= self.extent.y
-            && diff.z.abs() <= self.extent.z
+        if diff.x.abs() > self.extent.x
+            || diff.y.abs() > self.extent.y
+            || diff.z.abs() > self.extent.z
         {
-            OverlapResult::Inside
-        } else {
             OverlapResult::Outside
+        } else {
+            OverlapResult::Inside
         }
     }
 
     /// Test overlap with another `AABox`
     #[must_use]
     pub fn overlap_test_box(&self, other: &AABox) -> OverlapResult {
-        let diff = self.center - other.center;
+        let diff = other.center - self.center;
         let combined_extent = self.extent + other.extent;
 
         // Check if boxes are separated on any axis
@@ -251,19 +250,12 @@ impl AABox {
             return OverlapResult::Outside;
         }
 
-        // Check if one box is inside the other
-        let self_min = self.min_corner();
-        let self_max = self.max_corner();
-        let other_min = other.min_corner();
-        let other_max = other.max_corner();
-
-        // Check if other is inside self
-        if other_min.x >= self_min.x
-            && other_min.y >= self_min.y
-            && other_min.z >= self_min.z
-            && other_max.x <= self_max.x
-            && other_max.y <= self_max.y
-            && other_max.z <= self_max.z
+        if diff.x + other.extent.x <= self.extent.x
+            && diff.y + other.extent.y <= self.extent.y
+            && diff.z + other.extent.z <= self.extent.z
+            && diff.x - other.extent.x >= -self.extent.x
+            && diff.y - other.extent.y >= -self.extent.y
+            && diff.z - other.extent.z >= -self.extent.z
         {
             return OverlapResult::Inside;
         }
@@ -286,32 +278,14 @@ impl AABox {
 
     /// Transform center and extent by matrix
     pub fn transform_center_extent(&mut self, matrix: &Matrix3D, center: Vector3, extent: Vector3) {
-        // Transform center
-        self.center = matrix.transform_vector(center);
-
-        // Transform extent by computing bounding box of all transformed corners
-        // This is a more straightforward approach than the optimized C++ version
-        let corners = [
-            Vector3::new(-extent.x, -extent.y, -extent.z),
-            Vector3::new(extent.x, -extent.y, -extent.z),
-            Vector3::new(-extent.x, extent.y, -extent.z),
-            Vector3::new(extent.x, extent.y, -extent.z),
-            Vector3::new(-extent.x, -extent.y, extent.z),
-            Vector3::new(extent.x, -extent.y, extent.z),
-            Vector3::new(-extent.x, extent.y, extent.z),
-            Vector3::new(extent.x, extent.y, extent.z),
-        ];
-
-        let mut min_corner = matrix.rotate_vector(corners[0]);
-        let mut max_corner = min_corner;
-
-        for corner in corners.iter().skip(1) {
-            let transformed = matrix.rotate_vector(*corner);
-            min_corner.update_min(&transformed);
-            max_corner.update_max(&transformed);
+        for i in 0..3 {
+            self.center[i] = matrix[i][3];
+            self.extent[i] = 0.0;
+            for j in 0..3 {
+                self.center[i] += matrix[i][j] * center[j];
+                self.extent[i] += (matrix[i][j] * extent[j]).abs();
+            }
         }
-
-        self.extent = (max_corner - min_corner) * 0.5;
     }
 
     /// Static transform function
@@ -428,6 +402,10 @@ impl MinMaxAABox {
 
     /// Add box defined by min/max corners
     pub fn add_box(&mut self, min_corner: Vector3, max_corner: Vector3) {
+        debug_assert!(max_corner.x >= min_corner.x);
+        debug_assert!(max_corner.y >= min_corner.y);
+        debug_assert!(max_corner.z >= min_corner.z);
+
         // Skip zero-extent boxes
         if min_corner == max_corner {
             return;
@@ -453,26 +431,20 @@ impl MinMaxAABox {
 
     /// Transform min/max corners by matrix
     pub fn transform_min_max(&mut self, matrix: &Matrix3D, min: Vector3, max: Vector3) {
-        // Transform all 8 corners and find new min/max
-        let corners = [
-            Vector3::new(min.x, min.y, min.z),
-            Vector3::new(max.x, min.y, min.z),
-            Vector3::new(min.x, max.y, min.z),
-            Vector3::new(max.x, max.y, min.z),
-            Vector3::new(min.x, min.y, max.z),
-            Vector3::new(max.x, min.y, max.z),
-            Vector3::new(min.x, max.y, max.z),
-            Vector3::new(max.x, max.y, max.z),
-        ];
-
-        let transformed_corner = matrix.transform_vector(corners[0]);
-        self.min_corner = transformed_corner;
-        self.max_corner = transformed_corner;
-
-        for corner in corners.iter().skip(1) {
-            let transformed = matrix.transform_vector(*corner);
-            self.min_corner.update_min(&transformed);
-            self.max_corner.update_max(&transformed);
+        for i in 0..3 {
+            self.min_corner[i] = matrix[i][3];
+            self.max_corner[i] = matrix[i][3];
+            for j in 0..3 {
+                let a = matrix[i][j] * min[j];
+                let b = matrix[i][j] * max[j];
+                if a < b {
+                    self.min_corner[i] += a;
+                    self.max_corner[i] += b;
+                } else {
+                    self.min_corner[i] += b;
+                    self.max_corner[i] += a;
+                }
+            }
         }
     }
 

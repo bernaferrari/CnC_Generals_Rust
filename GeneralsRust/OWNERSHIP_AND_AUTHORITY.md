@@ -28,6 +28,8 @@ Decal generators hold exclusive mesh borrows until cleanup rather than raw
 mesh pointers. The mesh behavior test does not prove rendered decal pixels.
 WWMath plane and sphere edge arithmetic follows the compared C++ exact-zero,
 inclusive-segment and double-intermediate behavior; these leaves are unsealed.
+AABox and line-segment arithmetic follows the compared C++ boundaries and
+transform order; random initialization advances a caller-owned stream.
 The optional W3D device surface owns its window through wgpu's safe surface
 API. Its unused raw-pointer draw adapter was removed; the remaining primitive
 API accepts borrowed slices and currently records statistics rather than drawing.
