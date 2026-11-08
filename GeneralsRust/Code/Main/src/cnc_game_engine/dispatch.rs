@@ -763,6 +763,7 @@ impl CnCGameEngine {
                         .unwrap_or_else(|e| e.into_inner()),
                     Some(map.as_str()),
                     self.game_logic.player_template_definitions.as_ref(),
+                    self.game_logic.multiplayer_definitions.as_deref()?,
                 )
             }
             #[cfg(not(feature = "game_client"))]
@@ -829,6 +830,8 @@ impl CnCGameEngine {
             let config = crate::skirmish_config::config_from_skirmish_launch_with_definitions(
                 descriptor,
                 self.game_logic.player_template_definitions.as_ref(),
+                self.game_logic.multiplayer_definitions.as_deref()
+                    .ok_or("receiving world has no multiplayer settings")?,
             )
             .ok_or_else(|| "owned offline lobby contains no valid active players".to_string())?;
             let faction = crate::skirmish_config::local_faction_from_config(&config);

@@ -5,18 +5,21 @@ use game_engine::common::recorder::{ReplayGameInfo, ReplaySlot};
 pub(crate) fn config_from_recorded_info(
     info: &ReplayGameInfo,
     definitions: Option<&game_engine::common::rts::player_template::PlayerTemplateStore>,
+    multiplayer: Option<&game_engine::common::ini::ini_multiplayer::MultiplayerSettings>,
 ) -> Result<Option<SkirmishMatchConfig>, String> {
     let occupied = info.slots.iter().any(|slot| slot.is_occupied);
     if !occupied {
         return Ok(None);
     }
+    let multiplayer = multiplayer.ok_or("receiving world has no multiplayer settings")?;
     match definitions {
-        Some(store) => config_from_recorded_info_in(info, store),
+        Some(store) => config_from_recorded_info_in(info, store, multiplayer),
         None => {
             game_engine::common::ini::ensure_player_templates_loaded();
             config_from_recorded_info_in(
                 info,
                 &game_engine::common::rts::player_template::get_player_template_store(),
+                multiplayer,
             )
         }
     }
@@ -25,6 +28,7 @@ pub(crate) fn config_from_recorded_info(
 fn config_from_recorded_info_in(
     info: &ReplayGameInfo,
     store: &game_engine::common::rts::player_template::PlayerTemplateStore,
+    multiplayer: &game_engine::common::ini::ini_multiplayer::MultiplayerSettings,
 ) -> Result<Option<SkirmishMatchConfig>, String> {
     let mut slots = Vec::new();
     for (index, slot) in info.slots.iter().enumerate() {
@@ -68,7 +72,7 @@ fn config_from_recorded_info_in(
             is_active: active,
             player_template: selection,
             faction,
-            color_rgb: color_rgb_from_multiplayer_index(slot.color, index),
+            color_rgb: color_rgb_from_multiplayer_index(slot.color, index, multiplayer),
             team: slot.team,
             start_position: slot.start_pos,
             player_name: slot.name.clone(),
@@ -97,6 +101,9 @@ fn config_from_recorded_info_in(
     }
     Ok(Some(SkirmishMatchConfig {
         // A replay header is not an observed complete saved GameInfo v4 record.
+        // Consequently this projection currently loses recorded palette indices:
+        // equal day RGB entries with distinct night colors cannot be recovered
+        // from the native RGB alone. Do not claim original GameInfo provenance.
         source_game_info: None,
         map: info.map.clone(),
         random_seed: info.seed,
@@ -107,9 +114,7 @@ fn config_from_recorded_info_in(
             limit_superweapons: info.superweapon_restriction != 0,
             allow_tech_buildings: true,
             crates_enabled: true,
-            fog_of_war: game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(
-                |settings| settings.is_shroud_in_multiplayer,
-            ),
+            fog_of_war: multiplayer.is_shroud_in_multiplayer,
         },
         slots,
     }))

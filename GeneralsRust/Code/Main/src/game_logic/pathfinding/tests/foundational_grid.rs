@@ -1437,6 +1437,7 @@ fn aircraft_attack_dests_spiral_off_occupied_hover_cell() {
         5.0,
         150.0,
         0.0,
+        &PathfindingGround::Flat(0.0),
     );
     let dest_cell = sys.grid.world_to_grid(dest);
     let adj_cell = sys.grid.world_to_grid(adj);

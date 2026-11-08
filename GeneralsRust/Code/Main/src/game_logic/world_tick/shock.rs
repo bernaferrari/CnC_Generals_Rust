@@ -1300,6 +1300,17 @@ impl GameLogic {
         } else {
             gamelogic::ai::pathfind_complete::SURFACE_GROUND
         };
+        let ground_owner = self.world_services.terrain();
+        let ground_loan = ground_owner
+            .read()
+            .unwrap_or_else(|error| error.into_inner());
+        let ground_source = crate::game_logic::pathfinding::PathfindingGround::for_terrain(
+            &ground_loan,
+            self.map_loaded,
+            self.terrain.as_ref(),
+            self.pathfinding_height_samples.as_ref(),
+            &self.pathfinding_system.grid,
+        );
         self.pathfinding_system.adjust_target_destination(
             attacker_id.0,
             self.objects.read(),
@@ -1312,6 +1323,7 @@ impl GameLogic {
             tgt_r,
             weapon_range,
             min_range,
+            &ground_source,
         )
     }
 

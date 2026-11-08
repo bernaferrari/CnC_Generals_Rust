@@ -3436,9 +3436,11 @@ impl CnCGameEngine {
             gi.set_in_game();
             assert_eq!(gi.get_local_slot_num(), 1);
         }
-        let config = crate::skirmish_config::config_from_client_skirmish_setup(
+        let config = crate::skirmish_config::config_from_client_skirmish_setup_with_definitions(
             &self.game_client.skirmish_setup().lock().unwrap_or_else(|e| e.into_inner()),
             None,
+            self.game_logic.player_template_definitions.as_ref(),
+            self.game_logic.multiplayer_definitions.as_deref().ok_or("receiving world has no multiplayer settings")?,
         )
             .ok_or("actual two-human Client setup did not produce a native configuration")?;
         self.current_player_id = 0;

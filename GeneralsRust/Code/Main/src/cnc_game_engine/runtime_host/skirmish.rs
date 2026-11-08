@@ -609,6 +609,8 @@ impl CnCGameEngine {
                         .unwrap_or_else(|e| e.into_inner()),
                     Some(map.as_str()),
                     self.game_logic.player_template_definitions.as_ref(),
+                    self.game_logic.multiplayer_definitions.as_deref()
+                        .ok_or("receiving world has no multiplayer settings")?,
                 )
                 .or_else(|| Some(crate::skirmish_config::golden_skirmish_config(map.as_str())))
             }

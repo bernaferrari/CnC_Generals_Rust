@@ -444,14 +444,15 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
         game_mode_code: 2,
         max_fps: 30,
     };
+    let settings = game_engine::common::ini::ini_multiplayer::MultiplayerSettings::new();
     let chosen =
-        generals_main::skirmish_config::config_from_skirmish_launch_in(&launch, &definitions(3700))
+        generals_main::skirmish_config::config_from_skirmish_launch_in(&launch, &definitions(3700), &settings)
             .unwrap();
     assert!(matches!(&chosen.slots[0].player_template,
         generals_main::skirmish_config::SkirmishPlayerTemplateSelection::Exact { template_name, template_index: 0 } if template_name == "FactionAmerica"));
     let foreign = get_player_template_store_mut();
     let other =
-        generals_main::skirmish_config::config_from_skirmish_launch_in(&launch, &foreign).unwrap();
+        generals_main::skirmish_config::config_from_skirmish_launch_in(&launch, &foreign, &settings).unwrap();
     assert!(matches!(&other.slots[0].player_template,
         generals_main::skirmish_config::SkirmishPlayerTemplateSelection::Exact { template_name, template_index: 0 } if template_name == "Other"));
     drop(foreign);

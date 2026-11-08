@@ -1331,27 +1331,18 @@ impl Object {
         owned_rof: Option<&[f32; 3]>,
         solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
         _random: Option<&game_engine::common::random_value::SessionRandom>,
-        _native_rule: Option<&gamelogic::weapon::WeaponTemplate>,
+        native_rule: Option<&gamelogic::weapon::WeaponTemplate>,
         auto_reloaded_clip: bool,
         sound_events: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
     ) {
-        if let Some(rates) = owned_rof {
-            self.record_shot_at_target_with_owned_rof(
-                target_id,
-                logic_frame,
-                possible_next_shot_frame,
-                rates,
-            );
-        } else if let Some(set) = solo_set {
-            self.record_shot_at_target_with_solo_set(
-                target_id,
-                logic_frame,
-                possible_next_shot_frame,
-                set,
-            );
-        } else {
-            self.record_shot_at_target(target_id, logic_frame, possible_next_shot_frame);
-        }
+        self.record_shot_at_target_with_optional_solo_set(
+            target_id,
+            logic_frame,
+            possible_next_shot_frame,
+            solo_set,
+            owned_rof,
+            native_rule,
+        );
         // AssistingClipSize residual: count one assist fire per real shot
         // committed while TEMP-locked on the AssistingWeaponSlot.
         if self.weapon_lock_type == WeaponLockType::LockedTemporarily

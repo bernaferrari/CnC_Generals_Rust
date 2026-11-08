@@ -87,6 +87,7 @@ impl GameLogic {
             .get(&attacker_id)
             .map(|attacker| self.receiving_weapon_rates_of_fire(attacker));
         if let (Some(attacker), Some(rates)) = (self.objects.get_mut(&attacker_id), rates) {
+            let fired_rule = attacker.selected_native_weapon_rule(slot);
             let auto_reloaded_clip = if let Some(weapon) = attacker.weapon_slot_mut(slot) {
                 Object::consume_ammo_on_fire_named(weapon, current_time, None);
                 Object::auto_reloaded_clip_after_firing(weapon, None)
@@ -101,11 +102,13 @@ impl GameLogic {
             {
                 attacker.release_weapon_lock(WeaponLockType::LockedTemporarily);
             }
-            attacker.record_shot_at_target_with_owned_rof(
+            attacker.record_shot_at_target_with_optional_solo_set(
                 target_id,
                 fire_frame,
                 possible_next_shot_frame,
-                &rates,
+                None,
+                Some(&rates),
+                fired_rule.as_deref(),
             );
             attacker.stamp_auto_reload_when_idle_from_slot(slot, fire_frame);
         }

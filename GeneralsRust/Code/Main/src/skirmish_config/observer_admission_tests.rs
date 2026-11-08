@@ -354,7 +354,7 @@ fn occupied_observer_random_color_survives_save_and_actual_rep_header_admission(
             let header = reader.get_game_info();
             assert_eq!(header.slots[3].color, selected);
             assert!(header.slots[3].is_observer);
-            let replay_config = replay_admission::config_from_recorded_info(header, None)
+            let replay_config = replay_admission::config_from_recorded_info(header, None, Some(&game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(Clone::clone)))
                 .unwrap()
                 .unwrap();
             assert!(

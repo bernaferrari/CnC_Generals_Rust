@@ -1073,6 +1073,7 @@ impl PathfindingGrid {
         center_in_cell: bool,
         _seeker_id: u32,
         claimed: &HashSet<GridPos>,
+        ground_source: &PathfindingGround<'_>,
         in_range: impl Fn(Vec3) -> bool,
         dest: &mut Vec3,
     ) -> bool {
@@ -1095,21 +1096,7 @@ impl PathfindingGrid {
                 }
             }
         }
-        let size = self.grid_size;
-        let o = self.origin;
-        let adjust = if center_in_cell {
-            Vec3::new(
-                o.x + cell.x as f32 * size + size * 0.5,
-                dest.y,
-                o.z + cell.y as f32 * size + size * 0.5,
-            )
-        } else {
-            Vec3::new(
-                o.x + cell.x as f32 * size + 0.05,
-                dest.y,
-                o.z + cell.y as f32 * size + 0.05,
-            )
-        };
+        let adjust = self.adjust_coord_to_ground_cell(cell, center_in_cell, ground_source);
         if !in_range(adjust) {
             return false;
         }
@@ -1124,6 +1111,7 @@ impl PathfindingGrid {
         unit_radius: f32,
         seeker_id: u32,
         claimed: &HashSet<GridPos>,
+        ground_source: &PathfindingGround<'_>,
         in_range: impl Fn(Vec3) -> bool,
     ) -> bool {
         let (radius, center_in_cell) = Self::radius_and_center(unit_radius, self.grid_size);
@@ -1144,6 +1132,7 @@ impl PathfindingGrid {
             center_in_cell,
             seeker_id,
             claimed,
+            ground_source,
             &in_range,
             dest,
         ) {
@@ -1165,6 +1154,7 @@ impl PathfindingGrid {
                     center_in_cell,
                     seeker_id,
                     claimed,
+                    ground_source,
                     &in_range,
                     dest,
                 ) {
@@ -1181,6 +1171,7 @@ impl PathfindingGrid {
                     center_in_cell,
                     seeker_id,
                     claimed,
+                    ground_source,
                     &in_range,
                     dest,
                 ) {
@@ -1198,6 +1189,7 @@ impl PathfindingGrid {
                     center_in_cell,
                     seeker_id,
                     claimed,
+                    ground_source,
                     &in_range,
                     dest,
                 ) {
@@ -1214,6 +1206,7 @@ impl PathfindingGrid {
                     center_in_cell,
                     seeker_id,
                     claimed,
+                    ground_source,
                     &in_range,
                     dest,
                 ) {

@@ -126,7 +126,7 @@ fn game_info_conversion_preserves_zero_and_unsigned_cash() {
                     slot.set_player_template(-1);
                 }
                 let config =
-                    crate::skirmish_config::config_from_client_skirmish_setup(&lobby.lock().unwrap(), None).unwrap();
+                    crate::skirmish_config::config_from_client_skirmish_setup(&lobby.lock().unwrap(), None, &game_engine::common::ini::ini_multiplayer::MultiplayerSettings::new()).unwrap();
                 assert_eq!(
                     config.rules.starting_cash as u32, cash,
                     "GameInfo cash is present even when zero"

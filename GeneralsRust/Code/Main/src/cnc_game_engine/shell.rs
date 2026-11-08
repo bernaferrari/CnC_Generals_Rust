@@ -1891,7 +1891,7 @@ impl CnCGameEngine {
                         let recorder = game_logic.replay_pending.recorder_owned();
                         let recorded = recorder.get_game_info().clone();
                         let original_mode = recorder.get_game_mode();
-                        match crate::skirmish_config::replay_admission::config_from_recorded_info(&recorded, game_logic.player_template_definitions.as_ref())? {
+                        match crate::skirmish_config::replay_admission::config_from_recorded_info(&recorded, game_logic.player_template_definitions.as_ref(), game_logic.multiplayer_definitions.as_deref())? {
                             Some(config) => {
                                 crate::skirmish_config::apply_skirmish_config_for_mode(
                                     &mut game_logic, &config, GameMode::Replay,

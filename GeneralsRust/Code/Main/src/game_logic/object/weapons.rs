@@ -1800,48 +1800,18 @@ impl Object {
             possible_next_shot_frame,
             None,
             None,
-        );
-    }
-
-    pub(crate) fn record_shot_at_target_with_solo_set(
-        &mut self,
-        target_id: Option<ObjectId>,
-        logic_frame: u32,
-        possible_next_shot_frame: u32,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
-    ) {
-        self.record_shot_at_target_with_optional_solo_set(
-            target_id,
-            logic_frame,
-            possible_next_shot_frame,
-            Some(solo_set),
             None,
         );
     }
 
-    pub(crate) fn record_shot_at_target_with_owned_rof(
-        &mut self,
-        target_id: Option<ObjectId>,
-        logic_frame: u32,
-        possible_next_shot_frame: u32,
-        rates: &[f32; 3],
-    ) {
-        self.record_shot_at_target_with_optional_solo_set(
-            target_id,
-            logic_frame,
-            possible_next_shot_frame,
-            None,
-            Some(rates),
-        );
-    }
-
-    fn record_shot_at_target_with_optional_solo_set(
+    pub(crate) fn record_shot_at_target_with_optional_solo_set(
         &mut self,
         target_id: Option<ObjectId>,
         logic_frame: u32,
         possible_next_shot_frame: u32,
         solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
         owned_rof: Option<&[f32; 3]>,
+        rule: Option<&gamelogic::weapon::WeaponTemplate>,
     ) {
         self.record_shot_engagement_bookkeeping(
             target_id,
@@ -1850,8 +1820,20 @@ impl Object {
             solo_set,
             owned_rof,
         );
-        self.stamp_continuous_fire_coast(possible_next_shot_frame);
-        self.update_continuous_fire_after_shot();
+        if let Some(rule) = rule {
+            self.continuous_fire_coast_until_frame = if rule.continuous_fire_coast_frames == 0 {
+                0
+            } else {
+                possible_next_shot_frame.wrapping_add(rule.continuous_fire_coast_frames)
+            };
+            self.update_continuous_fire_with_thresholds(
+                i64::from(rule.continuous_fire_one_shots_needed),
+                i64::from(rule.continuous_fire_two_shots_needed),
+            );
+        } else {
+            self.stamp_continuous_fire_coast(possible_next_shot_frame);
+            self.update_continuous_fire_after_shot();
+        }
     }
 
     /// Specialized lanes already completed the one canonical tracker update.
@@ -1917,22 +1899,26 @@ impl Object {
     pub fn update_continuous_fire_after_shot(&mut self) {
         let one = self.continuous_fire_one_shots;
         let two = self.continuous_fire_two_shots;
-        if one == 0 || one == u32::MAX {
+        if one == 0 || one == u32::MAX || (two == u32::MAX && self.continuous_fire_level == 2) {
             return;
         }
-        let c = self.consecutive_shots_at_target;
+        self.update_continuous_fire_with_thresholds(i64::from(one), i64::from(two));
+    }
+
+    fn update_continuous_fire_with_thresholds(&mut self, one: i64, two: i64) {
+        let c = i64::from(self.consecutive_shots_at_target);
 
         let level = self.continuous_fire_level;
         let new_level = if level == 1 {
             if c < one {
                 0
-            } else if two != u32::MAX && c > two {
+            } else if c > two {
                 2
             } else {
                 1
             }
         } else if level == 2 {
-            if two != u32::MAX && c < two { 0 } else { 2 }
+            if c < two { 0 } else { 2 }
         } else if c > one {
             1
         } else {

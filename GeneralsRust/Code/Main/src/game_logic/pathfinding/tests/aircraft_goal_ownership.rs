@@ -49,6 +49,7 @@ fn adjusted(world: &GameLogic, seeker: ObjectId, dest: Vec3) -> Vec3 {
         0.0,
         200.0,
         0.0,
+        &PathfindingGround::Flat(0.0),
     )
 }
 
@@ -58,6 +59,9 @@ fn aircraft_goal_projection_uses_half_cell_footprints_on_the_driving_grid() {
         PathfindingGrid::new_with_origin(Vec3::new(-40.0, 0.0, -30.0), 200.0, 200.0, 10.0);
     let goal = Vec3::new(36.0, 40.0, 46.0);
     let mut object = aircraft(7, LocomotorAppearance::Hover, goal);
+    let mut shape = *object.geometry_info();
+    shape.major_radius = 8.0;
+    object.set_geometry_shape(shape);
     let cell = grid.cell_for_unit_position(goal, false);
     object.pathfind_goal_cell = (cell.x, cell.y);
     assert_eq!(PathfindingGrid::radius_and_center(8.0, 10.0), (1, false));
@@ -79,7 +83,11 @@ fn aircraft_goal_projection_uses_half_cell_footprints_on_the_driving_grid() {
         assert_eq!(grid.goal_aircraft(cell), 7);
     }
     assert_eq!(grid.goal_aircraft(GridPos::new(6, 6)), 0);
-    objects.get_mut(&ObjectId(7)).unwrap().selection_radius = 2.0;
+    let object = objects.get_mut(&ObjectId(7)).unwrap();
+    object.selection_radius = 2.0;
+    let mut shape = *object.geometry_info();
+    shape.major_radius = 2.0;
+    object.set_geometry_shape(shape);
     stamp_fixture_goals(&mut grid, objects.read());
     assert_eq!(
         grid.aircraft_goal_claims(objects.read(), 8),
@@ -169,7 +177,8 @@ fn aircraft_attack_query_uses_current_goals_instead_of_old_occupancy() {
             8.0,
             0.0,
             200.0,
-            0.0
+            0.0,
+            &PathfindingGround::Flat(0.0),
         )
     );
 }
@@ -181,22 +190,69 @@ fn aircraft_attack_spiral_preserves_original_candidate_order_and_failure() {
     let claims = HashSet::from([GridPos::new(7, 7)]);
     grid.set_cell_type(GridPos::new(8, 7), PathfindCellType::Water);
     let mut out = dest;
-    assert!(grid.adjust_target_destination(&mut out, 2.0, 1, &claims, |_| true));
+    assert!(grid.adjust_target_destination(
+        &mut out, 2.0, 1, &claims, &PathfindingGround::Flat(0.0), |_| true,
+    ));
     assert_eq!(
         out,
-        Vec3::new(85.0, 40.0, 75.0),
+        Vec3::new(85.0, 0.0, 75.0),
         "right first, aircraft may occupy water"
     );
     let mut impossible = dest;
-    assert!(!grid.adjust_target_destination(&mut impossible, 2.0, 1, &claims, |_| false));
+    assert!(!grid.adjust_target_destination(
+        &mut impossible, 2.0, 1, &claims, &PathfindingGround::Flat(0.0), |_| false,
+    ));
     assert_eq!(
         impossible, dest,
         "failed range search does not mutate the goal"
     );
     let mut off_map = Vec3::new(205.0, 40.0, 75.0);
     let before = off_map;
-    assert!(!grid.adjust_target_destination(&mut off_map, 8.0, 1, &HashSet::new(), |_| true));
+    assert!(!grid.adjust_target_destination(
+        &mut off_map, 8.0, 1, &HashSet::new(), &PathfindingGround::Flat(0.0), |_| true,
+    ));
     assert_eq!(off_map, before);
+}
+
+#[test]
+fn aircraft_attack_approach_uses_receiving_ground_and_cell_sized_inset() {
+    fn world(height: f32) -> GameLogic {
+        let mut world = GameLogic::new();
+        world.pathfinding_system = PathfindingSystem::new(200.0, 200.0);
+        let width = world.pathfinding_system.grid.width() as u32;
+        let height_cells = world.pathfinding_system.grid.height() as u32;
+        assert!(world.restore_terrain_heights_from_grid(
+            width,
+            height_cells,
+            &vec![height; (width * height_cells) as usize],
+        ));
+        world.objects.admit(
+            ObjectId(1),
+            aircraft(1, LocomotorAppearance::Hover, Vec3::new(150.0, 40.0, 150.0)),
+        );
+        world
+    }
+
+    let low = world(12.0);
+    let high = world(37.0);
+    let dest = Vec3::new(75.0, 90.0, 75.0);
+    let target = Vec3::new(100.0, 0.0, 80.5);
+    // With the quarter-cell range adjustment, the 80.5 candidate is in
+    // range but the old 80.05 candidate is not.
+    let range = 21.25;
+    assert_eq!(
+        low.adjust_aircraft_attack_approach(ObjectId(1), dest, target, range, 0.0),
+        Vec3::new(80.5, 12.0, 80.5),
+    );
+    assert_eq!(
+        high.adjust_aircraft_attack_approach(ObjectId(1), dest, target, range, 0.0),
+        Vec3::new(80.5, 37.0, 80.5),
+    );
+    assert_eq!(
+        low.adjust_aircraft_attack_approach(ObjectId(1), dest, target, 2.5, 10000.0),
+        dest,
+        "an exhausted search must not modify the original destination",
+    );
 }
 
 // Only the foreign Core sentinel and authored INI catalogs need isolation.
@@ -252,8 +308,9 @@ fn isolated(name: &str) -> bool {
 }
 
 fn admitted_aircraft_world() -> GameLogic {
-    use game_engine::common::ini::ini_locomotor::load_locomotors_from_str;
-    load_locomotors_from_str(
+    let mut locomotors =
+        game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+    locomotors.apply_source(
         r#"
 Locomotor HqAwymHover
   Surfaces = AIR
@@ -303,6 +360,7 @@ End
     )])
     .expect("paired authored aircraft definitions");
     let mut world = GameLogic::new();
+    world.admit_locomotor_definitions(locomotors).unwrap();
     world
         .admit_receiving_module_content(content)
         .expect("receiving aircraft module and host definitions");
@@ -329,7 +387,8 @@ fn authored_world(goal: Vec3) -> (GameLogic, ObjectId, ObjectId) {
         )
         .unwrap();
     world.override_world_size(600.0, 600.0);
-    for id in [hover, wings] {
+    let wings_goal = goal + Vec3::new(60.0, 0.0, 0.0);
+    for (id, unit_goal) in [(hover, goal), (wings, wings_goal)] {
         let object = world.objects.get_mut(&id).unwrap();
         assert_eq!(
             object.health.current, 220.0,
@@ -343,14 +402,14 @@ fn authored_world(goal: Vec3) -> (GameLogic, ObjectId, ObjectId) {
             object.selection_radius, 8.0,
             "authored geometry owns the footprint radius"
         );
-        object.movement.target_position = Some(goal);
+        object.movement.target_position = Some(unit_goal);
         assert!(PathfindingGrid::is_aircraft_that_adjusts_destination(
             object
         ));
         assert!(!PathfindingGrid::is_doing_ground_movement(object));
     }
-    for id in [hover, wings] {
-        world.register_path_goal(id, goal);
+    for (id, unit_goal) in [(hover, goal), (wings, wings_goal)] {
+        world.register_path_goal(id, unit_goal);
     }
     assert_eq!(
         world.objects[&hover].loco_appearance,
@@ -453,6 +512,7 @@ fn authored_same_id_matches_keep_aircraft_goals_and_foreign_core_independent() {
     let object = first.objects.get_mut(&hover).unwrap();
     object.status.disabled_unmanned = true;
     assert!(PathfindingGrid::is_doing_ground_movement(object));
+    first.remove_registered_path_goal(hover);
     assert!(
         first
             .pathfinding_system
@@ -522,6 +582,12 @@ fn authored_aircraft_save_load_continues_owned_goal_changes() {
         assert_eq!(
             loaded.loco_appearance, original.loco_appearance,
             "current immutable locomotor definition must be resolved after load"
+        );
+        let (x, y) = original.pathfind_goal_cell;
+        assert_eq!(
+            loaded.pathfind_goal_cell,
+            (x + 1, y + 1),
+            "native load reconstructs even-footprint goals from saved cell centers",
         );
     }
     let loaded = &restored.objects[&wings];

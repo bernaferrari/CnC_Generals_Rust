@@ -1111,8 +1111,9 @@ pub fn local_faction_from_config(config: &SkirmishMatchConfig) -> String {
 pub fn config_from_client_skirmish_setup(
     setup: &game_client::gui::skirmish_setup::SkirmishSetup,
     map_override: Option<&str>,
+    multiplayer: &game_engine::common::ini::ini_multiplayer::MultiplayerSettings,
 ) -> Option<SkirmishMatchConfig> {
-    config_from_client_skirmish_setup_with_definitions(setup, map_override, None)
+    config_from_client_skirmish_setup_with_definitions(setup, map_override, None, multiplayer)
 }
 
 #[cfg(feature = "game_client")]
@@ -1120,6 +1121,7 @@ pub(crate) fn config_from_client_skirmish_setup_with_definitions(
     setup: &game_client::gui::skirmish_setup::SkirmishSetup,
     map_override: Option<&str>,
     definitions: Option<&game_engine::common::rts::player_template::PlayerTemplateStore>,
+    multiplayer: &game_engine::common::ini::ini_multiplayer::MultiplayerSettings,
 ) -> Option<SkirmishMatchConfig> {
     let (map, local_slot, old_factions_only) = {
         let info = setup.game_info().game_info();
@@ -1142,34 +1144,35 @@ pub(crate) fn config_from_client_skirmish_setup_with_definitions(
         game_info: game_client::gui::skirmish_setup::snapshot_skirmish_lobby(setup),
         local_slot,
         old_factions_only,
-        fog_of_war: game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(
-            |settings| settings.is_shroud_in_multiplayer,
-        ),
+        fog_of_war: multiplayer.is_shroud_in_multiplayer,
         game_mode_code: 2,
         max_fps: 30,
     };
-    config_from_skirmish_launch_with_definitions(&descriptor, definitions)
+    config_from_skirmish_launch_with_definitions(&descriptor, definitions, multiplayer)
 }
 
 #[cfg(feature = "game_client")]
 pub fn config_from_skirmish_launch(
     descriptor: &game_engine::common::message_stream::ClientSkirmishLaunch,
+    multiplayer: &game_engine::common::ini::ini_multiplayer::MultiplayerSettings,
 ) -> Option<SkirmishMatchConfig> {
-    config_from_skirmish_launch_with_definitions(descriptor, None)
+    config_from_skirmish_launch_with_definitions(descriptor, None, multiplayer)
 }
 
 #[cfg(feature = "game_client")]
 pub(crate) fn config_from_skirmish_launch_with_definitions(
     descriptor: &game_engine::common::message_stream::ClientSkirmishLaunch,
     definitions: Option<&game_engine::common::rts::player_template::PlayerTemplateStore>,
+    multiplayer: &game_engine::common::ini::ini_multiplayer::MultiplayerSettings,
 ) -> Option<SkirmishMatchConfig> {
     match definitions {
-        Some(store) => config_from_skirmish_launch_in(descriptor, store),
+        Some(store) => config_from_skirmish_launch_in(descriptor, store, multiplayer),
         None => {
             game_engine::common::ini::ensure_player_templates_loaded();
             config_from_skirmish_launch_in(
                 descriptor,
                 &game_engine::common::rts::player_template::get_player_template_store(),
+                multiplayer,
             )
         }
     }
@@ -1180,6 +1183,7 @@ pub(crate) fn config_from_skirmish_launch_with_definitions(
 pub fn config_from_skirmish_launch_in(
     descriptor: &game_engine::common::message_stream::ClientSkirmishLaunch,
     store: &game_engine::common::rts::player_template::PlayerTemplateStore,
+    multiplayer: &game_engine::common::ini::ini_multiplayer::MultiplayerSettings,
 ) -> Option<SkirmishMatchConfig> {
     use game_client::{MAX_SLOTS, PLAYERTEMPLATE_OBSERVER, PLAYERTEMPLATE_RANDOM, SlotState};
     let info = &descriptor.game_info;
@@ -1282,7 +1286,7 @@ pub fn config_from_skirmish_launch_in(
             }
         };
 
-        let color_rgb = color_rgb_from_multiplayer_index(slot.color, i);
+        let color_rgb = color_rgb_from_multiplayer_index(slot.color, i, multiplayer);
 
         slots.push(SkirmishSlotConfig {
             slot_index: i,
@@ -1336,8 +1340,14 @@ pub fn config_from_skirmish_launch_in(
     })
 }
 
-fn color_rgb_from_multiplayer_index(color_idx: i32, slot_index: usize) -> (u8, u8, u8) {
-    // Fallback palette when MultiplayerSettings colors are not loaded yet.
+fn color_rgb_from_multiplayer_index(
+    color_idx: i32,
+    slot_index: usize,
+    multiplayer: &game_engine::common::ini::ini_multiplayer::MultiplayerSettings,
+) -> (u8, u8, u8) {
+    // Compatibility projection for Random/invalid selections before admission.
+    // The legacy menu's broader fallback-palette ownership remains separate;
+    // actual occupied Client slots retain their source indices for admission.
     const FALLBACK: [(u8, u8, u8); 8] = [
         (0, 0, 200),
         (200, 0, 0),
@@ -1352,10 +1362,7 @@ fn color_rgb_from_multiplayer_index(color_idx: i32, slot_index: usize) -> (u8, u
     if color_idx == -2 {
         // Observer is a real C++ special color in every receiving profile,
         // including headless builds; it is not a fallback palette position.
-        let packed =
-            game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|settings| {
-                settings.get_color_value(-2)
-            })
+        let packed = multiplayer.get_color_value(-2)
             .expect("MultiplayerSettings always owns its observer color");
         return (
             ((packed >> 16) & 255) as u8,
@@ -1364,16 +1371,9 @@ fn color_rgb_from_multiplayer_index(color_idx: i32, slot_index: usize) -> (u8, u
         );
     }
 
-    #[cfg(feature = "game_client")]
-    {
-        use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
-        if color_idx >= 0 {
-            if let Some(packed) = with_multiplayer_settings(|s| s.get_color_value(color_idx)) {
-                let r = ((packed >> 16) & 0xFF) as u8;
-                let g = ((packed >> 8) & 0xFF) as u8;
-                let b = (packed & 0xFF) as u8;
-                return (r, g, b);
-            }
+    if color_idx >= 0 {
+        if let Some(packed) = multiplayer.get_color_value(color_idx) {
+            return (((packed >> 16) & 255) as u8, ((packed >> 8) & 255) as u8, (packed & 255) as u8);
         }
     }
     let _ = color_idx;
@@ -1966,7 +1966,7 @@ mod tests {
             }
         }
 
-        let cfg = config_from_client_skirmish_setup(&lobby.lock().unwrap(), None).expect("config from setup");
+        let cfg = config_from_client_skirmish_setup(&lobby.lock().unwrap(), None, &game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(Clone::clone)).expect("config from setup");
         assert!(
             cfg.map.contains("Lone Eagle"),
             "map from GameInfo: {}",
@@ -2024,7 +2024,7 @@ mod tests {
             }
         }
 
-        let cfg = config_from_client_skirmish_setup(&lobby.lock().unwrap(), None).expect("client setup config");
+        let cfg = config_from_client_skirmish_setup(&lobby.lock().unwrap(), None, &game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(Clone::clone)).expect("client setup config");
         assert!(cfg.map.contains("Lone Eagle"), "{}", cfg.map);
         assert_eq!(cfg.rules.starting_cash, 20_000);
         assert_eq!(cfg.slots.iter().filter(|s| s.is_active).count(), 2);

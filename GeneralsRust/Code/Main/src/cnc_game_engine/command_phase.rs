@@ -73,6 +73,7 @@ impl CnCGameEngine {
         let config = match crate::skirmish_config::replay_admission::config_from_recorded_info(
             &info,
             self.game_logic.player_template_definitions.as_ref(),
+            self.game_logic.multiplayer_definitions.as_deref(),
         ) {
             Ok(config) => config,
             Err(error) => {

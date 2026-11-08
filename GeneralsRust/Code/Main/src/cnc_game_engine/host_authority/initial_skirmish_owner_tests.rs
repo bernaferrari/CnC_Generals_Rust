@@ -354,7 +354,7 @@ fn actual_client_game_info_capture_survives_foreign_setup_and_original_archive_r
                 author(gi);
             }
             let before_start =
-                crate::skirmish_config::config_from_client_skirmish_setup(&lobby.lock().unwrap(), None).unwrap();
+                crate::skirmish_config::config_from_client_skirmish_setup(&lobby.lock().unwrap(), None, &game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(Clone::clone)).unwrap();
             let observed = &before_start.source_game_info.as_ref().unwrap().0;
             assert!(!observed.in_game && !observed.in_progress);
             let mut native_pre_start = GameLogic::new();
@@ -381,14 +381,14 @@ fn actual_client_game_info_capture_survives_foreign_setup_and_original_archive_r
                 info.set_local_ip(1);
                 info.start_game(0);
             }
-            let config = crate::skirmish_config::config_from_client_skirmish_setup(&lobby.lock().unwrap(), None).unwrap();
+            let config = crate::skirmish_config::config_from_client_skirmish_setup(&lobby.lock().unwrap(), None, &game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(Clone::clone)).unwrap();
             let observed = &config.source_game_info.as_ref().unwrap().0;
             assert!(observed.in_game && observed.in_progress);
             // A real native alias override differs from the raw GameInfo path.
             // Exact-agreement is intentionally conservative: keep this valid
             // typed input but do not claim that raw path as original currentMap.
             let overridden =
-                crate::skirmish_config::config_from_client_skirmish_setup(&lobby.lock().unwrap(), Some("Lone Eagle"))
+                crate::skirmish_config::config_from_client_skirmish_setup(&lobby.lock().unwrap(), Some("Lone Eagle"), &game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(Clone::clone))
                     .unwrap();
             assert_ne!(
                 overridden.map,
@@ -635,7 +635,7 @@ fn actual_random_color_client_input_keeps_native_archive_and_nonfirst_local_auth
                 gi.set_in_game();
                 assert_eq!(gi.get_local_slot_num(), 1);
             }
-            let config = crate::skirmish_config::config_from_client_skirmish_setup(&lobby.lock().unwrap(), None).unwrap();
+            let config = crate::skirmish_config::config_from_client_skirmish_setup(&lobby.lock().unwrap(), None, &game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(Clone::clone)).unwrap();
             let raw = config.source_game_info.as_ref().unwrap().0.clone();
             assert_eq!(config.source_game_info.as_ref().unwrap().1, 1);
             assert_eq!(raw.slots[0].color, -1);

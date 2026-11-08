@@ -3001,3 +3001,15 @@ weapon row. Other FIRE_WEAPON timing and effect behavior remains separate work.
 Handled host UI clicks submit fallback audio through the receiving menu-audio
 loan. Without a loan, the click is queued for that owner's later audio drain;
 neither path consults the ambient audio manager.
+
+Aircraft attack approaches sample ground height from the receiving partition
+and inset the destination by the receiving pathfinding grid's cell size.
+
+Native skirmish setup and launch conversion borrow the receiving world's
+multiplayer definitions for shroud and palette selection; a launch descriptor
+retains its own fog setting. Replay admission still cannot recover palette
+identity from equal day colors when their night colors differ.
+
+Continuous-fire promotion and coast use the rule of the weapon slot that fired,
+while the object retains one tracker across slot and weapon-set changes. Exact
+shot deadlines still need integer-frame ownership instead of float timestamps.

@@ -172,3 +172,117 @@ fn original_game_info_import_uses_receiving_palette_and_shroud() {
             .is_err()
     );
 }
+
+#[cfg(feature = "game_client")]
+#[test]
+fn client_setup_admits_each_worlds_shroud_and_exact_palette_selection() {
+    use game_client::gui::skirmish_setup::{SkirmishSetup, snapshot_skirmish_lobby};
+    use game_client::SlotState;
+    use game_engine::common::message_stream::ClientSkirmishLaunch;
+    use std::sync::Arc;
+
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "client_setup_admits_each_worlds_shroud_and_exact_palette_selection",
+        || {
+            lobby_definition_tests::admit_slot_definitions();
+            let definitions =
+                (*game_engine::common::rts::player_template::get_player_template_store()).clone();
+            let template = definitions.find_template_index("FactionAmerica").unwrap() as i32;
+            let mut setup = SkirmishSetup::default();
+            setup.set_selected_map("OwnerSetup.map".into());
+            let info = setup.game_info_mut().game_info_mut();
+            info.enter_game();
+            info.set_map("OwnerSetup.map".into());
+            info.set_seed(73);
+            let slot = info.get_slot_mut(0).unwrap();
+            slot.set_state(SlotState::Player, "Commander".into(), 1);
+            slot.set_player_template(template);
+            slot.set_color(1);
+            slot.set_start_pos(0);
+            slot.set_team_number(0);
+            slot.save_off_original_info();
+            info.set_local_ip(1);
+            info.start_game(0);
+
+            let mut first = palette(&[(0x123456, 0x010203), (0x123456, 0x111213)]);
+            first.is_shroud_in_multiplayer = true;
+            let mut second = palette(&[(0xabcdef, 0x212223), (0xabcdef, 0x313233)]);
+            second.is_shroud_in_multiplayer = false;
+            let common = game_engine::common::common_services::common_services();
+            let mut a = GameLogic::new();
+            let mut b = GameLogic::new();
+            a.player_template_definitions = Some(definitions.clone());
+            b.player_template_definitions = Some(definitions);
+            let object_source = r#"
+Object AmericaCommandCenter
+  KindOf = STRUCTURE COMMANDCENTER
+  Body = ActiveBody CommandCenterBody
+    MaxHealth = 5000
+    InitialHealth = 5000
+  End
+End
+Object OwnerBuilding
+  KindOf = STRUCTURE SELECTABLE
+  Geometry = CYLINDER
+  GeometryMajorRadius = 10
+  GeometryHeight = 10
+  Body = ActiveBody OwnerBuildingBody
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+End
+"#;
+            for world in [&mut a, &mut b] {
+                world.admit_object_ini_sources([(
+                    "owner-setup-objects.ini".into(), object_source.to_owned(),
+                )]).expect("admit ordered authored objects to receiving world");
+            }
+            a.multiplayer_definitions = Some(Arc::new(first.clone()));
+            b.multiplayer_definitions = Some(Arc::new(second.clone()));
+
+            for (world, ambient, day, night, fog) in [
+                (&mut a, &second, (0x12, 0x34, 0x56), (0x11, 0x12, 0x13), true),
+                (&mut b, &first, (0xab, 0xcd, 0xef), (0x31, 0x32, 0x33), false),
+            ] {
+                *common.ini.multiplayer.write() = ambient.clone();
+                let settings = world.multiplayer_definitions.clone().unwrap();
+                let config = config_from_client_skirmish_setup_with_definitions(
+                    &setup, None, world.player_template_definitions.as_ref(), &settings,
+                ).unwrap();
+                assert_eq!(config.slots[0].color_rgb, day);
+                assert_eq!(config.rules.fog_of_war, fog);
+                apply_skirmish_config(world, &config).unwrap();
+                assert!(world.templates.contains_key("OwnerBuilding"), "authored placement template survives NewGame");
+                let player = world.get_player(0).unwrap();
+                assert_eq!(player.color_rgb, day);
+                assert_eq!(player.color_night_rgb, night);
+                let original = world.initial_skirmish_admission.as_ref().unwrap()
+                    .source.as_ref().expect("original client GameInfo retained");
+                assert_eq!(original.slots[0].color, 1);
+                assert_eq!(original.slots[0].orig_color, 1);
+                world.world_services.shroud().lock().unwrap().init_shroud_grid(128.0, 128.0);
+                let position = glam::Vec3::new(40.0, 0.0, 40.0);
+                assert!(!world.is_build_location_shroud_clear(0, position));
+                let result = world.legal_build_code_at(Team::USA, position, "OwnerBuilding");
+                let shrouded = crate::game_logic::host_production_buildable_command_residual::LBC_SHROUD;
+                assert_eq!(result == shrouded, fog, "fog must affect actual build legality");
+            }
+
+            let launch = ClientSkirmishLaunch {
+                map: "OwnerSetup.map".into(),
+                game_info: snapshot_skirmish_lobby(&setup),
+                local_slot: 0,
+                old_factions_only: false,
+                fog_of_war: false,
+                game_mode_code: 2,
+                max_fps: 30,
+            };
+            let converted = config_from_skirmish_launch_with_definitions(
+                &launch, a.player_template_definitions.as_ref(), &first,
+            ).unwrap();
+            assert!(!converted.rules.fog_of_war, "launch descriptor owns its fog value");
+            assert_eq!(converted.slots[0].color_rgb, (0x12, 0x34, 0x56));
+        },
+    );
+}

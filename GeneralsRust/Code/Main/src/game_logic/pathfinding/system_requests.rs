@@ -158,6 +158,7 @@ impl PathfindingSystem {
         target_radius: f32,
         attack_range: f32,
         min_range: f32,
+        ground_source: &PathfindingGround<'_>,
     ) -> Vec3 {
         let in_range = |goal: Vec3| {
             crate::game_logic::weapon_bootstrap::is_goal_pos_within_attack_range(
@@ -173,11 +174,9 @@ impl PathfindingSystem {
         let claimed = self.grid.aircraft_goal_claims(objects, seeker);
 
         let mut out = dest;
-        if self
-            .grid
-            .adjust_target_destination(&mut out, unit_radius, seeker, &claimed, in_range)
-        {
-            out.y = dest.y;
+        if self.grid.adjust_target_destination(
+            &mut out, unit_radius, seeker, &claimed, ground_source, in_range,
+        ) {
             return out;
         }
         dest
