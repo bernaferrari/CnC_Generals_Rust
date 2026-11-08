@@ -131,6 +131,55 @@ pub(in crate::game_logic) mod tests {
     }
 
     #[test]
+    fn neutral_projectile_keeps_launch_ownership_across_reuse_and_restore() {
+        let source = ObjectId(9_001);
+        let mut objects = crate::game_logic::HostObjectStore::new();
+        objects.insert(source, make_obj("Launcher", source, Team::Neutral, Vec3::ZERO, &[], 1.0));
+
+        let mut pending = lifecycle_test_pending_projectile("TestProjectile", None, Vec3::X);
+        pending.source_context.as_mut().unwrap().source_team = Team::Neutral;
+        pending.detonation_ocl_name = "OCL_Impact".into();
+        let mut original = CombatSystem::new();
+        queue_projectile(&mut original, pending);
+        objects.remove(&source);
+        let mut replacement = make_obj("Replacement", source, Team::USA, Vec3::ZERO, &[], 1.0);
+        replacement.owner_player_id = Some(42);
+        objects.insert(source, replacement);
+        drain_pending_projectiles(
+            &mut original, objects.read(), 0,
+            &crate::game_logic::projectile_definitions::fixture_projectile_definitions(),
+        );
+        let snapshot = original.live_projectile_arena_snapshot();
+        assert_eq!(snapshot.projectiles.len(), 1);
+        assert_eq!(snapshot.projectiles[0].source_owner_player_id, None);
+        let mut restored = CombatSystem::new();
+        restored.restore_live_projectile_arena(snapshot.validate().unwrap());
+        let mut unrelated = CombatSystem::new();
+        assert_eq!(unrelated.projectile_count(), 0);
+
+        for combat in [&mut original, &mut restored] {
+            let id = combat.projectiles_snapshot()[0].id;
+            let (events, removed) = combat.prepare_projectile_impact(
+                id, 1.0, &mut objects, None, 1, None,
+                &mut crate::game_logic::host_owner_log::OwnershipEvents::default(), 0,
+            );
+            assert_eq!(removed, vec![id]);
+            match &events[0] {
+                DamageEvent::Area { shooter_team, shooter_owner_player_id, .. } => {
+                    assert_eq!(*shooter_team, Team::Neutral);
+                    assert_eq!(*shooter_owner_player_id, None);
+                }
+                _ => panic!("expected projectile splash"),
+            }
+            let impacts = combat.take_impact_fx();
+            assert_eq!(impacts.len(), 1);
+            assert_eq!(impacts[0].source_team, Team::Neutral);
+            assert_eq!(impacts[0].detonation_ocl_name, "OCL_Impact");
+        }
+        assert!(unrelated.take_impact_fx().is_empty());
+    }
+
+    #[test]
     fn retail_dumb_projectile_expiry_detonates_through_pending_host_path() {
         let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
 

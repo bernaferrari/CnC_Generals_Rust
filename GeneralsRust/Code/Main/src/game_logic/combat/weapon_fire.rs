@@ -823,11 +823,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         proj.source_team = source_context.source_team;
         proj.launcher_bonus_mask = source_context.launcher_bonus_mask;
         proj.source_projectile_team_id = source_context.projectile_team_id;
-        proj.source_owner_player_id = source_context.source_owner_player_id.or_else(|| {
-            objects
-                .lookup(&p.shooter_id)
-                .and_then(|o| o.owner_player_id)
-        });
+        proj.source_owner_player_id = source_context.source_owner_player_id;
         proj.source_team_instance_name = objects
             .lookup(&p.shooter_id)
             .map(|o| o.team_instance_name.clone())

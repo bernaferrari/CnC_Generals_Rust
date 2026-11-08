@@ -354,16 +354,13 @@ impl CombatSystem {
         // firing owner accepted the shot. A moving detonation's self-position
         // rule is resolved later from this world's effective weapon content.
         let primary_victim = projectile.target_id;
-        // Launch-time source_team is authoritative when set. Fixture/direct
-        // fire_projectile_ex paths leave Neutral; fall back to the live launcher
-        // so radius relationship masks still match C++ getRelationship.
-        let launcher_team = live.map(|o| o.team).unwrap_or(projectile.source_team);
-        let shooter_team = if moving_projectile
-            && projectile.source_team != crate::game_logic::Team::Neutral
-        {
+        // A moving projectile is created on the firing player's default team
+        // (Weapon.cpp:1080). Neutral is a real team, not a missing value:
+        // looking up the launcher here can bind a later object with the same ID.
+        let shooter_team = if moving_projectile {
             projectile.source_team
         } else {
-            launcher_team
+            live.map(|o| o.team).unwrap_or(projectile.source_team)
         };
         DamageEvent::Area {
             position,

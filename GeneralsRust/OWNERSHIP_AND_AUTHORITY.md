@@ -3085,3 +3085,7 @@ the latter follows the authored blend flags and cliff-height rule.
 The asset renderer exclusively borrows its WGPU backend. The backend and GPU
 device no longer assert wasm Send or Sync unsafely; other GPU wrappers still
 contain independent unsafe wasm trait implementations.
+
+Materialized projectiles retain their launch owner, including Neutral, across
+launcher ID reuse and snapshot continuation. Impact OCL still needs a real
+projectile object and original update-scheduler ownership.
