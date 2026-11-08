@@ -3126,3 +3126,8 @@ immutable script and detached-manager queries still need migration.
 Receiving template content retains the master and completed overrides in
 declaration order and copies ObjectReskin and defaults from the master.
 Legacy factory identity and duplicate non-override redefinitions remain open.
+
+Core InstantDeath OCL selection retains unresolved entries as null slots, so
+the authored list length and random selection indices match the original.
+Native owned death still rejects authored OCL effects until it can borrow the
+receiving creation and catalog services.

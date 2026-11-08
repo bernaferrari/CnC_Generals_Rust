@@ -20,7 +20,7 @@ use crate::weapon::{WeaponTemplate, with_weapon_store};
 pub struct InstantDeathBehaviorModuleData {
     pub base: DieModuleData,
     pub fx: Vec<FXList>,
-    pub ocls: Vec<Arc<ObjectCreationList>>,
+    pub ocls: Vec<Option<Arc<ObjectCreationList>>>,
     pub weapons: Vec<Arc<WeaponTemplate>>,
 }
 
@@ -111,9 +111,8 @@ fn parse_ocl(
 ) -> Result<(), INIError> {
     for token in tokens {
         for name in token.split(',').map(str::trim).filter(|t| !t.is_empty()) {
-            if let Some(ocl) = TheObjectCreationListStore::find_object_creation_list(name) {
-                data.ocls.push(ocl);
-            }
+            data.ocls
+                .push(TheObjectCreationListStore::find_object_creation_list(name));
         }
     }
     Ok(())
@@ -222,7 +221,7 @@ impl DieModuleInterface for InstantDeathBehavior {
             if !self.base.module_data.ocls.is_empty() {
                 let idx =
                     GameLogicRandomValue(0, self.base.module_data.ocls.len() as i32 - 1) as usize;
-                if let Some(ocl) = self.base.module_data.ocls.get(idx) {
+                if let Some(Some(ocl)) = self.base.module_data.ocls.get(idx) {
                     let _ = ObjectCreationList::create(ocl, object_arc, None);
                 }
             }
@@ -249,3 +248,49 @@ impl DieModuleInterface for InstantDeathBehavior {
 
 #[path = "instant_death_owned.rs"]
 mod owned;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use game_engine::common::random_value::RandomState;
+
+    #[test]
+    fn authored_ocl_slots_preserve_cpp_selection_indices() {
+        let first = TheObjectCreationListStore::register_object_creation_list(
+            "OCL_InstantDeathSlotFirst",
+            ObjectCreationList::new(),
+        );
+        let last = TheObjectCreationListStore::register_object_creation_list(
+            "OCL_InstantDeathSlotLast",
+            ObjectCreationList::new(),
+        );
+        let mut ini = INI::new();
+        let mut data = InstantDeathBehaviorModuleData::default();
+        ini.with_inline_source(
+            "OCL = OCL_InstantDeathSlotFirst OCL_InstantDeathSlotMissing OCL_InstantDeathSlotLast\nEnd\n",
+            |ini| data.parse_from_ini(ini),
+        )
+        .unwrap();
+
+        assert_eq!(data.ocls.len(), 3);
+        assert!(Arc::ptr_eq(data.ocls[0].as_ref().unwrap(), &first));
+        assert!(data.ocls[1].is_none());
+        assert!(Arc::ptr_eq(data.ocls[2].as_ref().unwrap(), &last));
+
+        // C++ draws over the full vector, including its null pointer slot.
+        let mut random = RandomState::default();
+        random.seed_random(12345);
+        let mut seen = [false; 3];
+        for _ in 0..100 {
+            let index = random.next_int(0, 2) as usize;
+            seen[index] = true;
+            match index {
+                0 => assert!(Arc::ptr_eq(data.ocls[index].as_ref().unwrap(), &first)),
+                1 => assert!(data.ocls[index].is_none()),
+                2 => assert!(Arc::ptr_eq(data.ocls[index].as_ref().unwrap(), &last)),
+                _ => unreachable!(),
+            }
+        }
+        assert_eq!(seen, [true; 3]);
+    }
+}
