@@ -586,16 +586,26 @@ impl GameClient {
 
     /// Flushes all text-bearing drawables
     pub fn flush_text_bearing_drawables(&mut self) -> GameClientResult<()> {
+        let draw_group_info = self.ensure_draw_group_info();
+        let draw_group_info = draw_group_info.read().unwrap_or_else(|poisoned| poisoned.into_inner());
         let facts = self.script_display.fx().draw_facts();
         let mut draw_context = crate::gui::window_draw_context::WindowDrawContext::new(
             self.ui_renderer.as_mut(),
             facts,
         );
-        for &drawable_id in &self.drawables.text_bearing_drawables {
-            if let Some(drawable) = self.drawables.drawable_map.get(&drawable_id) {
-                drawable.draw_ui_text(&mut draw_context)?;
+        self.window_manager_owner.with_display_string_manager_mut(|strings| -> GameClientResult<()> {
+            for &drawable_id in &self.drawables.text_bearing_drawables {
+                if let Some(drawable) = self.drawables.drawable_map.get(&drawable_id) {
+                    let group = if self.input_authority == ClientInputAuthority::StandaloneCore {
+                        Some(drawable.get_object_id().and_then(|id| self.message_stream.control_group_for_object(id).flatten()))
+                    } else {
+                        None
+                    };
+                    drawable.draw_ui_text(&mut draw_context, &draw_group_info, &self.tactical_view, group, strings)?;
+                }
             }
-        }
+            Ok(())
+        })?;
         self.drawables.text_bearing_drawables.clear();
         Ok(())
     }

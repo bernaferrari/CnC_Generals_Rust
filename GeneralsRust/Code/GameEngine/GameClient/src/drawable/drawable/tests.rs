@@ -511,26 +511,6 @@ fn set_object_id_uses_binding_side_effects_once_per_object() {
     assert_eq!(observed.lock().bind_count, 1);
 }
 
-#[test]
-fn test_hotkey_squad_resolution() {
-    crate::test_support::ensure_ambient_host();
-    let mut player = gamelogic::player::Player::new(0);
-    player.init_from_dict_defaults();
-
-    let squad = player
-        .get_hotkey_squad(3)
-        .expect("expected squad slot to exist after init");
-    squad.add_object_id(77);
-
-    assert_eq!(
-        BasicDrawable::find_hotkey_squad_number(&mut player, 77),
-        Some(3)
-    );
-    assert_eq!(
-        BasicDrawable::find_hotkey_squad_number(&mut player, 99),
-        None
-    );
-}
 
 #[test]
 fn test_tint_envelope() {
@@ -2558,6 +2538,27 @@ fn draws_any_ui_text_for_selected_hotkey_group() {
     drawable.draw_icon_ui();
     assert!(drawable.overlay_data.queue_ui_text);
     assert_eq!(drawable.overlay_data.group_numeral.as_deref(), Some("2"));
+}
+
+#[test]
+fn receiving_group_observation_controls_indicator_for_same_object_id() {
+    crate::test_support::ensure_ambient_host();
+    let mut first = BasicDrawable::new(DrawableId(13));
+    let mut second = BasicDrawable::new(DrawableId(13));
+    for drawable in [&mut first, &mut second] {
+        drawable.set_object_id(Some(7));
+        drawable.selected = true;
+        drawable.presentation_selected = true;
+        drawable.presentation_health_pct = 1.0;
+    }
+    first.draw_icon_ui_with_group(true, Some(Some(2)));
+    second.draw_icon_ui_with_group(true, Some(Some(5)));
+    assert_eq!(first.overlay_data.group_numeral.as_deref(), Some("2"));
+    assert_eq!(second.overlay_data.group_numeral.as_deref(), Some("5"));
+    let mut first = Box::new(first);
+    drop(second);
+    first.draw_icon_ui_with_group(true, Some(Some(2)));
+    assert_eq!(first.overlay_data.group_numeral.as_deref(), Some("2"));
 }
 
 #[test]

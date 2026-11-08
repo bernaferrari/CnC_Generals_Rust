@@ -1,7 +1,6 @@
 use super::*;
 use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
 use crate::display::view::{Point3, with_tactical_view_ref};
-use crate::draw_group_info::get_draw_group_info;
 use crate::drawable_info::DrawableInfo;
 use crate::gui::display_string::get_display_string_manager;
 use crate::gui::font::{FontDesc, get_font_library};

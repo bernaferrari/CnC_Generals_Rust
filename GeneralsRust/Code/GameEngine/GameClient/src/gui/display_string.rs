@@ -13,7 +13,7 @@ use crate::message_stream::game_message::IRegion2D;
 use crate::system::SubsystemInterface;
 use gamelogic::helpers::TheGameLogic;
 
-use crate::draw_group_info::get_draw_group_info;
+use crate::draw_group_info::DrawGroupInfo;
 use crate::game_text::GameText;
 
 use super::font::{FontDesc, GameFont, get_font_library};
@@ -708,13 +708,9 @@ pub struct DisplayStringManager {
     current_checkpoint: Option<DisplayStringHandle>,
 }
 
-fn apply_draw_group_style(handle: &DisplayStringHandle, text: String) {
+fn apply_draw_group_style(handle: &DisplayStringHandle, text: String, info: &DrawGroupInfo) {
     let mut display = handle.borrow_mut();
     display.set_text(text);
-    let __dgi = get_draw_group_info();
-    let info = __dgi
-        .read()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let desc = FontDesc::new(&info.font_name, info.font_size, info.font_is_bold);
     if let Ok(font) = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&desc) {
         display.set_font(font);
@@ -784,27 +780,27 @@ impl DisplayStringManager {
         self.current_checkpoint = self.strings.get(index).cloned();
     }
 
-    pub fn get_group_numeral_string(&mut self, numeral: i32) -> Option<DisplayStringHandle> {
+    pub fn get_group_numeral_string(&mut self, numeral: i32, info: &DrawGroupInfo) -> Option<DisplayStringHandle> {
         let idx = numeral.clamp(0, 9) as usize;
         if let Some(existing) = self.group_numerals[idx].as_ref() {
-            apply_draw_group_style(existing, GameText::fetch(&format!("NUMBER:{idx}")));
+            apply_draw_group_style(existing, GameText::fetch(&format!("NUMBER:{idx}")), info);
             return Some(existing.clone());
         }
 
         let handle = self.new_display_string();
-        apply_draw_group_style(&handle, GameText::fetch(&format!("NUMBER:{idx}")));
+        apply_draw_group_style(&handle, GameText::fetch(&format!("NUMBER:{idx}")), info);
         self.group_numerals[idx] = Some(handle.clone());
         Some(handle)
     }
 
-    pub fn get_formation_letter_string(&mut self) -> Option<DisplayStringHandle> {
+    pub fn get_formation_letter_string(&mut self, info: &DrawGroupInfo) -> Option<DisplayStringHandle> {
         if let Some(existing) = self.formation_letter.as_ref() {
-            apply_draw_group_style(existing, GameText::fetch("LABEL:FORMATION"));
+            apply_draw_group_style(existing, GameText::fetch("LABEL:FORMATION"), info);
             return Some(existing.clone());
         }
 
         let handle = self.new_display_string();
-        apply_draw_group_style(&handle, GameText::fetch("LABEL:FORMATION"));
+        apply_draw_group_style(&handle, GameText::fetch("LABEL:FORMATION"), info);
         self.formation_letter = Some(handle.clone());
         Some(handle)
     }
@@ -887,13 +883,6 @@ impl DisplayStringManagerAccess {
         with_display_string_manager_mut(|manager| manager.free_display_string(handle));
     }
 
-    pub fn get_group_numeral_string(&mut self, numeral: i32) -> Option<DisplayStringHandle> {
-        with_display_string_manager_mut(|manager| manager.get_group_numeral_string(numeral))
-    }
-
-    pub fn get_formation_letter_string(&mut self) -> Option<DisplayStringHandle> {
-        with_display_string_manager_mut(|manager| manager.get_formation_letter_string())
-    }
 
     pub fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         with_display_string_manager_mut(|manager| manager.init())

@@ -160,6 +160,11 @@ impl GameClient {
             .map(|ui| ui.get_moused_over_drawable_id());
         let mut text_ids = Vec::new();
         for (id, drawable) in self.drawables.drawable_map.iter_mut() {
+            let group = if self.input_authority == ClientInputAuthority::StandaloneCore {
+                Some(drawable.get_object_id().and_then(|id| self.message_stream.control_group_for_object(id).flatten()))
+            } else {
+                None
+            };
             if let Some(basic) = drawable
                 .as_any_mut()
                 .downcast_mut::<crate::drawable::drawable::BasicDrawable>()
@@ -171,7 +176,7 @@ impl GameClient {
                     .as_any_mut()
                     .downcast_mut::<crate::drawable::drawable::BasicDrawable>()
                 {
-                    basic.draw_icon_ui_with_policy(self.receiving_draw_icon_ui);
+                    basic.draw_icon_ui_with_group(self.receiving_draw_icon_ui, group);
                 } else {
                     drawable.draw_icon_ui();
                 }

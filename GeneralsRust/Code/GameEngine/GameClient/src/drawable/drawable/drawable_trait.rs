@@ -211,6 +211,10 @@ pub trait Drawable: std::fmt::Debug + Send + Sync + DrawableDowncast {
     fn draw_ui_text(
         &self,
         draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        _draw_group_info: &crate::draw_group_info::DrawGroupInfo,
+        _view: &crate::display::view::View,
+        _group: Option<Option<u8>>,
+        _strings: &mut crate::gui::display_string::DisplayStringManager,
     ) -> Result<(), Box<dyn Error>> {
         Ok(())
     }

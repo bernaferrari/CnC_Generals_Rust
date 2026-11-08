@@ -1,7 +1,6 @@
 use super::*;
 use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
 use crate::display::view::{Point3, with_tactical_view_ref};
-use crate::draw_group_info::get_draw_group_info;
 use crate::drawable_info::DrawableInfo;
 use crate::gui::display_string::get_display_string_manager;
 use crate::gui::font::{FontDesc, get_font_library};
@@ -367,11 +366,16 @@ impl BasicDrawable {
 
     /// C++ `Drawable::drawsAnyUIText` (`Drawable.cpp:2709-2729`).
     pub fn draws_any_ui_text(&self) -> bool {
+        self.draws_any_ui_text_with_group(None)
+    }
+
+    fn draws_any_ui_text_with_group(&self, group: Option<Option<u8>>) -> bool {
         if !self.selected && !self.presentation_selected {
             return false;
         }
-        if dual_world_registry_unavailable() || self.object_id.is_none() {
-            let group = self.presentation_hotkey_group as i32;
+        if group.is_none() || dual_world_registry_unavailable() || self.object_id.is_none() {
+            let group = group.map(|value| value.map(i32::from).unwrap_or(NO_HOTKEY_SQUAD))
+                .unwrap_or(self.presentation_hotkey_group as i32);
             if group > NO_HOTKEY_SQUAD && group < NUM_HOTKEY_SQUADS as i32 {
                 return true;
             }
@@ -389,30 +393,23 @@ impl BasicDrawable {
         if !obj_guard.is_locally_controlled() {
             return false;
         }
-        if let Some(player_arc) = obj_guard.get_controlling_player() {
-            if let Ok(mut player_guard) = player_arc.write() {
-                if let Some(group_number) =
-                    Self::find_hotkey_squad_number(&mut player_guard, obj_guard.get_id())
-                {
-                    if group_number > NO_HOTKEY_SQUAD && group_number < NUM_HOTKEY_SQUADS as i32 {
-                        return true;
-                    }
-                }
-            }
+        if group.flatten().is_some() {
+            return true;
         }
         obj_guard.get_formation_id() != FormationID::NONE
     }
 
-    fn queue_ui_text_overlay(&mut self) {
+    fn queue_ui_text_overlay(&mut self, group: Option<Option<u8>>) {
         self.overlay_data.queue_ui_text = false;
         self.overlay_data.group_numeral = None;
         self.overlay_data.formation_letter = None;
-        if !self.draws_any_ui_text() {
+        if !self.draws_any_ui_text_with_group(group) {
             return;
         }
         self.overlay_data.queue_ui_text = true;
-        if dual_world_registry_unavailable() || self.object_id.is_none() {
-            let group = self.presentation_hotkey_group as i32;
+        if group.is_none() || dual_world_registry_unavailable() || self.object_id.is_none() {
+            let group = group.map(|value| value.map(i32::from).unwrap_or(NO_HOTKEY_SQUAD))
+                .unwrap_or(self.presentation_hotkey_group as i32);
             if group > NO_HOTKEY_SQUAD && group < NUM_HOTKEY_SQUADS as i32 {
                 self.overlay_data.group_numeral = Some(format!("{group}"));
             }
@@ -430,16 +427,8 @@ impl BasicDrawable {
         let Ok(obj_guard) = obj_arc.read() else {
             return;
         };
-        if let Some(player_arc) = obj_guard.get_controlling_player() {
-            if let Ok(mut player_guard) = player_arc.write() {
-                if let Some(group_number) =
-                    Self::find_hotkey_squad_number(&mut player_guard, obj_guard.get_id())
-                {
-                    if group_number > NO_HOTKEY_SQUAD && group_number < NUM_HOTKEY_SQUADS as i32 {
-                        self.overlay_data.group_numeral = Some(format!("{group_number}"));
-                    }
-                }
-            }
+        if let Some(group_number) = group.flatten() {
+            self.overlay_data.group_numeral = Some(format!("{group_number}"));
         }
         if obj_guard.get_formation_id() != FormationID::NONE {
             self.overlay_data.formation_letter = Some("F".to_string());
@@ -872,6 +861,10 @@ impl BasicDrawable {
     /// Native Main supplies the driving session flag; standalone callers keep
     /// the explicit Core wrapper above. This does not publish a second flag.
     pub fn draw_icon_ui_with_policy(&mut self, draw_icon_ui: bool) {
+        self.draw_icon_ui_with_group(draw_icon_ui, None);
+    }
+
+    pub fn draw_icon_ui_with_group(&mut self, draw_icon_ui: bool, group: Option<Option<u8>>) {
         // C++ `setStealthLook` is independent of drawIconUI. Friendly cloak
         // stays VisibleFriendly (translucent); only Invisible hides.
         if dual_world_registry_unavailable() {
@@ -912,7 +905,7 @@ impl BasicDrawable {
             self.draw_construct_percent(health_region);
         }
 
-        let is_dead = if dual_world_registry_unavailable() {
+        let is_dead = if group.is_none() || dual_world_registry_unavailable() {
             self.presentation_health_pct <= 0.0
                 || self
                     .presentation_kind_names
@@ -939,7 +932,7 @@ impl BasicDrawable {
             return;
         }
 
-        self.queue_ui_text_overlay();
+        self.queue_ui_text_overlay(group);
         if let Some(health_region) = &region {
             self.draw_healing(health_region);
             self.draw_bombed(health_region);

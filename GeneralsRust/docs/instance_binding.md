@@ -4,8 +4,9 @@
 
 Multiple game instances can live in one process. Mutable simulation and
 presentation state must not sit in process-wide `static` / `OnceLock` / `LazyLock`
-cells. Each instance owns a services bag; free-function bridges resolve the
-**currently published** bag for the calling thread.
+cells. Each instance owns its mutable state. Existing free-function bridges
+resolve scoped services while callers migrate to explicit owner borrows;
+scoped publication alone does not establish instance isolation.
 
 ## The three scoped stacks
 
@@ -35,18 +36,17 @@ the game state itself. Gameplay fields live **on** those bags
 3. **No process fallback bag** — unscoped `active()` / `active_services()` /
    `common_services()` panic. Constructing a world must not publish a process
    singleton.
-4. **Live GameClient** — typed client borrows go through
-   `CommonServices.system.live_game_client` (per Common instance). Headless
-   image collections without a live client hang off the published
-   `WorldServices.client_image_collection` slot (type-erased), never a process
-   `OnceLock`.
+4. **Live GameClient** — prefer an explicit client borrow. The remaining
+   raw live-client adapter does not prove address stability after a move or
+   exclusivity against ordinary client borrows. Registration identity and
+   callback reentry guards do not repair that safety boundary.
 
 ## Budget gate
 
-`scripts/globals_baseline.json` is all zeros. `scripts/count_globals.sh
---compare` (via `GameClient/tests/globals_budget.rs`) **fails if any crate
-count rises**. Lower the baseline only when a global is deleted; never raise it
-to paper over a new static.
+`scripts/globals_baseline.json` records current ceilings, not a claim that
+the codebase has reached zero globals. `scripts/count_globals.sh --compare`
+(via `GameClient/tests/globals_budget.rs`) **fails if any crate count rises**.
+Lower the baseline only when a global is deleted; never raise it to hide a new static.
 
 ## Prefer explicit ownership
 
@@ -54,3 +54,17 @@ Long-term, delete SCOPED_ACTIVE / ACTIVE_STACK call sites by passing
 `&WorldServices` / `&CommonServices` / `&mut GameLogic` down the stack (C++
 ownership-through-the-engine). Until then, publish for the duration of a call
 batch with `with_*` helpers.
+
+## Client presentation migrations
+
+Contained-selection flashes are queued and drained by the receiving
+`GameClient`; selecting the same object ID in another client does not drain
+that queue. Selection transitions are captured during owned presentation
+synchronization.
+
+Control-group membership is observed from that client's `SelectionTranslator`.
+Indicator drawing receives its group style, tactical view and display-string
+manager explicitly. Move/drop and same-ID membership regressions cover these
+loans, not the whole drawing pipeline: standalone visual facts still consult
+`OBJECT_REGISTRY`, and font resolution still reaches the legacy live-client
+adapter. Legacy squad writes remain for the unmigrated gameplay consumers.

@@ -1118,14 +1118,16 @@ impl DisplayStringManagerSubsystem {
         Self
     }
 
-    pub fn post_process_load(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // C++ parity: postProcessLoad runs after core client systems are up.
-        // Prime shared display strings so first use matches legacy behavior.
-        let mut manager = crate::gui::display_string::get_display_string_manager();
+    pub fn post_process_load(
+        &mut self,
+        info: &crate::draw_group_info::DrawGroupInfo,
+        manager: &mut crate::gui::display_string::DisplayStringManager,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Prime shared display strings after the receiving core systems are up.
         for numeral in 0..=9 {
-            let _ = manager.get_group_numeral_string(numeral);
+            let _ = manager.get_group_numeral_string(numeral, info);
         }
-        let _ = manager.get_formation_letter_string();
+        let _ = manager.get_formation_letter_string(info);
         Ok(())
     }
 }

@@ -343,40 +343,27 @@ impl SelectionTranslator {
     /// C++ `Player::processCreateTeamGameMessage` leftover `m_squads` / Squad xfer.
     fn write_leftover_player_create_team(group: u8, object_ids: &[ObjectID]) {
         let __arc_bind = player_list();
-
-        let Ok(list) = __arc_bind.read() else {
-            return;
-        };
-        let Some(player_arc) = list.get_local_player().cloned() else {
-            return;
-        };
+        let Ok(list) = __arc_bind.read() else { return; };
+        let Some(player_arc) = list.get_local_player().cloned() else { return; };
         drop(list);
-        let Ok(mut player) = player_arc.write() else {
-            return;
-        };
+        let Ok(mut player) = player_arc.write() else { return; };
         player.process_create_team_game_message(group as i32, object_ids);
     }
 
     /// C++ `Player::processSelectTeamGameMessage` / `processAddTeamGameMessage`.
     fn write_leftover_player_select_team(group: u8, add: bool) {
         let __arc_bind = player_list();
-
-        let Ok(list) = __arc_bind.read() else {
-            return;
-        };
-        let Some(player_arc) = list.get_local_player().cloned() else {
-            return;
-        };
+        let Ok(list) = __arc_bind.read() else { return; };
+        let Some(player_arc) = list.get_local_player().cloned() else { return; };
         drop(list);
-        let Ok(mut player) = player_arc.write() else {
-            return;
-        };
+        let Ok(mut player) = player_arc.write() else { return; };
         if add {
             player.process_add_team_game_message(group as i32);
         } else {
             player.process_select_team_game_message(group as i32);
         }
     }
+
 
     /// C++ `Squad::getLiveObjects` → `Object::isSelectable`. Not `CanSelectDrawable`
     /// (no contained / MASKED peel). Missing leftover objects stay live so the
@@ -1617,6 +1604,32 @@ mod tests {
     use std::sync::{Mutex, MutexGuard, OnceLock};
 
     #[test]
+    fn receiving_clients_observe_their_own_groups_after_move_and_drop() {
+        crate::test_support::ensure_ambient_host();
+        let mut first = crate::core::game_client::GameClient::new().unwrap();
+        let mut second = crate::core::game_client::GameClient::new().unwrap();
+        let mut first_selection = SelectionTranslator::new();
+        let mut second_selection = SelectionTranslator::new();
+        first_selection.current_selection.insert(7);
+        second_selection.current_selection.insert(7);
+        with_receiving_ui(|ui| {
+            first_selection.handle_create_control_group(2, ui);
+            second_selection.handle_create_control_group(5, ui);
+        });
+        first.message_stream_mut().attach_translator(
+            std::sync::Arc::new(std::sync::RwLock::new(first_selection)), 50,
+        );
+        second.message_stream_mut().attach_translator(
+            std::sync::Arc::new(std::sync::RwLock::new(second_selection)), 50,
+        );
+        let first = Box::new(first);
+        assert_eq!(first.message_stream().control_group_for_object(7), Some(Some(2)));
+        assert_eq!(second.message_stream().control_group_for_object(7), Some(Some(5)));
+        drop(second);
+        assert_eq!(first.message_stream().control_group_for_object(7), Some(Some(2)));
+    }
+
+    #[test]
     fn receiving_click_uses_own_viewport_and_drawables() {
         use game_engine::common::message_stream::{TranslatorPickCamera, TranslatorPickObjectFact, TranslatorPickObjectView};
         use crate::core::game_client::GameClient;
@@ -2580,6 +2593,10 @@ mod tests {
 }
 
 impl GameMessageTranslator for SelectionTranslator {
+    fn control_group_for_object(&self, object_id: u32) -> Option<Option<u8>> {
+        Some(self.control_groups.iter().position(|members| members.contains(&object_id)).map(|index| index as u8))
+    }
+
     fn requires_receiving_window_context(&self) -> bool {
         true
     }

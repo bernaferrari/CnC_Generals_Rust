@@ -1,9 +1,7 @@
 use super::*;
 use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
-use crate::display::view::{Point3, with_tactical_view_ref};
-use crate::draw_group_info::get_draw_group_info;
+use crate::display::view::Point3;
 use crate::drawable_info::DrawableInfo;
-use crate::gui::display_string::get_display_string_manager;
 use crate::gui::font::{FontDesc, get_font_library};
 use crate::language_filter::get_language_filter;
 use crate::system::TimeOfDay;
@@ -293,10 +291,14 @@ impl Drawable for BasicDrawable {
     fn draw_ui_text(
         &self,
         draw_context: &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
+        draw_group_info: &crate::draw_group_info::DrawGroupInfo,
+        view: &crate::display::view::View,
+        group: Option<Option<u8>>,
+        strings: &mut crate::gui::display_string::DisplayStringManager,
     ) -> Result<(), Box<dyn Error>> {
         // Wave 980: host empty dual-world → drawable pose + presentation team color residual.
-        if dual_world_registry_unavailable() {
-            return self.draw_ui_text_from_presentation(draw_context);
+        if group.is_none() || dual_world_registry_unavailable() {
+            return self.draw_ui_text_from_presentation(draw_context, draw_group_info, view, group, strings);
         }
 
         let Some(object_id) = self.object_id else {
@@ -310,21 +312,14 @@ impl Drawable for BasicDrawable {
             return Ok(());
         };
 
-        let Some(screen_pos) = with_tactical_view_ref(|view| {
-            view.world_to_screen(&Point3::new(
-                object_guard.get_position().x,
-                object_guard.get_position().y,
-                object_guard.get_position().z,
-            ))
-        }) else {
+        let Some(screen_pos) = view.world_to_screen(&Point3::new(
+            object_guard.get_position().x,
+            object_guard.get_position().y,
+            object_guard.get_position().z,
+        )) else {
             return Ok(());
         };
 
-        let __dgi = get_draw_group_info();
-        let draw_group_info = __dgi
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone();
 
         let mut text_color = draw_group_info.color_for_text;
         if draw_group_info.use_player_color {
@@ -350,37 +345,23 @@ impl Drawable for BasicDrawable {
 
         let mut drew_anything = false;
 
-        if let Some(player_arc) = object_guard.get_controlling_player() {
-            if let Ok(mut player_guard) = player_arc.write() {
-                if let Some(group_number) =
-                    Self::find_hotkey_squad_number(&mut player_guard, object_guard.get_id())
-                {
-                    if group_number > NO_HOTKEY_SQUAD && group_number < NUM_HOTKEY_SQUADS as i32 {
-                        let mut manager = get_display_string_manager();
-                        if let Some(group_text) = manager.get_group_numeral_string(group_number) {
-                            Self::draw_caption_string(
-                                &group_text,
-                                base_x,
-                                base_y,
-                                text_color,
-                                draw_group_info.color_for_text_drop_shadow,
-                                &draw_group_info.font_name,
-                                draw_group_info.font_size,
-                                draw_group_info.font_is_bold,
-                                draw_group_info.drop_shadow_offset_x,
-                                draw_group_info.drop_shadow_offset_y,
-                                draw_context,
-                            );
-                            drew_anything = true;
-                        }
-                    }
+        if let Some(group_number) = group.flatten().map(i32::from) {
+            if group_number > NO_HOTKEY_SQUAD && group_number < NUM_HOTKEY_SQUADS as i32 {
+                if let Some(group_text) = strings.get_group_numeral_string(group_number, draw_group_info) {
+                    Self::draw_caption_string(
+                        &group_text, base_x, base_y, text_color,
+                        draw_group_info.color_for_text_drop_shadow,
+                        &draw_group_info.font_name, draw_group_info.font_size,
+                        draw_group_info.font_is_bold, draw_group_info.drop_shadow_offset_x,
+                        draw_group_info.drop_shadow_offset_y, draw_context,
+                    );
+                    drew_anything = true;
                 }
             }
         }
 
         if object_guard.get_formation_id() != FormationID::NONE {
-            let mut manager = get_display_string_manager();
-            if let Some(formation_text) = manager.get_formation_letter_string() {
+            if let Some(formation_text) = strings.get_formation_letter_string(draw_group_info) {
                 Self::draw_caption_string(
                     &formation_text,
                     base_x + 10,

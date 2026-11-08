@@ -249,6 +249,11 @@ pub struct TranslatorClientObservation {
 
 /// Trait for game message translators
 pub trait GameMessageTranslator: Send + Sync {
+    /// Observe the receiving selection translator's control group, if present.
+    fn control_group_for_object(&self, _object_id: u32) -> Option<Option<u8>> {
+        None
+    }
+
     fn requires_receiving_camera_context(&self) -> bool {
         false
     }
@@ -490,6 +495,14 @@ impl MessageStream {
             next_translator_id: 1,
         }
     }
+    /// Query translator-owned group membership without publishing another registry.
+    pub fn control_group_for_object(&self, object_id: u32) -> Option<Option<u8>> {
+        self.translators.iter().find_map(|entry| {
+            entry.translator.read().unwrap_or_else(|poisoned| poisoned.into_inner())
+                .control_group_for_object(object_id)
+        })
+    }
+
 
     /// Append a message of the specified type to the end of the stream
     pub fn append_message(&mut self, message_type: GameMessageType) -> &mut GameMessage {

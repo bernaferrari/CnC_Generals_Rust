@@ -1,7 +1,6 @@
 use super::*;
 use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
 use crate::display::view::{Point3, with_tactical_view_ref};
-use crate::draw_group_info::get_draw_group_info;
 use crate::drawable_info::DrawableInfo;
 use crate::gui::display_string::get_display_string_manager;
 use crate::gui::font::{FontDesc, get_font_library};
@@ -418,17 +417,6 @@ impl BasicDrawable {
             .unwrap_or_default()
     }
 
-    pub(super) fn find_hotkey_squad_number(player: &mut Player, object_id: u32) -> Option<i32> {
-        for squad_number in 0..NUM_HOTKEY_SQUADS {
-            if let Some(squad) = player.get_hotkey_squad(squad_number as i32) {
-                if squad.is_on_squad_by_id(object_id) {
-                    return Some(squad_number as i32);
-                }
-            }
-        }
-
-        None
-    }
 
     pub(super) fn draw_caption_string(
         text_handle: &crate::gui::display_string::DisplayStringHandle,

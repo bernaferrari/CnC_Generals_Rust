@@ -1014,6 +1014,50 @@ use crate::message_stream::game_message::GameMessageType;
         assert_eq!(client.get_drawable_for_object(99), Some(second_id));
     }
 
+    #[test]
+    fn contained_selection_flash_stays_with_receiving_client_after_move_and_drop() {
+        use crate::drawable::drawable::DrawableExt;
+
+        fn entries(selected: bool) -> [PresentationDrawableSync; 2] {
+            let mut host = presentation_drawable_sync_for_test(
+                41, 7, "Host", true, false, [0.0; 3], 0.0,
+            );
+            host.selected = selected;
+            host.garrisoned_ids = vec![42];
+            let occupant = presentation_drawable_sync_for_test(
+                42, 7, "Occupant", true, false, [0.0; 3], 0.0,
+            );
+            [host, occupant]
+        }
+
+        fn advance_and_tint(client: &mut GameClient) -> Option<Vector3> {
+            let id = client.get_drawable_for_object(42).unwrap();
+            let drawable = client.drawables.drawable_map.get_mut(&id).unwrap();
+            let basic = drawable.downcast_mut::<BasicDrawable>().unwrap();
+            basic.set_current_frame(0);
+            basic.update(0.0, 0);
+            basic.tint_color_effect()
+        }
+
+        crate::test_support::ensure_ambient_host();
+        let mut first = GameClient::new().unwrap();
+        let mut second = GameClient::new().unwrap();
+        first.sync_presentation_drawables(entries(false)).unwrap();
+        second.sync_presentation_drawables(entries(false)).unwrap();
+        first.sync_presentation_drawables(entries(true)).unwrap();
+        assert_eq!(first.host_contained_flash_queue, vec![42]);
+        assert!(second.host_contained_flash_queue.is_empty());
+        let mut first = Box::new(first);
+        second.drain_host_contained_flashes();
+        assert!(advance_and_tint(&mut second).is_none());
+        first.drain_host_contained_flashes();
+        assert!(advance_and_tint(&mut first).is_some());
+        second.sync_presentation_drawables(entries(true)).unwrap();
+        drop(first);
+        second.drain_host_contained_flashes();
+        assert!(advance_and_tint(&mut second).is_some());
+    }
+
     pub(super) fn presentation_drawable_sync_for_test(
         object_id: u32,
         host_epoch: u64,

@@ -96,22 +96,6 @@ impl InGameUI {
     /// C++ InGameUI.cpp:2184-2187 — intentionally empty.
     pub fn create_force_attack_hint(&mut self, _start: Coord3D, _end: Coord3D, _source_id: u32) {}
 
-    /// C++ InGameUI.cpp:2192-2199 — notify the target drawable, no hint line.
-    pub fn create_garrison_hint(&mut self, _start: Coord3D, _end: Coord3D, source_id: u32) {
-        self.notify_drawable_on_selected(source_id);
-    }
-
-    fn notify_drawable_on_selected(&self, drawable_id: u32) {
-        if drawable_id == 0 {
-            return;
-        }
-        crate::drawable::drawable_manager::with_drawable_manager(|manager| {
-            if let Some(drawable) = manager.get_drawable_mut(crate::core::DrawableId(drawable_id)) {
-                drawable.set_selected(true);
-            }
-        });
-    }
-
     /// C++ beginAreaSelectHint — drag-select flag only, no invented hint.
     pub fn begin_area_select_hint(&mut self) {
         self.is_selecting = true;

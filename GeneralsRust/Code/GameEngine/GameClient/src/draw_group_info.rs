@@ -1,7 +1,5 @@
 //! DrawGroupInfo defaults for group number rendering.
 
-use std::sync::{Arc, RwLock};
-
 use crate::color::{Color, game_make_color};
 use game_engine::common::ini::ini_draw_group_info as common_draw_group_info;
 
@@ -70,44 +68,6 @@ impl DrawGroupInfo {
     }
 }
 
-#[cfg(test)]
-thread_local! {
-    static TEST_DRAW_GROUP_INFO: std::cell::RefCell<Option<Arc<RwLock<DrawGroupInfo>>>> =
-        const { std::cell::RefCell::new(None) };
-}
-
-fn draw_group_info_handle() -> Arc<RwLock<DrawGroupInfo>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.ensure_draw_group_info()
-    }) {
-        return handle;
-    }
-    #[cfg(test)]
-    {
-        return TEST_DRAW_GROUP_INFO.with(|slot| {
-            slot.borrow_mut()
-                .get_or_insert_with(|| Arc::new(RwLock::new(DrawGroupInfo::default())))
-                .clone()
-        });
-    }
-    #[cfg(not(test))]
-    {
-        Arc::new(RwLock::new(DrawGroupInfo::default()))
-    }
-}
-
-pub fn get_draw_group_info() -> Arc<RwLock<DrawGroupInfo>> {
-    draw_group_info_handle()
-}
-
-pub fn sync_from_common_draw_group_info(info: &common_draw_group_info::DrawGroupInfo) {
-    let __dgi = get_draw_group_info();
-    let mut runtime = __dgi
-        .write()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    runtime.apply_common(info);
-}
-
 fn common_color_to_game_color(color: common_draw_group_info::Color) -> Color {
     game_make_color(color.r, color.g, color.b, color.a)
 }
@@ -143,5 +103,18 @@ mod tests {
         assert_eq!(runtime.percent_offset_x, -0.2);
         assert!(runtime.using_pixel_offset_y);
         assert_eq!(runtime.pixel_offset_y, -10);
+    }
+
+    #[test]
+    fn group_style_follows_receiving_client_after_move_and_drop() {
+        let mut first = crate::core::game_client::GameClient::new().unwrap();
+        let mut second = crate::core::game_client::GameClient::new().unwrap();
+        first.ensure_draw_group_info().write().unwrap().pixel_offset_x = 11;
+        second.ensure_draw_group_info().write().unwrap().pixel_offset_x = 22;
+
+        let mut moved = Box::new(first);
+        assert_eq!(moved.ensure_draw_group_info().read().unwrap().pixel_offset_x, 11);
+        drop(second);
+        assert_eq!(moved.ensure_draw_group_info().read().unwrap().pixel_offset_x, 11);
     }
 }

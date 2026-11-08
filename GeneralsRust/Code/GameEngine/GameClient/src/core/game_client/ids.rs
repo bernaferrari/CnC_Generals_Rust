@@ -247,57 +247,33 @@ fn dual_world_registry_unavailable() -> bool {
     OBJECT_REGISTRY.is_empty()
 }
 
-// Wave 984: host residual queue — flash contained presentation drawables on
-// select. THREAD: main thread only (queued by selection handling, drained by
-// the same thread's draw pass).
-#[cfg(test)]
-thread_local! {
-    static TEST_HOST_CONTAINED_FLASH_QUEUE: RefCell<Vec<u32>> = RefCell::new(Vec::new());
-}
-
-/// Queue object ids whose presentation drawables should flash-as-selected.
-pub fn queue_host_contained_flash_object_ids(ids: impl IntoIterator<Item = u32>) {
-    let ids: Vec<u32> = ids.into_iter().filter(|&id| id != 0).collect();
-    if let Some(()) = crate::core::game_client::with_live_game_client_mut(|client| {
-        let queue = client.host_contained_flash_queue_mut();
-        for id in &ids {
-            if !queue.contains(id) {
-                queue.push(*id);
+impl GameClient {
+    /// Queue contained object IDs on the client that owns their drawables.
+    pub fn queue_host_contained_flash_object_ids(
+        &mut self,
+        ids: impl IntoIterator<Item = u32>,
+    ) {
+        for id in ids {
+            if id != 0 && !self.host_contained_flash_queue.contains(&id) {
+                self.host_contained_flash_queue.push(id);
             }
         }
-    }) {
-        return;
     }
-    #[cfg(test)]
-    {
-        TEST_HOST_CONTAINED_FLASH_QUEUE.with_borrow_mut(|queue| {
-            for id in ids {
-                if !queue.contains(&id) {
-                    queue.push(id);
+
+    fn drain_host_contained_flashes(&mut self) {
+        for object_id in std::mem::take(&mut self.host_contained_flash_queue) {
+            let Some(drawable_id) = self.get_drawable_for_object(object_id) else {
+                continue;
+            };
+            if let Some(drawable) = self.drawables.drawable_map.get_mut(&drawable_id) {
+                use crate::drawable::drawable::DrawableExt;
+                if let Some(basic) =
+                    drawable.downcast_mut::<crate::drawable::drawable::BasicDrawable>()
+                {
+                    basic.color_flash(Vector3::new(1.0, 1.0, 1.0), 4);
                 }
             }
-        });
-        return;
-    }
-    #[cfg(not(test))]
-    {
-        let _ = ids;
-    }
-}
-
-fn take_host_contained_flash_object_ids() -> Vec<u32> {
-    if let Some(taken) = crate::core::game_client::with_live_game_client_mut(|client| {
-        std::mem::take(client.host_contained_flash_queue_mut())
-    }) {
-        return taken;
-    }
-    #[cfg(test)]
-    {
-        return TEST_HOST_CONTAINED_FLASH_QUEUE.with_borrow_mut(std::mem::take);
-    }
-    #[cfg(not(test))]
-    {
-        Vec::new()
+        }
     }
 }
 

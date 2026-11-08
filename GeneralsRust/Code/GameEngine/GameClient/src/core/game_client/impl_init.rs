@@ -657,7 +657,10 @@ impl GameClient {
             game_engine::common::ini::ini_draw_group_info::get_draw_group_info()
         {
             let draw_group_info = draw_group_info.read();
-            crate::draw_group_info::sync_from_common_draw_group_info(&draw_group_info);
+            self.ensure_draw_group_info()
+                .write()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .apply_common(&draw_group_info);
         }
 
         Ok(())
@@ -938,9 +941,6 @@ impl GameClient {
         self.local_player_id
     }
 
-    pub(crate) fn host_contained_flash_queue_mut(&mut self) -> &mut Vec<u32> {
-        &mut self.host_contained_flash_queue
-    }
 
     pub(crate) fn client_anim2d_instances_handle(
         &self,
@@ -1146,17 +1146,29 @@ impl GameClient {
     }
 
     pub fn post_process_display_strings(&mut self) -> GameClientResult<()> {
+        let draw_group_info = self.ensure_draw_group_info();
+        let draw_group_info = draw_group_info.read().unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Some(display_strings) = self.subsystem_manager.display_strings.as_ref() {
-            display_strings
-                .lock()
-                .map_err(|_| {
-                    GameClientError::SubsystemError(
-                        "Display string manager lock poisoned during post-process load".to_string(),
-                    )
-                })?
-                .post_process_load()?;
+            let mut display_strings = display_strings.lock().map_err(|_| {
+                GameClientError::SubsystemError(
+                    "Display string manager lock poisoned during post-process load".to_string(),
+                )
+            })?;
+            self.window_manager_owner.with_display_string_manager_mut(|manager| {
+                display_strings.post_process_load(&draw_group_info, manager)
+            })?;
         }
         Ok(())
+    }
+
+    /// Prime group strings on this client's receiving display-string manager.
+    pub fn prime_group_display_strings(&mut self) {
+        let info = self.ensure_draw_group_info();
+        let info = info.read().unwrap_or_else(|poisoned| poisoned.into_inner());
+        self.window_manager_owner.with_display_string_manager_mut(|manager| {
+            let _ = manager.get_group_numeral_string(0, &info);
+            let _ = manager.get_formation_letter_string(&info);
+        });
     }
 
     fn install_core_nonwindow_script_services(&self) {

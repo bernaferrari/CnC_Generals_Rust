@@ -12,17 +12,9 @@ mod frustum;
 pub use frustum::clipped_visible_box_z_up;
 
 use crate::drawable::StealthLook;
-use crate::effects::decals::DecalRenderItem;
-use crate::radius_decal::with_projected_shadow_manager;
 use crate::terrain::TerrainVisual;
 use crate::terrain::terrain_visual::get_terrain_visual;
 
-/// C++ `W3DProjectedShadowManager::flushDecals` / `queueDecal`.
-/// Only allocated projected decals (`addDecal` / `addShadow`). C++ has no
-/// per-drawable fallback blob — inventing one double-draws once real decals land.
-pub fn collect_unit_decal_items() -> Vec<DecalRenderItem> {
-    with_projected_shadow_manager(|manager| manager.collect_render_items()).unwrap_or_default()
-}
 
 /// Detected-stealth marker colour.
 const HEAT_VISION_COLOR: [f32; 4] = [1.0, 0.35, 0.05, 0.85];

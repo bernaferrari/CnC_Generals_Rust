@@ -1,7 +1,6 @@
 use super::*;
 use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
 use crate::display::view::{Point3, with_tactical_view_ref};
-use crate::draw_group_info::get_draw_group_info;
 use crate::drawable::ClientShroudVisibility;
 use crate::drawable_info::DrawableInfo;
 use crate::gui::display_string::get_display_string_manager;
@@ -894,14 +893,9 @@ impl BasicDrawable {
     /// Flash contained objects when this drawable is selected.
     /// Matches C++ Drawable::onSelected() -> contain->clientVisibleContainedFlashAsSelected()
     pub(super) fn flash_contained_objects(&self, object_id: u32) {
-        // Wave 977: host empty dual-world → presentation occupant residual only.
-        // Full contained-drawable flash walk needs dual-world factory objects.
+        // Host presentation selection is handled by its owning GameClient.
+        // The registry walk below is only for standalone dual-world objects.
         if dual_world_registry_unavailable() {
-            // Wave 984: host residual queues garrisoned presentation ids for shell flash.
-            crate::core::game_client::queue_host_contained_flash_object_ids(
-                self.presentation_garrisoned_ids.iter().copied(),
-            );
-            let _ = object_id;
             return;
         }
 

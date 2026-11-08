@@ -27,17 +27,17 @@ impl WthreeDDisplayStringManager {
         }
     }
 
-    pub fn initialize(&mut self) -> Result<(), WthreeDDisplayStringManagerError> {
+    pub fn initialize(&mut self, client: &mut game_client_rust::core::game_client::GameClient) -> Result<(), WthreeDDisplayStringManagerError> {
         if self.initialized {
             return Ok(());
         }
-        self.post_process_load();
+        self.post_process_load(client);
         self.initialized = true;
         Ok(())
     }
 
     /// C++ `W3DDisplayStringManager::postProcessLoad`.
-    pub fn post_process_load(&mut self) {
+    pub fn post_process_load(&mut self, client: &mut game_client_rust::core::game_client::GameClient) {
         for numeral in 0..10 {
             let key = format!("NUMBER:{numeral}");
             self.resources
@@ -45,8 +45,7 @@ impl WthreeDDisplayStringManager {
         }
         self.resources
             .insert("LABEL:FORMATION".to_string(), std::ptr::null_mut());
-        let _ = game_client_rust::display_string_manager::get_group_numeral_string(0);
-        let _ = game_client_rust::display_string_manager::get_formation_letter_string();
+        client.prime_group_display_strings();
     }
 
     /// Shutdown the manager
@@ -112,7 +111,8 @@ mod tests {
     fn test_wthree_d_display_string_manager_basic() {
         let mut mgr = WthreeDDisplayStringManager::new();
         assert!(!mgr.is_initialized());
-        mgr.initialize().unwrap();
+        let mut client = game_client_rust::core::game_client::GameClient::new().unwrap();
+        mgr.initialize(&mut client).unwrap();
         assert!(mgr.is_initialized());
         mgr.shutdown();
         assert!(!mgr.is_initialized());

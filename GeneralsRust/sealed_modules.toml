@@ -346,7 +346,7 @@ note = "Observer look-at + gen arrow on InGameUISubsystem; removed process Atomi
 [[module]]
 path = "Code/GameEngine/GameClient/src/gui/display_string.rs"
 cpp = "GeneralsMD/Code/GameEngineDevice/Source/GameEngine/Source/GameClient/DisplayStringManager.cpp"
-note = "DisplayStringManager on WindowManagerOwner; removed process TLS; peels use live-client loan / cfg(test) TLS fallback."
+note = "DisplayStringManager on WindowManagerOwner; group and formation styling borrows receiving DrawGroupInfo; remaining manager peels unchanged."
 
 [[module]]
 path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-core/src/ww3d.rs"
@@ -506,7 +506,7 @@ note = "Anim2DCollection Arc on GameClient; update via instance; peels live clie
 [[module]]
 path = "Code/GameEngine/GameClient/src/draw_group_info.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/DrawGroupInfo.cpp"
-note = "DrawGroupInfo Arc on GameClient; peels live client; cfg(test) TLS fallback only."
+note = "DrawGroupInfo Arc on GameClient; group styling borrows the receiving owner's data, with no live-client peel or test TLS fallback."
 
 [[module]]
 path = "Code/GameEngine/GameClient/src/system/smudge.rs"

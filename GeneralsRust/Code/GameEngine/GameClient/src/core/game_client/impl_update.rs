@@ -944,6 +944,14 @@ impl GameClient {
                                 },
                             );
                         }
+                        if e.selected && !basic.is_selected() {
+                            basic.flash_as_selected(None);
+                            for &id in &e.garrisoned_ids {
+                                if id != 0 && !self.host_contained_flash_queue.contains(&id) {
+                                    self.host_contained_flash_queue.push(id);
+                                }
+                            }
+                        }
                         Self::stamp_presentation_object_residual(basic, &e, true);
                         let flags = basic.get_model_condition_flags();
                         let bits = (0..128.min(flags.get_bit_names().len()))
@@ -1013,6 +1021,17 @@ impl GameClient {
                     Ok(())
                 },
             )?;
+            if e.selected {
+                if let Some(drawable_id) = self.get_drawable_for_object(e.object_id) {
+                    if let Some(drawable) = self.drawables.drawable_map.get_mut(&drawable_id) {
+                        use crate::drawable::drawable::DrawableExt;
+                        if let Some(basic) = drawable.downcast_mut::<BasicDrawable>() {
+                            basic.flash_as_selected(None);
+                        }
+                    }
+                }
+                self.queue_host_contained_flash_object_ids(e.garrisoned_ids.iter().copied());
+            }
             created = created.saturating_add(1);
         }
 
@@ -2042,23 +2061,7 @@ impl GameClient {
             }
         }
 
-        // Wave 984: drain contained-flash residual onto presentation drawables.
-        for object_id in take_host_contained_flash_object_ids() {
-            let Some(drawable_id) = self.get_drawable_for_object(object_id) else {
-                continue;
-            };
-            if let Some(drawable) = self.drawables.drawable_map.get_mut(&drawable_id) {
-                use crate::drawable::drawable::DrawableExt;
-                // White selection flash residual (C++ Drawable::flashAsSelected).
-                if let Some(basic) =
-                    drawable.downcast_mut::<crate::drawable::drawable::BasicDrawable>()
-                {
-                    basic.color_flash(Vector3::new(1.0, 1.0, 1.0), 4);
-                } else {
-                    let _ = drawable;
-                }
-            }
-        }
+        self.drain_host_contained_flashes();
 
         // Native Main owns Menu admission and startup movie completion.
         // A hidden shell during a match must stay hidden: showing its map
