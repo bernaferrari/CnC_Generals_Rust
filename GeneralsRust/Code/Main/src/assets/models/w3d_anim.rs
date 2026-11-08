@@ -201,151 +201,28 @@ pub(super) fn mat4_from_quaternion(rotation: [f32; 4]) -> [f32; 16] {
     mat4_from_translation_and_quaternion([0.0; 3], rotation)
 }
 
-/// Preserve the pre-existing generic compressed-HAnim behavior verbatim.
-/// Raw HAnim deliberately uses local post-composition instead; this helper is
-/// not part of Generals' specialized raw path.
-pub(super) fn replace_rotation_preserving_translation(
-    m: &mut [f32; 16],
-    qx: f32,
-    qy: f32,
-    qz: f32,
-    qw: f32,
-) {
-    let xx = qx * qx;
-    let yy = qy * qy;
-    let zz = qz * qz;
-    let xy = qx * qy;
-    let xz = qx * qz;
-    let yz = qy * qz;
-    let wx = qw * qx;
-    let wy = qw * qy;
-    let wz = qw * qz;
-    m[0] = 1.0 - 2.0 * (yy + zz);
-    m[1] = 2.0 * (xy + wz);
-    m[2] = 2.0 * (xz - wy);
-    m[4] = 2.0 * (xy - wz);
-    m[5] = 1.0 - 2.0 * (xx + zz);
-    m[6] = 2.0 * (yz + wx);
-    m[8] = 2.0 * (xz + wy);
-    m[9] = 2.0 * (yz - wx);
-    m[10] = 1.0 - 2.0 * (xx + yy);
-}
 
-/// Existing generic compressed-HAnim local-channel behavior. The source
-/// compressed decoder is independently incomplete, but its current support
-/// must not be reinterpreted through Generals' raw HAnim specialization.
+/// Sample the canonical compressed channels without cloning assets or
+/// allocating temporary channel vectors. The returned pose is caller-owned.
 pub(super) fn sample_compressed_animation_local_transforms(
     hierarchy: &W3dHierarchy,
     anim: &W3dAnimation,
     frame: f32,
 ) -> Option<Vec<[f32; 16]>> {
-    if !frame.is_finite() {
+    let compressed = anim.compressed_anim.as_ref()?;
+    if !frame.is_finite() || frame < 0.0 || anim.num_frames == 0
+        || !anim.hierarchy_name.eq_ignore_ascii_case(&hierarchy.name)
+        || compressed.get_num_pivots() > hierarchy.pivots.len() {
         return None;
     }
-    let mut local_transforms: Vec<[f32; 16]> =
-        hierarchy.pivots.iter().map(mat4_from_pivot).collect();
-
-    for channel in &anim.channels {
-        let pivot_idx = usize::from(channel.pivot);
-        if pivot_idx >= local_transforms.len() {
-            continue;
-        }
-
-        let values = sample_compressed_channel(channel, frame);
-
-        match channel.flags {
-            0 => {
-                if let Some(v) = values.first() {
-                    local_transforms[pivot_idx][12] = *v;
-                }
-            }
-            1 => {
-                if let Some(v) = values.first() {
-                    local_transforms[pivot_idx][13] = *v;
-                }
-            }
-            2 => {
-                if let Some(v) = values.first() {
-                    local_transforms[pivot_idx][14] = *v;
-                }
-            }
-            6 if values.len() >= 4 => {
-                replace_rotation_preserving_translation(
-                    &mut local_transforms[pivot_idx],
-                    values[0],
-                    values[1],
-                    values[2],
-                    values[3],
-                );
-            }
-            _ => {}
-        }
+    let frame = frame.min((anim.num_frames - 1) as f32);
+    let mut locals: Vec<_> = hierarchy.pivots.iter().map(mat4_from_pivot).collect();
+    for (pivot, local) in locals.iter_mut().enumerate().skip(1) {
+        // Generic HTree applies BaseTransform * animated T/Q, just as the
+        // original HCompressedAnimClass supplies zero/identity missing tracks.
+        *local = mat4_mul(local, &compressed.get_transform(pivot, frame).to_cols_array());
     }
-
-    Some(local_transforms)
-}
-
-/// Interpolate an animation channel at the given continuous frame value.
-/// Returns the interpolated values (1 for scalar channels, 4 for quaternion).
-pub(super) fn sample_compressed_channel(channel: &W3dAnimChannel, frame: f32) -> Vec<f32> {
-    let first = channel.first_frame as f32;
-    let last = channel.last_frame as f32;
-
-    // Clamp frame to channel range
-    let t = (frame - first).max(0.0).min((last - first).max(0.0));
-
-    let vl = channel.vector_len as usize;
-    if vl == 0 || channel.data.is_empty() {
-        return Vec::new();
-    }
-
-    // Number of keyframes in this channel
-    let num_keys = channel.data.len() / vl;
-    if num_keys == 0 {
-        return vec![0.0; vl];
-    }
-
-    let frame_idx = (t as usize).min(num_keys - 1);
-    let frac = t - frame_idx as f32;
-
-    let idx0 = frame_idx * vl;
-    let idx1 = if frame_idx + 1 < num_keys {
-        (frame_idx + 1) * vl
-    } else {
-        idx0
-    };
-
-    if idx0 + vl > channel.data.len() {
-        return vec![0.0; vl];
-    }
-
-    // Linear interpolation between adjacent keyframes
-    let mut result = Vec::with_capacity(vl);
-    for i in 0..vl {
-        let a = channel.data[idx0 + i];
-        let b = if idx1 + i < channel.data.len() {
-            channel.data[idx1 + i]
-        } else {
-            a
-        };
-        result.push(a + (b - a) * frac);
-    }
-
-    // For quaternion channels (flags=6), normalize to unit quaternion
-    if channel.flags == 6 && result.len() == 4 {
-        let len = (result[0] * result[0]
-            + result[1] * result[1]
-            + result[2] * result[2]
-            + result[3] * result[3])
-            .sqrt();
-        if len > 1e-10 {
-            for v in result.iter_mut() {
-                *v /= len;
-            }
-        }
-    }
-
-    result
+    Some(locals)
 }
 
 /// Multiply two source W3D affine transforms in C++ `Matrix3D::Multiply`

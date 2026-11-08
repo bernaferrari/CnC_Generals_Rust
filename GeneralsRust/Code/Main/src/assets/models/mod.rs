@@ -41,7 +41,7 @@ pub use w3d_emitter_loader::W3dEmitterProto;
 pub(crate) use w3d_format::split_w3d_draw_animation_identity;
 pub use w3d_format::{
     W3dAnimChannel, W3dAnimation, W3dAnimationBinding, W3dAnimationBindingKey,
-    W3dCompressedVisibilityChannel, W3dHierarchy,
+    W3dHierarchy,
     W3dHlod, W3dHlodAggregatePose, W3dHlodAttachmentArray, W3dHlodLod, W3dHlodPrototypeBindPose,
     W3dHlodSubObject, W3dHmodel, W3dHmodelNode, W3dHmodelNodeKind, W3dHmodelNodePose,
     W3dHmodelSkinNodeBinding, W3dHmodelSnapPoint, W3dPivot, W3dRawVisibilityChannel,

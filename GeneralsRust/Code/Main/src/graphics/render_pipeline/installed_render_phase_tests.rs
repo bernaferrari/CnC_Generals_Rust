@@ -16,7 +16,7 @@ fn animated_owner(
         frame_rate: 30,
         source_is_compressed: false,
         raw_visibility_channels: Vec::new(),
-        compressed_visibility_channels: Vec::new(),
+        compressed_anim: None,
         unsupported_visibility_pivots: Vec::new(),
         channels: Vec::new(),
     });

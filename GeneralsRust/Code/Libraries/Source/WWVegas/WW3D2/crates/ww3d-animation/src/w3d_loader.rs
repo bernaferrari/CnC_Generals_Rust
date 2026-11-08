@@ -334,12 +334,17 @@ fn parse_timecoded_channel_chunk<R: Read + Seek>(
 
 /// Parse a compressed animation chunk with full HCompressedAnimClass integration
 /// Reference: w3d_file.cpp compressed animation loading
-fn parse_compressed_animation_chunk<R: Read + Seek>(
+pub fn parse_compressed_animation_chunk<R: Read + Seek>(
     reader: &mut R,
     chunk_size: u32,
     hierarchy_pivots: &dyn Fn(&str) -> Option<usize>,
 ) -> Result<W3DAnimationData, W3DAnimationError> {
     let chunk_end = reader.stream_position()? + chunk_size as u64;
+    let payload_start = reader.stream_position()?;
+    if chunk_end > reader.seek(SeekFrom::End(0))? {
+        return Err(W3DAnimationError::InvalidData("truncated compressed container".into()));
+    }
+    reader.seek(SeekFrom::Start(payload_start))?;
 
     let mut header: Option<W3dCompressedAnimHeaderStruct> = None;
 
@@ -347,11 +352,20 @@ fn parse_compressed_animation_chunk<R: Read + Seek>(
     let start_pos = reader.stream_position()?;
 
     while reader.stream_position()? < chunk_end {
+        if chunk_end - reader.stream_position()? < 8 {
+            return Err(W3DAnimationError::InvalidData("truncated compressed subchunk header".into()));
+        }
         let sub_header: W3dChunkHeader = reader.read_le()?;
         let sub_start = reader.stream_position()?;
         let sub_end = sub_start + sub_header.actual_size() as u64;
+        if sub_end > chunk_end {
+            return Err(W3DAnimationError::InvalidData("compressed subchunk exceeds container".into()));
+        }
 
         if let Some(W3DChunkType::CompressedAnimationHeader) = sub_header.chunk_type() {
+            if sub_header.actual_size() < 44 {
+                return Err(W3DAnimationError::InvalidData("truncated compressed animation header".into()));
+            }
             header = Some(reader.read_le()?);
             break;
         }
@@ -370,6 +384,12 @@ fn parse_compressed_animation_chunk<R: Read + Seek>(
 
     // C++ allocates one motion slot per pivot in the named hierarchy.
     let flavor = u32::from(header.flavor);
+    if !matches!(flavor, ANIM_FLAVOR_TIMECODED | ANIM_FLAVOR_ADAPTIVE_DELTA) {
+        return Err(W3DAnimationError::UnsupportedFlavor(flavor));
+    }
+    if header.num_frames == 0 || header.num_frames > (1 << 24) || header.frame_rate == 0 {
+        return Err(W3DAnimationError::InvalidData("invalid compressed frame domain".into()));
+    }
     let mut compressed_anim = HCompressedAnimClass::new(
         ww3d_core::w3d_string_from_bytes(&header.name),
         ww3d_core::w3d_string_from_bytes(&header.hierarchy_name),
@@ -383,38 +403,42 @@ fn parse_compressed_animation_chunk<R: Read + Seek>(
     reader.seek(SeekFrom::Start(start_pos))?;
 
     while reader.stream_position()? < chunk_end {
+        if chunk_end - reader.stream_position()? < 8 {
+            return Err(W3DAnimationError::InvalidData("truncated compressed subchunk header".into()));
+        }
         let sub_header: W3dChunkHeader = reader.read_le()?;
         let sub_start = reader.stream_position()?;
         let sub_end = sub_start + sub_header.actual_size() as u64;
+        if sub_end > chunk_end {
+            return Err(W3DAnimationError::InvalidData("compressed subchunk exceeds container".into()));
+        }
 
         match sub_header.chunk_type() {
             Some(W3DChunkType::CompressedAnimationChannel) => {
                 match flavor {
                     ANIM_FLAVOR_TIMECODED => {
-                        if let Ok(channel) =
-                            parse_timecoded_motion_channel(reader, sub_header.actual_size())
-                        {
-                            compressed_anim.add_timecoded_channel(channel);
+                        let channel = parse_timecoded_motion_channel(reader, sub_header.actual_size())?;
+                        if channel.get_pivot() as usize >= num_nodes || channel.last_frame() >= header.num_frames {
+                            return Err(W3DAnimationError::InvalidData("timecoded channel outside animation domain".into()));
                         }
+                        compressed_anim.add_timecoded_channel(channel);
                     }
                     ANIM_FLAVOR_ADAPTIVE_DELTA => {
-                        if let Ok(channel) = parse_adaptive_delta_motion_channel(
-                            reader,
-                            sub_header.actual_size(),
-                            header.num_frames,
-                        ) {
-                            compressed_anim.add_adaptive_delta_channel(channel);
+                        let channel = parse_adaptive_delta_motion_channel(reader, sub_header.actual_size(), header.num_frames)?;
+                        if channel.get_pivot() as usize >= num_nodes {
+                            return Err(W3DAnimationError::InvalidData("adaptive pivot outside hierarchy".into()));
                         }
+                        compressed_anim.add_adaptive_delta_channel(channel);
                     }
-                    _ => {
-                        // Skip unsupported flavors
-                    }
+                    _ => unreachable!("flavor validated above"),
                 }
             }
             Some(W3DChunkType::CompressedBitChannel) => {
-                if let Ok(channel) = parse_timecoded_bit_channel(reader, sub_header.actual_size()) {
-                    compressed_anim.add_bit_channel(channel);
+                let channel = parse_timecoded_bit_channel(reader, sub_header.actual_size())?;
+                if channel.get_pivot() as usize >= num_nodes || channel.last_frame() >= header.num_frames {
+                    return Err(W3DAnimationError::InvalidData("bit channel outside animation domain".into()));
                 }
+                compressed_anim.add_bit_channel(channel);
             }
             _ => {
                 // Skip unknown sub-chunks
@@ -454,8 +478,11 @@ fn parse_timecoded_motion_channel<R: Read + Seek>(
     let pivot: u16 = reader.read_le()?;
     let vector_len_raw: u8 = reader.read_le()?;
     let flags: u8 = reader.read_le()?;
-    let vector_len = usize::from(vector_len_raw.max(1));
+    let vector_len = usize::from(vector_len_raw);
     let remaining_bytes = (chunk_size - HEADER_SIZE) as usize;
+    if remaining_bytes % 4 != 0 {
+        return Err(W3DAnimationError::InvalidData("unaligned timecoded payload".into()));
+    }
     let data_u32_count = remaining_bytes / 4;
     let mut data = Vec::with_capacity(data_u32_count);
     for _ in 0..data_u32_count {
@@ -463,13 +490,9 @@ fn parse_timecoded_motion_channel<R: Read + Seek>(
         data.push(value);
     }
 
-    Ok(TimeCodedMotionChannelClass::new(
-        pivot as u32,
-        flags as u16,
-        num_timecodes,
-        vector_len,
-        data,
-    ))
+    TimeCodedMotionChannelClass::try_new(
+        pivot as u32, flags as u16, num_timecodes, vector_len, data,
+    ).map_err(|error| W3DAnimationError::InvalidData(error.into()))
 }
 
 /// Parse an adaptive delta motion channel for compressed animations
@@ -491,7 +514,7 @@ fn parse_adaptive_delta_motion_channel<R: Read + Seek>(
     let vector_len_raw: u8 = reader.read_le()?;
     let flags: u8 = reader.read_le()?;
     let scale: f32 = reader.read_le()?;
-    let vector_len = usize::from(vector_len_raw.max(1));
+    let vector_len = usize::from(vector_len_raw);
     let remaining_bytes = (chunk_size - HEADER_SIZE) as usize;
 
     // Packets are nine bytes each and need not end on a u32 boundary.
@@ -499,18 +522,12 @@ fn parse_adaptive_delta_motion_channel<R: Read + Seek>(
     let mut data = vec![0; remaining_bytes];
     reader.read_exact(&mut data)?;
 
-    Ok(AdaptiveDeltaMotionChannelClass::new(
-        pivot as u32,
-        flags as u16,
-        vector_len,
-        if channel_num_frames == 0 {
-            num_frames
-        } else {
-            channel_num_frames
-        },
-        scale,
-        data,
-    ))
+    if channel_num_frames != num_frames {
+        return Err(W3DAnimationError::InvalidData("adaptive frame count differs from animation".into()));
+    }
+    AdaptiveDeltaMotionChannelClass::try_new(
+        pivot as u32, flags as u16, vector_len, channel_num_frames, scale, data,
+    ).map_err(|error| W3DAnimationError::InvalidData(error.into()))
 }
 
 /// Parse a timecoded bit channel for visibility
@@ -531,21 +548,20 @@ fn parse_timecoded_bit_channel<R: Read + Seek>(
     let flags: u8 = reader.read_le()?;
     let default_val: u8 = reader.read_le()?;
     let remaining_bytes = (chunk_size - HEADER_SIZE) as usize;
+    if remaining_bytes % 4 != 0 {
+        return Err(W3DAnimationError::InvalidData("unaligned compressed bit payload".into()));
+    }
 
     let num_words = remaining_bytes / 4;
-    let mut bits = Vec::with_capacity(num_timecodes as usize);
+    let mut bits = Vec::with_capacity(num_words);
     for _ in 0..num_words {
         let value: u32 = reader.read_le()?;
         bits.push(value);
     }
 
-    Ok(TimeCodedBitChannelClass::new(
-        pivot as u32,
-        flags as u16,
-        default_val as i32,
-        num_timecodes,
-        bits,
-    ))
+    TimeCodedBitChannelClass::try_new(
+        pivot as u32, flags as u16, default_val as i32, num_timecodes, bits,
+    ).map_err(|error| W3DAnimationError::InvalidData(error.into()))
 }
 
 /// Parse a morph animation chunk
@@ -1190,12 +1206,7 @@ mod tests {
     #[test]
     fn adaptive_w3d_loader_does_not_pad_truncated_packet() {
         let bytes = compressed_animation_with_adaptive_packet_fixture(&[8, 0, 0, 0, 0, 0, 0, 0]);
-        let mut animation = load_w3d_animation(&mut Cursor::new(bytes), &|_| Some(1))
-            .unwrap().compressed_anim.unwrap();
-        assert_eq!(animation.get_translation(0, 0.0).x, 2.0);
-        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            animation.get_translation(0, 15.0);
-        })).is_err());
+        assert!(load_w3d_animation(&mut Cursor::new(bytes), &|_| Some(1)).is_err());
     }
 
     #[test]

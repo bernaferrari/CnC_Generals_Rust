@@ -2367,7 +2367,7 @@ mod w3d_live_path_tests {
             source_is_compressed: false,
             channels: Vec::new(),
             raw_visibility_channels: Vec::new(),
-            compressed_visibility_channels: Vec::new(),
+            compressed_anim: None,
             unsupported_visibility_pivots: Vec::new(),
         });
 

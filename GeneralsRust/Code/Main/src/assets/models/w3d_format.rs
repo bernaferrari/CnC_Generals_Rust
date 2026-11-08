@@ -516,20 +516,7 @@ impl W3dRawVisibilityChannel {
     }
 }
 
-/// Packed timecoded visibility keys from one compressed animation channel.
-#[derive(Debug, Clone)]
-pub struct W3dCompressedVisibilityChannel {
-    pub pivot: u16,
-    pub keys: Vec<u32>,
-}
 
-impl W3dCompressedVisibilityChannel {
-    fn visible_at(&self, frame: i32) -> Option<bool> {
-        let frame = u32::try_from(frame).ok()?;
-        let key = self.keys.partition_point(|key| (key & 0x7fff_ffff) <= frame);
-        self.keys.get(key.saturating_sub(1)).map(|key| key & 0x8000_0000 != 0)
-    }
-}
 
 /// W3D animation data. C++ parity: W3dAnimHeaderStruct + channels
 #[derive(Debug, Clone)]
@@ -539,16 +526,15 @@ pub struct W3dAnimation {
     pub num_frames: u32,
     pub frame_rate: u32,
     /// True when this record came from a compressed animation container.
-    /// Existing local support remains isolated, but hq-7x9 deliberately does
-    /// not claim external companion compressed-channel parity.
+    /// Compressed and raw containers retain their distinct sampling semantics.
     pub source_is_compressed: bool,
     pub channels: Vec<W3dAnimChannel>,
     /// Raw `BIT_CHANNEL_VIS` channels, in source chunk order.  If duplicate
     /// pivots occur, C++ overwrites the prior channel, so sampling walks this
     /// vector from the end.
     pub raw_visibility_channels: Vec<W3dRawVisibilityChannel>,
-    /// Compressed `BIT_CHANNEL_VIS` keys, in source chunk order.
-    pub compressed_visibility_channels: Vec<W3dCompressedVisibilityChannel>,
+    /// Immutable canonical compressed channels; no playback caches in assets.
+    pub compressed_anim: Option<ww3d_animation::HCompressedAnimClass>,
     /// Malformed visibility data; `None` means its pivot could not be read.
     /// Affected children cannot be rendered with a guessed visibility value.
     pub unsupported_visibility_pivots: Vec<Option<u16>>,
@@ -578,14 +564,12 @@ impl W3dAnimation {
         if pivot == 0 {
             return Some(true);
         }
-        let frame = if self.source_is_compressed {
-            if !frame.is_finite() || frame < i32::MIN as f32 || frame > i32::MAX as f32 {
-                return None;
-            }
-            frame as i32
-        } else {
-            self.raw_frame_index(frame)?
-        };
+        if self.source_is_compressed {
+            if !frame.is_finite() || frame < 0.0 || self.num_frames == 0 { return None; }
+            let frame = frame.min((self.num_frames - 1) as f32);
+            return Some(self.compressed_anim.as_ref()?.get_visibility(pivot, frame));
+        }
+        let frame = self.raw_frame_index(frame)?;
         let pivot = u16::try_from(pivot).ok()?;
         if self
             .unsupported_visibility_pivots
@@ -597,16 +581,7 @@ impl W3dAnimation {
         {
             return None;
         }
-        if self.source_is_compressed {
-            return match self.compressed_visibility_channels
-                .iter()
-                .rev()
-                .find(|channel| channel.pivot == pivot)
-            {
-                Some(channel) => channel.visible_at(frame),
-                None => Some(true),
-            };
-        }
+
 
         self.raw_visibility_channels
             .iter()

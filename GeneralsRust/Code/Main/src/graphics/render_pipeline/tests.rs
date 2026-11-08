@@ -27,7 +27,7 @@ fn bridge_test_animation(name: &str, x: f32) -> crate::assets::W3dAnimation {
             data: vec![x, x],
         }],
         raw_visibility_channels: Vec::new(),
-        compressed_visibility_channels: Vec::new(),
+        compressed_anim: None,
         unsupported_visibility_pivots: Vec::new(),
     }
 }

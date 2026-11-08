@@ -431,7 +431,7 @@ impl W3DLoader {
         self.parse_w3d_data(data, base_name.to_string())
     }
 
-    /// Parse a raw-animation W3D payload and select only the exact full
+    /// Parse a raw or compressed W3D animation and select only the exact full
     /// `Hierarchy.Animation` record requested by the frozen Draw state.
     pub fn load_companion_animation_from_bytes(
         &self,
@@ -602,6 +602,9 @@ impl W3DLoader {
             );
 
             if offset + 8 + chunk_size > data.len() {
+                if chunk_type == W3D_CHUNK_COMPRESSED_ANIMATION {
+                    return Err(anyhow!("compressed animation exceeds file"));
+                }
                 warn!(
                     "W3D chunk extends beyond file: type 0x{:08X}, size {} (raw: 0x{:08X})",
                     chunk_type, chunk_size, raw_chunk_size
@@ -611,6 +614,9 @@ impl W3DLoader {
 
             // Additional safety checks to prevent infinite loops
             if chunk_size == 0 {
+                if chunk_type == W3D_CHUNK_COMPRESSED_ANIMATION {
+                    return Err(anyhow!("empty compressed animation"));
+                }
                 warn!(
                     "Zero-sized chunk detected (type 0x{:08X}) - skipping",
                     chunk_type
@@ -691,16 +697,7 @@ impl W3DLoader {
                         "Parsing W3D compressed animation chunk (timecoded/adaptive delta), size: {}",
                         chunk_size
                     );
-                    match self.parse_compressed_animation_chunk(chunk_data) {
-                        Ok(animation) => {
-                            debug!(
-                                "Parsed compressed animation '{}' ({} frames @ {}fps)",
-                                animation.name, animation.num_frames, animation.frame_rate
-                            );
-                            model.animations.push(animation);
-                        }
-                        Err(e) => warn!("Failed to parse compressed animation chunk: {}", e),
-                    }
+                    model.animations.push(self.parse_compressed_animation_chunk(chunk_data)?);
                 }
                 W3D_CHUNK_HMODEL => {
                     debug!("Found W3D hierarchical model chunk, size: {}", chunk_size);
@@ -723,9 +720,7 @@ impl W3DLoader {
                         model.dist_lods.push(dist_lod);
                     }
                     if is_container_chunk {
-                        if let Err(e) = self.parse_container_chunk(chunk_data, &mut model) {
-                            warn!("Failed to parse LOD model container: {}", e);
-                        }
+                        self.parse_container_chunk(chunk_data, &mut model)?;
                     }
                 }
                 W3D_CHUNK_HLOD => {
@@ -803,12 +798,7 @@ impl W3DLoader {
                     // If it's a container chunk, try to parse it recursively
                     if is_container_chunk && chunk_size > 0 {
                         debug!("  -> Container chunk, parsing recursively");
-                        if let Err(e) = self.parse_container_chunk(chunk_data, &mut model) {
-                            warn!(
-                                "Failed to parse container chunk 0x{:08X}: {}",
-                                chunk_type, e
-                            );
-                        }
+                        self.parse_container_chunk(chunk_data, &mut model)?;
                     }
                 }
             }
@@ -905,6 +895,9 @@ impl W3DLoader {
             let chunk_size = (raw_chunk_size & 0x7FFFFFFF) as usize;
 
             if offset + 8 + chunk_size > data.len() {
+                if chunk_type == W3D_CHUNK_COMPRESSED_ANIMATION {
+                    return Err(anyhow!("compressed animation exceeds container"));
+                }
                 warn!(
                     "Container sub-chunk extends beyond container: type 0x{:08X}, size {}",
                     chunk_type, chunk_size
@@ -914,6 +907,9 @@ impl W3DLoader {
 
             // Safety checks for container chunks
             if chunk_size == 0 {
+                if chunk_type == W3D_CHUNK_COMPRESSED_ANIMATION {
+                    return Err(anyhow!("empty compressed animation"));
+                }
                 warn!(
                     "Zero-sized container chunk detected (type 0x{:08X}) - skipping",
                     chunk_type
@@ -958,17 +954,7 @@ impl W3DLoader {
                         "Found compressed animation chunk in container, size: {}",
                         chunk_size
                     );
-                    match self.parse_compressed_animation_chunk(chunk_data) {
-                        Ok(animation) => {
-                            model.animations.push(animation);
-                        }
-                        Err(e) => {
-                            warn!(
-                                "Failed to parse compressed animation chunk in container: {}",
-                                e
-                            )
-                        }
-                    }
+                    model.animations.push(self.parse_compressed_animation_chunk(chunk_data)?);
                 }
                 W3D_CHUNK_HIERARCHY => {
                     debug!("Found hierarchy chunk in container, size: {}", chunk_size);
@@ -1050,9 +1036,7 @@ impl W3DLoader {
                         model.dist_lods.push(dist_lod);
                     }
                     if is_container_chunk && chunk_size > 0 {
-                        if let Err(e) = self.parse_container_chunk(chunk_data, model) {
-                            warn!("Failed to parse nested LODMODEL container: {}", e);
-                        }
+                        self.parse_container_chunk(chunk_data, model)?;
                     }
                 }
                 _ => {
@@ -1062,12 +1046,7 @@ impl W3DLoader {
                     );
                     // Recursively parse nested containers
                     if is_container_chunk && chunk_size > 0 {
-                        if let Err(e) = self.parse_container_chunk(chunk_data, model) {
-                            warn!(
-                                "Failed to parse nested container 0x{:08X}: {}",
-                                chunk_type, e
-                            );
-                        }
+                        self.parse_container_chunk(chunk_data, model)?;
                     }
                 }
             }
@@ -1874,7 +1853,7 @@ impl W3DLoader {
             source_is_compressed: false,
             channels,
             raw_visibility_channels,
-            compressed_visibility_channels: Vec::new(),
+            compressed_anim: None,
             unsupported_visibility_pivots,
         })
     }
@@ -1884,422 +1863,39 @@ impl W3DLoader {
     /// C++ parity: W3D_CHUNK_COMPRESSED_ANIMATION container with CompressedAnimationHeader,
     /// CompressedAnimationChannel, and CompressedBitChannel sub-chunks.
     pub(super) fn parse_compressed_animation_chunk(&self, data: &[u8]) -> Result<W3dAnimation> {
-        let mut name = String::new();
-        let mut hierarchy_name = String::new();
-        let mut num_frames: u32 = 0;
-        let mut frame_rate: u32 = 0;
-        let mut flavor: u16 = ANIM_FLAVOR_TIMECODED;
-        let mut channels: Vec<W3dAnimChannel> = Vec::new();
-        let raw_visibility_channels: Vec<W3dRawVisibilityChannel> = Vec::new();
-        let mut compressed_visibility_channels = Vec::new();
-        let mut unsupported_visibility_pivots: Vec<Option<u16>> = Vec::new();
+        // A model may load its named hierarchy later (or from another asset).
+        // Infer only the storage extent here; channel parsing and all sampling
+        // remain authoritative in ww3d-animation. The receiving model checks
+        // the named hierarchy and pivot domain before evaluating the pose.
         let mut offset = 0usize;
-
-        while offset + 8 <= data.len() {
-            let chunk_type = u32::from_le_bytes([
-                data[offset],
-                data[offset + 1],
-                data[offset + 2],
-                data[offset + 3],
-            ]);
-            let raw_chunk_size = u32::from_le_bytes([
-                data[offset + 4],
-                data[offset + 5],
-                data[offset + 6],
-                data[offset + 7],
-            ]);
-            let chunk_size = (raw_chunk_size & 0x7FFF_FFFF) as usize;
-
-            if offset + 8 + chunk_size > data.len() {
-                break;
+        let mut pivots = 0usize;
+        while offset < data.len() {
+            let header = data.get(offset..offset + 8).ok_or_else(|| anyhow!("truncated compressed chunk header"))?;
+            let kind = u32::from_le_bytes(header[..4].try_into()?);
+            let size = (u32::from_le_bytes(header[4..].try_into()?) & 0x7fff_ffff) as usize;
+            let end = offset.checked_add(8).and_then(|n| n.checked_add(size))
+                .filter(|end| *end <= data.len()).ok_or_else(|| anyhow!("truncated compressed chunk"))?;
+            if matches!(kind, W3D_CHUNK_COMPRESSED_ANIMATION_CHANNEL | W3D_CHUNK_COMPRESSED_BIT_CHANNEL) {
+                let channel = data.get(offset + 8..end).filter(|bytes| bytes.len() >= 8)
+                    .ok_or_else(|| anyhow!("truncated compressed channel header"))?;
+                pivots = pivots.max(usize::from(u16::from_le_bytes([channel[4], channel[5]])) + 1);
             }
-
-            let chunk_data = &data[offset + 8..offset + 8 + chunk_size];
-
-            match chunk_type {
-                W3D_CHUNK_COMPRESSED_ANIMATION_HEADER => {
-                    if chunk_data.len() < 44 {
-                        return Err(anyhow!(
-                            "compressed animation header too small: {}",
-                            chunk_data.len()
-                        ));
-                    }
-                    let mut n = String::new();
-                    for i in 4..4 + W3D_NAME_LEN {
-                        if chunk_data[i] == 0 {
-                            break;
-                        }
-                        n.push(chunk_data[i] as char);
-                    }
-                    name = n;
-                    let mut hn = String::new();
-                    for i in 20..20 + W3D_NAME_LEN {
-                        if i >= chunk_data.len() || chunk_data[i] == 0 {
-                            break;
-                        }
-                        hn.push(chunk_data[i] as char);
-                    }
-                    hierarchy_name = hn;
-                    num_frames = u32::from_le_bytes([
-                        chunk_data[36],
-                        chunk_data[37],
-                        chunk_data[38],
-                        chunk_data[39],
-                    ]);
-                    frame_rate = u16::from_le_bytes([chunk_data[40], chunk_data[41]]) as u32;
-                    flavor = u16::from_le_bytes([chunk_data[42], chunk_data[43]]);
-                    debug!(
-                        "Compressed animation header: name='{}', hierarchy='{}', frames={}, fps={}, flavor={}",
-                        name, hierarchy_name, num_frames, frame_rate, flavor
-                    );
-                }
-                W3D_CHUNK_COMPRESSED_ANIMATION_CHANNEL => {
-                    if chunk_data.len() < 8 {
-                        offset += 8 + chunk_size;
-                        continue;
-                    }
-                    if flavor == ANIM_FLAVOR_TIMECODED {
-                        if let Some(ch) = Self::parse_timecoded_channel(chunk_data, num_frames) {
-                            channels.push(ch);
-                        }
-                    } else {
-                        let chs = Self::parse_adaptive_delta_channel(chunk_data, num_frames);
-                        channels.extend(chs);
-                    }
-                }
-                W3D_CHUNK_COMPRESSED_BIT_CHANNEL => {
-                    // Timecoded bit words contain a 31-bit frame and a
-                    // high-bit visibility value (motchan.cpp:708-789).
-                    if chunk_data.len() < 8 {
-                        unsupported_visibility_pivots.push(None);
-                        debug!(
-                            "Malformed compressed W3D bit channel has no recoverable pivot, size: {}",
-                            chunk_size
-                        );
-                    } else {
-                        let pivot = u16::from_le_bytes([chunk_data[4], chunk_data[5]]);
-                        let flags = chunk_data[6];
-                        if flags == 0 {
-                            let count = u32::from_le_bytes([
-                                chunk_data[0], chunk_data[1], chunk_data[2], chunk_data[3],
-                            ]) as usize;
-                            let words = &chunk_data[8..];
-                            if count == 0 || words.len() % 4 != 0 || words.len() / 4 != count {
-                                unsupported_visibility_pivots.push(Some(pivot));
-                            } else {
-                                let keys: Vec<u32> = words.chunks_exact(4)
-                                    .map(|word| u32::from_le_bytes([word[0], word[1], word[2], word[3]]))
-                                    .collect();
-                                if keys.windows(2).any(|pair| {
-                                    (pair[0] & 0x7fff_ffff) > (pair[1] & 0x7fff_ffff)
-                                }) {
-                                    unsupported_visibility_pivots.push(Some(pivot));
-                                } else {
-                                    compressed_visibility_channels.push(W3dCompressedVisibilityChannel { pivot, keys });
-                                }
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            }
-
-            offset += 8 + chunk_size;
+            offset = end;
         }
-
+        let parsed = ww3d_animation::w3d_loader::parse_compressed_animation_chunk(
+            &mut std::io::Cursor::new(data), u32::try_from(data.len())?, &|_| Some(pivots),
+        )?;
         Ok(W3dAnimation {
-            name,
-            hierarchy_name,
-            num_frames,
-            frame_rate,
+            name: parsed.name,
+            hierarchy_name: parsed.hierarchy_name,
+            num_frames: parsed.num_frames,
+            frame_rate: parsed.frame_rate as u32,
             source_is_compressed: true,
-            channels,
-            raw_visibility_channels,
-            compressed_visibility_channels,
-            unsupported_visibility_pivots,
+            channels: Vec::new(),
+            raw_visibility_channels: Vec::new(),
+            compressed_anim: parsed.compressed_anim,
+            unsupported_visibility_pivots: Vec::new(),
         })
-    }
-
-    /// Parse a single timecoded animation channel (ANIM_FLAVOR_TIMECODED, flavor=0).
-    /// Format: num_timecodes(u32) + pivot(u16) + vector_len(u8) + flags(u8)
-    ///         then [timecode(u32) + vector_len * f32] per timecode.
-    /// Timecode MSB = binary (step) flag; lower 31 bits = frame index.
-    /// Produces a densified per-frame W3dAnimChannel matching the uncompressed layout.
-    pub(super) fn parse_timecoded_channel(
-        chunk_data: &[u8],
-        num_frames: u32,
-    ) -> Option<W3dAnimChannel> {
-        if chunk_data.len() < 8 {
-            return None;
-        }
-        let num_timecodes =
-            u32::from_le_bytes([chunk_data[0], chunk_data[1], chunk_data[2], chunk_data[3]])
-                as usize;
-        let pivot = u16::from_le_bytes([chunk_data[4], chunk_data[5]]);
-        let vector_len = chunk_data[6] as u16;
-        let flags_tc = chunk_data[7] as u16;
-
-        if vector_len == 0 {
-            return None;
-        }
-
-        let vl = vector_len as usize;
-        let entry_size = 4 + vl * 4;
-        if chunk_data.len() < 8 + num_timecodes * entry_size {
-            return None;
-        }
-
-        let mut timecodes: Vec<(u32, bool, Vec<f32>)> = Vec::with_capacity(num_timecodes);
-        for i in 0..num_timecodes {
-            let base = 8 + i * entry_size;
-            let tc = u32::from_le_bytes([
-                chunk_data[base],
-                chunk_data[base + 1],
-                chunk_data[base + 2],
-                chunk_data[base + 3],
-            ]);
-            let binary = (tc & 0x8000_0000) != 0;
-            let frame = tc & 0x7FFF_FFFF;
-            let mut vals = Vec::with_capacity(vl);
-            for c in 0..vl {
-                let off = base + 4 + c * 4;
-                vals.push(f32::from_le_bytes([
-                    chunk_data[off],
-                    chunk_data[off + 1],
-                    chunk_data[off + 2],
-                    chunk_data[off + 3],
-                ]));
-            }
-            timecodes.push((frame, binary, vals));
-        }
-
-        let total_frames = num_frames as usize;
-        if total_frames == 0 {
-            return Some(W3dAnimChannel {
-                first_frame: 0,
-                last_frame: 0,
-                vector_len,
-                flags: Self::map_timecoded_flag(flags_tc),
-                pivot,
-                data: Vec::new(),
-            });
-        }
-
-        let mut data = vec![0.0f32; total_frames * vl];
-
-        if timecodes.is_empty() {
-            return Some(W3dAnimChannel {
-                first_frame: 0,
-                last_frame: (num_frames.max(1) - 1) as u16,
-                vector_len,
-                flags: Self::map_timecoded_flag(flags_tc),
-                pivot,
-                data,
-            });
-        }
-
-        timecodes.sort_by_key(|t| t.0);
-
-        let (first_tc, _, ref v0) = timecodes[0];
-        for f in 0..(first_tc.min(num_frames)) as usize {
-            let base = f * vl;
-            for c in 0..vl {
-                data[base + c] = v0[c];
-            }
-        }
-
-        for seg in 0..timecodes.len() {
-            let (f0, bin0, ref v0_vals) = timecodes[seg];
-            let f1 = if seg + 1 < timecodes.len() {
-                timecodes[seg + 1].0
-            } else {
-                num_frames - 1
-            };
-            let v1_vals = if seg + 1 < timecodes.len() {
-                &timecodes[seg + 1].2
-            } else {
-                v0_vals
-            };
-            let start_f = f0 as usize;
-            let end_f = f1 as usize;
-            if start_f > end_f || start_f as u32 >= num_frames {
-                continue;
-            }
-            let clamped_end = end_f.min(total_frames - 1);
-            for f in start_f..=clamped_end {
-                let t = if end_f == start_f {
-                    0.0
-                } else {
-                    (f as f32 - start_f as f32) / (end_f as f32 - start_f as f32)
-                };
-                let base = f * vl;
-                for c in 0..vl {
-                    data[base + c] = if bin0 {
-                        v0_vals[c]
-                    } else {
-                        v0_vals[c] * (1.0 - t) + v1_vals[c] * t
-                    };
-                }
-            }
-        }
-
-        Some(W3dAnimChannel {
-            first_frame: 0,
-            last_frame: (num_frames.max(1) - 1) as u16,
-            vector_len,
-            flags: Self::map_timecoded_flag(flags_tc),
-            pivot,
-            data,
-        })
-    }
-
-    /// Parse a single adaptive delta animation channel (ANIM_FLAVOR_ADAPTIVE_DELTA, flavor=1).
-    /// Format: num_frames(u32) + pivot(u16) + vector_len(u8) + flags(u8) + scale(f32)
-    ///         then blocks of 16 frames each, where each block contains vector_len packets.
-    ///         Each packet: 1 byte (filter_idx in lower 7 bits) + 8 bytes (16 4-bit nibbles).
-    ///         Delta decoding with adaptive filter table.
-    pub(super) fn parse_adaptive_delta_channel(
-        chunk_data: &[u8],
-        hdr_num_frames: u32,
-    ) -> Vec<W3dAnimChannel> {
-        if chunk_data.len() < 12 {
-            return Vec::new();
-        }
-        let num_frames =
-            u32::from_le_bytes([chunk_data[0], chunk_data[1], chunk_data[2], chunk_data[3]])
-                as usize;
-        let pivot = u16::from_le_bytes([chunk_data[4], chunk_data[5]]);
-        let vector_len = chunk_data[6] as usize;
-        let _flags_raw = chunk_data[7] as u16;
-        let scale =
-            f32::from_le_bytes([chunk_data[8], chunk_data[9], chunk_data[10], chunk_data[11]]);
-
-        if vector_len == 0 || num_frames == 0 {
-            return Vec::new();
-        }
-
-        let blocks = num_frames.div_ceil(16);
-        let packet_count = blocks * vector_len;
-        let bytes_needed = 8 + packet_count * 9;
-        if chunk_data.len() < bytes_needed {
-            return Vec::new();
-        }
-
-        let filter_table = Self::build_adaptive_delta_filter_table();
-        let mut data = vec![0.0f32; num_frames * vector_len];
-        let mut last_vals = vec![0.0f32; vector_len];
-        if vector_len == 4 {
-            last_vals[3] = 1.0;
-        }
-
-        let mut read_pos = 12usize;
-        for b in 0..blocks {
-            for vi in 0..vector_len {
-                let b0 = chunk_data[read_pos];
-                read_pos += 1;
-                let filter_idx = (b0 & 0x7F) as usize;
-                let mut nibbles = [0u8; 16];
-                for byte_i in 0..8 {
-                    let byte = chunk_data[read_pos];
-                    read_pos += 1;
-                    nibbles[byte_i * 2] = byte & 0x0F;
-                    nibbles[byte_i * 2 + 1] = (byte >> 4) & 0x0F;
-                }
-                let filter = filter_table.get(filter_idx).copied().unwrap_or(1.0) * scale;
-                for fi in 0..16 {
-                    let frame = b * 16 + fi;
-                    if frame >= num_frames {
-                        break;
-                    }
-                    let raw = nibbles[fi] as i32;
-                    let factor = (raw - 8) as f32;
-                    let value = last_vals[vi] + factor * filter;
-                    data[frame * vector_len + vi] = value;
-                    last_vals[vi] = value;
-                }
-            }
-        }
-
-        let mut out = Vec::new();
-        if vector_len == 3 {
-            for axis in 0..3 {
-                let mut axis_data = Vec::with_capacity(num_frames);
-                for f in 0..num_frames {
-                    axis_data.push(data[f * 3 + axis]);
-                }
-                out.push(W3dAnimChannel {
-                    first_frame: 0,
-                    last_frame: (hdr_num_frames.max(1) - 1) as u16,
-                    vector_len: 1,
-                    flags: axis as u16,
-                    pivot,
-                    data: axis_data,
-                });
-            }
-        } else if vector_len == 4 {
-            for f in 0..num_frames {
-                let i = f * 4;
-                let x = data[i];
-                let y = data[i + 1];
-                let z = data[i + 2];
-                let w = data[i + 3];
-                let len = (x * x + y * y + z * z + w * w).sqrt();
-                if len > 1e-5 {
-                    data[i] = x / len;
-                    data[i + 1] = y / len;
-                    data[i + 2] = z / len;
-                    data[i + 3] = w / len;
-                }
-            }
-            out.push(W3dAnimChannel {
-                first_frame: 0,
-                last_frame: (hdr_num_frames.max(1) - 1) as u16,
-                vector_len: 4,
-                flags: 6,
-                pivot,
-                data,
-            });
-        } else {
-            let mut axis_data = Vec::with_capacity(num_frames);
-            for f in 0..num_frames {
-                axis_data.push(data[f * vector_len]);
-            }
-            out.push(W3dAnimChannel {
-                first_frame: 0,
-                last_frame: (hdr_num_frames.max(1) - 1) as u16,
-                vector_len: 1,
-                flags: 0,
-                pivot,
-                data: axis_data,
-            });
-        }
-        out
-    }
-
-    pub(super) fn map_timecoded_flag(flag: u16) -> u16 {
-        match flag {
-            8 => 0,
-            9 => 1,
-            10 => 2,
-            11 => 6,
-            _ => flag,
-        }
-    }
-
-    pub(super) fn build_adaptive_delta_filter_table() -> [f32; 256] {
-        let mut table = [0.0f32; 256];
-        let base: [f32; 16] = [
-            1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1.0, 10.0, 100.0, 1000.0, 10000.0,
-            100000.0, 1000000.0, 10000000.0,
-        ];
-        table[..16].copy_from_slice(&base);
-        let gen_start = 16usize;
-        let gen_size = 256 - gen_start;
-        for i in 0..gen_size {
-            let ratio = i as f32 / gen_size as f32;
-            table[gen_start + i] = 1.0 - (std::f32::consts::FRAC_PI_2 * ratio).sin();
-        }
-        table
     }
 
     /// Compute global bone transforms from hierarchy pivots.

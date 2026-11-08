@@ -3158,3 +3158,59 @@ contained objects, and distinguish local fog from enemy fog and shroud.
 Horde, Nationalism and Fanaticism edges notify the receiving weapon set in
 original order; encoded snapshots retain their flags. Residual weapon refresh
 preserves firing state and uses the receiving authored bonus catalog.
+
+## Canonical compressed W3D motion channels
+
+Both Main's model/companion sampler and renderer playback load and sample
+`ww3d-animation` compressed channels. Main no longer expands sparse steps or
+adaptive payloads into raw float tracks. Destination-key movement flags, full
+filter bytes (including 16 and 255), signed four-bit factors, scalar axes and
+fractional quaternion sampling follow `motchan.cpp` and `w3d_file.h`.
+Quaternion interpolation follows `quat.cpp:390-432`, reusing WWMath's existing
+`fast_acos`/`fast_sin` tables and epsilon-squared threshold, with explicit source
+component evaluation order, hemisphere correction and no output normalization.
+The broader WWMath module is not sealed by this channel cutover.
+
+Compressed payloads and packet checkpoints are immutable. Main's existing
+shared companion assets and renderer's existing shared loaded assets are
+borrowed for sampling; there is no `Rc<RefCell<HCompressedAnimClass>>` and no
+per-sample channel clone, heap allocation, or mutable asset cache. Playback
+position remains receiving-player owned. Evaluator attachment transfers an
+owned compressed animation. The returned Main pose still owns its palette.
+
+Adaptive indexing intentionally spends `4 * VectorLen * ceil(NumFrames / 16)`
+bytes on packet bases (approximately 4/9 of packet payload size, versus a full
+16-frame float expansion). Construction is linear in frame/component count;
+a sample decodes at most 16 deltas per component, with one filter lookup per
+component packet. Each checkpoint preserves the original sequential floating
+addition order, never a multiplied sum of deltas. This trades small immutable
+asset storage and bounded sample work for cache-free random access across any
+number of independent players; no performance measurement is claimed.
+
+Two original defects are intentionally not reproduced: `motchan.cpp:1153-1157`
+continues a copied next-frame value from the preceding frame number, and its
+`done` flag at `943/1020` survives into later components when decoding multiple
+packets. Indexed packet bases correct both, so forward/backward/random seeks
+produce the same authored values as sequential decoding of every component.
+Main's generic HTree composition is now BaseTransform * translation * rotation
+(`htree.cpp:509-545`), rather than overwriting bind components.
+
+Load failure is explicit: zero counts/rates, unsupported flavor/channel shape,
+truncated payloads/containers, non-finite decoded values, nonzero first motion
+keys, non-increasing motion keys, unordered bit keys, out-of-domain keys and
+mismatched adaptive frame counts are rejected, not silently dropped. Frame
+counts are limited to 2^24, the exactly representable f32 integer domain.
+Motion must begin at zero, as the original search assumes. Visibility may
+begin later and holds its first key before that time; equality selects the
+new key and the final key holds afterward. Header DefaultVal does not replace
+compressed bit semantics. Sampling requires finite nonnegative frames; Main
+rejects invalid query frames, and consumer endpoints clamp beyond the last
+frame. In-memory trusted constructors assert these load invariants. Adaptive
+payload bytes beyond the required full packets remain legal writer padding.
+
+Consumer regression filter: `canonical_compressed_` in `generals_main` and
+`ww3d-renderer-3d`; existing `animation_decompression_tests` cover the canonical
+container directly. These changes do not seal the full animation/renderer
+subsystem, raw-container legacy timecode parsing, morph playback, or the
+separate ww3d-assets prototype sampler.
+

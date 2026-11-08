@@ -562,7 +562,7 @@ fn primary_turret_hlod_model() -> W3DModel {
             data: vec![0.0, 2.0],
         }],
         raw_visibility_channels: Vec::new(),
-        compressed_visibility_channels: Vec::new(),
+        compressed_anim: None,
         unsupported_visibility_pivots: Vec::new(),
     });
     model
@@ -1274,7 +1274,7 @@ fn w3d_hlod_visibility_raw_bit_channel_uses_lsb_frames_and_default_outside_range
     assert!(at_visible.1);
 }
 
-fn compressed_visibility_animation(bit_payload: Vec<u8>) -> W3dAnimation {
+fn compressed_visibility_animation(bit_payload: Vec<u8>) -> anyhow::Result<W3dAnimation> {
     let mut header = Vec::new();
     header.extend_from_slice(&W3D_CURRENT_HANIM_VERSION.to_le_bytes());
     header.extend_from_slice(&fixed_name("VIS_CLIP", W3D_NAME_LEN));
@@ -1286,7 +1286,7 @@ fn compressed_visibility_animation(bit_payload: Vec<u8>) -> W3dAnimation {
         chunk(W3D_CHUNK_COMPRESSED_ANIMATION_HEADER, header, false),
         chunk(W3D_CHUNK_COMPRESSED_BIT_CHANNEL, bit_payload, false),
     ].concat();
-    W3DLoader::new().parse_compressed_animation_chunk(&payload).unwrap()
+    W3DLoader::new().parse_compressed_animation_chunk(&payload)
 }
 
 fn compressed_visibility_payload(count: u32, pivot: u16, words: &[u32]) -> Vec<u8> {
@@ -1308,7 +1308,7 @@ fn w3d_hlod_visibility_compressed_keys_drive_the_bound_child() {
         .unwrap();
     model.animations[0] = compressed_visibility_animation(compressed_visibility_payload(
         3, 1, &[2, 0x8000_0000 | 3, 5],
-    ));
+    )).unwrap();
     let binding = W3dAnimationBinding::local(0);
     for (frame, expected) in [(0.0, false), (2.9, false), (3.0, true), (4.9, true), (5.0, false)] {
         let (_, visible) = model
@@ -1323,17 +1323,14 @@ fn w3d_hlod_visibility_compressed_keys_drive_the_bound_child() {
 
 #[test]
 fn w3d_hlod_visibility_malformed_compressed_keys_fail_closed() {
-    let mut model = W3DLoader::new()
-        .load_model_from_bytes(&visibility_hlod_fixture(), "visibility_hlod")
-        .unwrap();
+
     for payload in [
         compressed_visibility_payload(0, 1, &[]),
         compressed_visibility_payload(2, 1, &[0x8000_0000]),
         compressed_visibility_payload(2, 1, &[3, 2]),
         vec![0, 0, 0],
     ] {
-        model.animations[0] = compressed_visibility_animation(payload);
-        assert!(model.mesh_local_transform_and_visibility_for_animation(0, Some(0), 0.0).is_none());
+        assert!(compressed_visibility_animation(payload).is_err());
     }
 }
 
@@ -1355,7 +1352,7 @@ fn captured_hlod_pivot_alone_overrides_its_animation_visibility() {
             default_visible: true,
             bits: vec![0],
         }).collect(),
-        compressed_visibility_channels: Vec::new(),
+        compressed_anim: None,
         unsupported_visibility_pivots: Vec::new(),
     });
     let binding = W3dAnimationBinding::local(0);
@@ -1894,7 +1891,7 @@ fn w3d_companion_animation_external_binding_wins_over_local_clip() {
         W3dAnimationBinding::companion("VIS_HIER.EXTERNAL", Arc::new(compressed_companion));
     assert!(
         !geometry.animation_binding_is_compatible(&compressed_binding),
-        "external compressed companion channels stay fail-closed until their path is ported"
+        "a compressed tag without canonical channel data must remain fail-closed"
     );
 
     let local_x = geometry
@@ -2098,7 +2095,7 @@ fn raw_hanim_uses_cxx_integer_delta_postcomposition_and_duplicate_channel_rules(
             default_visible: true,
             bits: vec![0],
         }],
-        compressed_visibility_channels: Vec::new(),
+        compressed_anim: None,
         unsupported_visibility_pivots: Vec::new(),
     };
 
@@ -2187,7 +2184,7 @@ fn htree_runtime_pose_ignores_authored_pivot_zero_pose_channels_and_visibility()
         }],
         // A compressed pivot-zero source is likewise ignored because C++
         // replaces pivot zero before it queries visibility.
-        compressed_visibility_channels: Vec::new(),
+        compressed_anim: None,
         unsupported_visibility_pivots: vec![Some(0)],
     });
 
@@ -2798,4 +2795,99 @@ fn sample_w3d_still_loads_via_from_path_when_present() {
         "sample W3D at {} parsed with zero meshes",
         path.display()
     );
+}
+
+mod canonical_compressed_fixture {
+    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/../Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation/tests/support/compressed_fixture.rs"));
+}
+
+fn canonical_compressed_model() -> W3DModel {
+    let mut model = W3DModel::new("compressed_consumer".into());
+    model.hierarchy = Some(W3dHierarchy {
+        name: "TEST".into(), pivot_fixups: Vec::new(),
+        pivots: [u32::MAX, 0].into_iter().enumerate().map(|(index, parent_idx)| W3dPivot {
+            name: format!("PIVOT{index}"), parent_idx, translation: [0.0; 3],
+            euler_angles: [0.0; 3], rotation: [0.0, 0.0, 0.0, 1.0],
+        }).collect(),
+    });
+    model
+}
+
+#[test]
+fn canonical_compressed_main_adaptive_random_seeks_and_independent_players() {
+    use canonical_compressed_fixture as fixture;
+    let animation = W3DLoader::new().load_companion_animation_from_bytes(
+        &fixture::adaptive_animation(), "TEST.CLIP",
+    ).unwrap();
+    assert!(animation.channels.is_empty(), "compressed data must not be densified into raw channels");
+    let mut model = canonical_compressed_model();
+    // Exercise both the local and companion binding consumers.
+    model.animations.push(animation.clone());
+    let first = W3dAnimationBinding::companion("TEST.CLIP", Arc::new(animation));
+    let second = first.clone();
+    assert!(model.animation_binding_is_compatible(&first));
+    for frame in [0.0, 1.0, 2.0, 15.5, 16.0, 31.5, 32.0, 1.5, 17.5, 0.5] {
+        let before = model.sample_animation_binding(&first, frame).unwrap();
+        let other_frame = 32.0 - frame;
+        let other = model.sample_animation_binding(&second, other_frame).unwrap();
+        fixture::assert_pose(Mat4::from_cols_array(&before[1]), fixture::adaptive_expected(frame), frame);
+        fixture::assert_pose(Mat4::from_cols_array(&other[1]), fixture::adaptive_expected(other_frame), other_frame);
+        assert_eq!(before, model.sample_animation_binding(&first, frame).unwrap());
+        assert_eq!(before, model.sample_animation(0, frame).unwrap());
+        assert_eq!(first.animation(&model).unwrap().visibility_for_pivot(1, frame), Some(fixture::visible(frame)));
+    }
+    for frame in 0..33 {
+        let sequential = model.sample_animation_binding(&first, frame as f32).unwrap();
+        model.sample_animation_binding(&second, 32.0).unwrap();
+        assert_eq!(sequential, model.sample_animation_binding(&second, frame as f32).unwrap());
+    }
+}
+
+#[test]
+fn canonical_compressed_main_steps_fractional_antipodal_and_bits() {
+    use canonical_compressed_fixture as fixture;
+    let animation = W3DLoader::new().load_companion_animation_from_bytes(
+        &fixture::timecoded_animation(), "TEST.CLIP",
+    ).unwrap();
+    let mut model = canonical_compressed_model();
+    let binding = W3dAnimationBinding::companion("TEST.CLIP", Arc::new(animation));
+    for frame in [0.0, 0.5, 2.0, 2.999, 3.0, 3.999, 4.0, 4.5, 5.0, 7.5, 8.0, 20.0] {
+        let pose = model.sample_animation_binding(&binding, frame).unwrap();
+        fixture::assert_pose(Mat4::from_cols_array(&pose[1]), fixture::timecoded_expected(frame), frame);
+        assert_eq!(binding.animation(&model).unwrap().visibility_for_pivot(1, frame), Some(fixture::visible(frame)));
+    }
+    assert!(model.sample_animation_binding(&binding, f32::NAN).is_none());
+    assert!(model.sample_animation_binding(&binding, -1.0).is_none());
+    let base_q = glam::Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
+    let pivot = &mut model.hierarchy.as_mut().unwrap().pivots[1];
+    pivot.rotation = base_q.to_array();
+    pivot.translation = [3.0, 4.0, 5.0];
+    let (translation, rotation) = fixture::timecoded_expected(0.5);
+    let expected = Mat4::from_rotation_translation(base_q, Vec3::new(3.0, 4.0, 5.0))
+        * Mat4::from_rotation_translation(rotation, translation);
+    let actual = model.sample_animation_binding(&binding, 0.5).unwrap();
+    assert!(Mat4::from_cols_array(&actual[1]).abs_diff_eq(expected, 0.00002),
+        "compressed HTree must compose Base * T * Q");
+}
+
+#[test]
+fn canonical_compressed_main_rejects_malformed_loads() {
+    for (index, bytes) in canonical_compressed_fixture::malformed_animations().iter().enumerate() {
+        assert!(W3DLoader::new().load_companion_animation_from_bytes(bytes, "TEST.CLIP").is_err(),
+            "malformed fixture {index}");
+    }
+}
+
+
+#[test]
+fn canonical_compressed_main_single_frame_needs_no_delta_packet() {
+    let animation = W3DLoader::new().load_companion_animation_from_bytes(
+        &canonical_compressed_fixture::single_frame_animation(), "TEST.CLIP",
+    ).unwrap();
+    let mut model = canonical_compressed_model();
+    model.animations.push(animation);
+    for frame in [0.0, 0.5, 20.0] {
+        let pose = model.sample_animation(0, frame).unwrap();
+        assert_eq!(&pose[1][12..15], &[2.5, 0.0, 0.0]);
+    }
 }

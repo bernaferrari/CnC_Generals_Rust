@@ -9,8 +9,7 @@
 //! - Animation blending and state management
 
 use glam::{Mat4, Quat, Vec3};
-use std::cell::RefCell;
-use std::rc::Rc;
+
 use ww3d_animation::{HAnimClass, HCompressedAnimClass, HTreeClass};
 
 /// Result type for animation evaluation
@@ -106,7 +105,7 @@ pub struct GPUSkinningData {
 /// Source animation data for evaluation (compressed or uncompressed).
 pub enum AnimationSource {
     Uncompressed(HAnimClass),
-    Compressed(Rc<RefCell<HCompressedAnimClass>>),
+    Compressed(HCompressedAnimClass),
 }
 
 impl GPUSkinningData {
@@ -183,7 +182,7 @@ impl AnimationEvaluator {
     }
 
     /// Attach a compressed animation source.
-    pub fn set_compressed_animation(&mut self, animation: Rc<RefCell<HCompressedAnimClass>>) {
+    pub fn set_compressed_animation(&mut self, animation: HCompressedAnimClass) {
         self.animation = Some(AnimationSource::Compressed(animation));
         self.is_dirty = true;
     }
@@ -258,7 +257,7 @@ impl AnimationEvaluator {
                 }
             }
             AnimationSource::Compressed(anim) => {
-                let mut anim = anim.borrow_mut();
+
                 for i in 0..bone_count {
                     translations[i] = anim.get_translation(i, frame);
                     rotations[i] = anim.get_orientation(i, frame);

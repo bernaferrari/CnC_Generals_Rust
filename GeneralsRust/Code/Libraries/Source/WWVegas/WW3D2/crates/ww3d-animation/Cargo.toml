@@ -7,6 +7,7 @@ rust-version.workspace = true
 [dependencies]
 ww3d-assets = { path = "../ww3d-assets" }
 ww3d-core = { path = "../ww3d-core" }
+math_utilities = { path = "../../../WWMath" }
 glam = {workspace = true, features = ["bytemuck"]}
 configparser = {workspace = true}
 log = {workspace = true}
