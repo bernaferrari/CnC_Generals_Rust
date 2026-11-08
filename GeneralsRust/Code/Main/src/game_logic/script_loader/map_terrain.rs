@@ -120,9 +120,11 @@ pub fn parse_blend_tile_data_from_chunky(
     } else {
         vec![0i16; data_size]
     };
-    if version >= 5 {
-        let _cliff_info_ndxes = reader.read_i16_vec(data_size)?;
-    }
+    let mut cliff_info_ndxes = if version >= 5 {
+        reader.read_i16_vec(data_size)?
+    } else {
+        vec![0; data_size]
+    };
     if version >= 7 {
         let byte_width = if version == 7 {
             (heightmap.width + 1) / 8
@@ -136,9 +138,11 @@ pub fn parse_blend_tile_data_from_chunky(
 
     let _num_bitmap_tiles = reader.read_i32()?;
     let num_blended_tiles = reader.read_i32()?.max(0) as usize;
-    if version >= 5 {
-        let _num_cliff_info = reader.read_i32()?;
-    }
+    let num_cliff_info = if version >= 5 {
+        reader.read_i32()?.max(1) as usize
+    } else {
+        1
+    };
 
     let texture_class_count = reader.read_i32()?.max(0) as usize;
     let mut texture_classes = Vec::with_capacity(texture_class_count);
@@ -207,6 +211,31 @@ pub fn parse_blend_tile_data_from_chunky(
         }
     }
 
+    // WorldHeightMap.cpp:1168-1181 stores records after all blend records.
+    let mut cliff_info = Vec::with_capacity(num_cliff_info.saturating_sub(1));
+    for _ in 1..num_cliff_info {
+        let tile_index = reader.read_i32()?;
+        let mut u = [0.0; 4];
+        let mut v = [0.0; 4];
+        for i in 0..4 {
+            u[i] = reader.read_f32()?;
+            v[i] = reader.read_f32()?;
+        }
+        cliff_info.push(CliffInfo {
+            tile_index,
+            u,
+            v,
+            flip: reader.read_u8()? != 0,
+            mutant: reader.read_u8()? != 0,
+        });
+    }
+    // C++ constructor sanitizes indices against the loaded table.
+    for index in &mut cliff_info_ndxes {
+        if *index < 0 || *index as usize >= num_cliff_info {
+            *index = 0;
+        }
+    }
+
     if version == 1 {
         let new_width = (heightmap.width + 1) / 2;
         let new_height = (heightmap.height + 1) / 2;
@@ -225,6 +254,8 @@ pub fn parse_blend_tile_data_from_chunky(
         tile_ndxes = resized_tiles;
         blend_tile_ndxes = resized_blends;
         extra_blend_tile_ndxes = vec![0i16; tile_ndxes.len()];
+        cliff_info_ndxes = vec![0; tile_ndxes.len()];
+        cliff_info.clear();
         blended_tiles.clear();
     }
 
@@ -232,6 +263,8 @@ pub fn parse_blend_tile_data_from_chunky(
         tile_ndxes,
         blend_tile_ndxes,
         extra_blend_tile_ndxes,
+        cliff_info_ndxes,
+        cliff_info,
         texture_classes,
         edge_texture_classes,
         blended_tiles,

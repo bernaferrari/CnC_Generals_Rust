@@ -11,7 +11,7 @@ use std::sync::{Arc, RwLock, Weak};
 #[derive(Debug, Default)]
 pub(super) struct PresentationTerrainCache {
     revision: u64,
-    cached_revision: Option<(u64, u64)>,
+    cached_revision: Option<(u64, u64, bool)>,
     terrain_owner: Option<Weak<RwLock<gamelogic::terrain::TerrainLogic>>>,
     runtime_heightmap: Option<Arc<crate::presentation_frame::PresentationRuntimeHeightmap>>,
 }
@@ -49,13 +49,14 @@ impl PresentationTerrainCache {
                 .as_ref()
                 .is_some_and(|previous| Weak::ptr_eq(previous, &identity));
             let terrain = owner.read().unwrap_or_else(|error| error.into_inner());
-            let revision = (self.revision, terrain.height_revision());
+            let revision = (self.revision, terrain.height_revision(), logic.lighting_rules().adjust_cliff_textures);
             if !same_owner || self.cached_revision != Some(revision) {
                 self.runtime_heightmap = logic
                     .terrain_heightmap_snapshot_with_terrain_logic(&terrain)
                     .map(|heightmap| {
                         let mut snapshot = crate::presentation_frame::PresentationRuntimeHeightmap::from_height_map(&heightmap);
                         snapshot.source_byte_heights = terrain.has_height_map();
+                        snapshot.adjust_cliff_textures = logic.lighting_rules().adjust_cliff_textures;
                         Arc::new(snapshot)
                     });
                 self.cached_revision = Some(revision);
@@ -111,6 +112,22 @@ mod tests {
 
         assert!(Arc::ptr_eq(&first, &second));
         assert_eq!(cache.revision(), 0);
+    }
+
+    #[test]
+    fn cliff_option_replaces_cached_payload_without_mutating_old_frame() {
+        let mut logic = logic_with_terrain(&[0.0, 0.0, 0.0, 10.0]);
+        let mut rules = logic.lighting_rules_baseline().clone();
+        rules.adjust_cliff_textures = false;
+        logic.admit_lighting_rules_base(rules.clone());
+        let mut cache = PresentationTerrainCache::default();
+        let disabled = cache.runtime_heightmap_for_logic(&logic).unwrap();
+        rules.adjust_cliff_textures = true;
+        logic.admit_lighting_rules_base(rules);
+        let enabled = cache.runtime_heightmap_for_logic(&logic).unwrap();
+        assert!(!disabled.to_height_map().adjust_cliff_textures);
+        assert!(enabled.to_height_map().adjust_cliff_textures);
+        assert!(!Arc::ptr_eq(&disabled, &enabled));
     }
 
     #[test]

@@ -530,9 +530,9 @@ fn prepare_native_map_visual(
         world_min: min.to_array(),
         world_max: max.to_array(),
         runtime_heightmap: frozen.map(|map| {
-            std::sync::Arc::new(
-                crate::presentation_frame::PresentationRuntimeHeightmap::from_height_map(&map),
-            )
+            let mut snapshot = crate::presentation_frame::PresentationRuntimeHeightmap::from_height_map(&map);
+            snapshot.adjust_cliff_textures = world.lighting_rules().adjust_cliff_textures;
+            std::sync::Arc::new(snapshot)
         }),
         heightmap_hint: metadata
             .and_then(|map| map.heightmap_path.as_ref())

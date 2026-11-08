@@ -94,7 +94,7 @@ pub struct TCliffInfo {
     pub v3: f32,
     pub flip: bool,
     pub mutant: bool,
-    pub tile_index: i16,
+    pub tile_index: i32,
 }
 
 impl Default for TCliffInfo {
@@ -186,6 +186,7 @@ pub struct HeightMap {
     pub cliff_info: Vec<TCliffInfo>,
     /// C++ `m_cliffInfoNdxes` parallel to `tile_ndxes`.
     pub cliff_info_ndxes: Vec<i16>,
+    pub adjust_cliff_textures: bool,
     pub draw_origin_x: i32,
     pub draw_origin_y: i32,
     pub draw_width: i32,
@@ -212,6 +213,7 @@ impl HeightMap {
             extra_blended_tiles: Vec::new(),
             cliff_info: vec![TCliffInfo::default()],
             cliff_info_ndxes: vec![0i16; sample_count],
+            adjust_cliff_textures: false,
             draw_origin_x: 0,
             draw_origin_y: 0,
             draw_width: width as i32,
@@ -295,6 +297,7 @@ impl HeightMap {
             extra_blended_tiles: Vec::new(),
             cliff_info: vec![TCliffInfo::default()],
             cliff_info_ndxes: vec![0i16; sample_count],
+            adjust_cliff_textures: false,
             draw_origin_x: 0,
             draw_origin_y: 0,
             draw_width: width as i32,
@@ -348,6 +351,7 @@ impl HeightMap {
             extra_blended_tiles: Vec::new(),
             cliff_info: vec![TCliffInfo::default()],
             cliff_info_ndxes: vec![0i16; sample_count],
+            adjust_cliff_textures: false,
             draw_origin_x: 0,
             draw_origin_y: 0,
             draw_width: width as i32,
@@ -422,6 +426,7 @@ impl HeightMap {
             extra_blended_tiles: Vec::new(),
             cliff_info: vec![TCliffInfo::default()],
             cliff_info_ndxes: vec![0i16; sample_count],
+            adjust_cliff_textures: false,
             draw_origin_x: 0,
             draw_origin_y: 0,
             draw_width: dimension as i32,
@@ -777,11 +782,15 @@ impl HeightMap {
             uv.v = [ov + 0.5, ov + 0.5, ov, ov];
         }
 
+        if full_tile || !self.adjust_cliff_textures {
+            return uv;
+        }
+
         if ndx < self.cliff_info_ndxes.len() {
             let cliff_ndx = self.cliff_info_ndxes[ndx] as usize;
             if cliff_ndx > 0 && cliff_ndx < self.cliff_info.len() {
                 let info = self.cliff_info[cliff_ndx];
-                let same_class = (tile_ndx >> 2) == (info.tile_index >> 2);
+                let same_class = i32::from(tile_ndx >> 2) == (info.tile_index >> 2);
                 if same_class {
                     uv.u = [info.u0, info.u1, info.u2, info.u3];
                     uv.v = [info.v0, info.v1, info.v2, info.v3];

@@ -71,6 +71,7 @@ pub struct LightingContentRules {
     pub use_tree_sway: bool,
     /// Per-session presentation gate for physics drawable transforms.
     pub show_client_physics: bool,
+    pub adjust_cliff_textures: bool,
     /// Shroud clear/fog alpha inputs used by the receiving presentation frame.
     pub clear_alpha: u8,
     pub fog_alpha: u8,
@@ -108,6 +109,7 @@ impl LightingContentRules {
             use_draw_module_lod: data.use_draw_module_lod,
             use_tree_sway: data.use_tree_sway,
             show_client_physics: data.show_client_physics,
+            adjust_cliff_textures: data.adjust_cliff_textures,
             clear_alpha: data.clear_alpha,
             fog_alpha: data.fog_alpha,
             shroud_color: [
@@ -154,6 +156,7 @@ impl LightingContentRules {
         draft.use_draw_module_lod = self.use_draw_module_lod;
         draft.use_tree_sway = self.use_tree_sway;
         draft.show_client_physics = self.show_client_physics;
+        draft.adjust_cliff_textures = self.adjust_cliff_textures;
         draft.clear_alpha = self.clear_alpha;
         draft.fog_alpha = self.fog_alpha;
         draft.shroud_color = super::RGBColor::new(
@@ -268,5 +271,22 @@ mod show_client_physics_tests {
         assert_eq!(overlay.shroud_alpha, 41);
         assert_eq!(LightingContentRules::default().shroud_color, [1.0; 3]);
         assert_eq!(LightingContentRules::default().shroud_alpha, 0);
+    }
+}
+
+#[cfg(test)]
+mod cliff_texture_rules_tests {
+    use super::LightingContentRules;
+
+    #[test]
+    fn cliff_adjustment_follows_receiving_game_data_overlays() {
+        let enabled = LightingContentRules::default()
+            .overlay_ini_text("GameData\n AdjustCliffTextures = Yes\nEnd\n")
+            .unwrap();
+        let disabled = enabled
+            .overlay_ini_text("GameData\n AdjustCliffTextures = No\nEnd\n")
+            .unwrap();
+        assert!(enabled.adjust_cliff_textures);
+        assert!(!disabled.adjust_cliff_textures);
     }
 }

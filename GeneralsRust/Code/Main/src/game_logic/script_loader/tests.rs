@@ -471,17 +471,26 @@ End\n";
         for value in [5i16, 6, 7, 8] {
             blend_payload.extend_from_slice(&value.to_le_bytes());
         }
-        blend_payload.extend_from_slice(&[0u8; 8]);
+        for value in [1i16, -1, 2, 0] {
+            blend_payload.extend_from_slice(&value.to_le_bytes());
+        }
         blend_payload.extend_from_slice(&[0u8; 2]);
         blend_payload.extend_from_slice(&16i32.to_le_bytes());
         blend_payload.extend_from_slice(&1i32.to_le_bytes());
-        blend_payload.extend_from_slice(&1i32.to_le_bytes());
+        blend_payload.extend_from_slice(&2i32.to_le_bytes());
         blend_payload.extend_from_slice(&1i32.to_le_bytes());
         blend_payload.extend_from_slice(&4i32.to_le_bytes());
         blend_payload.extend_from_slice(&4i32.to_le_bytes());
         blend_payload.extend_from_slice(&2i32.to_le_bytes());
         blend_payload.extend_from_slice(&0i32.to_le_bytes());
         ascii("Grass", &mut blend_payload);
+        blend_payload.extend_from_slice(&0i32.to_le_bytes()); // edge tiles
+        blend_payload.extend_from_slice(&0i32.to_le_bytes()); // edge classes
+        blend_payload.extend_from_slice(&4i32.to_le_bytes());
+        for value in [0.0f32, 0.0, 0.03125, -0.03125, 0.0625, -0.0625, 0.0, -0.03125] {
+            blend_payload.extend_from_slice(&value.to_le_bytes());
+        }
+        blend_payload.extend_from_slice(&[1, 0]);
 
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&chunk(1, 4, &height_payload));
@@ -502,10 +511,21 @@ End\n";
             .expect("blend data should parse");
 
         assert_eq!(blend.extra_blend_tile_ndxes, vec![5, 6, 7, 8]);
+        assert_eq!(blend.cliff_info_ndxes, vec![1, 0, 0, 0]);
+        assert_eq!(blend.cliff_info[0].tile_index, 4);
+        assert_eq!(blend.cliff_info[0].u, [0.0, 0.03125, 0.0625, 0.0]);
+        assert!(blend.cliff_info[0].flip);
 
         #[cfg(feature = "game_client")]
         {
             let mut hm = game_client::terrain::height_map::HeightMap::new(2, 2, 100.0, 1.0);
+            crate::game_logic::terrain::apply_blend_tile_data(&mut hm, &blend);
+            let frame = crate::presentation_frame::PresentationRuntimeHeightmap::from_height_map(&hm);
+            let received = frame.to_height_map();
+            assert_eq!(received.cliff_info_ndxes, vec![1, 0, 0, 0]);
+            assert_eq!(received.cliff_info[1].tile_index, 4);
+            assert_eq!(received.cliff_info[1].u2, 0.0625);
+            assert!(received.cliff_info[1].flip);
             hm.assign_extra_blend_tile_ndxes(blend.extra_blend_tile_ndxes.clone());
             assert_eq!(hm.extra_blend_tile_ndxes, vec![5, 6, 7, 8]);
             assert_eq!(hm.get_extra_blend_tile_index(0, 0), 5);

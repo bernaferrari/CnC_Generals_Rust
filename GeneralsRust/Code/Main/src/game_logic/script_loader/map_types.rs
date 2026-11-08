@@ -205,11 +205,44 @@ pub struct BlendTileData {
     pub blend_tile_ndxes: Vec<i16>,
     /// C++ `m_extraBlendTileNdxes` (v6+). Parallel to `blend_tile_ndxes`.
     pub extra_blend_tile_ndxes: Vec<i16>,
+    pub cliff_info_ndxes: Vec<i16>,
+    /// C++ `m_cliffInfo[1..]`; index zero is implicit.
+    pub cliff_info: Vec<CliffInfo>,
     pub texture_classes: Vec<BlendTileTextureClass>,
     /// C++ `m_edgeTextureClasses` (BlendTileData v4+).
     pub edge_texture_classes: Vec<BlendTileTextureClass>,
     /// C++ `m_blendedTiles[1..]` — horiz/vert/diagonal + inverted + edge class.
     pub blended_tiles: Vec<BlendTileInfo>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CliffInfo {
+    pub tile_index: i32,
+    pub u: [f32; 4],
+    pub v: [f32; 4],
+    pub flip: bool,
+    pub mutant: bool,
+}
+
+#[cfg(feature = "game_client")]
+impl CliffInfo {
+    pub(crate) fn to_game_client(self) -> game_client::terrain::TCliffInfo {
+        game_client::terrain::TCliffInfo {
+            tile_index: self.tile_index,
+            u0: self.u[0], u1: self.u[1], u2: self.u[2], u3: self.u[3],
+            v0: self.v[0], v1: self.v[1], v2: self.v[2], v3: self.v[3],
+            flip: self.flip, mutant: self.mutant,
+        }
+    }
+
+    pub(crate) fn from_game_client(info: &game_client::terrain::TCliffInfo) -> Self {
+        Self {
+            tile_index: info.tile_index,
+            u: [info.u0, info.u1, info.u2, info.u3],
+            v: [info.v0, info.v1, info.v2, info.v3],
+            flip: info.flip, mutant: info.mutant,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -359,6 +359,12 @@ pub struct PresentationRuntimeHeightmap {
     /// C++ `m_extraBlendedTiles`, the fallback metadata bank for extra blend.
     #[serde(default)]
     pub extra_blended_tiles: Vec<PresentationBlendTileInfo>,
+    #[serde(default)]
+    pub cliff_info: Vec<crate::game_logic::script_loader::CliffInfo>,
+    #[serde(default)]
+    pub cliff_info_ndxes: Vec<i16>,
+    #[serde(default)]
+    pub adjust_cliff_textures: bool,
     pub draw_origin_x: i32,
     pub draw_origin_y: i32,
     pub draw_width: i32,
@@ -391,6 +397,9 @@ impl PresentationRuntimeHeightmap {
                 .iter()
                 .map(PresentationBlendTileInfo::from_game_client)
                 .collect(),
+            cliff_info: hm.cliff_info.iter().map(crate::game_logic::script_loader::CliffInfo::from_game_client).collect(),
+            cliff_info_ndxes: hm.cliff_info_ndxes.clone(),
+            adjust_cliff_textures: hm.adjust_cliff_textures,
             draw_origin_x: hm.draw_origin_x,
             draw_origin_y: hm.draw_origin_y,
             draw_width: hm.draw_width,
@@ -422,8 +431,9 @@ impl PresentationRuntimeHeightmap {
                 .iter()
                 .map(PresentationBlendTileInfo::to_game_client)
                 .collect(),
-            cliff_info: vec![game_client::terrain::height_map::TCliffInfo::default()],
-            cliff_info_ndxes: vec![0i16; self.heights.len()],
+            cliff_info: self.cliff_info.iter().map(|entry| entry.to_game_client()).collect(),
+            cliff_info_ndxes: self.cliff_info_ndxes.clone(),
+            adjust_cliff_textures: self.adjust_cliff_textures,
             draw_origin_x: self.draw_origin_x,
             draw_origin_y: self.draw_origin_y,
             draw_width: self.draw_width,
@@ -701,6 +711,7 @@ impl PresentationWorldEnv {
                 .map(|heightmap| {
                     let mut snapshot = PresentationRuntimeHeightmap::from_height_map(&heightmap);
                     snapshot.source_byte_heights = terrain.has_height_map();
+                    snapshot.adjust_cliff_textures = logic.lighting_rules().adjust_cliff_textures;
                     Arc::new(snapshot)
                 })
         });

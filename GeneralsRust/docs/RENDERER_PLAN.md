@@ -34,9 +34,12 @@ see `ecbfce083`.
 
 Terrain blending now carries separate authored UVs for the base and primary
 blend tiles and resolves the extra-blend class and UVs from its authored tile.
-Shoreline rendering precedes the extra-blend pass. Mixed-cell and non-blend
-controls pass; a native Lone Eagle capture was inspected. Cliff/custom-edge
-fidelity, the 16-class binding limit, and a wasm frame remain unverified.
+Shoreline rendering precedes the extra-blend pass. Authored cliff records and
+indices now reach terrain UV/flip generation, gated by the receiving world's
+`AdjustCliffTextures` setting. Focused parsing, UV and cache tests pass; the
+inspected Lone Eagle capture was unchanged, so it does not verify visible cliff
+coverage. Missing-texture and legacy cliff adjustments, extra-blend fidelity,
+the 16-class binding limit, a C++ image comparison and wasm remain unverified.
 
 The WW3D animation library resolves raw and compressed clip pivot counts from
 the named hierarchy rather than the highest animated channel. Missing

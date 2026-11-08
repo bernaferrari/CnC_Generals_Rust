@@ -367,12 +367,16 @@ impl TerrainVisualImpl {
                     vertex_weights.push(blended);
                     // C++ getAlphaUVData needFlip: split this cell along its
                     // other diagonal so diagonal blends follow the edge.
-                    cell_flips.push(
-                        tile_sample
-                            .as_ref()
-                            .and_then(|sample| sample.1)
-                            .is_some_and(|blend| cpp_blend_corner_alpha(blend).1),
-                    );
+                    let flip = self.height_map.as_ref().map_or(false, |hm| {
+                        let (x, y) = height_map_cell_at_world(hm, center[0], center[1]);
+                        let blend = tile_sample.as_ref().and_then(|sample| sample.1);
+                        let tile = blend.map_or_else(
+                            || hm.tile_ndxes.get((y * hm.width as i32 + x) as usize).copied().unwrap_or(0),
+                            |blend| blend.blend_ndx as i16,
+                        );
+                        authored_cell_flip(hm, &self.source_tile_classes, x, y, tile, blend)
+                    });
+                    cell_flips.push(flip);
                 }
                 let mut chunk_indices = chunk_indices;
                 for (cell, quad) in chunk_indices.chunks_exact_mut(6).enumerate() {
@@ -2930,6 +2934,44 @@ fn authored_blend_vertex(
     Some((base_slot, blend_slot, alpha, uv))
 }
 
+fn authored_cell_flip(
+    hm: &HeightMap,
+    classes: &[TerrainSourceTileClass],
+    x: i32,
+    y: i32,
+    tile: i16,
+    blend: Option<&crate::terrain::textures::BlendTileInfo>,
+) -> bool {
+    let flip = blend.is_some_and(|blend| cpp_blend_corner_alpha(blend).1);
+    if cliff_info_for_tile(hm, classes, x, y, tile).is_some_and(|info| info.flip) {
+        let h0 = hm.get_raw_height(x, y) as i32;
+        let h1 = hm.get_raw_height(x + 1, y) as i32;
+        let h2 = hm.get_raw_height(x + 1, y + 1) as i32;
+        let h3 = hm.get_raw_height(x, y + 1) as i32;
+        (h0 - h2).abs() > (h1 - h3).abs()
+    } else {
+        flip
+    }
+}
+
+/// An authored cliff applies to every tile in its texture class, not just
+/// the exact source tile (WorldHeightMap.cpp:1724-1751).
+fn cliff_info_for_tile<'a>(
+    hm: &'a HeightMap,
+    classes: &[TerrainSourceTileClass],
+    x: i32,
+    y: i32,
+    tile: i16,
+) -> Option<&'a crate::terrain::TCliffInfo> {
+    if !hm.adjust_cliff_textures { return None; }
+    let index = hm.cliff_info_ndxes.get((y * hm.width as i32 + x) as usize).copied()?;
+    if index <= 0 { return None; }
+    let info = hm.cliff_info.get(index as usize)?;
+    let tile_class = texture_class_index_from_ndx((i32::from(tile) >> 2).max(0) as u32, classes)?;
+    let cliff_class = texture_class_index_from_ndx((info.tile_index >> 2).max(0) as u32, classes)?;
+    (tile_class == cliff_class).then_some(info)
+}
+
 fn class_uv_for_tile(
     hm: &HeightMap,
     classes: &[TerrainSourceTileClass],
@@ -2939,6 +2981,22 @@ fn class_uv_for_tile(
     fx: f32,
     fy: f32,
 ) -> [f32; 2] {
+    if let Some(info) = cliff_info_for_tile(hm, classes, x, y, tile) {
+        let class_index = texture_class_index_from_ndx((i32::from(tile) >> 2).max(0) as u32, classes).unwrap();
+        let class_width = classes[class_index].width.max(1) as f32;
+        let factor = crate::terrain::textures::TEXTURE_WIDTH as f32
+            / (class_width * crate::terrain::textures::TILE_PIXEL_EXTENT as f32);
+        let interpolate = |values: [f32; 4]| {
+            values[0] * (1.0 - fx) * (1.0 - fy)
+                + values[1] * fx * (1.0 - fy)
+                + values[2] * fx * fy
+                + values[3] * (1.0 - fx) * fy
+        };
+        return [
+            interpolate([info.u0, info.u1, info.u2, info.u3]) * factor,
+            1.0 + interpolate([info.v0, info.v1, info.v2, info.v3]) * factor,
+        ];
+    }
     let uv = hm.get_uv_for_tile_index((y * hm.width as i32 + x) as usize, tile, false);
     let interpolate = |v: [f32; 4]| {
         v[0] * (1.0 - fx) * (1.0 - fy)
@@ -2978,6 +3036,12 @@ fn cell_class_uv(
     // UV (chunk grids are not cell-aligned) instead of folding at the edge.
     let fx = (position[0] / scale + hm.border_size as f32 - ix as f32).clamp(-0.5, 1.5);
     let fy = (position[1] / scale + hm.border_size as f32 - iy as f32).clamp(-0.5, 1.5);
+    let index = (iy * hm.width as i32 + ix) as usize;
+    if let Some(&tile) = hm.tile_ndxes.get(index) {
+        if cliff_info_for_tile(hm, classes, ix, iy, tile).is_some() {
+            return class_uv_for_tile(hm, classes, ix, iy, tile, fx, fy);
+        }
+    }
     let (uv, stretched) = hm.cell_uv_with_stretch(ix, iy, fx, fy);
     if stretched {
         return uv;
@@ -3273,6 +3337,35 @@ mod splat_texture_class_tests {
 #[cfg(test)]
 mod cpp_blend_corner_alpha_tests {
     use super::*;
+
+    #[test]
+    fn authored_cliff_uv_uses_class_coordinates_for_base_and_blend_tiles() {
+        crate::test_support::ensure_ambient_host();
+        let mut hm = HeightMap::new(2, 2, 10.0, 1.0);
+        hm.tile_ndxes[0] = 4;
+        hm.cliff_info.push(crate::terrain::TCliffInfo {
+            tile_index: 0,
+            u0: 0.0, u1: 0.03125, u2: 0.0625, u3: 0.0,
+            v0: 0.0, v1: -0.03125, v2: -0.0625, v3: -0.03125,
+            flip: true, mutant: false,
+        });
+        hm.cliff_info_ndxes[0] = 1;
+        let classes = [TerrainSourceTileClass {
+            first_tile: 0, num_tiles: 4, width: 2, name: "Cliff".into(),
+        }];
+        hm.set_raw_height(1, 1, 100);
+        let mut edge = crate::terrain::textures::BlendTileInfo::new();
+        edge.custom_blend_edge_class = 0;
+        assert!(!authored_cell_flip(&hm, &classes, 0, 0, 4, Some(&edge)));
+        // The receiving GameData switch gates both base and blend remaps.
+        assert_eq!(class_uv_for_tile(&hm, &classes, 0, 0, 4, 1.0, 1.0), [0.75, 0.75]);
+        hm.adjust_cliff_textures = true;
+        assert!(authored_cell_flip(&hm, &classes, 0, 0, 4, Some(&edge)));
+        // A different source tile in the same class still uses the cliff map.
+        assert_eq!(class_uv_for_tile(&hm, &classes, 0, 0, 4, 1.0, 1.0), [1.0, 0.0]);
+        assert_eq!(cell_class_uv(&hm, &classes, [0.5, 0.5], [1.0, 1.0]), [1.0, 0.0]);
+        assert_eq!(class_uv_for_tile(&hm, &classes, 0, 0, 4, 1.0, 0.0), [0.5, 0.5]);
+    }
     use crate::terrain::textures::{BlendTileInfo, FLIPPED_MASK, INVERTED_MASK};
 
     #[test]

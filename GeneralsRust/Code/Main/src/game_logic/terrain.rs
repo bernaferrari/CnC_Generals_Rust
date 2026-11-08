@@ -297,6 +297,7 @@ impl TerrainData {
                 .map_or_else(|| vec![Default::default()], |map| map.cliff_info.clone()),
             cliff_info_ndxes: metadata
                 .map_or_else(|| vec![0; count], |map| map.cliff_info_ndxes.clone()),
+            adjust_cliff_textures: metadata.is_some_and(|map| map.adjust_cliff_textures),
             draw_origin_x: metadata.map_or(0, |map| map.draw_origin_x),
             draw_origin_y: metadata.map_or(0, |map| map.draw_origin_y),
             draw_width: metadata.map_or(width, |map| map.draw_width),
@@ -714,6 +715,12 @@ pub(crate) fn apply_blend_tile_data(
     }
     if blend.extra_blend_tile_ndxes.len() == heightmap.extra_blend_tile_ndxes.len() {
         heightmap.extra_blend_tile_ndxes = blend.extra_blend_tile_ndxes.clone();
+    }
+    if blend.cliff_info_ndxes.len() == heightmap.cliff_info_ndxes.len() {
+        let mut info = Vec::with_capacity(blend.cliff_info.len() + 1);
+        info.push(game_client::terrain::TCliffInfo::default());
+        info.extend(blend.cliff_info.iter().map(|entry| entry.to_game_client()));
+        heightmap.assign_cliff_info(info, blend.cliff_info_ndxes.clone());
     }
     if !blend.blended_tiles.is_empty() {
         let mut tiles = vec![game_client::terrain::textures::BlendTileInfo::new()];

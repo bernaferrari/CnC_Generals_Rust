@@ -35,6 +35,9 @@ fn runtime_heightmap_roundtrip_preserves_samples() {
             long_diagonal: 13,
             custom_blend_edge_class: 14,
         }],
+        cliff_info: vec![crate::game_logic::script_loader::CliffInfo { tile_index: 4, u: [0.0, 0.1, 0.2, 0.3], v: [0.0, -0.1, -0.2, -0.3], flip: true, mutant: false }],
+        cliff_info_ndxes: vec![0, 1, 0, 0],
+        adjust_cliff_textures: true,
         draw_origin_x: 0,
         draw_origin_y: 0,
         draw_width: 2,
@@ -50,6 +53,8 @@ fn runtime_heightmap_roundtrip_preserves_samples() {
         assert_eq!(back.extra_blend_tile_ndxes, vec![0, 5, 0, 2]);
         assert_eq!(back.blended_tiles, hm.blended_tiles);
         assert_eq!(back.extra_blended_tiles, hm.extra_blended_tiles);
+        assert_eq!(back.cliff_info, hm.cliff_info);
+        assert_eq!(back.cliff_info_ndxes, hm.cliff_info_ndxes);
     }
 }
 
@@ -75,6 +80,9 @@ fn runtime_heightmap_extra_blend_positions_pack_i_or_j_shift_16() {
         },
         blended_tiles: vec![],
         extra_blended_tiles: vec![],
+        cliff_info: vec![],
+        cliff_info_ndxes: vec![],
+        adjust_cliff_textures: false,
         draw_origin_x: 0,
         draw_origin_y: 0,
         draw_width: 3,
@@ -150,6 +158,9 @@ fn runtime_heightmap_arc_world_env_json_roundtrip_keeps_full_payload() {
             long_diagonal: 13,
             custom_blend_edge_class: 14,
         }],
+        cliff_info: vec![],
+        cliff_info_ndxes: vec![],
+        adjust_cliff_textures: false,
         draw_origin_x: 3,
         draw_origin_y: 4,
         draw_width: 5,
