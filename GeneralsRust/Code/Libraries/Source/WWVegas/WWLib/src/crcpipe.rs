@@ -2,12 +2,12 @@ use crate::crc::CrcEngine;
 use crate::pipe::{Pipe, PipeBase};
 
 /// CRCPipe - calculates CRC on data passing through.
-pub struct CrcPipe {
-    base: PipeBase,
+pub struct CrcPipe<'a> {
+    base: PipeBase<'a>,
     crc: CrcEngine,
 }
 
-impl CrcPipe {
+impl<'a> CrcPipe<'a> {
     pub fn new() -> Self {
         Self {
             base: PipeBase::new(),
@@ -20,12 +20,12 @@ impl CrcPipe {
     }
 }
 
-impl Pipe for CrcPipe {
-    fn base(&self) -> &PipeBase {
+impl<'a> Pipe<'a> for CrcPipe<'a> {
+    fn base(&self) -> &PipeBase<'a> {
         &self.base
     }
 
-    fn base_mut(&mut self) -> &mut PipeBase {
+    fn base_mut(&mut self) -> &mut PipeBase<'a> {
         &mut self.base
     }
 

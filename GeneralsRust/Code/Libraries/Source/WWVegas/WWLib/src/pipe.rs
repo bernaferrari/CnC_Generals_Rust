@@ -3,12 +3,12 @@ use std::rc::{Rc, Weak};
 
 /// Base pipe chain state shared by pipe implementations.
 #[derive(Default)]
-pub struct PipeBase {
-    chain_to: Option<Rc<RefCell<dyn Pipe>>>,
-    chain_from: Option<Weak<RefCell<dyn Pipe>>>,
+pub struct PipeBase<'a> {
+    chain_to: Option<Rc<RefCell<dyn Pipe<'a> + 'a>>>,
+    chain_from: Option<Weak<RefCell<dyn Pipe<'a> + 'a>>>,
 }
 
-impl PipeBase {
+impl<'a> PipeBase<'a> {
     pub fn new() -> Self {
         Self {
             chain_to: None,
@@ -16,27 +16,27 @@ impl PipeBase {
         }
     }
 
-    pub fn chain_to(&self) -> Option<Rc<RefCell<dyn Pipe>>> {
+    pub fn chain_to(&self) -> Option<Rc<RefCell<dyn Pipe<'a> + 'a>>> {
         self.chain_to.clone()
     }
 
-    pub fn chain_from(&self) -> Option<Weak<RefCell<dyn Pipe>>> {
+    pub fn chain_from(&self) -> Option<Weak<RefCell<dyn Pipe<'a> + 'a>>> {
         self.chain_from.clone()
     }
 
-    pub fn set_chain_from(&mut self, from: Option<Weak<RefCell<dyn Pipe>>>) {
+    pub fn set_chain_from(&mut self, from: Option<Weak<RefCell<dyn Pipe<'a> + 'a>>>) {
         self.chain_from = from;
     }
 
-    pub fn set_chain_to(&mut self, to: Option<Rc<RefCell<dyn Pipe>>>) {
+    pub fn set_chain_to(&mut self, to: Option<Rc<RefCell<dyn Pipe<'a> + 'a>>>) {
         self.chain_to = to;
     }
 }
 
 /// Pipe interface - equivalent to C++ Pipe.
-pub trait Pipe {
-    fn base(&self) -> &PipeBase;
-    fn base_mut(&mut self) -> &mut PipeBase;
+pub trait Pipe<'a> {
+    fn base(&self) -> &PipeBase<'a>;
+    fn base_mut(&mut self) -> &mut PipeBase<'a>;
 
     fn put(&mut self, source: &[u8]) -> i32 {
         if let Some(next) = self.base().chain_to() {
@@ -58,7 +58,7 @@ pub trait Pipe {
 }
 
 /// Connect a pipe to flow data into from this pipe.
-pub fn put_to(from: &Rc<RefCell<dyn Pipe>>, to: Option<Rc<RefCell<dyn Pipe>>>) {
+pub fn put_to<'a>(from: &Rc<RefCell<dyn Pipe<'a> + 'a>>, to: Option<Rc<RefCell<dyn Pipe<'a> + 'a>>>) {
     let mut from_guard = from.borrow_mut();
     let current_to = from_guard.base().chain_to();
     if let Some(current) = current_to {

@@ -2,14 +2,14 @@ use crate::random::{Random3Class, RandomGenerator};
 use crate::sha::ShaEngine;
 use crate::straw::{Straw, StrawBase};
 
-pub struct RandomStraw {
-    base: StrawBase,
+pub struct RandomStraw<'a> {
+    base: StrawBase<'a>,
     seed_bits: usize,
     current: usize,
     random: [Random3Class; 32],
 }
 
-impl RandomStraw {
+impl<'a> RandomStraw<'a> {
     pub fn new() -> Self {
         let mut instance = Self {
             base: StrawBase::new(),
@@ -143,18 +143,18 @@ impl RandomStraw {
     }
 }
 
-impl Default for RandomStraw {
+impl Default for RandomStraw<'_> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Straw for RandomStraw {
-    fn base(&self) -> &StrawBase {
+impl<'a> Straw<'a> for RandomStraw<'a> {
+    fn base(&self) -> &StrawBase<'a> {
         &self.base
     }
 
-    fn base_mut(&mut self) -> &mut StrawBase {
+    fn base_mut(&mut self) -> &mut StrawBase<'a> {
         &mut self.base
     }
 

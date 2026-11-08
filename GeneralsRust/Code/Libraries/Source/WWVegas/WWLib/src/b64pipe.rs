@@ -8,15 +8,15 @@ pub enum CodeControl {
 }
 
 /// Base64 pipe - equivalent to C++ Base64Pipe.
-pub struct Base64Pipe {
-    base: PipeBase,
+pub struct Base64Pipe<'a> {
+    base: PipeBase<'a>,
     control: CodeControl,
     counter: usize,
     cbuffer: [u8; 4],
     pbuffer: [u8; 3],
 }
 
-impl Base64Pipe {
+impl<'a> Base64Pipe<'a> {
     pub fn new(control: CodeControl) -> Self {
         Self {
             base: PipeBase::new(),
@@ -36,12 +36,12 @@ impl Base64Pipe {
     }
 }
 
-impl Pipe for Base64Pipe {
-    fn base(&self) -> &PipeBase {
+impl<'a> Pipe<'a> for Base64Pipe<'a> {
+    fn base(&self) -> &PipeBase<'a> {
         &self.base
     }
 
-    fn base_mut(&mut self) -> &mut PipeBase {
+    fn base_mut(&mut self) -> &mut PipeBase<'a> {
         &mut self.base
     }
 

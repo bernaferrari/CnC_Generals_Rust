@@ -12,11 +12,11 @@ pub enum CryptControl {
     Decrypt,
 }
 
-pub struct PKStraw {
-    base: StrawBase,
+pub struct PKStraw<'a> {
+    base: StrawBase<'a>,
     is_getting_key: bool,
-    rand: Rc<RefCell<RandomStraw>>,
-    bf: Rc<RefCell<BlowStraw>>,
+    rand: Rc<RefCell<RandomStraw<'a>>>,
+    bf: Rc<RefCell<BlowStraw<'a>>>,
     control: CryptControl,
     cipher_key: Option<Rc<PKey>>,
     buffer: [u8; 256],
@@ -24,8 +24,8 @@ pub struct PKStraw {
     bytes_left: usize,
 }
 
-impl PKStraw {
-    pub fn new(control: CryptControl, rnd: Rc<RefCell<RandomStraw>>) -> Self {
+impl<'a> PKStraw<'a> {
+    pub fn new(control: CryptControl, rnd: Rc<RefCell<RandomStraw<'a>>>) -> Self {
         let bf = Rc::new(RefCell::new(BlowStraw::new(match control {
             CryptControl::Encrypt => BlowControl::Encrypt,
             CryptControl::Decrypt => BlowControl::Decrypt,
@@ -45,24 +45,9 @@ impl PKStraw {
         }
     }
 
-    pub fn get_from(&mut self, straw: Option<Rc<RefCell<dyn Straw>>>) {
-        let mut bf_guard = self.bf.borrow_mut();
-        if let Some(current) = bf_guard.base().chain_to() {
-            current.borrow_mut().base_mut().set_chain_from(None);
-        }
-
-        if let Some(new_from) = straw.clone() {
-            if let Some(existing_from) = new_from.borrow().base().chain_from() {
-                if let Some(existing) = existing_from.upgrade() {
-                    existing.borrow_mut().base_mut().set_chain_to(None);
-                }
-            }
-            // Trait-object back-link cannot be formed from concrete `BlowStraw` handle here.
-            // Keep forward chain valid; back-link is optional for this ported path.
-            new_from.borrow_mut().base_mut().set_chain_from(None);
-        }
-
-        bf_guard.base_mut().set_chain_to(straw);
+    pub fn get_from(&mut self, straw: Option<Rc<RefCell<dyn Straw<'a> + 'a>>>) {
+        let bf: Rc<RefCell<dyn Straw<'a> + 'a>> = self.bf.clone();
+        crate::straw::get_from(&bf, straw);
         self.base.set_chain_to(Some(self.bf.clone()));
     }
 
@@ -90,12 +75,12 @@ impl PKStraw {
     }
 }
 
-impl Straw for PKStraw {
-    fn base(&self) -> &StrawBase {
+impl<'a> Straw<'a> for PKStraw<'a> {
+    fn base(&self) -> &StrawBase<'a> {
         &self.base
     }
 
-    fn base_mut(&mut self) -> &mut StrawBase {
+    fn base_mut(&mut self) -> &mut StrawBase<'a> {
         &mut self.base
     }
 

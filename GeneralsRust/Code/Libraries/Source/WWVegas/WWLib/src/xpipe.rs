@@ -4,14 +4,14 @@ use crate::wwfile::{FileInterface, FileRights};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-pub struct BufferPipe {
-    base: PipeBase,
-    buffer: Buffer,
-    index: i32,
+pub struct BufferPipe<'a> {
+    base: PipeBase<'a>,
+    buffer: Buffer<'a>,
+    index: usize,
 }
 
-impl BufferPipe {
-    pub fn new(buffer: Buffer) -> Self {
+impl<'a> BufferPipe<'a> {
+    pub fn new(buffer: Buffer<'a>) -> Self {
         Self {
             base: PipeBase::new(),
             buffer,
@@ -19,52 +19,42 @@ impl BufferPipe {
         }
     }
 
-    fn is_valid(&self) -> bool {
-        self.buffer.is_valid()
+    pub fn buffer(&self) -> &Buffer<'a> {
+        &self.buffer
+    }
+
+    pub fn into_buffer(self) -> Buffer<'a> {
+        self.buffer
     }
 }
 
-impl Pipe for BufferPipe {
-    fn base(&self) -> &PipeBase {
+impl<'a> Pipe<'a> for BufferPipe<'a> {
+    fn base(&self) -> &PipeBase<'a> {
         &self.base
     }
 
-    fn base_mut(&mut self) -> &mut PipeBase {
+    fn base_mut(&mut self) -> &mut PipeBase<'a> {
         &mut self.base
     }
 
     fn put(&mut self, source: &[u8]) -> i32 {
-        if !self.is_valid() || source.is_empty() {
+        let Some(dest) = self.buffer.as_mut_slice() else {
             return 0;
-        }
-
-        let mut len = source.len() as i32;
-        if self.buffer.get_size() != 0 {
-            let theoretical_max = self.buffer.get_size() - self.index;
-            if len > theoretical_max {
-                len = theoretical_max;
-            }
-        }
-
-        if len > 0 {
-            if let Some(dest) = self.buffer.as_mut_slice() {
-                let start = self.index as usize;
-                dest[start..start + len as usize].copy_from_slice(&source[..len as usize]);
-            }
-        }
-
+        };
+        let len = source.len().min(dest.len().saturating_sub(self.index));
+        dest[self.index..self.index + len].copy_from_slice(&source[..len]);
         self.index += len;
-        len
+        len as i32
     }
 }
 
-pub struct FilePipe {
-    base: PipeBase,
+pub struct FilePipe<'a> {
+    base: PipeBase<'a>,
     file: Option<Rc<RefCell<dyn FileInterface>>>,
     has_opened: bool,
 }
 
-impl FilePipe {
+impl<'a> FilePipe<'a> {
     pub fn new(file: Rc<RefCell<dyn FileInterface>>) -> Self {
         Self {
             base: PipeBase::new(),
@@ -78,12 +68,12 @@ impl FilePipe {
     }
 }
 
-impl Pipe for FilePipe {
-    fn base(&self) -> &PipeBase {
+impl<'a> Pipe<'a> for FilePipe<'a> {
+    fn base(&self) -> &PipeBase<'a> {
         &self.base
     }
 
-    fn base_mut(&mut self) -> &mut PipeBase {
+    fn base_mut(&mut self) -> &mut PipeBase<'a> {
         &mut self.base
     }
 
@@ -116,7 +106,7 @@ impl Pipe for FilePipe {
     }
 }
 
-impl Drop for FilePipe {
+impl Drop for FilePipe<'_> {
     fn drop(&mut self) {
         if self.valid_file() && self.has_opened {
             if let Some(file_ref) = self.file.take() {

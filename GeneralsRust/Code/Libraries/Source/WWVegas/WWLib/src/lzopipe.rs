@@ -32,8 +32,8 @@ impl BlockHeader {
 }
 
 /// LZO compression/decompression pipe.
-pub struct LzoPipe {
-    base: PipeBase,
+pub struct LzoPipe<'a> {
+    base: PipeBase<'a>,
     control: CompControl,
     counter: usize,
     buffer: Vec<u8>,
@@ -43,7 +43,7 @@ pub struct LzoPipe {
     block_header: BlockHeader,
 }
 
-impl LzoPipe {
+impl<'a> LzoPipe<'a> {
     pub fn new(control: CompControl, block_size: usize) -> Self {
         let safety_margin = block_size;
         let buffer = vec![0u8; block_size + safety_margin];
@@ -69,12 +69,12 @@ impl LzoPipe {
     }
 }
 
-impl Pipe for LzoPipe {
-    fn base(&self) -> &PipeBase {
+impl<'a> Pipe<'a> for LzoPipe<'a> {
+    fn base(&self) -> &PipeBase<'a> {
         &self.base
     }
 
-    fn base_mut(&mut self) -> &mut PipeBase {
+    fn base_mut(&mut self) -> &mut PipeBase<'a> {
         &mut self.base
     }
 

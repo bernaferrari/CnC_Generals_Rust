@@ -75,7 +75,7 @@ impl PKey {
         total
     }
 
-    pub fn generate(random: &mut dyn Straw, bits: u32, fastkey: &mut PKey, slowkey: &mut PKey) {
+    pub fn generate(random: &mut dyn Straw<'_>, bits: u32, fastkey: &mut PKey, slowkey: &mut PKey) {
         loop {
             let p = generate_prime(random, bits);
             let q = generate_prime(random, bits);

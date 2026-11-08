@@ -13,11 +13,11 @@ pub enum CryptControl {
     Decrypt,
 }
 
-pub struct PKPipe {
-    base: PipeBase,
+pub struct PKPipe<'a> {
+    base: PipeBase<'a>,
     is_getting_key: bool,
-    rand: Rc<RefCell<RandomStraw>>,
-    bf: Rc<RefCell<BlowPipe>>,
+    rand: Rc<RefCell<RandomStraw<'a>>>,
+    bf: Rc<RefCell<BlowPipe<'a>>>,
     control: CryptControl,
     cipher_key: Option<Rc<PKey>>,
     buffer: [u8; 256],
@@ -25,8 +25,8 @@ pub struct PKPipe {
     bytes_left: usize,
 }
 
-impl PKPipe {
-    pub fn new(control: CryptControl, rnd: Rc<RefCell<RandomStraw>>) -> Self {
+impl<'a> PKPipe<'a> {
+    pub fn new(control: CryptControl, rnd: Rc<RefCell<RandomStraw<'a>>>) -> Self {
         let bf = Rc::new(RefCell::new(BlowPipe::new(match control {
             CryptControl::Encrypt => BlowControl::Encrypt,
             CryptControl::Decrypt => BlowControl::Decrypt,
@@ -46,7 +46,7 @@ impl PKPipe {
         }
     }
 
-    pub fn put_to(&mut self, pipe: Option<Rc<RefCell<dyn Pipe>>>) {
+    pub fn put_to(&mut self, pipe: Option<Rc<RefCell<dyn Pipe<'a> + 'a>>>) {
         let mut bf_guard = self.bf.borrow_mut();
         if let Some(current) = bf_guard.base().chain_to() {
             current.borrow_mut().base_mut().set_chain_from(None);
@@ -99,12 +99,12 @@ impl PKPipe {
     }
 }
 
-impl Pipe for PKPipe {
-    fn base(&self) -> &PipeBase {
+impl<'a> Pipe<'a> for PKPipe<'a> {
+    fn base(&self) -> &PipeBase<'a> {
         &self.base
     }
 
-    fn base_mut(&mut self) -> &mut PipeBase {
+    fn base_mut(&mut self) -> &mut PipeBase<'a> {
         &mut self.base
     }
 

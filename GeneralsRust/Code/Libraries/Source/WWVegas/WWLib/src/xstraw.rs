@@ -1,70 +1,50 @@
-use crate::buff::Buffer;
+use crate::buff::BufferSource;
 use crate::straw::{Straw, StrawBase};
 use crate::wwfile::{FileInterface, FileRights};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-pub struct BufferStraw {
-    base: StrawBase,
-    buffer: Buffer,
-    index: i32,
+pub struct BufferStraw<'a> {
+    base: StrawBase<'a>,
+    buffer: BufferSource<'a>,
+    index: usize,
 }
 
-impl BufferStraw {
-    pub fn new(buffer: Buffer) -> Self {
+impl<'a> BufferStraw<'a> {
+    pub fn new(buffer: BufferSource<'a>) -> Self {
         Self {
             base: StrawBase::new(),
             buffer,
             index: 0,
         }
     }
-
-    fn is_valid(&self) -> bool {
-        self.buffer.is_valid()
-    }
 }
 
-impl Straw for BufferStraw {
-    fn base(&self) -> &StrawBase {
+impl<'a> Straw<'a> for BufferStraw<'a> {
+    fn base(&self) -> &StrawBase<'a> {
         &self.base
     }
 
-    fn base_mut(&mut self) -> &mut StrawBase {
+    fn base_mut(&mut self) -> &mut StrawBase<'a> {
         &mut self.base
     }
 
     fn get(&mut self, buffer: &mut [u8]) -> i32 {
-        if !self.is_valid() || buffer.is_empty() {
-            return 0;
-        }
-
-        let mut len = buffer.len() as i32;
-        if self.buffer.get_size() != 0 {
-            let theoretical_max = self.buffer.get_size() - self.index;
-            if len > theoretical_max {
-                len = theoretical_max;
-            }
-        }
-
-        if len > 0 {
-            if let Some(src) = self.buffer.as_slice() {
-                let start = self.index as usize;
-                buffer[..len as usize].copy_from_slice(&src[start..start + len as usize]);
-            }
-        }
-
+        let source = self.buffer.as_slice();
+        let len = buffer.len().min(source.len().saturating_sub(self.index));
+        buffer[..len].copy_from_slice(&source[self.index..self.index + len]);
         self.index += len;
-        len
+        len as i32
     }
 }
 
-pub struct FileStraw {
-    base: StrawBase,
+pub struct FileStraw<'a> {
+    base: StrawBase<'a>,
     file: Option<Rc<RefCell<dyn FileInterface>>>,
     has_opened: bool,
 }
 
-impl FileStraw {
+impl<'a> FileStraw<'a> {
     pub fn new(file: Rc<RefCell<dyn FileInterface>>) -> Self {
         Self {
             base: StrawBase::new(),
@@ -78,12 +58,12 @@ impl FileStraw {
     }
 }
 
-impl Straw for FileStraw {
-    fn base(&self) -> &StrawBase {
+impl<'a> Straw<'a> for FileStraw<'a> {
+    fn base(&self) -> &StrawBase<'a> {
         &self.base
     }
 
-    fn base_mut(&mut self) -> &mut StrawBase {
+    fn base_mut(&mut self) -> &mut StrawBase<'a> {
         &mut self.base
     }
 
@@ -111,7 +91,7 @@ impl Straw for FileStraw {
     }
 }
 
-impl Drop for FileStraw {
+impl Drop for FileStraw<'_> {
     fn drop(&mut self) {
         if self.valid_file() && self.has_opened {
             if let Some(file_ref) = self.file.take() {

@@ -32,8 +32,8 @@ impl BlockHeader {
 }
 
 /// LCW compression/decompression pipe.
-pub struct LcwPipe {
-    base: PipeBase,
+pub struct LcwPipe<'a> {
+    base: PipeBase<'a>,
     control: CompControl,
     counter: usize,
     buffer: Vec<u8>,
@@ -43,7 +43,7 @@ pub struct LcwPipe {
     block_header: BlockHeader,
 }
 
-impl LcwPipe {
+impl<'a> LcwPipe<'a> {
     pub fn new(control: CompControl, block_size: usize) -> Self {
         let safety_margin = block_size / 128 + 1;
         let mut buffer = vec![0u8; block_size + safety_margin];
@@ -69,12 +69,12 @@ impl LcwPipe {
     }
 }
 
-impl Pipe for LcwPipe {
-    fn base(&self) -> &PipeBase {
+impl<'a> Pipe<'a> for LcwPipe<'a> {
+    fn base(&self) -> &PipeBase<'a> {
         &self.base
     }
 
-    fn base_mut(&mut self) -> &mut PipeBase {
+    fn base_mut(&mut self) -> &mut PipeBase<'a> {
         &mut self.base
     }
 

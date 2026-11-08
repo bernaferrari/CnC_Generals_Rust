@@ -2,12 +2,12 @@ use crate::crc::CrcEngine;
 use crate::straw::{Straw, StrawBase};
 
 /// CRCStraw - calculates CRC on data passing through.
-pub struct CrcStraw {
-    base: StrawBase,
+pub struct CrcStraw<'a> {
+    base: StrawBase<'a>,
     crc: CrcEngine,
 }
 
-impl CrcStraw {
+impl<'a> CrcStraw<'a> {
     pub fn new() -> Self {
         Self {
             base: StrawBase::new(),
@@ -20,12 +20,12 @@ impl CrcStraw {
     }
 }
 
-impl Straw for CrcStraw {
-    fn base(&self) -> &StrawBase {
+impl<'a> Straw<'a> for CrcStraw<'a> {
+    fn base(&self) -> &StrawBase<'a> {
         &self.base
     }
 
-    fn base_mut(&mut self) -> &mut StrawBase {
+    fn base_mut(&mut self) -> &mut StrawBase<'a> {
         &mut self.base
     }
 

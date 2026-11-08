@@ -32,8 +32,8 @@ impl BlockHeader {
 }
 
 /// LZO compression/decompression straw.
-pub struct LzoStraw {
-    base: StrawBase,
+pub struct LzoStraw<'a> {
+    base: StrawBase<'a>,
     control: CompControl,
     counter: usize,
     buffer: Vec<u8>,
@@ -43,7 +43,7 @@ pub struct LzoStraw {
     block_header: BlockHeader,
 }
 
-impl LzoStraw {
+impl<'a> LzoStraw<'a> {
     pub fn new(control: CompControl, block_size: usize) -> Self {
         let safety_margin = block_size;
         let buffer = vec![0u8; block_size + safety_margin];
@@ -61,12 +61,12 @@ impl LzoStraw {
     }
 }
 
-impl Straw for LzoStraw {
-    fn base(&self) -> &StrawBase {
+impl<'a> Straw<'a> for LzoStraw<'a> {
+    fn base(&self) -> &StrawBase<'a> {
         &self.base
     }
 
-    fn base_mut(&mut self) -> &mut StrawBase {
+    fn base_mut(&mut self) -> &mut StrawBase<'a> {
         &mut self.base
     }
 

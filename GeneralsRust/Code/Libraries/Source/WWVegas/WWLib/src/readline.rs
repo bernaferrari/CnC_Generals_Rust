@@ -47,7 +47,7 @@ pub fn read_line_file(file: &mut dyn FileInterface, buffer: &mut [u8], eof: &mut
     buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len())
 }
 
-pub fn read_line_straw(file: &mut dyn Straw, buffer: &mut [u8], eof: &mut bool) -> usize {
+pub fn read_line_straw(file: &mut dyn Straw<'_>, buffer: &mut [u8], eof: &mut bool) -> usize {
     if buffer.is_empty() {
         return 0;
     }
@@ -75,7 +75,7 @@ pub fn read_line_straw(file: &mut dyn Straw, buffer: &mut [u8], eof: &mut bool) 
     buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len())
 }
 
-pub fn read_line_wide_straw(file: &mut dyn Straw, buffer: &mut [u16], eof: &mut bool) -> usize {
+pub fn read_line_wide_straw(file: &mut dyn Straw<'_>, buffer: &mut [u16], eof: &mut bool) -> usize {
     if buffer.is_empty() {
         return 0;
     }

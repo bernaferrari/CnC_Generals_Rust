@@ -9,7 +9,7 @@ pub fn buffer_size(surface: &Surface, width: i32, height: i32) -> i32 {
     width * height * surface.bytes_per_pixel() as i32
 }
 
-pub fn to_buffer(surface: &Surface, rect: Rect, buffer: &mut Buffer) -> bool {
+pub fn to_buffer(surface: &Surface, rect: Rect, buffer: &mut Buffer<'_>) -> bool {
     if !rect.is_valid() {
         return false;
     }
@@ -43,13 +43,10 @@ pub fn to_buffer(surface: &Surface, rect: Rect, buffer: &mut Buffer) -> bool {
     true
 }
 
-pub fn from_buffer(surface: &mut Surface, rect: Rect, buffer: &Buffer) -> bool {
+pub fn from_buffer(surface: &mut Surface, rect: Rect, buf: &[u8]) -> bool {
     if !rect.is_valid() {
         return false;
     }
-    let Some(buf) = buffer.as_slice() else {
-        return false;
-    };
     let bytes_per_pixel = surface.bytes_per_pixel();
     let mut offset = 0usize;
     let lock = match surface.lock(Point2D::new(0, 0)) {

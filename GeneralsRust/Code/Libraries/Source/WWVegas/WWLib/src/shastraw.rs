@@ -1,13 +1,13 @@
 use crate::sha::ShaEngine;
 use crate::straw::{Straw, StrawBase};
 
-pub struct SHAStraw {
-    base: StrawBase,
+pub struct SHAStraw<'a> {
+    base: StrawBase<'a>,
     disabled: bool,
     sha: ShaEngine,
 }
 
-impl SHAStraw {
+impl<'a> SHAStraw<'a> {
     pub fn new() -> Self {
         Self {
             base: StrawBase::new(),
@@ -34,18 +34,18 @@ impl SHAStraw {
     }
 }
 
-impl Default for SHAStraw {
+impl Default for SHAStraw<'_> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Straw for SHAStraw {
-    fn base(&self) -> &StrawBase {
+impl<'a> Straw<'a> for SHAStraw<'a> {
+    fn base(&self) -> &StrawBase<'a> {
         &self.base
     }
 
-    fn base_mut(&mut self) -> &mut StrawBase {
+    fn base_mut(&mut self) -> &mut StrawBase<'a> {
         &mut self.base
     }
 

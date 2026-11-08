@@ -193,8 +193,8 @@ pub fn Write_Data(name: &str, ptr: &[u8]) -> u32 {
 #[allow(non_snake_case)]
 pub fn Load_Uncompress(
     filename: &str,
-    uncomp_buff: &mut Buffer,
-    dest_buff: &mut Buffer,
+    uncomp_buff: &mut Buffer<'_>,
+    dest_buff: &mut Buffer<'_>,
     reserved_data: Option<&mut [u8]>,
 ) -> u32 {
     let mut file = WWFile::with_path(filename);

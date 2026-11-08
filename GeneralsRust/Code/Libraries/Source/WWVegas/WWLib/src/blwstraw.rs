@@ -7,15 +7,15 @@ pub enum CryptControl {
     Decrypt,
 }
 
-pub struct BlowStraw {
-    base: StrawBase,
+pub struct BlowStraw<'a> {
+    base: StrawBase<'a>,
     engine: Option<BlowfishEngine>,
     buffer: [u8; 8],
     counter: usize,
     control: CryptControl,
 }
 
-impl BlowStraw {
+impl<'a> BlowStraw<'a> {
     pub fn new(control: CryptControl) -> Self {
         Self {
             base: StrawBase::new(),
@@ -48,12 +48,12 @@ impl BlowStraw {
     }
 }
 
-impl Straw for BlowStraw {
-    fn base(&self) -> &StrawBase {
+impl<'a> Straw<'a> for BlowStraw<'a> {
+    fn base(&self) -> &StrawBase<'a> {
         &self.base
     }
 
-    fn base_mut(&mut self) -> &mut StrawBase {
+    fn base_mut(&mut self) -> &mut StrawBase<'a> {
         &mut self.base
     }
 

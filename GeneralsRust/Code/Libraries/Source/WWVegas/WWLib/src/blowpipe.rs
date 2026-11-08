@@ -8,15 +8,15 @@ pub enum CryptControl {
 }
 
 /// BlowPipe - performs Blowfish encryption/decryption on stream data.
-pub struct BlowPipe {
-    base: PipeBase,
+pub struct BlowPipe<'a> {
+    base: PipeBase<'a>,
     engine: Option<BlowfishEngine>,
     buffer: [u8; BLOCK_SIZE],
     counter: usize,
     control: CryptControl,
 }
 
-impl BlowPipe {
+impl<'a> BlowPipe<'a> {
     pub fn new(control: CryptControl) -> Self {
         Self {
             base: PipeBase::new(),
@@ -49,12 +49,12 @@ impl BlowPipe {
     }
 }
 
-impl Pipe for BlowPipe {
-    fn base(&self) -> &PipeBase {
+impl<'a> Pipe<'a> for BlowPipe<'a> {
+    fn base(&self) -> &PipeBase<'a> {
         &self.base
     }
 
-    fn base_mut(&mut self) -> &mut PipeBase {
+    fn base_mut(&mut self) -> &mut PipeBase<'a> {
         &mut self.base
     }
 

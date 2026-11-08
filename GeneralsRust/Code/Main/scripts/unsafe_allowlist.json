@@ -120,55 +120,7 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/GameEngine/GameEngineDevice/src/video/cpp_bindings.rs": {
-      "constructs": 17,
-      "undocumented": 0
-    },
     "Code/GameEngine/GameEngineDevice/src/video/video_device.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameEngineDevice/src/w3d/w3d_c_api/decl.rs": {
-      "constructs": 4,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameEngineDevice/src/w3d/w3d_c_api/device.rs": {
-      "constructs": 13,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameEngineDevice/src/w3d/w3d_c_api/draw.rs": {
-      "constructs": 7,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameEngineDevice/src/w3d/w3d_c_api/leftover.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameEngineDevice/src/w3d/w3d_c_api/lighting.rs": {
-      "constructs": 5,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameEngineDevice/src/w3d/w3d_c_api/materials.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameEngineDevice/src/w3d/w3d_c_api/opaque_owner_tests.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameEngineDevice/src/w3d/w3d_c_api/render_state.rs": {
-      "constructs": 12,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameEngineDevice/src/w3d/w3d_c_api/streams.rs": {
-      "constructs": 8,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameEngineDevice/src/w3d/w3d_c_api/textures.rs": {
-      "constructs": 6,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameEngineDevice/src/w3d/w3d_c_api/transforms.rs": {
       "constructs": 2,
       "undocumented": 0
     },
@@ -484,10 +436,6 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/Libraries/Source/WWVegas/WWLib/src/buff.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
     "Code/Libraries/Source/WWVegas/WWLib/src/keyboard.rs": {
       "constructs": 6,
       "undocumented": 0
@@ -552,10 +500,6 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/Main/src/main.rs": {
-      "constructs": 3,
-      "undocumented": 0
-    },
     "Code/Main/src/map_frame_scenario.rs": {
       "constructs": 2,
       "undocumented": 0
@@ -577,7 +521,7 @@
       "undocumented": 0
     },
     "Code/Main/src/win_main.rs": {
-      "constructs": 18,
+      "constructs": 3,
       "undocumented": 0
     },
     "Code/Main/tests/crc_validation_test.rs": {

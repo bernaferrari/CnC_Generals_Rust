@@ -7,15 +7,15 @@ pub enum CodeControl {
     Decode,
 }
 
-pub struct Base64Straw {
-    base: StrawBase,
+pub struct Base64Straw<'a> {
+    base: StrawBase<'a>,
     control: CodeControl,
     counter: usize,
     cbuffer: [u8; 4],
     pbuffer: [u8; 3],
 }
 
-impl Base64Straw {
+impl<'a> Base64Straw<'a> {
     pub fn new(control: CodeControl) -> Self {
         Self {
             base: StrawBase::new(),
@@ -27,12 +27,12 @@ impl Base64Straw {
     }
 }
 
-impl Straw for Base64Straw {
-    fn base(&self) -> &StrawBase {
+impl<'a> Straw<'a> for Base64Straw<'a> {
+    fn base(&self) -> &StrawBase<'a> {
         &self.base
     }
 
-    fn base_mut(&mut self) -> &mut StrawBase {
+    fn base_mut(&mut self) -> &mut StrawBase<'a> {
         &mut self.base
     }
 

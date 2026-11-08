@@ -147,7 +147,7 @@ impl BigInt {
         }
     }
 
-    pub fn randomize_bits(rng: &mut dyn Straw, total_bits: u32) -> Self {
+    pub fn randomize_bits(rng: &mut dyn Straw<'_>, total_bits: u32) -> Self {
         if total_bits == 0 {
             return BigInt::zero();
         }
@@ -164,7 +164,7 @@ impl BigInt {
         BigInt::from_le_bytes(&bytes)
     }
 
-    pub fn randomize_bounded(rng: &mut dyn Straw, minval: &BigInt, maxval: &BigInt) -> Self {
+    pub fn randomize_bounded(rng: &mut dyn Straw<'_>, minval: &BigInt, maxval: &BigInt) -> Self {
         let range = maxval.clone() - minval.clone();
         let bit_count = range.bit_count();
         if bit_count == 0 {
@@ -402,7 +402,7 @@ fn der_length_decode(input: &[u8]) -> Option<(usize, usize)> {
     Some((length, 1 + len_bytes))
 }
 
-fn fill_random_bytes(rng: &mut dyn Straw, buffer: &mut [u8]) {
+fn fill_random_bytes(rng: &mut dyn Straw<'_>, buffer: &mut [u8]) {
     let mut offset = 0usize;
     while offset < buffer.len() {
         let got = rng.get(&mut buffer[offset..]);
@@ -558,7 +558,7 @@ impl RemainderTable {
     }
 }
 
-pub fn generate_prime(rng: &mut dyn Straw, pbits: u32) -> BigInt {
+pub fn generate_prime(rng: &mut dyn Straw<'_>, pbits: u32) -> BigInt {
     let min_q = BigInt::from(1u64) << (pbits - 2);
     let max_q = (BigInt::from(1u64) << (pbits - 1)) - BigInt::from(1u64);
 

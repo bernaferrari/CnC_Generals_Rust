@@ -6,7 +6,6 @@
 //! - Render device abstraction
 //! - Window and surface management
 
-pub mod cpp_bindings;
 pub mod display_adapter;
 pub mod multi_monitor;
 pub mod performance_monitor;
@@ -15,7 +14,6 @@ pub mod texture_manager;
 pub mod video_device;
 
 // Re-exports
-pub use cpp_bindings::{CVertex, CVideoDevice, CVideoResult, CVideoStatistics};
 pub use display_adapter::{
     AdapterCapabilities, AdapterDeviceType, AdapterFeatures, BackendType, ColorSpace,
     DisplayAdapter, DisplayInfo, DisplayOrientation, HdrSupport,

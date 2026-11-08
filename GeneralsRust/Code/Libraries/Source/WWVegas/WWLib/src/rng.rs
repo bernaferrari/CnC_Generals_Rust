@@ -2,9 +2,9 @@ pub trait RandomNumberGenerator {
     fn get_block(&mut self, output: &mut [u8]);
 }
 
-impl<T> RandomNumberGenerator for T
+impl<'a, T> RandomNumberGenerator for T
 where
-    T: crate::straw::Straw,
+    T: crate::straw::Straw<'a>,
 {
     fn get_block(&mut self, output: &mut [u8]) {
         let mut offset = 0usize;

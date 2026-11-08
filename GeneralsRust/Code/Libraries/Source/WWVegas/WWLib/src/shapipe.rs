@@ -1,12 +1,12 @@
 use crate::pipe::{Pipe, PipeBase};
 use crate::sha::ShaEngine;
 
-pub struct SHAPipe {
-    base: PipeBase,
+pub struct SHAPipe<'a> {
+    base: PipeBase<'a>,
     sha: ShaEngine,
 }
 
-impl SHAPipe {
+impl<'a> SHAPipe<'a> {
     pub fn new() -> Self {
         Self {
             base: PipeBase::new(),
@@ -24,18 +24,18 @@ impl SHAPipe {
     }
 }
 
-impl Default for SHAPipe {
+impl<'a> Default for SHAPipe<'a> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Pipe for SHAPipe {
-    fn base(&self) -> &PipeBase {
+impl<'a> Pipe<'a> for SHAPipe<'a> {
+    fn base(&self) -> &PipeBase<'a> {
         &self.base
     }
 
-    fn base_mut(&mut self) -> &mut PipeBase {
+    fn base_mut(&mut self) -> &mut PipeBase<'a> {
         &mut self.base
     }
 
