@@ -545,6 +545,8 @@ does not migrate the ambient interpreter or named-object tracker.
 Core's explicitly driven script phase reads and clears freeze state on its
 borrowed interpreter, including the clear-game escape; the undriven Core path
 still uses the ambient interpreter. C++ order: GameLogic.cpp:3598–3616.
+A rejected borrowed script phase releases Core's update latch so the next
+tick can run; C++ uses `LatchRestore` at GameLogic.cpp:3552.
 The unused alternate Rhai interpreter, its always-empty Main owner, unreachable
 event converter and unused scripting compatibility re-exports are removed. The
 live SCB interpreter is unchanged.

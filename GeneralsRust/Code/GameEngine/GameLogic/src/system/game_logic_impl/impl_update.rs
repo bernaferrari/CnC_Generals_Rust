@@ -251,6 +251,7 @@ impl GameLogic {
         };
         if let Err(e) = script_result {
             if receiving_scripts {
+                self.is_in_update = false;
                 return Err(e);
             }
             warn!("Early scripting phase failed: {}", e);
@@ -1934,6 +1935,25 @@ mod clear_game_data_freeze_escape_tests {
         // Leave the shared stream clean for other suites.
         drop_pending_clear_game_data();
     }
+    #[test]
+    fn script_phase_error_does_not_block_a_later_tick() {
+        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        drop_pending_clear_game_data();
+        let scripts = crate::scripting::engine::ScriptEngine::new().unwrap();
+        let mut logic = GameLogic::new();
+        let error = logic.update_with_script_phase(
+            0,
+            &scripts,
+            &mut |_| Err(GameLogicError::InvalidState("script failed".into())),
+            || None,
+        );
+        assert!(error.is_err());
+        logic
+            .update_with_script_phase(0, &scripts, &mut |_| Ok(()), || None)
+            .expect("a rejected script phase must not leave the world in update");
+        assert_eq!(logic.get_frame(), 1);
+    }
+
     #[test]
     fn borrowed_script_phase_uses_receiving_engine_freeze() {
         let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
