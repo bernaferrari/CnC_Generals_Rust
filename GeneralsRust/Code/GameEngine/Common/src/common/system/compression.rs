@@ -11,7 +11,6 @@
 //!
 //! Rust conversion: 2025
 
-use once_cell::sync::OnceCell;
 use std::io::{self, Read};
 
 use generals_compression::compression_manager::{
@@ -153,12 +152,7 @@ pub fn decompress_data(data: &[u8]) -> Result<Vec<u8>, io::Error> {
         )
     })?;
     let payload = &data[9..];
-    let mut fallback = None;
-    let engine = get_compression_engine().unwrap_or_else(|| {
-        fallback = Some(CompressionEngine::new());
-        fallback.as_ref().unwrap()
-    });
-    engine.decompress(
+    CompressionEngine::new().decompress(
         payload,
         header.compression_type,
         Some(header.original_size as usize),
@@ -345,18 +339,6 @@ impl CompressionInterface for CompressionEngine {
     }
 }
 
-/// Global compression engine instance
-static COMPRESSION_ENGINE: OnceCell<CompressionEngine> = OnceCell::new();
-
-/// Initialize the global compression engine
-pub fn init_compression_engine() {
-    let _ = COMPRESSION_ENGINE.set(CompressionEngine::new());
-}
-
-/// Get reference to the global compression engine
-pub fn get_compression_engine() -> Option<&'static CompressionEngine> {
-    COMPRESSION_ENGINE.get()
-}
 
 #[cfg(test)]
 mod tests {
