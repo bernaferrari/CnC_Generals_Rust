@@ -1761,15 +1761,6 @@ pub fn is_bomb_truck_template(template_name: &str) -> bool {
         || n.contains("bombtruck")
         || n.contains("bomb_truck")
 }
-/// Units that receive Anthrax Gamma residual combat tag on research complete.
-pub fn is_anthrax_gamma_unit_template(name: &str) -> bool {
-    use crate::game_logic::host_scud_launcher::is_scud_launcher_template;
-    use crate::game_logic::host_toxin_tractor::is_toxin_tractor_template;
-    is_toxin_tractor_template(name)
-        || is_scud_launcher_template(name)
-        || is_bomb_truck_template(name)
-}
-
 // --- Wave 62 residual honesty packs (upgrade cost/time + stealth forbidden) ---
 
 /// Retail Upgrade.ini BuildCost residual honesty pack.

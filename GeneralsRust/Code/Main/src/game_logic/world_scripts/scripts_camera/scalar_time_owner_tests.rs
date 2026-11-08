@@ -443,3 +443,119 @@ fn authored_tracking_negative_multiplier_uses_original_nearest_rounding_on_live_
     assert!(!owner.session_view.camera.rotation_registers.active());
     assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
 }
+
+fn authored_waypoint_look(name: &str, seconds: f32) -> Box<ScriptAction> {
+    action(
+        ScriptActionType::CameraLookTowardWaypoint,
+        vec![
+            Parameter::with_string(ParameterType::Waypoint, name.into()),
+            Parameter::with_real(ParameterType::Real, seconds),
+            Parameter::with_real(ParameterType::Real, 0.),
+            Parameter::with_real(ParameterType::Real, 0.),
+            Parameter::with_int(ParameterType::Boolean, 0),
+        ],
+    )
+}
+
+#[test]
+fn authored_look_retarget_restarts_receiving_curve_and_survives_continuation() {
+    let (mut owner, _, _) = world(110.);
+    let (mut peer, _, _) = world(210.);
+    *owner.world_services.terrain().write().unwrap() = camera_terrain();
+    owner.session_view.target = Vec3::new(100., 0., 100.);
+    let peer_before = peer.capture_camera_continuation().unwrap();
+    let mut first = ScriptList::new();
+    first.append_script(script(
+        "FirstLook",
+        vec![authored_waypoint_look("CameraPoint", 0.132)],
+        true,
+    ));
+    let interpreter = run(&mut owner, engine(peer.mission_scripts.clone(), first));
+    owner.headless_camera_view_offer_with_script_engine(33, Some(&interpreter)).unwrap();
+    owner.headless_camera_view_offer_with_script_engine(33, Some(&interpreter)).unwrap();
+    assert_eq!(owner.session_view.camera.camera_yaw_frame, 2);
+    let start = owner.session_view.camera.camera_yaw_radians;
+    let mut second = ScriptList::new();
+    second.append_script(script(
+        "RetargetLook",
+        vec![authored_waypoint_look("LookPoint", 0.132)],
+        true,
+    ));
+    owner.frame += 1;
+    let interpreter = run(&mut owner, engine(peer.mission_scripts.clone(), second));
+    let camera = &owner.session_view.camera;
+    assert_eq!(camera.camera_yaw_frame, 0);
+    assert_eq!(camera.rotation_registers.scalar_start().unwrap().to_bits(), start.to_bits());
+    let end = camera.rotation_registers.scalar_target().unwrap();
+    assert_ne!(start.to_bits(), end.to_bits());
+    assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
+    let saved = owner.capture_camera_continuation().unwrap();
+    let (mut restored, _, _) = world(110.);
+    restored.admit_camera_continuation(GameLogic::decode_camera_continuation(&saved).unwrap()).unwrap();
+    let restored_interpreter = engine(restored.mission_scripts.clone(), ScriptList::new());
+    for frame in 1..=4 {
+        peer.headless_camera_view_offer(33).unwrap();
+        owner.headless_camera_view_offer_with_script_engine(33, Some(&interpreter)).unwrap();
+        restored.headless_camera_view_offer_with_script_engine(33, Some(&restored_interpreter)).unwrap();
+        let expected = start + (end - start) * (frame as f32 / 4.);
+        assert!((owner.session_view.camera.camera_yaw_radians - expected).abs() < 0.00001);
+        assert_eq!(owner.session_view.camera.camera_yaw_radians.to_bits(), restored.session_view.camera.camera_yaw_radians.to_bits());
+        assert_eq!(owner.session_view.camera.rotation_registers.active(), frame < 4);
+    }
+}
+
+#[test]
+fn authored_zero_duration_look_waits_for_first_view_offer() {
+    let (mut owner, _, _) = world(110.);
+    let (peer, _, _) = world(210.);
+    *owner.world_services.terrain().write().unwrap() = camera_terrain();
+    owner.session_view.target = Vec3::new(310., 0., 330.);
+    let before = owner.session_view.camera.camera_yaw_radians;
+    let peer_before = peer.capture_camera_continuation().unwrap();
+    let mut list = ScriptList::new();
+    list.append_script(script("ImmediateLook", vec![authored_waypoint_look("LookPoint", 0.)], true));
+    let interpreter = run(&mut owner, engine(peer.mission_scripts.clone(), list));
+    let camera = &owner.session_view.camera;
+    let end = camera.rotation_registers.scalar_target().unwrap();
+    assert_eq!(camera.camera_yaw_frame, 0);
+    assert!(camera.rotation_registers.active());
+    assert_eq!(camera.camera_yaw_radians.to_bits(), before.to_bits());
+    owner.headless_camera_view_offer_with_script_engine(33, Some(&interpreter)).unwrap();
+    assert_eq!(owner.session_view.camera.camera_yaw_radians.to_bits(), end.to_bits());
+    assert!(!owner.session_view.camera.rotation_registers.active());
+    assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
+}
+
+#[test]
+fn authored_path_look_changes_angles_without_restarting_path_clock() {
+    let (mut owner, _, _) = world(110.);
+    let (peer, _, _) = world(210.);
+    *owner.world_services.terrain().write().unwrap() = camera_terrain();
+    let mut first = ScriptList::new();
+    first.append_script(script("PathBeforeLook", vec![action_move_for_modifier()], true));
+    let interpreter = run(&mut owner, engine(peer.mission_scripts.clone(), first));
+    for _ in 0..3 {
+        owner.headless_camera_view_offer_with_script_engine(33, Some(&interpreter)).unwrap();
+    }
+    let motion = &owner.session_view.scripted.motion;
+    assert!(motion.active);
+    let elapsed = motion.elapsed_ms;
+    let segment = motion.segment;
+    let angles = motion.angles;
+    let peer_before = peer.capture_camera_continuation().unwrap();
+    let modifier = remaining_camera_actions(100.).into_iter()
+        .find(|a| a.action_type == ScriptActionType::CameraModLookToward).unwrap();
+    let mut second = ScriptList::new();
+    second.append_script(script("PathLook", vec![modifier], true));
+    owner.frame += 1;
+    let interpreter = run(&mut owner, engine(peer.mission_scripts.clone(), second));
+    let motion = &owner.session_view.scripted.motion;
+    assert!(motion.active);
+    assert_eq!(motion.elapsed_ms, elapsed);
+    assert_eq!(motion.segment, segment);
+    assert_ne!(motion.angles, angles);
+    assert!(!owner.session_view.camera.rotation_registers.active());
+    assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
+    owner.headless_camera_view_offer_with_script_engine(33, Some(&interpreter)).unwrap();
+    assert!(owner.session_view.scripted.motion.elapsed_ms > elapsed);
+}

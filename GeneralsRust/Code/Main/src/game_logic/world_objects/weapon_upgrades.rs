@@ -335,6 +335,69 @@ mod upgrade_lookup_admission_tests {
 }
 
 #[cfg(test)]
+mod anthrax_gamma_authored_tests {
+    use super::*;
+
+    #[test]
+    fn gamma_completion_and_new_objects_use_authored_weapon_upgrade_only() {
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(0, Team::GLA, "Owner", true));
+        world.add_player(Player::new(7, Team::GLA, "Other", false));
+        // Non-local owners with no active AI are intentionally barred from
+        // combat admission, even when explicitly ordered to attack.
+        world.ai_manager.add_ai_player(7, Team::GLA, crate::ai::AIDifficulty::Medium);
+        world.set_ai_active(7, true);
+        world.admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "gamma-recipients.ini".into(),
+                "Object CustomToxinVehicle\nKindOf = VEHICLE SELECTABLE CAN_ATTACK\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\n\
+                 WeaponSet\nConditions = None\nWeapon = PRIMARY GammaTestBase\nEnd\n\
+                 WeaponSet\nConditions = PLAYER_UPGRADE\nWeapon = PRIMARY GammaTestUpgraded\nEnd\n\
+                 Behavior = WeaponSetUpgrade GammaTag\nTriggeredBy = Chem_Upgrade_GLAAnthraxGamma\nEnd\nEnd\n\
+                 Object Chem_GLAVehicleToxinTruck\nKindOf = VEHICLE SELECTABLE CAN_ATTACK\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\n\
+                 WeaponSet\nConditions = None\nWeapon = PRIMARY GammaTestBase\nEnd\n\
+                 WeaponSet\nConditions = PLAYER_UPGRADE\nWeapon = PRIMARY GammaTestUpgraded\nEnd\nEnd\n\
+                 Object GammaTarget\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody BodyTag\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nEnd\n".into(),
+            )]).unwrap(),
+        ).unwrap();
+        let mut definitions = std::collections::HashMap::new();
+        crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+            &mut definitions,
+            "Weapon GammaTestBase\nPrimaryDamage = 10\nPrimaryDamageRadius = 0\nAttackRange = 200\nDamageType = ARMOR_PIERCING\nDeathType = NORMAL\nWeaponSpeed = 999999\nDelayBetweenShots = 2000\nEnd\n\
+             Weapon GammaTestUpgraded\nPrimaryDamage = 25\nPrimaryDamageRadius = 0\nAttackRange = 200\nDamageType = ARMOR_PIERCING\nDeathType = NORMAL\nWeaponSpeed = 999999\nDelayBetweenShots = 2000\nEnd\n",
+            crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+        );
+        world.admit_weapon_content_snapshot(
+            definitions.into_values().map(|rule| (rule.name.clone(), rule)).collect(),
+            &[],
+        ).unwrap();
+        let authored = world.create_object_for_player("CustomToxinVehicle", 0, glam::Vec3::ZERO).unwrap();
+        let named = world.create_object_for_player("Chem_GLAVehicleToxinTruck", 0, glam::Vec3::ZERO).unwrap();
+        let other = world.create_object_for_player("CustomToxinVehicle", 7, glam::Vec3::ZERO).unwrap();
+        world.add_completed_player_upgrade(0, "Chem_Upgrade_GLAAnthraxGamma");
+        let later = world.create_object_for_player("CustomToxinVehicle", 0, glam::Vec3::ZERO).unwrap();
+        let later_other = world.create_object_for_player("CustomToxinVehicle", 7, glam::Vec3::ZERO).unwrap();
+        for (index, (id, damage)) in [(authored, 25.0), (later, 25.0), (named, 10.0), (other, 10.0), (later_other, 10.0)].into_iter().enumerate() {
+            assert_eq!(world.host_object(id).unwrap().weapon_slot(0).unwrap().damage, damage);
+            let target = world.create_object("GammaTarget", Team::USA, glam::Vec3::new(50.0, 0.0, 0.0)).unwrap();
+            let start = 100 + index as u64 * 100;
+            world.set_current_frame(start);
+            {
+                let (shooter, events) = world.host_object_and_attack_events_mut(id).unwrap();
+                shooter.attack_target(target, start as u32, events, &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
+            }
+            for frame in start..start + 10 {
+                world.set_current_frame(frame);
+                world.update_combat(&[id, target], LOGIC_FRAME_TIMESTEP).unwrap();
+                world.apply_owned_projectileless_delayed_damage();
+                let _ = world.update_owned_projectile_impacts(LOGIC_FRAME_TIMESTEP);
+            }
+            assert_eq!(world.host_object(target).unwrap().health.current, 1000.0 - damage, "shooter {id:?}");
+        }
+    }
+}
+
+#[cfg(test)]
 mod authored_mig_gate_tests {
     use super::UpgradeRecipients;
     use crate::game_logic::*;
