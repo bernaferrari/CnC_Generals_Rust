@@ -81,21 +81,11 @@ impl SingleInstanceGuard {
         options.share_mode(0);
         let file = options.open(path).context("Failed to create lock file")?;
 
-        // Platform-specific file locking
+        // File::try_lock uses nonblocking exclusive flock on supported Unix
+        // platforms, and the lock is held until this descriptor is closed.
         #[cfg(unix)]
-        {
-            use std::os::unix::io::AsRawFd;
-            let fd = file.as_raw_fd();
-
-            // Try to acquire an exclusive lock
-            // SAFETY: fd is a valid open file descriptor borrowed from
-            // `file`, which outlives this call.
-            let result = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
-
-            if result != 0 {
-                return Err(anyhow::anyhow!("Failed to acquire file lock"));
-            }
-        }
+        file.try_lock()
+            .map_err(|_| anyhow::anyhow!("Failed to acquire file lock"))?;
 
         #[cfg(windows)]
         {
@@ -349,14 +339,15 @@ mod tests {
 
     #[test]
     fn test_guard_cleanup() {
+        let name = format!("test_app_cleanup_{}", std::process::id());
         let lock_path = {
-            let guard = SingleInstanceGuard::new("test_app_cleanup").unwrap();
+            let guard = SingleInstanceGuard::new(&name).unwrap();
             guard.get_instance_lock_file_path().clone()
         }; // Guard is dropped here
 
         // Metadata may remain, but the OS lock must be released immediately.
         assert!(lock_path.exists());
-        let _next = SingleInstanceGuard::new("test_app_cleanup").unwrap();
+        let _next = SingleInstanceGuard::new(&name).unwrap();
     }
 
     #[test]

@@ -26,18 +26,14 @@ impl Generation {
     /// Create the first generation (1).
     #[inline]
     pub fn first() -> Self {
-        // SAFETY: 1 is non-zero
-        Generation(unsafe { NonZeroU32::new_unchecked(1) })
+        Self::new(1)
     }
 
     /// Increment to the next generation, wrapping at u32::MAX.
     #[inline]
     pub fn next(self) -> Self {
         let next_val = self.0.get().wrapping_add(1);
-        // Avoid zero - wrap to 1 instead
-        let next_val = if next_val == 0 { 1 } else { next_val };
-        // SAFETY: We just ensured it's non-zero
-        Generation(unsafe { NonZeroU32::new_unchecked(next_val) })
+        Self::new(next_val)
     }
 
     /// Get the raw generation value.
@@ -151,9 +147,7 @@ mod tests {
     #[test]
     fn test_generation_wrap() {
         // Test wrapping from u32::MAX to 1 (not 0)
-        // SAFETY: u32::MAX is non-zero by construction, satisfying the
-        // NonZeroU32 invariant this test exercises for wraparound.
-        let gen_max = Generation(unsafe { NonZeroU32::new_unchecked(u32::MAX) });
+        let gen_max = Generation::new(u32::MAX);
         let gen_wrapped = gen_max.next();
         assert_eq!(gen_wrapped.get(), 1);
     }

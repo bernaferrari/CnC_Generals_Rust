@@ -473,10 +473,21 @@ pub mod windows_resource_manager {
         Bitmap,
     }
 
+    /// Owned resource bytes, released automatically when the handle is dropped.
     #[derive(Debug)]
-    struct ResourceHandle {
+    pub struct ResourceHandle {
         kind: ResourceHandleKind,
         data: Vec<u8>,
+    }
+
+    impl Drop for ResourceHandle {
+        fn drop(&mut self) {
+            debug!(
+                "Releasing Windows resource handle ({:?}, {} bytes)",
+                self.kind,
+                self.data.len()
+            );
+        }
     }
 
     fn read_resource_bytes(candidates: &[&str]) -> Option<Vec<u8>> {
@@ -503,11 +514,6 @@ pub mod windows_resource_manager {
         None
     }
 
-    fn create_handle_ptr(kind: ResourceHandleKind, data: Vec<u8>) -> *mut std::ffi::c_void {
-        let handle = Box::new(ResourceHandle { kind, data });
-        Box::into_raw(handle) as *mut std::ffi::c_void
-    }
-
     /// Load an icon resource by ID
     ///
     /// # Arguments
@@ -517,13 +523,16 @@ pub mod windows_resource_manager {
     /// # Returns
     ///
     /// Handle to the loaded icon, or None if loading failed
-    pub fn load_icon(resource_id: u32) -> Option<*mut std::ffi::c_void> {
+    pub fn load_icon(resource_id: u32) -> Option<ResourceHandle> {
         match resource_id {
             IDI_APPLICATION_ICON => {
                 info!("Loading application icon resource");
                 let data = read_resource_bytes(&["Generals.ico", "generals.ico"])
-                    .unwrap_or_else(|| vec![0]); // Keep a non-null sentinel handle.
-                Some(create_handle_ptr(ResourceHandleKind::Icon, data))
+                    .unwrap_or_else(|| vec![0]); // Keep a successful sentinel handle.
+                Some(ResourceHandle {
+                    kind: ResourceHandleKind::Icon,
+                    data,
+                })
             }
             _ => {
                 warn!("Unknown icon resource ID: {}", resource_id);
@@ -541,7 +550,7 @@ pub mod windows_resource_manager {
     /// # Returns
     ///
     /// Handle to the loaded bitmap, or None if loading failed
-    pub fn load_bitmap(resource_id: u32) -> Option<*mut std::ffi::c_void> {
+    pub fn load_bitmap(resource_id: u32) -> Option<ResourceHandle> {
         match resource_id {
             IDB_LOAD_SCREEN => {
                 info!("Loading load screen bitmap resource");
@@ -551,33 +560,15 @@ pub mod windows_resource_manager {
                     "LoadScreen.bmp",
                     "loadscreen.bmp",
                 ])?;
-                Some(create_handle_ptr(ResourceHandleKind::Bitmap, data))
+                Some(ResourceHandle {
+                    kind: ResourceHandleKind::Bitmap,
+                    data,
+                })
             }
             _ => {
                 warn!("Unknown bitmap resource ID: {}", resource_id);
                 None
             }
-        }
-    }
-
-    /// Release a resource handle
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure the handle is valid and not already freed.
-    // SAFETY: caller contract documented above — handle is the raw Box
-    // pointer returned by load_bitmap and not yet freed.
-    pub unsafe fn release_resource(handle: *mut std::ffi::c_void) {
-        if !handle.is_null() {
-            let boxed: Box<ResourceHandle> =
-                // SAFETY: reconstructs the unique Box leaked by
-                // Box::into_raw at creation; runs exactly once per handle.
-                unsafe { Box::from_raw(handle as *mut ResourceHandle) };
-            debug!(
-                "Releasing Windows resource handle ({:?}, {} bytes)",
-                boxed.kind,
-                boxed.data.len()
-            );
         }
     }
 
@@ -644,6 +635,16 @@ mod tests {
         assert_eq!(IDI_APPLICATION_ICON, 102);
         assert_eq!(IDB_LOAD_SCREEN, 103);
         assert_eq!(APS_NEXT_RESOURCE_VALUE, 106);
+    }
+
+    #[test]
+    fn resource_handles_are_owned_and_unknown_ids_fail() {
+        use windows_resource_manager::{load_bitmap, load_icon};
+
+        let icon = load_icon(IDI_APPLICATION_ICON).expect("application icon handle");
+        drop(icon);
+        assert!(load_icon(u32::MAX).is_none());
+        assert!(load_bitmap(u32::MAX).is_none());
     }
 
     #[test]

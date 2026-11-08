@@ -4,10 +4,10 @@
 
 #[cfg(target_os = "windows")]
 use std::ffi::CString;
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", test))]
 use std::io::{Read, Seek, SeekFrom};
 #[cfg(target_os = "windows")]
-use std::mem::{MaybeUninit, size_of};
+use std::mem::size_of;
 #[cfg(target_os = "windows")]
 use std::os::windows::io::AsRawHandle;
 #[cfg(target_os = "windows")]
@@ -16,13 +16,13 @@ use std::ptr;
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::{FILETIME, HANDLE, HINSTANCE};
 #[cfg(target_os = "windows")]
-use windows::Win32::Storage::FileSystem::GetFileTime;
-#[cfg(target_os = "windows")]
-use windows::Win32::System::SystemServices::{IMAGE_DOS_HEADER, IMAGE_FILE_HEADER};
-#[cfg(target_os = "windows")]
-use windows::Win32::System::Version::{
-    GetFileVersionInfoA, GetFileVersionInfoSizeA, VS_FIXEDFILEINFO, VerQueryValueA,
+use windows::Win32::Storage::FileSystem::{
+    GetFileTime, GetFileVersionInfoA, GetFileVersionInfoSizeA, VS_FIXEDFILEINFO, VerQueryValueA,
 };
+#[cfg(target_os = "windows")]
+use windows::Win32::System::Diagnostics::Debug::IMAGE_FILE_HEADER;
+#[cfg(target_os = "windows")]
+use windows::Win32::System::SystemServices::IMAGE_DOS_HEADER;
 #[cfg(target_os = "windows")]
 use windows::core::PCSTR;
 
@@ -41,7 +41,7 @@ pub fn get_version_info(filename: &str, file_info: &mut VS_FIXEDFILEINFO) -> boo
     let mut ver_handle: u32 = 0;
     let ver_info_size =
         // SAFETY: [Category 8 — FFI] queries version info size for a NUL-terminated path; out handle slot is valid.
-        unsafe { GetFileVersionInfoSizeA(PCSTR(c_filename.as_ptr() as _), &mut ver_handle) };
+        unsafe { GetFileVersionInfoSizeA(PCSTR(c_filename.as_ptr() as _), Some(&mut ver_handle)) };
     if ver_info_size == 0 {
         return false;
     }
@@ -51,12 +51,12 @@ pub fn get_version_info(filename: &str, file_info: &mut VS_FIXEDFILEINFO) -> boo
     let success = unsafe {
         GetFileVersionInfoA(
             PCSTR(c_filename.as_ptr() as _),
-            ver_handle,
+            Some(ver_handle),
             ver_info_size,
             buffer.as_mut_ptr() as _,
         )
     };
-    if !success.as_bool() {
+    if success.is_err() {
         return false;
     }
 
@@ -84,7 +84,7 @@ pub fn get_version_info(filename: &str, file_info: &mut VS_FIXEDFILEINFO) -> boo
     true
 }
 
-/// Retrieve creation time of specified file.
+/// Retrieve the file's last-write time (despite the legacy function name).
 #[cfg(target_os = "windows")]
 pub fn get_file_creation_time(filename: &str, create_time: &mut FILETIME) -> bool {
     create_time.dwLowDateTime = 0;
@@ -95,10 +95,42 @@ pub fn get_file_creation_time(filename: &str, create_time: &mut FILETIME) -> boo
         Err(_) => return false,
     };
 
-    let handle = HANDLE(file.as_raw_handle() as isize);
+    let handle = HANDLE(file.as_raw_handle() as _);
     // SAFETY: [Category 8 — FFI] passes an open file handle; only the out timestamp slot is written.
-    let success = unsafe { GetFileTime(handle, ptr::null_mut(), ptr::null_mut(), create_time) };
-    success.as_bool()
+    unsafe { GetFileTime(handle, None, None, Some(create_time)) }.is_ok()
+}
+
+#[cfg(any(target_os = "windows", test))]
+#[derive(Debug, PartialEq, Eq)]
+struct PeFileHeader {
+    machine: u16,
+    number_of_sections: u16,
+    time_date_stamp: u32,
+    pointer_to_symbol_table: u32,
+    number_of_symbols: u32,
+    size_of_optional_header: u16,
+    characteristics: u16,
+}
+
+// Read the COFF header at e_lfanew + 4, as the legacy implementation does.
+#[cfg(any(target_os = "windows", test))]
+fn read_pe_file_header(reader: &mut (impl Read + Seek)) -> Option<PeFileHeader> {
+    let mut dos = [0u8; 64];
+    reader.read_exact(&mut dos).ok()?;
+    let offset = i32::from_le_bytes([dos[60], dos[61], dos[62], dos[63]]);
+    let header_offset = u64::try_from(offset).ok()?.checked_add(4)?;
+    reader.seek(SeekFrom::Start(header_offset)).ok()?;
+    let mut header = [0u8; 20];
+    reader.read_exact(&mut header).ok()?;
+    Some(PeFileHeader {
+        machine: u16::from_le_bytes([header[0], header[1]]),
+        number_of_sections: u16::from_le_bytes([header[2], header[3]]),
+        time_date_stamp: u32::from_le_bytes([header[4], header[5], header[6], header[7]]),
+        pointer_to_symbol_table: u32::from_le_bytes([header[8], header[9], header[10], header[11]]),
+        number_of_symbols: u32::from_le_bytes([header[12], header[13], header[14], header[15]]),
+        size_of_optional_header: u16::from_le_bytes([header[16], header[17]]),
+        characteristics: u16::from_le_bytes([header[18], header[19]]),
+    })
 }
 
 /// Read the image header from a file on disk.
@@ -112,32 +144,18 @@ pub fn get_image_file_header_from_file(
         Err(_) => return false,
     };
 
-    // SAFETY: [Category 5 — invalid values] IMAGE_DOS_HEADER / IMAGE_FILE_HEADER are all-zero-valid POD C structs.
-    let mut dos_header: IMAGE_DOS_HEADER = unsafe { MaybeUninit::zeroed().assume_init() };
-    // SAFETY: [Category 5 — invalid values] IMAGE_DOS_HEADER / IMAGE_FILE_HEADER are all-zero-valid POD C structs.
-    let dos_slice = unsafe {
-        std::slice::from_raw_parts_mut(
-            &mut dos_header as *mut IMAGE_DOS_HEADER as *mut u8,
-            size_of::<IMAGE_DOS_HEADER>(),
-        )
+    let header = match read_pe_file_header(&mut file) {
+        Some(header) => header,
+        None => return false,
     };
-    if file.read_exact(dos_slice).is_err() {
-        return false;
-    }
-
-    let file_header_offset = dos_header.e_lfanew as u64 + size_of::<u32>() as u64;
-    if file.seek(SeekFrom::Start(file_header_offset)).is_err() {
-        return false;
-    }
-
-    // SAFETY: [Category 10 — OOB] views exactly the caller's IMAGE_FILE_HEADER output slot for a direct file read.
-    let header_slice = unsafe {
-        std::slice::from_raw_parts_mut(
-            file_header as *mut IMAGE_FILE_HEADER as *mut u8,
-            size_of::<IMAGE_FILE_HEADER>(),
-        )
-    };
-    file.read_exact(header_slice).is_ok()
+    file_header.Machine.0 = header.machine;
+    file_header.NumberOfSections = header.number_of_sections;
+    file_header.TimeDateStamp = header.time_date_stamp;
+    file_header.PointerToSymbolTable = header.pointer_to_symbol_table;
+    file_header.NumberOfSymbols = header.number_of_symbols;
+    file_header.SizeOfOptionalHeader = header.size_of_optional_header;
+    file_header.Characteristics.0 = header.characteristics;
+    true
 }
 
 /// Read the image header from a loaded module.
@@ -146,7 +164,7 @@ pub fn get_image_file_header_from_instance(
     app_instance: HINSTANCE,
     file_header: &mut IMAGE_FILE_HEADER,
 ) -> bool {
-    if app_instance.0 == 0 {
+    if app_instance.0.is_null() {
         return false;
     }
 
@@ -168,11 +186,9 @@ pub fn get_image_file_header_from_instance(
 /// Compare executable timestamp against a file on disk.
 #[cfg(target_os = "windows")]
 pub fn compare_exe_version(app_instance: isize, filename: &str) -> i32 {
-    // SAFETY: [Category 5 — invalid values] IMAGE_DOS_HEADER / IMAGE_FILE_HEADER are all-zero-valid POD C structs.
-    let mut header1: IMAGE_FILE_HEADER = unsafe { MaybeUninit::zeroed().assume_init() };
-    // SAFETY: [Category 5 — invalid values] IMAGE_DOS_HEADER / IMAGE_FILE_HEADER are all-zero-valid POD C structs.
-    let mut header2: IMAGE_FILE_HEADER = unsafe { MaybeUninit::zeroed().assume_init() };
-    let got_headers = get_image_file_header_from_instance(HINSTANCE(app_instance), &mut header1)
+    let mut header1 = IMAGE_FILE_HEADER::default();
+    let mut header2 = IMAGE_FILE_HEADER::default();
+    let got_headers = get_image_file_header_from_instance(HINSTANCE(app_instance as *mut _), &mut header1)
         && get_image_file_header_from_file(filename, &mut header2);
     if !got_headers {
         return 0;
@@ -211,4 +227,65 @@ pub fn get_image_file_header_from_instance(_app_instance: (), _file_header: &mut
 #[cfg(not(target_os = "windows"))]
 pub fn compare_exe_version(_app_instance: isize, _filename: &str) -> i32 {
     0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PeFileHeader, read_pe_file_header};
+    use std::io::Cursor;
+
+    fn pe_image() -> Vec<u8> {
+        let mut image = vec![0u8; 128 + 4 + 20];
+        image[..2].copy_from_slice(b"MZ");
+        image[60..64].copy_from_slice(&128i32.to_le_bytes());
+        image[128..132].copy_from_slice(b"PE\0\0");
+        image[132..152].copy_from_slice(&[
+            0x4c, 0x01, 0x03, 0x00, 0x78, 0x56, 0x34, 0xf2, 0xef, 0xcd, 0xab, 0x89,
+            0x04, 0x03, 0x02, 0x01, 0xe0, 0x00, 0x02, 0x21,
+        ]);
+        image
+    }
+
+    #[test]
+    fn decodes_pe_coff_header_in_little_endian() {
+        assert_eq!(
+            read_pe_file_header(&mut Cursor::new(pe_image())),
+            Some(PeFileHeader {
+                machine: 0x014c,
+                number_of_sections: 3,
+                time_date_stamp: 0xf2345678,
+                pointer_to_symbol_table: 0x89abcdef,
+                number_of_symbols: 0x01020304,
+                size_of_optional_header: 0xe0,
+                characteristics: 0x2102,
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_truncated_headers() {
+        let image = pe_image();
+        for length in 0..image.len() {
+            assert_eq!(read_pe_file_header(&mut Cursor::new(&image[..length])), None);
+        }
+    }
+
+    #[test]
+    fn preserves_legacy_signature_and_offset_behavior() {
+        let mut image = pe_image();
+        image[0] = 0;
+        image[128] = 0;
+        assert!(read_pe_file_header(&mut Cursor::new(&image)).is_some());
+
+        for offset in [0i32, 63] {
+            image = pe_image();
+            image[60..64].copy_from_slice(&offset.to_le_bytes());
+            assert!(read_pe_file_header(&mut Cursor::new(&image)).is_some());
+        }
+        for offset in [-1i32, i32::MAX] {
+            image = pe_image();
+            image[60..64].copy_from_slice(&offset.to_le_bytes());
+            assert_eq!(read_pe_file_header(&mut Cursor::new(&image)), None);
+        }
+    }
 }

@@ -190,23 +190,28 @@ pub fn WWDebug_Profile_Stop(session: &crate::WwDebugSession, title: &str) {
 }
 
 #[allow(non_snake_case)]
+/// Writes at most 507 message bytes to the 512-byte DBWIN view, followed by NUL.
+/// Longer messages are truncated by byte; messages containing NUL are sent empty.
 pub fn WWDebug_DBWin32_Message_Handler(message: &str) {
     #[cfg(windows)]
     {
-        use std::ffi::CString;
-        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE, WAIT_OBJECT_0};
+        use windows_sys::Win32::Storage::FileSystem::SYNCHRONIZE;
         use windows_sys::Win32::System::Diagnostics::Debug::OutputDebugStringA;
         use windows_sys::Win32::System::Memory::{
-            CreateFileMappingA, FILE_MAP_WRITE, MapViewOfFile, PAGE_READWRITE,
+            CreateFileMappingA, FILE_MAP_WRITE, MapViewOfFile, PAGE_READWRITE, UnmapViewOfFile,
         };
         use windows_sys::Win32::System::Threading::{
             EVENT_MODIFY_STATE, INFINITE, OpenEventA, SetEvent, WaitForSingleObject,
         };
 
+        const VIEW_SIZE: usize = 512;
+        const HEADER_SIZE: usize = std::mem::size_of::<u32>();
+
         let ready_event =
-            // SAFETY: [Category 8 — FFI] opens the well-known DBWIN event by static NUL-terminated name.
-            unsafe { OpenEventA(EVENT_MODIFY_STATE, 0, b"DBWIN_BUFFER_READY\0".as_ptr()) };
-        if ready_event == 0 {
+            // SAFETY: The event name is static and NUL-terminated.
+            unsafe { OpenEventA(SYNCHRONIZE, 0, b"DBWIN_BUFFER_READY\0".as_ptr()) };
+        if ready_event.is_null() {
             // SAFETY: [Category 8 — FFI] opens the well-known DBWIN event by static NUL-terminated name.
             unsafe { OutputDebugStringA(b"DBWIN_BUFFER_READY missing\0".as_ptr()) };
             return;
@@ -214,7 +219,7 @@ pub fn WWDebug_DBWin32_Message_Handler(message: &str) {
         let data_event =
             // SAFETY: [Category 8 — FFI] opens the well-known DBWIN event by static NUL-terminated name.
             unsafe { OpenEventA(EVENT_MODIFY_STATE, 0, b"DBWIN_DATA_READY\0".as_ptr()) };
-        if data_event == 0 {
+        if data_event.is_null() {
             // SAFETY: [Category 8 — FFI] opens the well-known DBWIN event by static NUL-terminated name.
             unsafe { CloseHandle(ready_event) };
             return;
@@ -223,15 +228,15 @@ pub fn WWDebug_DBWin32_Message_Handler(message: &str) {
         // SAFETY: [Category 8 — FFI] creates the standard 4096-byte DBWIN shared section with a static name.
         let mapping = unsafe {
             CreateFileMappingA(
-                -1isize as _,
-                std::ptr::null_mut(),
+                INVALID_HANDLE_VALUE,
+                std::ptr::null(),
                 PAGE_READWRITE,
                 0,
                 4096,
                 b"DBWIN_BUFFER\0".as_ptr(),
             )
         };
-        if mapping == 0 {
+        if mapping.is_null() {
             // SAFETY: [Category 8 — FFI] closes a handle previously opened/mapped above, exactly once per branch.
             unsafe {
                 CloseHandle(ready_event);
@@ -240,9 +245,9 @@ pub fn WWDebug_DBWin32_Message_Handler(message: &str) {
             return;
         }
 
-        // SAFETY: [Category 8 — FFI] maps the just-created 4096-byte section read/write for this process.
-        let view = unsafe { MapViewOfFile(mapping, FILE_MAP_WRITE, 0, 0, 512) };
-        if view.is_null() {
+        // SAFETY: mapping is an open mapping handle and the requested view fits the section.
+        let view = unsafe { MapViewOfFile(mapping, FILE_MAP_WRITE, 0, 0, VIEW_SIZE) };
+        if view.Value.is_null() {
             // SAFETY: [Category 8 — FFI] closes a handle previously opened/mapped above, exactly once per branch.
             unsafe {
                 CloseHandle(mapping);
@@ -252,19 +257,24 @@ pub fn WWDebug_DBWin32_Message_Handler(message: &str) {
             return;
         }
 
-        // SAFETY: [Category 8 — FFI] waits on the ready-event handle opened above.
-        let _ = unsafe { WaitForSingleObject(ready_event, INFINITE) };
-        let payload = CString::new(message).unwrap_or_else(|_| CString::new("").unwrap());
-        // SAFETY: [Category 8 — FFI] waits on the ready-event handle opened above.
+        // SAFETY: ready_event is an open event with SYNCHRONIZE access.
+        if unsafe { WaitForSingleObject(ready_event, INFINITE) } == WAIT_OBJECT_0 {
+            let bytes = message.as_bytes();
+            let payload = if bytes.contains(&0) { &[][..] } else { bytes };
+            let len = payload.len().min(VIEW_SIZE - HEADER_SIZE - 1);
+            // SAFETY: The successful wait grants access to the 512-byte writable view.
+            // The header and at most 507 payload bytes plus a terminator fit in it.
+            unsafe {
+                let buffer = view.Value.cast::<u8>();
+                buffer.cast::<u32>().write_unaligned(0);
+                std::ptr::copy(payload.as_ptr(), buffer.add(HEADER_SIZE), len);
+                buffer.add(HEADER_SIZE + len).write(0);
+                SetEvent(data_event);
+            }
+        }
+        // SAFETY: The view and handles were acquired successfully and are released once.
         unsafe {
-            let buffer = view as *mut u8;
-            *(buffer as *mut u32) = 0;
-            std::ptr::copy_nonoverlapping(
-                payload.as_ptr() as *const u8,
-                buffer.add(std::mem::size_of::<u32>()),
-                payload.as_bytes_with_nul().len(),
-            );
-            SetEvent(data_event);
+            UnmapViewOfFile(view);
             CloseHandle(mapping);
             CloseHandle(data_event);
             CloseHandle(ready_event);
