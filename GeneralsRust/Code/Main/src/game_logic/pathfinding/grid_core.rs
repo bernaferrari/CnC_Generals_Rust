@@ -1,3 +1,4 @@
+use game_engine::base_type::{real_to_int_ceil, real_to_int_floor};
 use super::*;
 
 impl PathfindingGrid {
@@ -27,13 +28,9 @@ impl PathfindingGrid {
             terrain_zones: vec![0u16; cells],
             occ_goal_unit: vec![0u32; cells],
             occ_pos_unit: vec![0u32; cells],
-            occ_pos_player: vec![0u16; cells],
-            occ_pos_flags: vec![0u8; cells],
-            occ_pos_crushable: vec![0u8; cells],
             occ_goal_aircraft: vec![0u32; cells],
             fence_bits: vec![0u64; words],
             transparent_bits: vec![0u64; words],
-            occ_goal_mask: vec![0u16; cells],
             path_zones: vec![0u16; cells],
             ground_water_zones: Vec::new(),
             ground_cliff_zones: Vec::new(),
@@ -43,6 +40,9 @@ impl PathfindingGrid {
             ground_connect: vec![0u8; cells],
             query_layer: PathfindLayerEnum::Ground as u8,
             query_seeker_id: 0,
+            query_occupants: HashMap::new(),
+            query_occupants_seeker: 0,
+            query_seeker_infantry: false,
             query_ignore_unit_id: 0,
             query_check_for_aircraft: false,
             query_from: None,
@@ -87,10 +87,11 @@ impl PathfindingGrid {
             return;
         }
         // Leftover/C++ terrain is XY; host grid is XZ with origin.
-        let mut lo_x = ((lo.x - self.origin.x) / cell).floor() as i32;
-        let mut lo_y = ((lo.z - self.origin.z) / cell).floor() as i32;
-        let mut hi_x = ((hi.x - self.origin.x) / cell).floor() as i32 - 1;
-        let mut hi_y = ((hi.z - self.origin.z) / cell).floor() as i32 - 1;
+        // C++ REAL_TO_INT_FLOOR (AIPathfind.cpp:5891-5896).
+        let mut lo_x = real_to_int_floor((lo.x - self.origin.x) / cell);
+        let mut lo_y = real_to_int_floor((lo.z - self.origin.z) / cell);
+        let mut hi_x = real_to_int_floor((hi.x - self.origin.x) / cell) - 1;
+        let mut hi_y = real_to_int_floor((hi.z - self.origin.z) / cell) - 1;
         lo_x = lo_x.max(0);
         lo_y = lo_y.max(0);
         hi_x = hi_x.min(self.width.saturating_sub(1)).max(lo_x);
@@ -138,6 +139,17 @@ impl PathfindingGrid {
         self.bit_index(pos)
             .and_then(|idx| self.occ_pos_unit.get(idx).copied())
             .unwrap_or(0)
+    }
+
+    /// C++ `getCell(layer, x, y)->getPosUnit()`, resolving a missing layer
+    /// cell to ground like `getCell`.
+    pub fn position_unit_on_layer(&self, pos: GridPos, layer: PathfindLayerEnum) -> u32 {
+        self.raw_occupancy_bits(pos, layer).pos_unit
+    }
+
+    /// C++ `getCell(layer, x, y)->getGoalUnit()`, with `getCell`'s ground fallback.
+    pub fn goal_unit_on_layer(&self, pos: GridPos, layer: PathfindLayerEnum) -> u32 {
+        self.raw_occupancy_bits(pos, layer).goal_unit
     }
 
     #[inline]
@@ -707,8 +719,9 @@ impl PathfindingGrid {
         let ydy = -c * step;
         let xdx = c * step;
         let xdy = s * step;
-        let num_steps_x = ((2.0 * halfsize_x / step).ceil() as i32).max(1);
-        let num_steps_y = ((2.0 * halfsize_y / step).ceil() as i32).max(1);
+        // C++ classifyFence REAL_TO_INT_CEIL (AIPathfind.cpp:4001-4002).
+        let num_steps_x = real_to_int_ceil(2.0 * halfsize_x / step);
+        let num_steps_y = real_to_int_ceil(2.0 * halfsize_y / step);
         let mut tl_x = world.x - fence_x_offset * c - halfsize_y * s;
         let mut tl_z = world.z + halfsize_y * c - fence_x_offset * s;
         let mut lo = GridPos::new(i32::MAX, i32::MAX);
@@ -748,8 +761,8 @@ impl PathfindingGrid {
     /// C++ `REAL_TO_INT_FLOOR((x+0.5)/PATHFIND_CELL_SIZE)` used by classify raster.
     pub(super) fn classify_world_to_cell(&self, x: f32, z: f32) -> GridPos {
         GridPos {
-            x: ((x - self.origin.x + 0.5) / self.grid_size).floor() as i32,
-            y: ((z - self.origin.z + 0.5) / self.grid_size).floor() as i32,
+            x: real_to_int_floor((x - self.origin.x + 0.5) / self.grid_size),
+            y: real_to_int_floor((z - self.origin.z + 0.5) / self.grid_size),
         }
     }
 
@@ -872,8 +885,10 @@ impl PathfindingGrid {
                 let ydy = -c * step;
                 let xdx = c * step;
                 let xdy = s * step;
-                let num_steps_x = ((2.0 * major / step).ceil() as i32).max(1);
-                let num_steps_y = ((2.0 * minor / step).ceil() as i32).max(1);
+                // C++ REAL_TO_INT_CEIL (AIPathfind.cpp:4001-4002/4203-4204):
+                // an integral quotient takes one extra step; zero takes none.
+                let num_steps_x = real_to_int_ceil(2.0 * major / step);
+                let num_steps_y = real_to_int_ceil(2.0 * minor / step);
                 let mut tl_x = pos.x - major * c - minor * s;
                 let mut tl_z = pos.z + minor * c - major * s;
                 for _iy in 0..num_steps_y {
@@ -898,12 +913,14 @@ impl PathfindingGrid {
                 let r2 = size * size;
                 let center_x = (pos.x - self.origin.x) / self.grid_size;
                 let center_y = (pos.z - self.origin.z) / self.grid_size;
+                // C++ AIPathfind.cpp:4254-4263: REAL_TO_INT_FLOOR corner, then
+                // the Int + Real sum is truncated on assignment.
                 let top_left_x =
-                    ((pos.x - self.origin.x - major) / self.grid_size + 0.5).floor() as i32 - 1;
+                    real_to_int_floor(0.5 + (pos.x - self.origin.x - major) / self.grid_size) - 1;
                 let top_left_y =
-                    ((pos.z - self.origin.z - major) / self.grid_size + 0.5).floor() as i32 - 1;
-                let bottom_right_x = top_left_x + (2.0 * size) as i32 + 2;
-                let bottom_right_y = top_left_y + (2.0 * size) as i32 + 2;
+                    real_to_int_floor(0.5 + (pos.z - self.origin.z - major) / self.grid_size) - 1;
+                let bottom_right_x = (top_left_x as f32 + 2.0 * size + 2.0) as i32;
+                let bottom_right_y = (top_left_y as f32 + 2.0 * size + 2.0) as i32;
                 for j in top_left_y..bottom_right_y {
                     for i in top_left_x..bottom_right_x {
                         let dx = i as f32 + 0.5 - center_x;
@@ -980,8 +997,10 @@ impl PathfindingGrid {
                 let ydy = -c * step;
                 let xdx = c * step;
                 let xdy = s * step;
-                let num_steps_x = ((2.0 * major / step).ceil() as i32).max(1);
-                let num_steps_y = ((2.0 * minor / step).ceil() as i32).max(1);
+                // C++ REAL_TO_INT_CEIL (AIPathfind.cpp:4001-4002/4203-4204):
+                // an integral quotient takes one extra step; zero takes none.
+                let num_steps_x = real_to_int_ceil(2.0 * major / step);
+                let num_steps_y = real_to_int_ceil(2.0 * minor / step);
                 let mut tl_x = pos.x - major * c - minor * s;
                 let mut tl_z = pos.z + minor * c - major * s;
                 for _iy in 0..num_steps_y {
@@ -1005,12 +1024,14 @@ impl PathfindingGrid {
                 let r2 = size * size;
                 let center_x = (pos.x - self.origin.x) / self.grid_size;
                 let center_y = (pos.z - self.origin.z) / self.grid_size;
+                // C++ AIPathfind.cpp:4254-4263: REAL_TO_INT_FLOOR corner, then
+                // the Int + Real sum is truncated on assignment.
                 let top_left_x =
-                    ((pos.x - self.origin.x - major) / self.grid_size + 0.5).floor() as i32 - 1;
+                    real_to_int_floor(0.5 + (pos.x - self.origin.x - major) / self.grid_size) - 1;
                 let top_left_y =
-                    ((pos.z - self.origin.z - major) / self.grid_size + 0.5).floor() as i32 - 1;
-                let bottom_right_x = top_left_x + (2.0 * size) as i32 + 2;
-                let bottom_right_y = top_left_y + (2.0 * size) as i32 + 2;
+                    real_to_int_floor(0.5 + (pos.z - self.origin.z - major) / self.grid_size) - 1;
+                let bottom_right_x = (top_left_x as f32 + 2.0 * size + 2.0) as i32;
+                let bottom_right_y = (top_left_y as f32 + 2.0 * size + 2.0) as i32;
                 for j in top_left_y..bottom_right_y {
                     for i in top_left_x..bottom_right_x {
                         let dx = i as f32 + 0.5 - center_x;
@@ -1236,7 +1257,6 @@ impl PathfindingGrid {
 
     pub fn clear_dynamic_blocks(&mut self) {
         self.clear_dynamic_observations();
-        self.occ_goal_mask.fill(0);
         self.occ_goal_unit.fill(0);
         self.occ_goal_aircraft.fill(0);
         self.layer_occ.clear();
@@ -1252,14 +1272,8 @@ impl PathfindingGrid {
     /// Clear transient position owners when a receiving map is rebuilt.
     pub(super) fn clear_position_cells(&mut self) {
         self.occ_pos_unit.fill(0);
-        self.occ_pos_player.fill(0);
-        self.occ_pos_flags.fill(0);
-        self.occ_pos_crushable.fill(0);
         self.layer_occ.retain(|_, occ| {
             occ.occ_pos_unit.clear();
-            occ.occ_pos_player.clear();
-            occ.occ_pos_flags.clear();
-            occ.occ_pos_crushable.clear();
             !occ.occ_goal_unit.is_empty()
         });
     }

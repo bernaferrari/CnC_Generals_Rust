@@ -187,7 +187,8 @@ fn original_water_classification_observes_four_corners_and_real_structure_overri
             .any(|(x, y)| owner.is_underwater(x, y, None, None));
         let mut grid = PathfindingGrid::new(160., 160., 10.);
         let cell = GridPos::new(0, 0);
-        grid.set_cell_type(cell, PathfindingGrid::classify_map_cell(row[8] == "1", wet));
+        // The original consumer reclassifies a cell that may already hold a
+        // structure obstacle (classifyMapCell hasObstacle, AIPathfind.cpp:4490).
         if row[7] == "1" {
             let mut template = ThingTemplate::new("OriginalWaterObstacle");
             template.add_kind_of(KindOf::Structure).set_health(100.);
@@ -205,6 +206,11 @@ fn original_water_classification_observes_four_corners_and_real_structure_overri
                     .is_some()
             );
         }
+        let has_obstacle = grid.cell_type(cell) == PathfindCellType::Obstacle;
+        grid.set_cell_type(
+            cell,
+            PathfindingGrid::classify_map_cell(row[8] == "1", wet, has_obstacle),
+        );
         compare(
             row[0],
             format!("{} type {}", row[0], original_type(grid.cell_type(cell))),

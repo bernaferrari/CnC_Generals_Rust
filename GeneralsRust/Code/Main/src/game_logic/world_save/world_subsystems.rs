@@ -1356,6 +1356,8 @@ if let Ok(mut list) = __arc_bind.write() {
                         super::pathfinding::PathfindingGrid::classify_map_cell(
                             terrain.is_cliff_at_world(tl),
                             water,
+                            grid.cell_type(pos)
+                                == gamelogic::ai::pathfind_astar::PathfindCellType::Obstacle,
                         )
                     };
                 grid.set_cell_type(pos, ty);

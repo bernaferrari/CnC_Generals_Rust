@@ -190,22 +190,14 @@ struct HostBridgeLayer {
 /// C++ PathfindLayer pos/goal occupancy (`updatePos` / `updateGoal`).
 #[derive(Debug, Clone, Default)]
 struct LayerOccupancy {
-    occ_goal_mask: HashMap<(i32, i32), u16>,
     occ_goal_unit: HashMap<(i32, i32), u32>,
     /// C++ `PathfindCellInfo::m_posUnitID` single-occupant identity. 0 = none.
     occ_pos_unit: HashMap<(i32, i32), u32>,
-    /// Owner player bit of `occ_pos_unit`.
-    occ_pos_player: HashMap<(i32, i32), u16>,
-    /// posUnit traits: bit1 infantry; movement follows goal/position identity.
-    occ_pos_flags: HashMap<(i32, i32), u8>,
-    /// CrushableLevel of `occ_pos_unit`.
-    occ_pos_crushable: HashMap<(i32, i32), u8>,
 }
 
 /// One C++ `Pathfinder::updateGoal` transition, owned by the driving actor.
 pub struct PathGoalUpdate {
     pub unit_id: u32,
-    pub player: u32,
     pub radius: f32,
     pub old_cell: (i32, i32),
     pub old_layer: u8,
@@ -217,12 +209,9 @@ pub struct PathGoalUpdate {
 /// Actor information needed by `Pathfinder::updatePos`.
 pub struct PathPositionFootprint {
     pub unit_id: u32,
-    pub player: u32,
     pub radius: f32,
     pub layer: u8,
     pub on_ground: bool,
-    pub infantry: bool,
-    pub crushable_level: u8,
 }
 
 /// Actor fields changed by its C++ AI loadPostProcess goal registration.
@@ -239,23 +228,48 @@ pub(crate) struct RestoredGroundGoal {
     pub on_ground: bool,
 }
 
+/// What the bound query seeker observes about one occupant. C++ resolves the
+/// live occupant on every check (`TheGameLogic->findObjectByID`), then asks the
+/// seeker `obj->getRelationship(unit)` and `obj->canCrushOrSquish(unit)`
+/// (AIPathfind.cpp:4943-4953, 5009-5063). These facts are derived from the
+/// receiving world's live objects when the query binds its seeker; cells only
+/// store object identities.
+#[derive(Clone, Copy, Debug, Default)]
+struct OccupantFacts {
+    allied: bool,
+    infantry: bool,
+    can_crush: bool,
+    /// Live `Object::getCrushableLevel` (read by `clearCellForDiameter`).
+    crushable_level: u8,
+}
+
+/// Seeker-relative relation bit: the seeker considers the occupant ALLIES
+/// (C++ `getRelationship == ALLIES`, which includes the seeker's own units).
+const OCC_ALLY: u16 = 1 << 0;
+/// Seeker-relative relation bit: any other resolved relationship.
+const OCC_OTHER: u16 = 1 << 1;
+
+/// One cell's occupancy as observed by the bound seeker. Unit identities are
+/// the stored C++ `m_goalUnitID`/`m_posUnitID`; the relation masks use only
+/// `OCC_ALLY`/`OCC_OTHER`, resolved per query from live objects.
 #[derive(Clone, Copy, Default)]
 struct OccBits {
     fixed: u16,
     moving: u16,
     goal: u16,
     infantry: u16,
+    /// 0 when the seeker can crush or squish the fixed occupant, else `u8::MAX`.
     crushable: u8,
     goal_unit: u32,
     /// C++ `getPosUnit()` — the cell's single occupant identity. 0 = none.
     pos_unit: u32,
-    /// Owner player bit of `pos_unit`.
+    /// Seeker relation of `pos_unit` (`OCC_ALLY`/`OCC_OTHER`); 0 if unresolved.
     pos_player: u16,
-    /// posUnit is moving (UNIT_PRESENT_MOVING-style stamp).
+    /// posUnit is moving (UNIT_PRESENT_MOVING / UNIT_GOAL_OTHER_MOVING).
     pos_moving: bool,
     /// posUnit is infantry.
     pos_infantry: bool,
-    /// CrushableLevel of `pos_unit`.
+    /// 0 when the seeker can crush or squish `pos_unit`, else `u8::MAX`.
     pos_crushable: u8,
 }
 
@@ -263,16 +277,26 @@ impl OccBits {
     /// C++ PathfindCell::setPosUnit/setGoalUnit: a position is fixed only
     /// while its owner is also the goal owner of this cell.
     fn from_cell(
-        goal: u16,
         goal_unit: u32,
         pos_unit: u32,
-        pos_player: u16,
-        flags: u8,
-        pos_crushable: u8,
+        facts: impl Fn(u32) -> Option<OccupantFacts>,
     ) -> Self {
+        let relation = |facts: Option<OccupantFacts>| match facts {
+            Some(f) if f.allied => OCC_ALLY,
+            Some(_) => OCC_OTHER,
+            None => 0,
+        };
+        let pos_facts = (pos_unit != 0).then(|| facts(pos_unit)).flatten();
+        let goal = if goal_unit == 0 { 0 } else { relation(facts(goal_unit)) };
+        let pos_player = relation(pos_facts);
         let present = pos_unit != 0;
         let fixed = present && goal_unit == pos_unit;
-        let infantry = present && flags & 2 != 0;
+        let infantry = pos_facts.is_some_and(|f| f.infantry);
+        let pos_crushable = if pos_facts.is_some_and(|f| f.can_crush) {
+            0
+        } else {
+            u8::MAX
+        };
         Self {
             fixed: if fixed { pos_player } else { 0 },
             moving: if present && !fixed { pos_player } else { 0 },
@@ -310,6 +334,42 @@ impl OccBits {
             self.pos_crushable = 0;
         }
         self
+    }
+}
+
+/// The object following a path and its receiving world, for C++
+/// `Path::computePointOnPath` -> `isLinePassable(obj, ...)` occupancy checks
+/// (AIPathfind.cpp:910-950, 9553-9575). Occupants are resolved per cell.
+#[derive(Clone, Copy)]
+pub struct LineReceiver<'a> {
+    pub mover: &'a Object,
+    pub objects: HostObjectRead<'a>,
+}
+
+impl LineReceiver<'_> {
+    /// One cell of `checkForMovement(obj, info)` with `considerTransient == false`:
+    /// `allyFixedCount` or `enemyFixed` stops the line.
+    fn blocked_by_occupant(
+        self,
+        grid: &PathfindingGrid,
+        cell: GridPos,
+        ignore_obstacle: Option<u32>,
+    ) -> bool {
+        let layer = PathfindLayerEnum::from_u32(self.mover.pathfind_layer as u32);
+        let bits = grid
+            .raw_occupancy_bits_with(cell, layer, |id| {
+                grid.resolve_occupant(self.objects, Some(self.mover), id)
+            })
+            .ignoring_unit(ignore_obstacle.unwrap_or(0));
+        if bits.pos_unit == 0
+            || bits.pos_unit == self.mover.id.0
+            || bits.pos_player == 0
+            || bits.pos_moving
+            || (self.mover.is_kind_of(KindOf::Infantry) && bits.pos_infantry)
+        {
+            return false;
+        }
+        bits.pos_player == OCC_ALLY || bits.pos_crushable != 0
     }
 }
 
@@ -359,18 +419,10 @@ pub struct PathfindingGrid {
     terrain_zones: Vec<u16>,
     /// C++ `PathfindCellInfo::m_posUnitID` single-occupant identity. 0 = none.
     occ_pos_unit: Vec<u32>,
-    /// Owner player bit of `occ_pos_unit`.
-    occ_pos_player: Vec<u16>,
-    /// posUnit traits: bit1 infantry; movement follows goal/position identity.
-    occ_pos_flags: Vec<u8>,
-    /// CrushableLevel of `occ_pos_unit`.
-    occ_pos_crushable: Vec<u8>,
     /// C++ PathfindCellInfo::m_obstacleIsFence.
     fence_bits: Vec<u64>,
     /// C++ PathfindCellInfo::m_obstacleIsTransparent (KINDOF_CAN_SEE_THROUGH).
     transparent_bits: Vec<u64>,
-    /// Players with a UNIT_GOAL reservation in this cell (bit i = player i).
-    occ_goal_mask: Vec<u16>,
     /// Last UNIT_GOAL writer (C++ `PathfindCell::getGoalUnit`). 0 = none.
     occ_goal_unit: Vec<u32>,
     /// C++ `PathfindCell::getGoalAircraft` (LAYER_GROUND). 0 = none.
@@ -385,8 +437,10 @@ pub struct PathfindingGrid {
     ground_rubble_zones: Vec<u16>,
     /// C++ `m_crusherZones` — leftover `build_surface_combiners` fence↔clear.
     crusher_zones: Vec<u16>,
-    /// Per-player ALLIES occupancy bits (bit j set if player i considers j an ally).
-    /// C++ checkForMovement getRelationship == ALLIES (AIPathfind.cpp:5037).
+    /// Player-level ALLIES bits (bit j set if player i considers j an ally),
+    /// consulted only when an object view carries no player/team tables
+    /// (standalone grid fixtures). World-backed queries resolve
+    /// `Object::getRelationship` per occupant (`bind_query_occupants`).
     player_ally_masks: [u16; 16],
     /// C++ `m_map[i][j].connectLayer` (0 = LAYER_INVALID).
     ground_connect: Vec<u8>,
@@ -418,6 +472,13 @@ pub struct PathfindingGrid {
     query_layer: u8,
     /// Seeker ObjectID for `checkDestination` own-goal skip.
     query_seeker_id: u32,
+    /// Occupant facts as seen by `query_occupants_seeker`, resolved from the
+    /// receiving world's live objects when the query binds its seeker.
+    query_occupants: HashMap<u32, OccupantFacts>,
+    /// Seeker the `query_occupants` facts were resolved for. 0 = none.
+    query_occupants_seeker: u32,
+    /// Whether that seeker is infantry (`INFANTRY_MOVES_THROUGH_INFANTRY`).
+    query_seeker_infantry: bool,
     /// Unit excluded from the current query's occupancy observations.
     query_ignore_unit_id: u32,
     /// C++ `checkDestination` `checkForAircraft` (HOVER/WINGS).
@@ -659,128 +720,6 @@ fn bridge_deck_height(corners: &[Vec3; 4], x: f32, z: f32) -> f32 {
     p1.y - (n.x * (x - p1.x) + n.z * (z - p1.z)) / n.y
 }
 
-/// Flow field pathfinding for RTS-style unit movement
-#[derive(Debug, Clone)]
-pub struct FlowField {
-    width: i32,
-    height: i32,
-    grid_size: f32,
-    origin: Vec3,
-    integration_field: HashMap<GridPos, f32>,
-    flow_field: HashMap<GridPos, Vec3>,
-}
-
-impl FlowField {
-    pub fn new(world_width: f32, world_height: f32, grid_size: f32) -> Self {
-        Self::new_with_origin(Vec3::ZERO, world_width, world_height, grid_size)
-    }
-
-    pub fn new_with_origin(
-        origin: Vec3,
-        world_width: f32,
-        world_height: f32,
-        grid_size: f32,
-    ) -> Self {
-        Self {
-            width: (world_width / grid_size).ceil() as i32,
-            height: (world_height / grid_size).ceil() as i32,
-            grid_size,
-            origin,
-            integration_field: HashMap::new(),
-            flow_field: HashMap::new(),
-        }
-    }
-
-    /// Generate flow field toward a goal
-    pub fn generate_flow_field(&mut self, goal: GridPos, pathfinding_grid: &PathfindingGrid) {
-        self.integration_field.clear();
-        self.flow_field.clear();
-
-        // Initialize integration field
-        let mut open_set = BinaryHeap::new();
-        self.integration_field.insert(goal, 0.0);
-        open_set.push((0, goal)); // (negative cost, position) for min-heap
-
-        // Dijkstra's algorithm to fill integration field
-        while let Some((neg_cost, current)) = open_set.pop() {
-            let current_cost = (-neg_cost) as f32;
-
-            if current_cost
-                > *self
-                    .integration_field
-                    .get(&current)
-                    .unwrap_or(&f32::INFINITY)
-            {
-                continue;
-            }
-
-            for neighbor in current.neighbors() {
-                if !pathfinding_grid.is_valid_pos(neighbor) || pathfinding_grid.is_blocked(neighbor)
-                {
-                    continue;
-                }
-
-                let movement_cost =
-                    if (neighbor.x - current.x).abs() == 1 && (neighbor.y - current.y).abs() == 1 {
-                        std::f32::consts::SQRT_2
-                    } else {
-                        1.0
-                    };
-
-                let new_cost = current_cost + movement_cost;
-
-                if new_cost
-                    < *self
-                        .integration_field
-                        .get(&neighbor)
-                        .unwrap_or(&f32::INFINITY)
-                {
-                    self.integration_field.insert(neighbor, new_cost);
-                    open_set.push((-((new_cost * 1000.0) as i32), neighbor));
-                }
-            }
-        }
-
-        // Generate flow vectors
-        for (&pos, &cost) in &self.integration_field {
-            let mut best_neighbor = pos;
-            let mut best_cost = cost;
-
-            for neighbor in pos.neighbors() {
-                if let Some(&neighbor_cost) = self.integration_field.get(&neighbor) {
-                    if neighbor_cost < best_cost {
-                        best_cost = neighbor_cost;
-                        best_neighbor = neighbor;
-                    }
-                }
-            }
-
-            if best_neighbor != pos {
-                let direction = Vec3::new(
-                    (best_neighbor.x - pos.x) as f32,
-                    0.0,
-                    (best_neighbor.y - pos.y) as f32,
-                )
-                .normalize_or_zero();
-
-                self.flow_field.insert(pos, direction);
-            }
-        }
-    }
-
-    /// Get flow direction at world position
-    pub fn get_flow_direction(&self, world_pos: Vec3) -> Vec3 {
-        let grid_pos = GridPos {
-            x: ((world_pos.x - self.origin.x) / self.grid_size).round() as i32,
-            y: ((world_pos.z - self.origin.z) / self.grid_size).round() as i32,
-        };
-        self.flow_field
-            .get(&grid_pos)
-            .copied()
-            .unwrap_or(Vec3::ZERO)
-    }
-}
-
 /// C++ `Pathfinder::clearCellForDiameter` (AIPathfind.cpp:6700-6759).
 fn clear_cell_for_diameter_impl(
     width: i32,
@@ -789,7 +728,7 @@ fn clear_cell_for_diameter_impl(
     fence_bits: &[u64],
     occ_pos: &[u32],
     occ_goal: &[u32],
-    occ_crush: &[u8],
+    crushable_level_of: &dyn Fn(u32) -> Option<u8>,
     crusher: bool,
     cell: GridPos,
     path_diameter: i32,
@@ -841,8 +780,13 @@ fn clear_cell_for_diameter_impl(
             }
             if path_diameter >= 2 {
                 let occupant = occ_pos.get(idx).copied().unwrap_or(0);
-                if occupant != 0 && occ_goal.get(idx).copied().unwrap_or(0) == occupant {
-                    let crushable = occ_crush.get(idx).copied().unwrap_or(0);
+                // C++ reads the live occupant's crushable level; a missing
+                // object does not narrow the clearance (AIPathfind.cpp:6733-6745).
+                if let Some(crushable) = (occupant != 0
+                    && occ_goal.get(idx).copied().unwrap_or(0) == occupant)
+                    .then(|| crushable_level_of(occupant))
+                    .flatten()
+                {
                     if crusher {
                         if crushable > 1 {
                             clear = false;
@@ -875,7 +819,7 @@ fn clear_cell_for_diameter_impl(
         fence_bits,
         occ_pos,
         occ_goal,
-        occ_crush,
+        crushable_level_of,
         crusher,
         cell,
         path_diameter - 2,
@@ -889,7 +833,6 @@ pub struct PathfindingSystem {
     pub grid: PathfindingGrid,
     /// C++ `Pathfinder::m_isMapReady`; constructors leave it false.
     pub(crate) map_ready: bool,
-    flow_fields: HashMap<ObjectId, FlowField>, // Flow fields for different goals
     /// Active host logic frame (set via note_logic_frame).
     logic_frame: u64,
     /// Frame stamp of last dynamic obstacle rebuild.

@@ -4,8 +4,8 @@ use super::*;
 pub(super) fn clip(grid: &PathfindingGrid, from: Vec3, to: Vec3) -> (Vec3, Vec3) {
     let cell = |p: Vec3| {
         GridPos::new(
-            ((p.x - grid.origin.x) / grid.grid_size).floor() as i32,
-            ((p.z - grid.origin.z) / grid.grid_size).floor() as i32,
+            game_engine::base_type::real_to_int_floor((p.x - grid.origin.x) / grid.grid_size),
+            game_engine::base_type::real_to_int_floor((p.z - grid.origin.z) / grid.grid_size),
         )
     };
     let a = cell(from);

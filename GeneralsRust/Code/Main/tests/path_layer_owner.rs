@@ -56,7 +56,6 @@ fn ordinary_search_checks_occupants_on_the_current_bridge_layer() {
                 .update_path_position_cell(&footprint, (-1, -1), position);
             finder.grid.update_path_goal_cell(PathGoalUpdate {
                 unit_id: enemy.0,
-                player: 1,
                 radius: 2.0,
                 old_cell: (-1, -1),
                 old_layer: 0,
@@ -210,14 +209,16 @@ fn missing_bridge_layer_cell_reads_ground_occupancy() {
         let position = Vec3::new(cell.x as f32 * 10.0 + 5.0, 0.0, cell.y as f32 * 10.0 + 5.0);
         finder
             .grid
-            .update_ground_goal_cell(id, 0, 2.0, false, (-1, -1), position);
+            .update_ground_goal_cell(id, 2.0, false, (-1, -1), position);
     }
-    assert!(
-        finder.grid.has_allied_goal_on(fallthrough, Some(0), layer),
+    assert_eq!(
+        finder.grid.goal_unit_on_layer(fallthrough, layer),
+        41,
         "a missing layer cell resolves to the ground goal"
     );
-    assert!(
-        !finder.grid.has_allied_goal_on(blocked_deck, Some(0), layer),
+    assert_eq!(
+        finder.grid.goal_unit_on_layer(blocked_deck, layer),
+        0,
         "a bridge-impassable cell retains its separate layer identity"
     );
     finder.grid.set_cell_obstacle(blocked_deck, true, false);

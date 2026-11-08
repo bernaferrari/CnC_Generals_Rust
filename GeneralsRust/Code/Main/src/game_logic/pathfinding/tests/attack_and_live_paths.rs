@@ -10,7 +10,7 @@ fn stamp_fixed(grid: &mut PathfindingGrid, object: &crate::game_logic::Object, o
     let radius = footprint.radius;
     let position = object.get_position();
     let cell = grid.update_path_position_cell(&footprint, old, position);
-    grid.update_ground_goal_cell(object.id.0, footprint.player, radius, false, old, position);
+    grid.update_ground_goal_cell(object.id.0, radius, false, old, position);
     cell
 }
 
@@ -283,68 +283,37 @@ fn attack_step_occupancy_matches_leftover() {
         GridPos::new(8, 8),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     ));
-    g.update_ground_goal_cell(goaled.id.0, 0, goaled.geometry_info().bounding_circle_radius(), false, (-1, -1), goaled.movement.target_position.unwrap());
+    g.update_ground_goal_cell(goaled.id.0, goaled.geometry_info().bounding_circle_radius(), false, (-1, -1), goaled.movement.target_position.unwrap());
     objects.admit(goaled.id, goaled);
 
+    // The searching attacker belongs to player 0 (allied with player 1).
+    let mut seeker = Object::new(ThingTemplate::new("Attacker"), ObjectId(50), Team::USA);
+    seeker.owner_player_id = Some(0);
+    objects.admit(seeker.id, seeker);
     g.update_dynamic_obstacles(
         objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
+    g.bind_query_occupants(objects.read(), Some(ObjectId(50)));
     let start = GridPos::new(4, 4);
     let layer = PathfindLayerEnum::Ground;
     assert!(
-        g.attack_step_occupancy(
-            GridPos::new(5, 5),
-            start,
-            Some(0),
-            masks[0],
-            false,
-            true,
-            0,
-            layer
-        )
+        g.attack_step_occupancy(GridPos::new(5, 5), start, false, true, layer)
         .is_none(),
         "uncrushable enemy-fixed must skip"
     );
     assert_eq!(
-        g.attack_step_occupancy(
-            GridPos::new(6, 6),
-            start,
-            Some(0),
-            masks[0],
-            false,
-            true,
-            0,
-            layer
-        ),
+        g.attack_step_occupancy(GridPos::new(6, 6), start, false, true, layer),
         Some(3 * 14),
         "ally-fixed +3*DIAG"
     );
     assert_eq!(
-        g.attack_step_occupancy(
-            GridPos::new(8, 8),
-            start,
-            Some(0),
-            masks[0],
-            false,
-            true,
-            0,
-            layer
-        ),
+        g.attack_step_occupancy(GridPos::new(8, 8), start, false, true, layer),
         Some(3 * 10),
         "ally-goal vehicle +3*ORTHO"
     );
     assert_eq!(
-        g.attack_step_occupancy(
-            GridPos::new(8, 8),
-            start,
-            Some(0),
-            masks[0],
-            false,
-            false,
-            0,
-            layer
-        ),
+        g.attack_step_occupancy(GridPos::new(8, 8), start, false, false, layer),
         Some(10),
         "ally-goal infantry +ORTHO"
     );

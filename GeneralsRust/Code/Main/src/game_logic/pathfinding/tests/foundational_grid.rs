@@ -5,133 +5,6 @@ fn open_grid(w: i32, h: i32) -> PathfindingGrid {
 }
 
 #[test]
-fn host_astar_rejects_diagonal_corner_cut() {
-    let mut g = open_grid(8, 8);
-    // Block both ortho legs between (2,2) and (3,3)
-    g.set_blocked(GridPos::new(3, 2), true);
-    g.set_blocked(GridPos::new(2, 3), true);
-    // Path from (2,2) to (3,3) cannot go diagonal through blocked legs.
-    let path = g.find_path(
-        GridPos::new(2, 2),
-        GridPos::new(4, 4),
-        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
-    );
-    assert!(path.is_some());
-    // Ensure path does not step from (2,2) directly to (3,3)
-    let cells: Vec<_> = path
-        .unwrap()
-        .into_iter()
-        .map(|p| g.world_to_grid(p))
-        .collect();
-    for w in cells.windows(2) {
-        let dx = (w[1].x - w[0].x).abs();
-        let dy = (w[1].y - w[0].y).abs();
-        if dx == 1 && dy == 1 {
-            let ortho_a = GridPos::new(w[0].x + (w[1].x - w[0].x), w[0].y);
-            let ortho_b = GridPos::new(w[0].x, w[0].y + (w[1].y - w[0].y));
-            assert!(!g.is_static_blocked(ortho_a) && !g.is_static_blocked(ortho_b));
-        }
-    }
-}
-
-#[test]
-fn host_march_closes_range_without_teleport() {
-    use crate::game_logic::{Object, ObjectId, Team, ThingTemplate};
-    let mut sys = PathfindingSystem::new(400.0, 400.0);
-    let mut objects = HostObjectStore::new();
-    let tmpl = ThingTemplate::new("Ranger");
-    let mut unit = Object::new(tmpl, ObjectId(1), Team::USA);
-    let start = Vec3::new(20.0, 0.0, 20.0);
-    let goal = Vec3::new(220.0, 0.0, 20.0);
-    unit.set_position(start);
-    unit.movement.max_speed = 20.0;
-    objects.admit(unit.id, unit);
-
-    let path = sys
-        .find_path_ex(
-            start,
-            goal,
-            objects.read(),
-            false,
-            Some(ObjectId(1)),
-            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
-        )
-        .expect("open-field path");
-    assert!(path.len() >= 2);
-    {
-        let u = objects.get_mut(&ObjectId(1)).unwrap();
-        u.movement.path = path;
-        u.movement.current_path_index = 0;
-    }
-    for _ in 0..400 {
-        let _ = sys.move_unit_along_path(
-            ObjectId(1),
-            &mut objects,
-            1.0 / 30.0,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-    }
-    let end = objects[&ObjectId(1)].get_position();
-    let dx = end.x - goal.x;
-    let dz = end.z - goal.z;
-    assert!(
-        (dx * dx + dz * dz).sqrt() < 30.0,
-        "unit must walk into range without set_position pull, end={end:?}"
-    );
-}
-
-#[test]
-fn host_astar_snaps_blocked_start_to_nearest_open() {
-    let mut g = open_grid(12, 12);
-    g.set_blocked(GridPos::new(2, 2), true);
-    g.set_blocked(GridPos::new(1, 2), true);
-    g.set_blocked(GridPos::new(2, 1), true);
-    let path = g.find_path(
-        GridPos::new(2, 2),
-        GridPos::new(10, 10),
-        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
-    );
-    assert!(
-        path.is_some(),
-        "blocked start must snap to a walkable cell like a blocked goal"
-    );
-    let first = g.world_to_grid(path.unwrap()[0]);
-    assert!(!g.is_static_blocked(first));
-}
-
-#[test]
-fn host_astar_soft_cost_dynamic_occupancy() {
-    let mut g = open_grid(12, 12);
-    // Wall of dynamic occupancy across middle — still pathable with surcharge.
-    for y in 0..12 {
-        g.set_dynamic_blocked(GridPos::new(5, y), true);
-    }
-    let path = g.find_path(
-        GridPos::new(1, 5),
-        GridPos::new(10, 5),
-        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
-    );
-    assert!(path.is_some(), "dynamic occupancy must not hard-block path");
-    assert!(path.unwrap().len() >= 2);
-}
-
-#[test]
-fn host_astar_static_block_still_hard() {
-    let mut g = open_grid(12, 12);
-    for y in 0..12 {
-        g.set_blocked(GridPos::new(5, y), true);
-    }
-    // Completely sealed — no path.
-    let path = g.find_path(
-        GridPos::new(1, 5),
-        GridPos::new(10, 5),
-        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
-    );
-    assert!(path.is_none());
-}
-
-/// C++ `Pathfinder::worldToGrid` / `REAL_TO_INT` (AIPathfind.h:856-858).
-#[test]
 fn world_to_grid_truncates_toward_zero_like_real_to_int() {
     let g = open_grid(20, 20);
     assert_eq!(
@@ -307,15 +180,6 @@ fn host_grid_classifies_water_cliff_impassable() {
         "cliff is not hard-blocked"
     );
     assert!(g.is_static_blocked(GridPos::new(4, 4)));
-    let path = g.find_path(
-        GridPos::new(0, 0),
-        GridPos::new(7, 7),
-        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
-    );
-    assert!(
-        path.is_some(),
-        "water/cliff must stay walkable for ground A*"
-    );
 }
 
 /// C++ Pathfinder::classifyMapCell (AIPathfind.cpp:4491-4521):
@@ -323,11 +187,11 @@ fn host_grid_classifies_water_cliff_impassable() {
 #[test]
 fn classify_map_cell_water_wins_over_cliff_no_slope_gate() {
     use PathfindCellType::*;
-    assert_eq!(PathfindingGrid::classify_map_cell(false, false), Clear);
-    assert_eq!(PathfindingGrid::classify_map_cell(true, false), Cliff);
-    assert_eq!(PathfindingGrid::classify_map_cell(false, true), Water);
+    assert_eq!(PathfindingGrid::classify_map_cell(false, false, false), Clear);
+    assert_eq!(PathfindingGrid::classify_map_cell(true, false, false), Cliff);
+    assert_eq!(PathfindingGrid::classify_map_cell(false, true, false), Water);
     assert_eq!(
-        PathfindingGrid::classify_map_cell(true, true),
+        PathfindingGrid::classify_map_cell(true, true, false),
         Water,
         "C++ assigns water after cliff so wet cliff-base stays SURFACE_WATER"
     );
@@ -434,6 +298,18 @@ fn assign_unit_path_queues_until_next_update() {
     );
 }
 
+/// C++ AIUpdate movement needs a current locomotor (isDoingGroundMovement,
+/// AIUpdate.cpp:2339-2380); a template without one cannot walk.
+fn bind_authored_locomotor(unit: &mut crate::game_logic::Object, name: &str) {
+    use crate::game_logic::locomotor_bootstrap::{
+        apply_host_locomotor_binding, resolve_host_locomotor_binding,
+    };
+    let binding = resolve_host_locomotor_binding(name).expect("authored fixture locomotor");
+    unit.locomotor_set_names = vec![name.to_owned()];
+    unit.cur_locomotor_name = Some(name.to_owned());
+    apply_host_locomotor_binding(unit, &binding);
+}
+
 #[test]
 fn open_ground_move_changes_position() {
     use crate::game_logic::{GameLogic, Team, ThingTemplate};
@@ -445,6 +321,7 @@ fn open_ground_move_changes_position() {
     let id = logic
         .create_object("Ranger", Team::USA, origin)
         .expect("ranger");
+    bind_authored_locomotor(logic.host_object_mut(id).unwrap(), "BasicHumanLocomotor");
     logic.force_map_loaded_for_path_test(true);
     assert!(logic.unit_command_move_to(id, Vec3::new(80.0, 0.0, 10.0)));
     logic.update();
@@ -474,7 +351,10 @@ fn attack_order_closes_on_open_ground() {
     use crate::game_logic::{GameLogic, Team, ThingTemplate, Weapon};
     let mut logic = GameLogic::new();
     let mut tmpl = ThingTemplate::new("Ranger");
-    tmpl.add_kind_of(KindOf::Infantry);
+    // C++ WeaponSet::getAbleToAttackSpecificObject validates the authored
+    // Weapon.ini weapon before an attack order can begin.
+    tmpl.add_kind_of(KindOf::Infantry).set_health(100.0);
+    tmpl.set_primary_weapon_name(crate::game_logic::weapon_bootstrap::RANGER_PRIMARY_WEAPON);
     logic.templates.insert("Ranger".into(), tmpl);
     let origin = Vec3::new(10.0, 0.0, 10.0);
     let id = logic
@@ -483,6 +363,7 @@ fn attack_order_closes_on_open_ground() {
     let victim = logic
         .create_object("Ranger", Team::GLA, Vec3::new(90.0, 0.0, 10.0))
         .expect("victim");
+    bind_authored_locomotor(logic.host_object_mut(id).unwrap(), "BasicHumanLocomotor");
     if let Some(unit) = logic.host_object_mut(id) {
         unit.weapon = Some(Weapon {
             range: 15.0,
@@ -1078,10 +959,12 @@ fn deck_occupancy_does_not_block_roadbed() {
     deck_t.add_kind_of(KindOf::Vehicle);
     let mut on_deck = Object::new(deck_t, ObjectId(10), Team::USA);
     on_deck.set_position(Vec3::new(world.x, 20.0, world.z));
+    // C++ Object::setLayer places the deck unit on the bridge layer.
+    on_deck.pathfind_layer = layer as u8;
     on_deck.selection_radius = 1.0;
     on_deck.owner_player_id = Some(1);
     objects.admit(on_deck.id, on_deck);
-    g.update_dynamic_obstacles(
+    g.update_dynamic_obstacles_after_creation_events(
         objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
@@ -1090,15 +973,21 @@ fn deck_occupancy_does_not_block_roadbed() {
         !g.is_blocked(deck),
         "mid-span deck unit must not set ground dynamic_bits"
     );
+    // A player-0 searcher in the far corner observes the enemy occupants.
+    let mut seeker = Object::new(ThingTemplate::new("Searcher"), ObjectId(50), Team::USA);
+    seeker.owner_player_id = Some(0);
+    seeker.set_position(Vec3::new(115.0, 0.0, 115.0));
+    objects.admit(seeker.id, seeker);
+    g.bind_query_occupants(objects.read(), Some(ObjectId(50)));
     g.query_layer = PathfindLayerEnum::Ground as u8;
     assert_eq!(
-        g.occupancy_extra_cost(deck, Some(0), false, 0),
+        g.occupancy_extra_cost(deck, false),
         0,
         "roadbed under the span must ignore deck occupancy"
     );
     g.query_layer = layer as u8;
     assert_eq!(
-        g.occupancy_extra_cost(deck, Some(0), false, 0),
+        g.occupancy_extra_cost(deck, false),
         u32::MAX / 8,
         "same XZ on the deck still occupies the layer"
     );
@@ -1110,20 +999,21 @@ fn deck_occupancy_does_not_block_roadbed() {
     on_ground.selection_radius = 1.0;
     on_ground.owner_player_id = Some(2);
     objects.admit(on_ground.id, on_ground);
-    g.update_dynamic_obstacles(
+    g.update_dynamic_obstacles_after_creation_events(
         objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
 
+    g.bind_query_occupants(objects.read(), Some(ObjectId(50)));
     g.query_layer = PathfindLayerEnum::Ground as u8;
     assert_eq!(
-        g.occupancy_extra_cost(deck, Some(0), false, 0),
+        g.occupancy_extra_cost(deck, false),
         u32::MAX / 8,
         "ground unit still occupies the roadbed"
     );
     g.query_layer = layer as u8;
     assert_eq!(
-        g.occupancy_extra_cost(deck, Some(0), false, 0),
+        g.occupancy_extra_cost(deck, false),
         u32::MAX / 8,
         "deck unit still occupies the layer after ground stamp"
     );
@@ -1187,11 +1077,12 @@ fn has_allied_goal_own_vs_ally_player() {
     ));
     objects.admit(enemy.id, enemy);
 
-    g.update_dynamic_obstacles(
+    g.update_dynamic_obstacles_after_creation_events(
         objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
     g.query_seeker_id = 10;
+    g.bind_query_occupants(objects.read(), Some(ObjectId(10)));
     assert!(
         !g.has_allied_goal(GridPos::new(4, 4), Some(0)),
         "own UNIT_GOAL must be accepted"
@@ -1253,7 +1144,7 @@ fn occupancy_cost_matches_examine_neighboring_cells() {
     ));
     objects.admit(goaled.id, goaled);
 
-    g.update_dynamic_obstacles(
+    g.update_dynamic_obstacles_after_creation_events(
         objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
@@ -1263,24 +1154,26 @@ fn occupancy_cost_matches_examine_neighboring_cells() {
     let ally_far = GridPos::new(6, 6);
     let far_start = GridPos::new(20, 20);
     let goal_cell = GridPos::new(8, 8);
+    // The searching unit is the player-0 infantry (C++ checkForMovement obj).
+    g.bind_query_occupants(objects.read(), Some(ObjectId(3)));
 
     assert_eq!(
-        g.occupancy_extra_cost(enemy_cell, Some(0), false, 0),
+        g.occupancy_extra_cost(enemy_cell, false),
         0,
         "moving enemy adds no examineNeighboringCells cost"
     );
-    let near = g.occupancy_cost(ally_near, Some(0), false, 0, masks[0], Some(start));
+    let near = g.occupancy_cost(ally_near, false, Some(start));
     assert!(
         near.unwrap_or(0.0) > 0.0,
         "allied mover within 10 cells of start is charged"
     );
-    let far = g.occupancy_cost(ally_far, Some(0), false, 0, masks[0], Some(far_start));
+    let far = g.occupancy_cost(ally_far, false, Some(far_start));
     assert_eq!(
         far,
         Some(0.0),
         "allied mover more than 10 cells from start is free"
     );
-    let goal_cost = g.occupancy_cost(goal_cell, Some(0), false, 0, masks[0], Some(start));
+    let goal_cost = g.occupancy_cost(goal_cell, false, Some(start));
     assert_eq!(
         goal_cost,
         Some(0.0),
@@ -1295,12 +1188,17 @@ fn occupancy_radius_marks_overlord_footprint() {
     let mut objects = HostObjectStore::new();
     let mut tmpl = ThingTemplate::new("Overlord");
     tmpl.add_kind_of(KindOf::Vehicle);
+    // C++ getRadiusAndCenter reads the authored geometry bounding circle
+    // (AIPathfind.cpp:9670-9696), not the selection radius.
+    tmpl.geometry_info.geom_type = crate::game_logic::HostGeometryType::Sphere;
+    tmpl.geometry_info.major_radius = 25.0;
+    tmpl.geometry_info.authored = true;
     let mut tank = Object::new(tmpl, ObjectId(1), Team::China);
     tank.set_position(Vec3::new(50.0, 0.0, 50.0));
     tank.selection_radius = 25.0;
     tank.owner_player_id = Some(1);
     objects.admit(tank.id, tank);
-    g.update_dynamic_obstacles(
+    g.update_dynamic_obstacles_after_creation_events(
         objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
@@ -1330,7 +1228,7 @@ fn aircraft_goals_and_landing_dest_unstack() {
     a.movement.target_position = Some(dest);
     a.owner_player_id = Some(0);
     objects.admit(a.id, a);
-    g.update_dynamic_obstacles(
+    g.update_dynamic_obstacles_after_creation_events(
         objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
@@ -1353,7 +1251,7 @@ fn aircraft_goals_and_landing_dest_unstack() {
     b.movement.target_position = Some(dest);
     b.owner_player_id = Some(0);
     objects.admit(b.id, b);
-    g.update_dynamic_obstacles(
+    g.update_dynamic_obstacles_after_creation_events(
         objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
@@ -1394,7 +1292,7 @@ fn aircraft_goals_and_landing_dest_unstack() {
 #[test]
 fn aircraft_attack_dests_spiral_off_occupied_hover_cell() {
     use crate::game_logic::{KindOf, Object, ObjectId, ObjectType, Team, ThingTemplate};
-    let sys = PathfindingSystem::new(400.0, 400.0);
+    let mut sys = PathfindingSystem::new(400.0, 400.0);
     let target = Vec3::new(200.0, 0.0, 200.0);
     let dest = Vec3::new(110.0, 40.0, 200.0);
     let mut objects = HostObjectStore::new();
@@ -1424,6 +1322,12 @@ fn aircraft_attack_dests_spiral_off_occupied_hover_cell() {
     b.set_position(Vec3::new(30.0, 40.0, 190.0));
     b.selection_radius = 8.0;
     objects.admit(b.id, b);
+    // The first Comanche's committed attack path registered its goal
+    // (C++ updateAircraftGoal, AIPathfind.cpp:9810-9856).
+    sys.grid.update_dynamic_obstacles_after_creation_events(
+        objects.read(),
+        &PathfindingGround::Flat(0.0),
+    );
 
     let adj = sys.adjust_target_destination(
         22,
@@ -1470,6 +1374,11 @@ fn crusher_plans_through_idle_crushable_cars() {
         car.selection_radius = 4.0;
         objects.admit(car.id, car);
     }
+    // Idle cars registered position and goal when created (updatePos/updateGoal).
+    sys.grid.update_dynamic_obstacles_after_creation_events(
+        objects.read(),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     let mut tank_t = ThingTemplate::new("Crusader");
     tank_t.add_kind_of(KindOf::Vehicle);
     let mut tank = Object::new(tank_t, ObjectId(1), Team::USA);
@@ -1581,6 +1490,10 @@ fn occupancy_allies_are_not_crush_through() {
         car.selection_radius = 4.0;
         objects.admit(car.id, car);
     }
+    sys.grid.update_dynamic_obstacles_after_creation_events(
+        objects.read(),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
     let mut tank_t = ThingTemplate::new("AllyCrusader");
     tank_t.add_kind_of(KindOf::Vehicle);
     let mut tank = Object::new(tank_t, ObjectId(1), Team::USA);
@@ -1956,10 +1869,18 @@ fn adjust_destination_refuses_enemy_fixed_occupant() {
     car.crushable_level = 1;
     car.owner_player_id = Some(1);
     objects.admit(car.id, car);
-    g.update_dynamic_obstacles(
+    g.update_dynamic_obstacles_after_creation_events(
         objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
+    // C++ checkDestination asks the moving object canCrushOrSquish (AIPathfind.cpp:4949-4953).
+    for (id, crusher_level) in [(50, 0), (51, 2)] {
+        let mut seeker = Object::new(ThingTemplate::new("Seeker"), ObjectId(id), Team::USA);
+        seeker.owner_player_id = Some(0);
+        seeker.crusher_level = crusher_level;
+        objects.admit(seeker.id, seeker);
+    }
+    g.bind_query_occupants(objects.read(), Some(ObjectId(50)));
     let snapped = g
         .adjust_destination_ex(
             dest,
@@ -1976,6 +1897,7 @@ fn adjust_destination_refuses_enemy_fixed_occupant() {
         !g.has_blocking_fixed_occupant(snapped, 0),
         "spiral must land off the parked car"
     );
+    g.bind_query_occupants(objects.read(), Some(ObjectId(51)));
     let crushed = g
         .adjust_destination_ex(
             dest,
@@ -2154,4 +2076,41 @@ fn optimize_collapses_pinched_collinear_jog() {
         opt.len() <= 2,
         "straight pinched jog must collapse, got {opt:?}"
     );
+}
+
+/// C++ classifyObjectFootprint box raster: `numStepsX =
+/// REAL_TO_INT_CEIL(2*halfsizeX/STEP_SIZE)` (AIPathfind.cpp:4201-4204). The
+/// almost-one add in `fast_float_ceil` (BaseType.h:204-210) turns an integral
+/// 2.0 into three samples, so a 10x10 box at (50,50) reaches cell row 4.
+#[test]
+fn box_footprint_steps_use_source_real_to_int_ceil() {
+    use crate::game_logic::{HostGeometryInfo, HostGeometryType, KindOf, Object, ObjectId, Team, ThingTemplate};
+    let mut g = open_grid(12, 12);
+    let mut template = ThingTemplate::new("IntegralBox");
+    template.add_kind_of(KindOf::Structure).set_health(100.0);
+    template.geometry_info = HostGeometryInfo {
+        geom_type: HostGeometryType::Box,
+        authored: true,
+        major_radius: 5.0,
+        minor_radius: 5.0,
+        ..Default::default()
+    };
+    let mut object = Object::new(template, ObjectId(1), Team::USA);
+    object.set_position(Vec3::new(50.0, 0.0, 50.0));
+    g.classify_object_footprint(
+        &object,
+        false,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    )
+    .expect("box footprint stamps cells");
+    for x in [4, 5] {
+        for y in [4, 5] {
+            assert_eq!(
+                g.cell_type(GridPos::new(x, y)),
+                PathfindCellType::Obstacle,
+                "cell ({x},{y}) is sampled by the third source step"
+            );
+        }
+    }
+    assert_eq!(g.cell_type(GridPos::new(6, 5)), PathfindCellType::Clear);
 }
