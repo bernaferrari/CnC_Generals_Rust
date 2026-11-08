@@ -1539,6 +1539,93 @@ fn actual_tree_prop_render_collection_preserves_constructor_retirement_and_peer(
 }
 
 #[test]
+fn actual_drawable_admission_uses_each_world_lod_despite_ambient_changes() {
+    use game_client::core::game_client::PresentationModuleAdmission;
+    use game_client::drawable::BasicDrawable;
+    use game_engine::common::game_lod::{get_static_lod, set_static_lod_from_string_for_session};
+    use game_engine::common::ini::ini_game_lod::StaticGameLODLevel as Lod;
+
+    fn world(level: Option<Lod>) -> GameLogic {
+        let mut world = GameLogic::new();
+        world.admit_static_lod_level(level);
+        let mut rules = world.lighting_rules_baseline().clone();
+        rules.use_draw_module_lod = true;
+        world.admit_lighting_rules_base(rules);
+        world.admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "drawable-lod-owner.ini".into(),
+                "Object LodOwner\nKindOf = VEHICLE\nDraw = W3DModelDraw LowTag\nDefaultConditionState\nModel = NONE\nEnd\nEnd\nDraw = W3DModelDraw HighTag\nMinLODRequired = HIGH\nDefaultConditionState\nModel = NONE\nEnd\nEnd\nEnd\n".into(),
+            )]).unwrap(),
+        ).unwrap();
+        world
+    }
+
+    fn admit_to_client(
+        world: &mut GameLogic,
+        client: &mut GameClient,
+        source: &crate::presentation_frame::UnitRenderInput,
+    ) {
+        let policy = receiving_native_drawable_policy_for(world);
+        let content = world.receiving_module_content.as_mut().unwrap();
+        let mut drawable = entry(source);
+        drawable.module_admission = PresentationModuleAdmission::Authored(
+            content.admitted_template("LodOwner").unwrap(),
+        );
+        client.sync_presentation_drawables_observed_with_content(
+            [drawable], 0, content.module_factory_mut(), policy, |_| {},
+        ).unwrap();
+    }
+
+    fn tags(client: &mut GameClient) -> Vec<String> {
+        let id = client.get_drawable_for_object(ID.0).unwrap();
+        client.find_drawable_by_id_mut(id).unwrap().as_any_mut()
+            .downcast_mut::<BasicDrawable>().unwrap().get_draw_modules_mut().iter()
+            .map(|module| module.snapshot_module_identifier().unwrap().to_owned())
+            .collect()
+    }
+
+    let _common = game_engine::common::common_services::CommonServicesScope::new();
+    game_engine::common::ini::ini_game_data::init_global_data();
+    game_engine::common::ini::get_global_data().unwrap().write().enable_static_lod = true;
+    let mut low = world(Some(Lod::Low));
+    let mut high = world(Some(Lod::High));
+    let mut source_world = GameLogic::new();
+    admit(&mut source_world, 0.0);
+    let source = frame_source(&mut source_world);
+    let mut low_first = GameClient::new().unwrap();
+    let mut high_first = GameClient::new().unwrap();
+    let mut low_second = GameClient::new().unwrap();
+    let mut high_second = GameClient::new().unwrap();
+
+    set_static_lod_from_string_for_session("High");
+    assert_eq!(get_static_lod(), "High");
+    admit_to_client(&mut low, &mut low_first, &source);
+    admit_to_client(&mut high, &mut high_first, &source);
+    set_static_lod_from_string_for_session("Low");
+    assert_eq!(get_static_lod(), "Low");
+    admit_to_client(&mut high, &mut high_second, &source);
+    admit_to_client(&mut low, &mut low_second, &source);
+    assert_eq!(tags(&mut low_first), ["LowTag"]);
+    assert_eq!(tags(&mut high_first), ["LowTag", "HighTag"]);
+    assert_eq!(tags(&mut high_second), ["LowTag", "HighTag"]);
+    assert_eq!(tags(&mut low_second), ["LowTag"]);
+
+    // Drawable.cpp compares the real ordered LOD values: Custom retains all
+    // these modules, whereas Unknown precedes even Low.
+    for (level, expected) in [
+        (Some(Lod::Custom), vec!["LowTag", "HighTag"]),
+        (Some(Lod::Unknown), vec![]),
+        (Some(Lod::Medium), vec!["LowTag"]),
+        (None, vec!["LowTag"]),
+    ] {
+        let mut receiving = world(level);
+        let mut client = GameClient::new().unwrap();
+        admit_to_client(&mut receiving, &mut client, &source);
+        assert_eq!(tags(&mut client), expected, "{level:?}");
+    }
+}
+
+#[test]
 fn native_constructor_policy_keeps_receiving_tod_across_peer_changes_and_invalid_values() {
     use game_client::system::TimeOfDay as Native;
     use game_engine::common::ini::TimeOfDay as Source;

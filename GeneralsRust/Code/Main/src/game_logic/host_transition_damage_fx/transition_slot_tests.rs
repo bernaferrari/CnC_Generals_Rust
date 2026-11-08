@@ -33,6 +33,91 @@ fn actual_definition_parser_retains_sparse_slots_without_asset_registry() {
     assert!(event.fx_name.is_none());
     assert_eq!(event.extra_fx_names, vec!["", "FX_Third"]);
 }
+#[test]
+fn actual_damage_transition_fires_owned_ocl_at_the_attacker_in_nugget_order() {
+    use crate::game_logic::{GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate};
+    use crate::game_logic::combat::DamageType;
+    use crate::game_logic::host_usa_pilot::HostDeathType;
+    use crate::game_logic::object::DamageHitContext;
+    use glam::Vec3;
+
+    fn world(selected: &str) -> (GameLogic, ObjectId, ObjectId) {
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(0, Team::Neutral, "Neutral", false));
+        world.add_player(Player::new(1, Team::USA, "Victim", true));
+        world.add_player(Player::new(2, Team::China, "Attacker", false));
+        world.admit_object_creation_list_sources([format!(r#"
+ObjectCreationList TransitionRetaliation
+  CreateObject
+    ObjectNames = BeforeRetaliation
+    Count = 1
+    Offset = X:30 Y:0 Z:0
+  End
+  FireWeapon
+    Weapon = {selected}
+  End
+  CreateObject
+    ObjectNames = AfterRetaliation
+    Count = 1
+    Offset = X:30 Y:0 Z:0
+  End
+End
+"#)]).unwrap();
+        let weapons = [("TransitionRetaliationWeapon", 10.0), ("OtherRetaliationWeapon", 20.0)]
+            .into_iter().map(|(name, damage)| {
+                let mut weapon = gamelogic::weapon::WeaponTemplate::new(name.into());
+                weapon.primary_damage = damage;
+                weapon.primary_damage_radius = 5.0;
+                weapon.damage_type = gamelogic::damage::DamageType::Unresistable;
+                (name.to_ascii_lowercase(), std::sync::Arc::new(weapon))
+            }).collect();
+        world.weapon_definitions = Some(weapons);
+        for name in ["TransitionVictim", "TransitionAttacker", "BeforeRetaliation", "AfterRetaliation"] {
+            let mut template = ThingTemplate::new(name);
+            template.set_health(100.0);
+            template.add_kind_of(KindOf::Attackable).add_kind_of(KindOf::Vehicle);
+            world.templates.insert(name.into(), template);
+        }
+        let victim = world.create_object("TransitionVictim", Team::USA, Vec3::ZERO).unwrap();
+        let attacker = world.create_object("TransitionAttacker", Team::China, Vec3::new(30.0, 0.0, 0.0)).unwrap();
+        let mut transition = HostTransitionDamageFxData::default();
+        transition.enabled = true;
+        transition.ocl_for_state[1].push("TransitionRetaliation".into());
+        world.objects.get_mut(&victim).unwrap().transition_damage_fx = Some(transition);
+        (world, victim, attacker)
+    }
+    fn hit(world: &mut GameLogic, victim: ObjectId, attacker: ObjectId, amount: f32) {
+        world.apply_owned_damage(
+            victim, amount, Some(attacker), DamageType::Unresistable,
+            HostDeathType::Normal, None, &DamageHitContext::default(),
+        ).unwrap();
+    }
+    fn health(world: &GameLogic, name: &str) -> f32 {
+        world.objects.registered_values().find(|object| object.template_name == name).unwrap().health.current
+    }
+
+    let (mut first, victim, attacker) = world("TransitionRetaliationWeapon");
+    let (mut second, peer_victim, peer_attacker) = world("OtherRetaliationWeapon");
+    assert_eq!((victim, attacker), (peer_victim, peer_attacker));
+    hit(&mut first, victim, attacker, 1.0);
+    hit(&mut second, victim, attacker, 1.0);
+    assert_eq!(first.objects[&attacker].health.current, 100.0);
+    assert_eq!(second.objects[&attacker].health.current, 100.0);
+    hit(&mut first, victim, attacker, 39.0);
+    hit(&mut second, victim, attacker, 39.0);
+    assert_eq!(first.objects[&attacker].health.current, 90.0);
+    assert_eq!(second.objects[&attacker].health.current, 80.0);
+    assert_eq!(first.objects[&attacker].last_damage_source, Some(victim));
+    assert_eq!(second.objects[&attacker].last_damage_source, Some(victim));
+    assert_eq!(health(&first, "BeforeRetaliation"), 90.0);
+    assert_eq!(health(&second, "BeforeRetaliation"), 80.0);
+    assert_eq!(health(&first, "AfterRetaliation"), 100.0);
+    assert_eq!(health(&second, "AfterRetaliation"), 100.0);
+    hit(&mut first, victim, attacker, 1.0);
+    hit(&mut second, victim, attacker, 1.0);
+    assert_eq!(first.objects[&attacker].health.current, 90.0);
+    assert_eq!(second.objects[&attacker].health.current, 80.0);
+}
 
 #[test]
 fn failed_retirement_retains_receipt_in_its_authored_slot() {

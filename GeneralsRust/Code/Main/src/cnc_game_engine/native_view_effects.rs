@@ -659,18 +659,14 @@ mod tests;
 #[cfg(feature = "game_client")]
 pub(super) fn receiving_native_drawable_policy()
 -> game_client::core::game_client::ReceivingDrawablePolicy {
-    use game_engine::common::thing::module::StaticGameLodLevel;
-    let current = game_engine::common::game_lod::get_static_lod();
+    use game_engine::common::ini::ini_game_lod::StaticGameLODLevel;
+    let current = StaticGameLODLevel::from_str(&game_engine::common::game_lod::get_static_lod());
     let data = game_engine::common::global_data::read();
     game_client::core::game_client::ReceivingDrawablePolicy {
         time_of_day: native_time_of_day(data.time_of_day),
         use_draw_module_lod: data.use_draw_module_lod,
         use_tree_sway: data.use_tree_sway,
-        static_game_lod: match current.to_ascii_uppercase().as_str() {
-            "LOW" => StaticGameLodLevel::Low,
-            "HIGH" => StaticGameLodLevel::High,
-            _ => StaticGameLodLevel::Medium,
-        },
+        static_game_lod: native_static_lod(current),
     }
 }
 
@@ -678,18 +674,31 @@ pub(super) fn receiving_native_drawable_policy()
 pub(super) fn receiving_native_drawable_policy_for(
     world: &crate::game_logic::GameLogic,
 ) -> game_client::core::game_client::ReceivingDrawablePolicy {
-    use game_engine::common::thing::module::StaticGameLodLevel;
-    let current = game_engine::common::game_lod::get_static_lod();
+    let current = world.current_static_lod_level();
     let rules = world.lighting_rules();
     game_client::core::game_client::ReceivingDrawablePolicy {
         time_of_day: world.native_lighting_time_of_day(),
         use_draw_module_lod: rules.use_draw_module_lod,
         use_tree_sway: rules.use_tree_sway,
-        static_game_lod: match current.to_ascii_uppercase().as_str() {
-            "LOW" => StaticGameLodLevel::Low,
-            "HIGH" => StaticGameLodLevel::High,
-            _ => StaticGameLodLevel::Medium,
-        },
+        static_game_lod: native_static_lod(current),
+    }
+}
+
+/// Translate admitted GameLOD values without losing their C++ ordering.
+/// A world with no admitted level retains the previous Medium default.
+#[cfg(feature = "game_client")]
+fn native_static_lod(
+    level: Option<game_engine::common::ini::ini_game_lod::StaticGameLODLevel>,
+) -> game_engine::common::thing::module::StaticGameLodLevel {
+    use game_engine::common::ini::ini_game_lod::StaticGameLODLevel as Source;
+    use game_engine::common::thing::module::StaticGameLodLevel as Native;
+    match level {
+        Some(Source::Unknown) => Native::Unknown,
+        Some(Source::Low) => Native::Low,
+        Some(Source::Medium) => Native::Medium,
+        Some(Source::High) => Native::High,
+        Some(Source::Custom) => Native::Custom,
+        Some(Source::Count) | None => Native::Medium,
     }
 }
 

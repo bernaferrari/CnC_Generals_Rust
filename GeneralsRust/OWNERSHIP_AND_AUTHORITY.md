@@ -2949,3 +2949,11 @@ applies the resulting impulse to its own physics object.
 Terrain admission carries the receiving world's three-way-blend setting into
 the map and WGPU terrain pass. Disabled blends clear the original extra indices
 and flipped flags at map installation; the current setting gates each draw.
+
+Drawable module admission uses the receiving world's static LOD, including the
+original Unknown and Custom ordering, rather than another published world's
+ambient setting.
+
+Transition-damage OCL weapon nuggets use the damaged object as source and the
+damage source's position as target, in authored nugget order. Their definitions
+are resolved from the receiving world.

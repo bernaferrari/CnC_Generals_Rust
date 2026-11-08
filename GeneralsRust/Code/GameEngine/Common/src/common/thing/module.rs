@@ -30,12 +30,14 @@ pub enum TimeOfDay {
     Night,
 }
 
-/// Static game LOD level
+/// Static game LOD level, ordered as in C++ GameLODManager.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum StaticGameLodLevel {
+    Unknown = -1,
     Low = 0,
     Medium = 1,
     High = 2,
+    Custom = 3,
 }
 
 /// Module type enumeration

@@ -221,6 +221,26 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> OclExecutionOutcome {
+        self.execute_parsed_weapon_ocl_with_secondary_and_births(
+            ocl_name, source_id, source_team, source_veterancy, source_orientation,
+            source_velocity, origin, None, interpreter, presentation_effects,
+        )
+    }
+
+    /// Execute with the live secondary source whose position the OCL receives.
+    pub(crate) fn execute_parsed_weapon_ocl_with_secondary_and_births(
+        &mut self,
+        ocl_name: &str,
+        source_id: Option<ObjectId>,
+        source_team: Team,
+        source_veterancy: VeterancyLevel,
+        source_orientation: f32,
+        source_velocity: Vec3,
+        origin: Vec3,
+        secondary: Option<(ObjectId, &crate::assets::LiveDrawPlaybackIdentity)>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> OclExecutionOutcome {
         use gamelogic::object_creation_list::{
             DebrisDisposition, GenericObjectCreationNugget, ObjectCreationNugget,
         };
@@ -247,9 +267,8 @@ impl GameLogic {
             return OclExecutionOutcome::success(Vec::new());
         };
 
-        // C++ ObjectCreationList.cpp:1524-1534 createInternal walks every nugget
-        // independently. A leftover-physics CreateDebris/FireWeapon/etc. must not
-        // discard earlier CreateObject results from the same authored list.
+        // C++ ObjectCreationList.cpp:1524-1534 walks the nuggets in order.
+        // Unsupported nuggets do not discard earlier results or later nuggets.
         // FireOCL after FireFX may run with a destroyed source; frozen team/pose
         // still create (hq-ye145). Only stop when a captured birth no longer
         // matches — that means a same-ID replacement, not a missing original.
@@ -259,6 +278,21 @@ impl GameLogic {
                 if !source_id.is_some_and(|id| self.spawn_identity_matches(id, birth.0, birth.1)) {
                     break;
                 }
+            }
+            if let Some(fire) = nugget.as_any().downcast_ref::<
+                gamelogic::object_creation_list::advanced_nuggets::FireWeaponNugget,
+            >() {
+                let position = secondary.as_ref().and_then(|(id, identity)| {
+                    self.objects.get(id)
+                        .filter(|object| self.live_draw_playback_identity(object) == **identity)
+                        .map(|object| object.get_position())
+                });
+                if let (Some(source), Some(position), Some(weapon)) =
+                    (source_id, position, fire.weapon.as_deref())
+                {
+                    self.fire_ocl_temporary_weapon_at(source, weapon, position, presentation_effects);
+                }
+                continue;
             }
             let Some(generic) = nugget
                 .as_any()

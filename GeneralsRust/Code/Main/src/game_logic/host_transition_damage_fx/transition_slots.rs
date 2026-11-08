@@ -243,6 +243,10 @@ impl crate::game_logic::GameLogic {
                 .get(&victim_id)
                 .is_some_and(|object| world.live_draw_playback_identity(object) == *identity)
         };
+        let secondary = source.and_then(|source| {
+            let id = crate::game_logic::ObjectId(source.id);
+            self.objects.get(&id).map(|object| (id, self.live_draw_playback_identity(object)))
+        });
 
         // C++ retires every old-state particle before starting slot zero.
         if let Some(old) = event.clear_old_state.take() {
@@ -341,13 +345,9 @@ impl crate::game_logic::GameLogic {
                     if !still_same_victim(self) {
                         return;
                     }
-                    // The receiving dispatcher executes synchronously at the
-                    // C++ OCL slot. It currently runs only the receiving
-                    // GenericObjectCreationNugget subset; other authored
-                    // nuggets and C++'s secondary damage-source position remain
-                    // explicit parity gaps in hq-lxksk. Never substitute the
-                    // process-global OCL store for those unsupported cases.
-                    let _ = self.execute_parsed_weapon_ocl_at_with_effects(
+                    // The OCL receives the victim as primary and the damage
+                    // source's live position as secondary.
+                    let outcome = self.execute_parsed_weapon_ocl_with_secondary_and_births(
                         name,
                         Some(victim_id),
                         team,
@@ -355,8 +355,13 @@ impl crate::game_logic::GameLogic {
                         orientation,
                         velocity,
                         position,
+                        secondary.as_ref().map(|(id, identity)| (*id, identity)),
+                        None,
                         effects,
                     );
+                    if let Some(error) = outcome.error {
+                        log::error!("{error}");
+                    }
                 }
                 TransitionSlotEffect::Particle { slot, definition } => {
                     let source_player =
@@ -567,6 +572,10 @@ impl crate::game_logic::GameLogic {
                 .get(&victim_id)
                 .is_some_and(|object| world.live_draw_playback_identity(object) == *identity)
         };
+        let secondary = source.and_then(|source| {
+            let id = crate::game_logic::ObjectId(source.id);
+            self.objects.get(&id).map(|object| (id, self.live_draw_playback_identity(object)))
+        });
         for_each_transition_slot(&event, |effect| {
             if !same_victim(self) {
                 return;
@@ -614,7 +623,7 @@ impl crate::game_logic::GameLogic {
                     else {
                         return;
                     };
-                    let _ = self.execute_parsed_weapon_ocl_at_with_effects(
+                    let outcome = self.execute_parsed_weapon_ocl_with_secondary_and_births(
                         name,
                         Some(victim_id),
                         team,
@@ -622,8 +631,13 @@ impl crate::game_logic::GameLogic {
                         orientation,
                         velocity,
                         position,
+                        secondary.as_ref().map(|(id, identity)| (*id, identity)),
+                        None,
                         effects,
                     );
+                    if let Some(error) = outcome.error {
+                        log::error!("{error}");
+                    }
                 }
                 TransitionSlotEffect::Particle { .. } => {
                     // No native particle runtime is available in this build.
@@ -640,7 +654,6 @@ impl crate::game_logic::GameLogic {
                 object.pending_transition_damage_fx.push(event);
             }
         }
-        let _ = source; // Generic OCL currently lacks C++ secondary-position input.
     }
 }
 

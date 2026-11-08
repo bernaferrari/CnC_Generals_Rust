@@ -97,13 +97,47 @@ impl GameLogic {
         target: Option<ObjectId>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<u32> {
+        self.fire_named_temporary_at_with_owned_state(source, spec, state, target, None, effects)
+    }
+
+    /// Fire a fresh PRIMARY weapon at a world position using only this world's
+    /// admitted template. A position target is not an object target.
+    pub(crate) fn fire_ocl_temporary_weapon_at(
+        &mut self,
+        source: ObjectId,
+        weapon_name: &str,
+        position: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        if !self.weapon_definitions.as_ref().is_some_and(|definitions| {
+            definitions.contains_key(&weapon_name.trim().to_ascii_lowercase())
+        }) {
+            return;
+        }
+        let spec = crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec {
+            module_source_index: 0,
+            weapon_template_name: weapon_name.trim().to_owned(),
+            weapon_slot: TemporaryWeaponSlot::Primary,
+        };
+        let _ = self.fire_named_temporary_at_with_owned_state(source, &spec, None, None, Some(position), effects);
+    }
+
+    fn fire_named_temporary_at_with_owned_state(
+        &mut self,
+        source: ObjectId,
+        spec: &crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec,
+        state: Option<(i32, u32, u32)>,
+        target: Option<ObjectId>,
+        target_position: Option<Vec3>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Option<u32> {
         if let Some(rule) = self.weapon_definitions.as_ref()
             .and_then(|definitions| definitions.get(&spec.weapon_template_name.to_ascii_lowercase()))
             .cloned()
         {
             let object = self.objects.get(&source)?;
             let position = object.get_position();
-            let target_position = target.and_then(|id| self.objects.get(&id).map(|o| o.get_position())).unwrap_or(position);
+            let target_position = target_position.or_else(|| target.and_then(|id| self.objects.get(&id).map(|o| o.get_position()))).unwrap_or(position);
             let bonuses = self.receiving_weapon_bonus_fields(object, Some(&rule));
             let rank = object.experience.level;
             let native_rank = match rank {

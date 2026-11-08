@@ -545,21 +545,8 @@ impl CnCGameEngine {
             .map(|unit| (unit.id.0, unit))
             .collect();
         let sync_ms = self.render_pipeline.current_animation_sync_ms();
-        let draw_policy = {
-            use game_engine::common::thing::module::StaticGameLodLevel;
-            let current = game_engine::common::game_lod::get_static_lod();
-            let data = game_engine::common::global_data::read();
-            game_client::core::game_client::ReceivingDrawablePolicy {
-                time_of_day: self.game_logic.native_lighting_time_of_day(),
-                use_draw_module_lod: data.use_draw_module_lod,
-                use_tree_sway: data.use_tree_sway,
-                static_game_lod: match current.to_ascii_uppercase().as_str() {
-                    "LOW" => StaticGameLodLevel::Low,
-                    "HIGH" => StaticGameLodLevel::High,
-                    _ => StaticGameLodLevel::Medium,
-                },
-            }
-        };
+        let draw_policy =
+            super::native_view_effects::receiving_native_drawable_policy_for(&self.game_logic);
         let native_owner = &mut self.render_pipeline;
         native_owner.bind_native_prop_epoch(host_epoch);
         let graphics = &mut self.graphics_system;

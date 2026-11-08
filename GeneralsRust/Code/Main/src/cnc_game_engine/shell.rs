@@ -1994,21 +1994,8 @@ impl CnCGameEngine {
             #[cfg(feature = "game_client")]
             let map_loaded = {
                 use crate::game_logic::NativeMapAdmission;
-                use game_engine::common::thing::module::StaticGameLodLevel;
-                let current = game_engine::common::game_lod::get_static_lod();
-                let policy = {
-                    let data = game_engine::common::global_data::read();
-                    game_client::core::game_client::ReceivingDrawablePolicy {
-                        time_of_day: game_logic.native_lighting_time_of_day(),
-                        use_draw_module_lod: data.use_draw_module_lod,
-                        use_tree_sway: data.use_tree_sway,
-                        static_game_lod: match current.to_ascii_uppercase().as_str() {
-                            "LOW" => StaticGameLodLevel::Low,
-                            "HIGH" => StaticGameLodLevel::High,
-                            _ => StaticGameLodLevel::Medium,
-                        },
-                    }
-                };
+                let policy =
+                    super::native_view_effects::receiving_native_drawable_policy_for(&game_logic);
                 game_logic.require_native_drawable_owner();
                 let window = &self.window;
                 let load_kind = self.active_load_screen;
