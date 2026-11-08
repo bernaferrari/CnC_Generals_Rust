@@ -386,11 +386,11 @@ pub struct UIRenderer {
     // so UIRenderer can live in `Arc<RwLock<UIRenderer>>` without a lying
     // `unsafe impl Sync`.
     font_runtime: Mutex<FontRuntime>,
-    /// C++ DisplayString retains rasterized glyphs. Re-shaping every label
-    /// every frame created a wgpu texture per button and froze Menu.
-    /// Value carries the placed quad — the atlas canvas may exceed the
-    /// layout bounds so real glyph extents are never clipped.
-    text_texture_cache: HashMap<u64, (Arc<TextureView>, UIRect)>,
+    /// C++ DisplayString retains rasterized sentences. Labels are packed
+    /// into shared text pages (R11); each keeps its placed quad, because the
+    /// canvas may exceed the layout bounds so real glyph extents are never
+    /// clipped.
+    text_atlas: text_atlas::TextAtlas,
 
     // Textures and samplers
     default_texture: Arc<TextureView>,
@@ -1069,7 +1069,7 @@ impl UIRenderer {
             uniform_bind_group_layout,
             texture_bind_group_layout,
             font_runtime: Mutex::new(FontRuntime::new(font_system, text_buffer)),
-            text_texture_cache: HashMap::new(),
+            text_atlas: text_atlas::TextAtlas::default(),
             texture_bind_groups: HashMap::new(),
             vertex_buffer,
             index_buffer,
@@ -1574,18 +1574,8 @@ impl UIRenderer {
             return Ok(());
         }
         let cache_key = Self::text_layout_cache_key(layout, font_name, bold);
-        if let Some((texture, rel_quad)) = self.text_texture_cache.get(&cache_key).cloned() {
-            // The cache stores canvas offsets RELATIVE to layout.bounds: the
-            // same text/layout drawn elsewhere must land at the new position
-            // (an absolute quad re-renders identical text at the first
-            // location it was rasterized at — jumping text).
-            let quad = UIRect::new(
-                layout.bounds.x + rel_quad.x,
-                layout.bounds.y + rel_quad.y,
-                rel_quad.width,
-                rel_quad.height,
-            );
-            self.draw_textured_rect(quad, texture, [1.0, 1.0, 1.0, 1.0], None, z_order);
+        if let Some(slot) = self.text_atlas.get(cache_key) {
+            self.draw_text_slot(layout, slot, z_order);
             return Ok(());
         }
 
@@ -1649,30 +1639,41 @@ impl UIRenderer {
             [min_x, min_y, max_x, max_y],
             (logical_width, logical_height),
         );
-        let rel_quad = canvas.relative_quad;
-        let texture = self.create_texture_from_rgba(
-            rel_quad.width as u32,
-            rel_quad.height as u32,
+        let upload = UiTextureUpload {
+            device: &self.device,
+            queue: &self.queue,
+            default_texture: &self.default_texture,
+        };
+        let slot = self.text_atlas.insert(
+            &self.device,
+            &self.queue,
+            cache_key,
+            canvas.relative_quad,
             &canvas.pixels,
+            |width, height, pixels| upload.create_rgba(width, height, pixels),
         );
-        // A full shell draws more than 256 distinct labels. Evicting at 256
-        // re-rasterizes the overflow every frame (~0.2ms each) and the menu
-        // stays at several hundred milliseconds. 4096 covers the live shell.
-        if self.text_texture_cache.len() >= 4096 {
-            if let Some(oldest) = self.text_texture_cache.keys().next().copied() {
-                self.text_texture_cache.remove(&oldest);
-            }
-        }
-        self.text_texture_cache
-            .insert(cache_key, (texture.clone(), rel_quad));
-        let quad = UIRect::new(
-            layout.bounds.x + rel_quad.x,
-            layout.bounds.y + rel_quad.y,
-            rel_quad.width,
-            rel_quad.height,
-        );
-        self.draw_textured_rect(quad, texture, [1.0, 1.0, 1.0, 1.0], None, z_order);
+        self.draw_text_slot(layout, slot, z_order);
         Ok(())
+    }
+
+    /// Queue a cached label. The slot stores canvas offsets RELATIVE to
+    /// `layout.bounds`: the same text drawn elsewhere must land at the new
+    /// position (an absolute quad re-renders identical text at the first
+    /// location it was rasterized at, i.e. jumping text).
+    fn draw_text_slot(&mut self, layout: &TextLayout, slot: text_atlas::TextSlot, z_order: f32) {
+        let quad = UIRect::new(
+            layout.bounds.x + slot.quad.x,
+            layout.bounds.y + slot.quad.y,
+            slot.quad.width,
+            slot.quad.height,
+        );
+        self.draw_textured_rect(quad, slot.texture, [1.0, 1.0, 1.0, 1.0], slot.uv, z_order);
+    }
+
+    /// Text pages currently allocated and labels they (or standalone
+    /// textures) hold.
+    pub fn text_cache_stats(&self) -> (usize, usize) {
+        (self.text_atlas.page_count(), self.text_atlas.label_count())
     }
 
     /// Render to a target matching the configured logical UI size.
@@ -1914,6 +1915,7 @@ impl UIRenderer {
     /// End the current frame
     pub fn end_frame(&mut self) {
         self.frame_buffers.end();
+        self.text_atlas.end_frame();
     }
 
     /// Current screen size in pixels.
@@ -1938,7 +1940,7 @@ impl UIRenderer {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .load_font(name, font_data)?;
         // A cached label may have the same authored name/size but new bytes.
-        self.text_texture_cache.clear();
+        self.text_atlas.clear();
         Ok(())
     }
 
@@ -2397,6 +2399,9 @@ mod memory_font_registration_tests;
 #[cfg(test)]
 #[path = "ui_renderer/constructor_font_buffer_tests.rs"]
 mod constructor_font_buffer_tests;
+
+#[path = "ui_renderer/text_atlas.rs"]
+mod text_atlas;
 
 /// Immutable device service split from mutable widget cache ownership.
 /// Device/queue concurrency is native WGPU service concurrency, not GUI state.
