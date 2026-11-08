@@ -3057,3 +3057,7 @@ than the ambient mouse; placement and guard hints still use the tactical view.
 
 Attack-position continuation and AttackSquad victim selection compare each
 object's owned off-map status rather than recomputing a default-map boundary.
+
+Path destination and snap checks derive the seeking actor's ignore and
+relationship policy per call. Dynamic occupancy remains event-maintained;
+its refresh and ownership are separate from this query migration.

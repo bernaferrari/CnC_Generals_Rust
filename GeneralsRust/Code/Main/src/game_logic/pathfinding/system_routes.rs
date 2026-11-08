@@ -117,18 +117,20 @@ impl PathfindingSystem {
             } else {
                 0
             };
-            let ignored_goal = self.ignore_obstacle_id.is_some_and(|id| {
-                id.0 != 0
-                    && self.grid.cell_type(cell) == PathfindCellType::Obstacle
-                    && self
-                        .grid
-                        .obstacle_owner(cell)
-                        .is_some_and(|(owner, _, _)| owner == id.0)
-            });
-            let dest_ok = ignored_goal
-                || self.grid.check_destination_for(
+            let dest_layer = self.grid.layer_for_destination(goal, ground_source);
+            let dest_ok = if let Some(obj) = mover.and_then(|id| objects.lookup(&id)) {
+                self.grid.check_destination_for_object(
                     cell,
-                    self.grid.layer_for_destination(goal, ground_source),
+                    dest_layer,
+                    0,
+                    true,
+                    obj,
+                    objects,
+                )
+            } else {
+                self.grid.check_destination_for(
+                    cell,
+                    dest_layer,
                     0,
                     true,
                     surfaces,
@@ -136,14 +138,16 @@ impl PathfindingSystem {
                     self.seeker_player,
                     crusher_level,
                     ground_source,
-                );
+                )
+            };
             if !dest_ok {
-                goal = self.snap_closest_goal_position(
+                goal = self.snap_closest_goal_position_with_receiver(
                     goal,
                     surfaces,
                     is_crusher,
                     unit_radius,
                     ground_source,
+                    mover.and_then(|id| objects.lookup(&id)).map(|obj| (obj, objects)),
                 );
             }
         }

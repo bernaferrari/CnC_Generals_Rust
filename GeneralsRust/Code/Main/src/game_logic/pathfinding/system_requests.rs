@@ -1172,6 +1172,20 @@ impl PathfindingSystem {
         unit_radius: f32,
         ground_source: &PathfindingGround<'_>,
     ) -> Vec3 {
+        self.snap_closest_goal_position_with_receiver(
+            pos, surfaces, is_crusher, unit_radius, ground_source, None,
+        )
+    }
+
+    pub(super) fn snap_closest_goal_position_with_receiver(
+        &self,
+        pos: Vec3,
+        surfaces: u32,
+        is_crusher: bool,
+        unit_radius: f32,
+        ground_source: &PathfindingGround<'_>,
+        receiver: Option<(&Object, HostObjectRead<'_>)>,
+    ) -> Vec3 {
         let cell_size = self.grid.grid_size();
         let (radius, center_in_cell) = PathfindingGrid::radius_and_center(unit_radius, cell_size);
         let mut adjust = pos;
@@ -1196,15 +1210,21 @@ impl PathfindingSystem {
                 .adjust_coord_to_cell_on_layer(c, center_in_cell, layer, ground_source)
         };
         let dest_ok = |c: GridPos| {
-            self.grid.destination_cell_ok(
-                c,
-                surfaces,
-                is_crusher,
-                self.seeker_player,
-                crusher_level,
-                layer,
-                ground_source,
-            )
+            if let Some((obj, objects)) = receiver {
+                self.grid.check_destination_for_object(
+                    c, layer, radius, center_in_cell, obj, objects,
+                )
+            } else {
+                self.grid.destination_cell_ok(
+                    c,
+                    surfaces,
+                    is_crusher,
+                    self.seeker_player,
+                    crusher_level,
+                    layer,
+                    ground_source,
+                )
+            }
         };
         let mut out = snap_ground(cell);
         if dest_ok(cell) {
@@ -1228,8 +1248,16 @@ impl PathfindingSystem {
                     if !self.grid.is_valid_pos(c) {
                         continue;
                     }
-                    let bits = self.grid.occupancy_bits(c, layer);
-                    let own = self.seeker_id.map(|id| id.0).unwrap_or(0);
+                    let bits = if receiver.is_some() {
+                        let (actual_layer, _) = self.grid.path_cell_on_layer(c, layer);
+                        self.grid.raw_occupancy_bits(c, actual_layer)
+                    } else {
+                        self.grid.occupancy_bits(c, layer)
+                    };
+                    let own = receiver.map_or_else(
+                        || self.seeker_id.map(|id| id.0).unwrap_or(0),
+                        |(obj, _)| obj.id.0,
+                    );
                     if bits.goal_unit == 0 || (own != 0 && bits.goal_unit == own) {
                         return snap_layer(c);
                     }
@@ -1241,7 +1269,13 @@ impl PathfindingSystem {
                     if !self.grid.is_valid_pos(c) {
                         continue;
                     }
-                    if self.grid.occupancy_bits(c, layer).fixed == 0 {
+                    let bits = if receiver.is_some() {
+                        let (actual_layer, _) = self.grid.path_cell_on_layer(c, layer);
+                        self.grid.raw_occupancy_bits(c, actual_layer)
+                    } else {
+                        self.grid.occupancy_bits(c, layer)
+                    };
+                    if bits.pos_unit == 0 || bits.pos_moving {
                         return snap_layer(c);
                     }
                 }
@@ -1329,7 +1363,15 @@ impl PathfindingSystem {
         object: &Object,
         ground_source: &PathfindingGround<'_>,
     ) {
-        self.grid.remove_owned_object_footprint(object.id.0);
+        if let Some((lo, hi)) = self.grid.classify_object_footprint_change(
+            object,
+            false,
+            ground_source,
+            false,
+        ) {
+            self.grid.refresh_pinched_bounds(lo, hi);
+            self.grid.rebuild_path_zones();
+        }
         self.classify_and_pinch_object(object, ground_source);
     }
 

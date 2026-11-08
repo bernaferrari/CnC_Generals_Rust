@@ -2310,3 +2310,46 @@ fn pathfind_cluster_move_away_even_footprint_start_shift() {
         .expect("even-footprint move-away must still yield");
     assert!(path.len() >= 2);
 }
+
+#[test]
+fn snap_goal_uses_receiving_object_not_previous_query() {
+    use crate::game_logic::{GameLogic, Player, Team};
+
+    let start = Vec3::new(25.0, 0.0, 25.0);
+    let goal = Vec3::new(85.0, 0.0, 85.0);
+    let make_world = || {
+        let mut world = GameLogic::new();
+        world.admit_object_ini_sources([(
+            "SnapReceiver.ini".into(),
+            "Object SnapReceiver\n KindOf = SELECTABLE INFANTRY\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n".into(),
+        )]).unwrap();
+        world.add_player(Player::new(1, Team::USA, "Owner", true));
+        let mover = world.create_object_for_player("SnapReceiver", 1, start).unwrap();
+        let other = world.create_object_for_player("SnapReceiver", 1, start).unwrap();
+        let mut sys = PathfindingSystem::new(160.0, 160.0);
+        sys.grid.update_ground_goal_cell(other.0, 1, 0.0, false, (-1, -1), goal);
+        (world, sys, mover, other)
+    };
+    let (mut world, mut sys, mover, other) = make_world();
+    let (mut peer, mut peer_sys, peer_mover, peer_other) = make_world();
+    assert_eq!((mover, other), (peer_mover, peer_other));
+    peer.host_object_mut(peer_mover).unwrap().ignored_obstacle_id = Some(peer_other);
+    let ground = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+    let snap = |sys: &PathfindingSystem, world: &GameLogic| {
+        let obj = world.host_object(mover).unwrap();
+        sys.snap_closest_goal_position_with_receiver(
+            goal, SURFACE_GROUND, false, 0.0, &ground, Some((obj, world.host_objects())),
+        )
+    };
+    sys.seeker_id = Some(other);
+    let blocked = snap(&sys, &world);
+    assert_ne!(sys.grid.world_to_grid(blocked), sys.grid.world_to_grid(goal));
+    peer_sys.seeker_id = Some(other);
+    assert_eq!(peer_sys.grid.world_to_grid(snap(&peer_sys, &peer)), peer_sys.grid.world_to_grid(goal));
+    assert_eq!(snap(&sys, &world), blocked);
+    world.host_object_mut(mover).unwrap().ignored_obstacle_id = Some(other);
+    sys.seeker_id = None;
+    assert_eq!(sys.grid.world_to_grid(snap(&sys, &world)), sys.grid.world_to_grid(goal));
+    peer.host_object_mut(peer_mover).unwrap().ignored_obstacle_id = None;
+    assert_eq!(snap(&peer_sys, &peer), blocked);
+}
