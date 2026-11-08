@@ -1025,11 +1025,38 @@ fn update_menu_actions(effects: &mut crate::gui::game_window::WindowEventEffects
     }
 }
 
+/// Restore the controls owned by the currently bound WND without touching the
+/// host inventory or requests, which may still be awaiting host processing.
+fn restore_save_load_controls(effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
+    let state = effects.save_load();
+    let listbox = state.listbox_games_window.clone();
+    let frame = state.button_frame.clone();
+    let dialogs = [
+        state.overwrite_confirm.clone(),
+        state.load_confirm.clone(),
+        state.save_desc.clone(),
+        state.delete_confirm.clone(),
+    ];
+    if let Some(listbox) = listbox.as_ref() {
+        enable_window_rc(listbox, true, effects);
+    }
+    if let Some(frame) = frame.as_ref() {
+        enable_window_rc(frame, true, effects);
+    }
+    for dialog in dialogs.iter().flatten() {
+        hide_save_load_window(dialog, true, effects);
+    }
+    // Enabling a frame also enables its children; restore selection-dependent
+    // action availability after the frame operation.
+    update_menu_actions(effects);
+}
+
 fn close_save_menu(
     window: &mut GameWindow,
     is_popup: bool,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
+    restore_save_load_controls(effects);
     if is_popup {
         if let Some(layout) = window.get_layout() {
             effects.with_manager(|manager, effects| {
@@ -1050,6 +1077,7 @@ fn close_save_menu(
 /// has unwound. At that point the parsed parent can safely supply its layout
 /// for the same popup close operation as `close_save_menu`.
 fn close_save_menu_after_dispatch(effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
+    restore_save_load_controls(effects);
     if effects.save_load().is_popup {
         if let Some(layout) = effects
             .save_load()
@@ -1386,22 +1414,7 @@ pub fn save_load_menu_init(
         "PopupSaveLoad.wnd",
     );
 
-    if let Some(frame) = effects.save_load().button_frame.clone().as_ref() {
-        enable_window_rc(frame, true, effects);
-    }
-    if let Some(window) = effects.save_load().overwrite_confirm.clone().as_ref() {
-        hide_save_load_window(window, true, effects);
-    }
-    if let Some(window) = effects.save_load().load_confirm.clone().as_ref() {
-        hide_save_load_window(window, true, effects);
-    }
-    if let Some(window) = effects.save_load().save_desc.clone().as_ref() {
-        hide_save_load_window(window, true, effects);
-    }
-    if let Some(window) = effects.save_load().delete_confirm.clone().as_ref() {
-        hide_save_load_window(window, true, effects);
-    }
-
+    restore_save_load_controls(effects);
     populate_receiving_save_game_listbox(effects);
     update_menu_actions(effects);
 
@@ -1436,22 +1449,7 @@ pub fn save_load_menu_full_screen_init(
     let parent_id = NameKeyGenerator::name_to_key("SaveLoad.wnd:SaveLoadMenu") as i32;
     load_controls(effects.save_load_mut(), layout, parent_id, "SaveLoad.wnd");
 
-    if let Some(frame) = effects.save_load().button_frame.clone().as_ref() {
-        enable_window_rc(frame, true, effects);
-    }
-    if let Some(window) = effects.save_load().overwrite_confirm.clone().as_ref() {
-        hide_save_load_window(window, true, effects);
-    }
-    if let Some(window) = effects.save_load().load_confirm.clone().as_ref() {
-        hide_save_load_window(window, true, effects);
-    }
-    if let Some(window) = effects.save_load().save_desc.clone().as_ref() {
-        hide_save_load_window(window, true, effects);
-    }
-    if let Some(window) = effects.save_load().delete_confirm.clone().as_ref() {
-        hide_save_load_window(window, true, effects);
-    }
-
+    restore_save_load_controls(effects);
     populate_receiving_save_game_listbox(effects);
     update_menu_actions(effects);
 
@@ -1542,16 +1540,6 @@ pub fn save_load_menu_input(
         return WindowMsgHandled::Handled;
     }
 
-    if let Some(confirm) = effects.save_load().delete_confirm.clone().as_ref() {
-        hide_save_load_window(confirm, true, effects);
-    }
-    if let Some(listbox) = effects.save_load().listbox_games_window.clone().as_ref() {
-        enable_window_rc(listbox, true, effects);
-    }
-    if let Some(frame) = effects.save_load().button_frame.clone().as_ref() {
-        enable_window_rc(frame, true, effects);
-    }
-
     let button_back = effects.save_load().button_back;
     let _ = window.send_system_message(
         WindowMessage::GadgetSelected,
@@ -1625,6 +1613,9 @@ pub fn save_load_menu_system(
                     {
                         enable_window_rc(listbox, false, effects);
                     }
+                    if let Some(frame) = effects.save_load().button_frame.clone().as_ref() {
+                        enable_window_rc(frame, false, effects);
+                    }
                 } else {
                     if let Some(listbox) = effects.save_load().listbox_games_window.clone().as_ref()
                     {
@@ -1661,6 +1652,7 @@ pub fn save_load_menu_system(
                 if effects.save_load().is_popup {
                     close_save_menu(window, true, effects);
                 } else {
+                    restore_save_load_controls(effects);
                     queue_shell_pop(effects);
                 }
                 return WindowMsgHandled::Handled;
@@ -1672,36 +1664,16 @@ pub fn save_load_menu_system(
                 if control_id == effects.save_load().button_delete_confirm {
                     process_delete_confirmed(effects);
                 }
+                restore_save_load_controls(effects);
 
-                if let Some(confirm) = effects.save_load().delete_confirm.clone().as_ref() {
-                    hide_save_load_window(confirm, true, effects);
-                }
-                if let Some(listbox) = effects.save_load().listbox_games_window.clone().as_ref() {
-                    enable_window_rc(listbox, true, effects);
-                }
-                if let Some(frame) = effects.save_load().button_frame.clone().as_ref() {
-                    enable_window_rc(frame, true, effects);
-                }
-                update_menu_actions(effects);
                 return WindowMsgHandled::Handled;
             }
 
             if control_id == effects.save_load().button_overwrite_cancel
                 || control_id == effects.save_load().button_overwrite_confirm
             {
-                if let Some(confirm) = effects.save_load().overwrite_confirm.clone().as_ref() {
-                    hide_save_load_window(confirm, true, effects);
-                }
 
                 if control_id == effects.save_load().button_overwrite_confirm {
-                    if let Some(listbox) = effects.save_load().listbox_games_window.clone().as_ref()
-                    {
-                        enable_window_rc(listbox, true, effects);
-                    }
-                    if let Some(frame) = effects.save_load().button_frame.clone().as_ref() {
-                        enable_window_rc(frame, true, effects);
-                    }
-                    update_menu_actions(effects);
                     close_save_menu(window, effects.save_load().is_popup, effects);
 
                     let file_type =
@@ -1714,16 +1686,8 @@ pub fn save_load_menu_system(
                     // menu state borrow during a button dispatch.
                     dispatch_save_from_popup_confirmation(filename, desc, file_type, effects);
                     return WindowMsgHandled::Handled;
-                } else {
-                    if let Some(frame) = effects.save_load().button_frame.clone().as_ref() {
-                        enable_window_rc(frame, true, effects);
-                    }
-                    update_menu_actions(effects);
-                    if let Some(listbox) = effects.save_load().listbox_games_window.clone().as_ref()
-                    {
-                        enable_window_rc(listbox, true, effects);
-                    }
                 }
+                restore_save_load_controls(effects);
 
                 return WindowMsgHandled::Handled;
             }
@@ -1739,16 +1703,6 @@ pub fn save_load_menu_system(
                     })
                     .unwrap_or_default();
 
-                if let Some(save_desc) = effects.save_load().save_desc.clone().as_ref() {
-                    hide_save_load_window(save_desc, true, effects);
-                }
-                if let Some(listbox) = effects.save_load().listbox_games_window.clone().as_ref() {
-                    enable_window_rc(listbox, true, effects);
-                }
-                if let Some(frame) = effects.save_load().button_frame.clone().as_ref() {
-                    enable_window_rc(frame, true, effects);
-                }
-                update_menu_actions(effects);
                 close_save_menu(window, effects.save_load().is_popup, effects);
 
                 let (filename, _) =
@@ -1761,32 +1715,14 @@ pub fn save_load_menu_system(
             }
 
             if control_id == effects.save_load().button_save_desc_cancel {
-                if let Some(save_desc) = effects.save_load().save_desc.clone().as_ref() {
-                    hide_save_load_window(save_desc, true, effects);
-                }
-                if let Some(listbox) = effects.save_load().listbox_games_window.clone().as_ref() {
-                    enable_window_rc(listbox, true, effects);
-                }
-                if let Some(frame) = effects.save_load().button_frame.clone().as_ref() {
-                    enable_window_rc(frame, true, effects);
-                }
-                update_menu_actions(effects);
+                restore_save_load_controls(effects);
                 return WindowMsgHandled::Handled;
             }
 
             if control_id == effects.save_load().button_load_confirm
                 || control_id == effects.save_load().button_load_cancel
             {
-                if let Some(confirm) = effects.save_load().load_confirm.clone().as_ref() {
-                    hide_save_load_window(confirm, true, effects);
-                }
-                if let Some(listbox) = effects.save_load().listbox_games_window.clone().as_ref() {
-                    enable_window_rc(listbox, true, effects);
-                }
-                if let Some(frame) = effects.save_load().button_frame.clone().as_ref() {
-                    enable_window_rc(frame, true, effects);
-                }
-                update_menu_actions(effects);
+                restore_save_load_controls(effects);
 
                 let selected = (control_id == effects.save_load().button_load_confirm)
                     .then(|| selected_save(effects.save_load()))
@@ -2045,16 +1981,14 @@ fn hide_popup_save_load_confirmations(
     layout: &Rc<RefCell<WindowLayout>>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let windows = layout.borrow().windows().to_vec();
-    for window in windows {
-        let is_confirmation = matches!(
-            window.borrow().get_name(),
-            "PopupSaveLoad.wnd:LoadConfirmParent"
-                | "PopupSaveLoad.wnd:OverwriteConfirmParent"
-                | "PopupSaveLoad.wnd:SaveDescParent"
-                | "PopupSaveLoad.wnd:DeleteConfirmParent"
-        );
-        if is_confirmation {
+    for name in [
+        "PopupSaveLoad.wnd:LoadConfirmParent",
+        "PopupSaveLoad.wnd:OverwriteConfirmParent",
+        "PopupSaveLoad.wnd:SaveDescParent",
+        "PopupSaveLoad.wnd:DeleteConfirmParent",
+    ] {
+        let id = NameKeyGenerator::name_to_key(name) as i32;
+        if let Some(window) = layout_window_by_id(&layout.borrow(), id) {
             hide_save_load_window(&window, true, effects);
         }
     }

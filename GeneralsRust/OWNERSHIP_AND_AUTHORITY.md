@@ -2986,3 +2986,7 @@ weapon-slot shot deadline and remains owned by the firing world.
 Failed strict module-data parsing rolls back keys allocated by that admission;
 existing keys and registered module data remain unchanged. Shared module-data
 snapshot transfer still has an unsound mutable alias and needs an owner cutover.
+
+The save-description dialog disables its owning menu's actions while open.
+Closing or reinitializing the cached popup restores its list and action frame
+and dismisses child dialogs.
