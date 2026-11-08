@@ -93,6 +93,11 @@ impl PathfindingSystem {
     }
 
     /// C++ getRelationship == ALLIES bits for occupancy crush-through.
+    #[cfg(test)]
+    pub(crate) fn players_are_pathfind_allies(&self, a: u32, b: u32) -> bool {
+        self.grid.ally_mask_for(a) & (1u16 << b.min(15)) != 0
+    }
+
     pub fn set_player_ally_masks(&mut self, masks: [u16; 16]) {
         self.grid.set_player_ally_masks(masks);
     }
