@@ -14,18 +14,17 @@ pub fn publish_rank_level_limit(level: i32) {
         .store(level, Ordering::Relaxed);
 }
 
-/// Publish only for the process singleton. `try_lock` success is a stack copy
-/// unless the pointer matches. `WouldBlock` means the caller already holds the
-/// singleton mutex (single-threaded sim).
+/// Publish the cap to the services of the EngineStores this logic was
+/// constructed with. No singleton lock is consulted, so a setter running while
+/// its own world is borrowed can no longer silently skip the publish.
+/// Logic created without an owner (`GameLogic::new`) publishes nothing.
 pub fn publish_rank_cap_if_live(logic: &GameLogic) {
-    match crate::system::game_logic::get_game_logic().try_lock() {
-        Ok(guard) => {
-            if std::ptr::eq(&*guard, logic) {
-                publish_rank_level_limit(logic.rank_level_limit);
-            }
-        }
-        Err(std::sync::TryLockError::WouldBlock) => {}
-        Err(_) => {}
+    if let Some(owner) = logic.pathfinding_owner.as_ref() {
+        owner
+            .services()
+            .session_flags()
+            .rank_level_limit
+            .store(logic.rank_level_limit, Ordering::Relaxed);
     }
 }
 
