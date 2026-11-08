@@ -160,3 +160,31 @@ fn campaign_ai_peer_does_not_affect_skirmish_target_scoring() {
         );
     }
 }
+
+#[test]
+fn restoring_ai_controllers_does_not_copy_runtime_enemy_state_between_worlds() {
+    let rows = [
+        (1, Team::USA, Vec3::ZERO, true),
+        (2, Team::China, Vec3::new(100.0, 0.0, 50.0), true),
+    ];
+    let mut source = world_with_enemy_objects(&rows);
+    let mut receiving = world_with_enemy_objects(&rows);
+    add_assessing_ai(&mut source, 1, Vec3::ZERO);
+    add_assessing_ai(&mut receiving, 1, Vec3::ZERO);
+
+    // C++ AISkirmishPlayer::xfer omits both runtime fields. Loading creates
+    // a fresh controller, while the source world's controller is untouched.
+    let ai = source.ai_manager.ai_players.get_mut(&1).unwrap();
+    ai.enemy_player_id = Some(2);
+    ai.frame_to_check_enemy = 301;
+    let snapshot = source.snapshot_host_ai_players_for_save();
+    let ai = receiving.ai_manager.ai_players.get_mut(&1).unwrap();
+    ai.enemy_player_id = Some(2);
+    ai.frame_to_check_enemy = 999;
+    receiving.restore_host_ai_players_from_save(&snapshot);
+
+    assert_eq!(receiving.ai_manager.ai_players[&1].enemy_player_id, None);
+    assert_eq!(receiving.ai_manager.ai_players[&1].frame_to_check_enemy, 0);
+    assert_eq!(source.ai_manager.ai_players[&1].enemy_player_id, Some(2));
+    assert_eq!(source.ai_manager.ai_players[&1].frame_to_check_enemy, 301);
+}
