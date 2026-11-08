@@ -283,9 +283,21 @@ impl HTreeClass {
         self.find_pivot_index(name).unwrap_or(0)
     }
 
-    /// Set scale factor for animations
-    pub fn set_scale_factor(&mut self, factor: f32) {
-        self.scale_factor = factor;
+    /// Scale all pivot base translations and accumulate the animation scale.
+    ///
+    /// Like C++ `HTreeClass::Scale`, this leaves rotations and the current
+    /// evaluated transforms unchanged until the next hierarchy update.
+    pub fn scale(&mut self, factor: f32) {
+        if factor == 1.0 {
+            return;
+        }
+        for pivot in &mut self.pivots {
+            let translation = pivot.base_transform.w_axis.truncate() * factor;
+            pivot.base_transform.w_axis.x = translation.x;
+            pivot.base_transform.w_axis.y = translation.y;
+            pivot.base_transform.w_axis.z = translation.z;
+        }
+        self.scale_factor *= factor;
     }
 
     /// Get scale factor
