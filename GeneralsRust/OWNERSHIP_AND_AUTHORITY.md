@@ -3043,3 +3043,5 @@ science catalog; `None` clears the field and terminates its scan.
 
 The unused WWLib field-size macro was removed: it formed a reference to an
 uninitialized field merely to query its size, which is not a valid Rust borrow.
+The uncompiled alternate turret implementation with a self-referential raw
+pointer was removed; the admitted turret implementation uses owned state.
