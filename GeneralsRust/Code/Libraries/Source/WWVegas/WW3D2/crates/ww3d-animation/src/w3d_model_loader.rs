@@ -10,7 +10,7 @@
 //! Reference: C++ mesh.cpp, htree.cpp, hmodel.cpp, meshmdl.cpp
 use crate::hanim::HAnimClass;
 use crate::htree::HTreeClass;
-use crate::w3d_loader::{W3DAnimationError, load_w3d_animation, load_w3d_hierarchy};
+use crate::w3d_loader::{W3DAnimationError, parse_animation_chunk, parse_hierarchy_chunk};
 use glam::Vec3;
 use std::collections::HashMap;
 use std::io::{Read, Seek};
@@ -136,19 +136,26 @@ impl W3DModel {
         }
     }
 
-    /// Load a complete W3D model from a file
-    /// Automatically detects and loads hierarchies, animations, and LODs
-    pub fn load_from_file(path: &str) -> Result<Self, W3DAnimationError> {
+    /// Load meshes, hierarchies, animations and LODs from a W3D file.
+    ///
+    /// `resolve_hierarchy` borrows hierarchies already admitted by the owner.
+    /// An animation whose named hierarchy is unavailable fails the load.
+    pub fn load_from_file<'a>(
+        path: &str,
+        resolve_hierarchy: &dyn Fn(&str) -> Option<&'a HTreeClass>,
+    ) -> Result<Self, W3DAnimationError> {
         let mut file = std::fs::File::open(path).map_err(W3DAnimationError::IoError)?;
-        Self::load_from_reader(&mut file, path)
+        Self::load_from_reader(&mut file, path, resolve_hierarchy)
     }
 
-    /// Load from a reader
-    pub fn load_from_reader<R: Read + Seek>(
+    /// Load a W3D model from a reader using the owner's hierarchy resolver.
+    pub fn load_from_reader<'a, R: Read + Seek>(
         reader: &mut R,
         name: &str,
+        resolve_hierarchy: &dyn Fn(&str) -> Option<&'a HTreeClass>,
     ) -> Result<Self, W3DAnimationError> {
         let mut model = Self::new(name);
+        let mut pending_animations = Vec::new();
 
         // Get file length
         let file_len = reader.seek(std::io::SeekFrom::End(0))?;
@@ -166,7 +173,7 @@ impl W3DModel {
                     model.meshes.push(mesh_data);
                 }
                 Some(W3DChunkType::Hierarchy) => {
-                    let hierarchy = load_w3d_hierarchy(reader)?;
+                    let hierarchy = parse_hierarchy_chunk(reader, header.actual_size())?;
                     model.hierarchy = Some(hierarchy);
                 }
                 Some(W3DChunkType::Hmodel) => {
@@ -177,13 +184,8 @@ impl W3DModel {
                     let lod_model = Self::parse_lod_chunk(reader, header.actual_size())?;
                     model.lod_model = Some(lod_model);
                 }
-                Some(W3DChunkType::Animation) | Some(W3DChunkType::CompressedAnimation) => {
-                    // Reset to chunk start to re-parse
-                    reader.seek(std::io::SeekFrom::Start(chunk_start))?;
-                    if let Ok(anim_data) = load_w3d_animation(reader) {
-                        let anim = crate::w3d_loader::w3d_animation_to_hanim(anim_data.clone());
-                        model.animations.insert(anim_data.name.clone(), anim);
-                    }
+                Some(W3DChunkType::Animation) => {
+                    pending_animations.push(parse_animation_chunk(reader, header.actual_size())?);
                 }
                 _ => {
                     // Skip unknown chunks
@@ -191,6 +193,17 @@ impl W3DModel {
             }
 
             reader.seek(std::io::SeekFrom::Start(chunk_end))?;
+        }
+
+        for anim_data in pending_animations {
+            let hierarchy = model.hierarchy.as_ref()
+                .filter(|tree| tree.name.eq_ignore_ascii_case(&anim_data.hierarchy_name))
+                .or_else(|| resolve_hierarchy(&anim_data.hierarchy_name))
+                .ok_or_else(|| W3DAnimationError::MissingChunk(format!(
+                    "Hierarchy {}", anim_data.hierarchy_name
+                )))?;
+            let anim = crate::w3d_loader::w3d_animation_to_hanim(anim_data, hierarchy)?;
+            model.animations.insert(anim.name.clone(), anim);
         }
 
         Ok(model)

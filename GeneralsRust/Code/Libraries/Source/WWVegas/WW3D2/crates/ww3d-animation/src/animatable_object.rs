@@ -437,22 +437,13 @@ impl Animatable3DObjClass {
     /// Apply single animation to hierarchy
     /// Reference: htree.cpp Anim_Update logic
     fn anim_update(htree: &mut HTreeClass, transform: Mat4, motion: &HAnimClass, frame: f32) {
-        // Sample animation at current frame
-        let pivot_count = htree.num_pivots().min(motion.num_pivots());
-        let mut translations = vec![glam::Vec3::ZERO; pivot_count];
-        let mut rotations = vec![glam::Quat::IDENTITY; pivot_count];
-
-        for pivot_idx in 0..pivot_count {
-            translations[pivot_idx] = motion.get_translation(pivot_idx, frame);
-            rotations[pivot_idx] = motion.get_orientation(pivot_idx, frame);
-        }
-
-        htree.anim_update(transform, &translations, &rotations);
-        for (index, pivot) in htree.pivots.iter_mut().enumerate().take(pivot_count).skip(1) {
-            if !pivot.is_captured {
-                pivot.is_visible = motion.get_visibility(index, frame);
-            }
-        }
+        htree.anim_update_sampled(transform, |index| {
+            (index < motion.num_pivots()).then(|| (
+                motion.get_translation(index, frame),
+                motion.get_orientation(index, frame),
+                motion.get_visibility(index, frame),
+            ))
+        });
     }
 
     /// Blend two animations
@@ -466,27 +457,18 @@ impl Animatable3DObjClass {
         frame1: f32,
         percentage: f32,
     ) {
-        let pivot_count = htree.num_pivots().min(motion0.num_pivots()).min(motion1.num_pivots());
-        let mut translations = vec![glam::Vec3::ZERO; pivot_count];
-        let mut rotations = vec![glam::Quat::IDENTITY; pivot_count];
-
-        for pivot_idx in 0..pivot_count {
-            let trans0 = motion0.get_translation(pivot_idx, frame0);
-            let trans1 = motion1.get_translation(pivot_idx, frame1);
-            translations[pivot_idx] = trans0.lerp(trans1, percentage);
-
-            let rot0 = motion0.get_orientation(pivot_idx, frame0);
-            let rot1 = motion1.get_orientation(pivot_idx, frame1);
-            rotations[pivot_idx] = rot0.slerp(rot1, percentage);
-        }
-
-        htree.anim_update(transform, &translations, &rotations);
-        for (index, pivot) in htree.pivots.iter_mut().enumerate().take(pivot_count).skip(1) {
-            if !pivot.is_captured {
-                pivot.is_visible =
-                    motion0.get_visibility(index, frame0) || motion1.get_visibility(index, frame1);
-            }
-        }
+        let pivot_count = motion0.num_pivots().min(motion1.num_pivots());
+        htree.anim_update_sampled(transform, |index| {
+            (index < pivot_count).then(|| (
+                motion0.get_translation(index, frame0).lerp(
+                    motion1.get_translation(index, frame1), percentage,
+                ),
+                motion0.get_orientation(index, frame0).slerp(
+                    motion1.get_orientation(index, frame1), percentage,
+                ),
+                motion0.get_visibility(index, frame0) || motion1.get_visibility(index, frame1),
+            ))
+        });
     }
 
     /// Compute current frame based on sync time and animation mode

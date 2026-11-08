@@ -14,7 +14,8 @@ fn main() {
     // Example 1: Load a hierarchy (skeleton)
     println!("Example 1: Loading hierarchy from W3D file");
     println!("------------------------------------------");
-    match load_w3d_hierarchy_from_file("assets/models/tank.w3d") {
+    let hierarchy = load_w3d_hierarchy_from_file("assets/models/tank.w3d");
+    match &hierarchy {
         Ok(hierarchy) => {
             println!("Successfully loaded hierarchy: {}", hierarchy.name);
             println!("Number of pivots (bones): {}", hierarchy.pivots.len());
@@ -36,7 +37,10 @@ fn main() {
     // Example 2: Load an animation
     println!("Example 2: Loading animation from W3D file");
     println!("------------------------------------------");
-    match load_w3d_animation_from_file("assets/animations/tank_move.w3d") {
+    match load_w3d_animation_from_file("assets/animations/tank_move.w3d", &|name| {
+        hierarchy.as_ref().ok().filter(|tree| tree.name.eq_ignore_ascii_case(name))
+            .map(|tree| tree.num_pivots())
+    }) {
         Ok(anim_data) => {
             println!("Successfully loaded animation: {}", anim_data.name);
             println!("Hierarchy: {}", anim_data.hierarchy_name);
@@ -55,9 +59,12 @@ fn main() {
                 );
             }
 
-            // Convert to HAnimClass for use in the animation system
-            let hanim = w3d_animation_to_hanim(anim_data);
-            println!("\nConverted to HAnimClass: {}", hanim.get_name());
+            if let Ok(tree) = &hierarchy {
+                match w3d_animation_to_hanim(anim_data, tree) {
+                    Ok(hanim) => println!("\nConverted to HAnimClass: {}", hanim.get_name()),
+                    Err(error) => println!("Cannot convert animation: {error}"),
+                }
+            }
         }
         Err(e) => {
             println!(
@@ -74,8 +81,8 @@ fn main() {
     println!("Example 3: Typical usage pattern");
     println!("---------------------------------");
     println!("1. Load hierarchy: let hierarchy = load_w3d_hierarchy_from_file(path)?;");
-    println!("2. Load animation: let anim_data = load_w3d_animation_from_file(path)?;");
-    println!("3. Convert to HAnimClass: let hanim = w3d_animation_to_hanim(anim_data);");
+    println!("2. Load animation with a named-hierarchy resolver.");
+    println!("3. Convert raw animation: w3d_animation_to_hanim(anim_data, &hierarchy)?;");
     println!("4. Use with HAnimCombo for blending and playback");
     println!();
     println!("Supported features:");

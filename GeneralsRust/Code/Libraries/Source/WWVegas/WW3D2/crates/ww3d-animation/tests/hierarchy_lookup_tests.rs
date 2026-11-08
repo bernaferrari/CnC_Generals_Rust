@@ -112,11 +112,11 @@ fn single_and_blended_animation_apply_visibility_per_pivot() {
         default_value: 1,
     };
     let hidden = Arc::new(HAnimClass::with_channels(
-        "hidden", "tree", 2, 30.0, vec![],
+        "hidden", "tree", 2, 30.0, 4, vec![],
         vec![channel(1, 0b10), channel(2, 0), channel(3, 0)],
     ));
     let other = Arc::new(HAnimClass::with_channels(
-        "other", "tree", 2, 30.0, vec![],
+        "other", "tree", 2, 30.0, 3, vec![],
         vec![channel(1, 0b01), channel(2, 0)],
     ));
     let mut tree = HTreeClass::default();
@@ -148,4 +148,49 @@ fn single_and_blended_animation_apply_visibility_per_pivot() {
     object.set_animation_blend(Some(hidden), 0.0, Some(other), 1.0, 1.0);
     object.update_sub_object_transforms();
     assert!(!object.htree.get_visibility(1));
+}
+
+#[test]
+fn unanimated_trailing_pivots_use_authored_hierarchy_size_in_single_and_blended_updates() {
+    let hidden = Arc::new(HAnimClass::with_channels(
+        "hidden", "large", 1, 30.0, 5, vec![],
+        vec![BitChannel {
+            pivot_idx: 3,
+            channel_type: MotionChannelType::Visibility,
+            data: vec![0],
+            first_frame: 0,
+            last_frame: 0,
+            default_value: 1,
+        }],
+    ));
+    let unanimated = Arc::new(HAnimClass::with_channels(
+        "idle", "large", 1, 30.0, 5, vec![], vec![],
+    ));
+    let shorter = Arc::new(HAnimClass::with_channels(
+        "short", "small", 1, 30.0, 3, vec![], vec![],
+    ));
+    let mut tree = HTreeClass::default();
+    for name in ["one", "two", "three", "four", "outside"] {
+        tree.add_pivot(name, 0, Vec3::ZERO, Quat::IDENTITY);
+    }
+    let mut object = Animatable3DObjClass::new(tree);
+    object.htree.pivots[4].is_visible = false;
+    object.htree.pivots[5].is_visible = false;
+    object.set_animation(Some(hidden.clone()), 0.0, AnimationMode::Manual, 0.0);
+    object.update_sub_object_transforms();
+    assert!(!object.htree.get_visibility(3));
+    assert!(object.htree.get_visibility(4));
+    assert!(!object.htree.get_visibility(5));
+
+    object.htree.pivots[4].is_visible = false;
+    object.set_animation_blend(Some(hidden), 0.0, Some(shorter), 0.0, 0.5);
+    object.update_sub_object_transforms();
+    assert!(!object.htree.get_visibility(3));
+    assert!(!object.htree.get_visibility(4));
+
+    object.set_animation_blend(Some(unanimated.clone()), 0.0, Some(unanimated), 0.0, 0.5);
+    object.update_sub_object_transforms();
+    assert!(object.htree.get_visibility(3));
+    assert!(object.htree.get_visibility(4));
+    assert!(!object.htree.get_visibility(5));
 }

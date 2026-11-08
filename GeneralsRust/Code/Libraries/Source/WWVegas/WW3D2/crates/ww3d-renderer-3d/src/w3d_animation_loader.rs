@@ -16,7 +16,7 @@ use std::cell::RefCell;
 use std::sync::Arc;
 use std::rc::Rc;
 use ww3d_animation::{
-    HAnimClass, HCompressedAnimClass, load_w3d_animation, w3d_animation_to_hanim,
+    HAnimClass, HCompressedAnimClass, HTreeClass, load_w3d_animation, w3d_animation_to_hanim,
 };
 
 /// Result type for animation loader operations
@@ -125,7 +125,7 @@ impl W3DAnimationLoader {
     ///
     /// # Returns
     /// Loaded animation data ready for playback
-    pub fn load_animation(file_path: &str) -> AnimationLoaderResult<LoadedAnimation> {
+    pub fn load_animation(file_path: &str, hierarchy: &HTreeClass) -> AnimationLoaderResult<LoadedAnimation> {
         // Verify file exists
         if !std::path::Path::new(file_path).exists() {
             return Err(AnimationLoaderError::FileNotFound(file_path.to_string()));
@@ -136,21 +136,28 @@ impl W3DAnimationLoader {
             .map_err(|e| AnimationLoaderError::FileNotFound(format!("{}: {}", file_path, e)))?;
 
         // Parse as W3D animation
-        Self::parse_animation_data(&file_data, file_path)
+        Self::parse_animation_data(&file_data, file_path, hierarchy)
     }
 
     /// Parse animation data from binary W3D content
     fn parse_animation_data(
         data: &[u8],
         file_path: &str,
+        hierarchy: &HTreeClass,
     ) -> AnimationLoaderResult<LoadedAnimation> {
         let mut cursor = Cursor::new(data);
-        let anim_data = load_w3d_animation(&mut cursor)
-            .map_err(|e| AnimationLoaderError::ParseError(format!("{}: {}", file_path, e)))?;
+        let anim_data = load_w3d_animation(&mut cursor, &|name| {
+            name.eq_ignore_ascii_case(&hierarchy.name).then_some(hierarchy.num_pivots())
+        }).map_err(|e| AnimationLoaderError::ParseError(format!("{}: {}", file_path, e)))?;
+        if !anim_data.hierarchy_name.eq_ignore_ascii_case(&hierarchy.name) {
+            return Err(AnimationLoaderError::InvalidAnimationData(format!(
+                "missing hierarchy {}", anim_data.hierarchy_name
+            )));
+        }
 
-        let has_channels = !anim_data.channels.is_empty();
-        let hanim = if has_channels {
-            Some(w3d_animation_to_hanim(anim_data.clone()))
+        let hanim = if anim_data.compression_flavor.is_none() && anim_data.morph_anim.is_none() {
+            Some(w3d_animation_to_hanim(anim_data.clone(), hierarchy)
+                .map_err(|e| AnimationLoaderError::ParseError(e.to_string()))?)
         } else {
             None
         };
@@ -189,8 +196,9 @@ impl W3DAnimationLoader {
     pub fn load_animation_from_buffer(
         data: &[u8],
         name: &str,
+        hierarchy: &HTreeClass,
     ) -> AnimationLoaderResult<LoadedAnimation> {
-        Self::parse_animation_data(data, name)
+        Self::parse_animation_data(data, name, hierarchy)
     }
 }
 
@@ -415,14 +423,18 @@ impl AnimationCache {
     pub fn load_or_cache(
         &mut self,
         file_path: &str,
+        hierarchy: &HTreeClass,
     ) -> AnimationLoaderResult<Arc<LoadedAnimation>> {
         // Check if already cached
         if let Some(anim) = self.animations.get(file_path) {
-            return Ok(Arc::new(anim.clone()));
+            if anim.hierarchy_name.eq_ignore_ascii_case(&hierarchy.name)
+                && anim.bone_count as usize == hierarchy.num_pivots() {
+                return Ok(Arc::new(anim.clone()));
+            }
         }
 
         // Load from file
-        let anim = W3DAnimationLoader::load_animation(file_path)?;
+        let anim = W3DAnimationLoader::load_animation(file_path, hierarchy)?;
         let anim_arc = Arc::new(anim.clone());
         self.animations.insert(file_path.to_string(), anim);
 

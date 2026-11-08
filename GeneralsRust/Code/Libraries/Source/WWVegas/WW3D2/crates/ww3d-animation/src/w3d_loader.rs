@@ -128,14 +128,18 @@ pub struct W3DHModelNode {
 }
 
 /// Load a W3D animation from a file
-pub fn load_w3d_animation_from_file(path: &str) -> Result<W3DAnimationData, W3DAnimationError> {
+pub fn load_w3d_animation_from_file(
+    path: &str,
+    hierarchy_pivots: &dyn Fn(&str) -> Option<usize>,
+) -> Result<W3DAnimationData, W3DAnimationError> {
     let mut file = std::fs::File::open(path)?;
-    load_w3d_animation(&mut file)
+    load_w3d_animation(&mut file, hierarchy_pivots)
 }
 
 /// Load a W3D animation from a reader
 pub fn load_w3d_animation<R: Read + Seek>(
     reader: &mut R,
+    hierarchy_pivots: &dyn Fn(&str) -> Option<usize>,
 ) -> Result<W3DAnimationData, W3DAnimationError> {
     // Read the file and find the animation chunk
     let file_len = reader.seek(SeekFrom::End(0))?;
@@ -152,7 +156,7 @@ pub fn load_w3d_animation<R: Read + Seek>(
             }
             Some(W3DChunkType::CompressedAnimation) => {
                 // NEW: Parse compressed animation with full HCompressedAnimClass support
-                return parse_compressed_animation_chunk(reader, header.actual_size());
+                return parse_compressed_animation_chunk(reader, header.actual_size(), hierarchy_pivots);
             }
             Some(W3DChunkType::MorphAnimation) => {
                 return parse_morph_animation_chunk(reader, header.actual_size());
@@ -175,7 +179,7 @@ pub fn load_w3d_animation<R: Read + Seek>(
 }
 
 /// Parse an uncompressed animation chunk
-fn parse_animation_chunk<R: Read + Seek>(
+pub(crate) fn parse_animation_chunk<R: Read + Seek>(
     reader: &mut R,
     chunk_size: u32,
 ) -> Result<W3DAnimationData, W3DAnimationError> {
@@ -333,6 +337,7 @@ fn parse_timecoded_channel_chunk<R: Read + Seek>(
 fn parse_compressed_animation_chunk<R: Read + Seek>(
     reader: &mut R,
     chunk_size: u32,
+    hierarchy_pivots: &dyn Fn(&str) -> Option<usize>,
 ) -> Result<W3DAnimationData, W3DAnimationError> {
     let chunk_end = reader.stream_position()? + chunk_size as u64;
 
@@ -358,40 +363,12 @@ fn parse_compressed_animation_chunk<R: Read + Seek>(
         W3DAnimationError::MissingChunk("Compressed animation header".to_string())
     })?;
 
-    // First pass: find the maximum pivot index to determine num_nodes
-    // This allows us to calculate the correct number of bones from the channels themselves
-    let mut max_pivot_index = 0u32;
-    reader.seek(SeekFrom::Start(start_pos))?;
+    let hierarchy_name = ww3d_core::w3d_string_from_bytes(&header.hierarchy_name);
+    let num_nodes = hierarchy_pivots(&hierarchy_name).ok_or_else(|| {
+        W3DAnimationError::MissingChunk(format!("Hierarchy {hierarchy_name}"))
+    })?;
 
-    while reader.stream_position()? < chunk_end {
-        let sub_header: W3dChunkHeader = reader.read_le()?;
-        let sub_start = reader.stream_position()?;
-        let sub_end = sub_start + sub_header.actual_size() as u64;
-        let chunk_size = sub_header.actual_size();
-
-        match sub_header.chunk_type() {
-            Some(W3DChunkType::CompressedAnimationChannel) => {
-                if chunk_size >= 6 {
-                    let _count: u32 = reader.read_le()?;
-                    let pivot_index: u16 = reader.read_le()?;
-                    max_pivot_index = max_pivot_index.max(pivot_index as u32);
-                }
-            }
-            Some(W3DChunkType::CompressedBitChannel) if chunk_size >= 6 => {
-                let _num_timecodes: u32 = reader.read_le()?;
-                let pivot_index: u16 = reader.read_le()?;
-                max_pivot_index = max_pivot_index.max(pivot_index as u32);
-            }
-            _ => {}
-        }
-
-        reader.seek(SeekFrom::Start(sub_end))?;
-    }
-
-    // Calculate num_nodes from maximum pivot index (add 1 to account for 0-based indexing)
-    let num_nodes = (max_pivot_index + 1).max(1) as usize;
-
-    // Create HCompressedAnimClass with calculated num_nodes
+    // C++ allocates one motion slot per pivot in the named hierarchy.
     let flavor = u32::from(header.flavor);
     let mut compressed_anim = HCompressedAnimClass::new(
         ww3d_core::w3d_string_from_bytes(&header.name),
@@ -720,8 +697,19 @@ fn parse_hmodel_chunk<R: Read + Seek>(
     })
 }
 
-/// Convert W3D animation data to HAnimClass
-pub fn w3d_animation_to_hanim(anim_data: W3DAnimationData) -> HAnimClass {
+/// Convert raw animation data using its named authored hierarchy.
+pub fn w3d_animation_to_hanim(
+    anim_data: W3DAnimationData,
+    hierarchy: &HTreeClass,
+) -> Result<HAnimClass, W3DAnimationError> {
+    if !anim_data.hierarchy_name.eq_ignore_ascii_case(&hierarchy.name) {
+        return Err(W3DAnimationError::MissingChunk(format!(
+            "Hierarchy {}", anim_data.hierarchy_name
+        )));
+    }
+    if anim_data.compression_flavor.is_some() || anim_data.morph_anim.is_some() {
+        return Err(W3DAnimationError::InvalidData("Expected raw animation".into()));
+    }
     let channels: Vec<MotionChannel> = anim_data
         .channels
         .into_iter()
@@ -749,14 +737,15 @@ pub fn w3d_animation_to_hanim(anim_data: W3DAnimationData) -> HAnimClass {
         })
         .collect();
 
-    HAnimClass::with_channels(
+    Ok(HAnimClass::with_channels(
         &anim_data.name,
         &anim_data.hierarchy_name,
         anim_data.num_frames,
         anim_data.frame_rate,
+        hierarchy.num_pivots(),
         channels,
         bit_channels,
-    )
+    ))
 }
 
 /// Load hierarchy from W3D file
@@ -791,7 +780,7 @@ pub fn load_w3d_hierarchy<R: Read + Seek>(reader: &mut R) -> Result<HTreeClass, 
 }
 
 /// Parse a hierarchy chunk
-fn parse_hierarchy_chunk<R: Read + Seek>(
+pub(crate) fn parse_hierarchy_chunk<R: Read + Seek>(
     reader: &mut R,
     chunk_size: u32,
 ) -> Result<HTreeClass, W3DAnimationError> {
@@ -855,15 +844,19 @@ pub struct W3CContainerData {
 
 /// Load a W3C container file (can contain multiple W3D assets)
 /// Reference: w3d_file.cpp W3C loading
-pub fn load_w3c_from_file(path: &str) -> Result<W3CContainerData, W3DAnimationError> {
+pub fn load_w3c_from_file(
+    path: &str,
+    hierarchy_pivots: &dyn Fn(&str) -> Option<usize>,
+) -> Result<W3CContainerData, W3DAnimationError> {
     let mut file = std::fs::File::open(path)?;
-    load_w3c_from_reader(&mut file)
+    load_w3c_from_reader(&mut file, hierarchy_pivots)
 }
 
 /// Load W3C container from reader
 /// W3C files contain multiple W3D chunks (meshes, animations, hierarchies)
 pub fn load_w3c_from_reader<R: Read + Seek>(
     reader: &mut R,
+    hierarchy_pivots: &dyn Fn(&str) -> Option<usize>,
 ) -> Result<W3CContainerData, W3DAnimationError> {
     let file_len = reader.seek(SeekFrom::End(0))?;
     reader.seek(SeekFrom::Start(0))?;
@@ -886,7 +879,10 @@ pub fn load_w3c_from_reader<R: Read + Seek>(
                 }
             }
             Some(W3DChunkType::CompressedAnimation) => {
-                if let Ok(anim) = parse_compressed_animation_chunk(reader, header.actual_size()) {
+                if let Ok(anim) = parse_compressed_animation_chunk(reader, header.actual_size(), &|name| {
+                    hierarchies.iter().find(|tree: &&HTreeClass| tree.name.eq_ignore_ascii_case(name))
+                        .map(|tree| tree.num_pivots()).or_else(|| hierarchy_pivots(name))
+                }) {
                     animations.push(anim);
                 }
             }
@@ -987,6 +983,14 @@ mod tests {
     use super::*;
     use glam::Quat;
     use std::io::Cursor;
+
+    fn unit_tree(count: usize) -> HTreeClass {
+        let mut tree = HTreeClass::with_name("Unit");
+        for i in 0..count {
+            tree.add_pivot(&format!("bone{i}"), if i == 0 { -1 } else { 0 }, glam::Vec3::ZERO, Quat::IDENTITY);
+        }
+        tree
+    }
 
     fn fixed_name(name: &str) -> [u8; 16] {
         let mut bytes = [0u8; 16];
@@ -1234,7 +1238,7 @@ mod tests {
             morph_anim: None,
         };
 
-        let hanim = w3d_animation_to_hanim(anim_data);
+        let hanim = w3d_animation_to_hanim(anim_data, &unit_tree(4)).unwrap();
 
         assert!(hanim.has_quaternion_rotation(1));
         assert!(hanim.get_orientation(1, 0.0).abs_diff_eq(q0, 0.00001));
@@ -1262,7 +1266,7 @@ mod tests {
             morph_anim: None,
         };
 
-        let hanim = w3d_animation_to_hanim(anim_data);
+        let hanim = w3d_animation_to_hanim(anim_data, &unit_tree(4)).unwrap();
 
         assert!(hanim.has_visibility(2));
         assert!(hanim.get_visibility(2, 0.0));
@@ -1278,14 +1282,14 @@ mod tests {
         let bytes = raw_animation_with_bit_channel_fixture();
         let mut cursor = Cursor::new(bytes);
 
-        let anim_data = load_w3d_animation(&mut cursor).expect("load raw animation");
+        let anim_data = load_w3d_animation(&mut cursor, &|_| None).expect("load raw animation");
 
         assert_eq!(anim_data.bit_channels.len(), 1);
         assert_eq!(anim_data.bit_channels[0].pivot_index, 2);
         assert_eq!(anim_data.bit_channels[0].default_value, 1);
         assert_eq!(anim_data.bit_channels[0].data, vec![0b0000_1010]);
 
-        let hanim = w3d_animation_to_hanim(anim_data);
+        let hanim = w3d_animation_to_hanim(anim_data, &unit_tree(4)).unwrap();
         assert!(hanim.get_visibility(2, 0.0));
         assert!(!hanim.get_visibility(2, 1.0));
         assert!(hanim.get_visibility(2, 2.0));
@@ -1299,7 +1303,7 @@ mod tests {
         let bytes = compressed_animation_with_timecoded_channels_fixture();
         let mut cursor = Cursor::new(bytes);
 
-        let anim_data = load_w3d_animation(&mut cursor).expect("load compressed animation");
+        let anim_data = load_w3d_animation(&mut cursor, &|name| (name == "Unit").then_some(6)).expect("load compressed animation");
 
         assert_eq!(anim_data.name, "Move");
         assert_eq!(anim_data.hierarchy_name, "Unit");
@@ -1313,12 +1317,100 @@ mod tests {
         assert_eq!(compressed.get_num_frames(), 5);
         assert_eq!(compressed.get_frame_rate(), 30.0);
         assert_eq!(compressed.get_flavor(), ANIM_FLAVOR_TIMECODED);
-        assert_eq!(compressed.get_num_pivots(), 4);
+        assert_eq!(compressed.get_num_pivots(), 6);
         assert!(compressed.has_x_translation(2));
         assert!(compressed.has_visibility(3));
         assert_eq!(compressed.get_translation(2, 0.0).x, 1.5);
         assert!(!compressed.get_visibility(3, 0.0));
         assert!(compressed.get_visibility(3, 4.0));
+    }
+
+    #[test]
+    fn named_hierarchy_controls_raw_and_compressed_admission_and_bounds() {
+        let raw = raw_animation_with_bit_channel_fixture();
+        let data = load_w3d_animation(&mut Cursor::new(&raw), &|_| None).unwrap();
+        let wrong_tree = HTreeClass::with_name("Other");
+        assert!(w3d_animation_to_hanim(data.clone(), &wrong_tree).is_err());
+        let small = w3d_animation_to_hanim(data.clone(), &unit_tree(2)).unwrap();
+        assert_eq!(small.num_pivots(), 2);
+        assert!(!small.has_visibility(2));
+        let large = w3d_animation_to_hanim(data, &unit_tree(5)).unwrap();
+        assert_eq!(large.num_pivots(), 5);
+        assert!(large.has_visibility(2));
+        assert!(large.get_visibility(4, 0.0));
+        let mut tree = unit_tree(6);
+        tree.pivots[4].is_visible = false;
+        tree.pivots[5].is_visible = false;
+        let mut object = crate::Animatable3DObjClass::new(tree);
+        object.set_animation(Some(std::sync::Arc::new(large)), 1.0, crate::AnimationMode::Manual, 0.0);
+        object.update_sub_object_transforms();
+        assert!(!object.htree.get_visibility(2));
+        assert!(object.htree.get_visibility(4));
+        assert!(!object.htree.get_visibility(5));
+
+        let compressed = compressed_animation_with_timecoded_channels_fixture();
+        assert!(load_w3d_animation(&mut Cursor::new(&compressed), &|_| None).is_err());
+        let small = load_w3d_animation(&mut Cursor::new(&compressed), &|_| Some(3))
+            .unwrap().compressed_anim.unwrap();
+        assert_eq!(small.get_num_pivots(), 3);
+        assert!(!small.has_visibility(3));
+    }
+
+    #[test]
+    fn model_loader_resolves_animation_hierarchy_from_preloaded_owner() {
+        let raw = raw_animation_with_bit_channel_fixture();
+        let tree = unit_tree(5);
+        let model = crate::W3DModel::load_from_reader(
+            &mut Cursor::new(&raw),
+            "clip",
+            &|name| name.eq_ignore_ascii_case("Unit").then_some(&tree),
+        ).unwrap();
+        let anim = model.animations.get("Blink").unwrap();
+        assert_eq!(anim.num_pivots(), 5);
+        assert!(!anim.get_visibility(2, 1.0));
+
+        let missing = crate::W3DModel::load_from_reader(
+            &mut Cursor::new(&raw), "clip", &|_| None,
+        );
+        assert!(matches!(&missing, Err(W3DAnimationError::MissingChunk(name)) if name == "Hierarchy Unit"));
+
+        let wrong = HTreeClass::with_name("Other");
+        let mismatch = crate::W3DModel::load_from_reader(
+            &mut Cursor::new(&raw), "clip", &|_| Some(&wrong),
+        );
+        assert!(matches!(&mismatch, Err(W3DAnimationError::MissingChunk(name)) if name == "Hierarchy Unit"));
+    }
+
+    #[test]
+    fn model_loader_resolves_hierarchy_that_follows_animation_in_file() {
+        let mut bytes = raw_animation_with_bit_channel_fixture();
+        let mut header = Vec::new();
+        push_u32(&mut header, 0x0003_0000);
+        header.extend_from_slice(&fixed_name("Unit"));
+        push_u32(&mut header, 5);
+        for _ in 0..3 {
+            push_f32(&mut header, 0.0);
+        }
+        let mut pivots = Vec::new();
+        for index in 0..5 {
+            pivots.extend_from_slice(&fixed_name(&format!("bone{index}")));
+            pivots.extend_from_slice(&(if index == 0 { -1_i32 } else { 0 }).to_le_bytes());
+            for _ in 0..6 {
+                push_f32(&mut pivots, 0.0);
+            }
+        }
+        let mut hierarchy = Vec::new();
+        push_chunk(&mut hierarchy, W3DChunkType::HierarchyHeader, &header);
+        push_chunk(&mut hierarchy, W3DChunkType::Pivots, &pivots);
+        push_chunk(&mut bytes, W3DChunkType::Hierarchy, &hierarchy);
+
+        let model = crate::W3DModel::load_from_reader(
+            &mut Cursor::new(&bytes), "clip", &|_| None,
+        ).unwrap();
+        let anim = model.animations.get("Blink").unwrap();
+        assert_eq!(anim.num_pivots(), 5);
+        assert!(!anim.get_visibility(2, 1.0));
+        assert!(anim.get_visibility(4, 1.0));
     }
 
     #[test]
@@ -1393,7 +1485,7 @@ mod tests {
     fn load_w3d_animation_preserves_morph_channels_keys_and_pivot_map() {
         let fixture = morph_animation_fixture();
         let mut cursor = Cursor::new(fixture);
-        let anim = load_w3d_animation(&mut cursor).expect("morph animation should parse");
+        let anim = load_w3d_animation(&mut cursor, &|_| None).expect("morph animation should parse");
         let morph = anim.morph_anim.expect("morph payload should be retained");
 
         assert_eq!(anim.name, "Talk");
@@ -1433,7 +1525,7 @@ mod tests {
     fn load_w3c_stores_morph_animations_without_reparse_loss() {
         let fixture = morph_animation_fixture();
         let mut cursor = Cursor::new(fixture);
-        let container = load_w3c_from_reader(&mut cursor).expect("container should parse");
+        let container = load_w3c_from_reader(&mut cursor, &|_| None).expect("container should parse");
 
         assert_eq!(container.animations.len(), 0);
         assert_eq!(container.morph_animations.len(), 1);

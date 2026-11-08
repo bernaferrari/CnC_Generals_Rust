@@ -814,8 +814,9 @@ impl AnimationController {
     pub fn load_animation_prototype(
         &mut self,
         proto: &ww3d_assets::prototypes::AnimationPrototype,
-    ) -> Arc<HAnimClass> {
-        self.anim_manager.load_prototype(proto)
+        assets: &ww3d_assets::AssetManager,
+    ) -> Option<Arc<HAnimClass>> {
+        self.anim_manager.load_prototype(proto, assets)
     }
 
     pub fn set_object_animation(

@@ -69,22 +69,29 @@ pub use wgpu_skinned_renderer::{
     SkinnedVertex, prepare_model_for_rendering,
 };
 
-/// Build a [`HAnimClass`] from an [`AnimationPrototype`] exported by the asset loader.
-pub fn hanim_from_prototype(proto: &AnimationPrototype) -> HAnimClass {
+/// Build an animation against its named, authored hierarchy.
+pub fn hanim_from_prototype(
+    proto: &AnimationPrototype,
+    hierarchy: &HierarchyPrototype,
+) -> Option<HAnimClass> {
+    if !proto.hierarchy_name.eq_ignore_ascii_case(&hierarchy.name) {
+        return None;
+    }
     let channels = proto
         .channels
         .iter()
         .filter_map(motion_channel_from_data)
         .collect::<Vec<_>>();
 
-    HAnimClass::with_channels(
+    Some(HAnimClass::with_channels(
         &proto.name,
         &proto.hierarchy_name,
         proto.num_frames,
         proto.frame_rate as f32,
+        hierarchy.pivots.len(),
         channels,
         Vec::new(),
-    )
+    ))
 }
 
 /// Build an [`HTreeClass`] from a hierarchy prototype exported by the asset loader.

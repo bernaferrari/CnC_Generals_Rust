@@ -38,6 +38,12 @@ Shoreline rendering precedes the extra-blend pass. Mixed-cell and non-blend
 controls pass; a native Lone Eagle capture was inspected. Cliff/custom-edge
 fidelity, the 16-class binding limit, and a wasm frame remain unverified.
 
+The WW3D animation library resolves raw and compressed clip pivot counts from
+the named hierarchy rather than the highest animated channel. Missing
+hierarchies fail admission; single and blended hierarchy updates retain C++
+visibility behavior for unanimated and out-of-range pivots. This library path
+is distinct from Main's live W3D animation path and does not seal either one.
+
 | Step | State | Evidence |
 |---|---|---|
 | prerequisite | done | `drive_frame` self-deadlocked on the WW3D mutex on the first Menu frame (lock temporary in a `match` scrutinee); the shell then failed on object-less drawables (`missing native material observation`). Both fixed, so headless/windowed runs get past the menu again. |

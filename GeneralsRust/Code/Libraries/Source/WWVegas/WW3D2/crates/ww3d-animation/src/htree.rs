@@ -214,6 +214,37 @@ impl HTreeClass {
         }
     }
 
+    /// Evaluate animation samples in hierarchy order without temporary pose buffers.
+    pub(crate) fn anim_update_sampled(
+        &mut self,
+        root_transform: Mat4,
+        mut sample: impl FnMut(usize) -> Option<(Vec3, Quat, bool)>,
+    ) {
+        if self.pivots.is_empty() {
+            return;
+        }
+        self.pivots[0].transform = root_transform;
+        self.pivots[0].is_visible = true;
+        for i in 1..self.pivots.len() {
+            let parent_idx = self.pivots[i].parent_idx;
+            if parent_idx < 0 || parent_idx as usize >= self.pivots.len() {
+                continue;
+            }
+            let parent_transform = self.pivots[parent_idx as usize].transform;
+            let pivot = &mut self.pivots[i];
+            pivot.transform = parent_transform * pivot.base_transform;
+            if let Some((translation, rotation, visible)) = sample(i) {
+                pivot.transform *= Mat4::from_translation(translation * self.scale_factor);
+                pivot.transform *= Mat4::from_quat(rotation);
+                pivot.is_visible = visible;
+            }
+            if self.pivots[i].is_captured {
+                self.capture_update(i);
+                self.pivots[i].is_visible = true;
+            }
+        }
+    }
+
     /// Apply an animation combo to this hierarchy, mirroring the legacy Combo_Update.
     pub fn combo_update(&mut self, root_transform: Mat4, combo: &HAnimCombo) {
         if self.pivots.is_empty() {

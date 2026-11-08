@@ -35,8 +35,8 @@ fn example_load_model() {
     println!("Example 1: Loading W3D Model");
     println!("----------------------------");
 
-    // In a real application, you would load from an actual W3D file:
-    // let model = W3DModel::load_from_file("models/tank.w3d").unwrap();
+    // In a real application, load a W3D file with a resolver borrowing the
+    // owner's previously loaded hierarchies.
 
     // For this demo, we'll create a simple model
     let model = W3DModel::new("DemoTank");

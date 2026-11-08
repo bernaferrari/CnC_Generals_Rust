@@ -272,16 +272,19 @@ impl HAnimClass {
         }
     }
 
-    /// Construct an animation from decoded motion channels.
+    /// Construct an animation with the pivot count of its authored hierarchy.
+    /// Channels outside that hierarchy are discarded, as in hrawanim.cpp:219-243.
     pub fn with_channels(
         name: &str,
         hierarchy_name: &str,
         num_frames: u32,
         frame_rate: f32,
+        num_pivots: usize,
         channels: Vec<MotionChannel>,
         bit_channels: Vec<BitChannel>,
     ) -> Self {
         let mut anim = Self::new(name, hierarchy_name, num_frames, frame_rate);
+        anim.pivot_motions.resize_with(num_pivots, PivotMotion::default);
         for channel in channels {
             anim.install_channel(channel);
         }
@@ -294,8 +297,7 @@ impl HAnimClass {
     fn install_channel(&mut self, channel: MotionChannel) {
         let pivot = channel.pivot();
         if pivot >= self.pivot_motions.len() {
-            self.pivot_motions
-                .resize_with(pivot + 1, PivotMotion::default);
+            return;
         }
 
         self.channels.push(channel);
@@ -319,8 +321,7 @@ impl HAnimClass {
 
     fn install_bit_channel(&mut self, channel: BitChannel) {
         if channel.pivot_idx >= self.pivot_motions.len() {
-            self.pivot_motions
-                .resize_with(channel.pivot_idx + 1, PivotMotion::default);
+            return;
         }
         let pivot = channel.pivot_idx;
         if matches!(channel.channel_type, MotionChannelType::Visibility) {
@@ -726,21 +727,15 @@ impl HAnimClass {
 
     /// Apply animation to a hierarchy tree.
     pub fn apply_animation(&self, htree: &mut HTreeClass, frame: f32, root_transform: Mat4) {
-        let pivot_count = htree.num_pivots().min(self.num_pivots());
-        let mut translations = Vec::with_capacity(pivot_count);
-        let mut rotations = Vec::with_capacity(pivot_count);
-
-        for pivot in 0..pivot_count {
-            translations.push(self.get_translation(pivot, frame));
-            rotations.push(self.get_orientation(pivot, frame));
-        }
-
-        htree.anim_update(root_transform, &translations, &rotations);
-        for (index, pivot) in htree.pivots.iter_mut().enumerate().take(pivot_count).skip(1) {
-            if !pivot.is_captured {
-                pivot.is_visible = self.get_visibility(index, frame);
-            }
-        }
+        htree.anim_update_sampled(root_transform, |index| {
+            (index < self.num_pivots()).then(|| {
+                (
+                    self.get_translation(index, frame),
+                    self.get_orientation(index, frame),
+                    self.get_visibility(index, frame),
+                )
+            })
+        });
     }
 }
 
