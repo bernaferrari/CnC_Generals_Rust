@@ -9,7 +9,7 @@
 //! - Integrity checking and validation
 
 use bytemuck::{Pod, Zeroable, cast_slice, from_bytes};
-use memmap2::{Mmap, MmapOptions};
+use std::convert::TryFrom;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
@@ -74,7 +74,7 @@ pub struct BigArchive {
     header: BigHeader,
     files: HashMap<String, BigFileInfo>,
     name_lookup: BTreeMap<String, String>, // case-insensitive lookup
-    memory_map: Option<Mmap>,
+    archive_len: u64,
     file_handle: Option<Mutex<File>>,
     version: BigVersion,
     is_compressed: bool,
@@ -99,21 +99,18 @@ impl BigArchive {
 
         log::info!("Loading BIG archive: {}", path.display());
 
-        // Open file and create memory mapping
-        let file = File::open(&path)?;
-        // SAFETY: `file` is an exclusively opened read-only file handle; memmap2 maps
-        // SAFETY: a private read-only view. The mapping lives only as long as `mmap`,
-        // SAFETY: which is read through bounds-checked slices below.
-        let mmap = unsafe { MmapOptions::new().map(&file)? };
-
-        if mmap.len() < std::mem::size_of::<BigHeader>() {
+        // Keep the opened file for lazy extraction. A read-only mapping would not
+        // be safe: another process can still modify or truncate the backing file.
+        let mut file = File::open(&path)?;
+        let archive_len = file.metadata()?.len();
+        let mut header_bytes = [0u8; std::mem::size_of::<BigHeader>()];
+        if archive_len < header_bytes.len() as u64 {
             return Err(BigError::InvalidStructure(
                 "File too small for BIG header".to_string(),
             ));
         }
-
-        // Read and validate header
-        let header: BigHeader = *from_bytes(&mmap[0..std::mem::size_of::<BigHeader>()]);
+        file.read_exact(&mut header_bytes)?;
+        let header: BigHeader = *from_bytes(&header_bytes);
 
         let version = match &header.signature {
             b"BIGF" => BigVersion::Standard,
@@ -135,15 +132,15 @@ impl BigArchive {
         );
 
         // Validate header
-        if archive_size as usize != mmap.len() {
+        if archive_size as u64 != archive_len {
             log::warn!(
                 "Archive size mismatch: header={}, actual={}",
                 archive_size,
-                mmap.len()
+                archive_len
             );
         }
 
-        if header.first_file_offset as usize >= mmap.len() {
+        if header.first_file_offset as u64 >= archive_len {
             return Err(BigError::InvalidStructure(
                 "Invalid first file offset".to_string(),
             ));
@@ -156,21 +153,24 @@ impl BigArchive {
 
         // Calculate positions
         let entries_start = std::mem::size_of::<BigHeader>();
-        let entries_size = num_files as usize * std::mem::size_of::<BigFileEntry>();
-        let name_table_start = entries_start + entries_size;
+        let entries_size = (num_files as usize)
+            .checked_mul(std::mem::size_of::<BigFileEntry>())
+            .ok_or_else(|| BigError::InvalidStructure("File entries overflow".to_string()))?;
+        let name_table_start = entries_start.checked_add(entries_size)
+            .ok_or_else(|| BigError::InvalidStructure("File entries overflow".to_string()))?;
+        let first_file_offset = header.first_file_offset as usize;
 
-        if name_table_start > mmap.len() {
+        if name_table_start > first_file_offset {
             return Err(BigError::InvalidStructure(
                 "Name table beyond file bounds".to_string(),
             ));
         }
 
-        // Read file entries
-        let entries_data = &mmap[entries_start..entries_start + entries_size];
-        let file_entries: &[BigFileEntry] = cast_slice(entries_data);
-
-        // Read name table (null-terminated strings)
-        let name_table = &mmap[name_table_start..header.first_file_offset as usize];
+        // Read only the archive index; file contents stay on disk until requested.
+        let mut index = vec![0u8; first_file_offset - entries_start];
+        file.read_exact(&mut index)?;
+        let file_entries: &[BigFileEntry] = cast_slice(&index[..entries_size]);
+        let name_table = &index[entries_size..];
 
         for (i, entry) in file_entries.iter().enumerate() {
             let name_offset = entry.name_offset;
@@ -240,7 +240,7 @@ impl BigArchive {
             header,
             files,
             name_lookup,
-            memory_map: Some(mmap),
+            archive_len,
             file_handle: Some(Mutex::new(file)),
             version,
             is_compressed,
@@ -268,44 +268,12 @@ impl BigArchive {
             return Err(BigError::FileNotFound("Path is directory".to_string()));
         }
 
-        let data = if let Some(ref mmap) = self.memory_map {
-            // Use memory mapping for fast access
-            self.extract_from_mmap(file_info, mmap)?
-        } else {
-            // Fall back to file reading
-            self.extract_from_file(file_info)?
-        };
+        let data = self.extract_from_file(file_info)?;
 
         log::trace!("Extracted file: {} ({} bytes)", normalized_path, data.len());
         Ok(data)
     }
 
-    /// Extract file using memory mapping
-    fn extract_from_mmap(&self, file_info: &BigFileInfo, mmap: &Mmap) -> Result<Vec<u8>, BigError> {
-        let start = file_info.offset as usize;
-        let size = if let Some(compressed_size) = file_info.compressed_size {
-            compressed_size as usize
-        } else {
-            file_info.size as usize
-        };
-
-        if start + size > mmap.len() {
-            return Err(BigError::InvalidStructure(
-                "File data beyond archive bounds".to_string(),
-            ));
-        }
-
-        let raw_data = &mmap[start..start + size];
-
-        match file_info.compression {
-            CompressionType::None => Ok(raw_data.to_vec()),
-            CompressionType::Zlib => self.decompress_zlib(raw_data, file_info.size as usize),
-            CompressionType::Lz4 => self.decompress_lz4(raw_data, file_info.size as usize),
-            _ => Err(BigError::CompressionError(
-                "Unsupported compression type".to_string(),
-            )),
-        }
-    }
 
     /// Extract file using file I/O
     fn extract_from_file(&self, file_info: &BigFileInfo) -> Result<Vec<u8>, BigError> {
@@ -314,14 +282,18 @@ impl BigArchive {
             .as_ref()
             .ok_or_else(|| BigError::InvalidStructure("No file handle available".to_string()))?;
 
+        let size = file_info.compressed_size.unwrap_or(file_info.size);
+        let end = file_info.offset.checked_add(size)
+            .ok_or_else(|| BigError::InvalidStructure("File data beyond archive bounds".to_string()))?;
+        if end > self.archive_len {
+            return Err(BigError::InvalidStructure(
+                "File data beyond archive bounds".to_string(),
+            ));
+        }
+        let size = usize::try_from(size)
+            .map_err(|_| BigError::InvalidStructure("File data too large".to_string()))?;
         let mut file = file_handle.lock().unwrap_or_else(|e| e.into_inner());
         file.seek(SeekFrom::Start(file_info.offset))?;
-
-        let size = if let Some(compressed_size) = file_info.compressed_size {
-            compressed_size as usize
-        } else {
-            file_info.size as usize
-        };
 
         let mut raw_data = vec![0u8; size];
         file.read_exact(&mut raw_data)?;
@@ -478,7 +450,7 @@ impl BigArchive {
             uncompressed_size: self.total_uncompressed_size,
             compressed_files: compressed_files as u32,
             compression_ratio,
-            is_memory_mapped: self.memory_map.is_some(),
+            is_memory_mapped: false,
         }
     }
 
@@ -491,7 +463,7 @@ impl BigArchive {
         };
 
         // Check header consistency
-        if self.header.archive_size as usize != self.memory_map.as_ref().map_or(0, |m| m.len()) {
+        if self.header.archive_size as u64 != self.archive_len {
             result
                 .warnings
                 .push("Archive size mismatch in header".to_string());
@@ -588,6 +560,76 @@ mod tests {
     use std::io::Write;
     use tempfile::NamedTempFile;
 
+    fn archive_bytes(data_offset: u32, data_size: u32) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"BIGF");
+        bytes.extend_from_slice(&39u32.to_ne_bytes());
+        bytes.extend_from_slice(&1u32.to_ne_bytes());
+        bytes.extend_from_slice(&34u32.to_ne_bytes());
+        bytes.extend_from_slice(&data_offset.to_ne_bytes());
+        bytes.extend_from_slice(&data_size.to_ne_bytes());
+        bytes.extend_from_slice(&0u32.to_ne_bytes());
+        bytes.extend_from_slice(b"a.txt\0hello");
+        bytes
+    }
+
+    #[tokio::test]
+    async fn extracts_lazily_and_handles_modified_backing_file() {
+        let mut file = NamedTempFile::new().unwrap();
+        file.write_all(&archive_bytes(34, 5)).unwrap();
+        let archive = BigArchive::load(file.path()).await.unwrap();
+        assert!(!archive.get_stats().is_memory_mapped);
+        assert_eq!(archive.extract_file("A.TXT").await.unwrap(), b"hello");
+
+        file.seek(SeekFrom::Start(34)).unwrap();
+        file.write_all(b"world").unwrap();
+        assert_eq!(archive.extract_file("a.txt").await.unwrap(), b"world");
+
+        file.as_file().set_len(34).unwrap();
+        assert!(matches!(archive.extract_file("a.txt").await, Err(BigError::Io(_))));
+    }
+
+    #[tokio::test]
+    async fn extracts_compressed_entry() {
+        let mut encoder = flate2::write::ZlibEncoder::new(
+            Vec::new(),
+            flate2::Compression::default(),
+        );
+        encoder.write_all(b"hello").unwrap();
+        let compressed = encoder.finish().unwrap();
+        let mut bytes = archive_bytes(34, compressed.len() as u32);
+        bytes[..4].copy_from_slice(b"BIGC");
+        bytes[4..8].copy_from_slice(&((34 + compressed.len()) as u32).to_ne_bytes());
+        bytes.truncate(34);
+        bytes.extend_from_slice(&compressed);
+        let mut file = NamedTempFile::new().unwrap();
+        file.write_all(&bytes).unwrap();
+
+        let archive = BigArchive::load(file.path()).await.unwrap();
+        assert_eq!(archive.extract_file("a.txt").await.unwrap(), b"hello");
+    }
+
+    #[tokio::test]
+    async fn rejects_invalid_index_and_out_of_bounds_entry() {
+        let mut file = NamedTempFile::new().unwrap();
+        let mut bytes = archive_bytes(34, 6);
+        file.write_all(&bytes).unwrap();
+        let archive = BigArchive::load(file.path()).await.unwrap();
+        assert!(matches!(
+            archive.extract_file("a.txt").await,
+            Err(BigError::InvalidStructure(_))
+        ));
+
+        // The name table cannot begin after the first file offset.
+        bytes[12..16].copy_from_slice(&20u32.to_ne_bytes());
+        file.seek(SeekFrom::Start(0)).unwrap();
+        file.write_all(&bytes).unwrap();
+        assert!(matches!(
+            BigArchive::load(file.path()).await,
+            Err(BigError::InvalidStructure(_))
+        ));
+    }
+
     #[tokio::test]
     async fn test_big_header_parsing() {
         // Test data for a minimal BIG file
@@ -631,7 +673,7 @@ mod tests {
             },
             files: HashMap::new(),
             name_lookup: BTreeMap::new(),
-            memory_map: None,
+            archive_len: 0,
             file_handle: None,
             version: BigVersion::Standard,
             is_compressed: false,

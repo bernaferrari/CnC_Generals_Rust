@@ -20,6 +20,10 @@ GameLogic particle bridge and INI overlay still use ambient client access.
 The optional W3D device surface owns its window through wgpu's safe surface
 API. Its unused raw-pointer draw adapter was removed; the remaining primitive
 API accepts borrowed slices and currently records statistics rather than drawing.
+The BIG archive reader keeps an open file and reads bounded entries on demand,
+so external truncation produces an I/O error rather than invalidating a mapping.
+Windows audio callbacks retain a shared context for the duration of each
+invocation; Windows execution remains unverified on this macOS host.
 WWAudio device channel creation exclusively borrows its AudioSystem instead of
 retaining a raw parent pointer; the streamer retains the resulting channel,
 not the system borrow. Native-endian decoded PCM bytes remain unchanged.

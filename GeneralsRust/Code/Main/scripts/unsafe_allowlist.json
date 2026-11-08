@@ -36,10 +36,6 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/GameEngine/GameClient/src/assets/big_archive.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
     "Code/GameEngine/GameClient/src/assets/mod.rs": {
       "constructs": 2,
       "undocumented": 0
@@ -281,7 +277,7 @@
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WWAudio/src/aud_windows.rs": {
-      "constructs": 4,
+      "constructs": 1,
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WWAudio/src/memory.rs": {

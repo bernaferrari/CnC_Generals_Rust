@@ -9,25 +9,18 @@
 //! Copyright 2025 Electronic Arts Inc.
 //! Licensed under GPL-3.0
 
-use std::ffi::{CStr, CString};
-use std::mem;
-use std::ptr;
+use std::any::Any;
+#[cfg(target_os = "windows")]
+use std::ffi::CString;
 use std::sync::{
-    Arc, Condvar, Mutex,
+    Arc, Mutex,
     atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
 };
-use std::thread::{self, JoinHandle};
+use std::thread;
 use std::time::{Duration, Instant};
 
 #[cfg(target_os = "windows")]
-use windows::{
-    Win32::{
-        Foundation::*,
-        Media::Audio::*,
-        System::{Diagnostics::Debug::OutputDebugStringA, Memory::*, SystemServices::*, Threading::*},
-    },
-    core::*,
-};
+use windows::{Win32::System::Diagnostics::Debug::OutputDebugStringA, core::PCSTR};
 
 use crate::{
     error::{DeviceError, Error, Result},
@@ -106,8 +99,10 @@ pub enum AudThreadPriority {
     Realtime,
 }
 
-/// Thread callback function type
-pub type AudThreadCallback = dyn Fn(&AudThread, *mut std::ffi::c_void) -> bool + Send + Sync;
+/// Audio service callback. The optional context is borrowed for this invocation;
+/// use `downcast_ref` to access the type supplied to [`AudThread::set_data`].
+pub type AudThreadCallback =
+    dyn Fn(&AudThread, Option<&(dyn Any + Send + Sync)>) -> bool + Send + Sync;
 
 /// Audio thread structure for Windows-specific threading
 pub struct AudThread {
@@ -117,33 +112,16 @@ pub struct AudThread {
     leaving: AtomicBool,
     interval: AtomicU32, // In milliseconds
     running: AtomicBool,
-    #[cfg(target_os = "windows")]
-    handle: Option<HANDLE>,
-    #[cfg(target_os = "windows")]
-    thread_id: u32,
-    // THREAD: game thread sets/clears the context, audio service thread consumes it
-    data: Mutex<*mut std::ffi::c_void>,
-    callback: Arc<Box<AudThreadCallback>>,
-    #[cfg(target_os = "windows")]
-    // THREAD: game thread enters the section, audio service thread enters it too
-    critical_section: Mutex<CRITICAL_SECTION>,
-    #[cfg(not(target_os = "windows"))]
+    // THREAD: game thread replaces the context, audio service thread snapshots it
+    data: Mutex<Option<Arc<dyn Any + Send + Sync>>>,
+    callback: Box<AudThreadCallback>,
+    // THREAD: game thread and audio service thread may acquire this lock
     critical_section: Mutex<()>,
     // THREAD: audio service thread publishes service info, game thread reads it
     update: Mutex<AudioServiceInfo>,
     // THREAD: audio service thread samples the CPU profile, game thread reads it
     cpu_profile: Mutex<ProfileCPU>,
 }
-
-// SAFETY: AudThread's mutable state is confined to atomics and `Mutex`
-// fields (data, update, cpu_profile, critical_section); the raw `*mut c_void`
-// in `data` is only ever dereferenced by the service thread that owns the
-// pointed-to context, so moving the handle across threads is sound.
-unsafe impl Send for AudThread {}
-// SAFETY: Every interior-mutable field sits behind a Mutex or atomic, so
-// `&AudThread` cannot mutate the raw `data` pointer or callback except
-// through those locks.
-unsafe impl Sync for AudThread {}
 
 /// RIFF header structure for wave file parsing
 #[repr(C, packed)]
@@ -297,31 +275,12 @@ impl AudThread {
             leaving: AtomicBool::new(false),
             interval: AtomicU32::new(33), // Default ~30 FPS
             running: AtomicBool::new(false),
-            #[cfg(target_os = "windows")]
-            handle: None,
-            #[cfg(target_os = "windows")]
-            thread_id: 0,
-            data: Mutex::new(ptr::null_mut()),
-            callback: Arc::new(callback),
-            #[cfg(target_os = "windows")]
-            // SAFETY: All-zero bit pattern is the documented initial state of
-            // a CRITICAL_SECTION before InitializeCriticalSection; this field
-            // is never passed to winapi critical-section functions (the
-            // Mutex provides the actual locking), so no uninitialized handle
-            // is ever dereferenced.
-            critical_section: Mutex::new(unsafe { mem::zeroed() }),
-            #[cfg(not(target_os = "windows"))]
+            data: Mutex::new(None),
+            callback,
             critical_section: Mutex::new(()),
             update: Mutex::new(AudioServiceInfo::new()),
             cpu_profile: Mutex::new(ProfileCPU::new()),
         });
-
-        #[cfg(target_os = "windows")]
-        {
-            // Initialize critical section
-            // Note: We're using a Mutex instead of CRITICAL_SECTION for simplicity
-            // In a full Windows implementation, we would use InitializeCriticalSection
-        }
 
         thread.set_interval(Duration::from_millis(33))?; // ~30 FPS default
 
@@ -370,12 +329,10 @@ impl AudThread {
 
         while !thread.quit.load(Ordering::SeqCst) {
             let should_sleep = {
-                let data = {
-                    let data_guard = thread.data.lock().unwrap();
-                    *data_guard
-                };
-
-                (thread.callback)(&thread, data)
+                // Keep the snapshot alive throughout the callback even if another
+                // thread replaces or clears the current context.
+                let data = thread.data.lock().unwrap().clone();
+                (thread.callback)(&thread, data.as_deref())
             };
 
             if should_sleep {
@@ -437,11 +394,18 @@ impl AudThread {
         }
     }
 
-    /// Set thread user data
-    pub fn set_data(&self, data: *mut std::ffi::c_void) {
-        if let Ok(mut data_guard) = self.data.lock() {
-            *data_guard = data;
-        }
+    /// Replace the owned callback context, or clear it with `None`.
+    ///
+    /// A callback already in progress retains its previous context until it
+    /// returns. Context shared with other threads must provide its own
+    /// synchronization for mutation.
+    pub fn set_data(&self, data: Option<Arc<dyn Any + Send + Sync>>) {
+        let old_data = if let Ok(mut data_guard) = self.data.lock() {
+            std::mem::replace(&mut *data_guard, data)
+        } else {
+            return;
+        };
+        drop(old_data);
     }
 
     /// Set thread interval
@@ -753,9 +717,9 @@ mod tests {
         let counter_clone = Arc::clone(&counter);
 
         let callback = Box::new(
-            move |_thread: &AudThread, _data: *mut std::ffi::c_void| -> bool {
+            move |_thread: &AudThread, _data: Option<&(dyn Any + Send + Sync)>| -> bool {
                 let count = counter_clone.fetch_add(1, Ordering::SeqCst);
-                count < 5 // Run 5 times then stop
+                count < 5 // Use the normal interval for the first five calls
             },
         );
 
@@ -767,6 +731,45 @@ mod tests {
         assert!(counter.load(Ordering::SeqCst) > 0);
 
         // Clean shutdown
+        thread.destroy().unwrap();
+    }
+
+    #[test]
+    fn callback_context_survives_replacement_until_callback_returns() {
+        use std::sync::mpsc;
+
+        struct Context(mpsc::Sender<()>);
+        impl Drop for Context {
+            fn drop(&mut self) {
+                let _ = self.0.send(());
+            }
+        }
+
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<AudThread>();
+
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (dropped_tx, dropped_rx) = mpsc::channel();
+        let release_rx = Mutex::new(release_rx);
+        let callback = Box::new(move |thread: &AudThread, data: Option<&(dyn Any + Send + Sync)>| {
+            if let Some(context) = data.and_then(|data| data.downcast_ref::<Context>()) {
+                // Replacing the context from the callback must not deadlock.
+                thread.set_data(None);
+                entered_tx.send(()).unwrap();
+                release_rx.lock().unwrap().recv().unwrap();
+                // The borrowed context remains valid after replacement.
+                let _ = &context.0;
+            }
+            true
+        });
+        let thread = AudThread::create("context_test", AudThreadPriority::Normal, callback).unwrap();
+        thread.set_data(Some(Arc::new(Context(dropped_tx))));
+
+        entered_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        assert!(matches!(dropped_rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
+        release_tx.send(()).unwrap();
+        dropped_rx.recv_timeout(Duration::from_secs(3)).unwrap();
         thread.destroy().unwrap();
     }
 
