@@ -1,7 +1,6 @@
 //! Selection info helpers for UI/context command decisions.
 
 use crate::core::subsystems::InGameUISubsystem;
-use crate::message_stream::player_state::get_local_player_id;
 use game_engine::common::ini::ini_game_data::get_global_data;
 use gamelogic::commands::selection::{
     SelectionContextOptions, SelectionInfo, get_selection_manager,
@@ -21,8 +20,7 @@ fn build_context_options(ui: &InGameUISubsystem) -> SelectionContextOptions {
 }
 
 /// Fetch selection info for the local player.
-pub fn get_selection_info() -> Option<SelectionInfo> {
-    let player_id = get_local_player_id();
+pub fn get_selection_info(player_id: i32) -> Option<SelectionInfo> {
     if player_id < 0 {
         return None;
     }
@@ -33,8 +31,10 @@ pub fn get_selection_info() -> Option<SelectionInfo> {
 }
 
 /// Compute selection info for a new selection set.
-pub fn get_selection_info_for_new_selection(newly_selected: &[ObjectID]) -> Option<SelectionInfo> {
-    let player_id = get_local_player_id();
+pub fn get_selection_info_for_new_selection(
+    player_id: i32,
+    newly_selected: &[ObjectID],
+) -> Option<SelectionInfo> {
     if player_id < 0 {
         return None;
     }
@@ -54,7 +54,7 @@ pub fn context_command_for_new_selection<E>(
 where
     E: Fn(ObjectID, Coord3D) -> bool,
 {
-    let player_id = get_local_player_id();
+    let player_id = ui.local_player_id();
     if player_id < 0 {
         return false;
     }

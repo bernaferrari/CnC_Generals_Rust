@@ -715,11 +715,6 @@ thread_local! {
 }
 
 fn font_library_handle() -> std::sync::Arc<std::sync::Mutex<FontLibrary>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.ensure_font_library()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_FONT_LIBRARY.with(|slot| {

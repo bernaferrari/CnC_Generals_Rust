@@ -63,10 +63,9 @@ pub mod tracer_fx;
 pub mod weather_complete;
 
 /// Clear transient effect streams after the owning client's drawables.
-/// Ray and tracer streams remain global; light state belongs to the caller.
+/// Light state belongs to the receiving client; its ray effects are reset by
+/// the caller through its own `drawables.ray_effects`.
 pub(crate) fn clear_live_effects_after_drawables(fx: &mut crate::fx_list::FxClientState) {
-    ray_effect_system::clear_ray_effects_after_drawables();
-    tracer_fx::clear_tracer_fx();
     fx.clear_scene_dynamic_lights();
     let _ = fx.drain_display_light_pulses();
 }

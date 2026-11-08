@@ -111,11 +111,6 @@ thread_local! {
 
 fn with_ray_store<R>(f: impl FnOnce(&mut RayEffectStore) -> R) -> R {
     let mut f = Some(f);
-    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
-        f.take().expect("ray callback")(client.rays_mut())
-    }) {
-        return result;
-    }
     #[cfg(test)]
     {
         return TEST_RAYS.with(|slot| f.take().expect("ray callback")(&mut slot.borrow_mut()));

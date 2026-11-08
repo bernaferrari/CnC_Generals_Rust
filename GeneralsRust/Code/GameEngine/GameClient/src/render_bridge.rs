@@ -1833,78 +1833,37 @@ use game_engine::common::system::scene_submission::{
 /// the receiving GameClient's own `RenderBridge`; there is no process bridge.
 pub struct LiveClientSceneSubmission;
 
-fn scene_line_entry(desc: &game_engine::common::system::scene_submission::SceneLineDesc) -> SceneLineEntry {
-    SceneLineEntry {
-        start: glam::Vec3::new(desc.start.x, desc.start.y, desc.start.z),
-        end: glam::Vec3::new(desc.end.x, desc.end.y, desc.end.z),
-        width: desc.width,
-        color: [desc.color_r, desc.color_g, desc.color_b, desc.opacity],
-        texture_name: desc.texture_name.clone().unwrap_or_default(),
-        tile_factor: desc.tile_factor,
-        scroll_rate: desc.scroll_rate,
-        visible: desc.visible,
-    }
-}
-
+/// Ownerless sink: GameLogic modules hold this through a process-registered
+/// trait object with no receiving `GameClient` reachable, so every submission
+/// is declined (identical to native, where the former live slot was never
+/// registered). A client-owned inbox would be needed to land them.
 impl SceneSubmissionTrait for LiveClientSceneSubmission {
     fn submit_line(
         &self,
         drawable_id: u32,
-        desc: &game_engine::common::system::scene_submission::SceneLineDesc,
+        _desc: &game_engine::common::system::scene_submission::SceneLineDesc,
     ) -> Option<game_engine::common::system::scene_submission::SceneLineId> {
-        let id = crate::core::game_client::with_live_game_client_mut(|client| {
-            let id = client.next_render_bridge_line_id();
-            client
-                .render_bridge_mut()
-                .scene_lines
-                .insert(id, scene_line_entry(desc));
-            id
-        })?;
-        log::debug!("SceneSubmission::submit_line drawable_id={drawable_id} id={id}");
-        Some(id)
+        log::debug!("SceneSubmission::submit_line drawable_id={drawable_id} declined: no owner");
+        None
     }
 
     fn update_line(
         &self,
         id: game_engine::common::system::scene_submission::SceneLineId,
-        desc: &game_engine::common::system::scene_submission::SceneLineDesc,
+        _desc: &game_engine::common::system::scene_submission::SceneLineDesc,
     ) {
-        let _ = crate::core::game_client::with_live_game_client_mut(|client| {
-            if let Some(entry) = client.render_bridge_mut().scene_lines.get_mut(&id) {
-                *entry = scene_line_entry(desc);
-            }
-        });
-        log::debug!("SceneSubmission::update_line id={}", id);
+        log::debug!("SceneSubmission::update_line id={} declined: no owner", id);
     }
 
     fn remove_line(&self, id: game_engine::common::system::scene_submission::SceneLineId) {
-        let _ = crate::core::game_client::with_live_game_client_mut(|client| {
-            client.render_bridge_mut().scene_lines.remove(&id);
-        });
-        log::debug!("SceneSubmission::remove_line id={}", id);
+        log::debug!("SceneSubmission::remove_line id={} declined: no owner", id);
     }
 
-    fn submit_model(&self, desc: SceneModelDesc) {
-        let submission = DrawSubmission::from_scene_model_desc(desc);
-        let _ = crate::core::game_client::with_live_game_client_mut(|client| {
-            client.render_bridge_mut().submit(submission);
-        });
-    }
+    fn submit_model(&self, _desc: SceneModelDesc) {}
 
-    fn submit_projectile_stream(&self, desc: SceneProjectileStreamDesc) {
-        let stream = ProjectileStreamSubmission::from_scene_desc(desc);
-        let _ = crate::core::game_client::with_live_game_client_mut(|client| {
-            client.render_bridge_mut().submit_projectile_stream(stream);
-        });
-    }
+    fn submit_projectile_stream(&self, _desc: SceneProjectileStreamDesc) {}
 
-    fn begin_logic_frame(&self) {
-        let _ = crate::core::game_client::with_live_game_client_mut(|client| {
-            let bridge = client.render_bridge_mut();
-            bridge.pending.clear();
-            bridge.pending_projectile_streams.clear();
-        });
-    }
+    fn begin_logic_frame(&self) {}
 
     fn end_logic_frame(&self) {}
 }
@@ -2945,17 +2904,15 @@ mod tests {
     }
 
     #[test]
-    fn ghost_capture_uses_receiving_client_recoil_even_during_live_slot_borrow() {
+    fn ghost_capture_uses_receiving_client_recoil() {
         crate::test_support::ensure_ambient_host();
         if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
             module_path!(),
-            "ghost_capture_uses_receiving_client_recoil_even_during_live_slot_borrow",
+            "ghost_capture_uses_receiving_client_recoil",
         ) {
             return;
         }
-        use crate::core::game_client::{
-            clear_live_game_client, register_live_game_client, with_live_game_client_mut, GameClient,
-        };
+        use crate::core::game_client::GameClient;
 
         let mut factory = game_engine::common::thing::ThingFactory::new();
         let template = factory.new_template("GhostRecoilOwner");
@@ -3001,17 +2958,10 @@ mod tests {
         bridge.flush();
 
         let expected = gamelogic::object::w3d_ghost_object::Matrix3x4::from_logic_matrix(owner_recoil);
-        register_live_game_client(&mut peer);
-        let foreign_registered = owner.capture_w3d_ghost_snapshot(&source).unwrap();
-        assert_eq!(foreign_registered.render_objects[0].transform, expected);
-
-        register_live_game_client(&mut owner);
-        let reentrant = with_live_game_client_mut(|client| {
-            assert!(with_live_game_client_mut(|_| ()).is_none());
-            client.capture_w3d_ghost_snapshot(&source).unwrap()
-        }).unwrap();
-        assert_eq!(reentrant.render_objects[0].transform, expected);
-        clear_live_game_client(&mut owner);
+        let captured = owner.capture_w3d_ghost_snapshot(&source).unwrap();
+        assert_eq!(captured.render_objects[0].transform, expected);
+        assert_ne!(captured.render_objects[0].transform,
+            gamelogic::object::w3d_ghost_object::Matrix3x4::from_logic_matrix(peer_recoil));
     }
 
     #[test]
@@ -3637,15 +3587,10 @@ mod tests {
     }
 
     #[test]
-    fn scene_submission_lands_in_the_receiving_clients_bridge() {
-        crate::test_support::ensure_ambient_host();
+    fn ownerless_scene_submission_declines_without_touching_any_client() {
         use game_engine::common::system::geometry::Coord3D;
         use game_engine::common::system::scene_submission::{SceneLineDesc, SceneSubmission};
-        use std::sync::Arc;
-
-        let mut client = crate::core::game_client::GameClient::new().expect("client");
-        crate::core::game_client::register_live_game_client(&mut client);
-        let _ = gamelogic::helpers::register_scene_submission(Arc::new(LiveClientSceneSubmission));
+        let client = crate::core::game_client::GameClient::new().expect("client");
         let desc = SceneLineDesc {
             start: Coord3D::new(0.0, 0.0, 0.0),
             end: Coord3D::new(10.0, 0.0, 1.0),
@@ -3659,16 +3604,7 @@ mod tests {
             tile_factor: 1.0,
             visible: true,
         };
-        let id = gamelogic::helpers::submit_scene_line(7, &desc)
-            .or_else(|| LiveClientSceneSubmission.submit_line(7, &desc))
-            .expect("live client accepts the line");
-        let lines = client.render_bridge().snapshot_visible_scene_lines();
-        assert_eq!(lines.len(), 1, "the line lives on this client's bridge");
-        assert_eq!(lines[0].id, id);
-        assert!((lines[0].end[0] - 10.0).abs() < f32::EPSILON);
-        assert!((lines[0].width - 2.0).abs() < f32::EPSILON);
-        LiveClientSceneSubmission.remove_line(id);
+        assert!(LiveClientSceneSubmission.submit_line(7, &desc).is_none());
         assert!(client.render_bridge().snapshot_visible_scene_lines().is_empty());
-        crate::core::game_client::clear_live_game_client(&mut client);
     }
 }

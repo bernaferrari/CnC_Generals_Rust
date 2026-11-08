@@ -92,13 +92,6 @@ fn with_genexp_residual_mut<R>(
     if let Some(owner) = owner {
         return owner.with_generals_exp_residual_mut(|state| f.take().expect("genexp")(state));
     }
-    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .window_manager_owner_ref()
-            .with_generals_exp_residual_mut(|state| f.take().expect("genexp")(state))
-    }) {
-        return result;
-    }
     #[cfg(test)]
     {
         return TEST_GENEXP_RESIDUAL.with(|slot| {

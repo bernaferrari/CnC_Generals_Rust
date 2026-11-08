@@ -70,11 +70,6 @@ thread_local! {
 /// `pump_lan_events` pushes LAN events from the async runtime while the GUI
 /// thread drains them; the queue lives on WindowManagerOwner.
 fn events() -> std::sync::Arc<Mutex<VecDeque<LanEvent>>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.window_manager_owner_ref().lan_events_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_LAN_EVENTS
@@ -87,11 +82,6 @@ fn events() -> std::sync::Arc<Mutex<VecDeque<LanEvent>>> {
 }
 
 fn state() -> Rc<RefCell<LanLobbyState>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.window_manager_owner_ref().lan_lobby_state_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_LAN_LOBBY.with(Rc::clone);

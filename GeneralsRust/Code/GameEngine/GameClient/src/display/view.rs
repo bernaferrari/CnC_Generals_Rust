@@ -35,10 +35,7 @@ mod camera_math;
 mod tests;
 pub use command_markers::draw_live_command_markers;
 use camera_math::{ease_ratios, frames_to_ms, ms_to_frames, normalize_angle, travel_camera_angle};
-use command_markers::{
-    draw_move_hint_and_locater_models, draw_move_hint_and_locater_models_with_owner,
-    hide_or_move_model, spawn_world_model,
-};
+use command_markers::draw_move_hint_and_locater_models_with_owner;
 
 /// Unique identifier for view instances
 pub type ViewId = u32;
@@ -73,36 +70,14 @@ const DEFAULT_CAMERA_PITCH_DEG: f32 = 37.5;
 pub const LETTER_BOX_FADE_TIME_MS: f32 = 1000.0;
 
 /// C++ `TheDisplay->isLetterBoxed()` as seen by `W3DView::buildCameraTransform`.
+/// Ownerless free API (W3DDisplay shim); owners call `View::set_display_letter_boxed`.
 pub fn set_display_letter_boxed(enabled: bool) {
-    #[cfg(test)]
-    {
-        TEST_LETTER_BOXED.with(|flag| flag.set(enabled));
-        return;
-    }
-    #[cfg(not(test))]
-    {
-        let _ = crate::core::game_client::with_live_game_client_mut(|client| {
-            client.display_letter_boxed = enabled;
-        });
-    }
+    with_tactical_view(|view| view.set_display_letter_boxed(enabled));
 }
 
 /// C++ `TheDisplay->isLetterBoxed()`.
 pub fn is_display_letter_boxed() -> bool {
-    #[cfg(test)]
-    {
-        return TEST_LETTER_BOXED.with(|flag| flag.get());
-    }
-    #[cfg(not(test))]
-    {
-        crate::core::game_client::with_live_game_client_mut(|client| client.display_letter_boxed)
-            .unwrap_or(false)
-    }
-}
-
-#[cfg(test)]
-thread_local! {
-    static TEST_LETTER_BOXED: Cell<bool> = const { Cell::new(false) };
+    with_tactical_view_ref(|view| view.is_display_letter_boxed())
 }
 
 fn ground_height_at(x: f32, y: f32) -> f32 {
@@ -738,6 +713,9 @@ pub struct View {
     fx_pitch: f32,
     is_camera_slaved: bool,
     use_real_zoom_cam: bool,
+
+    /// C++ `TheDisplay->isLetterBoxed()` as read by `buildCameraTransform`.
+    display_letter_boxed: bool,
     camera_slave_object_name: String,
     camera_slave_object_bone_name: String,
     camera_constraint_lo: Vector2,
@@ -846,6 +824,7 @@ impl View {
             fx_pitch: 1.0,
             is_camera_slaved: false,
             use_real_zoom_cam: false,
+            display_letter_boxed: false,
             camera_slave_object_name: String::new(),
             camera_slave_object_bone_name: String::new(),
             camera_constraint_lo: Vector2::zero(),
@@ -1262,6 +1241,14 @@ impl View {
     pub fn max_zoom(&self) -> f32 {
         self.max_zoom
     }
+    pub fn set_display_letter_boxed(&mut self, enabled: bool) {
+        self.display_letter_boxed = enabled;
+    }
+
+    pub fn is_display_letter_boxed(&self) -> bool {
+        self.display_letter_boxed
+    }
+
     pub fn set_zoom_limited(&mut self, limited: bool) {
         self.zoom_limited = limited;
     }
@@ -1547,7 +1534,7 @@ impl View {
         let mut fx_pitch = self.fx_pitch;
         if self.use_real_zoom_cam {
             let mut pitch_adjust = 1.0;
-            if !is_display_letter_boxed() {
+            if !self.display_letter_boxed {
                 let capped = self.zoom.clamp(MIN_CAPPED_ZOOM, 1.0);
                 source.z *= 0.5 + capped * 0.5;
                 pitch_adjust = capped;
@@ -2174,29 +2161,6 @@ impl View {
     }
 }
 
-fn with_hint_model_cache<R>(f: impl FnOnce(&mut HintModelCache) -> R) -> R {
-    #[cfg(test)]
-    {
-        return TEST_HINT_MODELS.with(|cache| f(&mut cache.borrow_mut()));
-    }
-    #[cfg(not(test))]
-    {
-        if crate::core::game_client::live_game_client_frame().is_some() {
-            return crate::core::game_client::with_live_game_client_mut(|client| {
-                f(&mut client.hint_model_cache)
-            })
-            .expect("live client frame implies registered client");
-        }
-        let mut ephemeral = HintModelCache::default();
-        f(&mut ephemeral)
-    }
-}
-
-#[cfg(test)]
-thread_local! {
-    static TEST_HINT_MODELS: RefCell<HintModelCache> = RefCell::new(HintModelCache::default());
-}
-
 #[derive(Default)]
 pub struct HintModelCache {
     move_hints: Vec<Option<crate::drawable::DrawableId>>,
@@ -2214,20 +2178,15 @@ impl HintModelCache {
 
 /// Access the receiving client's tactical view (legacy `TheTacticalView`).
 pub fn with_tactical_view<R>(f: impl FnOnce(&mut View) -> R) -> R {
-    // Unit tests keep the historical free-API TLS so ambient live-slot fixtures
-    // do not steal TheTacticalView. Production routes through the live client.
+    // Ownerless free API: unit tests keep the historical TLS; production has no
+    // receiving client here and gets a discarded view. Owners (GameClient, Main)
+    // reach their own `View` via `GameClient::get_view_mut`.
     #[cfg(test)]
     {
         return TEST_TACTICAL_VIEW.with(|view| f(&mut view.borrow_mut()));
     }
     #[cfg(not(test))]
     {
-        if crate::core::game_client::live_game_client_frame().is_some() {
-            return crate::core::game_client::with_live_game_client_mut(|client| {
-                f(&mut client.tactical_view)
-            })
-            .expect("live client frame implies registered client");
-        }
         let mut ephemeral = View::new();
         ephemeral.init();
         f(&mut ephemeral)
@@ -2322,9 +2281,9 @@ impl ViewTrait for View {
         ui: Option<&crate::core::subsystems::InGameUISubsystem>,
         client_frame: u32,
     ) -> Result<(), ViewError> {
-        if let Some(ui) = ui {
-            draw_move_hint_and_locater_models(self, ui, client_frame);
-        }
+        // Hint models live in the receiving DrawableManager; `draw_view_owned`
+        // draws them. Without a manager there is nothing to spawn into.
+        let _ = (ui, client_frame);
         View::force_redraw(self);
         Ok(())
     }

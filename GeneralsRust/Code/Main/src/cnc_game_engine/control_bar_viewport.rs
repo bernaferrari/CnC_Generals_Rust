@@ -890,7 +890,7 @@ mod receiving_observer_roster_tests {
         let peer_changed = receiving_observer_roster_from_world(&peer, false, None).unwrap();
         assert!(peer_changed.selectable().next().is_none());
         assert_eq!(bar.observer_target_owned(&roster), Some(2));
-        game_client::gui::control_bar::control_bar_observer::set_observer_look_at_player(Some(999));
+        game_client::gui::control_bar::control_bar_observer::set_observer_look_at_player(None, Some(999));
         let wm_owner = game_client::gui::window_manager::WindowManagerOwner::new();
         game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
             wm_owner.with_manager(|manager| {
@@ -905,10 +905,10 @@ mod receiving_observer_roster_tests {
         });
         assert_eq!(bar.observer_target_owned(&roster), Some(2));
         assert_eq!(
-            game_client::gui::control_bar::control_bar_observer::observer_look_at_player_index(),
+            game_client::gui::control_bar::control_bar_observer::observer_look_at_player_index(None),
             Some(999)
         );
-        game_client::gui::control_bar::control_bar_observer::set_observer_look_at_player(None);
+        game_client::gui::control_bar::control_bar_observer::set_observer_look_at_player(None, None);
         let multi = receiving_observer_roster_from_world(&owner, true, None).unwrap();
         assert_eq!(
             multi.selectable().map(|p| p.index).collect::<Vec<_>>(),

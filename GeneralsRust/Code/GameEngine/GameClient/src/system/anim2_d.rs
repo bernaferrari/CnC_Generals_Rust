@@ -399,11 +399,6 @@ thread_local! {
 }
 
 fn client_anim2d_instances_arc() -> std::sync::Arc<Mutex<Anim2DCollection>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.client_anim2d_instances_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_CLIENT_ANIM2D_INSTANCES.with(|cell| {
@@ -423,15 +418,9 @@ pub fn client_anim2d_instances() -> std::sync::Arc<Mutex<Anim2DCollection>> {
 }
 
 /// C++ `TheAnim2DCollection->Update()` residual.
-/// Prefer the live GameClient collection; orphaned calls are no-ops (not a process store).
+/// Orphaned calls are no-ops (not a process store); a client updates its own
+/// collection through `client_anim2d_instances_handle()`.
 pub fn update_client_anim2d_collection() {
-    if crate::core::game_client::with_live_game_client_mut(|client| {
-        client.client_anim2d_instances_handle().lock().update();
-    })
-    .is_some()
-    {
-        return;
-    }
     #[cfg(test)]
     {
         client_anim2d_instances().lock().update();

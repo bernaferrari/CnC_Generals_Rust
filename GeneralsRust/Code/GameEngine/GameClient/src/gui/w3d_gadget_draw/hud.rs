@@ -69,7 +69,7 @@ pub fn w3d_clock_draw(
             scissor,
         );
     });
-    note_shipped_ui_draw_commands(1);
+    draw_context.note_shipped_ui_draw_commands(1);
 }
 
 pub fn w3d_cameo_movie_draw(
@@ -399,6 +399,7 @@ fn draw_radar_in_hud_with_context(
                         ime: receiving_ime,
                         receiving_power,
                         receiving_images: None,
+                        ..Default::default()
                     };
                     for reticle in hero_reticles {
                         manager.win_draw_image(

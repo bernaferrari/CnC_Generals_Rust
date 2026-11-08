@@ -39,11 +39,6 @@ fn wol_locale_state_on_owner(
     if let Some(owner) = owner {
         return owner.wol_locale_select_state_handle();
     }
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.window_manager_owner_ref().wol_locale_select_state_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_WOL_LOCALE_SELECT_STATE.with(|cell| {
@@ -57,12 +52,12 @@ fn wol_locale_state_on_owner(
     }
 }
 
-fn wol_locale_state() -> Rc<RefCell<WolLocaleSelectState>> {
-    wol_locale_state_on_owner(None)
+fn wol_locale_state(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> Rc<RefCell<WolLocaleSelectState>> {
+    wol_locale_state_on_owner(owner)
 }
 
-pub fn wol_locale_select_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
-    let state_slot = wol_locale_state();
+pub fn wol_locale_select_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = wol_locale_state(owner);
     let mut state = state_slot.borrow_mut();
     state.parent_id =
         NameKeyGenerator::name_to_key("PopupLocaleSelect.wnd:ParentLocaleSelect") as i32;
@@ -127,14 +122,14 @@ pub fn wol_locale_select_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
-) -> WindowMsgHandled {
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) -> WindowMsgHandled {
     match msg {
         WindowMessage::Create => WindowMsgHandled::Handled,
         WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
-            let state_slot = wol_locale_state();
+            let state_slot = wol_locale_state(owner);
             let mut state = state_slot.borrow_mut();
             if control_id != state.button_ok_id {
                 return WindowMsgHandled::Handled;

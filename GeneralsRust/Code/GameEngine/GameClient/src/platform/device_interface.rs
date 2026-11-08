@@ -17,14 +17,11 @@ pub struct DeviceId(pub u64);
 
 impl DeviceId {
     pub fn new() -> Self {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        let id = crate::core::game_client::with_live_game_client_mut(|client| client.next_device_id())
-            .unwrap_or_else(|| {
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_nanos() as u64)
-                    .unwrap_or(1)
-            });
+        // Ownerless constructor (no receiving client): wall-clock nanoseconds.
+        let id = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(1);
         DeviceId(id)
     }
 }

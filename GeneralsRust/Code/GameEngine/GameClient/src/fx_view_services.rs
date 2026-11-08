@@ -34,23 +34,11 @@ pub(super) fn with_tactical_fx_view_services<R>(
     let mut add_scorch = |position, radius, kind| {
         crate::terrain::scorch_mesh::add_terrain_scorch(position, radius, kind);
     };
-    // Ephemeral scene for Core callers without a live GameClient; live clients
-    // admit pulses onto their owned FxClientState via with_live_game_client_mut.
+    // Ownerless Core entrypoint: no receiving FxClientState is reachable, so
+    // light pulses go to a discarded scene and FX audio is not played.
     let mut ephemeral = DisplayLightScene::default();
-    let mut create_light_pulse = |pulse: DisplayLightPulse| {
-        if let Some(ok) = crate::core::game_client::with_live_game_client_mut(|client| {
-            client.fx_mut().create_display_light_pulse(pulse.clone())
-        }) {
-            return ok;
-        }
-        ephemeral.create_pulse(pulse)
-    };
-    let mut play_fx_audio = |name: &str, position: Option<MessageCoord3D>| {
-        crate::core::game_client::with_live_game_client_mut(|client| {
-            client.fx_mut().with_audio(|hook| hook(name, position))
-        })
-        .unwrap_or(false)
-    };
+    let mut create_light_pulse = |pulse: DisplayLightPulse| ephemeral.create_pulse(pulse);
+    let mut play_fx_audio = |_name: &str, _position: Option<MessageCoord3D>| false;
     run(&mut FxViewServices {
         add_scorch: &mut add_scorch,
         shake: &mut shake,

@@ -105,11 +105,6 @@ fn sync_weather_from_common(dest: &Arc<RwLock<WeatherSetting>>) {
 }
 
 fn weather_setting_handle() -> Arc<RwLock<WeatherSetting>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.ensure_weather_setting()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_WEATHER_SETTING.with(|slot| {
@@ -133,11 +128,6 @@ fn weather_setting_handle() -> Arc<RwLock<WeatherSetting>> {
 }
 
 fn snow_manager_handle() -> Arc<Mutex<SnowManager>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.ensure_snow_manager()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_SNOW_MANAGER.with(|slot| {
@@ -159,11 +149,6 @@ pub fn get_weather_setting() -> Option<Arc<RwLock<WeatherSetting>>> {
 }
 
 pub fn get_snow_manager() -> Option<Arc<Mutex<SnowManager>>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.snow_manager_opt()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_SNOW_MANAGER.with(|slot| slot.borrow().clone());

@@ -1424,19 +1424,12 @@ pub fn with_particle_system_slot_mut<R>(
     }
     #[cfg(not(test))]
     {
-        if crate::core::game_client::live_game_client_frame().is_none() {
-            return Err(ParticleSystemError::InitializationFailed(
-                "no live GameClient particle slot".to_string(),
-            ));
-        }
-        crate::core::game_client::with_live_game_client_mut(|client| {
-            f(&mut client.drawables.particles)
-        })
-        .ok_or_else(|| {
-            ParticleSystemError::InitializationFailed(
-                "live GameClient particle slot unavailable".to_string(),
-            )
-        })
+        // Ownerless free API: the particle manager lives on the receiving
+        // GameClient's drawables, which is not reachable from here.
+        let _ = f;
+        Err(ParticleSystemError::InitializationFailed(
+            "no receiving GameClient particle slot".to_string(),
+        ))
     }
 }
 

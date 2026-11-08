@@ -29,7 +29,7 @@ impl CommandTranslator {
                 // Keep the client-side selection cache in sync with the GameLogic selection manager
                 // so commands work after selection changes originating outside this translator
                 // (control groups, scripts, multiplayer, etc.).
-                self.sync_selection_from_logic();
+                self.sync_selection_from_logic(ui.local_player_id());
                 return GameMessageDisposition::KeepMessage;
             }
             GameMessageType::CreateSelectedGroup(create_new, objects) => {
@@ -161,7 +161,7 @@ impl CommandTranslator {
             }
             GameMessageType::MetaSelectNextUnit => {
                 return {
-                    for msg in handle_select_next_or_prev_unit(true) {
+                    for msg in handle_select_next_or_prev_unit(true, ui.local_player_id()) {
                         dispatch_translated_message(&msg);
                     }
                     GameMessageDisposition::DestroyMessage
@@ -169,7 +169,7 @@ impl CommandTranslator {
             }
             GameMessageType::MetaSelectPrevUnit => {
                 return {
-                    for msg in handle_select_next_or_prev_unit(false) {
+                    for msg in handle_select_next_or_prev_unit(false, ui.local_player_id()) {
                         dispatch_translated_message(&msg);
                     }
                     GameMessageDisposition::DestroyMessage
@@ -177,7 +177,7 @@ impl CommandTranslator {
             }
             GameMessageType::MetaSelectNextWorker => {
                 return {
-                    for msg in handle_select_next_or_prev_worker(true) {
+                    for msg in handle_select_next_or_prev_worker(true, ui.local_player_id()) {
                         dispatch_translated_message(&msg);
                     }
                     GameMessageDisposition::DestroyMessage
@@ -185,7 +185,7 @@ impl CommandTranslator {
             }
             GameMessageType::MetaSelectPrevWorker => {
                 return {
-                    for msg in handle_select_next_or_prev_worker(false) {
+                    for msg in handle_select_next_or_prev_worker(false, ui.local_player_id()) {
                         dispatch_translated_message(&msg);
                     }
                     GameMessageDisposition::DestroyMessage

@@ -807,7 +807,7 @@ impl ScriptCallbackRegistry {
         );
 
         self.register_win_system_with_effects("MOTDSystem", |window, msg, d1, d2, effects| {
-            effects.with_manager(|manager, effects| cb::motd_system(window, msg, d1, d2, manager))
+            effects.with_manager(|manager, effects| cb::motd_system(window, msg, d1, d2, manager, effects.window_manager_owner))
         });
 
         self.register_win_system_with_effects("MainMenuSystem", |window, msg, d1, d2, effects| {
@@ -1413,7 +1413,7 @@ impl ScriptCallbackRegistry {
         });
         self.register_layout_init("GameInfoWindowInit", |layout, effects| {
             effects
-                .with_manager(|manager, effects| cb::game_info_window_init(layout, None, manager))
+                .with_manager(|manager, effects| cb::game_info_window_init(layout, None, manager, effects.window_manager_owner))
         });
         self.layout_init.insert(
             "ScoreScreenInit".into(),
@@ -1691,7 +1691,7 @@ impl ScriptCallbackRegistry {
             cb::score_screen_shutdown(layout, None, effects)
         });
         self.register_layout_shutdown_without_data("DownloadMenuShutdown", |layout, effects| {
-            cb::download_menu_shutdown(layout, None)
+            cb::download_menu_shutdown(layout, None, effects.window_manager_owner)
         });
         self.register_layout_shutdown_without_data("PopupReplayShutdown", |layout, effects| {
             cb::popup_replay_shutdown(layout, None, effects)

@@ -57,20 +57,14 @@ pub(crate) fn test_skirmish_setup_handle() -> Arc<Mutex<SkirmishSetup>> {
 ///
 /// Callers holding their UI tree pass its `WindowManagerOwner` (window
 /// handlers: `effects.window_manager_owner`; hosts: the owning
-/// `GameClient::window_manager_owner_ref()`). Without one, the registered live
-/// client is consulted; production Main never publishes that slot, so a
-/// missing owner there is a lifecycle bug and fails loudly instead of handing
+/// `GameClient::window_manager_owner_ref()`). A missing owner is a lifecycle
+/// bug and fails loudly instead of handing
 /// out a scratch lobby whose writes would be silently discarded.
 pub fn get_skirmish_setup(
     owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
 ) -> Arc<Mutex<SkirmishSetup>> {
     if let Some(owner) = owner {
         return owner.skirmish_setup();
-    }
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.skirmish_setup()
-    }) {
-        return handle;
     }
     #[cfg(test)]
     {
@@ -79,7 +73,7 @@ pub fn get_skirmish_setup(
     #[cfg(not(test))]
     {
         panic!(
-            "skirmish setup requires a WindowManagerOwner or live GameClient; no process scratch"
+            "skirmish setup requires a WindowManagerOwner; no process scratch"
         );
     }
 }

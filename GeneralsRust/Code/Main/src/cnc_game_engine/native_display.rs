@@ -458,7 +458,7 @@ impl CnCGameEngine {
         // keep their existing presentation observation current. This operation
         // neither selects nor advances a simulation or its camera/HAG.
         #[cfg(feature = "game_client")]
-        game_client::display::view::with_tactical_view(|view| viewport.observe_in_core_view(view));
+        self.game_client.get_view_mut(|view| viewport.observe_in_core_view(view));
         Ok(())
     }
 }

@@ -13,11 +13,6 @@ fn close_button_id_on_owner(owner: Option<&crate::gui::window_manager::WindowMan
     if let Some(owner) = owner {
         return owner.motd_close_button_id();
     }
-    if let Some(id) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.window_manager_owner_ref().motd_close_button_id()
-    }) {
-        return id;
-    }
     #[cfg(test)]
     {
         return TEST_CLOSE_BUTTON_ID.with(Cell::get);
@@ -36,13 +31,6 @@ fn set_close_button_id_on_owner(
         owner.set_motd_close_button_id(id);
         return;
     }
-    if let Some(()) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .window_manager_owner_ref()
-            .set_motd_close_button_id(id);
-    }) {
-        return;
-    }
     #[cfg(test)]
     {
         TEST_CLOSE_BUTTON_ID.with(|cell| cell.set(id));
@@ -54,12 +42,12 @@ fn set_close_button_id_on_owner(
     }
 }
 
-fn close_button_id() -> u32 {
-    close_button_id_on_owner(None)
+fn close_button_id(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> u32 {
+    close_button_id_on_owner(owner)
 }
 
-fn set_close_button_id(id: u32) {
-    set_close_button_id_on_owner(None, id);
+fn set_close_button_id(id: u32, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    set_close_button_id_on_owner(owner, id);
 }
 
 /// Message of the day window system callback.
@@ -72,15 +60,15 @@ pub fn motd_system(
     data1: WindowMsgData,
     _data2: WindowMsgData,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
-) -> WindowMsgHandled {
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) -> WindowMsgHandled {
     match msg {
         WindowMessage::Create => {
-            set_close_button_id(NameKeyGenerator::name_to_key("MOTD.wnd:CloseMOTD"));
+            set_close_button_id(NameKeyGenerator::name_to_key("MOTD.wnd:CloseMOTD"), owner);
             WindowMsgHandled::Handled
         }
         WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::GadgetSelected => {
-            if data1 as u32 == close_button_id() {
+            if data1 as u32 == close_button_id(owner) {
                 let window_id = window.get_id();
                 (|manager: &mut crate::gui::window_manager::WindowManager| {
                     if let Some(live_window) = manager.get_window_by_id(window_id) {
@@ -105,12 +93,12 @@ mod tests {
         let mut wm = crate::gui::window_manager::WindowManager::new();
         let mut window = GameWindow::new();
         assert_eq!(
-            motd_system(&mut window, WindowMessage::Create, 0, 0, &mut wm),
+            motd_system(&mut window, WindowMessage::Create, 0, 0, &mut wm, None),
             WindowMsgHandled::Handled
         );
 
         assert_eq!(
-            close_button_id(),
+            close_button_id(None),
             NameKeyGenerator::name_to_key("MOTD.wnd:CloseMOTD")
         );
     }
@@ -128,17 +116,17 @@ mod tests {
             window.set_status(WindowStatus::ENABLED);
 
             let close_id = NameKeyGenerator::name_to_key("MOTD.wnd:CloseMOTD");
-            set_close_button_id(close_id);
+            set_close_button_id(close_id, Some(&owner));
 
             assert!(!live_window.borrow().is_hidden());
             assert_eq!(
-                owner.with_manager(|wm| motd_system(&mut window, WindowMessage::GadgetSelected, close_id as WindowMsgData, 0, wm)),
+                owner.with_manager(|wm| motd_system(&mut window, WindowMessage::GadgetSelected, close_id as WindowMsgData, 0, wm, Some(&owner))),
                 WindowMsgHandled::Handled
             );
             assert!(live_window.borrow().is_hidden());
 
             assert_eq!(
-                owner.with_manager(|wm| motd_system(&mut window, WindowMessage::GadgetSelected, close_id as WindowMsgData, 0, wm)),
+                owner.with_manager(|wm| motd_system(&mut window, WindowMessage::GadgetSelected, close_id as WindowMsgData, 0, wm, Some(&owner))),
                 WindowMsgHandled::Handled
             );
             assert!(!live_window.borrow().is_hidden());
@@ -151,8 +139,23 @@ mod tests {
         let mut wm = crate::gui::window_manager::WindowManager::new();
         let mut window = GameWindow::new();
         assert_eq!(
-            motd_system(&mut window, WindowMessage::None, 0, 0, &mut wm),
+            motd_system(&mut window, WindowMessage::None, 0, 0, &mut wm, None),
             WindowMsgHandled::Ignored
         );
+    }
+
+    #[test]
+    fn close_button_id_is_per_window_manager_owner() {
+        crate::test_support::ensure_ambient_host();
+        let a = crate::gui::window_manager::WindowManagerOwner::new();
+        let b = crate::gui::window_manager::WindowManagerOwner::new();
+        let before_b = close_button_id(Some(&b));
+        set_close_button_id(NameKeyGenerator::name_to_key("MOTD.wnd:CloseMOTD"), Some(&a));
+        assert_eq!(
+            close_button_id(Some(&a)),
+            NameKeyGenerator::name_to_key("MOTD.wnd:CloseMOTD")
+        );
+        assert_eq!(close_button_id(Some(&b)), before_b);
+        assert_ne!(close_button_id(Some(&b)), close_button_id(Some(&a)));
     }
 }

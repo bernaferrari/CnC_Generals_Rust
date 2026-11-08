@@ -89,12 +89,6 @@ pub struct GameClient {
     font_library: Option<std::sync::Arc<std::sync::Mutex<crate::gui::font::FontLibrary>>>,
     /// C++ `TheTacticalView` — owned per receiving client.
     pub(crate) tactical_view: crate::display::view::View,
-    /// Move/locator hint drawable cache for this client's tactical view.
-    pub(crate) hint_model_cache: crate::display::view::HintModelCache,
-    /// C++ `TheDisplay->isLetterBoxed()` as seen by W3DView::buildCameraTransform.
-    pub(crate) display_letter_boxed: bool,
-    /// Resolved terrain texture path caches for this client.
-    pub(crate) terrain_texture_caches: crate::terrain::textures::TerrainTextureCaches,
     /// C++ `TheTerrainVisual` GPU impl — owned per receiving client (was process lazy_static).
     pub(crate) terrain_visual_gpu: std::sync::Arc<
         parking_lot::Mutex<Option<crate::terrain::terrain_visual::TerrainVisualImpl>>,
@@ -157,10 +151,6 @@ pub struct GameClient {
     host_contained_flash_queue: Vec<u32>,
     /// C++ TheAnim2DCollection residual.
     client_anim2d_instances: std::sync::Arc<parking_lot::Mutex<crate::system::anim2_d::Anim2DCollection>>,
-
-    /// Stable identity of this client's live-slot registration (0 = none). It
-    /// travels with the value across moves, unlike its address.
-    pub(crate) live_slot_token: u64,
 
     // Drawable management
     pub(crate) drawables: drawable_world::DrawableWorld,

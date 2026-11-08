@@ -36,7 +36,17 @@ impl GameClient {
         self.draw_display_with_window_owner()
     }
 
+    /// W3DDisplay freeze/sync/updateViews/particles CPU phases for this client.
+    pub(crate) fn run_dual_world_cpu_phases(&mut self) {
+        crate::display::client_draw_schedule::run_dual_world_cpu_phases(
+            &mut self.draw_schedule,
+            &self.tactical_view,
+            self.frame,
+        );
+    }
+
     fn draw_display_with_window_owner(&mut self) -> GameClientResult<()> {
+        self.run_dual_world_cpu_phases();
         let snow = self.snow_render_state();
         if let Some(display) = &self.subsystem_manager.display {
             display
@@ -279,7 +289,7 @@ impl GameClient {
             .iter()
             .map(|(_, pos, _, _, _)| {
                 self.get_shroud_status_for_player(
-                    self.local_player_id,
+                    self.local_player_id(),
                     &crate::system::Coord3D::new(pos[0], pos[1], pos[2]),
                 ) == ShroudStatus::Clear
             })
@@ -292,7 +302,7 @@ impl GameClient {
                     .owned_world_animations
                     .prepare_draw(animation, animation_logic_frame)?;
                 (self.get_shroud_status_for_player(
-                    self.local_player_id,
+                    self.local_player_id(),
                     &crate::system::Coord3D::new(pos[0], pos[1], pos[2]),
                 ) == ShroudStatus::Clear)
                     .then_some(pos)
@@ -577,6 +587,7 @@ impl GameClient {
                                     manager: Some(manager),
                                     receiving_power: None,
                                     receiving_images: None,
+                                    ..Default::default()
                                 };
                             if let Some(image) = manager.win_find_image(name) {
                                 let w = image.width.max(1);
@@ -618,6 +629,7 @@ impl GameClient {
                                     manager: Some(manager),
                                     receiving_power: None,
                                     receiving_images: None,
+                                    ..Default::default()
                                 };
                             if let Some(image) = manager.win_find_image(name) {
                                 manager.win_draw_image(
@@ -674,6 +686,7 @@ impl GameClient {
                                     manager: Some(manager),
                                     receiving_power: None,
                                     receiving_images: None,
+                                    ..Default::default()
                                 };
                             if let Some(image) = manager.win_find_image(name) {
                                 manager.win_draw_image(
@@ -968,11 +981,11 @@ mod owned_display_decal_tests {
     use std::sync::{Arc, Mutex};
 
     #[test]
-    fn decal_collection_uses_receiving_client_not_live_peer() {
+    fn decal_collection_uses_receiving_client_not_peer() {
         crate::test_support::ensure_ambient_host();
         if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
             module_path!(),
-            "decal_collection_uses_receiving_client_not_live_peer",
+            "decal_collection_uses_receiving_client_not_peer",
         ) {
             return;
         }
@@ -993,8 +1006,6 @@ mod owned_display_decal_tests {
             "SCCScudStorm_GLA", 200.0, 44.0, 0.0, 0.0, 0x21ff43, 0.25,
         ).expect("peer projected decal");
 
-        register_live_game_client(&mut peer);
-        assert!(live_game_client_frame().is_some());
         let collect_owner = || collect_decal_items(
             owner.fx(), &owner.drawables.projected_decals.manager,
         );
@@ -1002,19 +1013,15 @@ mod owned_display_decal_tests {
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].position.x, 11.0);
         assert_eq!(items[1].position.x, 33.0);
-        assert!(clear_live_game_client(&mut peer));
-        assert_eq!(live_game_client_frame(), None);
         let items = collect_owner();
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].position.x, 11.0);
         assert_eq!(items[1].position.x, 33.0);
 
-        register_live_game_client(&mut peer);
         let empty = crate::fx_list::FxClientState::default();
         let items = collect_decal_items(&empty, &owner.drawables.projected_decals.manager);
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].position.x, 33.0);
-        assert!(clear_live_game_client(&mut peer));
         projected.release();
         peer_projected.release();
     }

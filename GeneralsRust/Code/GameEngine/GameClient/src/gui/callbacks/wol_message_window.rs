@@ -33,11 +33,6 @@ fn wol_message_window_state_on_owner(
     if let Some(owner) = owner {
         return owner.wol_message_window_state_handle();
     }
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.window_manager_owner_ref().wol_message_window_state_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_WOL_MESSAGE_WINDOW_STATE.with(|cell| {
@@ -51,15 +46,15 @@ fn wol_message_window_state_on_owner(
     }
 }
 
-fn wol_message_window_state() -> Rc<RefCell<WolMessageWindowState>> {
-    wol_message_window_state_on_owner(None)
+fn wol_message_window_state(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> Rc<RefCell<WolMessageWindowState>> {
+    wol_message_window_state_on_owner(owner)
 }
 
 fn name_to_id(name: &str) -> i32 {
     NameKeyGenerator::name_to_key(name) as i32
 }
 
-pub fn wol_message_window_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+pub fn wol_message_window_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
     let parent_id = name_to_id("WOLMessageWindow.wnd:WOLMessageWindowParent");
     let button_cancel_id = name_to_id("WOLMessageWindow.wnd:ButtonCancel");
 
@@ -73,7 +68,7 @@ pub fn wol_message_window_init(layout: &WindowLayout, _user_data: Option<&dyn st
         let _ = owner.with_manager(|manager| manager.set_focus(Some(parent)));
     }
 
-    let state_slot = wol_message_window_state();
+    let state_slot = wol_message_window_state(owner);
     let mut state = state_slot.borrow_mut();
     state.parent_id = parent_id;
     state.button_cancel_id = button_cancel_id;
@@ -95,7 +90,7 @@ pub fn wol_message_window_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
-) -> WindowMsgHandled {
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) -> WindowMsgHandled {
     if msg != WindowMessage::Char || data1 != KEY_ESC {
         return WindowMsgHandled::Ignored;
     }
@@ -105,7 +100,7 @@ pub fn wol_message_window_input(
 
     // C++ WOLMessageWindow.cpp:106 — winSendSystemMsg GBM_SELECTED.
     let (parent, button_id) = {
-        let slot = wol_message_window_state();
+        let slot = wol_message_window_state(owner);
         let state = slot.borrow();
         (state.parent.clone(), state.button_cancel_id)
     };

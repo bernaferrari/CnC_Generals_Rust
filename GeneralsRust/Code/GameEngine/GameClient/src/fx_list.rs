@@ -159,15 +159,11 @@ impl FXListManagerInterface for FXListManagerBridge {
 pub fn register_fx_list_manager_bridge() {
     let _ = gamelogic::helpers::register_fx_list_manager(Arc::new(FXListManagerBridge));
     game_engine::common::ini::register_fx_list_obj_runtime(Arc::new(DamageFxListRuntime));
+    // Ownerless Common hook: the receiving client's drawable bones are not
+    // reachable from a process fn pointer, so no bone positions are supplied
+    // (identical to native, where the former live slot was never registered).
     game_engine::common::ini::ini_damage_fx::register_fx_bone_pos_runtime(
-        |object_id, bone_name, start, max_bones| {
-            crate::core::game_client::query_live_current_client_bone_positions(
-                object_id, bone_name, start, max_bones,
-            )
-            .into_iter()
-            .map(|(pos, mtx)| ([pos.x, pos.y, pos.z], mtx.to_cols_array()))
-            .collect()
-        },
+        |_object_id, _bone_name, _start, _max_bones| Vec::new(),
     );
 }
 
@@ -182,7 +178,6 @@ impl game_engine::common::ini::FxListObjRuntime for DamageFxListRuntime {
 
 fn resolve_host_fx_object(id: u32) -> Option<gamelogic::helpers::HostFxObjectPose> {
     gamelogic::helpers::host_fx_object_pose(id)
-        .or_else(|| crate::core::game_client::query_live_drawable_fx_pose(id))
 }
 
 fn host_fx_obj_is_visible(object_id: u32) -> bool {
@@ -817,11 +812,6 @@ thread_local! {
 
 /// Handle to the FX catalog for this client (or a test/ephemeral fallback).
 pub fn fx_list_store_handle() -> std::sync::Arc<RwLock<FXListStore>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.ensure_fx_list_store()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_FX_LIST_STORE.with(|slot| {
@@ -1194,8 +1184,7 @@ impl FXNugget for TracerFXNugget {
         } else {
             self.speed
         };
-        let current_frame = crate::core::game_client::live_game_client_frame()
-            .unwrap_or_else(|| gamelogic::helpers::TheGameLogic::get_frame());
+        let current_frame = gamelogic::helpers::TheGameLogic::get_frame();
         let _ = spawn_tracer_drawable_like_cpp(
             &self.tracer_name,
             [primary.x, primary.y, primary.z],

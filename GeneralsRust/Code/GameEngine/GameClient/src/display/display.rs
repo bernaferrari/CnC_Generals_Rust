@@ -979,8 +979,6 @@ impl Display {
         client_fx: &crate::fx_list::FxClientState,
         projected_decals: &crate::radius_decal::ProjectedShadowManager,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        crate::display::client_draw_schedule::run_dual_world_cpu_phases();
-
         let (frame, view) = self
             .begin_frame()
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;

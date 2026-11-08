@@ -263,7 +263,7 @@ pub fn w3d_command_bar_grid_draw(
             draw_context,
         );
     });
-    note_shipped_ui_draw_commands(4);
+    draw_context.note_shipped_ui_draw_commands(4);
 }
 
 pub fn w3d_command_bar_gen_exp_draw(

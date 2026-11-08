@@ -316,9 +316,9 @@ impl FXNugget for LightPulseFXNugget {
             increase_frames: self.increase_frames,
             decay_frames: self.decrease_frames,
         };
-        let _ = crate::core::game_client::with_live_game_client_mut(|client| {
-            client.fx_mut().create_display_light_pulse(pulse.clone())
-        });
+        // Ownerless nugget: no receiving FxClientState is reachable from this
+        // FXContext, so the pulse is not admitted (identical to native).
+        let _ = pulse;
     }
 }
 

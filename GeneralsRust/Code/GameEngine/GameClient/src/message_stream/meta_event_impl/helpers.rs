@@ -138,7 +138,7 @@ fn set_cycle_lod_level_state_for_tests(demo: &mut MetaDemoState, level: DynamicG
     demo.cycle_lod_level = level;
 }
 
-fn next_plane_camera_lock_object_id(demo: &mut MetaDemoState) -> Option<u32> {
+fn next_plane_camera_lock_object_id(demo: &mut MetaDemoState, local_player_id: i32) -> Option<u32> {
     let mut candidates: Vec<u32> = Vec::new();
     // Wave 345: scan dual-world registry only when populated.
     if !dual_world_registry_unavailable() {
@@ -181,7 +181,7 @@ fn next_plane_camera_lock_object_id(demo: &mut MetaDemoState) -> Option<u32> {
     }
     // Fallback: local selection via TheGameLogic when catalog has no airborne.
     if candidates.is_empty() {
-        for object_id in local_selection_object_ids() {
+        for object_id in local_selection_object_ids(local_player_id) {
             let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
                 continue;
             };
@@ -327,14 +327,14 @@ fn run_key_script_alias(script_index: i32) {
     let _ = engine.execute_subroutine_by_name(&script_name);
 }
 
-fn local_selection_object_ids() -> Vec<u32> {
+fn local_selection_object_ids(local_player_id: i32) -> Vec<u32> {
     let selection_manager = get_selection_manager();
     selection_manager
         .read()
         .ok()
         .and_then(|manager| {
             manager
-                .get_player_selection_ref(get_local_player_id())
+                .get_player_selection_ref(local_player_id)
                 .map(|selection| selection.get_selected_objects())
         })
         .unwrap_or_default()

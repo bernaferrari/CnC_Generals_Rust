@@ -748,6 +748,14 @@ pub struct RadarSnapshot<'a> {
     pings: &'a mut VecDeque<RadarPingEvent>,
 }
 impl InGameUISubsystem {
+    pub fn local_player_id(&self) -> i32 {
+        self.local_player_id
+    }
+
+    pub fn set_local_player_id(&mut self, player_id: i32) {
+        self.local_player_id = player_id;
+    }
+
     pub fn snapshot_parts(&mut self) -> (InGameUISnapshot<'_>, RadarSnapshot<'_>) {
         (
             InGameUISnapshot {
@@ -1191,6 +1199,9 @@ pub struct PresentationSuperweaponTimerResidual {
 /// In-game UI subsystem bridge.
 #[derive(Default)]
 pub struct InGameUISubsystem {
+    /// Local player index the translators stamp commands with (this client's
+    /// `GameClient::set_local_player_id`; was a failed live-slot lookup).
+    local_player_id: i32,
     /// Meta-event demo/cheat toggles (was process TLS in meta_event_impl/state).
     pub meta_demo: crate::meta_demo_state::MetaDemoState,
     /// EVA speaker (was process TLS THE_EVA + host/residual latches).
@@ -3063,9 +3074,7 @@ mod missing_client_snapshot_tests {
         ) {
             return;
         }
-        use crate::core::game_client::{
-            GameClient, clear_live_game_client, register_live_game_client,
-        };
+        use crate::core::game_client::GameClient;
         use game_engine::System::SaveGame::{
             AvailableGameInfo, BorrowedSnapshotBlock, GameState, SaveCode, SaveFileType,
             SaveGameInfo, SnapshotType,
@@ -3084,7 +3093,6 @@ mod missing_client_snapshot_tests {
         let mut peer = GameClient::new().unwrap();
         source.set_frame(37);
         peer.set_frame(91);
-        register_live_game_client(&mut peer);
         let mut writer = state(directory.path());
         {
             let mut snapshot = source.snapshot();
@@ -3124,7 +3132,6 @@ mod missing_client_snapshot_tests {
         assert_eq!(receiving.get_frame(), 37);
         assert_eq!(source.get_frame(), 37);
         assert_eq!(peer.get_frame(), 91);
-        clear_live_game_client(&mut peer);
     }
 
     #[test]
