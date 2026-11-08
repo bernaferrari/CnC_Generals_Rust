@@ -63,6 +63,61 @@ fn receiving_template_resolution_preserves_base_and_effective_identity_per_catal
     assert_eq!(reset.base_identity(), reset.effective_identity());
 }
 
+#[test]
+fn ordered_overrides_keep_master_and_completed_children_local_until_reset() {
+    let boot = "Object DefaultThingTemplate\nBuildCost = 10\nEnd\n\
+                Object Parent\nBuildCost = 50\nEnd";
+    let mut a = content();
+    let mut b = content();
+    a.load_ini_text(boot, INILoadType::Overwrite).unwrap();
+    b.load_ini_text(boot, INILoadType::Overwrite).unwrap();
+    let master_a = a.resolve_template("Parent").unwrap().base_identity();
+    let master_b = b.resolve_template("Parent").unwrap().base_identity();
+    assert_ne!(master_a, master_b);
+    a.load_ini_text(
+        "Object Parent\nBuildCost = 100\nEnd\n\
+         Object Parent\nScale = 3\nEnd\n\
+         Object DefaultThingTemplate\nBuildCost = 99\nEnd\n\
+         Object MapOnly\nEnd\n\
+         Object MapOnly\nBuildCost = 30\nEnd\n\
+         ObjectReskin Skin Parent\nEnd",
+        INILoadType::CreateOverrides,
+    )
+    .unwrap();
+    b.load_ini_text(
+        "Object Parent\nBuildCost = 200\nEnd",
+        INILoadType::CreateOverrides,
+    )
+    .unwrap();
+
+    let chain = a.template_override_chain("Parent").unwrap();
+    assert_eq!(chain.len(), 2);
+    assert_eq!(chain[0].template().get_build_cost(), 100);
+    assert_eq!(chain[1].template().get_build_cost(), 100);
+    assert_eq!(chain[1].template().get_asset_scale(), 3.0);
+    assert!(Arc::ptr_eq(&chain[1], &a.admitted_template("Parent").unwrap()));
+    let first_child = Arc::downgrade(&chain[0]);
+    assert_eq!(a.resolve_template("Parent").unwrap().base_identity(), master_a);
+    assert_eq!(b.resolve_template("Parent").unwrap().base_identity(), master_b);
+    assert_eq!(b.admitted_template("Parent").unwrap().template().get_build_cost(), 200);
+    assert_eq!(a.admitted_template("MapOnly").unwrap().template().get_build_cost(), 30);
+    assert_eq!(a.resolve_template("MapOnly").unwrap().base_admission().template().get_build_cost(), 10);
+    let skin = a.admitted_template("Skin").unwrap();
+    assert_eq!(skin.template().get_build_cost(), 50);
+    assert!(Arc::ptr_eq(
+        skin.template().get_reskinned_from().unwrap(),
+        master_a.admitted_template().template_arc()
+    ));
+
+    a.reset_map_overrides();
+    assert!(first_child.upgrade().is_none());
+    assert!(a.template_override_chain("Parent").unwrap().is_empty());
+    assert_eq!(a.resolve_template("Parent").unwrap().effective_identity(), master_a);
+    assert!(a.resolve_template("MapOnly").is_none());
+    assert!(a.resolve_template("Skin").is_none());
+    assert_eq!(b.admitted_template("Parent").unwrap().template().get_build_cost(), 200);
+}
+
 fn first_data(plan: &AdmittedReceivingTemplate) -> &Arc<dyn ModuleData> {
     plan.template()
         .get_draw_module_info()

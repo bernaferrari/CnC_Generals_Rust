@@ -21,9 +21,15 @@ pub enum ReceivingDefinitionKind {
 
 #[derive(Clone)]
 struct TemplateVersion {
-    // None means this definition was introduced only for the current map.
-    base: Option<Arc<AdmittedReceivingTemplate>>,
-    current: Arc<AdmittedReceivingTemplate>,
+    master: Arc<AdmittedReceivingTemplate>,
+    overrides: Vec<Arc<AdmittedReceivingTemplate>>,
+    map_only: bool,
+}
+
+impl TemplateVersion {
+    fn current(&self) -> &Arc<AdmittedReceivingTemplate> {
+        self.overrides.last().unwrap_or(&self.master)
+    }
 }
 
 /// Read-only resolution of a saved template name in one receiving catalog.
@@ -144,8 +150,8 @@ impl ReceivingModuleContent {
     pub fn template_name_for_id(&self, id: u16) -> Option<&str> {
         self.templates
             .values()
-            .find(|entry| entry.current.template_id() == id)
-            .map(|entry| entry.current.name())
+            .find(|entry| entry.master.template_id() == id)
+            .map(|entry| entry.master.name())
     }
     /// Apply the same already-selected Map/Solo bytes to the receiving immutable
     /// science definitions before Object module admission resolves science names.
@@ -216,15 +222,24 @@ impl ReceivingModuleContent {
     pub fn admitted_template(&self, name: &str) -> Option<Arc<AdmittedReceivingTemplate>> {
         self.templates
             .get(name)
-            .map(|entry| Arc::clone(&entry.current))
+            .map(|entry| Arc::clone(entry.current()))
     }
 
     pub fn resolve_template(&self, name: &str) -> Option<ReceivingTemplateResolution> {
         let version = self.templates.get(name)?;
         Some(ReceivingTemplateResolution {
-            base: Arc::clone(version.base.as_ref().unwrap_or(&version.current)),
-            effective: Arc::clone(&version.current),
+            base: Arc::clone(&version.master),
+            effective: Arc::clone(version.current()),
         })
+    }
+
+    /// Completed hidden overrides in declaration order, excluding the master.
+    /// The borrow is scoped to this catalog so reset cannot leave a stale chain.
+    pub fn template_override_chain(
+        &self,
+        name: &str,
+    ) -> Option<&[Arc<AdmittedReceivingTemplate>]> {
+        self.templates.get(name).map(|entry| entry.overrides.as_slice())
     }
     /// Original master-list order is newest first; overrides do not add nodes.
     pub fn admitted_templates(
@@ -233,7 +248,7 @@ impl ReceivingModuleContent {
         self.declaration_order.iter().rev().filter_map(|name| {
             self.templates
                 .get(name)
-                .map(|entry| (name.as_str(), &entry.current))
+                .map(|entry| (name.as_str(), entry.current()))
         })
     }
     /// Existing prereq/build-variation readers may observe this detached view at
@@ -243,7 +258,7 @@ impl ReceivingModuleContent {
             self.declaration_order.iter().filter_map(|name| {
                 self.templates
                     .get(name)
-                    .map(|entry| entry.current.template())
+                    .map(|entry| entry.current().template())
             }),
             self.next_template_id,
         )
@@ -347,11 +362,11 @@ impl ReceivingModuleContent {
         }
         let previous = self.templates.get(name).cloned();
         let override_load = load_type == INILoadType::CreateOverrides;
-        // This catalog owns base/current versions. No compatibility override
-        // slot is allocated; copy_from preserves this frozen destination mode.
+        // Each catalog owns its master and its ordered immutable override chain.
+        // No compatibility override slot is allocated in receiving templates.
         let mut template = ThingTemplate::new_receiving();
         let id = if let Some(entry) = &previous {
-            entry.current.template().get_template_id()
+            entry.master.template().get_template_id()
         } else {
             let id = self.next_template_id;
             self.next_template_id = id
@@ -363,16 +378,16 @@ impl ReceivingModuleContent {
         template.set_template_name(name.into());
         if let Some(entry) = &previous {
             let source = if override_load {
-                &entry.current
+                entry.current()
             } else {
-                entry.base.as_ref().unwrap_or(&entry.current)
+                &entry.master
             };
             template.copy_from(source.template());
             if override_load {
                 template.set_copied_from_default();
             }
-        } else if let Some(default) = self.admitted_template("DefaultThingTemplate") {
-            template.copy_from(default.template());
+        } else if let Some(default) = self.templates.get("DefaultThingTemplate") {
+            template.copy_from(default.master.template());
             template.set_copied_from_default();
         }
         if override_load {
@@ -380,9 +395,14 @@ impl ReceivingModuleContent {
         }
         if kind != ReceivingDefinitionKind::Object {
             let parent = parent.ok_or("Receiving inherited Object has no parent")?;
-            let source = self.admitted_template(parent).ok_or_else(|| {
+            let entry = self.templates.get(parent).ok_or_else(|| {
                 format!("Receiving parent '{parent}' must be admitted before '{name}'")
             })?;
+            let source = if kind == ReceivingDefinitionKind::ObjectReskin {
+                &entry.master
+            } else {
+                entry.current()
+            };
             template.copy_from(source.template());
             template.set_copied_from_default();
             if kind == ReceivingDefinitionKind::ObjectReskin {
@@ -409,23 +429,24 @@ impl ReceivingModuleContent {
             self.validate_prerequisites_for(&admitted, Some((name, id)))?;
         }
 
-        let base = if override_load {
-            previous.as_ref().and_then(|entry| entry.base.clone())
-        } else if previous.as_ref().is_some_and(|entry| entry.base.is_none()) {
-            None
+        if let Some(mut entry) = previous {
+            if override_load {
+                entry.overrides.push(Arc::clone(&admitted));
+            } else {
+                entry.master = Arc::clone(&admitted);
+            }
+            self.templates.insert(name.to_owned(), entry);
         } else {
-            Some(Arc::clone(&admitted))
-        };
-        if previous.is_none() {
             self.declaration_order.push(name.to_owned());
+            self.templates.insert(
+                name.to_owned(),
+                TemplateVersion {
+                    master: Arc::clone(&admitted),
+                    overrides: Vec::new(),
+                    map_only: override_load,
+                },
+            );
         }
-        self.templates.insert(
-            name.to_owned(),
-            TemplateVersion {
-                base,
-                current: Arc::clone(&admitted),
-            },
-        );
         self.compatibility_view.take();
         Ok(admitted)
     }
@@ -440,11 +461,11 @@ impl ReceivingModuleContent {
             ));
         self.modules.reset_receiving_science_overrides();
         self.templates.retain(|_, entry| {
-            if let Some(base) = &entry.base {
-                entry.current = Arc::clone(base);
-                true
-            } else {
+            if entry.map_only {
                 false
+            } else {
+                entry.overrides.clear();
+                true
             }
         });
         self.declaration_order

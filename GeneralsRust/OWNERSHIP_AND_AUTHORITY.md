@@ -3122,3 +3122,7 @@ clear ID-keyed visibility history without erasing retained ghosts.
 Script supply-build and guard-supply resolve skirmish enemies through the
 receiving world's recursive query and frame deadline. Eager AI updates and
 immutable script and detached-manager queries still need migration.
+
+Receiving template content retains the master and completed overrides in
+declaration order and copies ObjectReskin and defaults from the master.
+Legacy factory identity and duplicate non-override redefinitions remain open.
