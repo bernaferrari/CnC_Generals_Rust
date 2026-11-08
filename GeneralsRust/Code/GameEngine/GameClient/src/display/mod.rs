@@ -66,6 +66,8 @@ pub trait DisplayInterface: SubsystemInterface {
         owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
         ui: Option<&crate::core::subsystems::InGameUISubsystem>,
         client_frame: u32,
+        client_fx: &crate::fx_list::FxClientState,
+        projected_decals: &crate::radius_decal::ProjectedShadowManager,
     ) -> Result<(), Box<dyn Error>>;
     fn draw_owned(
         &mut self,
@@ -76,6 +78,8 @@ pub trait DisplayInterface: SubsystemInterface {
         client_frame: u32,
         drawable_manager: &mut crate::drawable::DrawableManager,
         render_bridge: &mut crate::render_bridge::RenderBridge,
+        client_fx: &crate::fx_list::FxClientState,
+        projected_decals: &crate::radius_decal::ProjectedShadowManager,
     ) -> Result<(), Box<dyn Error>>;
     fn preload_common_textures(&self) -> Result<(), Box<dyn Error>>;
 }

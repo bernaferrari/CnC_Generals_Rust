@@ -17,7 +17,6 @@ use crate::effects::particle_manager::get_particle_system_manager;
 use crate::effects::particle_renderer::{
     ParticleRenderer as GpuParticleRenderer, ParticleUniforms,
 };
-use crate::core::game_client::with_live_game_client_mut;
 use crate::game_text::GameText;
 use crate::gui::display_string::{DisplayStringHandle, get_display_string_manager};
 use crate::gui::font::{FontDesc, get_font_library};
@@ -43,6 +42,19 @@ use std::time::{Duration, Instant};
 use wgpu::SurfaceTexture;
 
 pub type DebugDisplayCallback = fn(&mut DebugDisplay, Option<&mut dyn Any>);
+/// Collect receiving client decals before its projected unit and radius decals.
+pub(crate) fn collect_decal_items(
+    client_fx: &crate::fx_list::FxClientState,
+    projected_decals: &crate::radius_decal::ProjectedShadowManager,
+) -> Vec<crate::effects::decals::DecalRenderItem> {
+    let mut decals = client_fx
+        .decal_manager()
+        .and_then(|manager| manager.lock().ok().map(|guard| guard.collect_render_items()))
+        .unwrap_or_default();
+    decals.extend(projected_decals.collect_render_items());
+    decals
+}
+
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DisplayDirectionalLightState {
@@ -899,7 +911,7 @@ impl SubsystemInterface for Display {
 }
 
 impl Display {
-    /// Receiving Client snapshot; compatibility load-screen draws keep the adapter.
+    /// Draw with a receiving snow snapshot and explicit decal owners.
     pub fn draw_with_snow(
         &mut self,
         snow: &crate::snow::SnowRenderState,
@@ -908,6 +920,8 @@ impl Display {
         owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
         ui: Option<&crate::core::subsystems::InGameUISubsystem>,
         client_frame: u32,
+        client_fx: &crate::fx_list::FxClientState,
+        projected_decals: &crate::radius_decal::ProjectedShadowManager,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.draw_with_snow_state(
             Some(snow),
@@ -918,6 +932,8 @@ impl Display {
             client_frame,
             None,
             None,
+            client_fx,
+            projected_decals,
         )
     }
 
@@ -933,6 +949,8 @@ impl Display {
         client_frame: u32,
         drawable_manager: &mut crate::drawable::DrawableManager,
         render_bridge: &mut crate::render_bridge::RenderBridge,
+        client_fx: &crate::fx_list::FxClientState,
+        projected_decals: &crate::radius_decal::ProjectedShadowManager,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.draw_with_snow_state(
             Some(snow),
@@ -943,6 +961,8 @@ impl Display {
             client_frame,
             Some(drawable_manager),
             Some(render_bridge),
+            client_fx,
+            projected_decals,
         )
     }
 
@@ -956,6 +976,8 @@ impl Display {
         client_frame: u32,
         mut drawable_manager: Option<&mut crate::drawable::DrawableManager>,
         mut render_bridge: Option<&mut crate::render_bridge::RenderBridge>,
+        client_fx: &crate::fx_list::FxClientState,
+        projected_decals: &crate::radius_decal::ProjectedShadowManager,
     ) -> Result<(), Box<dyn std::error::Error>> {
         crate::display::client_draw_schedule::run_dual_world_cpu_phases();
 
@@ -1259,16 +1281,7 @@ impl Display {
 
         // Decal rendering pass (retail snow is drawn by terrain overlays).
         if let Some(renderer) = self.particle_renderer.as_ref() {
-            let mut decals = if let Some(manager) = with_live_game_client_mut(|c| c.fx().decal_manager()).flatten() {
-                manager
-                    .lock()
-                    .map(|guard| guard.collect_render_items())
-                    .unwrap_or_default()
-            } else {
-                Vec::new()
-            };
-            // C++ W3DProjectedShadowManager::flushDecals — unit + radius decals.
-            decals.extend(shadow_pass::collect_unit_decal_items());
+            let decals = collect_decal_items(client_fx, projected_decals);
 
             if !decals.is_empty() {
                 let mut uniforms = self.build_particle_uniforms();
@@ -1392,8 +1405,12 @@ impl DisplayInterface for Display {
         owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
         ui: Option<&crate::core::subsystems::InGameUISubsystem>,
         client_frame: u32,
+        client_fx: &crate::fx_list::FxClientState,
+        projected_decals: &crate::radius_decal::ProjectedShadowManager,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.draw_with_snow_state(None, fx, renderer, owner, ui, client_frame, None, None)
+        self.draw_with_snow_state(
+            None, fx, renderer, owner, ui, client_frame, None, None, client_fx, projected_decals,
+        )
     }
 
     fn draw_owned(
@@ -1405,6 +1422,8 @@ impl DisplayInterface for Display {
         client_frame: u32,
         drawable_manager: &mut crate::drawable::DrawableManager,
         render_bridge: &mut crate::render_bridge::RenderBridge,
+        client_fx: &crate::fx_list::FxClientState,
+        projected_decals: &crate::radius_decal::ProjectedShadowManager,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.draw_with_snow_state(
             None,
@@ -1415,6 +1434,8 @@ impl DisplayInterface for Display {
             client_frame,
             Some(drawable_manager),
             Some(render_bridge),
+            client_fx,
+            projected_decals,
         )
     }
 

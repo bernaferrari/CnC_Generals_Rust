@@ -26,6 +26,47 @@ mod tests {
         atomic::{AtomicBool, AtomicUsize, Ordering},
     };
 
+    #[test]
+    fn load_presentation_services_borrow_receiving_decals() {
+        use crate::core::game_client::{
+            GameClient, clear_live_game_client, register_live_game_client,
+        };
+        use crate::effects::decals::{DecalManager, DecalSettings};
+
+        crate::test_support::ensure_ambient_host();
+        if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+            module_path!(), "load_presentation_services_borrow_receiving_decals",
+        ) {
+            return;
+        }
+        let mut fixture = LoadScreenFixture::new();
+        let mut decals = DecalManager::new();
+        decals.create_decal(DecalSettings::scorch_mark(glam::Vec3::new(11.0, 0.0, 0.0), 1.0));
+        fixture.client_mut().fx_mut().register_decal_manager(Arc::new(Mutex::new(decals)));
+        let projected = fixture.client_mut().borrow_native_drawable_owner().allocate_projected_radius(
+            "RadiusDrop", 20.0, [33.0, 0.0, 0.0], 0xffffffff, 1.0,
+        ).unwrap();
+        let mut peer = GameClient::new().unwrap();
+        let mut peer_decals = DecalManager::new();
+        peer_decals.create_decal(DecalSettings::scorch_mark(glam::Vec3::new(22.0, 0.0, 0.0), 1.0));
+        peer.fx_mut().register_decal_manager(Arc::new(Mutex::new(peer_decals)));
+        register_live_game_client(&mut peer);
+        fixture.with_runtime(|runtime, _, _| {
+            let mut present = |services: LoadScreenDrawServices<'_>| {
+                let items = crate::display::display::collect_decal_items(
+                    services.client_fx, services.projected_decals,
+                );
+                assert_eq!(items.len(), 2);
+                assert_eq!(items[0].position.x, 11.0);
+                assert_eq!(items[1].position.x, 33.0);
+                Ok(())
+            };
+            LoadScreenPresentationPump::for_native(&mut present).pump(runtime).unwrap();
+        });
+        assert!(clear_live_game_client(&mut peer));
+        projected.release();
+    }
+
     fn with_fixture_mouse<R>(
         runtime: &mut LoadScreenOperation<'_>,
         operation: impl FnOnce(&mut crate::input::Mouse) -> R,

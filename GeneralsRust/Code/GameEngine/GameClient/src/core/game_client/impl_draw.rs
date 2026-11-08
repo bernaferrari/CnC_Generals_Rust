@@ -51,6 +51,8 @@ impl GameClient {
                     self.frame,
                     &mut self.drawable_manager,
                     &mut self.render_bridge,
+                    &self.drawables.fx,
+                    &self.drawables.projected_decals.manager,
                 )?;
         }
         Ok(())
@@ -76,6 +78,8 @@ impl GameClient {
             first_load: &mut self.shell_game_first_load,
             renderer: self.ui_renderer.as_mut(),
             message_stream: &mut self.message_stream,
+            client_fx: &self.drawables.fx,
+            projected_decals: &self.drawables.projected_decals.manager,
             effects: crate::gui::game_window::WindowEventEffects {
                 cursor_mouse: self.subsystem_manager.input_mouse.as_mut(),
                 control_bar_observation: None,
@@ -949,4 +953,64 @@ fn draw_cpp_drawable_caption(
         [0.0, 0.0, 0.0, a],
     );
     let _ = renderer.draw_text_simple(caption, Vec2::new(x, y), point_size, rgba);
+}
+
+#[cfg(test)]
+mod owned_display_decal_tests {
+    use super::*;
+    use crate::display::display::collect_decal_items;
+    use crate::effects::decals::{DecalManager, DecalSettings};
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn decal_collection_uses_receiving_client_not_live_peer() {
+        crate::test_support::ensure_ambient_host();
+        if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+            module_path!(),
+            "decal_collection_uses_receiving_client_not_live_peer",
+        ) {
+            return;
+        }
+        let mut owner = GameClient::new().unwrap();
+        let mut peer = GameClient::new().unwrap();
+        let mut owner_decals = DecalManager::new();
+        owner_decals.create_decal(DecalSettings::scorch_mark(glam::Vec3::new(11.0, 0.0, 0.0), 1.0));
+        owner.fx_mut().register_decal_manager(Arc::new(Mutex::new(owner_decals)));
+        let mut peer_decals = DecalManager::new();
+        peer_decals.create_decal(DecalSettings::scorch_mark(glam::Vec3::new(22.0, 0.0, 0.0), 1.0));
+        peer.fx_mut().register_decal_manager(Arc::new(Mutex::new(peer_decals)));
+        let projected = crate::radius_decal::enqueue_delivery_decal_argb_with_owner(
+            &mut owner.drawables.projected_decals.manager,
+            "SCCScudStorm_GLA", 200.0, 33.0, 0.0, 0.0, 0x21ff43, 0.25,
+        ).expect("projected decal");
+        let peer_projected = crate::radius_decal::enqueue_delivery_decal_argb_with_owner(
+            &mut peer.drawables.projected_decals.manager,
+            "SCCScudStorm_GLA", 200.0, 44.0, 0.0, 0.0, 0x21ff43, 0.25,
+        ).expect("peer projected decal");
+
+        register_live_game_client(&mut peer);
+        assert!(live_game_client_frame().is_some());
+        let collect_owner = || collect_decal_items(
+            owner.fx(), &owner.drawables.projected_decals.manager,
+        );
+        let items = collect_owner();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].position.x, 11.0);
+        assert_eq!(items[1].position.x, 33.0);
+        assert!(clear_live_game_client(&mut peer));
+        assert_eq!(live_game_client_frame(), None);
+        let items = collect_owner();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].position.x, 11.0);
+        assert_eq!(items[1].position.x, 33.0);
+
+        register_live_game_client(&mut peer);
+        let empty = crate::fx_list::FxClientState::default();
+        let items = collect_decal_items(&empty, &owner.drawables.projected_decals.manager);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].position.x, 33.0);
+        assert!(clear_live_game_client(&mut peer));
+        projected.release();
+        peer_projected.release();
+    }
 }

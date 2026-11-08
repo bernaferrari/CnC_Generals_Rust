@@ -2550,6 +2550,8 @@ impl GameClient {
                 self.frame,
                 &mut self.drawable_manager,
                 &mut self.render_bridge,
+                &self.drawables.fx,
+                &self.drawables.projected_decals.manager,
             )?;
             display.update_receiving(self.script_display.fx_mut())?;
         }
@@ -2617,6 +2619,8 @@ impl GameClient {
                 self.frame,
                 &mut self.drawable_manager,
                 &mut self.render_bridge,
+                &self.drawables.fx,
+                &self.drawables.projected_decals.manager,
             )?;
             thread::sleep(Duration::from_millis(100));
         }

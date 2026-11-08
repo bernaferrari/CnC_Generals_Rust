@@ -230,6 +230,8 @@ pub struct LoadScreenDrawServices<'a> {
     pub renderer: Option<&'a mut crate::gui::UIRenderer>,
     pub windows: &'a crate::gui::window_manager::WindowManagerOwner,
     pub ime: &'a crate::gui::ime_manager::ImeManager,
+    pub client_fx: &'a crate::fx_list::FxClientState,
+    pub projected_decals: &'a crate::radius_decal::ProjectedShadowManager,
 }
 impl<'a> LoadScreenPresentationPump<'a> {
     pub fn for_display(
@@ -278,6 +280,8 @@ impl<'a> LoadScreenPresentationPump<'a> {
                             Some(services.windows),
                             services.ui,
                             services.client_frame,
+                            services.client_fx,
+                            services.projected_decals,
                         )
                         .map_err(|error| error.to_string())
                 })
@@ -420,6 +424,8 @@ pub struct LoadScreenOperation<'a> {
     pub(crate) effects: crate::gui::game_window::WindowEventEffects<'a>,
     pub(crate) renderer: Option<&'a mut crate::gui::UIRenderer>,
     pub(crate) message_stream: &'a mut crate::message_stream::message_stream::MessageStream,
+    pub(crate) client_fx: &'a crate::fx_list::FxClientState,
+    pub(crate) projected_decals: &'a crate::radius_decal::ProjectedShadowManager,
 }
 impl LoadScreenOperation<'_> {
     pub fn runtime_mut(&mut self) -> &mut Self {
@@ -480,6 +486,8 @@ impl LoadScreenOperation<'_> {
                 .ime
                 .as_deref()
                 .expect("load operation requires receiving IME"),
+            client_fx: self.client_fx,
+            projected_decals: self.projected_decals,
         })
     }
 }
