@@ -23,7 +23,6 @@ fn with_live_bridge_mut<R>(f: impl FnOnce(&mut LiveGameClientBridge) -> R) -> Op
 }
 
 pub(crate) fn register_live_game_client(client: &mut GameClient) {
-    let player_id = client.local_player_id;
     let frame = client.frame;
     let raw = std::ptr::from_mut(client) as usize;
     let registered = with_live_bridge_mut(|slot| {
@@ -52,9 +51,6 @@ pub(crate) fn register_live_game_client(client: &mut GameClient) {
     crate::terrain::terrain_visual::publish_terrain_visual(std::sync::Arc::clone(
         &client.terrain_visual_gpu,
     ));
-    // Free-function player-id publish may re-enter `with_live_game_client_mut`;
-    // never call it while the live bridge mutex is held.
-    set_local_player_id(player_id);
 }
 
 /// Re-anchor the snapshot access path after the owner may have been moved

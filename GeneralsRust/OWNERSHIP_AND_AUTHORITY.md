@@ -2957,3 +2957,7 @@ ambient setting.
 Transition-damage OCL weapon nuggets use the damaged object as source and the
 damage source's position as target, in authored nugget order. Their definitions
 are resolved from the receiving world.
+
+Live-client registration no longer re-enters the raw client bridge merely to
+rewrite the local player ID already held by that client. The bridge itself still
+needs an explicit-owner migration; its retained address is not safe across moves.
