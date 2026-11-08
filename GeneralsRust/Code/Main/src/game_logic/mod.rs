@@ -1,15 +1,10 @@
 //! Game logic, owned runtime adapters, and executable behavioral regressions.
 
-pub(crate) mod world_ambient;
-
-/// Ambient SCOPED_ACTIVE hooks: Main registers TLS via [`world_ambient`]; GameLogic
-/// `register_ambient_stack_hooks` is a no-op when the crate-local stack is used. Transitional
-/// with_world_services TLS lives in gamelogic::system::engine_stores until
-/// nested free functions take explicit `&WorldServices`.
+/// Publish a bootstrap `WorldServices` when none is published yet.
+/// Transitional with_world_services TLS lives in gamelogic::system::engine_stores
+/// until nested free functions take explicit `&WorldServices`.
 #[inline]
 pub fn ensure_world_ambient() {
-    world_ambient::bind_pre_ensure();
-    world_ambient::ensure_registered();
     // Boot / subsystem registration still call GameLogic free functions that
     // resolve through WorldServices TLS (weapon store, OCL cell, ActionManager).
     // Install a bootstrap bag before those paths run; the match-owned bag is

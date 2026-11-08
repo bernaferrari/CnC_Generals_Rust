@@ -732,25 +732,6 @@ fn stack_depth() -> usize {
     SCOPED_ACTIVE.with(|stack| stack.borrow().len())
 }
 
-/// Deprecated no-op: ambient stack is built into GameLogic (hooks removed).
-#[deprecated(note = "ambient hooks deleted; stack is built into engine_stores")]
-pub struct AmbientStackHooks {
-    pub head: fn() -> Option<PublishedOwner>,
-    pub push: fn(PublishedOwner),
-    pub pop_if_head: fn(&PublishedOwner) -> bool,
-    pub retain_not: fn(&PublishedOwner),
-    pub prior_core_ai_data: fn() -> Option<Arc<RwLock<AIDataStore>>>,
-    pub depth: fn() -> usize,
-}
-
-/// Deprecated no-op kept so out-of-tree / GameClient test binders still link.
-#[deprecated(note = "ambient hooks deleted; registration is a no-op")]
-pub fn register_ambient_stack_hooks(_hooks: AmbientStackHooks) {}
-
-/// Deprecated no-op kept so out-of-tree / GameClient test binders still link.
-#[deprecated(note = "ambient hooks deleted; pre-ensure is a no-op")]
-pub fn set_ambient_pre_ensure(_f: fn()) {}
-
 fn published_owner() -> Option<PublishedOwner> {
     let head = stack_head();
     #[cfg(any(test, feature = "test-ambient-services"))]

@@ -1294,15 +1294,13 @@ impl CnCGameEngine {
                     );
 
                     {
-                        let lexicon =
-                            game_engine::common::system::function_lexicon::get_function_lexicon();
-                        let guard = lexicon.lock();
-                        if let Ok(mut lexicon_guard) = guard {
-                            if let Err(err) = game_engine::common::system::SubsystemInterface::init(&mut *lexicon_guard) {
-                                warn!("FunctionLexicon init failed during startup bootstrap: {err}. Continuing without function lexicon.");
-                            }
-                        } else {
-                            warn!("Function lexicon lock poisoned during startup bootstrap; skipping");
+                        // C++ TheFunctionLexicon->init() validates the callback
+                        // tables at boot. No production reader keeps the lexicon,
+                        // so the validation runs on a startup-local instance.
+                        let mut lexicon =
+                            game_engine::common::system::function_lexicon::FunctionLexicon::new();
+                        if let Err(err) = game_engine::common::system::SubsystemInterface::init(&mut lexicon) {
+                            warn!("FunctionLexicon init failed during startup bootstrap: {err}. Continuing without function lexicon.");
                         }
                     }
 
