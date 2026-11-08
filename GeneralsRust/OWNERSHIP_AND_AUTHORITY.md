@@ -3040,3 +3040,6 @@ Science archive admission builds a receiving store from ordered sources without
 resetting or repopulating the ambient compatibility store.
 Command-button science fields validate in source order against the receiving
 science catalog; `None` clears the field and terminates its scan.
+
+The unused WWLib field-size macro was removed: it formed a reference to an
+uninitialized field merely to query its size, which is not a valid Rust borrow.
