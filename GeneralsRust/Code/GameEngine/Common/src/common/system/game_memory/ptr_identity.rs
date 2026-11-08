@@ -67,11 +67,10 @@ const _: () = {
 impl BlockHeader {
     pub(crate) fn calc_raw_block_size(logical_size: usize) -> usize {
         let aligned = round_up_mem_bound(logical_size);
-        let mut s = std::mem::size_of::<BlockHeader>() + aligned;
-        #[cfg(debug_assertions)]
-        {
-            s += debug_consts::WALLSIZE * 2;
-        }
+        let s = std::mem::size_of::<BlockHeader>()
+            .checked_add(aligned)
+            .and_then(|size| size.checked_add(debug_consts::WALLSIZE * 2))
+            .expect("memory allocation size overflow");
         round_up_mem_bound(s)
     }
 
@@ -146,16 +145,23 @@ pub(crate) fn prepare_alloc(
     user
 }
 
-pub(crate) fn mark_freed(user: *mut u8) {
+pub(crate) fn mark_freed(
+    buf: &mut AlignedBuf,
+    index: usize,
+    raw_block_size: usize,
+    logical_size: usize,
+) {
     #[cfg(debug_assertions)]
     {
-        let header = from_user_data(user);
-        // SAFETY: [Category 3 — dangling]
-        // `user` is a live pool pointer (caller still owns the blob storage).
+        let base = buf.as_mut_ptr().wrapping_add(index * raw_block_size);
+        // SAFETY: the caller validated this index against its live owned slot;
+        // the size is the pool's allocation size, not a mutable header field.
         unsafe {
-            fill_user(header, debug_consts::GARBAGE_FILL_VALUE);
+            fill_user_bytes(user_ptr(base), logical_size, debug_consts::GARBAGE_FILL_VALUE);
         }
     }
+    #[cfg(not(debug_assertions))]
+    let _ = (buf, index, raw_block_size, logical_size);
 }
 
 pub(crate) fn user_ptr(header_base: *mut u8) -> *mut u8 {
@@ -221,7 +227,16 @@ unsafe fn fill_user(header: *mut BlockHeader, value: u32) {
     // SAFETY: [Category 4 — uninit] header/user region were written by `init_slot`.
     unsafe {
         let user = user_ptr(header as *mut u8);
-        let size = round_up_mem_bound((*header).logical_size);
+        fill_user_bytes(user, (*header).logical_size, value);
+    }
+}
+
+#[cfg(debug_assertions)]
+// SAFETY: `user` must be aligned and valid for the rounded logical size.
+unsafe fn fill_user_bytes(user: *mut u8, logical_size: usize, value: u32) {
+    // SAFETY: the caller supplies a writable user region of the rounded size.
+    unsafe {
+        let size = round_up_mem_bound(logical_size);
         let words = size / 4;
         let p = user as *mut u32;
         for i in 0..words {

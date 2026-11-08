@@ -5,6 +5,7 @@ use super::ptr_identity::{self, AlignedBuf, BlockHeader};
 pub(crate) struct MemoryPoolBlob {
     storage: AlignedBuf,
     free: Vec<usize>,
+    live: Vec<bool>,
     used_blocks: usize,
     total_blocks: usize,
     raw_block_size: usize,
@@ -14,8 +15,12 @@ pub(crate) struct MemoryPoolBlob {
 impl MemoryPoolBlob {
     pub(crate) fn new(allocation_size: usize, count: usize, self_id: *mut u8) -> Self {
         let raw_block_size = BlockHeader::calc_raw_block_size(allocation_size);
-        let mut storage = AlignedBuf::with_bytes(raw_block_size * count);
+        let bytes = raw_block_size
+            .checked_mul(count)
+            .expect("memory pool allocation size overflow");
+        let mut storage = AlignedBuf::with_bytes(bytes);
         let mut free = Vec::with_capacity(count);
+        let live = vec![false; count];
         for i in 0..count {
             ptr_identity::init_slot(&mut storage, i, raw_block_size, allocation_size, self_id);
             free.push(count - 1 - i);
@@ -23,6 +28,7 @@ impl MemoryPoolBlob {
         Self {
             storage,
             free,
+            live,
             used_blocks: 0,
             total_blocks: count,
             raw_block_size,
@@ -44,6 +50,8 @@ impl MemoryPoolBlob {
 
     pub(crate) fn allocate(&mut self, self_id: *mut u8) -> *mut u8 {
         let index = self.free.pop().expect("no free blocks in blob");
+        assert!(!self.live[index], "free list contains a live block");
+        self.live[index] = true;
         self.used_blocks += 1;
         ptr_identity::prepare_alloc(
             &mut self.storage,
@@ -56,10 +64,13 @@ impl MemoryPoolBlob {
 
     pub(crate) fn free_user(&mut self, user: *mut u8) {
         let index = ptr_identity::slot_index(&self.storage, user, self.raw_block_size)
+            .filter(|&index| index < self.total_blocks)
             .expect("user pointer not in this blob");
-        ptr_identity::mark_freed(user);
+        assert!(self.live[index], "block has already been freed");
+        ptr_identity::mark_freed(&mut self.storage, index, self.raw_block_size, self.allocation_size);
+        self.live[index] = false;
         self.free.push(index);
-        self.used_blocks = self.used_blocks.saturating_sub(1);
+        self.used_blocks -= 1;
     }
 
     pub(crate) fn contains_user(&self, user: *mut u8) -> bool {

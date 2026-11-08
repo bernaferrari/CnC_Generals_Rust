@@ -10,6 +10,11 @@ Each VideoPlayer owns its provider registration. These changes prevent one
 instance's initialization from skipping a peer, but the ambient audio and
 live-client movie access paths still require explicit owner migration.
 
+The legacy byte pool checks allocation-size arithmetic and tracks live slots
+before freeing them. Its address-only interface still cannot distinguish a
+stale pointer from a later allocation at the same address; replacing that seam
+requires owner-scoped identities and borrowed access.
+
 ## Authored stealth and weapon continuation
 
 StealthUpdate reads the admitted authored module and owns its enabled state,

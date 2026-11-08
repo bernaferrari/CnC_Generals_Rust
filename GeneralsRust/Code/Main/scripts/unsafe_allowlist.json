@@ -12,12 +12,8 @@
       "constructs": 1,
       "undocumented": 0
     },
-    "Code/GameEngine/Common/src/common/state_machine.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
     "Code/GameEngine/Common/src/common/system/game_memory/ptr_identity.rs": {
-      "constructs": 11,
+      "constructs": 13,
       "undocumented": 0
     },
     "Code/GameEngine/Common/src/common/system/registry.rs": {
@@ -32,12 +28,8 @@
       "constructs": 25,
       "undocumented": 0
     },
-    "Code/GameEngine/Common/src/memory/generation.rs": {
-      "constructs": 3,
-      "undocumented": 0
-    },
     "Code/GameEngine/Common/tests/game_memory.rs": {
-      "constructs": 5,
+      "constructs": 9,
       "undocumented": 0
     },
     "Code/GameEngine/GameClient/examples/complete_ui_demo.rs": {
@@ -188,34 +180,6 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/GameEngineDevice/src/win32_device/common/win32_cd_manager.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngineDevice/src/win32_device/common/win32_game_engine.rs": {
-      "constructs": 17,
-      "undocumented": 0
-    },
-    "Code/GameEngineDevice/src/win32_device/common/win32_local_file.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngineDevice/src/win32_device/common/win32_os_display.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/GameEngineDevice/src/win32_device/game_client/win32_di_keyboard.rs": {
-      "constructs": 15,
-      "undocumented": 0
-    },
-    "Code/GameEngineDevice/src/win32_device/game_client/win32_di_mouse.rs": {
-      "constructs": 22,
-      "undocumented": 0
-    },
-    "Code/GameEngineDevice/src/win32_device/game_client/win32_mouse.rs": {
-      "constructs": 8,
-      "undocumented": 0
-    },
     "Code/Integration/src/lib.rs": {
       "constructs": 5,
       "undocumented": 0
@@ -257,7 +221,7 @@
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-geometry/src/simd_math.rs": {
-      "constructs": 12,
+      "constructs": 10,
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu/src/buffer.rs": {
@@ -316,27 +280,11 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/mesh_system_impl/render_manager.rs": {
-      "constructs": 4,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/render2d/render2dsentence.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/rendering_2d.rs": {
       "constructs": 2,
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/texture_system/texfcach.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/wgpu_renderer/wgpu_device.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/wgpu_renderer/wgpu_surface.rs": {
       "constructs": 2,
       "undocumented": 0
     },
@@ -349,23 +297,15 @@
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WWAudio/src/aud_windows.rs": {
-      "constructs": 7,
+      "constructs": 4,
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WWAudio/src/device.rs": {
       "constructs": 3,
       "undocumented": 0
     },
-    "Code/Libraries/Source/WWVegas/WWAudio/src/dsound.rs": {
-      "constructs": 17,
-      "undocumented": 0
-    },
     "Code/Libraries/Source/WWVegas/WWAudio/src/memory.rs": {
       "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWAudio/src/windows.rs": {
-      "constructs": 8,
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WWAudio/src/wwaudio.rs": {
@@ -393,7 +333,7 @@
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WWDebug/src/wwdebug.rs": {
-      "constructs": 10,
+      "constructs": 11,
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WWDownload/src/lib.rs": {
@@ -445,7 +385,7 @@
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WWLib/src/verchk.rs": {
-      "constructs": 11,
+      "constructs": 6,
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WWLib/src/win.rs": {
@@ -486,14 +426,6 @@
     },
     "Code/Main/src/platform/windows.rs": {
       "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Main/src/resource.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Main/src/single_instance.rs": {
-      "constructs": 1,
       "undocumented": 0
     },
     "Code/Main/src/win32_game_engine.rs": {

@@ -58,7 +58,9 @@ impl PoolInitRec {
 
 #[inline]
 pub(crate) fn round_up_mem_bound(i: usize) -> usize {
-    (i + (MEM_BOUND_ALIGNMENT - 1)) & !(MEM_BOUND_ALIGNMENT - 1)
+    i.checked_add(MEM_BOUND_ALIGNMENT - 1)
+        .expect("memory allocation size overflow")
+        & !(MEM_BOUND_ALIGNMENT - 1)
 }
 
 #[cfg(test)]

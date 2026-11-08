@@ -152,3 +152,97 @@ fn game_memory_debug_fill_and_walls_still_work() {
         (*pool).free_block(p2);
     }
 }
+
+#[test]
+fn game_memory_overflow_requests_panic_before_allocating() {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    let mut factory = MemoryPoolFactory::new();
+    let dma = factory.create_dynamic_memory_allocator(&[]);
+    // SAFETY: the factory owns the DMA throughout these calls.
+    unsafe {
+        for size in [usize::MAX, usize::MAX - (MEM_BOUND_ALIGNMENT - 1)] {
+            assert!(catch_unwind(AssertUnwindSafe(|| (*dma).allocate_bytes(size))).is_err());
+            assert!(catch_unwind(AssertUnwindSafe(|| (*dma).allocate_bytes_do_not_zero(size))).is_err());
+        }
+        let p = (*dma).allocate_bytes(8);
+        (*dma).free_bytes(p);
+    }
+    assert!(catch_unwind(AssertUnwindSafe(|| {
+        factory.create_memory_pool("overflow-size", usize::MAX, 8, 8)
+    })).is_err());
+    assert!(catch_unwind(AssertUnwindSafe(|| {
+        factory.create_memory_pool("overflow-count", 16, usize::MAX - (MEM_BOUND_ALIGNMENT - 1), 8)
+    })).is_err());
+}
+
+#[test]
+fn game_memory_rejects_duplicate_and_foreign_pool_frees() {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    let mut factory = MemoryPoolFactory::new();
+    let pool = factory.create_memory_pool("owner", 16, 8, 8);
+    let other = factory.create_memory_pool("other", 16, 8, 8);
+    // SAFETY: both pool pointers remain owned by the live factory.
+    unsafe {
+        let p = (*pool).allocate_block();
+        assert!(catch_unwind(AssertUnwindSafe(|| (*other).free_block(p))).is_err());
+        assert!(catch_unwind(AssertUnwindSafe(|| (*pool).free_block(p.wrapping_add(1)))).is_err());
+        (*pool).free_block(p);
+        assert!(catch_unwind(AssertUnwindSafe(|| (*pool).free_block(p))).is_err());
+        assert_eq!((*pool).get_used_block_count(), 0);
+        let first = (*pool).allocate_block();
+        let second = (*pool).allocate_block();
+        assert_ne!(first, second);
+        (*pool).free_block(first);
+        (*pool).free_block(second);
+    }
+}
+
+#[test]
+fn game_memory_dma_duplicate_and_foreign_frees_do_not_corrupt_reuse() {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    let mut factory = MemoryPoolFactory::new();
+    let dma = factory.create_dynamic_memory_allocator(&[]);
+    let other = factory.create_dynamic_memory_allocator(&[]);
+    // SAFETY: both DMA pointers remain owned by the live factory.
+    unsafe {
+        let p = (*dma).allocate_bytes(8);
+        (*other).free_bytes(p); // Foreign DMA pointers are ignored.
+        (*dma).free_bytes(p);
+        assert!(catch_unwind(AssertUnwindSafe(|| (*dma).free_bytes(p))).is_err());
+        let first = (*dma).allocate_bytes(8);
+        let second = (*dma).allocate_bytes(8);
+        assert_ne!(first, second);
+        (*dma).free_bytes(first);
+        (*dma).free_bytes(second);
+        let raw = (*dma).allocate_bytes(2048);
+        (*other).free_bytes(raw);
+        (*dma).free_bytes(raw);
+        (*dma).free_bytes(raw); // Freed raw blocks are no longer owned.
+    }
+}
+
+#[test]
+fn game_memory_releasing_empty_blobs_preserves_counts_and_growth() {
+    let mut factory = MemoryPoolFactory::new();
+    let pool = factory.create_memory_pool("release", 16, 8, 8);
+    // SAFETY: the pool is owned by the factory, and every block is freed once.
+    unsafe {
+        let blocks: Vec<_> = (0..9).map(|_| (*pool).allocate_block()).collect();
+        assert_eq!((*pool).get_total_block_count(), 16);
+        for &p in &blocks[..8] {
+            (*pool).free_block(p);
+        }
+        assert_eq!((*pool).release_empties(), 128);
+        assert_eq!((*pool).get_total_block_count(), 8);
+        assert_eq!((*pool).get_used_block_count(), 1);
+        (*pool).free_block(blocks[8]);
+        assert_eq!((*pool).release_empties(), 128);
+        assert_eq!((*pool).get_total_block_count(), 0);
+        let p = (*pool).allocate_block();
+        assert_eq!((*pool).get_total_block_count(), 8);
+        (*pool).free_block(p);
+    }
+}

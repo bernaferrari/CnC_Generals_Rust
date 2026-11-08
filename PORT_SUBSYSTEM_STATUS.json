@@ -1,5 +1,5 @@
 {
-  "input_digest": "e2fbffa6691403295d95f84debc5e6c3988134542458570f301708cf8a196c66",
+  "input_digest": "3cddd5064e36a56ec3c3dd9e7fcc812f28b5496b7cc0258b65266fbc7e8021bd",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -12,16 +12,14 @@
     "all_inventory_entries": 2961,
     "behavior_evidence": {
       "by_confidence": {
-        "exact": 1,
+        "exact": 0,
         "tolerance": 0
       },
-      "by_evidence_scope": {
-        "original_cpp": 1
-      },
+      "by_evidence_scope": {},
       "by_provenance_scope": {
         "game_engine": {
           "units_with_records": 1,
-          "verified_units": 1
+          "verified_units": 0
         },
         "game_engine_device": {
           "units_with_records": 0,
@@ -41,38 +39,39 @@
         }
       },
       "informational_records": 0,
-      "rejected_records": 0,
+      "rejected_records": 3,
       "units_with_records": 1,
       "unmatched_units": [],
-      "verified_units": 1
+      "verified_units": 0
     },
-    "behavior_verified": 1,
+    "behavior_verified": 0,
     "blockers_by_kind": {
-      "duplicate_implementation_destination": 714,
-      "missing_mapping": 23,
-      "no_reachable_implementation": 686,
-      "ownership_symbol": 6,
+      "duplicate_implementation_destination": 730,
+      "missing_mapping": 105,
+      "no_reachable_implementation": 687,
+      "ownership_range": 1,
+      "ownership_symbol": 10,
       "unreviewed_mapping": 1381,
-      "unreviewed_source_range_ownership": 63,
-      "unreviewed_symbol_ownership": 1388
+      "unreviewed_source_range_ownership": 67,
+      "unreviewed_symbol_ownership": 1389
     },
     "by_scope": {
       "game_engine": {
         "behavior_evidence_units": 1,
-        "behavior_verified": 1,
+        "behavior_verified": 0,
         "deferred_network": 47,
-        "reachable_implementation_candidates": 487,
+        "reachable_implementation_candidates": 490,
         "required": 539,
         "reviewed_path_implementations": 8,
-        "source_range_ownership_reviewed": 3,
-        "symbol_ownership_reviewed": 1,
+        "source_range_ownership_reviewed": 2,
+        "symbol_ownership_reviewed": 0,
         "translation_units": 586
       },
       "game_engine_device": {
         "behavior_evidence_units": 0,
         "behavior_verified": 0,
         "deferred_network": 0,
-        "reachable_implementation_candidates": 46,
+        "reachable_implementation_candidates": 37,
         "required": 103,
         "reviewed_path_implementations": 0,
         "source_range_ownership_reviewed": 0,
@@ -83,7 +82,7 @@
         "behavior_evidence_units": 0,
         "behavior_verified": 0,
         "deferred_network": 0,
-        "reachable_implementation_candidates": 177,
+        "reachable_implementation_candidates": 178,
         "required": 378,
         "reviewed_path_implementations": 0,
         "source_range_ownership_reviewed": 0,
@@ -105,7 +104,7 @@
         "behavior_evidence_units": 0,
         "behavior_verified": 0,
         "deferred_network": 0,
-        "reachable_implementation_candidates": 14,
+        "reachable_implementation_candidates": 18,
         "required": 368,
         "reviewed_path_implementations": 0,
         "source_range_ownership_reviewed": 0,
@@ -114,14 +113,14 @@
       }
     },
     "deferred_network_translation_units": 47,
-    "duplicate_implementation_destinations": 335,
+    "duplicate_implementation_destinations": 343,
     "orphan_ownership_records": 0,
-    "reachable_implementation_candidates": 703,
+    "reachable_implementation_candidates": 702,
     "required_translation_units": 1389,
     "reviewed_path_implementations": 8,
-    "source_range_ownership_reviewed": 3,
-    "strict_blockers": 4261,
-    "symbol_ownership_reviewed": 1,
+    "source_range_ownership_reviewed": 2,
+    "strict_blockers": 4370,
+    "symbol_ownership_reviewed": 0,
     "translation_units": 1436
   }
 }

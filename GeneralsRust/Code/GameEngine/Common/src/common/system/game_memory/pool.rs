@@ -54,6 +54,8 @@ impl MemoryPool {
             allocation_count > 0 && allocation_count % MEM_BOUND_ALIGNMENT == 0,
             "bad allocationCount ({allocation_count})"
         );
+        let total = self.total_blocks_in_pool.checked_add(allocation_count)
+            .expect("memory pool block count overflow");
         // owning_blob is ABI decoration only; free-lists use Vec indices.
         let blob = Box::new(MemoryPoolBlob::new(
             self.allocation_size,
@@ -62,7 +64,7 @@ impl MemoryPool {
         ));
         self.blobs.push(blob);
         self.first_free_blob = Some(self.blobs.len() - 1);
-        self.total_blocks_in_pool += allocation_count;
+        self.total_blocks_in_pool = total;
     }
 
     fn refresh_free_blob(&mut self) {
@@ -101,6 +103,9 @@ impl MemoryPool {
         user
     }
 
+    /// Free a live slot belonging to this pool. Null is ignored; a foreign,
+    /// interior, or already-freed pointer panics. After reuse, address-only
+    /// pointers cannot distinguish a stale allocation from the current one.
     pub fn free_block(&mut self, user_ptr: *mut u8) {
         if user_ptr.is_null() {
             return;
@@ -112,7 +117,7 @@ impl MemoryPool {
             .expect("block does not belong to this pool");
         self.blobs[idx].free_user(user_ptr);
         self.first_free_blob = Some(idx);
-        self.used_blocks_in_pool = self.used_blocks_in_pool.saturating_sub(1);
+        self.used_blocks_in_pool -= 1;
     }
 
     pub fn get_pool_name(&self) -> &str {
@@ -139,16 +144,14 @@ impl MemoryPool {
     }
 
     pub fn release_empties(&mut self) -> usize {
-        let mut released = 0usize;
-        let size = self.allocation_size;
-        self.blobs.retain(|b| {
-            if b.used_blocks() == 0 {
-                released += b.total_blocks() * size;
-                false
-            } else {
-                true
-            }
-        });
+        let released_blocks = self.blobs.iter()
+            .filter(|blob| blob.used_blocks() == 0)
+            .try_fold(0usize, |count, blob| count.checked_add(blob.total_blocks()))
+            .expect("memory pool block count overflow");
+        let released = released_blocks.checked_mul(self.allocation_size)
+            .expect("memory pool release size overflow");
+        self.blobs.retain(|blob| blob.used_blocks() != 0);
+        self.total_blocks_in_pool -= released_blocks;
         self.first_free_blob = self.blobs.iter().position(|b| b.has_free_blocks());
         released
     }

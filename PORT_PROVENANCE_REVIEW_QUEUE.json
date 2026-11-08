@@ -6769,6 +6769,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/random_value.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/random_value_tests.rs"
             }
           ],
           "entry_id": "game_engine:Source/Common/RandomValue.cpp",
@@ -10079,6 +10084,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/body_auto_particle_rules.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/body_damage_rules.rs"
             },
             {
@@ -10119,6 +10129,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/combat_bonus_rules.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/debug_fields.rs"
             },
             {
@@ -10135,6 +10150,16 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/physics_rules.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/power_bar_rules.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/tunnel_capacity_rules.rs"
             }
           ],
           "entry_id": "game_engine:Source/Common/INI/INIGameData.cpp",
@@ -10620,13 +10645,19 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership"
+            "unreviewed_symbol_ownership",
+            "unreviewed_source_range_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_water.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_water/owned.rs"
             }
           ],
           "entry_id": "game_engine:Source/Common/INI/INIWater.cpp",
@@ -12769,6 +12800,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/prototype.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/prototype_controller_transfer_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -20388,7 +20424,10 @@
             "unreviewed_symbol_ownership",
             "unreviewed_source_range_ownership",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/display/image.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/display/view.rs"
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/display/view.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/display/view/camera_math.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/display/view/camera_script.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/display/view/command_markers.rs"
           ],
           "candidate_destinations": [
             {
@@ -20400,6 +20439,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/client_draw_schedule.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/client_draw_schedule_state.rs"
             },
             {
               "cargo_reachable": true,
@@ -20465,6 +20509,26 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/view.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/view/camera_math.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/view/camera_script.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/view/command_markers.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/view/tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -20828,6 +20892,11 @@
             "unreviewed_source_range_ownership"
           ],
           "candidate_destinations": [
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_client_state.rs"
+            },
             {
               "cargo_reachable": true,
               "classification": "implementation",
@@ -24206,13 +24275,37 @@
           "blockers": [
             "unreviewed_mapping",
             "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/display/view.rs"
+            "unreviewed_source_range_ownership",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/display/view.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/display/view/camera_math.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/display/view/camera_script.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/display/view/command_markers.rs"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/view.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/view/camera_math.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/view/camera_script.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/view/command_markers.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/view/tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -27646,6 +27739,10 @@
             "unreviewed_symbol_ownership",
             "unreviewed_source_range_ownership",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu/button_events.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu/gadget_simulation.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu/host_inject.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu/resolution_and_patches.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu_online.rs"
           ],
           "candidate_destinations": [
@@ -27653,6 +27750,26 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu/button_events.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu/gadget_simulation.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu/host_inject.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu/resolution_and_patches.rs"
             },
             {
               "cargo_reachable": true,
@@ -27793,15 +27910,14 @@
         },
         {
           "blockers": [
-            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/menus/map_select_menu.rs"
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/menu_callbacks/map_select_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/MapSelectMenu.cpp",
@@ -27943,15 +28059,14 @@
         },
         {
           "blockers": [
-            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/menus/options_menu.rs"
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/menu_callbacks/options_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/OptionsMenu.cpp",
@@ -34237,6 +34352,10 @@
             "unreviewed_symbol_ownership",
             "unreviewed_source_range_ownership",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu/button_events.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu/gadget_simulation.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu/host_inject.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu/resolution_and_patches.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu_online.rs"
           ],
           "candidate_destinations": [
@@ -34284,6 +34403,26 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu/button_events.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu/gadget_simulation.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu/host_inject.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu/resolution_and_patches.rs"
             },
             {
               "cargo_reachable": true,
@@ -48083,6 +48222,11 @@
           "candidate_destinations": [
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/derived_contain_admission_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/overlord_contain.rs"
             }
@@ -52440,6 +52584,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/cave_contain.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/derived_contain_admission_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -72559,15 +72708,14 @@
       "units": [
         {
           "blockers": [
-            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/scripting/script_actions.rs"
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/Main/src/game_logic/mission_scripts/script_actions.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameLogic/ScriptEngine/ScriptActions.cpp",
@@ -73751,9 +73899,9 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/scripting/script_conditions.rs"
+              "cargo_reachable": false,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/Tools/WorldBuilder/include/script_conditions.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameLogic/ScriptEngine/ScriptConditions.cpp",
@@ -74206,17 +74354,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/scripting/script_engine.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "game_engine:Source/GameLogic/ScriptEngine/ScriptEngine.cpp",
           "source": {
             "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/ScriptEngine/ScriptEngine.cpp",
@@ -74919,17 +75062,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/scripting/scripts.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "game_engine:Source/GameLogic/ScriptEngine/Scripts.cpp",
           "source": {
             "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/ScriptEngine/Scripts.cpp",
@@ -77062,12 +77200,13 @@
       "units": [
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngineDevice/src/VideoDevice/Bink/bink_video_player.rs"
             }
@@ -77568,12 +77707,13 @@
       "units": [
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngineDevice/src/W3DDevice/GameClient/height_map/base_height_map.rs"
             }
@@ -78296,7 +78436,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_model_draw.rs"
             }
@@ -80081,12 +80221,13 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngineDevice/src/W3DDevice/GameClient/height_map/flat_height_map.rs"
             }
@@ -80173,7 +80314,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_control_bar.rs"
             }
@@ -80256,7 +80397,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_motd.rs"
             }
@@ -80283,7 +80424,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_main_menu.rs"
             }
@@ -80358,7 +80499,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_check_box.rs"
             }
@@ -80393,7 +80534,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_combo_box.rs"
             }
@@ -80424,7 +80565,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_horizontal_slider.rs"
             }
@@ -80463,7 +80604,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_list_box.rs"
             }
@@ -80502,7 +80643,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_progress_bar.rs"
             }
@@ -80537,7 +80678,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_push_button.rs"
             }
@@ -80625,7 +80766,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_radio_button.rs"
             }
@@ -80660,7 +80801,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_static_text.rs"
             }
@@ -80695,7 +80836,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_tab_control.rs"
             }
@@ -80726,7 +80867,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_text_entry.rs"
             }
@@ -80761,7 +80902,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_vertical_slider.rs"
             }
@@ -80792,7 +80933,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_game_font.rs"
             }
@@ -80823,7 +80964,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_game_window.rs"
             }
@@ -80894,7 +81035,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_game_window_manager.rs"
             }
@@ -80923,12 +81064,13 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngineDevice/src/W3DDevice/GameClient/height_map/height_map.rs"
             }
@@ -81116,7 +81258,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_buffer_manager.rs"
             }
@@ -81191,7 +81333,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_projected_shadow.rs"
             }
@@ -81582,7 +81724,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_shadow.rs"
             }
@@ -81676,7 +81818,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_volumetric_shadow.rs"
             }
@@ -88426,12 +88568,13 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngineDevice/src/W3DDevice/GameClient/terrain_tex.rs"
             }
@@ -88617,7 +88760,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_asset_manager.rs"
             }
@@ -88904,7 +89047,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_asset_manager_exposed.rs"
             }
@@ -89193,7 +89336,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_debug_display.rs"
             }
@@ -89757,7 +89900,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_display_string.rs"
             }
@@ -89832,7 +89975,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_display_string_manager.rs"
             }
@@ -90093,7 +90236,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_granny.rs"
             }
@@ -90319,7 +90462,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_in_game_ui.rs"
             }
@@ -90515,7 +90658,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_mouse.rs"
             }
@@ -90618,7 +90761,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_particle_sys.rs"
             }
@@ -90810,7 +90953,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_road_buffer.rs"
             }
@@ -91429,7 +91572,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_shader_manager.rs"
             }
@@ -92009,7 +92152,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_smudge.rs"
             }
@@ -92076,7 +92219,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_snow.rs"
             }
@@ -92234,7 +92377,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_terrain_background.rs"
             }
@@ -92313,7 +92456,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_terrain_tracks.rs"
             }
@@ -92448,7 +92591,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_terrain_visual.rs"
             }
@@ -92733,7 +92876,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_tree_buffer.rs"
             }
@@ -92952,7 +93095,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_video_buffer.rs"
             }
@@ -93519,7 +93662,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_water.rs"
             }
@@ -93775,7 +93918,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_water_tracks.rs"
             }
@@ -93900,12 +94043,13 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngineDevice/src/W3DDevice/GameClient/height_map/world_height_map.rs"
             }
@@ -94364,12 +94508,13 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngineDevice/src/W3DDevice/GameClient/camerashakesystem.rs"
             }
@@ -94686,7 +94831,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngineDevice/src/w3d_device_compat/w3_d_terrain_logic.rs"
             }
@@ -95264,16 +95409,12 @@
       "units": [
         {
           "blockers": [
+            "missing_mapping",
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngineDevice/src/win32_device/game_client/win32_di_keyboard.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "game_engine_device:Source/Win32Device/GameClient/Win32DIKeyboard.cpp",
           "source": {
             "path": "GeneralsMD/Code/GameEngineDevice/Source/Win32Device/GameClient/Win32DIKeyboard.cpp",
@@ -95326,16 +95467,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngineDevice/src/win32_device/game_client/win32_di_mouse.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "game_engine_device:Source/Win32Device/GameClient/Win32DIMouse.cpp",
           "source": {
             "path": "GeneralsMD/Code/GameEngineDevice/Source/Win32Device/GameClient/Win32DIMouse.cpp",
@@ -99218,17 +99355,12 @@
       "units": [
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/fram_grab.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/FramGrab.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/FramGrab.cpp",
@@ -99778,17 +99910,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/animatedsoundmgr.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/animatedsoundmgr.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/animatedsoundmgr.cpp",
@@ -99845,17 +99972,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/animobj.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/animobj.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/animobj.cpp",
@@ -100354,17 +100476,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/assetstatus.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/assetstatus.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/assetstatus.cpp",
@@ -100413,17 +100530,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/bitmaphandler.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/bitmaphandler.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/bitmaphandler.cpp",
@@ -100502,17 +100614,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/boxrobj.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/boxrobj.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/boxrobj.cpp",
@@ -100786,17 +100893,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/bw_render.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/bw_render.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/bw_render.cpp",
@@ -100857,17 +100959,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/bw_render.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/bwrender.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/bwrender.cpp",
@@ -101094,17 +101191,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/collect.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/collect.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/collect.cpp",
@@ -101381,17 +101473,12 @@
       "units": [
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/coltest.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/coltest.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/coltest.cpp",
@@ -101919,17 +102006,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/ddsfile.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/ddsfile.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/ddsfile.cpp",
@@ -102191,17 +102273,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/decalmsh.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/decalmsh.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/decalmsh.cpp",
@@ -102282,17 +102359,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/decalsys.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/decalsys.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/decalsys.cpp",
@@ -102453,17 +102525,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/distlod.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/distlod.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/distlod.cpp",
@@ -102832,17 +102899,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/dx8fvf.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/dx8fvf.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx8fvf.cpp",
@@ -102867,17 +102929,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/dx8indexbuffer.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/dx8indexbuffer.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx8indexbuffer.cpp",
@@ -103020,17 +103077,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/dx8polygonrenderer.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/dx8polygonrenderer.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx8polygonrenderer.cpp",
@@ -103059,17 +103111,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/dx8renderer.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/dx8renderer.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx8renderer.cpp",
@@ -103555,17 +103602,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/dx8rendererdebugger.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/dx8rendererdebugger.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx8rendererdebugger.cpp",
@@ -103610,17 +103652,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/dx8texman.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/dx8texman.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx8texman.cpp",
@@ -103653,17 +103690,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/dx8vertexbuffer.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/dx8vertexbuffer.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx8vertexbuffer.cpp",
@@ -103876,17 +103908,12 @@
       "units": [
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/dx8webbrowser.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/dx8webbrowser.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx8webbrowser.cpp",
@@ -103931,17 +103958,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/dx8wrapper.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/dx8wrapper.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp",
@@ -104451,17 +104473,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/dynamesh.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/dynamesh.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dynamesh.cpp",
@@ -104701,17 +104718,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/formconv.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/formconv.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/formconv.cpp",
@@ -104931,17 +104943,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/hanimmgr.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/hanimmgr.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/hanimmgr.cpp",
@@ -105061,17 +105068,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/hcanim.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/hcanim.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/hcanim.cpp",
@@ -105860,17 +105862,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/hmdldef.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/hmdldef.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/hmdldef.cpp",
@@ -105918,17 +105915,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/hmorphanim.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/hmorphanim.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/hmorphanim.cpp",
@@ -106131,17 +106123,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/hrawanim.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/hrawanim.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/hrawanim.cpp",
@@ -106436,17 +106423,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/htreemgr.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/htreemgr.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/htreemgr.cpp",
@@ -106507,17 +106489,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/intersec.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/intersec.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/intersec.cpp",
@@ -106783,17 +106760,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/lightenvironment.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/lightenvironment.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/lightenvironment.cpp",
@@ -106877,17 +106849,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/line3d.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/line3d.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/line3d.cpp",
@@ -106960,17 +106927,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/linegrp.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/linegrp.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/linegrp.cpp",
@@ -107079,17 +107041,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/mapper.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/mapper.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/mapper.cpp",
@@ -107442,17 +107399,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/matinfo.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/matinfo.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/matinfo.cpp",
@@ -107603,17 +107555,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/matpass.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/matpass.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/matpass.cpp",
@@ -107658,17 +107605,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/matrixmapper.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/matrixmapper.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/matrixmapper.cpp",
@@ -108254,17 +108196,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/meshdam.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/meshdam.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/meshdam.cpp",
@@ -108769,17 +108706,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/meshmdl.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/meshmdl.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/meshmdl.cpp",
@@ -109143,17 +109075,12 @@
       "units": [
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/meshmdlio.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/meshmdlio.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/meshmdlio.cpp",
@@ -109534,17 +109461,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/metalmap.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/metalmap.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/metalmap.cpp",
@@ -109618,17 +109540,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/missingtexture.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/missingtexture.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/missingtexture.cpp",
@@ -109657,17 +109574,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/motchan.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/motchan.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/motchan.cpp",
@@ -109858,17 +109770,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/nullrobj.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/nullrobj.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/nullrobj.cpp",
@@ -109933,17 +109840,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/part_buf.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/part_buf.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/part_buf.cpp",
@@ -110939,17 +110841,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/part_emt.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/part_emt.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/part_emt.cpp",
@@ -111108,17 +111005,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/part_ldr.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/part_ldr.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/part_ldr.cpp",
@@ -111500,17 +111392,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/pivot.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/pivot.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/pivot.cpp",
@@ -111765,17 +111652,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/polyinfo.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/polyinfo.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/polyinfo.cpp",
@@ -111843,17 +111725,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/predlod.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/predlod.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/predlod.cpp",
@@ -112013,17 +111890,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/prim_anim.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/prim_anim.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/prim_anim.cpp",
@@ -112035,17 +111907,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/projector.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/projector.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/projector.cpp",
@@ -112135,17 +112002,12 @@
       "units": [
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/proto.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/proto.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/proto.cpp",
@@ -112714,17 +112576,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/renderobjectrecycler.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/renderobjectrecycler.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/renderobjectrecycler.cpp",
@@ -112944,17 +112801,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/rinfo.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/rinfo.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/rinfo.cpp",
@@ -113011,17 +112863,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/ringobj.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/ringobj.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/ringobj.cpp",
@@ -113460,17 +113307,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/segline.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/segline.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/segline.cpp",
@@ -113859,16 +113701,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-effects/src/effects/shatter_system.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/shattersystem.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/shattersystem.cpp",
@@ -114082,17 +113920,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/snap_pts.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/snappts.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/snappts.cpp",
@@ -114229,17 +114062,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/soundrobj.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/soundrobj.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/soundrobj.cpp",
@@ -114443,17 +114271,12 @@
       "units": [
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/sphereobj.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/sphereobj.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/sphereobj.cpp",
@@ -114772,17 +114595,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/sr_util.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/sr_util.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/sr_util.cpp",
@@ -114855,17 +114673,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/static_sort_list.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/static_sort_list.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/static_sort_list.cpp",
@@ -115295,17 +115108,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/streak_render.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/streakRender.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/streakRender.cpp",
@@ -115370,17 +115178,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/stripoptimizer.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/stripoptimizer.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/stripoptimizer.cpp",
@@ -115608,17 +115411,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/surfaceclass.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/surfaceclass.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/surfaceclass.cpp",
@@ -115891,17 +115689,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/texproject.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/texproject.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/texproject.cpp",
@@ -116377,17 +116170,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/texturefile.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/texturefile.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/texturefile.cpp",
@@ -117192,17 +116980,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/txt.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/txt.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/txt.cpp",
@@ -117231,17 +117014,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/txt2d.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/txt2d.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/txt2d.cpp",
@@ -117262,17 +117040,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/vertmaterial.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/vertmaterial.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/vertmaterial.cpp",
@@ -117599,17 +117372,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/visrasterizer.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/visrasterizer.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/visrasterizer.cpp",
@@ -117757,17 +117525,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/w3d_dep.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/w3d_dep.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/w3d_dep.cpp",
@@ -117846,9 +117609,9 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/w3d_util.rs"
+              "cargo_reachable": false,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/Tools/WW3D/max2w3d/w3dutil.rs"
             }
           ],
           "entry_id": "libraries:Source/WWVegas/WW3D2/w3d_util.cpp",
@@ -117903,17 +117666,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat/src/w3dexclusionlist.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WWVegas/WW3D2/w3dexclusionlist.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/w3dexclusionlist.cpp",
@@ -138455,14 +138213,13 @@
       "units": [
         {
           "blockers": [
-            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "shim",
+              "classification": "implementation",
               "path": "GeneralsRust/Code/Libraries/Source/WWVegas/Wwutil/src/mathutil.rs"
             }
           ],
@@ -138522,14 +138279,13 @@
         },
         {
           "blockers": [
-            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "shim",
+              "classification": "implementation",
               "path": "GeneralsRust/Code/Libraries/Source/WWVegas/Wwutil/src/miscutil.rs"
             }
           ],
@@ -141898,17 +141654,12 @@
       "units": [
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "test",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WWDebug/examples/test1.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/debug/test1/test1.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/debug/test1/test1.cpp",
@@ -143331,17 +143082,12 @@
       "units": [
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "test",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WWDebug/examples/test1.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/profile/test1/test1.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/profile/test1/test1.cpp",
@@ -153041,7 +152787,7 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": false,
+              "cargo_reachable": true,
               "classification": "shim",
               "path": "GeneralsRust/Code/Tools/Launcher/bfish.rs"
             }
@@ -153128,13 +152874,13 @@
         },
         {
           "blockers": [
-            "no_reachable_implementation",
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership"
+            "unreviewed_symbol_ownership",
+            "duplicate_implementation_destination:GeneralsRust/Code/Tools/Launcher/protect.rs"
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": false,
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/Tools/Launcher/protect.rs"
             }
@@ -153800,23 +153546,24 @@
         },
         {
           "blockers": [
-            "no_reachable_implementation",
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership"
+            "unreviewed_symbol_ownership",
+            "unreviewed_source_range_ownership",
+            "duplicate_implementation_destination:GeneralsRust/Code/Tools/Launcher/protect.rs"
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": false,
+              "cargo_reachable": true,
               "classification": "shim",
               "path": "GeneralsRust/Code/Tools/Launcher/bfish.rs"
             },
             {
-              "cargo_reachable": false,
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/Tools/Launcher/main.rs"
             },
             {
-              "cargo_reachable": false,
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/Tools/Launcher/protect.rs"
             }
@@ -174473,13 +174220,12 @@
         },
         {
           "blockers": [
-            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": false,
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/Tools/GUIEdit/src/win_main.rs"
             }
@@ -174803,13 +174549,12 @@
         },
         {
           "blockers": [
-            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": false,
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/Tools/MapCacheBuilder/src/win_main.rs"
             }
@@ -190228,7 +189973,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "e2fbffa6691403295d95f84debc5e6c3988134542458570f301708cf8a196c66",
+  "provenance_input_digest": "3cddd5064e36a56ec3c3dd9e7fcc812f28b5496b7cc0258b65266fbc7e8021bd",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

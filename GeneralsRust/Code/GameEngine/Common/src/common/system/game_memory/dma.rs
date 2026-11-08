@@ -61,6 +61,8 @@ impl DynamicMemoryAllocator {
             .position(|p| p.get_allocation_size() >= alloc_size)
     }
 
+    /// Allocate and zero `num_bytes`. Panics if the required size overflows
+    /// or the allocation cannot be represented by the backing buffer.
     pub fn allocate_bytes(&mut self, num_bytes: usize) -> *mut u8 {
         let ptr = self.allocate_bytes_do_not_zero(num_bytes);
         if !ptr.is_null() {
@@ -69,6 +71,7 @@ impl DynamicMemoryAllocator {
         ptr
     }
 
+    /// Allocate without zeroing. Panics on allocation-size overflow.
     pub fn allocate_bytes_do_not_zero(&mut self, num_bytes: usize) -> *mut u8 {
         if let Some(i) = self.find_pool_index(num_bytes) {
             let user = self.pools[i].allocate_block_do_not_zero();
@@ -84,17 +87,21 @@ impl DynamicMemoryAllocator {
         user
     }
 
+    /// Free a live block. Null and pointers not owned by this DMA are ignored.
+    /// A second free of a pooled slot panics until that slot is reused.
+    /// As with any address-only API, a stale pointer cannot be distinguished
+    /// from a later allocation at the same address.
     pub fn free_bytes(&mut self, user_ptr: *mut u8) {
         if user_ptr.is_null() {
             return;
         }
         if self.raw_blocks.remove(&(user_ptr as usize)).is_some() {
-            self.used_blocks_in_dma = self.used_blocks_in_dma.saturating_sub(1);
+            self.used_blocks_in_dma -= 1;
             return;
         }
         if let Some(i) = self.pools.iter().position(|p| p.contains_user(user_ptr)) {
             self.pools[i].free_block(user_ptr);
-            self.used_blocks_in_dma = self.used_blocks_in_dma.saturating_sub(1);
+            self.used_blocks_in_dma -= 1;
         }
     }
 
