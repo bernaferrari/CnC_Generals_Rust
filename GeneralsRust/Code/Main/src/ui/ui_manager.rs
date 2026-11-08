@@ -73,6 +73,8 @@ pub enum UIEvent {
     SettingsChanged,
     /// Request to play a UI sound effect from a concrete archive path (e.g. "Audio/Interface/ButtonClick.wav").
     PlaySoundEffectPath(String),
+    /// Deferred fallback for a host click handled without an audio loan.
+    PlayGuiClick,
     /// Focus the tactical camera to a world position
     FocusCamera(glam::Vec3),
     /// C++ ControlBar unit production residual: queue unit at selected factory.
@@ -362,7 +364,11 @@ impl UIManager {
         button: MouseButton,
         terrain_lod: Option<&mut dyn FnMut(i32)>,
     ) -> bool {
-        self.handle_mouse_click_with_terrain_lod_and_effects(x, y, button, terrain_lod, None)
+        #[cfg(feature = "game_client")]
+        let effects = None;
+        #[cfg(not(feature = "game_client"))]
+        let effects = ();
+        self.handle_mouse_click_with_terrain_lod_and_effects(x, y, button, terrain_lod, effects)
     }
 
     pub(crate) fn handle_mouse_click_with_terrain_lod_and_effects(
@@ -371,7 +377,7 @@ impl UIManager {
         y: i32,
         button: MouseButton,
         terrain_lod: Option<&mut dyn FnMut(i32)>,
-        effects: HostWindowEventEffects<'_, '_>,
+        mut effects: HostWindowEventEffects<'_, '_>,
     ) -> bool {
         let ui_sound_events_before = self.queued_ui_sound_event_count();
         let handled = match self.current_screen {
@@ -445,7 +451,7 @@ impl UIManager {
                         y,
                         button,
                         terrain_lod,
-                        effects,
+                        effects.as_deref_mut(),
                     );
                 #[cfg(not(feature = "game_client"))]
                 let event = self.options_menu.handle_mouse_click_with_terrain_lod(
@@ -464,20 +470,27 @@ impl UIManager {
             _ => false,
         };
         self.drain_screen_pending_events();
-        // C++ `GadgetPushButtonInput` GWM_LEFT_UP (`GadgetPushButton.cpp:
-        // 138-141`) plays `GUIClick` on every button release. Host screens
-        // are not shell gadgets, so the manager supplies it — but only when
-        // this press did not already queue a UI click sound (menu-layer
-        // BUTTON_CLICK or the transition sound), keeping the C++
-        // one-click-sound-per-press behavior. Disabled shell buttons keep
-        // their gadget-layer GUIClickDisabled
-        // (`window_impl_core.rs`); host menus report disabled controls as
-        // unhandled.
+        // The original gadget plays on left down (GadgetPushButton.cpp:128-145).
+        // Host screens handle the press before supplying the fallback, so its
+        // ordering relative to the screen's own action remains different.
+        // Do not duplicate a sound already queued by the screen.
         if handled
             && matches!(button, MouseButton::Left)
             && self.queued_ui_sound_event_count() == ui_sound_events_before
         {
-            let _ = crate::assets::audio::play_sound_through_the_audio("GUIClick");
+            #[cfg(feature = "game_client")]
+            let submitted = if let Some(effects) = effects.as_deref_mut().filter(|effects| effects.has_menu_audio()) {
+                effects.play_menu_audio("GUIClick");
+                true
+            } else {
+                false
+            };
+            #[cfg(not(feature = "game_client"))]
+            let submitted = false;
+            if !submitted {
+                // Without a loan, the owner drains this after the screen event.
+                self.queue_event(UIEvent::PlayGuiClick);
+            }
         }
         handled
     }
@@ -933,6 +946,9 @@ impl UIManager {
                     // Audio playback is handled by the main game engine loop.
                     self.event_queue.push(UIEvent::PlaySoundEffectPath(path));
                 }
+                UIEvent::PlayGuiClick => {
+                    self.event_queue.push(UIEvent::PlayGuiClick);
+                }
                 UIEvent::FocusCamera(position) => {
                     // Camera movement is handled by the main game engine loop.
                     self.event_queue.push(UIEvent::FocusCamera(position));
@@ -1168,80 +1184,107 @@ mod tests {
         assert_eq!(manager.current_screen, None);
     }
 
-    /// Register a minimal GUIClick event on THE_AUDIO so
-    /// `play_sound_through_the_audio("GUIClick")` resolves and queues a play
-    /// request observable via `pending_play_request_count_for`.
-    fn register_gui_click_on_the_audio() {
-        let manager = game_engine::common::audio::game_audio::initialize_global_audio_manager();
-        let mut guard = manager.lock().expect("THE_AUDIO lock");
-        guard.register_audio_event_info(game_engine::common::audio::AudioEventInfo {
-            sound_type: game_engine::common::audio::AudioType::SoundEffect,
-            control: 0,
-            audio_name: "GUIClick".to_string(),
-            volume: 0.8,
-            ..Default::default()
-        });
-    }
-
     #[test]
-    fn handled_host_click_without_own_sound_plays_gui_click() {
-        // C++ GadgetPushButton.cpp:138-141 plays GUIClick on every button
-        // LeftUp. Host screens (victory/options/HUD fallback) queue no click
-        // sound of their own, so the manager plays GUIClick through TheAudio
-        // (same helper as the hud.rs letter-hotkey path).
-        register_gui_click_on_the_audio();
-        let manager = game_engine::common::audio::game_audio::initialize_global_audio_manager();
+    fn click_without_audio_loan_queues_one_fallback_after_screen_event() {
         let mut ui = UIManager::new(1024, 768);
         ui.set_victory(0);
         while ui.pop_event().is_some() {}
+        assert!(ui.handle_mouse_click(100, 100, MouseButton::Left));
+        assert!(matches!(ui.pop_event(), Some(UIEvent::ExitToMenu)));
+        assert!(matches!(ui.pop_event(), Some(UIEvent::PlayGuiClick)));
+        assert!(ui.pop_event().is_none());
 
-        let before = manager
-            .lock()
-            .expect("THE_AUDIO lock")
-            .pending_play_request_count_for("GUIClick");
-        assert!(
-            ui.handle_mouse_click(100, 100, MouseButton::Left),
-            "victory screen consumes the click"
-        );
-        let after = manager
-            .lock()
-            .expect("THE_AUDIO lock")
-            .pending_play_request_count_for("GUIClick");
-        assert!(
-            after > before,
-            "host click must queue a GUIClick audio event ({before} -> {after})"
-        );
-    }
-
-    #[test]
-    fn click_that_already_queued_a_click_sound_does_not_double_play() {
-        // Menus and screen transitions already queue their own click sound
-        // for the press; GUIClick must not stack a second one (C++ buttons
-        // play exactly one click sound per LeftUp).
-        register_gui_click_on_the_audio();
-        let manager = game_engine::common::audio::game_audio::initialize_global_audio_manager();
-        let mut ui = UIManager::new(1024, 768);
+        assert!(ui.handle_mouse_click(100, 100, MouseButton::Right));
+        assert!(matches!(ui.pop_event(), Some(UIEvent::ExitToMenu)));
+        assert!(ui.pop_event().is_none());
         ui.transition_to_screen(Screen::Title);
         while ui.pop_event().is_some() {}
-
-        let before = manager
-            .lock()
-            .expect("THE_AUDIO lock")
-            .pending_play_request_count_for("GUIClick");
         assert!(ui.handle_mouse_click(512, 384, MouseButton::Left));
-        assert!(
-            ui.event_queue
-                .iter()
-                .any(|event| matches!(event, UIEvent::PlaySoundEffectPath(_))),
-            "the title click queues the transition click sound"
-        );
-        let after = manager
-            .lock()
-            .expect("THE_AUDIO lock")
-            .pending_play_request_count_for("GUIClick");
-        assert_eq!(
-            after, before,
-            "a press that already queued a click sound must not also play GUIClick"
-        );
+        assert!(ui.event_queue.iter().any(|event| matches!(event, UIEvent::PlaySoundEffectPath(_))));
+        assert!(!ui.event_queue.iter().any(|event| matches!(event, UIEvent::PlayGuiClick)));
+        while ui.pop_event().is_some() {}
+        assert!(!ui.handle_mouse_click(-100, -100, MouseButton::Left));
+        assert!(ui.pop_event().is_none());
+    }
+
+    #[cfg(feature = "game_client")]
+    #[test]
+    fn click_fallback_uses_receiving_audio_and_preserves_screen_queue() {
+        use game_client::gui::menu_audio::{CommonMenuAudioService, MenuAudioView};
+        use game_engine::common::audio::audio_event_rts::{Coord3D, ST_PLAYER, ST_UI};
+        use game_engine::common::audio::game_audio::{
+            AudioLocalityRelationship, AudioLocalityResolver, AudioViewObservation, SoundPlaybackHook,
+        };
+        use game_engine::common::audio::{AudioEventInfo, AudioEventRts, AudioManager, AudioSubmissionLocality, AudioType};
+        use std::sync::{Arc, Mutex};
+        struct Locality;
+        impl AudioLocalityResolver for Locality {
+            fn get_local_player_index(&self) -> Option<i32> { None }
+            fn is_player_active(&self, _: i32) -> bool { false }
+            fn player_exists(&self, _: i32) -> bool { false }
+            fn has_default_team(&self, _: i32) -> bool { false }
+            fn get_relationship_to_local_team(&self, _: i32, _: i32) -> AudioLocalityRelationship { AudioLocalityRelationship::Neutral }
+        }
+        struct View;
+        impl MenuAudioView for View {
+            fn observation(&self) -> AudioViewObservation {
+                AudioViewObservation { ground_position: Coord3D::ZERO, heading: 0., camera_position: Coord3D::ZERO, ground_height: 0. }
+            }
+            fn is_on_screen(&self, _: &Coord3D) -> bool { true }
+        }
+        struct NoDevice;
+        impl SoundPlaybackHook for NoDevice {
+            fn play(&self, _: &AudioEventRts) -> Result<(), String> { Err("no physical device".into()) }
+            fn stop(&self, _: u32) {}
+            fn pause(&self, _: u32) {}
+            fn resume(&self, _: u32) {}
+            fn is_playing(&self, _: u32) -> bool { false }
+        }
+        fn register(audio: &mut AudioManager) {
+            audio.register_audio_event_info(AudioEventInfo {
+                audio_name: "GUIClick".into(), sounds: vec!["OwnedClick".into()],
+                sound_type: AudioType::SoundEffect, type_field: ST_PLAYER | ST_UI,
+                volume: 1., ..Default::default()
+            });
+        }
+        let _ambient = game_engine::common::common_services::CommonServicesScope::new();
+        let foreign = game_engine::common::audio::game_audio::initialize_global_audio_manager();
+        register(&mut foreign.lock().unwrap());
+        let mut a = AudioManager::with_playback_hook(Box::new(NoDevice));
+        let mut b = AudioManager::with_playback_hook(Box::new(NoDevice));
+        register(&mut a);
+        register(&mut b);
+        let devices = [Arc::new(Mutex::new(a)), Arc::new(Mutex::new(b))];
+        let mut services = [CommonMenuAudioService::default(), CommonMenuAudioService::default()];
+        let mut clients = [game_client::core::GameClient::new().unwrap(), game_client::core::GameClient::new().unwrap()];
+        let mut uis = [UIManager::new(1024, 768), UIManager::new(1024, 768)];
+        let mut random = [game_engine::common::random_value::RandomState::default(), game_engine::common::random_value::RandomState::default()];
+        let policy = game_engine::common::audio::script_policy::ScriptAudioPolicy::default();
+        for i in 0..2 {
+            services[i].bind(Arc::clone(&devices[i]));
+            uis[i].set_victory(0);
+            while uis[i].pop_event().is_some() {}
+        }
+        let foreign_before = foreign.lock().unwrap().pending_play_request_count_for("GUIClick");
+        for i in 0..2 {
+            let mut audio = services[i].lend(&mut random[i], &policy, AudioSubmissionLocality::from_resolver(-1, &Locality), View);
+            clients[i].with_window_event_effects_and_menu_audio(None, &mut audio, |effects| {
+                assert!(uis[i].handle_mouse_click_with_terrain_lod_and_effects(100, 100, MouseButton::Left, None, Some(effects)));
+            });
+            assert_eq!(devices[i].lock().unwrap().pending_play_request_count_for("GUIClick"), 1);
+            assert_eq!(devices[1 - i].lock().unwrap().pending_play_request_count_for("GUIClick"), i);
+        }
+        assert_eq!(foreign.lock().unwrap().pending_play_request_count_for("GUIClick"), foreign_before);
+        uis[0].transition_to_screen(Screen::Title);
+        while uis[0].pop_event().is_some() {}
+        let mut audio = services[0].lend(&mut random[0], &policy, AudioSubmissionLocality::from_resolver(-1, &Locality), View);
+        clients[0].with_window_event_effects_and_menu_audio(None, &mut audio, |effects| {
+            assert!(uis[0].handle_mouse_click_with_terrain_lod_and_effects(512, 384, MouseButton::Left, None, Some(effects)));
+            assert!(uis[0].event_queue.iter().any(|event| matches!(event, UIEvent::PlaySoundEffectPath(_))));
+            assert!(!uis[0].handle_mouse_click_with_terrain_lod_and_effects(-100, -100, MouseButton::Left, None, Some(effects)));
+            assert!(!uis[0].handle_mouse_click_with_terrain_lod_and_effects(512, 384, MouseButton::Right, None, Some(effects)));
+        });
+        assert_eq!(devices[0].lock().unwrap().pending_play_request_count_for("GUIClick"), 1);
+        assert_eq!(foreign.lock().unwrap().pending_play_request_count_for("GUIClick"), foreign_before);
     }
 }

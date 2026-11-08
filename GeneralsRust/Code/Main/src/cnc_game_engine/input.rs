@@ -2620,6 +2620,14 @@ impl CnCGameEngine {
                 UIEvent::PlaySoundEffectPath(path) => {
                     self.play_ui_sound_effect(path);
                 }
+                UIEvent::PlayGuiClick => {
+                    #[cfg(feature = "game_client")]
+                    self.with_receiving_menu_effects(|effects| {
+                        effects.play_menu_audio("GUIClick");
+                    })?;
+                    #[cfg(not(feature = "game_client"))]
+                    self.queue_receiving_audio_event(crate::game_logic::AudioEventRequest::new("GUIClick"));
+                }
                 UIEvent::TogglePause => {
                     self.toggle_pause()?;
                 }

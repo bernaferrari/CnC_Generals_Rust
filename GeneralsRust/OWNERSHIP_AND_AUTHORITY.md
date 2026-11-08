@@ -2997,3 +2997,7 @@ standalone allocation skips IDs already occupied by live flights.
 
 The tertiary suicide command reads the firing object's selected receiving
 weapon row. Other FIRE_WEAPON timing and effect behavior remains separate work.
+
+Handled host UI clicks submit fallback audio through the receiving menu-audio
+loan. Without a loan, the click is queued for that owner's later audio drain;
+neither path consults the ambient audio manager.
