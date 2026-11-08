@@ -1239,6 +1239,101 @@ fn attack_position_own_location_and_max_shots() {
 }
 
 #[test]
+fn attack_position_continue_range_uses_owned_map_status_across_worlds_and_restore() {
+    use super::CommandExecutor;
+    use crate::command_system::{CommandResult, CommandType};
+    use crate::game_logic::{GameLogic, KindOf, ObjectId, Player, Team};
+    use crate::save_load::SnapshotBuilder;
+    use gamelogic::weapon::WeaponTemplate;
+    use glam::Vec3;
+
+    fn session(width: f32) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
+        let mut world = GameLogic::new();
+        world.override_world_size(400.0, 400.0);
+        world.add_player(Player::new(1, Team::USA, "Owner", true));
+        world.add_player(Player::new(2, Team::GLA, "Enemy", false));
+        world.get_player_mut(1).unwrap().set_map_relationship(
+            2, gamelogic::common::Relationship::Enemies,
+        );
+        world.admit_object_ini_sources([("ContinuePosition.ini".into(), r#"
+Object ContinuePositionAttacker
+ KindOf = INFANTRY SELECTABLE
+ Body = ActiveBody Body
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ Behavior = AIUpdateInterface AI
+ End
+ WeaponSet
+  Conditions = NONE
+  Weapon = PRIMARY ContinuePositionWeapon
+ End
+End
+Object ContinuePositionEnemy
+ KindOf = INFANTRY SELECTABLE
+ Body = ActiveBody Body
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+End
+"#.into())]).unwrap();
+        world.templates.get_mut("ContinuePositionEnemy").unwrap().add_kind_of(KindOf::Attackable);
+        let mut weapon = WeaponTemplate::new("ContinuePositionWeapon".into());
+        weapon.primary_damage = 100.0;
+        weapon.attack_range = 200.0;
+        weapon.continue_attack_range = 100.0;
+        weapon.projectile_name = "NONE".into();
+        world.admit_receiving_weapon_snapshot(vec![("ContinuePositionWeapon".into(), weapon)]).unwrap();
+        let source = world.create_object_for_player(
+            "ContinuePositionAttacker", 1, Vec3::new(90.0, 0.0, 50.0),
+        ).unwrap();
+        let transient = world.create_object_for_player(
+            "ContinuePositionEnemy", 2, Vec3::new(99.997, 0.0, 50.0),
+        ).unwrap();
+        let outside = world.create_object_for_player(
+            "ContinuePositionEnemy", 2, Vec3::new(100.03, 0.0, 50.0),
+        ).unwrap();
+        world.override_world_size(width, width);
+        world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+        // C++ reactToTransformChange ignores individual changes <= 0.01.
+        assert!(world.set_registered_object_position(transient, Vec3::new(100.003, 0.0, 50.0)));
+        (world, source, transient, outside)
+    }
+
+    fn order(world: &mut GameLogic, source: ObjectId) {
+        let result = CommandExecutor::new(world, 1).execute_command(dispatch_test_command(
+            CommandType::AttackPosition {
+                location: Some(Vec3::new(100.028, 0.0, 50.0)), max_shots: 3,
+            }, 1, vec![source],
+        )).unwrap();
+        assert_eq!(result, CommandResult::Success);
+    }
+
+    let (mut first, source, transient, outside) = session(200.0);
+    let (mut second, source2, transient2, outside2) = session(400.0);
+    assert_eq!((source, transient, outside), (source2, transient2, outside2));
+    assert!(!first.host_object(transient).unwrap().status.off_map);
+    assert!(first.host_object(outside).unwrap().status.off_map);
+    assert!(!second.host_object(outside).unwrap().status.off_map);
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&first).unwrap();
+    let (mut restored, _, _, _) = session(200.0);
+    builder.restore_from_snapshot(&snapshot, &mut restored).unwrap();
+    assert!(!restored.host_object(transient).unwrap().status.off_map);
+    assert!(restored.host_object(outside).unwrap().status.off_map);
+    order(&mut first, source);
+    order(&mut second, source);
+    order(&mut restored, source);
+    assert_eq!(first.host_object(source).unwrap().target, Some(transient));
+    assert_eq!(second.host_object(source).unwrap().target, Some(outside));
+    assert_eq!(restored.host_object(source).unwrap().target, Some(transient));
+    assert_eq!(first.host_object(source).unwrap().max_shots_to_fire, 3);
+    assert!(first.set_registered_object_position(transient, Vec3::new(100.02, 0.0, 50.0)));
+    assert!(first.host_object(transient).unwrap().status.off_map);
+    assert!(!second.host_object(transient).unwrap().status.off_map);
+}
+
+#[test]
 fn attack_ground_does_not_order_synthetic_hive_without_spawn_roster() {
     // A display-only hive projection is not SpawnBehavior's ObjectID roster.
     use super::CommandExecutor;

@@ -1774,6 +1774,38 @@ fn attack_team_reacquires_after_victim_dies() {
 }
 
 #[test]
+fn attack_squad_normal_victim_selection_uses_receiving_object_map_status() {
+    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+    use glam::Vec3;
+
+    fn session(width: f32) -> (GameLogic, crate::game_logic::ObjectId, crate::game_logic::ObjectId, crate::game_logic::ObjectId) {
+        let mut world = GameLogic::new();
+        world.override_world_size(400.0, 400.0);
+        world.add_player(Player::new(1, Team::USA, "SquadOwner", true));
+        world.add_player(Player::new(2, Team::GLA, "SquadEnemy", false));
+        for name in ["SquadSource", "SquadVictim"] {
+            let mut template = ThingTemplate::new(name);
+            template.add_kind_of(KindOf::Vehicle).add_kind_of(KindOf::Attackable).set_health(100.0);
+            world.templates.insert(name.into(), template);
+        }
+        let source = world.create_object_for_player("SquadSource", 1, Vec3::new(90.0, 0.0, 50.0)).unwrap();
+        let on_map = world.create_object_for_player("SquadVictim", 2, Vec3::new(75.0, 0.0, 50.0)).unwrap();
+        let outside = world.create_object_for_player("SquadVictim", 2, Vec3::new(101.0, 0.0, 50.0)).unwrap();
+        for id in [on_map, outside] {
+            world.host_object_mut(id).unwrap().team_instance_name = "ExactVictimSquad".into();
+        }
+        world.override_world_size(width, width);
+        (world, source, on_map, outside)
+    }
+
+    let (first, source, on_map, outside) = session(200.0);
+    let (second, source2, on_map2, outside2) = session(400.0);
+    assert_eq!((source, on_map, outside), (source2, on_map2, outside2));
+    assert_eq!(first.choose_attack_team_victim_with_policy(source, "ExactVictimSquad", false, true), Some(on_map));
+    assert_eq!(second.choose_attack_team_victim_with_policy(source, "ExactVictimSquad", false, true), Some(outside));
+}
+
+#[test]
 fn attack_team_sleep_ai_picks_no_victim() {
     use super::CommandExecutor;
     use crate::command_system::CommandResult;

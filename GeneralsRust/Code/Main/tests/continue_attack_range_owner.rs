@@ -702,38 +702,18 @@ fn continuation_uses_each_worlds_off_map_status_after_boundary_change_and_restor
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
-    // A sub-threshold position change can leave the saved bit different from
-    // the current position. Model that valid continuation in the capsule and
-    // check that loading restores the bit instead of recomputing it.
-    let mut transient: generals_main::save_load::snapshot::WorldSnapshot =
-        bincode_legacy::deserialize(&bincode_legacy::serialize(&snapshot).unwrap()).unwrap();
-    let bytes = &mut transient.lifecycle_tail;
-    let footer = bytes.windows(4).rposition(|tag| tag == b"OXFE").unwrap();
-    let size = u32::from_le_bytes(bytes[footer - 4..footer].try_into().unwrap()) as usize;
-    let end = footer - 4;
-    let start = end - size;
-    assert_eq!(&bytes[start - 12..start - 8], b"OXFR");
-    assert_eq!(
-        u32::from_le_bytes(bytes[start - 8..start - 4].try_into().unwrap()),
-        11
-    );
-    let count = transient.objects.len();
-    let rows = end - (1 + 8 + count * 5);
-    assert_eq!(bytes[rows], 1);
-    assert_eq!(
-        u64::from_le_bytes(bytes[rows + 1..rows + 9].try_into().unwrap()),
-        count as u64
-    );
-    let row = (0..count)
-        .map(|i| rows + 9 + i * 5)
-        .find(|&at| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap()) == candidate.0)
-        .unwrap();
-    assert_eq!(bytes[row + 4], 1);
-    bytes[row + 4] = 0;
+    // A native sub-threshold move across the boundary preserves the previous
+    // object bit even though its position is outside the strict extent.
+    let (mut transient, _, _, _) = world(100.0, "MapStatusWeapon");
+    transient.override_world_size(100.0, 100.0);
+    assert!(transient.set_registered_object_position(candidate, Vec3::new(49.9, 0.0, 20.0)));
+    assert!(transient.set_registered_object_position(candidate, Vec3::new(49.997, 0.0, 20.0)));
+    assert!(transient.set_registered_object_position(candidate, Vec3::new(50.003, 0.0, 20.0)));
+    let transient_snapshot = builder.create_world_snapshot(&transient).unwrap();
     let (mut restored_transient, _, _, _) = world(100.0, "MapStatusWeapon");
     restored_transient.override_world_size(100.0, 100.0);
     builder
-        .restore_from_snapshot(&transient, &mut restored_transient)
+        .restore_from_snapshot(&transient_snapshot, &mut restored_transient)
         .unwrap();
     // Observe the candidate through the mood filter before exercising the
     // attack continuation. The nearer victim is excluded only for this query.

@@ -987,11 +987,10 @@ impl crate::game_logic::GameLogic {
         force_normal: bool,
     ) -> Option<ObjectId> {
         use crate::ai::AIDifficulty;
-        use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
         use crate::game_logic::host_strategy_center::HostAiAttitude;
 
         let me = self.host_object(unit_id)?;
-        let owner_off_map = is_off_map_default_residual(me.get_position());
+        let owner_off_map = me.status.off_map;
         let origin = me.get_position();
         let owner_pid = me.owner_player_id;
         let attitude = me.ai_attitude();
@@ -1029,7 +1028,7 @@ impl crate::game_logic::GameLogic {
                 continue;
             }
             let pos = cand.get_position();
-            let off = is_off_map_default_residual(pos);
+            let off = cand.status.off_map;
             live.push((*cid, pos, off));
         }
         live.sort_by_key(|(id, _, _)| *id);

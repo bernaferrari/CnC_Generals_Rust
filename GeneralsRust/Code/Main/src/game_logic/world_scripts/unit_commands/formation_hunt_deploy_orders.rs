@@ -511,7 +511,7 @@ impl GameLogic {
         max_shots: i32,
     ) -> gamelogic::GameLogicResult<bool> {
         self.stamp_player_command_source(id);
-        let Some((range, contact, source_birth, source_position)) =
+        let Some((range, contact, source_birth, source_off_map)) =
             self.host_object(id).map(|source| {
                 let range = source.selected_weapon_slot().map_or(0.0, |slot| {
                     source.selected_native_weapon_rule(slot).map_or_else(
@@ -539,7 +539,7 @@ impl GameLogic {
                     range,
                     contact,
                     std::sync::Arc::downgrade(&source.visual_draw_identity_token),
-                    source.get_position(),
+                    source.status.off_map,
                 )
             })
         else {
@@ -547,17 +547,6 @@ impl GameLogic {
         };
         let mut shot_limit = max_shots;
         if range > 0.0 {
-            let (world_min, world_max) = self.world_bounds();
-            let off_map = |pos| {
-                crate::game_logic::host_deliver_payload::is_off_map_residual(
-                    pos,
-                    world_min.x,
-                    world_min.z,
-                    world_max.x,
-                    world_max.z,
-                )
-            };
-            let source_off_map = off_map(source_position);
             if let Some(source) = self.host_object_mut(id) {
                 source.set_status_ignoring_stealth(true);
             }
@@ -568,7 +557,7 @@ impl GameLogic {
                     let candidate = self.host_object(candidate_id)?;
                     let pos = candidate.get_position();
                     let dist = (pos.x - location.x).powi(2) + (pos.z - location.z).powi(2);
-                    if source_off_map != off_map(pos) {
+                    if source_off_map != candidate.status.off_map {
                         return None;
                     }
                     matches!(

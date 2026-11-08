@@ -3054,3 +3054,6 @@ Native popup text uses the receiving client's loaded GameText, including map
 text admission and reset. Other text consumers still use compatibility access.
 Mouse hover and tooltip dispatch use the receiving client's input mouse rather
 than the ambient mouse; placement and guard hints still use the tactical view.
+
+Attack-position continuation and AttackSquad victim selection compare each
+object's owned off-map status rather than recomputing a default-map boundary.
