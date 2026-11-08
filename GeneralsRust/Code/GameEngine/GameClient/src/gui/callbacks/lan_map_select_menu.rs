@@ -53,13 +53,6 @@ fn map_select_state_on_owner(
     if let Some(owner) = owner {
         return owner.lan_map_select_state_handle();
     }
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .window_manager_owner_ref()
-            .lan_map_select_state_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_LAN_MAP_SELECT_STATE.with(|cell| {
@@ -73,8 +66,8 @@ fn map_select_state_on_owner(
     }
 }
 
-fn map_select_state() -> Arc<Mutex<LanMapSelectState>> {
-    map_select_state_on_owner(None)
+fn map_select_state(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> Arc<Mutex<LanMapSelectState>> {
+    map_select_state_on_owner(owner)
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -333,11 +326,11 @@ pub fn lan_map_select_menu_shutdown(
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
     effects.with_manager(|manager, _effects| layout.hide(manager, true));
-    nullify_controls();
+    nullify_controls(effects.window_manager_owner);
 }
 
-fn nullify_controls() {
-    let state_handle = map_select_state();
+fn nullify_controls(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_handle = map_select_state(owner);
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     state.parent = None;
     state.listbox_map = None;
@@ -359,7 +352,7 @@ pub fn lan_map_select_menu_system(
         WindowMessage::Create => return WindowMsgHandled::Handled,
         WindowMessage::Destroy => {
             drop(state);
-            nullify_controls();
+            nullify_controls(effects.window_manager_owner);
             return WindowMsgHandled::Handled;
         }
         WindowMessage::InputFocus => return write_input_focus_response(data1, data2, true),

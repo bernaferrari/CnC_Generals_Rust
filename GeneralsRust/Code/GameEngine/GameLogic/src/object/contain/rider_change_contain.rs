@@ -12,8 +12,7 @@ use crate::common::{
     ObjectStatusMaskType, ObjectStatusTypes, PlayerMaskType,
 };
 use crate::damage::{DamageInfo, DamageType, DeathType};
-use crate::helpers::{TheGameLogic, TheInGameUI, TheMessageStream, TheThingFactory};
-use crate::messages::{MSG_CREATE_SELECTED_GROUP, MSG_REMOVE_FROM_SELECTED_GROUP};
+use crate::helpers::{TheGameLogic, TheInGameUI, TheThingFactory};
 use crate::modules::{ContainModuleInterface, ContainWant, UpdateSleepTime};
 use crate::object::contain::TransportContain;
 use crate::object::{Object, ObjectId};
@@ -358,9 +357,6 @@ fn transfer_veterancy(from: &Arc<RwLock<Object>>, to: &Arc<RwLock<Object>>) {
 mod tests {
     use super::*;
     use crate::common::{DefaultThingTemplate, KindOf};
-    use crate::messages::{
-        MSG_CREATE_SELECTED_GROUP, MSG_REMOVE_FROM_SELECTED_GROUP, MessageArgument, drain_messages,
-    };
     use crate::object::drawable::{Drawable, DrawableExt, DrawableType};
     use crate::object::registry::OBJECT_REGISTRY;
     use crate::player::{Player, ThePlayerList};
@@ -654,28 +650,6 @@ mod tests {
         drawable
     }
 
-    fn is_create_selected_message(
-        message: &crate::messages::GameMessage,
-        object_id: ObjectID,
-    ) -> bool {
-        message.id == MSG_CREATE_SELECTED_GROUP
-            && matches!(
-                message.arguments.as_slice(),
-                [MessageArgument::Boolean(false), MessageArgument::ObjectId(id)] if *id == object_id
-            )
-    }
-
-    fn is_remove_selected_message(
-        message: &crate::messages::GameMessage,
-        object_id: ObjectID,
-    ) -> bool {
-        message.id == MSG_REMOVE_FROM_SELECTED_GROUP
-            && matches!(
-                message.arguments.as_slice(),
-                [MessageArgument::ObjectId(id)] if *id == object_id
-            )
-    }
-
     fn cleanup_objects(ids: &[ObjectID]) {
         // Wave 277: empty dual-world → no factory object walks.
         if dual_world_registry_unavailable() {
@@ -685,7 +659,6 @@ mod tests {
         for id in ids {
             OBJECT_REGISTRY.unregister_object(*id);
         }
-        let _ = drain_messages();
         ThePlayerList().write().expect("player list write").clear();
     }
 
@@ -881,7 +854,6 @@ mod tests {
             .expect("rider drawable write")
             .set_selected(true);
         let mut contain = rider_change_for(&owner);
-        let _ = drain_messages();
 
         contain
             .add_to_contain(
@@ -904,7 +876,6 @@ mod tests {
         );
         // Drawable selection is the oracle; leftover TheMessageStream no longer
         // writes a process-wide queue for these MSG_* selection events.
-        let _ = drain_messages();
 
         cleanup_objects(&[97012, 97013]);
     }
@@ -930,7 +901,6 @@ mod tests {
                 false,
             )
             .expect("rider enters");
-        let _ = drain_messages();
         owner_drawable
             .write()
             .expect("owner drawable write")
@@ -964,7 +934,6 @@ mod tests {
         );
         // Drawable selection is the oracle; leftover TheMessageStream no longer
         // writes a process-wide queue for these MSG_* selection events.
-        let _ = drain_messages();
 
         cleanup_objects(&[97014, 97015]);
     }
@@ -1764,11 +1733,6 @@ impl RiderChangeContain {
             (owner_guard.get_id(), drawable)
         };
 
-        let mut team_msg = TheMessageStream::append_message(MSG_CREATE_SELECTED_GROUP);
-        team_msg.append_boolean_argument(false);
-        team_msg.append_object_id_argument(owner_id);
-        drop(team_msg);
-
         TheInGameUI::select_drawable(&owner_drawable);
         TheInGameUI::set_displayed_max_warning(false);
     }
@@ -1830,17 +1794,8 @@ impl RiderChangeContain {
             (rider_guard.get_id(), drawable)
         };
 
-        let mut team_msg = TheMessageStream::append_message(MSG_CREATE_SELECTED_GROUP);
-        team_msg.append_boolean_argument(false);
-        team_msg.append_object_id_argument(rider_id);
-        drop(team_msg);
-
         TheInGameUI::select_drawable(&rider_drawable);
         TheInGameUI::set_displayed_max_warning(false);
-
-        let mut remove_msg = TheMessageStream::append_message(MSG_REMOVE_FROM_SELECTED_GROUP);
-        remove_msg.append_object_id_argument(owner_id);
-        drop(remove_msg);
 
         TheInGameUI::deselect_drawable(&owner_drawable);
     }

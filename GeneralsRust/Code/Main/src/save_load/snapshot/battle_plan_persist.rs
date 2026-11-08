@@ -160,7 +160,7 @@ mod tests {
         source.activate_battle_plan(0, HostBattlePlan::Bombardment, None);
         {
             let tank = source.host_object_mut(tank_id).expect("tank");
-            tank.apply_battle_plan_bonus(HostBattlePlan::Bombardment);
+            tank.weapon_bonus_battle_plan_bombardment = true;
             assert!(tank.weapon_bonus_battle_plan_bombardment);
         }
         assert_eq!(

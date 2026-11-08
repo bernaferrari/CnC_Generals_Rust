@@ -414,7 +414,6 @@ fn native_prefix_preserves_foreign_core_tracking_and_standalone_still_follows() 
     let mut owner_view = crate::display::view::View::new();
     let mut peer_view = crate::display::view::View::new();
     let mut empty_view = crate::display::view::View::new();
-    register_live_game_client(&mut peer);
     let mut peer = Box::new(peer);
     owner.update_camera_tracking_drawable(&mut owner_view);
     assert_eq!((owner_view.position().x, owner_view.position().y), (125., 225.));

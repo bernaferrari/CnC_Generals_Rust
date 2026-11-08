@@ -7,7 +7,6 @@ use crate::gui::ui_renderer::UIRect;
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::ini::ini::INILoadType;
 use game_engine::common::ini::{Anim2DMode, Anim2DTemplate, INI, get_anim2d_collection};
-use game_engine::common::random_value::get_game_client_random_value;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use gamelogic::helpers::TheGameLogic;
 use parking_lot::Mutex;
@@ -42,6 +41,7 @@ impl Anim2D {
     pub fn new(
         template: Arc<RwLock<Anim2DTemplate>>,
         collection_system: Option<Arc<Mutex<Anim2DCollection>>>,
+        client_random: &mut game_engine::common::random_value::RandomState,
     ) -> Arc<Mutex<Self>> {
         let mut anim = Self {
             current_frame: 0,
@@ -56,7 +56,7 @@ impl Anim2D {
         };
 
         if template.read().is_randomized_start_frame() {
-            anim.randomize_current_frame();
+            anim.randomize_current_frame(client_random);
         } else {
             anim.reset();
         }
@@ -82,12 +82,12 @@ impl Anim2D {
         self.last_update_frame = TheGameLogic::get_frame();
     }
 
-    pub fn randomize_current_frame(&mut self) {
+    pub fn randomize_current_frame(&mut self, client_random: &mut game_engine::common::random_value::RandomState) {
         let max = self.template.read().get_num_frames();
         if max == 0 {
             return;
         }
-        let frame = get_game_client_random_value(0, (max - 1) as i32) as u16;
+        let frame = client_random.next_int(0, (max - 1) as i32) as u16;
         self.set_current_frame(frame);
     }
 
@@ -399,11 +399,6 @@ thread_local! {
 }
 
 fn client_anim2d_instances_arc() -> std::sync::Arc<Mutex<Anim2DCollection>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.client_anim2d_instances_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_CLIENT_ANIM2D_INSTANCES.with(|cell| {
@@ -423,15 +418,9 @@ pub fn client_anim2d_instances() -> std::sync::Arc<Mutex<Anim2DCollection>> {
 }
 
 /// C++ `TheAnim2DCollection->Update()` residual.
-/// Prefer the live GameClient collection; orphaned calls are no-ops (not a process store).
+/// Orphaned calls are no-ops (not a process store); a client updates its own
+/// collection through `client_anim2d_instances_handle()`.
 pub fn update_client_anim2d_collection() {
-    if crate::core::game_client::with_live_game_client_mut(|client| {
-        client.client_anim2d_instances_handle().lock().update();
-    })
-    .is_some()
-    {
-        return;
-    }
     #[cfg(test)]
     {
         client_anim2d_instances().lock().update();
@@ -519,7 +508,7 @@ mod tests {
         template
             .store_image_name(Some(FRAME_NAME.to_string()))
             .expect("store frame image name");
-        let anim = Anim2D::new(Arc::new(RwLock::new(template)), None);
+        let anim = Anim2D::new(Arc::new(RwLock::new(template)), None, &mut Default::default());
         {
             let guard = anim.lock();
             assert_eq!(guard.get_current_frame_width(), 64);
@@ -531,7 +520,7 @@ mod tests {
         missing
             .store_image_name(Some(MISSING_NAME.to_string()))
             .expect("store missing frame name");
-        let missing_anim = Anim2D::new(Arc::new(RwLock::new(missing)), None);
+        let missing_anim = Anim2D::new(Arc::new(RwLock::new(missing)), None, &mut Default::default());
         {
             let guard = missing_anim.lock();
             assert_eq!(guard.get_current_frame_width(), 0);

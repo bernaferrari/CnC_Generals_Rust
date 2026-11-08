@@ -481,3 +481,70 @@ impl game_client::drawable::drawable::NativeAmbientAudio for NativeAudioService<
         )
     }
 }
+
+#[cfg(test)]
+mod music_completion_tests {
+    use super::*;
+    use game_engine::common::audio::audio_event_rts::{AudioEventInfo, AudioType};
+    use game_engine::common::audio::game_audio::SoundPlaybackHook;
+    use crate::game_logic::NativeAudioEffects;
+
+    /// Shared hardware stand-in: every handle loops twice, handle order decides nothing.
+    struct LoopingBackend;
+    impl SoundPlaybackHook for LoopingBackend {
+        fn play(&self, _: &AudioEventRts) -> Result<(), String> {
+            Ok(())
+        }
+        fn stop(&self, _: u32) {}
+        fn pause(&self, _: u32) {}
+        fn resume(&self, _: u32) {}
+        fn is_playing(&self, _: u32) -> bool {
+            true
+        }
+        fn music_loop_count(&self, _: u32) -> i32 {
+            2
+        }
+    }
+
+    /// hq-kw72bi: MilesAudioManager.cpp:1370-1385 sweeps the playing list; a
+    /// receiving session may only observe music it was issued a receipt for.
+    #[test]
+    fn music_completion_only_observes_the_receiving_sessions_receipts() {
+        let mut manager = AudioManager::with_playback_hook(Box::new(LoopingBackend));
+        let info = std::sync::Arc::new(AudioEventInfo {
+            audio_name: "SharedMusic".into(),
+            sound_type: AudioType::Music,
+            ..Default::default()
+        });
+        let handles = [1001u32, 1002];
+        for handle in handles {
+            let mut event = AudioEventRts::with_event_name("SharedMusic");
+            event.set_playing_handle(handle);
+            event.set_audio_event_info(info.clone());
+            manager.test_insert_active_audio_event(event);
+        }
+        let device = Arc::new(Mutex::new(manager));
+        let mut queued = Vec::new();
+        let mut mine = vec![handles[0]];
+        let mut service = NativeAudioService {
+            device: &device,
+            receipts: &mut mine,
+            queued_events: &mut queued,
+        };
+        assert_eq!(service.music_track_completed("SharedMusic", 2, &[]), Ok(true));
+        assert_eq!(service.music_track_completed("SharedMusic", 3, &[]), Ok(false));
+        assert_eq!(service.music_track_completed("OtherMusic", 0, &[]), Ok(false));
+        let mut none = Vec::new();
+        let mut queued_peer = Vec::new();
+        let mut peer = NativeAudioService {
+            device: &device,
+            receipts: &mut none,
+            queued_events: &mut queued_peer,
+        };
+        assert_eq!(peer.music_track_completed("SharedMusic", 1, &[]), Ok(false));
+        assert_eq!(
+            peer.music_track_completed("SharedMusic", 1, &[handles[1]]),
+            Ok(true)
+        );
+    }
+}

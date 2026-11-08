@@ -755,7 +755,10 @@ impl BasicDrawable {
         template_name: &str,
         duration_frames: u32,
     ) -> Result<(), String> {
-        let icon = Anim2DIcon::from_template_name(template_name)?;
+        let icon = Anim2DIcon::from_template_name(
+            template_name,
+            &mut game_engine::common::random_value::RandomState::default(),
+        )?;
         let current_frame = self.current_frame;
         self.get_icon_info_mut().set_icon(
             IconType::Emoticon,

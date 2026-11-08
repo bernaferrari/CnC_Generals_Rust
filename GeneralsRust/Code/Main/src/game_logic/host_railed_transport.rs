@@ -493,7 +493,7 @@ impl GameLogic {
             .is_some_and(|object| object.visual_object_generation == reference.generation)
     }
 
-    fn railed_bone_local_optional(
+    pub(in crate::game_logic) fn containment_pristine_bone_local_optional(
         &self, ferry: ObjectId, name: &str,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Result<Option<Vec3>, String> {
@@ -527,7 +527,7 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Result<Vec3, String> {
         // DockUpdate initializes missing pristine positions to zero.
-        Ok(self.railed_bone_local_optional(ferry, name, effects)?.unwrap_or(Vec3::ZERO))
+        Ok(self.containment_pristine_bone_local_optional(ferry, name, effects)?.unwrap_or(Vec3::ZERO))
     }
 
     /// DockUpdate loads all three coordinates together once per drawable
@@ -895,7 +895,7 @@ impl GameLogic {
         let exit_bone_position = if contain.exit_bone.is_empty() {
             None
         } else {
-            self.railed_bone_local_optional(ferry, &contain.exit_bone, effects)?
+            self.containment_pristine_bone_local_optional(ferry, &contain.exit_bone, effects)?
                 .map(|local| container.get_transform_matrix().transform_point3(local))
         };
         if !self.objects.get_mut(&ferry).unwrap().remove_occupant_with_partition_owner(
@@ -1062,7 +1062,7 @@ impl GameLogic {
                 object.set_status_disabled_held(false);
                 object.set_status_unselectable(false);
                 if has_ai && self.objects.get(&ferry).is_some_and(|object| object.has_drawable) {
-                    let waiting = self.railed_bone_local_optional(ferry, "DOCKWAITING07", effects)?
+                    let waiting = self.containment_pristine_bone_local_optional(ferry, "DOCKWAITING07", effects)?
                         .ok_or("rail dock exit requires DOCKWAITING07")?;
                     if let Some(ferry_object) = self.objects.get(&ferry) {
                         let waiting_world = ferry_object.get_transform_matrix().transform_point3(waiting);

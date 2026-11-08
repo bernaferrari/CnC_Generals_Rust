@@ -889,7 +889,8 @@ impl MissileAIUpdate {
             return;
         };
         let old_layer = object_guard.get_layer();
-        let Ok(terrain) = crate::terrain::THE_TERRAIN_LOGIC.read() else {
+        let terrain_logic = crate::terrain::get_terrain_logic();
+        let Ok(terrain) = terrain_logic.read() else {
             return;
         };
 

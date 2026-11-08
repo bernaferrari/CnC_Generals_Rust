@@ -398,7 +398,7 @@ pub(crate) struct PendingWeaponFireCommit {
     pub current_time: f32,
     pub logic_frame: u32,
     pub target_id: Option<ObjectId>,
-    pub possible_next_shot_frame: u32,
+    pub shot_rof: f32,
     pub fire_weapon_name: Option<String>,
     pub owned_rof: Option<[f32; 3]>,
 }
@@ -2244,11 +2244,18 @@ pub struct Object {
     /// Fail-closed: not full WeaponBonusConditionFlags matrix / ROF multiplier application.
     pub weapon_bonus_enthusiastic: bool,
     pub weapon_bonus_subliminal: bool,
+    /// GarrisonContain / HelixContain own this condition independently of the
+    /// containment reference, which changes later in the callback sequence.
+    #[serde(default)]
+    pub weapon_bonus_garrisoned: bool,
 
     /// Host residual HORDE weapon bonus (C++ WEAPONBONUSCONDITION_HORDE via HordeUpdate).
     /// RubOffRadius honorary + leftover terrain-decal type/size/fade.
     #[serde(default)]
     pub weapon_bonus_horde: bool,
+    /// FiringTracker owns TARGET_FAERIE_FIRE after the last committed shot.
+    #[serde(default)]
+    pub weapon_bonus_target_faerie_fire: bool,
     /// Host residual NATIONALISM weapon bonus (player Upgrade_Nationalism).
     #[serde(default)]
     pub weapon_bonus_nationalism: bool,

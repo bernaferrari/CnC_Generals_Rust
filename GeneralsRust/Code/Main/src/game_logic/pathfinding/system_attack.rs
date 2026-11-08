@@ -103,9 +103,6 @@ impl PathfindingSystem {
         let is_vehicle = attacker_id
             .and_then(|id| objects.lookup(&id))
             .is_some_and(|o| o.is_kind_of(KindOf::Vehicle));
-        let ally_mask = seeker_player
-            .map(|p| self.grid.ally_mask_for(p))
-            .unwrap_or(0);
         let seeker_inf = self.seeker_is_infantry;
         let ignore_owner = self.ignore_obstacle_id.map(|id| id.0);
 
@@ -329,16 +326,10 @@ impl PathfindingSystem {
                 }
                 neighbor_flags[i] = true;
                 let mut step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
-                match self.grid.attack_step_occupancy(
-                    nc,
-                    start,
-                    seeker_player,
-                    ally_mask,
-                    seeker_inf,
-                    is_vehicle,
-                    crusher_level,
-                    layer,
-                ) {
+                match self
+                    .grid
+                    .attack_step_occupancy(nc, start, seeker_inf, is_vehicle, layer)
+                {
                     None => continue,
                     Some(extra) => step += extra,
                 }
@@ -405,10 +396,8 @@ impl PathfindingSystem {
                         crush = crush.max(b.crushable);
                     }
                 }
-                let friend = match seeker_player {
-                    Some(player) => (1u16 << player.min(15)) | ally_mask,
-                    None => 0,
-                };
+                // Relations are resolved for the bound seeker (OCC_ALLY).
+                let friend = if seeker_player.is_some() { OCC_ALLY } else { 0 };
                 let enemy_fixed = seeker_player.is_some()
                     && (fixed & !friend) != 0
                     && (crusher_level == 0 || crusher_level <= crush);

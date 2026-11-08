@@ -400,7 +400,7 @@ impl MusicSystem {
         }
 
         let track_idx = if self.shuffle {
-            let idx = crate::GameClientRandomValue!(0, (playlist.len() - 1) as i32) as usize;
+            let idx = crate::GameClientRandomValue!(engine.client_random_mut(), 0, (playlist.len() - 1) as i32) as usize;
             playlist.get(idx).copied().unwrap_or(playlist[0])
         } else {
             playlist[self.current_track_index % playlist.len()]

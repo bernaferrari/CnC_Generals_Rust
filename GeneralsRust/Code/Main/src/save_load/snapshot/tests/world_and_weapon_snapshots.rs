@@ -1,6 +1,31 @@
 //! Behavior suite extracted from the original test module.
 use super::*;
 
+// File loads rebuild NewGame from the ordered receiving content, not from a
+// cloned mutable template map. Both worlds must admit the same authored rules.
+fn authored_snapshot_world(ini: &str) -> GameLogic {
+    let mut content = crate::assets::ReceivingObjectContent::from_sources([(
+        "snapshot-fixture.ini".into(),
+        ini.into(),
+    )])
+    .expect("ordered snapshot Object content");
+    content.admit_command_source(ini).expect("receiving snapshot commands");
+    let mut weapons = std::collections::HashMap::new();
+    crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+        &mut weapons,
+        ini,
+        crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+    );
+    let mut world = GameLogic::new();
+    world
+        .admit_receiving_module_content_with_weapons(
+            content,
+            Some(weapons.into_values().map(|rule| (rule.name.clone(), rule)).collect()),
+        )
+        .expect("receiving snapshot content");
+    world
+}
+
 #[test]
 fn queue_exit_nonbuilding_snapshot_continues_without_affecting_same_id_world() {
     let metadata = crate::game_logic::ProductionExitMetadata {
@@ -47,10 +72,8 @@ fn queue_exit_nonbuilding_snapshot_continues_without_affecting_same_id_world() {
 
 #[test]
 fn snapshot_restore_rebuilds_state_and_object_id_counter() {
-    let mut source = GameLogic::new();
-    source
-        .templates
-        .insert("TestTank".to_string(), ThingTemplate::new("TestTank"));
+    const CONTENT: &str = "Object TestTank\nKindOf = VEHICLE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = AIUpdateInterface AI\nEnd\nEnd\n";
+    let mut source = authored_snapshot_world(CONTENT);
     source.add_player(Player::new(1, Team::USA, "PlayerOne", true));
     source.set_current_frame(777);
 
@@ -64,6 +87,11 @@ fn snapshot_restore_rebuilds_state_and_object_id_counter() {
         object.health.current = 42.0;
         object.status.moving = true;
         object.movement.target_position = Some(Vec3::new(30.0, 0.0, 30.0));
+        object.set_ai_state(
+            AIState::Moving,
+            777,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
     }
 
     let builder = SnapshotBuilder::new();
@@ -71,9 +99,8 @@ fn snapshot_restore_rebuilds_state_and_object_id_counter() {
         .create_world_snapshot(&source)
         .expect("snapshot creation failed");
 
-    let mut restored = GameLogic::new();
+    let mut restored = authored_snapshot_world(CONTENT);
     restored.add_player(Player::new(1, Team::USA, "PlayerOne", true));
-    restored.templates = source.templates.clone();
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .expect("snapshot restore failed");
@@ -245,6 +272,10 @@ fn object_snapshot_visibility_wins_over_legacy_status_bits_residual() {
     let visibility_mask = object_status_mask_from_names(&["STEALTHED", "DETECTED"]);
     let detected_mask = object_status_mask_from_names(&["DETECTED"]);
     for stale_visibility in [Some(0), Some(detected_mask), None] {
+        let prefix = super::super::combat_projectile_persist::historical_prefix_len(
+            &snapshot.lifecycle_tail,
+        )
+        .expect("lifecycle prefix");
         let mut tail = super::super::lifecycle_tail::decode_lifecycle_tail(
             &snapshot.lifecycle_tail,
         )
@@ -269,8 +300,10 @@ fn object_snapshot_visibility_wins_over_legacy_status_bits_residual() {
                 .module_states
                 .retain(|module| module.tag != "StatusBits");
         }
-        snapshot.lifecycle_tail =
-            super::super::lifecycle_tail::encode_lifecycle_tail(&tail);
+        let mut encoded = super::super::lifecycle_tail::encode_lifecycle_tail(&tail);
+        // Preserve OXFR and every subsequent owner continuation unchanged.
+        encoded.extend_from_slice(&snapshot.lifecycle_tail[prefix..]);
+        snapshot.lifecycle_tail = encoded;
 
         let mut receiving = GameLogic::new();
         receiving.templates = source.templates.clone();
@@ -642,24 +675,8 @@ fn snapshot_restore_rebuilds_logic_u8_heights_like_cpp_visual_xfer() {
 
 #[test]
 fn snapshot_restore_rebuilds_resource_depots_and_harvesters() {
-    let mut source = GameLogic::new();
-
-    let mut supply_template = ThingTemplate::new("TestSupplyPile");
-    supply_template
-        .add_kind_of(KindOf::Resource)
-        .add_kind_of(KindOf::Harvestable);
-    source
-        .templates
-        .insert("TestSupplyPile".to_string(), supply_template);
-
-    let mut worker_template = ThingTemplate::new("TestWorker");
-    worker_template
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Worker)
-        .add_kind_of(KindOf::Selectable);
-    source
-        .templates
-        .insert("TestWorker".to_string(), worker_template);
+    const CONTENT: &str = "Object TestSupplyPile\nKindOf = SUPPLY_SOURCE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\nObject TestWorker\nKindOf = VEHICLE HARVESTER SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = SupplyTruckAIUpdate AI\nEnd\nEnd\n";
+    let mut source = authored_snapshot_world(CONTENT);
 
     let supply_id = source
         .create_object("TestSupplyPile", Team::Neutral, Vec3::new(20.0, 0.0, 20.0))
@@ -679,7 +696,11 @@ fn snapshot_restore_rebuilds_resource_depots_and_harvesters() {
             .host_object_mut(worker_id)
             .expect("worker object should exist");
         worker.target = Some(supply_id);
-        worker.restore_ai_state(AIState::Gathering);
+        worker.set_ai_state(
+            AIState::Gathering,
+            0,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
     }
 
     let builder = SnapshotBuilder::new();
@@ -687,8 +708,7 @@ fn snapshot_restore_rebuilds_resource_depots_and_harvesters() {
         .create_world_snapshot(&source)
         .expect("snapshot creation failed");
 
-    let mut restored = GameLogic::new();
-    restored.templates = source.templates.clone();
+    let mut restored = authored_snapshot_world(CONTENT);
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .expect("snapshot restore failed");
@@ -1101,6 +1121,10 @@ fn snapshot_restore_preserves_secondary_weapon_and_active_slot() {
         suspend_fx_frame: 0,
         reloading_clip: false,
         last_bonus_rof: 0.0,
+        next_fire_frame: 0,
+        reload_started_frame: 0,
+        frame_clock_active: false,
+        frame_clock_status: Default::default(),
     };
     let secondary = Weapon {
         damage: 80.0,
@@ -1120,6 +1144,10 @@ fn snapshot_restore_preserves_secondary_weapon_and_active_slot() {
         suspend_fx_frame: 0,
         reloading_clip: false,
         last_bonus_rof: 0.0,
+        next_fire_frame: 0,
+        reload_started_frame: 0,
+        frame_clock_active: false,
+        frame_clock_status: Default::default(),
     };
 
     {
@@ -1217,6 +1245,10 @@ fn snapshot_restore_preserves_secondary_only_weapon_slot() {
         suspend_fx_frame: 0,
         reloading_clip: false,
         last_bonus_rof: 0.0,
+        next_fire_frame: 0,
+        reload_started_frame: 0,
+        frame_clock_active: false,
+        frame_clock_status: Default::default(),
     };
     {
         let unit = source.host_object_mut(id).expect("unit");
@@ -1322,6 +1354,7 @@ fn snapshot_weapon_layout_preserves_tertiary_slot_and_active_identity() {
 
 #[test]
 fn snapshot_restore_preserves_tertiary_weapon_and_permanent_lock() {
+    use crate::game_logic::object::WeaponFireStatus;
     let mut source = GameLogic::new();
     source.templates.insert(
         "ThreeSlotSave".to_string(),
@@ -1334,19 +1367,32 @@ fn snapshot_restore_preserves_tertiary_weapon_and_permanent_lock() {
         damage: 73.0,
         range: 220.0,
         last_fire_time: 3.5,
-        ammo: Some(18),
+        ammo: Some(0),
+        next_fire_frame: 317,
+        reload_started_frame: 280,
+        frame_clock_active: true,
+        reloading_clip: true,
+        frame_clock_status: WeaponFireStatus::ReloadingClip,
         ..Weapon::default()
     };
     {
         let object = source.host_object_mut(id).expect("source object");
+        object.weapon_bonus_target_faerie_fire = true;
+        object.weapon_bonus_garrisoned = true;
         object.weapon = Some(Weapon {
             damage: 7.0,
             range: 100.0,
+            frame_clock_active: true,
+            frame_clock_status: WeaponFireStatus::OutOfAmmo,
+            ammo: Some(0),
             ..Weapon::default()
         });
         object.secondary_weapon = Some(Weapon {
             damage: 17.0,
             range: 100.0,
+            frame_clock_active: true,
+            frame_clock_status: WeaponFireStatus::BetweenFiringShots,
+            ammo: Some(0),
             ..Weapon::default()
         });
         object.tertiary_weapon = Some(tertiary.clone());
@@ -1355,6 +1401,9 @@ fn snapshot_restore_preserves_tertiary_weapon_and_permanent_lock() {
 
     let builder = SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
+    let bytes = bincode_legacy::serialize(&snapshot).expect("encode weapon clocks");
+    let snapshot = super::super::world_codec::decode_bincode_world_snapshot(&bytes)
+        .expect("decode weapon clocks");
     let mut restored = GameLogic::new();
     restored.templates = source.templates.clone();
     builder
@@ -1369,6 +1418,19 @@ fn snapshot_restore_preserves_tertiary_weapon_and_permanent_lock() {
     assert!((restored_tertiary.damage - tertiary.damage).abs() < f32::EPSILON);
     assert_eq!(restored_tertiary.ammo, tertiary.ammo);
     assert!((restored_tertiary.last_fire_time - tertiary.last_fire_time).abs() < f32::EPSILON);
+    assert_eq!(restored_tertiary.next_fire_frame, 317);
+    assert_eq!(restored_tertiary.reload_started_frame, 280);
+    assert!(object.weapon_bonus_target_faerie_fire);
+    assert!(object.weapon_bonus_garrisoned);
+    assert!(restored_tertiary.frame_clock_active);
+    assert!(restored_tertiary.reloading_clip);
+    assert_eq!(restored_tertiary.frame_clock_status, WeaponFireStatus::ReloadingClip);
+    let primary = object.weapon.as_ref().unwrap();
+    let secondary = object.secondary_weapon.as_ref().unwrap();
+    assert_eq!(primary.ammo, Some(0));
+    assert_eq!(secondary.ammo, Some(0));
+    assert_eq!(primary.frame_clock_status, WeaponFireStatus::OutOfAmmo);
+    assert_eq!(secondary.frame_clock_status, WeaponFireStatus::BetweenFiringShots);
 }
 
 #[test]
@@ -1380,35 +1442,41 @@ fn save_file_roundtrip_preserves_secondary_weapon() {
     let mut manager = SaveFileManager::with_save_directory(save_dir.path());
     manager.init().expect("save manager init");
 
-    let mut source = GameLogic::new();
-    let mut template = ThingTemplate::new("SaveSecondaryRanger");
-    template
-        .add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable);
-    source
-        .templates
-        .insert("SaveSecondaryRanger".to_string(), template);
+    const CONTENT: &str = r#"
+Weapon SaveRangerPrimary
+  PrimaryDamage = 20
+  AttackRange = 100
+End
+Weapon SaveRangerSecondary
+  PrimaryDamage = 55
+  AttackRange = 80
+  DelayBetweenShots = 1500
+  ClipSize = 3
+End
+Object SaveSecondaryRanger
+  KindOf = INFANTRY SELECTABLE CAN_ATTACK
+  Body = ActiveBody Body
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+  WeaponSet
+    Conditions = None
+    Weapon = PRIMARY SaveRangerPrimary
+    Weapon = SECONDARY SaveRangerSecondary
+  End
+End
+"#;
+    let mut source = authored_snapshot_world(CONTENT);
 
     let id = source
         .create_object("SaveSecondaryRanger", Team::USA, Vec3::new(12.0, 0.0, 8.0))
         .expect("create ranger");
     {
         let unit = source.host_object_mut(id).expect("ranger");
-        unit.weapon = Some(Weapon {
-            damage: 20.0,
-            range: 100.0,
-            last_fire_time: 1.0,
-            ..Weapon::default()
-        });
-        unit.secondary_weapon = Some(Weapon {
-            damage: 55.0,
-            range: 80.0,
-            reload_time: 1.5,
-            last_fire_time: 4.5,
-            ammo: Some(2),
-            ..Weapon::default()
-        });
+        unit.weapon.as_mut().expect("authored primary").last_fire_time = 1.0;
+        let secondary = unit.secondary_weapon.as_mut().expect("authored secondary");
+        secondary.last_fire_time = 4.5;
+        secondary.ammo = Some(2);
         unit.active_weapon_slot = 1;
     }
 
@@ -1430,8 +1498,7 @@ fn save_file_roundtrip_preserves_secondary_weapon() {
         .save_game("secondary_weapon_rt", &source, &info)
         .expect("save");
 
-    let mut loaded = GameLogic::new();
-    loaded.templates = source.templates.clone();
+    let mut loaded = authored_snapshot_world(CONTENT);
     manager
         .load_game("secondary_weapon_rt", &mut loaded)
         .expect("load");
@@ -1546,18 +1613,19 @@ Weapon __RustSnapshotPristineFiveShotWeapon
   PrimaryDamage = 25.0
   ShotsPerBarrel = 5
 End
+Object SnapshotPristineFiveShotTank
+  KindOf = VEHICLE CAN_ATTACK
+  Body = ActiveBody Body
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+  WeaponSet
+    Conditions = None
+    Weapon = PRIMARY __RustSnapshotPristineFiveShotWeapon
+  End
+End
 "#;
-    assert_eq!(
-        crate::assets::ini_template_loader::register_weapons_from_ini_text(ini_content),
-        1
-    );
-
-    let mut source = GameLogic::new();
-    let mut template = ThingTemplate::new("SnapshotPristineFiveShotTank");
-    template.set_primary_weapon_name("__RustSnapshotPristineFiveShotWeapon");
-    source
-        .templates
-        .insert("SnapshotPristineFiveShotTank".to_string(), template);
+    let mut source = authored_snapshot_world(ini_content);
     let id = source
         .create_object("SnapshotPristineFiveShotTank", Team::USA, Vec3::ZERO)
         .expect("create source weapon object");
@@ -1569,14 +1637,14 @@ End
         "uninitialized Main cursor must serialize the v4 authored-cadence sentinel"
     );
 
-    let mut restored = GameLogic::new();
-    restored.templates = source.templates.clone();
+    let mut restored = authored_snapshot_world(ini_content);
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .expect("restore");
     let restored = restored
         .host_object_mut(id)
         .expect("restored source weapon object");
+    assert!(restored.weapon.is_some(), "the authored slot must exist before accepting shots");
     assert!(
         restored.set_weapon_barrel_count_for_slot(0, 2),
         "fresh validated topology may configure the restored first barrel"

@@ -68,7 +68,7 @@ fn prepared_volume_group_limits_512_sources_not_the_3072_layer_instances() {
             assert!(manager.find_particle_system(19).unwrap().particles()[512].is_culled);
         }
         let mut prepared = frame();
-        prepared.collect_system_particles(manager.find_particle_system(19).unwrap(), [0.0; 3]);
+        prepared.collect_system_particles(manager.find_particle_system(19).unwrap(), [0.0; 3], &mut |lo, _| lo);
         assert_eq!(prepared.batches.len(), 1);
         let vertices = &prepared.batches[0].vertices;
         assert_eq!(vertices.len(), 3072, "512 sources on all six layers");
@@ -108,7 +108,7 @@ fn prepared_volume_layers_keep_cpp_order_first_visible_size_shift_and_full_alpha
         .particles_mut()[0]
         .is_culled = true;
     let mut prepared = frame();
-    prepared.collect_system_particles(manager.find_particle_system(19).unwrap(), [0.0; 3]);
+    prepared.collect_system_particles(manager.find_particle_system(19).unwrap(), [0.0; 3], &mut |lo, _| lo);
     let vertices = &prepared.batches[0].vertices;
     assert_eq!(vertices.len(), 12);
     // pointgr.cpp:1734-1764: shift=t*FIRST current_size*(0.1/depth),
@@ -133,7 +133,7 @@ fn prepared_volume_ground_layers_and_camera_coincidence_do_not_invent_offsets() 
         add_system(&mut manager, 19, ground, 0);
         admit(&mut manager, 19, Vec3::new(1.0, 2.0, 3.0), 6.0, 0.75);
         let mut prepared = frame();
-        prepared.collect_system_particles(manager.find_particle_system(19).unwrap(), camera);
+        prepared.collect_system_particles(manager.find_particle_system(19).unwrap(), camera, &mut |lo, _| lo);
         assert_eq!(prepared.batches[0].vertices.len(), 6);
         for vertex in &prepared.batches[0].vertices {
             assert_eq!(vertex.position, [1.0, 2.0, 3.0]);
@@ -152,7 +152,7 @@ fn prepared_volume_uses_fixed_cpp_render_depth_without_mutating_native_metadata(
         admit(&mut manager, 19, Vec3::ZERO, 6.0, 0.75);
         let mut prepared = frame();
         let system = manager.find_particle_system(19).unwrap();
-        prepared.collect_system_particles(system, [0.0; 3]);
+        prepared.collect_system_particles(system, [0.0; 3], &mut |lo, _| lo);
         assert_eq!(prepared.batches[0].vertices.len(), 6);
         assert_eq!(system.info().volume_particle_depth, saved_depth);
     }
@@ -168,7 +168,7 @@ fn prepared_volume_finishes_all_layers_before_the_next_actual_system() {
     }
     let mut prepared = frame();
     for system in manager.draw_particle_systems() {
-        prepared.collect_system_particles(system, [0.0; 3]);
+        prepared.collect_system_particles(system, [0.0; 3], &mut |lo, _| lo);
     }
     assert_eq!(
         prepared.batches.len(),

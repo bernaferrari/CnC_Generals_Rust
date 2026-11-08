@@ -45,7 +45,6 @@ impl GameClient {
 
         // GameLogic owns admission of the client frame (GameLogic.cpp:3593-3596).
         // Presenting or updating UI never advances simulation time.
-        publish_live_game_client_frame(self);
         // Classic Core entry only. Native Main supplies both owning clocks to
         // update_presentation_shell_with_particle_frames without this lookup.
         let frames = NativeParticleFrames {
@@ -68,7 +67,7 @@ impl GameClient {
         } else {
             elapsed.min(SECONDS_PER_LOGICFRAME_REAL)
         };
-        let visual_speed = get_script_visual_speed_multiplier();
+        let visual_speed = self.script_runtime().visual_speed_multiplier;
         visual_delta = if visual_speed <= 0 {
             0.0
         } else {
@@ -92,7 +91,7 @@ impl GameClient {
             // Main remains command authority. Prefer local drawable modules only.
             self.update_drawables_local(visual_delta, frames)?;
             // Wave 1022: catalog shroud residual on presentation shell tick path.
-            self.update_drawable_visibility(self.local_player_id)?;
+            self.update_drawable_visibility(self.local_player_id())?;
             if self.should_skip_visual_updates_for_no_draw() {
                 self.rendered_object_count = 0;
                 self.finish_frame_timing(current_time);
@@ -148,7 +147,7 @@ impl GameClient {
         self.update_native_draw_particle_phase(freeze_time, frames, false)?;
 
         // W3DDisplay.cpp:1730-1835 — freeze/sync/updateViews/particles before DRAW GPU.
-        crate::display::client_draw_schedule::run_dual_world_cpu_phases();
+        self.run_dual_world_cpu_phases();
 
         // C++ line 735: TheDisplay->DRAW()
         self.draw_display()?;
@@ -175,8 +174,22 @@ impl GameClient {
         Ok(())
     }
 
+    /// Explicit compatibility observation for standalone Core entrypoints only:
+    /// this client's own tactical view, script runtime and the engine pause flags.
+    fn legacy_visual_time_observation(&self) -> NativeVisualTime {
+        let view = &self.tactical_view;
+        let frozen = (view.is_time_frozen() && !view.is_camera_movement_finished())
+            || TheScriptEngine::is_time_frozen_debug()
+            || TheScriptEngine::is_time_frozen_script()
+            || TheGameLogic::is_game_paused();
+        NativeVisualTime {
+            frozen,
+            visual_speed: self.script_runtime().visual_speed_multiplier as f32,
+        }
+    }
+
     fn finish_frame_timing(&self, frame_start: Instant) {
-        let script_fps_limit = get_script_fps_limit();
+        let script_fps_limit = self.script_runtime().fps_limit;
         let target_frame_duration = if script_fps_limit > 0 {
             Duration::from_secs_f64(1.0 / script_fps_limit as f64)
         } else {
@@ -361,6 +374,7 @@ impl GameClient {
                 .expect("particle manager")
                 .admit_effective_definitions()
                 .map_err(|error| GameClientError::SubsystemError(error.to_string()))?;
+            let local_player_id = self.local_player_id();
             let (state, particles) = (
                 &mut self.drawables.state,
                 self.drawables.particles.as_mut().expect("particle manager"),
@@ -373,7 +387,7 @@ impl GameClient {
                     self.native_audio_device.as_ref(),
                     ui,
                     self.frame,
-                    self.local_player_id,
+                    local_player_id,
                     self.input_authority,
                     ambient,
                 )
@@ -390,7 +404,7 @@ impl GameClient {
                     self.native_audio_device.as_ref(),
                     ui,
                     self.frame,
-                    self.local_player_id,
+                    local_player_id,
                     self.input_authority,
                 )
                 .tick_mapped_drawables_with_particles(
@@ -1354,6 +1368,8 @@ impl GameClient {
         if self.input_authority == ClientInputAuthority::NativeHosted {
             ui.admit_native_control_bar_transport();
         }
+        let mut ui = ui;
+        ui.set_local_player_id(self.local_player_id);
         self.subsystem_manager.in_game_ui = Some(ui);
     }
 
@@ -1973,10 +1989,11 @@ impl GameClient {
         particle_frames: NativeParticleFrames,
         game_mode: i32,
     ) -> GameClientResult<PreparedPresentationShell> {
+        let observation = self.legacy_visual_time_observation();
         self.begin_presentation_shell_observing(
             delta_time,
             particle_frames,
-            Some(|| Ok(legacy_visual_time_observation())),
+            Some(move || Ok(observation)),
             game_mode,
             None,
         )
@@ -2011,7 +2028,6 @@ impl GameClient {
         self.last_update_time = current_time;
         // GameLogic owns admission of the client frame (GameLogic.cpp:3593-3596).
         // Presenting or updating UI never advances simulation time.
-        publish_live_game_client_frame(self);
 
         self.create_frame_tick_message()?;
         // Meta TOD changes are queued on this receiving client's UI owner.
@@ -2337,7 +2353,7 @@ impl GameClient {
             ));
         }
         let frame = frames.client_frame;
-        let local_player_index = self.local_player_id;
+        let local_player_index = self.local_player_id();
 
         self.tick_mapped_drawables(frames, delta_time)?;
 
@@ -2417,7 +2433,7 @@ impl GameClient {
 
     fn should_freeze_visual_time(&mut self) -> bool {
         // Full standalone update samples speed later at its original point.
-        self.consume_visual_frame(legacy_visual_time_frozen())
+        self.consume_visual_frame(self.legacy_visual_time_observation().frozen)
     }
 
     fn consume_visual_frame(&mut self, frozen: bool) -> bool {
@@ -2565,6 +2581,7 @@ impl GameClient {
                 &mut self.render_bridge,
                 &self.drawables.fx,
                 &self.drawables.projected_decals.manager,
+&mut self.client_random,
             )?;
             display.update_receiving(self.script_display.fx_mut())?;
         }
@@ -2634,6 +2651,7 @@ impl GameClient {
                 &mut self.render_bridge,
                 &self.drawables.fx,
                 &self.drawables.projected_decals.manager,
+&mut self.client_random,
             )?;
             thread::sleep(Duration::from_millis(100));
         }
@@ -2867,7 +2885,7 @@ impl GameClient {
 
         if self.input_authority == ClientInputAuthority::StandaloneCore {
             if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
-                crate::eva::update_eva_system(&mut ui.eva);
+                crate::eva::update_eva_system(&mut ui.eva, &mut self.client_random);
             }
         }
 
@@ -2885,7 +2903,7 @@ impl GameClient {
         if self.input_authority == ClientInputAuthority::NativeHosted {
             return Ok(());
         }
-        let notifications = beacon_display::drain_notifications();
+        let notifications = beacon_display::drain_notifications(self.beacons_mut());
         if notifications.is_empty() {
             return Ok(());
         }
@@ -2925,22 +2943,6 @@ impl GameClient {
     }
 }
 
-/// Explicit compatibility observation for standalone Core entrypoints only.
-fn legacy_visual_time_frozen() -> bool {
-    let camera_frozen =
-        with_tactical_view_ref(|view| view.is_time_frozen() && !view.is_camera_movement_finished());
-    camera_frozen
-        || TheScriptEngine::is_time_frozen_debug()
-        || TheScriptEngine::is_time_frozen_script()
-        || TheGameLogic::is_game_paused()
-}
-
-fn legacy_visual_time_observation() -> NativeVisualTime {
-    NativeVisualTime {
-        frozen: legacy_visual_time_frozen(),
-        visual_speed: get_script_visual_speed_multiplier() as f32,
-    }
-}
 
 #[cfg(test)]
 #[path = "native_visual_time_tests.rs"]

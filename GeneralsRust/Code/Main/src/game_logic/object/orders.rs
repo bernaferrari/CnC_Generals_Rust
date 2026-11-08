@@ -2124,30 +2124,33 @@ impl Object {
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
         mut partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
     ) -> bool {
-        self.require_partition_owner(partition.as_deref());
-        let uses_garrison_cleanup =
-            !self.is_tunnel_network_style_container() && !self.is_cave_style_container();
-        if let Some(building) = self.building_data.as_mut() {
-            if let Some(pos) = building
-                .garrisoned_units
-                .iter()
-                .position(|&id| id == unit_id)
-            {
-                building.garrisoned_units.remove(pos);
-                // C++ GarrisonContain::onRemoving → removeObjectFromGarrisonPoint
-                // (or station) for this occupant, not only when the building
-                // becomes empty. Survivors must inherit the freed window.
-                if uses_garrison_cleanup {
-                    building.free_garrison_point_for(unit_id);
-                }
+        let building_entry = self.building_data.as_ref()
+            .is_some_and(|building| building.garrisoned_units.contains(&unit_id));
+        let removed = self.unlink_occupant_with_partition_context(unit_id, partition.as_deref());
+        if removed && building_entry
+            && !self.is_tunnel_network_style_container() && !self.is_cave_style_container()
+        {
+            if let Some(building) = self.building_data.as_mut() {
+                building.free_garrison_point_for(unit_id);
+            }
+            self.restore_garrison_original_team_if_empty_with_partition_context(
+                ownership_events, partition.as_deref_mut(),
+            );
+        }
+        removed
+    }
 
-                let empty = building.garrisoned_units.is_empty();
-                if empty && uses_garrison_cleanup {
-                    self.restore_garrison_original_team_if_empty_with_partition_context(
-                        ownership_events,
-                        partition.as_deref_mut(),
-                    );
-                }
+    /// OpenContain removes the roster entry before dispatching onRemoving.
+    /// The receiving world owns station cleanup, bonus/HELD changes and team restoration.
+    pub(crate) fn unlink_occupant_with_partition_context(
+        &mut self,
+        unit_id: ObjectId,
+        partition: Option<&crate::game_logic::partition_manager::PartitionManager>,
+    ) -> bool {
+        self.require_partition_owner(partition);
+        if let Some(building) = self.building_data.as_mut() {
+            if let Some(pos) = building.garrisoned_units.iter().position(|&id| id == unit_id) {
+                building.garrisoned_units.remove(pos);
                 return true;
             }
         }

@@ -28,9 +28,7 @@ mod tests {
 
     #[test]
     fn load_presentation_services_borrow_receiving_decals() {
-        use crate::core::game_client::{
-            GameClient, clear_live_game_client, register_live_game_client,
-        };
+        use crate::core::game_client::GameClient;
         use crate::effects::decals::{DecalManager, DecalSettings};
 
         crate::test_support::ensure_ambient_host();
@@ -50,7 +48,6 @@ mod tests {
         let mut peer_decals = DecalManager::new();
         peer_decals.create_decal(DecalSettings::scorch_mark(glam::Vec3::new(22.0, 0.0, 0.0), 1.0));
         peer.fx_mut().register_decal_manager(Arc::new(Mutex::new(peer_decals)));
-        register_live_game_client(&mut peer);
         fixture.with_runtime(|runtime, _, _| {
             let mut present = |services: LoadScreenDrawServices<'_>| {
                 let items = crate::display::display::collect_decal_items(
@@ -63,7 +60,6 @@ mod tests {
             };
             LoadScreenPresentationPump::for_native(&mut present).pump(runtime).unwrap();
         });
-        assert!(clear_live_game_client(&mut peer));
         fixture.with_runtime(|runtime, _, _| {
             let mut present = |services: LoadScreenDrawServices<'_>| {
                 let items = crate::display::display::collect_decal_items(

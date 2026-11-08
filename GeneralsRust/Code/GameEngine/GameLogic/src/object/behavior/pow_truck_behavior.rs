@@ -20,7 +20,7 @@ use crate::modules::{
     UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::Object;
-use crate::object::collide::{COLLISION_MANAGER, Coord3D as CollideCoord3D, LegacyCollideAdapter};
+use crate::object::collide::{world_collision_manager, Coord3D as CollideCoord3D, LegacyCollideAdapter};
 use crate::object::contain::{OpenContain, OpenContainModuleData};
 use log::warn;
 
@@ -572,7 +572,7 @@ impl Module for POWTruckBehaviorModule {
             return;
         }
 
-        if let Err(err) = COLLISION_MANAGER.register_collide_module(
+        if let Err(err) = world_collision_manager().register_collide_module(
             object_id,
             Box::new(POWTruckCollideAdapter::new(
                 object_id,
@@ -596,7 +596,7 @@ impl Module for POWTruckBehaviorModule {
             .unwrap_or(INVALID_ID);
 
         if object_id != INVALID_ID {
-            let _ = COLLISION_MANAGER.unregister_object(object_id);
+            let _ = world_collision_manager().unregister_object(object_id);
         }
     }
 }

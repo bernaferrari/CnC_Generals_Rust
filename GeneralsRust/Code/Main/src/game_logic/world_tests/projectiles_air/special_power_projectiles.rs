@@ -1819,7 +1819,6 @@ fn frenzy_replacement_restarts_a_fired_weapon_in_each_receiving_world() {
         let shooter = logic.create_object_for_player("TestTank", 1, Vec3::ZERO).unwrap();
         let target = logic.create_object_for_player("TestTank", 0, Vec3::new(10.0, 0.0, 0.0)).unwrap();
         let unit = logic.host_object_mut(shooter).unwrap();
-        unit.weapon.as_mut().unwrap().last_fire_time = -10.0;
         unit.target = Some(target);
         unit.set_ai_state(
             AIState::Attacking,
@@ -1839,7 +1838,7 @@ fn frenzy_replacement_restarts_a_fired_weapon_in_each_receiving_world() {
         logic.frame = 30;
         let actor = logic.host_object(shooter).unwrap();
         let victim = logic.host_object(target).unwrap();
-        assert!(actor.weapon_ready_vs_target_with_owned_rof(0, 1.0, false, 1.0), "fixture weapon must be ready");
+        assert!(actor.weapon_ready_vs_target_with_owned_rof(0, logic.frame, false, 1.0), "fixture weapon must be ready");
         assert_eq!(actor.select_combat_weapon_slot(victim, 1.0), Some(0), "fixture must select primary");
         let health = victim.health.current;
         logic.update_combat(&[shooter, target], 1.0 / 30.0).unwrap();
@@ -1852,6 +1851,8 @@ fn frenzy_replacement_restarts_a_fired_weapon_in_each_receiving_world() {
         let weapon = logic.host_object(shooter).unwrap().weapon.as_ref().unwrap();
         assert!((weapon.last_fire_time - 1.2).abs() < 0.001);
         assert!((weapon.last_bonus_rof - rate).abs() < 0.001);
+        assert!(weapon.frame_clock_active);
+        assert_eq!(weapon.next_fire_frame, 36 + (60.0 / rate) as u32);
 
         // Both tiers have the same final ROF. Only the synchronous clear of
         // tier one and then set of tier two can restart this wait at frame 39.
@@ -1862,6 +1863,7 @@ fn frenzy_replacement_restarts_a_fired_weapon_in_each_receiving_world() {
         assert_eq!(unit.weapon_bonus_frenzy_level, 2);
         assert!((weapon.last_fire_time - 1.3).abs() < 0.001);
         assert!((weapon.last_bonus_rof - rate).abs() < 0.001);
+        assert_eq!(weapon.next_fire_frame, 39 + (60.0 / rate) as u32);
 
         let expiry = unit.weapon_bonus_frenzy_until_frame;
         logic.frame = expiry - 3;
@@ -1875,6 +1877,11 @@ fn frenzy_replacement_restarts_a_fired_weapon_in_each_receiving_world() {
         let weapon = unit.weapon.as_ref().unwrap();
         assert!((weapon.last_fire_time - expiry as f32 / 30.0).abs() < 0.001);
         assert!((weapon.last_bonus_rof - 1.0).abs() < 0.001);
+        // Expiry is itself a synchronous condition change, not merely a
+        // dropped multiplier on the old shot's deadline.
+        assert_eq!(weapon.next_fire_frame, expiry + 60);
+        assert!(!unit.weapon_ready_vs_target_with_owned_rof(0, expiry + 59, false, 1.0));
+        assert!(unit.weapon_ready_vs_target_with_owned_rof(0, expiry + 60, false, 1.0));
     }
 }
 

@@ -345,19 +345,21 @@ fn occupied_start_automatically_enables_escape_tunneling() {
         .unwrap();
     let ground = PathfindingGround::Flat(0.0);
     let mut finder = PathfindingSystem::new(400.0, 400.0);
+    // The idle enemy holds its position and goal there (UNIT_PRESENT_FIXED),
+    // so checkForMovement reports enemyFixed at the start (AIPathfind.cpp:10224).
     finder.grid.update_path_position_cell(
         &PathPositionFootprint {
             unit_id: enemy.0,
-            player: 1,
             radius: 2.0,
             layer: 0,
             on_ground: true,
-            infantry: false,
-            crushable_level: 0,
         },
         (-1, -1),
         Vec3::new(100.0, 0.0, 100.0),
     );
+    finder
+        .grid
+        .update_ground_goal_cell(enemy.0, 2.0, false, (-1, -1), Vec3::new(100.0, 0.0, 100.0));
     for pos in [
         GridPos::new(9, 10),
         GridPos::new(11, 10),
@@ -399,12 +401,9 @@ fn even_footprint_keeps_existing_start_cell_info_coordinates() {
     finder.grid.update_path_position_cell(
         &PathPositionFootprint {
             unit_id: large.0,
-            player: 0,
             radius: 10.0,
             layer: 0,
             on_ground: true,
-            infantry: false,
-            crushable_level: 0,
         },
         (-1, -1),
         Vec3::new(100.0, 0.0, 100.0),
@@ -457,7 +456,6 @@ fn even_footprint_respects_existing_goal_and_aircraft_cell_info() {
         } else {
             finder.grid.update_ground_goal_cell(
                 enemy.0,
-                1,
                 2.0,
                 false,
                 (-1, -1),
@@ -488,12 +486,9 @@ fn even_footprint_start_info_is_owned_by_each_session() {
     finder.grid.update_path_position_cell(
         &PathPositionFootprint {
             unit_id: large.0,
-            player: 0,
             radius: 10.0,
             layer: 0,
             on_ground: true,
-            infantry: false,
-            crushable_level: 0,
         },
         (-1, -1),
         Vec3::new(100.0, 0.0, 100.0),
@@ -550,16 +545,13 @@ fn even_footprint_can_accept_its_own_fixed_destination_cell() {
     let position = Vec3::new(100.0, 0.0, 100.0);
     finder
         .grid
-        .update_ground_goal_cell(large.0, 0, 10.0, false, (-1, -1), position);
+        .update_ground_goal_cell(large.0, 10.0, false, (-1, -1), position);
     finder.grid.update_path_position_cell(
         &PathPositionFootprint {
             unit_id: large.0,
-            player: 0,
             radius: 10.0,
             layer: 0,
             on_ground: true,
-            infantry: false,
-            crushable_level: 0,
         },
         (-1, -1),
         position,
@@ -586,31 +578,25 @@ fn even_footprint_rejects_allied_goals_and_uncrushable_enemy_occupants() {
         finder.grid.update_path_position_cell(
             &PathPositionFootprint {
                 unit_id: large.0,
-                player: 0,
                 radius: 10.0,
                 layer: 0,
                 on_ground: true,
-                infantry: false,
-                crushable_level: 0,
             },
             (-1, -1),
             Vec3::new(100.0, 0.0, 100.0),
         );
-        let (goal, player) = if enemy_fixed { (enemy, 1) } else { (small, 0) };
+        let goal = if enemy_fixed { enemy } else { small };
         let position = Vec3::new(95.0, 0.0, 95.0);
         finder
             .grid
-            .update_ground_goal_cell(goal.0, player, 2.0, false, (-1, -1), position);
+            .update_ground_goal_cell(goal.0, 2.0, false, (-1, -1), position);
         if enemy_fixed {
             finder.grid.update_path_position_cell(
                 &PathPositionFootprint {
                     unit_id: goal.0,
-                    player,
                     radius: 2.0,
                     layer: 0,
                     on_ground: true,
-                    infantry: false,
-                    crushable_level: 255,
                 },
                 (-1, -1),
                 position,

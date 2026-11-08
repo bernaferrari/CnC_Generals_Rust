@@ -46,7 +46,9 @@ fn manager() -> ShroudManager {
 fn assert_unchanged(owner: &ShroudManager, before: &ShroudSnapshot, scalar: f32) {
     assert_eq!(owner.snapshot_state(), *before);
     assert_eq!(owner.grid_world_origin(), Some([110., -230.]));
-    assert_eq!(owner.grid_dimensions(), Some((4, 2, 20.)));
+    // REAL_TO_INT_CEIL(80/20 = 4.0, 40/20 = 2.0) adds a cell per axis
+    // (PartitionManager.cpp:2586-2587).
+    assert_eq!(owner.grid_dimensions(), Some((5, 3, 20.)));
     assert_eq!(scalar, 91.);
 }
 #[test]
@@ -57,7 +59,7 @@ fn actual_partition_xfer_roundtrip_uses_receiving_grid_and_preserves_same_thread
     let bytes = save("roundtrip", &mut source, &mut source_size);
     assert_eq!(bytes[0], 2);
     assert_eq!(f32::from_le_bytes(bytes[1..5].try_into().unwrap()), 20.);
-    assert_eq!(i32::from_le_bytes(bytes[5..9].try_into().unwrap()), 8);
+    assert_eq!(i32::from_le_bytes(bytes[5..9].try_into().unwrap()), 15);
     let mut receiving = manager();
     let mut size = 91.;
     let mut peer = ShroudManager::new();
@@ -82,14 +84,14 @@ fn invalid_partition_headers_and_late_queue_errors_leave_both_owners_unchanged()
     let bytes = save("bad_source", &mut source, &mut 20.);
     let mut receiving = manager();
     let before = receiving.snapshot_state();
-    let queue_offset = 9 + 8 * (1 + 4 * crate::common::MAX_PLAYER_COUNT);
+    let queue_offset = 9 + 15 * (1 + 4 * crate::common::MAX_PLAYER_COUNT);
     let mut cases = Vec::new();
     for cell in [f32::NAN, f32::INFINITY, 0., 21.] {
         let mut bad = bytes.clone();
         bad[1..5].copy_from_slice(&cell.to_le_bytes());
         cases.push(bad);
     }
-    for count in [-1i32, 9, i32::MAX] {
+    for count in [-1i32, 16, i32::MAX] {
         let mut bad = bytes.clone();
         bad[5..9].copy_from_slice(&count.to_le_bytes());
         cases.push(bad);
@@ -125,7 +127,7 @@ fn empty_mapless_roundtrip_and_v1_queue_semantics_do_not_invent_geometry() {
     assert!(!receiving.has_shroud_grid());
     let mut source = manager();
     let mut v1 = save("v1", &mut source, &mut 20.);
-    let end = 9 + 8 * (1 + 4 * crate::common::MAX_PLAYER_COUNT);
+    let end = 9 + 15 * (1 + 4 * crate::common::MAX_PLAYER_COUNT);
     v1[0] = 1;
     v1.truncate(end);
     let mut target = manager();

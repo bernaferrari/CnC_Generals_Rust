@@ -39,11 +39,10 @@ use std::sync::{Arc, Mutex, RwLock};
 use parking_lot::Mutex as ParkingMutex;
 use parking_lot::RwLock as ParkingRwLock;
 
-/// GameClient / GameAudio / GameLogic random streams owned by one game instance.
+/// GameLogic random stream owned by one game instance. Client/audio streams
+/// live on their receiving presentation/audio owners.
 #[derive(Debug)]
 pub struct RandomServices {
-    pub client: Mutex<RandomState>,
-    pub audio: Mutex<RandomState>,
     pub logic: Mutex<RandomState>,
     pub logic_base_seed: AtomicU32,
 }
@@ -51,8 +50,6 @@ pub struct RandomServices {
 impl Default for RandomServices {
     fn default() -> Self {
         Self {
-            client: Mutex::new(RandomState::default()),
-            audio: Mutex::new(RandomState::default()),
             logic: Mutex::new(RandomState::default()),
             logic_base_seed: AtomicU32::new(0),
         }
@@ -61,31 +58,15 @@ impl Default for RandomServices {
 
 impl RandomServices {
     pub fn init_with_seed(&self, seed: u32) {
-        for slot in [&self.client, &self.audio, &self.logic] {
-            match slot.lock() {
-                Ok(mut g) => g.seed_random(seed),
-                Err(p) => p.into_inner().seed_random(seed),
-            }
+        match self.logic.lock() {
+            Ok(mut g) => g.seed_random(seed),
+            Err(p) => p.into_inner().seed_random(seed),
         }
         self.logic_base_seed.store(seed, Ordering::SeqCst);
     }
 
     pub fn with_logic_mut<R>(&self, f: impl FnOnce(&mut RandomState) -> R) -> R {
         match self.logic.lock() {
-            Ok(mut g) => f(&mut g),
-            Err(p) => f(&mut p.into_inner()),
-        }
-    }
-
-    pub fn with_client_mut<R>(&self, f: impl FnOnce(&mut RandomState) -> R) -> R {
-        match self.client.lock() {
-            Ok(mut g) => f(&mut g),
-            Err(p) => f(&mut p.into_inner()),
-        }
-    }
-
-    pub fn with_audio_mut<R>(&self, f: impl FnOnce(&mut RandomState) -> R) -> R {
-        match self.audio.lock() {
             Ok(mut g) => f(&mut g),
             Err(p) => f(&mut p.into_inner()),
         }

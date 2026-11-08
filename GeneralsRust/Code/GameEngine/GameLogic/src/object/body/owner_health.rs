@@ -5,7 +5,7 @@ use super::body_module::{
     OwnerMaxHealthChange,
 };
 use crate::common::ObjectStatusMaskType;
-use crate::helpers::{TheParticleSystemManager, game_client_random_value};
+use crate::helpers::{TheParticleSystemManager};
 use crate::object::{Object, drawable::DrawableExt};
 use game_engine::common::global_data;
 use std::sync::{Arc, Mutex};
@@ -261,7 +261,7 @@ impl Object {
             let count = count.min(positions.len());
             let mut used = vec![false; positions.len()];
             for i in 0..count {
-                let pick = game_client_random_value(0, (count - i - 1) as i32) as usize;
+                let pick = crate::system::engine_stores::active_services().client_random_value(0, (count - i - 1) as i32) as usize;
                 let index = used
                     .iter()
                     .enumerate()

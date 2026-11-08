@@ -804,6 +804,9 @@ impl GameLogic {
                 obj.deferred_destruction_credit = Some(credit);
             }
         }
+        // PropagandaTowerBehavior::onDie releases recipients before any
+        // deferred death; onDelete subsequently finds an empty inside list.
+        self.remove_propaganda_tower_influence(id);
         if input.is_some()
             && self
                 .objects

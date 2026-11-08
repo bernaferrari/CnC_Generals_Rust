@@ -41,16 +41,45 @@ fn register_position(grid: &mut PathfindingGrid, world: &GameLogic, id: ObjectId
     grid.update_path_position_cell(
         &PathPositionFootprint {
             unit_id: id.0,
-            player: object.owner_player_id.unwrap_or(object.team as u32),
             radius: object.selection_radius,
             layer,
             on_ground: layer == 0,
-            infantry: object.is_kind_of(KindOf::Infantry),
-            crushable_level: object.crushable_level,
         },
         (-1, -1),
         object.get_position(),
     );
+}
+
+/// C++ checkDestination asks the moving object whether it considers the goal
+/// owner ALLIES (AIPathfind.cpp:4943-4948). Probe with a live object of
+/// `player`, as that object's search binds its occupants.
+fn allied_goal_seen_by(
+    grid: &mut PathfindingGrid,
+    world: &mut GameLogic,
+    cell: GridPos,
+    player: u32,
+) -> bool {
+    if !world.templates.contains_key("AlliedGoalProbe") {
+        let mut template = ThingTemplate::new("AlliedGoalProbe");
+        template.add_kind_of(KindOf::Infantry).set_health(100.0);
+        world.templates.insert("AlliedGoalProbe".into(), template);
+    }
+    let probe = world
+        .create_object_for_player("AlliedGoalProbe", player, Vec3::new(1.0, 0.0, 1.0))
+        .unwrap();
+    grid.bind_query_occupants(world.host_objects(), Some(probe));
+    grid.has_allied_goal(cell, Some(player))
+}
+
+/// A live player-0 searcher in the far corner, so occupancy is observed the
+/// way C++ `checkForMovement(obj, ...)` resolves it for that object.
+fn player_zero_seeker(world: &mut GameLogic) -> ObjectId {
+    let mut template = ThingTemplate::new("PathSeeker");
+    template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+    world.templates.insert("PathSeeker".into(), template);
+    world
+        .create_object_for_player("PathSeeker", 0, Vec3::new(95.0, 0.0, 95.0))
+        .unwrap()
 }
 
 #[test]
@@ -70,20 +99,20 @@ fn query_reads_current_position_owners_player_without_rebuilding_the_cell() {
     actor.selection_radius = 1.0;
     actor.crushable_level = 255;
     let mut grid = PathfindingGrid::new(100.0, 100.0, 10.0);
+    // An idle occupant: its position and goal share the cell (UNIT_PRESENT_FIXED),
+    // the only occupancy checkForMovement weighs with considerTransient false.
+    grid.update_ground_goal_cell(id.0, 1.0, false, (-1, -1), Vec3::new(50.0, 0.0, 50.0));
     register_position(&mut grid, &world, id, 0);
     let cell = GridPos::new(5, 5);
+    let seeker = player_zero_seeker(&mut world);
     grid.update_dynamic_obstacles(world.host_objects(), &PathfindingGround::Flat(0.0));
-    assert_ne!(
-        grid.occupancy_extra_cost(cell, Some(0), false, 0),
-        u32::MAX / 8
-    );
+    grid.bind_query_occupants(world.host_objects(), Some(seeker));
+    assert_ne!(grid.occupancy_extra_cost(cell, false), u32::MAX / 8);
     world.host_object_mut(id).unwrap().owner_player_id = Some(1);
     grid.update_dynamic_obstacles(world.host_objects(), &PathfindingGround::Flat(0.0));
+    grid.bind_query_occupants(world.host_objects(), Some(seeker));
     assert_eq!(grid.ground_position_unit(cell), id.0);
-    assert_eq!(
-        grid.occupancy_extra_cost(cell, Some(0), false, 0),
-        u32::MAX / 8
-    );
+    assert_eq!(grid.occupancy_extra_cost(cell, false), u32::MAX / 8);
 }
 
 #[test]
@@ -121,7 +150,7 @@ fn ignored_query_does_not_replace_the_receiving_worlds_fixed_occupant() {
     for ((system, id), world) in systems.iter_mut().zip(&ids).zip(&worlds) {
         system
             .grid
-            .update_ground_goal_cell(id.0, 0, 1.0, false, (-1, -1), position);
+            .update_ground_goal_cell(id.0, 1.0, false, (-1, -1), position);
         register_position(&mut system.grid, world, *id, 0);
     }
     systems[0].grid.update_dynamic_obstacles_ignoring(
@@ -145,10 +174,12 @@ fn ignored_query_does_not_replace_the_receiving_worlds_fixed_occupant() {
         systems[0].grid.is_blocked(cell),
         "ending the ignore reveals the still-owned cell without rebuilding"
     );
+    let seeker = player_zero_seeker(&mut worlds[0]);
+    systems[0]
+        .grid
+        .bind_query_occupants(worlds[0].host_objects(), Some(seeker));
     assert_ne!(
-        systems[0]
-            .grid
-            .occupancy_extra_cost(cell, Some(0), false, 0),
+        systems[0].grid.occupancy_extra_cost(cell, false),
         u32::MAX / 8,
         "the overlapping enemy did not replace the fixed owner"
     );
@@ -241,7 +272,6 @@ fn goal_changes_immediately_update_position_flags_in_each_world() {
     assert_eq!(grids[0].clear_cell_for_diameter(false, cell, 2), 2);
     grids[0].update_ground_goal_cell(
         ids[0].0,
-        0,
         1.0,
         false,
         (-1, -1),
@@ -287,12 +317,14 @@ fn fixed_occupant_cannot_be_overwritten_by_a_later_position_stamp() {
         actor.status.moving = true;
     }
     let mut grid = PathfindingGrid::new(100.0, 100.0, 10.0);
-    grid.update_ground_goal_cell(first.0, 0, 1.0, false, (-1, -1), position);
+    grid.update_ground_goal_cell(first.0, 1.0, false, (-1, -1), position);
     register_position(&mut grid, &world, first, 0);
     register_position(&mut grid, &world, second, 0);
     grid.update_dynamic_obstacles(world.host_objects(), &PathfindingGround::Flat(0.0));
+    let seeker = player_zero_seeker(&mut world);
+    grid.bind_query_occupants(world.host_objects(), Some(seeker));
     assert_ne!(
-        grid.occupancy_extra_cost(GridPos::new(5, 5), Some(0), false, 0),
+        grid.occupancy_extra_cost(GridPos::new(5, 5), false),
         u32::MAX / 8,
         "the fixed first owner must survive the second position stamp"
     );
@@ -348,7 +380,6 @@ fn bridge_goal_changes_the_layer_occupant_without_a_refresh() {
     assert_eq!(destination(&grid), Some(cell));
     grid.update_path_goal_cell(PathGoalUpdate {
         unit_id: id.0,
-        player: 0,
         radius: 1.0,
         old_cell: (-1, -1),
         old_layer: 0,
@@ -536,7 +567,7 @@ fn possible_destination_uses_each_receivers_ignore_and_goal_identity() {
         .set_cell_type(cell, gamelogic::ai::pathfind_astar::PathfindCellType::Clear);
     systems[0]
         .grid
-        .update_ground_goal_cell(ids[0].0, 0, 1.0, false, (-1, -1), goal);
+        .update_ground_goal_cell(ids[0].0, 1.0, false, (-1, -1), goal);
     worlds[0]
         .host_object_mut(ids[0])
         .unwrap()
@@ -637,7 +668,7 @@ fn possible_destination_does_not_use_ai_context_when_receiver_has_no_ai() {
         GridPos::new(5, 5),
         gamelogic::ai::pathfind_astar::PathfindCellType::Clear,
     );
-    system.grid.update_ground_goal_cell(id.0, 0, 1.0, false, (-1, -1), goal);
+    system.grid.update_ground_goal_cell(id.0, 1.0, false, (-1, -1), goal);
     let mut own_goal = goal;
     assert!(system.adjust_to_possible_destination_for(
         world.host_object(id).unwrap(),
@@ -675,7 +706,7 @@ fn blocked_route_retry_uses_receiver_ignore_and_aircraft_stays_direct() {
         system.set_adjust_goal(false);
         system.grid.set_cell_type(GridPos::new(5, 5), PathfindCellType::Impassable);
         system.grid.rebuild_path_zones();
-        system.grid.update_ground_goal_cell(reservation.0, 0, 1.0, false, (-1, -1), Vec3::new(60.0, 0.0, 50.0));
+        system.grid.update_ground_goal_cell(reservation.0, 1.0, false, (-1, -1), Vec3::new(60.0, 0.0, 50.0));
         ids.push((mover, reservation, flyer));
     }
     assert_eq!(ids[0], ids[1]);
@@ -709,7 +740,7 @@ fn possible_destination_reads_each_worlds_live_goal_object() {
         world.templates.insert("LiveGoalContext".into(), template);
         let mover = world.create_object_for_player("LiveGoalContext", 0, Vec3::new(25.0, 0.0, 25.0)).unwrap();
         let target = world.create_object_for_player("LiveGoalContext", 0, goal).unwrap();
-        system.grid.update_ground_goal_cell(target.0, 0, 1.0, false, (-1, -1), goal);
+        system.grid.update_ground_goal_cell(target.0, 1.0, false, (-1, -1), goal);
         ids.push((mover, target));
     }
     assert_eq!(ids[0], ids[1]);
@@ -751,7 +782,7 @@ fn possible_destination_honors_directional_team_override_before_player_relation(
             world.get_player_mut(0).unwrap()
                 .set_team_relationship_override(target_team, Relationship::Allies);
         }
-        system.grid.update_ground_goal_cell(target.0, 1, 1.0, false, (-1, -1), goal);
+        system.grid.update_ground_goal_cell(target.0, 1.0, false, (-1, -1), goal);
         ids.push((mover, target));
     }
     assert_eq!(ids[0], ids[1]);
@@ -1645,7 +1676,6 @@ fn possible_destination_keeps_the_original_bridge_layer_while_spiraling() {
     assert_ne!(layer, PathfindLayerEnum::Ground);
     grid.update_path_goal_cell(PathGoalUpdate {
         unit_id: 17,
-        player: 0,
         radius: 2.0,
         old_cell: (-1, -1),
         old_layer: 0,
@@ -1683,12 +1713,11 @@ fn possible_destination_stays_on_ground_under_a_bridge() {
         &ground,
     );
     let mut dest = Vec3::new(80.0, 0.0, 50.0);
-    grid.update_ground_goal_cell(17, 0, 2.0, false, (-1, -1), dest);
+    grid.update_ground_goal_cell(17, 2.0, false, (-1, -1), dest);
     let bridge_goal = Vec3::new(90.0, 20.0, 50.0);
     let bridge = grid.layer_for_destination(bridge_goal, &ground);
     grid.update_path_goal_cell(PathGoalUpdate {
         unit_id: 18,
-        player: 0,
         radius: 2.0,
         old_cell: (-1, -1),
         old_layer: 0,
@@ -1732,10 +1761,10 @@ fn same_frame_path_search_reads_current_goal_owner_per_session() {
     ];
     let goal = Vec3::new(50.0, 0.0, 50.0);
     let cell = GridPos::new(5, 5);
-    for (system, world) in systems.iter_mut().zip(&worlds) {
+    for (system, world) in systems.iter_mut().zip(worlds.iter_mut()) {
         system
             .grid
-            .update_ground_goal_cell(ids[0].0, 0, 2.0, false, (-1, -1), goal);
+            .update_ground_goal_cell(ids[0].0, 2.0, false, (-1, -1), goal);
         system.note_logic_frame(17);
         let _ = system.find_path_ex(
             Vec3::new(10.0, 0.0, 10.0),
@@ -1745,7 +1774,7 @@ fn same_frame_path_search_reads_current_goal_owner_per_session() {
             None,
             &ground,
         );
-        assert!(system.grid.has_allied_goal(cell, Some(0)));
+        assert!(allied_goal_seen_by(&mut system.grid, world, cell, 0));
     }
     worlds[0].host_object_mut(ids[0]).unwrap().owner_player_id = Some(1);
     let _ = systems[0].find_path_ex(
@@ -1757,13 +1786,15 @@ fn same_frame_path_search_reads_current_goal_owner_per_session() {
         &ground,
     );
     assert_eq!(systems[0].grid.ground_goal_unit(cell), ids[0].0);
+    let [first_world, second_world] = &mut worlds;
+    let [first_system, second_system] = &mut systems;
     assert!(
-        !systems[0].grid.has_allied_goal(cell, Some(0)),
+        !allied_goal_seen_by(&mut first_system.grid, first_world, cell, 0),
         "same-frame search saw the previous owner"
     );
-    assert!(systems[0].grid.has_allied_goal(cell, Some(1)));
+    assert!(allied_goal_seen_by(&mut first_system.grid, first_world, cell, 1));
     assert!(
-        systems[1].grid.has_allied_goal(cell, Some(0)),
+        allied_goal_seen_by(&mut second_system.grid, second_world, cell, 0),
         "another session changed"
     );
 }
@@ -1776,15 +1807,15 @@ fn goal_removal_preserves_other_blockers_and_isolated_grids() {
     let mut peer = PathfindingGrid::new(100.0, 100.0, 10.0);
     explicit.set_dynamic_blocked(cell, true);
     for grid in [&mut explicit, &mut peer] {
-        grid.update_ground_goal_cell(7, 0, 2.0, false, (-1, -1), goal);
+        grid.update_ground_goal_cell(7, 2.0, false, (-1, -1), goal);
         assert!(grid.is_blocked(cell));
         grid.clear_ground_goal_square(7, 2.0, (5, 5));
     }
     assert!(explicit.is_blocked(cell), "explicit blocker was lost");
     assert!(!peer.is_blocked(cell), "removed goal remained blocked");
     assert_eq!(peer.nearest_open(cell, 0), Some(cell));
-    peer.update_ground_goal_cell(7, 0, 2.0, false, (-1, -1), goal);
-    peer.update_ground_goal_cell(7, 0, 2.0, false, (5, 5), Vec3::new(60.0, 0.0, 50.0));
+    peer.update_ground_goal_cell(7, 2.0, false, (-1, -1), goal);
+    peer.update_ground_goal_cell(7, 2.0, false, (5, 5), Vec3::new(60.0, 0.0, 50.0));
     assert!(
         !peer.is_blocked(cell),
         "reassignment left the old goal blocked"
@@ -1829,7 +1860,7 @@ fn explicit_unblock_and_goal_removal_do_not_erase_a_live_position() {
         grid.is_blocked(cell),
         "explicit unblock erased a live occupant"
     );
-    grid.update_ground_goal_cell(42, 0, 2.0, false, (-1, -1), Vec3::new(50.0, 0.0, 50.0));
+    grid.update_ground_goal_cell(42, 2.0, false, (-1, -1), Vec3::new(50.0, 0.0, 50.0));
     grid.clear_ground_goal_square(42, 2.0, (5, 5));
     assert!(grid.is_blocked(cell), "goal removal erased a live occupant");
     assert!(!peer_grid.is_blocked(cell));

@@ -1179,7 +1179,7 @@ impl Object {
         let collide_loc = crate::object::collide::Coord3D::new(loc.x, loc.y, loc.z);
         let collide_normal = crate::object::collide::Coord3D::new(normal.x, normal.y, normal.z);
 
-        if let Err(err) = crate::object::collide::COLLISION_MANAGER.handle_collision(
+        if let Err(err) = crate::object::collide::world_collision_manager().handle_collision(
             self.id,
             other_game_object,
             &collide_loc,

@@ -107,13 +107,6 @@ thread_local! {
 
 fn with_legacy_core_ingress_mut<R>(f: impl FnOnce(&mut LegacyCoreControlBarIngress) -> R) -> R {
     let mut f = Some(f);
-    if let Some(Some(result)) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.in_game_ui_subsystem_mut().map(|ui| {
-            f.take().expect("legacy ingress")(&mut ui.legacy_core_control_bar_ingress)
-        })
-    }) {
-        return result;
-    }
     #[cfg(test)]
     {
         return TEST_LEGACY_CORE_CONTROL_BAR_INGRESS.with(|slot| {
@@ -1359,16 +1352,6 @@ impl TheControlBar {
     pub fn get_observer_look_at_player_index() -> Option<i32> {
         let index = with_legacy_core_ingress_mut(|pending| pending.observer_look_at);
         (index >= 0).then_some(index)
-    }
-
-    /// C++ `TheControlBar->getArrowImage()` (`m_genArrow`).
-    pub fn get_arrow_image() -> Option<crate::gui::game_window::Image> {
-        crate::gui::control_bar::control_bar_observer::get_gen_arrow_image()
-    }
-
-    /// C++ `TheControlBar->setArrowImage()`.
-    pub fn set_arrow_image(image: Option<crate::gui::game_window::Image>) {
-        crate::gui::control_bar::control_bar_observer::set_gen_arrow_image(image);
     }
 }
 

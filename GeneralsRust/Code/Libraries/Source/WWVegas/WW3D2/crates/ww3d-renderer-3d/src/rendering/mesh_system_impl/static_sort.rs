@@ -106,7 +106,7 @@ impl StaticSortManager {
     }
 
     pub fn are_static_sort_lists_enabled(r3d: &crate::process_state::Renderer3dRuntime) -> bool {
-        with_sort_state(r3d, |state| state.enabled)
+        with_sort_state(r3d, |state| state.enabled && state.flush_depth == 0)
     }
 
     pub fn are_decals_enabled(r3d: &crate::process_state::Renderer3dRuntime) -> bool {
@@ -115,6 +115,27 @@ impl StaticSortManager {
 
     pub fn is_sorting_enabled(r3d: &crate::process_state::Renderer3dRuntime) -> bool {
         with_sort_state(r3d, |state| state.sorting_enabled)
+    }
+
+    /// Admit the original mesh handle to the receiving renderer, never a cloned mesh.
+    /// C++ mesh.cpp:579-592; ww3d.cpp:1906-1913 disables admission during flush.
+    pub fn try_add_mesh(
+        r3d: &crate::process_state::Renderer3dRuntime,
+        mesh: &Arc<MeshClass>,
+    ) -> bool {
+        let sort_level = mesh.get_sort_level();
+        if sort_level == SORT_LEVEL_NONE {
+            return false;
+        }
+        with_sort_state(r3d, |state| {
+            if !state.enabled || state.flush_depth != 0 {
+                return false;
+            }
+            state.entries.push(StaticSortRenderObject::from_arc(Arc::clone(mesh)));
+            state.meshes.push(Some(Arc::clone(mesh)));
+            state.sort_levels.push(sort_level);
+            true
+        })
     }
 
     pub fn add_to_static_sort_list(r3d: &crate::process_state::Renderer3dRuntime, handle: Arc<StaticSortRenderObject>, sort_level: u32) {
@@ -128,7 +149,7 @@ impl StaticSortManager {
         mesh: Option<Arc<MeshClass>>,
     ) {
         with_sort_state(r3d, |state| {
-            if !state.enabled {
+            if !state.enabled || state.flush_depth != 0 {
                 return;
             }
             state.entries.push(handle);
@@ -153,6 +174,19 @@ impl StaticSortManager {
         })
     }
 
+    /// Consume pending entries once; a second flush cannot replay their admission.
+    pub fn take_static_sort_list(
+        r3d: &crate::process_state::Renderer3dRuntime,
+    ) -> Vec<(StaticSortEntry, u32)> {
+        with_sort_state(r3d, |state| {
+            state.entries.drain(..)
+                .zip(state.meshes.drain(..))
+                .zip(state.sort_levels.drain(..))
+                .map(|((handle, mesh), level)| (StaticSortEntry::from_handle(handle, mesh), level))
+                .collect()
+        })
+    }
+
     pub fn begin_flush(r3d: Arc<crate::process_state::Renderer3dRuntime>) -> StaticSortFlushGuard {
         with_sort_state(&r3d, |state| state.flush_depth = state.flush_depth.saturating_add(1));
         StaticSortFlushGuard { r3d }
@@ -164,5 +198,42 @@ impl StaticSortManager {
             state.meshes.clear();
             state.sort_levels.clear();
         });
+    }
+}
+
+#[cfg(test)]
+mod admission_tests {
+    use super::*;
+
+    #[test]
+    fn static_admission_preserves_identity_and_nested_flush_is_owner_local() {
+        let first = Arc::new(crate::process_state::Renderer3dRuntime::new());
+        let second = Arc::new(crate::process_state::Renderer3dRuntime::new());
+        let mut model = MeshModelClass::new("authored-sort");
+        model.sort_level = SORT_LEVEL_BIN2;
+        let mut mesh = MeshClass::new();
+        mesh.model = Some(Arc::new(model));
+        let mesh = Arc::new(mesh);
+
+        assert!(StaticSortManager::try_add_mesh(&first, &mesh));
+        assert!(StaticSortManager::try_add_mesh(&second, &mesh));
+        let guard = StaticSortManager::begin_flush(Arc::clone(&first));
+        assert!(!StaticSortManager::are_static_sort_lists_enabled(&first));
+        assert!(StaticSortManager::are_static_sort_lists_enabled(&second));
+        assert!(!StaticSortManager::try_add_mesh(&first, &mesh));
+        let nested = StaticSortManager::begin_flush(Arc::clone(&first));
+        let entries = StaticSortManager::take_static_sort_list(&first);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].1, SORT_LEVEL_BIN2);
+        assert!(Arc::ptr_eq(&entries[0].0.mesh_arc().unwrap(), &mesh));
+        assert!(StaticSortManager::take_static_sort_list(&first).is_empty());
+        drop(nested);
+        assert!(!StaticSortManager::try_add_mesh(&first, &mesh));
+        drop(guard);
+        assert!(StaticSortManager::try_add_mesh(&first, &mesh));
+        StaticSortManager::set_static_sort_lists_enabled(&first, false);
+        assert!(!StaticSortManager::try_add_mesh(&first, &mesh));
+        assert!(StaticSortManager::snapshot_static_sort_list(&first).is_none());
+        assert_eq!(StaticSortManager::take_static_sort_list(&second).len(), 1);
     }
 }

@@ -1106,7 +1106,11 @@ impl WorkerAIUpdate {
         if let Some(player) = controlling_player {
             let builder_id = owner.read().ok().map(|guard| guard.get_id());
             crate::player::Player::on_structure_construction_complete(
-                &player, builder_id, target, is_rebuild,
+                &player,
+                builder_id,
+                target,
+                is_rebuild,
+                crate::ai::active_pathfinder_handle().as_ref(),
             );
             // WorkerAIUpdate.cpp uses DozerPrimaryStateMachine: player and AI
             // notification precedes create hooks, and requires a controller.

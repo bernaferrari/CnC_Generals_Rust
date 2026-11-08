@@ -159,15 +159,11 @@ impl FXListManagerInterface for FXListManagerBridge {
 pub fn register_fx_list_manager_bridge() {
     let _ = gamelogic::helpers::register_fx_list_manager(Arc::new(FXListManagerBridge));
     game_engine::common::ini::register_fx_list_obj_runtime(Arc::new(DamageFxListRuntime));
+    // Ownerless Common hook: the receiving client's drawable bones are not
+    // reachable from a process fn pointer, so no bone positions are supplied
+    // (identical to native, where the former live slot was never registered).
     game_engine::common::ini::ini_damage_fx::register_fx_bone_pos_runtime(
-        |object_id, bone_name, start, max_bones| {
-            crate::core::game_client::query_live_current_client_bone_positions(
-                object_id, bone_name, start, max_bones,
-            )
-            .into_iter()
-            .map(|(pos, mtx)| ([pos.x, pos.y, pos.z], mtx.to_cols_array()))
-            .collect()
-        },
+        |_object_id, _bone_name, _start, _max_bones| Vec::new(),
     );
 }
 
@@ -182,7 +178,6 @@ impl game_engine::common::ini::FxListObjRuntime for DamageFxListRuntime {
 
 fn resolve_host_fx_object(id: u32) -> Option<gamelogic::helpers::HostFxObjectPose> {
     gamelogic::helpers::host_fx_object_pose(id)
-        .or_else(|| crate::core::game_client::query_live_drawable_fx_pose(id))
 }
 
 fn host_fx_obj_is_visible(object_id: u32) -> bool {
@@ -817,11 +812,6 @@ thread_local! {
 
 /// Handle to the FX catalog for this client (or a test/ephemeral fallback).
 pub fn fx_list_store_handle() -> std::sync::Arc<RwLock<FXListStore>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.ensure_fx_list_store()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_FX_LIST_STORE.with(|slot| {
@@ -1182,10 +1172,39 @@ impl FXNugget for TracerFXNugget {
         secondary: Option<&Coord3D>,
         _override_radius: f32,
     ) {
-        // C++ FXList.cpp:150 — GameClientRandomValueReal(0, 1).
-        if self.probability <= crate::GameClientRandomValueReal!(0.0, 1.0) {
+        // C++ FXList.cpp:150 draws GameClientRandomValueReal(0, 1); the stream
+        // is only reachable through `do_fx_pos_with_view`. Without it only a
+        // certain (>= 1.0) tracer can fire.
+        if self.probability < 1.0 {
             return;
         }
+        self.spawn_tracer(primary, primary_speed, secondary);
+    }
+
+    fn do_fx_pos_with_view(
+        &self,
+        primary: Option<&Coord3D>,
+        _primary_mtx: Option<&Matrix3D>,
+        primary_speed: f32,
+        secondary: Option<&Coord3D>,
+        _override_radius: f32,
+        view: &mut FxViewServices<'_>,
+    ) {
+        // C++ FXList.cpp:150 — GameClientRandomValueReal(0, 1).
+        if self.probability <= crate::GameClientRandomValueReal!(&mut *view.client_random.borrow_mut(), 0.0, 1.0) {
+            return;
+        }
+        self.spawn_tracer(primary, primary_speed, secondary);
+    }
+}
+
+impl TracerFXNugget {
+    fn spawn_tracer(
+        &self,
+        primary: Option<&Coord3D>,
+        primary_speed: f32,
+        secondary: Option<&Coord3D>,
+    ) {
         let (Some(primary), Some(secondary)) = (primary, secondary) else {
             return;
         };
@@ -1194,8 +1213,7 @@ impl FXNugget for TracerFXNugget {
         } else {
             self.speed
         };
-        let current_frame = crate::core::game_client::live_game_client_frame()
-            .unwrap_or_else(|| gamelogic::helpers::TheGameLogic::get_frame());
+        let current_frame = gamelogic::helpers::TheGameLogic::get_frame();
         let _ = spawn_tracer_drawable_like_cpp(
             &self.tracer_name,
             [primary.x, primary.y, primary.z],
@@ -1491,7 +1509,12 @@ impl FXNugget for TerrainScorchFXNugget {
         let Some(primary) = primary else {
             return;
         };
-        let scorch_idx = resolve_scorch_type(self.scorch);
+        // No presentation stream is reachable here; a RANDOM scorch needs the
+        // view route (`do_fx_pos_with_view`) and is skipped fail-closed.
+        if self.scorch < 0 {
+            return;
+        }
+        let scorch_idx = self.scorch;
         // C++ TerrainScorchFXNugget::doFXPos calls only TheGameClient->addScorch.
         let _ = add_terrain_scorch([primary.x, primary.y, primary.z], self.radius, scorch_idx);
     }
@@ -1507,7 +1530,7 @@ impl FXNugget for TerrainScorchFXNugget {
         let Some(primary) = primary else {
             return;
         };
-        let kind = resolve_scorch_type(self.scorch);
+        let kind = resolve_scorch_type(&mut view.client_random.borrow_mut(), self.scorch);
         (view.add_scorch)([primary.x, primary.y, primary.z], self.radius, kind);
     }
 
@@ -1554,14 +1577,15 @@ struct ParticleSystemWrapper {
     nugget: ParticleSystemFXNugget,
 }
 
-impl FXNugget for ParticleSystemWrapper {
-    fn do_fx_pos(
+impl ParticleSystemWrapper {
+    fn run_fx_pos(
         &self,
         primary: Option<&Coord3D>,
         primary_mtx: Option<&Matrix3D>,
         _primary_speed: f32,
         _secondary: Option<&Coord3D>,
         override_radius: f32,
+        client_random: &mut game_engine::common::random_value::RandomState,
     ) {
         let Some(primary) = primary else {
             return;
@@ -1576,11 +1600,11 @@ impl FXNugget for ParticleSystemWrapper {
         let mtx = primary_mtx.map(|mtx| particle_fx_basis(&mtx));
         let systems = self
             .nugget
-            .do_fx_pos(primary_point, mtx.as_ref(), override_radius, manager);
+            .do_fx_pos(primary_point, mtx.as_ref(), override_radius, manager, client_random);
         drop(systems);
     }
 
-    fn do_fx_obj(&self, primary: Option<&Object>, secondary: Option<&Object>) {
+    fn run_fx_obj(&self, primary: Option<&Object>, secondary: Option<&Object>, client_random: &mut game_engine::common::random_value::RandomState) {
         let Some(primary) = primary else {
             return;
         };
@@ -1616,14 +1640,15 @@ impl FXNugget for ParticleSystemWrapper {
         let object_id = Some(primary.get_id());
         let systems = self
             .nugget
-            .do_fx_obj(primary_point, mtx.as_ref(), object_id, manager);
+            .do_fx_obj(primary_point, mtx.as_ref(), object_id, manager, client_random);
         drop(systems);
     }
 
-    fn do_fx_obj_host(
+    fn run_fx_obj_host(
         &self,
         primary: &gamelogic::helpers::HostFxObjectPose,
         secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+        client_random: &mut game_engine::common::random_value::RandomState,
     ) {
         let Ok(mut manager_guard) = get_particle_system_manager_mut() else {
             return;
@@ -1652,8 +1677,79 @@ impl FXNugget for ParticleSystemWrapper {
         };
         let systems = self
             .nugget
-            .do_fx_obj(primary_point, mtx.as_ref(), Some(primary.id), manager);
+            .do_fx_obj(primary_point, mtx.as_ref(), Some(primary.id), manager, client_random);
         drop(systems);
+    }
+}
+
+impl FXNugget for ParticleSystemWrapper {
+    fn do_fx_pos(
+        &self,
+        primary: Option<&Coord3D>,
+        primary_mtx: Option<&Matrix3D>,
+        primary_speed: f32,
+        secondary: Option<&Coord3D>,
+        override_radius: f32,
+    ) {
+        // Ownerless legacy route: no presentation stream is reachable, so the
+        // draws come from a private default stream, never a shared one.
+        self.run_fx_pos(
+            primary,
+            primary_mtx,
+            primary_speed,
+            secondary,
+            override_radius,
+            &mut game_engine::common::random_value::RandomState::default(),
+        );
+    }
+
+    fn do_fx_pos_with_view(
+        &self,
+        primary: Option<&Coord3D>,
+        primary_mtx: Option<&Matrix3D>,
+        primary_speed: f32,
+        secondary: Option<&Coord3D>,
+        override_radius: f32,
+        view: &mut FxViewServices<'_>,
+    ) {
+        self.run_fx_pos(
+            primary,
+            primary_mtx,
+            primary_speed,
+            secondary,
+            override_radius,
+            &mut view.client_random.borrow_mut(),
+        );
+    }
+
+    fn do_fx_obj(&self, primary: Option<&Object>, secondary: Option<&Object>) {
+        self.run_fx_obj(primary, secondary, &mut game_engine::common::random_value::RandomState::default());
+    }
+
+    fn do_fx_obj_with_view(
+        &self,
+        primary: Option<&Object>,
+        secondary: Option<&Object>,
+        view: &mut FxViewServices<'_>,
+    ) {
+        self.run_fx_obj(primary, secondary, &mut view.client_random.borrow_mut());
+    }
+
+    fn do_fx_obj_host(
+        &self,
+        primary: &gamelogic::helpers::HostFxObjectPose,
+        secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+    ) {
+        self.run_fx_obj_host(primary, secondary, &mut game_engine::common::random_value::RandomState::default());
+    }
+
+    fn do_fx_obj_host_with_view(
+        &self,
+        primary: &gamelogic::helpers::HostFxObjectPose,
+        secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+        view: &mut FxViewServices<'_>,
+    ) {
+        self.run_fx_obj_host(primary, secondary, &mut view.client_random.borrow_mut());
     }
 }
 
@@ -1874,24 +1970,13 @@ mod tests {
         use game_engine::common::ini::ini_fx_list::{
             Distribution, FXNugget as Rule, get_fx_list_store as authored_store,
         };
-        use game_engine::common::random_value::{
-            get_game_client_random_value_real, init_random_with_seed,
-        };
         let source = "FXList FX_SharedRulesAdapter\n Sound\n Name = Before\n End\n ParticleSystem\n Name = Smoke\n Radius = 3 17 UNIFORM\n Height = 2 8 GAUSSIAN\n End\n Sound\n Name = After\n End\nEnd\n";
-        init_random_with_seed(45678);
-        let expected = get_game_client_random_value_real(0.0, 1.0);
-        init_random_with_seed(45678);
         let mut ini = INI::new();
         ini.with_inline_source(source, |ini| {
             ini.read_line()?;
             parse_fx_list_definition(ini)
         })
         .unwrap();
-        assert_eq!(
-            get_game_client_random_value_real(0.0, 1.0),
-            expected,
-            "parsing does not sample ranges"
-        );
         assert_eq!(
             sound_names_for_fx_list("FX_SharedRulesAdapter"),
             ["Before", "After"]
@@ -2120,6 +2205,7 @@ if let Ok(mut players) = __arc_bind.write() {
                     position_visible: &mut visible,
                     create_light_pulse: &mut create_light_pulse,
                     play_fx_audio: &mut play_fx_audio,
+                    client_random: &Default::default(),
                 },
             );
         }
@@ -2400,6 +2486,7 @@ if let Ok(mut players) = __arc_bind.write() {
                     position_visible: &mut visible,
                     create_light_pulse: &mut create_light_pulse,
                     play_fx_audio: &mut play_fx_audio,
+                    client_random: &Default::default(),
                 },
             );
         }
@@ -2507,6 +2594,7 @@ if let Ok(mut players) = __arc_bind.write() {
                     position_visible: &mut visible,
                     create_light_pulse: &mut create_light_pulse,
                     play_fx_audio: &mut play_fx_audio,
+                    client_random: &Default::default(),
                 },
             );
         }
@@ -2533,6 +2621,7 @@ if let Ok(mut players) = __arc_bind.write() {
                     position_visible: &mut visible,
                     create_light_pulse: &mut create_light_pulse,
                     play_fx_audio: &mut play_fx_audio,
+                    client_random: &Default::default(),
                 },
             );
         }
@@ -2613,6 +2702,7 @@ if let Ok(mut players) = __arc_bind.write() {
                     position_visible: &mut visible,
                     create_light_pulse: &mut create_light_pulse,
                     play_fx_audio: &mut play_fx_audio,
+                    client_random: &Default::default(),
                 },
             );
         }

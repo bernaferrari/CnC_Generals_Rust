@@ -425,13 +425,7 @@ impl GameLogic {
             let mut walked_transport = false;
             let mut side_end: Option<glam::Vec3> = None;
             // Remove from container first.
-            if let Some(c) = self.objects.get_mut(&container_id) {
-                let _ = c.remove_occupant_with_partition_owner(
-                    *pid,
-                    &mut self.ownership_events,
-                    &mut self.partition_manager,
-                );
-            }
+            self.remove_owned_occupant_with_bonus_callback(container_id, *pid, presentation_effects);
             if let Some(p) = self.objects.get_mut(pid) {
                 // Wave 201: host_contain_log last-writer (do not bypass set_contained_by).
                 let containment_actor_id = p.id;
@@ -584,13 +578,6 @@ impl GameLogic {
                     self.register_path_goal(*pid, goal);
                 }
             }
-            if is_garrison && !enclosing {
-                self.snap_garrison_exit_occupant_to_ground(
-                    *pid,
-                    container_id,
-                    presentation_effects,
-                );
-            }
             if walked_transport {
                 self.walk_unit_via_open_contain_exit_with_effects(
                     *pid,
@@ -613,14 +600,16 @@ impl GameLogic {
                 }) {
                     continue;
                 }
-            } else if !is_garrison && !is_tunnel && !is_cave {
+            } else if !is_garrison && !is_tunnel && !is_cave
+                && !self.objects.get(&container_id).is_some_and(|container| container.is_helix_transport)
+            {
                 self.reset_rider_mood_check_on_exit(container_id, *pid);
                 self.play_container_removing_template_sounds(
                     container_id,
                     *pid,
                     presentation_effects,
                 );
-            } else {
+            } else if is_tunnel || is_cave {
                 self.play_container_removing_template_sounds(
                     container_id,
                     *pid,
@@ -792,13 +781,7 @@ impl GameLogic {
         });
         let (target_is_bldg, dest_y) = self.combat_drop_rappel_dest(hover, drop_target);
 
-        if let Some(c) = self.objects.get_mut(&container_id) {
-            let _ = c.remove_occupant_with_partition_owner(
-                pid,
-                &mut self.ownership_events,
-                &mut self.partition_manager,
-            );
-        }
+        self.remove_owned_occupant_with_bonus_callback(container_id, pid, presentation_effects);
         if let Some(p) = self.objects.get_mut(&pid) {
             let containment_actor_id = p.id;
             Self::set_owned_containment_in_parts(
@@ -1070,13 +1053,7 @@ impl GameLogic {
                     break;
                 }
             } else {
-            if let Some(b) = self.objects.get_mut(&bldg_id) {
-                let _ = b.remove_occupant_with_partition_owner(
-                    enemy_id,
-                    &mut self.ownership_events,
-                    &mut self.partition_manager,
-                );
-            }
+            self.remove_owned_occupant_with_bonus_callback(bldg_id, enemy_id, presentation_effects);
             if let Some(e) = self.objects.get_mut(&enemy_id) {
                 let containment_actor_id = e.id;
                 Self::set_owned_containment_in_parts(

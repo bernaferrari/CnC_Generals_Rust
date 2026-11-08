@@ -773,6 +773,7 @@ impl GameLogic {
                 obj.deselect();
             }
         }
+        self.apply_helix_contain_on_enter(container_id, object_id);
         self.admit_object_drawable_deselection(object_id);
         if container_is_tunnel_network {
             // Enter counter already incremented in record_enter.
@@ -817,7 +818,9 @@ impl GameLogic {
             self.record_transport_residual_load();
             // Humvee-style PassengersAllowedToFire still refreshes weapon set
             // when ArmedRidersUpgradeMyWeaponSet is set.
-            self.refresh_battle_bus_armed_riders_weapon_set(container_id);
+            if !self.objects.get(&container_id).is_some_and(|object| object.is_helix_transport) {
+                self.refresh_battle_bus_armed_riders_weapon_set(container_id);
+            }
         }
         Ok(())
     }

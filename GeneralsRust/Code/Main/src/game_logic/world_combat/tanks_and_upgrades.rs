@@ -32,6 +32,10 @@ pub(super) fn refresh_residual_weapon(slot: &mut Option<Weapon>, mut template: W
     if let Some(old) = slot.as_ref() {
         template.last_fire_time = old.last_fire_time;
         template.last_fire_frame = old.last_fire_frame;
+        template.next_fire_frame = old.next_fire_frame;
+        template.reload_started_frame = old.reload_started_frame;
+        template.frame_clock_active = old.frame_clock_active;
+        template.frame_clock_status = old.frame_clock_status;
         template.ammo = old.ammo;
         template.reloading_clip = old.reloading_clip;
         template.last_bonus_rof = old.last_bonus_rof;
@@ -296,13 +300,12 @@ impl GameLogic {
 
     /// Apply Chain Guns residual to a MiniGunner (PLAYER_UPGRADE damage residual × 1.25).
     pub fn apply_minigunner_chain_guns_upgrade(&mut self, object_id: ObjectId) -> bool {
-        use crate::game_logic::host_minigunner::{
-            UPGRADE_CHINA_CHAIN_GUNS, is_minigunner_template,
-        };
+        use crate::game_logic::host_minigunner::UPGRADE_CHINA_CHAIN_GUNS;
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_minigunner_template(&obj.template_name) {
+        // C++ WeaponBonus upgrades act on the authored WeaponSet, not the template name.
+        if !obj.authors_minigunner_gun() {
             return false;
         }
         obj.applied_upgrades

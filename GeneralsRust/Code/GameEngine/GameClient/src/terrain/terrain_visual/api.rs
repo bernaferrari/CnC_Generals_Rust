@@ -47,27 +47,19 @@ fn published_terrain_visual() -> Option<PublishedTerrainVisual> {
 
 /// Mutate the live/published terrain visual (preferred over `get_terrain_visual`).
 pub fn with_terrain_visual_mut<R>(f: impl FnOnce(&mut Option<TerrainVisualImpl>) -> R) -> Option<R> {
-    let mut f = Some(f);
-    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
-        let mut guard = client.terrain_visual_gpu.lock();
-        f.take().expect("terrain visual")(&mut guard)
-    }) {
-        return Some(result);
-    }
     let arc = published_terrain_visual()?;
     let mut guard = arc.lock();
-    Some(f.take().expect("terrain visual")(&mut guard))
+    Some(f(&mut guard))
 }
 
 /// Initialize terrain visual on the live GameClient (C++ GameClient constructs TheTerrainVisual).
 pub fn init_terrain_visual() -> TerrainResult<()> {
-    let inited = crate::core::game_client::with_live_game_client_mut(|client| {
-        let mut guard = client.terrain_visual_gpu.lock();
-        *guard = Some(TerrainVisualImpl::new());
-        publish_terrain_visual(std::sync::Arc::clone(&client.terrain_visual_gpu));
-    });
-    if inited.is_none() {
-        // Headless/tests without a live client: publish a dedicated Arc.
+    // Reuse the Arc a client published at registration so its own
+    // `terrain_visual_gpu` observes the new visual; otherwise publish a
+    // dedicated one (headless/tests).
+    if let Some(arc) = published_terrain_visual() {
+        *arc.lock() = Some(TerrainVisualImpl::new());
+    } else {
         let arc = std::sync::Arc::new(parking_lot::Mutex::new(Some(TerrainVisualImpl::new())));
         publish_terrain_visual(arc);
     }
@@ -79,14 +71,6 @@ pub fn init_terrain_visual() -> TerrainResult<()> {
 
 /// C++ `GameClient::~GameClient` deletes `TheTerrainVisual` after Drawables.
 /// Called only by the published owner during GameClient teardown.
-pub(crate) fn shutdown_terrain_visual() {
-    // C++ deletes TheTerrainVisual but the process pointer cell remains for the
-    // next GameClient; keep the published Arc and clear its Option.
-    let _ = with_terrain_visual_mut(|visual| {
-        *visual = None;
-    });
-}
-
 /// Compatibility export for older direct `THE_TERRAIN_VISUAL.lock()` call sites.
 /// Prefer [`with_terrain_visual_mut`].
 #[deprecated(note = "use with_terrain_visual_mut / GameClient.terrain_visual_gpu")]

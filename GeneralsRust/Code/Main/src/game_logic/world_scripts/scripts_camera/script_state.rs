@@ -1442,6 +1442,7 @@ impl GameLogic {
     /// C++ ScriptActions::updatePlayerRelationTowardPlayer live drain.
     /// Leftover writes leftover ThePlayerList; live relations live on host Player.
     pub(super) fn apply_host_player_relates_script_requests(&mut self) {
+        let mut changed = false;
         for req in gamelogic::scripting::take_host_player_relates_requests() {
             let Some(src) = self.host_player_id_for_script_token(&req.source) else {
                 continue;
@@ -1451,7 +1452,14 @@ impl GameLogic {
             };
             if let Some(player) = self.players.get_mut(&src) {
                 player.set_map_relationship(dst, req.relationship);
+                changed = true;
             }
+        }
+        // C++ Pathfinder::checkForMovement asks Object::getRelationship at
+        // search time (AIPathfind.cpp:5037), so a relationship written by an
+        // early script this frame must be visible to the next path query.
+        if changed {
+            self.refresh_pathfind_ally_masks();
         }
     }
 
@@ -1662,3 +1670,30 @@ impl GameLogic {
 
 #[cfg(test)]
 mod trigger_projection_tests;
+
+#[cfg(test)]
+mod pathfind_relationship_refresh_tests {
+    use super::*;
+
+    /// AIPathfind.cpp:5037 reads the live relationship at query time; a
+    /// same-frame script relation change must reach the pathfinder at once,
+    /// not at the next logic step's mask refresh. Two worlds stay independent.
+    #[test]
+    fn script_relation_change_reaches_pathfinder_same_frame() {
+        use gamelogic::common::Relationship;
+        let (mut a, _, _) = super::named_command_test_support::world();
+        let (b, _, _) = super::named_command_test_support::world();
+        a.refresh_pathfind_ally_masks();
+        assert!(!a.pathfinding_system.players_are_pathfind_allies(1, 2));
+        gamelogic::scripting::request_host_player_relates(
+            gamelogic::scripting::HostScriptPlayerRelatesRequest {
+                source: "NamedOwner".into(),
+                dest: "NamedVictim".into(),
+                relationship: Relationship::Allies,
+            },
+        );
+        a.apply_host_player_relates_script_requests();
+        assert!(a.pathfinding_system.players_are_pathfind_allies(1, 2));
+        assert!(!b.pathfinding_system.players_are_pathfind_allies(1, 2));
+    }
+}

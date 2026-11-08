@@ -172,6 +172,36 @@ impl Object {
         }
     }
 
+    /// Whether the authored PRIMARY is a Quad Cannon gun at any barrel tier
+    /// (hq-2qedt.286: WeaponSet identity, not the chassis template name).
+    pub(in crate::game_logic) fn authors_quad_cannon_gun(&self) -> bool {
+        use crate::game_logic::host_quad_cannon::{
+            QuadCannonBarrelTier, quad_weapon_names_for_tier,
+        };
+        self.authored_weapon_name_for_slot(0).is_some_and(|name| {
+            [
+                QuadCannonBarrelTier::Base,
+                QuadCannonBarrelTier::One,
+                QuadCannonBarrelTier::Two,
+            ]
+            .into_iter()
+            .any(|tier| name.eq_ignore_ascii_case(quad_weapon_names_for_tier(tier).0))
+        })
+    }
+
+    /// Whether any authored WeaponSet slot is the Stealth Fighter missile
+    /// (`StealthJetMissileWeapon`, whose projectile carries BunkerBusterBehavior),
+    /// replacing the template-name carrier sniff (hq-2qedt.290).
+    pub(in crate::game_logic) fn authors_stealth_jet_missile_weapon(&self) -> bool {
+        (0u8..3).any(|slot| {
+            self.authored_weapon_name_for_slot(slot).is_some_and(|name| {
+                name.eq_ignore_ascii_case(
+                    crate::game_logic::host_bunker_buster::STEALTH_JET_MISSILE_WEAPON,
+                )
+            })
+        })
+    }
+
     /// Whether any authored WeaponSet slot is the Red Guard machine gun
     /// (hq-2qedt.262 nationalism gate replacing the template-name sniff).
     pub fn authors_red_guard_machine_gun(&self) -> bool {
@@ -291,6 +321,17 @@ impl Object {
         let Some(weapon) = self.weapon_slot(slot) else {
             return 0.0;
         };
+        if weapon.frame_clock_active {
+            let frame = (current_time * 30.0).round() as u32;
+            if self.pre_attack_ready_at > current_time
+                || weapon.frame_status_at(frame) == WeaponFireStatus::OutOfAmmo {
+                return 0.0;
+            }
+            if frame >= weapon.next_fire_frame { return 1.0; }
+            let total = weapon.next_fire_frame.wrapping_sub(weapon.reload_started_frame);
+            if total == 0 { return 1.0; }
+            return frame.wrapping_sub(weapon.reload_started_frame) as f32 / total as f32;
+        }
         let name = self.weapon_name_for_slot(slot);
         // Prefer live WeaponFireStatus when this is the active slot.
         let status = if slot == self.active_weapon_slot {
@@ -516,6 +557,14 @@ impl Object {
             let Some(weapon) = self.weapon_slot(slot) else {
                 continue;
             };
+            if weapon.frame_clock_active {
+                let ready = (current_time * 30.0).round() as u32 >= weapon.next_fire_frame;
+                if ready && weapon.reloading_clip {
+                    self.weapon_slot_mut(slot).unwrap().reloading_clip = false;
+                    completed = true;
+                }
+                continue;
+            }
             if weapon.clip_size == 0 {
                 continue;
             }
@@ -582,6 +631,11 @@ impl Object {
         solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
         owned_rof: Option<&[f32; 3]>,
     ) {
+        if self.weapon_slot(self.active_weapon_slot).is_some_and(|weapon| weapon.frame_clock_active) {
+            let rates = owned_rof.copied().unwrap_or([1.0; 3]);
+            self.refresh_weapon_fire_status_at_frame((current_time * 30.0).round() as u32, &rates);
+            return;
+        }
         if let Some(rates) = owned_rof {
             self.apply_weapon_bonus_rof_restart_with_rates(current_time, rates);
         } else {
@@ -632,6 +686,31 @@ impl Object {
             return;
         }
         self.weapon_fire_status = WeaponFireStatus::ReadyToFire;
+        self.sync_weapon_model_conditions_from_status();
+    }
+
+    /// Authored getStatus observes the owned deadline, never a derived interval.
+    pub(crate) fn refresh_weapon_fire_status_at_frame(&mut self, frame: u32, rates: &[f32; 3]) {
+        if self.weapon_slot(self.active_weapon_slot).is_some_and(|weapon| !weapon.frame_clock_active)
+            && self.selected_native_weapon_rule(self.active_weapon_slot).is_none() {
+            self.refresh_weapon_fire_status_with_owned_rof(frame as f32 / 30.0, rates);
+            return;
+        }
+        for slot in 0..3 {
+            if let Some(weapon) = self.weapon_slot_mut(slot) {
+                if weapon.frame_clock_active {
+                    weapon.frame_clock_status = weapon.frame_status_at(frame);
+                    weapon.reloading_clip = weapon.frame_clock_status == WeaponFireStatus::ReloadingClip;
+                }
+            }
+        }
+        self.weapon_fire_status = if self.pre_attack_ready_at > frame as f32 / 30.0 + 1e-6 {
+            WeaponFireStatus::PreAttack
+        } else if let Some(weapon) = self.weapon_slot(self.active_weapon_slot) {
+            weapon.frame_status_at(frame)
+        } else {
+            WeaponFireStatus::OutOfAmmo
+        };
         self.sync_weapon_model_conditions_from_status();
     }
 
@@ -728,6 +807,20 @@ impl Object {
         rof: f32,
     ) -> bool {
         self.can_fire_slot_with_rate(slot, current_time, || rof)
+    }
+
+    pub(crate) fn can_fire_slot_at_frame_with_owned_rof(&self, slot: u8, frame: u32, rof: f32) -> bool {
+        if self.status.weapons_jammed || self.is_disabled() || self.is_shock_stunned()
+            || self.status.under_construction || self.status.sold {
+            return false;
+        }
+        let Some(weapon) = self.weapon_slot(slot) else { return false };
+        let rule = self.selected_native_weapon_rule(slot);
+        if rule.is_some() || weapon.frame_clock_active {
+            Self::weapon_ready_at_frame(weapon, frame)
+        } else {
+            self.can_fire_slot_with_owned_rof(slot, frame as f32 / 30.0, rof)
+        }
     }
 
     fn can_fire_slot_with_rate(
@@ -926,8 +1019,7 @@ impl Object {
 
         // Quad Cannon residual: airborne targets prefer AA secondary slot.
         let quad_prefer_aa =
-            crate::game_logic::host_quad_cannon::is_quad_cannon_template(&self.template_name)
-                && target_is_air;
+            self.authors_quad_cannon_gun() && target_is_air;
 
         // Avenger residual: airborne targets prefer the authored air-laser
         // SECONDARY (WeaponSet SECONDARY AvengerAirLaserDummy), keyed on the
@@ -1299,12 +1391,8 @@ impl Object {
         crate::game_logic::weapon_bootstrap::estimate_weapon_template_damage(&est, Some(&victim))
     }
 
-    /// C++ Weapon.cpp:2655-2665 / 1898-1909 ShareWeaponReloadTime.
-    ///
-    /// Copy the firing slot's next-shot time (`now + DelayBetweenShots` or
-    /// clip reload) onto every slot. Ready checks still use each slot's own
-    /// interval, so `last_fire` is back-computed to become ready at that
-    /// shared frame.
+    /// Residual seconds-only adapter for ShareWeaponReloadTime. Authored
+    /// commits copy their explicit source slot's integer deadline directly.
     pub fn sync_shared_weapon_reload(&mut self) {
         self.sync_shared_weapon_reload_with_optional_solo_set(None, None);
     }
@@ -1322,6 +1410,11 @@ impl Object {
         owned_rof: Option<&[f32; 3]>,
     ) {
         if !self.thing.template.share_weapon_reload_time {
+            return;
+        }
+        // Authored commits copy from their explicit firing slot before tracker
+        // bookkeeping. Never infer the source from timestamps or recopy here.
+        if (0..3).any(|slot| self.weapon_slot(slot).is_some_and(|weapon| weapon.frame_clock_active)) {
             return;
         }
         let rates = owned_rof.copied().unwrap_or_else(|| {
@@ -1384,9 +1477,51 @@ impl Object {
         }
     }
 
+    pub(super) fn copy_authored_weapon_deadline(&mut self, source_slot: u8, reloading: bool) {
+        if !self.thing.template.share_weapon_reload_time { return; }
+        let Some(source) = self.weapon_slot(source_slot) else { return };
+        let deadline = source.next_fire_frame;
+        for slot in 0..3 {
+            if let Some(weapon) = self.weapon_slot_mut(slot) {
+                weapon.next_fire_frame = deadline;
+                weapon.frame_clock_active = true;
+                weapon.reloading_clip = reloading;
+                weapon.frame_clock_status = if reloading {
+                    WeaponFireStatus::ReloadingClip
+                } else {
+                    WeaponFireStatus::BetweenFiringShots
+                };
+            }
+        }
+    }
+
     /// Run the WeaponSet callback immediately after one condition bit changes.
-    pub(crate) fn on_owned_weapon_bonus_change(&mut self, current_time: f32, rates: &[f32; 3]) {
+    pub(crate) fn on_owned_weapon_bonus_change(
+        &mut self, frame: u32, rates: &[f32; 3],
+        random: &game_engine::common::random_value::SessionRandom,
+    ) {
+        let current_time = frame as f32 / 30.0;
         for slot in [0u8, 1, 2] {
+            if let Some(rule) = self.selected_native_weapon_rule(slot) {
+                let Some(weapon) = self.weapon_slot(slot) else { continue };
+                let status = weapon.frame_status_at(frame);
+                let waiting = matches!(status, WeaponFireStatus::BetweenFiringShots | WeaponFireStatus::ReloadingClip);
+                if waiting {
+                    let delay = Self::authored_weapon_delay_frames(
+                        &rule, status == WeaponFireStatus::ReloadingClip, rates[slot as usize], Some(random),
+                    );
+                    self.weapon_slot_mut(slot).unwrap().next_fire_frame = frame.wrapping_add(delay);
+                    self.weapon_slot_mut(slot).unwrap().reload_started_frame = frame;
+                    // C++ bonus callback propagates RELOADING_CLIP even if the
+                    // initiating slot was BETWEEN_FIRING_SHOTS. Later slots
+                    // observe that mutation in WeaponSet's source order.
+                    self.copy_authored_weapon_deadline(slot, true);
+                }
+                let weapon = self.weapon_slot_mut(slot).unwrap();
+                weapon.frame_clock_active = true;
+                weapon.last_bonus_rof = rates[slot as usize];
+                continue;
+            }
             let Some(weapon) = self.weapon_slot(slot) else { continue };
             let previous = if weapon.last_bonus_rof > 0.0 { weapon.last_bonus_rof } else { 1.0 };
             let waiting = self.slot_waiting_on_bonus_delay(
@@ -1465,10 +1600,15 @@ impl Object {
     ) {
         let mut restart_slots = [false; 3];
         let mut any_restart = false;
+        // Authored condition callbacks own restarts and session RNG. Observing
+        // readiness/status must not synthesize a second, lazy callback.
         for slot in [0u8, 1, 2] {
             let Some(weapon) = self.weapon_slot(slot) else {
                 continue;
             };
+            if weapon.frame_clock_active || self.selected_native_weapon_rule(slot).is_some() {
+                continue;
+            }
             let prev = if weapon.last_bonus_rof <= 0.0 {
                 1.0
             } else {
@@ -1497,6 +1637,9 @@ impl Object {
             }
         }
         for slot in [0u8, 1, 2] {
+            if self.weapon_slot(slot).is_some_and(|weapon| weapon.frame_clock_active) {
+                continue;
+            }
             if let Some(weapon) = self.weapon_slot_mut(slot) {
                 weapon.last_bonus_rof = rates[slot as usize];
             }
@@ -1742,9 +1885,8 @@ impl Object {
         }
     }
 
-    /// Main stores weapon intervals in seconds. The first eligible logic frame
-    /// is the ceiling of the same bonused interval used by readiness; no new
-    /// weapon clock is stored. Observe this before this shot changes ROF.
+    /// Authored weapons expose their committed deadline. Only bare residual
+    /// weapons project a nominal interval from the caller's frame.
     pub(crate) fn possible_next_shot_frame_for_slot(
         &self,
         slot: u8,
@@ -1800,6 +1942,9 @@ impl Object {
         solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
         owned_rof: Option<&[f32; 3]>,
     ) -> u32 {
+        if let Some(weapon) = self.weapon_slot(slot).filter(|weapon| weapon.frame_clock_active) {
+            return weapon.next_fire_frame;
+        }
         let delay = self.weapon_slot(slot).map_or(0.0, |weapon| {
             crate::game_logic::host_avenger::effective_reload_vs_target(
                 self.live_reload_interval(
@@ -1994,6 +2139,11 @@ impl Object {
         self.tick_fire_sound_loop(frame, events);
         let _ = frame;
         self.tick_subdual_damage(health_events, audio);
+        // Authored cooldown condition edges require the receiving world's
+        // GameData, inherited bonuses and RNG; its owner performs them next.
+        if (0..3).any(|slot| self.selected_native_weapon_rule(slot).is_some()) {
+            return;
+        }
         let until = self.continuous_fire_coast_until_frame;
         // C++ FiringTracker.cpp:189: strict `now > m_frameToStartCooldown` —
         // the deadline frame itself is still cool-free; cool one frame later.
@@ -2044,9 +2194,24 @@ impl Object {
         self.frame_to_force_reload = frame.saturating_add(delay);
     }
 
-    /// C++ Object::reloadAllAmmo(TRUE) residual — refill all concrete WeaponSet clips.
-    pub fn reload_all_ammo(&mut self) {
+    pub(crate) fn reload_all_ammo_at_frame(&mut self, frame: u32) {
+        let shared = self.thing.template.share_weapon_reload_time;
         for slot in [0u8, 1u8, 2u8] {
+            if let Some(rule) = self.selected_native_weapon_rule(slot) {
+                let Some(weapon) = self.weapon_slot_mut(slot) else { continue };
+                if weapon.clip_size > 0 && weapon.ammo == Some(weapon.clip_size) && !shared {
+                    continue;
+                }
+                weapon.ammo = (weapon.clip_size > 0).then_some(weapon.clip_size);
+                weapon.next_fire_frame = frame;
+                weapon.reload_started_frame = frame;
+                weapon.frame_clock_active = true;
+                weapon.reloading_clip = true;
+                weapon.frame_clock_status = WeaponFireStatus::ReloadingClip;
+                self.copy_authored_weapon_deadline(slot, true);
+                self.rebuild_scatter_targets_unused(slot, Some(&rule.name));
+                continue;
+            }
             if let Some(w) = self.weapon_slot_mut(slot) {
                 if w.clip_size > 0 {
                     w.ammo = Some(w.clip_size);
@@ -2063,6 +2228,10 @@ impl Object {
         if until == 0 || frame < until {
             return;
         }
+        if (0..3).any(|slot| self.selected_native_weapon_rule(slot).is_some()) {
+            self.reload_all_ammo_at_frame(frame);
+            return;
+        }
         let needs =
             self.weapon_slot(0).is_some_and(|w| {
                 w.clip_size > 0 && w.ammo.map(|a| a < w.clip_size).unwrap_or(true)
@@ -2072,7 +2241,7 @@ impl Object {
                 w.clip_size > 0 && w.ammo.map(|a| a < w.clip_size).unwrap_or(true)
             });
         if needs {
-            self.reload_all_ammo();
+            self.reload_all_ammo_at_frame(frame);
         } else {
             self.frame_to_force_reload = 0;
         }

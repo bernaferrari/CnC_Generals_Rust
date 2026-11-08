@@ -203,7 +203,7 @@ where
     }
 
     fn on_object_created(&mut self) {
-        if let Err(err) = COLLISION_MANAGER.register_collide_module(
+        if let Err(err) = world_collision_manager().register_collide_module(
             self.object_id,
             Box::new(SharedCollideModule::new(Arc::clone(&self.collide))),
         ) {
@@ -215,7 +215,7 @@ where
     }
 
     fn on_delete(&mut self) {
-        let _ = COLLISION_MANAGER.unregister_object(self.object_id);
+        let _ = world_collision_manager().unregister_object(self.object_id);
     }
 }
 
@@ -824,7 +824,7 @@ impl FireWeaponCollideModule {
     }
 
     fn register_collide_module(&self) -> Result<(), CollisionError> {
-        COLLISION_MANAGER.register_collide_module(
+        world_collision_manager().register_collide_module(
             self.object_id,
             Box::new(SharedCollideModule::new(Arc::clone(&self.collide))),
         )
@@ -854,7 +854,7 @@ impl Module for FireWeaponCollideModule {
     }
 
     fn on_delete(&mut self) {
-        let _ = COLLISION_MANAGER.unregister_object(self.object_id);
+        let _ = world_collision_manager().unregister_object(self.object_id);
     }
 }
 
@@ -953,7 +953,7 @@ impl Module for SquishCollideModule {
     }
 
     fn on_object_created(&mut self) {
-        if let Err(err) = COLLISION_MANAGER.register_collide_module(
+        if let Err(err) = world_collision_manager().register_collide_module(
             self.object_id,
             Box::new(SharedCollideModule::new(Arc::clone(&self.collide))),
         ) {
@@ -965,7 +965,7 @@ impl Module for SquishCollideModule {
     }
 
     fn on_delete(&mut self) {
-        let _ = COLLISION_MANAGER.unregister_object(self.object_id);
+        let _ = world_collision_manager().unregister_object(self.object_id);
     }
 }
 

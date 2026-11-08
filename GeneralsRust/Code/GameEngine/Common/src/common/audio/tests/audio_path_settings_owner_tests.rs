@@ -351,3 +351,15 @@ fn read_output(mut pipe: impl Read) -> std::io::Result<Vec<u8>> {
     pipe.read_to_end(&mut output)?;
     Ok(output)
 }
+
+#[test]
+fn audio_random_streams_are_per_audio_manager() {
+    let mut a = AudioManager::new();
+    let mut b = AudioManager::new();
+    let before = b.audio_random_mut().seed_words();
+    for _ in 0..3 {
+        a.audio_random_mut().next_int(0, 100);
+    }
+    assert_ne!(a.audio_random_mut().seed_words(), before);
+    assert_eq!(b.audio_random_mut().seed_words(), before);
+}

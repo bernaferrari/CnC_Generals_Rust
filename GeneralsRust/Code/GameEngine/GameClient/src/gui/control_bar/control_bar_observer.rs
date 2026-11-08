@@ -94,29 +94,25 @@ pub fn init_observer_controls(receiving_manager: &mut crate::gui::window_manager
     })(receiving_manager);
 }
 
-pub fn set_observer_look_at_player(index: Option<i32>) {
-    let _ = crate::core::game_client::with_live_game_client_mut(|client| {
-        if let Some(ui) = client.in_game_ui_subsystem_mut() {
-            ui.control_bar_observer_look_at = index;
-        }
-    });
+/// Record the observed player on the receiving `InGameUISubsystem` (when the
+/// caller holds it) and on the standalone Core ingress.
+pub fn set_observer_look_at_player(
+    ui: Option<&mut crate::core::subsystems::InGameUISubsystem>,
+    index: Option<i32>,
+) {
+    if let Some(ui) = ui {
+        ui.control_bar_observer_look_at = index;
+    }
     crate::helpers::set_legacy_core_control_bar_observer_look_at(index);
 }
 
-pub fn observer_look_at_player_index() -> Option<i32> {
-    match crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .in_game_ui_subsystem()
-            .map(|ui| ui.control_bar_observer_look_at)
-    }) {
-        Some(Some(index)) => return index,
-        Some(None) => {
-            // Live client, no InGameUI yet.
-            return None;
-        }
-        None => {}
+pub fn observer_look_at_player_index(
+    ui: Option<&crate::core::subsystems::InGameUISubsystem>,
+) -> Option<i32> {
+    if let Some(ui) = ui {
+        return ui.control_bar_observer_look_at;
     }
-    // Standalone Core / tests without a live client: legacy ingress.
+    // Standalone Core / callers without the receiving UI: legacy ingress.
     crate::helpers::TheControlBar::get_observer_look_at_player_index()
 }
 
@@ -320,7 +316,7 @@ pub fn populate_observer_list(receiving_manager: &mut crate::gui::window_manager
 pub fn populate_observer_info_window(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
 ) {
-    populate_observer_info_window_for_target(observer_look_at_player_index(), receiving_manager);
+    populate_observer_info_window_for_target(observer_look_at_player_index(None), receiving_manager);
 }
 pub(crate) fn populate_observer_info_window_for_target(
     target: Option<i32>,
@@ -468,7 +464,7 @@ pub fn control_bar_observer_system(
     _data2: crate::gui::WindowMsgData,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    effects.with_manager(|receiving_manager, _effects| match msg {
+    effects.with_manager(|receiving_manager, effects| match msg {
         WindowMessage::Create | WindowMessage::Destroy | WindowMessage::None => {
             WindowMsgHandled::Handled
         }
@@ -479,7 +475,7 @@ pub fn control_bar_observer_system(
             let control_id = data1 as u32;
             let cancel_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ButtonCancel");
             if control_id == cancel_id {
-                set_observer_look_at_player(None);
+                set_observer_look_at_player(effects.ui.as_deref_mut(), None);
                 hide_named(
                     "ControlBar.wnd:ObserverPlayerInfoWindow",
                     true,
@@ -506,7 +502,7 @@ pub fn control_bar_observer_system(
                             .and_then(|win| win.borrow().get_user_data::<i32>().copied())
                     })(receiving_manager);
                 if let Some(index) = player_index {
-                    set_observer_look_at_player(Some(index));
+                    set_observer_look_at_player(effects.ui.as_deref_mut(), Some(index));
                     hide_named(
                         "ControlBar.wnd:ObserverPlayerInfoWindow",
                         false,
@@ -527,74 +523,21 @@ pub fn control_bar_observer_system(
     })
 }
 
-/// Used by Close13 GameWindowTransitions (`TheControlBar->getArrowImage()`).
-/// Owned on InGameUISubsystem.gen_arrow (live peel / cfg(test) TLS).
-#[cfg(test)]
-thread_local! {
-    static TEST_GEN_ARROW: std::cell::RefCell<Option<Image>> =
-        const { std::cell::RefCell::new(None) };
-}
-
-pub fn set_gen_arrow_image(image: Option<Image>) {
-    let mut image = Some(image);
-    if let Some(true) = crate::core::game_client::with_live_game_client_mut(|client| {
-        if let Some(ui) = client.in_game_ui_subsystem_mut() {
-            ui.gen_arrow = image.take().expect("gen arrow");
-            true
-        } else {
-            false
-        }
-    }) {
-        return;
-    }
-    let Some(image) = image else {
-        return;
-    };
-    #[cfg(test)]
-    {
-        TEST_GEN_ARROW.with(|slot| {
-            *slot.borrow_mut() = image;
-        });
-        return;
-    }
-    #[cfg(not(test))]
-    {
-        let _ = image;
-    }
-}
-
-pub fn get_gen_arrow_image() -> Option<Image> {
-    if let Some(Some(image)) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .in_game_ui_subsystem()
-            .map(|ui| ui.gen_arrow.clone())
-    }) {
-        return image;
-    }
-    #[cfg(test)]
-    {
-        return TEST_GEN_ARROW.with(|slot| slot.borrow().clone());
-    }
-    #[cfg(not(test))]
-    {
-        None
-    }
-}
-
+/// Latch the C++ `ControlBar::m_genArrow` image from the mapped image set
+/// (`getArrowImage()` is used by the Close13 GameWindowTransitions).
 pub fn ensure_gen_arrow_from_mapped_images(
+    gen_arrow: &mut Option<Image>,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
 ) {
-    if get_gen_arrow_image().is_some() {
+    if gen_arrow.is_some() {
         return;
     }
-    (|receiving_manager: &mut crate::gui::window_manager::WindowManager| {
-        for name in ["GenArrow", "ControlBarArrow", "Arrow"] {
-            if let Some(image) = receiving_manager.win_find_image(name) {
-                set_gen_arrow_image(Some(image));
-                break;
-            }
+    for name in ["GenArrow", "ControlBarArrow", "Arrow"] {
+        if let Some(image) = receiving_manager.win_find_image(name) {
+            *gen_arrow = Some(image);
+            break;
         }
-    })(receiving_manager);
+    }
 }
 
 /// Residual: C++ `initObserverControls` name latch.
@@ -894,5 +837,20 @@ mod native_observer_label_tests {
                 "{name} must be hidden in observer-list context"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod owner_isolation_tests {
+    use super::*;
+    use crate::core::subsystems::InGameUISubsystem;
+
+    #[test]
+    fn observer_look_at_is_per_in_game_ui() {
+        let mut a = InGameUISubsystem::default();
+        let b = InGameUISubsystem::default();
+        set_observer_look_at_player(Some(&mut a), Some(3));
+        assert_eq!(observer_look_at_player_index(Some(&a)), Some(3));
+        assert_eq!(observer_look_at_player_index(Some(&b)), None);
     }
 }

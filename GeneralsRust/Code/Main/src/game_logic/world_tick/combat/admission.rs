@@ -235,21 +235,21 @@ impl GameLogic {
             let rates = self.receiving_weapon_rates_of_fire(attacker);
             let any_ready = attacker.weapon_ready_vs_target_with_owned_rof(
                 0,
-                current_time,
+                self.frame,
                 target_has_faerie,
                 rates[0],
             ) || ((secondary_explicit
                 || attacker.thing().template.slot_allows_auto_choose(1))
                 && attacker.weapon_ready_vs_target_with_owned_rof(
                     1,
-                    current_time,
+                    self.frame,
                     target_has_faerie,
                     rates[1],
                 ))
                 || (tertiary_explicit
                     && attacker.weapon_ready_vs_target_with_owned_rof(
                         2,
-                        current_time,
+                        self.frame,
                         target_has_faerie,
                         rates[2],
                     ));

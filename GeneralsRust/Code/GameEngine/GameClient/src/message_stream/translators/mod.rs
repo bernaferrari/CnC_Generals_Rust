@@ -19,7 +19,6 @@ pub(in crate::message_stream::translators) use super::message_stream::{
 };
 pub(in crate::message_stream::translators) use super::meta_event::MetaEventTranslator;
 pub(in crate::message_stream::translators) use super::place_event_translator::PlaceEventTranslator;
-pub(in crate::message_stream::translators) use super::player_state::get_local_player_id;
 pub(in crate::message_stream::translators) use super::selection_xlat::SelectionTranslator as SelectionTranslatorXlat;
 pub(in crate::message_stream::translators) use super::window_xlat::WindowTranslator;
 pub(in crate::message_stream::translators) use crate::core::game_client::CommandEvaluateType as ClientCommandEvaluateType;

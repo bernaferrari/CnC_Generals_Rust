@@ -514,14 +514,6 @@ impl GameLogic {
             player_id,
             object_id: id,
         };
-        if !object_scoped {
-            self.apply_upgrade_kind_to_recipients(recipient, upgrade_name);
-        }
-        if !self.objects.get(&id).is_some_and(|object| {
-            std::sync::Arc::ptr_eq(&object.visual_draw_identity_token, &identity)
-        }) {
-            return false;
-        }
         if object_scoped {
             self.apply_upgrade_to_object_with_interpreter_checked(
                 id,
@@ -538,6 +530,11 @@ impl GameLogic {
             )
         }
         .expect("owned upgrade callback admission must complete");
+        if !self.objects.get(&id).is_some_and(|object| {
+            std::sync::Arc::ptr_eq(&object.visual_draw_identity_token, &identity)
+        }) {
+            return false;
+        }
         if !object_scoped {
             self.apply_passengers_fire_upgrade_to_team(recipient, upgrade_name);
             self.apply_active_shroud_upgrade_to_team(recipient, upgrade_name);
@@ -598,16 +595,6 @@ impl GameLogic {
             }
         }
         ids
-    }
-
-    fn apply_upgrade_kind_to_recipients(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        // Other upgrade families, including StealthUpgrade and radar, run
-        // through the authored per-object callbacks.
-        self.apply_authored_max_health_upgrades(recipients, upgrade_name)
     }
 
     pub(crate) fn present_host_upgrade_completion(

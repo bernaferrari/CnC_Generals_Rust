@@ -57,11 +57,6 @@ fn map_select_state_on_owner(
     if let Some(owner) = owner {
         return owner.wol_map_select_state_handle();
     }
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.window_manager_owner_ref().wol_map_select_state_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_WOL_MAP_SELECT_STATE.with(|cell| {
@@ -75,8 +70,8 @@ fn map_select_state_on_owner(
     }
 }
 
-fn map_select_state() -> Rc<RefCell<WolMapSelectState>> {
-    map_select_state_on_owner(None)
+fn map_select_state(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> Rc<RefCell<WolMapSelectState>> {
+    map_select_state_on_owner(owner)
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -257,8 +252,8 @@ fn show_underlying_game_options(show: bool) {
     });
 }
 
-pub fn wol_map_select_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
-    let state_slot = map_select_state();
+pub fn wol_map_select_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = map_select_state(owner);
     let mut state = state_slot.borrow_mut();
 
     state.parent_id = name_to_id("WOLMapSelectMenu.wnd:WOLMapSelectMenuParent");
@@ -342,9 +337,9 @@ pub fn wol_map_select_menu_init(layout: &WindowLayout, _user_data: Option<&dyn s
     layout.hide(false);
 }
 
-pub fn wol_map_select_menu_shutdown(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+pub fn wol_map_select_menu_shutdown(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
     {
-        let state_slot = map_select_state();
+        let state_slot = map_select_state(owner);
         let mut state = state_slot.borrow_mut();
         state.parent = None;
         state.listbox_map = None;
@@ -355,8 +350,8 @@ pub fn wol_map_select_menu_shutdown(layout: &WindowLayout, _user_data: Option<&d
     let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
 }
 
-pub fn wol_map_select_menu_update(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
-    let state_slot = map_select_state();
+pub fn wol_map_select_menu_update(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = map_select_state(owner);
     let mut state = state_slot.borrow_mut();
     if state.raise_message_boxes {
         raise_gs_message_box();
@@ -369,7 +364,7 @@ pub fn wol_map_select_menu_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
-) -> WindowMsgHandled {
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) -> WindowMsgHandled {
     if msg != WindowMessage::Char || data1 != KEY_ESC {
         return WindowMsgHandled::Ignored;
     }
@@ -378,7 +373,7 @@ pub fn wol_map_select_menu_input(
     }
 
     let (parent, button_id) = {
-        let slot = map_select_state();
+        let slot = map_select_state(owner);
         let state = slot.borrow();
         (state.parent.clone(), state.button_back_id)
     };
@@ -392,11 +387,11 @@ pub fn wol_map_select_menu_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
-) -> WindowMsgHandled {
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) -> WindowMsgHandled {
     match msg {
         WindowMessage::Create => return WindowMsgHandled::Handled,
         WindowMessage::Destroy => {
-            let state_slot = map_select_state();
+            let state_slot = map_select_state(owner);
             let mut state = state_slot.borrow_mut();
             state.parent = None;
             state.listbox_map = None;
@@ -406,7 +401,7 @@ pub fn wol_map_select_menu_system(
         }
         WindowMessage::InputFocus => return write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
-            let state_slot = map_select_state();
+            let state_slot = map_select_state(owner);
             let mut state = state_slot.borrow_mut();
             let control_id = data1 as i32;
             if control_id == state.button_back_id {
@@ -472,7 +467,7 @@ pub fn wol_map_select_menu_system(
             return WindowMsgHandled::Ignored;
         }
         WindowMessage::GadgetValueChanged => {
-            let state_slot = map_select_state();
+            let state_slot = map_select_state(owner);
             let mut state = state_slot.borrow_mut();
             if data1 as i32 == state.listbox_map_id {
                 update_selected_map(&mut state);
@@ -482,7 +477,7 @@ pub fn wol_map_select_menu_system(
             return WindowMsgHandled::Ignored;
         }
         WindowMessage::User(0x8000) => {
-            let state_slot = map_select_state();
+            let state_slot = map_select_state(owner);
             let mut state = state_slot.borrow_mut();
             if data1 as i32 == state.listbox_map_id {
                 update_selected_map(&mut state);

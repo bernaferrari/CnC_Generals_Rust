@@ -603,10 +603,14 @@ impl Renderer {
         let _static_flush_guard = self.renderer_3d.as_ref().map(|r| rendering::mesh_system::StaticSortManager::begin_flush(std::sync::Arc::clone(r)));
         let mut non_mesh_static = node.ingest_static_sort_entries();
         let prepared = node.prepare(camera_pos);
+        // A flush consumes its submissions; subsequent flushes draw only newly
+        // admitted work, including meshes whose authored level remains nonzero.
+        node.reset();
         self.pending_shadow_caster_submissions =
             Self::build_shadow_caster_submissions(&prepared.shadow_casters);
         let mut blended_and_decals = prepared.combined_translucent();
         blended_and_decals.extend(prepared.decals.iter().cloned());
+        blended_and_decals.extend(prepared.static_sorted.iter().cloned());
 
         if self.frame_uniform_arenas.is_empty() {
             return Err(
@@ -731,7 +735,9 @@ impl Renderer {
         Ok(())
     }
 
-    /// Queue a mesh instance to be rendered during the next flush call
+    /// Queue the original mesh handle on this renderer. Authored static-sort levels
+    /// defer to its static list, then flush once in descending level/FIFO order
+    /// (C++ mesh.cpp:572-592, static_sort_list.cpp:36-57).
     pub fn queue_mesh(
         &mut self,
         mesh: std::sync::Arc<rendering::mesh_system::MeshClass>,
@@ -746,6 +752,9 @@ impl Renderer {
         mesh: std::sync::Arc<rendering::mesh_system::MeshClass>,
         casts_volume_shadow: bool,
     ) -> RendererResult<()> {
+        if !mesh.is_not_hidden_at_all() || mesh.is_disabled_by_debugger {
+            return Ok(());
+        }
         if let Some(model) = &mesh.model {
             self.register_mesh(model.clone())?;
         }
@@ -759,11 +768,16 @@ impl Renderer {
             && !mesh.is_alpha()
             && mesh.model.as_ref().is_some_and(|model| !model.triangles.is_empty());
 
-        self.frame_graph.node_mut(FrameGraphPass::Main).submit_mesh(
-            mesh.clone(),
-            Some(queue),
-            None,
-        );
+        let deferred = self.renderer_3d.as_ref().is_some_and(|runtime| {
+            rendering::mesh_system::StaticSortManager::try_add_mesh(runtime, &mesh)
+        });
+        if !deferred {
+            self.frame_graph.node_mut(FrameGraphPass::Main).submit_mesh(
+                Arc::clone(&mesh),
+                Some(queue),
+                None,
+            );
+        }
         if should_queue_shadow {
             self.frame_graph.node_mut(FrameGraphPass::Main).submit_mesh(
                 mesh,

@@ -968,51 +968,8 @@ impl UnitAIUpdate {
                     })
                     .unwrap_or(false);
                 if weapon_is_contact {
-                    let mut path_available = true;
-                    if let Some(capabilities) = self
-                        .runtime
-                        .data
-                        .locomotor_set
-                        .get_active()
-                        .map(|loco| loco.to_movement_capabilities())
-                    {
-                        let ai_store = the_ai();
-                        if let Ok(ai_guard) = ai_store.read() {
-                            if let Some(system) = ai_guard.pathfinding_system() {
-                                if let Ok(mut system_guard) = system.write() {
-                                    let unit_radius = base_object
-                                        .read()
-                                        .ok()
-                                        .map(|obj_guard| {
-                                            obj_guard.get_geometry_info().get_major_radius()
-                                        })
-                                        .unwrap_or(0.0);
-                                    let request = crate::ai::pathfinding_system::PathRequest {
-                                        requester: guard.get_id()?,
-                                        start: guard.get_position()?,
-                                        goal: local_pos,
-                                        capabilities,
-                                        unit_size: unit_radius,
-                                        priority: 0,
-                                        allow_partial: false,
-                                        frame_requested: TheGameLogic::get_frame(),
-                                        move_allies: self.runtime.data.can_path_through_units,
-                                        ignore_obstacle_id: if self.runtime.data.ignore_obstacle_id
-                                            == INVALID_ID
-                                        {
-                                            None
-                                        } else {
-                                            Some(self.runtime.data.ignore_obstacle_id)
-                                        },
-                                    };
-                                    path_available = matches!(
-                                        system_guard.find_path_immediate(&request),
-                                        crate::ai::pathfinding_system::PathResult::Success(_)
-                                    );
-                                }
-                            }
-                        }
-                    }
+                    // C++ AIUpdate.cpp:3526 `!isPathAvailable(&localPos)`.
+                    let path_available = self.runtime.is_path_available_from(&guard.get_position()?, &local_pos);
                     if !path_available {
                         if let Some(partition) = ThePartitionManager::get() {
                             let mut options = FindPositionOptions::default();

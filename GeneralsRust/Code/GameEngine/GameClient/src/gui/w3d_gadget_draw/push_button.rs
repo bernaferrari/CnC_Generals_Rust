@@ -257,7 +257,7 @@ pub(super) fn draw_push_button_image_one(
             draw_context,
         );
     });
-    note_shipped_ui_draw_commands(1);
+    draw_context.note_shipped_ui_draw_commands(1);
 }
 
 pub(super) fn resolve_push_button_three_piece_images<'a>(

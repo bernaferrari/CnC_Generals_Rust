@@ -107,9 +107,6 @@ impl ParticleSystem {
             // the production host path that is the published host pose / live
             // drawable, not leftover find_object.
             if let Some(pose) = gamelogic::helpers::host_fx_object_pose(self.attached_object_id)
-                .or_else(|| {
-                    crate::core::game_client::query_live_drawable_fx_pose(self.attached_object_id)
-                })
             {
                 self.apply_host_fx_object_pose(&pose);
                 return;

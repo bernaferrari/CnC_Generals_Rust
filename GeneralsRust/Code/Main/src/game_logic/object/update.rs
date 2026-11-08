@@ -806,7 +806,7 @@ impl Object {
     }
 
     /// C++ `Object::onVeterancyLevelChanged` exclusive WEAPONSET + WEAPONBONUSCONDITION.
-    fn set_veterancy_weapon_set_and_bonus_flags(&mut self, level: VeterancyLevel, frame: u32) {
+    pub(crate) fn set_veterancy_weapon_set_flags(&mut self, level: VeterancyLevel, frame: u32) {
         // Object.cpp updates the WeaponSet after each set/clear call. Preserve
         // that transient order because changing rows resets live Weapon state.
         match level {
@@ -831,11 +831,6 @@ impl Object {
                 self.set_veterancy_weapon_flag(2, true, frame);
             }
         }
-        let (vet, elite, hero) =
-            crate::game_logic::host_unit_training::veterancy_weapon_set_flags(level);
-        self.weapon_bonus_veteran = vet;
-        self.weapon_bonus_elite = elite;
-        self.weapon_bonus_hero = hero;
     }
 
     fn set_veterancy_weapon_flag(&mut self, index: u8, enabled: bool, frame: u32) {
@@ -1244,6 +1239,7 @@ impl Object {
             health_bonus,
             outputs,
             quiet_frame,
+            false,
         );
     }
 
@@ -1263,6 +1259,7 @@ impl Object {
             Some(health_bonus),
             Some((audio, feedback)),
             0,
+            true,
         );
     }
 
@@ -1281,6 +1278,7 @@ impl Object {
             Some(health_bonus),
             None,
             frame,
+            true,
         );
     }
 
@@ -1294,13 +1292,12 @@ impl Object {
             &mut crate::game_logic::VeterancyFeedback<'_>,
         )>,
         quiet_frame: u32,
+        defer_weapon_conditions: bool,
     ) {
         let frame = outputs
             .as_ref()
             .map(|(_, feedback)| feedback.logic_frame())
             .unwrap_or(quiet_frame);
-        let (_, old_damage_bonus, old_rof_bonus) = Self::veterancy_bonuses(previous_level);
-        let (_, damage_bonus, rof_bonus) = Self::veterancy_bonuses(new_level);
 
         if let Some((audio, feedback)) = outputs.as_mut() {
             feedback.body_sound(self, previous_level, new_level, audio);
@@ -1313,9 +1310,26 @@ impl Object {
         self.set_body_max_health(self.health.maximum.max(1.0));
         self.set_veterancy_armor_set_flags(new_level);
         self.validate_armor_and_damage_fx();
+        if defer_weapon_conditions {
+            return;
+        }
 
         // C++ Object::onVeterancyLevelChanged: exclusive WEAPONSET + WEAPONBONUSCONDITION.
-        self.set_veterancy_weapon_set_and_bonus_flags(new_level, frame);
+        self.set_veterancy_weapon_set_flags(new_level, frame);
+        let (vet, elite, hero) = crate::game_logic::host_unit_training::veterancy_weapon_set_flags(new_level);
+        self.weapon_bonus_veteran = vet;
+        self.weapon_bonus_elite = elite;
+        self.weapon_bonus_hero = hero;
+        self.finish_veterancy_weapon_stats(previous_level, new_level);
+
+        if let Some((audio, feedback)) = outputs.as_mut() {
+            feedback.object_effects(self, previous_level, new_level, audio);
+        }
+    }
+
+    pub(crate) fn finish_veterancy_weapon_stats(&mut self, previous_level: VeterancyLevel, new_level: VeterancyLevel) {
+        let (_, old_damage_bonus, old_rof_bonus) = Self::veterancy_bonuses(previous_level);
+        let (_, damage_bonus, rof_bonus) = Self::veterancy_bonuses(new_level);
         let rebound_authored = self.thing.template.has_receiving_weapon_sets()
             && self.selected_weapon_row_is_veterancy_specific();
 
@@ -1336,10 +1350,6 @@ impl Object {
                 let rof_scale = rof_bonus / old_rof_bonus;
                 weapon.reload_time *= rof_scale;
             }
-        }
-
-        if let Some((audio, feedback)) = outputs.as_mut() {
-            feedback.object_effects(self, previous_level, new_level, audio);
         }
     }
 

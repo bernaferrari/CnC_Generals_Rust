@@ -388,23 +388,20 @@ impl AudioEventInfo {
     }
 
     /// Get random pitch shift value
-    pub fn get_random_pitch_shift(&self) -> f32 {
+    pub fn get_random_pitch_shift(&self, audio_random: &mut crate::common::random_value::RandomState) -> f32 {
         if self.pitch_shift_min == self.pitch_shift_max {
             self.pitch_shift_min
         } else {
-            crate::common::random_value::get_game_audio_random_value_real(
-                self.pitch_shift_min,
-                self.pitch_shift_max,
-            )
+            audio_random.next_real(self.pitch_shift_min, self.pitch_shift_max)
         }
     }
 
     /// Get random delay value
-    pub fn get_random_delay(&self) -> i32 {
+    pub fn get_random_delay(&self, audio_random: &mut crate::common::random_value::RandomState) -> i32 {
         if self.delay_min == self.delay_max {
             self.delay_min
         } else {
-            crate::common::random_value::get_game_audio_random_value(self.delay_min, self.delay_max)
+            audio_random.next_int(self.delay_min, self.delay_max)
         }
     }
 

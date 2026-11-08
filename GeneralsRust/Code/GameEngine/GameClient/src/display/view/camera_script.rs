@@ -529,13 +529,18 @@ impl View {
     }
 
     /// Apply camera shake impulse using the legacy damped-oscillation model.
-    pub fn shake(&mut self, _epicenter: &Point3, _shake_type: CameraShakeType) {
+    pub fn shake(
+        &mut self,
+        _epicenter: &Point3,
+        _shake_type: CameraShakeType,
+        client_random: &mut game_engine::common::random_value::RandomState,
+    ) {
         let data = game_engine::common::global_data::read();
         self.shake_with_services(
             _epicenter,
             _shake_type,
             &data,
-            &mut game_engine::common::random_value::get_game_client_random_value_real,
+            &mut |lo, hi| client_random.next_real(lo, hi),
         );
     }
 

@@ -64,7 +64,7 @@ pub mod text;
 
 pub use button::{
     ButtonAudioHook, ButtonCallback, ButtonStyle, ClockMode, PushButton, PushButtonBuilder,
-    PushButtonRenderCommand, register_button_audio_hook,
+    PushButtonRenderCommand,
 };
 pub use checkbox::{
     CheckBox, CheckBoxBuilder, CheckBoxCallback, CheckBoxConfig, CheckBoxRenderCommand,

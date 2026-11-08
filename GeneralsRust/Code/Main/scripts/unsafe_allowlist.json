@@ -44,10 +44,6 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/GameEngine/GameClient/src/core/game_client/live_slot.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
     "Code/GameEngine/GameClient/src/display/image.rs": {
       "constructs": 2,
       "undocumented": 0

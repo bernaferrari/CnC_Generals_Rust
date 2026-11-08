@@ -257,16 +257,13 @@ impl FoundationValidator {
 
         // 2. Clear Path Check
         if self.check_clear_path {
-            let ai_store = the_ai();
-            if let Ok(ai_guard) = ai_store.read() {
-                if let Some(pathfinding) = ai_guard.pathfinding_system() {
-                    if let Ok(pf) = pathfinding.read() {
-                        let layer = TheTerrainLogic::get()
-                            .map(|terrain| terrain.get_highest_layer_for_destination(position))
-                            .unwrap_or(PathfindLayerEnum::Ground);
-                        if !pf.is_cell_clear_at(position, layer) {
-                            return Err("Build location not passable".to_string());
-                        }
+            if let Some(pathfinder) = crate::ai::active_pathfinder_handle() {
+                if let Ok(pf) = pathfinder.read() {
+                    let layer = TheTerrainLogic::get()
+                        .map(|terrain| terrain.get_highest_layer_for_destination(position))
+                        .unwrap_or(PathfindLayerEnum::Ground);
+                    if !pf.is_cell_clear_at(position, layer) {
+                        return Err("Build location not passable".to_string());
                     }
                 }
             }
@@ -286,7 +283,7 @@ impl FoundationValidator {
             let radius = radius.max(1.0);
 
             if let Ok(partition) =
-                crate::object::collide::partition_manager::PARTITION_MANAGER.read()
+                crate::object::collide::partition_manager::world_partition_manager().read()
             {
                 let collide_pos =
                     crate::object::collide::Coord3D::new(position.x, position.y, position.z);
@@ -766,15 +763,9 @@ impl Default for ConstructionManager {
     }
 }
 
-// Global construction manager instance (matches shared construction tracking in C++).
-lazy_static::lazy_static! {
-    pub static ref THE_CONSTRUCTION_MANAGER: Arc<RwLock<ConstructionManager>> =
-        Arc::new(RwLock::new(ConstructionManager::new()));
-}
-
-/// Helper function to access the global construction manager.
+/// The published world's construction manager.
 pub fn get_construction_manager() -> Arc<RwLock<ConstructionManager>> {
-    THE_CONSTRUCTION_MANAGER.clone()
+    Arc::clone(&crate::system::engine_stores::active_services().logic_managers().construction)
 }
 
 #[cfg(test)]

@@ -300,6 +300,10 @@ impl super::GameLogic {
                 );
             },
         );
+        self.finish_owned_veterancy_weapon_conditions(id, previous, level);
+        self.with_object_veterancy_feedback_and_locomotors(id, |object, audio, feedback, _| {
+            feedback.object_effects(object, previous, level, audio);
+        });
         Ok(true)
     }
 
@@ -368,7 +372,35 @@ impl super::GameLogic {
                 frame,
             );
         }
+        self.finish_owned_veterancy_weapon_conditions(id, previous, level);
+        if provide_feedback {
+            self.with_object_veterancy_feedback_and_locomotors(id, |object, audio, feedback, _| {
+                feedback.object_effects(object, previous, level, audio);
+            });
+        }
         Ok(true)
+    }
+
+    fn finish_owned_veterancy_weapon_conditions(
+        &mut self, id: super::ObjectId, previous: super::VeterancyLevel, level: super::VeterancyLevel,
+    ) {
+        let Some(object) = self.objects.get_mut(&id) else { return };
+        object.set_veterancy_weapon_set_flags(level, self.frame);
+        let (veteran, elite, hero) = super::host_unit_training::veterancy_weapon_set_flags(level);
+        // Object.cpp:3095-3122 mutates VETERAN, ELITE, HERO individually.
+        for (index, enabled) in [veteran, elite, hero].into_iter().enumerate() {
+            let object = self.objects.get_mut(&id).unwrap();
+            let flag = match index {
+                0 => &mut object.weapon_bonus_veteran,
+                1 => &mut object.weapon_bonus_elite,
+                _ => &mut object.weapon_bonus_hero,
+            };
+            if *flag != enabled {
+                *flag = enabled;
+                self.notify_owned_weapon_bonus_change(id);
+            }
+        }
+        self.objects.get_mut(&id).unwrap().finish_veterancy_weapon_stats(previous, level);
     }
 }
 

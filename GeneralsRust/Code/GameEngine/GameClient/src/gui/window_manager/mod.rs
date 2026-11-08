@@ -163,6 +163,15 @@ pub(crate) fn as_any_ref(user_data: Option<&mut dyn std::any::Any>) -> Option<&d
     user_data.map(|data| data as &dyn std::any::Any)
 }
 
+impl WindowManager {
+    /// Returns the previous caret-blink phase and advances it (wrapping `u8`).
+    pub(crate) fn next_text_entry_draw_count(&self) -> u8 {
+        let current = self.text_entry_draw_cnt.get();
+        self.text_entry_draw_cnt.set(current.wrapping_add(1));
+        current
+    }
+}
+
 /// Main WindowManager struct
 pub struct WindowManager {
     pub(crate) hot_keys: crate::message_stream::hot_key::HotKeyManager,
@@ -171,6 +180,8 @@ pub struct WindowManager {
     /// Non-owning C++ `ScriptActions::m_messageWindow` equivalent. The actual
     /// target remains owned by this manager's window registry/layout.
     script_message_window: Option<Weak<RefCell<GameWindow>>>,
+    /// C++ W3DTextEntry `static Byte drawCnt` caret-blink phase, per manager.
+    text_entry_draw_cnt: Cell<u8>,
     // Window lists
     root_windows: Vec<Rc<RefCell<GameWindow>>>,
     window_by_id: HashMap<WindowId, Weak<RefCell<GameWindow>>>,
@@ -261,6 +272,7 @@ impl WindowManager {
             hot_keys: Default::default(),
             replay_menu: None,
             script_message_window: None,
+            text_entry_draw_cnt: Cell::new(0),
             root_windows: Vec::new(),
             window_by_id: HashMap::new(),
             destroy_queue: VecDeque::new(),

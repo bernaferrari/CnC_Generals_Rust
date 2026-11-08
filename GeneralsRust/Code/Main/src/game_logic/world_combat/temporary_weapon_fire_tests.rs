@@ -15,20 +15,6 @@ use crate::game_logic::host_temporary_weapon_behavior::{
     TemporaryWeaponStatus,
 };
 
-// Headless module tests admit their own weapons through the real INI parser.
-// Unique names avoid depending on retail files or changing seeded tank guns.
-fn register_death_splash_weapon(name: &str, damage: u32, radius: u32) {
-    let ini = format!(
-        "Weapon {name}\n PrimaryDamage = {damage}\n PrimaryDamageRadius = {radius}\n DamageType = EXPLOSION\n RadiusDamageAffects = ALLIES ENEMIES NEUTRALS\n ProjectileObject = NONE\n ClipSize = 8\n ClipReloadTime = 0\n DelayBetweenShots = 0\nEnd\n"
-    );
-    assert_eq!(
-        crate::assets::ini_template_loader::register_weapons_from_ini_text(&ini),
-        1
-    );
-    let fields = store_fields_for_weapon_name(name).expect("authored death weapon");
-    assert_eq!(fields.primary_damage, damage as f32);
-    assert_eq!(fields.primary_radius, radius as f32);
-}
 
 fn ready_weapon_on(
     template: &str,
@@ -210,220 +196,58 @@ fn dead_behavior_fires_once_and_skips_under_construction() {
 /// only skips when the object owns the conflicting upgrade.
 #[test]
 fn dead_behavior_honors_triggered_by_and_conflicts_with_ownership() {
-    register_death_splash_weapon("TempDeadMuxDefault", 1000, 40);
-    register_death_splash_weapon("TempDeadMuxHE", 2000, 50);
-    let mut logic = GameLogic::new();
-    logic.frame = 8;
-    let mux_default = FireWeaponUpgradeMuxMetadata {
-        conflicts_with: vec!["Upgrade_GLABombTruckHighExplosiveBomb".into()],
-        ..Default::default()
-    };
-    let mux_he = FireWeaponUpgradeMuxMetadata {
-        triggered_by: vec!["Upgrade_GLABombTruckHighExplosiveBomb".into()],
-        ..Default::default()
-    };
-    let mut template = ThingTemplate::new("GLAVehicleBombTruck");
-    template.fire_weapon_when_dead_behaviors = vec![
-        FireWeaponWhenDeadMetadata {
-            module_source_index: 0,
-            module_tag: None,
-            starts_active: true,
-            death_weapon: Some("TempDeadMuxDefault".into()),
-            upgrade_mux: mux_default,
-            death_types: Default::default(),
-            veterancy_levels: Default::default(),
-            exempt_status: Default::default(),
-            required_status: Default::default(),
-        },
-        FireWeaponWhenDeadMetadata {
-            module_source_index: 1,
-            module_tag: None,
-            starts_active: false,
-            death_weapon: Some("TempDeadMuxHE".into()),
-            upgrade_mux: mux_he,
-            death_types: Default::default(),
-            veterancy_levels: Default::default(),
-            exempt_status: Default::default(),
-            required_status: Default::default(),
-        },
-    ];
-    let mut object = Object::new(template, ObjectId(15), Team::GLA);
-    object.temporary_weapon_runtime.dead = vec![
-        FireWeaponWhenDeadRuntimeState {
-            module_source_index: 0,
-            upgrade_executed: true,
-        },
-        FireWeaponWhenDeadRuntimeState {
-            module_source_index: 1,
-            upgrade_executed: false,
-        },
-    ];
-    object.status.destroyed = true;
-    let source = ObjectId(15);
-    logic.objects.insert(source, object);
-    // The authored default fixture is a 1000/40-radius blast; the death
-    // weapon only records hits on a LIVE victim (the dead truck itself is
-    // excluded like C++ Weapon.cpp:1330 self/producer skips).
-    let mut victim_t = ThingTemplate::new("BombTruckDeathSplashVictim");
-    victim_t.set_health(1000.0);
-    logic
-        .templates
-        .insert("BombTruckDeathSplashVictim".into(), victim_t);
-    let victim = logic
-        .create_object(
-            "BombTruckDeathSplashVictim",
-            Team::USA,
-            glam::Vec3::new(3.0, 0.0, 0.0),
-        )
-        .expect("victim");
-    let first = logic.execute_temporary_weapon_on_die(source);
-    assert!(
-        first > 0,
-        "StartsActive default with empty conflict ownership must fire"
-    );
-    assert_eq!(first, 1);
-    assert!(logic.objects[&victim].health.current <= 0.0);
-    assert!(
-        logic
-            .host_object(source)
-            .expect("source")
-            .fire_weapon_when_dead_fired
-    );
-
-    let mut object = logic.objects.remove(&source).expect("obj");
-    object.fire_weapon_when_dead_fired = false;
-    object.apply_upgrade_tag("Upgrade_GLABombTruckHighExplosiveBomb");
-    object.temporary_weapon_runtime.dead[0].upgrade_executed = true;
-    object.temporary_weapon_runtime.dead[1].upgrade_executed = false;
-    logic.objects.insert(source, object);
-    // Phase 1's 1000-damage default blast killed the first splash victim;
-    // the HE module also needs a LIVE victim in radius to record hits.
-    let victim2 = logic
-        .create_object(
-            "BombTruckDeathSplashVictim",
-            Team::USA,
-            glam::Vec3::new(-3.0, 0.0, 0.0),
-        )
-        .expect("second victim");
-    let upgraded = logic.execute_temporary_weapon_on_die(source);
-    assert!(
-        upgraded > 0,
-        "TriggeredBy HE must activate exclusive death module"
-    );
-    assert_eq!(upgraded, 1);
-    assert!(logic.objects[&victim2].health.current <= 0.0);
-    assert!(
-        logic
-            .host_object(source)
-            .expect("source")
-            .fire_weapon_when_dead_fired
-    );
+    let modules = "Behavior = FireWeaponWhenDeadBehavior Default\n StartsActive = Yes\n ConflictsWith = Upgrade_GLABombTruckHighExplosiveBomb\n DeathWeapon = TempDeadMuxDefault\nEnd\n\
+        Behavior = FireWeaponWhenDeadBehavior Upgraded\n StartsActive = No\n TriggeredBy = Upgrade_GLABombTruckHighExplosiveBomb\n DeathWeapon = TempDeadMuxHE\nEnd";
+    let weapons = [("TempDeadMuxDefault", 1000), ("TempDeadMuxHE", 2000)]
+        .into_iter().map(|(name, damage)| format!(
+            "Weapon {name}\n PrimaryDamage = {damage}\n PrimaryDamageRadius = 50\n DamageType = EXPLOSION\n RadiusDamageAffects = ENEMIES\n ProjectileObject = NONE\n WeaponSpeed = 999999\n FireOCL = OCL_TemporaryConsumer\nEnd\n"
+        )).collect::<String>();
+    for upgraded in [false, true] {
+        let (mut logic, source, victim) =
+            authored_temporary_world_with_victim_health(modules, &weapons, 3000);
+        if upgraded {
+            logic.objects.get_mut(&source).unwrap()
+                .apply_upgrade_tag("Upgrade_GLABombTruckHighExplosiveBomb");
+        }
+        logic.apply_owned_kill(
+            source, crate::game_logic::combat::DamageType::Unresistable,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+        ).unwrap();
+        assert_eq!(
+            logic.objects[&victim].health.current,
+            if upgraded { 1000.0 } else { 2000.0 },
+            "only the applicable death weapon deals its authored damage",
+        );
+        assert_eq!(temporary_children(&logic), 1, "only one death FireOCL executes");
+        logic.fire_temporary_weapons_for_pending_deaths();
+        assert_eq!(temporary_children(&logic), 1, "pending-death pump must not replay onDie");
+    }
 }
 
 /// C++ FireWeaponWhenDeadBehavior::onDie — every matching module fires.
 /// Exclusive mux selects default vs HE; Bio still fires when owned.
 #[test]
 fn dead_behavior_fires_every_matching_module() {
-    register_death_splash_weapon("TempDeadMultiHE", 60, 5);
-    register_death_splash_weapon("TempDeadMultiBio", 60, 5);
-    let mut logic = GameLogic::new();
-    logic.frame = 8;
-    let mux_default = FireWeaponUpgradeMuxMetadata {
-        conflicts_with: vec!["Upgrade_GLABombTruckHighExplosiveBomb".into()],
-        ..Default::default()
-    };
-    let mux_he = FireWeaponUpgradeMuxMetadata {
-        triggered_by: vec!["Upgrade_GLABombTruckHighExplosiveBomb".into()],
-        ..Default::default()
-    };
-    let mux_bio = FireWeaponUpgradeMuxMetadata {
-        triggered_by: vec!["Upgrade_GLABombTruckBioBomb".into()],
-        ..Default::default()
-    };
-    let mut template = ThingTemplate::new("GLAVehicleBombTruckMulti");
-    template.fire_weapon_when_dead_behaviors = vec![
-        FireWeaponWhenDeadMetadata {
-            module_source_index: 0,
-            module_tag: None,
-            starts_active: true,
-            death_weapon: Some("TempDeadMultiBio".into()),
-            upgrade_mux: mux_default,
-            death_types: Default::default(),
-            veterancy_levels: Default::default(),
-            exempt_status: Default::default(),
-            required_status: Default::default(),
-        },
-        FireWeaponWhenDeadMetadata {
-            module_source_index: 1,
-            module_tag: None,
-            starts_active: false,
-            death_weapon: Some("TempDeadMultiHE".into()),
-            upgrade_mux: mux_he,
-            death_types: Default::default(),
-            veterancy_levels: Default::default(),
-            exempt_status: Default::default(),
-            required_status: Default::default(),
-        },
-        FireWeaponWhenDeadMetadata {
-            module_source_index: 2,
-            module_tag: None,
-            starts_active: false,
-            death_weapon: Some("TempDeadMultiBio".into()),
-            upgrade_mux: mux_bio,
-            death_types: Default::default(),
-            veterancy_levels: Default::default(),
-            exempt_status: Default::default(),
-            required_status: Default::default(),
-        },
-    ];
-    let mut object = Object::new(template, ObjectId(16), Team::GLA);
-    object.temporary_weapon_runtime.dead = vec![
-        FireWeaponWhenDeadRuntimeState {
-            module_source_index: 0,
-            upgrade_executed: true,
-        },
-        FireWeaponWhenDeadRuntimeState {
-            module_source_index: 1,
-            upgrade_executed: false,
-        },
-        FireWeaponWhenDeadRuntimeState {
-            module_source_index: 2,
-            upgrade_executed: false,
-        },
-    ];
-    object.status.destroyed = true;
+    let modules = "Behavior = FireWeaponWhenDeadBehavior Default\n StartsActive = Yes\n ConflictsWith = Upgrade_GLABombTruckHighExplosiveBomb\n DeathWeapon = TempDeadMultiBio\nEnd\n\
+        Behavior = FireWeaponWhenDeadBehavior HE\n StartsActive = No\n TriggeredBy = Upgrade_GLABombTruckHighExplosiveBomb\n DeathWeapon = TempDeadMultiHE\nEnd\n\
+        Behavior = FireWeaponWhenDeadBehavior Bio\n StartsActive = No\n TriggeredBy = Upgrade_GLABombTruckBioBomb\n DeathWeapon = TempDeadMultiBio\nEnd";
+    let weapons = ["TempDeadMultiHE", "TempDeadMultiBio"].into_iter().map(|name| format!(
+        "Weapon {name}\n PrimaryDamage = 60\n PrimaryDamageRadius = 5\n DamageType = EXPLOSION\n RadiusDamageAffects = ENEMIES\n ProjectileObject = NONE\n WeaponSpeed = 999999\n FireOCL = OCL_TemporaryConsumer\nEnd\n"
+    )).collect::<String>();
+    let (mut logic, source, victim) =
+        authored_temporary_world_with_victim_health(modules, &weapons, 1000);
+    let object = logic.objects.get_mut(&source).unwrap();
     object.apply_upgrade_tag("Upgrade_GLABombTruckHighExplosiveBomb");
     object.apply_upgrade_tag("Upgrade_GLABombTruckBioBomb");
-    let source = ObjectId(16);
-    logic.objects.insert(source, object);
-    // Both uniquely authored 60/5-radius weapons fire only when a LIVE
-    // victim stands in the blast; the destroyed truck is excluded
-    // (C++ Weapon.cpp:1330 self skip), so seed one 3 units away.
-    let mut victim_t = ThingTemplate::new("BombTruckDeathSplashVictim2");
-    victim_t.set_health(1000.0);
-    logic
-        .templates
-        .insert("BombTruckDeathSplashVictim2".into(), victim_t);
-    let victim = logic
-        .create_object(
-            "BombTruckDeathSplashVictim2",
-            Team::USA,
-            glam::Vec3::new(3.0, 0.0, 0.0),
-        )
-        .expect("victim");
-    let hits = logic.execute_temporary_weapon_on_die(source);
-    assert!(
-        hits > 0,
-        "hq-ys6gk: HE+Bio must fire leftover death modules"
-    );
-    assert_eq!(hits, 2, "each matching module must apply damage");
+    logic.apply_owned_kill(
+        source, crate::game_logic::combat::DamageType::Unresistable,
+        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+    ).unwrap();
     assert_eq!(logic.objects[&victim].health.current, 880.0);
-    assert!(
-        logic
-            .host_object(source)
-            .expect("source")
-            .fire_weapon_when_dead_fired
-    );
+    assert_eq!(temporary_children(&logic), 2, "HE and Bio each execute their template");
+    logic.fire_temporary_weapons_for_pending_deaths();
+    assert_eq!(logic.objects[&victim].health.current, 880.0);
+    assert_eq!(temporary_children(&logic), 2);
 }
 
 #[test]
@@ -999,89 +823,28 @@ fn damaged_reaction_fires_every_ready_module() {
 /// C++ FireWeaponWhenDamagedBehavior::update — every ready continuous module fires.
 #[test]
 fn damaged_continuous_fires_every_ready_module() {
-    let mut logic = GameLogic::new();
+    let modules = "Behavior = FireWeaponWhenDamagedBehavior First\n StartsActive = Yes\n ContinuousWeaponPristine = OwnedTemporary\n End\n\
+        Behavior = FireWeaponWhenDamagedBehavior Second\n StartsActive = Yes\n ContinuousWeaponPristine = OwnedTemporary\n End";
+    let weapons = "Weapon OwnedTemporary\n PrimaryDamage = 17\n PrimaryDamageRadius = 10\n DamageType = EXPLOSION\n RadiusDamageAffects = ENEMIES\n ProjectileObject = NONE\n WeaponSpeed = 999999\n ClipSize = 2\n ClipReloadTime = 0\n DelayBetweenShots = 600\nEnd";
+    let (mut logic, source, victim) = authored_temporary_world(modules, weapons);
     logic.frame = 10;
-    let first = ready_weapon_on(
-        "CrusaderTankGun",
-        FireWeaponWhenDamagedWeaponRole::ContinuousPristine,
-        0,
-    );
-    let second = ready_weapon_on(
-        "CrusaderTankGun",
-        FireWeaponWhenDamagedWeaponRole::ContinuousPristine,
-        1,
-    );
-    let mut template = ThingTemplate::new("TempWeaponHostMultiCont");
-    template.fire_weapon_when_damaged_behaviors = vec![
-        FireWeaponWhenDamagedMetadata {
-            module_source_index: 0,
-            module_tag: None,
-            starts_active: true,
-            damage_types: FireWeaponDamageTypeMask::ALL,
-            damage_amount: 5.0,
-            upgrade_mux: FireWeaponUpgradeMuxMetadata::default(),
-            weapon_template_names: std::array::from_fn(|index| {
-                (index == first.key.role.index()).then(|| first.weapon_template_name.clone())
-            }),
-        },
-        FireWeaponWhenDamagedMetadata {
-            module_source_index: 1,
-            module_tag: None,
-            starts_active: true,
-            damage_types: FireWeaponDamageTypeMask::ALL,
-            damage_amount: 5.0,
-            upgrade_mux: FireWeaponUpgradeMuxMetadata::default(),
-            weapon_template_names: std::array::from_fn(|index| {
-                (index == second.key.role.index()).then(|| second.weapon_template_name.clone())
-            }),
-        },
-    ];
-    let mut object = Object::new(template, ObjectId(22), Team::USA);
-    object.health.current = 80.0;
-    object.health.maximum = 100.0;
-    object.max_health = 100.0;
-    let mut runtime0 = FireWeaponWhenDamagedRuntimeState {
-        module_source_index: 0,
-        upgrade_executed: true,
-        ..FireWeaponWhenDamagedRuntimeState::default()
-    };
-    let mut runtime1 = FireWeaponWhenDamagedRuntimeState {
-        module_source_index: 1,
-        upgrade_executed: true,
-        ..FireWeaponWhenDamagedRuntimeState::default()
-    };
-    assert!(runtime0.replace_weapon_state(first));
-    assert!(runtime1.replace_weapon_state(second));
-    object.temporary_weapon_runtime.damaged = vec![runtime0, runtime1];
-    let source = ObjectId(22);
-    logic.objects.insert(source, object);
+    // A lazily initialized visual generation is not a new gameplay object.
+    // Keep this regression for the unstamped source previously inserted here.
+    logic.objects.get_mut(&source).unwrap().visual_object_generation = 0;
     let keys = logic.damaged_continuous_plan(source);
-    assert_eq!(
-        keys.len(),
-        2,
-        "hq-4eg3v: leftover/C++ continuous fires every ready module"
-    );
-    assert_eq!(keys[0].module_source_index, 0);
-    assert_eq!(keys[1].module_source_index, 1);
-    let _ = logic.execute_temporary_weapon_continuous(source);
-    let object = logic.host_object(source).expect("source");
-    let state0 = object.temporary_weapon_runtime.damaged[0]
-        .weapon(TemporaryWeaponRuntimeKey {
-            module_source_index: 0,
+    assert_eq!(keys.len(), 2);
+    assert_ne!(keys[0].module_source_index, keys[1].module_source_index);
+    logic.execute_temporary_weapon_continuous(source);
+    assert_eq!(logic.objects[&victim].health.current, 66.0);
+    let object = logic.host_object(source).unwrap();
+    assert_ne!(object.visual_object_generation, 0);
+    for runtime in &object.temporary_weapon_runtime.damaged {
+        let weapon = runtime.weapon(TemporaryWeaponRuntimeKey {
+            module_source_index: runtime.module_source_index,
             role: FireWeaponWhenDamagedWeaponRole::ContinuousPristine,
-        })
-        .expect("role0");
-    let state1 = object.temporary_weapon_runtime.damaged[1]
-        .weapon(TemporaryWeaponRuntimeKey {
-            module_source_index: 1,
-            role: FireWeaponWhenDamagedWeaponRole::ContinuousPristine,
-        })
-        .expect("role1");
-    if store_fields_for_weapon_name("CrusaderTankGun").is_some() {
-        assert_eq!(state0.ammo_in_clip, 1, "first continuous module must fire");
-        assert_eq!(state1.ammo_in_clip, 1, "second continuous module must fire");
-        assert_eq!(state0.last_fire_frame, 10);
-        assert_eq!(state1.last_fire_frame, 10);
+        }).unwrap();
+        assert_eq!(weapon.ammo_in_clip, 1, "each continuous module must fire");
+        assert_eq!(weapon.last_fire_frame, 10);
     }
 }
 
@@ -1178,4 +941,232 @@ fn receiving_temporary_reaction_uses_body_state_after_same_current_max_health_ch
         "canonical DAMAGED reaction survives a maximum-only change"
     );
     assert_eq!(selected[0].role, role);
+}
+
+fn authored_temporary_world(modules: &str, weapons: &str) -> (GameLogic, ObjectId, ObjectId) {
+    authored_temporary_world_with_victim_health(modules, weapons, 100)
+}
+
+fn authored_temporary_world_with_victim_health(
+    modules: &str,
+    weapons: &str,
+    victim_health: u32,
+) -> (GameLogic, ObjectId, ObjectId) {
+    let mut world = GameLogic::new();
+    world.admit_body_damage_baseline(
+        crate::game_logic::body_damage_rules::BodyDamagePolicy::Receiving(
+            crate::game_logic::body_damage_rules::BodyDamageRules::from_thresholds(0.8, 0.4).unwrap(),
+        ),
+    );
+    world.admit_receiving_module_content(
+        crate::assets::ReceivingObjectContent::from_sources([(
+            "temporary-consumer.ini".into(),
+            format!("Object TemporaryConsumer\n KindOf = IMMOBILE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n{modules}\nEnd\n\
+                Object TemporaryVictim\n KindOf = IMMOBILE\n Body = ActiveBody BodyTag\n MaxHealth = {victim_health}\n InitialHealth = {victim_health}\n End\nEnd\n\
+                Object TemporaryChild\n KindOf = IMMOBILE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n"),
+        )]).unwrap(),
+    ).unwrap();
+    let mut definitions = std::collections::HashMap::new();
+    crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+        &mut definitions,
+        weapons,
+        crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+    );
+    world.admit_weapon_content_snapshot(
+        definitions.into_values().map(|rule| (rule.name.clone(), rule)).collect(),
+        &[],
+    ).unwrap();
+    world.admit_object_creation_list_sources([
+        "ObjectCreationList OCL_TemporaryConsumer\n CreateObject\n ObjectNames = TemporaryChild\n Count = 1\n End\nEnd\n".into(),
+    ]).unwrap();
+    for (id, team) in [(0, Team::China), (1, Team::USA)] {
+        let mut player = Player::new(id, team, "TemporaryOwner", id == 0);
+        player.alliance_team = id as i32;
+        world.add_player(player);
+    }
+    let source = world.create_object_for_player("TemporaryConsumer", 0, glam::Vec3::ZERO).unwrap();
+    let victim = world.create_object_for_player(
+        "TemporaryVictim", 1, glam::Vec3::new(3.0, 0.0, 0.0),
+    ).unwrap();
+    (world, source, victim)
+}
+
+fn authored_temporary_hit(world: &mut GameLogic, source: ObjectId) {
+    world.apply_owned_damage(
+        source, 5.0, None,
+        crate::game_logic::combat::DamageType::Unresistable,
+        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+        None, &crate::game_logic::object::DamageHitContext::default(),
+    ).unwrap();
+}
+
+fn temporary_children(world: &GameLogic) -> usize {
+    world.host_objects().registered()
+        .filter(|(_, object)| object.template_name == "TemporaryChild").count()
+}
+
+/// FireWeaponWhenDamagedBehavior.cpp:147-192 -> Weapon.cpp:2614,2617-2647:
+/// the real Body callback fires the receiving template (including its FireOCL)
+/// before spending that module's private clip and starting its own delay.
+#[test]
+fn authored_reaction_delivers_receiving_fire_ocl_and_private_clock_in_two_worlds() {
+    let modules = "Behavior = FireWeaponWhenDamagedBehavior Reaction\n StartsActive = Yes\n DamageAmount = 1\n ReactionWeaponPristine = OwnedTemporary\n End";
+    let weapon = |damage| format!(
+        "Weapon OwnedTemporary\n PrimaryDamage = {damage}\n PrimaryDamageRadius = 10\n DamageType = EXPLOSION\n RadiusDamageAffects = ENEMIES\n ProjectileObject = NONE\n WeaponSpeed = 999999\n ClipSize = 2\n ClipReloadTime = 0\n DelayBetweenShots = 600\n FireOCL = OCL_TemporaryConsumer\nEnd\n"
+    );
+    let (mut world, source, victim) = authored_temporary_world(modules, &weapon(17));
+    let (mut peer, peer_source, peer_victim) = authored_temporary_world(modules, &weapon(29));
+    assert_eq!((source, victim), (peer_source, peer_victim));
+    world.frame = 10;
+    authored_temporary_hit(&mut world, source);
+    assert_eq!(world.objects[&victim].health.current, 83.0);
+    assert_eq!(temporary_children(&world), 1);
+    assert_eq!(peer.objects[&peer_victim].health.current, 100.0);
+    assert_eq!(temporary_children(&peer), 0);
+    let runtime = &world.objects[&source].temporary_weapon_runtime.damaged[0];
+    let state = runtime.weapon(TemporaryWeaponRuntimeKey {
+        module_source_index: runtime.module_source_index,
+        role: FireWeaponWhenDamagedWeaponRole::ReactionPristine,
+    }).unwrap();
+    assert_eq!(state.ammo_in_clip, 1);
+    assert_eq!(state.last_fire_frame, 10);
+    assert_eq!(state.when_we_can_fire_again, 28);
+    world.frame = 27;
+    authored_temporary_hit(&mut world, source);
+    assert_eq!(temporary_children(&world), 1);
+    world.frame = 28;
+    authored_temporary_hit(&mut world, source);
+    assert_eq!(temporary_children(&world), 2);
+    assert_eq!(world.objects[&victim].health.current, 66.0);
+    peer.frame = 100;
+    authored_temporary_hit(&mut peer, peer_source);
+    assert_eq!(peer.objects[&peer_victim].health.current, 71.0);
+    assert_eq!(temporary_children(&peer), 1);
+    assert_eq!(world.objects[&victim].health.current, 66.0);
+}
+
+/// Each update reads BodyDamageType at its own callback, not at the start of
+/// an all-module batch (FireWeaponWhenDamagedBehavior.cpp:208-237). The earlier
+/// SELF shot changes the state seen by the later module.
+#[test]
+fn authored_continuous_callbacks_reselect_role_after_previous_self_damage() {
+    let modules = "Behavior = FireWeaponWhenDamagedBehavior First\n StartsActive = Yes\n ContinuousWeaponPristine = SelfTemporary\n End\n\
+        Behavior = FireWeaponWhenDamagedBehavior Second\n StartsActive = Yes\n ContinuousWeaponPristine = WrongTemporary\n ContinuousWeaponReallyDamaged = RightTemporary\n End";
+    let weapons = [
+        // Weapon.cpp:1330 allows self, then 1360-1372 still requires ALLIES.
+        ("SelfTemporary", 70, "SELF ALLIES"),
+        ("WrongTemporary", 3, "ENEMIES"),
+        ("RightTemporary", 17, "ENEMIES"),
+    ].into_iter().map(|(name, damage, affects)| format!(
+        "Weapon {name}\n PrimaryDamage = {damage}\n PrimaryDamageRadius = 10\n DamageType = UNRESISTABLE\n RadiusDamageAffects = {affects}\n ProjectileObject = NONE\n WeaponSpeed = 999999\n ClipSize = 2\n ClipReloadTime = 0\n DelayBetweenShots = 600\nEnd\n"
+    )).collect::<String>();
+    let (mut world, source, victim) = authored_temporary_world(modules, &weapons);
+    let (peer, peer_source, peer_victim) = authored_temporary_world(modules, &weapons);
+    world.frame = 10;
+    world.execute_temporary_weapon_continuous(source);
+    assert_eq!(world.objects[&source].health.current, 30.0);
+    assert_eq!(world.objects[&victim].health.current, 83.0);
+    let second = &world.objects[&source].temporary_weapon_runtime.damaged[1];
+    for (role, ammo) in [
+        (FireWeaponWhenDamagedWeaponRole::ContinuousPristine, 2),
+        (FireWeaponWhenDamagedWeaponRole::ContinuousReallyDamaged, 1),
+    ] {
+        assert_eq!(second.weapon(TemporaryWeaponRuntimeKey {
+            module_source_index: second.module_source_index, role,
+        }).unwrap().ammo_in_clip, ammo);
+    }
+    assert_eq!(peer.objects[&peer_source].health.current, 100.0);
+    assert_eq!(peer.objects[&peer_victim].health.current, 100.0);
+}
+
+/// Unlike onDie's explicit conflict check, onDamage only checks the latched
+/// UpgradeMux state (FireWeaponWhenDamagedBehavior.cpp:149, .h:137;
+/// UpgradeModule.cpp:105-146). An already active module remains active.
+#[test]
+fn authored_active_damage_module_keeps_firing_after_conflicting_upgrade() {
+    let modules = "Behavior = FireWeaponWhenDamagedBehavior Reaction\n StartsActive = Yes\n ConflictsWith = Upgrade_Conflict\n DamageAmount = 1\n ReactionWeaponPristine = OwnedTemporary\n End";
+    let weapons = "Weapon OwnedTemporary\n PrimaryDamage = 17\n PrimaryDamageRadius = 10\n DamageType = EXPLOSION\n RadiusDamageAffects = ENEMIES\n ProjectileObject = NONE\n WeaponSpeed = 999999\n ClipSize = 2\n ClipReloadTime = 0\n DelayBetweenShots = 600\nEnd";
+    let (mut world, source, victim) = authored_temporary_world(modules, weapons);
+    world.objects.get_mut(&source).unwrap().apply_upgrade_tag("Upgrade_Conflict");
+    authored_temporary_hit(&mut world, source);
+    assert_eq!(world.objects[&victim].health.current, 83.0);
+}
+
+/// Weapon.cpp:2739-2742 returns PRE_ATTACK without storing it. Otherwise a
+/// later query between the preattack and reload deadlines invents PRE_ATTACK.
+#[test]
+fn temporary_preattack_query_preserves_underlying_reload_status() {
+    let mut state = ready_weapon("Local", FireWeaponWhenDamagedWeaponRole::ReactionPristine);
+    state.status = TemporaryWeaponStatus::BetweenFiringShots;
+    state.when_pre_attack_finished = 5;
+    state.when_we_can_fire_again = 10;
+    assert_eq!(promote_temporary_weapon_status(&mut state, 4), TemporaryWeaponStatus::PreAttack);
+    assert_eq!(state.status, TemporaryWeaponStatus::BetweenFiringShots);
+    assert_eq!(promote_temporary_weapon_status(&mut state, 5), TemporaryWeaponStatus::BetweenFiringShots);
+    assert_eq!(promote_temporary_weapon_status(&mut state, 10), TemporaryWeaponStatus::ReadyToFire);
+}
+
+/// Object::onDamage reenters synchronously through a SELF weapon. The nested
+/// callback spends the later module's clip before the outer walk reaches it;
+/// Weapon.cpp:2614 precedes the firing module's mutation at 2617.
+#[test]
+fn authored_reaction_reentry_uses_current_body_and_private_module_deadline() {
+    let modules = "Behavior = FireWeaponWhenDamagedBehavior First\n StartsActive = Yes\n DamageAmount = 1\n ReactionWeaponPristine = SelfTemporary\n End\n\
+        Behavior = FireWeaponWhenDamagedBehavior Second\n StartsActive = Yes\n DamageAmount = 1\n ReactionWeaponReallyDamaged = RightTemporary\n End";
+    let weapons = [
+        // SELF removes the self veto; ALLIES admits the source relationship.
+        ("SelfTemporary", 70, "SELF ALLIES"),
+        ("RightTemporary", 17, "ENEMIES"),
+    ].into_iter().map(|(name, damage, affects)| format!(
+        "Weapon {name}\n PrimaryDamage = {damage}\n PrimaryDamageRadius = 10\n DamageType = UNRESISTABLE\n RadiusDamageAffects = {affects}\n ProjectileObject = NONE\n WeaponSpeed = 999999\n ClipSize = 2\n ClipReloadTime = 0\n DelayBetweenShots = 600\nEnd\n"
+    )).collect::<String>();
+    let (mut world, source, victim) = authored_temporary_world(modules, &weapons);
+    world.frame = 10;
+    authored_temporary_hit(&mut world, source);
+    assert_eq!(world.objects[&source].health.current, 25.0);
+    assert_eq!(world.objects[&victim].health.current, 83.0);
+    for (index, role) in [
+        (0, FireWeaponWhenDamagedWeaponRole::ReactionPristine),
+        (1, FireWeaponWhenDamagedWeaponRole::ReactionReallyDamaged),
+    ] {
+        let runtime = &world.objects[&source].temporary_weapon_runtime.damaged[index];
+        let weapon = runtime.weapon(TemporaryWeaponRuntimeKey {
+            module_source_index: runtime.module_source_index, role,
+        }).unwrap();
+        assert_eq!(weapon.ammo_in_clip, 1);
+        assert_eq!(weapon.last_fire_frame, 10);
+        assert_eq!(weapon.when_we_can_fire_again, 28);
+    }
+}
+
+/// C++ FireWeaponWhenDeadBehavior.cpp:65-88 consults the controlling player's
+/// upgrades and adds a live conflict veto which the damage callback lacks.
+#[test]
+fn authored_temporary_player_upgrades_are_receiving_owned_and_death_conflicts_stay_live() {
+    let modules = "Behavior = FireWeaponWhenDamagedBehavior Reaction\n StartsActive = No\n TriggeredBy = Upgrade_Activate\n ConflictsWith = Upgrade_Conflict\n DamageAmount = 1\n ReactionWeaponPristine = OwnedTemporary\n End\n\
+        Behavior = FireWeaponWhenDeadBehavior Death\n StartsActive = No\n TriggeredBy = Upgrade_Activate\n ConflictsWith = Upgrade_Conflict\n DeathWeapon = OwnedTemporary\n End";
+    let weapons = "Weapon OwnedTemporary\n PrimaryDamage = 17\n PrimaryDamageRadius = 10\n DamageType = EXPLOSION\n RadiusDamageAffects = ENEMIES\n ProjectileObject = NONE\n WeaponSpeed = 999999\n ClipSize = 2\n ClipReloadTime = 0\n DelayBetweenShots = 0\n FireOCL = OCL_TemporaryConsumer\nEnd";
+    let (mut world, source, victim) = authored_temporary_world(modules, weapons);
+    let (mut peer, peer_source, peer_victim) = authored_temporary_world(modules, weapons);
+    world.players.get_mut(&0).unwrap().completed_upgrades.insert("Upgrade_Activate".into());
+    authored_temporary_hit(&mut world, source);
+    authored_temporary_hit(&mut peer, peer_source);
+    assert_eq!(world.objects[&victim].health.current, 83.0);
+    assert_eq!(peer.objects[&peer_victim].health.current, 100.0);
+    world.players.get_mut(&0).unwrap().completed_upgrades.insert("Upgrade_Conflict".into());
+    authored_temporary_hit(&mut world, source);
+    assert_eq!(world.objects[&victim].health.current, 66.0);
+    world.apply_owned_kill(
+        source, crate::game_logic::combat::DamageType::Unresistable,
+        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+    ).unwrap();
+    assert_eq!(world.objects[&victim].health.current, 66.0);
+    assert_eq!(temporary_children(&world), 2);
+    peer.players.get_mut(&0).unwrap().completed_upgrades.insert("Upgrade_Activate".into());
+    peer.apply_owned_kill(
+        peer_source, crate::game_logic::combat::DamageType::Unresistable,
+        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+    ).unwrap();
+    assert_eq!(peer.objects[&peer_victim].health.current, 83.0);
+    assert_eq!(temporary_children(&peer), 1);
 }

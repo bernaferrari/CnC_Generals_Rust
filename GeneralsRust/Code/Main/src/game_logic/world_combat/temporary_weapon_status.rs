@@ -59,8 +59,7 @@ pub(super) fn promote_temporary_weapon_status(
     logic_frame: u32,
 ) -> TemporaryWeaponStatus {
     if logic_frame < state.when_pre_attack_finished {
-        state.status = TemporaryWeaponStatus::PreAttack;
-        return state.status;
+        return TemporaryWeaponStatus::PreAttack;
     }
     if logic_frame >= state.when_we_can_fire_again {
         state.status = if state.ammo_in_clip > 0 {

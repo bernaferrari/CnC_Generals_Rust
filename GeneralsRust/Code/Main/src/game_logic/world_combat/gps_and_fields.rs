@@ -737,6 +737,9 @@ impl GameLogic {
     /// Enclosed riders (`contained_by`) are not partition-registered
     /// (C++ OpenContain::addToContain → unRegisterObject); live snaps them
     /// to the hull so they must be excluded from the radius scan.
+    /// Each tower dispatches scan removals, then its inside list in C++ order.
+    /// Every changed condition synchronously restarts the receiving weapon clock;
+    /// overlapping towers do not union their flags or erase each other's events.
     pub fn update_propaganda_tower_pulse(&mut self, dt: f32) {
         self.update_propaganda_tower_pulse_with_effects(
             dt,
@@ -759,7 +762,6 @@ impl GameLogic {
             propaganda_source_suppressed, should_play_propaganda_pulse_fx,
         };
         use gamelogic::common::Relationship;
-        use std::collections::{HashMap, HashSet};
 
         if dt <= 0.0 {
             return;
@@ -776,9 +778,9 @@ impl GameLogic {
             stealthed: bool,
             detected: bool,
             contained_by: Option<ObjectId>,
+            inactive: bool,
         }
 
-        let mut inactive: Vec<ObjectId> = Vec::new();
         let mut towers: Vec<TowerSnap> = Vec::new();
         for (id, obj) in self.objects.registered() {
             let is_source = obj.authors_behavior_module("PropagandaTowerBehavior")
@@ -798,16 +800,12 @@ impl GameLogic {
                 obj.is_kind_of(KindOf::Vehicle),
                 obj.is_kind_of(KindOf::PortableStructure),
             );
-            if !obj.is_alive()
+            let inactive = !obj.is_alive()
                 || obj.status.under_construction
                 || obj.construction_percent + 0.001 < 1.0
                 || obj.status.sold
                 || obj.has_disabled_type_except_held()
-                || suppressed
-            {
-                inactive.push(*id);
-                continue;
-            }
+                || suppressed;
             let overlord_style = obj.is_kind_of(KindOf::PortableStructure)
                 || obj.authors_innate_propaganda_tower();
             let controlling = obj.owner_player_id.and_then(|pid| {
@@ -841,129 +839,95 @@ impl GameLogic {
                 stealthed: obj.status.stealthed,
                 detected: obj.status.detected,
                 contained_by: obj.contained_by,
+                inactive,
             });
         }
-
-        for id in inactive {
-            let _ = self.propaganda_scan.take_tower(id);
-        }
-
-        if towers.is_empty() {
-            self.propaganda_scan.clear();
-            for obj in self.objects.registered_values_mut() {
-                if obj.weapon_bonus_enthusiastic || obj.weapon_bonus_subliminal {
-                    obj.weapon_bonus_enthusiastic = false;
-                    obj.weapon_bonus_subliminal = false;
-                }
-            }
-            return;
-        }
-
-        let candidates: Vec<(ObjectId, Team, f32, f32, Option<u32>)> = self
-            .objects
-            .registered()
-            .filter_map(|(id, obj)| {
-                if !obj.is_alive() || obj.is_kind_of(KindOf::Structure) {
-                    return None;
-                }
-                if obj.status.under_construction {
-                    return None;
-                }
-                // C++ OpenContain.cpp:320-322: enclosing contain unregisters
-                // the rider from PartitionManager, so doScan never sees them.
-                if obj.contained_by.is_some() {
-                    return None;
-                }
-                let pos = obj.get_position();
-                Some((*id, obj.team, pos.x, pos.z, obj.owner_player_id))
-            })
-            .collect();
 
         let frame = self.frame;
         let delay = HOST_PROPAGANDA_DELAY_BETWEEN_UPDATES_FRAMES;
         let local_pid = self.local_player_id();
-        let due: Vec<ObjectId> = towers
-            .iter()
-            .filter(|t| self.propaganda_scan.should_scan(t.id, frame, delay))
-            .map(|t| t.id)
-            .collect();
-
-        for tower in &towers {
-            if !due.iter().any(|id| *id == tower.id) {
-                continue;
-            }
-            let mut new_inside = Vec::new();
-            for (target_id, target_team, cx, cz, target_owner) in &candidates {
-                let is_self = *target_id == tower.id;
-                if is_self && !tower.overlord_style {
-                    continue;
-                }
-                let is_ally = match (tower.owner, *target_owner) {
-                    (Some(a), Some(b)) => self.player_relationship(a, b) == Relationship::Allies,
-                    _ => tower.team == *target_team && tower.team != Team::Neutral,
-                };
-                if !is_legal_propaganda_target(
-                    false,
-                    true,
-                    is_ally,
-                    is_self && !tower.overlord_style,
-                    false,
-                ) {
-                    continue;
-                }
-                if !in_propaganda_radius_2d(
-                    (tower.x, tower.z),
-                    (*cx, *cz),
-                    HOST_PROPAGANDA_TOWER_RADIUS,
-                ) {
-                    continue;
-                }
-                new_inside.push(*target_id);
-            }
-            self.propaganda_scan.set_inside(tower.id, new_inside);
-            self.propaganda_scan.mark_scanned(tower.id, frame);
-
-            let container = tower.contained_by.and_then(|cid| self.objects.get(&cid));
-            let do_fx = should_play_propaganda_pulse_fx(
-                local_pid.is_some() && local_pid == tower.owner,
-                tower.stealthed,
-                tower.detected,
-                tower.contained_by.is_some(),
-                container.is_some_and(|c| c.status.stealthed),
-                container.is_some_and(|c| c.status.detected),
-            );
-            if do_fx {
-                let fx = if tower.upgraded {
-                    PROPAGANDA_UPGRADED_PULSE_FX
-                } else {
-                    PROPAGANDA_PULSE_FX
-                };
-                // C++ PropagandaTowerBehavior.cpp:450-456 doFXObj(pulse, us).
-                let _ = self.dispatch_fx_list_at_host_object_with_effects(
-                    fx,
-                    tower.id,
-                    None,
-                    presentation_effects,
-                );
-            }
-        }
-
-        let mut coverage: HashMap<ObjectId, (bool, bool)> = HashMap::new();
-        for tower in &towers {
-            for &tid in self.propaganda_scan.inside(tower.id) {
-                let entry = coverage.entry(tid).or_insert((false, false));
-                entry.0 |= tower.upgraded;
-                entry.1 |= tower.overlord_style;
-            }
-        }
-        let covered: HashSet<ObjectId> = coverage.keys().copied().collect();
-
         let mut heal_ticks: u32 = 0;
         let mut buff_ticks: u32 = 0;
-        // Weapon bonus grant (effectLogic:280-292) stays per covered object.
-        for (target_id, (upgraded, _overlord_style)) in &coverage {
-            {
-                let Some(target) = self.objects.get_mut(target_id) else {
+        for tower in &towers {
+            if tower.inactive {
+                self.remove_propaganda_tower_influence(tower.id);
+                continue;
+            }
+            if self.propaganda_scan.should_scan(tower.id, frame, delay) {
+                // doScan plays its FX before membership removals.
+                let container = tower.contained_by.and_then(|cid| self.objects.get(&cid));
+                let do_fx = should_play_propaganda_pulse_fx(
+                    local_pid.is_some() && local_pid == tower.owner,
+                    tower.stealthed,
+                    tower.detected,
+                    tower.contained_by.is_some(),
+                    container.is_some_and(|c| c.status.stealthed),
+                    container.is_some_and(|c| c.status.detected),
+                );
+                if do_fx {
+                    let fx = if tower.upgraded {
+                        PROPAGANDA_UPGRADED_PULSE_FX
+                    } else {
+                        PROPAGANDA_PULSE_FX
+                    };
+                    let _ = self.dispatch_fx_list_at_host_object_with_effects(
+                        fx,
+                        tower.id,
+                        None,
+                        presentation_effects,
+                    );
+                }
+
+                let candidates = self.partition_manager.ids_in_radius_iterator_order(
+                    tower.x, tower.z, HOST_PROPAGANDA_TOWER_RADIUS, |_| true,
+                );
+                let mut new_inside = Vec::new();
+                for raw in candidates {
+                    let target_id = ObjectId(raw);
+                    let Some(target) = self.objects.get(&target_id) else {
+                        continue;
+                    };
+                    // Enclosed riders are not eligible partition scan members.
+                    if target.contained_by.is_some() {
+                        continue;
+                    }
+                    let is_ally = match (tower.owner, target.owner_player_id) {
+                        (Some(a), Some(b)) => self.player_relationship(a, b) == Relationship::Allies,
+                        _ => tower.team == target.team && tower.team != Team::Neutral,
+                    };
+                    if !is_legal_propaganda_target(
+                        target.is_kind_of(KindOf::Structure),
+                        target.is_alive(),
+                        is_ally,
+                        target_id == tower.id && !tower.overlord_style,
+                        target.status.under_construction,
+                    ) {
+                        continue;
+                    }
+                    let pos = target.get_position();
+                    if in_propaganda_radius_2d(
+                        (tower.x, tower.z), (pos.x, pos.z), HOST_PROPAGANDA_TOWER_RADIUS,
+                    ) {
+                        new_inside.push(target_id);
+                    }
+                }
+                // C++ prepends each partition result to newInsideList.
+                new_inside.reverse();
+                for index in 0..self.propaganda_scan.inside(tower.id).len() {
+                    let target_id = self.propaganda_scan.inside(tower.id)[index];
+                    if !new_inside.contains(&target_id) {
+                        self.set_propaganda_weapon_conditions(target_id, false, false);
+                    }
+                }
+                self.propaganda_scan.set_inside(tower.id, new_inside);
+                self.propaganda_scan.mark_scanned(tower.id, frame);
+            }
+
+            // effectLogic grants ENTHUSIASTIC, then (only when upgraded)
+            // SUBLIMINAL, then heals. A base tower never clears SUBLIMINAL.
+            for index in 0..self.propaganda_scan.inside(tower.id).len() {
+                let target_id = self.propaganda_scan.inside(tower.id)[index];
+                let Some(target) = self.objects.get(&target_id) else {
                     continue;
                 };
                 if !target.is_alive()
@@ -976,7 +940,6 @@ impl GameLogic {
                 {
                     continue;
                 }
-
                 let unarmed_worker = target.is_kind_of(KindOf::Dozer)
                     || target.is_kind_of(KindOf::Worker)
                     || target.is_kind_of(KindOf::Harvester);
@@ -986,54 +949,17 @@ impl GameLogic {
                 let bound_damage = [0u8, 1, 2]
                     .into_iter()
                     .any(|slot| target.weapon_slot(slot).is_some_and(|w| w.damage > 0.0));
-
                 if propaganda_applies_weapon_bonus(host_has_any_damage_weapon(
-                    bound_damage,
-                    unarmed_worker,
-                    authored,
-                )) {
-                    let mut granted = false;
-                    if !target.weapon_bonus_enthusiastic {
-                        target.weapon_bonus_enthusiastic = true;
-                        granted = true;
-                    }
-                    if *upgraded {
-                        if !target.weapon_bonus_subliminal {
-                            target.weapon_bonus_subliminal = true;
-                            granted = true;
-                        }
-                    } else if target.weapon_bonus_subliminal {
-                        target.weapon_bonus_subliminal = false;
-                    }
-                    if granted {
-                        buff_ticks = buff_ticks.saturating_add(1);
-                    }
+                    bound_damage, unarmed_worker, authored,
+                )) && self.set_propaganda_weapon_conditions(target_id, true, tower.upgraded) {
+                    buff_ticks = buff_ticks.saturating_add(1);
                 }
-            }
-        }
-
-        // C++ PropagandaTowerBehavior::effectLogic:296-313 — each tower, in
-        // its own inside-list order, heals with ITS upgrade state through
-        // Object::attemptHealingFromSoleBenefactor(amount, tower, scanDelay).
-        // The claim is taken before (and independent of) the Body clip, and a
-        // second tower cannot heal until the first claim expires.
-        for tower in &towers {
-            let inside: Vec<ObjectId> = self.propaganda_scan.inside(tower.id).to_vec();
-            for target_id in inside {
+                // Preserve continuous healing and the sole-benefactor claim:
+                // later towers cannot heal until the first claim expires.
                 let heal = {
                     let Some(target) = self.objects.get_mut(&target_id) else {
                         continue;
                     };
-                    if !target.is_alive()
-                        || !is_propaganda_score_kind(
-                            target.is_kind_of(KindOf::Score),
-                            target.is_kind_of(KindOf::ScoreCreate),
-                            target.is_kind_of(KindOf::ScoreDestroy),
-                            target.is_kind_of(KindOf::MpCountForVictory),
-                        )
-                    {
-                        continue;
-                    }
                     let max_hp = target.health.maximum.max(target.max_health);
                     let heal_amt = if tower.overlord_style {
                         overlord_propaganda_heal_amount(max_hp, tower.upgraded, dt)
@@ -1066,22 +992,50 @@ impl GameLogic {
             }
         }
 
-        for (id, obj) in self.objects.registered_mut() {
-            if covered.contains(id) {
-                continue;
-            }
-            if obj.weapon_bonus_enthusiastic || obj.weapon_bonus_subliminal {
-                obj.weapon_bonus_enthusiastic = false;
-                obj.weapon_bonus_subliminal = false;
-            }
-        }
-
         for _ in 0..heal_ticks {
             self.record_propaganda_residual_heal();
         }
         for _ in 0..buff_ticks {
             self.record_propaganda_residual_buff();
         }
+    }
+
+    /// PropagandaTowerBehavior::onDie/onDelete/removeAllInfluence.
+    pub(in crate::game_logic) fn remove_propaganda_tower_influence(&mut self, tower: ObjectId) {
+        for target in self.propaganda_scan.take_tower(tower) {
+            self.set_propaganda_weapon_conditions(target, false, false);
+        }
+    }
+
+    fn set_propaganda_weapon_conditions(
+        &mut self,
+        target_id: ObjectId,
+        giving: bool,
+        upgraded: bool,
+    ) -> bool {
+        let mut changed = false;
+        // effectLogic clears in the same order as it grants. Each bit change
+        // is a separate WeaponSet callback, including unchanged numeric ROF.
+        for subliminal in [false, true] {
+            if giving && subliminal && !upgraded {
+                continue;
+            }
+            let Some(target) = self.objects.get_mut(&target_id) else {
+                break;
+            };
+            let bit = if subliminal {
+                &mut target.weapon_bonus_subliminal
+            } else {
+                &mut target.weapon_bonus_enthusiastic
+            };
+            if *bit == giving {
+                continue;
+            }
+            *bit = giving;
+            self.notify_owned_weapon_bonus_change(target_id);
+            changed = true;
+        }
+        changed
     }
 
     /// Host USA Ambulance AutoHeal residual: heal damaged ally infantry + vehicles in radius.
@@ -1431,6 +1385,231 @@ mod tests {
         logic.templates.insert("TestInfantry".to_string(), inf);
     }
 
+    fn propaganda_clock_world() -> (GameLogic, [ObjectId; 2], Vec<ObjectId>) {
+        let mut game = GameLogic::new();
+        // No numerical ROF bonus: each genuine bit transition must still draw.
+        game.admit_weapon_bonus_entries(&[]);
+        let mut rule = gamelogic::weapon::WeaponTemplate::new("PropagandaClockGun".into());
+        rule.primary_damage = 1.0;
+        rule.attack_range = 1000.0;
+        rule.min_delay_between_shots = 600;
+        rule.max_delay_between_shots = 900;
+        rule.clip_size = 0;
+        rule.projectile_name = "NONE".into();
+        game.admit_receiving_weapon_snapshot(vec![(rule.name.clone(), rule)]).unwrap();
+        // Receiving admission is authoritative for every spawned object; a
+        // synthetic host template cannot supply a missing tower definition.
+        // Author the behavior as well as the body so production discovers the
+        // source by module, not the legacy ChinaSpeakerTower name fallback.
+        game.admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "propaganda-clock.ini".into(),
+                "Object PropagandaClockActor\nKindOf = INFANTRY CAN_ATTACK SCORE\n\
+                 WeaponSet\nConditions = None\nWeapon = PRIMARY PropagandaClockGun\nEnd\n\
+                 Body = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\n\
+                 Behavior = AIUpdateInterface AI\nEnd\nEnd\n\
+                 Object ChinaSpeakerTower\nKindOf = STRUCTURE SELECTABLE\n\
+                 Body = ActiveBody BodyTag\nMaxHealth = 300\nInitialHealth = 300\nEnd\n\
+                 Behavior = PropagandaTowerBehavior Tower\nRadius = 150\n\
+                 DelayBetweenUpdates = 2000\nHealPercentEachSecond = 2%\n\
+                 UpgradedHealPercentEachSecond = 4%\n\
+                 UpgradeRequired = Upgrade_ChinaSubliminalMessaging\nEnd\nEnd\n".into(),
+            )]).unwrap(),
+        ).unwrap();
+        for id in [1, 2] {
+            let mut player = Player::new(id, Team::China, "TowerOwner", id == 1);
+            player.alliance_team = 1;
+            player.add_completed_upgrade(
+                crate::game_logic::host_propaganda::UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
+            );
+            game.add_player(player);
+        }
+        let mut enemy = Player::new(3, Team::USA, "Enemy", false);
+        enemy.alliance_team = 3;
+        game.add_player(enemy);
+        for owner in [1, 2] {
+            game.create_object_for_player("ChinaSpeakerTower", owner, Vec3::ZERO).unwrap();
+        }
+        let towers: Vec<_> = game.objects.registered()
+            .filter(|(_, object)| object.template_name == "ChinaSpeakerTower")
+            .map(|(id, _)| *id).collect();
+        let mut recipients = Vec::new();
+        for x in [10.0, 20.0] {
+            recipients.push(game.create_object_for_player(
+                "PropagandaClockActor", 1, Vec3::new(x, 0.0, 0.0),
+            ).unwrap());
+        }
+        let enemy = game.create_object_for_player(
+            "PropagandaClockActor", 3, Vec3::new(400.0, 0.0, 0.0),
+        ).unwrap();
+        game.frame = 15;
+        for &recipient in &recipients {
+            assert!(game.fire_owned_passive_weapon(recipient, enemy, 0, Vec3::ZERO));
+            game.host_object_mut(recipient).unwrap().health.current = 40.0;
+        }
+        game.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+        // Lock the source contract: doScan prepends its partition iterator.
+        let mut inside: Vec<_> = game.partition_manager
+            .ids_in_radius_iterator_order(0.0, 0.0, 150.0, |id| recipients.contains(&ObjectId(id)))
+            .into_iter().map(ObjectId).collect();
+        inside.reverse();
+        assert_eq!(inside.len(), 2);
+        game.logic_random.seed_random(0x51A7);
+        (game, [towers[0], towers[1]], inside)
+    }
+
+    fn assert_propaganda_clock_events(
+        game: &GameLogic,
+        random: &game_engine::common::random_value::SessionRandom,
+        inside: &[ObjectId],
+        callbacks_per_target: usize,
+    ) {
+        for &id in inside {
+            let mut deadline = 0;
+            for _ in 0..callbacks_per_target {
+                deadline = game.frame + random.next_int(600, 900) as u32;
+            }
+            let weapon = game.host_object(id).unwrap().weapon_slot(0).unwrap();
+            assert_eq!(weapon.next_fire_frame, deadline);
+            assert_eq!(weapon.reload_started_frame, game.frame);
+            assert_eq!(weapon.last_bonus_rof, 1.0);
+        }
+        assert_eq!(game.logic_random.seed_words(), random.seed_words());
+    }
+
+    #[test]
+    fn propaganda_clock_enthusiastic_callback_precedes_subliminal_callback() {
+        let (mut game, _, inside) = propaganda_clock_world();
+        game.admit_weapon_bonus_entries(&[
+            game_engine::common::ini::ini_game_data::WeaponBonusEntry {
+                condition: "ENTHUSIASTIC".into(),
+                field: "RATE_OF_FIRE".into(),
+                value: 10000.0,
+            },
+        ]);
+        let expected = game_engine::common::random_value::SessionRandom::from_state(
+            game.logic_random.snapshot(),
+        );
+        game.update_propaganda_tower_pulse(1.0 / 30.0);
+        for &id in &inside {
+            // ENTHUSIASTIC's first restart floors the delay to zero. The
+            // subsequent SUBLIMINAL callback now sees READY and must not draw.
+            // Reversing the conditions would consume two draws per recipient.
+            expected.next_int(600, 900);
+            let target = game.host_object(id).unwrap();
+            assert!(target.weapon_bonus_enthusiastic && target.weapon_bonus_subliminal);
+            let weapon = target.weapon_slot(0).unwrap();
+            assert_eq!(weapon.next_fire_frame, game.frame);
+            assert_eq!(weapon.reload_started_frame, game.frame);
+        }
+        assert_eq!(game.logic_random.seed_words(), expected.seed_words());
+    }
+
+    #[test]
+    fn propaganda_clock_dispatches_each_bit_in_inside_order_without_numeric_rof_change() {
+        let (mut game, _, inside) = propaganda_clock_world();
+        let expected = game_engine::common::random_value::SessionRandom::from_state(
+            game.logic_random.snapshot(),
+        );
+        game.update_propaganda_tower_pulse(1.0 / 30.0);
+        assert_propaganda_clock_events(&game, &expected, &inside, 2);
+        for &id in &inside {
+            let target = game.host_object(id).unwrap();
+            assert!(target.weapon_bonus_enthusiastic && target.weapon_bonus_subliminal);
+            // Two towers still deliver only the first benefactor's one tick.
+            assert!((target.health.current - (40.0 + 4.0 / 30.0)).abs() < 0.0001);
+        }
+        let deadlines: Vec<_> = inside.iter()
+            .map(|id| game.host_object(*id).unwrap().weapon_slot(0).unwrap().next_fire_frame)
+            .collect();
+        game.frame += 1;
+        game.update_propaganda_tower_pulse(1.0 / 30.0);
+        assert_eq!(game.logic_random.seed_words(), expected.seed_words());
+        for (&id, deadline) in inside.iter().zip(deadlines) {
+            assert_eq!(game.host_object(id).unwrap().weapon_slot(0).unwrap().next_fire_frame, deadline);
+        }
+    }
+
+    #[test]
+    fn propaganda_clock_preserves_overlapping_tower_remove_then_regrant_order() {
+        for leaving_index in [0, 1] {
+            for disabled in [false, true] {
+                let (mut game, towers, inside) = propaganda_clock_world();
+                game.update_propaganda_tower_pulse(1.0 / 30.0);
+                game.frame += 60;
+                if disabled {
+                    game.host_object_mut(towers[leaving_index]).unwrap().status.disabled_emp = true;
+                } else {
+                    game.set_fixture_object_position(towers[leaving_index], Vec3::new(1000.0, 0.0, 0.0));
+                }
+                let expected = game_engine::common::random_value::SessionRandom::from_state(
+                    game.logic_random.snapshot(),
+                );
+                // C++ removes the entire first list before the next tower
+                // grants. Consume removal draws in target order first.
+                if leaving_index == 0 {
+                    for _ in &inside {
+                        expected.next_int(600, 900);
+                        expected.next_int(600, 900);
+                    }
+                }
+                game.update_propaganda_tower_pulse(1.0 / 30.0);
+                assert_propaganda_clock_events(&game, &expected, &inside, 2);
+                for &id in &inside {
+                    let target = game.host_object(id).unwrap();
+                    assert_eq!(target.weapon_bonus_enthusiastic, leaving_index == 0);
+                    assert_eq!(target.weapon_bonus_subliminal, leaving_index == 0);
+                }
+                // A later surviving tower will regrant next tick, not via a
+                // coverage union at the end of this tick.
+                if leaving_index == 1 {
+                    game.frame += 1;
+                    game.update_propaganda_tower_pulse(1.0 / 30.0);
+                    assert_propaganda_clock_events(&game, &expected, &inside, 2);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn propaganda_clock_delete_clears_immediately_even_with_another_tower_covering() {
+        let (mut game, towers, inside) = propaganda_clock_world();
+        game.update_propaganda_tower_pulse(1.0 / 30.0);
+        game.frame += 1;
+        let expected = game_engine::common::random_value::SessionRandom::from_state(
+            game.logic_random.snapshot(),
+        );
+        game.destroy_object(towers[0]).unwrap();
+        assert_propaganda_clock_events(&game, &expected, &inside, 2);
+        for &id in &inside {
+            let target = game.host_object(id).unwrap();
+            assert!(!target.weapon_bonus_enthusiastic && !target.weapon_bonus_subliminal);
+        }
+        assert!(game.propaganda_scan.inside(towers[0]).is_empty());
+        game.destroy_object(towers[0]).unwrap();
+        assert_eq!(game.logic_random.seed_words(), expected.seed_words());
+        game.update_propaganda_tower_pulse(1.0 / 30.0);
+        assert_propaganda_clock_events(&game, &expected, &inside, 2);
+    }
+
+    #[test]
+    fn propaganda_clock_base_tower_does_not_clear_an_existing_subliminal_bit() {
+        let (mut game, towers, inside) = propaganda_clock_world();
+        game.update_propaganda_tower_pulse(1.0 / 30.0);
+        for tower in towers {
+            let owner = game.host_object(tower).unwrap().owner_player_id.unwrap();
+            game.get_player_mut(owner).unwrap().completed_upgrades.clear();
+            game.get_player_mut(owner).unwrap().unlocked_sciences.clear();
+        }
+        let before = game.logic_random.seed_words();
+        game.frame += 1;
+        game.update_propaganda_tower_pulse(1.0 / 30.0);
+        for &id in &inside {
+            assert!(game.host_object(id).unwrap().weapon_bonus_subliminal);
+        }
+        assert_eq!(game.logic_random.seed_words(), before);
+    }
+
     /// C++ PropagandaTowerBehavior.cpp:177-188 — EMP/underpowered (not HELD)
     /// stops the pulse and removeAllInfluence clears ENTHUSIASTIC.
     #[test]
@@ -1450,6 +1629,7 @@ mod tests {
             let _ = unit.take_damage(40.0, 0, &mut health_events);
         }
 
+        logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
         {
             let unit = logic.host_object(unit_id).expect("unit");
@@ -1465,6 +1645,7 @@ mod tests {
             tower.set_status_disabled_emp(true);
             assert!(tower.is_disabled());
         }
+        logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
         {
             let unit = logic.host_object(unit_id).expect("unit");
@@ -1486,6 +1667,7 @@ mod tests {
             tower.contained_by = Some(ObjectId(99));
             assert!(!tower.is_disabled());
         }
+        logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
         {
             let unit = logic.host_object(unit_id).expect("unit");
@@ -1515,6 +1697,7 @@ mod tests {
             let _ = unit.take_damage(40.0, 0, &mut health_events);
         }
 
+        logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
         {
             let unit = logic.host_object(unit_id).expect("unit");
@@ -1530,6 +1713,7 @@ mod tests {
             tower.set_status_sold(true);
             assert!(tower.is_alive(), "sold tower is still alive during sell");
         }
+        logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
         {
             let unit = logic.host_object(unit_id).expect("unit");
@@ -1573,6 +1757,7 @@ mod tests {
             let _ = unit.take_damage(40.0, 0, &mut health_events);
         }
         let before = logic.host_object(unit_id).expect("unit").health.current;
+        logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
         let unit = logic.host_object(unit_id).expect("unit");
         assert!(!unit.weapon_bonus_enthusiastic);
@@ -1589,6 +1774,7 @@ mod tests {
         let unit_id = logic
             .create_object("TestInfantry", Team::China, Vec3::new(250.0, 0.0, 0.0))
             .expect("unit");
+        logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
         assert!(
             !logic
@@ -1598,6 +1784,7 @@ mod tests {
         );
 
         logic.set_fixture_object_position(unit_id, Vec3::new(20.0, 0.0, 0.0));
+        logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
         assert!(
             !logic
@@ -1609,6 +1796,7 @@ mod tests {
 
         logic.frame +=
             crate::game_logic::host_propaganda::HOST_PROPAGANDA_DELAY_BETWEEN_UPDATES_FRAMES;
+        logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
         assert!(
             logic
@@ -1618,6 +1806,7 @@ mod tests {
         );
 
         logic.set_fixture_object_position(unit_id, Vec3::new(300.0, 0.0, 0.0));
+        logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
         assert!(
             logic
@@ -1628,6 +1817,7 @@ mod tests {
         );
         logic.frame +=
             crate::game_logic::host_propaganda::HOST_PROPAGANDA_DELAY_BETWEEN_UPDATES_FRAMES;
+        logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
         assert!(
             !logic
@@ -1670,6 +1860,7 @@ mod tests {
             let _ = unit.take_damage(30.0, 0, &mut health_events);
         }
         let before = logic.host_object(unit_id).unwrap().health.current;
+        logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
         let unit = logic.host_object(unit_id).unwrap();
         assert!(!unit.weapon_bonus_enthusiastic);
@@ -1693,6 +1884,7 @@ mod tests {
         let unit_id = logic
             .create_object_for_player("TestInfantry", 2, Vec3::new(20.0, 0.0, 0.0))
             .expect("ally");
+        logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
         assert!(
             logic
@@ -1739,6 +1931,7 @@ mod tests {
         }
         let dozer_before = logic.host_object(dozer_id).unwrap().health.current;
         logic.frame = 1;
+        logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
         assert!(
             !logic
@@ -1796,6 +1989,7 @@ mod tests {
             Some(7)
         );
 
+        logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
         {
             let unit = logic.host_object(unit_id).expect("unit");
@@ -1815,6 +2009,7 @@ mod tests {
                 crate::game_logic::host_propaganda::UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
             );
         }
+        logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
         {
             let unit = logic.host_object(unit_id).expect("unit");

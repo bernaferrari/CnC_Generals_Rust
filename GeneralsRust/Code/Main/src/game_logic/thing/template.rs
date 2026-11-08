@@ -1832,6 +1832,10 @@ impl ThingTemplate {
             reload_time,
             last_fire_time: 0.0,
             last_fire_frame: 0,
+            next_fire_frame: 0,
+            reload_started_frame: 0,
+            frame_clock_active: false,
+            frame_clock_status: Default::default(),
             ammo: if wt.clip_size > 0 {
                 Some(wt.clip_size as u32)
             } else {
@@ -1964,8 +1968,7 @@ impl ThingTemplate {
         if self.auto_choose_masks.get(1).copied() != Some(u32::MAX) {
             return;
         }
-        if crate::game_logic::host_jarmen_kell::is_jarmen_kell_template(&self.name)
-            || crate::game_logic::host_missile_defender::is_missile_defender_template(&self.name)
+        if crate::game_logic::host_missile_defender::is_missile_defender_template(&self.name)
             || crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(&self.name)
         {
             self.auto_choose_masks[1] = 0;
@@ -1988,11 +1991,9 @@ impl ThingTemplate {
         // Missing INI still must not auto-pick retail button-only secondaries.
         if slot == 1
             && mask == u32::MAX
-            && (crate::game_logic::host_jarmen_kell::is_jarmen_kell_template(&self.name)
-                || crate::game_logic::host_missile_defender::is_missile_defender_template(
-                    &self.name,
-                )
-                || crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(&self.name))
+            && (crate::game_logic::host_missile_defender::is_missile_defender_template(
+                &self.name,
+            ) || crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(&self.name))
         {
             return false;
         }

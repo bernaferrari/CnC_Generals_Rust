@@ -1481,3 +1481,112 @@ fn microwave_emitter_damages_nearby_enemy_infantry() {
     );
     assert!(logic.honesty_microwave_emitter_ok());
 }
+
+/// hq-2qedt.290: C++ BunkerBusterBehavior rides the authored StealthJetMissile
+/// weapon, not the carrier's template name.
+fn bunker_buster_blasts_for_fighter(template: &str, primary_weapon: &str) -> u32 {
+    use crate::game_logic::host_bunker_buster::UPGRADE_AMERICA_BUNKER_BUSTERS;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_garrison_template(&mut game_logic);
+    let mut tpl = crate::game_logic::ThingTemplate::new(template);
+    tpl.add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(160.0)
+        .set_primary_weapon_name(primary_weapon);
+    game_logic.templates.insert(template.to_string(), tpl);
+    let jet = game_logic
+        .create_object(template, Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("jet");
+    let bunker = game_logic
+        .create_object("TestBunker", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+        .expect("bunker");
+    game_logic
+        .host_object_mut(jet)
+        .unwrap()
+        .apply_upgrade_tag(UPGRADE_AMERICA_BUNKER_BUSTERS);
+    let _ = game_logic.apply_stealth_fighter_residual_at(
+        Vec3::new(50.0, 0.0, 0.0),
+        Some(jet),
+        Some(bunker),
+    );
+    game_logic.bunker_buster_residual().blasts
+}
+
+#[test]
+fn bunker_buster_follows_authored_weapon_not_template_name() {
+    assert!(
+        bunker_buster_blasts_for_fighter("OpaqueCarrier", "StealthJetMissileWeapon") > 0,
+        "authored StealthJetMissileWeapon with the upgrade must bust regardless of name"
+    );
+    assert_eq!(
+        bunker_buster_blasts_for_fighter("AmericaJetStealthFighter", "RangerAdvancedCombatRifle"),
+        0,
+        "a stealth-fighter-named template without the authored missile must not bust"
+    );
+}
+
+/// hq-2qedt.286: Quad Cannon barrel tiers apply to the authored QuadCannonGun
+/// WeaponSet, not to templates whose name merely says QuadCannon.
+#[test]
+fn quad_cannon_barrel_tier_follows_authored_weapon_not_template_name() {
+    use crate::game_logic::host_quad_cannon::QuadCannonBarrelTier;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut ids = Vec::new();
+    for (name, weapon) in [
+        ("OpaqueFlakChassis", "QuadCannonGun"),
+        ("GLAVehicleQuadCannon", "RangerAdvancedCombatRifle"),
+    ] {
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0)
+            .set_primary_weapon_name(weapon);
+        game_logic.templates.insert(name.to_string(), tpl);
+        ids.push(
+            game_logic
+                .create_object(name, Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+                .expect("quad"),
+        );
+    }
+    assert!(game_logic.apply_quad_cannon_barrel_tier(ids[0], QuadCannonBarrelTier::One));
+    assert!(!game_logic.apply_quad_cannon_barrel_tier(ids[1], QuadCannonBarrelTier::One));
+}
+
+/// hq-2qedt.288: Chain Guns act on the authored MiniGunner WeaponSet, not the
+/// template name (WeaponBonus upgrade applies to the object's weapons).
+#[test]
+fn minigunner_chain_guns_follow_authored_weapon_not_template_name() {
+    use crate::game_logic::host_minigunner::MINIGUNNER_GUN;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut ids = Vec::new();
+    for (name, weapon) in [
+        ("OpaqueInfantry", MINIGUNNER_GUN),
+        ("ChinaInfantryMiniGunner", "RangerAdvancedCombatRifle"),
+    ] {
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0)
+            .set_primary_weapon_name(weapon);
+        game_logic.templates.insert(name.to_string(), tpl);
+        ids.push(
+            game_logic
+                .create_object(name, Team::China, Vec3::new(0.0, 0.0, 0.0))
+                .expect("minigunner"),
+        );
+    }
+    assert!(game_logic.apply_minigunner_chain_guns_upgrade(ids[0]));
+    assert!(!game_logic.apply_minigunner_chain_guns_upgrade(ids[1]));
+}

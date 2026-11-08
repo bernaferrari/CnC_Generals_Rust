@@ -757,14 +757,7 @@ use geometry::{
     cross_2d, line_in_region, path_with_map_variants, point_in_convex_quad, point_in_rotated_rect,
 };
 
-// Global terrain logic instance
-lazy_static! {
-    pub static ref THE_TERRAIN_LOGIC: Arc<RwLock<TerrainLogic>> =
-        Arc::new(RwLock::new(TerrainLogic::new()));
-}
-
-/// Get reference to global terrain logic instance
-/// Convenience accessor for terrain queries
+/// The published world's terrain logic (C++ `TheTerrainLogic`).
 pub fn get_terrain_logic() -> Arc<RwLock<TerrainLogic>> {
     Arc::clone(crate::system::engine_stores::active_services().terrain())
 }

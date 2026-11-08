@@ -13,7 +13,6 @@ impl PathfindingSystem {
             ai_definitions: std::sync::Arc::new(game_engine::common::ini::AIData::default()),
             grid: PathfindingGrid::new_with_origin(origin, world_width, world_height, GRID_SIZE),
             map_ready: false,
-            flow_fields: HashMap::new(),
             logic_frame: 0,
             dynamic_obstacle_frame: u64::MAX,
             crate_astar: None,
@@ -90,9 +89,16 @@ impl PathfindingSystem {
             self.seeker_can_path_through_units = false;
             self.grid.query_ignore_unit_id = 0;
         }
+        // This search's occupancy checks observe each occupant as this seeker does.
+        self.grid.bind_query_occupants(objects, self.seeker_id);
     }
 
     /// C++ getRelationship == ALLIES bits for occupancy crush-through.
+    #[cfg(test)]
+    pub(crate) fn players_are_pathfind_allies(&self, a: u32, b: u32) -> bool {
+        self.grid.ally_mask_for(a) & (1u16 << b.min(15)) != 0
+    }
+
     pub fn set_player_ally_masks(&mut self, masks: [u16; 16]) {
         self.grid.set_player_ally_masks(masks);
     }
@@ -191,8 +197,8 @@ impl PathfindingSystem {
         dest: Vec3,
         ground_source: &PathfindingGround<'_>,
     ) -> Vec3 {
-        self.grid.update_dynamic_obstacles(objects, ground_source);
         self.grid.query_seeker_id = seeker;
+        self.grid.update_dynamic_obstacles(objects, ground_source);
         let unit_radius = objects
             .lookup(&ObjectId(seeker))
             .map(|o| o.geometry_info().bounding_circle_radius())
@@ -236,9 +242,10 @@ impl PathfindingSystem {
             self.grid.update_dynamic_obstacles(objects, ground_source);
             self.dynamic_obstacle_frame = self.logic_frame;
         } else {
-            // Object ownership can change between searches in one logic frame.
-            self.grid.refresh_goal_owner_masks(objects);
-            self.grid.refresh_position_owner_facts(objects);
+            // Object ownership can change between searches in one logic frame;
+            // occupants are resolved again for this search.
+            let seeker = ObjectId(self.grid.query_seeker_id);
+            self.grid.bind_query_occupants(objects, Some(seeker));
         }
     }
 
@@ -740,7 +747,6 @@ impl PathfindingSystem {
             let grid = &self.grid;
             let seeker = self.seeker_player;
             let seeker_inf = self.seeker_is_infantry;
-            let ally_mask = seeker.map(|p| self.grid.ally_mask_for(p)).unwrap_or(0);
             let ignore_cells_for_extra = ignore_cells.as_ref();
             let extra = move |c: GridCoord, layer: PathfindLayerEnum| {
                 let pos = GridPos::new(c.x, c.y);
@@ -757,75 +763,13 @@ impl PathfindingSystem {
                 {
                     return 0;
                 }
-                let bits = grid.occupancy_bits(pos, layer);
-                let OccBits {
-                    fixed,
-                    moving,
-                    infantry,
-                    crushable: crush,
-                    pos_unit: pos_u,
-                    pos_player: pos_p,
-                    pos_moving,
-                    ..
-                } = bits;
-                // C++ INFANTRY_MOVES_THROUGH_INFANTRY: stream even when a goal is set.
-                if seeker_inf && infantry != 0 && (fixed | moving) == infantry {
-                    return 0;
+                // One cell of C++ checkForMovement as examineNeighboringCells
+                // consumes it (AIPathfind.cpp:6241-6291): enemyFixed rejects,
+                // allyMoving near the start and allyFixedCount add cost.
+                match grid.occupancy_cost_on_layer(pos, seeker_inf, Some(start), layer) {
+                    None => u32::MAX / 8,
+                    Some(cost) => (cost * 10.0).round() as u32,
                 }
-                if fixed == 0 && moving == 0 {
-                    return 0;
-                }
-                let Some(player) = seeker else {
-                    return 3 * COST_DIAGONAL;
-                };
-                let bit = 1u16 << player.min(15);
-                let friend = bit | ally_mask;
-                if seeker_inf && (infantry & !bit) != 0 && (fixed & !bit) == (infantry & !bit) {
-                    let leftover_fixed = fixed & !infantry;
-                    let leftover_moving = moving & !infantry;
-                    if leftover_fixed == 0 && leftover_moving == 0 {
-                        return 0;
-                    }
-                }
-                let mut extra = 0u32;
-                // C++ checkForMovement verdict on the cell's single m_posUnitID
-                // (AIPathfind.cpp:5020-5066): ally fixed → allyFixed cost, enemy
-                // uncrushable → impassable. Bitset view only when no identity.
-                if pos_u != 0 {
-                    if Some(ObjectId(pos_u)) == seeker_id {
-                        return 0;
-                    }
-                    if pos_moving {
-                        if pos_p & friend != 0
-                            && (c.x - start.x).abs() < 10
-                            && (c.y - start.y).abs() < 10
-                        {
-                            extra += 3 * COST_DIAGONAL;
-                        }
-                    } else if (pos_p & friend) == 0 {
-                        if let Some((mover, other)) = seeker_id
-                            .and_then(|id| objects.lookup(&id))
-                            .zip(objects.lookup(&ObjectId(pos_u)))
-                        {
-                            if !mover.can_crush_or_squish(other, false) {
-                                return u32::MAX / 8;
-                            }
-                        }
-                    } else if (fixed & friend) != 0 {
-                        extra += 3 * COST_DIAGONAL;
-                    }
-                } else {
-                    if (fixed & !friend) != 0 {
-                        let max_c = crush;
-                        if crusher_level == 0 || crusher_level <= max_c {
-                            return u32::MAX / 8;
-                        }
-                    }
-                    if (fixed & friend) != 0 {
-                        extra += 3 * COST_DIAGONAL;
-                    }
-                }
-                extra
             };
             let extra_ref = &extra;
             let line_footprint = seeker_id.and_then(|id| {
@@ -839,20 +783,12 @@ impl PathfindingSystem {
                     start,
                     radius,
                     center_in_cell,
-                    seeker_player: seeker,
                     is_infantry: seeker_inf,
-                    crusher_level,
-                    ally_mask,
                 })
             });
             let line_ok = |c: GridCoord, from_layer: PathfindLayerEnum| {
                 line_footprint.as_ref().is_none_or(|footprint| {
-                    footprint.line_seed_clear(
-                        &self.grid,
-                        GridPos::new(c.x, c.y),
-                        from_layer,
-                        objects,
-                    )
+                    footprint.line_seed_clear(&self.grid, GridPos::new(c.x, c.y), from_layer)
                 })
             };
             let ground_h = |c: GridCoord| {

@@ -1,5 +1,6 @@
 //! Behavior suite extracted from the original test module.
 use super::super::*;
+use super::authored_snapshot_world;
 
 #[test]
 fn drawable_camo_stealth_look_snapshot_residual_wave79() {
@@ -123,10 +124,8 @@ fn popup_and_host_write_common_sav_chunks_and_restore_authority() {
     let mut manager = SaveFileManager::with_save_directory(save_dir.path());
     manager.init().expect("init");
 
-    let mut source = GameLogic::new();
-    let mut template = ThingTemplate::new("AuthTank");
-    template.add_kind_of(KindOf::Vehicle).set_health(200.0);
-    source.templates.insert("AuthTank".into(), template);
+    const CONTENT: &str = "Object AuthTank\nKindOf = VEHICLE\nBody = ActiveBody Body\nMaxHealth = 200\nInitialHealth = 200\nEnd\nEnd\n";
+    let mut source = authored_snapshot_world(CONTENT);
     source.add_player(Player::new(1, Team::USA, "P1", true));
     let id = source
         .create_object("AuthTank", Team::USA, Vec3::new(12.0, 0.0, 8.0))
@@ -167,9 +166,8 @@ fn popup_and_host_write_common_sav_chunks_and_restore_authority() {
         "host file must use the same Common .sav chunk tokens as Popup"
     );
 
-    let mut loaded = GameLogic::new();
+    let mut loaded = authored_snapshot_world(CONTENT);
     loaded.add_player(Player::new(1, Team::USA, "P1", true));
-    loaded.templates = source.templates.clone();
     manager.load_game("auth_rt", &mut loaded).expect("load");
 
     let hp = loaded
@@ -810,6 +808,7 @@ fn direct_xfer_rejects_future_writer_before_emitting_any_record_bytes() {
 
 #[test]
 fn direct_xfer_current_appends_weapon_clip_residual_and_keeps_alignment() {
+    use crate::game_logic::object::WeaponFireStatus;
     use super::super::xfer_helpers::{default_object_snapshot, default_player_snapshot};
     use crate::game_logic::Weapon;
     use crate::save_load::{Xfer, XferLoad, XferSave};
@@ -837,6 +836,14 @@ fn direct_xfer_current_appends_weapon_clip_residual_and_keeps_alignment() {
         object.id = object_id;
         object.template_name = "ClipResidualObject".to_string();
         object.weapons.push(clip_residual(5, 3.0, 12.5, true, 1.5));
+        object.weapon_frame_clocks = [(123, true, 100), (0, false, 0), (u32::MAX, true, 456)];
+        object.weapon_bonus_target_faerie_fire = true;
+        object.weapon_bonus_garrisoned = true;
+        object.weapon_frame_statuses = [
+            WeaponFireStatus::ReloadingClip,
+            WeaponFireStatus::BetweenFiringShots,
+            WeaponFireStatus::OutOfAmmo,
+        ];
         world.objects.insert(object_id, object);
 
         let mut player = default_player_snapshot();
@@ -876,4 +883,15 @@ fn direct_xfer_current_appends_weapon_clip_residual_and_keeps_alignment() {
     assert!((weapon.splash_radius - 12.5).abs() < 1e-4);
     assert!(weapon.reloading_clip);
     assert!((weapon.last_bonus_rof - 1.5).abs() < 1e-4);
+    assert_eq!(
+        restored.objects[&ObjectId(404)].weapon_frame_clocks,
+        [(123, true, 100), (0, false, 0), (u32::MAX, true, 456)]
+    );
+    assert!(restored.objects[&ObjectId(404)].weapon_bonus_target_faerie_fire);
+    assert!(restored.objects[&ObjectId(404)].weapon_bonus_garrisoned);
+    assert_eq!(restored.objects[&ObjectId(404)].weapon_frame_statuses, [
+        WeaponFireStatus::ReloadingClip,
+        WeaponFireStatus::BetweenFiringShots,
+        WeaponFireStatus::OutOfAmmo,
+    ]);
 }

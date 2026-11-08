@@ -4,7 +4,7 @@ impl GameLogic {
     /// C++ GarrisonContain::onRemoving Patch 1.01 — Fire Base (non-enclosing)
     /// occupants snap host Y (C++ Z) to ground so they do not leave at STATION
     /// bone altitude. Terrain sample wins; else the container's ground Y.
-    pub(super) fn snap_garrison_exit_occupant_to_ground(
+    pub(in crate::game_logic) fn snap_garrison_exit_occupant_to_ground(
         &mut self,
         unit_id: ObjectId,
         container_id: ObjectId,
@@ -240,20 +240,12 @@ impl GameLogic {
         {
             self.register_path_goal(unit_id, goal);
         }
-        if !enclosing {
-            // C++ GarrisonContain::onRemoving Patch 1.01: Fire Base station
-            // occupants snap Z to ground so sell/evac does not leave them
-            // floating at STATION bone height.
-            self.snap_garrison_exit_occupant_to_ground(unit_id, container_id, presentation_effects);
-        }
         // C++ GarrisonContain::onRemoving setSafeOcclusionFrame(frame + OcclusionDelay).
         if let Some(p) = self.objects.get_mut(&unit_id) {
             p.stamp_safe_occlusion_frame(self.frame);
         }
 
         // set_destination → move_to already records the goal.
-        // C++ OpenContain::removeFromContain doUnloadSound — leftover TheAudio.
-        self.play_container_removing_template_sounds(container_id, unit_id, presentation_effects);
         // C++ GarrisonContain::exitObjectViaDoor ends in recalcApparentControllingPlayer.
         self.recalc_garrison_apparent_controller(container_id);
         true

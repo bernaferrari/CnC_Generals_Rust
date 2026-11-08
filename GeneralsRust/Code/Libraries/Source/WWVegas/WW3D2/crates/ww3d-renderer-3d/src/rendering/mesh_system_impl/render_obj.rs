@@ -40,6 +40,8 @@ impl crate::render_object_system::RenderObjClass for MeshClass {
         self
     }
 
+    // Legacy category callback, not the engine's GPU submission entry point.
+    // Renderer::queue_mesh retains the original Arc and owns static admission.
     fn render(
         &self,
         rinfo: &crate::render_object_system::RenderInfoClass,
@@ -50,18 +52,6 @@ impl crate::render_object_system::RenderObjClass for MeshClass {
 
         // C++ MeshClass::Render: skins skip frustum, others Overlap_Test(bbox).
         if !self.should_render_with_frustum_culling(rinfo) {
-            return Ok(());
-        }
-
-        if false /* mesh session removed; static-sort add path needs explicit r3d at call site */ && self.sort_level != SORT_LEVEL_NONE {
-            let mesh_arc = Arc::new(self.clone());
-            let sort_handle = StaticSortRenderObject::from_arc(Arc::clone(&mesh_arc));
-            StaticSortManager::add_to_static_sort_list_with_mesh(
-                unreachable!(),
-                sort_handle,
-                self.sort_level,
-                Some(mesh_arc),
-            );
             return Ok(());
         }
 
@@ -126,27 +116,7 @@ impl crate::render_object_system::RenderObjClass for MeshClass {
     }
 
     fn cast_ray(&self, raytest: &mut crate::render_object_system::RayCollisionTestClass) -> bool {
-        // C++ Reference: meshgeometry.cpp Cast_Ray implementation
-        // Transforms ray to object space, tests against triangles, returns closest hit
-        if let Some(model) = &self.model {
-            // Transform ray from world space to object space
-            let inv_transform = self.transform.inverse();
-            let mut local_ray = raytest.clone();
-            local_ray.line.start = inv_transform.transform_point3(raytest.line.start);
-            local_ray.line.end = inv_transform.transform_point3(raytest.line.end);
-
-            // Cast ray in object space
-            if model.cast_ray(&mut local_ray) {
-                // Transform result back to world space
-                let contact_point = local_ray.result.contact_point;
-                let normal = local_ray.result.normal;
-                raytest.result = local_ray.result;
-                raytest.result.contact_point = self.transform.transform_point3(contact_point);
-                raytest.result.normal = self.transform.transform_vector3(normal).normalize();
-                return true;
-            }
-        }
-        false
+        MeshClass::cast_ray(self, raytest)
     }
 
     fn cast_aabox(
@@ -265,7 +235,7 @@ impl crate::render_object_system::RenderObjClass for MeshClass {
     }
 
     fn get_sort_level(&self) -> i32 {
-        self.sort_level as i32
+        MeshClass::get_sort_level(self) as i32
     }
 
     fn set_sort_level(&mut self, level: i32) {

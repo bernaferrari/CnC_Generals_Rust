@@ -125,12 +125,13 @@ pub(super) fn convert_address_mode(mode: TextureAddressMode) -> AddressMode {
     }
 }
 
+/// Preserve C++ vertmaterial.cpp:299-307: material opacity is diffuse alpha.
 pub(super) fn material_properties(
     material: Option<&VertexMaterialClass>,
 ) -> ([f32; 4], [f32; 4], [f32; 4]) {
     if let Some(mat) = material {
         (
-            [mat.diffuse.x, mat.diffuse.y, mat.diffuse.z, 1.0],
+            [mat.diffuse.x, mat.diffuse.y, mat.diffuse.z, mat.opacity],
             [
                 mat.specular.x,
                 mat.specular.y,
@@ -369,6 +370,18 @@ mod compute_stage_masks_tests {
     const VERTEX_DIFFUSE_BIT: u32 = 1 << 8;
     const VERTEX_ILLUMINATION_BIT: u32 = 1 << 9;
     const USE_LIGHTING_BIT: u32 = 1 << 10;
+
+    #[test]
+    fn material_uniform_preserves_authored_diffuse_opacity() {
+        let mut material = VertexMaterialClass::new("authored-alpha");
+        material.diffuse = Vec3::new(0.25, 0.5, 0.75);
+        for opacity in [0.0, 0.5, 1.0] {
+            material.opacity = opacity;
+            let (diffuse, _, _) = material_properties(Some(&material));
+            assert_eq!(diffuse, [0.25, 0.5, 0.75, opacity]);
+        }
+        assert_eq!(material_properties(None).0[3], 1.0);
+    }
 
     #[test]
     fn binary_alternatives_select_multipass_lighting_and_animated_mapper() {

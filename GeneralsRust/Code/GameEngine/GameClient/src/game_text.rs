@@ -243,11 +243,6 @@ thread_local! {
 }
 
 fn game_text_handle() -> Arc<RwLock<GameText>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.ensure_game_text_store()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_GAME_TEXT.with(|slot| {

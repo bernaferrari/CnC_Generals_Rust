@@ -27,6 +27,7 @@ fn fxlist_particle_nugget_trait_apply_spawns_and_honors_delay_and_orient() {
         bone_query: None,
         current_frame: 0,
         local_player_index: 0,
+        client_random: &mut Default::default(),
     };
     FXNugget::do_fx_pos(
         &nugget,
@@ -78,6 +79,7 @@ fn fxlist_light_pulse_nugget_creates_display_pulse() {
         bone_query: None,
         current_frame: 0,
         local_player_index: 0,
+        client_random: &mut Default::default(),
     };
     FXNugget::do_fx_pos(
         &nugget,
@@ -332,6 +334,7 @@ fn fxlist_terrain_scorch_nugget_calls_add_scorch_with_type_and_radius() {
         bone_query: None,
         current_frame: 12,
         local_player_index: 0,
+        client_random: &mut Default::default(),
     };
     FXNugget::do_fx_pos(
         &nugget,
@@ -372,6 +375,7 @@ fn fxlist_terrain_scorch_nugget_does_not_invent_decal_quad() {
         bone_query: None,
         current_frame: 1,
         local_player_index: 0,
+        client_random: &mut Default::default(),
     };
     FXNugget::do_fx_pos(
         &nugget,
@@ -419,6 +423,7 @@ fn fxlist_tracer_nugget_sets_parms_transform_and_ceil_expiration() {
         bone_query: None,
         current_frame: 30,
         local_player_index: 0,
+        client_random: &mut Default::default(),
     };
     FXNugget::do_fx_pos(&nugget, primary, None, 0.0, Some(secondary), 0.0, &mut ctx);
 
@@ -490,6 +495,7 @@ fn fxlist_view_shake_nugget_uses_tactical_view_cpp_falloff() {
         bone_query: None,
         current_frame: 0,
         local_player_index: 0,
+        client_random: &mut Default::default(),
     };
     FXNugget::do_fx_pos(
         &nugget,
@@ -544,6 +550,7 @@ fn fxlist_ray_effect_nugget_creates_midpoint_template_entry() {
         bone_query: None,
         current_frame: 0,
         local_player_index: 0,
+        client_random: &mut Default::default(),
     };
     FXNugget::do_fx_pos(
         &nugget,

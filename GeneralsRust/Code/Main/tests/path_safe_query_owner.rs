@@ -273,16 +273,18 @@ fn safe_search_does_not_walk_through_an_uncrushable_enemy() {
     finder.grid.update_path_position_cell(
         &PathPositionFootprint {
             unit_id: enemy.0,
-            player: 1,
             radius: 2.0,
             layer: 0,
             on_ground: true,
-            infantry: false,
-            crushable_level: 0,
         },
         (-1, -1),
         enemy_pos,
     );
+    // The idle enemy also owns its goal there (UNIT_PRESENT_FIXED); a moving
+    // unit is not weighed by checkForMovement without transients.
+    finder
+        .grid
+        .update_ground_goal_cell(enemy.0, 2.0, false, (-1, -1), enemy_pos);
     let route = finder.find_safe_path_from(
         from,
         from,

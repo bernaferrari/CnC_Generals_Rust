@@ -43,7 +43,7 @@ fn fixture(
         if fixed {
             finder
                 .grid
-                .update_ground_goal_cell(enemy.0, 1, 2.0, false, (-1, -1), enemy_pos);
+                .update_ground_goal_cell(enemy.0, 2.0, false, (-1, -1), enemy_pos);
         }
     }
     (world, finder, mover)

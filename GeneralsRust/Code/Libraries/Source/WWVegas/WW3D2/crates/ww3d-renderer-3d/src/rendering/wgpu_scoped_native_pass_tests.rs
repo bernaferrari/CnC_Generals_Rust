@@ -31,6 +31,202 @@ fn frame_sort_mesh(name: &str, triangle_sort: bool) -> Arc<MeshClass> {
     Arc::new(mesh)
 }
 
+fn authored_static_mesh(name: &str, level: u32, color: glam::Vec3) -> Arc<MeshClass> {
+    let mut mesh = frame_sort_mesh(name, false);
+    let model = Arc::get_mut(Arc::get_mut(&mut mesh).unwrap().model.as_mut().unwrap()).unwrap();
+    model.sort_level = level;
+    let material = Arc::get_mut(model.material_passes[0].vertex_material.as_mut().unwrap()).unwrap();
+    material.diffuse = color;
+    material.emissive = color;
+    material.opacity = 0.5;
+    mesh
+}
+
+fn static_sort_pixel_readback(renderer: &mut WgpuMainRenderer) -> wgpu::Buffer {
+    let buffer = renderer.device().create_buffer(&wgpu::BufferDescriptor {
+        label: Some("static-sort-public-call-pixel"),
+        size: 256,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let destination = buffer.clone();
+    renderer.enqueue_frame_work(FramePhase::Overlay2D, move |frame| {
+        let (texture, encoder) = frame.color_texture_and_encoder();
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x: 8, y: 8, z: 0 },
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &destination,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(256),
+                    rows_per_image: Some(1),
+                },
+            },
+            wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+        );
+        Ok(())
+    });
+    buffer
+}
+
+fn mapped_static_sort_pixel(renderer: &WgpuMainRenderer, buffer: &wgpu::Buffer) -> [u8; 4] {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    buffer.slice(..).map_async(wgpu::MapMode::Read, move |result| sender.send(result).unwrap());
+    renderer.device().poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    receiver.recv().unwrap().unwrap();
+    let bytes = buffer.slice(..).get_mapped_range().unwrap();
+    let pixel = bytes[..4].try_into().unwrap();
+    drop(bytes);
+    buffer.unmap();
+    pixel
+}
+
+#[test]
+#[ignore = "requires a native GPU; run explicitly with --include-ignored"]
+fn authored_material_and_instance_opacity_multiply_once_on_gpu() {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 16,
+        height: 16,
+        color_format: Some(wgpu::TextureFormat::Rgba8Unorm),
+        ..Default::default()
+    }).expect("native GPU");
+    let mut renderer = WgpuMainRenderer::from_engine(engine, Default::default()).unwrap();
+    let mut camera = CameraClass::new();
+    camera.set_clip_planes(0.1, 100.0);
+    camera.set_view_matrix(glam::Mat4::IDENTITY);
+    camera.set_projection_matrix(glam::Mat4::perspective_rh(1.0, 1.0, 0.1, 100.0));
+    renderer.renderer.lock().unwrap().set_camera(camera);
+    for (authored, instance, expected_red) in [
+        (1.0, 1.0, 255_i16),
+        (0.5, 1.0, 128),
+        (1.0, 0.5, 128),
+        (0.5, 0.5, 64),
+        (0.0, 0.5, 0),
+    ] {
+        let mut mesh = authored_static_mesh("authored-times-instance", 20, glam::Vec3::X);
+        let owned = Arc::get_mut(&mut mesh).unwrap();
+        let model = Arc::get_mut(owned.model.as_mut().unwrap()).unwrap();
+        Arc::get_mut(model.material_passes[0].vertex_material.as_mut().unwrap()).unwrap().opacity = authored;
+        owned.set_presentation_opacity(instance);
+        renderer.begin_frame().unwrap();
+        renderer.renderer.lock().unwrap().queue_mesh(mesh).unwrap();
+        let readback = static_sort_pixel_readback(&mut renderer);
+        renderer.end_frame().unwrap();
+        assert_eq!(renderer.stats().draw_calls, 1);
+        let pixel = mapped_static_sort_pixel(&renderer, &readback);
+        assert!((i16::from(pixel[0]) - expected_red).abs() <= 3,
+            "authored {authored} × instance {instance} must apply each factor once: {pixel:?}");
+        assert_eq!(&pixel[1..3], &[0, 0]);
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; run explicitly with --include-ignored"]
+fn public_mesh_queue_static_sort_is_owner_local_ordered_and_flushes_once() {
+    use crate::rendering::frame_graph::FrameGraphPass;
+    use crate::rendering::mesh_system::StaticSortManager;
+
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 16,
+        height: 16,
+        color_format: Some(wgpu::TextureFormat::Rgba8Unorm),
+        ..Default::default()
+    }).expect("native GPU");
+    let mut first = WgpuMainRenderer::from_engine(engine.clone(), Default::default()).unwrap();
+    let mut second = WgpuMainRenderer::from_engine(engine, Default::default()).unwrap();
+    for owner in [&mut first, &mut second] {
+        let mut camera = CameraClass::new();
+        camera.set_clip_planes(0.1, 100.0);
+        camera.set_view_matrix(glam::Mat4::IDENTITY);
+        camera.set_projection_matrix(glam::Mat4::perspective_rh(1.0, 1.0, 0.1, 100.0));
+        owner.renderer.lock().unwrap().set_camera(camera);
+    }
+    let red_high = authored_static_mesh("same-red-id", 30, glam::Vec3::X);
+    let green_low = authored_static_mesh("same-green-id", 10, glam::Vec3::Y);
+    let red_low = authored_static_mesh("same-red-id", 10, glam::Vec3::X);
+    let green_high = authored_static_mesh("same-green-id", 30, glam::Vec3::Y);
+
+    first.begin_frame().unwrap();
+    // Reverse authored order deliberately. The peer's queued work must survive
+    // this owner's flush and its own later begin_frame.
+    first.renderer.lock().unwrap().queue_mesh(Arc::clone(&green_low)).unwrap();
+    second.renderer.lock().unwrap().queue_mesh(Arc::clone(&red_low)).unwrap();
+    first.renderer.lock().unwrap().queue_mesh(Arc::clone(&red_high)).unwrap();
+    second.renderer.lock().unwrap().queue_mesh(Arc::clone(&green_high)).unwrap();
+    for (owner, expected) in [
+        (&first, [&green_low, &red_high]),
+        (&second, [&red_low, &green_high]),
+    ] {
+        let (entries, levels) = StaticSortManager::snapshot_static_sort_list(&owner.renderer_3d).unwrap();
+        assert_eq!(levels, [10, 30]);
+        assert_eq!(entries.len(), 2);
+        for (entry, mesh) in entries.iter().zip(expected) {
+            assert!(Arc::ptr_eq(&entry.mesh_arc().unwrap(), mesh));
+        }
+        let prepared = owner.renderer.lock().unwrap().frame_graph
+            .node_mut(FrameGraphPass::Main).prepare(glam::Vec3::ZERO);
+        assert!(prepared.opaque.is_empty());
+        assert!(prepared.combined_translucent().is_empty(), "static admission must not also submit a normal draw");
+    }
+    let first_pixel = static_sort_pixel_readback(&mut first);
+    first.end_frame().unwrap();
+    assert_eq!(first.stats().meshes_rendered, 2);
+    assert_eq!(first.stats().draw_calls, 2);
+    assert!(StaticSortManager::snapshot_static_sort_list(&first.renderer_3d).is_none());
+    assert!(StaticSortManager::snapshot_static_sort_list(&second.renderer_3d).is_some());
+    let pixel = mapped_static_sort_pixel(&first, &first_pixel);
+    assert!(u16::from(pixel[1]) > u16::from(pixel[0]) + 20, "lower green bin must draw last: {pixel:?}");
+
+    second.begin_frame().unwrap();
+    let second_pixel = static_sort_pixel_readback(&mut second);
+    // Drive the actual public render_frame a second time in the same frame.
+    // It must not replay the nonzero-level meshes or recurse into admission.
+    let receiver = second.renderer_handle();
+    second.enqueue_frame_work(FramePhase::StaticSort, move |frame| {
+        let mut renderer = receiver.lock().unwrap();
+        assert_eq!(renderer.mesh_stats().meshes_rendered, 2);
+        renderer.render_frame(frame, None, None)?;
+        assert_eq!(renderer.mesh_stats().meshes_rendered, 0);
+        assert_eq!(renderer.mesh_stats().draw_calls, 0);
+        Ok(())
+    });
+    second.end_frame().unwrap();
+    assert!(StaticSortManager::snapshot_static_sort_list(&second.renderer_3d).is_none());
+    let pixel = mapped_static_sort_pixel(&second, &second_pixel);
+    assert!(u16::from(pixel[0]) > u16::from(pixel[1]) + 20, "peer's lower red bin must draw last: {pixel:?}");
+
+    first.begin_frame().unwrap();
+    first.end_frame().unwrap();
+    assert_eq!(first.stats().meshes_rendered, 0, "no static mesh replay next frame");
+
+    // Disabling static lists and entering a flush both take the direct route,
+    // without losing the mesh or leaving a second deferred copy behind.
+    let mut instance_sorted = frame_sort_mesh("instance-static-override", true);
+    Arc::get_mut(&mut instance_sorted).unwrap().set_sort_level(30);
+    for during_flush in [false, true] {
+        first.begin_frame().unwrap();
+        first.ww3d.set_static_sort_lists_enabled(during_flush).unwrap();
+        let guard = during_flush.then(|| StaticSortManager::begin_flush(Arc::clone(&first.renderer_3d)));
+        first.renderer.lock().unwrap().queue_mesh(Arc::clone(&instance_sorted)).unwrap();
+        assert!(StaticSortManager::snapshot_static_sort_list(&first.renderer_3d).is_none());
+        drop(guard);
+        let receiver = first.renderer_handle();
+        first.enqueue_frame_work(FramePhase::StaticSort, move |_| {
+            assert_eq!(receiver.lock().unwrap().mesh_render_manager.sorted_batch_count(), 0,
+                "an instance static level must bypass triangle sorting too");
+            Ok(())
+        });
+        first.end_frame().unwrap();
+        assert_eq!(first.stats().meshes_rendered, 1);
+        assert_eq!(first.stats().draw_calls, 1);
+    }
+}
+
 // Both exit policies bypass the ordinary static-sort flush. Keep a second
 // renderer's pending mesh alive while abandoning the first one's submission,
 // then drive real GPU draws to prove only the receiving frame was discarded.

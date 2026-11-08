@@ -38,6 +38,7 @@ pub mod audio_event_info;
 pub mod audio_handle_special_values;
 pub mod audio_random_value;
 pub mod audio_settings;
+pub mod base_type;
 pub mod battle_honors;
 pub mod bit_flags_io;
 pub mod border_colors;

@@ -16,12 +16,11 @@ impl Object {
         let mut set = |condition: C, enabled: bool| {
             if enabled { bits |= 1u64 << condition as u8; }
         };
-        set(C::Garrisoned, self.contained_by.is_some()
-            && self.is_kind_of(KindOf::Infantry)
-            && matches!(self.ai_state(), AIState::Garrisoned));
+        set(C::Garrisoned, self.weapon_bonus_garrisoned);
         set(C::Horde, self.weapon_bonus_horde);
-        set(C::ContinuousFireMean, self.continuous_fire_level == 1);
-        set(C::ContinuousFireFast, self.continuous_fire_level == 2);
+        set(C::ContinuousFireMean, self.continuous_fire_level & 1 != 0);
+        set(C::ContinuousFireFast, self.continuous_fire_level & 2 != 0);
+        set(C::TargetFaerieFire, self.weapon_bonus_target_faerie_fire);
         set(C::Nationalism, self.weapon_bonus_nationalism);
         set(C::PlayerUpgrade, self.weapon_bonus_player_upgrade);
         set(C::DroneSpotting, self.weapon_bonus_drone_spotting);
@@ -107,52 +106,6 @@ impl Object {
             || self.weapon_bonus_battle_plan_search_and_destroy
     }
 
-    /// Apply residual Strategy Center army battle-plan bonuses to this unit.
-    ///
-    /// Clears previous battle-plan residual flags first (plan switch residual).
-    pub fn apply_battle_plan_bonus(
-        &mut self,
-        plan: crate::game_logic::host_strategy_center::HostBattlePlan,
-    ) {
-        self.clear_battle_plan_bonus();
-        match plan {
-            crate::game_logic::host_strategy_center::HostBattlePlan::Bombardment => {
-                self.weapon_bonus_battle_plan_bombardment = true;
-            }
-            crate::game_logic::host_strategy_center::HostBattlePlan::HoldTheLine => {
-                self.weapon_bonus_battle_plan_hold_the_line = true;
-            }
-            crate::game_logic::host_strategy_center::HostBattlePlan::SearchAndDestroy => {
-                self.weapon_bonus_battle_plan_search_and_destroy = true;
-                // Sight residual: scale detection / template sight residual field.
-                let scalar = plan.army_sight_range_scalar();
-                if (scalar - 1.0).abs() > f32::EPSILON {
-                    self.detection_range = self.effective_detection_range() * scalar;
-                    self.battle_plan_sight_scalar_applied = scalar;
-                }
-            }
-        }
-    }
-
-    /// Clear residual Strategy Center battle-plan bonuses.
-    pub fn clear_battle_plan_bonus(&mut self) {
-        self.weapon_bonus_battle_plan_bombardment = false;
-        self.weapon_bonus_battle_plan_hold_the_line = false;
-        self.weapon_bonus_battle_plan_search_and_destroy = false;
-        // Undo SearchAndDestroy sight residual.
-        if (self.battle_plan_sight_scalar_applied - 1.0).abs() > f32::EPSILON
-            && self.battle_plan_sight_scalar_applied > f32::EPSILON
-        {
-            self.detection_range =
-                self.detection_range / self.battle_plan_sight_scalar_applied.max(0.01);
-            // If detection_range collapses near template default residual, clear override.
-            let base = self.get_template().sight_range;
-            if (self.detection_range - base).abs() < 0.5 {
-                self.detection_range = 0.0;
-            }
-        }
-        self.battle_plan_sight_scalar_applied = 1.0;
-    }
 
     /// Retail BATTLEPLAN_BOMBARDMENT DAMAGE multiplier (1.0 when clear).
     pub fn battle_plan_damage_multiplier(&self) -> f32 {
@@ -552,11 +505,7 @@ impl Object {
                 }
             }
             let garrisoned = if matches!(extra, ExtraWeaponBonus::Owned(_)) {
-                self.contained_by.is_some()
-                    && container.is_some_and(|owner| {
-                        (owner.is_helix_transport && owner.overlord_portable_occupant != Some(self.id))
-                            || owner.is_garrison_contain()
-                    })
+                flag(self.weapon_bonus_garrisoned, |owner| owner.weapon_bonus_garrisoned)
             } else {
                 self.contained_by.is_some()
                     && self.is_kind_of(KindOf::Infantry)
@@ -567,11 +516,9 @@ impl Object {
             }
             if matches!(extra, ExtraWeaponBonus::Owned(_)) {
                 for source in [Some(self), inherit].into_iter().flatten() {
-                    match source.continuous_fire_level {
-                        1 => flags.set(WeaponBonusConditionType::ContinuousFireMean),
-                        2 => flags.set(WeaponBonusConditionType::ContinuousFireFast),
-                        _ => {}
-                    }
+                    set(&mut flags, WeaponBonusConditionType::ContinuousFireMean, source.continuous_fire_level & 1 != 0);
+                    set(&mut flags, WeaponBonusConditionType::ContinuousFireFast, source.continuous_fire_level & 2 != 0);
+                    set(&mut flags, WeaponBonusConditionType::TargetFaerieFire, source.weapon_bonus_target_faerie_fire);
                     set(
                         &mut flags,
                         WeaponBonusConditionType::Hero,
@@ -587,17 +534,6 @@ impl Object {
                         WeaponBonusConditionType::Veteran,
                         source.weapon_bonus_veteran,
                     );
-                    if !source.weapon_bonus_hero
-                        && !source.weapon_bonus_elite
-                        && !source.weapon_bonus_veteran
-                    {
-                        match source.experience.level {
-                            VeterancyLevel::Heroic => flags.set(WeaponBonusConditionType::Hero),
-                            VeterancyLevel::Elite => flags.set(WeaponBonusConditionType::Elite),
-                            VeterancyLevel::Veteran => flags.set(WeaponBonusConditionType::Veteran),
-                            VeterancyLevel::Rookie => {}
-                        }
-                    }
                 }
             } else {
                 match continuous_fire_level {
@@ -658,7 +594,7 @@ impl Object {
         (
             bonus.get_field(Damage),
             bonus.get_field(Range),
-            bonus.get_field(RateOfFire).max(0.01),
+            bonus.get_field(RateOfFire),
             bonus.get_field(WeaponBonusField::PreAttack).max(0.01),
             bonus.get_field(WeaponBonusField::Radius).max(0.0),
         )
@@ -834,13 +770,20 @@ impl Object {
     pub(crate) fn weapon_ready_vs_target_with_owned_rof(
         &self,
         slot: u8,
-        current_time: f32,
+        frame: u32,
         target_has_faerie_fire: bool,
         rof: f32,
     ) -> bool {
         let Some(weapon) = self.weapon_slot(slot) else {
             return false;
         };
+        let rule = self.selected_native_weapon_rule(slot);
+        if rule.is_some() || weapon.frame_clock_active {
+            return Self::weapon_ready_at_frame(
+                weapon, frame,
+            );
+        }
+        let current_time = frame as f32 / 30.0;
         let base = self.live_reload_interval(weapon, self.weapon_name_for_slot(slot), rof);
         let effective = crate::game_logic::host_avenger::effective_reload_vs_target(
             base,
@@ -858,6 +801,9 @@ impl Object {
         target_has_faerie_fire: bool,
         solo_set: &gamelogic::weapon::WeaponBonusSet,
     ) -> bool {
+        if weapon.frame_clock_active {
+            return (current_time * 30.0).round() as u32 >= weapon.next_fire_frame;
+        }
         let rof = self
             .weapon_bonus_fields_for_slot_with_solo_set(slot, solo_set)
             .2;
@@ -876,6 +822,9 @@ impl Object {
         current_time: f32,
         target_has_faerie_fire: bool,
     ) -> bool {
+        if weapon.frame_clock_active {
+            return (current_time * 30.0).round() as u32 >= weapon.next_fire_frame;
+        }
         let base = self.effective_weapon_reload(weapon.reload_time);
         let effective = crate::game_logic::host_avenger::effective_reload_vs_target(
             base,

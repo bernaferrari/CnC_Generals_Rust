@@ -442,14 +442,7 @@ impl GameLogic {
             .objects
             .get(&container_id)
             .is_some_and(|c| c.is_garrison_contain());
-        let Some(container) = self.objects.get_mut(&container_id) else {
-            return false;
-        };
-        let removed = container.remove_occupant_with_partition_owner(
-            occupant_id,
-            &mut self.ownership_events,
-            &mut self.partition_manager,
-        );
+        let removed = self.remove_owned_occupant_with_bonus_callback(container_id, occupant_id, effects);
         if removed && is_garrison {
             self.recalc_garrison_apparent_controller(container_id);
         }

@@ -88,7 +88,6 @@ impl RenderPipeline {
         let opacity = submission.render_state.opacity;
         if opacity.is_finite() && (opacity - 1.0).abs() > f32::EPSILON {
             item.set_presentation_opacity(opacity);
-            item.material.opacity = (item.material.opacity * opacity).clamp(0.0, 1.0);
             item.set_fow_visibility(crate::fow_rendering::ObjectVisibility {
                 visibility_alpha: 1.0,
                 is_explored: 1.0,
@@ -2457,6 +2456,7 @@ mod w3d_live_path_tests {
             &crate::assets::W3DMaterial::default(),
             RenderPass::ForwardTransparent,
         );
+        item.material.opacity = 0.8;
         let mut submission = game_client::render_bridge::DrawSubmission::default();
         submission.render_state.opacity = 0.45;
         submission.render_state.construction_tint = Some([1.0, 0.0, 0.0]);
@@ -2465,6 +2465,7 @@ mod w3d_live_path_tests {
             (item.presentation_opacity - 0.45).abs() < 1e-5,
             "placement ghost must use C++ placementOpacity 0.45"
         );
+        assert!((item.material.opacity - 0.8).abs() < 1e-5, "authored material opacity must not absorb drawable opacity");
         assert!(
             (item.fow_visibility.visibility_alpha - 1.0).abs() < 1e-5,
             "placement opacity is not FOW"

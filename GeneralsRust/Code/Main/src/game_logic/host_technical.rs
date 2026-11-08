@@ -306,6 +306,10 @@ pub fn technical_weapon_for_tier(tier: TechnicalWeaponTier) -> Weapon {
         reloading_clip: false,
         last_bonus_rof: 0.0,
         suspend_fx_frame: 0,
+        next_fire_frame: 0,
+        reload_started_frame: 0,
+        frame_clock_active: false,
+        frame_clock_status: Default::default(),
     }
 }
 

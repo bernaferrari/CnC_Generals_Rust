@@ -14,7 +14,7 @@ fn stamp_position(grid: &mut PathfindingGrid, actor: &crate::game_logic::Object)
     let footprint = grid.path_position_footprint(actor);
     grid.update_path_position_cell(&footprint, (-1, -1), actor.get_position());
     // AIIdleState::doInitIdleState registers the same cell as the idle goal.
-    grid.update_ground_goal_cell(actor.id.0, footprint.player, footprint.radius, false, (-1, -1), actor.get_position());
+    grid.update_ground_goal_cell(actor.id.0, footprint.radius, false, (-1, -1), actor.get_position());
 }
 /// hq-9jz4r: layer change only looks ALLOWED_STEPS=3 past the ramp.
 #[test]
@@ -92,6 +92,11 @@ fn optimize_respects_occupancy_and_unpinched_cliff() {
         objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
+    // Path::optimize checks isLinePassable for its own (player-0) object.
+    let mut seeker = Object::new(ThingTemplate::new("Seeker"), ObjectId(50), Team::USA);
+    seeker.owner_player_id = Some(0);
+    objects.admit(seeker.id, seeker);
+    g.bind_query_occupants(objects.read(), Some(ObjectId(50)));
     let start = g.grid_to_world(
         GridPos::new(2, 4),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
@@ -1845,37 +1850,20 @@ fn seed_line_checks_fixed_occupants_against_the_receiving_mover() {
         objects.admit(occupant.id, occupant);
         let footprint = g.path_position_footprint(objects.lookup(&ObjectId(id)).unwrap());
         g.update_path_position_cell(&footprint, (-1, -1), position);
-        g.update_ground_goal_cell(id, player, 2.0, false, (-1, -1), position);
+        g.update_ground_goal_cell(id, 2.0, false, (-1, -1), position);
     }
     g.update_dynamic_obstacles(objects.read(), &PathfindingGround::Flat(0.0));
+    g.bind_query_occupants(objects.read(), Some(ObjectId(1)));
     let footprint = MovementFootprint {
         mover: ObjectId(1),
         start: GridPos::new(4, 4),
         radius: 0,
         center_in_cell: true,
-        seeker_player: Some(0),
         is_infantry: false,
-        crusher_level: 2,
-        ally_mask: masks[0],
     };
-    assert!(!footprint.line_seed_clear(
-        &g,
-        GridPos::new(8, 8),
-        PathfindLayerEnum::Ground,
-        objects.read()
-    ));
-    assert!(footprint.line_seed_clear(
-        &g,
-        GridPos::new(10, 8),
-        PathfindLayerEnum::Ground,
-        objects.read()
-    ));
-    assert!(footprint.line_seed_clear(
-        &g,
-        GridPos::new(4, 4),
-        PathfindLayerEnum::Ground,
-        objects.read()
-    ));
+    assert!(!footprint.line_seed_clear(&g, GridPos::new(8, 8), PathfindLayerEnum::Ground));
+    assert!(footprint.line_seed_clear(&g, GridPos::new(10, 8), PathfindLayerEnum::Ground));
+    assert!(footprint.line_seed_clear(&g, GridPos::new(4, 4), PathfindLayerEnum::Ground));
 }
 
 #[test]
@@ -1906,7 +1894,7 @@ fn final_position_stamps_only_after_the_path_is_cleared() {
     inf.movement.current_path_index = 1;
     inf.do_final_position = true;
     inf.final_position = planted;
-    let old_goal = g.update_ground_goal_cell(inf.id.0, 0, inf.geometry_info().bounding_circle_radius(), false, (-1, -1), path_end);
+    let old_goal = g.update_ground_goal_cell(inf.id.0, inf.geometry_info().bounding_circle_radius(), false, (-1, -1), path_end);
     objects.admit(inf.id, inf);
     g.update_dynamic_obstacles(
         objects.read(),
@@ -1927,7 +1915,7 @@ fn final_position_stamps_only_after_the_path_is_cleared() {
     );
     objects.get_mut(&ObjectId(7)).unwrap().movement.path.clear();
     let actor = objects.get(&ObjectId(7)).unwrap();
-    g.update_ground_goal_cell(actor.id.0, 0, actor.geometry_info().bounding_circle_radius(), false, old_goal, actor.final_position);
+    g.update_ground_goal_cell(actor.id.0, actor.geometry_info().bounding_circle_radius(), false, old_goal, actor.final_position);
     g.update_dynamic_obstacles(
         objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
@@ -2327,7 +2315,7 @@ fn snap_goal_uses_receiving_object_not_previous_query() {
         let mover = world.create_object_for_player("SnapReceiver", 1, start).unwrap();
         let other = world.create_object_for_player("SnapReceiver", 1, start).unwrap();
         let mut sys = PathfindingSystem::new(160.0, 160.0);
-        sys.grid.update_ground_goal_cell(other.0, 1, 0.0, false, (-1, -1), goal);
+        sys.grid.update_ground_goal_cell(other.0, 0.0, false, (-1, -1), goal);
         (world, sys, mover, other)
     };
     let (mut world, mut sys, mover, other) = make_world();

@@ -1967,6 +1967,7 @@ fn garrison_residual_fire_uses_garrisoned_133_range() {
         );
     }
     assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ranger));
+    logic.apply_garrison_contain_on_enter(bunker, ranger);
 
     let hp_before = logic.host_object(enemy).unwrap().health.current;
     logic.set_current_frame(30);
@@ -2018,6 +2019,7 @@ fn helix_infantry_residual_fire_uses_garrisoned_133_range() {
         &mut logic.objects, &mut logic.partition_manager, &mut logic.ai_groups,
         &mut logic.pathfinding_system, rider, Some(heli), true,
     );
+    logic.apply_helix_contain_on_enter(heli, rider);
     {
         let r = logic.host_object_mut(rider).unwrap();
         assert!(r.is_held_disabled());

@@ -209,49 +209,10 @@ pub(super) fn mu_obbox_from_class(obbox: &OBBoxClass) -> MuOBBox {
     )
 }
 
-pub(super) fn ray_triangle_intersection(
-    origin: Vec3,
-    direction: Vec3,
-    max_distance: f32,
-    v0: Vec3,
-    v1: Vec3,
-    v2: Vec3,
-) -> Option<(f32, Vec3)> {
-    let edge1 = v1 - v0;
-    let edge2 = v2 - v0;
-    let pvec = direction.cross(edge2);
-    let det = edge1.dot(pvec);
-    if det.abs() < RAY_EPSILON {
-        return None;
-    }
-
-    let inv_det = 1.0 / det;
-    let tvec = origin - v0;
-    let u = tvec.dot(pvec) * inv_det;
-    if !(0.0..=1.0).contains(&u) {
-        return None;
-    }
-
-    let qvec = tvec.cross(edge1);
-    let v = direction.dot(qvec) * inv_det;
-    if v < 0.0 || u + v > 1.0 {
-        return None;
-    }
-
-    let t = edge2.dot(qvec) * inv_det;
-    if t < RAY_EPSILON || t > max_distance + RAY_EPSILON {
-        return None;
-    }
-
-    let normal = edge1.cross(edge2);
-    if normal.length_squared() <= RAY_EPSILON {
-        return None;
-    }
-    Some((t, normal.normalize()))
-}
 pub(super) use math_utilities::{
     AABox as MuAABox, CastResult as MuCastResult, CollisionMath as MuCollisionMath,
-    Matrix3 as MuMatrix3, OBBox as MuOBBox, Triangle as MuTriangle, Vector3 as MuVec3,
+    LineSegment as MuLineSegment, Matrix3 as MuMatrix3, OBBox as MuOBBox,
+    Triangle as MuTriangle, Vector3 as MuVec3,
 };
 
 /// Compute index ranges for each material pass

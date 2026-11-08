@@ -254,67 +254,62 @@ impl CollisionMath {
             }
     }
 
-    /// OBBox-OBBox intersection test using SAT
+    /// C++ `colmathobbobb.cpp::intersect_obb_obb`.
+    /// Requires orthonormal bases and nonnegative extents. The original skips
+    /// zero-extent face axes and cross axes no longer than WWMATH_EPSILON.
     pub fn obbox_obbox_intersect(a: &OBBoxClass, b: &OBBoxClass) -> bool {
-        // Test 15 potential separating axes
-        // - 6 face normals (3 from each OBBox)
-        // - 9 edge cross products
+        const AXIS_LENGTH_EPSILON_SQUARED: f32 = 0.0001 * 0.0001;
+        let center_delta = b.center - a.center;
+        let mut ab = [[0.0; 3]; 3];
 
-        let a_axes = [a.basis[0], a.basis[1], a.basis[2]];
-        let b_axes = [b.basis[0], b.basis[1], b.basis[2]];
-
-        let t = b.center - a.center;
-
-        // Test face normals of A
-        for &axis in &a_axes {
-            if !Self::test_axis_obbox_obbox(&axis, a, b, &a_axes, &b_axes, &t) {
-                return false;
+        for (i, row) in ab.iter_mut().enumerate() {
+            for (j, dot) in row.iter_mut().enumerate() {
+                *dot = a.basis[i].dot(b.basis[j]);
+            }
+            if a.extent[i] > 0.0 {
+                let radius = a.extent[i]
+                    + ((b.extent[0] * row[0]).abs()
+                        + (b.extent[1] * row[1]).abs()
+                        + (b.extent[2] * row[2]).abs());
+                let distance = center_delta.dot(a.basis[i]);
+                if distance > radius || distance < -radius {
+                    return false;
+                }
+            }
+        }
+        for (j, axis) in b.basis.iter().enumerate() {
+            if b.extent[j] > 0.0 {
+                let radius = ((a.extent[0] * ab[0][j]).abs()
+                    + (a.extent[1] * ab[1][j]).abs()
+                    + (a.extent[2] * ab[2][j]).abs())
+                    + b.extent[j];
+                let distance = center_delta.dot(*axis);
+                if distance > radius || distance < -radius {
+                    return false;
+                }
             }
         }
 
-        // Test face normals of B
-        for &axis in &b_axes {
-            if !Self::test_axis_obbox_obbox(&axis, a, b, &a_axes, &b_axes, &t) {
-                return false;
-            }
-        }
-
-        // Test edge cross products
-        for &a_axis in &a_axes {
-            for &b_axis in &b_axes {
-                let axis = a_axis.cross(b_axis);
-                if axis.length_squared() > EPSILON {
-                    let axis_norm = axis.normalize();
-                    if !Self::test_axis_obbox_obbox(&axis_norm, a, b, &a_axes, &b_axes, &t) {
+        // The complementary indices are ascending, preserving the source's
+        // two-term projection order on every cross axis; axes are not normalized.
+        let complementary = [[1, 2], [0, 2], [0, 1]];
+        for (i, &[i0, i1]) in complementary.iter().enumerate() {
+            for (j, &[j0, j1]) in complementary.iter().enumerate() {
+                let axis = a.basis[i].cross(b.basis[j]);
+                if axis.length_squared() > AXIS_LENGTH_EPSILON_SQUARED {
+                    let ra = (a.extent[i0] * ab[i1][j]).abs()
+                        + (a.extent[i1] * ab[i0][j]).abs();
+                    let rb = (b.extent[j0] * ab[i][j1]).abs()
+                        + (b.extent[j1] * ab[i][j0]).abs();
+                    let radius = ra + rb;
+                    let distance = center_delta.dot(axis);
+                    if distance > radius || distance < -radius {
                         return false;
                     }
                 }
             }
         }
-
         true
-    }
-
-    fn test_axis_obbox_obbox(
-        axis: &Vec3,
-        a: &OBBoxClass,
-        b: &OBBoxClass,
-        a_axes: &[Vec3; 3],
-        b_axes: &[Vec3; 3],
-        t: &Vec3,
-    ) -> bool {
-        // Project both boxes onto axis
-        let ra = a.extent.x * a_axes[0].dot(*axis).abs()
-            + a.extent.y * a_axes[1].dot(*axis).abs()
-            + a.extent.z * a_axes[2].dot(*axis).abs();
-
-        let rb = b.extent.x * b_axes[0].dot(*axis).abs()
-            + b.extent.y * b_axes[1].dot(*axis).abs()
-            + b.extent.z * b_axes[2].dot(*axis).abs();
-
-        let distance = t.dot(*axis).abs();
-
-        distance <= ra + rb
     }
 }
 

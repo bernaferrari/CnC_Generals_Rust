@@ -785,6 +785,7 @@ fn propaganda_tower_residual_recovers_hp_and_sets_enthusiastic() {
     // Several logic frames of residual pulse (no command — continuous AoE).
     // C++ attemptHealingFromSoleBenefactor needs now > expiration (0) to claim.
     game_logic.frame = 1;
+    game_logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     for _ in 0..30 {
         game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
     }
@@ -858,6 +859,7 @@ fn propaganda_two_towers_heal_through_sole_benefactor_claim() {
     let before = game_logic.host_object(unit_id).unwrap().health.current;
     // C++ attemptHealingFromSoleBenefactor needs now > expiration (0) to claim.
     game_logic.frame = 1;
+    game_logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
     let unit = game_logic.host_object(unit_id).unwrap();
     let claimant = unit.sole_healing_benefactor;
@@ -914,6 +916,7 @@ fn propaganda_tower_residual_out_of_range_then_in_range() {
         .current;
 
     // Out of residual radius (150): no heal / no buff.
+    game_logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     for _ in 0..15 {
         game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
     }
@@ -939,6 +942,7 @@ fn propaganda_tower_residual_out_of_range_then_in_range() {
             fixture_partition_unit,
         );
     }
+    game_logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
     {
         let unit = game_logic.host_object(unit_id).expect("unit");
@@ -975,6 +979,7 @@ fn propaganda_tower_residual_out_of_range_then_in_range() {
             fixture_partition_unit,
         );
     }
+    game_logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
     {
         let unit = game_logic.host_object(unit_id).expect("unit");
@@ -1030,6 +1035,7 @@ fn propaganda_tower_residual_skips_enemy_units() {
         .health
         .current;
 
+    game_logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     for _ in 0..30 {
         game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
     }
@@ -1088,12 +1094,12 @@ fn propaganda_tower_residual_subliminal_upgrade_buff_and_faster_heal() {
         .health
         .current;
 
-    // C++ PropagandaTowerBehavior m_scanDelayInFrames: the first in-range scan
-    // only registers membership; the buff lands on a later scan. Advance the
-    // clock past the scan delay exactly like the sibling propaganda fixtures.
+    // A scan grants the buff immediately; advance past frame zero so the
+    // sole healing benefactor can claim the recipient as well.
     game_logic.frame = game_logic.frame.saturating_add(
         crate::game_logic::host_propaganda::HOST_PROPAGANDA_DELAY_BETWEEN_UPDATES_FRAMES,
     );
+    game_logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     for _ in 0..30 {
         game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
     }
@@ -1152,6 +1158,7 @@ fn propaganda_tower_name_residual_helix_propaganda_heals() {
 
     // C++ attemptHealingFromSoleBenefactor needs now > expiration (0) to claim.
     game_logic.frame = 1;
+    game_logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     for _ in 0..30 {
         game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
     }

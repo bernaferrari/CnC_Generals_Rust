@@ -1698,17 +1698,32 @@ impl GameLogic {
                         let path_tail = obj.movement.path
                             [obj.movement.current_path_index.saturating_sub(1)..]
                             .to_vec();
-                        let lead = crate::game_logic::PathfindingSystem::compute_point_on_path_for(
-                            current_pos,
-                            &path_tail,
-                            Some(&self.pathfinding_system.grid),
-                            surfaces,
-                            is_crusher,
-                            obj.owner_player_id,
-                            obj.crusher_level,
-                            obj.ignored_obstacle_id.map(|id| id.0),
-                            Some(obj.id.0),
-                        );
+                        let ignored_obstacle = obj.ignored_obstacle_id.map(|id| id.0);
+                        // isLinePassable(obj, ...) resolves each occupant from
+                        // this world's live objects as the follower sees it.
+                        let lead = {
+                            let objects = self
+                                .objects
+                                .read()
+                                .with_players(&self.players)
+                                .with_team_factory(&self.team_factory);
+                            let receiver = objects.lookup(&id).map(|mover| {
+                                crate::game_logic::pathfinding::LineReceiver { mover, objects }
+                            });
+                            crate::game_logic::PathfindingSystem::compute_point_on_path_for(
+                                current_pos,
+                                &path_tail,
+                                Some(&self.pathfinding_system.grid),
+                                surfaces,
+                                is_crusher,
+                                ignored_obstacle,
+                                receiver,
+                            )
+                        };
+                        obj = match self.objects.get_mut(&id) {
+                            Some(obj) => obj,
+                            None => break 'unit,
+                        };
                         let mut target = lead;
                         raw_goal_y = Some(lead.y);
                         // Ground locos keep XZ march; Z-motive / Climber keep lead Y
@@ -3291,7 +3306,6 @@ impl GameLogic {
     /// Register a goal whose original caller already chose the path layer.
     pub(crate) fn register_path_goal_on_layer(&mut self, unit_id: ObjectId, last: Vec3, layer: u8) {
         let Some((
-            player,
             radius,
             minor_radius,
             old,
@@ -3305,7 +3319,6 @@ impl GameLogic {
                 return None;
             }
             Some((
-                unit.owner_player_id.unwrap_or(unit.team as u32),
                 unit.geometry_info().bounding_circle_radius(),
                 unit.geometry_info().minor_radius,
                 unit.pathfind_goal_cell,
@@ -3338,7 +3351,6 @@ impl GameLogic {
             };
             let cell = grid.update_path_goal_cell(crate::game_logic::pathfinding::PathGoalUpdate {
                 unit_id: unit_id.0,
-                player,
                 radius,
                 old_cell: old,
                 old_layer,

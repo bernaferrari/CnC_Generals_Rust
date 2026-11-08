@@ -946,6 +946,20 @@ pub struct Weapon {
     pub last_fire_time: f32,
     /// C++ Weapon::m_lastFireFrame, maintained independently for each slot.
     pub last_fire_frame: u32,
+    /// Authored Weapon::m_whenWeCanFireAgain. Never reconstructed from seconds.
+    #[serde(skip)]
+    pub next_fire_frame: u32,
+    /// C++ m_whenLastReloadStarted, used only for progress presentation.
+    #[serde(skip)]
+    pub reload_started_frame: u32,
+    /// Explicit ownership of the authored integer scheduler; residual adapters
+    /// alone retain the historical seconds clock.
+    #[serde(skip)]
+    pub frame_clock_active: bool,
+    /// C++ m_status for authored scheduling. Ammo is not a status proxy:
+    /// shared cooldowns also overwrite the status of empty sibling weapons.
+    #[serde(skip)]
+    pub frame_clock_status: crate::game_logic::object::WeaponFireStatus,
     pub ammo: Option<u32>,
     /// C++ ClipSize residual. 0 = unlimited (ammo ignored for readiness).
     #[serde(default)]
@@ -991,6 +1005,10 @@ impl Default for Weapon {
             reload_time: 1.0,
             last_fire_time: 0.0,
             last_fire_frame: 0,
+            next_fire_frame: 0,
+            reload_started_frame: 0,
+            frame_clock_active: false,
+            frame_clock_status: Default::default(),
             ammo: None,
             clip_size: 0,
             clip_reload_time: 0.0,
@@ -1007,6 +1025,20 @@ impl Default for Weapon {
 }
 
 impl Weapon {
+    /// Read-only equivalent of Weapon::getStatus after its pre-attack gate.
+    pub(crate) fn frame_status_at(&self, frame: u32) -> crate::game_logic::object::WeaponFireStatus {
+        use crate::game_logic::object::WeaponFireStatus;
+        if frame >= self.next_fire_frame {
+            if self.clip_size == 0 || self.ammo.is_some_and(|ammo| ammo > 0) {
+                WeaponFireStatus::ReadyToFire
+            } else {
+                WeaponFireStatus::OutOfAmmo
+            }
+        } else {
+            self.frame_clock_status
+        }
+    }
+
     /// C++ `TheGameLogic->getFrame() < getSuspendFXFrame()` gate used by
     /// Weapon::fireWeapon.  The renderer/DrawModule route remains fail-closed
     /// until its pre-mutation owner snapshot exists; this helper only exposes

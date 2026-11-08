@@ -182,7 +182,7 @@ impl ControlBar {
             self.observer_target_index_owned()
                 .filter(|index| roster.contains_target(*index))
         } else {
-            super::control_bar_observer::observer_look_at_player_index()
+            super::control_bar_observer::observer_look_at_player_index(None)
         };
         if let (Some(roster), Some(target)) = (native_roster, target) {
             super::control_bar_observer::refresh_observer_windows_in_manager(
@@ -287,7 +287,7 @@ impl ControlBar {
             ctx.observer_player_stats = observer_stats;
             if !native_target {
                 ctx.observer_look_at_player =
-                    super::control_bar_observer::observer_look_at_player_index();
+                    super::control_bar_observer::observer_look_at_player_index(None);
             }
         }
 

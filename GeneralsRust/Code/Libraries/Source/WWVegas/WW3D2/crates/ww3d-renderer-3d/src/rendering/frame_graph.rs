@@ -95,6 +95,9 @@ pub struct FrameGraphPreparedQueues {
     pub additive: Vec<Arc<MeshClass>>,
     pub decals: Vec<Arc<MeshClass>>,
     pub shadow_casters: Vec<Arc<MeshClass>>,
+    /// C++ static sort bins: descending authored level, FIFO within each bin,
+    /// independent of material blend, depth state, and camera distance.
+    pub static_sorted: Vec<Arc<MeshClass>>,
 }
 
 impl FrameGraphPreparedQueues {
@@ -305,6 +308,7 @@ struct NodeQueues {
     additive: Vec<usize>,
     decals: Vec<usize>,
     shadow: Vec<usize>,
+    static_sorted: Vec<usize>,
 }
 
 impl NodeQueues {
@@ -314,6 +318,7 @@ impl NodeQueues {
         self.additive.clear();
         self.decals.clear();
         self.shadow.clear();
+        self.static_sorted.clear();
     }
 }
 
@@ -358,7 +363,7 @@ impl FrameGraphNode {
         sort_level_override: Option<u32>,
     ) {
         let traits = SubmissionMaterialTraits::analyse(mesh.as_ref());
-        self.submit_mesh_with_traits(mesh, traits, queue_hint, sort_level_override);
+        self.submit_mesh_with_traits(mesh, traits, queue_hint, sort_level_override, false);
     }
 
     fn submit_mesh_with_traits(
@@ -367,19 +372,24 @@ impl FrameGraphNode {
         traits: SubmissionMaterialTraits,
         queue_hint: Option<FrameGraphQueue>,
         sort_level_override: Option<u32>,
+        static_sorted: bool,
     ) {
         let is_decal = mesh.is_decal_instance;
         let resolved_queue = match queue_hint {
             Some(hint) => resolve_queue(hint, traits.dominant_blend),
             None => queue_from_blend(traits.dominant_blend),
         };
-        let sort_level = sort_level_override.unwrap_or(mesh.sort_level);
+        let sort_level = sort_level_override.unwrap_or_else(|| mesh.get_sort_level());
         let index = self.submissions.len();
         let submission = FrameGraphSubmission::new(Arc::clone(&mesh), traits, sort_level, index);
         self.submissions.push(submission);
-        self.enqueue(index, resolved_queue);
+        if static_sorted {
+            self.queues.static_sorted.push(index);
+        } else {
+            self.enqueue(index, resolved_queue);
+        }
 
-        if !is_decal && self.renderer_3d.as_ref().map(|r| StaticSortManager::are_decals_enabled(r)).unwrap_or(true) && !mesh.decal_meshes.is_empty() {
+        if !is_decal && resolved_queue != FrameGraphQueue::ShadowCaster && self.renderer_3d.as_ref().map(|r| StaticSortManager::are_decals_enabled(r)).unwrap_or(true) && !mesh.decal_meshes.is_empty() {
             for decal in &mesh.decal_meshes {
                 if decal.model.is_none() {
                     continue;
@@ -390,6 +400,7 @@ impl FrameGraphNode {
                     decal_traits,
                     Some(FrameGraphQueue::Decal),
                     Some(sort_level),
+                    static_sorted,
                 );
             }
         }
@@ -434,17 +445,24 @@ impl FrameGraphNode {
             .sort_by(|a, b| compare_shadow(submissions, *a, *b));
         prepared.shadow_casters = collect_meshes(&self.queues.shadow, submissions);
 
+        self.queues.static_sorted.sort_by(|&a, &b| {
+            submissions[b].sort_level.cmp(&submissions[a].sort_level)
+                .then_with(|| submissions[a].tie_breaker.cmp(&submissions[b].tie_breaker))
+        });
+        prepared.static_sorted = collect_meshes(&self.queues.static_sorted, submissions);
+
         prepared
     }
 
     pub fn ingest_static_sort_entries(&mut self) -> Vec<Arc<dyn RenderObjClass>> {
         let mut fallback: Vec<Arc<dyn RenderObjClass>> = Vec::new();
 
-        if let Some((entries, sort_levels)) = self.renderer_3d.as_ref().and_then(|r| StaticSortManager::snapshot_static_sort_list(r)) {
-            for (entry, sort_level) in entries.into_iter().zip(sort_levels) {
+        if let Some(runtime) = &self.renderer_3d {
+            let entries = StaticSortManager::take_static_sort_list(runtime);
+            for (entry, sort_level) in entries {
                 if let Some(mesh_arc) = entry.mesh_arc() {
                     let traits = SubmissionMaterialTraits::analyse(mesh_arc.as_ref());
-                    self.submit_mesh_with_traits(mesh_arc, traits, None, Some(sort_level));
+                    self.submit_mesh_with_traits(mesh_arc, traits, None, Some(sort_level), true);
                 } else {
                     fallback.push(entry.render_object());
                 }
@@ -551,5 +569,47 @@ impl FrameGraph {
 
     pub fn node(&self, pass: FrameGraphPass) -> Option<&FrameGraphNode> {
         self.nodes.get(&pass)
+    }
+}
+
+#[cfg(test)]
+mod static_order_tests {
+    use super::*;
+    use crate::material_system::MaterialPassClass;
+    use crate::rendering::mesh_system::MeshModelClass;
+
+    #[test]
+    fn authored_bins_override_blend_depth_distance_and_keep_fifo() {
+        let runtime = Arc::new(crate::process_state::Renderer3dRuntime::new());
+        let mut graph = FrameGraph::new();
+        graph.renderer_3d = Some(Arc::clone(&runtime));
+        let make_mesh = |name, level, shader, distance| {
+            let mut model = MeshModelClass::new(name);
+            model.sort_level = level;
+            let mut pass = MaterialPassClass::new();
+            pass.shader = shader;
+            model.material_passes.push(pass);
+            let mut mesh = MeshClass::new();
+            mesh.model = Some(Arc::new(model));
+            mesh.transform = Mat4::from_translation(Vec3::Z * distance);
+            Arc::new(mesh)
+        };
+        let low = make_mesh("opaque-low", 1, ShaderClass::new(), 100.0);
+        let high_first = make_mesh("alpha-high", 30, ShaderClass::get_alpha_shader(), 1.0);
+        let high_second = make_mesh("additive-high", 30, ShaderClass::get_additive_shader(), 500.0);
+        for mesh in [&low, &high_first, &high_second] {
+            assert!(StaticSortManager::try_add_mesh(&runtime, mesh));
+        }
+        let _guard = StaticSortManager::begin_flush(Arc::clone(&runtime));
+        let node = graph.node_mut(FrameGraphPass::Main);
+        assert!(node.ingest_static_sort_entries().is_empty());
+        assert!(node.ingest_static_sort_entries().is_empty());
+        let prepared = node.prepare(Vec3::ZERO);
+        assert!(prepared.opaque.is_empty());
+        assert!(prepared.combined_translucent().is_empty());
+        assert_eq!(prepared.static_sorted.len(), 3);
+        for (actual, expected) in prepared.static_sorted.iter().zip([&high_first, &high_second, &low]) {
+            assert!(Arc::ptr_eq(actual, expected));
+        }
     }
 }

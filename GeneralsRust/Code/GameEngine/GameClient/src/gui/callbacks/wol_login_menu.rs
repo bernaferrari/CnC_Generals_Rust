@@ -102,11 +102,6 @@ fn wol_login_state_on_owner(
     if let Some(owner) = owner {
         return owner.wol_login_state_handle();
     }
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.window_manager_owner_ref().wol_login_state_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_WOL_LOGIN_STATE.with(|cell| {
@@ -120,19 +115,12 @@ fn wol_login_state_on_owner(
     }
 }
 
-fn wol_login_state() -> Rc<RefCell<WolLoginState>> {
-    wol_login_state_on_owner(None)
+fn wol_login_state(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> Rc<RefCell<WolLoginState>> {
+    wol_login_state_on_owner(owner)
 }
 
 fn with_tos_browser_mut<R>(f: impl FnOnce(&mut W3DWebBrowser) -> R) -> R {
     let mut f = Some(f);
-    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .window_manager_owner_ref()
-            .with_wol_login_tos_browser_mut(|browser| f.take().expect("tos")(browser))
-    }) {
-        return result;
-    }
     #[cfg(test)]
     {
         return TEST_TOS_BROWSER.with(|slot| f.take().expect("tos")(&mut slot.borrow_mut()));
@@ -620,8 +608,8 @@ fn shutdown_complete(
     state.next_screen = None;
 }
 
-pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
-    let state_slot = wol_login_state();
+pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = wol_login_state(owner);
     let mut state = state_slot.borrow_mut();
     state.next_screen = None;
     state.button_pushed = false;
@@ -795,13 +783,13 @@ pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
     owner.with_manager(|manager| manager.transition_set_group("GameSpyLoginProfileFade", false));
 }
 
-pub fn wol_login_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
+pub fn wol_login_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
     let pop_immediate = user_data
         .and_then(|data| data.downcast_ref::<bool>())
         .copied()
         .unwrap_or(false);
 
-    let state_slot = wol_login_state();
+    let state_slot = wol_login_state(owner);
     let mut state = state_slot.borrow_mut();
     state.is_shutting_down = true;
     state.logged_in_ok = false;
@@ -827,8 +815,8 @@ pub fn wol_login_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std
     owner.with_manager(|manager| manager.transition_reverse("GameSpyLoginProfileFade"));
 }
 
-pub fn wol_login_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
-    let state_slot = wol_login_state();
+pub fn wol_login_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = wol_login_state(owner);
     let mut state = state_slot.borrow_mut();
 
     let shell_finished = get_shell().is_anim_finished();
@@ -928,7 +916,7 @@ pub fn wol_login_menu_input(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
-) -> WindowMsgHandled {
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) -> WindowMsgHandled {
     if msg != WindowMessage::Char {
         return WindowMsgHandled::Ignored;
     }
@@ -939,7 +927,7 @@ pub fn wol_login_menu_input(
     }
     // C++ WOLLoginMenu.cpp:876-878 — buttonPushed breaks out of GWM_CHAR → MSG_IGNORED.
     let (button_pushed, parent, back_id) = {
-        let slot = wol_login_state();
+        let slot = wol_login_state(owner);
         let state = slot.borrow();
         (
             state.button_pushed,
@@ -1041,13 +1029,13 @@ pub fn wol_login_menu_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     data2: WindowMsgData,
-) -> WindowMsgHandled {
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) -> WindowMsgHandled {
     match msg {
         WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetValueChanged => {
             let control_id = data1 as i32;
-            let state_slot = wol_login_state();
+            let state_slot = wol_login_state(owner);
             let mut state = state_slot.borrow_mut();
             if state.button_pushed {
                 return WindowMsgHandled::Handled;
@@ -1064,7 +1052,7 @@ pub fn wol_login_menu_system(
         }
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
-            let state_slot = wol_login_state();
+            let state_slot = wol_login_state(owner);
             let mut state = state_slot.borrow_mut();
             if state.button_pushed {
                 return WindowMsgHandled::Handled;
@@ -1211,11 +1199,11 @@ mod tests {
         crate::test_support::ensure_ambient_host();
         let mut window = GameWindow::new();
         assert_eq!(
-            wol_login_menu_system(&mut window, WindowMessage::GadgetEditDone, 0, 0),
+            wol_login_menu_system(&mut window, WindowMessage::GadgetEditDone, 0, 0, None),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            wol_login_menu_system(&mut window, WindowMessage::User(1), 0, 0),
+            wol_login_menu_system(&mut window, WindowMessage::User(1), 0, 0, None),
             WindowMsgHandled::Ignored
         );
     }
@@ -1224,16 +1212,16 @@ mod tests {
     fn login_input_esc_key_down_is_handled_when_not_pushed() {
         crate::test_support::ensure_ambient_host();
         let mut window = GameWindow::new();
-        wol_login_state().borrow_mut().button_pushed = false;
+        wol_login_state(None).borrow_mut().button_pushed = false;
         assert_eq!(
-            wol_login_menu_input(&mut window, WindowMessage::Char, 0x1B, 0),
+            wol_login_menu_input(&mut window, WindowMessage::Char, 0x1B, 0, None),
             WindowMsgHandled::Handled
         );
-        wol_login_state().borrow_mut().button_pushed = true;
+        wol_login_state(None).borrow_mut().button_pushed = true;
         assert_eq!(
-            wol_login_menu_input(&mut window, WindowMessage::Char, 0x1B, 0x0001),
+            wol_login_menu_input(&mut window, WindowMessage::Char, 0x1B, 0x0001, None),
             WindowMsgHandled::Ignored
         );
-        wol_login_state().borrow_mut().button_pushed = false;
+        wol_login_state(None).borrow_mut().button_pushed = false;
     }
 }

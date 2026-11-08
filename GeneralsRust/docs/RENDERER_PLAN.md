@@ -43,6 +43,12 @@ classes (`b520a7871`), including extra-blend GPU readback. Missing-texture and
 legacy cliff adjustments, full extra-blend fidelity, a C++ image comparison
 and wasm remain unverified.
 
+The shared TGA decoder normalizes both horizontal and vertical origins in
+place, rejects truncated or invalid palettes, and expands 16-bit colors without
+integer overflow. Raw, RLE and palette origin cases pass; a right-origin TGA
+runtime smoke produced the expected pixel order. Grayscale format metadata and
+Main's palette/16-bit alpha classification remain open.
+
 The WW3D animation library resolves raw and compressed clip pivot counts from
 the named hierarchy rather than the highest animated channel. Missing
 hierarchies fail admission; single and blended hierarchy updates retain C++
@@ -57,12 +63,40 @@ tests, a geometry runtime smoke and strict package all-targets Clippy pass.
 This does not seal the whole collision crate or renderer. The unused prototype
 collision dispatcher with no-op casts was deleted rather than sealed.
 
+The plane and oriented-box implementations now retain WWMath's raw plane
+coefficients, segment boundaries and 15-axis overlap arithmetic. Frustum
+consumers use the corresponding coefficient convention. The collision crate's
+127 tests, a transformed-plane/rotated-box runtime smoke and strict package
+Clippy pass; renderer integration and the complete source interface are still
+being verified, so neither leaf is sealed.
+
 Unreachable duplicate 2D, texture, compressed/morph animation, skinning and
 polygon-sorting source files were removed after checking module declarations
 and repository consumers. Their stale seals were removed, not transferred:
 the live `render2d`, `texture_system`, animation loaders and sorting paths
 retain their own acceptance requirements. Deleted unsafe in these orphan files
 is inventory cleanup, not a live rendering or safety improvement.
+
+Renderer registration retains weak model identity; the next frame retires
+dead registrations and prepared CPU/GPU resources while preserving live
+preparations. Static and triangle sort queues belong to the acquired frame
+and are discarded after failed or skipped scene work, including teardown.
+Native GPU regressions cover retirement/readback and peer-frame isolation.
+
+The live mesh queue admits static sort levels into the receiving renderer's
+bins, retaining allocation identity and FIFO ties. Effective instance overrides
+skip triangle sorting. Native GPU readback covers two-owner isolation, order,
+flush, skinned triangle sorting and authored-times-instance opacity. Mesh casts
+use WWMath's bounded triangle test and preserve the caller's prior result and
+contact policy; unused duplicate geometry algorithms were removed. The
+renderer library's 410 native tests and the geometry crate's 91 tests pass.
+Main picking and the retained generic scene route are separate boundaries.
+
+Renderer, mesh and texture-cache thread contracts now follow their actual
+target: native `Send`/`Sync` requirements remain, while browser-only handles
+are not made thread-safe by an unsafe impl. Static-sort dispatch retains the
+original allocation identity and order. Native GPU checks and the WASM library
+compile pass; browser runtime behavior remains an explicit verification gap.
 
 | Step | State | Evidence |
 |---|---|---|

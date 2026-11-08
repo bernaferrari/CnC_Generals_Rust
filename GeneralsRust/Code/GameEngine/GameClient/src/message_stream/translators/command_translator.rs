@@ -81,7 +81,7 @@ impl CommandTranslator {
         cmd_type: ClientCommandEvaluateType,
         ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> GameMessageResult<GameMessageType> {
-        self.sync_selection_from_logic();
+        self.sync_selection_from_logic(ui.local_player_id());
 
         // C++ parity: "null out draw/obj" forces position-based evaluation.
         let mut evaluate_as_position = false;
@@ -172,8 +172,7 @@ impl CommandTranslator {
         }
     }
 
-    pub(super) fn sync_selection_from_logic(&mut self) {
-        let local_player = get_local_player_id();
+    pub(super) fn sync_selection_from_logic(&mut self, local_player: i32) {
         if local_player < 0 {
             return;
         }
@@ -367,7 +366,7 @@ impl CommandTranslator {
         world: Coord3D,
         ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> GameMessageType {
-        if !selection_has_quick_path_to(&self.current_selection, &world) {
+        if !selection_has_quick_path_to(&self.current_selection, &world, ui.local_player_id()) {
             return GameMessageType::DoInvalidHint;
         }
 
@@ -779,7 +778,7 @@ impl CommandTranslator {
             z: 0.0,
         });
 
-        let local_player = get_local_player_id();
+        let local_player = ui.local_player_id();
         let local_player_u32 = if local_player >= 0 {
             Some(local_player as u32)
         } else {
@@ -908,7 +907,7 @@ impl CommandTranslator {
             return Vec::new();
         }
 
-        let local_player = get_local_player_id();
+        let local_player = ui.local_player_id();
         let local_player_u32 = if local_player >= 0 {
             Some(local_player as u32)
         } else {
@@ -971,7 +970,7 @@ impl CommandTranslator {
             return Vec::new();
         }
 
-        let local_player = get_local_player_id();
+        let local_player = ui.local_player_id();
         let local_player_u32 = if local_player >= 0 {
             Some(local_player as u32)
         } else {
@@ -1150,7 +1149,7 @@ impl CommandTranslator {
         let allow_add = modifiers.contains(KeyModifiers::SHIFT) || self.prefer_selection_mode;
         let allow_toggle = modifiers.contains(KeyModifiers::CTRL);
 
-        let local_player = get_local_player_id();
+        let local_player = ui.local_player_id();
         let local_player_u32 = if local_player >= 0 {
             Some(local_player as u32)
         } else {

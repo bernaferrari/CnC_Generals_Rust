@@ -45,8 +45,9 @@ pub const WORLD_SNAPSHOT_PARTICLE_DRIVE_SETTINGS_VERSION: u32 = 38;
 /// Version43 requires the PhysicsBehavior continuation for each Object.
 /// Version44 persists SpawnPoint occupiers independently of the SpawnBehavior
 /// roster and preserves its update cadence. Older bodies are rejected.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 45;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 45;
+/// Version46 adds authoritative Weapon integer deadlines in an object tail.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 46;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 46;
 /// Version36 introduced mandatory exact original-Garrison-Team continuation.
 pub const WORLD_SNAPSHOT_GARRISON_TEAM_VERSION: u32 = 36;
 

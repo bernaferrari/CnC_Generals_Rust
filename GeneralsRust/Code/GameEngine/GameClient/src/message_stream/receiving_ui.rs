@@ -12,6 +12,10 @@ pub struct ReceivingUi<'a> {
 }
 
 impl<'a> ReceivingUi<'a> {
+    /// Local player index of the client owning this UI.
+    pub fn local_player_id(&self) -> i32 {
+        self.state.local_player_id()
+    }
     pub fn new(state: &'a mut InGameUISubsystem, logic_frame: u32, client_frame: u32) -> Self {
         Self {
             emitted_messages: None,

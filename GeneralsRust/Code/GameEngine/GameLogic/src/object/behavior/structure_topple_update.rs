@@ -10,8 +10,7 @@ use crate::damage::{DamageInfo, DamageType, get_damage_type_flag};
 use crate::effects::{FXList, ObjectCreationList};
 use crate::helpers::{
     TheFXListStore, TheGameLogic, TheObjectCreationListStore, TheTerrainLogic, TheWeaponStore,
-    game_client_random_value,
-};
+    };
 use crate::modules::{
     BehaviorModuleInterface, DieModuleInterface, UpdateModuleInterface, UpdateSleepTime,
 };
@@ -729,7 +728,7 @@ impl StructureToppleUpdate {
             .unwrap_or(0.0);
 
         self.do_topple_start_fx(&building);
-        let burst_delay = game_client_random_value(
+        let burst_delay = crate::system::engine_stores::active_services().client_random_value(
             self.module_data.min_topple_burst_delay as i32,
             self.module_data.max_topple_burst_delay as i32,
         );
@@ -1057,7 +1056,7 @@ impl UpdateModuleInterface for StructureToppleUpdate {
         ) {
             if now as i32 >= self.next_burst_frame {
                 self.do_topple_delay_burst_fx();
-                let burst_delay = game_client_random_value(
+                let burst_delay = crate::system::engine_stores::active_services().client_random_value(
                     self.module_data.min_topple_burst_delay as i32,
                     self.module_data.max_topple_burst_delay as i32,
                 );
@@ -1111,7 +1110,7 @@ impl UpdateModuleInterface for StructureToppleUpdate {
 
             if now as i32 >= self.next_burst_frame {
                 self.do_topple_delay_burst_fx();
-                let burst_delay = game_client_random_value(
+                let burst_delay = crate::system::engine_stores::active_services().client_random_value(
                     self.module_data.min_topple_burst_delay as i32,
                     self.module_data.max_topple_burst_delay as i32,
                 );

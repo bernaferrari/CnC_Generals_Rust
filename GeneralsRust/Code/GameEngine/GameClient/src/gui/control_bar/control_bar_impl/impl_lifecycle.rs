@@ -35,6 +35,7 @@ impl ControlBar {
             animation_duration: Duration::from_millis(500),
             button_states: HashMap::new(),
             observer_mode: false,
+            gen_arrow: None,
             multi_select_mode: false,
             ui_dirty: false,
             pending_command_clicks: Vec::new(),
@@ -271,7 +272,7 @@ impl ControlBar {
             );
         }
         super::control_bar_observer::init_observer_controls(receiving_manager);
-        super::control_bar_observer::ensure_gen_arrow_from_mapped_images(receiving_manager);
+        super::control_bar_observer::ensure_gen_arrow_from_mapped_images(&mut self.gen_arrow, receiving_manager);
 
         // C++ ControlBar::init ends with switchToContext(CB_CONTEXT_NONE)
         // (ControlBar.cpp:1262) and resetControlBar re-runs it (1304), so the

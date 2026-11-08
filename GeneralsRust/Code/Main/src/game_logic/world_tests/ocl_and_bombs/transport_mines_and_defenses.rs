@@ -1718,6 +1718,10 @@ fn residual_auto_fire_commits_canonical_target_before_observation() {
             suspend_fx_frame: 0,
             reloading_clip: false,
             last_bonus_rof: 0.0,
+            next_fire_frame: 0,
+            reload_started_frame: 0,
+            frame_clock_active: false,
+            frame_clock_status: Default::default(),
         });
     }
     assert!(logic.host_object(attacker).unwrap().target.is_none());

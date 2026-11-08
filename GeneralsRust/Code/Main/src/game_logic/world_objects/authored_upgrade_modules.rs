@@ -7,86 +7,6 @@
 //! a `MaxHealthUpgrade` whose `TriggeredBy` names the completed upgrade. No
 //! unit or template name selects a recipient.
 use super::super::*;
-use super::weapon_upgrades::UpgradeRecipients;
-
-/// C++ `MaxHealthChangeType` (BodyModule.h).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum MaxHealthChangeType {
-    SameCurrentHealth,
-    PreserveRatio,
-    AddCurrentHealthToo,
-    FullyHeal,
-}
-
-impl MaxHealthChangeType {
-    /// INI token; C++ defaults to SAME_CURRENTHEALTH.
-    fn parse(token: Option<&str>) -> Self {
-        match token.map(str::trim) {
-            Some(t) if t.eq_ignore_ascii_case("PRESERVE_RATIO") => Self::PreserveRatio,
-            Some(t) if t.eq_ignore_ascii_case("ADD_CURRENT_HEALTH_TOO") => {
-                Self::AddCurrentHealthToo
-            }
-            Some(t) if t.eq_ignore_ascii_case("FULLY_HEAL") => Self::FullyHeal,
-            _ => Self::SameCurrentHealth,
-        }
-    }
-}
-
-impl From<MaxHealthChangeType> for crate::game_logic::object::MaxHealthChange {
-    fn from(kind: MaxHealthChangeType) -> Self {
-        match kind {
-            MaxHealthChangeType::SameCurrentHealth => Self::KeepCurrent,
-            MaxHealthChangeType::PreserveRatio => Self::PreserveRatio,
-            MaxHealthChangeType::AddCurrentHealthToo => Self::AddToCurrent,
-            MaxHealthChangeType::FullyHeal => Self::FullyHeal,
-        }
-    }
-}
-
-/// One authored `MaxHealthUpgrade` module.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct AuthoredMaxHealthUpgrade {
-    /// Module tag; identifies the module's executed flag on the Object.
-    pub tag: String,
-    pub triggered_by: Vec<String>,
-    pub add_max_health: f32,
-    pub change_type: MaxHealthChangeType,
-}
-
-impl AuthoredMaxHealthUpgrade {
-    /// Every `MaxHealthUpgrade` the template authors, in declaration order.
-    pub(crate) fn authored_by(template: &ThingTemplate) -> Vec<Self> {
-        let Some(definition) = template.receiving_object_definition.as_deref() else {
-            return Vec::new();
-        };
-        definition
-            .behavior_modules
-            .iter()
-            .filter(|module| module.class_name.eq_ignore_ascii_case("MaxHealthUpgrade"))
-            .enumerate()
-            .map(|(index, module)| Self {
-                tag: module
-                    .module_tag
-                    .clone()
-                    .unwrap_or_else(|| format!("MaxHealthUpgrade{index}")),
-                triggered_by: module
-                    .attribute("TriggeredBy")
-                    .map(|v| v.split_whitespace().map(str::to_owned).collect())
-                    .unwrap_or_default(),
-                add_max_health: module
-                    .attribute("AddMaxHealth")
-                    .and_then(|v| v.trim().parse::<f32>().ok())
-                    .unwrap_or(0.0),
-                change_type: MaxHealthChangeType::parse(module.attribute("ChangeType")),
-            })
-            .collect()
-    }
-
-    /// Per-Object executed flag (C++ `UpgradeMux::m_upgradeExecuted`).
-    fn executed_key(&self) -> String {
-        format!("MaxHealthUpgrade#{}", self.tag)
-    }
-}
 
 /// Parse the C++ `UpgradeMuxData` trigger fields of one authored module.
 pub(crate) fn upgrade_mux_data(
@@ -114,17 +34,12 @@ fn upgrade_mux_triggers(
     upgrade_mux_data(module).satisfied_by(has)
 }
 
-/// The flag-setting upgrade modules an object's template authors that are
-/// triggered by its current upgrade mask (C++ `upgradeImplementation` of
-/// WeaponSetUpgrade, ArmorUpgrade, WeaponBonusUpgrade, CommandSetUpgrade).
+/// Armor/command-set residuals. WeaponSetUpgrade and WeaponBonusUpgrade run
+/// only in the world's typed source-order traversal, including at birth.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct AuthoredFlagUpgrades {
-    /// WeaponSetUpgrade -> `setWeaponSetFlag(WEAPONSET_PLAYER_UPGRADE)`.
-    pub weapon_set: bool,
     /// ArmorUpgrade -> `setArmorSetFlag(ARMORSET_PLAYER_UPGRADE)`.
     pub armor_set: bool,
-    /// WeaponBonusUpgrade -> `setWeaponBonusCondition(WEAPONBONUSCONDITION_PLAYER_UPGRADE)`.
-    pub weapon_bonus: bool,
     /// CommandSetUpgrade -> `setCommandSetStringOverride(CommandSet)`.
     pub command_set: Option<String>,
 }
@@ -139,20 +54,13 @@ impl AuthoredFlagUpgrades {
         for module in &definition.behavior_modules {
             let class = module.class_name.as_str();
             let is = |name: &str| class.eq_ignore_ascii_case(name);
-            if !(is("WeaponSetUpgrade")
-                || is("ArmorUpgrade")
-                || is("WeaponBonusUpgrade")
-                || is("CommandSetUpgrade"))
+            if !(is("ArmorUpgrade") || is("CommandSetUpgrade"))
                 || !upgrade_mux_triggers(module, &has)
             {
                 continue;
             }
-            if is("WeaponSetUpgrade") {
-                out.weapon_set = true;
-            } else if is("ArmorUpgrade") {
+            if is("ArmorUpgrade") {
                 out.armor_set = true;
-            } else if is("WeaponBonusUpgrade") {
-                out.weapon_bonus = true;
             } else {
                 // CommandSetUpgrade.cpp: TriggerAlt selects CommandSetAlt.
                 let alt = module
@@ -213,25 +121,15 @@ impl Object {
     /// Apply the authored flag upgrades triggered by this object's mask plus
     /// `extra` (C++ Object::updateUpgradeModules). Flags only ever turn on
     /// here; removal follows UpgradeMux::removeUpgrade paths.
-    /// `WeaponSetUpgrade` → `setWeaponSetFlag(WEAPONSET_PLAYER_UPGRADE)` →
-    /// `updateWeaponSet` rebinds the authored row at `frame` (Object.cpp
-    /// setWeaponSetFlag; WeaponSet::updateWeaponSet).
     pub(crate) fn apply_authored_flag_upgrades(
         &mut self,
         extra: impl Fn(&str) -> bool,
-        frame: u32,
     ) -> AuthoredFlagUpgrades {
         let applied = AuthoredFlagUpgrades::triggered(&self.thing().template, |name| {
             extra(name) || self.has_upgrade_tag(name)
         });
-        if applied.weapon_set {
-            self.set_weapon_condition_at_frame(3, true, frame);
-        }
         if applied.armor_set {
             self.set_armor_set_player_upgrade(true);
-        }
-        if applied.weapon_bonus {
-            self.set_weapon_bonus_player_upgrade(true);
         }
         if let Some(set) = applied.command_set.clone() {
             self.set_command_set_override(Some(set));
@@ -281,34 +179,22 @@ impl Object {
         triggered
     }
 
-    /// Run this Object's authored `MaxHealthUpgrade` modules whose trigger is
-    /// satisfied (`is_completed(upgrade)`), each at most once. Returns whether
-    /// any module executed. Used both at upgrade completion and by
-    /// `Object::initObject -> updateUpgradeModules` for new objects.
-    pub(crate) fn run_authored_max_health_upgrades(
+    /// C++ MaxHealthUpgrade.cpp:56-68. The ordered world callback owns mux
+    /// admission, FX/removals and the execution latch; this is only the body
+    /// operation, shared by object grants, player research and object birth.
+    pub(crate) fn apply_authored_max_health_upgrade(
         &mut self,
-        is_completed: impl Fn(&str) -> bool,
-    ) -> bool {
-        let mut applied = false;
-        for module in AuthoredMaxHealthUpgrade::authored_by(&self.thing().template) {
-            if !module.triggered_by.iter().any(|name| is_completed(name))
-                || !self.applied_upgrades.insert(module.executed_key())
-            {
-                continue;
-            }
-            // ActiveBody::getMaxHealth (the live body maximum).
-            let current_max = if self.health.maximum > 0.0 {
-                self.health.maximum
-            } else {
-                self.max_health
-            };
-            self.set_body_max_health_with_mode(
-                current_max + module.add_max_health,
-                module.change_type.into(),
-            );
-            applied = true;
-        }
-        applied
+        data: &gamelogic::object::upgrade::max_health_upgrade::MaxHealthUpgradeModuleData,
+    ) {
+        use gamelogic::object::body::body_module::MaxHealthChangeType;
+        use crate::game_logic::object::MaxHealthChange;
+        let change = match data.change_type() {
+            MaxHealthChangeType::SameCurrentHealth => MaxHealthChange::KeepCurrent,
+            MaxHealthChangeType::PreserveRatio => MaxHealthChange::PreserveRatio,
+            MaxHealthChangeType::AddCurrentHealthToo => MaxHealthChange::AddToCurrent,
+            MaxHealthChangeType::FullyHeal => MaxHealthChange::FullyHeal,
+        };
+        self.set_body_max_health_with_mode(self.health.maximum + data.add_max_health(), change);
     }
 
     /// `ModelConditionUpgrade` / `SubObjectsUpgrade::upgradeImplementation`
@@ -450,34 +336,26 @@ impl GameLogic {
         let _ = self.begin_power_plant_rods_extend(id);
     }
 
-    /// Run every recipient's authored `MaxHealthUpgrade` triggered by
-    /// `upgrade_name`. Returns the number of objects changed.
-    pub(in crate::game_logic) fn apply_authored_max_health_upgrades(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        let mut changed = 0u32;
-        for obj in self.objects.registered_values_mut() {
-            if !recipients.matches_object(obj) || !obj.is_alive() {
-                continue;
-            }
-            if obj.run_authored_max_health_upgrades(|name| name.eq_ignore_ascii_case(upgrade_name))
-            {
-                self.health_events
-                    .record_applied_heal(obj.id, obj.health.current);
-                changed = changed.saturating_add(1);
-            }
-        }
-        changed
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::game_logic::{GameLogic, Team};
+    use crate::game_logic::{GameLogic, Player, Team};
 
     fn admit(world: &mut GameLogic, name: &str, modules: &str) {
+        world.add_player(Player::new(0, Team::USA, "Owner", true));
+        world.add_player(Player::new(1, Team::USA, "Other owner", false));
+        for (upgrade, kind) in [
+            ("Upgrade_TestPlating", "PLAYER"),
+            ("Upgrade_TestObjectPlating", "OBJECT"),
+            ("Upgrade_TestBlockPlating", "OBJECT"),
+            ("Upgrade_Other", "OBJECT"),
+            ("Upgrade_AmericaCompositeArmor", "PLAYER"),
+        ] {
+            crate::game_logic::host_upgrade_rules::register_test_upgrade(
+                world, upgrade, kind, 0, 1,
+            );
+        }
         world
             .admit_receiving_module_content(
                 crate::assets::ReceivingObjectContent::from_sources([(
@@ -497,13 +375,15 @@ mod tests {
     fn authored_max_health_upgrade_applies_once_to_any_template_name() {
         let mut world = GameLogic::new();
         admit(&mut world, "PlainHauler", ARMOR);
-        let id = world.create_object("PlainHauler", Team::USA, glam::Vec3::ZERO).unwrap();
-        let object = world.host_object_mut(id).unwrap();
-        assert!(object.run_authored_max_health_upgrades(|n| n == "Upgrade_TestPlating"));
+        let id = world.create_object_for_player("PlainHauler", 0, glam::Vec3::ZERO).unwrap();
+        // Object::giveUpgrade accepts even a Type=PLAYER template.
+        world.apply_upgrade_to_object(id, "Upgrade_TestPlating");
+        let object = world.host_object(id).unwrap();
         assert_eq!((object.health.maximum, object.health.current), (300.0, 300.0));
-        // UpgradeMux executes a module once.
-        assert!(!object.run_authored_max_health_upgrades(|n| n == "Upgrade_TestPlating"));
-        assert_eq!(object.health.maximum, 300.0);
+        assert!(object.completed_object_upgrades.contains("Upgrade_TestPlating"));
+        assert!(!world.players[&0].has_unlocked_upgrade("Upgrade_TestPlating"));
+        world.apply_upgrade_to_object(id, "Upgrade_TestPlating");
+        assert_eq!(world.host_object(id).unwrap().health.maximum, 300.0);
     }
 
     #[test]
@@ -511,11 +391,10 @@ mod tests {
         let mut world = GameLogic::new();
         admit(&mut world, "AmericaTankCrusader", "");
         let id = world
-            .create_object("AmericaTankCrusader", Team::USA, glam::Vec3::ZERO)
+            .create_object_for_player("AmericaTankCrusader", 0, glam::Vec3::ZERO)
             .unwrap();
-        let object = world.host_object_mut(id).unwrap();
-        assert!(!object.run_authored_max_health_upgrades(|n| n == "Upgrade_AmericaCompositeArmor"));
-        assert_eq!(object.health.maximum, 200.0);
+        world.apply_upgrade_to_object(id, "Upgrade_AmericaCompositeArmor");
+        assert_eq!(world.host_object(id).unwrap().health.maximum, 200.0);
     }
 
     #[test]
@@ -526,12 +405,163 @@ mod tests {
             "PlainHauler",
             "Behavior = MaxHealthUpgrade ArmorTag\nTriggeredBy = Upgrade_TestPlating\nAddMaxHealth = 50.0\nEnd\n",
         );
-        let id = world.create_object("PlainHauler", Team::USA, glam::Vec3::ZERO).unwrap();
-        let object = world.host_object_mut(id).unwrap();
-        assert!(!object.run_authored_max_health_upgrades(|n| n == "Upgrade_Other"));
-        assert!(object.run_authored_max_health_upgrades(|n| n == "Upgrade_TestPlating"));
+        let id = world.create_object_for_player("PlainHauler", 0, glam::Vec3::ZERO).unwrap();
+        world.apply_upgrade_to_object(id, "Upgrade_Other");
+        assert_eq!(world.host_object(id).unwrap().health.maximum, 200.0);
+        world.apply_upgrade_to_object(id, "Upgrade_TestPlating");
+        let object = world.host_object(id).unwrap();
         // SAME_CURRENTHEALTH: maximum grows, current stays.
         assert_eq!((object.health.maximum, object.health.current), (250.0, 200.0));
+    }
+
+    #[test]
+    fn max_health_live_research_and_birth_use_only_the_controlling_player() {
+        let mut world = GameLogic::new();
+        admit(&mut world, "PlainHauler", ARMOR);
+        let owned = world.create_object_for_player("PlainHauler", 0, glam::Vec3::ZERO).unwrap();
+        let other = world.create_object_for_player("PlainHauler", 1, glam::Vec3::ZERO).unwrap();
+        world.players.get_mut(&0).unwrap().complete_researched_upgrade(
+            "Upgrade_TestPlating", gamelogic::upgrade::UpgradeType::Player,
+        );
+        world.apply_host_upgrade_complete(Team::USA, 0, "Upgrade_TestPlating");
+        assert_eq!(world.host_object(owned).unwrap().health.maximum, 300.0);
+        assert_eq!(world.host_object(other).unwrap().health.maximum, 200.0);
+        assert!(world.host_object(owned).unwrap().completed_object_upgrades.is_empty());
+        let born = world.create_object_for_player("PlainHauler", 0, glam::Vec3::ZERO).unwrap();
+        assert_eq!(world.host_object(born).unwrap().health.maximum, 300.0);
+        assert!(world.host_object(born).unwrap().completed_object_upgrades.is_empty());
+        for id in [owned, born, other] {
+            world.objects.get_mut(&id).unwrap().take_damage_from_immediate(
+                250.0, None, world.frame, &mut world.health_events,
+            );
+        }
+        for id in [owned, born] {
+            let object = world.host_object(id).unwrap();
+            assert!(object.is_alive());
+            assert_eq!(object.health.current, 50.0,
+                "combat must consume the upgraded live body, not just a display maximum");
+        }
+        assert!(!world.host_object(other).unwrap().is_alive());
+    }
+
+    #[test]
+    fn max_health_object_completion_combines_masks_and_honors_conflicts() {
+        let mut world = GameLogic::new();
+        admit(&mut world, "PlainHauler",
+            "Behavior = MaxHealthUpgrade ArmorTag\nTriggeredBy = Upgrade_TestPlating Upgrade_TestObjectPlating\nRequiresAllTriggers = Yes\nConflictsWith = Upgrade_TestBlockPlating\nAddMaxHealth = 100\nChangeType = ADD_CURRENT_HEALTH_TOO\nEnd\n");
+        let owned = world.create_object_for_player("PlainHauler", 0, glam::Vec3::ZERO).unwrap();
+        let peer = world.create_object_for_player("PlainHauler", 0, glam::Vec3::ZERO).unwrap();
+        world.players.get_mut(&0).unwrap().complete_researched_upgrade(
+            "Upgrade_TestPlating", gamelogic::upgrade::UpgradeType::Player,
+        );
+        world.apply_host_upgrade_complete(Team::USA, 0, "Upgrade_TestPlating");
+        assert_eq!(world.host_object(owned).unwrap().health.maximum, 200.0);
+        world.apply_upgrade_to_object(owned, "Upgrade_TestBlockPlating");
+        world.record_host_upgrade_queued(0, Team::USA, "Upgrade_TestObjectPlating", Some(owned));
+        world.apply_host_upgrade_complete(Team::USA, 0, "Upgrade_TestObjectPlating");
+        assert_eq!(world.host_object(owned).unwrap().health.maximum, 200.0);
+        assert!(world.remove_object_upgrade_with_receiving_rules(owned, "Upgrade_TestBlockPlating"));
+        world.apply_upgrade_to_object(owned, "Upgrade_TestObjectPlating");
+        assert_eq!(world.host_object(owned).unwrap().health.maximum, 300.0);
+        assert_eq!(world.host_object(peer).unwrap().health.maximum, 200.0);
+        assert!(!world.players[&0].has_unlocked_upgrade("Upgrade_TestObjectPlating"));
+        assert!(world.remove_object_upgrade_with_receiving_rules(owned, "Upgrade_TestObjectPlating"));
+        assert_eq!(world.host_object(owned).unwrap().health.maximum, 300.0,
+            "resetUpgrade must not undo the health addition");
+        world.apply_upgrade_to_object(owned, "Upgrade_TestObjectPlating");
+        assert_eq!(world.host_object(owned).unwrap().health.maximum, 400.0);
+    }
+
+    #[test]
+    fn max_health_waits_for_construction_and_ignores_destroyed_objects() {
+        let mut world = GameLogic::new();
+        admit(&mut world, "PlainHauler", ARMOR);
+        let id = world.create_object_for_player("PlainHauler", 0, glam::Vec3::ZERO).unwrap();
+        world.host_object_mut(id).unwrap().status.under_construction = true;
+        world.apply_upgrade_to_object(id, "Upgrade_TestPlating");
+        assert_eq!(world.host_object(id).unwrap().health.maximum, 200.0);
+        world.host_object_mut(id).unwrap().status.under_construction = false;
+        world.apply_researched_player_upgrades_to_object_with_interpreter(
+            id, None, &mut Default::default(),
+        );
+        assert_eq!(world.host_object(id).unwrap().health.maximum, 300.0);
+        world.remove_object_upgrade_with_receiving_rules(id, "Upgrade_TestPlating");
+        world.host_object_mut(id).unwrap().status.destroyed = true;
+        world.apply_upgrade_to_object(id, "Upgrade_TestPlating");
+        assert_eq!(world.host_object(id).unwrap().health.maximum, 300.0);
+    }
+
+    #[test]
+    fn max_health_removal_uses_source_order_and_the_captured_mask() {
+        // Object.cpp:2421-2437 snapshots once; UpgradeModule.cpp:140-146
+        // removes before implementation, then latches. Re-execution changes
+        // the real body, so this catches family batching without a mock log.
+        for health_first in [true, false] {
+            let mut world = GameLogic::new();
+            let reset = "Behavior = StatusBitsUpgrade ResetHealth\nTriggeredBy = Upgrade_TestPlating\nRemovesUpgrades = Upgrade_TestPlating\nStatusToSet = BOOBY_TRAPPED\nEnd\n";
+            let modules = if health_first {
+                format!("{ARMOR}{reset}")
+            } else {
+                format!("{reset}{ARMOR}")
+            };
+            admit(&mut world, "PlainHauler", &modules);
+            let id = world.create_object_for_player("PlainHauler", 0, glam::Vec3::ZERO).unwrap();
+            world.apply_upgrade_to_object(id, "Upgrade_TestPlating");
+            assert_eq!(world.host_object(id).unwrap().health.maximum, 300.0);
+            assert!(!world.host_object(id).unwrap().completed_object_upgrades.contains("Upgrade_TestPlating"));
+            world.apply_upgrade_to_object(id, "Upgrade_TestPlating");
+            assert_eq!(world.host_object(id).unwrap().health.maximum,
+                if health_first { 400.0 } else { 300.0 });
+        }
+    }
+
+    #[test]
+    fn max_health_birth_traverses_mux_once_even_when_a_later_module_resets_it() {
+        let mut world = GameLogic::new();
+        let reset = "Behavior = StatusBitsUpgrade ResetHealth\nTriggeredBy = Upgrade_TestPlating\nRemovesUpgrades = Upgrade_TestPlating\nStatusToSet = BOOBY_TRAPPED\nEnd\n";
+        admit(&mut world, "PlainHauler", &format!("{ARMOR}{reset}"));
+        world.players.get_mut(&0).unwrap().complete_researched_upgrade(
+            "Upgrade_TestPlating", gamelogic::upgrade::UpgradeType::Player,
+        );
+        let id = world.create_object_for_player("PlainHauler", 0, glam::Vec3::ZERO).unwrap();
+        let object = world.host_object(id).unwrap();
+        assert_eq!((object.health.maximum, object.health.current), (300.0, 300.0));
+        assert!(object.has_object_status_bit("BOOBY_TRAPPED"));
+        assert!(object.completed_object_upgrades.is_empty());
+        assert!(world.players[&0].has_unlocked_upgrade("Upgrade_TestPlating"),
+            "Object::removeUpgrade never clears the player's mask");
+    }
+
+    #[test]
+    fn max_health_uses_each_receiving_world_definition_and_object_latch() {
+        let mut first = GameLogic::new();
+        let mut second = GameLogic::new();
+        admit(&mut first, "PlainHauler", ARMOR);
+        admit(&mut second, "PlainHauler", &ARMOR.replace("100.0", "700.0"));
+        let a = first.create_object_for_player("PlainHauler", 0, glam::Vec3::ZERO).unwrap();
+        let b = second.create_object_for_player("PlainHauler", 0, glam::Vec3::ZERO).unwrap();
+        assert_eq!(a, b);
+        first.apply_upgrade_to_object(a, "Upgrade_TestPlating");
+        assert_eq!(first.host_object(a).unwrap().health.current, 300.0);
+        assert_eq!(second.host_object(b).unwrap().health.current, 200.0);
+        second.apply_upgrade_to_object(b, "Upgrade_TestPlating");
+        assert_eq!(second.host_object(b).unwrap().health.current, 900.0);
+        assert_eq!(first.host_object(a).unwrap().health.current, 300.0);
+    }
+
+    #[test]
+    fn max_health_preserve_ratio_and_fully_heal_reach_the_live_body() {
+        for (change, expected) in [("PRESERVE_RATIO", 150.0), ("FULLY_HEAL", 300.0)] {
+            let mut world = GameLogic::new();
+            admit(&mut world, "PlainHauler", &ARMOR.replace("ADD_CURRENT_HEALTH_TOO", change));
+            let id = world.create_object_for_player("PlainHauler", 0, glam::Vec3::ZERO).unwrap();
+            world.objects.get_mut(&id).unwrap().take_damage_from_immediate(
+                100.0, None, world.frame, &mut world.health_events,
+            );
+            world.apply_upgrade_to_object(id, "Upgrade_TestPlating");
+            let object = world.host_object(id).unwrap();
+            assert_eq!((object.health.maximum, object.health.current), (300.0, expected));
+        }
     }
 }
 
@@ -573,10 +603,17 @@ mod unpause_tests {
 #[cfg(test)]
 mod flag_tests {
     use super::AuthoredFlagUpgrades;
-    use crate::game_logic::{GameLogic, Team};
+    use crate::game_logic::{GameLogic, Player, Team};
 
     fn world(name: &str, modules: &str) -> (GameLogic, crate::game_logic::ObjectId) {
         let mut world = GameLogic::new();
+        world.add_player(Player::new(0, Team::USA, "Owner", true));
+        for upgrade in ["Upgrade_TestGun", "Upgrade_TestPlate", "Upgrade_TestBlock",
+            "Upgrade_TestA", "Upgrade_TestB", "Upgrade_Unrelated", "Upgrade_AmericaTOWMissile"] {
+            crate::game_logic::host_upgrade_rules::register_test_upgrade(
+                &mut world, upgrade, "OBJECT", 0, 1,
+            );
+        }
         world
             .admit_receiving_module_content(
                 crate::assets::ReceivingObjectContent::from_sources([(
@@ -588,7 +625,7 @@ mod flag_tests {
                 .unwrap(),
             )
             .unwrap();
-        let id = world.create_object(name, Team::USA, glam::Vec3::ZERO).unwrap();
+        let id = world.create_object_for_player(name, 0, glam::Vec3::ZERO).unwrap();
         (world, id)
     }
 
@@ -600,23 +637,21 @@ mod flag_tests {
     #[test]
     fn authored_modules_set_flags_only_when_their_mux_triggers() {
         let (mut world, id) = world("PlainBuggy", MODULES);
+        world.apply_upgrade_to_object(id, "Upgrade_Unrelated");
+        assert!(!world.host_object(id).unwrap().test_weapon_condition(3));
+        assert!(!world.host_object(id).unwrap().weapon_bonus_player_upgrade);
+        world.apply_upgrade_to_object(id, "Upgrade_TestGun");
+        assert!(world.host_object(id).unwrap().test_weapon_condition(3));
         let object = world.host_object_mut(id).unwrap();
-        let none = object.apply_authored_flag_upgrades(|n| n == "Upgrade_Unrelated", 0);
-        assert_eq!(none, AuthoredFlagUpgrades::default());
-        let gun = object.apply_authored_flag_upgrades(|n| n == "Upgrade_TestGun", 0);
-        assert!(gun.weapon_set && !gun.armor_set && !gun.weapon_bonus);
-        assert_eq!(gun.command_set.as_deref(), Some("TestUpgradedSet"));
-        assert!(object.test_weapon_condition(3));
-        // ConflictsWith blocks; RequiresAllTriggers needs both.
-        let blocked = object.apply_authored_flag_upgrades(
+        let flags = object.apply_authored_flag_upgrades(|n| n == "Upgrade_TestGun");
+        assert_eq!(flags.command_set.as_deref(), Some("TestUpgradedSet"));
+        assert!(!object.apply_authored_flag_upgrades(
             |n| n == "Upgrade_TestPlate" || n == "Upgrade_TestBlock",
-            0,
-        );
-        assert!(!blocked.armor_set);
-        assert!(!object.apply_authored_flag_upgrades(|n| n == "Upgrade_TestA", 0).weapon_bonus);
-        assert!(object
-            .apply_authored_flag_upgrades(|n| n == "Upgrade_TestA" || n == "Upgrade_TestB", 0)
-            .weapon_bonus);
+        ).armor_set);
+        world.apply_upgrade_to_object(id, "Upgrade_TestA");
+        assert!(!world.host_object(id).unwrap().weapon_bonus_player_upgrade);
+        world.apply_upgrade_to_object(id, "Upgrade_TestB");
+        assert!(world.host_object(id).unwrap().weapon_bonus_player_upgrade);
     }
 
     #[test]
@@ -624,6 +659,10 @@ mod flag_tests {
         use crate::game_logic::object::WeaponLockType;
 
         let mut world = GameLogic::new();
+        world.add_player(Player::new(0, Team::USA, "Owner", true));
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(
+            &mut world, "Upgrade_TestGun", "OBJECT", 0, 1,
+        );
         world.admit_receiving_module_content(
             crate::assets::ReceivingObjectContent::from_sources([(
                 "upgrade-row.ini".into(),
@@ -640,17 +679,20 @@ mod flag_tests {
             definitions.into_values().map(|rule| (rule.name.clone(), rule)).collect(),
             &[],
         ).unwrap();
-        let id = world.create_object("UpgradeRow", Team::USA, glam::Vec3::ZERO).unwrap();
+        let id = world.create_object_for_player("UpgradeRow", 0, glam::Vec3::ZERO).unwrap();
+        assert!(world.host_object_mut(id).unwrap().set_weapon_lock(1, WeaponLockType::LockedPermanently));
+        world.frame = 80;
+        world.apply_upgrade_to_object(id, "Upgrade_TestGun");
         let object = world.host_object_mut(id).unwrap();
-        assert!(object.set_weapon_lock(1, WeaponLockType::LockedPermanently));
-        object.apply_authored_flag_upgrades(|n| n == "Upgrade_TestGun", 80);
         assert!(object.is_weapon_locked());
         assert_eq!(object.active_weapon_slot, 1);
         assert_eq!(object.weapon_slot(0).unwrap().damage, 20.0);
         assert_eq!(object.weapon_slot(0).unwrap().ammo, Some(4));
         assert_eq!(object.weapon_slot(0).unwrap().suspend_fx_frame, 110);
         object.weapon.as_mut().unwrap().ammo = Some(1);
-        object.apply_authored_flag_upgrades(|n| n == "Upgrade_TestGun", 81);
+        world.frame = 81;
+        world.apply_upgrade_to_object(id, "Upgrade_TestGun");
+        let object = world.host_object(id).unwrap();
         assert_eq!(object.weapon_slot(0).unwrap().ammo, Some(1));
         assert!(object.is_weapon_locked());
     }
@@ -658,10 +700,101 @@ mod flag_tests {
     #[test]
     fn unit_named_template_without_modules_gets_no_flags() {
         let (mut world, id) = world("AmericaVehicleHumvee", "");
+        world.apply_upgrade_to_object(id, "Upgrade_AmericaTOWMissile");
         let object = world.host_object_mut(id).unwrap();
-        let flags = object.apply_authored_flag_upgrades(|n| n == "Upgrade_AmericaTOWMissile", 0);
+        let flags = object.apply_authored_flag_upgrades(|n| n == "Upgrade_AmericaTOWMissile");
         assert_eq!(flags, AuthoredFlagUpgrades::default());
         assert!(!object.test_weapon_condition(3));
+    }
+
+    fn weapon_clock_world(modules: &str) -> (GameLogic, crate::game_logic::ObjectId, crate::game_logic::ObjectId) {
+        use gamelogic::weapon::{WeaponBonus, WeaponBonusConditionType, WeaponBonusField, WeaponBonusSet, WeaponTemplate};
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(0, Team::USA, "Owner", true));
+        world.add_player(Player::new(1, Team::China, "Target", false));
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(
+            &mut world, "Upgrade_OrderedWeapon", "PLAYER", 0, 1,
+        );
+        let mut base = WeaponTemplate::new("OrderedBase".into());
+        base.primary_damage = 1.0;
+        base.attack_range = 100.0;
+        base.min_delay_between_shots = 30;
+        base.max_delay_between_shots = 90;
+        base.projectile_name = "NONE".into();
+        let mut bonus = WeaponBonus::new();
+        bonus.set_field(WeaponBonusField::RateOfFire, 2.0);
+        let mut bonuses = WeaponBonusSet::new();
+        bonuses.set_bonus(WeaponBonusConditionType::PlayerUpgrade, bonus);
+        base.extra_bonus = Some(bonuses);
+        let mut upgraded = base.clone();
+        upgraded.name = "OrderedNew".into();
+        upgraded.primary_damage = 7.0;
+        world.admit_receiving_weapon_snapshot(vec![
+            ("OrderedBase".into(), base), ("OrderedNew".into(), upgraded),
+        ]).unwrap();
+        world.admit_object_ini_sources([(
+            "ordered-weapon-upgrades.ini".into(),
+            format!("Object OrderedActor\nKindOf = INFANTRY CAN_ATTACK\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nWeaponSet\nConditions = None\nWeapon = PRIMARY OrderedBase\nEnd\nWeaponSet\nConditions = PLAYER_UPGRADE\nWeapon = PRIMARY OrderedNew\nEnd\nBehavior = AIUpdateInterface AI\nEnd\n{modules}End\n"),
+        )]).unwrap();
+        let source = world.create_object_for_player("OrderedActor", 0, glam::Vec3::ZERO).unwrap();
+        let target = world.create_object_for_player("OrderedActor", 1, glam::Vec3::new(20.0, 0.0, 0.0)).unwrap();
+        world.logic_random.seed_random(412);
+        (world, source, target)
+    }
+
+    const BONUS: &str = "Behavior = WeaponBonusUpgrade Bonus\nTriggeredBy = Upgrade_OrderedWeapon\nEnd\n";
+    const SET: &str = "Behavior = WeaponSetUpgrade Set\nTriggeredBy = Upgrade_OrderedWeapon\nEnd\n";
+
+    #[test]
+    fn weapon_bonus_upgrade_restarts_real_waiting_weapon_once_with_receiving_rates() {
+        let (mut world, source, target) = weapon_clock_world(BONUS);
+        world.frame = 15;
+        assert!(world.fire_owned_passive_weapon(source, target, 0, glam::Vec3::ZERO));
+        let expected = game_engine::common::random_value::SessionRandom::from_state(world.logic_random.snapshot());
+        let deadline = 20 + (expected.next_int(30, 90) as f32 / 2.0).floor() as u32;
+        world.frame = 20;
+        world.apply_upgrade_to_object(source, "Upgrade_OrderedWeapon");
+        assert_eq!(world.host_object(source).unwrap().weapon.as_ref().unwrap().next_fire_frame, deadline);
+        assert_eq!(world.logic_random.seed_words(), expected.seed_words());
+        // Removing resets the module, not the already-set condition. A fresh
+        // module execution must not restart the timer without a changed bit.
+        world.remove_object_upgrade_with_receiving_rules(source, "Upgrade_OrderedWeapon");
+        world.apply_upgrade_to_object(source, "Upgrade_OrderedWeapon");
+        assert_eq!(world.host_object(source).unwrap().weapon.as_ref().unwrap().next_fire_frame, deadline);
+        assert_eq!(world.logic_random.seed_words(), expected.seed_words());
+        world.frame = deadline - 1;
+        assert!(!world.fire_owned_passive_weapon(source, target, 0, glam::Vec3::ZERO));
+        world.frame = deadline;
+        assert!(world.fire_owned_passive_weapon(source, target, 0, glam::Vec3::ZERO));
+    }
+
+    #[test]
+    fn weapon_bonus_and_set_callbacks_preserve_source_order_and_rng() {
+        for bonus_first in [true, false] {
+            let modules = if bonus_first { format!("{BONUS}{SET}") } else { format!("{SET}{BONUS}") };
+            let (mut world, source, target) = weapon_clock_world(&modules);
+            world.frame = 15;
+            assert!(world.fire_owned_passive_weapon(source, target, 0, glam::Vec3::ZERO));
+            let expected = game_engine::common::random_value::SessionRandom::from_state(world.logic_random.snapshot());
+            if bonus_first {
+                expected.next_int(30, 90);
+            }
+            world.frame = 20;
+            world.apply_upgrade_to_object(source, "Upgrade_OrderedWeapon");
+            assert_eq!(world.logic_random.seed_words(), expected.seed_words(),
+                "bonus-before-set restarts the old Weapon; set-before-bonus sees the new READY Weapon");
+            assert_eq!(world.host_object(source).unwrap().weapon.as_ref().unwrap().damage, 7.0);
+            let before = world.host_object(target).unwrap().health.current;
+            assert!(world.fire_owned_passive_weapon(source, target, 0, glam::Vec3::ZERO));
+            assert_eq!(world.host_object(target).unwrap().health.current, before - 7.0);
+            world.players.get_mut(&0).unwrap().complete_researched_upgrade(
+                "Upgrade_OrderedWeapon", gamelogic::upgrade::UpgradeType::Player,
+            );
+            let born = world.create_object_for_player("OrderedActor", 0, glam::Vec3::ZERO).unwrap();
+            assert_eq!(world.host_object(born).unwrap().weapon.as_ref().unwrap().damage, 7.0);
+            assert!(world.host_object(born).unwrap().weapon_bonus_player_upgrade);
+            assert!(world.host_object(born).unwrap().completed_object_upgrades.is_empty());
+        }
     }
 }
 

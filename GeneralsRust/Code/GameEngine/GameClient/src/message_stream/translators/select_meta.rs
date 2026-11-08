@@ -31,8 +31,7 @@ fn look_at_object_position(pos: &Coord3D) {
     });
 }
 
-fn current_selected_ids() -> Vec<ObjectID> {
-    let local_player = get_local_player_id();
+fn current_selected_ids(local_player: i32) -> Vec<ObjectID> {
     if local_player < 0 {
         return Vec::new();
     }
@@ -46,8 +45,7 @@ fn current_selected_ids() -> Vec<ObjectID> {
         .unwrap_or_default()
 }
 
-fn apply_single_selection(id: ObjectID) {
-    let local_player = get_local_player_id();
+fn apply_single_selection(id: ObjectID, local_player: i32) {
     if local_player < 0 {
         return;
     }
@@ -63,13 +61,13 @@ if let Ok(mut manager) = __arc_bind.write() {
 }
 
 /// C++ CommandXlat.cpp:2346-2451 / 2456-2570.
-pub(super) fn handle_select_next_or_prev_unit(next: bool) -> Vec<GameMessageType> {
+pub(super) fn handle_select_next_or_prev_unit(next: bool, local_player_id: i32) -> Vec<GameMessageType> {
     let candidates = collect_select_next_candidates();
     if candidates.is_empty() {
         return Vec::new();
     }
 
-    let current = current_selected_ids();
+    let current = current_selected_ids(local_player_id);
     let current_id = current.first().copied();
     let pick = if let Some(current_id) = current_id {
         if let Some(idx) = candidates.iter().position(|(id, _)| *id == current_id) {
@@ -90,7 +88,7 @@ pub(super) fn handle_select_next_or_prev_unit(next: bool) -> Vec<GameMessageType
         candidates[0].clone()
     };
 
-    apply_single_selection(pick.0);
+    apply_single_selection(pick.0, local_player_id);
     look_at_object_position(&pick.1);
     vec![GameMessageType::CreateSelectedGroup(true, vec![pick.0])]
 }
@@ -120,13 +118,13 @@ fn collect_select_worker_candidates(require_mobile: bool) -> Vec<(ObjectID, Coor
 /// C++ CommandXlat.cpp:2573-2798 `MSG_META_SELECT_NEXT/PREV_WORKER`.
 /// Next walks the prepended drawable list backwards and accepts KINDOF_DOZER.
 /// Prev also requires `isMobile()`. Neither path includes harvesters.
-pub(super) fn handle_select_next_or_prev_worker(next: bool) -> Vec<GameMessageType> {
+pub(super) fn handle_select_next_or_prev_worker(next: bool, local_player_id: i32) -> Vec<GameMessageType> {
     let candidates = collect_select_worker_candidates(!next);
     if candidates.is_empty() {
         return Vec::new();
     }
 
-    let current = current_selected_ids();
+    let current = current_selected_ids(local_player_id);
     let current_id = current.first().copied();
     let pick = if let Some(current_id) = current_id {
         if let Some(idx) = candidates.iter().position(|(id, _)| *id == current_id) {
@@ -146,7 +144,7 @@ pub(super) fn handle_select_next_or_prev_worker(next: bool) -> Vec<GameMessageTy
         candidates[0].clone()
     };
 
-    apply_single_selection(pick.0);
+    apply_single_selection(pick.0, local_player_id);
     look_at_object_position(&pick.1);
     vec![GameMessageType::CreateSelectedGroup(true, vec![pick.0])]
 }
@@ -171,11 +169,12 @@ pub(super) fn handle_select_all(
     window_query: &mut dyn FnMut(i32, i32, &mut crate::message_stream::ReceivingUi<'_>) -> bool,
     ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) -> Vec<GameMessageType> {
-    for id in current_selected_ids() {
+    let local_player_id = ui.local_player_id();
+    for id in current_selected_ids(local_player_id) {
         if let Some(obj_ref) = OBJECT_REGISTRY.get_object(id) {
             if let Ok(obj) = obj_ref.read() {
                 if object_disqualifies_select_all(&obj, aircraft_only) {
-                    let local_player = get_local_player_id();
+                    let local_player = ui.local_player_id();
                     if local_player >= 0 {
                         let __arc_bind = get_selection_manager();
 if let Ok(mut manager) = __arc_bind.write() {

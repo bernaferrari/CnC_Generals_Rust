@@ -332,16 +332,6 @@ impl Default for FunctionLexicon {
     }
 }
 
-// Global function lexicon instance (mirrors TheFunctionLexicon singleton)
-lazy_static::lazy_static! {
-    pub static ref THE_FUNCTION_LEXICON: Arc<Mutex<FunctionLexicon>> =
-        Arc::new(Mutex::new(FunctionLexicon::new()));
-}
-
-/// Convenience function to access the global function lexicon
-pub fn get_function_lexicon() -> Arc<Mutex<FunctionLexicon>> {
-    THE_FUNCTION_LEXICON.clone()
-}
 
 /// Macro for creating function table entries
 ///

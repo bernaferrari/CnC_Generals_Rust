@@ -956,7 +956,7 @@ impl GameLogic {
             if self.is_object_scoped_upgrade(&name) {
                 continue;
             }
-            self.apply_player_research_to_object_with_interpreter_checked(
+            self.apply_player_research_residuals_with_interpreter_checked(
                 structure_id,
                 &name,
                 interpreter,
@@ -964,10 +964,11 @@ impl GameLogic {
             )
             .expect("owned upgrade callback admission must complete");
         }
-        // C++ Object::updateUpgradeModules runs once more after construction
-        // clears UNDER_CONSTRUCTION. Replay the combined object/player mask so
-        // object upgrades granted while construction blocked module dispatch
-        // can activate their authored ObjectCreationUpgrade modules now.
+        // Object.cpp:2410-2438 traverses upgrade modules once, using the
+        // combined mask rather than once per completed research name. A
+        // later module's RemovesUpgrades may reset an earlier latch, so a
+        // second pass here would incorrectly repeat its gameplay effect.
+        // This also admits grants deferred by UNDER_CONSTRUCTION.
         if !self.object_birth_matches(structure_id, &structure_birth) {
             return;
         }

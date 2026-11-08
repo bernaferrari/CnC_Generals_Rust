@@ -1584,70 +1584,9 @@ impl GameLogic {
         });
         let rail = rail_birth.is_some();
 
-        // Remove occupants from container bookkeeping first.
-        if !rail {
-            if let Some(target) = self.objects.get_mut(&target_id) {
-                for &occ_id in &occupants {
-                    target.remove_occupant_with_partition_owner(
-                        occ_id,
-                        &mut self.ownership_events,
-                        &mut self.partition_manager,
-                    );
-                }
-            }
-        }
-        // C++ OpenContain/TunnelContain::harmAndForceExitAllContained:
-        // removeFromContain (expose) then attemptDamage(100 typed). Survivors stay ejected.
-
-        let mut ejected: Vec<ObjectId> = Vec::new();
-        for occ_id in occupants {
-            if rail { continue; }
-            let Some(occ) = self.objects.get_mut(&occ_id) else {
-                continue;
-            };
-            if !occ.is_alive() {
-                continue;
-            }
-            let containment_actor_id = occ.id;
-            Self::set_owned_containment_in_parts(
-                &mut self.objects,
-                &mut self.partition_manager,
-                &mut self.ai_groups,
-                &mut self.pathfinding_system,
-                containment_actor_id,
-                None,
-                true,
-            );
-            let occ = self
-                .objects
-                .get_mut(&containment_actor_id)
-                .expect("containment operation preserves this birth");
-            occ.set_ai_state(
-                AIState::Idle,
-                self.frame,
-                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-            );
-            {}
-            ejected.push(occ_id);
-        }
-
-        for &id in &ejected {
-            if let Some(player_id) = self.tunnel_network.player_holding_unit(id) {
-                if let Some(entry) = self.tunnel_network.record_exit(player_id, id, target_id) {
-                    if entry != target_id {
-                        if let Some(c) = self.objects.get_mut(&entry) {
-                            c.remove_occupant_with_partition_owner(
-                                id,
-                                &mut self.ownership_events,
-                                &mut self.partition_manager,
-                            );
-                        }
-                    }
-                }
-            }
-        }
-
-        let mut ejected = ejected.into_iter();
+        // OpenContain::harmAndForceExitAllContained removes and harms each
+        // rider before visiting the next; bonus restarts belong to that order.
+        let mut occupants = occupants.into_iter();
         loop {
             let occ_id = if rail {
                 let Some(id) = self.objects.get(&target_id)
@@ -1664,7 +1603,31 @@ impl GameLogic {
                 }
                 id
             } else {
-                let Some(id) = ejected.next() else { break };
+                let Some(id) = occupants.next() else { break };
+                self.remove_owned_occupant_with_bonus_callback(target_id, id, presentation_effects);
+                let Some(occupant) = self.objects.get(&id) else { continue };
+                if !occupant.is_alive() { continue; }
+                Self::set_owned_containment_in_parts(
+                    &mut self.objects,
+                    &mut self.partition_manager,
+                    &mut self.ai_groups,
+                    &mut self.pathfinding_system,
+                    id,
+                    None,
+                    true,
+                );
+                self.objects.get_mut(&id).unwrap().set_ai_state(
+                    AIState::Idle,
+                    self.frame,
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                );
+                if let Some(player_id) = self.tunnel_network.player_holding_unit(id) {
+                    if let Some(entry) = self.tunnel_network.record_exit(player_id, id, target_id) {
+                        if entry != target_id {
+                            self.remove_owned_occupant_with_bonus_callback(entry, id, presentation_effects);
+                        }
+                    }
+                }
                 id
             };
             let Some(occupant_damage_type) =
@@ -1967,6 +1930,7 @@ impl GameLogic {
                     player.academy_stats.record_cleared_garrisoned_building();
                 }
             }
+            self.remove_owned_occupant_with_bonus_callback(target_id, occ_id, presentation_effects);
             let containment_actor_id = occ_id;
             Self::set_owned_containment_in_parts(
                 &mut self.objects,
@@ -1992,15 +1956,6 @@ impl GameLogic {
             }
             kills = kills.saturating_add(1);
             destroy_ids.push((occ_id, occ_birth));
-        }
-        if let Some(target) = self.objects.get_mut(&target_id) {
-            for &(occ_id, _) in &destroy_ids {
-                target.remove_occupant_with_partition_owner(
-                    occ_id,
-                    &mut self.ownership_events,
-                    &mut self.partition_manager,
-                );
-            }
         }
         for (killer, victim, victim_birth) in score_pairs {
             if !self.objects.get(&victim).is_some_and(|victim| {

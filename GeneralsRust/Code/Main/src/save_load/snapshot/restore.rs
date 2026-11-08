@@ -598,9 +598,22 @@ impl SnapshotBuilder {
         // tail.  Older streams intentionally leave the zero sentinel, while
         // a short/misaligned tail never manufactures a frame for a slot that
         // was not restored as a concrete Weapon.
+        object.weapon_bonus_target_faerie_fire = snapshot.weapon_bonus_target_faerie_fire;
+        object.weapon_bonus_garrisoned = snapshot.weapon_bonus_garrisoned;
+        for slot in 0..3u8 {
+            if let Some(weapon) = object.weapon_slot_mut(slot) {
+                weapon.frame_clock_status = snapshot.weapon_frame_statuses[slot as usize];
+            }
+        }
         for slot in 0..3u8 {
             if let Some(&suspend_fx_frame) = snapshot.weapon_suspend_fx_frames.get(slot as usize) {
                 object.restore_weapon_suspend_fx_frame_for_slot(slot, suspend_fx_frame);
+            }
+            if let Some(weapon) = object.weapon_slot_mut(slot) {
+                let (deadline, active, reload_started) = snapshot.weapon_frame_clocks[slot as usize];
+                weapon.next_fire_frame = deadline;
+                weapon.frame_clock_active = active;
+                weapon.reload_started_frame = reload_started;
             }
         }
         // v4 stores only the mutable C++ Weapon cursor. Authored cadence and

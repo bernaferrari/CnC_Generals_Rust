@@ -336,6 +336,10 @@ struct AudioFade {
 ///
 /// Matches C++ `AudioManager`.
 pub struct AudioEngine {
+    /// C++ `GameAudioRandomValue` stream, owned by this audio device owner.
+    audio_random: game_engine::common::random_value::RandomState,
+    /// C++ `GameClientRandomValue` stream used by music/speech selection.
+    client_random: game_engine::common::random_value::RandomState,
     // kira backend
     kira: KiraManager,
 
@@ -388,10 +392,23 @@ pub struct AudioEngine {
 }
 
 impl AudioEngine {
+    /// Seed both presentation streams (C++ `InitRandom(seed)` client/audio streams).
+    pub fn seed_random(&mut self, seed: u32) {
+        self.audio_random.seed_random(seed);
+        self.client_random.seed_random(seed);
+    }
+
+    /// The client stream owned by this audio engine.
+    pub fn client_random_mut(&mut self) -> &mut game_engine::common::random_value::RandomState {
+        &mut self.client_random
+    }
+
     /// Create a new audio engine backed by `kira`.
     pub fn new() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let kira = KiraManager::new(AudioManagerSettings::default())?;
         Ok(Self {
+            audio_random: Default::default(),
+            client_random: Default::default(),
             kira,
             listener_position: AudioPosition::default(),
             listener_forward: AudioPosition::new(0.0, 1.0, 0.0),
@@ -803,10 +820,7 @@ impl AudioEngine {
         // (`GameAudioRandomValue`), not the client stream.
         let filename = if !info.sounds.is_empty() {
             let idx = if info.control_flags & AudioControl::RANDOM != 0 {
-                game_engine::common::random_value::get_game_audio_random_value(
-                    0,
-                    (info.sounds.len() - 1) as i32,
-                ) as usize
+                self.audio_random.next_int(0, (info.sounds.len() - 1) as i32) as usize
             } else {
                 0
             };

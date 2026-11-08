@@ -81,7 +81,6 @@ impl ThingTemplate for TestThingTemplate {
 }
 
 fn setup_local_player_team() -> Arc<RwLock<Team>> {
-    crate::message_stream::player_state::set_local_player_id(0);
     {
         let list = player_list();
         let mut guard = list.write().unwrap();
@@ -1363,7 +1362,7 @@ fn select_next_worker_is_dozer_only_and_looks_at() {
         register_test_object(78_081, vec![KindOf::Selectable, KindOf::Harvester], team);
     set_test_object_position(&dozer, 40.0, 10.0, 0.0);
 
-    let messages = handle_select_next_or_prev_worker(true);
+    let messages = handle_select_next_or_prev_worker(true, 0);
     assert_eq!(messages.len(), 1);
     match &messages[0] {
         GameMessageType::CreateSelectedGroup(true, ids) => {
@@ -1376,34 +1375,3 @@ fn select_next_worker_is_dozer_only_and_looks_at() {
     OBJECT_REGISTRY.unregister_object(78_081);
 }
 
-#[test]
-fn command_translate_wires_select_next_prev_worker() {
-    crate::test_support::ensure_ambient_host();
-    let src = include_str!("command_translate.rs");
-    assert!(
-        src.contains("GameMessageType::MetaSelectNextWorker")
-            && src.contains("handle_select_next_or_prev_worker(true)")
-            && src.contains("handle_select_next_or_prev_worker(false)"),
-        "leftover CommandXlat must handle SELECT_NEXT/PREV_WORKER"
-    );
-}
-
-#[test]
-fn selection_can_set_rally_point_requires_auto_rallypoint_like_cpp() {
-    crate::test_support::ensure_ambient_host();
-    let _guard = test_state_lock();
-    let team = setup_local_player_team();
-    let factory = register_test_object(78_200, vec![KindOf::AutoRallypoint], team.clone());
-    assert!(
-        selection_can_set_rally_point(&HashSet::from([78_200])),
-        "KINDOF_AUTO_RALLYPOINT + local must set rally without ProductionUpdate"
-    );
-    OBJECT_REGISTRY.unregister_object(78_200);
-
-    let plant = register_test_object(78_201, vec![KindOf::Structure], team);
-    assert!(
-        !selection_can_set_rally_point(&HashSet::from([78_201])),
-        "structure without AUTO_RALLYPOINT must not set rally"
-    );
-    OBJECT_REGISTRY.unregister_object(78_201);
-}

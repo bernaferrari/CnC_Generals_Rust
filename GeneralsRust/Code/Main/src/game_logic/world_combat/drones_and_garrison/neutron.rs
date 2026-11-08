@@ -262,14 +262,8 @@ impl GameLogic {
         }
 
         for (container_id, occupants) in contain_pairs {
-            if let Some(container) = self.objects.get_mut(&container_id) {
-                for &occ_id in &occupants {
-                    container.remove_occupant_with_partition_owner(
-                        occ_id,
-                        &mut self.ownership_events,
-                        &mut self.partition_manager,
-                    );
-                }
+            for &occ_id in &occupants {
+                self.remove_owned_occupant_with_bonus_callback(container_id, occ_id, presentation_effects);
             }
             for occ_id in occupants {
                 if destroy_ids.contains(&occ_id) {

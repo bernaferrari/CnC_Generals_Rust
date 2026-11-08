@@ -2,9 +2,8 @@
 //!
 //! The queue is owned by a game instance (`GameMessageQueue`). There is no
 //! process-wide message store: two instances never share queued messages.
-//! Legacy `TheMessageStream::append_message` / `append_message` adapters that
-//! do not hold an owner drop the message (same observable black-hole as the
-//! old undrained process queue) instead of writing shared mutable state.
+//! Every message is built through `GameMessageQueue::append`; there is no
+//! ownerless builder that drops messages.
 
 use crate::commands::command::CommandType;
 use crate::common::{Coord3D, DrawableID, ICoord2D, IRegion2D, Int, MessageType, ObjectID, UnsignedInt};
@@ -154,38 +153,22 @@ impl GameMessageQueue {
 
 /// Builder that queues the message when dropped into its owning queue.
 ///
-/// A builder created without an owner (legacy `append_message`) drops the
-/// message on commit instead of touching process-wide state.
 #[derive(Debug)]
 pub struct MessageBuilder<'a> {
     message: Option<GameMessage>,
-    queue: Option<&'a mut GameMessageQueue>,
+    queue: &'a mut GameMessageQueue,
 }
 
 impl<'a> MessageBuilder<'a> {
     fn new_owned(message_type: MessageType, queue: &'a mut GameMessageQueue) -> Self {
         Self {
             message: Some(GameMessage::new(message_type)),
-            queue: Some(queue),
-        }
-    }
-
-    fn new_unowned(message_type: MessageType) -> Self {
-        Self {
-            message: Some(GameMessage::new(message_type)),
-            queue: None,
+            queue,
         }
     }
 
     fn push_into_sink(&mut self, msg: GameMessage) {
-        if let Some(queue) = &mut self.queue {
-            queue.push(msg);
-        } else {
-            log::debug!(
-                "GameMessageQueue: dropping unowned message id={}",
-                msg.id
-            );
-        }
+        self.queue.push(msg);
     }
 
     /// Explicitly commit the message to the queue.
@@ -222,19 +205,6 @@ impl Drop for MessageBuilder<'_> {
     }
 }
 
-
-/// Legacy adapter: build a message with no owning queue.
-///
-/// Prefer `GameMessageQueue::append`. Without an owner the message is dropped
-/// on commit (no process-wide store).
-pub fn append_message(message_type: MessageType) -> MessageBuilder<'static> {
-    MessageBuilder::new_unowned(message_type)
-}
-
-/// Legacy no-op drain. Owned queues use `GameMessageQueue::drain`.
-pub fn drain_messages() -> Vec<GameMessage> {
-    Vec::new()
-}
 
 #[cfg(test)]
 mod tests {
@@ -310,13 +280,5 @@ mod tests {
             assert_eq!(fingerprint[5].1, *seed as i32);
         }
         assert_ne!(got[0].1, got[1].1);
-    }
-
-    #[test]
-    fn unowned_append_is_dropped_not_shared() {
-        let _ = append_message(MSG_DO_STOP);
-        assert!(drain_messages().is_empty());
-        let mut owned = GameMessageQueue::new();
-        assert!(owned.drain().is_empty());
     }
 }

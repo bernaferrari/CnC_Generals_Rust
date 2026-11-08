@@ -3,7 +3,6 @@
 //! This module provides advanced bounding volume calculations,
 //! optimizations, and utilities beyond the basic bounding volumes.
 
-use crate::collision::sphere_aabb_intersect as sphere_aabb_intersect_fn;
 use crate::spatial_partitioning::SpatialObject;
 use crate::*;
 use glam::{Mat4, Vec3};
@@ -368,14 +367,14 @@ impl BVHNode {
     pub fn query_sphere(&self, sphere: &Sphere) -> Vec<&SpatialObject> {
         let mut result = Vec::new();
 
-        if !sphere_aabb_intersect_fn(sphere, self.bounds()) {
+        if !self.bounds().intersects_sphere(sphere) {
             return result;
         }
 
         match self {
             BVHNode::Leaf { objects, .. } => {
                 for object in objects {
-                    if sphere_aabb_intersect_fn(sphere, &object.bounds) {
+                    if object.bounds.intersects_sphere(sphere) {
                         result.push(object);
                     }
                 }
@@ -388,27 +387,6 @@ impl BVHNode {
 
         result
     }
-}
-
-/// Helper function for sphere-AABB intersection (should be in intersection.rs but needed here)
-#[allow(dead_code)] // C++ parity
-fn sphere_aabb_intersect(sphere: &Sphere, aabb: &AABox) -> bool {
-    let closest_point = Vec3::new(
-        sphere
-            .center
-            .x
-            .clamp(aabb.center.x - aabb.extent.x, aabb.center.x + aabb.extent.x),
-        sphere
-            .center
-            .y
-            .clamp(aabb.center.y - aabb.extent.y, aabb.center.y + aabb.extent.y),
-        sphere
-            .center
-            .z
-            .clamp(aabb.center.z - aabb.extent.z, aabb.center.z + aabb.extent.z),
-    );
-
-    (closest_point - sphere.center).length_squared() <= sphere.radius * sphere.radius
 }
 
 #[cfg(test)]

@@ -543,8 +543,6 @@ impl Object {
         // excluded from autonomous selection (retail Comanche rocket pods
         // declare `AutoChooseSources = TERTIARY NONE`).
         let slot = if let WeaponShotRoute::Passive { slot, .. } = route {
-            let weapon = self.weapon_slot(slot)?;
-            let name = self.weapon_name_for_slot(slot);
             let mut rof = owned_rof
                 .map(|rates| rates[slot as usize])
                 .unwrap_or_else(|| {
@@ -556,14 +554,7 @@ impl Object {
             if target_has_faerie_fire {
                 rof *= crate::game_logic::host_avenger::FAERIE_FIRE_ROF_MULTIPLIER;
             }
-            let reload = self.live_reload_interval(weapon, name, rof);
-            if !Self::weapon_ready_selected(
-                weapon,
-                current_time,
-                name,
-                reload,
-                self.selected_native_weapon_rule(slot).as_deref(),
-            ) {
+            if !self.selected_weapon_ready_at_frame(slot, current_time, logic_frame, rof) {
                 return None;
             }
             slot
@@ -582,39 +573,9 @@ impl Object {
                         1.0
                     }
             };
-            let primary_name = self.primary_weapon_name().map(|s| s.to_string());
-            let secondary_name = self.secondary_weapon_name().map(|s| s.to_string());
-            let primary_ready = self.weapon_slot(0).is_some_and(|w| {
-                let reload = self.live_reload_interval(w, primary_name.as_deref(), rof(0));
-                Self::weapon_ready_selected(
-                    w,
-                    current_time,
-                    primary_name.as_deref(),
-                    reload,
-                    self.selected_native_weapon_rule(0).as_deref(),
-                )
-            });
-            let secondary_ready = self.secondary_weapon.as_ref().is_some_and(|w| {
-                let reload = self.live_reload_interval(w, secondary_name.as_deref(), rof(1));
-                Self::weapon_ready_selected(
-                    w,
-                    current_time,
-                    secondary_name.as_deref(),
-                    reload,
-                    self.selected_native_weapon_rule(1).as_deref(),
-                )
-            });
-            let tertiary_name = self.tertiary_weapon_name().map(str::to_owned);
-            let tertiary_ready = self.tertiary_weapon.as_ref().is_some_and(|w| {
-                let reload = self.live_reload_interval(w, tertiary_name.as_deref(), rof(2));
-                Self::weapon_ready_selected(
-                    w,
-                    current_time,
-                    tertiary_name.as_deref(),
-                    reload,
-                    self.selected_native_weapon_rule(2).as_deref(),
-                )
-            });
+            let primary_ready = self.selected_weapon_ready_at_frame(0, current_time, logic_frame, rof(0));
+            let secondary_ready = self.selected_weapon_ready_at_frame(1, current_time, logic_frame, rof(1));
+            let tertiary_ready = self.selected_weapon_ready_at_frame(2, current_time, logic_frame, rof(2));
 
             if self.weapon_lock_type != WeaponLockType::NotLocked {
                 // The lock owns its own concrete slot identity.  Do not use
@@ -759,14 +720,14 @@ impl Object {
         }
         {}
 
-        let possible_next_shot_frame = self
-            .possible_next_shot_frame_for_slot_with_optional_solo_set(
-                slot,
-                logic_frame,
-                target_has_faerie_fire,
-                solo_set,
-                owned_rof,
-            );
+        let shot_rof = owned_rof.map(|rates| rates[slot as usize]).unwrap_or_else(|| {
+            solo_set.map_or_else(
+                || self.weapon_bonus_fields().2,
+                |set| self.weapon_bonus_fields_with_solo_set(set).2,
+            )
+        }) * if owned_rof.is_none() && target_has_faerie_fire {
+            crate::game_logic::host_avenger::FAERIE_FIRE_ROF_MULTIPLIER
+        } else { 1.0 };
         let fire_weapon_name = self.weapon_name_for_slot(slot).map(str::to_owned);
         let name = fire_weapon_name.as_deref();
         // C++ WeaponTemplate keeps each of these references per veterancy
@@ -1030,70 +991,10 @@ impl Object {
         if defer_post_fire_commit {
             self.pending_weapon_fire_commit = None; // replaced after pending is built
         } else {
-            let Some(weapon) = self.weapon_slot_mut(slot) else {
-                return None;
-            };
-            Self::consume_ammo_on_fire_selected(
-                weapon,
-                current_time,
-                name,
-                native_rule.as_deref(),
-            );
-            let clip_emptied = weapon.ammo == Some(0);
-            auto_reloaded_clip = Self::auto_reloaded_clip_after_firing_selected(
-                weapon,
-                name,
-                native_rule.as_deref(),
-            );
-            weapon.reloading_clip = clip_emptied;
-            drop(weapon);
-            if clip_emptied {
-                self.rebuild_scatter_targets_unused(slot, name);
-            } else if let Some(weapon_name) = name {
-                let rof = owned_rof
-                    .map(|rates| rates[slot as usize])
-                    .unwrap_or_else(|| {
-                        solo_set.map_or_else(
-                            || self.weapon_bonus_fields().2,
-                            |set| self.weapon_bonus_fields_with_solo_set(set).2,
-                        )
-                    });
-                let rolled = native_rule
-                    .as_ref()
-                    .map(|rule| {
-                        let mut bonus = gamelogic::weapon::WeaponBonus::new();
-                        bonus.set_field(
-                            gamelogic::weapon::WeaponBonusField::RateOfFire,
-                            rof.max(0.01),
-                        );
-                        (match random {
-                            Some(random) => {
-                                rule.get_delay_between_shots_with_random(&bonus, random)
-                            }
-                            None => rule.get_delay_between_shots(&bonus),
-                        }) as f32
-                            / 30.0
-                    })
-                    .or_else(|| match random {
-                        Some(random) => crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_with_rof_and_random(
-                            weapon_name, rof, random,
-                        ),
-                        None => crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_with_rof(
-                            weapon_name, rof,
-                        ),
-                    });
-                if let Some(rolled) = rolled {
-                    let nominal = self
-                        .weapon_slot(slot)
-                        .map(|weapon| self.live_reload_interval(weapon, Some(weapon_name), rof))
-                        .unwrap_or(rolled);
-                    if (rolled - nominal).abs() > 1e-6 {
-                        if let Some(weapon) = self.weapon_slot_mut(slot) {
-                            weapon.last_fire_time = current_time + rolled - nominal;
-                        }
-                    }
-                }
-            }
+            auto_reloaded_clip = self.commit_weapon_ammo_and_clock(
+                slot, current_time, logic_frame, name, native_rule.as_deref(), shot_rof,
+                owned_rof.map_or(shot_rof, |rates| rates[slot as usize]), random,
+            )?;
         }
         let shooter_id = self.id;
         let shooter_pos = match route {
@@ -1200,7 +1101,7 @@ impl Object {
                 current_time,
                 logic_frame,
                 target_id: target_object,
-                possible_next_shot_frame,
+                shot_rof,
                 fire_weapon_name: fire_weapon_name.clone(),
                 owned_rof: owned_rof.copied(),
             });
@@ -1211,13 +1112,13 @@ impl Object {
             current_time,
             logic_frame,
             target_object,
-            possible_next_shot_frame,
             fire_weapon_name.as_deref(),
             owned_rof,
             solo_set,
             random,
             native_rule.as_deref(),
             auto_reloaded_clip,
+            true,
             sound_events,
         );
         Some((slot, pending))
@@ -1229,95 +1130,121 @@ impl Object {
         sound_events: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
         solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
         random: Option<&game_engine::common::random_value::SessionRandom>,
-    ) -> bool {
-        let Some(commit) = self.pending_weapon_fire_commit.take() else {
-            return false;
-        };
+        reload_rates: Option<&[f32; 3]>,
+    ) -> Option<(u8, Option<ObjectId>, Option<String>)> {
+        let commit = self.pending_weapon_fire_commit.take()?;
         let slot = commit.slot;
         let name = commit.fire_weapon_name.as_deref();
         let native_owned = self.selected_native_weapon_rule(slot);
-        {
-            let Some(weapon) = self.weapon_slot_mut(slot) else {
-                return false;
-            };
-            Self::consume_ammo_on_fire_selected(
-                weapon,
-                commit.current_time,
-                name,
-                native_owned.as_deref(),
-            );
-            let clip_emptied = weapon.ammo == Some(0);
-            weapon.reloading_clip = clip_emptied;
-        }
-        let auto_reloaded_clip = self.weapon_slot(slot).is_some_and(|weapon| {
-            Self::auto_reloaded_clip_after_firing_selected(
-                weapon,
-                name,
-                native_owned.as_deref(),
-            )
-        });
-        let clip_emptied = self
-            .weapon_slot(slot)
-            .is_some_and(|weapon| weapon.reloading_clip);
-        if clip_emptied {
-            self.rebuild_scatter_targets_unused(slot, name);
-        } else if let Some(weapon_name) = name {
-            let owned_rof = commit.owned_rof.as_ref();
-            let rof = owned_rof.map(|rates| rates[slot as usize]).unwrap_or_else(|| {
-                solo_set.map_or_else(
-                    || self.weapon_bonus_fields().2,
-                    |set| self.weapon_bonus_fields_with_solo_set(set).2,
-                )
-            });
-            let rolled = native_owned
-                .as_ref()
-                .map(|rule| {
-                    let mut bonus = gamelogic::weapon::WeaponBonus::new();
-                    bonus.set_field(
-                        gamelogic::weapon::WeaponBonusField::RateOfFire,
-                        rof.max(0.01),
-                    );
-                    (match random {
-                        Some(random) => rule.get_delay_between_shots_with_random(&bonus, random),
-                        None => rule.get_delay_between_shots(&bonus),
-                    }) as f32
-                        / 30.0
-                })
-                .or_else(|| match random {
-                    Some(random) => crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_with_rof_and_random(
-                        weapon_name, rof, random,
-                    ),
-                    None => crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_with_rof(
-                        weapon_name, rof,
-                    ),
-                });
-            if let Some(rolled) = rolled {
-                let nominal = self
-                    .weapon_slot(slot)
-                    .map(|weapon| self.live_reload_interval(weapon, Some(weapon_name), rof))
-                    .unwrap_or(rolled);
-                if (rolled - nominal).abs() > 1e-6 {
-                    if let Some(weapon) = self.weapon_slot_mut(slot) {
-                        weapon.last_fire_time = commit.current_time + rolled - nominal;
-                    }
-                }
-            }
-        }
+        let auto_reloaded_clip = self.commit_weapon_ammo_and_clock(
+            slot, commit.current_time, commit.logic_frame, name,
+            native_owned.as_deref(), commit.shot_rof,
+            reload_rates.map_or(commit.shot_rof, |rates| rates[slot as usize]), random,
+        )?;
         self.apply_weapon_fire_post_effects_commit(
             slot,
             commit.current_time,
             commit.logic_frame,
             commit.target_id,
-            commit.possible_next_shot_frame,
             name,
             commit.owned_rof.as_ref(),
             solo_set,
             random,
             native_owned.as_deref(),
             auto_reloaded_clip,
+            false,
             sound_events,
         );
-        true
+        Some((slot, commit.target_id, commit.fire_weapon_name))
+    }
+
+    /// C++ privateFireWeapon commits the one sampled deadline after delivery.
+    fn commit_weapon_ammo_and_clock(
+        &mut self,
+        slot: u8,
+        current_time: f32,
+        frame: u32,
+        name: Option<&str>,
+        rule: Option<&gamelogic::weapon::WeaponTemplate>,
+        rof: f32,
+        reload_rof: f32,
+        random: Option<&game_engine::common::random_value::SessionRandom>,
+    ) -> Option<bool> {
+        let weapon = self.weapon_slot_mut(slot)?;
+        Self::consume_ammo_on_fire_selected(weapon, current_time, name, rule);
+        weapon.last_fire_frame = frame;
+        let empty = weapon.ammo == Some(0) && (rule.is_none() || weapon.clip_size > 0);
+        let auto_reload = Self::auto_reloaded_clip_after_firing_selected(weapon, name, rule);
+        weapon.reloading_clip = empty;
+        if let Some(rule) = rule {
+            let deadline = if empty && !auto_reload {
+                0x7fff_ffff
+            } else {
+                frame.wrapping_add(Self::authored_weapon_delay_frames(
+                    rule, auto_reload, if auto_reload { reload_rof } else { rof }, random,
+                ))
+            };
+            weapon.frame_clock_active = true;
+            weapon.next_fire_frame = deadline;
+            weapon.frame_clock_status = if auto_reload {
+                WeaponFireStatus::ReloadingClip
+            } else if empty {
+                WeaponFireStatus::OutOfAmmo
+            } else {
+                WeaponFireStatus::BetweenFiringShots
+            };
+            if !empty || auto_reload {
+                weapon.reload_started_frame = frame;
+            }
+            weapon.reloading_clip = auto_reload;
+            weapon.last_bonus_rof = rof;
+            if auto_reload {
+                // reloadWithBonus refills now; getStatus exposes the wait.
+                weapon.ammo = Some(weapon.clip_size);
+            }
+            if !empty || auto_reload {
+                self.copy_authored_weapon_deadline(slot, auto_reload);
+            }
+            if auto_reload {
+                self.rebuild_scatter_targets_unused(slot, name);
+            }
+        } else if empty {
+            self.rebuild_scatter_targets_unused(slot, name);
+        } else if let Some(name) = name {
+            let rolled = match random {
+                Some(random) => crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_with_rof_and_random(name, rof, random),
+                None => crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_with_rof(name, rof),
+            };
+            if let Some(rolled) = rolled {
+                let nominal = self.weapon_slot(slot)
+                    .map(|weapon| self.live_reload_interval(weapon, Some(name), rof))
+                    .unwrap_or(rolled);
+                self.weapon_slot_mut(slot)?.last_fire_time = current_time + rolled - nominal;
+            }
+        }
+        Some(auto_reload)
+    }
+
+    pub(super) fn authored_weapon_delay_frames(
+        rule: &gamelogic::weapon::WeaponTemplate,
+        reloading: bool,
+        rof: f32,
+        random: Option<&game_engine::common::random_value::SessionRandom>,
+    ) -> u32 {
+        // C++ divides directly then REAL_TO_INT_FLOOR. Nonpositive/nonfinite
+        // ROF has no supported portable conversion; do not invent a .01 floor.
+        assert!(rof.is_finite() && rof > 0.0, "unsupported authored weapon RATE_OF_FIRE");
+        let mut bonus = gamelogic::weapon::WeaponBonus::new();
+        bonus.set_field(gamelogic::weapon::WeaponBonusField::RateOfFire, rof);
+        let frames = if reloading {
+            rule.get_clip_reload_time(&bonus)
+        } else {
+            match random {
+                Some(random) => rule.get_delay_between_shots_with_random(&bonus, random),
+                None => rule.get_delay_between_shots(&bonus),
+            }
+        };
+        frames as u32
     }
 
     fn apply_weapon_fire_post_effects_commit(
@@ -1326,23 +1253,23 @@ impl Object {
         current_time: f32,
         logic_frame: u32,
         target_id: Option<ObjectId>,
-        possible_next_shot_frame: u32,
         fire_weapon_name: Option<&str>,
         owned_rof: Option<&[f32; 3]>,
         solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
         _random: Option<&game_engine::common::random_value::SessionRandom>,
         native_rule: Option<&gamelogic::weapon::WeaponTemplate>,
         auto_reloaded_clip: bool,
+        record_tracker: bool,
         sound_events: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
     ) {
-        self.record_shot_at_target_with_optional_solo_set(
-            target_id,
-            logic_frame,
-            possible_next_shot_frame,
-            solo_set,
-            owned_rof,
-            native_rule,
-        );
+        if record_tracker {
+            let possible_next_shot_frame = self.possible_next_shot_frame_for_slot_with_optional_solo_set(
+                slot, logic_frame, false, solo_set, owned_rof,
+            );
+            self.record_shot_at_target_with_optional_solo_set(
+                target_id, logic_frame, possible_next_shot_frame, solo_set, owned_rof, native_rule,
+            );
+        }
         // AssistingClipSize residual: count one assist fire per real shot
         // committed while TEMP-locked on the AssistingWeaponSlot.
         if self.weapon_lock_type == WeaponLockType::LockedTemporarily
@@ -1354,7 +1281,9 @@ impl Object {
         }
         // C++ --m_maxShotCount residual.
         self.consume_max_shot_count();
-        if let Some(rates) = owned_rof {
+        if native_rule.is_some() {
+            self.refresh_weapon_fire_status_at_frame(logic_frame, owned_rof.unwrap_or(&[1.0; 3]));
+        } else if let Some(rates) = owned_rof {
             self.refresh_weapon_fire_status_with_owned_rof(current_time, rates);
         } else if let Some(set) = solo_set {
             self.refresh_weapon_fire_status_with_solo_set(current_time, set);
@@ -1372,7 +1301,7 @@ impl Object {
         if let Some(weapon) = self.weapon_slot_mut(slot) {
             weapon.last_fire_frame = logic_frame;
         }
-        {
+        if record_tracker {
             let frame = logic_frame;
             self.stamp_fire_sound_loop_after_shot(frame, fire_weapon_name, sound_events);
             self.stamp_auto_reload_when_idle_from_slot(slot, frame);
@@ -1716,10 +1645,9 @@ impl Object {
             if waiting_clip {
                 // WeaponTemplate::getClipReloadTime floors the bonused delay
                 // in logic frames before it becomes a deadline.
-                return ((rule.clip_reload_time.max(0) as f32 / rof.max(0.01)).floor() / 30.0)
-                    .max(0.0);
+                return (rule.clip_reload_time as f32 / rof).floor() / 30.0;
             }
-            return ((rule.min_delay_between_shots as f32 / rof.max(0.01)).floor() / 30.0).max(0.0);
+            return (rule.min_delay_between_shots as f32 / rof).floor() / 30.0;
         }
         let auto_clip = weapon_name
             .map(crate::game_logic::weapon_bootstrap::host_reload_type_for_weapon_name)

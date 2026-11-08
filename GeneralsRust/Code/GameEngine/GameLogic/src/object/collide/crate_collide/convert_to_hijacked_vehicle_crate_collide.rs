@@ -23,7 +23,7 @@ use crate::common::{
 use crate::helpers::{EvaEvent, TheAudio, TheEva, TheGameLogic, TheRadar};
 use crate::modules::AIUpdateInterfaceExt;
 use crate::object::Object;
-use crate::object::collide::COLLISION_MANAGER;
+use crate::object::collide::world_collision_manager;
 use crate::object::collide::Coord3D as CollideCoord3D;
 use crate::object::collide::LegacyCollideAdapter;
 use crate::object::collide::crate_collide::crate_collide::{
@@ -477,7 +477,7 @@ impl ConvertToHijackedVehicleCrateCollide {
             if let Some(ai) = hijacker_guard.get_ai_update_interface() {
                 ai.ai_idle(CommandSourceType::FromAI);
             }
-            let _ = COLLISION_MANAGER.unregister_object(hijacker_id);
+            let _ = world_collision_manager().unregister_object(hijacker_id);
             if let Some(drawable) = hijacker_guard.get_drawable() {
                 let _ = drawable.set_drawable_hidden(true);
             }

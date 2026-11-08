@@ -193,8 +193,10 @@ fn test_shroud_manager_grid_initialization() {
     manager.init_shroud_grid(1000.0, 1000.0);
     assert!(manager.shroud_grid.is_some());
     let (w, h, cell) = manager.grid_dimensions().expect("dims");
-    assert_eq!(w, 25); // 1000 / 40
-    assert_eq!(h, 25);
+    // C++ m_cellCountX = REAL_TO_INT_CEIL(1000 * (1/40)): the integral 25.0
+    // gains a cell through fast_float_ceil's almost-one add (BaseType.h:204).
+    assert_eq!(w, 26);
+    assert_eq!(h, 26);
     assert!((cell - SHROUD_GRID_CELL_SIZE).abs() < f32::EPSILON);
 
     let snap = manager.snapshot_grid_for_player(0).expect("grid snap");
@@ -921,9 +923,10 @@ fn test_partition_cell_cash_values() {
 #[test]
 fn test_shroud_grid_initialization() {
     let grid = ShroudGrid::new([0.0, 0.0], 1000.0, 1000.0, 50.0).unwrap();
-    assert_eq!(grid.width, 20); // 1000 / 50 = 20
-    assert_eq!(grid.height, 20);
-    assert_eq!(grid.cells.len(), 400); // 20 * 20
+    // REAL_TO_INT_CEIL(1000 / 50 = 20.0) is 21 (PartitionManager.cpp:2586).
+    assert_eq!(grid.width, 21);
+    assert_eq!(grid.height, 21);
+    assert_eq!(grid.cells.len(), 441);
 }
 
 #[test]
@@ -1504,7 +1507,9 @@ fn test_spy_vision_shares_enemy_vision() {
 #[test]
 fn footprint_counts_use_owned_map_cells_and_pending_reveal_counters() {
     use crate::object::collide::partition_shroud::PartitionCellShroudCounts;
-    let cells = [(2, 2), (-1, 2), (2, 5)];
+    // A 200x200 map owns REAL_TO_INT_CEIL(5.0) = 6 cells per axis, so row 6
+    // is the first off-map row (PartitionManager.cpp:2586-2587).
+    let cells = [(2, 2), (-1, 2), (2, 6)];
     let mut a = ShroudManager::new();
     assert_eq!(
         a.count_footprint_cells(1, &cells),

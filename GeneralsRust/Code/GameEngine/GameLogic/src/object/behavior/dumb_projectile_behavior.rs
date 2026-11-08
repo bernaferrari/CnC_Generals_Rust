@@ -718,7 +718,7 @@ impl DumbProjectileBehavior {
 
             // Update layer and detect bridge transition (C++ lines 654-669).
             let old_layer = obj_guard.get_layer();
-            if let Ok(terrain) = crate::terrain::THE_TERRAIN_LOGIC.read() {
+            if let Ok(terrain) = crate::terrain::get_terrain_logic().read() {
                 let new_layer_path =
                     terrain.get_highest_layer_for_destination(obj_guard.get_position());
                 let new_layer = terrain_layer_to_logic_layer(new_layer_path);

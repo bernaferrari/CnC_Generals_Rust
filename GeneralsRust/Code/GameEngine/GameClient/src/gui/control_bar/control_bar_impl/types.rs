@@ -286,6 +286,8 @@ pub struct ControlBar {
     animation_duration: Duration,
     button_states: HashMap<String, ButtonState>,
     observer_mode: bool,
+    /// C++ `ControlBar::m_genArrow` (`getArrowImage`/`setArrowImage`).
+    gen_arrow: Option<crate::gui::game_window::Image>,
     multi_select_mode: bool,
     ui_dirty: bool,
     /// Button clicks captured by this receiving ControlBar and replayed at its original update phase.

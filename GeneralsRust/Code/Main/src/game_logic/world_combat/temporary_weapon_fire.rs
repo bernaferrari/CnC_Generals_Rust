@@ -114,13 +114,27 @@ impl GameLogic {
         source: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> u32 {
-        // C++ UpdateModule::update walks every instance independently.
-        let plans = self.damaged_continuous_plan(source);
+        // Each update observes Body/upgrade state after the preceding module's
+        // synchronous fire callbacks (FireWeaponWhenDamagedBehavior.cpp:208).
+        let Some(object) = self.objects.get(&source) else { return 0; };
+        // First visual capture can assign a generation to an unstamped live
+        // object. The stable birth token, not that lazy stamp, identifies it.
+        let identity = object.visual_draw_identity_token.clone();
+        let epoch = self.visual_world_epoch;
+        let modules: Vec<_> = object.temporary_weapon_runtime.damaged.iter()
+            .map(|runtime| runtime.module_source_index).collect();
         let mut hits = 0u32;
-        for plan in plans {
-            hits = hits.saturating_add(
-                self.force_fire_temporary_runtime_with_effects(source, plan, effects),
-            );
+        for module in modules {
+            if self.visual_world_epoch != epoch || !self.objects.get(&source)
+                .is_some_and(|object| std::sync::Arc::ptr_eq(&identity, &object.visual_draw_identity_token))
+            {
+                break;
+            }
+            for plan in self.damaged_continuous_plan_for_module(source, Some(module)) {
+                hits = hits.saturating_add(
+                    self.force_fire_temporary_runtime_with_effects(source, plan, effects),
+                );
+            }
         }
         hits
     }
@@ -303,11 +317,14 @@ impl GameLogic {
             if source_index.is_some_and(|index| index != metadata.module_source_index) {
                 continue;
             }
-            if metadata.starts_active || metadata.upgrade_mux.triggered_by_owned(&owned) {
+            // StartsActive is applied by construction, not every callback.
+            // Conflicts prevent a new upgrade; unlike onDie, onDamage does
+            // not veto an already-active UpgradeMux (C++ .h:137, .cpp:149).
+            if !runtime.upgrade_executed
+                && !metadata.upgrade_mux.conflicts_with_owned(&owned)
+                && metadata.upgrade_mux.triggered_by_owned(&owned)
+            {
                 runtime.upgrade_executed = true;
-            }
-            if metadata.upgrade_mux.conflicts_with_owned(&owned) {
-                continue;
             }
             if !runtime.upgrade_executed {
                 continue;
@@ -339,6 +356,14 @@ impl GameLogic {
         &mut self,
         source: ObjectId,
     ) -> Vec<TemporaryWeaponRuntimeKey> {
+        self.damaged_continuous_plan_for_module(source, None)
+    }
+
+    fn damaged_continuous_plan_for_module(
+        &mut self,
+        source: ObjectId,
+        source_index: Option<u32>,
+    ) -> Vec<TemporaryWeaponRuntimeKey> {
         let Some((object_tags, player_tags)) = self.fire_when_owned_upgrade_tags(source) else {
             return Vec::new();
         };
@@ -350,11 +375,14 @@ impl GameLogic {
         let owned = owned_upgrade_tag_refs(&object_tags, &player_tags);
         let mut chosen = Vec::new();
         for (runtime, metadata) in object.damaged_temporary_weapon_instances_mut() {
-            if metadata.starts_active || metadata.upgrade_mux.triggered_by_owned(&owned) {
-                runtime.upgrade_executed = true;
-            }
-            if metadata.upgrade_mux.conflicts_with_owned(&owned) {
+            if source_index.is_some_and(|index| index != metadata.module_source_index) {
                 continue;
+            }
+            if !runtime.upgrade_executed
+                && !metadata.upgrade_mux.conflicts_with_owned(&owned)
+                && metadata.upgrade_mux.triggered_by_owned(&owned)
+            {
+                runtime.upgrade_executed = true;
             }
             if !runtime.upgrade_executed {
                 continue;

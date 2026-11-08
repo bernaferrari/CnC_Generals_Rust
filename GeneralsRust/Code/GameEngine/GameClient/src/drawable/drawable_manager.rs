@@ -894,14 +894,9 @@ thread_local! {
     static TEST_DRAWABLE_MANAGER: RefCell<DrawableManager> = RefCell::new(DrawableManager::new());
 }
 
-/// Access the drawable manager for the live GameClient (or test fallback).
+/// Ownerless accessor (clients use their own `drawable_manager`): test TLS or a discarded manager.
 pub fn with_drawable_manager<R>(f: impl FnOnce(&mut DrawableManager) -> R) -> R {
     let mut f = Some(f);
-    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
-        f.take().expect("drawable manager")(client.drawable_manager_mut())
-    }) {
-        return result;
-    }
     #[cfg(test)]
     {
         return TEST_DRAWABLE_MANAGER.with(|manager| {
@@ -914,14 +909,9 @@ pub fn with_drawable_manager<R>(f: impl FnOnce(&mut DrawableManager) -> R) -> R 
     }
 }
 
-/// Access the drawable manager immutably for the live GameClient (or test fallback).
+/// Ownerless immutable accessor: test TLS or a discarded manager.
 pub fn with_drawable_manager_ref<R>(f: impl FnOnce(&DrawableManager) -> R) -> R {
     let mut f = Some(f);
-    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
-        f.take().expect("drawable manager")(client.drawable_manager())
-    }) {
-        return result;
-    }
     #[cfg(test)]
     {
         return TEST_DRAWABLE_MANAGER.with(|manager| {

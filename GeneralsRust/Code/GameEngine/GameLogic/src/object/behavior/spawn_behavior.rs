@@ -33,11 +33,11 @@ use crate::common::DamageTypeFlags;
 use crate::common::{
     FROM_CENTER_2D, OBJECT_STATUS_CAN_STEALTH, OBJECT_STATUS_MASKED, OBJECT_STATUS_RECONSTRUCTING,
     OBJECT_STATUS_SOLD, OBJECT_STATUS_UNDER_CONSTRUCTION, TheGameLogic, TheInGameUI,
-    TheMessageStream, ThePartitionManager,
+    ThePartitionManager,
 };
 use crate::damage::{BodyDamageType, DamageInfo, DamageType};
 use crate::experience::ExperienceTracker;
-use crate::messages::{GameMessage, MSG_CREATE_SELECTED_GROUP};
+use crate::messages::GameMessage;
 use crate::modules::{
     AIUpdateInterface, AIUpdateInterfaceExt, BehaviorModule, BehaviorModuleInterface,
     BodyModuleInterface, DOOR_NONE_AVAILABLE, DamageModuleInterface, DieModuleInterface,
@@ -1112,10 +1112,6 @@ impl SpawnBehavior {
                 .unwrap_or(false);
 
             if !obj_selected || somebody_is_not_selected {
-                // Create selection group message
-                let mut team_msg = TheMessageStream::append_message(MSG_CREATE_SELECTED_GROUP);
-                team_msg.append_boolean_argument(false); // Not creating new team
-
                 // Select all unselected spawns
                 if somebody_is_not_selected {
                     for &spawn_id in &self.spawn_ids {
@@ -1130,8 +1126,6 @@ impl SpawnBehavior {
                                 if !selected {
                                     TheInGameUI::select_drawable(&drawable);
                                     TheInGameUI::set_displayed_max_warning(false);
-                                    team_msg.append_boolean_argument(false);
-                                    team_msg.append_object_id_argument(spawn_id);
                                 }
                             }
                         }
@@ -1144,8 +1138,6 @@ impl SpawnBehavior {
                         if let Some(drawable) = obj_guard.get_drawable() {
                             TheInGameUI::select_drawable(&drawable);
                             TheInGameUI::set_displayed_max_warning(false);
-                            team_msg.append_boolean_argument(false);
-                            team_msg.append_object_id_argument(obj_guard.get_id());
                         }
                     });
                 }

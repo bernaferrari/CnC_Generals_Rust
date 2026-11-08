@@ -191,10 +191,12 @@ impl PartitionManager {
     fn receiving_cell_coords(&self, x: f32, z: f32) -> (i32, i32) {
         match self.grid {
             Some(grid) => (
-                ((x - grid.origin[0]) * ((1.0_f64 / f64::from(grid.cell_size)) as f32)).floor()
-                    as i32,
-                ((z - grid.origin[1]) * ((1.0_f64 / f64::from(grid.cell_size)) as f32)).floor()
-                    as i32,
+                game_engine::base_type::real_to_int_floor(
+                    (x - grid.origin[0]) * ((1.0_f64 / f64::from(grid.cell_size)) as f32),
+                ),
+                game_engine::base_type::real_to_int_floor(
+                    (z - grid.origin[1]) * ((1.0_f64 / f64::from(grid.cell_size)) as f32),
+                ),
             ),
             None => Self::cell_coords(x, z),
         }

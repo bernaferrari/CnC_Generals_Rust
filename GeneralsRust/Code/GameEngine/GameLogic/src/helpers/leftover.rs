@@ -3,16 +3,6 @@
 // Split from `helpers.rs` for module-size parity.
 // Observable behavior is unchanged.
 
-/// TheMessageStream singleton - message handling system (matching C++ TheMessageStream)
-pub struct TheMessageStream;
-
-impl TheMessageStream {
-    /// Build an ownerless message; this legacy path does not deliver it.
-    pub fn append_message(msg_type: MessageType) -> crate::messages::MessageBuilder<'static> {
-        crate::messages::append_message(msg_type)
-    }
-}
-
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 struct FloatingTextEntry {

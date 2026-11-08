@@ -480,6 +480,9 @@ impl RenderPipeline {
                     snow_min_height,
                     snow,
                     motion,
+                    // Native tree sway runs in native_frame_receiver with the
+                    // session stream (tree_cpu_completed route).
+                    None,
                 )
             })
             .map_err(|e| anyhow::anyhow!("terrain visual render state update failed: {}", e))?;
@@ -488,7 +491,7 @@ impl RenderPipeline {
             (if tree_cpu_completed {
                 terrain_visual.update_native_after_tree_cpu(motion, tree_receipt)
             } else {
-                terrain_visual.update_native(motion)
+                terrain_visual.update_native(motion, None)
             })
             .map_err(|e| anyhow::anyhow!("terrain visual update failed: {}", e))?;
             let terrain_update_elapsed = terrain_update_started.elapsed();

@@ -647,13 +647,6 @@ fn with_replay_residual_mut<R>(
     f: impl FnOnce(&mut ReplayMenuResidualState) -> R,
 ) -> R {
     let mut f = Some(f);
-    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client
-            .window_manager_owner_ref()
-            .with_replay_menu_residual_mut(|state| f.take().expect("replay")(state))
-    }) {
-        return result;
-    }
     #[cfg(test)]
     {
         return TEST_REPLAY_RESIDUAL.with(|slot| {

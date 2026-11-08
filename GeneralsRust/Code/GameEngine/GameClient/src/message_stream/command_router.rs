@@ -786,7 +786,6 @@ mod tests {
         second.set_host_command_authority(Some(std::sync::Arc::new(move |messages| {
             second_sink.lock().unwrap().extend(messages.iter().map(|m| m.get_player_index()));
         })));
-        crate::core::game_client::register_live_game_client(&mut second);
 
         let tick = || GameMessage::with_player(GameMessageType::FrameTick(42), 7);
         route_commands_to_gamelogic(&first, vec![tick()], 42).unwrap();

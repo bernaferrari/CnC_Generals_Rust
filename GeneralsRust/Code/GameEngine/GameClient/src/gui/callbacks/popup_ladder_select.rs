@@ -78,11 +78,6 @@ fn popup_state_on_owner(
     if let Some(owner) = owner {
         return owner.popup_ladder_select_state_handle();
     }
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.window_manager_owner_ref().popup_ladder_select_state_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_POPUP_STATE.with(|cell| {
@@ -96,8 +91,8 @@ fn popup_state_on_owner(
     }
 }
 
-fn popup_state() -> Rc<RefCell<PopupLadderSelectState>> {
-    popup_state_on_owner(None)
+fn popup_state(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> Rc<RefCell<PopupLadderSelectState>> {
+    popup_state_on_owner(owner)
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -953,8 +948,8 @@ pub fn popup_ladder_select_update(_layout: &WindowLayout, _user_data: Option<&dy
 pub fn popup_ladder_select_shutdown(
     _layout: &WindowLayout,
     _user_data: Option<&dyn std::any::Any>,
-) {
-    let state_slot = popup_state();
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) {
+    let state_slot = popup_state(owner);
     let mut state = state_slot.borrow_mut();
     state.parent = None;
     state.listbox_ladder_select = None;

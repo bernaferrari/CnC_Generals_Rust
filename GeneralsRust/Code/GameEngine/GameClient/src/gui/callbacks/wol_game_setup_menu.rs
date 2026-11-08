@@ -129,11 +129,6 @@ fn game_setup_state_on_owner(
     if let Some(owner) = owner {
         return owner.wol_game_setup_state_handle();
     }
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.window_manager_owner_ref().wol_game_setup_state_handle()
-    }) {
-        return handle;
-    }
     #[cfg(test)]
     {
         return TEST_WOL_GAME_SETUP_STATE.with(|cell| {
@@ -147,8 +142,8 @@ fn game_setup_state_on_owner(
     }
 }
 
-fn game_setup_state() -> Rc<RefCell<WolGameSetupState>> {
-    game_setup_state_on_owner(None)
+fn game_setup_state(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> Rc<RefCell<WolGameSetupState>> {
+    game_setup_state_on_owner(owner)
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -357,8 +352,8 @@ fn get_additional_disconnects_from_user_file(profile_id: i32) -> i32 {
     additional
 }
 
-fn player_tooltip(window: &GameWindow, _inst: &WindowInstanceData, _mouse: u32) {
-    let state_slot = game_setup_state();
+fn player_tooltip(window: &GameWindow, _inst: &WindowInstanceData, _mouse: u32, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = game_setup_state(owner);
     let state = state_slot.borrow_mut();
     let window_id = window.get_id() as i32;
     let mut slot_idx = None;
@@ -928,8 +923,8 @@ fn display_game_options(state: &mut WolGameSetupState) {
     }
 }
 
-pub(crate) fn refresh_map_selection_ui() {
-    let state_slot = game_setup_state();
+pub(crate) fn refresh_map_selection_ui(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = game_setup_state(owner);
     let mut state = state_slot.borrow_mut();
     update_slot_list(&mut state);
 }
@@ -1628,8 +1623,8 @@ fn first_selectable_player(game: &GameInfo) -> usize {
     local_slot
 }
 
-pub fn wol_game_setup_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
-    let state_slot = game_setup_state();
+pub fn wol_game_setup_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = game_setup_state(owner);
     let mut state = state_slot.borrow_mut();
 
     if with_gamespy_game_info(|info| info.is_game_in_progress()) {
@@ -1786,7 +1781,7 @@ pub fn wol_game_setup_menu_init(layout: &WindowLayout, _user_data: Option<&dyn s
                 }
             }
             guard.set_tooltip_callback(|window, inst, mouse, _receiving_mouse| {
-                player_tooltip(window, inst, mouse)
+                player_tooltip(window, inst, mouse, owner)
             });
         }
 
@@ -1796,7 +1791,7 @@ pub fn wol_game_setup_menu_init(layout: &WindowLayout, _user_data: Option<&dyn s
             window
                 .borrow_mut()
                 .set_tooltip_callback(|window, inst, mouse, _receiving_mouse| {
-                    player_tooltip(window, inst, mouse)
+                    player_tooltip(window, inst, mouse, owner)
                 });
         }
 
@@ -1970,8 +1965,8 @@ pub fn wol_game_setup_menu_init(layout: &WindowLayout, _user_data: Option<&dyn s
     layout.hide(false);
 }
 
-pub fn wol_game_setup_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
-    let state_slot = game_setup_state();
+pub fn wol_game_setup_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = game_setup_state(owner);
     let mut state = state_slot.borrow_mut();
 
     if state.is_shutting_down
@@ -2425,8 +2420,8 @@ pub fn wol_game_setup_menu_update(layout: &WindowLayout, _user_data: Option<&dyn
     }
 }
 
-pub fn wol_game_setup_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
-    let state_slot = game_setup_state();
+pub fn wol_game_setup_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>, owner: Option<&crate::gui::window_manager::WindowManagerOwner>) {
+    let state_slot = game_setup_state(owner);
     let mut state = state_slot.borrow_mut();
 
     if let Some(info) = get_gamespy_info() {
@@ -2480,8 +2475,8 @@ pub fn wol_game_setup_menu_system(
     msg: WindowMessage,
     data1: WindowMsgData,
     _data2: WindowMsgData,
-) -> WindowMsgHandled {
-    let state_slot = game_setup_state();
+owner: Option<&crate::gui::window_manager::WindowManagerOwner>,) -> WindowMsgHandled {
+    let state_slot = game_setup_state(owner);
     let mut state = state_slot.borrow_mut();
 
     match msg {
