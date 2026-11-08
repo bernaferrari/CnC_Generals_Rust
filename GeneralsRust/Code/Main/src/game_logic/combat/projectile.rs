@@ -267,10 +267,10 @@ impl Projectile {
         start: Vec3,
         end: Vec3,
         speed_per_second: f32,
-        terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
-    ) {
+        partition: Option<&crate::game_logic::partition_manager::PartitionManager>,
+    ) -> bool {
         let Some(flight) = self.flight.clone() else {
-            return;
+            return true;
         };
         self.flight_runtime.path_start = start;
         self.flight_runtime.path_end = end;
@@ -282,13 +282,16 @@ impl Projectile {
         };
         match &flight {
             crate::game_logic::weapon_bootstrap::HostProjectileFlight::Dumb(dumb) => {
+                let Some(highest) = partition.and_then(|owner| owner.terrain_high_along_line(start, end)) else {
+                    return false;
+                };
                 let (path, segs) = crate::game_logic::weapon_bootstrap::build_dumb_bezier_path(
                     start,
                     end,
                     dumb,
                     speed_per_second,
                     0,
-                    terrain,
+                    highest,
                 );
                 self.flight_runtime.path = path;
                 self.flight_runtime.path_segments = segs;
@@ -305,6 +308,7 @@ impl Projectile {
                     crate::game_logic::weapon_bootstrap::HostMissilePhase::Launch;
             }
         }
+        true
     }
 
     pub fn is_warhead_armed(&self) -> bool {

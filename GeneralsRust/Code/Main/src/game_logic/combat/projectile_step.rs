@@ -94,6 +94,7 @@ impl CombatSystem {
             countermeasures,
             frame,
             terrain,
+            None,
             ownership_events,
             historic_damage_limit,
             None,
@@ -110,6 +111,7 @@ impl CombatSystem {
         >,
         frame: u32,
         terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
+        partition: Option<&crate::game_logic::partition_manager::PartitionManager>,
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
         historic_damage_limit: u32,
         receiving_objects: Option<&crate::assets::ReceivingObjectDefinitions>,
@@ -141,24 +143,30 @@ impl CombatSystem {
                     }
                 }
             }
+            let mut retarget_failed = false;
             if let Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Dumb(dumb)) =
                 projectile.flight.as_ref()
             {
                 if dumb.flight_path_adjust_per_frame > 0.0 {
                     if let Some(tid) = projectile.target_id {
                         if let Some(tgt) = objects.get(&tid) {
-                            crate::game_logic::weapon_bootstrap::adjust_flight_path_end(
+                            retarget_failed = !crate::game_logic::weapon_bootstrap::adjust_flight_path_end(
                                 &mut projectile.flight_runtime,
                                 dumb,
                                 dumb_projectile_target_center(tgt),
-                                terrain,
+                                |start, end| partition.and_then(|owner| owner.terrain_high_along_line(start, end)),
                             );
                             projectile.target_position = projectile.flight_runtime.path_end;
                         }
                     }
                 }
             }
-            match projectile.update_with_terrain_runtime(dt, target_exists, terrain, runtime) {
+            let step = if retarget_failed {
+                ProjectileStep::Detonate
+            } else {
+                projectile.update_with_terrain_runtime(dt, target_exists, terrain, runtime)
+            };
+            match step {
                 ProjectileStep::Alive => {
                     if !projectile.is_warhead_armed() {
                         return (damage_events, projectiles_to_remove);

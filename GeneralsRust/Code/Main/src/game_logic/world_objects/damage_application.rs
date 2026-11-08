@@ -1679,12 +1679,6 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let projectile_name = pending.projectile_object_name.clone();
-        let projectile_terrain = crate::game_logic::game_logic::FlightTerrainView {
-            grid: &self.pathfinding_system.grid,
-            logical: Some(self.world_services.terrain()),
-            terrain: self.terrain.as_ref(),
-            samples: self.pathfinding_height_samples.as_ref(),
-        };
         let ready = crate::game_logic::combat::materialize_accepted_projectile(
             &mut self.combat_system,
             self.objects.read(),
@@ -1693,7 +1687,7 @@ impl GameLogic {
             stream_binding,
             self.projectile_definitions.get(&projectile_name),
             self.projectile_definitions.geometry(&projectile_name),
-            Some(&projectile_terrain),
+            Some(&self.partition_manager),
             &mut self.next_object_id,
             &self.logic_random,
         );
@@ -1851,6 +1845,7 @@ impl GameLogic {
                         Some(&mut self.countermeasures),
                         self.frame,
                         Some(&terrain),
+                        Some(&self.partition_manager),
                         &mut self.ownership_events,
                         historic_damage_limit,
                         self.receiving_object_definitions.as_ref(),
@@ -1867,6 +1862,7 @@ impl GameLogic {
             Some(&mut self.countermeasures),
             self.frame,
             Some(&terrain),
+            Some(&self.partition_manager),
             &mut self.ownership_events,
             historic_damage_limit,
             self.receiving_object_definitions.as_ref(),

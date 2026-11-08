@@ -44,6 +44,8 @@ pub struct PartitionManager {
     /// Immutable receiving map geometry; mapless programmatic values retain the
     /// retail fixture grid until a real map is admitted.
     grid: Option<PartitionGrid>,
+    /// Derived from the receiving logical terrain when this grid is admitted.
+    terrain_high: Vec<f32>,
     revealed_players: HashSet<u32>,
     /// Cell key (cx, cz) → object ids currently registered for collide residual.
     cells: HashMap<(i32, i32), Vec<u32>>,
@@ -67,6 +69,7 @@ impl PartitionManager {
         Self {
             map_extent: None,
             grid: None,
+            terrain_high: Vec::new(),
             revealed_players: HashSet::new(),
             cells: HashMap::new(),
             object_cells: HashMap::new(),
@@ -101,6 +104,7 @@ impl PartitionManager {
     ) {
         self.clear_registered_objects();
         self.revealed_players.clear();
+        self.terrain_high.clear();
         self.grid = shroud
             .grid_dimensions()
             .zip(shroud.grid_world_origin())
@@ -109,6 +113,75 @@ impl PartitionManager {
                 dimensions: [width, height],
                 cell_size,
             });
+    }
+
+    pub(in crate::game_logic) fn rebuild_terrain_high(
+        &mut self,
+        terrain: &gamelogic::terrain::TerrainLogic,
+    ) {
+        self.terrain_high.clear();
+        let Some(grid) = self.grid else { return };
+        if !terrain.has_height_map() {
+            return;
+        }
+        self.terrain_high.reserve(grid.dimensions[0] * grid.dimensions[1]);
+        let steps = (grid.cell_size / 10.0).ceil();
+        let step = grid.cell_size / steps;
+        for y in 0..grid.dimensions[1] {
+            for x in 0..grid.dimensions[0] {
+                let xbase = grid.origin[0] + x as f32 * grid.cell_size;
+                let ybase = grid.origin[1] + y as f32 * grid.cell_size;
+                let mut high = f32::NEG_INFINITY;
+                let mut yy = 0.0;
+                while yy <= grid.cell_size {
+                    let mut xx = 0.0;
+                    while xx <= grid.cell_size {
+                        high = high.max(terrain.get_ground_height(xbase + xx, ybase + yy, None));
+                        xx += step;
+                    }
+                    yy += step;
+                }
+                self.terrain_high.push(high);
+            }
+        }
+    }
+
+    pub(in crate::game_logic) fn terrain_high_along_line(
+        &self,
+        start: glam::Vec3,
+        end: glam::Vec3,
+    ) -> Option<f32> {
+        let grid = self.grid?;
+        if self.terrain_high.len() != grid.dimensions[0] * grid.dimensions[1] {
+            return None;
+        }
+        let (mut x, mut y) = self.receiving_cell_coords(start.x, start.z);
+        let (end_x, end_y) = self.receiving_cell_coords(end.x, end.z);
+        let dx = (i64::from(end_x) - i64::from(x)).abs();
+        let dy = (i64::from(end_y) - i64::from(y)).abs();
+        let sx = if end_x >= x { 1 } else { -1 };
+        let sy = if end_y >= y { 1 } else { -1 };
+        let (den, add, mut x1, mut y1, mut x2, mut y2) =
+            (dx.max(dy), dx.min(dy), sx, sy, sx, sy);
+        if dx >= dy { x1 = 0; y2 = 0; } else { x2 = 0; y1 = 0; }
+        let mut num = den / 2;
+        let mut highest: Option<f32> = None;
+        for pixel in 0..=den {
+            if x >= 0 && y >= 0 && (x as usize) < grid.dimensions[0] && (y as usize) < grid.dimensions[1] {
+                let h = self.terrain_high[y as usize * grid.dimensions[0] + x as usize];
+                highest = Some(highest.map_or(h, |old| old.max(h)));
+            }
+            if pixel == den { break; }
+            num += add;
+            if num >= den {
+                num -= den;
+                x += x1;
+                y += y1;
+            }
+            x += x2;
+            y += y2;
+        }
+        highest
     }
 
     fn receiving_cell_coords(&self, x: f32, z: f32) -> (i32, i32) {

@@ -550,7 +550,7 @@ pub fn drain_pending_projectiles(
     definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
 ) {
     let mut standalone_next = combat.next_projectile_id;
-    drain_pending_projectiles_with_terrain(
+    drain_pending_projectiles_with_partition(
         combat,
         objects,
         frame,
@@ -562,13 +562,13 @@ pub fn drain_pending_projectiles(
     combat.next_projectile_id = standalone_next;
 }
 
-/// Actual Main admissions borrow the receiving view for each path calculation.
-pub(in crate::game_logic) fn drain_pending_projectiles_with_terrain(
+/// Actual Main admissions borrow the receiving partition for each path calculation.
+pub(in crate::game_logic) fn drain_pending_projectiles_with_partition(
     combat: &mut CombatSystem,
     objects: HostObjectRead<'_>,
     frame: u32,
     definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
-    terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
+    partition: Option<&crate::game_logic::partition_manager::PartitionManager>,
     next_object_id: &mut ObjectId,
     random: &game_engine::common::random_value::SessionRandom,
 ) {
@@ -585,7 +585,7 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_terrain(
             None,
             profile,
             geometry,
-            terrain,
+            partition,
             next_object_id,
             random,
         ) {
@@ -607,7 +607,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
     stream_binding: Option<ProjectileStreamBinding>,
     profile: Option<&crate::game_logic::projectile_definitions::ProjectileProfile>,
     geometry: Option<crate::game_logic::HostGeometryInfo>,
-    terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
+    partition: Option<&crate::game_logic::partition_manager::PartitionManager>,
     next_object_id: &mut ObjectId,
     random: &game_engine::common::random_value::SessionRandom,
 ) -> Option<LiveProjectilelessDelayedDamage> {
@@ -811,6 +811,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
             .map(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::follows_target)
             .unwrap_or(p.is_homing),
     );
+    let mut flight_valid = true;
     if let Some(proj) = combat.projectile_mut(pid) {
         proj.damage_type = p.damage_type;
         proj.death_type = p.death_type;
@@ -863,9 +864,12 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
             } else {
                 target_pos
             };
-            proj.bind_authored_flight(p.shooter_pos, flight_target, flight_speed_per_second, terrain);
+            flight_valid = proj.bind_authored_flight(p.shooter_pos, flight_target, flight_speed_per_second, partition);
         }
         proj.is_small_missile = profile.is_some_and(|profile| profile.is_small_missile);
+    }
+    if !flight_valid {
+        combat.remove_projectile(pid);
     }
     None
 }

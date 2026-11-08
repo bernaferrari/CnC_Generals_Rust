@@ -430,6 +430,13 @@ fn uranium_projectile_world() -> (GameLogic, ObjectId, ObjectId) {
         crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
     );
     let mut world = GameLogic::new();
+    let mut map = gamelogic::system::map_loader::MapData::new();
+    map.width = 32;
+    map.height = 32;
+    map.heightmap = vec![0; 1024];
+    map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+    world.world_services.terrain().write().unwrap().try_load_map_geometry(map).unwrap();
+    world.initialize_receiving_partition_grid().unwrap();
     for (id, team) in [(0, Team::China), (1, Team::China), (2, Team::GLA)] {
         let mut player = Player::new(id, team, "uranium test", id == 0);
         player.alliance_team = id as i32;

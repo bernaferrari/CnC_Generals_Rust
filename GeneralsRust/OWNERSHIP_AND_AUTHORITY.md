@@ -2967,8 +2967,9 @@ VeterancyGainCreate module and its controlling player's science, not the
 object's name. Other legacy training fallbacks remain separate work.
 
 Dumb projectile launches and retargets use the receiving target's geometry
-center. Terrain-height selection still samples the chord instead of C++'s
-partition-cell extrema and remains unverified.
+center and the receiving partition grid's terrain-height extrema. The derived
+cell cache is rebuilt on grid admission and restore; a launch visiting no grid
+cell is retired, while a failed retarget detonates at the current position.
 
 The save popup sends confirmed host-save deletion to the receiving save manager.
 It refreshes the open list only after deletion and a successful inventory read;

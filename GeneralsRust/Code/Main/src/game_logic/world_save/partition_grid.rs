@@ -247,6 +247,11 @@ impl GameLogic {
         self.partition_manager.set_map_extent(min, max);
     }
 
+    pub(crate) fn rebuild_receiving_partition_terrain(&mut self) {
+        let terrain = self.world_services.terrain().read().unwrap_or_else(|error| error.into_inner());
+        self.partition_manager.rebuild_terrain_high(&terrain);
+    }
+
     /// C++ Object::friend_notifyOfNewMapBoundary refreshes every live object.
     pub(crate) fn refresh_receiving_object_map_status(&mut self) {
         self.sync_receiving_map_extent();
@@ -288,6 +293,10 @@ impl GameLogic {
         shroud.install_prepared_shroud_grid(prepared);
         self.partition_manager.configure_grid_from_shroud(&shroud);
         drop(shroud);
+        {
+            let terrain = self.world_services.terrain().read().unwrap_or_else(|error| error.into_inner());
+            self.partition_manager.rebuild_terrain_high(&terrain);
+        }
         // These receipts describe counters in the retired grid, not object
         // state. Reusing them would suppress the first look on the new grid
         // for stationary objects with unchanged owner, position and range.
@@ -317,6 +326,10 @@ impl GameLogic {
         shroud.replace_state_owned(snapshot, frame)?;
         self.partition_manager.configure_grid_from_shroud(&shroud);
         drop(shroud);
+        {
+            let terrain = self.world_services.terrain().read().unwrap_or_else(|error| error.into_inner());
+            self.partition_manager.rebuild_terrain_high(&terrain);
+        }
         self.sync_receiving_map_extent();
         Ok(())
     }

@@ -401,6 +401,10 @@ impl GameLogic {
                     water_delivery,
                 );
             }
+            if let Err(error) = self.initialize_receiving_partition_grid() {
+                log::error!("Cannot initialize receiving partition grid after terrain admission: {error}");
+                return Ok(false);
+            }
             self.copy_crate_water_into_host_terrain();
         } else {
             log::info!(

@@ -641,18 +641,12 @@ impl GameLogic {
 
         {
             let objects = &self.objects;
-            let projectile_terrain = crate::game_logic::game_logic::FlightTerrainView {
-                grid: &self.pathfinding_system.grid,
-                logical: Some(self.world_services.terrain()),
-                terrain: self.terrain.as_ref(),
-                samples: self.pathfinding_height_samples.as_ref(),
-            };
-            crate::game_logic::combat::drain_pending_projectiles_with_terrain(
+            crate::game_logic::combat::drain_pending_projectiles_with_partition(
                 &mut self.combat_system,
                 objects.read(),
                 self.frame,
                 &self.projectile_definitions,
-                Some(&projectile_terrain),
+                Some(&self.partition_manager),
                 &mut self.next_object_id,
                 &self.logic_random,
             );

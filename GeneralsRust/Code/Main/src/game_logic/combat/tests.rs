@@ -15,6 +15,30 @@ pub(in crate::game_logic) mod tests {
         COMBAT_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    // Standalone combat fixtures admit a real flat logical map and its grid;
+    // authored DumbProjectile paths cannot be built without a partition owner.
+    fn drain_pending_projectiles(
+        combat: &mut CombatSystem,
+        objects: crate::game_logic::HostObjectRead<'_>,
+        frame: u32,
+        definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
+    ) {
+        let mut world = crate::game_logic::GameLogic::new();
+        let mut map = gamelogic::system::map_loader::MapData::new();
+        map.width = 32;
+        map.height = 32;
+        map.heightmap = vec![0; 1024];
+        map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+        world.world_services.terrain().write().unwrap().try_load_map_geometry(map).unwrap();
+        world.initialize_receiving_partition_grid().unwrap();
+        let mut next = combat.next_projectile_id;
+        drain_pending_projectiles_with_partition(
+            combat, objects, frame, definitions, Some(&world.partition_manager), &mut next,
+            &game_engine::common::random_value::SessionRandom::default(),
+        );
+        combat.next_projectile_id = next;
+    }
+
     pub(in crate::game_logic) fn queue_delayed_impact_for_test(
         combat: &mut CombatSystem,
         apply_frame: u32,
@@ -1354,6 +1378,7 @@ pub(in crate::game_logic) mod tests {
             None,
             0,
             None,
+            None,
             &mut _ownership_output,
             0,
             Some(&receiving),
@@ -2629,11 +2654,7 @@ pub(in crate::game_logic) mod tests {
         // of calling the Rust path builder under test.
         let to_cpp =
             |position: Vec3| gamelogic::common::Coord3D::new(position.x, position.z, position.y);
-        let highest = crate::game_logic::weapon_bootstrap::estimate_highest_intervening_terrain(
-            start,
-            destination,
-            None,
-        );
+        let highest = 0.0; // Flat logical terrain admitted by the fixture below.
         let curve = gamelogic::weapon::bezier::BezierSegment::create_projectile_arc(
             to_cpp(start),
             to_cpp(destination),

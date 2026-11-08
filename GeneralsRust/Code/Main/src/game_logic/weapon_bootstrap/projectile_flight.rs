@@ -273,37 +273,6 @@ fn cpp_to_host(pos: gamelogic::common::Coord3D) -> Vec3 {
     Vec3::new(pos.x, pos.z, pos.y)
 }
 
-/// Existing Host chord estimate over explicitly receiving terrain.
-/// This preserves the Host ten-unit sampling algorithm; original cached partition
-/// cell extrema and failed-on-map admission remain separate parity work.
-/// An explicit mapless caller returns zero, never an ambient owner.
-pub(crate) fn estimate_highest_intervening_terrain(
-    start: Vec3,
-    end: Vec3,
-    terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
-) -> f32 {
-    let Some(terrain) = terrain else {
-        return 0.0;
-    };
-    let start_cpp = host_to_cpp(start);
-    let end_cpp = host_to_cpp(end);
-    let dx = end_cpp.x - start_cpp.x;
-    let dy = end_cpp.y - start_cpp.y;
-    let dist = (dx * dx + dy * dy).sqrt();
-    let step = 10.0_f32.max(1.0);
-    let steps = ((dist / step).ceil() as i32).max(1);
-    let mut highest = f32::MIN;
-    for i in 0..=steps {
-        let t = i as f32 / steps as f32;
-        let x = start_cpp.x + dx * t;
-        let y = start_cpp.y + dy * t;
-        let z = terrain.raw_ground(Vec3::new(x, 0.0, y), 0.0);
-        if z > highest {
-            highest = z;
-        }
-    }
-    if highest.is_finite() { highest } else { 0.0 }
-}
 
 /// C++ calcFlightPath in host Y-up space.
 pub fn build_dumb_bezier_path(
@@ -312,9 +281,8 @@ pub fn build_dumb_bezier_path(
     flight: &HostDumbProjectileFlight,
     speed_per_second: f32,
     existing_segments: usize,
-    terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
+    highest: f32,
 ) -> (Vec<Vec3>, usize) {
-    let highest = estimate_highest_intervening_terrain(start, end, terrain);
     let speed_per_frame = if speed_per_second > 0.0 {
         speed_per_second / LOGIC_FRAMES_PER_SECOND
     } else {
@@ -339,32 +307,36 @@ pub fn adjust_flight_path_end(
     runtime: &mut HostProjectileRuntime,
     flight: &HostDumbProjectileFlight,
     new_victim_center: Vec3,
-    terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
-) {
+    terrain_high: impl FnOnce(Vec3, Vec3) -> Option<f32>,
+) -> bool {
     if flight.flight_path_adjust_per_frame <= 0.0 {
-        return;
+        return true;
     }
     let delta = new_victim_center - runtime.path_end;
     let dist_sq = delta.length_squared();
     if dist_sq <= 0.1 {
-        return;
+        return true;
     }
     let dist = dist_sq.sqrt();
     let move_dist = dist.min(flight.flight_path_adjust_per_frame);
     if move_dist <= 0.0 {
-        return;
+        return true;
     }
     runtime.path_end += delta * (move_dist / dist);
+    let Some(highest) = terrain_high(runtime.path_start, runtime.path_end) else {
+        return false;
+    };
     let (path, segs) = build_dumb_bezier_path(
         runtime.path_start,
         runtime.path_end,
         flight,
         runtime.path_speed_per_frame * LOGIC_FRAMES_PER_SECOND,
-        runtime.path_segments.max(1),
-        terrain,
+        runtime.path_segments,
+        highest,
     );
     runtime.path = path;
     runtime.path_segments = segs;
+    true
 }
 
 /// C++ MissileAIUpdate::doAttackState lock radius. Non-tracking shots halve it.
@@ -511,7 +483,7 @@ mod tests {
         };
         let start = Vec3::new(0.0, 10.0, 0.0);
         let end = Vec3::new(100.0, 10.0, 0.0);
-        let (path, segs) = build_dumb_bezier_path(start, end, &flight, 250.0, 0, None);
+        let (path, segs) = build_dumb_bezier_path(start, end, &flight, 250.0, 0, 0.0);
         assert!(segs > 1);
         assert!(path.len() > 1);
         let mid = path[path.len() / 2];
@@ -557,7 +529,7 @@ mod tests {
             path_segments: 8,
             ..HostProjectileRuntime::default()
         };
-        adjust_flight_path_end(&mut runtime, &flight, Vec3::new(130.0, 0.0, 0.0), None);
+        assert!(adjust_flight_path_end(&mut runtime, &flight, Vec3::new(130.0, 0.0, 0.0), |_, _| Some(0.0)));
         assert!((runtime.path_end.x - 105.0).abs() < 0.01);
         assert!(!runtime.path.is_empty());
     }

@@ -1460,6 +1460,7 @@ impl SnapshotBuilder {
                 )
                 .map_err(SaveLoadError::Corrupted)?;
         }
+        game_logic.rebuild_receiving_partition_terrain();
 
         if terrain_snapshot.width == 0 || terrain_snapshot.height == 0 {
             return Ok(());
