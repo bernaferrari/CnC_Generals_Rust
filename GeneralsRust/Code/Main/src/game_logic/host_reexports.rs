@@ -69,7 +69,7 @@ pub use super::host_black_market::{
 };
 pub use super::host_bunker_buster::{
     BUNKER_BUSTER_STRUCTURE_DAMAGE_MULT, HostBunkerBusterRegistry, STEALTH_JET_MISSILE_WEAPON,
-    UPGRADE_AMERICA_BUNKER_BUSTERS, bunker_buster_structure_damage, is_bunker_buster_carrier,
+    UPGRADE_AMERICA_BUNKER_BUSTERS, bunker_buster_structure_damage,
     is_bunker_structure_name, is_kill_garrisoned_clearer, kill_garrisoned_count,
     should_apply_bunker_buster, should_apply_kill_garrisoned,
 };

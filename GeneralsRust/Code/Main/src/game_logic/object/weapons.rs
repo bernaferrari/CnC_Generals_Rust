@@ -172,6 +172,36 @@ impl Object {
         }
     }
 
+    /// Whether the authored PRIMARY is a Quad Cannon gun at any barrel tier
+    /// (hq-2qedt.286: WeaponSet identity, not the chassis template name).
+    pub(in crate::game_logic) fn authors_quad_cannon_gun(&self) -> bool {
+        use crate::game_logic::host_quad_cannon::{
+            QuadCannonBarrelTier, quad_weapon_names_for_tier,
+        };
+        self.authored_weapon_name_for_slot(0).is_some_and(|name| {
+            [
+                QuadCannonBarrelTier::Base,
+                QuadCannonBarrelTier::One,
+                QuadCannonBarrelTier::Two,
+            ]
+            .into_iter()
+            .any(|tier| name.eq_ignore_ascii_case(quad_weapon_names_for_tier(tier).0))
+        })
+    }
+
+    /// Whether any authored WeaponSet slot is the Stealth Fighter missile
+    /// (`StealthJetMissileWeapon`, whose projectile carries BunkerBusterBehavior),
+    /// replacing the template-name carrier sniff (hq-2qedt.290).
+    pub(in crate::game_logic) fn authors_stealth_jet_missile_weapon(&self) -> bool {
+        (0u8..3).any(|slot| {
+            self.authored_weapon_name_for_slot(slot).is_some_and(|name| {
+                name.eq_ignore_ascii_case(
+                    crate::game_logic::host_bunker_buster::STEALTH_JET_MISSILE_WEAPON,
+                )
+            })
+        })
+    }
+
     /// Whether any authored WeaponSet slot is the Red Guard machine gun
     /// (hq-2qedt.262 nationalism gate replacing the template-name sniff).
     pub fn authors_red_guard_machine_gun(&self) -> bool {
@@ -989,8 +1019,7 @@ impl Object {
 
         // Quad Cannon residual: airborne targets prefer AA secondary slot.
         let quad_prefer_aa =
-            crate::game_logic::host_quad_cannon::is_quad_cannon_template(&self.template_name)
-                && target_is_air;
+            self.authors_quad_cannon_gun() && target_is_air;
 
         // Avenger residual: airborne targets prefer the authored air-laser
         // SECONDARY (WeaponSet SECONDARY AvengerAirLaserDummy), keyed on the

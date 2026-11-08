@@ -140,34 +140,6 @@ pub fn should_play_crash_through_fx(frame: u32, missile_killing_self: bool) -> b
     missile_killing_self && freq > 0 && frame % freq == 1
 }
 
-/// Whether template is a residual Stealth Fighter / bunker-buster carrier.
-///
-/// Fail-closed: name residual (not full WeaponSet / JetAIUpdate matrix).
-/// Excludes projectile shells (`StealthJetMissile` alone as projectile object).
-pub fn is_bunker_buster_carrier(template_name: &str) -> bool {
-    let n = template_name.to_ascii_lowercase();
-    if n.is_empty() {
-        return false;
-    }
-    // Projectile / missile objects are not the plane.
-    if n == "stealthjetmissile"
-        || n.ends_with("jetmissile")
-        || n.contains("projectile")
-        || n.contains("shell")
-    {
-        // Keep plane names that include "missile" only if also fighter.
-        if !(n.contains("fighter") || n.contains("jetstealth")) {
-            return false;
-        }
-    }
-    if n == "teststealthfighter" || n == "testbunkerbuster" {
-        return true;
-    }
-    // Retail BunkerBusterBehavior lives on StealthJetMissile (Stealth Fighter).
-    // Fail-closed: Aurora bombers are not bunker-buster carriers.
-    n.contains("stealthfighter") || n.contains("jetstealth") || n.contains("stealthjet")
-}
-
 /// Whether residual target structure name is a bunker / garrison building.
 pub fn is_bunker_structure_name(template_name: &str) -> bool {
     let n = template_name.to_ascii_lowercase();
@@ -371,8 +343,6 @@ pub fn honesty_bunker_buster_body_residual_ok() -> bool {
             == ((STEALTH_FIGHTER_BUILD_TIME_SEC * BUNKER_BUSTER_LOGIC_FPS).round() as u32)
         && STEALTH_FIGHTER_BUILD_TIME_FRAMES == 750
         && SCIENCE_STEALTH_FIGHTER == "SCIENCE_StealthFighter"
-        && is_bunker_buster_carrier("AmericaJetStealthFighter")
-        && !is_bunker_buster_carrier("StealthJetMissile")
 }
 
 /// Combined Wave 66 Bunker Buster residual honesty pack.
@@ -385,18 +355,6 @@ pub fn honesty_bunker_buster_residual_pack_ok() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn carrier_name_matrix() {
-        assert!(is_bunker_buster_carrier("AmericaJetStealthFighter"));
-        assert!(is_bunker_buster_carrier("USA_StealthFighter"));
-        assert!(is_bunker_buster_carrier("SupW_AmericaJetStealthFighter"));
-        assert!(is_bunker_buster_carrier("TestStealthFighter"));
-        assert!(!is_bunker_buster_carrier("AmericaJetAurora"));
-        assert!(!is_bunker_buster_carrier("StealthJetMissile"));
-        assert!(!is_bunker_buster_carrier("USA_Ranger"));
-        assert!(!is_bunker_buster_carrier("ChinaVehicleNukeCannon"));
-    }
 
     #[test]
     fn allow_garrisoned_units_are_kill_clearers() {

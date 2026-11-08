@@ -221,10 +221,8 @@ impl GameLogic {
         // GLA Jarmen Kell PRIMARY binds from the authored WeaponSet
         // (C++ WeaponSet::updateWeaponSet), not a template-name peel
         // (hq-2qedt.165). AP refresh stays on the upgrade path.
-        // Pilot-snipe is AutoChooseSources SECONDARY NONE (button/special only).
-        if crate::game_logic::host_jarmen_kell::is_jarmen_kell_template(template_name) {
-            object.template_mut().apply_retail_button_only_auto_choose();
-        }
+        // Pilot-snipe is AutoChooseSources SECONDARY NONE (button/special only),
+        // read from the authored WeaponSet (WeaponSet.cpp:816-822), not the name.
 
         // Host residual: GLA Rebel PRIMARY machine gun residual.
         // Fail-closed: not full ClipSize volley / CaptureBuilding / BoobyTrap matrix.
@@ -285,7 +283,7 @@ impl GameLogic {
         // China MiniGunner PRIMARY/SECONDARY bind from the authored WeaponSet
         // (C++ WeaponSet::updateWeaponSet), not a template-name peel
         // (hq-2qedt.166). Chain-guns refresh stays in refresh_minigunner_weapon.
-        if crate::game_logic::host_minigunner::is_minigunner_template(template_name) {
+        if object.authors_minigunner_gun() {
             reset_continuous_fire_state(object);
         }
 

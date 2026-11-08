@@ -300,13 +300,12 @@ impl GameLogic {
 
     /// Apply Chain Guns residual to a MiniGunner (PLAYER_UPGRADE damage residual × 1.25).
     pub fn apply_minigunner_chain_guns_upgrade(&mut self, object_id: ObjectId) -> bool {
-        use crate::game_logic::host_minigunner::{
-            UPGRADE_CHINA_CHAIN_GUNS, is_minigunner_template,
-        };
+        use crate::game_logic::host_minigunner::UPGRADE_CHINA_CHAIN_GUNS;
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_minigunner_template(&obj.template_name) {
+        // C++ WeaponBonus upgrades act on the authored WeaponSet, not the template name.
+        if !obj.authors_minigunner_gun() {
             return false;
         }
         obj.applied_upgrades

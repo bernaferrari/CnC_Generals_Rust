@@ -30,7 +30,7 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> (u32, bool) {
         use crate::game_logic::host_bunker_buster::{
-            UPGRADE_AMERICA_BUNKER_BUSTERS, is_bunker_buster_carrier, should_apply_bunker_buster,
+            UPGRADE_AMERICA_BUNKER_BUSTERS, should_apply_bunker_buster,
         };
         use crate::game_logic::host_stealth_fighter::{
             STEALTH_FIGHTER_DAMAGE, STEALTH_FIGHTER_DAMAGE_TYPE, STEALTH_FIGHTER_DEATH_TYPE,
@@ -47,7 +47,7 @@ impl GameLogic {
                         obj.team,
                         obj.has_upgrade_tag(UPGRADE_AMERICA_BUNKER_BUSTERS)
                             || obj.has_upgrade_tag("Upgrade_AmericaBunkerBusters"),
-                        is_bunker_buster_carrier(&obj.template_name),
+                        obj.authors_stealth_jet_missile_weapon(),
                     )
                 } else {
                     (Team::Neutral, false, false)

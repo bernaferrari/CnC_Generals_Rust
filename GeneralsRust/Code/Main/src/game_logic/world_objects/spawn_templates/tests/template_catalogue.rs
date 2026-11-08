@@ -537,3 +537,45 @@ fn create_object_uses_already_loaded_host_templates_not_thing_factory() {
         "locomotor store must not reload after first host seed"
     );
 }
+
+#[test]
+fn button_only_secondary_follows_authored_auto_choose_not_template_name() {
+    const SOURCE: &str = r#"
+Object OpaqueSniperProbe
+  KindOf = SELECTABLE CAN_ATTACK INFANTRY
+  WeaponSet
+    Conditions = None
+    Weapon = PRIMARY JarmenKellRifle
+    Weapon = SECONDARY JarmenKellRifle
+    AutoChooseSources = SECONDARY NONE
+  End
+End
+Object GLAInfantryJarmenKell
+  KindOf = SELECTABLE CAN_ATTACK INFANTRY
+  WeaponSet
+    Conditions = None
+    Weapon = PRIMARY JarmenKellRifle
+    Weapon = SECONDARY JarmenKellRifle
+  End
+End
+"#;
+    let mut parser = crate::assets::IniParser::new();
+    parser
+        .parse_ini_content(SOURCE, "auto_choose_probe.ini")
+        .expect("parse probes");
+    let parsed = |name: &str| {
+        GameLogic::build_template_from_object_definition(
+            name,
+            parser.get_definition(name).expect("probe Object"),
+            None,
+        )
+    };
+    assert!(
+        !parsed("OpaqueSniperProbe").slot_allows_auto_choose(1),
+        "authored SECONDARY NONE blocks auto-choose regardless of name"
+    );
+    assert!(
+        parsed("GLAInfantryJarmenKell").slot_allows_auto_choose(1),
+        "without authored bits the Jarmen name does not block auto-choose (WeaponSet.cpp:816-822)"
+    );
+}

@@ -314,7 +314,7 @@ impl GameLogic {
         tier: crate::game_logic::host_quad_cannon::QuadCannonBarrelTier,
     ) -> bool {
         use crate::game_logic::host_quad_cannon::{
-            delay_frames_to_reload_secs, is_quad_cannon_template, quad_air_stats,
+            delay_frames_to_reload_secs, quad_air_stats,
             quad_ground_stats, quad_weapon_names_for_tier,
         };
         use crate::game_logic::thing::ThingTemplate;
@@ -322,7 +322,7 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_quad_cannon_template(&obj.template_name) {
+        if !obj.authors_quad_cannon_gun() {
             return false;
         }
 

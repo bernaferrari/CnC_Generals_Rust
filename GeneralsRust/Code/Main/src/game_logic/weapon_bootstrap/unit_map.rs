@@ -277,9 +277,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         "GLALightTank" | "GLA_LightTank" | "TestLightTank" => Some(CRUSADER_TANK_GUN),
         _ => {
             // Name residual for Laser/Superweapon general variants + Nuke Cannon.
-            if crate::game_logic::host_bunker_buster::is_bunker_buster_carrier(template_name) {
-                return Some(STEALTH_JET_MISSILE_WEAPON);
-            }
             if crate::game_logic::host_bunker_buster::is_kill_garrisoned_clearer(template_name) {
                 return Some(MICROWAVE_BUILDING_CLEARER_WEAPON);
             }
@@ -298,9 +295,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_rocket_buggy::is_rocket_buggy_template(template_name) {
                 return Some(BUGGY_ROCKET_WEAPON);
             }
-            if crate::game_logic::host_quad_cannon::is_quad_cannon_template(template_name) {
-                return Some(QUAD_CANNON_GUN);
-            }
             // SCUD: explicit retail rows above only (hq-2qedt.250).
             if crate::game_logic::host_technical::is_technical_template(template_name) {
                 return Some(TECHNICAL_MACHINE_GUN);
@@ -318,9 +312,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             }
             if crate::game_logic::host_overlord_gun::is_overlord_gun_chassis(template_name) {
                 return Some(OVERLORD_TANK_GUN);
-            }
-            if crate::game_logic::host_jarmen_kell::is_jarmen_kell_template(template_name) {
-                return Some(JARMEN_KELL_RIFLE);
             }
             if crate::game_logic::host_marauder::is_marauder_template(template_name) {
                 return Some(MARAUDER_TANK_GUN);

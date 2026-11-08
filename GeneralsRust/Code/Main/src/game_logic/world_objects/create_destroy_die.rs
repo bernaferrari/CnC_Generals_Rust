@@ -1875,7 +1875,7 @@ impl GameLogic {
             // Quad Cannon: Weapon.ini AntiGround/AntiAirborne already flow
             // through weapon_from_store. Force masks only when the store
             // left C++ defaults (missing-INI / unparsed anti-mask).
-            if crate::game_logic::host_quad_cannon::is_quad_cannon_template(template_name) {
+            if object.authors_quad_cannon_gun() {
                 let store_missed_masks = object.weapon.as_ref().is_some_and(|w| w.can_target_air)
                     || object
                         .secondary_weapon
