@@ -289,6 +289,9 @@ pub struct TerrainVisualImpl {
     draw_origin_x: i32,
     draw_origin_y: i32,
 
+    /// Receiving world's GameData setting, retained for the draw-time gate.
+    use_3way_terrain_blends: i32,
+
     /// C++ `m_extraBlendTilePositions` packed as `i | (j << 16)`.
     extra_blend_tile_positions: Vec<u32>,
     /// Last extra-blend overlay staged/uploaded for the GPU terrain pass.

@@ -253,6 +253,7 @@ impl TerrainVisualImpl {
             draw_height: NORMAL_DRAW_HEIGHT,
             draw_origin_x: 0,
             draw_origin_y: 0,
+            use_3way_terrain_blends: 1,
             extra_blend_tile_positions: Vec::new(),
             extra_blend_gpu_upload: ExtraBlendGpuUpload::default(),
             extra_blend_draw_mesh: ExtraBlendDrawMesh::default(),

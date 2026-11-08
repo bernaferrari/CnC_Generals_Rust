@@ -632,6 +632,51 @@ mod tests {
     }
 
     #[test]
+    fn receiving_world_blend_setting_filters_authored_three_material_cell() {
+        use crate::terrain::textures::{BlendTileInfo, FLIPPED_MASK, INVERTED_MASK};
+        crate::test_support::ensure_ambient_host();
+        let mut map = HeightMap::new(3, 3, 255.0, 1.0);
+        map.tile_ndxes[0] = 1;
+        map.blend_tile_ndxes[0] = 1;
+        map.extra_blend_tile_ndxes[0] = 2;
+        let mut base = BlendTileInfo::new();
+        base.blend_ndx = 2;
+        base.horiz = 1;
+        base.inverted = INVERTED_MASK | FLIPPED_MASK;
+        let mut third = BlendTileInfo::new();
+        third.blend_ndx = 3;
+        third.vert = 1;
+        map.blended_tiles = vec![BlendTileInfo::new(), base, third];
+
+        let mut disabled = TerrainVisualImpl::new();
+        disabled.set_use_3way_terrain_blends(0);
+        disabled.load_heightmap_from_data(map.clone(), None, None).unwrap();
+        let mut enabled = TerrainVisualImpl::new();
+        enabled.set_use_3way_terrain_blends(1);
+        enabled.load_heightmap_from_data(map.clone(), None, None).unwrap();
+        let mut debug = TerrainVisualImpl::new();
+        debug.set_use_3way_terrain_blends(2);
+        debug.load_heightmap_from_data(map, None, None).unwrap();
+
+        let off_map = disabled.height_map.as_ref().unwrap();
+        let on_map = enabled.height_map.as_ref().unwrap();
+        assert_eq!(off_map.extra_blend_tile_ndxes[0], 0);
+        assert_eq!(off_map.blended_tiles[1].inverted, INVERTED_MASK);
+        assert_eq!(on_map.blended_tiles[1].inverted, INVERTED_MASK | FLIPPED_MASK);
+        assert_eq!(on_map.get_extra_alpha_uv_data(0, 0).unwrap().alpha, [0, 0, 255, 255]);
+        assert!(disabled.build_extra_blend_draw_mesh().is_empty());
+        assert_eq!(enabled.build_extra_blend_draw_mesh().index_count(), 6);
+        assert!(!authored_cell_flip(off_map, &[], 0, 0, 1, Some(&off_map.blended_tiles[1])));
+        assert!(authored_cell_flip(on_map, &[], 0, 0, 1, Some(&on_map.blended_tiles[1])));
+        assert_eq!(debug.build_extra_blend_draw_mesh().index_count(), 6);
+        assert!(!disabled.extra_blend_draw());
+        assert!(enabled.extra_blend_draw());
+        enabled.set_use_3way_terrain_blends(0);
+        assert!(!enabled.extra_blend_draw());
+        assert!(debug.extra_blend_draw());
+    }
+
+    #[test]
     fn water_tracks_flush_is_called_from_live_water_record() {
         crate::test_support::ensure_ambient_host();
         // C++ WaterTracksRenderSystem::flush (W3DWaterTracks.cpp) is invoked

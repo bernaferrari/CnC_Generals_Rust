@@ -4,6 +4,9 @@ use super::super::*;
 use crate::game_logic::object::{DamageApplication, DamageHitContext};
 #[path = "damage_callbacks.rs"]
 mod damage_callbacks;
+#[cfg(test)]
+#[path = "owned_shock_damage_tests.rs"]
+mod owned_shock_damage_tests;
 
 /// Retarget observations taken after body callbacks, before world onDie.
 #[derive(Debug)]

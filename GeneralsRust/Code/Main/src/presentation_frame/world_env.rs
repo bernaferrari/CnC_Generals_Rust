@@ -513,6 +513,9 @@ pub struct PresentationTerrainScorch {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct PresentationWorldEnv {
+    /// GameData value captured from this receiving world.
+    #[serde(default)]
+    pub use_3way_terrain_blends: Option<i32>,
     #[serde(default)]
     pub terrain_definitions: Option<Arc<game_engine::common::ini::ini_terrain::TerrainTypes>>,
     /// Road art frozen from the same session as the map geometry.
@@ -744,6 +747,7 @@ impl PresentationWorldEnv {
         let lighting = logic.lighting_rules_baseline();
         let (clear_alpha, fog_alpha) = (lighting.clear_alpha, lighting.fog_alpha);
         Self {
+            use_3way_terrain_blends: Some(logic.lighting_rules().use_3way_terrain_blends),
             terrain_motion: PresentationTerrainMotion::from_logic(logic),
             terrain_definitions: Some(Arc::clone(logic.effective_terrain_definitions())),
             terrain_roads: logic.effective_terrain_roads().presentation(),

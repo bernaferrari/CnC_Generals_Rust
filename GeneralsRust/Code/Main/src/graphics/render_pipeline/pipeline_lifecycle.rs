@@ -180,6 +180,12 @@ impl RenderPipeline {
         frame: Option<Rc<crate::presentation_frame::PresentationFrame>>,
     ) {
         #[cfg(feature = "game_client")]
+        if let (Some(terrain), Some(frame)) = (self.native_terrain.as_mut(), frame.as_ref()) {
+            terrain.set_use_3way_terrain_blends(
+                frame.world_env.use_3way_terrain_blends.unwrap_or(1),
+            );
+        }
+        #[cfg(feature = "game_client")]
         specialized_draw_inputs::FrozenSpecializedDrawFrame::retain_for_frame(
             &mut self.frozen_specialized_draw,
             frame.as_ref(),

@@ -1,6 +1,11 @@
 // Split from `terrain/terrain_visual.rs` dump. Included by `terrain_visual/mod.rs`.
 
 impl TerrainVisualImpl {
+    /// Admit the receiving world's GameData before installing its map.
+    pub fn set_use_3way_terrain_blends(&mut self, value: i32) {
+        self.use_3way_terrain_blends = value;
+    }
+
     /// Load terrain heightmap from file
     pub fn load_heightmap(&mut self, path: &str) -> TerrainResult<()> {
         self.load_heightmap_with_world_size(path, None)
@@ -25,6 +30,13 @@ impl TerrainVisualImpl {
                 "Runtime heightmap sample count does not match dimensions".to_string(),
             ));
         }
+        if self.use_3way_terrain_blends == 0 {
+            heightmap.extra_blend_tile_ndxes.fill(0);
+            for tile in heightmap.blended_tiles.iter_mut().skip(1) {
+                tile.inverted &= !crate::terrain::textures::FLIPPED_MASK;
+            }
+        }
+
 
         self.filename = source_hint
             .map(|p| p.display().to_string())

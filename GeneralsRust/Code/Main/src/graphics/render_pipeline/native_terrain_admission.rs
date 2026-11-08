@@ -57,6 +57,7 @@ impl RenderPipeline {
             game_client::terrain::terrain_visual::TerrainVisualImpl::new_with_track_rules(
                 &env.terrain_track_rules,
             );
+        visual.set_use_3way_terrain_blends(env.use_3way_terrain_blends.unwrap_or(1));
         visual.admit_water_rules(env.terrain_water_rules);
         visual.admit_road_presentation(env.terrain_roads.clone());
         visual

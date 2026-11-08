@@ -2538,6 +2538,9 @@ impl TerrainVisualImpl {
     /// Increment the shipped extra-blend draw counter when overlay tiles exist.
     /// Returns whether a draw was recorded.
     pub fn extra_blend_draw(&self) -> bool {
+        if self.use_3way_terrain_blends == 0 {
+            return false;
+        }
         if self.extra_blend_tile_count() == 0
             && self.extra_blend_gpu_upload.is_empty()
             && self.extra_blend_draw_mesh.is_empty()

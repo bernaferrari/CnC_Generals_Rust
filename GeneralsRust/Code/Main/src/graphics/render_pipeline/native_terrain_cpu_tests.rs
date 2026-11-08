@@ -63,3 +63,45 @@ fn detached_native_cpu_map_admission_uses_receiving_bytes_and_authored_scorches_
         },
     );
 }
+
+#[test]
+fn native_admission_uses_each_worlds_three_way_setting() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "native_admission_uses_each_worlds_three_way_setting",
+        || {
+            use game_client::terrain::height_map::HeightMap;
+            use game_client::terrain::textures::BlendTileInfo;
+            let mut map = HeightMap::new(3, 3, 1.0, 10.0);
+            map.tile_ndxes[0] = 1;
+            map.blend_tile_ndxes[0] = 1;
+            map.extra_blend_tile_ndxes[0] = 2;
+            let mut blend = BlendTileInfo::new();
+            blend.blend_ndx = 2;
+            blend.horiz = 1;
+            let mut third = BlendTileInfo::new();
+            third.blend_ndx = 3;
+            third.vert = 1;
+            map.blended_tiles = vec![BlendTileInfo::new(), blend, third];
+            let frozen = crate::presentation_frame::PresentationRuntimeHeightmap::from_height_map(&map);
+            let mut off = crate::game_logic::GameLogic::new();
+            let mut on = crate::game_logic::GameLogic::new();
+            let mut off_rules = crate::game_logic::lighting_rules::LightingContentRules::default();
+            off_rules.use_3way_terrain_blends = 0;
+            off.admit_lighting_rules_base(off_rules);
+            let mut on_rules = crate::game_logic::lighting_rules::LightingContentRules::default();
+            on_rules.use_3way_terrain_blends = 1;
+            on.admit_lighting_rules_base(on_rules);
+            let mut off_env = crate::presentation_frame::PresentationWorldEnv::from_logic(&off);
+            let mut on_env = crate::presentation_frame::PresentationWorldEnv::from_logic(&on);
+            off_env.runtime_heightmap = Some(Arc::new(frozen.clone()));
+            on_env.runtime_heightmap = Some(Arc::new(frozen));
+            let disabled = RenderPipeline::prepare_native_terrain_cpu(&off_env).unwrap().unwrap();
+            let enabled = RenderPipeline::prepare_native_terrain_cpu(&on_env).unwrap().unwrap();
+            assert!(disabled.build_extra_blend_draw_mesh().is_empty());
+            assert_eq!(enabled.build_extra_blend_draw_mesh().index_count(), 6);
+            assert!(!disabled.extra_blend_draw());
+            assert!(enabled.extra_blend_draw());
+        },
+    );
+}

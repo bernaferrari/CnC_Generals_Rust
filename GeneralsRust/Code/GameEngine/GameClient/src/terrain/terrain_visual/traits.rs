@@ -411,6 +411,10 @@ impl TerrainVisualImpl {
 #[path = "terrain_fog_uniform_tests.rs"]
 mod terrain_fog_uniform_tests;
 
+#[cfg(test)]
+#[path = "terrain_blend_pixel_tests.rs"]
+mod terrain_blend_pixel_tests;
+
 /// Shipped wgpu water overlay vertex. `packed_c` is C++ `SEA_PATCH_VERTEX.c`.
 pub type WaterVertex = WaterGpuVertex;
 

@@ -23,12 +23,13 @@ pub fn compute_shock_wave_force(
     if amount <= 0.0 || radius <= 0.0 {
         return None;
     }
-    let v = victim_pos - source;
-    let dist = v.length();
-    if dist < 1e-4 {
-        // C++ zero-vector guard: straight up.
-        return Some(glam::Vec3::new(0.0, amount, 0.0));
+    let mut v = victim_pos - source;
+    // Weapon.cpp uses a strict per-component epsilon before Object.cpp
+    // computes distance taper. Host Y corresponds to C++ Z (up).
+    if v.x.abs() < 0.0001 && v.y.abs() < 0.0001 && v.z.abs() < 0.0001 {
+        v.y = 1.0;
     }
+    let dist = v.length();
     let distance_from_center = (dist / radius).min(1.0);
     let taper = taper_off.clamp(0.0, 1.0);
     let distance_taper = distance_from_center * (1.0 - taper);

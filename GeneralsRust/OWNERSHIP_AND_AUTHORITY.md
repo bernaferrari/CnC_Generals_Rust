@@ -2939,3 +2939,11 @@ death callback still uses its ambient crate system and requires owner migration.
 Authored force-attack-ground shots use the selected weapon's pre-attack delay
 and receiving bonus before consuming ammunition. Replaced ground orders and
 weapon-slot changes cancel the prior wind-up; its deadline survives snapshots.
+
+Shockwave direction handles coincident and component-wise near-zero positions
+before applying the distance taper. The receiving world's damage operation
+applies the resulting impulse to its own physics object.
+
+Terrain admission carries the receiving world's three-way-blend setting into
+the map and WGPU terrain pass. Disabled blends clear the original extra indices
+and flipped flags at map installation; the current setting gates each draw.

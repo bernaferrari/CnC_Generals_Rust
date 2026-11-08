@@ -520,6 +520,7 @@ fn prepare_native_map_visual(
         return Ok(());
     };
     let env = crate::presentation_frame::PresentationWorldEnv {
+        use_3way_terrain_blends: Some(world.lighting_rules().use_3way_terrain_blends),
         terrain_definitions: Some(std::sync::Arc::clone(world.effective_terrain_definitions())),
         terrain_roads: world.effective_terrain_roads().presentation(),
         terrain_global_lights: crate::presentation_frame::freeze_receiving_terrain_lights(world),

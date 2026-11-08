@@ -72,6 +72,7 @@ pub struct LightingContentRules {
     /// Per-session presentation gate for physics drawable transforms.
     pub show_client_physics: bool,
     pub adjust_cliff_textures: bool,
+    pub use_3way_terrain_blends: i32,
     /// Shroud clear/fog alpha inputs used by the receiving presentation frame.
     pub clear_alpha: u8,
     pub fog_alpha: u8,
@@ -110,6 +111,7 @@ impl LightingContentRules {
             use_tree_sway: data.use_tree_sway,
             show_client_physics: data.show_client_physics,
             adjust_cliff_textures: data.adjust_cliff_textures,
+            use_3way_terrain_blends: data.use_3way_terrain_blends,
             clear_alpha: data.clear_alpha,
             fog_alpha: data.fog_alpha,
             shroud_color: [
@@ -157,6 +159,7 @@ impl LightingContentRules {
         draft.use_tree_sway = self.use_tree_sway;
         draft.show_client_physics = self.show_client_physics;
         draft.adjust_cliff_textures = self.adjust_cliff_textures;
+        draft.use_3way_terrain_blends = self.use_3way_terrain_blends;
         draft.clear_alpha = self.clear_alpha;
         draft.fog_alpha = self.fog_alpha;
         draft.shroud_color = super::RGBColor::new(
