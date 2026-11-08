@@ -2013,16 +2013,8 @@ impl Object {
         if delay == 0 {
             return;
         }
-        let partial = [0u8, 1, 2].iter().any(|&slot| {
-            self.weapon_slot(slot).is_some_and(|w| {
-                w.clip_size > 0 && w.ammo.map(|a| a < w.clip_size).unwrap_or(false)
-            })
-        });
-        if partial {
-            self.frame_to_force_reload = frame.saturating_add(delay);
-        } else {
-            self.frame_to_force_reload = 0;
-        }
+        // FiringTracker arms the owner's deadline even when every clip is full.
+        self.frame_to_force_reload = frame.saturating_add(delay);
     }
 
     /// C++ Object::reloadAllAmmo(TRUE) residual — refill all concrete WeaponSet clips.

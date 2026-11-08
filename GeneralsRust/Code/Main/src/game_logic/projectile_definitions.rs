@@ -21,6 +21,7 @@ pub(in crate::game_logic) struct ProjectileProfile {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ProjectileDefinitions {
     entries: HashMap<String, ProjectileProfile>,
+    geometry: HashMap<String, super::HostGeometryInfo>,
 }
 impl ProjectileDefinitions {
     pub(in crate::game_logic) fn get(&self, name: &str) -> Option<&ProjectileProfile> {
@@ -29,6 +30,9 @@ impl ProjectileDefinitions {
             return None;
         }
         self.entries.get(name)
+    }
+    pub(in crate::game_logic) fn geometry(&self, name: &str) -> Option<super::HostGeometryInfo> {
+        self.geometry.get(name.trim()).copied()
     }
     /// Build one immutable effective catalog from the ordered receiving rows.
     pub(in crate::game_logic) fn from_effective_definitions<'a>(
@@ -81,6 +85,9 @@ impl ProjectileDefinitions {
         if name.is_empty() || self.entries.contains_key(name) {
             return Ok(false);
         }
+        let mut geometry_template = super::ThingTemplate::new(name);
+        super::GameLogic::apply_authored_geometry(&mut geometry_template, definition);
+        self.geometry.insert(name.to_owned(), geometry_template.geometry_info);
         let mut text = format!("Object {name}\n");
         let mut behaviors = Vec::new();
         if !definition

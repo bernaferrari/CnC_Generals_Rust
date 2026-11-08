@@ -137,3 +137,102 @@ fn ordinary_zero_unresistable_remains_selected_and_spends_one_real_shot() {
             .is_empty()
     );
 }
+
+#[test]
+fn idle_reload_deadline_tracks_fired_slot_and_is_local_to_each_owner() {
+    let mut game = GameLogic::new();
+    for (id, team) in [(1, Team::USA), (2, Team::GLA)] {
+        let mut player = Player::new(id, team, "Deadline", id == 1);
+        player.alliance_team = id as i32;
+        game.add_player(player);
+    }
+    let mut definitions = HashMap::new();
+    let ini = "Weapon IdleDeadlinePrimary\n PrimaryDamage = 1\n DamageType = UNRESISTABLE\n AttackRange = 150\n ClipSize = 0\n DelayBetweenShots = 0\n AutoReloadWhenIdle = 333\n WeaponSpeed = 999999\n ProjectileObject = NONE\n AntiGround = Yes\nEnd\n\
+Weapon IdleDeadlineSecondary\n PrimaryDamage = 2\n DamageType = UNRESISTABLE\n AttackRange = 150\n ClipSize = 4\n AutoReloadsClip = No\n DelayBetweenShots = 0\n AutoReloadWhenIdle = 0\n WeaponSpeed = 999999\n ProjectileObject = NONE\n AntiGround = Yes\nEnd\n";
+    assert_eq!(crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+        &mut definitions, ini,
+        crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+    ), 2);
+    let mut source = ThingTemplate::new("IdleDeadlineShooter");
+    source.add_kind_of(KindOf::Infantry).add_kind_of(KindOf::Attackable);
+    source.set_primary_weapon_name("IdleDeadlinePrimary");
+    source.set_secondary_weapon_name("IdleDeadlineSecondary");
+    let mut target = ThingTemplate::new("IdleDeadlineTarget");
+    target.set_health(1000.0).add_kind_of(KindOf::Attackable);
+    game.templates.insert(source.name.clone(), source);
+    game.templates.insert(target.name.clone(), target);
+    game.admit_weapon_content_snapshot(
+        definitions.into_values().map(|rule| (rule.name.clone(), rule)).collect(),
+        &[],
+    ).unwrap();
+    game.frame = 10;
+    let a = game.create_object_for_player("IdleDeadlineShooter", 1, Vec3::ZERO).unwrap();
+    let b = game.create_object_for_player("IdleDeadlineShooter", 1, Vec3::new(0.0, 5.0, 0.0)).unwrap();
+    let victim = game.create_object_for_player("IdleDeadlineTarget", 2, Vec3::new(40.0, 0.0, 0.0)).unwrap();
+    for id in [a, b] {
+        let actor = game.host_object_mut(id).unwrap();
+        actor.restore_ai_state(AIState::Attacking);
+        actor.target = Some(victim);
+    }
+    game.frame = 100;
+    game.update_combat(&[a], LOGIC_FRAME_TIMESTEP).unwrap();
+    assert_eq!(game.host_object(victim).unwrap().health.current, 999.0);
+    assert_eq!(game.host_object(a).unwrap().frame_to_force_reload, 110);
+    assert_eq!(game.host_object(b).unwrap().frame_to_force_reload, 0);
+    for id in [a, b] {
+        game.host_object_mut(id).unwrap().set_active_weapon_slot(1);
+    }
+    game.frame = 103;
+    game.update_combat(&[a, b], LOGIC_FRAME_TIMESTEP).unwrap();
+    assert_eq!(game.host_object(victim).unwrap().health.current, 995.0);
+    for id in [a, b] {
+        assert_eq!(game.host_object(id).unwrap().secondary_weapon.as_ref().unwrap().ammo, Some(3));
+        let actor = game.host_object_mut(id).unwrap();
+        actor.restore_ai_state(AIState::Idle);
+        actor.target = None;
+        // Prevent autonomous reacquisition from adding shots during host ticks.
+        actor.status.weapons_jammed = true;
+    }
+    assert_eq!(game.host_object(a).unwrap().frame_to_force_reload, 110);
+    assert_eq!(game.host_object(b).unwrap().frame_to_force_reload, 0);
+    game.frame = 109;
+    game.update_simulation(LOGIC_FRAME_TIMESTEP);
+    assert_eq!(game.host_object(a).unwrap().secondary_weapon.as_ref().unwrap().ammo, Some(3));
+    game.frame = 110;
+    game.update_simulation(LOGIC_FRAME_TIMESTEP);
+    assert_eq!(game.host_object(a).unwrap().secondary_weapon.as_ref().unwrap().ammo, Some(4));
+    assert_eq!(game.host_object(b).unwrap().secondary_weapon.as_ref().unwrap().ammo, Some(3));
+    assert_eq!(game.host_object(a).unwrap().frame_to_force_reload, 0);
+    {
+        let actor = game.host_object_mut(a).unwrap();
+        actor.restore_ai_state(AIState::Attacking);
+        actor.target = Some(victim);
+        actor.status.weapons_jammed = false;
+        actor.set_active_weapon_slot(0);
+    }
+    game.frame = 120;
+    game.update_combat(&[a], LOGIC_FRAME_TIMESTEP).unwrap();
+    assert_eq!(game.host_object(a).unwrap().frame_to_force_reload, 130);
+    game.host_object_mut(a).unwrap().set_active_weapon_slot(1);
+    game.frame = 123;
+    game.update_combat(&[a], LOGIC_FRAME_TIMESTEP).unwrap();
+    assert_eq!(game.host_object(a).unwrap().secondary_weapon.as_ref().unwrap().ammo, Some(3));
+    assert_eq!(game.host_object(a).unwrap().frame_to_force_reload, 130);
+    game.host_object_mut(a).unwrap().set_active_weapon_slot(0);
+    game.frame = 125;
+    game.update_combat(&[a], LOGIC_FRAME_TIMESTEP).unwrap();
+    assert_eq!(game.host_object(a).unwrap().frame_to_force_reload, 135);
+    {
+        let actor = game.host_object_mut(a).unwrap();
+        actor.restore_ai_state(AIState::Idle);
+        actor.target = None;
+        actor.status.weapons_jammed = true;
+    }
+    game.frame = 130;
+    game.update_simulation(LOGIC_FRAME_TIMESTEP);
+    assert_eq!(game.host_object(a).unwrap().secondary_weapon.as_ref().unwrap().ammo, Some(3));
+    game.frame = 135;
+    game.update_simulation(LOGIC_FRAME_TIMESTEP);
+    assert_eq!(game.host_object(a).unwrap().secondary_weapon.as_ref().unwrap().ammo, Some(4));
+    assert_eq!(game.host_object(b).unwrap().secondary_weapon.as_ref().unwrap().ammo, Some(3));
+}

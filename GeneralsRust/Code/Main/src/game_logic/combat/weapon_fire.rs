@@ -576,6 +576,7 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_terrain(
 
     for p in pending {
         let profile = definitions.get(&p.projectile_object_name);
+        let geometry = definitions.geometry(&p.projectile_object_name);
         if let Some(immediate) = materialize_accepted_projectile(
             combat,
             objects,
@@ -583,6 +584,7 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_terrain(
             p,
             None,
             profile,
+            geometry,
             terrain,
             next_object_id,
             random,
@@ -604,6 +606,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
     p: PendingProjectile,
     stream_binding: Option<ProjectileStreamBinding>,
     profile: Option<&crate::game_logic::projectile_definitions::ProjectileProfile>,
+    geometry: Option<crate::game_logic::HostGeometryInfo>,
     terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
     next_object_id: &mut ObjectId,
     random: &game_engine::common::random_value::SessionRandom,
@@ -812,6 +815,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         proj.damage_type = p.damage_type;
         proj.death_type = p.death_type;
         proj.projectile_object_name = p.projectile_object_name.clone();
+        proj.collision_geometry = geometry;
         proj.detonation_fx_name = p.detonation_fx_name.clone();
         proj.detonation_ocl_name = p.detonation_ocl_name.clone();
         proj.exhaust_name = p.exhaust_name.clone();

@@ -2850,7 +2850,7 @@ impl GameLogic {
 
     /// C++ `ThingTemplate.cpp:201-205` / `Geometry.cpp:26-58`.
     /// Each Geometry* field writes independently; unknown tokens fail closed.
-    pub(super) fn apply_authored_geometry(
+    pub(in crate::game_logic) fn apply_authored_geometry(
         template: &mut ThingTemplate,
         definition: &ObjectDefinition,
     ) {

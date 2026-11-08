@@ -98,6 +98,10 @@ pub struct Projectile {
     pub death_type: crate::game_logic::host_usa_pilot::HostDeathType,
     /// C++ ProjectileObject residual for presentation mesh key.
     pub projectile_object_name: String,
+    /// Geometry captured from the receiving projectile template at admission.
+    /// Framed separately to preserve the positional projectile snapshot.
+    #[serde(skip)]
+    pub collision_geometry: Option<crate::game_logic::HostGeometryInfo>,
     /// C++ Weapon.ini ProjectileDetonationFX residual (spawned at impact).
     pub detonation_fx_name: String,
     /// C++ Weapon.ini ProjectileDetonationOCL residual name (spawned at impact).
@@ -207,6 +211,7 @@ impl Projectile {
             explosion_radius: 0.0,
             death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
             projectile_object_name: String::new(),
+            collision_geometry: None,
             detonation_fx_name: String::new(),
             detonation_ocl_name: String::new(),
             exhaust_name: String::new(),

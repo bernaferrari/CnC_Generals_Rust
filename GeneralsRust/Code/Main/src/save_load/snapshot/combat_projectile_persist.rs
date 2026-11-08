@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
 const TAG: &[u8; 4] = b"CPRJ";
-const VERSION: u32 = 4;
+const VERSION: u32 = 5;
 
 /// The nested arena includes each flight's captured and live bonus conditions.
 /// Stream and Team bindings are kept in the outer frame.
@@ -19,6 +19,14 @@ struct ArenaWithStreamsV3 {
     arena: Vec<u8>,
     bindings: Vec<(crate::game_logic::ObjectId, ProjectileStreamBinding)>,
     projectile_team_ids: Vec<(crate::game_logic::ObjectId, u32)>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ArenaWithGeometry {
+    arena: Vec<u8>,
+    bindings: Vec<(crate::game_logic::ObjectId, ProjectileStreamBinding)>,
+    projectile_team_ids: Vec<(crate::game_logic::ObjectId, u32)>,
+    geometries: Vec<(crate::game_logic::ObjectId, crate::game_logic::HostGeometryInfo)>,
 }
 
 pub(super) struct Decoded<'a> {
@@ -64,10 +72,14 @@ pub(super) fn append_record(
                 .map(|team_id| (projectile.id, team_id))
         })
         .collect();
-    let payload = bincode_legacy::serialize(&ArenaWithStreamsV3 {
+    let geometries = record.projectiles.iter().filter_map(|projectile| {
+        projectile.collision_geometry.map(|geometry| (projectile.id, geometry))
+    }).collect();
+    let payload = bincode_legacy::serialize(&ArenaWithGeometry {
         arena,
         bindings,
         projectile_team_ids,
+        geometries,
     })
     .map_err(|error| corrupted(format!("encoding projectile stream bindings: {error}")))?;
     let length = u32::try_from(payload.len())
@@ -100,7 +112,7 @@ pub(super) fn decode(bytes: &[u8], required_new: bool) -> SaveLoadResult<Decoded
     let mut offset = 4;
     let version = word(suffix, &mut offset)?;
     let length = word(suffix, &mut offset)? as usize;
-    if version != VERSION {
+    if version != VERSION && version != 4 {
         return Err(corrupted("invalid projectile arena version or length"));
     }
     let end = offset
@@ -110,8 +122,17 @@ pub(super) fn decode(bytes: &[u8], required_new: bool) -> SaveLoadResult<Decoded
         .get(offset..end)
         .ok_or_else(|| corrupted("projectile arena truncated"))?;
     let record: LiveProjectileArenaSnapshot = match version {
-        VERSION => {
-            let framed: ArenaWithStreamsV3 = decode_exact(payload)?;
+        4 | VERSION => {
+            let (framed, geometries) = if version == 4 {
+                (decode_exact::<ArenaWithStreamsV3>(payload)?, Vec::new())
+            } else {
+                let frame: ArenaWithGeometry = decode_exact(payload)?;
+                (ArenaWithStreamsV3 {
+                    arena: frame.arena,
+                    bindings: frame.bindings,
+                    projectile_team_ids: frame.projectile_team_ids,
+                }, frame.geometries)
+            };
             let mut arena: LiveProjectileArenaSnapshot = decode_exact(&framed.arena)?;
             apply_bindings(&mut arena, framed.bindings)?;
             let mut seen = std::collections::HashSet::new();
@@ -127,6 +148,20 @@ pub(super) fn decode(bytes: &[u8], required_new: bool) -> SaveLoadResult<Decoded
                         corrupted("projectile Team identity references unknown flight")
                     })?;
                 projectile.source_projectile_team_id = Some(team_id);
+            }
+            let mut seen_geometry = std::collections::HashSet::new();
+            for (id, geometry) in geometries {
+                if !seen_geometry.insert(id)
+                    || !geometry.height.is_finite()
+                    || !geometry.major_radius.is_finite()
+                    || !geometry.minor_radius.is_finite()
+                {
+                    return Err(corrupted("invalid or duplicate projectile geometry"));
+                }
+                let projectile = arena.projectiles.iter_mut()
+                    .find(|projectile| projectile.id == id)
+                    .ok_or_else(|| corrupted("projectile geometry references unknown flight"))?;
+                projectile.collision_geometry = Some(geometry);
             }
             arena
         }
@@ -297,7 +332,7 @@ mod tests {
         bad_tag[12] = b'X';
         assert!(decode(&bad_tag, true).is_err());
         let mut version = bytes.clone();
-        version[16..20].copy_from_slice(&4_u32.to_le_bytes());
+        version[16..20].copy_from_slice(&99_u32.to_le_bytes());
         assert!(decode(&version, true).is_err());
         let mut duplicate = bytes.clone();
         duplicate.extend_from_slice(&bytes[12..]);
@@ -319,6 +354,11 @@ mod tests {
         projectile.projectile_bonus_mask = 1 << 8;
         projectile.projectile_upgrades_initialized = true;
         projectile.computed_bonus_mask = Some((1 << 5) | (1 << 8));
+        projectile.collision_geometry = Some(crate::game_logic::HostGeometryInfo {
+            geom_type: crate::game_logic::HostGeometryType::Sphere,
+            major_radius: 3.0,
+            ..Default::default()
+        });
         projectile.stream_binding = Some(ProjectileStreamBinding {
             slot: 2,
             name: String::new(),
@@ -330,7 +370,7 @@ mod tests {
     }
 
     #[test]
-    fn stream_v4_preserves_projectile_team_and_binding() {
+    fn stream_v5_preserves_projectile_geometry_team_and_binding() {
         let record = one_bound_flight();
         let current = frame(&record);
         let decoded = decode(&current, true).unwrap();
@@ -346,11 +386,37 @@ mod tests {
             world.combat_system.projectiles_snapshot()[0].source_projectile_team_id,
             Some(42)
         );
+        assert_eq!(
+            world.combat_system.projectiles_snapshot()[0].collision_geometry,
+            record.projectiles[0].collision_geometry
+        );
         let restored = world.combat_system.projectiles_snapshot();
         assert_eq!(restored[0].launcher_bonus_mask, 1 << 5);
         assert_eq!(restored[0].projectile_bonus_mask, 1 << 8);
         assert!(restored[0].projectile_upgrades_initialized);
         assert_eq!(restored[0].computed_bonus_mask, Some((1 << 5) | (1 << 8)));
+    }
+
+    #[test]
+    fn version_four_flights_keep_legacy_collision_behavior() {
+        let record = one_bound_flight();
+        let projectile = &record.projectiles[0];
+        let payload = bincode_legacy::serialize(&ArenaWithStreamsV3 {
+            arena: bincode_legacy::serialize(&record).unwrap(),
+            bindings: vec![(projectile.id, projectile.stream_binding.clone().unwrap())],
+            projectile_team_ids: vec![(projectile.id, 42)],
+        }).unwrap();
+        let mut bytes = super::super::lifecycle_tail::encode_lifecycle_tail(&Default::default());
+        bytes.extend_from_slice(TAG);
+        bytes.extend_from_slice(&4_u32.to_le_bytes());
+        bytes.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&payload);
+        let mut world = GameLogic::new();
+        world.combat_system.restore_live_projectile_arena(decode(&bytes, true).unwrap().arena);
+        let restored = world.combat_system.projectiles_snapshot();
+        assert_eq!(restored[0].collision_geometry, None);
+        assert_eq!(restored[0].source_projectile_team_id, Some(42));
+        assert_eq!(restored[0].stream_binding, projectile.stream_binding);
     }
 
     #[test]
@@ -378,7 +444,7 @@ mod tests {
             let mut bytes =
                 super::super::lifecycle_tail::encode_lifecycle_tail(&Default::default());
             bytes.extend_from_slice(TAG);
-            bytes.extend_from_slice(&VERSION.to_le_bytes());
+            bytes.extend_from_slice(&4_u32.to_le_bytes());
             bytes.extend_from_slice(&(payload.len() as u32).to_le_bytes());
             bytes.extend_from_slice(&payload);
             assert!(decode(&bytes, true).is_err());

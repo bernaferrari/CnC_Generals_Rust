@@ -1689,6 +1689,7 @@ impl GameLogic {
             pending,
             stream_binding,
             self.projectile_definitions.get(&projectile_name),
+            self.projectile_definitions.geometry(&projectile_name),
             Some(&projectile_terrain),
             &mut self.next_object_id,
             &self.logic_random,

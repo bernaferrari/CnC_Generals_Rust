@@ -302,8 +302,25 @@ impl CombatSystem {
                         }
                     }
                     let radius = obj.selection_radius.max(8.0);
-                    // Horizontal (XZ) distance — tall buildings block regardless of Y.
                     let op = obj.get_position();
+                    if let Some(projectile_geometry) = projectile.collision_geometry {
+                        let building_geometry = *obj.geometry_info();
+                        let projectile_below = match projectile_geometry.geom_type {
+                            crate::game_logic::HostGeometryType::Sphere => projectile_geometry.major_radius,
+                            _ => 0.0,
+                        };
+                        let building_below = match building_geometry.geom_type {
+                            crate::game_logic::HostGeometryType::Sphere => building_geometry.major_radius,
+                            _ => 0.0,
+                        };
+                        let projectile_top = pos.y + projectile_geometry.max_height_above_position();
+                        let projectile_bottom = pos.y - projectile_below;
+                        let building_top = op.y + building_geometry.max_height_above_position();
+                        let building_bottom = op.y - building_below;
+                        if projectile_top < building_bottom || projectile_bottom > building_top {
+                            continue;
+                        }
+                    }
                     let dx = pos.x - op.x;
                     let dz = pos.z - op.z;
                     if (dx * dx + dz * dz).sqrt() <= radius {

@@ -21,6 +21,14 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
         .set_health(100.0)
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Structure);
+    blocker.geometry_info = crate::game_logic::HostGeometryInfo {
+        geom_type: crate::game_logic::HostGeometryType::Box,
+        height: 10.0,
+        major_radius: 8.0,
+        minor_radius: 8.0,
+        authored: true,
+        ..Default::default()
+    };
     world.templates.insert(source.name.clone(), source);
     world.templates.insert(blocker.name.clone(), blocker);
     let source = world
@@ -131,4 +139,47 @@ fn registered_dead_target_is_not_missile_target_disappearance() {
             .missile_kill_self_started_frame
             .is_some()
     );
+}
+
+#[test]
+fn authored_projectile_vertical_extent_controls_intervening_structure_collision_per_world() {
+    let text = "Object VerticalShell\n Geometry = SPHERE\n GeometryMajorRadius = 2\n End";
+    let mut parser = crate::assets::ini_parser::IniParser::new();
+    parser.parse_ini_content(text, "vertical-shell.ini").unwrap();
+    let definitions = crate::game_logic::projectile_definitions::ProjectileDefinitions::from_effective_definitions(
+        parser.get_all_definitions().iter().map(|(name, row)| (name.as_str(), row)),
+        -64.0,
+    ).unwrap();
+    let mut worlds = Vec::new();
+    for height in [12.1, 12.0] {
+        let (mut owner, source, blocker) = world();
+        let object = owner.objects.get_mut(&blocker).unwrap();
+        object.owner_player_id = Some(0);
+        let mut pending = super::tests::lifecycle_test_pending_projectile(
+            "VerticalShell", None, Vec3::new(1000.0, height, 0.0),
+        );
+        pending.shooter_id = source;
+        pending.shooter_pos = Vec3::new(-1.0, height, 0.0);
+        pending.speed = 30.0;
+        pending.damage_type = DamageType::Unresistable;
+        pending.splash_radius = 0.0;
+        pending.projectile_collides = crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_STRUCTURES;
+        queue_projectile(&mut owner.combat_system, pending);
+        drain_pending_projectiles(
+            &mut owner.combat_system, owner.objects.read(), owner.frame, &definitions,
+        );
+        let id = owner.combat_system.projectiles.keys().copied().next().unwrap();
+        assert_eq!(owner.combat_system.projectiles[&id].collision_geometry.unwrap().major_radius, 2.0);
+        worlds.push((owner, blocker, id));
+    }
+    assert_eq!(worlds[0].2, worlds[1].2);
+    let (mut above, above_blocker, above_id) = worlds.remove(0);
+    let (mut touching, touching_blocker, touching_id) = worlds.remove(0);
+    assert!(above.update_owned_projectile_impacts(1.0 / 30.0).is_empty());
+    assert!(above.combat_system.projectiles.contains_key(&above_id));
+    assert!(!touching.update_owned_projectile_impacts(1.0 / 30.0).is_empty());
+    assert!(!touching.combat_system.projectiles.contains_key(&touching_id));
+    assert!(above.combat_system.projectiles.contains_key(&above_id));
+    assert_eq!(above.host_object(above_blocker).unwrap().health.current, 100.0);
+    assert!(touching.host_object(touching_blocker).unwrap().health.current < 100.0);
 }

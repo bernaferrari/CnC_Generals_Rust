@@ -2917,3 +2917,13 @@ before the attack fallback runs. Core dozer ownership remains a separate gap.
 Standalone save/replay managers belong to their session rather than a process
 singleton. The unused process-wide attachment listener registry was removed;
 the renderer still drains and traces attachment records in emission order.
+
+Projectile flights retain the receiving match's authored collision geometry at
+launch. Structure interception checks vertical overlap against the receiving
+building's current geometry; the flight's geometry survives snapshots. The
+remaining horizontal structure check is still an approximation, and flights
+without an admitted geometry retain the previous interception behavior.
+
+An accepted shot with an authored idle-reload delay arms its firing owner's
+deadline even when all finite clips are full. A zero-delay shot preserves that
+deadline, and expiry reloads the receiving owner's clips.
