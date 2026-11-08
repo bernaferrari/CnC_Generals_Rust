@@ -55,3 +55,28 @@ End
     assert!(plain.contain_module.parachute.is_none());
     assert!(plain.hijacker_parachute_name.is_none());
 }
+
+#[test]
+fn parachute_zero_rate_does_not_consume_a_logic_draw() {
+    let mut world = GameLogic::new();
+    world.admit_receiving_module_content(
+        crate::assets::ReceivingObjectContent::from_sources([(
+            "parachute-rng.ini".into(),
+            "Object ChuteRng\n\
+             KindOf = VEHICLE\n\
+             Body = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\n\
+             Behavior = ParachuteContain ChuteTag\nPitchRateMax = 0\nRollRateMax = 30\nEnd\n\
+             End\n".into(),
+        )]).unwrap(),
+    ).unwrap();
+    world.set_logic_random_seed(0x1234);
+    let mut expected = world.logic_random.snapshot();
+    // ParachuteContain.cpp:100-101 and RandomValue.cpp:263-269: the
+    // zero-width pitch interval consumes nothing; roll consumes one draw.
+    let roll = expected.next_real(-std::f32::consts::PI / 180.0, std::f32::consts::PI / 180.0);
+    let id = world.create_object("ChuteRng", crate::game_logic::Team::GLA, glam::Vec3::ZERO).unwrap();
+    let object = world.host_object(id).unwrap();
+    assert_eq!(object.status.parachute_pitch_rate, 0.0);
+    assert!((object.status.parachute_roll_rate - roll).abs() < 1e-6);
+    assert_eq!(world.logic_random.seed_words(), expected.seed_words());
+}

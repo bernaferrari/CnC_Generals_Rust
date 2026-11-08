@@ -2324,14 +2324,12 @@ impl GameLogic {
                 object.apply_stealth_detector_ctor_stagger(self.frame);
             }
             if let Some(data) = object.thing().template.contain_module.parachute.as_ref() {
-                // ParachuteContain ctor consumes both source random draws,
-                // including zero-rate authored values, before onCreate.
+                // GameLogicRandomValueReal returns immediately for a zero-width
+                // interval, so a zero rate does not advance the logic stream.
                 let pitch_max = data.pitch_rate_max;
                 let roll_max = data.roll_rate_max;
-                let pitch = -pitch_max
-                    + 2. * pitch_max * (self.logic_random.next_u32() as f32 / u32::MAX as f32);
-                let roll = -roll_max
-                    + 2. * roll_max * (self.logic_random.next_u32() as f32 / u32::MAX as f32);
+                let pitch = self.logic_random.next_real(-pitch_max, pitch_max);
+                let roll = self.logic_random.next_real(-roll_max, roll_max);
                 object.parachute_attachments = Some(Default::default());
                 object.set_status_parachuting(true);
                 object.set_status_parachute_open(false);

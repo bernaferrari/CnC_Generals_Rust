@@ -3101,3 +3101,7 @@ material descriptors and the rendered lightmap result remain unverified.
 Native cue-limit and interruption queries use the receiving audio manager's
 playing list, including its normal completion sweep, rather than another
 manager's playback state.
+
+Parachute construction uses the session random range operation, which does not
+consume a logic draw for equal endpoints. Cross-module constructor ordering
+remains incomplete.
