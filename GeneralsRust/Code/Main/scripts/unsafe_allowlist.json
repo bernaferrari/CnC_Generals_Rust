@@ -1,21 +1,5 @@
 {
   "files": {
-    "Code/GameEngine/Common/src/System/SaveGame/game_state_map.rs": {
-      "constructs": 3,
-      "undocumented": 0
-    },
-    "Code/GameEngine/Common/src/System/xfer.rs": {
-      "constructs": 18,
-      "undocumented": 0
-    },
-    "Code/GameEngine/Common/src/System/xfer_load.rs": {
-      "constructs": 4,
-      "undocumented": 0
-    },
-    "Code/GameEngine/Common/src/System/xfer_save.rs": {
-      "constructs": 4,
-      "undocumented": 0
-    },
     "Code/GameEngine/Common/src/common/audio/url_launch.rs": {
       "constructs": 2,
       "undocumented": 0
@@ -28,16 +12,8 @@
       "constructs": 1,
       "undocumented": 0
     },
-    "Code/GameEngine/Common/src/common/rts/player_snapshot.rs": {
-      "constructs": 10,
-      "undocumented": 0
-    },
     "Code/GameEngine/Common/src/common/state_machine.rs": {
       "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/Common/src/common/system/function_lexicon.rs": {
-      "constructs": 3,
       "undocumented": 0
     },
     "Code/GameEngine/Common/src/common/system/game_memory/ptr_identity.rs": {
@@ -48,39 +24,7 @@
       "constructs": 22,
       "undocumented": 0
     },
-    "Code/GameEngine/Common/src/common/system/radar/snapshot.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
     "Code/GameEngine/Common/src/common/system/registry.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/Common/src/common/system/save_game/game_state_map.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/Common/src/common/system/snapshot.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/Common/src/common/system/xfer.rs": {
-      "constructs": 18,
-      "undocumented": 0
-    },
-    "Code/GameEngine/Common/src/common/system/xfer_crc.rs": {
-      "constructs": 5,
-      "undocumented": 0
-    },
-    "Code/GameEngine/Common/src/common/system/xfer_load.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/GameEngine/Common/src/common/system/xfer_save.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/GameEngine/Common/src/common/system/xfer_tests.rs": {
       "constructs": 2,
       "undocumented": 0
     },
@@ -94,10 +38,6 @@
     },
     "Code/GameEngine/Common/src/memory/generation.rs": {
       "constructs": 3,
-      "undocumented": 0
-    },
-    "Code/GameEngine/Common/tests/function_lexicon.rs": {
-      "constructs": 1,
       "undocumented": 0
     },
     "Code/GameEngine/Common/tests/game_memory.rs": {
@@ -126,14 +66,6 @@
     },
     "Code/GameEngine/GameClient/src/core/game_client/live_slot.rs": {
       "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameClient/src/core/game_client/xfer_adapters.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameClient/src/core/subsystems.rs": {
-      "constructs": 2,
       "undocumented": 0
     },
     "Code/GameEngine/GameClient/src/display/image.rs": {
@@ -248,88 +180,12 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/GameEngine/GameLogic/src/common/types/partition.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/experience/tracker.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
     "Code/GameEngine/GameLogic/src/messages.rs": {
       "constructs": 1,
       "undocumented": 0
     },
-    "Code/GameEngine/GameLogic/src/object/behavior/firestorm_dynamic_geometry_info_update.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/object/behavior/special_ability_update.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/object/collide/collide_module.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/object/collide/fire_weapon_collide.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/object/collide/squish_collide.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/object/contain/cave_contain.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/object/contain/garrison_contain.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/object/contain/heal_contain.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/object/contain/helix_contain.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/object/contain/overlord_contain.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/object/contain/rider_change_contain.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/object/object_xfer.rs": {
-      "constructs": 5,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/object/object_xfer_wire.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
     "Code/GameEngine/GameLogic/src/path/pathfind_cell_info.rs": {
       "constructs": 7,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/stealth_update.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/system/game_logic_impl/tests.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/system/game_logic_impl/xfer_crc.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/system/game_logic_impl/xfer_helpers.rs": {
-      "constructs": 2,
       "undocumented": 0
     },
     "Code/GameEngine/GameLogic/src/transport/packet.rs": {
@@ -342,10 +198,6 @@
     },
     "Code/GameEngine/GameLogic/src/transport/udp.rs": {
       "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/weapon/crc_snapshot.rs": {
-      "constructs": 1,
       "undocumented": 0
     },
     "Code/GameEngine/GameLogic/tests/crc_standalone_test.rs": {
@@ -633,11 +485,7 @@
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WWLib/src/blit.rs": {
-      "constructs": 6,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWLib/src/blitter.rs": {
-      "constructs": 34,
+      "constructs": 2,
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WWLib/src/buff.rs": {
@@ -725,14 +573,6 @@
       "undocumented": 0
     },
     "Code/Main/src/resource.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Main/src/save_load/save_file.rs": {
-      "constructs": 7,
-      "undocumented": 0
-    },
-    "Code/Main/src/save_load/save_file/tests.rs": {
       "constructs": 2,
       "undocumented": 0
     },

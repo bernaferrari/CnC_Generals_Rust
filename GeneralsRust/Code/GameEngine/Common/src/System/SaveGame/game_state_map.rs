@@ -176,8 +176,7 @@ impl GameStateMap {
 
         // Write to xfer stream
         xfer.begin_block().map_err(|_| SaveCode::Error)?;
-        // SAFETY: buffer was allocated with file_size bytes
-        unsafe { xfer.xfer_user(buffer.as_mut_ptr(), file_size) }.map_err(|_| SaveCode::Error)?;
+        xfer.xfer_user(&mut buffer).map_err(|_| SaveCode::Error)?;
         xfer.end_block().map_err(|_| SaveCode::Error)?;
 
         Ok(())
@@ -214,8 +213,7 @@ impl GameStateMap {
 
         // Embed into xfer stream
         xfer.begin_block().map_err(|_| SaveCode::Error)?;
-        // SAFETY: buffer was allocated with file_size bytes
-        unsafe { xfer.xfer_user(buffer.as_mut_ptr(), file_size) }.map_err(|_| SaveCode::Error)?;
+        xfer.xfer_user(&mut buffer).map_err(|_| SaveCode::Error)?;
         xfer.end_block().map_err(|_| SaveCode::Error)?;
 
         Ok(())
@@ -236,8 +234,7 @@ impl GameStateMap {
         let mut buffer = vec![0u8; data_size];
 
         // Read map file
-        // SAFETY: buffer was allocated with data_size bytes
-        unsafe { xfer.xfer_user(buffer.as_mut_ptr(), data_size) }.map_err(|_| SaveCode::Error)?;
+        xfer.xfer_user(&mut buffer).map_err(|_| SaveCode::Error)?;
 
         // Write to new file
         file.write_all(&buffer).map_err(|_| {

@@ -450,73 +450,37 @@ impl Snapshot for Object {
         xfer_matrix3d_user_blob(xfer, &mut transform);
 
         // C++ xferUser(&m_id, sizeof(m_id)); ObjectID is UnsignedInt.
-        let mut id = self.id;
-        // SAFETY: `id` is an initialized stack `ObjectID`; exactly
-        // `size_of::<ObjectID>()` bytes are transferred here.
-        unsafe {
-            let _ = xfer.xfer_user(
-                (&mut id as *mut ObjectID).cast::<u8>(),
-                std::mem::size_of::<ObjectID>(),
-            );
-        }
+        let _ = xfer.xfer_readonly(&self.id.to_ne_bytes());
 
         // C++ xferUser(&m_objectUpgradesCompleted, sizeof(Int64)).
-        let mut upgrades = (self.object_upgrades_completed.bits() & 0xFFFF_FFFF_FFFF_FFFF) as i64;
-        // SAFETY: `upgrades` is an initialized stack `i64`; exactly
-        // `size_of::<i64>()` bytes are transferred here.
-        unsafe {
-            let _ = xfer.xfer_user(
-                (&mut upgrades as *mut i64).cast::<u8>(),
-                std::mem::size_of::<i64>(),
-            );
-        }
+        let upgrades = (self.object_upgrades_completed.bits() & 0xFFFF_FFFF_FFFF_FFFF) as i64;
+        let _ = xfer.xfer_readonly(&upgrades.to_ne_bytes());
 
         // C++ ExperienceTracker::crc: xferInt(xp) + xferUser(level, sizeof(VeterancyLevel)).
         if let Some(tracker) = &self.experience_tracker {
             let mut xp = tracker.get_current_experience();
             let _ = xfer.xfer_int(&mut xp);
-            let mut level = tracker.get_veterancy_level() as i32;
-            // SAFETY: `level` is an initialized stack `i32`; exactly
-            // `size_of::<i32>()` bytes are transferred here.
-            unsafe {
-                let _ = xfer.xfer_user(
-                    (&mut level as *mut i32).cast::<u8>(),
-                    std::mem::size_of::<i32>(),
-                );
-            }
+            let level = tracker.get_veterancy_level() as i32;
+            let _ = xfer.xfer_readonly(&level.to_ne_bytes());
         }
 
         // C++ always xfers health, weaponBonus, damageScalar (body is required).
-        let mut health = if let Some(body) = &self.body {
+        let health = if let Some(body) = &self.body {
             body.lock().map(|g| g.get_health()).unwrap_or(0.0)
         } else {
             0.0
         };
-        // SAFETY: `health` is an initialized stack `f32`; exactly
-        // `size_of::<f32>()` bytes are transferred here.
-        unsafe {
-            let _ = xfer.xfer_user(
-                (&mut health as *mut f32).cast::<u8>(),
-                std::mem::size_of::<f32>(),
-            );
-        }
+        let _ = xfer.xfer_readonly(&health.to_ne_bytes());
 
         let mut weapon_bonus_condition = self.weapon_bonus_condition.bits();
         let _ = xfer.xfer_unsigned_int(&mut weapon_bonus_condition);
 
-        let mut damage_scalar = if let Some(body) = &self.body {
+        let damage_scalar = if let Some(body) = &self.body {
             body.lock().map(|g| g.get_damage_scalar()).unwrap_or(1.0)
         } else {
             1.0
         };
-        // SAFETY: `damage_scalar` is an initialized stack `f32`; exactly
-        // `size_of::<f32>()` bytes are transferred here.
-        unsafe {
-            let _ = xfer.xfer_user(
-                (&mut damage_scalar as *mut f32).cast::<u8>(),
-                std::mem::size_of::<f32>(),
-            );
-        }
+        let _ = xfer.xfer_readonly(&damage_scalar.to_ne_bytes());
 
         for slot in 0..WEAPONSLOT_COUNT {
             let slot_ty = match slot {

@@ -210,16 +210,15 @@ impl game_engine::common::system::xfer::Xfer for CommonXferBridge<'_> {
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e:?}")))
     }
 
-    // SAFETY: pure forwarding: the raw pointer is passed straight to the
-    // wrapped `Xfer`, which upholds the same validity contract for
-    // `data_size` bytes that this method received from its own caller.
-    unsafe fn xfer_implementation(
-        &mut self,
-        data: *mut u8,
-        data_size: usize,
-    ) -> std::io::Result<()> {
+    fn xfer_implementation(&mut self, data: &mut [u8]) -> std::io::Result<()> {
         self.inner
-            .xfer_implementation(data, data_size)
+            .xfer_implementation(data)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e:?}")))
+    }
+
+    fn xfer_readonly(&mut self, data: &[u8]) -> std::io::Result<()> {
+        self.inner
+            .xfer_readonly(data)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e:?}")))
     }
 }
@@ -534,15 +533,10 @@ fn xfer_sighting_info(
     xfer.xfer_real(&mut info.where_pos[2])?;
     xfer.xfer_real(&mut info.how_far)?;
     let mut for_whom = info.for_whom as u16;
-    // SAFETY: `for_whom` is an initialized stack `u16`; `xfer_user` moves
-    // exactly `size_of::<u16>()` bytes within this call (C++ SightingInfo
-    // xferUser parity).
-    unsafe {
-        xfer.xfer_user(
-            (&mut for_whom as *mut u16).cast::<u8>(),
-            std::mem::size_of::<u16>(),
-        )?;
-    }
+    let mut bytes = for_whom.to_ne_bytes();
+    let result = xfer.xfer_user(&mut bytes);
+    for_whom = u16::from_ne_bytes(bytes);
+    result?;
     if xfer.get_xfer_mode() == XferMode::Load {
         info.for_whom = for_whom as u32;
     }

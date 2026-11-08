@@ -273,15 +273,13 @@ mod tests {
             Ok(())
         }
 
-        // SAFETY: trait contract: the caller guarantees `data` is valid
-        // for `data_size` bytes (or null with size 0). This counting
-        // implementation never dereferences the pointer.
-        unsafe fn xfer_implementation(
-            &mut self,
-            _data: *mut u8,
-            data_size: usize,
-        ) -> std::io::Result<()> {
-            self.bytes += data_size;
+        fn xfer_implementation(&mut self, data: &mut [u8]) -> std::io::Result<()> {
+            self.bytes += data.len();
+            Ok(())
+        }
+
+        fn xfer_readonly(&mut self, data: &[u8]) -> std::io::Result<()> {
+            self.bytes += data.len();
             Ok(())
         }
     }

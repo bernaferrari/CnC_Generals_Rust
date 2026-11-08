@@ -98,17 +98,13 @@ impl Xfer for LogicXferCrc {
         Ok(())
     }
 
-    // SAFETY: trait contract: the caller guarantees `data` is valid for
-    // `data_size` bytes; it is only read here (CRC fold), never written or
-    // retained.
-    unsafe fn xfer_implementation(
-        &mut self,
-        data: *mut u8,
-        data_size: usize,
-    ) -> Result<(), XferStatus> {
-        if data_size > 0 && !data.is_null() {
-            self.update_crc(std::slice::from_raw_parts(data, data_size));
-        }
+    fn xfer_implementation(&mut self, data: &mut [u8]) -> Result<(), XferStatus> {
+        self.update_crc(data);
+        Ok(())
+    }
+
+    fn xfer_readonly(&mut self, data: &[u8]) -> Result<(), XferStatus> {
+        self.update_crc(data);
         Ok(())
     }
 }
@@ -184,17 +180,13 @@ impl game_engine::common::system::xfer::Xfer for LogicXferCrc {
         Ok(())
     }
 
-    // SAFETY: trait contract: the caller guarantees `data` is valid for
-    // `data_size` bytes; it is only read here (CRC fold), never written or
-    // retained.
-    unsafe fn xfer_implementation(
-        &mut self,
-        data: *mut u8,
-        data_size: usize,
-    ) -> std::io::Result<()> {
-        if data_size > 0 && !data.is_null() {
-            self.update_crc(std::slice::from_raw_parts(data, data_size));
-        }
+    fn xfer_implementation(&mut self, data: &mut [u8]) -> std::io::Result<()> {
+        self.update_crc(data);
+        Ok(())
+    }
+
+    fn xfer_readonly(&mut self, data: &[u8]) -> std::io::Result<()> {
+        self.update_crc(data);
         Ok(())
     }
 }

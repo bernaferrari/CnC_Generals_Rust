@@ -236,9 +236,7 @@ impl Xfer for XferSave {
         self.xfer_unsigned_byte(&mut len)?;
 
         if len > 0 {
-                        // SAFETY: bytes is a live String slice of exactly this length;
-                        // save path only reads.
-            unsafe { self.xfer_user(bytes.as_ptr() as *mut u8, bytes.len())? };
+            self.xfer_readonly(bytes)?;
         }
 
         Ok(())
@@ -258,41 +256,22 @@ impl Xfer for XferSave {
 
         // Save string data
         if len > 0 {
-            // Write as raw bytes (u16 array)
-                        // SAFETY: utf16 is an owned Vec; the byte view spans exactly its
-                        // allocation, read-only for the save.
-            let byte_slice = unsafe {
-                std::slice::from_raw_parts(
-                    utf16.as_ptr() as *const u8,
-                    utf16.len() * std::mem::size_of::<u16>(),
-                )
-            };
-            // SAFETY: byte_slice is a valid slice
-            unsafe { self.xfer_user(byte_slice.as_ptr() as *mut u8, byte_slice.len())? };
+            let mut bytes = [0u8; MAX_XFER_STRING_LENGTH * 2];
+            for (chunk, unit) in bytes.chunks_exact_mut(2).zip(&utf16) {
+                chunk.copy_from_slice(&unit.to_ne_bytes());
+            }
+            self.xfer_user(&mut bytes[..utf16.len() * 2])?;
         }
 
         Ok(())
     }
 
     /// Perform the write operation
-    ///
-    /// # Safety
-    /// The caller must ensure that `data` points to a valid buffer
-    /// of at least `data_size` bytes.
-        // SAFETY: caller contract — data valid for reads of data_size;
-        // write_all consumes exactly that many bytes.
-    unsafe fn xfer_implementation(
-        &mut self,
-        data: *mut u8,
-        data_size: usize,
-    ) -> Result<(), XferStatus> {
+    fn xfer_implementation(&mut self, data: &mut [u8]) -> Result<(), XferStatus> {
         let file = self.file.as_mut().ok_or(XferStatus::FileNotOpen)?;
 
-        // Convert pointer to slice
-        let slice = std::slice::from_raw_parts(data, data_size);
-
         // Write data to file
-        if file.write_all(slice).is_err() {
+        if file.write_all(data).is_err() {
             eprintln!(
                 "XferSave - Error writing to file '{}'",
                 self.base.identifier
@@ -300,6 +279,18 @@ impl Xfer for XferSave {
             return Err(XferStatus::WriteError);
         }
 
+        Ok(())
+    }
+
+    fn xfer_readonly(&mut self, data: &[u8]) -> Result<(), XferStatus> {
+        let file = self.file.as_mut().ok_or(XferStatus::FileNotOpen)?;
+        if file.write_all(data).is_err() {
+            eprintln!(
+                "XferSave - Error writing to file '{}'",
+                self.base.identifier
+            );
+            return Err(XferStatus::WriteError);
+        }
         Ok(())
     }
 }

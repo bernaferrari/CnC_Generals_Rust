@@ -307,12 +307,7 @@ fn cpp_game_logic_xfer_with_objects() -> Vec<u8> {
             .expect("object TOC id");
         xfer.begin_block().expect("object block");
         let mut dummy = [0u8, 1, 2, 3];
-        // SAFETY: dummy is a stack array of exactly its own length;
-        // test-only save round-trip.
-        unsafe {
-            xfer.xfer_user(dummy.as_mut_ptr(), dummy.len())
-                .expect("object bytes");
-        }
+        xfer.xfer_user(&mut dummy).expect("object bytes");
         xfer.end_block().expect("end object block");
     }
     payload
@@ -551,12 +546,7 @@ fn load_prefers_embedded_scratch_over_installed_same_named_map() {
         xfer.xfer_int(&mut game_mode).expect("game mode");
         xfer.begin_block().expect("begin embed");
         let mut map_bytes = b"SCRATCH-CUSTOM".to_vec();
-        // SAFETY: map_bytes is an owned Vec; xfer_user reads exactly
-        // its len for this embedded-map fixture.
-        unsafe {
-            xfer.xfer_user(map_bytes.as_mut_ptr(), map_bytes.len())
-                .expect("embed scratch");
-        }
+        xfer.xfer_user(&mut map_bytes).expect("embed scratch");
         xfer.end_block().expect("end embed");
         let mut object_id = 1u32;
         let mut drawable_id = 1u32;

@@ -201,8 +201,7 @@ impl Xfer for XferLoad {
         let mut buffer = vec![0u8; len as usize];
 
         if len > 0 {
-            // SAFETY: buffer was allocated with len elements
-            unsafe { self.xfer_user(buffer.as_mut_ptr(), len as usize)? };
+            self.xfer_user(&mut buffer)?;
         }
 
         // C++ AsciiString::set keeps the raw 8-bit payload. Map each byte to U+00xx
@@ -219,43 +218,27 @@ impl Xfer for XferLoad {
         self.xfer_unsigned_byte(&mut len)?;
 
         // Read string data as UTF-16
-        let mut buffer = vec![0u16; len as usize];
+        let mut buffer = [0u8; u8::MAX as usize * std::mem::size_of::<u16>()];
+        let byte_len = len as usize * std::mem::size_of::<u16>();
 
         if len > 0 {
-            // Read as raw bytes
-            let byte_len = len as usize * std::mem::size_of::<u16>();
-            let byte_buffer =
-                            // SAFETY: reinterprets the u16 buffer as bytes; length equals
-                            // buffer allocation so the write below stays in bounds.
-                unsafe { std::slice::from_raw_parts_mut(buffer.as_mut_ptr() as *mut u8, byte_len) };
-            // SAFETY: byte_buffer is valid for byte_len bytes
-            unsafe { self.xfer_user(byte_buffer.as_mut_ptr(), byte_len)? };
+            self.xfer_user(&mut buffer[..byte_len])?;
         }
 
-        // Convert UTF-16 to String
-        *unicode_string_data = String::from_utf16_lossy(&buffer[..len as usize]);
+        let utf16: Vec<u16> = buffer[..byte_len].chunks_exact(2)
+            .map(|bytes| u16::from_ne_bytes([bytes[0], bytes[1]]))
+            .collect();
+        *unicode_string_data = String::from_utf16_lossy(&utf16);
 
         Ok(())
     }
 
     /// Perform the read operation
-    /// # Safety
-    /// The caller must ensure that `data` points to a valid mutable buffer
-    /// of at least `data_size` bytes.
-    // SAFETY: caller contract — data valid for writes of data_size;
-    // read_exact fills exactly that many bytes.
-    unsafe fn xfer_implementation(
-        &mut self,
-        data: *mut u8,
-        data_size: usize,
-    ) -> Result<(), XferStatus> {
+    fn xfer_implementation(&mut self, data: &mut [u8]) -> Result<(), XferStatus> {
         let file = self.file.as_mut().ok_or(XferStatus::FileNotOpen)?;
 
-        // Convert pointer to mutable slice
-        let slice = std::slice::from_raw_parts_mut(data, data_size);
-
         // Read data from file
-        if file.read_exact(slice).is_err() {
+        if file.read_exact(data).is_err() {
             eprintln!(
                 "XferLoad - Error reading from file '{}'",
                 self.base.identifier
@@ -264,6 +247,10 @@ impl Xfer for XferLoad {
         }
 
         Ok(())
+    }
+
+    fn xfer_readonly(&mut self, _data: &[u8]) -> Result<(), XferStatus> {
+        Err(XferStatus::InvalidParameters)
     }
 }
 

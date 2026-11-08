@@ -93,16 +93,7 @@ pub(super) fn xfer_weapon_crc_like_cpp(xfer: &mut dyn Xfer, weapon: &crate::weap
     let mut name = snap.template_name;
     let _ = xfer.xfer_ascii_string(&mut name);
 
-    let mut wslot = snap.wslot;
-    // SAFETY: `wslot` is a fully initialized stack local of exactly
-    // `size_of::<i32>()` bytes; `xfer_user` only reads/writes that many bytes
-    // through the pointer for the duration of the call.
-    unsafe {
-        let _ = xfer.xfer_user(
-            (&mut wslot as *mut i32).cast::<u8>(),
-            std::mem::size_of::<i32>(),
-        );
-    }
+    let _ = xfer.xfer_readonly(&snap.wslot.to_ne_bytes());
 
     let mut ammo = snap.ammo_in_clip;
     let _ = xfer.xfer_unsigned_int(&mut ammo);
@@ -151,13 +142,13 @@ pub(super) fn xfer_matrix3d_user_blob(xfer: &mut dyn Xfer, matrix: &mut Matrix3D
             blob[row * 4 + col] = cols[col * 4 + row];
         }
     }
-    // SAFETY: `blob` is a fully initialized `[f32; 12]` stack array; the
-    // xfer reads/writes exactly its 48 bytes within this call.
-    unsafe {
-        let _ = xfer.xfer_user(
-            blob.as_mut_ptr().cast::<u8>(),
-            CPP_MATRIX3D_FLOATS * std::mem::size_of::<f32>(),
-        );
+    let mut bytes = [0u8; CPP_MATRIX3D_FLOATS * std::mem::size_of::<f32>()];
+    for (value, chunk) in blob.iter().zip(bytes.chunks_exact_mut(4)) {
+        chunk.copy_from_slice(&value.to_ne_bytes());
+    }
+    let _ = xfer.xfer_user(&mut bytes);
+    for (value, chunk) in blob.iter_mut().zip(bytes.chunks_exact(4)) {
+        *value = f32::from_ne_bytes(chunk.try_into().unwrap());
     }
     let mut cols = [0f32; 16];
     for row in 0..3 {

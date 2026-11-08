@@ -2116,42 +2116,38 @@ mod tests {
             self.xfer_ascii_string(unicode_string_data)
         }
 
-        // SAFETY: `MemoryXfer` is a test double implementing the Xfer
-        // contract: on Save/Crc, `data` is valid for `data_size` bytes and is
-        // copied into the owned buffer; on Load, bytes come from the buffer
-        // after an in-bounds check.
-        unsafe fn xfer_implementation(
-            &mut self,
-            data: *mut u8,
-            data_size: usize,
-        ) -> std::io::Result<()> {
+        fn xfer_implementation(&mut self, data: &mut [u8]) -> std::io::Result<()> {
             match self.mode {
                 XferMode::Save | XferMode::Crc => {
-                    // SAFETY: Xfer contract guarantees `data` is valid for
-                    // `data_size` bytes in Save/Crc mode.
-                    let bytes = std::slice::from_raw_parts(data, data_size);
-                    self.buffer.extend_from_slice(bytes);
+                    self.buffer.extend_from_slice(data);
                     Ok(())
                 }
                 XferMode::Load => {
-                    let end = self.position.saturating_add(data_size);
+                    let end = self.position.saturating_add(data.len());
                     if end > self.buffer.len() {
                         return Err(std::io::Error::new(
                             std::io::ErrorKind::UnexpectedEof,
                             "xfer beyond buffer",
                         ));
                     }
-                    // SAFETY: `end` was bounds-checked against the owned
-                    // buffer; copying into the caller-provided `data` (valid
-                    // for `data_size`) satisfies the Xfer Load contract.
-                    std::ptr::copy_nonoverlapping(
-                        self.buffer[self.position..end].as_ptr(),
-                        data,
-                        data_size,
-                    );
+                    data.copy_from_slice(&self.buffer[self.position..end]);
                     self.position = end;
                     Ok(())
                 }
+                _ => Ok(()),
+            }
+        }
+
+        fn xfer_readonly(&mut self, data: &[u8]) -> std::io::Result<()> {
+            match self.mode {
+                XferMode::Save | XferMode::Crc => {
+                    self.buffer.extend_from_slice(data);
+                    Ok(())
+                }
+                XferMode::Load => Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "cannot load into readonly data",
+                )),
                 _ => Ok(()),
             }
         }

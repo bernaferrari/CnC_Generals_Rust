@@ -49,24 +49,6 @@ impl FunctionPtr {
         Self(Some(f))
     }
 
-    /// Reconstruct from a raw address (C++ FunctionLexicon static tables).
-    ///
-    /// # Safety
-    ///
-    /// `raw` must be `0` (null) or the address of a live `fn()` that remains valid
-    /// for the rest of the process (typical for C++ static callback tables and Rust
-    /// function items). Passing a non-function address is undefined behavior if the
-    /// result is later invoked via [`FunctionPtr::as_unit_fn`].
-    // SAFETY: caller contract documented above — raw is 0 or a live fn()
-    pub unsafe fn from_usize(raw: usize) -> Self {
-        if raw == 0 {
-            Self(None)
-        } else {
-            // Safety: caller guarantees `raw` is a valid `fn()` address or 0.
-            Self(Some(std::mem::transmute::<usize, fn()>(raw)))
-        }
-    }
-
     /// Convert back to a raw function pointer address (null if unset).
     pub fn as_ptr(self) -> *const () {
         self.0.map(|f| f as *const ()).unwrap_or(std::ptr::null())
@@ -106,20 +88,6 @@ impl TableEntry {
             key: INVALID_NAME_KEY, // Will be set when loaded into lexicon
             name: name.to_string(),
             func,
-        }
-    }
-
-    /// Create a new table entry from a raw function pointer address.
-    ///
-    /// # Safety
-    ///
-    /// Each non-null pointer must satisfy [`FunctionPtr::from_usize`].
-    // SAFETY: caller guarantees each pointer satisfies FunctionPtr::from_usize
-    pub unsafe fn with_raw_ptr(name: &str, func: Option<*const ()>) -> Self {
-        Self {
-            key: INVALID_NAME_KEY,
-            name: name.to_string(),
-            func: func.map(|ptr| FunctionPtr::from_usize(ptr as usize)),
         }
     }
 }
@@ -476,14 +444,10 @@ mod tests {
     }
 
     #[test]
-    fn test_function_ptr_null_and_from_usize_zero() {
+    fn test_function_ptr_null() {
         assert!(FunctionPtr::null().is_null());
         assert!(FunctionPtr::null().as_unit_fn().is_none());
-        // Safety: 0 is the documented null encoding.
-        // SAFETY: 0 is the documented null encoding accepted by from_usize.
-        let from_zero = unsafe { FunctionPtr::from_usize(0) };
-        assert!(from_zero.is_null());
-        assert!(from_zero.as_ptr().is_null());
+        assert!(FunctionPtr::null().as_ptr().is_null());
     }
 
     #[test]

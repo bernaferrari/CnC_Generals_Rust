@@ -145,13 +145,7 @@ pub trait Xfer {
         version_data: &mut XferVersion,
         current_version: XferVersion,
     ) -> Result<(), XferStatus> {
-        // SAFETY: version_data is a valid reference, so the pointer is valid
-        unsafe {
-            self.xfer_implementation(
-                version_data as *mut XferVersion as *mut u8,
-                std::mem::size_of::<XferVersion>(),
-            )
-        }?;
+        self.xfer_implementation(std::slice::from_mut(version_data))?;
 
         // Sanity check: version data is never allowed to be higher than the current version
         if *version_data > current_version {
@@ -167,59 +161,47 @@ pub trait Xfer {
 
     /// Transfer byte
     fn xfer_byte(&mut self, byte_data: &mut i8) -> Result<(), XferStatus> {
-        // SAFETY: byte_data is a valid reference
-        unsafe {
-            self.xfer_implementation(byte_data as *mut i8 as *mut u8, std::mem::size_of::<i8>())
-        }
+        let mut bytes = byte_data.to_ne_bytes();
+        let result = self.xfer_implementation(&mut bytes);
+        *byte_data = i8::from_ne_bytes(bytes);
+        result
     }
 
     /// Transfer unsigned byte
     fn xfer_unsigned_byte(&mut self, unsigned_byte_data: &mut u8) -> Result<(), XferStatus> {
-        // SAFETY: unsigned_byte_data is a valid reference
-        unsafe {
-            self.xfer_implementation(unsigned_byte_data as *mut u8, std::mem::size_of::<u8>())
-        }
+        self.xfer_implementation(std::slice::from_mut(unsigned_byte_data))
     }
 
     /// Transfer bool
     fn xfer_bool(&mut self, bool_data: &mut bool) -> Result<(), XferStatus> {
-        // SAFETY: bool_data is a valid reference
-        unsafe {
-            self.xfer_implementation(
-                bool_data as *mut bool as *mut u8,
-                std::mem::size_of::<bool>(),
-            )
-        }
+        let mut bytes = [u8::from(*bool_data)];
+        let result = self.xfer_implementation(&mut bytes);
+        *bool_data = bytes[0] != 0;
+        result
     }
 
     /// Transfer int
     fn xfer_int(&mut self, int_data: &mut i32) -> Result<(), XferStatus> {
-        // SAFETY: int_data is a valid reference
-        unsafe {
-            self.xfer_implementation(int_data as *mut i32 as *mut u8, std::mem::size_of::<i32>())
-        }
+        let mut bytes = int_data.to_ne_bytes();
+        let result = self.xfer_implementation(&mut bytes);
+        *int_data = i32::from_ne_bytes(bytes);
+        result
     }
 
     /// Transfer int64
     fn xfer_int64(&mut self, int64_data: &mut i64) -> Result<(), XferStatus> {
-        // SAFETY: int64_data is a valid reference
-        unsafe {
-            self.xfer_implementation(
-                int64_data as *mut i64 as *mut u8,
-                std::mem::size_of::<i64>(),
-            )
-        }
+        let mut bytes = int64_data.to_ne_bytes();
+        let result = self.xfer_implementation(&mut bytes);
+        *int64_data = i64::from_ne_bytes(bytes);
+        result
     }
 
     /// Transfer unsigned int
     fn xfer_unsigned_int(&mut self, unsigned_int_data: &mut u32) -> Result<(), XferStatus> {
-        // SAFETY: unsigned_int_data is a valid reference
-        unsafe {
-            self.xfer_implementation(
-                unsigned_int_data as *mut u32 as *mut u8,
-                std::mem::size_of::<u32>(),
-            )
-        }
+        let mut bytes = unsigned_int_data.to_ne_bytes();
+        let result = self.xfer_implementation(&mut bytes);
+        *unsigned_int_data = u32::from_ne_bytes(bytes);
+        result
     }
 
     /// Transfer u32 (alias for xfer_unsigned_int)
@@ -239,32 +221,26 @@ pub trait Xfer {
 
     /// Transfer short
     fn xfer_short(&mut self, short_data: &mut i16) -> Result<(), XferStatus> {
-        // SAFETY: short_data is a valid reference
-        unsafe {
-            self.xfer_implementation(
-                short_data as *mut i16 as *mut u8,
-                std::mem::size_of::<i16>(),
-            )
-        }
+        let mut bytes = short_data.to_ne_bytes();
+        let result = self.xfer_implementation(&mut bytes);
+        *short_data = i16::from_ne_bytes(bytes);
+        result
     }
 
     /// Transfer unsigned short
     fn xfer_unsigned_short(&mut self, unsigned_short_data: &mut u16) -> Result<(), XferStatus> {
-        // SAFETY: unsigned_short_data is a valid reference
-        unsafe {
-            self.xfer_implementation(
-                unsigned_short_data as *mut u16 as *mut u8,
-                std::mem::size_of::<u16>(),
-            )
-        }
+        let mut bytes = unsigned_short_data.to_ne_bytes();
+        let result = self.xfer_implementation(&mut bytes);
+        *unsigned_short_data = u16::from_ne_bytes(bytes);
+        result
     }
 
     /// Transfer real (float)
     fn xfer_real(&mut self, real_data: &mut f32) -> Result<(), XferStatus> {
-        // SAFETY: real_data is a valid reference
-        unsafe {
-            self.xfer_implementation(real_data as *mut f32 as *mut u8, std::mem::size_of::<f32>())
-        }
+        let mut bytes = real_data.to_ne_bytes();
+        let result = self.xfer_implementation(&mut bytes);
+        *real_data = f32::from_ne_bytes(bytes);
+        result
     }
 
     /// Transfer marker label (for readability, explicitly discarded on load)
@@ -372,24 +348,18 @@ pub trait Xfer {
 
     /// Transfer object ID
     fn xfer_object_id(&mut self, object_id: &mut ObjectID) -> Result<(), XferStatus> {
-        // SAFETY: object_id is a valid reference
-        unsafe {
-            self.xfer_implementation(
-                object_id as *mut ObjectID as *mut u8,
-                std::mem::size_of::<ObjectID>(),
-            )
-        }
+        let mut bytes = object_id.to_ne_bytes();
+        let result = self.xfer_implementation(&mut bytes);
+        *object_id = ObjectID::from_ne_bytes(bytes);
+        result
     }
 
     /// Transfer drawable ID
     fn xfer_drawable_id(&mut self, drawable_id: &mut DrawableID) -> Result<(), XferStatus> {
-        // SAFETY: drawable_id is a valid reference
-        unsafe {
-            self.xfer_implementation(
-                drawable_id as *mut DrawableID as *mut u8,
-                std::mem::size_of::<DrawableID>(),
-            )
-        }
+        let mut bytes = drawable_id.to_ne_bytes();
+        let result = self.xfer_implementation(&mut bytes);
+        *drawable_id = DrawableID::from_ne_bytes(bytes);
+        result
     }
 
     /// Transfer STL vector of object IDs
@@ -440,14 +410,8 @@ pub trait Xfer {
     }
 
     /// Transfer user data (raw bytes)
-    ///
-    /// # Safety
-    /// The caller must ensure that `data` points to a valid buffer
-    /// of at least `data_size` bytes.
-    // SAFETY: forwards the caller's pointer contract to the concrete
-    // xfer_implementation; no dereferencing happens here.
-    unsafe fn xfer_user(&mut self, data: *mut u8, data_size: usize) -> Result<(), XferStatus> {
-        self.xfer_implementation(data, data_size)
+    fn xfer_user(&mut self, data: &mut [u8]) -> Result<(), XferStatus> {
+        self.xfer_implementation(data)
     }
 
     /// Transfer a single ScienceType value as a string for enum reorder safety.
@@ -474,15 +438,10 @@ pub trait Xfer {
                 Ok(())
             }
             XferMode::Crc => {
-                // C++ uses xferImplementation with sizeof(ScienceType)
-                // SAFETY: science is a live ScienceType (i32) and CRC mode
-                // only reads size_of::<ScienceType>() bytes from it.
-                unsafe {
-                    self.xfer_implementation(
-                        science as *mut ScienceType as *mut u8,
-                        std::mem::size_of::<ScienceType>(),
-                    )
-                }
+                let mut bytes = science.to_ne_bytes();
+                let result = self.xfer_implementation(&mut bytes);
+                *science = ScienceType::from_ne_bytes(bytes);
+                result
             }
             _ => {
                 eprintln!(
@@ -528,15 +487,8 @@ pub trait Xfer {
             XferMode::Crc => {
                 // C++ uses xferImplementation with sizeof(ScienceType) per element
                 for science in science_vec.iter() {
-                    let mut science = *science;
-                    // SAFETY: copy of a live vec element; CRC reads its exact
-                    // size without mutating it.
-                    unsafe {
-                        self.xfer_implementation(
-                            &mut science as *mut ScienceType as *mut u8,
-                            std::mem::size_of::<ScienceType>(),
-                        )?;
-                    }
+                    let mut bytes = science.to_ne_bytes();
+                    self.xfer_implementation(&mut bytes)?;
                 }
                 Ok(())
             }
@@ -579,15 +531,10 @@ pub trait Xfer {
                 Ok(())
             }
             XferMode::Crc => {
-                // C++ uses xferImplementation with sizeof(KindOfType)
-                // SAFETY: kind_of_data is a live KindOfType; CRC reads its
-                // exact size.
-                unsafe {
-                    self.xfer_implementation(
-                        kind_of_data as *mut KindOfType as *mut u8,
-                        std::mem::size_of::<KindOfType>(),
-                    )
-                }
+                let mut bytes = kind_of_data.to_ne_bytes();
+                let result = self.xfer_implementation(&mut bytes);
+                *kind_of_data = KindOfType::from_ne_bytes(bytes);
+                result
             }
             _ => {
                 eprintln!(
@@ -645,15 +592,10 @@ pub trait Xfer {
                 Ok(())
             }
             XferMode::Crc => {
-                // C++ uses xferImplementation with sizeof(UpgradeMaskType)
-                // SAFETY: upgrade_mask_data is a live u128; CRC reads all 16
-                // bytes of it.
-                unsafe {
-                    self.xfer_implementation(
-                        upgrade_mask_data as *mut u128 as *mut u8,
-                        std::mem::size_of::<u128>(),
-                    )
-                }
+                let mut bytes = upgrade_mask_data.to_ne_bytes();
+                let result = self.xfer_implementation(&mut bytes);
+                *upgrade_mask_data = u128::from_ne_bytes(bytes);
+                result
             }
             _ => {
                 eprintln!(
@@ -683,18 +625,10 @@ pub trait Xfer {
     }
 
     /// The actual xfer implementation that each derived struct should implement
-    ///
-    /// # Safety
-    /// The caller must ensure that `data` points to a valid buffer
-    /// of at least `data_size` bytes.
-    // SAFETY: implementors own the byte transfer and must honor the
-    // contract: `data` valid for `data_size` bytes (read or write by
-    // xfer mode).
-    unsafe fn xfer_implementation(
-        &mut self,
-        data: *mut u8,
-        data_size: usize,
-    ) -> Result<(), XferStatus>;
+    fn xfer_implementation(&mut self, data: &mut [u8]) -> Result<(), XferStatus>;
+
+    /// Transfer immutable bytes for save or CRC operations.
+    fn xfer_readonly(&mut self, data: &[u8]) -> Result<(), XferStatus>;
 }
 
 // ------------------------------------------------------------------------------------------------

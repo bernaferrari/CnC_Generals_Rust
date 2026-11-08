@@ -145,15 +145,12 @@ impl<W: Write + Seek> Xfer for XferSave<W> {
         Ok(())
     }
 
-    /// # Safety
-    /// The caller must ensure that `data` points to a valid buffer
-    /// of at least `data_size` bytes.
-            // SAFETY: caller contract — data valid for reads of data_size;
-            // write_all consumes exactly that many bytes.
-    unsafe fn xfer_implementation(&mut self, data: *mut u8, data_size: usize) -> io::Result<()> {
-        let slice = std::slice::from_raw_parts(data, data_size);
-        self.writer.write_all(slice)?;
-        Ok(())
+    fn xfer_implementation(&mut self, data: &mut [u8]) -> io::Result<()> {
+        self.writer.write_all(data)
+    }
+
+    fn xfer_readonly(&mut self, data: &[u8]) -> io::Result<()> {
+        self.writer.write_all(data)
     }
 }
 
@@ -161,6 +158,32 @@ impl<W: Write + Seek> Xfer for XferSave<W> {
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    #[test]
+    #[cfg(target_endian = "little")]
+    fn primitive_bytes_roundtrip_and_continue_after_readonly_payload() {
+        let mut bytes = Vec::new();
+        {
+            let mut save = XferSave::new(Cursor::new(&mut bytes), 1);
+            let mut value = 0x1234_5678u32;
+            save.xfer_unsigned_int(&mut value).unwrap();
+            save.xfer_readonly(&[0xaa, 0xbb, 0xcc]).unwrap();
+            let mut sentinel = 0x5au8;
+            save.xfer_unsigned_byte(&mut sentinel).unwrap();
+        }
+        assert_eq!(bytes, [0x78, 0x56, 0x34, 0x12, 0xaa, 0xbb, 0xcc, 0x5a]);
+        let mut load = super::super::xfer_load::XferLoad::new(Cursor::new(bytes), 1);
+        let mut value = 0u32;
+        let mut payload = [0u8; 3];
+        let mut sentinel = 0u8;
+        load.xfer_unsigned_int(&mut value).unwrap();
+        load.xfer_user(&mut payload).unwrap();
+        load.xfer_unsigned_byte(&mut sentinel).unwrap();
+        assert_eq!(value, 0x1234_5678);
+        assert_eq!(payload, [0xaa, 0xbb, 0xcc]);
+        assert_eq!(sentinel, 0x5a);
+        assert_eq!(load.bytes_read(), 8);
+    }
 
     #[test]
     fn unicode_string_writes_cpp_wide_char_layout() {

@@ -203,7 +203,8 @@ pub use b64pipe::{Base64Pipe, CodeControl};
 pub use base_types::*;
 pub use base64::{base64_decode, base64_encode};
 pub use blit::{
-    bit_blit, bit_blit_clipped, buffer_size, from_buffer, rle_blit, rle_blit_clipped, to_buffer,
+    bit_blit, bit_blit_clipped, bit_blit_within, bit_blit_within_clipped, buffer_size,
+    from_buffer, rle_blit, rle_blit_clipped, to_buffer,
 };
 pub use blitter::{
     BlitDarken, BlitPlainU8, BlitPlainU16, BlitPlainU32, BlitPlainXlat, BlitTransDarken,

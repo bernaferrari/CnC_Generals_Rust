@@ -257,12 +257,16 @@ impl<X: Xfer> Xfer for XferCRC<X> {
         Ok(())
     }
 
-    // SAFETY: CRC path only reads — from_raw_parts over exactly data_size
-    // bytes per this trait method's contract; nothing is written.
-    unsafe fn xfer_implementation(&mut self, data: *mut u8, data_size: usize) -> io::Result<()> {
-        if data_size > 0 && !data.is_null() {
-            let slice = std::slice::from_raw_parts(data, data_size);
-            self.update_crc(slice);
+    fn xfer_implementation(&mut self, data: &mut [u8]) -> io::Result<()> {
+        if !data.is_empty() {
+            self.update_crc(data);
+        }
+        Ok(())
+    }
+
+    fn xfer_readonly(&mut self, data: &[u8]) -> io::Result<()> {
+        if !data.is_empty() {
+            self.update_crc(data);
         }
         Ok(())
     }
@@ -334,18 +338,13 @@ impl<X: Xfer> Xfer for XferDeepCRC<X> {
         let mut len = ascii_string_data.len() as u16;
         self.xfer_unsigned_short(&mut len)?;
         if len > 0 {
-            let bytes = ascii_string_data.as_bytes();
-            // SAFETY: bytes is a live String slice with exact length; CRC
-            // reads only.
-            unsafe {
-                self.xfer_implementation(bytes.as_ptr() as *mut u8, bytes.len())?;
-            }
+            self.xfer_readonly(ascii_string_data.as_bytes())?;
         }
         Ok(())
     }
 
     fn xfer_unicode_string(&mut self, unicode_string_data: &mut String) -> io::Result<()> {
-        let utf16 = utf16_le_bytes(unicode_string_data);
+        let mut utf16 = utf16_le_bytes(unicode_string_data);
         let units = utf16.len() / 2;
         if units > 255 {
             return Err(io::Error::new(
@@ -356,26 +355,23 @@ impl<X: Xfer> Xfer for XferDeepCRC<X> {
         let mut len = units as u8;
         self.xfer_unsigned_byte(&mut len)?;
         if !utf16.is_empty() {
-            // SAFETY: utf16 is a live Vec slice with exact length; CRC
-            // reads only.
-            unsafe {
-                self.xfer_implementation(utf16.as_ptr() as *mut u8, utf16.len())?;
-            }
+            self.xfer_implementation(&mut utf16)?;
         }
         Ok(())
     }
 
-    // SAFETY: forwards the same caller-validated pointer contract to
-    // the inner Xfer before CRC-ing the transferred range.
-    unsafe fn xfer_implementation(&mut self, data: *mut u8, data_size: usize) -> io::Result<()> {
-        // SAFETY: slice built from the caller-validated pointer contract
-        // of xfer_implementation; read-only for the checksum.
-        let result = unsafe { self.inner.xfer_implementation(data, data_size) };
+    fn xfer_implementation(&mut self, data: &mut [u8]) -> io::Result<()> {
+        let result = self.inner.xfer_implementation(data);
         if result.is_ok() {
-            let slice = std::slice::from_raw_parts(data, data_size);
-            self.update_crc(slice);
+            self.update_crc(data);
         }
         result
+    }
+
+    fn xfer_readonly(&mut self, data: &[u8]) -> io::Result<()> {
+        self.inner.xfer_readonly(data)?;
+        self.update_crc(data);
+        Ok(())
     }
 }
 
@@ -384,6 +380,32 @@ mod tests {
     use super::*;
     use std::io::Cursor;
 
+    #[test]
+    #[cfg(target_endian = "little")]
+    fn readonly_crc_folds_the_whole_payload_once() {
+        let mut crc = XferCRC::new(super::super::xfer_load::XferLoad::new(
+            Cursor::new(Vec::new()),
+            1,
+        ));
+        crc.xfer_readonly(&[]).unwrap();
+        crc.xfer_readonly(&[1, 2, 3, 4, 5]).unwrap();
+        assert_eq!(crc.get_crc(), 0x0d06_0402);
+    }
+
+
+    #[test]
+    fn deep_crc_rejects_loading_into_immutable_string_without_consuming_payload() {
+        let mut wire = 3u16.to_ne_bytes().to_vec();
+        wire.extend_from_slice(b"xyz");
+        let mut deep = XferDeepCRC::new(super::super::xfer_load::XferLoad::new(
+            Cursor::new(wire),
+            1,
+        ));
+        let mut source = String::from("abc");
+        assert_eq!(deep.xfer_ascii_string(&mut source).unwrap_err().kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(source, "abc");
+        assert_eq!(deep.inner.bytes_read(), 2);
+    }
     #[test]
     fn test_basic_crc() {
         let mut xfer_crc = XferCRC::new(super::super::xfer_load::XferLoad::new(

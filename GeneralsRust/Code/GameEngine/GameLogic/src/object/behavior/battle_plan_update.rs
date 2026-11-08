@@ -1305,7 +1305,7 @@ fn xfer_battle_plan_status(
 ) -> Result<(), String> {
     // C++ xferUser writes the native i32 enum representation directly.
     let mut bytes = (*status as i32).to_ne_bytes();
-    xfer.xfer_user_bytes(&mut bytes)
+    xfer.xfer_user(&mut bytes)
         .map_err(|e| format!("BattlePlanStatus xfer failed: {:?}", e))?;
 
     if xfer.is_reading() {
@@ -1327,7 +1327,7 @@ fn xfer_transition_status(
 ) -> Result<(), String> {
     // C++ xferUser writes the native i32 enum representation directly.
     let mut bytes = (*status as i32).to_ne_bytes();
-    xfer.xfer_user_bytes(&mut bytes)
+    xfer.xfer_user(&mut bytes)
         .map_err(|e| format!("TransitionStatus xfer failed: {:?}", e))?;
 
     if xfer.is_reading() {
@@ -1386,7 +1386,7 @@ fn xfer_kind_of_mask(xfer: &mut dyn Xfer, mask: &mut KindOfMask) -> Result<(), S
             Ok(())
         }
         game_engine::system::XferMode::Crc => xfer
-            .xfer_user_bytes(&mut mask.to_ne_bytes())
+            .xfer_readonly(&mask.to_ne_bytes())
             .map_err(|e| format!("KindOfMask crc xfer failed: {:?}", e)),
         mode => Err(format!("KindOfMask unsupported xfer mode: {:?}", mode)),
     }

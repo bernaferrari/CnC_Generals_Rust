@@ -89,73 +89,94 @@ pub fn bit_blit(
     )
 }
 
+/// Blit between distinct surfaces. For a self-copy use [`bit_blit_within`].
 pub fn bit_blit_clipped(
     dest: &mut Surface,
     dcliprect: Rect,
-    mut drect: Rect,
+    drect: Rect,
     source: &Surface,
     scliprect: Rect,
-    mut srect: Rect,
+    srect: Rect,
     blitter: &dyn Blitter,
 ) -> bool {
-    let mut overlapped = false;
-    let dest_stride = dest.stride() as i32;
-    let source_stride = source.stride() as i32;
-    let dest_bpp = dest.bytes_per_pixel() as i32;
-    let (dbuffer, sbuffer, drect, srect, lock_guard) = match prep_for_blit(
-        dest,
-        dcliprect,
-        drect,
-        source,
-        scliprect,
-        srect,
-        &mut overlapped,
-    ) {
-        Some(data) => data,
-        None => return false,
+    let Some((dx, dy, sx, sy, width, height)) =
+        ordinary_geometry(dest, dcliprect, drect, source, scliprect, srect, blitter)
+    else { return false };
+    let (ds, ss) = (dest.stride(), source.stride());
+    let (dp, sp) = (blitter.dest_pixel_size(), blitter.source_pixel_size());
+    let source_lock = match source.lock(Point2D::new(0, 0)) {
+        Ok(lock) => lock,
+        Err(_) => return false,
     };
-
-    let _locks = lock_guard;
-
-    if drect.width * dest_bpp == dest_stride && dest_stride == source_stride {
-        let length = (srect.height * srect.width).min(drect.height * drect.width);
-        if overlapped {
-            blitter.blit_backward(dbuffer, sbuffer, length);
-        } else {
-            blitter.blit_forward(dbuffer, sbuffer, length);
-        }
-        return true;
-    }
-
-    let mut sstride = source_stride;
-    let mut dstride = dest_stride;
-    let mut sbuffer = sbuffer;
-    let mut dbuffer = dbuffer;
-    if overlapped {
-        sstride = -sstride;
-        dstride = -dstride;
-        // SAFETY: [Category 10 — OOB] repositions to the last source/dest row within the locked surfaces before a backward overlap-safe pass.
-        unsafe {
-            sbuffer = sbuffer.offset(((srect.height - 1) * source_stride) as isize) as *mut u8;
-            dbuffer = dbuffer.offset(((drect.height - 1) * dest_stride) as isize) as *mut u8;
+    let source_bytes = source_lock.bytes();
+    let Some(dest_bytes) = dest.rle_buffer_mut() else { return false };
+    for row in 0..height {
+        let d = (dy + row) * ds + dx * dp;
+        let s = (sy + row) * ss + sx * sp;
+        if !blitter.blit_forward(&mut dest_bytes[d..d + width * dp],
+                                 &source_bytes[s..s + width * sp], width) {
+            return false;
         }
     }
-
-    let height = srect.height.min(drect.height);
-    for _ in 0..height {
-        if overlapped {
-            blitter.blit_backward(dbuffer, sbuffer, srect.width);
-        } else {
-            blitter.blit_forward(dbuffer, sbuffer, srect.width);
-        }
-        // SAFETY: [Category 10 — OOB] repositions to the last source/dest row within the locked surfaces before a backward overlap-safe pass.
-        unsafe {
-            dbuffer = dbuffer.offset(dstride as isize) as *mut u8;
-            sbuffer = sbuffer.offset(sstride as isize);
-        }
-    }
-
     true
+}
+
+/// Blit between possibly overlapping rectangles of the same surface.
+pub fn bit_blit_within(surface: &mut Surface, destrect: Rect, sourcerect: Rect,
+                       blitter: &dyn Blitter) -> bool {
+    let clip = surface.get_rect();
+    bit_blit_within_clipped(surface, clip, destrect, clip, sourcerect, blitter)
+}
+
+/// Self-blit with separate source and destination clipping windows.
+pub fn bit_blit_within_clipped(surface: &mut Surface, dcliprect: Rect, drect: Rect,
+                               scliprect: Rect, srect: Rect, blitter: &dyn Blitter) -> bool {
+    let Some((dx, dy, sx, sy, width, height)) =
+        ordinary_geometry(surface, dcliprect, drect, surface, scliprect, srect, blitter)
+    else { return false };
+    let stride = surface.stride();
+    let pixel = surface.bytes_per_pixel();
+    let backward = dy > sy || (dy == sy && dx > sx);
+    let Some(bytes) = surface.rle_buffer_mut() else { return false };
+    for n in 0..height {
+        let row = if backward { height - 1 - n } else { n };
+        let d = (dy + row) * stride + dx * pixel;
+        let s = (sy + row) * stride + sx * pixel;
+        if !blitter.blit_within(bytes, d, s, width, backward) { return false; }
+    }
+    true
+}
+
+// Coordinates in the public clipping API are relative to their clipping windows.
+fn ordinary_geometry(dest: &Surface, dclip: Rect, mut drect: Rect,
+                     source: &Surface, sclip: Rect, mut srect: Rect,
+                     blitter: &dyn Blitter) -> Option<(usize, usize, usize, usize, usize, usize)> {
+    if !dclip.is_valid() || !sclip.is_valid() || !drect.is_valid() || !srect.is_valid()
+        || dest.bytes_per_pixel() != blitter.dest_pixel_size()
+        || (blitter.source_pixel_size() != 0 && source.bytes_per_pixel() != blitter.source_pixel_size()) {
+        return None;
+    }
+    // Keep all intermediate arithmetic in the legacy clipping routine bounded.
+    const LIMIT: i32 = i32::MAX / 8;
+    for r in [dclip, sclip, drect, srect] {
+        if [r.x, r.y, r.width, r.height].iter().any(|&v| v < -LIMIT || v > LIMIT) {
+            return None;
+        }
+    }
+    if !blit_clip(&mut drect, dclip, &mut srect, sclip) { return None; }
+    let dx = usize::try_from(dclip.x.checked_add(drect.x)?).ok()?;
+    let dy = usize::try_from(dclip.y.checked_add(drect.y)?).ok()?;
+    let sx = usize::try_from(sclip.x.checked_add(srect.x)?).ok()?;
+    let sy = usize::try_from(sclip.y.checked_add(srect.y)?).ok()?;
+    let width = usize::try_from(drect.width.min(srect.width)).ok()?;
+    let height = usize::try_from(drect.height.min(srect.height)).ok()?;
+    if dx.checked_add(width)? > dest.get_width() as usize
+        || dy.checked_add(height)? > dest.get_height() as usize
+        || sx.checked_add(width)? > source.get_width() as usize
+        || sy.checked_add(height)? > source.get_height() as usize {
+        return None;
+    }
+    Some((dx, dy, sx, sy, width, height))
 }
 
 pub fn rle_blit(
@@ -314,55 +335,6 @@ fn blit_clip(drect: &mut Rect, dwindow: Rect, srect: &mut Rect, swindow: Rect) -
     drect.is_valid() && srect.is_valid()
 }
 
-struct PrepLocks<'a> {
-    _dest_lock: crate::surface::SurfaceLock<'a>,
-    _source_lock: crate::surface::SurfaceLock<'a>,
-}
-
-fn prep_for_blit<'a>(
-    dest: &'a mut Surface,
-    dcliprect: Rect,
-    mut drect: Rect,
-    source: &'a Surface,
-    scliprect: Rect,
-    mut srect: Rect,
-    overlapped: &mut bool,
-) -> Option<(*mut u8, *const u8, Rect, Rect, PrepLocks<'a>)> {
-    *overlapped = false;
-    if !drect.is_valid() || !dcliprect.is_valid() || !srect.is_valid() || !scliprect.is_valid() {
-        return None;
-    }
-
-    if !blit_clip(&mut drect, dcliprect, &mut srect, scliprect) {
-        return None;
-    }
-
-    if std::ptr::eq(dest, source) && srect.overlaps(drect) {
-        if srect.y < drect.y || (srect.y == drect.y && srect.x < drect.x) {
-            *overlapped = true;
-        }
-    }
-
-    let dest_lock = dest.lock(Point2D::new(0, 0)).ok()?;
-    let source_lock = source.lock(Point2D::new(0, 0)).ok()?;
-    let dpoint = Point2D::new(dcliprect.x + drect.x, dcliprect.y + drect.y);
-    let spoint = Point2D::new(scliprect.x + srect.x, scliprect.y + srect.y);
-    // SAFETY: [Category 3 — dangling / Category 10 — OOB] pointer comes from the held SurfaceLock's bounds-checked get_pixel_ptr; exactly bytes_per_pixel are copied.
-    let dbuffer = unsafe { dest_lock.get_pixel_ptr(dpoint)? };
-    // SAFETY: [Category 3 — dangling / Category 10 — OOB] pointer comes from the held SurfaceLock's bounds-checked get_pixel_ptr; exactly bytes_per_pixel are copied.
-    let sbuffer = unsafe { source_lock.get_pixel_ptr(spoint)? };
-
-    Some((
-        dbuffer,
-        sbuffer as *const u8,
-        drect,
-        srect,
-        PrepLocks {
-            _dest_lock: dest_lock,
-            _source_lock: source_lock,
-        },
-    ))
-}
 
 #[cfg(test)]
 mod rle_tests {
@@ -370,6 +342,74 @@ mod rle_tests {
     use crate::rlerle::RLEBlitTransXlat;
     use crate::surface::PixelFormat;
 
+
+    #[test]
+    fn ordinary_surface_blit_clips_and_self_overlap() {
+        use crate::blitter::{BlitPlainU8, BlitTransU8};
+        let mut source = Surface::new(4, 2, PixelFormat::Palette8).unwrap();
+        source.rle_buffer_mut().unwrap().copy_from_slice(&[1, 2, 3, 4, 5, 0, 7, 8]);
+        let mut dest = Surface::new(4, 2, PixelFormat::Palette8).unwrap();
+        dest.rle_buffer_mut().unwrap().fill(9);
+        assert!(bit_blit(&mut dest, Rect::new(-1, 0, 4, 2), &source,
+                         Rect::new(0, 0, 4, 2), &BlitTransU8));
+        assert_eq!(dest.rle_buffer_mut().unwrap(), &[2, 3, 4, 9, 9, 7, 8, 9]);
+        assert!(bit_blit_within(&mut source, Rect::new(1, 0, 3, 2),
+                                Rect::new(0, 0, 3, 2), &BlitPlainU8));
+        assert_eq!(source.rle_buffer_mut().unwrap(), &[1, 1, 2, 3, 5, 5, 0, 7]);
+        assert!(bit_blit_within(&mut source, Rect::new(0, 1, 4, 1),
+                                Rect::new(0, 0, 4, 1), &BlitPlainU8));
+        assert_eq!(source.rle_buffer_mut().unwrap(), &[1, 1, 2, 3, 1, 1, 2, 3]);
+    }
+
+    #[test]
+    fn transparent_self_blit_preserves_pixels_in_both_directions() {
+        use crate::blitter::BlitTransU8;
+        let mut surface = Surface::new(5, 2, PixelFormat::Palette8).unwrap();
+        surface.rle_buffer_mut().unwrap().copy_from_slice(&[1, 0, 2, 3, 4, 5, 6, 0, 7, 8]);
+        assert!(bit_blit_within(&mut surface, Rect::new(1, 0, 4, 2),
+                                Rect::new(0, 0, 4, 2), &BlitTransU8));
+        assert_eq!(surface.rle_buffer_mut().unwrap(), &[1, 1, 2, 2, 3, 5, 5, 6, 7, 7]);
+        assert!(bit_blit_within(&mut surface, Rect::new(0, 0, 4, 2),
+                                Rect::new(1, 0, 4, 2), &BlitTransU8));
+        assert_eq!(surface.rle_buffer_mut().unwrap(), &[1, 2, 2, 3, 3, 5, 6, 7, 7, 7]);
+    }
+
+    #[test]
+    fn transparent_self_blit_uses_bottom_up_rows() {
+        use crate::blitter::BlitTransU8;
+        let mut surface = Surface::new(3, 3, PixelFormat::Palette8).unwrap();
+        surface.rle_buffer_mut().unwrap().copy_from_slice(&[1, 0, 3, 4, 5, 0, 7, 8, 9]);
+        assert!(bit_blit_within(&mut surface, Rect::new(0, 1, 3, 2),
+                                Rect::new(0, 0, 3, 2), &BlitTransU8));
+        assert_eq!(surface.rle_buffer_mut().unwrap(), &[1, 0, 3, 1, 5, 3, 4, 5, 9]);
+    }
+
+    #[test]
+    fn clipped_windows_and_indexed_conversion_use_surface_pitch() {
+        use crate::blitter::BlitTransXlat;
+        let mut source = Surface::new(4, 2, PixelFormat::Palette8).unwrap();
+        source.rle_buffer_mut().unwrap().copy_from_slice(&[0, 1, 2, 0, 0, 2, 1, 0]);
+        let mut dest = Surface::new(5, 2, PixelFormat::RGB16).unwrap();
+        let table = [0u16, 0x1234, 0x5678];
+        assert!(bit_blit_clipped(&mut dest, Rect::new(1, 0, 3, 2), Rect::new(0, 0, 2, 2),
+                                 &source, Rect::new(1, 0, 3, 2), Rect::new(0, 0, 2, 2),
+                                 &BlitTransXlat::new(&table)));
+        let bytes = dest.rle_buffer_mut().unwrap();
+        assert_eq!(&bytes[2..6], &[0x1234u16.to_ne_bytes(), 0x5678u16.to_ne_bytes()].concat());
+        assert_eq!(&bytes[12..16], &[0x5678u16.to_ne_bytes(), 0x1234u16.to_ne_bytes()].concat());
+        assert_eq!(&bytes[6..12], &[0; 6]);
+    }
+
+    #[test]
+    fn source_independent_darken_accepts_a_different_source_format() {
+        use crate::blitter::BlitDarken;
+        let source = Surface::new(1, 1, PixelFormat::RGBA32).unwrap();
+        let mut dest = Surface::new(1, 1, PixelFormat::RGB16).unwrap();
+        dest.rle_buffer_mut().unwrap().copy_from_slice(&0x6000u16.to_ne_bytes());
+        assert!(bit_blit(&mut dest, Rect::new(0, 0, 1, 1), &source,
+                         Rect::new(0, 0, 1, 1), &BlitDarken::new(0x7fffu16)));
+        assert_eq!(dest.rle_buffer_mut().unwrap(), &0x3000u16.to_ne_bytes());
+    }
     #[test]
     fn rle_surface_blit_clips_and_uses_line_lengths() {
         let mut source = Surface::new(4, 3, PixelFormat::Palette8).unwrap();

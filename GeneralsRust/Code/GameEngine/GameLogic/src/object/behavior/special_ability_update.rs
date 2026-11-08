@@ -2193,17 +2193,9 @@ impl Snapshotable for SpecialAbilityUpdate {
         })?;
 
         {
-            let mut state_val: i32 = self.packing_state as i32;
-            // SAFETY: `state_val` is an initialized stack `i32` holding the
-            // packed enum discriminant; `xfer_user` moves exactly
-            // `size_of::<i32>()` bytes within this call.
-            unsafe {
-                xfer.xfer_user(
-                    &mut state_val as *mut i32 as *mut u8,
-                    std::mem::size_of::<i32>(),
-                )
-            }
-            .map_err(|e| format!("SpecialAbilityUpdate packing_state xfer failed: {:?}", e))?;
+            let state_val = (self.packing_state as i32).to_ne_bytes();
+            xfer.xfer_readonly(&state_val)
+                .map_err(|e| format!("SpecialAbilityUpdate packing_state xfer failed: {:?}", e))?;
         }
 
         let mut facing_initiated = self.facing_initiated;
@@ -2312,15 +2304,10 @@ impl Snapshotable for SpecialAbilityUpdate {
 
         // packing state -- C++ SpecialAbilityUpdate.cpp line 2026: xferUser( &m_packingState, sizeof(PackingState) )
         {
-            let mut state_val: i32 = self.packing_state as i32;
-            // SAFETY: state_val is a valid enum-sized integer on the stack.
-            unsafe {
-                xfer.xfer_user(
-                    &mut state_val as *mut i32 as *mut u8,
-                    std::mem::size_of::<i32>(),
-                )
-            }
-            .map_err(|e| format!("SpecialAbilityUpdate packing_state xfer failed: {:?}", e))?;
+            let mut state_val = (self.packing_state as i32).to_ne_bytes();
+            xfer.xfer_user(&mut state_val)
+                .map_err(|e| format!("SpecialAbilityUpdate packing_state xfer failed: {:?}", e))?;
+            let state_val = i32::from_ne_bytes(state_val);
             self.packing_state = match state_val {
                 0 => PackingState::None,
                 1 => PackingState::Packing,

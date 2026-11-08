@@ -278,15 +278,12 @@ impl<R: Read> Xfer for XferLoad<R> {
         Ok(())
     }
 
-    /// # Safety
-    /// The caller must ensure that `data` points to a valid mutable buffer
-    /// of at least `data_size` bytes.
-    // SAFETY: caller contract — data valid for writes of data_size;
-    // read_exact_counted fills exactly the requested slice and accounts for every
-    // successful underlying read, even if a later read in the operation fails.
-    unsafe fn xfer_implementation(&mut self, data: *mut u8, data_size: usize) -> io::Result<()> {
-        let slice = std::slice::from_raw_parts_mut(data, data_size);
-        self.read_exact_counted(slice)
+    fn xfer_implementation(&mut self, data: &mut [u8]) -> io::Result<()> {
+        self.read_exact_counted(data)
+    }
+
+    fn xfer_readonly(&mut self, _data: &[u8]) -> io::Result<()> {
+        Err(io::Error::new(io::ErrorKind::InvalidInput, "cannot load into immutable bytes"))
     }
 }
 
@@ -320,6 +317,27 @@ mod tests {
     use super::super::snapshot::Snapshot;
     use super::*;
     use std::io::Cursor;
+
+    #[test]
+    fn truncated_primitive_updates_prefix_and_counts_consumed_bytes() {
+        let mut xfer = XferLoad::new(Cursor::new(vec![0xaa, 0xbb]), 1);
+        let mut value = u32::from_ne_bytes([1, 2, 3, 4]);
+        assert_eq!(xfer.xfer_unsigned_int(&mut value).unwrap_err().kind(), io::ErrorKind::UnexpectedEof);
+        assert_eq!(value.to_ne_bytes(), [0xaa, 0xbb, 3, 4]);
+        assert_eq!(xfer.bytes_read(), 2);
+        assert_eq!(xfer.reader.position(), 2);
+    }
+
+    #[test]
+    fn empty_mutable_transfer_and_readonly_load_direction() {
+        let mut xfer = XferLoad::new(Cursor::new(vec![0x7d]), 1);
+        xfer.xfer_user(&mut []).unwrap();
+        assert!(xfer.xfer_readonly(&[1]).is_err());
+        assert_eq!(xfer.bytes_read(), 0);
+        let mut next = 0;
+        xfer.xfer_unsigned_byte(&mut next).unwrap();
+        assert_eq!(next, 0x7d);
+    }
 
     #[test]
     fn skip_bounds_each_read_and_preserves_the_following_record() {

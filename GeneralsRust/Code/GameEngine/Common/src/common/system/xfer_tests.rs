@@ -95,16 +95,13 @@ mod tests {
             self.xfer_ascii_string(unicode_string_data)
         }
 
-                    // SAFETY: mock receives only pointers derived from live Rust
-                    // buffers in these tests; copies data_size bytes into the buffer.
-        unsafe fn xfer_implementation(
-            &mut self,
-            data: *mut u8,
-            data_size: usize,
-        ) -> std::io::Result<()> {
-            // SAFETY: Test code ensures valid pointers
-            let slice = std::slice::from_raw_parts(data, data_size);
-            self.buffer.extend_from_slice(slice);
+        fn xfer_implementation(&mut self, data: &mut [u8]) -> std::io::Result<()> {
+            self.buffer.extend_from_slice(data);
+            Ok(())
+        }
+
+        fn xfer_readonly(&mut self, data: &[u8]) -> std::io::Result<()> {
+            self.buffer.extend_from_slice(data);
             Ok(())
         }
     }
@@ -202,17 +199,14 @@ mod tests {
             self.xfer_ascii_string(unicode_string_data)
         }
 
-                    // SAFETY: mock receives only pointers derived from live Rust
-                    // buffers in these tests; fills data_size bytes from the cursor.
-        unsafe fn xfer_implementation(
-            &mut self,
-            data: *mut u8,
-            data_size: usize,
-        ) -> std::io::Result<()> {
+        fn xfer_implementation(&mut self, data: &mut [u8]) -> std::io::Result<()> {
             use std::io::Read;
-            let slice = std::slice::from_raw_parts_mut(data, data_size);
-            self.cursor.read_exact(slice)?;
+            self.cursor.read_exact(data)?;
             Ok(())
+        }
+
+        fn xfer_readonly(&mut self, _data: &[u8]) -> std::io::Result<()> {
+            Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "cannot load into immutable bytes"))
         }
     }
 

@@ -304,7 +304,7 @@ fn xfer_live_terrain_visual(
             height_data.resize(height_map_len.max(0) as usize, 0);
         }
         if height_map_len > 0 {
-            xfer.xfer_user_bytes(height_data)
+            xfer.xfer_user(height_data)
                 .map_err(|e| e.to_string())?;
         }
     }

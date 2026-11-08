@@ -455,16 +455,15 @@ impl Snapshotable for FirestormDynamicGeometryInfoUpdate {
             "FirestormDynamicGeometryInfoUpdate base",
         )?;
 
-        // SAFETY: `particle_system_ids` is a fully initialized `Vec<u32>`;
-        // `xfer_user` moves exactly `len * size_of::<u32>()` bytes through
-        // the contiguous buffer for the duration of the call.
-        unsafe {
-            xfer.xfer_user(
-                self.particle_system_ids.as_mut_ptr().cast::<u8>(),
-                self.particle_system_ids.len() * size_of::<u32>(),
-            )
+        let mut bytes = [0u8; MAX_FIRESTORM_SYSTEMS * size_of::<u32>()];
+        for (id, chunk) in self.particle_system_ids.iter().zip(bytes.chunks_exact_mut(size_of::<u32>())) {
+            chunk.copy_from_slice(&id.to_ne_bytes());
         }
-        .map_err(|e| {
+        let result = xfer.xfer_user(&mut bytes);
+        for (id, chunk) in self.particle_system_ids.iter_mut().zip(bytes.chunks_exact(size_of::<u32>())) {
+            *id = u32::from_ne_bytes(chunk.try_into().unwrap());
+        }
+        result.map_err(|e| {
             format!("FirestormDynamicGeometryInfoUpdate xfer particle_system_ids: {e:?}")
         })?;
 

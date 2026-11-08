@@ -479,30 +479,16 @@ mod tests {
         );
 
         // Leftover 1–3 bytes: both Xfer stacks must match fold_crc_bytes + getCRC htonl.
-        let leftover = [0x11u8, 0x22, 0x33, 0x44, 0xAB];
+        let mut leftover = [0x11u8, 0x22, 0x33, 0x44, 0xAB];
         let expected = game_engine::common::system::xfer_crc::fold_crc_bytes(0, &leftover).to_be();
         let mut system_left = LogicXferCrc::new();
-        // SAFETY: `leftover` is a fully initialized stack array that stays
-        // alive for the whole call; the CRC xfer only reads its bytes.
-        unsafe {
-            Xfer::xfer_implementation(
-                &mut system_left,
-                leftover.as_ptr() as *mut u8,
-                leftover.len(),
-            )
-            .expect("system leftover");
-        }
+        Xfer::xfer_implementation(&mut system_left, &mut leftover).expect("system leftover");
         let mut common_left = LogicXferCrc::new();
-        // SAFETY: same as above — initialized local array, read-only CRC
-        // fold for the duration of the call.
-        unsafe {
-            game_engine::common::system::xfer::Xfer::xfer_implementation(
-                &mut common_left,
-                leftover.as_ptr() as *mut u8,
-                leftover.len(),
-            )
-            .expect("common leftover");
-        }
+        game_engine::common::system::xfer::Xfer::xfer_implementation(
+            &mut common_left,
+            &mut leftover,
+        )
+        .expect("common leftover");
         assert_eq!(system_left.get_crc(), expected);
         assert_eq!(common_left.get_crc(), expected);
 

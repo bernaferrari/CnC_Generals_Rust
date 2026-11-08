@@ -985,16 +985,9 @@ impl Snapshotable for CaveContain {
         xfer.xfer_int(&mut self.cave_index)
             .map_err(|e| e.to_string())?;
 
-        let mut team_id = self.original_team_id();
-        // SAFETY: `team_id` is an initialized stack `TeamID`; `xfer_user`
-        // moves exactly `size_of::<TeamID>()` bytes within this call.
-        unsafe {
-            xfer.xfer_user(
-                &mut team_id as *mut TeamID as *mut u8,
-                std::mem::size_of::<TeamID>(),
-            )
-            .map_err(|e| e.to_string())?;
-        }
+        let mut team_id = self.original_team_id().to_ne_bytes();
+        xfer.xfer_user(&mut team_id).map_err(|e| e.to_string())?;
+        let team_id = TeamID::from_ne_bytes(team_id);
         if xfer.get_xfer_mode() == XferMode::Load {
             self.restore_original_team_by_id(team_id)?;
         }

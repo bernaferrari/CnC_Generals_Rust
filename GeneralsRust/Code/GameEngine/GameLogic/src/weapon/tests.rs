@@ -141,7 +141,7 @@ fn weapon_crc_matches_cpp_weapon_cpp_field_order() {
         .expect("Weapon::crc");
     assert!(crc.contains("crc_snapshot_fields"));
     assert!(crc.contains("xfer_ascii_string"));
-    assert!(crc.contains("xfer_user"));
+    assert!(crc.contains("xfer_readonly"));
     assert!(!crc.contains("xfer_version"));
     assert!(!crc.contains("weapon_status_to_u32"));
     let keys = [

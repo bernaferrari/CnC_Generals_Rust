@@ -2,6 +2,8 @@
 //!
 //! `game_engine` disables lib tests (`[lib] test = false`), so these live here.
 
+use game_engine::common::common_services::{CommonServices, with_common_services};
+use std::sync::Arc;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::function_lexicon::{
     FunctionLexicon, FunctionPtr, TableEntry, TableIndex,
@@ -33,42 +35,42 @@ fn test_function_ptr_from_fn_roundtrip() {
 }
 
 #[test]
-fn test_function_ptr_null_and_from_usize_zero() {
+fn test_function_ptr_null() {
     assert!(FunctionPtr::null().is_null());
     assert!(FunctionPtr::null().as_unit_fn().is_none());
-    // Safety: 0 is the documented null encoding.
-    // SAFETY: 0 is the documented null encoding accepted by from_usize.
-    let from_zero = unsafe { FunctionPtr::from_usize(0) };
-    assert!(from_zero.is_null());
-    assert!(from_zero.as_ptr().is_null());
+    assert!(FunctionPtr::null().as_ptr().is_null());
 }
 
 #[test]
 fn test_function_lexicon_lookup() {
-    NameKeyGenerator::reset();
-    let mut lexicon = FunctionLexicon::new();
-    lexicon.load_table(
-        vec![
-            entry("TestFunction1", test_function_1),
-            entry("TestFunction2", test_function_2),
-        ],
-        TableIndex::GameWinSystem,
-    );
-    let func1 = lexicon.find_function_by_name("TestFunction1", TableIndex::GameWinSystem);
-    assert!(func1.is_some());
-    func1.unwrap().as_unit_fn().expect("stored fn")();
-    let func2 = lexicon.find_function_by_name("TestFunction2", TableIndex::GameWinSystem);
-    assert!(func2.is_some());
+    with_common_services(&Arc::new(CommonServices::new()), || {
+        NameKeyGenerator::reset();
+        let mut lexicon = FunctionLexicon::new();
+        lexicon.load_table(
+            vec![
+                entry("TestFunction1", test_function_1),
+                entry("TestFunction2", test_function_2),
+            ],
+            TableIndex::GameWinSystem,
+        );
+        let func1 = lexicon.find_function_by_name("TestFunction1", TableIndex::GameWinSystem);
+        assert!(func1.is_some());
+        func1.unwrap().as_unit_fn().expect("stored fn")();
+        let func2 = lexicon.find_function_by_name("TestFunction2", TableIndex::GameWinSystem);
+        assert!(func2.is_some());
+    });
 }
 
 #[test]
 fn test_function_lexicon_reset_preserves_loaded_tables() {
-    NameKeyGenerator::reset();
-    let mut lexicon = FunctionLexicon::new();
-    lexicon.load_table(
-        vec![entry("TestFunction1", test_function_1)],
-        TableIndex::GameWinSystem,
-    );
-    assert!(<FunctionLexicon as SubsystemInterface>::reset(&mut lexicon).is_ok());
-    assert_eq!(lexicon.function_count(), 1);
+    with_common_services(&Arc::new(CommonServices::new()), || {
+        NameKeyGenerator::reset();
+        let mut lexicon = FunctionLexicon::new();
+        lexicon.load_table(
+            vec![entry("TestFunction1", test_function_1)],
+            TableIndex::GameWinSystem,
+        );
+        assert!(<FunctionLexicon as SubsystemInterface>::reset(&mut lexicon).is_ok());
+        assert_eq!(lexicon.function_count(), 1);
+    });
 }

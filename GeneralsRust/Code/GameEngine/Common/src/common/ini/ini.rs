@@ -2140,7 +2140,7 @@ impl INI {
         // if (s_xfer) { s_xfer->xferUser(m_buffer, sizeof(char) * strlen(m_buffer)); }
         if let Some(xfer) = self.xfer.as_mut() {
             let mut bytes = self.buffer.as_bytes().to_vec();
-            let _ = xfer.xfer_user_bytes(&mut bytes);
+            let _ = xfer.xfer_user(&mut bytes);
         }
 
         Ok(())

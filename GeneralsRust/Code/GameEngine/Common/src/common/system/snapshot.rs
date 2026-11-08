@@ -92,10 +92,7 @@ impl Snapshot {
             self.data.resize(data_len as usize, 0);
         }
         if data_len > 0 {
-            // SAFETY: `data` has exactly `data_len` bytes.
-            unsafe {
-                xfer.xfer_user(self.data.as_mut_ptr(), data_len as usize)?;
-            }
+            xfer.xfer_user(&mut self.data[..data_len as usize])?;
         }
         let mut metadata_count = self.metadata.len() as u32;
         xfer.xfer_unsigned_int(&mut metadata_count)?;
@@ -137,11 +134,7 @@ impl Snapshot {
             xfer.xfer_unsigned_byte(&mut byte)?;
         }
         if !self.data.is_empty() {
-                        // SAFETY: self.data is an owned Vec<u8>; casting to *mut u8 is
-                        // fine because Crc mode never writes through xfer_user.
-            unsafe {
-                xfer.xfer_user(self.data.as_ptr() as *mut u8, self.data.len())?;
-            }
+            xfer.xfer_readonly(&self.data)?;
         }
         Ok(())
     }
@@ -310,6 +303,34 @@ mod tests {
             loaded_snapshot.get_metadata("test"),
             Some(&"value".to_string())
         );
+    }
+
+    #[test]
+    fn snapshot_transfer_roundtrip_preserves_following_record_and_crc() {
+        let mut original = Snapshot::new(42, 1.5);
+        original.add_data(&[1, 2, 3, 4, 5]);
+        original.set_metadata("key".into(), "value".into());
+        let mut encoded = Vec::new();
+        {
+            let mut save = XferSave::new(Cursor::new(&mut encoded), 1);
+            save.xfer_snapshot(&mut original).unwrap();
+            save.xfer_unsigned_byte(&mut 0xabu8).unwrap();
+        }
+        let mut restored = Snapshot::new(0, 0.0);
+        let mut load = XferLoad::new(Cursor::new(encoded), 1);
+        load.xfer_snapshot(&mut restored).unwrap();
+        let mut next = 0;
+        load.xfer_unsigned_byte(&mut next).unwrap();
+        assert_eq!(next, 0xab);
+        assert_eq!(restored.frame_number(), 42);
+        assert_eq!(restored.timestamp(), 1.5);
+        assert_eq!(restored.data(), &[1, 2, 3, 4, 5]);
+        assert_eq!(restored.get_metadata("key").map(String::as_str), Some("value"));
+        let mut original_crc = super::super::xfer_crc::XferCRC::new(XferLoad::new(Cursor::new(Vec::new()), 1));
+        let mut restored_crc = super::super::xfer_crc::XferCRC::new(XferLoad::new(Cursor::new(Vec::new()), 1));
+        original.crc(&mut original_crc).unwrap();
+        restored.crc(&mut restored_crc).unwrap();
+        assert_eq!(original_crc.get_crc(), restored_crc.get_crc());
     }
 
     #[test]

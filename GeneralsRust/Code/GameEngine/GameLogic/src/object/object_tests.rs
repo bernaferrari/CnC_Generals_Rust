@@ -71,18 +71,18 @@ mod tests {
             .expect("Object::crc");
         assert!(crc.contains("xfer_unsigned_byte(&mut private_status)"));
         assert!(crc.contains("xfer_matrix3d_user_blob"));
-        assert!(crc.contains("xfer_user("));
-        assert!(crc.contains("size_of::<ObjectID>()"));
+        assert!(crc.contains("xfer_readonly("));
+        assert!(crc.contains("self.id.to_ne_bytes()"));
         assert!(
             wire.contains("fn xfer_matrix3d_user_blob")
                 && wire.contains("xfer_user(")
                 && wire.contains("CPP_MATRIX3D_FLOATS"),
             "crc must dump WWMath 3x4 Matrix3D via xferUser blob"
         );
-        assert!(crc.contains("size_of::<i64>()"));
+        assert!(crc.contains("upgrades.to_ne_bytes()"));
         assert!(crc.contains("experience_tracker"));
         assert!(crc.contains("get_current_experience"));
-        assert!(crc.contains("size_of::<i32>()"));
+        assert!(crc.contains("level.to_ne_bytes()"));
         let health = crc.find("get_health()").expect("health");
         let bonus = crc.find("weapon_bonus_condition").expect("bonus");
         let scalar = crc.find("get_damage_scalar()").expect("scalar");

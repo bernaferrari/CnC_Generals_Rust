@@ -293,7 +293,7 @@ fn kind_mask_crc_preserves_version_and_native_integer_payload() {
     let mut expected = XferCRC::new(XferSave::new(Cursor::new(Vec::<u8>::new()), 1));
     expected.xfer_version(&mut 1, 1).unwrap();
     expected
-        .xfer_user_bytes(&mut expected_mask.to_ne_bytes())
+        .xfer_readonly(&expected_mask.to_ne_bytes())
         .unwrap();
     assert_eq!(actual.get_crc(), expected.get_crc());
     assert_eq!(mask, expected_mask);

@@ -62,13 +62,9 @@ impl RadarSystem {
 
         for event in &mut self.events {
             let mut type_bits = event.event_type as i32;
-            // SAFETY: C++ writes `sizeof(RadarEventType)` raw enum bytes.
-            unsafe {
-                xfer.xfer_user(
-                    (&mut type_bits as *mut i32).cast::<u8>(),
-                    RADAR_EVENT_TYPE_SIZE,
-                )?;
-            }
+            let mut bytes = type_bits.to_ne_bytes();
+            xfer.xfer_user(&mut bytes[..RADAR_EVENT_TYPE_SIZE])?;
+            type_bits = i32::from_ne_bytes(bytes);
             event.event_type = match type_bits {
                 1 => RadarEventType::Construction,
                 2 => RadarEventType::Upgrade,
