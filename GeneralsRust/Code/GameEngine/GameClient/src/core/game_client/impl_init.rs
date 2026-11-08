@@ -58,13 +58,21 @@ impl GameClient {
                     )?;
                 // The receiving client's own bridge holds the capture window.
                 crate::core::game_client::with_live_game_client_mut(|client| {
-                    let bridge = client.render_bridge_mut();
-                    let generation = bridge.capture_window_generation_for_source(&source)?;
-                    bridge.materialize_exact_mesh_w3d_ghost_capture_at(&source, generation)
+                    client.capture_w3d_ghost_snapshot(&source)
                 })
                 .flatten()
             }),
         ));
+    }
+
+    pub(crate) fn capture_w3d_ghost_snapshot(
+        &mut self,
+        source: &gamelogic::object::w3d_ghost_object::W3DGhostSnapshotCaptureSource,
+    ) -> Option<gamelogic::object::w3d_ghost_object::W3DGhostSnapshotCapture> {
+        let recoil = self.recoil_glam_for_object(source.object_id);
+        let bridge = self.render_bridge_mut();
+        let generation = bridge.capture_window_generation_for_source(source)?;
+        bridge.materialize_exact_mesh_w3d_ghost_capture_at(source, generation, recoil)
     }
 
     /// Creates a new GameClient instance

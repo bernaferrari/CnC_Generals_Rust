@@ -349,11 +349,11 @@ impl GameClient {
     }
 }
 
-/// Recoil matrix for the presentation drawable, if it is not identity.
-pub fn recoil_glam_for_object(object_id: u32) -> Option<glam::Mat4> {
-    with_live_game_client_mut(|client| {
-        let drawable_id = client.get_drawable_for_object(object_id)?;
-        let drawable = client.find_drawable_by_id(drawable_id)?;
+impl GameClient {
+    /// Recoil on this client's presentation drawable, if it is not identity.
+    fn recoil_glam_for_object(&self, object_id: u32) -> Option<glam::Mat4> {
+        let drawable_id = self.get_drawable_for_object(object_id)?;
+        let drawable = self.find_drawable_by_id(drawable_id)?;
         let basic = drawable
             .as_any()
             .downcast_ref::<crate::drawable::BasicDrawable>()?;
@@ -363,8 +363,7 @@ pub fn recoil_glam_for_object(object_id: u32) -> Option<glam::Mat4> {
         } else {
             Some(matrix.to_glam())
         }
-    })
-    .flatten()
+    }
 }
 
 /// Store a texture-reduction target in the definitions (C++ `adjustLOD`'s

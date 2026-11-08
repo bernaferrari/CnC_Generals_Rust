@@ -651,6 +651,8 @@ impl RenderBridge {
     /// GameLogic/GameClient boundary.  It carries the render-object transform,
     /// scale, and ARGB value captured by `W3DModelDraw`; this adapter does not
     /// derive any of them from the presentation Drawable or an asset default.
+    /// `recoil` is the receiving client's presentation transform, captured
+    /// before borrowing the bridge and post-multiplied onto each model draw.
     /// The asset manager is consulted only to resolve the exact named asset
     /// and its registered class.  A missing asset, identity mismatch, dynamic
     /// Mesh control, HLOD/Other class, or stale Drawable identity returns
@@ -658,6 +660,7 @@ impl RenderBridge {
     pub fn materialize_exact_mesh_w3d_ghost_capture(
         &mut self,
         source: &W3DGhostSnapshotCaptureSource,
+        recoil: Option<glam::Mat4>,
     ) -> Option<W3DGhostSnapshotCapture> {
         if source.object_id == INVALID_OBJECT_ID
             || source.drawable_id == INVALID_DRAWABLE_ID
@@ -680,6 +683,7 @@ impl RenderBridge {
             let snapshot = self.materialize_exact_w3d_render_object_snapshot_from_model_draw(
                 source.object_id,
                 model_draw,
+                recoil,
             )?;
             match snapshot.render_object.class_id {
                 RenderObjectClass::Mesh => {
@@ -766,11 +770,12 @@ impl RenderBridge {
         &mut self,
         source: &W3DGhostSnapshotCaptureSource,
         expected_generation: u64,
+        recoil: Option<glam::Mat4>,
     ) -> Option<W3DGhostSnapshotCapture> {
         if self.capture_window_generation_for_source(source)? != expected_generation {
             return None;
         }
-        let mut capture = self.materialize_exact_mesh_w3d_ghost_capture(source)?;
+        let mut capture = self.materialize_exact_mesh_w3d_ghost_capture(source, recoil)?;
         capture.capture_window_generation = Some(expected_generation);
         Some(capture)
     }
@@ -783,6 +788,7 @@ impl RenderBridge {
         &mut self,
         object_id: u32,
         model_draw: &ModelDrawState,
+        recoil: Option<glam::Mat4>,
     ) -> Option<W3DRenderObjectSnapshot> {
         if model_draw.model_name.trim().is_empty()
             || model_draw.render_object_scale.is_none()
@@ -799,7 +805,7 @@ impl RenderBridge {
         }
 
         let mut world_transform = model_draw.world_transform;
-        if let Some(recoil) = crate::core::game_client::recoil_glam_for_object(object_id) {
+        if let Some(recoil) = recoil {
             world_transform *= recoil;
         }
         let submission = DrawSubmission {
@@ -2645,7 +2651,7 @@ mod tests {
         };
 
         let capture = bridge
-            .materialize_exact_mesh_w3d_ghost_capture(&source)
+            .materialize_exact_mesh_w3d_ghost_capture(&source, None)
             .expect("HLOD with frozen bone frame should capture");
         assert_eq!(capture.render_objects[0].class_id, RenderObjectClass::HLod);
         assert_eq!(capture.render_objects[0].sub_objects.len(), 2);
@@ -2830,7 +2836,7 @@ mod tests {
         };
 
         let capture = bridge
-            .materialize_exact_mesh_w3d_ghost_capture(&source)
+            .materialize_exact_mesh_w3d_ghost_capture(&source, None)
             .expect("anim-applied HLOD child should capture");
         assert_eq!(
             capture.render_objects[0].sub_objects[0].transform,
@@ -2852,7 +2858,7 @@ mod tests {
             geometry: source.geometry.clone(),
         };
         let later_capture = bridge
-            .materialize_exact_mesh_w3d_ghost_capture(&later_source)
+            .materialize_exact_mesh_w3d_ghost_capture(&later_source, None)
             .expect("later frame still materializes");
         assert_ne!(
             later_capture.render_objects[0].sub_objects[0].transform,
@@ -2924,7 +2930,7 @@ mod tests {
 
         let source = exact_mesh_ghost_source(37, exact_mesh_ghost_model_draw(37));
         let capture = bridge
-            .materialize_exact_mesh_w3d_ghost_capture(&source)
+            .materialize_exact_mesh_w3d_ghost_capture(&source, None)
             .expect("complete committed Mesh state should materialize");
 
         assert!(!capture.drawable_effectively_hidden);
@@ -2939,6 +2945,76 @@ mod tests {
     }
 
     #[test]
+    fn ghost_capture_uses_receiving_client_recoil_even_during_live_slot_borrow() {
+        crate::test_support::ensure_ambient_host();
+        if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+            module_path!(),
+            "ghost_capture_uses_receiving_client_recoil_even_during_live_slot_borrow",
+        ) {
+            return;
+        }
+        use crate::core::game_client::{
+            clear_live_game_client, register_live_game_client, with_live_game_client_mut, GameClient,
+        };
+
+        let mut factory = game_engine::common::thing::ThingFactory::new();
+        let template = factory.new_template("GhostRecoilOwner");
+        let mut owner = Box::new(GameClient::new().unwrap());
+        let mut peer = Box::new(GameClient::new().unwrap());
+        let owner_id = owner.create_drawable_from_template(&template).unwrap();
+        let peer_id = peer.create_drawable_from_template(&template).unwrap();
+        assert_eq!(owner_id, peer_id);
+        owner.bind_drawable_to_object(owner_id, 9001).unwrap();
+        peer.bind_drawable_to_object(peer_id, 9001).unwrap();
+        let apply_recoil = |client: &mut GameClient, id, impulse| {
+            let basic = client.find_drawable_by_id_mut(id).unwrap().as_any_mut()
+                .downcast_mut::<crate::drawable::BasicDrawable>().unwrap();
+            basic.apply_recoil_impulse(impulse, 0.0);
+            basic.integrate_recoil_visual();
+            basic.recoil_visual().to_glam()
+        };
+        let owner_recoil = apply_recoil(&mut owner, owner_id, 0.3);
+        let peer_recoil = apply_recoil(&mut peer, peer_id, 0.8);
+        assert_ne!(owner_recoil, glam::Mat4::IDENTITY);
+        assert_ne!(owner_recoil, peer_recoil);
+
+        let bridge = owner.render_bridge_mut();
+        register_test_model(bridge, "GhostMesh");
+        let mut camera = Camera::perspective(
+            "ghost-recoil".to_string(), 60.0_f32.to_radians(), 16.0 / 9.0, 0.1, 100.0,
+        );
+        camera.set_position(WwVec3::new(0.0, 0.0, -20.0));
+        camera.look_at(WwVec3::ZERO, WwVec3::Y);
+        bridge.begin_frame(&camera, 1.0 / 30.0);
+        let source = exact_mesh_ghost_source(owner_id.0, exact_mesh_ghost_model_draw(owner_id.0));
+        let model_draw = &source.model_draws[0];
+        let mut submission = DrawSubmission::default();
+        submission.drawable_id = DrawableId(source.drawable_id);
+        submission.owner_object_id = Some(source.object_id);
+        submission.legacy_model_draw_source = Some(model_draw.source.clone());
+        submission.legacy_render_object_transform = Some(model_draw.world_transform);
+        submission.legacy_render_object_scale = model_draw.render_object_scale;
+        submission.legacy_render_object_color = model_draw.render_object_color;
+        submission.model_name = model_draw.model_name.clone();
+        submission.bounding_sphere = BoundingSphere::new(WwVec3::ZERO, 4.0);
+        bridge.submit(submission);
+        bridge.flush();
+
+        let expected = gamelogic::object::w3d_ghost_object::Matrix3x4::from_logic_matrix(owner_recoil);
+        register_live_game_client(&mut peer);
+        let foreign_registered = owner.capture_w3d_ghost_snapshot(&source).unwrap();
+        assert_eq!(foreign_registered.render_objects[0].transform, expected);
+
+        register_live_game_client(&mut owner);
+        let reentrant = with_live_game_client_mut(|client| {
+            assert!(with_live_game_client_mut(|_| ()).is_none());
+            client.capture_w3d_ghost_snapshot(&source).unwrap()
+        }).unwrap();
+        assert_eq!(reentrant.render_objects[0].transform, expected);
+        clear_live_game_client(&mut owner);
+    }
+
+    #[test]
     fn exact_mesh_ghost_capture_rejects_identity_and_dynamic_state() {
         crate::test_support::ensure_ambient_host();
         let mut bridge = RenderBridge::new();
@@ -2947,7 +3023,7 @@ mod tests {
         let mismatched = exact_mesh_ghost_source(37, exact_mesh_ghost_model_draw(38));
         assert!(
             bridge
-                .materialize_exact_mesh_w3d_ghost_capture(&mismatched)
+                .materialize_exact_mesh_w3d_ghost_capture(&mismatched, None)
                 .is_none()
         );
 
@@ -2956,7 +3032,7 @@ mod tests {
         let animated_source = exact_mesh_ghost_source(37, animated);
         assert!(
             bridge
-                .materialize_exact_mesh_w3d_ghost_capture(&animated_source)
+                .materialize_exact_mesh_w3d_ghost_capture(&animated_source, None)
                 .is_none()
         );
     }
@@ -3002,7 +3078,7 @@ mod tests {
             Some(generation)
         );
         let capture = bridge
-            .materialize_exact_mesh_w3d_ghost_capture_at(&source, generation)
+            .materialize_exact_mesh_w3d_ghost_capture_at(&source, generation, None)
             .expect("matching flushed submission is materializable");
         assert_eq!(capture.capture_window_generation, Some(generation));
 
@@ -3015,7 +3091,7 @@ mod tests {
         );
         assert!(
             bridge
-                .materialize_exact_mesh_w3d_ghost_capture_at(&source, generation.wrapping_add(1))
+                .materialize_exact_mesh_w3d_ghost_capture_at(&source, generation.wrapping_add(1), None)
                 .is_none()
         );
     }

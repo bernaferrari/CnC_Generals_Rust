@@ -160453,7 +160453,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "8da8b585fa7e7a8b03ed068ab3ec64ccda49d09952cc0d0ffed718e05a28fe9d",
+  "input_digest": "f454f9ec2de8738de5a1cfb30f16e942563bd15224489880c1f99d023c88de4d",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -167331,11 +167331,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2041,
+        "end_line": 2049,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/impl_init.rs",
-      "sha256": "0dfb18952f425381fb99dd154f3816d693f13d1bb1d366e95f3c6ac4447e817a",
+      "sha256": "1fde641002e7c5f62aeb209fcf83418e0eee2302e9d0dcb311510e3aeb9ffcff",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167379,11 +167379,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1046,
+        "end_line": 1045,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/live_slot.rs",
-      "sha256": "e3903086a911c3dd5494cf7fd9ce88ba1b90909b5ca545a0cadd1d9522ac85c8",
+      "sha256": "7dad77536ee8456189a5290934986656d647d4f8dfcfe6979c5f26e4e6e80aad",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -175326,11 +175326,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 502,
+        "end_line": 514,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/load_screen/tests.rs",
-      "sha256": "9525a01069480ed511c350d16c71940f898db8eb6d0f9b5061bc477954deab89",
+      "sha256": "87f5ba1697694c0b4108d92c9adad8af2c3b7206ab7757785be8d13628c60e01",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

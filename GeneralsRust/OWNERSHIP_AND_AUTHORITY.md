@@ -13,6 +13,8 @@ Client reset and destruction borrow the receiving client's light state directly;
 ray and tracer cleanup still uses live-slot-gated global streams.
 The standalone Core display and loading-screen pump borrow the receiving
 client's decals and projected decals. Main's native render path is separate.
+Core ghost capture carries recoil from its receiving client into the render
+bridge; it no longer re-enters the live-client slot for that recoil.
 WWAudio device channel creation exclusively borrows its AudioSystem instead of
 retaining a raw parent pointer; the streamer retains the resulting channel,
 not the system borrow. Native-endian decoded PCM bytes remain unchanged.
