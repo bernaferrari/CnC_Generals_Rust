@@ -1,39 +1,54 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
 
+#[cfg(feature = "game_client")]
+fn popup_save_load_inventory(
+    manager: &crate::save_load::SaveFileManager,
+) -> crate::save_load::SaveLoadResult<Vec<game_client::gui::callbacks::PopupSaveLoadEntry>> {
+    use game_client::gui::callbacks::PopupSaveLoadEntry;
+    Ok(manager.list_saves()?.into_iter().map(|save| {
+        let description = if save.save_info.description.trim().is_empty() {
+            save.save_info.display_name
+        } else {
+            save.save_info.description
+        };
+        let (display_time, display_date) =
+            crate::save_load::format_save_list_date_time(save.save_info.save_date);
+        PopupSaveLoadEntry {
+            filename: save.filename,
+            description,
+            display_time,
+            display_date,
+            is_mission: save.save_info.save_type == SaveFileType::Mission,
+        }
+    }).collect())
+}
+
+#[cfg(feature = "game_client")]
+fn delete_popup_save(
+    manager: &crate::save_load::SaveFileManager,
+    client: &mut game_client::core::game_client::GameClient,
+    filename: &str,
+) -> crate::save_load::SaveLoadResult<()> {
+    manager.delete_existing_save(filename)?;
+    let entries = popup_save_load_inventory(manager)?;
+    client.complete_popup_save_load_delete(entries);
+    Ok(())
+}
+
 impl CnCGameEngine {
     /// Publish Main's real Rust snapshot inventory to the retail
     /// `PopupSaveLoad.wnd` callback.
     ///
     /// The popup itself stays responsible for its WND/listbox/confirmation
     /// sequence.  Main is the sole owner of the live `GameLogic` snapshot, so
-    /// it must be the source of rows as well as the consumer of a confirmed
-    /// Save/Load request.  In particular, an empty Main inventory is not a
-    /// reason to fall back to Common's separate `TheGameState` persistence.
+    /// it must be the source of rows as well as the consumer of confirmed
+    /// Save/Load/Delete requests. An empty Main inventory is not a reason to
+    /// fall back to Common's separate `TheGameState` persistence.
     #[cfg(feature = "game_client")]
     fn host_publish_popup_save_load_inventory(&mut self) {
-        use game_client::gui::callbacks::PopupSaveLoadEntry;
-
-        let entries = match self.save_file_manager.list_saves() {
-            Ok(saves) => saves
-                .into_iter()
-                .map(|save| {
-                    let description = if save.save_info.description.trim().is_empty() {
-                        save.save_info.display_name
-                    } else {
-                        save.save_info.description
-                    };
-                    let (display_time, display_date) =
-                        crate::save_load::format_save_list_date_time(save.save_info.save_date);
-                    PopupSaveLoadEntry {
-                        filename: save.filename,
-                        description,
-                        display_time,
-                        display_date,
-                        is_mission: save.save_info.save_type == SaveFileType::Mission,
-                    }
-                })
-                .collect(),
+        let entries = match popup_save_load_inventory(&self.save_file_manager) {
+            Ok(entries) => entries,
             Err(err) => {
                 // Fail closed: Common may happen to share the directory, but
                 // it is not the authority capable of restoring Main's world.
@@ -194,6 +209,19 @@ impl CnCGameEngine {
                             warn!("PopupSaveLoad load failed for '{slot}': {err}");
                             self.runtime_host_last_gameplay_cmd =
                                 format!("load_fail:wnd_popup:{slot}:{err}");
+                        }
+                    }
+                }
+                PopupSaveLoadRequest::Delete { filename } => {
+                    match delete_popup_save(&self.save_file_manager, &mut self.game_client, &filename) {
+                        Ok(()) => {
+                            self.runtime_host_last_gameplay_cmd =
+                                format!("delete_ok:wnd_popup:{filename}");
+                        }
+                        Err(err) => {
+                            warn!("PopupSaveLoad delete failed for '{filename}': {err}");
+                            self.runtime_host_last_gameplay_cmd =
+                                format!("delete_fail:wnd_popup:{filename}:{err}");
                         }
                     }
                 }
@@ -1396,5 +1424,156 @@ impl CnCGameEngine {
                 self.runtime_host_last_gameplay_cmd = format!("sell_ok:{}", targets[0].0);
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "game_client"))]
+mod popup_delete_tests {
+    use super::*;
+    use game_client::core::game_client::{ClientInputAuthority, GameClient};
+    use game_client::core::subsystems::InGameUISubsystem;
+    use game_client::gui::callbacks::popup_save_load::*;
+    use game_client::gui::gadgets::ListBox;
+    use game_client::gui::{KeyModifiers, WindowLayout, WindowMessage, WindowWidget};
+    use game_engine::common::name_key_generator::NameKeyGenerator;
+
+    fn id(name: &str) -> i32 {
+        NameKeyGenerator::name_to_key(&format!("PopupSaveLoad.wnd:{name}")) as i32
+    }
+
+    fn save(manager: &mut crate::save_load::SaveFileManager, filename: &str) {
+        let info = crate::save_load::SaveGameInfo {
+            filename: filename.into(),
+            display_name: filename.into(),
+            description: filename.into(),
+            map_name: "test".into(),
+            pristine_map_name: None,
+            campaign_side: None,
+            mission_number: None,
+            save_date: std::time::UNIX_EPOCH,
+            game_version: "test".into(),
+            play_time: std::time::Duration::ZERO,
+            difficulty: crate::save_load::GameDifficulty::Medium,
+            save_type: SaveFileType::Normal,
+        };
+        manager.save_game(filename, &crate::game_logic::GameLogic::new(), &info).unwrap();
+    }
+
+    #[test]
+    fn confirmed_popup_delete_uses_receiving_save_manager_and_refreshes_on_success_only() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "confirmed_popup_delete_uses_receiving_save_manager_and_refreshes_on_success_only",
+            || {
+                let first = tempfile::tempdir().unwrap();
+                let second = tempfile::tempdir().unwrap();
+                let mut saves = crate::save_load::SaveFileManager::with_save_directory(first.path());
+                let mut peer_saves = crate::save_load::SaveFileManager::with_save_directory(second.path());
+                saves.init().unwrap();
+                peer_saves.init().unwrap();
+                save(&mut saves, "same name");
+                save(&mut peer_saves, "same name");
+                let mut client = GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted).unwrap();
+                client.set_in_game_ui_subsystem(InGameUISubsystem::default());
+                client.publish_popup_save_load_entries(popup_save_load_inventory(&saves).unwrap());
+                let (layout, parent, listbox, delete_button, confirmation) = client.with_window_event_effects(None, |effects| {
+                    effects.with_manager(|manager, effects| {
+                        let parent = manager.create_window_with_id(None, 0, 0, 500, 500, id("SaveLoadMenu"), effects).unwrap();
+                        parent.borrow_mut().set_name("PopupSaveLoad.wnd:SaveLoadMenu");
+                        parent.borrow_mut().set_system_callback_with_message_sink(save_load_menu_system);
+                        let mut layout = WindowLayout::new("Menus/PopupSaveLoad.wnd".into());
+                        layout.add_window(parent.clone());
+                        let mut listbox = None;
+                        let mut delete_button = None;
+                        let mut confirmation = None;
+                        for name in [
+                            "MenuButtonFrame", "ButtonBack", "ButtonSave", "ButtonLoad",
+                            "ButtonDelete", "ListboxGames", "LoadConfirmParent",
+                            "ButtonLoadConfirm", "ButtonLoadCancel", "OverwriteConfirmParent",
+                            "ButtonOverwriteConfirm", "ButtonOverwriteCancel", "SaveDescParent",
+                            "ButtonSaveDescConfirm", "ButtonSaveDescCancel", "EntryDesc",
+                            "DeleteConfirmParent", "ButtonDeleteConfirm", "ButtonDeleteCancel",
+                        ] {
+                            let window = manager.create_window_with_id(Some(&parent), 0, 0, 100, 100, id(name), effects).unwrap();
+                            window.borrow_mut().set_name(&format!("PopupSaveLoad.wnd:{name}"));
+                            if name == "ListboxGames" {
+                                window.borrow_mut().set_widget(WindowWidget::ListBox(
+                                    ListBox::new(id(name) as u32, 0, 0, 100, 100),
+                                ));
+                                listbox = Some(window.clone());
+                            } else if name == "ButtonDelete" {
+                                delete_button = Some(window.clone());
+                            } else if name == "DeleteConfirmParent" {
+                                confirmation = Some(window.clone());
+                            }
+                        }
+                        (layout, parent, listbox.unwrap(), delete_button.unwrap(), confirmation.unwrap())
+                    })
+                });
+                client.with_window_event_effects(None, |effects| save_load_menu_init(&layout, None, effects));
+                assert!(listbox.borrow_mut().list_box_mut().unwrap().select_index(1, KeyModifiers::none()));
+                client.with_window_event_effects(None, |effects| {
+                    parent.borrow_mut().send_system_message(WindowMessage::GadgetSelected, id("ListboxGames") as usize, 0, effects);
+                });
+                assert!(delete_button.borrow().is_enabled());
+                assert!(confirmation.borrow().is_hidden());
+                for button in ["ButtonDelete", "ButtonDeleteCancel"] {
+                    client.with_window_event_effects(None, |effects| {
+                        parent.borrow_mut().send_system_message(WindowMessage::GadgetSelected, id(button) as usize, 0, effects);
+                    });
+                    if button == "ButtonDelete" {
+                        assert!(!confirmation.borrow().is_hidden());
+                    } else {
+                        assert!(confirmation.borrow().is_hidden());
+                    }
+                }
+                assert!(client.take_popup_save_load_requests().is_empty());
+                assert!(saves.save_exists("same name"));
+                for button in ["ButtonDelete", "ButtonDeleteConfirm"] {
+                    client.with_window_event_effects(None, |effects| {
+                        parent.borrow_mut().send_system_message(WindowMessage::GadgetSelected, id(button) as usize, 0, effects);
+                    });
+                }
+                assert_eq!(listbox.borrow_mut().list_box_mut().unwrap().items().len(), 2);
+                let requests = client.take_popup_save_load_requests();
+                assert_eq!(requests.len(), 1);
+                assert_eq!(requests[0].request, PopupSaveLoadRequest::Delete { filename: "same name".into() });
+                if let PopupSaveLoadRequest::Delete { filename } = &requests[0].request {
+                    delete_popup_save(&saves, &mut client, filename).unwrap();
+                }
+                assert!(!saves.save_exists("same name"));
+                assert!(peer_saves.save_exists("same name"));
+                {
+                    let mut window = listbox.borrow_mut();
+                    let list = window.list_box_mut().unwrap();
+                    assert_eq!(list.items().len(), 1);
+                    assert_eq!(list.selected_indices(), &[0]);
+                }
+
+                save(&mut saves, "failure");
+                client.publish_popup_save_load_entries(popup_save_load_inventory(&saves).unwrap());
+                client.with_window_event_effects(None, |effects| save_load_menu_init(&layout, None, effects));
+                assert!(listbox.borrow_mut().list_box_mut().unwrap().select_index(1, KeyModifiers::none()));
+                for button in ["ButtonDelete", "ButtonDeleteConfirm"] {
+                    client.with_window_event_effects(None, |effects| {
+                        parent.borrow_mut().send_system_message(WindowMessage::GadgetSelected, id(button) as usize, 0, effects);
+                    });
+                }
+                let requests = client.take_popup_save_load_requests();
+                let PopupSaveLoadRequest::Delete { filename } = &requests[0].request else { panic!("expected delete"); };
+                std::fs::remove_file(saves.get_save_path(filename)).unwrap();
+                std::fs::create_dir(saves.get_save_path(filename)).unwrap();
+                assert!(delete_popup_save(&saves, &mut client, filename).is_err());
+                {
+                    let mut window = listbox.borrow_mut();
+                    let list = window.list_box_mut().unwrap();
+                    assert_eq!(list.items().len(), 2);
+                    assert_eq!(list.items()[1].text, "failure");
+                    assert_eq!(list.selected_indices(), &[1]);
+                }
+                assert!(saves.delete_save("../same name").is_err());
+                assert!(peer_saves.save_exists("same name"));
+            },
+        );
     }
 }

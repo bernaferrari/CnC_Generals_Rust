@@ -2969,3 +2969,7 @@ object's name. Other legacy training fallbacks remain separate work.
 Dumb projectile launches and retargets use the receiving target's geometry
 center. Terrain-height selection still samples the chord instead of C++'s
 partition-cell extrema and remains unverified.
+
+The save popup sends confirmed host-save deletion to the receiving save manager.
+It refreshes the open list only after deletion and a successful inventory read;
+the separate Common save path retains its own handling.

@@ -12,6 +12,16 @@ impl GameClient {
     ) {
         self.menu_manager.publish_save_load_entries(entries);
     }
+    pub fn complete_popup_save_load_delete(
+        &mut self,
+        entries: Vec<crate::gui::callbacks::popup_save_load::PopupSaveLoadEntry>,
+    ) {
+        self.with_window_event_effects(None, |effects| {
+            crate::gui::callbacks::popup_save_load::refresh_host_popup_save_load_after_delete(
+                entries, effects,
+            );
+        });
+    }
     pub fn take_popup_save_load_requests(
         &mut self,
     ) -> Vec<crate::gui::callbacks::popup_save_load::HostPopupSaveLoadPublishedRequest> {

@@ -47,9 +47,8 @@ pub struct PopupSaveLoadEntry {
 
 /// A completed action from the retail PopupSaveLoad controls.
 ///
-/// Requests are emitted only after `ButtonSaveDescConfirm`,
-/// `ButtonOverwriteConfirm`, or `ButtonLoadConfirm`.  Merely pressing Save or
-/// Load does not enqueue work: the real confirmation UI remains authoritative.
+/// Requests are emitted only after the corresponding confirmation button.
+/// Merely pressing Save, Load, or Delete does not enqueue work.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PopupSaveLoadRequest {
     Save {
@@ -60,15 +59,17 @@ pub enum PopupSaveLoadRequest {
     Load {
         filename: String,
     },
+    Delete {
+        filename: String,
+    },
 }
 
 /// A host PopupSaveLoad request plus provenance captured at its origin.
 ///
 /// Popup callbacks run in the same synchronous WND dispatch as the Control
-/// Bar, so they share Main's safe, stack-scoped input context.  Only the three
-/// explicit confirmation callbacks sample that context.  Other legitimate
-/// Popup paths (such as the retail shell's immediate load) intentionally use
-/// [`HostControlBarInputProvenance::InjectedOrUnknown`] so they cannot be
+/// Bar, so they share Main's safe, stack-scoped input context. Only explicit
+/// confirmation callbacks sample that context. Other legitimate popup paths
+/// use [`HostControlBarInputProvenance::InjectedOrUnknown`] so they cannot be
 /// mistaken for a physical confirmation by the authoritative host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostPopupSaveLoadPublishedRequest {
@@ -1020,14 +1021,7 @@ fn update_menu_actions(effects: &mut crate::gui::game_window::WindowEventEffects
         enable_window_rc(load_button, has_selection, effects);
     }
     if let Some(delete_button) = effects.save_load().button_delete_window.clone().as_ref() {
-        // Host rows can be loaded/saved through the typed host bridge, but
-        // this callback has no host delete request. Do not make a live button
-        // claim an operation we cannot safely perform on the host format.
-        enable_window_rc(
-            delete_button,
-            matches!(selected, Some(SaveLoadSelection::Common(_))),
-            effects,
-        );
+        enable_window_rc(delete_button, has_selection, effects);
     }
 }
 
@@ -1316,20 +1310,50 @@ fn selected_common_game_info(selected: Option<SaveLoadSelection>) -> Option<Avai
     selected.and_then(SaveLoadSelection::into_common)
 }
 
-fn should_show_delete_for_selection(selected: &Option<SaveLoadSelection>) -> bool {
-    // Host snapshot ownership is deliberately write-only here: deleting a
-    // host row through Common's save directory would target the wrong format.
-    matches!(selected, Some(SaveLoadSelection::Common(_)))
+fn process_delete_confirmed(effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
+    match selected_save(effects.save_load()) {
+        Some(SaveLoadSelection::Host(entry)) => {
+            let provenance = effects.input_provenance();
+            queue_host_popup_save_load_request(
+                PopupSaveLoadRequest::Delete { filename: entry.filename },
+                provenance,
+                effects,
+            );
+        }
+        selected => {
+            if let Some(selected) = selected_common_game_info(selected) {
+                let game_state = get_game_state();
+                let filepath = game_state.get_file_path_in_save_directory(&selected.filename);
+                let _ = fs::remove_file(filepath);
+            }
+            populate_receiving_save_game_listbox(effects);
+        }
+    }
 }
 
-fn process_delete_confirmed(effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
-    let selected = selected_common_game_info(selected_save(effects.save_load()));
-    if let Some(selected) = selected {
-        let game_state = get_game_state();
-        let filepath = game_state.get_file_path_in_save_directory(&selected.filename);
-        let _ = fs::remove_file(filepath);
+/// Apply a fresh host inventory only after the host has completed a deletion.
+pub fn refresh_host_popup_save_load_after_delete(
+    entries: Vec<PopupSaveLoadEntry>,
+    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
+) {
+    let selected_filename = selected_save(effects.save_load())
+        .map(|selected| selected.filename().to_owned());
+    effects.save_load_host_mut().publish_entries(entries);
+    if effects.save_load().host_bridge_active {
+        populate_receiving_save_game_listbox(effects);
+        if let Some(filename) = selected_filename {
+            let state = effects.save_load();
+            if let Some(index) = state.host_entries.iter().position(|entry| entry.filename == filename) {
+                let row = index + usize::from(state.current_layout_type != SaveLoadLayoutType::LoadOnly);
+                if let Some(listbox) = &state.listbox_games_window {
+                    if let Some(listbox) = listbox.borrow_mut().list_box_mut() {
+                        let _ = listbox.select_index(row, KeyModifiers::none());
+                    }
+                }
+            }
+        }
+        update_menu_actions(effects);
     }
-    populate_receiving_save_game_listbox(effects);
 }
 
 pub(crate) fn reset_save_load_menu(effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
@@ -1618,7 +1642,7 @@ pub fn save_load_menu_system(
 
             if control_id == effects.save_load().button_delete {
                 let selected = selected_save(effects.save_load());
-                if should_show_delete_for_selection(&selected) {
+                if selected.is_some() {
                     if let Some(listbox) = effects.save_load().listbox_games_window.clone().as_ref()
                     {
                         enable_window_rc(listbox, false, effects);

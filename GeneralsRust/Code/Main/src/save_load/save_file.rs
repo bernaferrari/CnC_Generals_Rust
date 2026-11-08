@@ -1259,13 +1259,26 @@ impl SaveFileManager {
 
     /// Delete save file
     pub fn delete_save(&self, filename: &str) -> SaveLoadResult<()> {
-        let save_path = self.get_save_path(filename);
-
-        if save_path.exists() {
-            std::fs::remove_file(&save_path)?;
-            log::info!("Deleted save file: {}", save_path.display());
+        match self.delete_existing_save(filename) {
+            Err(SaveLoadError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            result => result,
         }
+    }
 
+    /// Delete a single save slot, reporting a missing file as a failure.
+    pub fn delete_existing_save(&self, filename: &str) -> SaveLoadResult<()> {
+        use std::path::Component;
+        let mut components = Path::new(filename).components();
+        if filename.is_empty()
+            || filename.contains(['/', '\\'])
+            || !matches!(components.next(), Some(Component::Normal(_)))
+            || components.next().is_some()
+        {
+            return Err(SaveLoadError::InvalidFormat);
+        }
+        let save_path = self.get_save_path(filename);
+        std::fs::remove_file(&save_path)?;
+        log::info!("Deleted save file: {}", save_path.display());
         Ok(())
     }
 
