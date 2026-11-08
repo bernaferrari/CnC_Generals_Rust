@@ -3,6 +3,13 @@
 //! (GameState.cpp:1385–1458). No payload is published for a later load to take.
 use crate::save_load::{SaveGameInfo, snapshot::WorldSnapshot};
 
+/// Admission requirement captured from the world that produced this archive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MapAdmissionIntent {
+    Mapless,
+    Authored,
+}
+
 #[derive(Debug)]
 pub struct DecodedGameSave {
     pub snapshot: WorldSnapshot,
@@ -10,6 +17,8 @@ pub struct DecodedGameSave {
     /// may apply it. Failed or interleaved decodes never publish pending state.
     pub campaign_state: Option<game_engine::System::CampaignManagerXferState>,
     pub save_info: SaveGameInfo,
+    /// Archives without this host extension are conservatively authored.
+    pub map_admission_intent: MapAdmissionIntent,
     /// Original GameStateMap v2 game-mode integer. Version 1 and omitted map
     /// chunks leave the receiving mode unchanged; unknown values retain the
     /// existing admission fallback rather than inventing an enum variant.

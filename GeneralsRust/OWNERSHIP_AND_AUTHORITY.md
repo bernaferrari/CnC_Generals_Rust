@@ -3013,3 +3013,7 @@ including distinct night colors sharing the same day color.
 Continuous-fire promotion and coast use the rule of the weapon slot that fired,
 while the object retains one tracker across slot and weapon-set changes. Exact
 shot deadlines still need integer-frame ownership instead of float timestamps.
+
+Logical saves record whether their owning world admitted an authored map.
+Restore rejects an unavailable authored map instead of treating it as mapless;
+explicitly mapless archives retain their owned terrain data.

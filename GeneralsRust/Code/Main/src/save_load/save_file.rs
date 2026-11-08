@@ -15,7 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 mod decoded;
 #[path = "save_file/map_admission.rs"]
 mod map_admission;
-pub use decoded::DecodedGameSave;
+pub use decoded::{DecodedGameSave, MapAdmissionIntent};
 
 /// Same tokens as C++ `GameState::xferSaveData` (`GameState.cpp:1313-1458`)
 /// and System `TheGameState` (`SAVELOAD_BLOCK_NAMES`).
@@ -46,6 +46,7 @@ const CHUNK_TACTICAL_VIEW: &str = "CHUNK_TacticalView";
 const CHUNK_SCRIPT_ENGINE: &str = "CHUNK_ScriptEngine";
 const CHUNK_TERRAIN_LOGIC: &str = "CHUNK_TerrainLogic";
 const CHUNK_RADAR: &str = "CHUNK_Radar";
+const CHUNK_HOST_MAP_INTENT: &str = "CHUNK_HostMapIntent";
 const SAVE_FILE_EOF: &str = "SG_EOF";
 const CPP_GAME_STATE_XFER_VERSION: u8 = 2;
 const CPP_SAVE_FILE_TYPE_NORMAL: i32 = 0;
@@ -1087,6 +1088,14 @@ impl SaveFileManager {
         if effective_info.pristine_map_name.is_none() {
             effective_info.pristine_map_name = game_logic.map_definition_source.clone();
         }
+        // The owner, not a UI label or filesystem lookup, determines whether
+        // this archive needs an authored map on admission.
+        let map_intent = if game_logic.map_definition_source.is_some() {
+            effective_info.map_name = game_logic.get_current_map_name().to_owned();
+            MapAdmissionIntent::Authored
+        } else {
+            MapAdmissionIntent::Mapless
+        };
         let native_water = native_terrain.map(|visual| visual.capture_water_state());
         let terrain_visual_bytes =
             crate::save_load::snapshot::capture_receiving_terrain_visual_with_water(
@@ -1102,6 +1111,7 @@ impl SaveFileManager {
             Some(&terrain_visual_bytes),
             cpp_game_mode_from_live(game_logic.game_mode()),
             &campaign_state,
+            map_intent,
         );
         write_result?;
 
@@ -1352,6 +1362,7 @@ impl SaveFileManager {
         terrain_visual_bytes: Option<&[u8]>,
         supplied_game_mode: i32,
         campaign_state: &game_engine::System::CampaignManagerXferState,
+        map_intent: MapAdmissionIntent,
     ) -> SaveLoadResult<()> {
         let file = OpenOptions::new()
             .create(true)
@@ -1368,6 +1379,15 @@ impl SaveFileManager {
             supplied_game_mode,
             campaign_state,
         )?;
+        // Host extension is a named block, so legacy chunks retain their
+        // native positional layout. Version 1 has a single intent byte.
+        writer.write_all(&[CHUNK_HOST_MAP_INTENT.len() as u8])?;
+        writer.write_all(CHUNK_HOST_MAP_INTENT.as_bytes())?;
+        writer.write_all(&2i32.to_le_bytes())?;
+        writer.write_all(&[1, match map_intent {
+            MapAdmissionIntent::Mapless => 0,
+            MapAdmissionIntent::Authored => 1,
+        }])?;
         writer.write_all(&encoded)?;
         writer.flush()?;
         Ok(())
@@ -1693,10 +1713,22 @@ impl SaveFileManager {
         let mut team_factory_payload: Option<Vec<u8>> = None;
         let mut map_payload: Option<Vec<u8>> = None;
         let mut map_admission = None;
+        let mut map_intent = None;
         let mut ghost_companion: Option<Vec<u8>> = None;
         let mut particle_companion: Option<Vec<u8>> = None;
 
         for (token, payload) in blocks {
+            if token.eq_ignore_ascii_case(CHUNK_HOST_MAP_INTENT) {
+                if map_intent.is_some() {
+                    return Err(SaveLoadError::Corrupted("duplicate host map intent".into()));
+                }
+                map_intent = Some(match payload.as_slice() {
+                    [1, 0] => MapAdmissionIntent::Mapless,
+                    [1, 1] => MapAdmissionIntent::Authored,
+                    _ => return Err(SaveLoadError::Corrupted("invalid host map intent".into())),
+                });
+                continue;
+            }
             if token.eq_ignore_ascii_case(CHUNK_GAME_STATE) {
                 save_info = parse_chunk_game_state(&payload)?;
                 saw_game_state = true;
@@ -1835,6 +1867,7 @@ impl SaveFileManager {
             snapshot: world_snapshot,
             campaign_state,
             save_info,
+            map_admission_intent: map_intent.unwrap_or(MapAdmissionIntent::Authored),
             game_client_xfer,
             terrain_visual_xfer,
             saved_game_mode,

@@ -19,6 +19,7 @@ fn mapless_public_roundtrip_keeps_nonempty_raw_and_coarse_grid_in_fresh_and_fore
             assert!(crate::game_logic::script_loader::find_map_file(&info.map_name).is_none());
             manager.save_game("logical_raw", &source, &info).unwrap();
             let mut fresh = GameLogic::new();
+            fresh.admit_object_ini_sources(std::iter::empty()).unwrap();
             manager.load_game("logical_raw", &mut fresh).unwrap();
             assert_eq!(
                 fresh
@@ -34,6 +35,7 @@ fn mapless_public_roundtrip_keeps_nonempty_raw_and_coarse_grid_in_fresh_and_fore
                 expected_samples
             );
             let mut foreign = world(90, false);
+            foreign.admit_object_ini_sources(std::iter::empty()).unwrap();
             let mut unrelated =
                 gamelogic::team::TeamPrototype::new("ForeignUnrelatedDefinition".into());
             unrelated.set_id(99);
@@ -109,6 +111,7 @@ fn mapless_bad_tail_and_late_snapshot_failure_preserve_live_grid_factory_and_cac
             let bytes = capture_receiving_terrain_visual_xfer_bytes(&source, None).unwrap();
             let info = fixture_save_info();
             let mut running = world(90, false);
+            running.admit_object_ini_sources(std::iter::empty()).unwrap();
             running
                 .team_factory
                 .lock()
@@ -127,6 +130,11 @@ fn mapless_bad_tail_and_late_snapshot_failure_preserve_live_grid_factory_and_cac
                 .read()
                 .unwrap()
                 .height_revision();
+            // Preserve the real source owner's admission intent while replacing
+            // only the payloads whose late rejection this test exercises.
+            manager.save_game("mapless_intent_source", &source, &info).unwrap();
+            let intent_archive = std::fs::read(manager.get_save_path("mapless_intent_source")).unwrap();
+            let intent_len = 1 + CHUNK_HOST_MAP_INTENT.len() + 4 + 2;
             for (slot, candidate, payload, expected) in [
                 (
                     "bad_mapless_tail",
@@ -145,7 +153,7 @@ fn mapless_bad_tail_and_late_snapshot_failure_preserve_live_grid_factory_and_cac
                     "radar ring",
                 ),
             ] {
-                let archive =
+                let mut archive =
                     SaveFileManager::write_common_sav_chunks_with_client_and_terrain_bytes(
                         &candidate,
                         &info,
@@ -156,6 +164,7 @@ fn mapless_bad_tail_and_late_snapshot_failure_preserve_live_grid_factory_and_cac
                         &game_engine::System::CampaignManagerXferState::default(),
                     )
                     .unwrap();
+                archive.splice(0..0, intent_archive[..intent_len].iter().copied());
                 std::fs::write(manager.get_save_path(slot), archive).unwrap();
                 let error = manager
                     .load_game(slot, &mut running)
@@ -218,6 +227,7 @@ fn mapless_coarse_height_public_roundtrip_needs_no_raw_or_authored_map() {
                 .save_game("logical_coarse", &source, &fixture_save_info())
                 .unwrap();
             let mut fresh = GameLogic::new();
+            fresh.admit_object_ini_sources(std::iter::empty()).unwrap();
             manager.load_game("logical_coarse", &mut fresh).unwrap();
             assert_eq!(
                 fresh.snapshot_terrain_heights_for_path_grid().unwrap(),
@@ -258,6 +268,7 @@ fn mapless_restore_keeps_receiving_upgrade_catalog_masks_without_mutable_center_
                 .save_game("catalog", &source, &fixture_save_info())
                 .unwrap();
             let mut receiver = world(90, false);
+            receiver.admit_object_ini_sources(std::iter::empty()).unwrap();
             crate::game_logic::host_upgrade_rules::register_test_upgrade(
                 &mut receiver,
                 "Upgrade_ReceivingFirst",

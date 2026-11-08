@@ -196,6 +196,10 @@ fn prepared_terrain_candidate_changes_no_native_scorches_until_explicit_commit()
 }
 
 fn file_backed_world(path: &std::path::Path, raw: u8) -> GameLogic {
+    file_backed_world_with_ini(path, raw, None)
+}
+
+fn file_backed_world_with_ini(path: &std::path::Path, raw: u8, ini: Option<&str>) -> GameLogic {
     let mut map = game_engine::common::system::DataChunkOutput::new();
     map.open_data_chunk("HeightMapData", 3);
     for value in [4, 4, 0, 16] {
@@ -211,11 +215,53 @@ fn file_backed_world(path: &std::path::Path, raw: u8) -> GameLogic {
     map.close_data_chunk();
     std::fs::write(path, map.into_ckmp_bytes()).unwrap();
     let mut owner = GameLogic::new();
-    owner.admit_object_ini_sources(std::iter::empty()).unwrap();
+    owner.admit_object_ini_sources(ini.into_iter().map(|source| ("map_intent.ini".into(), source.into()))).unwrap();
     owner.start_new_game_for_restore(crate::game_logic::GameMode::SinglePlayer).unwrap();
     assert!(owner.load_map(path.to_str().unwrap()));
     owner
 }
+#[test]
+fn archive_map_intent_is_owned_and_missing_authored_map_preserves_same_id_worlds() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "archive_map_intent_is_owned_and_missing_authored_map_preserves_same_id_worlds",
+        || {
+            let directory = tempfile::tempdir().unwrap();
+            let mut manager = SaveFileManager::with_save_directory(directory.path().join("saves"));
+            manager.init().unwrap();
+            let map_path = directory.path().join("unavailable.map");
+            let ini = "Object MapIntentOwner\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n";
+            let mut authored = file_backed_world_with_ini(&map_path, 40, Some(ini));
+            let mut receiver = world(90, true);
+            receiver.admit_object_ini_sources([("map_intent.ini".into(), ini.into())]).unwrap();
+            authored.set_next_object_id_for_restore(ObjectId(100000));
+            receiver.set_next_object_id_for_restore(ObjectId(100000));
+            let authored_id = authored.create_object("MapIntentOwner", Team::GLA, Vec3::ZERO).unwrap();
+            let receiver_id = receiver.create_object("MapIntentOwner", Team::GLA, Vec3::ZERO).unwrap();
+            assert_eq!(authored_id, receiver_id);
+            let mut info = fixture_save_info();
+            info.map_name = map_path.to_string_lossy().into_owned();
+            let mapless = world(17, false);
+            manager.save_game("mapless", &mapless, &info).unwrap();
+            std::fs::remove_file(&map_path).unwrap();
+            manager.save_game("missing", &authored, &info).unwrap();
+            assert_eq!(manager.load_game_snapshot("mapless").unwrap().map_admission_intent, MapAdmissionIntent::Mapless);
+            assert_eq!(manager.load_game_snapshot("missing").unwrap().map_admission_intent, MapAdmissionIntent::Authored);
+            assert!(manager.load_game("missing", &mut receiver).is_err());
+            assert!(receiver.host_object(receiver_id).is_some());
+            assert!(authored.host_object(authored_id).is_some());
+            assert_eq!(receiver.world_services.terrain().read().unwrap().logic_height_map_bytes(), &[90; 4]);
+            assert_eq!(authored.world_services.terrain().read().unwrap().logic_height_map_bytes(), &[40; 16]);
+            let mut mapless_receiver = GameLogic::new();
+            mapless_receiver.admit_object_ini_sources(std::iter::empty()).unwrap();
+            manager.load_game("mapless", &mut mapless_receiver).unwrap();
+            assert_eq!(mapless_receiver.world_services.terrain().read().unwrap().logic_height_map_bytes(), &[17; 4]);
+            assert!(receiver.host_object(receiver_id).is_some());
+            assert!(authored.host_object(authored_id).is_some());
+        },
+    );
+}
+
 
 #[test]
 fn direct_archive_load_stages_actual_saved_map_for_fresh_and_foreign_receivers() {
@@ -231,6 +277,7 @@ fn direct_archive_load_stages_actual_saved_map_for_fresh_and_foreign_receivers()
             info.map_name = source.get_current_map_name().to_owned();
             manager.save_game("actual_terrain", &source, &info).unwrap();
             let mut fresh = GameLogic::new();
+            fresh.admit_object_ini_sources(std::iter::empty()).unwrap();
             let (_, terrain) = manager
                 .load_game_with_terrain_visual("actual_terrain", &mut fresh)
                 .unwrap();

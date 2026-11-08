@@ -14,6 +14,7 @@ fn stage_decoded(
         saved_game_mode,
         game_client_xfer,
         terrain_visual_xfer,
+        map_admission_intent: _,
     } = decoded;
     let catalog = source.templates.clone();
     CnCGameEngine::stage_decoded_saved_world_for_restore(

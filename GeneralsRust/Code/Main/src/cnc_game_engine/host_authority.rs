@@ -2260,6 +2260,7 @@ impl CnCGameEngine {
             game_client_xfer: game_client_xfer_bytes,
             terrain_visual_xfer,
             saved_game_mode,
+            map_admission_intent: _,
         } = save_file_manager
             .load_game_snapshot(slot)
             .map_err(|err| format!("{err}"))?;
@@ -2328,7 +2329,7 @@ impl CnCGameEngine {
         if live.requires_native_drawable_owner() && !live.host_objects().registered_is_empty() {
             return Err("logical-only restore cannot retire a live native Object owner".into());
         }
-        if crate::game_logic::script_loader::find_map_file(&decoded.save_info.map_name).is_none() {
+        if decoded.map_admission_intent == crate::save_load::save_file::MapAdmissionIntent::Mapless {
             return Self::restore_mapless_logical_save(manager, decoded, live);
         }
         let crate::save_load::DecodedGameSave {
@@ -2338,6 +2339,7 @@ impl CnCGameEngine {
             saved_game_mode,
             game_client_xfer,
             terrain_visual_xfer,
+            map_admission_intent: _,
         } = decoded;
         let staged = Self::stage_decoded_saved_world_for_restore(
             &snapshot,
