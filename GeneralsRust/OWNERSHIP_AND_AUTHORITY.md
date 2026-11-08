@@ -3032,6 +3032,9 @@ Those live effect paths still require receiving-owner migration.
 
 Particle Cannon strikes capture each firing source's authored swath distance and
 amplitude. Queued and active strikes retain those settings across save/load.
+Repeated manual commands at the same coordinates remain distinct clicks;
+per-frame destination replay is not treated as another click. Pre-impact click
+timing still requires source-owned Particle Cannon update state.
 
 Science archive admission builds a receiving store from ordered sources without
 resetting or repopulating the ambient compatibility store.

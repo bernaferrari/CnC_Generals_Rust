@@ -259,3 +259,66 @@ fn authored_settings_are_instance_owned_and_survive_queued_and_active_save_paths
 
     assert_eq!(peer.special_power_strikes().beam_fields()[0].manual_drive_settings.double_click_to_fast_drive_delay, 6);
 }
+
+#[test]
+fn repeated_command_clicks_use_each_worlds_delay_and_survive_active_save() {
+    let (mut first, first_source) = world(90, 240, "100ms");
+    let (mut peer, peer_source) = world(180, 600, "200ms");
+    assert_eq!(first_source, peer_source);
+    queue(&mut first, first_source);
+    queue(&mut peer, peer_source);
+    advance_until_beam(&mut first);
+    advance_until_beam(&mut peer);
+    let destination = Vec3::new(1000.0, 0.0, 0.0);
+    assert!(first.unit_command_set_special_power_overridable_destination(first_source, destination));
+    assert!(peer.unit_command_set_special_power_overridable_destination(peer_source, destination));
+    for _ in 0..3 {
+        first.update();
+        peer.update();
+    }
+
+    // Three frames is the first world's exclusive boundary, but is inside
+    // the second world's six-frame double-click interval.
+    assert!(first.unit_command_set_special_power_overridable_destination(first_source, destination));
+    assert!(peer.unit_command_set_special_power_overridable_destination(peer_source, destination));
+    let first_beam = first.special_power_strikes().beam_fields()[0].clone();
+    let peer_beam = peer.special_power_strikes().beam_fields()[0].clone();
+    assert_eq!(first_beam.last_driving_click_frame - first_beam.second_last_driving_click_frame, 3);
+    assert_eq!(peer_beam.last_driving_click_frame - peer_beam.second_last_driving_click_frame, 3);
+
+    let builder = SnapshotBuilder::new();
+    let mut snapshot = builder.create_world_snapshot(&peer).unwrap();
+    let restored_snapshot = xfer_roundtrip(&mut snapshot);
+    let mut restored = world(180, 600, "200ms").0;
+    builder.restore_from_snapshot(&restored_snapshot, &mut restored).unwrap();
+    assert_eq!(restored.special_power_strikes().beam_fields()[0].last_driving_click_frame, peer_beam.last_driving_click_frame);
+    assert_eq!(restored.special_power_strikes().beam_fields()[0].second_last_driving_click_frame, peer_beam.second_last_driving_click_frame);
+
+    first.update();
+    peer.update();
+    restored.update();
+    let first_after = &first.special_power_strikes().beam_fields()[0];
+    let peer_after = &peer.special_power_strikes().beam_fields()[0];
+    let restored_after = &restored.special_power_strikes().beam_fields()[0];
+    assert!((first_after.current_target_position.distance(first_beam.current_target_position) - 3.0).abs() < 0.001);
+    assert!((peer_after.current_target_position.distance(peer_beam.current_target_position) - 20.0).abs() < 0.001);
+    assert_eq!(restored_after.current_target_position, peer_after.current_target_position);
+}
+
+#[test]
+fn omitted_manual_fields_use_receiving_module_defaults() {
+    let mut game = GameLogic::new();
+    game.admit_object_ini_sources([(
+        "ParticleDefaults.ini".into(),
+        format!(
+            "Object {SOURCE}\n KindOf = STRUCTURE SELECTABLE SCORE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = ParticleUplinkCannonUpdate Puc\n End\nEnd\n"
+        ),
+    )])
+    .unwrap();
+    game.start_new_game(GameMode::SinglePlayer).unwrap();
+    game.add_player(Player::new(0, Team::China, "CannonOwner", true));
+    let source = game.create_object_for_player(SOURCE, 0, Vec3::ZERO).unwrap();
+    let strike = queue(&mut game, source);
+    // C++ constructor defaults are already in logic-frame units.
+    assert_strike(&game, strike, 0.0, 0.0, 500);
+}

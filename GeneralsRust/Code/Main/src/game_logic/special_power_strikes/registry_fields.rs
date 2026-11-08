@@ -1317,13 +1317,34 @@ impl HostSpecialPowerStrikeRegistry {
         destination: Vec3,
         current_frame: u32,
     ) -> bool {
+        self.apply_source_override_destination_inner(source, destination, current_frame, false)
+    }
+
+    /// Apply an actual input event, including a repeated click at the same
+    /// coordinates. Replaying a stored destination is not a click.
+    pub fn apply_source_override_click(
+        &mut self,
+        source: ObjectId,
+        destination: Vec3,
+        current_frame: u32,
+    ) -> bool {
+        self.apply_source_override_destination_inner(source, destination, current_frame, true)
+    }
+
+    fn apply_source_override_destination_inner(
+        &mut self,
+        source: ObjectId,
+        destination: Vec3,
+        current_frame: u32,
+        click: bool,
+    ) -> bool {
         let mut applied = false;
         let beam_ids: Vec<u32> = self
             .beam_fields
             .iter()
             .filter(|field| field.source_object == source && !field.is_expired(current_frame))
             .filter(|field| {
-                !field.manual_target_mode
+                click || !field.manual_target_mode
                     || (field.override_destination.x - destination.x).abs() > 1e-4
                     || (field.override_destination.z - destination.z).abs() > 1e-4
             })

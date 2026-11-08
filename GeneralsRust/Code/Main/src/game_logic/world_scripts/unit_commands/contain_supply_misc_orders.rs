@@ -1030,11 +1030,11 @@ impl GameLogic {
         if overridable {
             let frame = self.frame;
             self.special_power_strikes
-                .apply_source_override_destination(id, location, frame);
+                .apply_source_override_click(id, location, frame);
             if let Some(producer) = producer {
                 if producer != id {
                     self.special_power_strikes
-                        .apply_source_override_destination(producer, location, frame);
+                        .apply_source_override_click(producer, location, frame);
                 }
             }
             // C++ :275-280 — VoiceAttack for the local controlling player.
