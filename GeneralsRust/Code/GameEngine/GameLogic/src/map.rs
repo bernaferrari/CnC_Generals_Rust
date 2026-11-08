@@ -498,54 +498,6 @@ impl MapSystem {
     }
 }
 
-/// Game state map system for save games
-pub struct GameStateMap {
-    /// Map data for save games
-    map_data: Vec<u8>,
-    /// Pristine map filename
-    original_filename: AsciiString,
-}
-
-impl GameStateMap {
-    pub fn new() -> Self {
-        Self {
-            map_data: Vec::new(),
-            original_filename: String::new().into(),
-        }
-    }
-
-    /// Initialize
-    pub fn init(&mut self) {
-        // Initialize game state map
-    }
-
-    /// Reset
-    pub fn reset(&mut self) {
-        self.map_data.clear();
-        self.original_filename.clear();
-    }
-
-    /// Update
-    pub fn update(&mut self) {
-        // Update game state map
-    }
-
-    /// Clear scratch pad maps from save directory
-    pub fn clear_scratch_pad_maps(&mut self) {
-        // Would clear temporary map files
-    }
-
-    /// Set original filename
-    pub fn set_original_filename(&mut self, filename: AsciiString) {
-        self.original_filename = filename;
-    }
-
-    /// Get original filename
-    pub fn get_original_filename(&self) -> &AsciiString {
-        &self.original_filename
-    }
-}
-
 // Utility functions
 
 /// Normalize angle to [0, 2π) range
@@ -564,8 +516,6 @@ use std::sync::RwLock;
 
 lazy_static! {
     pub static ref THE_MAP_SYSTEM: Arc<RwLock<MapSystem>> = Arc::new(RwLock::new(MapSystem::new()));
-    pub static ref THE_GAME_STATE_MAP: Arc<RwLock<GameStateMap>> =
-        Arc::new(RwLock::new(GameStateMap::new()));
 }
 
 /// Get global map system instance
@@ -573,13 +523,8 @@ pub fn get_map_system() -> &'static Arc<RwLock<MapSystem>> {
     &THE_MAP_SYSTEM
 }
 
-/// Get global game state map instance  
-pub fn get_game_state_map() -> &'static Arc<RwLock<GameStateMap>> {
-    &THE_GAME_STATE_MAP
-}
 
 // Aliases to match C++ naming
-pub use THE_GAME_STATE_MAP as TheGameStateMap;
 pub use THE_MAP_SYSTEM as TheMapSystem;
 
 #[cfg(test)]
