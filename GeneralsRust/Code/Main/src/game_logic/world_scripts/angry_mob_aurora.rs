@@ -2211,7 +2211,7 @@ mod spawn_behavior_parity {
         for name in ANGRY_MOB_MEMBER_TEMPLATES {
             if defined.insert(*name) {
                 source.push_str(&format!(
-                    "Object {name}\nKindOf = INFANTRY SELECTABLE IGNORED_IN_GUI\nBody = ActiveBody MemberBody\nMaxHealth = 50\nInitialHealth = 50\nEnd\nBehavior = MobMemberSlavedUpdate MemberSlave\nEnd\nEnd\n"
+                    "Object {name}\nKindOf = INFANTRY SELECTABLE IGNORED_IN_GUI\nBody = ActiveBody MemberBody\nMaxHealth = 50\nInitialHealth = 50\nEnd\nBehavior = AIUpdateInterface MemberAI\nEnd\nBehavior = MobMemberSlavedUpdate MemberSlave\nEnd\nEnd\n"
                 ));
             }
         }
@@ -2316,6 +2316,24 @@ mod spawn_behavior_parity {
     }
 
     #[test]
+    fn initial_burst_waits_for_queue_exit_on_real_module_visits() {
+        let (mut world, nid) = make_nexus_logic();
+        tick_spawn_modules(&mut world, nid);
+        assert_eq!(live_members(&world, nid).len(), 5);
+        for frame in 2..=151 {
+            world.frame = frame;
+            tick_spawn_modules(&mut world, nid);
+            if frame >= 149 {
+                assert_eq!(
+                    live_members(&world, nid).len(),
+                    if frame == 151 { 6 } else { 5 },
+                    "frame {frame}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn rapid_spawn_all_spawn_number_then_replace_delay() {
         // CPP SpawnBehavior owns10 slots; QueueProductionExitUpdate gates the
         // first5 and later150-frame exits (reserveDoor/isFreeToExit/budding).
@@ -2344,6 +2362,12 @@ mod spawn_behavior_parity {
             ]
         );
 
+        // The spawn module runs at frames 1 + 15*n. Arrange for the first
+        // sparse visit after the death deadline to fall exactly at deadline+1.
+        while logic.frame % 15 != 0 {
+            logic.frame += 1;
+            tick_spawn_modules(&mut logic, nid);
+        }
         kill_member(&mut logic, members[0]);
         logic.compute_spawn_behavior_aggregate(nid);
         logic.update_angry_mobs();
@@ -2351,16 +2375,40 @@ mod spawn_behavior_parity {
         let nexus = logic.host_object(nid).unwrap();
         assert!((nexus.health.current - nexus.initial_health * 0.9).abs() < 0.1);
 
-        let death_frame = logic.frame;
-        logic.frame = death_frame + ANGRY_MOB_EXPAND_INTERVAL_FRAMES - 1;
-        logic.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
-        assert_eq!(live_members(&logic, nid).len() as u32, ANGRY_MOB_MAX_MEMBERS - 1);
-        // CPP requires strictly AFTER replacementTime. The exact boundary is
-        // an independent production gap, not established by this fixture.
-        logic.frame = death_frame + ANGRY_MOB_EXPAND_INTERVAL_FRAMES + 1;
-        logic.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
-        assert_eq!(live_members(&logic, nid).len() as u32, ANGRY_MOB_MAX_MEMBERS);
+        let due = logic.frame + ANGRY_MOB_EXPAND_INTERVAL_FRAMES;
+        while logic.frame < due + 1 {
+            logic.frame += 1;
+            tick_spawn_modules(&mut logic, nid);
+            if logic.frame >= due - 1 {
+                let expected = if logic.frame == due + 1 { 10 } else { 9 };
+                assert_eq!(live_members(&logic, nid).len(), expected, "frame {}", logic.frame);
+            }
+        }
     }
+    #[test]
+    fn replacement_deadline_equal_to_sparse_visit_is_not_due() {
+        let (mut world, nid) = make_nexus_logic();
+        fill_initial_members(&mut world, nid);
+        while world.frame % 15 != 1 {
+            world.frame += 1;
+            tick_spawn_modules(&mut world, nid);
+        }
+        let member = live_members(&world, nid)[0];
+        kill_member(&mut world, member);
+        let due = world.frame + ANGRY_MOB_EXPAND_INTERVAL_FRAMES;
+        while world.frame < due + 15 {
+            world.frame += 1;
+            tick_spawn_modules(&mut world, nid);
+            if world.frame >= due - 1 {
+                assert_eq!(
+                    live_members(&world, nid).len(),
+                    if world.frame == due + 15 { 10 } else { 9 },
+                    "frame {}", world.frame
+                );
+            }
+        }
+    }
+
     #[test]
     fn same_id_peer_and_save_continue_independent_rosters() {
         let (mut owner, nid) = make_nexus_logic();
@@ -2370,6 +2418,10 @@ mod spawn_behavior_parity {
         fill_initial_members(&mut peer, peer_nid);
         let original = live_members(&owner, nid);
         assert_eq!(original, live_members(&peer, peer_nid));
+        while owner.frame % 15 != 0 {
+            owner.frame += 1;
+            tick_spawn_modules(&mut owner, nid);
+        }
         kill_member(&mut owner, original[0]);
         let after_death = live_members(&owner, nid);
         assert_eq!(after_death.len(), 9);
@@ -2377,6 +2429,8 @@ mod spawn_behavior_parity {
 
         let builder = crate::save_load::snapshot::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&owner).unwrap();
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let snapshot = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
         let (mut restored, restored_nid) = make_nexus_logic();
         assert_eq!(restored_nid, nid);
         restored.templates = owner.templates.clone();
@@ -2384,12 +2438,23 @@ mod spawn_behavior_parity {
         assert_eq!(live_members(&restored, nid), after_death);
         let due = owner.frame + ANGRY_MOB_EXPAND_INTERVAL_FRAMES;
         for world in [&mut owner, &mut restored] {
-            world.frame = due;
-            world.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
+            while world.frame < due - 1 {
+                world.frame += 1;
+                tick_spawn_modules(world, nid);
+            }
             assert_eq!(live_members(world, nid).len(), 9);
-            world.frame = due + 1;
-            world.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
-            assert_eq!(live_members(world, nid).len(), 10);
+            // The 20-frame queue delay rejects two sparse visits, at due+1
+            // and due+16; the replacement succeeds on the third, due+31.
+            world.objects.get_mut(&nid).unwrap().production_exit_state.delay_frames = 20;
+            for frame in due..=due + 31 {
+                world.frame = frame;
+                tick_spawn_modules(world, nid);
+                let expected = if frame == due + 31 { 10 } else { 9 };
+                assert_eq!(live_members(world, nid).len(), expected, "frame {frame}");
+                if frame == due + 1 || frame == due + 16 {
+                    assert_eq!(world.host_object(nid).unwrap().spawn_behavior_replacement_times(), &[due]);
+                }
+            }
         }
         assert_eq!(live_members(&owner, nid), live_members(&restored, nid));
         assert_eq!(live_members(&peer, peer_nid), original);
