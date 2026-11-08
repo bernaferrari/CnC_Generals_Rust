@@ -3035,3 +3035,5 @@ amplitude. Queued and active strikes retain those settings across save/load.
 
 Science archive admission builds a receiving store from ordered sources without
 resetting or repopulating the ambient compatibility store.
+Command-button science fields validate in source order against the receiving
+science catalog; `None` clears the field and terminates its scan.

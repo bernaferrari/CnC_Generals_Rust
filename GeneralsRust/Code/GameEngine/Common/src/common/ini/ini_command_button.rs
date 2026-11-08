@@ -261,7 +261,7 @@ impl CommandButton {
     /// Parse command button from INI
     pub fn parse_from_ini(ini: &mut INI, name: String) -> INIResult<Self> {
         let mut button = Self::new(name);
-        ini.init_from_ini_with_fields(&mut button, CommandButton::get_field_parse())?;
+        parse_button_fields(ini, &mut button, None)?;
         Ok(button)
     }
 
@@ -493,9 +493,7 @@ impl ControlBar {
             }
             value
         };
-        ini.init_from_ini_with_fields(button, CommandButton::get_field_parse())?;
-        resolve_sciences_from_facts(button, sciences);
-        Ok(())
+        parse_button_fields(ini, button, Some(sciences))
     }
     /// Parse command button definition from INI
     pub fn parse_command_button_definition(ini: &mut INI) -> INIResult<()> {
@@ -535,13 +533,7 @@ impl ControlBar {
         };
 
         // Parse the button fields
-        ini.init_from_ini_with_fields(button, CommandButton::get_field_parse())?;
-
-        if let Some(sciences) = ini.receiving_science_names() {
-            resolve_sciences_from_facts(button, sciences);
-        } else {
-            resolve_sciences(button);
-        }
+        parse_button_fields(ini, button, None)?;
         // C++ INICommandButton.cpp:54-66 is DEBUG_CRASH only. Release keeps
         // the button and continues the file. Retail SpecialPower buttons
         // without NEED_SPECIAL_POWER_SCIENCE (and the inverse) are legal.
@@ -592,51 +584,67 @@ pub fn parse_command_button_definition(ini: &mut INI) -> INIResult<()> {
     ControlBar::parse_command_button_definition(ini)
 }
 
-fn resolve_sciences(button: &mut CommandButton) {
-    button.parsed_science_required.clear();
-    button.parsed_science_disabled.clear();
-    button.sciences_ids.clear();
-
-    if let Some(store) = crate::common::rts::get_science_store() {
-        for science_name in &button.science_required {
-            let science = store.get_science_from_internal_name(science_name);
-            if science != SCIENCE_INVALID {
-                button.parsed_science_required.push(science);
-                if !button.sciences_ids.contains(&science) {
-                    button.sciences_ids.push(science);
-                }
+fn parse_button_fields(
+    ini: &mut INI,
+    button: &mut CommandButton,
+    sciences: Option<&crate::common::rts::science::ScienceNameFacts>,
+) -> INIResult<()> {
+    ini.init_from_ini_with_fields_intercept(
+        button,
+        CommandButton::get_field_parse(),
+        |ini, button, key, values| {
+            if !key.eq_ignore_ascii_case("Science") {
+                return Ok(false);
             }
-        }
-
-        for science_name in &button.science_disabled {
-            let science = store.get_science_from_internal_name(science_name);
-            if science != SCIENCE_INVALID {
-                button.parsed_science_disabled.push(science);
+            parse_command_field_science(ini, button, values)?;
+            if let Some(sciences) = sciences {
+                resolve_sciences(button, |name| sciences.science(name))?;
+            } else {
+                resolve_ini_sciences(ini, button)?;
             }
-        }
+            Ok(true)
+        },
+    )
+}
+
+fn resolve_ini_sciences(ini: &INI, button: &mut CommandButton) -> INIResult<()> {
+    if let Some(sciences) = ini.receiving_science_names() {
+        resolve_sciences(button, |name| sciences.science(name))
+    } else {
+        let store = get_science_store();
+        resolve_sciences(button, |name| {
+            store.as_ref().and_then(|store| {
+                let science = store.get_science_from_internal_name(name);
+                (science != SCIENCE_INVALID).then_some(science)
+            })
+        })
     }
 }
 
-fn resolve_sciences_from_facts(
+fn resolve_sciences(
     button: &mut CommandButton,
-    sciences: &crate::common::rts::science::ScienceNameFacts,
-) {
+    lookup: impl Fn(&str) -> Option<ScienceType>,
+) -> INIResult<()> {
     button.parsed_science_required.clear();
-    button.parsed_science_disabled.clear();
     button.sciences_ids.clear();
     for name in &button.science_required {
-        if let Some(id) = sciences.science(name) {
-            button.parsed_science_required.push(id);
-            if !button.sciences_ids.contains(&id) {
-                button.sciences_ids.push(id);
-            }
+        // INI::parseScienceVector scans in order: None clears the vector and
+        // stops, but an unknown name before None is still an error.
+        if name.eq_ignore_ascii_case("None") {
+            button.parsed_science_required.clear();
+            button.sciences_ids.clear();
+            break;
+        }
+        let id = lookup(name).ok_or(INIError::InvalidData)?;
+        button.parsed_science_required.push(id);
+        if !button.sciences_ids.contains(&id) {
+            button.sciences_ids.push(id);
         }
     }
-    for name in &button.science_disabled {
-        if let Some(id) = sciences.science(name) {
-            button.parsed_science_disabled.push(id);
-        }
+    if button.science_required.iter().any(|name| name.eq_ignore_ascii_case("None")) {
+        button.science_required.clear();
     }
+    Ok(())
 }
 
 fn first_non_equals<'a>(values: &'a [&'a str]) -> Option<&'a str> {
@@ -902,6 +910,37 @@ mod tests {
         let mut ini = INI::new();
         (field.parse)(&mut ini, button, values).expect("field parses");
     }
+    #[test]
+    fn receiving_buttons_validate_sciences_against_their_own_catalog() {
+        use crate::common::rts::science::{ScienceInfo, ScienceNameFacts, ScienceStore};
+        use crate::common::thing::receiving_module_content::ReceivingActionDefinitions;
+
+        let mut first = ScienceStore::new_owned();
+        first.add_science(ScienceInfo::new(701, "SCIENCE_First"));
+        first.add_science(ScienceInfo::new(702, "Random"));
+        let first = ScienceNameFacts::from_store(&first);
+        let mut second = ScienceStore::new_owned();
+        second.add_science(ScienceInfo::new(701, "SCIENCE_Second"));
+        let second = ScienceNameFacts::from_store(&second);
+        let mut actions = ReceivingActionDefinitions::default();
+        actions.apply_source("CommandButton First\n Science = SCIENCE_First SCIENCE_First\nEnd\n", &first).unwrap();
+        let button = actions.buttons.find_command_button_resolved("First").unwrap();
+        assert_eq!(button.parsed_science_required, vec![701, 701]);
+        assert_eq!(button.sciences_ids, vec![701]);
+        assert!(actions.apply_source("CommandButton Typo\n Science = SCIENCE_Frist\nEnd\n", &first).is_err());
+        assert!(actions.apply_source("CommandButton WrongOwner\n Science = SCIENCE_First\nEnd\n", &second).is_err());
+        actions.apply_source("CommandButton Second\n Science = SCIENCE_Second\nEnd\n", &second).unwrap();
+        assert_eq!(actions.buttons.find_command_button_resolved("Second").unwrap().parsed_science_required, vec![701]);
+        actions.apply_source("CommandButton None\n Science = SCIENCE_First None SCIENCE_Typo\nEnd\nCommandButton Empty\n Science =\nEnd\n", &first).unwrap();
+        assert!(actions.buttons.find_command_button_resolved("None").unwrap().parsed_science_required.is_empty());
+        assert!(actions.buttons.find_command_button_resolved("Empty").unwrap().parsed_science_required.is_empty());
+        assert!(!actions.buttons.find_command_button_resolved("None").unwrap().requires_science("SCIENCE_First"));
+        actions.apply_source("CommandButton Random\n Science = Random\nEnd\n", &first).unwrap();
+        assert_eq!(actions.buttons.find_command_button_resolved("Random").unwrap().parsed_science_required, vec![702]);
+        assert!(actions.apply_source("CommandButton InvalidBeforeNone\n Science = SCIENCE_Typo None\nEnd\n", &first).is_err());
+        assert!(actions.apply_source("CommandButton Repeated\n Science = SCIENCE_Typo\n Science = SCIENCE_First\nEnd\n", &first).is_err());
+    }
+
 
     #[test]
     fn test_command_button_creation() {

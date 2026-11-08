@@ -9,6 +9,15 @@ impl INI {
         target: &mut T,
         field_parse_table: &[FieldParse<T>],
     ) -> INIResult<()> {
+        self.init_from_ini_with_fields_intercept(target, field_parse_table, |_, _, _, _| Ok(false))
+    }
+
+    pub(crate) fn init_from_ini_with_fields_intercept<T>(
+        &mut self,
+        target: &mut T,
+        field_parse_table: &[FieldParse<T>],
+        mut intercept: impl FnMut(&mut INI, &mut T, &str, &[&str]) -> INIResult<bool>,
+    ) -> INIResult<()> {
         loop {
             self.read_line()?;
 
@@ -23,13 +32,15 @@ impl INI {
                     break;
                 }
 
-                let mut handled = false;
+                let mut handled = intercept(self, target, key, &value_tokens)?;
 
-                for field in field_parse_table {
-                    if field.token.eq_ignore_ascii_case(key) {
-                        (field.parse)(self, target, &value_tokens)?;
-                        handled = true;
-                        break;
+                if !handled {
+                    for field in field_parse_table {
+                        if field.token.eq_ignore_ascii_case(key) {
+                            (field.parse)(self, target, &value_tokens)?;
+                            handled = true;
+                            break;
+                        }
                     }
                 }
 

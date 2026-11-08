@@ -551,6 +551,73 @@ mod receiving_source_tests {
 #[cfg(test)]
 mod retail_receiving_content_tests {
     use super::*;
+    #[test]
+    #[ignore = "requires user-provided retail Zero Hour content"]
+    fn actual_retail_command_buttons_resolve_ordered_receiving_sciences() {
+        use game_engine::common::ini::INILoadType;
+        use game_engine::common::rts::science::{ScienceNameFacts, ScienceStore};
+        use game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions;
+
+        let retail = std::env::var_os("GENERALS_RETAIL_CONTENT_ROOT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .ancestors()
+                    .nth(3)
+                    .expect("Main remains within GeneralsRust/Code")
+                    .join("windows_game")
+            });
+        let archive_dir = retail.join("Command & Conquer Generals Zero Hour/Data");
+        assert!(archive_dir.join("INIZH.big").is_file(), "retail INIZH.big is required");
+        let mut files = crate::assets::ArchiveFileSystem::new();
+        files.add_search_path(&archive_dir);
+        pollster::block_on(files.init()).expect("retail archive mounts");
+        let roots = [
+            retail.join("extracted_big_files/INIZH"),
+            retail.join("extracted_big_files_v2/INIZH"),
+        ];
+        let root_strings = roots.iter().map(|root| root.to_string_lossy().into_owned()).collect::<Vec<_>>();
+        let root_refs = root_strings.iter().map(String::as_str).collect::<Vec<_>>();
+        let mut read = |path: &str| {
+            read_receiving_object_source(path, &root_refs, |path| {
+                files.read_optional_definition_source(path).map_err(|error| error.to_string())
+            }).expect("retail source read")
+        };
+        let mut sources = Vec::new();
+        for (path, overwrite) in [
+            ("Data/INI/Default/Science.ini", false),
+            ("Data/INI/Science.ini", true),
+        ] {
+            if let Some(source) = read(path) {
+                sources.push((path, source.into_bytes(), overwrite));
+            }
+        }
+        assert!(sources.iter().any(|(path, _, _)| *path == "Data/INI/Science.ini"));
+        let source_refs = sources.iter()
+            .map(|(path, source, overwrite)| (*path, source.as_slice(), *overwrite))
+            .collect::<Vec<_>>();
+        let mut store = ScienceStore::new_owned();
+        store.load_from_sources(&source_refs).expect("ordered retail Science admission");
+        let sciences = ScienceNameFacts::from_store(&store);
+        let mut actions = ReceivingActionDefinitions::default();
+        let mut found_retail = false;
+        for path in ["Data/INI/Default/CommandButton.ini", "Data/INI/CommandButton.ini"] {
+            if let Some(source) = read(path) {
+                actions.apply_source_with_load_type(&source, &sciences, INILoadType::Overwrite)
+                    .unwrap_or_else(|error| panic!("retail {path}: {error}"));
+                found_retail |= path == "Data/INI/CommandButton.ini";
+            }
+        }
+        assert!(found_retail, "retail CommandButton.ini is required");
+        let button = actions.buttons.find_command_button_resolved("Chem_Command_Ambush")
+            .expect("retail toxin general ambush button");
+        assert_eq!(button.command, "SPECIAL_POWER");
+        assert_eq!(button.special_power_template.as_deref(), Some("SuperweaponRebelAmbush"));
+        let expected = ["SCIENCE_RebelAmbush1", "SCIENCE_RebelAmbush2", "SCIENCE_RebelAmbush3"]
+            .map(|name| sciences.science(name).expect("retail ambush science"));
+        assert_eq!(button.parsed_science_required.as_slice(), expected.as_slice());
+    }
+
     /// Explicit acceptance only: a missing licensed fixture is a failure when run.
     #[test]
     #[ignore = "requires user-provided retail Zero Hour content"]
