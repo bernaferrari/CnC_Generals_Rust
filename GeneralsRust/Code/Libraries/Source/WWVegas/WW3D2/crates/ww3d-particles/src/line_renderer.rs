@@ -368,26 +368,26 @@ impl SegLineRendererClass {
         };
 
         [
-            LineVertex {
-                position: start - perpendicular * half_start_width,
-                color: start_color,
-                uv: Vec2::new(u_start, 0.0),
-            },
-            LineVertex {
-                position: start + perpendicular * half_start_width,
-                color: start_color,
-                uv: Vec2::new(u_start, 1.0),
-            },
-            LineVertex {
-                position: end - perpendicular * half_end_width,
-                color: end_color,
-                uv: Vec2::new(u_end, 0.0),
-            },
-            LineVertex {
-                position: end + perpendicular * half_end_width,
-                color: end_color,
-                uv: Vec2::new(u_end, 1.0),
-            },
+            LineVertex::new(
+                start - perpendicular * half_start_width,
+                start_color,
+                Vec2::new(u_start, 0.0),
+            ),
+            LineVertex::new(
+                start + perpendicular * half_start_width,
+                start_color,
+                Vec2::new(u_start, 1.0),
+            ),
+            LineVertex::new(
+                end - perpendicular * half_end_width,
+                end_color,
+                Vec2::new(u_end, 0.0),
+            ),
+            LineVertex::new(
+                end + perpendicular * half_end_width,
+                end_color,
+                Vec2::new(u_end, 1.0),
+            ),
         ]
     }
 
@@ -565,21 +565,29 @@ impl SegLineRendererClass {
 
 /// Vertex data for line rendering
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct LineVertex {
-    pub position: Vec3,
-    pub color: Vec4,
-    pub uv: Vec2,
+    pub position: [f32; 3],
+    pub color: [f32; 4],
+    pub uv: [f32; 2],
 }
 
-// Manual implementation of Pod and Zeroable
-// SAFETY: LineVertex is #[repr(C)] and contains only Copy POD fields
-// (Vec3, Vec4, Vec2 of plain f32); every bit pattern is a valid value
-// with no interior mutability, so byte-for-byte copies are sound.
-unsafe impl bytemuck::Pod for LineVertex {}
-// SAFETY: all-zero bytes are a valid LineVertex value (zero positions,
-// colors and UVs), satisfying the Zeroable contract.
-unsafe impl bytemuck::Zeroable for LineVertex {}
+impl LineVertex {
+    fn new(position: Vec3, color: Vec4, uv: Vec2) -> Self {
+        Self {
+            position: position.to_array(),
+            color: color.to_array(),
+            uv: uv.to_array(),
+        }
+    }
+}
+
+const _: () = {
+    assert!(std::mem::size_of::<LineVertex>() == 36);
+    assert!(std::mem::offset_of!(LineVertex, position) == 0);
+    assert!(std::mem::offset_of!(LineVertex, color) == 12);
+    assert!(std::mem::offset_of!(LineVertex, uv) == 28);
+};
 
 /// Line group renderer - renders groups of lines as 3D shapes (tetrahedrons or prisms)
 /// Used for motion-blurred particle systems (lightning bolts, streaks, etc.)
@@ -822,28 +830,20 @@ impl LineGroupRenderer {
             let base_idx = vertices.len() as u16;
 
             // Apex vertex (at end position)
-            vertices.push(LineGroupVertex {
-                position: end,
-                color: tail_color,
-                uv: Vec2::new(ucoord, 1.0),
-            });
+            vertices.push(LineGroupVertex::new(
+                end, tail_color, Vec2::new(ucoord, 1.0),
+            ));
 
             // Base triangle vertices
-            vertices.push(LineGroupVertex {
-                position: start + offset_a * size,
-                color: head_color,
-                uv: Vec2::new(ucoord, 0.0),
-            });
-            vertices.push(LineGroupVertex {
-                position: start + offset_b * size,
-                color: head_color,
-                uv: Vec2::new(ucoord, 0.0),
-            });
-            vertices.push(LineGroupVertex {
-                position: start + offset_c * size,
-                color: head_color,
-                uv: Vec2::new(ucoord, 0.0),
-            });
+            vertices.push(LineGroupVertex::new(
+                start + offset_a * size, head_color, Vec2::new(ucoord, 0.0),
+            ));
+            vertices.push(LineGroupVertex::new(
+                start + offset_b * size, head_color, Vec2::new(ucoord, 0.0),
+            ));
+            vertices.push(LineGroupVertex::new(
+                start + offset_c * size, head_color, Vec2::new(ucoord, 0.0),
+            ));
 
             // Triangle indices (4 triangles forming tetrahedron)
             // apex, offset[1], offset[0]
@@ -899,38 +899,26 @@ impl LineGroupRenderer {
             let base_idx = vertices.len() as u16;
 
             // Start cap triangle
-            vertices.push(LineGroupVertex {
-                position: start + offset_a * size,
-                color: head_color,
-                uv: Vec2::new(ucoord, 0.0),
-            });
-            vertices.push(LineGroupVertex {
-                position: start + offset_b * size,
-                color: head_color,
-                uv: Vec2::new(ucoord, 0.0),
-            });
-            vertices.push(LineGroupVertex {
-                position: start + offset_c * size,
-                color: head_color,
-                uv: Vec2::new(ucoord, 0.0),
-            });
+            vertices.push(LineGroupVertex::new(
+                start + offset_a * size, head_color, Vec2::new(ucoord, 0.0),
+            ));
+            vertices.push(LineGroupVertex::new(
+                start + offset_b * size, head_color, Vec2::new(ucoord, 0.0),
+            ));
+            vertices.push(LineGroupVertex::new(
+                start + offset_c * size, head_color, Vec2::new(ucoord, 0.0),
+            ));
 
             // End cap triangle
-            vertices.push(LineGroupVertex {
-                position: end + offset_a * size,
-                color: tail_color,
-                uv: Vec2::new(ucoord, 1.0),
-            });
-            vertices.push(LineGroupVertex {
-                position: end + offset_b * size,
-                color: tail_color,
-                uv: Vec2::new(ucoord, 1.0),
-            });
-            vertices.push(LineGroupVertex {
-                position: end + offset_c * size,
-                color: tail_color,
-                uv: Vec2::new(ucoord, 1.0),
-            });
+            vertices.push(LineGroupVertex::new(
+                end + offset_a * size, tail_color, Vec2::new(ucoord, 1.0),
+            ));
+            vertices.push(LineGroupVertex::new(
+                end + offset_b * size, tail_color, Vec2::new(ucoord, 1.0),
+            ));
+            vertices.push(LineGroupVertex::new(
+                end + offset_c * size, tail_color, Vec2::new(ucoord, 1.0),
+            ));
 
             // Triangle indices (8 triangles forming prism)
             // Start cap
@@ -970,21 +958,29 @@ impl LineGroupRenderer {
 
 /// Vertex data for line group rendering
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct LineGroupVertex {
-    pub position: Vec3,
-    pub color: Vec4,
-    pub uv: Vec2,
+    pub position: [f32; 3],
+    pub color: [f32; 4],
+    pub uv: [f32; 2],
 }
 
-// Manual implementation of Pod and Zeroable
-// SAFETY: LineGroupVertex is #[repr(C)] with only Copy POD f32-vector
-// fields (Vec3, Vec4, Vec2); every bit pattern is a valid value with no
-// interior mutability, meeting bytemuck::Pod requirements.
-unsafe impl bytemuck::Pod for LineGroupVertex {}
-// SAFETY: all-zero bytes represent a valid (degenerate) LineGroupVertex,
-// satisfying the Zeroable contract for this repr(C) all-f32 struct.
-unsafe impl bytemuck::Zeroable for LineGroupVertex {}
+impl LineGroupVertex {
+    fn new(position: Vec3, color: Vec4, uv: Vec2) -> Self {
+        Self {
+            position: position.to_array(),
+            color: color.to_array(),
+            uv: uv.to_array(),
+        }
+    }
+}
+
+const _: () = {
+    assert!(std::mem::size_of::<LineGroupVertex>() == 36);
+    assert!(std::mem::offset_of!(LineGroupVertex, position) == 0);
+    assert!(std::mem::offset_of!(LineGroupVertex, color) == 12);
+    assert!(std::mem::offset_of!(LineGroupVertex, uv) == 28);
+};
 
 fn resolve_line_group_basis(
     transform_enabled: bool,

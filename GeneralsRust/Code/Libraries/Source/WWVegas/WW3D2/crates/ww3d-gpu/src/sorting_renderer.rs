@@ -74,18 +74,6 @@ pub struct SortingNode {
     pub geometry: SortingGeometry,
 }
 
-#[cfg(target_arch = "wasm32")]
-// SAFETY: wasm32-only. The `Arc<wgpu::*>` handles in `SortingState` are
-// `Rc`-backed and `!Send` on the web backend, but wasm32 has no threads, so
-// they can never move to or be observed from another thread. The impl only
-// satisfies the `Send` bound of the renderer's `Vec<SortingNode>`.
-unsafe impl Send for SortingNode {}
-#[cfg(target_arch = "wasm32")]
-// SAFETY: same wasm32-only scope: the target is single-threaded, so
-// `&SortingNode` is never accessed from two threads and the handles' `!Sync`
-// default is unreachable.
-unsafe impl Sync for SortingNode {}
-
 /// C++ `Flush_Sorting_Pool` order over `geometries`: every triangle, farthest
 /// first, as (geometry index, first index) pairs.
 ///
@@ -160,16 +148,6 @@ pub struct SortingRenderer {
     index_cursor: u64,
     enable_triangle_draw: bool,
 }
-
-#[cfg(target_arch = "wasm32")]
-// SAFETY: wasm32-only. `nodes` and `index_buffer` hold `!Send` wgpu handles
-// on the web backend; wasm32 has no threads, so they can never move to or be
-// observed from another thread. Native keeps the auto traits.
-unsafe impl Send for SortingRenderer {}
-#[cfg(target_arch = "wasm32")]
-// SAFETY: same wasm32-only scope: the target is single-threaded, so
-// `&SortingRenderer` is never accessed from two threads.
-unsafe impl Sync for SortingRenderer {}
 
 impl Default for SortingRenderer {
     fn default() -> Self {

@@ -248,16 +248,8 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu/src/sorting_renderer.rs": {
-      "constructs": 4,
-      "undocumented": 0
-    },
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu/src/texture.rs": {
       "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-particles/src/line_renderer.rs": {
-      "constructs": 4,
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-particles/src/streak.rs": {
