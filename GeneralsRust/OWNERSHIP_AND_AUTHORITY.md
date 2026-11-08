@@ -20,6 +20,9 @@ GameLogic particle bridge and INI overlay still use ambient client access.
 Terrain class art admitted by a receiving virtual reader is registered with
 that visual's texture manager; reload invalidates its GPU texture cache.
 Texture batching beyond 16 visible classes remains a separate parity gap.
+Wasm GPU context and shared-device handles no longer assert Send/Sync; their
+wgpu fields determine those traits. Other wasm renderer owners still assert
+Send/Sync and require a browser-local ownership migration.
 The optional W3D device surface owns its window through wgpu's safe surface
 API. Its unused raw-pointer draw adapter was removed; the remaining primitive
 API accepts borrowed slices and currently records statistics rather than drawing.
