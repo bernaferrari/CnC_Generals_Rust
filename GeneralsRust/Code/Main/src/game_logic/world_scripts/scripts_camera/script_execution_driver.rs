@@ -223,8 +223,12 @@ impl<'a> HostScriptExecutionDriver<'a> {
 impl HostScriptExecutionDriver<'_> {
     fn owned_audio_extra_receipts(&self) -> Vec<u32> {
         let mut extra_handles = Vec::new();
-        if let Some(view) = self.ui.view.as_deref() {
-            view.visit_owned_ambient_audio_handles(&mut |handle| extra_handles.push(handle));
+        if let (Some(view), Some(audio)) = (self.ui.view.as_deref(), self.ui.audio.as_deref()) {
+            view.visit_owned_ambient_audio_handles(&mut |device, handle| {
+                if audio.accepts_audio_device(device) {
+                    extra_handles.push(handle);
+                }
+            });
         }
         if let (Some(ui), Some(audio)) = (self.ui.ui.as_deref(), self.ui.audio.as_deref()) {
             ui.visit_owned_menu_audio_receipts(&mut |device, handles| {

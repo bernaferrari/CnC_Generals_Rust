@@ -363,7 +363,8 @@ fn apply_static_lod_level(
     // C++ GameLODManager::applyStaticLODLevel client/terrain side effects.
     if requested_texture_reduction != prev_texture {
         let services = crate::common::common_services::common_services();
-        if let Some(hook) = *services.system.adjust_client_lod.lock().unwrap_or_else(|p| p.into_inner()) {
+        let hook = *services.system.adjust_client_lod.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(hook) = hook {
             hook(0);
         }
     }
@@ -371,19 +372,22 @@ fn apply_static_lod_level(
         || lod_info.use_shadow_decals != prev_shadow_decals
     {
         let services = crate::common::common_services::common_services();
-        if let Some(hook) = *services.system.rebuild_shadows.lock().unwrap_or_else(|p| p.into_inner()) {
+        let hook = *services.system.rebuild_shadows.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(hook) = hook {
             hook();
         }
     }
     if lod_info.show_soft_water_edge != prev_soft_water {
         let services = crate::common::common_services::common_services();
-        if let Some(hook) = *services.system.rebuild_shoreline.lock().unwrap_or_else(|p| p.into_inner()) {
+        let hook = *services.system.rebuild_shoreline.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(hook) = hook {
             hook();
         }
     }
     if invoke_legacy_terrain_hook {
         let services = crate::common::common_services::common_services();
-        if let Some(hook) = *services.system.rebuild_tank_tracks.lock().unwrap_or_else(|p| p.into_inner()) {
+        let hook = *services.system.rebuild_tank_tracks.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(hook) = hook {
             hook();
         }
     }

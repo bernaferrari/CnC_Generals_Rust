@@ -1247,6 +1247,12 @@ impl AudioManager {
         self.active_audio_events.insert(1001, event);
     }
 
+    /// Install a playing event for a hardware-free integration fixture.
+    #[doc(hidden)]
+    pub fn test_insert_active_audio_event(&mut self, event: AudioEventRts) {
+        self.active_audio_events.insert(event.get_playing_handle(), event);
+    }
+
 
     pub fn is_valid_audio_event(&self, event_to_check: &AudioEventRts) -> bool {
         if event_to_check.get_event_name().is_empty() {

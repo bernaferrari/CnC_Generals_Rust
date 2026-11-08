@@ -146,7 +146,11 @@ impl NativeDrawableOwner<'_> {
     }
 
     /// Original receiving Drawable visitation includes objectless auxiliary nodes.
-    pub fn visit_owned_ambient_audio_handles(&self, visit: &mut dyn FnMut(u32)) {
+    pub fn visit_owned_ambient_audio_handles(
+        &self,
+        visit: &mut dyn FnMut(&std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>, u32),
+    ) {
+        let Some(device) = self.audio_device else { return };
         for id in &self.drawables.native_drawable_order {
             if let Some(handle) = self
                 .drawables
@@ -158,7 +162,7 @@ impl NativeDrawableOwner<'_> {
                 })
                 .and_then(|draw| draw.owned_ambient_audio_handle())
             {
-                visit(handle);
+                visit(device, handle);
             }
         }
     }

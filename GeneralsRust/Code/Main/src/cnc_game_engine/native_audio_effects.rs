@@ -3,13 +3,13 @@
 use game_engine::common::audio::{AudioEventRts, AudioManager, AudioSubmissionLocality};
 use std::sync::{Arc, Mutex};
 
-pub(super) struct NativeAudioService<'a> {
+pub(crate) struct NativeAudioService<'a> {
     device: &'a Arc<Mutex<AudioManager>>,
     receipts: &'a mut Vec<u32>,
     queued_events: &'a mut Vec<crate::game_logic::audio_dispatch_impl::AdmittedAudioRequest>,
 }
 impl<'a> NativeAudioService<'a> {
-    pub(super) fn receiving(
+    pub(crate) fn receiving(
         subsystems: &'a mut crate::subsystem_manager::SubsystemManager,
     ) -> Option<Self> {
         let (device, receipts, queued_events) = subsystems
@@ -113,13 +113,12 @@ impl crate::game_logic::NativeAudioEffects for NativeAudioService<'_> {
         number_of_times: i32,
         additional_handles: &[u32],
     ) -> Result<bool, String> {
-        let mut owned = self.receipts.clone();
-        owned.extend_from_slice(additional_handles);
         let device = self
             .device
             .lock()
             .map_err(|_| "receiving native music device poisoned".to_owned())?;
-        Ok(device.has_owned_music_track_completed(track, number_of_times, &owned))
+        Ok(device.has_owned_music_track_completed(track, number_of_times, self.receipts)
+            || device.has_owned_music_track_completed(track, number_of_times, additional_handles))
     }
 
     fn accepts_audio_device(&self, device: &Arc<Mutex<AudioManager>>) -> bool {

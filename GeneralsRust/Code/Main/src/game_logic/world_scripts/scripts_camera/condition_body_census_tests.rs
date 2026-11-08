@@ -103,3 +103,81 @@ fn owned_condition_health_and_census_ignore_foreign_same_ids() {
     assert!(!source.owned_script_condition_for_test(health("AbsentOwnedUnit", 1)));
     assert!(source.owned_script_condition_for_test(destroyed("AbsentOwnedPlayer")));
 }
+
+#[test]
+fn scripted_music_completion_uses_receiving_device_receipts_and_reset() {
+    use crate::cnc_game_engine::native_audio_effects::NativeAudioService;
+    use crate::subsystem_manager::{AudioManagerSubsystem, SubsystemManager};
+    use game_engine::common::audio::{AudioEventInfo, AudioEventRts, AudioManager, AudioType};
+    use game_engine::common::audio::game_audio::SoundPlaybackHook;
+    use std::sync::{Arc, Mutex};
+
+    struct Playback;
+    impl SoundPlaybackHook for Playback {
+        fn play(&self, _: &AudioEventRts) -> Result<(), String> { Ok(()) }
+        fn stop(&self, _: u32) {}
+        fn pause(&self, _: u32) {}
+        fn resume(&self, _: u32) {}
+        fn is_playing(&self, _: u32) -> bool { true }
+        fn music_loop_count(&self, handle: u32) -> i32 {
+            match handle { 1001 => 1, 1002 => 4, _ => 0 }
+        }
+    }
+    fn evaluate(world: &mut GameLogic, owner: &mut SubsystemManager, times: i32) -> bool {
+        let mut condition = Condition::new(ConditionType::MusicTrackHasCompleted);
+        condition.add_parameter(Parameter::with_string(ParameterType::Music, "SharedMusic".into())).unwrap();
+        condition.add_parameter(Parameter::with_int(ParameterType::Int, times)).unwrap();
+        let mut branch = OrCondition::new();
+        branch.set_first_and_condition(Some(Box::new(condition)));
+        let mut action = ScriptAction::new(ScriptActionType::IncrementCounter);
+        action.add_parameter(Parameter::with_int(ParameterType::Int, 1)).unwrap();
+        action.add_parameter(Parameter::with_string(ParameterType::Counter, "MusicObserved".into())).unwrap();
+        let mut script = Script::new();
+        script.script_name = "MusicCompletion".into();
+        script.condition = Some(Box::new(branch));
+        script.action = Some(Box::new(action));
+        let mut list = ScriptList::new();
+        list.append_script(Box::new(script));
+        let mut engine = ScriptEngine::new().unwrap();
+        engine.set_counter("MusicObserved", 0).unwrap();
+        engine.set_script_list_for_player(0, Some(Box::new(list))).unwrap();
+        let mut audio = NativeAudioService::receiving(owner).unwrap();
+        let effects = crate::game_logic::ScriptPresentationEffects {
+            audio: Some(&mut audio),
+            ..Default::default()
+        };
+        engine.update_with_driver(
+            gamelogic::scripting::executor::ScriptContext::at_frame(world.frame),
+            &mut HostScriptExecutionDriver::with_effects(world, &engine, effects),
+        ).unwrap();
+        engine.get_counter("MusicObserved").unwrap().value == 1
+    }
+
+    let device = Arc::new(Mutex::new(AudioManager::with_playback_hook(Box::new(Playback))));
+    let mut owners = [SubsystemManager::new(), SubsystemManager::new()];
+    for (index, owner) in owners.iter_mut().enumerate() {
+        let handle = 1001 + index as u32;
+        let mut event = AudioEventRts::with_event_name("SharedMusic");
+        event.set_playing_handle(handle);
+        event.set_audio_event_info(Arc::new(AudioEventInfo {
+            audio_name: "SharedMusic".into(),
+            sound_type: AudioType::Music,
+            ..Default::default()
+        }));
+        device.lock().unwrap().test_insert_active_audio_event(event);
+        let mut subsystem = AudioManagerSubsystem::new();
+        subsystem.bind_common_audio_device(Arc::clone(&device));
+        subsystem.receiving_audio_parts().unwrap().1.push(handle);
+        owner.add_subsystem(subsystem);
+    }
+    let mut worlds = [GameLogic::new(), GameLogic::new()];
+    assert!(!evaluate(&mut worlds[0], &mut owners[0], 2));
+    assert!(evaluate(&mut worlds[0], &mut owners[0], 1));
+    assert!(evaluate(&mut worlds[1], &mut owners[1], 4));
+    assert!(!evaluate(&mut worlds[1], &mut owners[1], 5));
+    owners[0].reset_all().unwrap();
+    assert!(!evaluate(&mut worlds[0], &mut owners[0], 1));
+    assert!(evaluate(&mut worlds[1], &mut owners[1], 4));
+    owners[1].reset_all().unwrap();
+    assert!(!evaluate(&mut worlds[1], &mut owners[1], 1));
+}

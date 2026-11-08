@@ -200,7 +200,7 @@ mod replay_probe_paths;
 pub use replay_probe_paths::prepare_replay_probe_private_paths;
 
 mod map_native_admission;
-mod native_audio_effects;
+pub(crate) mod native_audio_effects;
 
 #[cfg(all(
     feature = "internal",

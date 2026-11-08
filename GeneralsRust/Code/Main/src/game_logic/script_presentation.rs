@@ -242,7 +242,10 @@ pub(crate) trait NativeProjectedRadiusAllocator {
 }
 
 pub(crate) trait NativeViewEffects {
-    fn visit_owned_ambient_audio_handles(&self, _visit: &mut dyn FnMut(u32)) {}
+    fn visit_owned_ambient_audio_handles(
+        &self,
+        _visit: &mut dyn FnMut(&std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>, u32),
+    ) {}
 
     #[cfg(feature = "game_client")]
     fn create_jet_lockon(

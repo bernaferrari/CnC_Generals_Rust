@@ -212,7 +212,10 @@ impl<'a> NativeRendererViewEffects<'a> {
 }
 #[cfg(feature = "game_client")]
 impl NativeViewEffects for NativeRendererViewEffects<'_> {
-    fn visit_owned_ambient_audio_handles(&self, visit: &mut dyn FnMut(u32)) {
+    fn visit_owned_ambient_audio_handles(
+        &self,
+        visit: &mut dyn FnMut(&std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>, u32),
+    ) {
         self.drawables.visit_owned_ambient_audio_handles(visit);
     }
 
