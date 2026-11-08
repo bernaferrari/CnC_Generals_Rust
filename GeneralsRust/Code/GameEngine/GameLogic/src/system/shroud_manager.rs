@@ -2486,6 +2486,18 @@ impl ShroudManager {
         }
     }
 
+    /// A newly admitted host object has a fresh PartitionData lifetime even
+    /// when its numeric ID was used by a retired object. Terrain shroud and
+    /// parentless ghost snapshots are owned separately and must not be cleared.
+    pub fn forget_host_object(&mut self, object_id: ObjectID) {
+        for player in 0..MAX_PLAYER_COUNT {
+            self.player_visible_objects[player].remove(&object_id);
+            self.player_explored_objects[player].remove(&object_id);
+            self.host_object_shroud[player].remove(&object_id);
+            self.host_object_ever_seen[player].remove(&object_id);
+        }
+    }
+
     /// Host residual: clear per-player object membership before a full host vision pass.
     /// Does not touch terrain looker counters / shroud grid cells.
     pub fn clear_host_object_visibility(&mut self, player_id: u32) {

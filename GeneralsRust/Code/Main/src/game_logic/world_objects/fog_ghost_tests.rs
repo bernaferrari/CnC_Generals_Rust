@@ -27,6 +27,7 @@ fn world() -> GameLogic {
         .lock()
         .unwrap()
         .init_shroud_grid(240.0, 240.0);
+    world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     world
 }
 fn native_draw(world: &GameLogic, name: &str, generation: u64) -> CommittedHostGhostDraw {
@@ -166,7 +167,90 @@ fn physical_parent_removal_preserves_orphan_until_its_original_location_is_revea
         .unwrap()
         .do_shroud_reveal(&Coord3D::new(80.0, 80.0, 3.0), 80.0, 1 << 1);
     world.update_host_fog_ghosts().unwrap();
+    assert_eq!(world.w3d_ghosts.used_count(), 1, "vision does not unregister orphan PartitionData");
+    world.update_orphaned_host_fog_ghosts().unwrap();
     assert_eq!(world.w3d_ghosts.used_count(), 0);
+}
+
+#[test]
+fn retired_fog_memory_and_reused_id_have_distinct_visibility_across_worlds_and_restore() {
+    let mut a = world();
+    let mut b = world();
+    for world in [&mut a, &mut b] {
+        world.players.get_mut(&1).unwrap().set_map_relationship(
+            2,
+            gamelogic::common::Relationship::Enemies,
+        );
+        assert_eq!(
+            world.player_relationship(1, 2),
+            gamelogic::common::Relationship::Enemies
+        );
+    }
+    reveal(&mut a);
+    reveal(&mut b);
+    a.admit_host_ghost_draws(vec![native_draw(&a, "OldA", 1)]);
+    b.admit_host_ghost_draws(vec![native_draw(&b, "OldB", 1)]);
+    fog(&mut a);
+    fog(&mut b);
+
+    assert!(a
+        .take_object_for_physical_retirement(PARENT, &mut Default::default())
+        .unwrap()
+        .is_some());
+    assert_eq!(status(&a), None);
+    assert_eq!(a.w3d_ghosts.used()[0].parent_object_id(), None);
+    assert_eq!(captured_name(&a), "OldA");
+    let mut replacement = Object::new(a.templates["FogBuilding"].clone(), PARENT, Team::China);
+    replacement.owner_player_id = Some(2);
+    replacement.set_position(Vec3::new(80.0, 3.0, 80.0));
+    replacement.shroud_clearing_range = 0.0;
+    a.add_object(replacement);
+    a.update_main_crate_vision();
+    assert_eq!(status(&a), Some(ObjectShroudStatus::Shrouded));
+    assert!(a.w3d_ghosts.used().iter().any(|ghost| {
+        ghost.parent_object_id().is_none()
+            && ghost.snapshots(1).iter().any(|snapshot| snapshot.render_object.name == "OldA")
+    }));
+    assert!(a.w3d_ghosts.used().iter().any(|ghost| {
+        ghost.parent_object_id() == Some(PARENT.0) && !ghost.has_snapshot(1)
+    }));
+    assert_eq!(status(&b), Some(ObjectShroudStatus::Fogged));
+    assert_eq!(captured_name(&b), "OldB");
+
+    let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&a).unwrap();
+    let mut restored = GameLogic::new();
+    restored.templates = a.templates.clone();
+    restored.add_player(Player::new(1, Team::USA, "Viewer", true));
+    restored.add_player(Player::new(2, Team::China, "Enemy", false));
+    builder.restore_from_snapshot(&snapshot, &mut restored).unwrap();
+    assert_eq!(
+        restored.player_relationship(1, 2),
+        gamelogic::common::Relationship::Enemies
+    );
+    assert!(b
+        .take_object_for_physical_retirement(PARENT, &mut Default::default())
+        .unwrap()
+        .is_some());
+    assert_eq!(captured_name(&b), "OldB");
+    restored.update_main_crate_vision();
+    assert_eq!(status(&restored), Some(ObjectShroudStatus::Shrouded));
+    assert!(restored.w3d_ghosts.used().iter().any(|ghost| {
+        ghost.parent_object_id().is_none()
+            && ghost.snapshots(1).iter().any(|snapshot| snapshot.render_object.name == "OldA")
+    }));
+    reveal(&mut restored);
+    restored.update_orphaned_host_fog_ghosts().unwrap();
+    assert!(!restored.w3d_ghosts.used().iter().any(|ghost| {
+        ghost.parent_object_id().is_none()
+            && ghost.snapshots(1).iter().any(|snapshot| snapshot.render_object.name == "OldA")
+    }));
+    assert_eq!(status(&b), None);
+    assert_eq!(captured_name(&b), "OldB");
+    b.world_services.shroud().lock().unwrap()
+        .do_shroud_reveal(&Coord3D::new(80.0, 80.0, 3.0), 80.0, 1 << 1);
+    b.update_orphaned_host_fog_ghosts().unwrap();
+    assert!(b.w3d_ghosts.used().is_empty());
 }
 
 #[test]

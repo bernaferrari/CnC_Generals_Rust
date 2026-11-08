@@ -176,7 +176,6 @@ impl GameLogic {
             // ordinary onDie/onDelete already consumed this registered latch.
             self.unregister_tunnel_containment_with_effects(event.id, presentation_effects);
             self.finish_building_sound(event.id);
-            self.detach_host_fog_ghost(event.id);
             if let Some(cid) = self.objects.get(&event.id).and_then(|object| object.contained_by)
                 .filter(|cid| self.objects.get(cid).is_some_and(|container| {
                     container.thing().template.contain_module.kind == crate::game_logic::ContainModuleKind::RailedTransport

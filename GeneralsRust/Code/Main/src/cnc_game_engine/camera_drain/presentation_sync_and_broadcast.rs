@@ -1,5 +1,37 @@
 use super::*;
 
+#[cfg(feature = "game_client")]
+struct ClientWorldLoan<'a> {
+    logic: &'a mut crate::game_logic::GameLogic,
+    paused: bool,
+}
+
+#[cfg(feature = "game_client")]
+impl game_client::core::game_client::NativeClientWorld for ClientWorldLoan<'_> {
+    fn visual_time(&mut self) -> game_client::core::GameClientResult<game_client::core::game_client::NativeVisualTime> {
+        native_visual_time::observe_receiving(self.logic, self.paused, None)
+            .map_err(game_client::core::GameClientError::InvalidOperation)
+    }
+
+    fn update_orphaned_ghosts(&mut self) -> game_client::core::GameClientResult<()> {
+        self.logic.update_orphaned_host_fog_ghosts()
+            .map_err(game_client::core::GameClientError::InvalidOperation)
+    }
+
+    fn ambient_time_of_day(&self) -> Option<game_client::system::TimeOfDay> {
+        super::native_view_effects::receiving_native_drawable_policy_for(self.logic).time_of_day
+    }
+
+    fn ambient_locality(&mut self, object_id: Option<u32>) -> game_engine::common::audio::AudioSubmissionLocality {
+        let source = object_id
+            .and_then(|id| self.logic.host_object(crate::game_logic::ObjectId(id)))
+            .and_then(|object| object.owner_player_id)
+            .map(|id| id as i32)
+            .unwrap_or(-1);
+        self.logic.receiving_audio_locality_for_player(source)
+    }
+}
+
 impl CnCGameEngine {
     /// Admit logic-origin material commands only after resolving this world's
     /// current complete Drawable association. The pending command remains on
@@ -749,36 +781,18 @@ impl CnCGameEngine {
             client_frame: self.game_client.get_frame(),
         };
         let native_mode = self.receiving_menu_world_facts().game_mode;
-        let logic = &self.game_logic;
-        let paused = self.game_paused;
-        let ambient_policy =
-            super::native_view_effects::receiving_native_drawable_policy_for(logic);
-        let mut ambient_locality = |object_id: Option<u32>| {
-            let source = object_id
-                .and_then(|id| logic.host_object(crate::game_logic::ObjectId(id)))
-                .and_then(|object| object.owner_player_id)
-                .map(|id| id as i32)
-                .unwrap_or(-1);
-            logic.receiving_audio_locality_for_player(source)
+        let mut world = ClientWorldLoan {
+            logic: &mut self.game_logic,
+            paused: self.game_paused,
         };
-        let mut ambient_update = game_client::drawable::drawable::NativeAmbientUpdate::new(
-            ambient_policy.time_of_day,
-            &mut ambient_locality,
-        );
         match self
             .game_client
             .try_begin_presentation_shell_with_owned_visual_time_and_ambient(
                 visual_delta,
                 frames,
                 &material_observations,
-                || {
-                    // Preserve the original observation after pre-draw UI;
-                    // the actual receiving interpreter is restored by then.
-                    native_visual_time::observe_receiving(logic, paused, None)
-                        .map_err(game_client::core::GameClientError::InvalidOperation)
-                },
                 native_mode,
-                &mut ambient_update,
+                &mut world,
             ) {
             Ok(step) => {
                 if let Err(error) = self.native_display.queue_shell(

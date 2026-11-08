@@ -101,8 +101,19 @@ impl GameLogic {
     pub(crate) fn detach_host_fog_ghost(&mut self, id: ObjectId) {
         self.host_ghosts.draws.remove(&id);
         if let Some(link) = self.host_ghosts.links.remove(&id) {
-            self.w3d_ghosts.orphan_linked_ghost(link.scene_id);
-            if !self.w3d_ghosts.linked_ghost_has_any_snapshot(link.scene_id) {
+            let retain = {
+                let shroud = self.world_services.shroud().lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                (0..game_engine::common::game_common::MAX_PLAYER_COUNT).any(|player| {
+                    shroud.host_object_ever_seen(player as u32, id.0)
+                        && shroud.get_host_object_shroud_status(player as u32, id.0)
+                            == Some(ObjectShroudStatus::Fogged)
+                })
+            };
+            if retain {
+                self.partition_manager.retain_ghost_partition(id.0, link.scene_id);
+                self.w3d_ghosts.orphan_linked_ghost(link.scene_id);
+            } else {
                 self.w3d_ghosts.remove_linked_ghost(link.scene_id);
             }
         }
@@ -117,14 +128,10 @@ impl GameLogic {
             .w3d_ghosts
             .used()
             .iter()
-            .filter_map(|ghost| {
-                ghost
-                    .parent_object_id()
-                    .map(|id| (ObjectId(id), ghost.scene_id()))
-            })
+            .map(|ghost| (ghost.parent_object_id().map(ObjectId), ghost.scene_id(), ghost.parent_geometry()))
             .collect();
-        for (id, scene_id) in links {
-            if let Some(object) = self.objects.get(&id) {
+        for (parent, scene_id, geometry) in links {
+            if let Some((id, object)) = parent.and_then(|id| self.objects.get(&id).map(|object| (id, object))) {
                 self.host_ghosts.links.insert(
                     id,
                     HostGhostLink {
@@ -133,7 +140,23 @@ impl GameLogic {
                     },
                 );
             } else {
-                self.w3d_ghosts.orphan_linked_ghost(scene_id);
+                if parent.is_some() {
+                    self.w3d_ghosts.orphan_linked_ghost(scene_id);
+                }
+                if let Some(info) = geometry {
+                    self.partition_manager.restore_ghost_partition(
+                        scene_id,
+                        info.position[0],
+                        info.position[1],
+                        crate::game_logic::partition_coi::HostPartitionFootprint {
+                            major_radius: info.major_radius,
+                            minor_radius: info.minor_radius,
+                            angle: info.angle,
+                            is_small: info.is_small,
+                            is_box: info.geometry_type == 2,
+                        },
+                    );
+                }
             }
         }
     }
@@ -178,7 +201,7 @@ impl GameLogic {
         if let Some(local) = self.local_player_id() {
             self.select_host_fog_ghost_viewer(local);
         }
-        self.apply_host_fog_ghost_transitions(shroud)
+        self.apply_host_fog_ghost_transitions(shroud, false)
     }
 
     fn select_host_fog_ghost_viewer(&mut self, local: u32) {
@@ -195,50 +218,56 @@ impl GameLogic {
         let shroud = shroud
             .lock()
             .map_err(|_| "session shroud poisoned during fog freeze".to_string())?;
-        self.apply_host_fog_ghost_transitions(&shroud)
+        self.apply_host_fog_ghost_transitions(&shroud, false)
+    }
+
+    /// GameClient::update visits parentless ghosts only while time is unfrozen.
+    pub(crate) fn update_orphaned_host_fog_ghosts(&mut self) -> Result<(), String> {
+        let shroud = std::sync::Arc::clone(self.world_services.shroud());
+        let shroud = shroud
+            .lock()
+            .map_err(|_| "session shroud poisoned during orphan update".to_string())?;
+        self.apply_host_fog_ghost_transitions(&shroud, true)
+    }
+
+    fn remove_snapshotless_host_orphans(&mut self, local: usize) {
+        let empty: Vec<_> = self.w3d_ghosts.used().iter()
+            .filter(|ghost| ghost.parent_object_id().is_none() && !ghost.has_snapshot(local))
+            .map(|ghost| ghost.scene_id())
+            .collect();
+        for scene_id in empty {
+            self.partition_manager.unregister_ghost_partition(scene_id);
+            self.w3d_ghosts.remove_linked_ghost(scene_id);
+        }
     }
 
     fn apply_host_fog_ghost_transitions(
         &mut self,
         shroud: &gamelogic::system::shroud_manager::ShroudManager,
+        update_orphans: bool,
     ) -> Result<(), String> {
-        let stale: Vec<_> = self
-            .w3d_ghosts
-            .used()
-            .iter()
-            .filter_map(|ghost| {
-                let id = ghost.parent_object_id().map(ObjectId)?;
-                let link = self.host_ghosts.links.get(&id)?;
-                let matching = self.objects.get(&id).is_some_and(|object| {
-                    self.live_draw_playback_identity(object) == link.identity
-                });
-                (!matching).then_some(id)
-            })
-            .collect();
-        for id in stale {
-            self.detach_host_fog_ghost(id);
-        }
-        // Production admission attaches immediately in source order. This
-        // canonical host ID roster also covers direct diagnostic insertions;
-        // it never changes an already saved/installed manager list order.
-        let mut eligible: Vec<_> = self.objects.registered_keys().copied().collect();
-        eligible.sort_unstable();
-        for id in eligible {
-            self.attach_host_fog_ghost(id);
-        }
 
         let local = self.w3d_ghosts.local_player_index();
         // CPP getShroudedStatus returns INVALID before a partition grid
         // exists. A staged/cold world cannot release saved fog memory.
         let Some(origin) = shroud.grid_world_origin() else {
+            if update_orphans {
+                self.remove_snapshotless_host_orphans(local);
+            }
             return Ok(());
         };
         let Some((width, height, cell_size)) = shroud.grid_dimensions() else {
+            if update_orphans {
+                self.remove_snapshotless_host_orphans(local);
+            }
             return Ok(());
         };
         let dimensions = [width, height];
         let mut transitions = Vec::new();
         for ghost in self.w3d_ghosts.used() {
+            if update_orphans {
+                continue;
+            }
             let Some(id) = ghost.parent_object_id().map(ObjectId) else {
                 continue;
             };
@@ -286,26 +315,11 @@ impl GameLogic {
             .w3d_ghosts
             .used()
             .iter()
-            .filter(|ghost| ghost.parent_object_id().is_none())
+            .filter(|ghost| update_orphans && ghost.parent_object_id().is_none())
         {
-            let Some(info) = ghost.parent_geometry() else {
+            let Some(cells) = self.partition_manager.ghost_partition_cells(ghost.scene_id()) else {
                 continue;
             };
-            let cells = crate::game_logic::partition_coi::cells_touched_for_footprint_on_grid(
-                origin,
-                dimensions,
-                cell_size,
-                info.position[0],
-                info.position[1],
-                crate::game_logic::partition_coi::HostPartitionFootprint {
-                    major_radius: info.major_radius,
-                    minor_radius: info.minor_radius,
-                    angle: info.angle,
-                    is_small: info.is_small,
-                    is_box: info.geometry_type == 2,
-                },
-            )
-            .map_err(|reason| format!("saved ghost fog footprint: {reason}"))?;
             let counts = shroud.count_footprint_cells(local as u32, &cells);
             if counts.total == 0 {
                 continue;
@@ -389,8 +403,12 @@ impl GameLogic {
                 }
             }
             if parent.is_none() && !self.w3d_ghosts.linked_ghost_has_any_snapshot(scene_id) {
+                self.partition_manager.unregister_ghost_partition(scene_id);
                 self.w3d_ghosts.remove_linked_ghost(scene_id);
             }
+        }
+        if update_orphans {
+            self.remove_snapshotless_host_orphans(local);
         }
         Ok(())
     }

@@ -169,6 +169,14 @@ impl GameLogic {
         // Validate before touching old reservations, identities or callback state.
         self.validate_receiving_object_turrets(&object)?;
         self.validate_host_object_admission(object.id)?;
+        // C++ allocates fresh PartitionData for every admitted Object. The
+        // retired lifetime's ghost keeps its own captured cells and snapshots,
+        // but the new Object must not inherit its ID-keyed visibility history.
+        self.world_services
+            .shroud()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .forget_host_object(object.id.0);
         // Observation copies retain scalar history, not a receipt authorizing
         // subtraction from another receiving grid. New admission starts clean.
         if object.partition_namespace.is_detached_clone() {

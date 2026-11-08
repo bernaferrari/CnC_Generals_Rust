@@ -51,6 +51,9 @@ pub struct PartitionManager {
     cells: HashMap<(i32, i32), Vec<u32>>,
     /// Object id → every overlapping cell (C++ COI list).
     object_cells: HashMap<u32, PartitionObject>,
+    /// Detached modules remain owned by the partition manager until the ghost
+    /// manager unregisters them. Their cells are not collision candidates.
+    ghost_cells: HashMap<u64, PartitionObject>,
     dirty: Vec<PartitionDirty>,
     namespace: std::sync::Arc<()>,
     /// Same receiving WorldServices grid; this handle adds no scalar storage.
@@ -73,6 +76,7 @@ impl PartitionManager {
             revealed_players: HashSet::new(),
             cells: HashMap::new(),
             object_cells: HashMap::new(),
+            ghost_cells: HashMap::new(),
             dirty: Vec::new(),
             namespace: std::sync::Arc::new(()),
             scalar_owner: None,
@@ -285,6 +289,45 @@ impl PartitionManager {
         self.clear_object_coverage(id);
         self.object_cells.remove(&id);
         self.dirty.retain(|dirty| dirty.object_id != id);
+    }
+
+    /// Transfer the actual attached module to a parentless ghost. Remove its
+    /// live-object collision entries without destroying its COI list.
+    pub(in crate::game_logic) fn retain_ghost_partition(&mut self, id: u32, ghost: u64) {
+        if let Some(mut module) = self.object_cells.remove(&id) {
+            for key in &module.cells {
+                if let Some(list) = self.cells.get_mut(key) {
+                    list.retain(|&candidate| candidate != id);
+                    if list.is_empty() {
+                        self.cells.remove(key);
+                    }
+                }
+            }
+            module.birth = None;
+            self.dirty.retain(|dirty| dirty.object_id != id);
+            self.ghost_cells.insert(ghost, module);
+        }
+    }
+
+    pub(in crate::game_logic) fn ghost_partition_cells(&self, ghost: u64) -> Option<&[(i32, i32)]> {
+        self.ghost_cells.get(&ghost).map(|module| module.cells.as_slice())
+    }
+
+    pub(in crate::game_logic) fn unregister_ghost_partition(&mut self, ghost: u64) {
+        self.ghost_cells.remove(&ghost);
+    }
+
+    /// Loading an orphan creates its PartitionData from the saved geometry,
+    /// as C++ registerGhostObject does.
+    pub(in crate::game_logic) fn restore_ghost_partition(
+        &mut self,
+        ghost: u64,
+        x: f32,
+        z: f32,
+        footprint: HostPartitionFootprint,
+    ) {
+        let cells = self.footprint_cells(x, z, footprint);
+        self.ghost_cells.insert(ghost, PartitionObject { cells, ..Default::default() });
     }
 
     /// Drop coverage while retaining the original attached module/dirty identity.

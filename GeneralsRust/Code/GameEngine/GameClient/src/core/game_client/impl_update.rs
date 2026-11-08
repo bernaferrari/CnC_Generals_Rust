@@ -1922,7 +1922,7 @@ impl GameClient {
         self.begin_presentation_shell_observing(
             delta_time,
             particle_frames,
-            observe,
+            Some(observe),
             game_mode,
             None,
         )
@@ -1935,17 +1935,16 @@ impl GameClient {
         delta_time: f32,
         particle_frames: NativeParticleFrames,
         materials: &[NativeMaterialObservation],
-        observe: impl FnOnce() -> GameClientResult<NativeVisualTime>,
         game_mode: i32,
-        ambient: &mut crate::drawable::drawable::NativeAmbientUpdate<'_>,
+        world: &mut dyn NativeClientWorld,
     ) -> GameClientResult<PreparedPresentationShell> {
         self.validate_material_observations(materials)?;
         self.begin_presentation_shell_observing(
             delta_time,
             particle_frames,
-            observe,
+            None::<fn() -> GameClientResult<NativeVisualTime>>,
             game_mode,
-            Some(ambient),
+            Some(world),
         )
     }
 
@@ -1958,7 +1957,7 @@ impl GameClient {
         self.begin_presentation_shell_observing(
             delta_time,
             particle_frames,
-            || Ok(legacy_visual_time_observation()),
+            Some(|| Ok(legacy_visual_time_observation())),
             game_mode,
             None,
         )
@@ -1968,9 +1967,9 @@ impl GameClient {
         &mut self,
         delta_time: f32,
         particle_frames: NativeParticleFrames,
-        observe: impl FnOnce() -> GameClientResult<NativeVisualTime>,
+        observe: Option<impl FnOnce() -> GameClientResult<NativeVisualTime>>,
         game_mode: i32,
-        mut ambient: Option<&mut crate::drawable::drawable::NativeAmbientUpdate<'_>>,
+        mut world: Option<&mut dyn NativeClientWorld>,
     ) -> GameClientResult<PreparedPresentationShell> {
         if particle_frames.client_frame != self.frame {
             return Err(GameClientError::InvalidOperation(
@@ -2076,7 +2075,11 @@ impl GameClient {
         // Device state is shared THE_MOUSE/THE_KEYBOARD (Main inject; no second OS poll).
         // C++ GameClient.cpp621-630 observes after pre-draw UI, including
         // synchronous camera/script changes made by those callbacks.
-        let (freeze_time, visual_speed) = self.admit_visual_time(observe()?)?;
+        let observation = match world.as_deref_mut() {
+            Some(world) => world.visual_time()?,
+            None => observe.expect("client visual observation owner is required")()?,
+        };
+        let (freeze_time, visual_speed) = self.admit_visual_time(observation)?;
         let visual_delta = if freeze_time || visual_speed <= 0. {
             0.
         } else {
@@ -2089,12 +2092,21 @@ impl GameClient {
         // PresentationFrame::dispatch_audio_events_direct before this shell tick.
 
         // C++ GameClient.cpp:632-657 — GhostObjectManager::updateOrphanedObjects.
-        self.update_orphaned_w3d_ghosts_if_unfrozen(freeze_time);
+        if let Some(world) = world.as_deref_mut() {
+            if !freeze_time {
+                world.update_orphaned_ghosts()?;
+            }
+        } else {
+            self.update_orphaned_w3d_ghosts_if_unfrozen(freeze_time);
+        }
 
         // Local drawable client modules only (no OBJECT_REGISTRY shroud bind).
         // Eva residual runs via update_post_draw_ui (no dual OS input ownership).
-        if let Some(ambient) = ambient.as_deref_mut() {
-            self.update_drawables_local_with_ambient(visual_delta, particle_frames, ambient)?;
+        if let Some(world) = world.as_deref_mut() {
+            let time_of_day = world.ambient_time_of_day();
+            let mut locality = |object_id| world.ambient_locality(object_id);
+            let mut ambient = crate::drawable::drawable::NativeAmbientUpdate::new(time_of_day, &mut locality);
+            self.update_drawables_local_with_ambient(visual_delta, particle_frames, &mut ambient)?;
         } else {
             self.update_drawables_local(visual_delta, particle_frames)?;
         }

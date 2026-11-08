@@ -466,7 +466,6 @@ impl GameLogic {
         self.pending_special_abilities
             .retain(|_, ability| ability.target_id() != id);
         self.finish_building_sound(id);
-        self.detach_host_fog_ghost(id);
         let Some(object) = self.take_object_for_physical_retirement(id, effects)? else {
             return Ok(false);
         };

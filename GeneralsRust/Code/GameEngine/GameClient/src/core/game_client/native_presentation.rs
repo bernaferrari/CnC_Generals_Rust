@@ -6,6 +6,15 @@ pub struct NativeVisualTime {
     pub visual_speed: f32,
 }
 
+/// The receiving match is borrowed through the entire client update, so the
+/// orphan phase and later ambient queries cannot address different worlds.
+pub trait NativeClientWorld {
+    fn visual_time(&mut self) -> GameClientResult<NativeVisualTime>;
+    fn update_orphaned_ghosts(&mut self) -> GameClientResult<()>;
+    fn ambient_time_of_day(&self) -> Option<crate::system::TimeOfDay>;
+    fn ambient_locality(&mut self, object_id: Option<u32>) -> game_engine::common::audio::AudioSubmissionLocality;
+}
+
 // The owned continuation between client CU and the driving display's Draw.
 // It contains no mutable world publication or borrowed self-reference.
 #[must_use]

@@ -3113,3 +3113,8 @@ reset-generation behavior still require an ownership audit.
 GPU buffer, texture, pipeline and pipeline-cache wrappers no longer assert
 wasm Send or Sync unsafely. Native trait checks and a real backend operation
 pass; the asset crate and its tests compile for wasm.
+
+Physical retirement detaches fogged ghost partition data before unregistering
+the object. Orphaned data belongs to the receiving scene, survives restoration,
+and is cleaned up during the unfrozen client update. New object admissions
+clear ID-keyed visibility history without erasing retained ghosts.
