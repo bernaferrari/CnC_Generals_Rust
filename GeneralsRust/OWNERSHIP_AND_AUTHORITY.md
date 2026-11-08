@@ -24,6 +24,11 @@ The BIG archive reader keeps an open file and reads bounded entries on demand,
 so external truncation produces an I/O error rather than invalidating a mapping.
 Windows audio callbacks retain a shared context for the duration of each
 invocation; Windows execution remains unverified on this macOS host.
+Possible-destination queries have an interleaved ground, aircraft and ignored
+obstacle regression across independent worlds and snapshot restore. Core path
+search still has ambient registry fallbacks for other obstacle observations.
+Direct deletion of an authored required spawner destroys each still-live child
+in roster order without invoking its death behavior; optional children survive.
 WWAudio device channel creation exclusively borrows its AudioSystem instead of
 retaining a raw parent pointer; the streamer retains the resulting channel,
 not the system borrow. Native-endian decoded PCM bytes remain unchanged.

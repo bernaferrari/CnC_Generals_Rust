@@ -715,6 +715,58 @@ fn possible_destination_uses_the_receiving_worlds_wide_unit_footprint() {
 }
 
 #[test]
+fn possible_destination_interleaves_receiver_policies_across_worlds_and_restore() {
+    // AIPathfind.cpp:4900-4955 derives each query's ignored ID and aircraft
+    // policy from its receiver, rather than from the previous query.
+    let directory = tempfile::tempdir().unwrap();
+    let map = directory.path().join("InterleavedDestinations.map");
+    let mut data = DataChunkOutput::new();
+    data.open_data_chunk("HeightMapData", 3);
+    for value in [41, 41, 1, 1681] {
+        data.write_int(value);
+    }
+    for _ in 0..1681 {
+        data.write_byte(0);
+    }
+    data.close_data_chunk();
+    data.open_data_chunk("ObjectsList", 3);
+    data.close_data_chunk();
+    std::fs::write(&map, data.into_ckmp_bytes()).unwrap();
+
+    let goal = Vec3::new(150.0, 0.0, 100.0);
+    let mut worlds = [aircraft_world(&map), aircraft_world(&map)];
+    let mut ids = Vec::new();
+    for world in &mut worlds {
+        let ground = world.create_object_for_player("RetryGroundUnit", 1, Vec3::new(60.0, 0.0, 100.0)).unwrap();
+        let ignored = world.create_object_for_player("RetryGroundUnit", 1, Vec3::new(70.0, 0.0, 100.0)).unwrap();
+        let aircraft = world.create_object_for_player("RetryFlyer", 1, Vec3::new(80.0, 0.0, 100.0)).unwrap();
+        let reservation = world.create_object_for_player("RetryGroundUnit", 1, Vec3::new(90.0, 0.0, 100.0)).unwrap();
+        world.host_object_mut(reservation).unwrap().is_final_goal = true;
+        assert!(world.assign_unit_path_exact(reservation, goal, &[]));
+        mark_unit_moving(world, reservation);
+        world.host_object_mut(ignored).unwrap().ignored_obstacle_id = Some(reservation);
+        ids.push((ground, ignored, aircraft, reservation));
+    }
+    assert_eq!(ids[0], ids[1]);
+    let (ground, ignored, aircraft, _) = ids[0];
+    let saved = xfer_world_snapshot(&worlds[0]);
+    let mut restored = aircraft_world(&map);
+    SnapshotBuilder::new().restore_from_snapshot(&saved, &mut restored).unwrap();
+    let query = |world: &GameLogic, object, expected| {
+        let mut destination = goal;
+        assert!(world.adjust_to_possible_destination(object, &mut destination));
+        assert_eq!(destination == goal, expected);
+    };
+    query(&worlds[0], ground, false);
+    query(&worlds[1], aircraft, true);
+    query(&restored, ignored, true);
+    query(&worlds[1], ground, false);
+    query(&worlds[0], ignored, true);
+    query(&restored, aircraft, true);
+    query(&restored, ground, false);
+}
+
+#[test]
 fn possible_destination_uses_the_receiving_actors_own_goal() {
     let directory = tempfile::tempdir().unwrap();
     let map = directory.path().join("DestinationReceiver.map");

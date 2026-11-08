@@ -160453,7 +160453,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "060e4cfacac152beb74e3aa47a147e974b49b44e5ba9703281c3951ec18aa55b",
+  "input_digest": "642b51d4d6f6895482f92f99c8a6cb8a3a28153bc72bb02f3b5dab9756e13323",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -176614,11 +176614,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3400,
+        "end_line": 3423,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/impl_gpu.rs",
-      "sha256": "aab9a51433ab8a7019c80a5abe36d48928945d5cd5d563301eb8934fdda8579d",
+      "sha256": "19d4b06f61513ad2270aa4dcd146623b8f5d9b67c9a36ab223cc9507d19022db",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -177134,31 +177134,36 @@
         {
           "kind": "fn",
           "line": 3298,
+          "name": "extra_blend_mesh_respects_authored_diagonal_and_window_edges"
+        },
+        {
+          "kind": "fn",
+          "line": 3321,
           "name": "get_texture_class_from_ndx_includes_tile_zero"
         },
         {
           "kind": "fn",
-          "line": 3310,
+          "line": 3333,
           "name": "adjacent_classes_bind_different_texture_id_slots"
         },
         {
           "kind": "fn",
-          "line": 3327,
+          "line": 3350,
           "name": "unmapped_tile_is_not_used_as_slot_index"
         },
         {
           "kind": "fn",
-          "line": 3342,
+          "line": 3365,
           "name": "authored_cliff_uv_uses_class_coordinates_for_base_and_blend_tiles"
         },
         {
           "kind": "fn",
-          "line": 3372,
+          "line": 3395,
           "name": "horizontal_and_vertical_blends_cover_one_edge"
         },
         {
           "kind": "fn",
-          "line": 3384,
+          "line": 3407,
           "name": "diagonals_flip_the_cell_like_cpp"
         }
       ]

@@ -65,6 +65,30 @@ impl GameLogic {
         self.cost_modifier_on_delete(id);
         self.detach_destroyed_object_from_contain(id, effects)?;
         self.delete_direct_containment_with_effects(id, effects)?;
+        // SpawnBehavior::onDelete destroys live required children directly,
+        // unlike onDie which kills them through their death modules.
+        let spawn_children = self.objects.get(&id).and_then(|parent| {
+            Self::spawn_behavior_requires_spawner(parent)
+                .then(|| (parent.visual_object_generation, parent.spawn_behavior_children()))
+        });
+        if let Some((parent_birth, children)) = spawn_children {
+            let epoch = self.visual_world_epoch;
+            for (child_id, birth) in children {
+                if self.visual_world_epoch != epoch
+                    || !self.objects.get(&id).is_some_and(|parent|
+                        parent.visual_object_generation == parent_birth
+                            && parent.contains_spawn_behavior_child(child_id, &birth))
+                {
+                    continue;
+                }
+                if self.objects.get(&child_id).is_some_and(|child|
+                    birth != 0 && child.visual_object_generation == birth
+                        && !child.status.effectively_dead)
+                {
+                    self.destroy_object_with_effects(child_id, effects)?;
+                }
+            }
+        }
         self.remove_host_radar_provider(id);
         if let Some(object) = self.objects.get_mut(&id) {
             if let Some(bone_fx) = object.bone_fx_damage.as_mut() {

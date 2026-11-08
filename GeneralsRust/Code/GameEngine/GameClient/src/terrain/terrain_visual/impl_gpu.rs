@@ -3295,6 +3295,29 @@ mod splat_texture_class_tests {
     }
 
     #[test]
+    fn extra_blend_mesh_respects_authored_diagonal_and_window_edges() {
+        let mut hm = HeightMap::new(3, 2, 255.0, 1.0);
+        let mut blend = crate::terrain::textures::BlendTileInfo::new();
+        blend.blend_ndx = 16;
+        blend.right_diagonal = 1;
+        blend.long_diagonal = 1;
+        hm.blended_tiles = vec![crate::terrain::textures::BlendTileInfo::new(), blend];
+        hm.extra_blend_tile_ndxes[0] = 1;
+
+        let mesh = hm.build_extra_blend_draw_mesh_for_window(&[], 0, 0, 3, 2);
+        assert_eq!(mesh.tile_count, 1);
+        let corners: Vec<_> = mesh.vertices.iter().map(|v|
+            ([v.position[0], v.position[2]], v.color[3])
+        ).collect();
+        // C++ right long diagonal, not inverted: flipped split 1,3,0 / 1,2,3.
+        assert_eq!(corners, vec![
+            ([1.0, 0.0], 1.0), ([0.0, 1.0], 1.0), ([0.0, 0.0], 0.0),
+            ([1.0, 0.0], 1.0), ([1.0, 1.0], 1.0), ([0.0, 1.0], 1.0),
+        ]);
+        assert!(hm.build_extra_blend_draw_mesh_for_window(&[], 1, 0, 2, 2).is_empty());
+    }
+
+    #[test]
     fn get_texture_class_from_ndx_includes_tile_zero() {
         crate::test_support::ensure_ambient_host();
         // C++ WorldHeightMap::getTextureClassFromNdx (WorldHeightMap.cpp:2308)

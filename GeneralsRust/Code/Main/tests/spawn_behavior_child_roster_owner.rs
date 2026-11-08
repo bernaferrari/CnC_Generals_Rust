@@ -109,6 +109,39 @@ fn spawner_death_stops_surviving_child_slaved_effects_in_its_own_session() {
 }
 
 #[test]
+fn direct_spawner_deletion_destroys_only_required_children_in_each_world() {
+    fn session(required: bool) -> (GameLogic, ObjectId) {
+        let mut world = GameLogic::new();
+        world.admit_object_ini_sources([("DeleteSpawn.ini".into(), format!(
+            "Object Nest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = Child\n SpawnedRequireSpawner = {}\n End\n Behavior = DefaultProductionExitUpdate Exit\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:0 Y:0 Z:0\n End\nEnd\nObject Child\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SlowDeathBehavior Death\n DestructionDelay = 3000\n End\nEnd\n",
+            if required { "Yes" } else { "No" }
+        ))]).unwrap();
+        world.add_player(Player::new(1, Team::GLA, "Owner", true));
+        let parent = world.create_object_for_player("Nest", 1, Vec3::ZERO).unwrap();
+        advance_spawn_updates(&mut world);
+        (world, parent)
+    }
+    let (mut owner, parent) = session(true);
+    let (peer, peer_parent) = session(true);
+    let child = ObjectId(roster(&owner, parent)[0]);
+    assert_eq!(roster(&peer, peer_parent), vec![child.0]);
+    let snapshot = SnapshotBuilder::new().create_world_snapshot(&owner).unwrap();
+    let (mut restored, _) = session(true);
+    SnapshotBuilder::new().restore_from_snapshot(&snapshot, &mut restored).unwrap();
+    for world in [&mut owner, &mut restored] {
+        world.destroy_object(parent).unwrap();
+        let child = world.host_object(child).unwrap();
+        assert!(child.status.destroyed);
+        assert!(child.slow_death.is_none(), "onDelete must not invoke onDie");
+    }
+    assert!(!peer.host_object(child).unwrap().status.destroyed);
+    let (mut optional, optional_parent) = session(false);
+    let optional_child = ObjectId(roster(&optional, optional_parent)[0]);
+    optional.destroy_object(optional_parent).unwrap();
+    assert!(!optional.host_object(optional_child).unwrap().status.destroyed);
+}
+
+#[test]
 fn required_spawn_children_run_their_own_slow_death_in_the_receiving_world() {
     fn session() -> (GameLogic, ObjectId) {
         let mut world = GameLogic::new();

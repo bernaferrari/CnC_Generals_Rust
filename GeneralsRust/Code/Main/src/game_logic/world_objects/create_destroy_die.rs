@@ -510,6 +510,10 @@ impl GameLogic {
         Self::resolve_host_spawn_behavior_spec(object)
             .is_some_and(|spec| !spec.slaves_have_free_will)
     }
+    pub(crate) fn spawn_behavior_requires_spawner(object: &Object) -> bool {
+        Self::resolve_host_spawn_behavior_spec(object)
+            .is_some_and(|spec| spec.spawned_require_spawner)
+    }
 
 
     fn ensure_spawn_behavior_unit_template(&mut self, spawn_template: &str) -> bool {
