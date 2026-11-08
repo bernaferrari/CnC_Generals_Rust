@@ -426,6 +426,9 @@ impl VideoDevice {
     }
 
     /// Draw primitive (C++ API compatibility)
+    ///
+    /// Vertices and optional indices are borrowed for the duration of the draw;
+    /// raw pointers cannot be passed from safe Rust.
     pub async fn draw_primitive(&self, vertices: &[Vertex], indices: Option<&[u16]>) -> Result<()> {
         let mut stats = self.statistics.write().await;
         stats.draw_calls += 1;
@@ -741,6 +744,7 @@ mod tests {
             PresentMode::Mailbox
         );
     }
+
 }
 
 // C++ API compatibility functions
@@ -760,41 +764,6 @@ impl VideoDevice {
                 self.create_texture(width, height, color_format)
                     .await
                     .unwrap_or(0)
-            })
-        })
-    }
-
-    /// C-style function for drawing primitives
-    pub fn c_draw_primitive(
-        &self,
-        vertices_ptr: *const Vertex,
-        vertex_count: u32,
-        indices_ptr: *const u16,
-        index_count: u32,
-    ) -> i32 {
-        if vertices_ptr.is_null() || vertex_count == 0 {
-            return -1;
-        }
-
-        // SAFETY: c_draw_primitive's contract: vertices_ptr is non-null (checked above)
-        // SAFETY: and readable for vertex_count Vertex elements for the duration of the
-        // SAFETY: draw; contents are consumed synchronously without retention.
-        let vertices = unsafe { std::slice::from_raw_parts(vertices_ptr, vertex_count as usize) };
-
-        let indices = if !indices_ptr.is_null() && index_count > 0 {
-            // SAFETY: indices_ptr checked non-null with index_count > 0 above; readable for
-            // SAFETY: index_count u16s during the synchronous draw call only.
-            Some(unsafe { std::slice::from_raw_parts(indices_ptr, index_count as usize) })
-        } else {
-            None
-        };
-
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                match self.draw_primitive(vertices, indices).await {
-                    Ok(()) => 0,
-                    Err(_) => -1,
-                }
             })
         })
     }

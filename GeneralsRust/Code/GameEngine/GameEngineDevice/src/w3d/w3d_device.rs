@@ -17,11 +17,12 @@ use glam::Mat4;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::mem;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 use wgpu::{
     Adapter, Backends, BufferUsages, CompositeAlphaMode, CurrentSurfaceTexture, Device, Features,
     Instance, Limits, PowerPreference, PresentMode, Queue, RequestAdapterOptions, Surface,
-    SurfaceConfiguration, SurfaceTargetUnsafe, TextureUsages,
+    SurfaceConfiguration, TextureUsages,
 };
 use winit::window::Window;
 
@@ -862,30 +863,14 @@ impl W3DDevice {
 
     /// Initialize the W3D device with a window surface.
     ///
-    /// Uses explicit unsafe surface creation to store a `'static` surface handle that
-    /// mirrors legacy device lifetime assumptions.
-    pub async fn init_with_window(&self, window: &Window) -> Result<()> {
-        // SAFETY: `window` outlives this call per the legacy device-lifetime contract:
-        // SAFETY: init_with_window callers keep the winit Window alive for the life of
-        // SAFETY: the W3DDevice, which owns the resulting surface. from_window only reads
-        // SAFETY: raw window/display handles that remain valid under that invariant.
-        let surface_target = unsafe {
-            SurfaceTargetUnsafe::from_window(window).map_err(|e| {
-                W3DError::InitializationFailed(format!("Failed to create surface target: {e}"))
-            })?
-        };
-        // SAFETY: The SurfaceTargetUnsafe produced above borrows the caller-guaranteed
-        // SAFETY: 'static window handles; create_surface_unsafe registers it with the
-        // SAFETY: instance. wgpu requires unsafe creation exactly to force documenting
-        // SAFETY: this lifetime transfer.
-        let surface = unsafe {
-            self.instance
-                .create_surface_unsafe(surface_target)
-                .map_err(|e| {
-                    W3DError::InitializationFailed(format!("Failed to create window surface: {e}"))
-                })?
-        };
+    /// The surface retains the window; callers may keep another `Arc` for window
+    /// events and other operations. The window remains owned until the surface is
+    /// replaced or the device is dropped, including after `shutdown`.
+    pub async fn init_with_window(&self, window: Arc<Window>) -> Result<()> {
         let size = window.inner_size();
+        let surface = self.instance.create_surface(window).map_err(|e| {
+            W3DError::InitializationFailed(format!("Failed to create window surface: {e}"))
+        })?;
         self.init_internal(Some(surface), Some((size.width, size.height)))
             .await
     }

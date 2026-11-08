@@ -104,14 +104,6 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/GameEngine/GameEngineDevice/src/video/video_device.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameEngineDevice/src/w3d/w3d_device.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
     "Code/GameEngine/GameLogic/src/ai/turret_ai_full.rs": {
       "constructs": 2,
       "undocumented": 0

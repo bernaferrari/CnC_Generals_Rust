@@ -1854,8 +1854,8 @@ fn overlay_common_particle_system(
     }
 }
 
-/// Initialize the particle system manager on the live client (or test TLS slot).
-pub fn initialize_particle_system_manager() -> Result<(), ParticleSystemError> {
+/// Initialize the receiving client's particle system manager.
+pub fn initialize_particle_system_manager(slot: &mut Option<ParticleSystemManager>) {
     let mut manager = ParticleSystemManager::new();
     if let Err(error) = manager.load_retail_particle_templates() {
         // This is deliberately non-fatal just like C++'s optional asset path:
@@ -1863,11 +1863,8 @@ pub fn initialize_particle_system_manager() -> Result<(), ParticleSystemError> {
         // retry once the virtual file system has mounted the retail archives.
         log::warn!("Failed to load retail ParticleSystem.ini: {error}");
     }
-    with_particle_system_slot_mut(|slot| {
-        *slot = Some(manager);
-    })?;
+    *slot = Some(manager);
     game_engine::common::ini::register_particle_system_live_overlay(overlay_common_particle_system);
-    Ok(())
 }
 
 #[path = "particle_manager/state.rs"]
@@ -1936,6 +1933,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn initializing_one_particle_owner_does_not_replace_another() {
+        crate::test_support::ensure_ambient_host();
+        let mut first = Some(ParticleSystemManager::new());
+        first.as_mut().unwrap().new_template("OwnerOnly".to_string());
+        let mut second = None;
+
+        initialize_particle_system_manager(&mut second);
+
+        assert!(first.as_ref().unwrap().find_template("OwnerOnly").is_some());
+        assert!(second.is_some());
+        assert!(second.as_ref().unwrap().find_template("OwnerOnly").is_none());
+    }
+
+    #[test]
     fn test_particle_priority_ordering() {
         crate::test_support::ensure_ambient_host();
         assert!(ParticlePriorityType::AlwaysRender > ParticlePriorityType::WeaponExplosion);
@@ -1969,7 +1980,7 @@ mod tests {
     #[test]
     fn attach_particle_system_to_object_helper_records_parent_object_id() {
         crate::test_support::ensure_ambient_host();
-        let _ = initialize_particle_system_manager();
+        with_particle_system_slot_mut(initialize_particle_system_manager).unwrap();
         register_particle_system_manager_bridge();
         {
             let mut guard = get_particle_system_manager_mut().expect("global particle manager");
@@ -2271,7 +2282,7 @@ mod tests {
     #[test]
     fn live_particle_system_xfer_keeps_mid_flight_explosion() {
         crate::test_support::ensure_ambient_host();
-        let _ = initialize_particle_system_manager();
+        with_particle_system_slot_mut(initialize_particle_system_manager).unwrap();
         let template_name = format!("LiveSaveBurst_{}", std::process::id());
         let system_id = {
             let mut guard = get_particle_system_manager_mut().expect("global particle manager");

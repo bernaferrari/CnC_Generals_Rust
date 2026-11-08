@@ -1037,11 +1037,9 @@ impl GameClient {
         init_fx_list_store()
             .map_err(|e| GameClientError::SubsystemError(format!("FXList init failed: {e}")))?;
         crate::fx_list::register_fx_list_manager_bridge();
-        if let Err(e) = crate::effects::particle_manager::initialize_particle_system_manager() {
-            return Err(GameClientError::SubsystemError(format!(
-                "Particle system manager init failed: {e}"
-            )));
-        }
+        crate::effects::particle_manager::initialize_particle_system_manager(
+            &mut self.drawables.particles,
+        );
         crate::effects::particle_manager::register_particle_system_manager_bridge();
         register_particle_system_snapshot_block();
 

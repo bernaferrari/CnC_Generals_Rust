@@ -385,7 +385,10 @@ mod particle_system_tests {
     fn test_global_particle_system_manager() {
         crate::test_support::ensure_ambient_host();
         // Test initialization
-        initialize_particle_system_manager().unwrap();
+        crate::effects::particle_manager::with_particle_system_slot_mut(
+            initialize_particle_system_manager,
+        )
+        .unwrap();
 
         // Test access
         {

@@ -15,6 +15,11 @@ The standalone Core display and loading-screen pump borrow the receiving
 client's decals and projected decals. Main's native render path is separate.
 Core ghost capture carries recoil from its receiving client into the render
 bridge; it no longer re-enters the live-client slot for that recoil.
+Particle-manager initialization installs into the receiving GameClient; the
+GameLogic particle bridge and INI overlay still use ambient client access.
+The optional W3D device surface owns its window through wgpu's safe surface
+API. Its unused raw-pointer draw adapter was removed; the remaining primitive
+API accepts borrowed slices and currently records statistics rather than drawing.
 WWAudio device channel creation exclusively borrows its AudioSystem instead of
 retaining a raw parent pointer; the streamer retains the resulting channel,
 not the system borrow. Native-endian decoded PCM bytes remain unchanged.
