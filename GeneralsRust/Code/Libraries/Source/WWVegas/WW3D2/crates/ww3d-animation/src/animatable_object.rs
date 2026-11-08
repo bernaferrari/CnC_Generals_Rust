@@ -375,20 +375,20 @@ impl Animatable3DObjClass {
                 }
 
                 // Apply animation to hierarchy
-                if let Some(motion) = self.mode_anim.motion.clone() {
+                if let Some(motion) = self.mode_anim.motion.as_deref() {
                     let current_frame = self.mode_anim.frame;
                     let prev_frame = self.mode_anim.prev_frame;
 
-                    self.anim_update(motion.clone(), current_frame);
+                    Self::anim_update(&mut self.htree, self.transform, motion, current_frame);
 
                     // Trigger embedded sounds
                     // Reference: animobj.cpp:747-749
-                    if has_embedded_sounds(&self.sound_mgr, &motion) {
-                        if let Some(bone_name) = embedded_sound_bone(&self.sound_mgr, &motion) {
-                            if let Some(bone_index) = self.get_bone_index(&bone_name) {
+                    if has_embedded_sounds(&self.sound_mgr, motion) {
+                        if let Some(bone_name) = embedded_sound_bone(&self.sound_mgr, motion) {
+                            if let Some(bone_index) = self.htree.get_bone_index(&bone_name) {
                                 if let Some(bone_transform) = self.htree.get_transform(bone_index) {
                                     self.mode_anim.prev_frame = trigger_sound(&self.sound_mgr, 
-                                        &motion,
+                                        motion,
                                         prev_frame,
                                         current_frame,
                                         &bone_transform,
@@ -403,8 +403,8 @@ impl Animatable3DObjClass {
             MotionMode::DoubleAnim => {
                 // Double animation blend update
                 // Reference: animobj.cpp:752-767
-                let motion0_opt = self.mode_interp.motion0.clone();
-                let motion1_opt = self.mode_interp.motion1.clone();
+                let motion0_opt = self.mode_interp.motion0.as_deref();
+                let motion1_opt = self.mode_interp.motion1.as_deref();
                 let frame0 = self.mode_interp.frame0;
                 let frame1 = self.mode_interp.frame1;
                 let percentage = self.mode_interp.percentage;
@@ -412,16 +412,16 @@ impl Animatable3DObjClass {
                 let prev_frame1 = self.mode_interp.prev_frame1;
 
                 if let (Some(motion0), Some(motion1)) = (motion0_opt, motion1_opt) {
-                    self.blend_update(motion0.clone(), frame0, motion1.clone(), frame1, percentage);
+                    Self::blend_update(&mut self.htree, self.transform, motion0, frame0, motion1, frame1, percentage);
 
                     // Trigger embedded sounds for both animations
                     // Reference: animobj.cpp:758-766
-                    if has_embedded_sounds(&self.sound_mgr, &motion0) {
-                        if let Some(bone_name) = embedded_sound_bone(&self.sound_mgr, &motion0) {
-                            if let Some(bone_index) = self.get_bone_index(&bone_name) {
+                    if has_embedded_sounds(&self.sound_mgr, motion0) {
+                        if let Some(bone_name) = embedded_sound_bone(&self.sound_mgr, motion0) {
+                            if let Some(bone_index) = self.htree.get_bone_index(&bone_name) {
                                 if let Some(bone_transform) = self.htree.get_transform(bone_index) {
                                     self.mode_interp.prev_frame0 = trigger_sound(&self.sound_mgr, 
-                                        &motion0,
+                                        motion0,
                                         prev_frame0,
                                         frame0,
                                         &bone_transform,
@@ -431,12 +431,12 @@ impl Animatable3DObjClass {
                         }
                     }
 
-                    if has_embedded_sounds(&self.sound_mgr, &motion1) {
-                        if let Some(bone_name) = embedded_sound_bone(&self.sound_mgr, &motion1) {
-                            if let Some(bone_index) = self.get_bone_index(&bone_name) {
+                    if has_embedded_sounds(&self.sound_mgr, motion1) {
+                        if let Some(bone_name) = embedded_sound_bone(&self.sound_mgr, motion1) {
+                            if let Some(bone_index) = self.htree.get_bone_index(&bone_name) {
                                 if let Some(bone_transform) = self.htree.get_transform(bone_index) {
                                     self.mode_interp.prev_frame1 = trigger_sound(&self.sound_mgr, 
-                                        &motion1,
+                                        motion1,
                                         prev_frame1,
                                         frame1,
                                         &bone_transform,
@@ -492,9 +492,9 @@ impl Animatable3DObjClass {
 
     /// Apply single animation to hierarchy
     /// Reference: htree.cpp Anim_Update logic
-    fn anim_update(&mut self, motion: Arc<HAnimClass>, frame: f32) {
+    fn anim_update(htree: &mut HTreeClass, transform: Mat4, motion: &HAnimClass, frame: f32) {
         // Sample animation at current frame
-        let pivot_count = self.htree.num_pivots();
+        let pivot_count = htree.num_pivots();
         let mut translations = vec![glam::Vec3::ZERO; pivot_count];
         let mut rotations = vec![glam::Quat::IDENTITY; pivot_count];
 
@@ -503,21 +503,21 @@ impl Animatable3DObjClass {
             rotations[pivot_idx] = motion.get_orientation(pivot_idx, frame);
         }
 
-        self.htree
-            .anim_update(self.transform, &translations, &rotations);
+        htree.anim_update(transform, &translations, &rotations);
     }
 
     /// Blend two animations
     /// Reference: htree.cpp Blend_Update logic
     fn blend_update(
-        &mut self,
-        motion0: Arc<HAnimClass>,
+        htree: &mut HTreeClass,
+        transform: Mat4,
+        motion0: &HAnimClass,
         frame0: f32,
-        motion1: Arc<HAnimClass>,
+        motion1: &HAnimClass,
         frame1: f32,
         percentage: f32,
     ) {
-        let pivot_count = self.htree.num_pivots();
+        let pivot_count = htree.num_pivots();
         let mut translations = vec![glam::Vec3::ZERO; pivot_count];
         let mut rotations = vec![glam::Quat::IDENTITY; pivot_count];
 
@@ -531,8 +531,7 @@ impl Animatable3DObjClass {
             rotations[pivot_idx] = rot0.slerp(rot1, percentage);
         }
 
-        self.htree
-            .anim_update(self.transform, &translations, &rotations);
+        htree.anim_update(transform, &translations, &rotations);
     }
 
     /// Compute current frame based on sync time and animation mode
