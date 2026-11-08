@@ -1051,6 +1051,18 @@ impl Object {
 
     pub fn set_active_weapon_slot(&mut self, slot: u8) {
         if self.active_weapon_slot != slot {
+            // WeaponSet keeps PRE_ATTACK on the selected Weapon (WeaponSet.cpp
+            // 1035-1057); FireWeaponState exits when that weapon changes
+            // (AIStates.cpp 5182-5207). Do not transfer a ground wind-up to
+            // the newly selected slot. Object-target wind-ups retain their
+            // existing target-specific handling.
+            if self.target_location.is_some()
+                && self.pre_attack_target.is_none()
+                && self.pre_attack_ready_at > 0.0
+            {
+                self.pre_attack_ready_at = 0.0;
+                self.clear_leech_range_mode_for_all_weapons();
+            }
             self.active_weapon_slot = slot;
         }
     }

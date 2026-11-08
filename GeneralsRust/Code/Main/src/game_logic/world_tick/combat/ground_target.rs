@@ -122,6 +122,15 @@ impl GameLogic {
         } else {
             false
         };
+        if !can_fire_at_location {
+            if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                if attacker.pre_attack_target.is_none() && attacker.pre_attack_ready_at > 0.0 {
+                    attacker.pre_attack_ready_at = 0.0;
+                    attacker.clear_leech_range_mode_for_all_weapons();
+                    attacker.refresh_weapon_fire_status(current_time);
+                }
+            }
+        }
         if can_fire_at_location {
             if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                 let flying = attacker.is_above_terrain()
@@ -175,12 +184,47 @@ impl GameLogic {
                 true
             };
             if !aim_ok {
+                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                    if attacker.pre_attack_target.is_none() && attacker.pre_attack_ready_at > 0.0 {
+                        attacker.pre_attack_ready_at = 0.0;
+                        attacker.clear_leech_range_mode_for_all_weapons();
+                        attacker.refresh_weapon_fire_status(current_time);
+                    }
+                }
                 return CombatShotResult::NoShot;
             }
 
             // C++ Weapon::fireWeapon(source, pos) fires the selected WeaponTemplate;
             // every authored weapon shares the one shot delivery operation.
             if self.slot_fires_authored_weapon(attacker_id, ground_slot) {
+                // FireWeaponState enters PRE_ATTACK before invoking the position
+                // shot operation. A null victim always has zero consecutive
+                // shots (FiringTracker::getNumConsecutiveShotsAtVictim).
+                let pre_bonus = self.objects.get(&attacker_id)
+                    .map(|attacker| self.receiving_weapon_bonus_fields_for_slot(attacker, ground_slot).3)
+                    .unwrap_or(1.0);
+                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                    if let Some(rule) = attacker.selected_native_weapon_rule(ground_slot) {
+                        let first_in_clip = attacker.weapon_slot(ground_slot).is_some_and(|weapon| {
+                            weapon.clip_size <= 0 || weapon.ammo.unwrap_or(weapon.clip_size) >= weapon.clip_size
+                        });
+                        let applies = rule.prefire_type != gamelogic::weapon::WeaponPrefireType::PrefirePerClip
+                            || first_in_clip;
+                        let delay = ((rule.pre_attack_delay.max(0) as f32 * pre_bonus) as u32) as f32 / 30.0;
+                        if applies && delay > 0.0 {
+                            if attacker.pre_attack_target.is_some() || attacker.pre_attack_ready_at <= 0.0 {
+                                attacker.pre_attack_target = None;
+                                attacker.pre_attack_ready_at = current_time + delay;
+                                attacker.weapon_fire_status = crate::game_logic::object::WeaponFireStatus::PreAttack;
+                                attacker.sync_weapon_model_conditions_from_status();
+                                attacker.activate_leech_range_for_slot(ground_slot);
+                            }
+                            if current_time + 1e-6 < attacker.pre_attack_ready_at {
+                                return CombatShotResult::NoShot;
+                            }
+                        }
+                    }
+                }
                 return self.fire_authored_ground_shot_with_effects(
                     input,
                     target_location,

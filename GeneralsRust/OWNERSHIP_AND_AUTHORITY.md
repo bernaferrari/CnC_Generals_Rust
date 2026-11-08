@@ -2935,3 +2935,7 @@ records its final timing.
 Main's crate-death roll reads the receiving world's parsed crate definitions;
 one world's cache can no longer select another world's crate. Core's separate
 death callback still uses its ambient crate system and requires owner migration.
+
+Authored force-attack-ground shots use the selected weapon's pre-attack delay
+and receiving bonus before consuming ammunition. Replaced ground orders and
+weapon-slot changes cancel the prior wind-up; its deadline survives snapshots.

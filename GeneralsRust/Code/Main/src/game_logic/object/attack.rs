@@ -693,8 +693,8 @@ impl Object {
                         .unwrap_or(crate::game_logic::weapon_bootstrap::HostPrefireType::PerShot)
                 })
         };
-        // Position fire has no victim identity to arm a wind-up against;
-        // its caller owns the ground pre-attack gate.
+        // Ground-position AI fire enters its null-victim wind-up before this
+        // shared passive shot operation; do not arm it a second time here.
         let apply_delay = target_object.is_some_and(|target_id| {
             self.pre_attack_delay_applies(slot, target_id, prefire, pre_delay)
         });

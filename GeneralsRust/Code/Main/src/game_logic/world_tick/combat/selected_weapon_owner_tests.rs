@@ -4,6 +4,9 @@ fn world(damage: f32) -> (GameLogic, ObjectId, ObjectId) {
     world_with_type(damage, "UNRESISTABLE")
 }
 fn world_with_type(damage: f32, damage_type: &str) -> (GameLogic, ObjectId, ObjectId) {
+    world_with_prefire(damage, damage_type, 0, "PER_SHOT")
+}
+fn world_with_prefire(damage: f32, damage_type: &str, delay: u32, prefire: &str) -> (GameLogic, ObjectId, ObjectId) {
     let mut world = GameLogic::new();
     for (id, team, name) in [(1, Team::USA, "Owner"), (2, Team::GLA, "Victim")] {
         let mut player = Player::new(id, team, name, id == 1);
@@ -15,7 +18,7 @@ fn world_with_type(damage: f32, damage_type: &str) -> (GameLogic, ObjectId, Obje
         crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
             &mut definitions,
             &format!(
-                "Weapon RangerMachineGun\n PrimaryDamage = {damage}\n DamageType = {damage_type}\n DeathType = NORMAL\n AttackRange = 150\n ClipSize = 4\n DelayBetweenShots = 0\n ClipReloadTime = 0\n WeaponSpeed = 999999\n ProjectileObject = NONE\n FireFX = None\n FireSound = None\n AntiGround = Yes\nEnd\n"
+                "Weapon RangerMachineGun\n PrimaryDamage = {damage}\n PrimaryDamageRadius = 5\n DamageType = {damage_type}\n DeathType = NORMAL\n AttackRange = 150\n ClipSize = 4\n DelayBetweenShots = 0\n ClipReloadTime = 0\n PreAttackDelay = {delay}\n PreAttackType = {prefire}\n WeaponBonus = PLAYER_UPGRADE PRE_ATTACK 50%\n WeaponSpeed = 999999\n ProjectileObject = NONE\n FireFX = None\n FireSound = None\n AntiGround = Yes\nEnd\n"
             ),
             crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal
         ),
@@ -51,6 +54,155 @@ fn world_with_type(damage: f32, damage_type: &str) -> (GameLogic, ObjectId, Obje
     object.restore_ai_state(AIState::Attacking);
     object.target = Some(target);
     (world, source, target)
+}
+
+#[test]
+fn authored_ground_prefire_waits_before_each_shot_and_is_owner_local() {
+    for prefire in ["PER_SHOT", "PER_ATTACK", "PER_CLIP"] {
+        let (mut game, source, target) = world_with_prefire(20.0, "UNRESISTABLE", 1000, prefire);
+        let (mut peer, peer_source, peer_target) = world_with_prefire(40.0, "UNRESISTABLE", 0, prefire);
+        for (world, actor) in [(&mut game, source), (&mut peer, peer_source)] {
+            let object = world.host_object_mut(actor).unwrap();
+            object.target = None;
+            object.target_location = Some(Vec3::new(40.0, 0.0, 0.0));
+            object.restore_ai_state(AIState::AttackingGround);
+        }
+        game.frame = 100;
+        game.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+        assert_eq!(game.host_object(target).unwrap().health.current, 1000.0);
+        assert_eq!(game.host_object(source).unwrap().weapon.as_ref().unwrap().ammo, Some(4));
+        peer.frame = 100;
+        peer.update_combat(&[peer_source], LOGIC_FRAME_TIMESTEP).unwrap();
+        assert_eq!(peer.host_object(peer_target).unwrap().health.current, 960.0);
+        game.frame = 129;
+        game.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+        assert_eq!(game.host_object(target).unwrap().health.current, 1000.0);
+        assert_eq!(game.host_object(source).unwrap().weapon.as_ref().unwrap().ammo, Some(4));
+        game.frame = 130;
+        game.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+        assert_eq!(game.host_object(target).unwrap().health.current, 980.0);
+        assert_eq!(game.host_object(source).unwrap().weapon.as_ref().unwrap().ammo, Some(3));
+        game.frame = 131;
+        game.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+        let expected = if prefire == "PER_CLIP" { 960.0 } else { 980.0 };
+        assert_eq!(game.host_object(target).unwrap().health.current, expected);
+        if prefire != "PER_CLIP" {
+            game.frame = 161;
+            game.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+            assert_eq!(game.host_object(target).unwrap().health.current, 960.0);
+        }
+    }
+}
+
+#[test]
+fn ground_prefire_continues_for_same_order_but_restarts_after_replacement_or_stop() {
+    let (mut game, source, target) = world_with_prefire(20.0, "UNRESISTABLE", 1000, "PER_SHOT");
+    let first = Vec3::new(40.0, 0.0, 0.0);
+    let replacement = Vec3::new(41.0, 0.0, 0.0);
+    let order = |game: &mut GameLogic, position, frame| {
+        let actor = game.host_object_mut(source).unwrap();
+        actor.set_target_location(Some(position), frame, &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
+        actor.restore_ai_state(AIState::AttackingGround);
+    };
+    order(&mut game, first, 100);
+    game.frame = 100;
+    game.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+    order(&mut game, first, 110);
+    game.frame = 110;
+    game.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+    assert!((game.host_object(source).unwrap().pre_attack_ready_at - 130.0 / 30.0).abs() < 1e-5);
+    order(&mut game, replacement, 120);
+    game.frame = 120;
+    game.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+    game.frame = 130;
+    game.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+    assert_eq!(game.host_object(target).unwrap().health.current, 1000.0);
+    assert_eq!(game.host_object(source).unwrap().weapon.as_ref().unwrap().ammo, Some(4));
+    game.frame = 150;
+    game.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+    assert_eq!(game.host_object(target).unwrap().health.current, 980.0);
+    game.frame = 151;
+    game.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+    game.host_object_mut(source).unwrap().stop_attack(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
+    order(&mut game, first, 160);
+    game.frame = 160;
+    game.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+    game.frame = 181;
+    game.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+    assert_eq!(game.host_object(target).unwrap().health.current, 980.0);
+    game.frame = 190;
+    game.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+    assert_eq!(game.host_object(target).unwrap().health.current, 960.0);
+}
+
+#[test]
+fn ground_prefire_does_not_transfer_between_weapon_slots() {
+    let (mut game, source, target) = world_with_prefire(20.0, "UNRESISTABLE", 1000, "PER_SHOT");
+    let actor = game.host_object_mut(source).unwrap();
+    actor.target = None;
+    actor.target_location = Some(Vec3::new(40.0, 0.0, 0.0));
+    actor.restore_ai_state(AIState::AttackingGround);
+    game.frame = 100;
+    game.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+    {
+        let actor = game.host_object_mut(source).unwrap();
+        actor.set_active_weapon_slot(0);
+        assert!((actor.pre_attack_ready_at - 130.0 / 30.0).abs() < 1e-5);
+        actor.set_active_weapon_slot(1);
+        actor.set_active_weapon_slot(0);
+    }
+    game.frame = 110;
+    game.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+    game.frame = 130;
+    game.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+    assert_eq!(game.host_object(target).unwrap().health.current, 1000.0);
+    assert_eq!(game.host_object(source).unwrap().weapon.as_ref().unwrap().ammo, Some(4));
+    game.frame = 140;
+    game.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+    assert_eq!(game.host_object(target).unwrap().health.current, 980.0);
+}
+
+#[test]
+fn ground_prefire_uses_receiving_weapon_bonus() {
+    let (mut game, source, target) = world_with_prefire(20.0, "UNRESISTABLE", 1000, "PER_SHOT");
+    let actor = game.host_object_mut(source).unwrap();
+    actor.target = None;
+    actor.target_location = Some(Vec3::new(40.0, 0.0, 0.0));
+    actor.restore_ai_state(AIState::AttackingGround);
+    actor.set_weapon_bonus_player_upgrade(true);
+    game.frame = 100;
+    game.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+    game.frame = 114;
+    game.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+    assert_eq!(game.host_object(target).unwrap().health.current, 1000.0);
+    assert_eq!(game.host_object(source).unwrap().weapon.as_ref().unwrap().ammo, Some(4));
+    game.frame = 115;
+    game.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+    assert_eq!(game.host_object(target).unwrap().health.current, 980.0);
+    assert_eq!(game.host_object(source).unwrap().weapon.as_ref().unwrap().ammo, Some(3));
+}
+
+#[test]
+fn ground_prefire_deadline_survives_world_snapshot() {
+    let (mut game, source, target) = world_with_prefire(20.0, "UNRESISTABLE", 1000, "PER_SHOT");
+    let actor = game.host_object_mut(source).unwrap();
+    actor.target = None;
+    actor.target_location = Some(Vec3::new(40.0, 0.0, 0.0));
+    actor.restore_ai_state(AIState::AttackingGround);
+    game.frame = 100;
+    game.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+    let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&game).unwrap();
+    let (mut restored, _, _) = world_with_prefire(20.0, "UNRESISTABLE", 1000, "PER_SHOT");
+    builder.restore_from_snapshot(&snapshot, &mut restored).unwrap();
+    restored.frame = 129;
+    restored.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+    assert_eq!(restored.host_object(target).unwrap().health.current, 1000.0);
+    assert_eq!(restored.host_object(source).unwrap().weapon.as_ref().unwrap().ammo, Some(4));
+    restored.frame = 130;
+    restored.update_combat(&[source], LOGIC_FRAME_TIMESTEP).unwrap();
+    assert_eq!(restored.host_object(target).unwrap().health.current, 980.0);
+    assert_eq!(restored.host_object(source).unwrap().weapon.as_ref().unwrap().ammo, Some(3));
 }
 #[test]
 fn ordinary_update_combat_keeps_same_name_receiving_damage_and_once_ammo() {

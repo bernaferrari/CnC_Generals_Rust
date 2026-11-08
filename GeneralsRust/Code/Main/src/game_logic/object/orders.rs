@@ -754,6 +754,12 @@ impl Object {
         frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
+        if self.target_location != location && self.pre_attack_ready_at > 0.0 {
+            self.pre_attack_target = None;
+            self.pre_attack_ready_at = 0.0;
+            self.clear_leech_range_mode_for_all_weapons();
+            self.refresh_weapon_fire_status(frame as f32 / 30.0);
+        }
         self.target_location = location;
         if location.is_some() {
             self.target = None;
