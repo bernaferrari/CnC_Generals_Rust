@@ -808,16 +808,6 @@ pub(super) fn seed_known_host_weapons() -> usize {
             clip_size: 0,
             weapon_speed: 600.0,
         },
-        // USAPathfinderSniperRifle PRIMARY — PrimaryDamage 100, Range 300,
-        // Delay 2000ms → 60 frames.
-        SeedWeapon {
-            name: PATHFINDER_SNIPER_WEAPON,
-            primary_damage: 100.0,
-            attack_range: 300.0,
-            delay_frames: 60,
-            clip_size: 0,
-            weapon_speed: 999_999.0,
-        },
         // HellfireMissileWeapon PRIMARY — PrimaryDamage 40, Range 150,
         // Delay+ClipReload ~3000ms → 90 frames.
         SeedWeapon {

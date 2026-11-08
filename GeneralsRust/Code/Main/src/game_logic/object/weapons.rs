@@ -172,15 +172,6 @@ impl Object {
         }
     }
 
-    /// Whether any authored WeaponSet slot is the Pathfinder sniper rifle
-    /// (hq-2qedt.261 authored gate replacing the template-name sniff).
-    pub fn authors_pathfinder_sniper_weapon(&self) -> bool {
-        (0u8..3).any(|slot| {
-            self.authored_weapon_name_for_slot(slot)
-                .is_some_and(crate::game_logic::host_pathfinder::is_pathfinder_sniper_weapon)
-        })
-    }
-
     /// Whether any authored WeaponSet slot is the Red Guard machine gun
     /// (hq-2qedt.262 nationalism gate replacing the template-name sniff).
     pub fn authors_red_guard_machine_gun(&self) -> bool {

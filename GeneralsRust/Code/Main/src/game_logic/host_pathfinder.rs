@@ -160,63 +160,6 @@ pub fn pathfinder_ms_to_frames(ms: u32) -> u32 {
     ((ms as f32) / (1000.0 / PATHFINDER_LOGIC_FPS)).round() as u32
 }
 
-/// Whether template is a residual Pathfinder infantry.
-///
-/// Fail-closed: name residual (not full SCIENCE_Pathfinder prereq graph).
-pub fn is_pathfinder_template(template_name: &str) -> bool {
-    // Fast reject before allocating a normalized name (called every stealth tick
-    // for every live object on large maps).
-    if template_name.len() < 10 {
-        return false;
-    }
-    let raw = template_name.as_bytes();
-    let mut has_p = false;
-    // Cheap ASCII case-fold scan for "pathfinder" substring.
-    let needle = b"pathfinder";
-    let mut ni = 0usize;
-    for &b in raw {
-        let c = if b.is_ascii_uppercase() { b + 32 } else { b };
-        if c == needle[ni] {
-            ni += 1;
-            if ni == needle.len() {
-                has_p = true;
-                break;
-            }
-        } else if c == needle[0] {
-            ni = 1;
-        } else {
-            ni = 0;
-        }
-    }
-    if !has_p {
-        return false;
-    }
-    let n = template_name
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .flat_map(|c| c.to_lowercase())
-        .collect::<String>();
-    if n.is_empty() {
-        return false;
-    }
-    // Weapon / upgrade / science tokens are not the living unit.
-    if n.contains("weapon")
-        || n.contains("sniper")
-        || n.contains("rifle")
-        || n.starts_with("upgrade")
-        || n.starts_with("science")
-        || n.contains("command")
-    {
-        return false;
-    }
-    n.contains("pathfinder") || n == "usapathfinder"
-}
-
-/// Authored Pathfinder sniper WeaponSet weapon (hq-2qedt.261).
-pub fn is_pathfinder_sniper_weapon(weapon_name: &str) -> bool {
-    weapon_name.eq_ignore_ascii_case(PATHFINDER_SNIPER_WEAPON)
-}
-
 /// Residual SCIENCE_Pathfinder gate name matcher.
 pub fn is_pathfinder_science_name(name: &str) -> bool {
     let n = name
@@ -232,20 +175,6 @@ pub fn is_pathfinder_science_name(name: &str) -> bool {
 /// Fail-closed: host residual checks name/science flag; not full player science graph.
 pub fn pathfinder_spawn_requires_science(has_science_pathfinder: bool) -> bool {
     has_science_pathfinder
-}
-
-/// Whether residual spawn should install detector + innate stealth fields.
-pub fn pathfinder_spawn_is_detector(template_name: &str) -> bool {
-    is_pathfinder_template(template_name)
-}
-
-/// Detection range residual for Pathfinder (retail VisionRange = 200).
-pub fn pathfinder_detection_range(template_name: &str) -> Option<f32> {
-    if is_pathfinder_template(template_name) {
-        Some(PATHFINDER_DETECTION_RANGE)
-    } else {
-        None
-    }
 }
 
 /// Sniper damage residual with optional AP upgrade.
@@ -357,28 +286,6 @@ pub fn honesty_pathfinder_residual_pack_wave81() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn pathfinder_name_matrix() {
-        assert!(is_pathfinder_template("AmericaInfantryPathfinder"));
-        assert!(is_pathfinder_template("USA_Pathfinder"));
-        assert!(is_pathfinder_template("AirF_AmericaInfantryPathfinder"));
-        assert!(is_pathfinder_template("SupW_AmericaInfantryPathfinder"));
-        assert!(is_pathfinder_template("TestPathfinder"));
-        assert!(!is_pathfinder_template("USA_Ranger"));
-        assert!(!is_pathfinder_template("USAPathfinderSniperRifle"));
-        assert!(!is_pathfinder_template("SciencePathfinder"));
-        assert!(!is_pathfinder_template("AmericaVehicleSentryDrone"));
-    }
-
-    #[test]
-    fn pathfinder_detect_residual() {
-        assert!(pathfinder_spawn_is_detector("AmericaInfantryPathfinder"));
-        assert_eq!(
-            pathfinder_detection_range("AmericaInfantryPathfinder"),
-            Some(PATHFINDER_DETECTION_RANGE)
-        );
-    }
 
     #[test]
     fn pathfinder_residual_pack_honesty() {

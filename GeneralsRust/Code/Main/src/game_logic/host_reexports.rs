@@ -309,10 +309,6 @@ pub use super::host_partition_collision_physics_residual::{
     honesty_partition_residual_pack_wave96, honesty_physics_residual_pack_wave96,
     honesty_projectile_residual_deepen_pack_wave96,
 };
-pub use super::host_pathfinder::{
-    PATHFINDER_DETECTION_RANGE, PATHFINDER_SNIPER_WEAPON, is_pathfinder_template,
-    pathfinder_detection_range, pathfinder_spawn_is_detector,
-};
 pub use super::host_point_defense::{
     AVENGER_PDL_FIRE_RANGE, PALADIN_PDL_FIRE_RANGE, PDL_INTERCEPT_AUDIO, is_missile_name_residual,
     is_point_defense_carrier, is_primary_intercept_target, pdl_damage, pdl_delay_frames,

@@ -11,7 +11,8 @@ pub struct HostEstimateVictim {
     pub kind_booby_trap: bool,
     pub kind_demo_trap: bool,
     pub under_construction: bool,
-    pub contain_count: u32,
+    /// None means there is no ContainModuleInterface, not an empty container.
+    pub contain_count: Option<u32>,
     pub garrisonable: bool,
     pub immune_to_clear_building: bool,
     pub airborne_target: bool,
@@ -49,12 +50,15 @@ pub fn estimate_weapon_template_damage(
         return if weapon.death_type_burned { 1.0 } else { 0.0 };
     }
 
-    if victim.kind_structure && weapon.damage_type_sniper && victim.contain_count == 0 {
+    if victim.kind_structure && weapon.damage_type_sniper && victim.contain_count == Some(0) {
         return 0.0;
     }
 
     if weapon.damage_type_surrender || weapon.allow_attack_garrisoned_bldgs {
-        if victim.contain_count > 0 && victim.garrisonable && !victim.immune_to_clear_building {
+        if victim.contain_count.is_some_and(|count| count > 0)
+            && victim.garrisonable
+            && !victim.immune_to_clear_building
+        {
             return 1.0;
         }
     }
@@ -71,7 +75,10 @@ pub fn estimate_weapon_template_damage(
     }
 
     if weapon.damage_type_kill_garrisoned {
-        if victim.contain_count > 0 && victim.garrisonable && !victim.immune_to_clear_building {
+        if victim.contain_count.is_some_and(|count| count > 0)
+            && victim.garrisonable
+            && !victim.immune_to_clear_building
+        {
             return 1.0;
         }
         return 0.0;
@@ -85,12 +92,13 @@ pub fn estimate_weapon_template_damage(
     (weapon.primary_damage.max(0.0) * victim.armor_coeff.max(0.0)).max(0.0)
 }
 
-/// C++ Weapon.ini DamageType=SNIPER residual (Pathfinder / Jarmen primary).
+/// C++ `WeaponTemplate::getDamageType` for an admitted weapon definition.
 pub fn host_weapon_is_sniper_damage(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    n.contains("pathfindersniper")
-        || n.contains("sniperrifle")
-        || (n.contains("sniper") && !n.contains("snipe"))
+    super::with_host_weapon_store(|store| {
+        store.find_weapon_template(name)
+            .is_some_and(|weapon| weapon.damage_type == gamelogic::damage::DamageType::Sniper)
+    })
+    .unwrap_or(false)
 }
 
 /// C++ `WeaponTemplate::m_allowAttackGarrisonedBldgs` (estimate-only).
@@ -130,7 +138,8 @@ pub fn host_estimate_victim_from_object(
         kind_booby_trap: v.is_disarmable_mine(),
         kind_demo_trap: v.is_kind_of(KindOf::Mine) || v.is_disarmable_mine(),
         under_construction: v.status.under_construction,
-        contain_count,
+        contain_count: (v.thing().template.contain_module.kind != crate::game_logic::ContainModuleKind::None)
+            .then_some(contain_count),
         garrisonable: v.thing().template.contain_module.slots.unwrap_or(0) > 0,
         immune_to_clear_building: false,
         airborne_target: v.status.airborne_target,

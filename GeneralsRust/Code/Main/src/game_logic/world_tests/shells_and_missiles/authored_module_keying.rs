@@ -288,15 +288,93 @@ fn lotus_innate_stealth_comes_from_authored_stealth_update() {
     assert!(!run("ChinaInfantryBlackLotus", false), "capture power and name do not grant innate stealth");
 }
 
+fn admit_pathfinder_test_weapons(logic: &mut GameLogic, source: &str) {
+    let mut weapons = std::collections::HashMap::new();
+    crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+        &mut weapons, source,
+        crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+    );
+    logic.admit_weapon_content_snapshot(weapons.into_iter().collect(), &[])
+        .expect("admit receiving weapon definitions");
+}
+
+#[test]
+fn pathfinder_weapon_and_innate_stealth_follow_authored_data() {
+    let sniper = "CustomPathfinderAuthoredRifle";
+    let mut logic = GameLogic::new();
+    admit_pathfinder_test_weapons(&mut logic,
+        "Weapon CustomPathfinderAuthoredRifle\n PrimaryDamage = 100\n AttackRange = 300\n DamageType = SNIPER\nEnd\n\
+         Weapon PathfinderAlternativeGun\n PrimaryDamage = 10\n AttackRange = 150\n DamageType = SMALL_ARMS\nEnd\n");
+    for (name, weapon, stealth) in [
+        ("CustomSniper", Some(sniper), true),
+        ("AmericaInfantryPathfinder", Some("PathfinderAlternativeGun"), false),
+        ("TestPathfinder", None, false),
+    ] {
+        let mut template = crate::game_logic::ThingTemplate::new(name);
+        template.add_kind_of(KindOf::Infantry).add_kind_of(KindOf::Selectable).set_health(100.0);
+        if let Some(weapon) = weapon {
+            template.set_primary_weapon_name(weapon);
+        }
+        if stealth {
+            template.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+                innate_stealth: true, ..Default::default()
+            });
+        }
+        logic.templates.insert(name.into(), template);
+        let id = logic.create_object(name, Team::USA, Vec3::ZERO).expect("infantry");
+        let object = logic.host_object(id).unwrap();
+        assert_eq!(object.authored_weapon_name_for_slot(0), weapon, "{name}");
+        assert_eq!(object.weapon.is_some(), weapon.is_some(), "{name}");
+        assert_eq!(object.innate_stealth, stealth, "{name}");
+        if name == "CustomSniper" {
+            let primary = object.weapon.as_ref().unwrap();
+            assert_eq!(primary.damage, 100.0);
+            assert_eq!(primary.range, 300.0);
+        }
+    }
+}
+
+#[test]
+fn construction_targeting_uses_admitted_damage_type_not_weapon_name() {
+    let mut logic = GameLogic::new();
+    admit_pathfinder_test_weapons(&mut logic,
+        "Weapon ConstructionRifle\n PrimaryDamage = 100\n AttackRange = 300\n DamageType = SNIPER\nEnd\n\
+         Weapon PathfinderSniperConstructionDecoy\n PrimaryDamage = 100\n AttackRange = 300\n DamageType = SMALL_ARMS\nEnd\n");
+    for (name, weapon) in [
+        ("CustomMarksman", "ConstructionRifle"),
+        ("AmericaInfantryPathfinder", "PathfinderSniperConstructionDecoy"),
+    ] {
+        let mut template = crate::game_logic::ThingTemplate::new(name);
+        template.add_kind_of(KindOf::Infantry).add_kind_of(KindOf::Selectable)
+            .set_health(100.0).set_primary_weapon_name(weapon);
+        logic.templates.insert(name.into(), template);
+    }
+    let mut building = crate::game_logic::ThingTemplate::new("ConstructionTarget");
+    building.add_kind_of(KindOf::Structure).add_kind_of(KindOf::Attackable).set_health(100.0);
+    logic.templates.insert("ConstructionTarget".into(), building);
+    let sniper = logic.create_object("CustomMarksman", Team::USA, Vec3::ZERO).unwrap();
+    let decoy = logic.create_object("AmericaInfantryPathfinder", Team::USA, Vec3::ZERO).unwrap();
+    let target = logic.create_object("ConstructionTarget", Team::China, Vec3::new(20.0, 0.0, 0.0)).unwrap();
+    logic.host_object_mut(target).unwrap().status.under_construction = true;
+    for (id, expected) in [(sniper, false), (decoy, true)] {
+        let attacker = logic.host_object(id).unwrap();
+        assert_eq!(attacker.can_target_with_slot(
+            logic.host_object(target).unwrap(), attacker.weapon.as_ref().unwrap(), Some(0)
+        ), expected);
+    }
+}
+
 #[test]
 fn pathfinder_reveal_response_comes_from_authored_stealth_update() {
+    let source = "Weapon RevealTestRifle\n PrimaryDamage = 100\n AttackRange = 300\n DamageType = SNIPER\nEnd\n";
     let run = |name: &str, authored: bool| {
         let mut logic = GameLogic::new();
+        admit_pathfinder_test_weapons(&mut logic, source);
         logic.players.insert(0, crate::game_logic::Player::new(0, Team::USA, "USA", true));
         logic.players.insert(1, crate::game_logic::Player::new(1, Team::China, "China", true));
         let mut template = crate::game_logic::ThingTemplate::new(name);
         template.add_kind_of(KindOf::Infantry).add_kind_of(KindOf::Selectable).set_health(100.0)
-            .set_primary_weapon_name(crate::game_logic::host_pathfinder::PATHFINDER_SNIPER_WEAPON);
+            .set_primary_weapon_name("RevealTestRifle");
         template.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
             order_idle_enemies_to_attack_me_upon_reveal: authored, ..Default::default()
         });

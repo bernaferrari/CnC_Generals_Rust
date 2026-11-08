@@ -58,7 +58,7 @@ pub fn honesty_weapon_store_host_seed_residual_wave77() -> bool {
 /// Wave 92 residual deepen: common ZH weapons beyond Wave 77 core seed names.
 ///
 /// Host-testable residual for Marauder / Gattling / Comanche / Dragon / Scorpion
-/// / Buggy / Pathfinder / MissileDefender / Paladin / Helix / Technical residual
+/// / Buggy / MissileDefender / Paladin / Helix / Technical residual
 /// damage/range tables. Fail-closed: not full Weapon.ini / full bonus condition matrix.
 pub const HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE92: &[&str] = &[
     MARAUDER_TANK_GUN,
@@ -67,7 +67,6 @@ pub const HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE92: &[&str] = &[
     DRAGON_TANK_FLAME_WEAPON,
     SCORPION_TANK_GUN,
     BUGGY_ROCKET_WEAPON,
-    PATHFINDER_SNIPER_WEAPON,
     MISSILE_DEFENDER_MISSILE_WEAPON,
     PALADIN_TANK_GUN,
     HELIX_MINIGUN_WEAPON,
@@ -91,7 +90,7 @@ pub fn honesty_weapon_store_deepen_residual_wave92() -> bool {
     let all_present = HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE92
         .iter()
         .all(|name| store_has(name));
-    if !all_present || HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE92.len() < 16 {
+    if !all_present || HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE92.len() < 15 {
         return false;
     }
     // Key residual damage/range scalars (Weapon.ini + host seed).
@@ -112,7 +111,6 @@ pub fn honesty_weapon_store_deepen_residual_wave92() -> bool {
         && check(DRAGON_TANK_FLAME_WEAPON, 10.0, 75.0)
         && check(SCORPION_TANK_GUN, 20.0, 150.0)
         && check(BUGGY_ROCKET_WEAPON, 20.0, 300.0)
-        && check(PATHFINDER_SNIPER_WEAPON, 100.0, 300.0)
         && check(MISSILE_DEFENDER_MISSILE_WEAPON, 40.0, 175.0)
         && check(PALADIN_TANK_GUN, 60.0, 150.0)
         && check(HELIX_MINIGUN_WEAPON, 6.0, 115.0)

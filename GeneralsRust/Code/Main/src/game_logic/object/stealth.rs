@@ -544,15 +544,20 @@ impl Object {
         {
             return false;
         }
-        {
-            let wname = slot.and_then(|weapon_slot| self.weapon_name_for_slot(weapon_slot));
-            if let Some(name) = wname {
-                if crate::game_logic::weapon_bootstrap::host_weapon_is_sniper_damage(name)
-                    && target.is_kind_of(KindOf::Structure)
-                    && target.status.under_construction
-                {
-                    return false;
-                }
+        // ActiveBody::estimateDamage rejects sniper damage against a structure
+        // under construction, irrespective of either template's name.
+        if target.is_kind_of(KindOf::Structure) && target.status.under_construction {
+            let sniper = slot.is_some_and(|slot| {
+                self.selected_native_weapon_rule(slot)
+                    .map(|rule| rule.damage_type == gamelogic::damage::DamageType::Sniper)
+                    .unwrap_or_else(|| {
+                        self.weapon_name_for_slot(slot).is_some_and(
+                            crate::game_logic::weapon_bootstrap::host_weapon_is_sniper_damage,
+                        )
+                    })
+            });
+            if sniper {
+                return false;
             }
         }
         // C++ WeaponSet: stealthed + undetected cannot be attacked

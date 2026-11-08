@@ -1323,13 +1323,17 @@ impl GameLogic {
                     {
                         return false;
                     }
-                    let est = crate::game_logic::weapon_bootstrap::host_estimate_weapon_from_name(
+                    let selected_rule = source.selected_native_weapon_rule(slot);
+                    let mut est = crate::game_logic::weapon_bootstrap::host_estimate_weapon_from_name(
                         name,
                         weapon.damage,
                     );
-                    let dt = crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
-                        name,
-                    );
+                    let dt = if let Some(rule) = selected_rule {
+                        est.damage_type_sniper = rule.damage_type == gamelogic::damage::DamageType::Sniper;
+                        crate::game_logic::host_armor_residual::map_store_damage_type(rule.damage_type)
+                    } else {
+                        crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(name)
+                    };
                     let victim_est =
                         crate::game_logic::weapon_bootstrap::host_estimate_victim_from_object(
                             v,

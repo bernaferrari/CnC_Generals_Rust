@@ -123,13 +123,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "SupW_AmericaFireBase"
         | "Lazr_AmericaFireBase" => Some(FIRE_BASE_HOWITZER_WEAPON),
         // Humvee / Avenger / Helix: PRIMARY from authored WeaponSet (hq-2qedt.150).
-        // Pathfinder sniper residual.
-        "AmericaInfantryPathfinder"
-        | "USA_Pathfinder"
-        | "TestPathfinder"
-        | "AirF_AmericaInfantryPathfinder"
-        | "SupW_AmericaInfantryPathfinder"
-        | "Lazr_AmericaInfantryPathfinder" => Some(PATHFINDER_SNIPER_WEAPON),
         // Hellfire drone residual primary.
         "AmericaVehicleHellfireDrone"
         | "USA_HellfireDrone"
@@ -292,9 +285,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             }
             // Comanche: explicit retail rows above only; no fuzzy name peel
             // (C++ PRIMARY comes from the authored WeaponSet, hq-2qedt.123).
-            if crate::game_logic::host_pathfinder::is_pathfinder_template(template_name) {
-                return Some(PATHFINDER_SNIPER_WEAPON);
-            }
             if crate::game_logic::host_slave_drones::is_hellfire_drone_template(template_name) {
                 return Some(HELLFIRE_MISSILE_WEAPON);
             }
@@ -674,13 +664,18 @@ mod pathfinder_unit_map_peel_tests {
     /// unlisted template whose name merely contains "Pathfinder" must not
     /// pick up the Pathfinder sniper rifle from a fuzzy name peel.
     #[test]
-    fn unlisted_pathfinder_named_template_gets_no_name_peel_primary() {
-        assert_eq!(primary_weapon_name_for_unit("Boss_AmericaInfantryPathfinderDecoy"), None);
-        // Explicit retail table rows stay.
-        assert_eq!(
-            primary_weapon_name_for_unit("AmericaInfantryPathfinder"),
-            Some(PATHFINDER_SNIPER_WEAPON)
-        );
+    fn pathfinder_names_do_not_infer_a_primary_weapon() {
+        for name in [
+            "AmericaInfantryPathfinder",
+            "USA_Pathfinder",
+            "TestPathfinder",
+            "AirF_AmericaInfantryPathfinder",
+            "SupW_AmericaInfantryPathfinder",
+            "Lazr_AmericaInfantryPathfinder",
+            "Boss_AmericaInfantryPathfinderDecoy",
+        ] {
+            assert_eq!(primary_weapon_name_for_unit(name), None, "{name}");
+        }
     }
 }
 

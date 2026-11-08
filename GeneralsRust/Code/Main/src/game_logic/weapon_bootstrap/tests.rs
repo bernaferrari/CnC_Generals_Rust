@@ -39,7 +39,6 @@ fn weapon_store_deepen_residual_wave92_honesty() {
         assert!(store_has(name), "missing deepen seed residual: {name}");
     }
     assert!(HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE92.contains(&MARAUDER_TANK_GUN));
-    assert!(HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE92.contains(&PATHFINDER_SNIPER_WEAPON));
     assert!(HOST_WEAPON_STORE_DEEPEN_SEED_NAMES_WAVE92.contains(&DRAGON_TANK_FLAME_WEAPON));
 }
 
@@ -1488,21 +1487,40 @@ fn estimate_sniper_refuses_empty_and_uc_structures() {
         kind_booby_trap: false,
         kind_demo_trap: false,
         under_construction: false,
-        contain_count: 0,
+        contain_count: Some(0),
         garrisonable: true,
         immune_to_clear_building: false,
         airborne_target: false,
         armor_coeff: 1.0,
     };
     assert_eq!(estimate_weapon_template_damage(&sniper, Some(&empty)), 0.0);
+    let no_container = HostEstimateVictim { contain_count: None, ..empty };
+    assert_eq!(estimate_weapon_template_damage(&sniper, Some(&no_container)), 100.0);
+    for (kind, occupants, expected) in [
+        (crate::game_logic::ContainModuleKind::None, 0, 100.0),
+        (crate::game_logic::ContainModuleKind::Garrison, 0, 0.0),
+        (crate::game_logic::ContainModuleKind::Garrison, 1, 100.0),
+    ] {
+        let mut template = ThingTemplate::new("EstimateStructure");
+        template.add_kind_of(KindOf::Structure).set_health(100.0);
+        template.contain_module.kind = kind;
+        let mut object = crate::game_logic::Object::new(
+            template, crate::game_logic::ObjectId(10), Team::GLA,
+        );
+        if occupants != 0 {
+            object.building_data.as_mut().unwrap().garrisoned_units.push(crate::game_logic::ObjectId(11));
+        }
+        let victim = host_estimate_victim_from_object(&object, object.garrison_count() as u32, 1.0);
+        assert_eq!(estimate_weapon_template_damage(&sniper, Some(&victim)), expected);
+    }
     let uc = HostEstimateVictim {
         under_construction: true,
-        contain_count: 2,
+        contain_count: Some(2),
         ..empty
     };
     assert_eq!(estimate_weapon_template_damage(&sniper, Some(&uc)), 0.0);
     let occupied = HostEstimateVictim {
-        contain_count: 2,
+        contain_count: Some(2),
         ..empty
     };
     assert!(estimate_weapon_template_damage(&sniper, Some(&occupied)) > 0.0);
@@ -1580,7 +1598,7 @@ fn estimate_disarm_only_vs_mines() {
         kind_booby_trap: false,
         kind_demo_trap: false,
         under_construction: false,
-        contain_count: 0,
+        contain_count: None,
         garrisonable: false,
         immune_to_clear_building: false,
         airborne_target: false,

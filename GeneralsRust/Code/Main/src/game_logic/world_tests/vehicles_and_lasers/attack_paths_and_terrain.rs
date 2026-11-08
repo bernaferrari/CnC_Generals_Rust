@@ -294,23 +294,22 @@ fn generic_object_fire_uses_weapon_ini_damage_type() {
     // onto DamageInfo; Armor.cpp:43-50 ArmorTemplate::adjustDamage then
     // bypasses only DAMAGE_UNRESISTABLE. Pre-fix live update_combat fallback
     // called take_damage_from → Unresistable and ignored Weapon.ini.
-    use crate::game_logic::weapon_bootstrap::{PATHFINDER_SNIPER_WEAPON, ensure_host_weapon_store};
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
-    ensure_host_weapon_store();
-    assert_eq!(
-        crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
-            PATHFINDER_SNIPER_WEAPON
-        ),
-        crate::game_logic::combat::DamageType::Sniper
+    let mut weapons = std::collections::HashMap::new();
+    crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+        &mut weapons,
+        "Weapon HqSzqaRifle\n PrimaryDamage = 100\n AttackRange = 300\n DamageType = SNIPER\nEnd\n",
+        crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
     );
-
     let mut logic = GameLogic::new();
+    logic.admit_weapon_content_snapshot(weapons.into_iter().collect(), &[])
+        .expect("admit sniper weapon");
     let mut atk_tpl = ThingTemplate::new("HqSzqaRifleman");
     atk_tpl
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Attackable)
         .set_health(100.0)
-        .set_primary_weapon_name(PATHFINDER_SNIPER_WEAPON);
+        .set_primary_weapon_name("HqSzqaRifle");
     logic.templates.insert("HqSzqaRifleman".into(), atk_tpl);
 
     let mut tank_tpl = ThingTemplate::new("HqSzqaTank");
@@ -323,6 +322,10 @@ fn generic_object_fire_uses_weapon_ini_damage_type() {
     let atk = logic
         .create_object("HqSzqaRifleman", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("atk");
+    assert_eq!(
+        logic.host_object(atk).unwrap().selected_native_weapon_rule(0).unwrap().damage_type,
+        gamelogic::damage::DamageType::Sniper,
+    );
     let tgt = logic
         .create_object("HqSzqaTank", Team::GLA, glam::Vec3::new(30.0, 0.0, 0.0))
         .expect("tgt");
