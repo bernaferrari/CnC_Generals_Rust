@@ -64,6 +64,18 @@ mod tests {
             LoadScreenPresentationPump::for_native(&mut present).pump(runtime).unwrap();
         });
         assert!(clear_live_game_client(&mut peer));
+        fixture.with_runtime(|runtime, _, _| {
+            let mut present = |services: LoadScreenDrawServices<'_>| {
+                let items = crate::display::display::collect_decal_items(
+                    services.client_fx, services.projected_decals,
+                );
+                assert_eq!(items.len(), 2);
+                assert_eq!(items[0].position.x, 11.0);
+                assert_eq!(items[1].position.x, 33.0);
+                Ok(())
+            };
+            LoadScreenPresentationPump::for_native(&mut present).pump(runtime).unwrap();
+        });
         projected.release();
     }
 
