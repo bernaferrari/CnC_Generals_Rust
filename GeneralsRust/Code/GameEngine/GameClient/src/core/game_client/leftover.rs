@@ -1703,7 +1703,7 @@ impl Drop for GameClient {
         self.drawables.owned_laser_order.clear();
 
         if owned_live_slot {
-            crate::effects::clear_live_effects_after_drawables();
+            crate::effects::clear_live_effects_after_drawables(self.fx_mut());
         }
 
         // C++ GameClient::~GameClient destroys all Drawables before deleting

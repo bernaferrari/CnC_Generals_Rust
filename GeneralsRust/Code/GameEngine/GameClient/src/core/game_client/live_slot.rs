@@ -691,7 +691,8 @@ assert_eq!(live_game_client_frame(), Some(41));
             assert_eq!(client.fx().scene_dynamic_lights().len(), count);
         }
 
-        crate::effects::clear_live_effects_after_drawables();
+        crate::effects::ray_effect_system::clear_ray_effects_after_drawables();
+        crate::effects::tracer_fx::clear_tracer_fx();
         let mut old_client = Box::new(GameClient::new().expect("old client"));
         old_client.mark_initialized();
         let mut live_client = Box::new(GameClient::new().expect("live client"));
@@ -710,9 +711,21 @@ assert_eq!(live_game_client_frame(), Some(41));
         assert_effect_count(&live_client, 1);
         drop(old_client);
         assert_effect_count(&live_client, 1);
+        let mut other_client = GameClient::new().expect("other client");
 
+        assert!(other_client.fx_mut().create_display_light_pulse(
+            crate::fx_list::DisplayLightPulse {
+                pos: [1.0, 0.0, 0.0],
+                color: [1.0, 0.5, 0.25],
+                inner_radius: 1.0,
+                outer_radius: 50.0,
+                increase_frames: 1,
+                decay_frames: 5,
+            }
+        ));
         live_client.reset().expect("next match reset");
         assert_effect_count(&live_client, 0);
+        assert_eq!(other_client.fx().scene_dynamic_lights().len(), 1);
         seed_effects(&mut live_client);
         assert_effect_count(&live_client, 1);
         drop(live_client);

@@ -553,7 +553,7 @@ impl GameClient {
         // Display/Terrain/RayEffects for the next match. Drop the Rust
         // transient tracer/ray/light streams at the same boundary.
         if owns_live_game_client_slot(self) {
-            crate::effects::clear_live_effects_after_drawables();
+            crate::effects::clear_live_effects_after_drawables(self.fx_mut());
         }
 
         if let Some(layout) = reset_background {
