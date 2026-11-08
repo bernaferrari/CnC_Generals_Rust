@@ -7,9 +7,9 @@ use std::rc::Rc;
 
 /// Ordered definition keys for one script read/write operation.
 ///
-/// Keys retain the engine's name-key namespace. DataChunk IO resolves names in
-/// that namespace; moving this numeric catalog across independent thread-local
-/// namespaces does not make it portable (hq-8po5n).
+/// Keys retain the receiving engine's namespace. Decoders must pass that same
+/// namespace to `DataChunkInput::with_namespace`; the numeric snapshot alone
+/// cannot be moved to another namespace.
 #[derive(Clone, Default)]
 pub struct ScriptTemplateLookup {
     condition_keys: Vec<u32>,

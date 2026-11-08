@@ -1384,6 +1384,47 @@ impl Object {
         }
     }
 
+    /// Run the WeaponSet callback immediately after one condition bit changes.
+    pub(crate) fn on_owned_weapon_bonus_change(&mut self, current_time: f32, rates: &[f32; 3]) {
+        for slot in [0u8, 1, 2] {
+            let Some(weapon) = self.weapon_slot(slot) else { continue };
+            let previous = if weapon.last_bonus_rof > 0.0 { weapon.last_bonus_rof } else { 1.0 };
+            let waiting = self.slot_waiting_on_bonus_delay(
+                weapon, self.weapon_name_for_slot(slot), current_time, previous,
+            );
+            if waiting {
+                let interval = self.live_reload_interval(
+                    weapon, self.weapon_name_for_slot(slot), rates[slot as usize],
+                );
+                if self.thing.template.share_weapon_reload_time {
+                    let next_ready = current_time + interval;
+                    let stamps: [Option<f32>; 3] = std::array::from_fn(|index| {
+                        let sibling = self.weapon_slot(index as u8)?;
+                        let sibling_interval = self.live_reload_interval(
+                            sibling, self.weapon_name_for_slot(index as u8), rates[index],
+                        );
+                        Some(crate::game_logic::weapon_bootstrap::last_fire_time_matching_shared_ready(
+                            next_ready, sibling_interval,
+                        ))
+                    });
+                    for index in 0..3 {
+                        if let (Some(stamp), Some(sibling)) =
+                            (stamps[index], self.weapon_slot_mut(index as u8))
+                        {
+                            sibling.last_fire_time = stamp;
+                            sibling.reloading_clip = true;
+                        }
+                    }
+                } else if let Some(weapon) = self.weapon_slot_mut(slot) {
+                    weapon.last_fire_time = current_time;
+                }
+            }
+            if let Some(weapon) = self.weapon_slot_mut(slot) {
+                weapon.last_bonus_rof = rates[slot as usize];
+            }
+        }
+    }
+
     /// C++ `Weapon::onWeaponBonusChange` (Weapon.cpp:1935-1974).
     ///
     /// When RATE_OF_FIRE changes while a slot is still RELOADING_CLIP or

@@ -1784,6 +1784,101 @@ fn frenzy_residual_buffs_allies_and_boosts_damage() {
 }
 
 #[test]
+fn frenzy_replacement_restarts_a_fired_weapon_in_each_receiving_world() {
+    use crate::game_logic::host_frenzy::HostFrenzyLevel;
+    use game_engine::common::ini::ini_game_data::WeaponBonusEntry;
+
+    fn world(rate: f32) -> (GameLogic, ObjectId, ObjectId) {
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        ensure_test_player_for_team(&mut logic, Team::China);
+        ensure_test_player_for_team(&mut logic, Team::USA);
+        logic.players.get_mut(&1).unwrap().alliance_team = 1;
+        logic.players.get_mut(&0).unwrap().alliance_team = 0;
+        let mut definitions = std::collections::HashMap::new();
+        assert_eq!(
+            crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+                &mut definitions,
+                "Weapon FrenzyTestGun\n PrimaryDamage = 10\n DamageType = UNRESISTABLE\n DeathType = NORMAL\n AttackRange = 150\n DelayBetweenShots = 2000\n ClipSize = 0\n WeaponSpeed = 999999\n ProjectileObject = NONE\n FireFX = None\n FireSound = None\n AntiGround = Yes\nEnd\n",
+                crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+            ),
+            1,
+        );
+        logic.admit_weapon_content_snapshot(
+            definitions.into_values().map(|rule| (rule.name.clone(), rule)).collect(),
+            &[],
+        ).unwrap();
+        logic.templates.get_mut("TestTank").unwrap().set_primary_weapon_name("FrenzyTestGun");
+        logic.admit_weapon_bonus_entries(&["FRENZY_ONE", "FRENZY_TWO"].map(|condition| {
+            WeaponBonusEntry {
+                condition: condition.into(),
+                field: "RATE_OF_FIRE".into(),
+                value: rate,
+            }
+        }));
+        let shooter = logic.create_object_for_player("TestTank", 1, Vec3::ZERO).unwrap();
+        let target = logic.create_object_for_player("TestTank", 0, Vec3::new(10.0, 0.0, 0.0)).unwrap();
+        let unit = logic.host_object_mut(shooter).unwrap();
+        unit.weapon.as_mut().unwrap().last_fire_time = -10.0;
+        unit.target = Some(target);
+        unit.set_ai_state(
+            AIState::Attacking,
+            30,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        unit.set_status_attacking(true);
+        (logic, shooter, target)
+    }
+
+    let (mut first, first_shooter, first_target) = world(2.0);
+    let (mut second, second_shooter, second_target) = world(3.0);
+    for (logic, shooter, target, rate) in [
+        (&mut first, first_shooter, first_target, 2.0),
+        (&mut second, second_shooter, second_target, 3.0),
+    ] {
+        logic.frame = 30;
+        let actor = logic.host_object(shooter).unwrap();
+        let victim = logic.host_object(target).unwrap();
+        assert!(actor.weapon_ready_vs_target_with_owned_rof(0, 1.0, false, 1.0), "fixture weapon must be ready");
+        assert_eq!(actor.select_combat_weapon_slot(victim, 1.0), Some(0), "fixture must select primary");
+        let health = victim.health.current;
+        logic.update_combat(&[shooter, target], 1.0 / 30.0).unwrap();
+        let fired = logic.host_object(shooter).unwrap().weapon.as_ref().unwrap();
+        assert_eq!(fired.last_fire_frame, 30, "combat must discharge the fixture weapon");
+        assert!(logic.host_object(target).unwrap().health.current < health, "discharge must damage target");
+
+        logic.frame = 36;
+        assert!(logic.activate_frenzy(1, Vec3::ZERO, Some(shooter), HostFrenzyLevel::One));
+        let weapon = logic.host_object(shooter).unwrap().weapon.as_ref().unwrap();
+        assert!((weapon.last_fire_time - 1.2).abs() < 0.001);
+        assert!((weapon.last_bonus_rof - rate).abs() < 0.001);
+
+        // Both tiers have the same final ROF. Only the synchronous clear of
+        // tier one and then set of tier two can restart this wait at frame 39.
+        logic.frame = 39;
+        assert!(logic.activate_frenzy(1, Vec3::ZERO, Some(shooter), HostFrenzyLevel::Two));
+        let unit = logic.host_object(shooter).unwrap();
+        let weapon = unit.weapon.as_ref().unwrap();
+        assert_eq!(unit.weapon_bonus_frenzy_level, 2);
+        assert!((weapon.last_fire_time - 1.3).abs() < 0.001);
+        assert!((weapon.last_bonus_rof - rate).abs() < 0.001);
+
+        let expiry = unit.weapon_bonus_frenzy_until_frame;
+        logic.frame = expiry - 3;
+        let health = logic.host_object(target).unwrap().health.current;
+        logic.update_combat(&[shooter, target], 1.0 / 30.0).unwrap();
+        assert!(logic.host_object(target).unwrap().health.current < health);
+        logic.frame = expiry;
+        logic.update_ai(&[shooter], 1.0 / 30.0).unwrap();
+        let unit = logic.host_object(shooter).unwrap();
+        assert!(!unit.weapon_bonus_frenzy);
+        let weapon = unit.weapon.as_ref().unwrap();
+        assert!((weapon.last_fire_time - expiry as f32 / 30.0).abs() < 0.001);
+        assert!((weapon.last_bonus_rof - 1.0).abs() < 0.001);
+    }
+}
+
+#[test]
 fn frenzy_buffs_allied_faction_units_not_just_same_team() {
     use crate::game_logic::host_frenzy::HostFrenzyLevel;
     use crate::game_logic::{Player, Weapon};

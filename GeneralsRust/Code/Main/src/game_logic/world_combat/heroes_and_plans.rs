@@ -4,6 +4,40 @@
 use super::super::*;
 
 impl GameLogic {
+    /// TempWeaponBonusHelper clears the previous condition before setting the
+    /// replacement. Each bit transition synchronously notifies the weapon set.
+    pub(in crate::game_logic) fn set_owned_frenzy_bonus(
+        &mut self,
+        id: ObjectId,
+        level: Option<u8>,
+        until: u32,
+    ) {
+        let Some(object) = self.objects.get(&id) else { return };
+        let old = object.weapon_bonus_frenzy.then_some(object.weapon_bonus_frenzy_level);
+        let level = level.map(|level| level.clamp(1, 3));
+        if old != level {
+            if old.is_some() {
+                self.objects.get_mut(&id).unwrap().clear_weapon_bonus_frenzy();
+                self.notify_owned_frenzy_bonus_change(id);
+            }
+            if let Some(level) = level {
+                self.objects.get_mut(&id).unwrap().apply_weapon_bonus_frenzy(level, until);
+                self.notify_owned_frenzy_bonus_change(id);
+            }
+        } else if let Some(level) = level {
+            self.objects.get_mut(&id).unwrap().apply_weapon_bonus_frenzy(level, until);
+        }
+    }
+
+    fn notify_owned_frenzy_bonus_change(&mut self, id: ObjectId) {
+        let Some(object) = self.objects.get(&id) else { return };
+        let rates = self.receiving_weapon_rates_of_fire(object);
+        let time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
+        if let Some(object) = self.objects.get_mut(&id) {
+            object.on_owned_weapon_bonus_change(time, &rates);
+        }
+    }
+
     /// Tick TurretAI idle-scan / HoldTurret / idle-recenter residual for
     /// Bombardment ACTIVE Strategy Centers.
     ///
@@ -1193,17 +1227,11 @@ impl GameLogic {
             if !applied.insert(id) {
                 continue;
             }
-            let Some(target) = self.objects.get_mut(&id) else {
-                continue;
-            };
-            if !target.is_alive() {
+            if !self.objects.get(&id).is_some_and(|target| target.is_alive()) {
                 continue;
             }
-            let was_buffed = target.weapon_bonus_frenzy;
-            target.apply_weapon_bonus_frenzy(level.as_u8(), until);
-            if !was_buffed || target.weapon_bonus_frenzy {
-                buffs = buffs.saturating_add(1);
-            }
+            self.set_owned_frenzy_bonus(id, Some(level.as_u8()), until);
+            buffs = buffs.saturating_add(1);
         }
 
         // C++ WeaponBonusUpdate iterateContained — KindOf only (container already Allies).
@@ -1227,17 +1255,8 @@ impl GameLogic {
             if !is_legal_frenzy_target(is_structure, true, true, can_attack, under_construction) {
                 continue;
             }
-            let Some(target) = self.objects.get_mut(&occ_id) else {
-                continue;
-            };
-            if !target.is_alive() {
-                continue;
-            }
-            let was_buffed = target.weapon_bonus_frenzy;
-            target.apply_weapon_bonus_frenzy(level.as_u8(), until);
-            if !was_buffed || target.weapon_bonus_frenzy {
-                buffs = buffs.saturating_add(1);
-            }
+            self.set_owned_frenzy_bonus(occ_id, Some(level.as_u8()), until);
+            buffs = buffs.saturating_add(1);
         }
 
         let frenzy_id = self.frenzies.alloc_id();

@@ -128,6 +128,13 @@ impl GameLogic {
                 // C++ HeightDieUpdate.cpp:132-195 getGroundHeight + structures.
                 self.height_die_terrain_at(pos, &name, ground)
             };
+            if self.objects.get(&object_id).is_some_and(|obj| {
+                obj.weapon_bonus_frenzy
+                    && obj.weapon_bonus_frenzy_until_frame > 0
+                    && self.frame >= obj.weapon_bonus_frenzy_until_frame
+            }) {
+                self.set_owned_frenzy_bonus(object_id, None, 0);
+            }
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 // CPP Drawable.cpp:1174-1204 advances opacity once per frame.
                 obj.tick_terrain_decal_fade();
@@ -146,7 +153,6 @@ impl GameLogic {
                 let peel_status_timers = false;
                 if !peel_status_timers {
                     obj.tick_selection_flash();
-                    obj.tick_weapon_bonus_frenzy(self.frame);
                     obj.tick_faerie_fire(self.frame);
                 }
                 // Wave 762: under coupled shadow, eject-invulnerable expire is

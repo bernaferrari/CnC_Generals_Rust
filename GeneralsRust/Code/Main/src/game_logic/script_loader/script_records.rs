@@ -18,6 +18,7 @@ fn load_sides_list_fallback(
     body: &[u8],
     toc: &HashMap<u32, String>,
     templates: &ScriptTemplateLookup,
+    names: &mut NameKeyNamespace,
 ) -> LoaderResult<Option<MapScriptLoadResult>> {
     let Some((sides_version, sides_payload)) = find_chunk_by_label(body, toc, SIDES_LIST_LABEL)?
     else {
@@ -25,7 +26,7 @@ fn load_sides_list_fallback(
     };
 
     let script_lists =
-        parse_script_lists_from_sides_chunk(sides_payload, toc, sides_version, templates)?;
+        parse_script_lists_from_sides_chunk(sides_payload, toc, sides_version, templates, names)?;
     let total = count_scripts(&script_lists);
     info!(
         "Decoded {} script lists ({} scripts) from '{}' via SidesList fallback",
@@ -57,6 +58,16 @@ pub(super) fn load_map_scripts_with_templates(
     map_name: &str,
     templates: &ScriptTemplateLookup,
 ) -> LoaderResult<Option<MapScriptLoadResult>> {
+    NameKeyGenerator::with_namespace(|names| {
+        load_map_scripts_with_catalog(map_name, templates, names)
+    })
+}
+
+pub(super) fn load_map_scripts_with_catalog(
+    map_name: &str,
+    templates: &ScriptTemplateLookup,
+    names: &mut NameKeyNamespace,
+) -> LoaderResult<Option<MapScriptLoadResult>> {
     let Some(_) = locate_map_file(map_name) else {
         warn!(
             "No .map file could be found for '{}'; mission scripts unavailable",
@@ -67,7 +78,7 @@ pub(super) fn load_map_scripts_with_templates(
     let Some(chunky) = load_chunky_map(map_name)? else {
         return Ok(None);
     };
-    load_map_scripts_from_chunky_with_templates(&chunky, templates)
+    load_map_scripts_from_chunky_with_catalog(&chunky, templates, names)
 }
 
 /// Decode mission scripts from an already-decompressed chunky map.
@@ -86,6 +97,16 @@ pub(super) fn load_map_scripts_from_chunky_with_templates(
     chunky: &ChunkyMap,
     templates: &ScriptTemplateLookup,
 ) -> LoaderResult<Option<MapScriptLoadResult>> {
+    NameKeyGenerator::with_namespace(|names| {
+        load_map_scripts_from_chunky_with_catalog(chunky, templates, names)
+    })
+}
+
+pub(super) fn load_map_scripts_from_chunky_with_catalog(
+    chunky: &ChunkyMap,
+    templates: &ScriptTemplateLookup,
+    names: &mut NameKeyNamespace,
+) -> LoaderResult<Option<MapScriptLoadResult>> {
     let map_path = chunky.source.clone();
     if chunky.body_offset >= chunky.bytes.len() {
         return Err(GameLogicError::Configuration(format!(
@@ -97,7 +118,7 @@ pub(super) fn load_map_scripts_from_chunky_with_templates(
     let body = &chunky.bytes[chunky.body_offset..];
     let player_scripts_chunk = find_chunk_by_label(body, &chunky.toc, PLAYER_SCRIPTS_LABEL)?;
     let Some((version, payload)) = player_scripts_chunk else {
-        if let Some(result) = load_sides_list_fallback(&map_path, body, &chunky.toc, templates)? {
+        if let Some(result) = load_sides_list_fallback(&map_path, body, &chunky.toc, templates, names)? {
             return Ok(Some(result));
         } else {
             debug!(
@@ -113,11 +134,11 @@ pub(super) fn load_map_scripts_from_chunky_with_templates(
         }
     };
 
-    let script_lists = parse_script_lists(payload, &chunky.toc, version, templates)?;
+    let script_lists = parse_script_lists(payload, &chunky.toc, version, templates, names)?;
     let total = count_scripts(&script_lists);
 
     if total == 0 {
-        if let Some(result) = load_sides_list_fallback(&map_path, body, &chunky.toc, templates)? {
+        if let Some(result) = load_sides_list_fallback(&map_path, body, &chunky.toc, templates, names)? {
             info!(
                 "PlayerScriptsList in '{}' decoded empty; using SidesList fallback instead",
                 map_path.display()
@@ -238,9 +259,10 @@ fn parse_script_lists_from_sides_chunk(
     toc: &HashMap<u32, String>,
     version: u16,
     templates: &ScriptTemplateLookup,
+    names: &mut NameKeyNamespace,
 ) -> LoaderResult<Vec<ScriptList>> {
     let chunk_stream = synthesize_chunk_stream(toc, SIDES_LIST_LABEL, version, payload)?;
-    let mut input = DataChunkInput::new(chunk_stream);
+    let mut input = DataChunkInput::with_namespace(chunk_stream, names);
     if !input.is_valid_file_type() {
         return Err(configuration_error(
             "Synthetic SidesList chunk stream is not valid",
@@ -278,6 +300,7 @@ fn parse_script_lists(
     toc: &HashMap<u32, String>,
     version: u16,
     templates: &ScriptTemplateLookup,
+    names: &mut NameKeyNamespace,
 ) -> LoaderResult<Vec<ScriptList>> {
     if version == 0 {
         warn!("PlayerScriptsList chunk reported version 0; continuing");
@@ -285,7 +308,7 @@ fn parse_script_lists(
     let mut lists = Vec::new();
     parse_chunk_sequence(data, toc, |label, chunk_version, payload| {
         if label == SCRIPT_LIST_LABEL {
-            lists.push(parse_script_list(payload, toc, chunk_version, templates)?);
+            lists.push(parse_script_list(payload, toc, chunk_version, templates, names)?);
         } else {
             debug!(
                 "Skipping unexpected chunk '{}' under PlayerScriptsList",
@@ -309,14 +332,15 @@ fn parse_script_list(
     toc: &HashMap<u32, String>,
     _version: u16,
     templates: &ScriptTemplateLookup,
+    names: &mut NameKeyNamespace,
 ) -> LoaderResult<ScriptList> {
     let mut top_scripts = Vec::new();
     let mut groups = Vec::new();
     parse_chunk_sequence(data, toc, |label, chunk_version, payload| {
         match label {
-            SCRIPT_LABEL => top_scripts.push(parse_script(payload, toc, chunk_version, templates)?),
+            SCRIPT_LABEL => top_scripts.push(parse_script(payload, toc, chunk_version, templates, names)?),
             SCRIPT_GROUP_LABEL => {
-                groups.push(parse_script_group(payload, toc, chunk_version, templates)?)
+                groups.push(parse_script_group(payload, toc, chunk_version, templates, names)?)
             }
             _ => debug!("Unknown chunk '{}' inside ScriptList", label),
         }
@@ -334,6 +358,7 @@ fn parse_script(
     toc: &HashMap<u32, String>,
     version: u16,
     templates: &ScriptTemplateLookup,
+    names: &mut NameKeyNamespace,
 ) -> LoaderResult<Script> {
     let mut reader = BinaryReader::new(data);
     let mut script = Script::new();
@@ -358,13 +383,13 @@ fn parse_script(
     parse_chunk_sequence(nested, toc, |label, chunk_version, payload| {
         match label {
             OR_CONDITION_LABEL => {
-                or_nodes.push(parse_or_condition(payload, toc, chunk_version, templates)?)
+                or_nodes.push(parse_or_condition(payload, toc, chunk_version, templates, names)?)
             }
             SCRIPT_ACTION_LABEL => {
-                actions.push(parse_script_action(payload, toc, chunk_version, templates)?)
+                actions.push(parse_script_action(payload, toc, chunk_version, templates, names)?)
             }
             SCRIPT_ACTION_FALSE_LABEL => {
-                false_actions.push(parse_script_action(payload, toc, chunk_version, templates)?)
+                false_actions.push(parse_script_action(payload, toc, chunk_version, templates, names)?)
             }
             _ => debug!("Unhandled chunk '{}' inside Script", label),
         }
@@ -382,6 +407,7 @@ fn parse_script_group(
     toc: &HashMap<u32, String>,
     version: u16,
     templates: &ScriptTemplateLookup,
+    names: &mut NameKeyNamespace,
 ) -> LoaderResult<ScriptGroup> {
     let mut reader = BinaryReader::new(data);
     let mut group = ScriptGroup::new();
@@ -397,7 +423,7 @@ fn parse_script_group(
     let mut scripts = Vec::new();
     parse_chunk_sequence(nested, toc, |label, chunk_version, payload| {
         if label == SCRIPT_LABEL {
-            scripts.push(parse_script(payload, toc, chunk_version, templates)?);
+            scripts.push(parse_script(payload, toc, chunk_version, templates, names)?);
         } else {
             debug!("Skipping '{}' inside ScriptGroup", label);
         }
@@ -412,12 +438,13 @@ fn parse_or_condition(
     toc: &HashMap<u32, String>,
     _version: u16,
     templates: &ScriptTemplateLookup,
+    names: &mut NameKeyNamespace,
 ) -> LoaderResult<OrCondition> {
     let mut or_node = OrCondition::new();
     let mut conditions = Vec::new();
     parse_chunk_sequence(data, toc, |label, chunk_version, payload| {
         if label == CONDITION_LABEL {
-            conditions.push(parse_condition(payload, toc, chunk_version, templates)?);
+            conditions.push(parse_condition(payload, toc, chunk_version, templates, names)?);
         } else {
             debug!("Unknown chunk '{}' inside OrCondition", label);
         }
@@ -432,13 +459,14 @@ fn parse_condition(
     toc: &HashMap<u32, String>,
     version: u16,
     templates: &ScriptTemplateLookup,
+    names: &mut NameKeyNamespace,
 ) -> LoaderResult<Condition> {
     let mut reader = BinaryReader::new(data);
     let cond_value = reader.read_i32()? as u32;
     let mut cond_type = convert_condition_type(cond_value)?;
     let mut condition = Condition::new(cond_type);
     if version >= 4 {
-        let name_key = read_script_name_key(&mut reader, toc)?;
+        let name_key = read_script_name_key(&mut reader, toc, names)?;
         cond_type = templates.resolve_condition(cond_type, name_key);
         condition.condition_type = cond_type;
     }
@@ -455,12 +483,13 @@ fn parse_script_action(
     toc: &HashMap<u32, String>,
     version: u16,
     templates: &ScriptTemplateLookup,
+    names: &mut NameKeyNamespace,
 ) -> LoaderResult<ScriptAction> {
     let mut reader = BinaryReader::new(data);
     let mut action_type = convert_action_type(reader.read_i32()? as u32)?;
     let mut action = ScriptAction::new(action_type);
     if version >= 2 {
-        let name_key = read_script_name_key(&mut reader, toc)?;
+        let name_key = read_script_name_key(&mut reader, toc, names)?;
         action_type = templates.resolve_action(action_type, name_key);
         action.action_type = action_type;
     }
@@ -476,10 +505,11 @@ fn parse_script_action(
 fn read_script_name_key(
     reader: &mut BinaryReader<'_>,
     toc: &HashMap<u32, String>,
+    names: &mut NameKeyNamespace,
 ) -> LoaderResult<u32> {
     let name_id = (reader.read_i32()? >> 8) as u32;
     let name = toc.get(&name_id).map(String::as_str).unwrap_or("");
-    Ok(NameKeyGenerator::name_to_key(name))
+    Ok(names.name_to_key(name))
 }
 
 fn parse_parameter(reader: &mut BinaryReader<'_>) -> LoaderResult<Parameter> {
@@ -629,7 +659,7 @@ mod out_of_range_ordinal_rematch_tests {
             data.extend_from_slice(&999i32.to_le_bytes());
             data.extend_from_slice(&(42i32 << 8).to_le_bytes());
             data.extend_from_slice(&0i32.to_le_bytes());
-            let condition = parse_condition(&data, &toc, 4, &templates).expect("parse");
+            let condition = NameKeyGenerator::with_namespace(|names| parse_condition(&data, &toc, 4, &templates, names)).expect("parse");
             assert_eq!(condition.condition_type, ConditionType::Counter);
         });
     }
@@ -644,7 +674,7 @@ mod out_of_range_ordinal_rematch_tests {
             data.extend_from_slice(&999i32.to_le_bytes());
             data.extend_from_slice(&(7i32 << 8).to_le_bytes());
             data.extend_from_slice(&0i32.to_le_bytes());
-            let condition = parse_condition(&data, &toc, 4, &templates).expect("parse");
+            let condition = NameKeyGenerator::with_namespace(|names| parse_condition(&data, &toc, 4, &templates, names)).expect("parse");
             assert_eq!(condition.condition_type, ConditionType::ConditionFalse);
         });
     }
@@ -664,7 +694,7 @@ mod out_of_range_ordinal_rematch_tests {
             data.extend_from_slice(&999i32.to_le_bytes());
             data.extend_from_slice(&(9i32 << 8).to_le_bytes());
             data.extend_from_slice(&0i32.to_le_bytes());
-            let action = parse_script_action(&data, &toc, 2, &templates).expect("parse");
+            let action = NameKeyGenerator::with_namespace(|names| parse_script_action(&data, &toc, 2, &templates, names)).expect("parse");
             assert_eq!(action.action_type, ScriptActionType::SetFlag);
         });
     }

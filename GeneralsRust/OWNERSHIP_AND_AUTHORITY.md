@@ -3131,3 +3131,11 @@ Core InstantDeath OCL selection retains unresolved entries as null slots, so
 the authored list length and random selection indices match the original.
 Native owned death still rejects authored OCL effects until it can borrow the
 receiving creation and catalog services.
+
+Script catalog loading and template seeding use the supplied world's name-key
+namespace on both direct and SidesList decode routes. Legacy map-loader
+wrappers and script writing still use ambient namespace selection.
+
+Frenzy application, replacement and expiry notify weapons synchronously for
+each condition transition using receiving-world rates. The weapon clock itself
+still needs the original integer-frame ownership cutover.

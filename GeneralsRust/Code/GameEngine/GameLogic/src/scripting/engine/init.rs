@@ -25,7 +25,7 @@ impl ScriptEngine {
     }
 
     /// C++ assigns authored names, then interns conditions before actions.
-    fn seed_template_internal_names(&mut self) {
+    fn seed_template_internal_names(&mut self, names: &mut game_engine::common::name_key_generator::NameKeyNamespace) {
         let inner = self.inner.get_mut();
         for (template, name) in inner
             .condition_templates
@@ -33,7 +33,7 @@ impl ScriptEngine {
             .zip(template_names::CONDITION_INTERNAL_NAMES)
         {
             template.base.internal_name = name.to_owned();
-            template.base.internal_name_key = NameKeyGenerator::name_to_key(name);
+            template.base.internal_name_key = names.name_to_key(name);
         }
         for (template, name) in inner
             .action_templates
@@ -41,7 +41,7 @@ impl ScriptEngine {
             .zip(template_names::ACTION_INTERNAL_NAMES)
         {
             template.base.internal_name = name.to_owned();
-            template.base.internal_name_key = NameKeyGenerator::name_to_key(name);
+            template.base.internal_name_key = names.name_to_key(name);
         }
     }
 
@@ -50,14 +50,29 @@ impl ScriptEngine {
     pub fn new() -> GameLogicResult<Self> {
         // Prefer the published world; otherwise allocate a private owner so unit
         // tests never touch a process-wide bag.
-        let services = crate::system::engine_stores::try_active_services()
-            .unwrap_or_else(crate::system::engine_stores::new_world_services);
-        Self::new_with_services(&services)
+        if let Some(services) = crate::system::engine_stores::try_active_services() {
+            return Self::new_with_services(&services);
+        }
+        let services = crate::system::engine_stores::new_world_services();
+        if let Some(common) = game_engine::common::common_services::try_common_services() {
+            let mut names = common.name_key_namespace.lock().unwrap_or_else(|p| p.into_inner());
+            Self::new_with_names(&services, &mut names)
+        } else {
+            Self::new_with_services(&services)
+        }
     }
 
     /// Build on `services` so instance ids stay on the owning world.
     pub fn new_with_services(
         services: &std::sync::Arc<crate::system::engine_stores::WorldServices>,
+    ) -> GameLogicResult<Self> {
+        let mut names = services.common().name_key_namespace.lock().unwrap_or_else(|p| p.into_inner());
+        Self::new_with_names(services, &mut names)
+    }
+
+    fn new_with_names(
+        services: &std::sync::Arc<crate::system::engine_stores::WorldServices>,
+        names: &mut game_engine::common::name_key_generator::NameKeyNamespace,
     ) -> GameLogicResult<Self> {
         let mut engine = Self {
             instance_id: services
@@ -150,7 +165,7 @@ impl ScriptEngine {
             inner.attack_priorities.ensure_default();
         }
 
-        engine.initialize_templates()?;
+        engine.initialize_templates(names)?;
         Ok(engine)
     }
 
@@ -1333,7 +1348,7 @@ impl ScriptEngine {
     }
 
     /// Initialize action and condition templates
-    fn initialize_templates(&mut self) -> GameLogicResult<()> {
+    fn initialize_templates(&mut self, names: &mut game_engine::common::name_key_generator::NameKeyNamespace) -> GameLogicResult<()> {
         let inner = self.inner.get_mut();
         // C++ builds immutable definitions before applying optional editor INI labels.
         inner
@@ -1345,7 +1360,7 @@ impl ScriptEngine {
 
         // Full authored defaults, followed by C++ condition-first name/key allocation.
         template_metadata::initialize(&mut inner.action_templates, &mut inner.condition_templates);
-        self.seed_template_internal_names();
+        self.seed_template_internal_names(names);
 
         Ok(())
     }

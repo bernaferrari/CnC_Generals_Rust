@@ -121,6 +121,99 @@ mod authored_definition_tests {
         }
     }
 
+    fn flag_document(sides: bool) -> ChunkyMap {
+        let mut out = DataChunkOutput::new();
+        if sides {
+            out.open_data_chunk("SidesList", 2);
+            out.write_int(0);
+            out.write_int(0);
+        }
+        out.open_data_chunk("PlayerScriptsList", 1);
+        out.open_data_chunk("ScriptList", 1);
+        out.open_data_chunk("Script", 2);
+        for text in ["isolation", "", "", ""] {
+            out.write_ascii_string(text);
+        }
+        for flag in [1, 0, 1, 1, 1, 0] {
+            out.write_byte(flag);
+        }
+        out.write_int(0);
+        out.open_data_chunk("ScriptAction", 2);
+        // Stale ordinal forces the C++ name-key rematch.
+        out.write_int(ScriptActionType::NoOp as i32);
+        out.write_name_key(NameKeyGenerator::name_to_key("SET_FLAG"));
+        out.write_int(2);
+        for parameter in [
+            Parameter::with_string(ParameterType::Flag, "same-flag".into()),
+            Parameter::with_int(ParameterType::Boolean, 1),
+        ] {
+            out.write_int(parameter.param_type as i32);
+            out.write_int(parameter.int_value);
+            out.write_real(parameter.real_value);
+            out.write_ascii_string(&parameter.string_value);
+        }
+        out.close_data_chunk();
+        out.open_data_chunk("ScriptActionFalse", 2);
+        out.write_int(ScriptActionType::Victory as i32);
+        out.write_name_key(NameKeyGenerator::name_to_key("UNREGISTERED_SESSION_ACTION"));
+        out.write_int(0);
+        out.close_data_chunk();
+        for _ in 0..3 {
+            out.close_data_chunk();
+        }
+        if sides {
+            out.close_data_chunk();
+        }
+        let bytes = out.into_ckmp_bytes();
+        let (toc, body_offset) = parse_chunk_toc(&bytes).unwrap();
+        ChunkyMap { source: PathBuf::from("flag-isolation.map"), bytes, toc, body_offset }
+    }
+
+    #[test]
+    fn receiving_catalogs_decode_and_execute_across_threads_and_reset() {
+        use gamelogic::system::engine_stores::{new_world_services, with_world_services};
+        let first = new_world_services();
+        let second = new_world_services();
+        {
+            let mut names = second.common().name_key_namespace.lock().unwrap();
+            for i in 0..1000 {
+                names.name_to_key(&format!("other-session-{i}"));
+            }
+        }
+        let mut a = ScriptEngine::new_with_services(&first).unwrap();
+        let mut b = ScriptEngine::new_with_services(&second).unwrap();
+        let a_key = a.get_action_template(ScriptActionType::SetFlag as usize).unwrap().base.internal_name_key;
+        let b_key = b.get_action_template(ScriptActionType::SetFlag as usize).unwrap().base.internal_name_key;
+        assert_ne!(a_key, b_key);
+        let documents = with_world_services(&first, || [flag_document(false), flag_document(true)]);
+        assert!(second.common().name_key_namespace.lock().unwrap()
+            .key_for_name("UNREGISTERED_SESSION_ACTION").is_none());
+
+        fn run(engine: &mut ScriptEngine, world: &gamelogic::system::engine_stores::WorldServices, documents: &[ChunkyMap]) {
+            let catalog = ScriptTemplateLookup::from_engine(engine);
+            for document in documents {
+                let mut names = world.common().name_key_namespace.lock().unwrap();
+                let mut loaded = load_map_scripts_from_chunky_with_catalog(document, &catalog, &mut names)
+                    .unwrap().unwrap();
+                assert!(names.key_for_name("UNREGISTERED_SESSION_ACTION").is_some());
+                drop(names);
+                let action = loaded.script_lists.remove(0).first_script.take().unwrap().action.unwrap();
+                assert_eq!(action.action_type, ScriptActionType::SetFlag);
+                engine.friend_execute_action(&action, None);
+                assert!(engine.get_flag("same-flag").unwrap().value);
+                engine.reset();
+                assert!(!engine.get_flag("same-flag").is_some_and(|flag| flag.value));
+            }
+        }
+        run(&mut a, &first, &documents);
+        std::thread::scope(|scope| {
+            scope.spawn(|| run(&mut b, &second, &documents)).join().unwrap();
+        });
+        assert!(second.common().name_key_namespace.lock().unwrap()
+            .key_for_name("UNREGISTERED_SESSION_ACTION").is_some());
+        run(&mut a, &first, &documents);
+    }
+
     #[test]
     fn both_routes_resolve_cpp_n_or_fewer_buildings() {
         check_condition(

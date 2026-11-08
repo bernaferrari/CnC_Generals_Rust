@@ -1741,12 +1741,16 @@ impl GameLogic {
         };
         let templates =
             gamelogic::scripting::chunk_codec::ScriptTemplateLookup::from_engine(receiving);
-        let result = match decoded_map {
-            Some(map) => super::super::script_loader::load_map_scripts_from_chunky_with_templates(
-                map, &templates,
-            ),
-            None => {
-                super::super::script_loader::load_map_scripts_with_templates(map_name, &templates)
+        let result = {
+            let mut names = self.world_services.common().name_key_namespace.lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            match decoded_map {
+                Some(map) => super::super::script_loader::load_map_scripts_from_chunky_with_catalog(
+                    map, &templates, &mut names,
+                ),
+                None => super::super::script_loader::load_map_scripts_with_catalog(
+                    map_name, &templates, &mut names,
+                ),
             }
         };
         let result = match result {

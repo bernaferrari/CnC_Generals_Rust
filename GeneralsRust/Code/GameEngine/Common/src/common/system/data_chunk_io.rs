@@ -1,7 +1,7 @@
 // data_chunk_io.rs - DataChunkInput/Output binary chunk parser.
 
 use crate::common::dict::{Dict, DictType};
-use crate::common::name_key_generator::NameKeyGenerator;
+use crate::common::name_key_generator::{NameKeyGenerator, NameKeyNamespace};
 
 use std::collections::HashMap;
 
@@ -190,15 +190,16 @@ struct ParserEntry {
 }
 
 #[derive(Debug)]
-pub struct DataChunkInput {
+pub struct DataChunkInput<'a> {
     stream: ChunkInputStream,
     contents: DataChunkTableOfContents,
     chunk_stack: Vec<InputChunk>,
     parser_list: Vec<ParserEntry>,
+    names: Option<&'a mut NameKeyNamespace>,
     _filepos_first_chunk: usize,
 }
 
-impl DataChunkInput {
+impl<'a> DataChunkInput<'a> {
     pub fn new(data: Vec<u8>) -> Self {
         let mut stream = ChunkInputStream::new(data);
         let mut contents = DataChunkTableOfContents::default();
@@ -209,7 +210,22 @@ impl DataChunkInput {
             contents,
             chunk_stack: Vec::new(),
             parser_list: Vec::new(),
+            names: None,
             _filepos_first_chunk,
+        }
+    }
+
+    /// Decode name-key words in the receiving session's namespace.
+    pub fn with_namespace(data: Vec<u8>, names: &'a mut NameKeyNamespace) -> Self {
+        let mut input = Self::new(data);
+        input.names = Some(names);
+        input
+    }
+
+    fn intern_name(&mut self, name: &str) -> u32 {
+        match self.names.as_deref_mut() {
+            Some(names) => names.name_to_key(name),
+            None => NameKeyGenerator::name_to_key(name),
         }
     }
 
@@ -389,7 +405,7 @@ impl DataChunkInput {
         // C++ shifts a signed Int before getName converts the id to UnsignedInt.
         let name_id = (self.read_int() >> 8) as u32;
         let name = self.contents.get_name(name_id);
-        NameKeyGenerator::name_to_key(&name)
+        self.intern_name(&name)
     }
 
     pub fn read_dict(&mut self) -> Dict {
@@ -401,7 +417,7 @@ impl DataChunkInput {
             let data_type = (key_and_type & 0xff) as i32;
             let name_id = (key_and_type as u32) >> 8;
             let name = self.contents.get_name(name_id);
-            let key = NameKeyGenerator::name_to_key(&name);
+            let key = self.intern_name(&name);
 
             match data_type {
                 0 => dict.set_bool(key, self.read_byte() != 0),
