@@ -160453,7 +160453,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "642b51d4d6f6895482f92f99c8a6cb8a3a28153bc72bb02f3b5dab9756e13323",
+  "input_digest": "f38c77d343d04ebf6524d82f7a8755c486f9f6faccffb3d7754fd1db6dc84ffa",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -176271,11 +176271,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1199,
+        "end_line": 1202,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/impl_core.rs",
-      "sha256": "86f607ab30961f275e8fa33c1ec23bf7b9b41061396ca73eedae08e32e6bf790",
+      "sha256": "339a138e834382b5334b979249260a50f740e515ab6f666f884ab0d3d51fa01c",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -176550,62 +176550,57 @@
         },
         {
           "kind": "fn",
-          "line": 896,
+          "line": 916,
           "name": "load_source_tiles_with_image_source"
         },
         {
           "kind": "fn",
-          "line": 973,
+          "line": 993,
           "name": "bind_source_tile_classes_as_slots"
         },
         {
           "kind": "fn",
-          "line": 992,
+          "line": 1012,
           "name": "debug_dirty_chunk_count"
         },
         {
           "kind": "fn",
-          "line": 995,
+          "line": 1015,
           "name": "debug_clear_dirty_chunks"
         },
         {
           "kind": "fn",
-          "line": 999,
+          "line": 1019,
           "name": "debug_roads_need_terrain_normal_reprojection"
         },
         {
           "kind": "fn",
-          "line": 1003,
+          "line": 1023,
           "name": "debug_set_source_tile"
         },
         {
           "kind": "fn",
-          "line": 1010,
+          "line": 1030,
           "name": "load_source_tiles_for_class_with_image"
         },
         {
           "kind": "fn",
-          "line": 1094,
+          "line": 1114,
           "name": "source_tile_square_width"
         },
         {
           "kind": "fn",
-          "line": 1108,
+          "line": 1128,
           "name": "source_tile_texture_candidates"
         },
         {
           "kind": "fn",
-          "line": 1150,
+          "line": 1170,
           "name": "resolve_source_tile_texture_path"
         },
         {
           "kind": "fn",
-          "line": 1163,
-          "name": "resolve_source_tile_image_with_reader"
-        },
-        {
-          "kind": "fn",
-          "line": 1185,
+          "line": 1188,
           "name": "open_source_tile_image_cached"
         }
       ]
@@ -178579,181 +178574,186 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 990,
+        "end_line": 1037,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/tests.rs",
-      "sha256": "c033d8968a9717a35d829790ae5456f31b4ce0b9a087dc4105b749cd134147fa",
+      "sha256": "7a81cf1c6ea836458e461b698f912cecc85e241a56db251c457b4796165d039a",
       "symbol_index_status": "indexed",
       "symbols": [
         {
           "kind": "fn",
-          "line": 6,
+          "line": 8,
+          "name": "receiver_terrain_art_is_registered_for_gpu_without_ambient_filesystem"
+        },
+        {
+          "kind": "fn",
+          "line": 53,
           "name": "texture_ranking_fixture"
         },
         {
           "kind": "fn",
-          "line": 30,
+          "line": 77,
           "name": "chunk_texture_ranking_reuses_unchanged_map_work"
         },
         {
           "kind": "fn",
-          "line": 50,
+          "line": 97,
           "name": "chunk_texture_ranking_rebuilds_for_map_and_class_replacement"
         },
         {
           "kind": "fn",
-          "line": 80,
+          "line": 127,
           "name": "chunk_texture_ranking_keeps_late_texture_lookup_live"
         },
         {
           "kind": "fn",
-          "line": 104,
+          "line": 151,
           "name": "chunk_texture_ranking_is_instance_owned_and_reset_invalidates"
         },
         {
           "kind": "fn",
-          "line": 121,
+          "line": 168,
           "name": "chunk_texture_ranking_survives_height_only_changes"
         },
         {
           "kind": "fn",
-          "line": 133,
+          "line": 180,
           "name": "terrain_test_gpu_device_and_queue"
         },
         {
           "kind": "fn",
-          "line": 152,
+          "line": 199,
           "name": "terrain_test_gpu_device"
         },
         {
           "kind": "fn",
-          "line": 158,
+          "line": 205,
           "name": "shroud_delta_preserves_static_chunk_gpu_mesh"
         },
         {
           "kind": "fn",
-          "line": 197,
+          "line": 244,
           "name": "expired_pulse_restores_cached_gpu_mesh_after_chunk_returns_to_draw_window"
         },
         {
           "kind": "fn",
-          "line": 285,
+          "line": 332,
           "name": "disabled_water_grid_consumes_dirty_flag_without_rebuilding_all_overlays"
         },
         {
           "kind": "fn",
-          "line": 300,
+          "line": 347,
           "name": "terrain_draw_window_tracks_visible_ground_instead_of_camera_eye"
         },
         {
           "kind": "fn",
-          "line": 334,
+          "line": 381,
           "name": "bordered_draw_window_uses_authored_heightmap_sample_coordinates"
         },
         {
           "kind": "fn",
-          "line": 357,
+          "line": 404,
           "name": "draw_window_casts_after_border_offset_for_negative_fractional_world_position"
         },
         {
           "kind": "fn",
-          "line": 374,
+          "line": 421,
           "name": "runtime_road_segment"
         },
         {
           "kind": "fn",
-          "line": 399,
+          "line": 446,
           "name": "alpha_join_synthesis_scales_texture_width_not_road_width_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 432,
+          "line": 479,
           "name": "terrain_static_diffuse_uses_negative_light_position_and_clamps"
         },
         {
           "kind": "fn",
-          "line": 450,
+          "line": 497,
           "name": "terrain_static_diffuse_sums_all_global_lights_like_do_the_light"
         },
         {
           "kind": "fn",
-          "line": 466,
+          "line": 513,
           "name": "terrain_shader_fogs_only_when_fog_range_is_set"
         },
         {
           "kind": "fn",
-          "line": 498,
+          "line": 545,
           "name": "extra_blend_gpu_upload_is_called_with_non_empty_positions"
         },
         {
           "kind": "fn",
-          "line": 536,
+          "line": 583,
           "name": "extra_blend_ndxes_produce_non_empty_draw_mesh"
         },
         {
           "kind": "fn",
-          "line": 558,
+          "line": 605,
           "name": "extra_blend_draw_increments_when_tiles_exist_and_stays_zero_when_none"
         },
         {
           "kind": "fn",
-          "line": 588,
+          "line": 635,
           "name": "water_tracks_flush_is_called_from_live_water_record"
         },
         {
           "kind": "fn",
-          "line": 616,
+          "line": 663,
           "name": "runtime_bridges_use_authored_model_scale_towers_not_granite"
         },
         {
           "kind": "const",
-          "line": 622,
+          "line": 669,
           "name": "TEMPLATE"
         },
         {
           "kind": "fn",
-          "line": 692,
+          "line": 739,
           "name": "live_chunk_upload_bakes_do_the_dynamic_light"
         },
         {
           "kind": "fn",
-          "line": 741,
+          "line": 788,
           "name": "add_terrain_scorch_forces_visual_rebuild_and_exscorch01"
         },
         {
           "kind": "fn",
-          "line": 769,
+          "line": 816,
           "name": "scorch_vertex_color_rebakes_from_receiving_lighting_changes"
         },
         {
           "kind": "fn",
-          "line": 813,
+          "line": 860,
           "name": "receiving_height_effect_keeps_logical_scorches_and_invalidates_only_its_gpu_cache"
         },
         {
           "kind": "fn",
-          "line": 840,
+          "line": 887,
           "name": "bib_test_visual"
         },
         {
           "kind": "fn",
-          "line": 857,
+          "line": 904,
           "name": "placement_highlight_bib_session_adds_prunes_and_clears"
         },
         {
           "kind": "fn",
-          "line": 897,
+          "line": 944,
           "name": "bib_stand_in_is_translucent_red_when_tga_missing"
         },
         {
           "kind": "fn",
-          "line": 913,
+          "line": 960,
           "name": "water_grid_cell_is_wet_tracks_water_plane_vs_terrain"
         },
         {
           "kind": "fn",
-          "line": 941,
+          "line": 988,
           "name": "chunk_texture_selection_ranks_classes_by_tile_usage"
         }
       ]
@@ -179275,11 +179275,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2244,
+        "end_line": 2276,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/textures.rs",
-      "sha256": "3c8361ebf6517ddeefcbd001cb05d2ad57e4ba0eb46c1337db118c16975f56da",
+      "sha256": "3191ccd97de775661661a1624dd62e52fe25cd82350df237386a63132db28938",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

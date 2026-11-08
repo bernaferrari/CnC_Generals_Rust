@@ -4,6 +4,53 @@
 mod tests {
     use super::*;
 
+    #[test]
+    fn receiver_terrain_art_is_registered_for_gpu_without_ambient_filesystem() {
+        crate::test_support::ensure_ambient_host();
+        let class = TerrainSourceTileClass {
+            first_tile: 0,
+            num_tiles: 1,
+            width: 1,
+            name: "OwnerOnlyTerrainArt".into(),
+        };
+        let make_tga = |color: [u8; 4]| {
+            let image = image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+                64, 64, image::Rgba(color),
+            ));
+            let mut bytes = std::io::Cursor::new(Vec::new());
+            image.write_to(&mut bytes, image::ImageFormat::Tga).unwrap();
+            bytes.into_inner()
+        };
+        let mut first = TerrainVisualImpl::new();
+        let mut second = TerrainVisualImpl::new();
+        let first_art = make_tga([200, 10, 20, 255]);
+        let second_art = make_tga([10, 20, 200, 255]);
+        for (visual, art) in [(&mut first, &first_art), (&mut second, &second_art)] {
+            visual.load_source_tiles_from_texture_classes_with_reader(
+                std::slice::from_ref(&class),
+                |path| (path == "Art/Terrain/OwnerOnlyTerrainArt.tga").then(|| art.clone()),
+            ).unwrap();
+            let id = visual.texture_id_for_class_name(&class.name).expect("receiver art registered");
+            let texture = visual.texture_system.get_texture(id).unwrap();
+            assert!(texture.loaded);
+            assert_eq!(texture.dimensions, Some((64, 64)));
+            assert!(visual.texture_rules.iter().any(|rule| rule.texture_id == id));
+        }
+        assert_eq!(&first.source_tiles[0].as_ref().unwrap().data[..4], &[20, 10, 200, 255]);
+        assert_eq!(&second.source_tiles[0].as_ref().unwrap().data[..4], &[200, 20, 10, 255]);
+        let key = "Art/Terrain/OwnerOnlyTerrainArt.tga";
+        assert_eq!(first.texture_system.peek_decoded_image(key).unwrap().to_rgba8().get_pixel(0, 0).0, [200, 10, 20, 255]);
+        assert_eq!(second.texture_system.peek_decoded_image(key).unwrap().to_rgba8().get_pixel(0, 0).0, [10, 20, 200, 255]);
+        let original_id = first.texture_id_for_class_name(&class.name).unwrap();
+        first.load_source_tiles_from_texture_classes_with_reader(
+            std::slice::from_ref(&class),
+            |path| (path == key).then(|| second_art.clone()),
+        ).unwrap();
+        assert_eq!(first.texture_id_for_class_name(&class.name), Some(original_id));
+        assert_eq!(first.texture_system.peek_decoded_image(key).unwrap().to_rgba8().get_pixel(0, 0).0, [10, 20, 200, 255]);
+        assert_eq!(&first.source_tiles[0].as_ref().unwrap().data[..4], &[200, 20, 10, 255]);
+    }
+
     fn texture_ranking_fixture(size: u32) -> TerrainVisualImpl {
         let mut visual = TerrainVisualImpl::new();
         let mut heightmap = HeightMap::new(size, size, 255.0, 10.0);

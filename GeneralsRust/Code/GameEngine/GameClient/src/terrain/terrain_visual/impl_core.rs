@@ -889,9 +889,29 @@ impl TerrainVisualImpl {
         classes: &[TerrainSourceTileClass],
         mut read_virtual_file: impl FnMut(&str) -> Option<Vec<u8>>,
     ) -> TerrainResult<usize> {
-        self.load_source_tiles_with_image_source(classes, |visual, class| {
-            visual.resolve_source_tile_image_with_reader(&class.name, &mut read_virtual_file)
-        })
+        self.source_tile_classes = classes.to_vec();
+        self.ranked_source_tile_classes = None;
+        let mut loaded = 0;
+        let mut ids = Vec::new();
+        for class in classes {
+            let resolved = self.source_tile_texture_candidates(&class.name).into_iter().find_map(
+                |candidate| {
+                    let bytes = read_virtual_file(&candidate)?;
+                    let image = TerrainTextures::decode_image_from_bytes(&candidate, &bytes)?;
+                    Some((candidate, std::sync::Arc::new(image)))
+                },
+            );
+            if let Some((path, image)) = resolved {
+                loaded += self.load_source_tiles_for_class_with_image(class, Some(image.to_rgba8()))?;
+                ids.push(self.texture_system.register_decoded_texture(&class.name, &path, image));
+            } else {
+                loaded += self.load_source_tiles_for_class_with_image(class, None)?;
+            }
+        }
+        if !ids.is_empty() {
+            self.build_rules_from_textures(&ids);
+        }
+        Ok(loaded)
     }
 
     fn load_source_tiles_with_image_source(
@@ -1156,23 +1176,6 @@ impl TerrainVisualImpl {
             }
             if let Some(path) = TerrainTextures::resolve_texture_path(&candidate) {
                 return Some(path);
-            }
-        }
-        None
-    }
-
-    fn resolve_source_tile_image_with_reader(
-        &mut self,
-        class_name: &str,
-        read_virtual_file: &mut impl FnMut(&str) -> Option<Vec<u8>>,
-    ) -> Option<image::DynamicImage> {
-        for candidate in self.source_tile_texture_candidates(class_name) {
-            if let Some(bytes) = read_virtual_file(&candidate) {
-                // Decode once per owning TextureManager asset key (C++ TextureClass).
-                return self
-                    .texture_system
-                    .get_or_decode_image_bytes(&candidate, &bytes)
-                    .map(|image| (*image).clone());
             }
         }
         None

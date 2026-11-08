@@ -17,6 +17,9 @@ Core ghost capture carries recoil from its receiving client into the render
 bridge; it no longer re-enters the live-client slot for that recoil.
 Particle-manager initialization installs into the receiving GameClient; the
 GameLogic particle bridge and INI overlay still use ambient client access.
+Terrain class art admitted by a receiving virtual reader is registered with
+that visual's texture manager; reload invalidates its GPU texture cache.
+Texture batching beyond 16 visible classes remains a separate parity gap.
 The optional W3D device surface owns its window through wgpu's safe surface
 API. Its unused raw-pointer draw adapter was removed; the remaining primitive
 API accepts borrowed slices and currently records statistics rather than drawing.

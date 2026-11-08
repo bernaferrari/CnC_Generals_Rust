@@ -730,6 +730,38 @@ impl TextureManager {
         id
     }
 
+    /// Register the actual image supplied by a content owner's reader.
+    pub(crate) fn register_decoded_texture(
+        &mut self,
+        name: &str,
+        path: &str,
+        image: Arc<image::DynamicImage>,
+    ) -> TextureId {
+        let key = normalized_texture_key(path);
+        let existing = self.textures.iter().find_map(|(&id, texture)| {
+            (texture.name.eq_ignore_ascii_case(name)
+                && normalized_texture_key(&texture.diffuse_path) == key)
+                .then_some(id)
+        });
+        let id = existing.unwrap_or_else(|| {
+            self.register_texture(TerrainTexture::new(0, name.to_owned(), path.to_owned()))
+        });
+        let texture = self.textures.get_mut(&id).expect("registered terrain texture");
+        if !texture.loaded {
+            self.stats.loaded_textures = self.stats.loaded_textures.saturating_add(1);
+        }
+        texture.loaded = true;
+        texture.resolved_path = None;
+        texture.dimensions = Some(image.dimensions());
+        texture.atlas_placement = Some(Self::build_terrain_texture_placement(
+            image.width(), image.height(),
+        ));
+        texture.cached_diffuse_image = Some(image.clone());
+        self.decoded_image_cache.insert(key, Some(image));
+        self.gpu_cache.remove(&(id, TextureKind::Diffuse));
+        id
+    }
+
     pub(crate) fn can_resolve_texture_path(diffuse_path: &str) -> bool {
         Self::resolve_texture_path(diffuse_path).is_some()
     }
@@ -1108,7 +1140,7 @@ impl TextureManager {
         }
 
         let mut resolved_path = texture_meta.resolved_path.clone();
-        if resolved_path.is_none() {
+        if resolved_path.is_none() && texture_meta.cached_diffuse_image.is_none() {
             if let Some(path) = Self::resolve_texture_path_cached(&texture_meta.diffuse_path) {
                 resolved_path = Some(path);
                 if let Some(texture) = self.textures.get_mut(&texture_id) {
