@@ -208,6 +208,10 @@ fn swath_retarget_uses_latest_live_frame_and_encoded_frame_is_not_replayed() {
     let random = game_engine::common::random_value::SessionRandom::default();
     let mut registry = HostSpecialPowerStrikeRegistry::new();
     let id = registry.spawn_beam_field(ObjectId(1), Team::USA, Vec3::new(120., 91., 110.), 10, 0);
+    registry.beam_fields[0].swath_settings = ParticleSwathSettings {
+        swath_of_death_distance: 200.0,
+        swath_of_death_amplitude: 50.0,
+    };
     registry.beam_fields[0].bind_source_axis(Vec3::new(20., 17., 30.));
     registry.advance_beam_targets(10, &terrain, &random);
     registry.record_beam_tick_complete(id, 0., 0, 0, 10);
@@ -252,6 +256,10 @@ fn authored_swath_settings_change_beam_epicenter() {
 
     let mut retail = HostSpecialPowerStrikeRegistry::new();
     retail.spawn_beam_field(ObjectId(1), Team::USA, click, birth, 0);
+    retail.beam_fields[0].swath_settings = ParticleSwathSettings {
+        swath_of_death_distance: 200.0,
+        swath_of_death_amplitude: 50.0,
+    };
     retail.beam_fields[0].bind_source_axis(building);
     retail.advance_beam_targets(birth + 20, &terrain, &random);
     let retail_pos = retail.beam_fields()[0].current_target_position;
@@ -273,6 +281,13 @@ fn authored_swath_settings_change_beam_epicenter() {
     authored.beam_fields[0].bind_source_axis(building);
     authored.advance_beam_targets(birth + 20, &terrain, &random);
     let authored_pos = authored.beam_fields()[0].current_target_position;
+    let plans = authored.plan_due_beam_ticks(
+        birth + 20,
+        &[(ObjectId(2), authored_pos, Team::GLA, true)],
+    );
+    assert_eq!(plans.len(), 1);
+    assert_eq!(plans[0].position, authored_pos);
+    assert_eq!(plans[0].hits.len(), 1);
 
     assert_ne!(
         retail_pos, authored_pos,
@@ -287,6 +302,12 @@ fn authored_swath_settings_change_beam_epicenter() {
     );
 }
 
+#[test]
+fn unauthored_swath_defaults_match_cpp_constructor() {
+    assert_eq!(ParticleSwathSettings::default().swath_of_death_distance, 0.0);
+    assert_eq!(ParticleSwathSettings::default().swath_of_death_amplitude, 0.0);
+}
+
 
 #[test]
 fn production_strike_carries_authored_swath_settings_per_source() {
@@ -297,24 +318,30 @@ fn production_strike_carries_authored_swath_settings_per_source() {
             "Object {name}\nKindOf = STRUCTURE\nGeometry = BOX\nGeometryMajorRadius = 20\nGeometryMinorRadius = 10\nGeometryHeight = 30\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = ParticleUplinkCannonUpdate PUCTag\nSwathOfDeathDistance = {distance}\nSwathOfDeathAmplitude = {amplitude}\nEnd\nEnd"
         )
     };
-    let mut world = crate::game_logic::GameLogic::new();
+    let mut worlds = [crate::game_logic::GameLogic::new(), crate::game_logic::GameLogic::new()];
+    let power = crate::command_system::SpecialPowerType::ParticleCannon;
+    for (world, distance, amplitude) in [
+        (&mut worlds[0], 250u32, 150u32),
+    ] {
+        let content = crate::assets::ReceivingObjectContent::from_sources([(
+            "authored-puc-swath.ini".to_string(),
+            object("AuthoredPUC", distance, amplitude),
+        )]).unwrap();
+        world.admit_receiving_module_content(content).unwrap();
+    }
     let content = crate::assets::ReceivingObjectContent::from_sources([(
         "authored-puc-swath.ini".to_string(),
-        format!("{}\n{}", object("AuthoredPUC", 250, 150), object("RetailPUC", 200, 50)),
-    )])
-    .unwrap();
-    world.admit_receiving_module_content(content).unwrap();
-    let authored = world.create_object("AuthoredPUC", Team::USA, Vec3::ZERO).unwrap();
-    let retail = world
-        .create_object("RetailPUC", Team::USA, Vec3::new(400., 0., 0.))
-        .unwrap();
-    let power = crate::command_system::SpecialPowerType::ParticleCannon;
-    for (source, distance, amplitude) in [(authored, 250., 150.), (retail, 200., 50.)] {
-        let id = world
-            .queue_special_power_strike(&power, source, Vec3::new(100., 0., 100.))
-            .unwrap();
+        object("AuthoredPUC", 200, 50),
+    )]).unwrap();
+    worlds[1].admit_receiving_module_content(content).unwrap();
+    for (world, distance, amplitude) in [(&mut worlds[0], 250., 150.)] {
+        let source = world.create_object("AuthoredPUC", Team::USA, Vec3::ZERO).unwrap();
+        let id = world.queue_special_power_strike(&power, source, Vec3::new(100., 0., 100.)).unwrap();
         let settings = world.special_power_strikes.get(id).unwrap().swath_settings;
-        assert_eq!(settings.swath_of_death_distance, distance);
-        assert_eq!(settings.swath_of_death_amplitude, amplitude);
+        assert_eq!((settings.swath_of_death_distance, settings.swath_of_death_amplitude), (distance, amplitude));
     }
+    let source = worlds[1].create_object("AuthoredPUC", Team::USA, Vec3::ZERO).unwrap();
+    let id = worlds[1].queue_special_power_strike(&power, source, Vec3::new(100., 0., 100.)).unwrap();
+    let settings = worlds[1].special_power_strikes.get(id).unwrap().swath_settings;
+    assert_eq!((settings.swath_of_death_distance, settings.swath_of_death_amplitude), (200., 50.));
 }

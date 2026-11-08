@@ -12,6 +12,8 @@
 //!
 //! Persist a Rust-only tagged suffix after the contain/producer payload and
 //! before the terminal owner-footer chain.
+//! OXFR v13 adds source-authored Particle Cannon swath settings; versions
+//! 10–12 cannot represent them and are rejected.
 //! OXFR v12 reserves the former stun row empty; PhysicsBehavior's lifecycle
 //! component is the sole owner of that continuation. OXFR v11 retains OFF_MAP.
 //! OXFR v10 adds queued/active Particle Cannon manual-drive settings. OXFR v9
@@ -37,7 +39,7 @@ use serde::{Deserialize, Serialize};
 
 const OXFR_MAGIC: &[u8; 4] = b"OXFR";
 const OXFR_FOOTER: &[u8; 4] = b"OXFE";
-const OXFR_VERSION: u32 = 12;
+const OXFR_VERSION: u32 = 13;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ObjectModuleXferPersistPayload {
@@ -114,6 +116,8 @@ struct ParticleDriveSettingsPersist {
     manual_driving_speed: f32,
     manual_fast_driving_speed: f32,
     double_click_to_fast_drive_delay: u32,
+    swath_of_death_distance: f32,
+    swath_of_death_amplitude: f32,
 }
 
 impl From<crate::game_logic::special_power_strikes::ParticleManualDriveSettings>
@@ -124,6 +128,8 @@ impl From<crate::game_logic::special_power_strikes::ParticleManualDriveSettings>
             manual_driving_speed: value.manual_driving_speed,
             manual_fast_driving_speed: value.manual_fast_driving_speed,
             double_click_to_fast_drive_delay: value.double_click_to_fast_drive_delay,
+            swath_of_death_distance: 0.0,
+            swath_of_death_amplitude: 0.0,
         }
     }
 }
@@ -457,6 +463,11 @@ fn decode_payload(bytes: &[u8]) -> SaveLoadResult<Option<ObjectModuleXferPersist
             "unknown OXFR suffix version {version}"
         )));
     }
+    if (10..=12).contains(&version) {
+        return Err(SaveLoadError::IncompatibleSave(
+            "OXFR v10–v12 did not retain Particle Cannon swath settings".into(),
+        ));
+    }
     let payload_len = take_u32(&mut rest)? as usize;
     if rest.len() < payload_len {
         return Err(SaveLoadError::Corrupted(
@@ -543,6 +554,15 @@ pub fn validate_completion_provenance_before_restore(
     game_logic: &GameLogic,
 ) -> SaveLoadResult<()> {
     let payload = decode_payload(bytes)?;
+    if payload.as_ref().map_or(true, |p| p.wire_version < 13)
+        && (special_powers.strikes.iter().any(|strike| {
+            strike.kind == crate::game_logic::special_power_strikes::HostSuperweaponKind::ParticleCannon
+        }) || !special_powers.beam_fields.is_empty())
+    {
+        return Err(SaveLoadError::IncompatibleSave(
+            "legacy snapshot did not retain Particle Cannon swath settings".into(),
+        ));
+    }
     let completion_state = payload
         .as_ref()
         .is_some_and(|payload| payload.completion_snapshot_present);
@@ -597,6 +617,8 @@ pub fn validate_completion_provenance_before_restore(
                 .all(|settings| {
                     settings.manual_driving_speed.is_finite()
                         && settings.manual_fast_driving_speed.is_finite()
+                        && settings.swath_of_death_distance.is_finite()
+                        && settings.swath_of_death_amplitude.is_finite()
                 });
             if actual_strikes.len() != payload.particle_drive_strikes.len()
                 || actual_beams.len() != payload.particle_drive_beams.len()
@@ -950,7 +972,11 @@ fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {
         })
         .map(|strike| ParticleDriveStrikePersist {
             strike_id: strike.id,
-            settings: strike.manual_drive_settings.into(),
+            settings: ParticleDriveSettingsPersist {
+                swath_of_death_distance: strike.swath_settings.swath_of_death_distance,
+                swath_of_death_amplitude: strike.swath_settings.swath_of_death_amplitude,
+                ..strike.manual_drive_settings.into()
+            },
         })
         .collect();
     particle_drive_strikes.sort_by_key(|row| row.strike_id);
@@ -960,7 +986,11 @@ fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {
         .iter()
         .map(|field| ParticleDriveBeamPersist {
             beam_id: field.id,
-            settings: field.manual_drive_settings.into(),
+            settings: ParticleDriveSettingsPersist {
+                swath_of_death_distance: field.swath_settings.swath_of_death_distance,
+                swath_of_death_amplitude: field.swath_settings.swath_of_death_amplitude,
+                ..field.manual_drive_settings.into()
+            },
         })
         .collect();
     particle_drive_beams.sort_by_key(|row| row.beam_id);
@@ -999,6 +1029,10 @@ fn apply_payload(
                 .get_mut(&row.strike_id)
                 .expect("ParticleCannon strike was preflighted");
             strike.manual_drive_settings = row.settings.clone().into();
+            strike.swath_settings = crate::game_logic::special_power_strikes::ParticleSwathSettings {
+                swath_of_death_distance: row.settings.swath_of_death_distance,
+                swath_of_death_amplitude: row.settings.swath_of_death_amplitude,
+            };
         }
         for row in &payload.particle_drive_beams {
             let field = game_logic
@@ -1008,6 +1042,10 @@ fn apply_payload(
                 .find(|field| field.id == row.beam_id)
                 .expect("Particle beam was preflighted");
             field.manual_drive_settings = row.settings.clone().into();
+            field.swath_settings = crate::game_logic::special_power_strikes::ParticleSwathSettings {
+                swath_of_death_distance: row.settings.swath_of_death_distance,
+                swath_of_death_amplitude: row.settings.swath_of_death_amplitude,
+            };
         }
     }
 
@@ -1190,6 +1228,8 @@ fn validate_payload_before_apply(
                 || !expected_strikes.contains(&row.strike_id)
                 || !row.settings.manual_driving_speed.is_finite()
                 || !row.settings.manual_fast_driving_speed.is_finite()
+                || !row.settings.swath_of_death_distance.is_finite()
+                || !row.settings.swath_of_death_amplitude.is_finite()
             {
                 return Err(corrupted(
                     "invalid or duplicate ParticleCannon strike settings in OXFR",
@@ -1208,6 +1248,8 @@ fn validate_payload_before_apply(
                 || !expected_beams.contains(&row.beam_id)
                 || !row.settings.manual_driving_speed.is_finite()
                 || !row.settings.manual_fast_driving_speed.is_finite()
+                || !row.settings.swath_of_death_distance.is_finite()
+                || !row.settings.swath_of_death_amplitude.is_finite()
             {
                 return Err(corrupted(
                     "invalid or duplicate Particle beam settings in OXFR",

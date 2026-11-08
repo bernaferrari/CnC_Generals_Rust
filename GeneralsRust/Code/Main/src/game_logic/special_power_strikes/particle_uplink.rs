@@ -170,8 +170,8 @@ pub struct ParticleSwathSettings {
 impl Default for ParticleSwathSettings {
     fn default() -> Self {
         Self {
-            swath_of_death_distance: PARTICLE_SWATH_OF_DEATH_DISTANCE,
-            swath_of_death_amplitude: PARTICLE_SWATH_OF_DEATH_AMPLITUDE,
+            swath_of_death_distance: 0.0,
+            swath_of_death_amplitude: 0.0,
         }
     }
 }

@@ -186,21 +186,10 @@ impl ReceivingClientTemplate {
         &self,
     ) -> Result<Option<crate::game_logic::special_power_strikes::ParticleManualDriveSettings>, ()>
     {
-        let Some(entry) = self.0.behavior_modules().iter().find(|entry| {
-            entry
-                .name
-                .as_str()
-                .eq_ignore_ascii_case("ParticleUplinkCannonUpdate")
+        let Some(data) = self.0.behavior_modules().iter().find_map(|entry| {
+            entry.data.downcast_ref::<gamelogic::object::behavior::ParticleUplinkCannonUpdateModuleData>()
         }) else {
             return Ok(None);
-        };
-        let Some(data) = entry
-            .data
-            .downcast_ref::<gamelogic::object::behavior::ParticleUplinkCannonUpdateModuleData>(
-        ) else {
-            // An admitted authored module must retain its parsed typed data.
-            // Do not reinterpret a broken admission as a synthetic cannon.
-            return Err(());
         };
         Ok(Some(
             crate::game_logic::special_power_strikes::ParticleManualDriveSettings {
@@ -216,19 +205,10 @@ impl ReceivingClientTemplate {
     pub(crate) fn particle_swath_settings(
         &self,
     ) -> Result<Option<crate::game_logic::special_power_strikes::ParticleSwathSettings>, ()> {
-        let Some(entry) = self.0.behavior_modules().iter().find(|entry| {
-            entry
-                .name
-                .as_str()
-                .eq_ignore_ascii_case("ParticleUplinkCannonUpdate")
+        let Some(data) = self.0.behavior_modules().iter().find_map(|entry| {
+            entry.data.downcast_ref::<gamelogic::object::behavior::ParticleUplinkCannonUpdateModuleData>()
         }) else {
             return Ok(None);
-        };
-        let Some(data) = entry
-            .data
-            .downcast_ref::<gamelogic::object::behavior::ParticleUplinkCannonUpdateModuleData>(
-        ) else {
-            return Err(());
         };
         Ok(Some(
             crate::game_logic::special_power_strikes::ParticleSwathSettings {

@@ -3029,3 +3029,6 @@ must migrate before the slot's aliasing and lifetime risks are removed.
 The disconnected runtime FX factory and its private ID counters were removed;
 production FX dispatch continues through the tracer, ray and particle systems.
 Those live effect paths still require receiving-owner migration.
+
+Particle Cannon strikes capture each firing source's authored swath distance and
+amplitude. Queued and active strikes retain those settings across save/load.
