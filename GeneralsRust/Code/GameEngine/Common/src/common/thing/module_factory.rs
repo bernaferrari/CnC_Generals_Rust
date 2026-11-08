@@ -700,7 +700,6 @@ impl ModuleFactory {
         module_type: ModuleType,
         module_tag: &str,
     ) -> Result<Arc<dyn ModuleData>, String> {
-        self.admit_module_registration_key(name, module_type);
         let constructor = self.fallible_data_constructors[module_type as usize]
             .get(name)
             .copied()
@@ -711,7 +710,11 @@ impl ModuleFactory {
         // Detached validation receives a private throw-away namespace and remains
         // non-runnable; neither path selects the thread's compatibility registry.
         let receiving = self.runtime_name_keys.is_some();
-        let keys = self.runtime_name_keys.take().unwrap_or_default();
+        let mut keys = self.runtime_name_keys.take().unwrap_or_default();
+        let checkpoint = keys.checkpoint();
+        if receiving {
+            keys.name_to_key(&format!("{}{}", module_type as u8, name));
+        }
         let (keys, result) = match ini {
             Some(ini) => ini.with_receiving_special_power_definitions(
                 self.receiving_special_powers.clone(),
@@ -723,10 +726,20 @@ impl ModuleFactory {
             ),
             None => (keys, constructor(None)),
         };
+        let mut keys = keys;
+        let mut data = match result {
+            Ok(data) => data,
+            Err(error) => {
+                if receiving {
+                    keys.rollback(checkpoint);
+                    self.runtime_name_keys = Some(keys);
+                }
+                return Err(error);
+            }
+        };
         if receiving {
             self.runtime_name_keys = Some(keys);
         }
-        let mut data = result?;
         // Validation preserves exact tag strings in ModuleInfo. Numeric tag
         // identity is admitted only by the receiving runtime's key owner;
         // detached validation must never allocate from the ambient registry.

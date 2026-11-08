@@ -58,6 +58,26 @@ impl NameKeyNamespace {
             .map(|entry| entry.key)
     }
 
+    /// Mark the allocation boundary for a fallible, exclusively owned parse.
+    pub(crate) fn checkpoint(&self) -> NameKeyType {
+        self.next_id
+    }
+
+    /// Discard names allocated since a checkpoint while preserving earlier keys.
+    pub(crate) fn rollback(&mut self, checkpoint: NameKeyType) {
+        for key in checkpoint..self.next_id {
+            if let Some(name) = self.reverse_lookup.remove(&key) {
+                let exact = calc_hash(&name, false);
+                let folded = calc_hash(&name, true);
+                self.buckets[exact].retain(|entry| entry.key != key);
+                if folded != exact {
+                    self.buckets[folded].retain(|entry| entry.key != key);
+                }
+            }
+        }
+        self.next_id = checkpoint;
+    }
+
     /// Admit an already assigned identity without reusing it for another name.
     pub(crate) fn bind_existing_key(&mut self, name: &str, key: NameKeyType) -> bool {
         if let Some(existing) = self.key_for_name(name) {

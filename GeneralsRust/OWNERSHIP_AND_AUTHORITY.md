@@ -2982,3 +2982,7 @@ the limit check selecting an unrelated sound to kill.
 An ECM vehicle disabler fires through its authored targeted weapon, not an
 ambient proximity aura. Its separately authored missile jammer observes the
 weapon-slot shot deadline and remains owned by the firing world.
+
+Failed strict module-data parsing rolls back keys allocated by that admission;
+existing keys and registered module data remain unchanged. Shared module-data
+snapshot transfer still has an unsound mutable alias and needs an owner cutover.

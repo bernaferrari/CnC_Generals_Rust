@@ -44,6 +44,49 @@ fn create_data(_: Option<&mut INI>) -> Box<dyn ModuleData> {
     Box::new(BaseModuleData::new())
 }
 
+fn rejected_data(ini: Option<&mut INI>) -> Result<Box<dyn ModuleData>, String> {
+    let ini = ini.unwrap();
+    ini.name_to_key("Existing");
+    ini.name_to_key("RejectedParserName");
+    Err("rejected data".into())
+}
+
+fn accepted_data(_: Option<&mut INI>) -> Result<Box<dyn ModuleData>, String> {
+    Ok(Box::new(BaseModuleData::new()))
+}
+
+#[test]
+fn rejected_module_admission_does_not_consume_owner_names_or_register_data() {
+    let mut keys = crate::common::name_key_generator::NameKeyNamespace::new();
+    assert_eq!(keys.name_to_key("Existing"), 1);
+    let mut factory = ModuleFactory::new_receiving(keys);
+    factory.register_fallible_data_constructor("Rejected", ModuleType::Behavior, rejected_data);
+    factory.register_fallible_data_constructor("Accepted", ModuleType::Behavior, accepted_data);
+
+    assert!(factory.new_module_data_from_ini_strict(
+        None, "Missing", ModuleType::Behavior, "MissingTag",
+    ).is_err());
+    let mut ini = INI::new();
+    assert!(factory.new_module_data_from_ini_strict(
+        Some(&mut ini), "Rejected", ModuleType::Behavior, "RejectedTag",
+    ).is_err());
+    assert!(factory.module_data_list.is_empty());
+    let keys = factory.runtime_name_keys.as_ref().unwrap();
+    assert_eq!(keys.key_for_name("Existing"), Some(1));
+    assert_eq!(keys.key_for_name(&format!("{}Missing", ModuleType::Behavior as u8)), None);
+    assert_eq!(keys.key_for_name(&format!("{}Rejected", ModuleType::Behavior as u8)), None);
+    assert_eq!(keys.key_for_name("RejectedParserName"), None);
+    assert_eq!(keys.key_for_name("RejectedTag"), None);
+
+    let data = factory.new_module_data_from_ini_strict(
+        None, "Accepted", ModuleType::Behavior, "AcceptedTag",
+    ).unwrap();
+    let keys = factory.runtime_name_keys.as_ref().unwrap();
+    assert_eq!(keys.key_for_name(&format!("{}Accepted", ModuleType::Behavior as u8)), Some(2));
+    assert_eq!(data.get_module_tag_name_key(), 3);
+    assert_eq!(factory.module_data_list.len(), 1);
+}
+
 fn descriptor(name: &str, mask: ModuleInterfaceType) -> TemplateModuleDescriptor {
     TemplateModuleDescriptor {
         name: name.into(),
