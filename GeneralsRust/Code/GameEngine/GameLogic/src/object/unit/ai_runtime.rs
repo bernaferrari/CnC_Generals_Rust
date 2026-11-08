@@ -14,6 +14,28 @@ use crate::object::update::ai_update_interface::{
 };
 
 impl UnitAiRuntime {
+    /// C++ `AIUpdateInterface::isPathAvailable` (AIUpdate.cpp:2063-2072):
+    /// `TheAI->pathfinder()->clientSafeQuickDoesPathExist(m_locomotorSet, myPos, dest)`.
+    pub(super) fn is_path_available_from(&self, from: &Coord3D, destination: &Coord3D) -> bool {
+        let Some(pathfinder) = crate::ai::active_pathfinder_handle() else {
+            return false;
+        };
+        let Ok(pf_guard) = pathfinder.read() else {
+            return false;
+        };
+        let ignore = if self.data.ignore_obstacle_id == INVALID_ID {
+            None
+        } else {
+            Some(self.data.ignore_obstacle_id)
+        };
+        pf_guard.client_safe_quick_does_path_exist_with_ignore(
+            &self.data.locomotor_set,
+            from,
+            destination,
+            ignore,
+        )
+    }
+
     /// Upgrade this runtime's construction-bound owner. A stale native owner
     /// never selects another instance by numeric ObjectID.
     pub(super) fn native_owner(&self) -> Option<Arc<RwLock<Object>>> {

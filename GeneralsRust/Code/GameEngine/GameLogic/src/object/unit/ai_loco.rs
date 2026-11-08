@@ -805,28 +805,9 @@ impl UnitAIUpdate {
         let Ok(guard) = unit.read() else {
             return false;
         };
-        let ai_store = the_ai();
-        let Some(ai) = ai_store.read().ok() else {
-            return false;
-        };
-        let Some(pathfinder) = ai.pathfinder() else {
-            return false;
-        };
-        let Ok(pf_guard) = pathfinder.read() else {
-            return false;
-        };
         let pos = guard.get_position();
-        let ignore = if self.runtime.data.ignore_obstacle_id == INVALID_ID {
-            None
-        } else {
-            Some(self.runtime.data.ignore_obstacle_id)
-        };
-        pf_guard.client_safe_quick_does_path_exist_with_ignore(
-            &self.runtime.data.locomotor_set,
-            &pos,
-            destination,
-            ignore,
-        )
+        drop(guard);
+        self.runtime.is_path_available_from(&pos, destination)
     }
     pub(super) fn request_path(
         &mut self,

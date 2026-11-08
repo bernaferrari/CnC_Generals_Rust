@@ -11,6 +11,4 @@ pub mod path_following;
 
 // Re-export main types
 pub use core::*;
-pub use path_following::{
-    PathFollowingController, PathFollowingState, update_movement_with_pathfinding,
-};
+pub use path_following::PathFollowingState;
