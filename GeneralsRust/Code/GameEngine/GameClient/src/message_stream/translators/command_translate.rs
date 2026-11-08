@@ -304,7 +304,13 @@ impl CommandTranslator {
         // Translated high-level messages are forwarded into the command list, matching the C++
         // message stream flow where raw input messages are consumed and replaced with commands.
         for new_msg in new_messages {
-            dispatch_translated_message(&new_msg);
+            if ui.pick_object_view().is_some()
+                && matches!(new_msg, GameMessageType::CreateSelectedGroup(..) | GameMessageType::CreateSelectedGroupNoSound(..) | GameMessageType::RemoveFromSelectedGroup(..))
+            {
+                ui.emit(GameMessage::new(new_msg));
+            } else {
+                dispatch_translated_message(&new_msg);
+            }
         }
 
         disposition

@@ -1319,6 +1319,17 @@ impl CommandTranslator {
             if Self::selection_count_limit_reached(selected_ids.len(), ui) {
                 break;
             }
+            if let Some(view) = ui.pick_object_view() {
+                if let Some(fact) = view.get(id) {
+                    if fact.structure {
+                        building_ids.push(id);
+                    } else {
+                        selected_ids.push(id);
+                    }
+                }
+                continue;
+            }
+
 
             let Some(obj) = OBJECT_REGISTRY.get_object(id) else {
                 continue;

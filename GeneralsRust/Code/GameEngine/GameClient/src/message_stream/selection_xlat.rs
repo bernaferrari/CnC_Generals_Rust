@@ -74,7 +74,14 @@ fn world_position_is_under_opaque_window(
     ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) -> bool {
     let point = Point3::new(position.x, position.y, position.z);
-    let Some(screen) = with_tactical_view_ref(|view| view.world_to_screen(&point)) else {
+    let screen = if let Some(objects) = ui.pick_object_view() {
+        objects.camera.as_ref().and_then(|camera| {
+            crate::display::view::world_to_screen_from_pick_camera(&point, camera)
+        })
+    } else {
+        with_tactical_view_ref(|view| view.world_to_screen(&point))
+    };
+    let Some(screen) = screen else {
         return false;
     };
 
@@ -412,6 +419,33 @@ impl SelectionTranslator {
         &self,
         ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Vec<SelectableDrawable> {
+        if let Some(view) = ui.pick_object_view() {
+            return view.objects.iter().map(|fact| {
+                let mut kind_of_flags = 0;
+                if fact.selectable { kind_of_flags |= KINDOF_SELECTABLE; }
+                if fact.force_attackable { kind_of_flags |= KINDOF_FORCEATTACKABLE; }
+                if fact.always_selectable { kind_of_flags |= KINDOF_ALWAYS_SELECTABLE; }
+                if fact.structure { kind_of_flags |= KINDOF_STRUCTURE; }
+                if fact.infantry { kind_of_flags |= KINDOF_INFANTRY; }
+                if fact.vehicle { kind_of_flags |= KINDOF_VEHICLE; }
+                if fact.aircraft { kind_of_flags |= KINDOF_AIRCRAFT; }
+                SelectableDrawable {
+                    id: fact.object_id,
+                    object_id: fact.object_id,
+                    position: Coord3D::new(fact.position[0], fact.position[1], fact.position[2]),
+                    is_structure: fact.structure,
+                    is_garrisonable_building: fact.garrisonable,
+                    is_crate: fact.crate_object,
+                    is_selectable: fact.selectable,
+                    is_dead: fact.destroyed || fact.effectively_dead,
+                    is_hidden: fact.hidden_for_local_player,
+                    is_local_controlled: fact.locally_controlled,
+                    kind_of_flags,
+                    status_bits: (if fact.unselectable { OBJECT_STATUS_UNSELECTABLE } else { 0 })
+                        | (if fact.masked { OBJECT_STATUS_MASKED } else { 0 }),
+                }
+            }).collect();
+        }
         if !self.drawable_registry.is_empty() {
             return self.drawable_registry.values().cloned().collect();
         }
@@ -1289,6 +1323,22 @@ impl SelectionTranslator {
         window_query: &mut dyn FnMut(i32, i32, &mut crate::message_stream::ReceivingUi<'_>) -> bool,
         ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Option<SelectableDrawable> {
+        if let Some(view) = ui.pick_object_view() {
+            let camera = view.camera.as_ref()?;
+            let drawables: Vec<_> = self.collect_drawables(ui).into_iter()
+                .filter(|drawable| drawable.can_select(false, window_query, ui))
+                .collect();
+            let candidates: Vec<_> = view.native_drawables.iter().copied()
+                .filter(|candidate| drawables.iter().any(|d| d.object_id == candidate.object_id))
+                .collect();
+            let picked = crate::display::view::pick_native_drawable_from_facts(
+                &IPoint2::new(position.x, position.y),
+                &mut |x, y| window_query(x, y, ui),
+                camera,
+                &candidates,
+            )?;
+            return drawables.into_iter().find(|d| d.object_id == picked);
+        }
         let world = self.screen_to_world(position)?;
         let max_dist_sq = PICK_RADIUS_WORLD * PICK_RADIUS_WORLD;
 
@@ -1336,7 +1386,12 @@ impl SelectionTranslator {
         window_query: &mut dyn FnMut(i32, i32, &mut crate::message_stream::ReceivingUi<'_>) -> bool,
         ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) -> Vec<ObjectID> {
-        let (screen_w, screen_h) = with_tactical_view_ref(|view| (view.width(), view.height()));
+        let receiving_camera = ui.pick_object_view().map(|view| view.camera);
+        let (screen_x, screen_y, screen_w, screen_h) = match receiving_camera {
+            Some(Some(camera)) => (camera.viewport_origin[0], camera.viewport_origin[1], camera.viewport_size[0], camera.viewport_size[1]),
+            Some(None) => return Vec::new(),
+            None => with_tactical_view_ref(|view| (0, 0, view.width(), view.height())),
+        };
         let drawables = self.collect_drawables(ui);
         let Some(reference) = drawables.iter().find(|d| d.object_id == template_object_id) else {
             return Vec::new();
@@ -1350,9 +1405,14 @@ impl SelectionTranslator {
             .filter(|d| d.is_mass_selectable())
             .filter(|d| d.kind_of_flags == reference_kind_of_flags)
             .filter(|d| {
-                self.world_to_screen(&d.position)
-                    .map(|(sx, sy)| {
-                        sx >= 0.0 && sy >= 0.0 && sx <= screen_w as f32 && sy <= screen_h as f32
+                let point = Point3::new(d.position.x, d.position.y, d.position.z);
+                let screen = match receiving_camera {
+                    Some(Some(camera)) => crate::display::view::world_to_screen_from_pick_camera(&point, &camera),
+                    Some(None) => None,
+                    None => with_tactical_view_ref(|view| view.world_to_screen(&point)),
+                };
+                screen.map(|screen| {
+                        screen.x >= screen_x && screen.y >= screen_y && screen.x <= screen_x + screen_w && screen.y <= screen_y + screen_h
                     })
                     .unwrap_or(false)
             })
@@ -1374,16 +1434,22 @@ impl SelectionTranslator {
         let min_y = region.y.min(region.y + region.height);
         let max_x = region.x.max(region.x + region.width);
         let max_y = region.y.max(region.y + region.height);
+        let receiving_camera = ui.pick_object_view().map(|view| view.camera);
 
         let mut out: Vec<SelectableDrawable> = self
             .collect_drawables(ui)
             .into_iter()
             .filter(|d| d.can_select(drag_selecting, window_query, ui))
             .filter(|d| {
-                self.world_to_screen(&d.position)
-                    .map(|(x, y)| {
-                        let x = x as i32;
-                        let y = y as i32;
+                let point = Point3::new(d.position.x, d.position.y, d.position.z);
+                let screen = match receiving_camera {
+                    Some(Some(camera)) => crate::display::view::world_to_screen_from_pick_camera(&point, &camera),
+                    Some(None) => None,
+                    None => with_tactical_view_ref(|view| view.world_to_screen(&point)),
+                };
+                screen.map(|screen| {
+                        let x = screen.x;
+                        let y = screen.y;
                         x >= min_x && x <= max_x && y >= min_y && y <= max_y
                     })
                     .unwrap_or(false)
@@ -1548,6 +1614,109 @@ mod tests {
     use super::*;
     use crate::test_support::with_receiving_ui;
     use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    #[test]
+    fn receiving_click_uses_own_viewport_and_drawables() {
+        use game_engine::common::message_stream::{TranslatorPickCamera, TranslatorPickDrawableFact, TranslatorPickObjectFact, TranslatorPickObjectView};
+        crate::test_support::ensure_ambient_host();
+        let _guard = test_state_lock();
+        let camera = TranslatorPickCamera {
+            view_matrix: glam::Mat4::IDENTITY.to_cols_array(),
+            projection_matrix: glam::Mat4::IDENTITY.to_cols_array(),
+            camera_position: [0.0, 0.0, -2.0],
+            viewport_origin: [100, 40],
+            viewport_size: [400, 200],
+        };
+        let fact = TranslatorPickObjectFact {
+            object_id: 7, position: [0.0, 0.0, 0.0], locally_controlled: true,
+            selectable: true, force_attackable: false, mine: false, shrubbery: false,
+            destroyed: false, effectively_dead: false, unselectable: false, masked: false,
+            hidden_for_local_player: false, structure: false, garrisonable: false,
+            crate_object: false, always_selectable: false, infantry: true, vehicle: false, aircraft: false,
+        };
+        let owner = TranslatorPickObjectView {
+            local_player_index: 1, objects: vec![fact],
+            native_drawables: vec![TranslatorPickDrawableFact { object_id: 7, center: [0.0, 0.0, 0.0], radius: 1.0 }],
+            camera: Some(camera),
+        };
+        let peer = TranslatorPickObjectView {
+            native_drawables: Vec::new(), ..owner.clone()
+        };
+        let mut owner_state = crate::core::subsystems::InGameUISubsystem::default();
+        let mut peer_state = crate::core::subsystems::InGameUISubsystem::default();
+        let mut owner_emitted = Vec::new();
+        let mut peer_emitted = Vec::new();
+        let click = GameMessage::new(GameMessageType::MouseLeftClick(IRegion2D { x: 300, y: 140, width: 0, height: 0 }, 0));
+        let mut owner_ui = crate::message_stream::ReceivingUi::new_with_owner(&mut owner_state, None, Some(&owner), 0, 0).with_emitter(&mut owner_emitted);
+        let mut peer_ui = crate::message_stream::ReceivingUi::new_with_owner(&mut peer_state, None, Some(&peer), 0, 0).with_emitter(&mut peer_emitted);
+        let mut owner_translator = SelectionTranslator::new();
+        let mut peer_translator = SelectionTranslator::new();
+        owner_translator.translate_with_window_query(&click, &mut |_, _, _| false, &mut owner_ui);
+        peer_translator.translate_with_window_query(&click, &mut |_, _, _| false, &mut peer_ui);
+        assert!(owner_emitted.iter().any(|message| matches!(message.get_type(), GameMessageType::CreateSelectedGroup(_, ids) if ids == &vec![7])));
+        assert!(peer_emitted.is_empty());
+        struct Viewport;
+        impl crate::gui::callbacks::control_bar_callbacks::ControlBarViewport for Viewport {
+            fn display_size(&self) -> (u32, u32) { (800, 600) }
+            fn set_height_px(&mut self, _: i32) {}
+        }
+        fn drag(view: &TranslatorPickObjectView) -> Vec<GameMessage> {
+            use crate::gui::window_manager::{ControlBarInputContext, WindowManagerOwner, dispatch_translated_window_input_for_owner};
+            use crate::message_stream::window_xlat::WindowTranslator;
+            use crate::message_stream::translators::CommandTranslator;
+            use game_engine::common::message_stream::TranslatorClientObservation;
+            let owner = WindowManagerOwner::new();
+            owner.with_manager(|manager| {
+                manager.test_create_window(None, 10, 10, 30, 30).unwrap();
+            });
+            let mut bar = crate::gui::control_bar::ControlBar::new();
+            let mut viewport = Viewport;
+            let mut state = crate::core::subsystems::InGameUISubsystem::default();
+            state.set_input_enabled(true);
+            let mut window = WindowTranslator::new();
+            let mut selection = SelectionTranslator::new();
+            let mut command = CommandTranslator::new();
+            let mut emitted = Vec::new();
+            let mut dispatch = |request, messages: &mut Vec<GameMessage>, ui: &mut dyn std::any::Any| {
+                let mut context = ControlBarInputContext {
+                    control_bar_observation: None, diplomacy_world: None, menu_audio: None,
+                    input_provenance: crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
+                    menus: None, ime: None, in_game_movies: None, script_display: None, window_videos: None,
+                    upgrade_tooltip: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone,
+                    replay_menu: None, replay_version: None, observer_roster: None, camera_options: None,
+                    control_bar: &mut bar, viewport: &mut viewport, replay: false, game_ending: false,
+                    tooltips_disabled: false, cursor_mouse: None, emitted_messages: Some(messages),
+                    campaign_manager: None, window_manager_owner: Some(&owner), client_frame: None,
+                    logic_frame: None, ui: Some(ui.downcast_mut().unwrap()), menu_world: None,
+                    menu_host: None, main_menu: None,
+                };
+                dispatch_translated_window_input_for_owner(&owner, request, &mut context)
+            };
+            // Input already arrives in logical display pixels after the native 2x scale conversion.
+            let events = [
+                GameMessageType::RawMousePosition(ICoord2D::new(280, 120)),
+                GameMessageType::RawMouseLeftButtonDown(ICoord2D::new(280, 120), 0, 1),
+                GameMessageType::RawMousePosition(ICoord2D::new(320, 160)),
+                GameMessageType::RawMouseLeftButtonUp(ICoord2D::new(320, 160), 0, 2),
+            ];
+            for event in events {
+                let message = GameMessage::new(event);
+                let observation = TranslatorClientObservation::default();
+                let disposition = window.translate_game_message_with_context(&message, observation, &mut dispatch, &mut emitted, Some(view), &mut state, None);
+                if disposition == GameMessageDisposition::KeepMessage {
+                    selection.translate_game_message_with_context(&message, observation, &mut dispatch, &mut emitted, Some(view), &mut state, None);
+                    command.translate_game_message_with_context(&message, observation, &mut dispatch, &mut emitted, Some(view), &mut state, None);
+                }
+            }
+            emitted
+        }
+        let mut peer_drag = peer.clone();
+        peer_drag.objects[0].position = [0.8, 0.0, 0.0];
+        let owner_drag = drag(&owner);
+        let peer_drag = drag(&peer_drag);
+        assert!(owner_drag.iter().any(|message| matches!(message.get_type(), GameMessageType::CreateSelectedGroup(_, ids) if ids == &vec![7])));
+        assert!(!peer_drag.iter().any(|message| matches!(message.get_type(), GameMessageType::CreateSelectedGroup(..))));
+    }
 
     /// Drive selection translation with a receiving UI. The GameMessageTranslator
     /// no-context entry point intentionally keeps messages (must use with_context).

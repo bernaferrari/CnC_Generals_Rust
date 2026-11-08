@@ -27,6 +27,13 @@ pub struct TranslatorPickObjectFact {
     pub unselectable: bool,
     pub masked: bool,
     pub hidden_for_local_player: bool,
+    pub structure: bool,
+    pub garrisonable: bool,
+    pub crate_object: bool,
+    pub always_selectable: bool,
+    pub infantry: bool,
+    pub vehicle: bool,
+    pub aircraft: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

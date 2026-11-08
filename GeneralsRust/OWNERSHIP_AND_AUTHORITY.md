@@ -3139,3 +3139,7 @@ wrappers and script writing still use ambient namespace selection.
 Frenzy application, replacement and expiry notify weapons synchronously for
 each condition transition using receiving-world rates. The weapon clock itself
 still needs the original integer-frame ownership cutover.
+
+Native click and drag selection use the receiving camera and object pick facts;
+drag selection emits to the receiving command stream. Logical-coordinate WND
+dispatch is covered; physical scaling and visual confirmation remain unverified.

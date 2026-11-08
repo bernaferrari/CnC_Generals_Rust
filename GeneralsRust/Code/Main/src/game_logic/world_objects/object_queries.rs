@@ -76,6 +76,13 @@ impl GameLogic {
                 unselectable: object.status.unselectable,
                 masked: object.status.masked,
                 hidden_for_local_player,
+                structure: object.is_kind_of(KindOf::Structure),
+                garrisonable: object.is_garrison_contain(),
+                crate_object: object.is_kind_of(KindOf::Crate),
+                always_selectable: object.is_kind_of(KindOf::AlwaysSelectable),
+                infantry: object.is_kind_of(KindOf::Infantry),
+                vehicle: object.is_kind_of(KindOf::Vehicle),
+                aircraft: object.is_kind_of(KindOf::Aircraft),
             });
         }
         TranslatorPickObjectView {

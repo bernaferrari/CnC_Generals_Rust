@@ -28,6 +28,7 @@ fn window_message_code(message: WindowMessage) -> u32 {
         WindowMessage::RightDrag => 16,
         WindowMessage::WheelUp => 19,
         WindowMessage::WheelDown => 20,
+        WindowMessage::MousePos => 24,
         _ => unreachable!("WindowTranslator dispatches only native mouse messages"),
     }
 }
