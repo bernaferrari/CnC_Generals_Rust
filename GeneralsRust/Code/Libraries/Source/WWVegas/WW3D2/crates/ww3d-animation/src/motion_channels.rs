@@ -330,6 +330,9 @@ impl TimeCodedMotionChannelClass {
 
 /// Adaptive delta motion channel with nibble-packed delta compression
 /// Reference: motchan.h:255-293, motchan.cpp:840-1272
+///
+/// Each 16-delta block contains one contiguous nine-byte packet per vector
+/// component. Sampling truncated data panics rather than reading past it.
 #[derive(Debug, Clone)]
 pub struct AdaptiveDeltaMotionChannelClass {
     pivot_idx: u32,
@@ -337,14 +340,14 @@ pub struct AdaptiveDeltaMotionChannelClass {
     vector_len: usize,
     num_frames: u32,
     scale: f32,
-    cache_frame: u32,
+    cache_frame: Option<u32>,
     cache_data: Vec<f32>, // CacheFrame and CacheFrame+1, by VectorLen
-    /// Packed data: [header floats][compressed packets]
-    data: Vec<u32>,
+    /// Exact little-endian bytes: [header floats][compressed packets].
+    data: Vec<u8>,
 }
 
 impl AdaptiveDeltaMotionChannelClass {
-    /// Create from W3D chunk data
+    /// Create from the exact bytes of the W3D channel payload.
     /// Reference: motchan.cpp:940-967
     pub fn new(
         pivot_idx: u32,
@@ -352,7 +355,7 @@ impl AdaptiveDeltaMotionChannelClass {
         vector_len: usize,
         num_frames: u32,
         scale: f32,
-        data: Vec<u32>,
+        data: Vec<u8>,
     ) -> Self {
         // Initialize filter table on first use
         let _ = get_filter_table();
@@ -363,7 +366,7 @@ impl AdaptiveDeltaMotionChannelClass {
             vector_len,
             num_frames,
             scale,
-            cache_frame: 0x7FFFFFFF, // a big number, so we know it's not valid
+            cache_frame: None,
             cache_data: vec![0.0; vector_len * 2], // cached frame & cached frame+1
             data,
         }
@@ -377,314 +380,164 @@ impl AdaptiveDeltaMotionChannelClass {
         self.pivot_idx
     }
 
-    /// Decompress from the beginning up to frame_idx
-    /// Reference: motchan.cpp:984-1054
-    fn decompress(&self, frame_idx: u32, outdata: &mut [f32]) {
-        // Start over from the beginning
-        let base_ptr = self.data.as_ptr() as *const f32;
-        // SAFETY: `data` begins with `vector_len` u32 words holding the
-        // per-vector base values (raw f32 bits written by the W3D loader),
-        // so the first `vector_len` words exist; u32 and f32 match in size
-        // (4) and alignment (4), making the cast layout-preserving.
-        let base = unsafe { std::slice::from_raw_parts(base_ptr, self.vector_len) };
+    /// Decode one component from a known frame, using the interleaved
+    /// nine-byte packets described by motchan.cpp.
+    fn decompress_value(
+        data: &[u8],
+        vector_len: usize,
+        scale: f32,
+        vector_idx: usize,
+        mut value: f32,
+        src_idx: u32,
+        frame_idx: u32,
+    ) -> f32 {
+        if src_idx == frame_idx {
+            return value;
+        }
 
-        for vi in 0..self.vector_len {
-            // Decompress all vector indices
-            // Decompress all vector indices
-            // SAFETY: the offset skips the vector_len*4-byte header and
-            // PACKET_SIZE*vi bytes of prior rows, landing at packet row `vi`
-            // inside the data allocation's 16-frame block layout of
-            // PACKET_SIZE*vector_len-byte rows (motchan.cpp format).
-            let mut p_packet = unsafe {
-                (self.data.as_ptr() as *const u8)
-                    .add(std::mem::size_of::<f32>() * self.vector_len) // skip header
-                    .add(PACKET_SIZE * vi) // skip to appropriate packet start
-            };
+        let header_bytes = vector_len.checked_mul(4).expect("adaptive channel header too large");
+        let row_bytes = vector_len.checked_mul(PACKET_SIZE).expect("adaptive channel row too large");
+        let component_offset = vector_idx.checked_mul(PACKET_SIZE).expect("adaptive channel component too large");
+        let byte = |offset: usize| *data.get(offset).expect("truncated adaptive channel packet");
 
-            let mut last_value = base[vi];
-            let mut frame: u32 = 1;
-
-            while frame <= frame_idx {
-                // Frame loop
-                // SAFETY: p_packet addresses the current packet's
-                // filter-index byte, within this 16-frame block's reserved
-                // row in the data allocation.
-                let filter_index = unsafe { *p_packet } as usize;
-                // SAFETY: stepping one byte moves onto this packet's 8
-                // nibble bytes, still inside the same row.
-                p_packet = unsafe { p_packet.add(1) }; // skip to nibble compressed data
-
-                let filter = get_filter_table()[filter_index] * self.scale;
-
-                // Data is grouped in sets of 16 nibbles (motchan.cpp:1008-1042)
-                for fi in 0..16 {
-                    let pi = fi >> 1; // packet index
-
-                    // Extract nibble (4 bits)
-                    // SAFETY: pi = fi>>1 ranges over 0..8, indexing within
-                    // the packet's 8 nibble bytes in the current row.
-                    let mut factor = unsafe { *p_packet.add(pi) } as i32;
-                    if (fi & 1) != 0 {
-                        factor >>= 4;
-                    }
-
-                    // Sign extend (motchan.cpp:1023-1026)
-                    factor &= 0xF;
-                    if (factor & 0x8) != 0 {
-                        factor |= 0xFFFFFFF0u32 as i32;
-                    }
-
-                    let ffactor = factor as f32;
-                    let delta = ffactor * filter;
-                    last_value += delta;
-
-                    if frame == frame_idx {
-                        break;
-                    }
-                    frame += 1;
-                }
-
+        let mut frame = src_idx + 1;
+        while frame <= frame_idx {
+            let delta_idx = frame - 1;
+            let packet_offset = header_bytes
+                .checked_add(component_offset)
+                .and_then(|offset| {
+                    ((delta_idx >> 4) as usize)
+                        .checked_mul(row_bytes)
+                        .and_then(|row| offset.checked_add(row))
+                })
+                .expect("adaptive channel packet offset too large");
+            let filter = get_filter_table()[byte(packet_offset) as usize] * scale;
+            let mut fi = (delta_idx & 15) as usize;
+            while fi < 16 {
+                let offset = packet_offset.checked_add(1 + (fi >> 1))
+                    .expect("adaptive channel packet offset too large");
+                let packed = byte(offset);
+                let nibble = if fi & 1 == 0 { packed & 0xf } else { packed >> 4 };
+                let factor = if nibble & 8 != 0 {
+                    nibble as i32 - 16
+                } else {
+                    nibble as i32
+                };
+                let delta = factor as f32 * filter;
+                value += delta;
                 if frame == frame_idx {
-                    break;
+                    return value;
                 }
-
-                // Skip to next packet (motchan.cpp:1046)
-                // SAFETY: from a row's first data byte this lands on the
-                // next row's filter byte, in bounds while frames remain.
-                p_packet = unsafe { p_packet.add((PACKET_SIZE * self.vector_len) - 1) };
+                frame += 1;
+                fi += 1;
             }
+        }
+        value
+    }
 
-            outdata[vi] = last_value;
+    /// Decompress from the beginning up to frame_idx.
+    fn decompress(data: &[u8], vector_len: usize, scale: f32, frame_idx: u32, outdata: &mut [f32]) {
+        for (vi, out) in outdata.iter_mut().enumerate() {
+            let start = vi.checked_mul(4).expect("adaptive channel header too large");
+            let end = start.checked_add(4).expect("adaptive channel header too large");
+            let bytes: [u8; 4] = data.get(start..end).expect("truncated adaptive channel header")
+                .try_into().expect("four-byte adaptive channel header");
+            let base = f32::from_le_bytes(bytes);
+            *out = Self::decompress_value(data, vector_len, scale, vi, base, 0, frame_idx);
         }
     }
 
-    /// Decompress from src_idx to frame_idx (continuation)
-    /// Reference: motchan.cpp:1056-1135
+    /// Decompress from src_idx to frame_idx (continuation).
     fn decompress_continuation(
-        &self,
+        data: &[u8],
+        vector_len: usize,
+        scale: f32,
         src_idx: u32,
         srcdata: &[f32],
         frame_idx: u32,
         outdata: &mut [f32],
     ) {
         debug_assert!(src_idx < frame_idx);
-        let src_idx = src_idx + 1;
-
-        // SAFETY: the byte offset skips exactly the vector_len header
-        // floats, reaching the first packet row; the allocation extends
-        // beyond the header whenever the channel carries packets.
-        let base_ptr = unsafe {
-            (self.data.as_ptr() as *const u8).add(std::mem::size_of::<f32>() * self.vector_len)
-        };
-
-        for vi in 0..self.vector_len {
-            // SAFETY: the offsets select vector row `vi` inside the
-            // 16-frame block containing src_idx-1; rows are
-            // PACKET_SIZE*vector_len bytes each, so the address is within
-            // the packet region of the data allocation.
-            let mut p_packet = unsafe {
-                base_ptr
-                    .add(PACKET_SIZE * vi)
-                    .add((PACKET_SIZE * self.vector_len) * (((src_idx - 1) >> 4) as usize))
-            };
-
-            // Initial filter index (motchan.cpp:1075)
-            let mut fi = ((src_idx - 1) & 0xF) as usize;
-
-            let mut last_value = srcdata[vi];
-            let mut frame = src_idx;
-
-            while frame <= frame_idx {
-                // SAFETY: p_packet addresses the current packet's filter
-                // byte inside its reserved row of the data allocation.
-                let filter_index = unsafe { *p_packet } as usize;
-                // SAFETY: advancing one byte enters this packet's 8 nibble
-                // bytes, remaining inside the row.
-                p_packet = unsafe { p_packet.add(1) };
-
-                let filter = get_filter_table()[filter_index] * self.scale;
-
-                while fi < 16 {
-                    let pi = fi >> 1;
-                    // SAFETY: pi = fi>>1 ranges over 0..8, within the
-                    // packet's 8 nibble bytes of the current row.
-                    let mut factor = unsafe { *p_packet.add(pi) } as i32;
-
-                    if (fi & 1) != 0 {
-                        factor >>= 4;
-                    }
-
-                    factor &= 0xF;
-                    if (factor & 0x8) != 0 {
-                        factor |= 0xFFFFFFF0u32 as i32;
-                    }
-
-                    let ffactor = factor as f32;
-                    let delta = ffactor * filter;
-                    last_value += delta;
-
-                    if frame == frame_idx {
-                        break;
-                    }
-                    frame += 1;
-                    fi += 1;
-                }
-
-                fi = 0;
-
-                if frame == frame_idx {
-                    break;
-                }
-
-                // SAFETY: adding (PACKET_SIZE*vector_len)-1 from a row's
-                // first data byte lands on the next row's filter byte, in
-                // bounds while frames remain in the block sequence.
-                p_packet = unsafe { p_packet.add((PACKET_SIZE * self.vector_len) - 1) };
-            }
-
-            outdata[vi] = last_value;
+        for (vi, (src, out)) in srcdata.iter().zip(outdata.iter_mut()).enumerate() {
+            *out = Self::decompress_value(data, vector_len, scale, vi, *src, src_idx, frame_idx);
         }
     }
 
     /// Get decompressed data for a specific frame and vector index
     /// Reference: motchan.cpp:1150-1212
     fn getframe(&mut self, frame_idx: u32, vector_idx: usize) -> f32 {
-        // Make sure frame_idx is valid
-        let frame_idx = frame_idx.min(self.num_frames - 1);
+        let last_frame = self.num_frames.checked_sub(1).expect("adaptive channel has no frames");
+        let frame_idx = frame_idx.min(last_frame);
 
-        // Check if data is already in cache
-        if self.cache_frame == frame_idx {
-            return self.cache_data[vector_idx];
-        }
-
-        if self.cache_frame + 1 == frame_idx {
-            return self.cache_data[vector_idx + self.vector_len];
-        }
-
-        if frame_idx < self.cache_frame {
-            // Decompress from beginning (motchan.cpp:1167-1178)
-            // Use unsafe to work around borrow checker limitations - this is safe because
-            // decompress/decompress_continuation only read from self.data and other immutable fields,
-            // and we're only mutating cache_data
-            // SAFETY: split borrow: decompress/decompress_continuation take
-            // only &self and read self.data (separate allocation from
-            // cache_data); the cache_ptr writes cover exactly
-            // cache_data[0..vector_len] and [vector_len..2*vector_len],
-            // matching cache_data's vector_len*2 length and disjoint.
-            unsafe {
-                let self_ptr = self as *const Self;
-                let cache_ptr = self.cache_data.as_mut_ptr();
-                let vector_len = self.vector_len;
-
-                (*self_ptr).decompress(
-                    frame_idx,
-                    std::slice::from_raw_parts_mut(cache_ptr, vector_len),
-                );
-
-                if frame_idx != self.num_frames - 1 {
-                    (*self_ptr).decompress_continuation(
-                        frame_idx,
-                        std::slice::from_raw_parts(cache_ptr, vector_len),
-                        frame_idx + 1,
-                        std::slice::from_raw_parts_mut(cache_ptr.add(vector_len), vector_len),
-                    );
-                }
+        if let Some(cache_frame) = self.cache_frame {
+            if cache_frame == frame_idx {
+                return self.cache_data[vector_idx];
             }
-
-            self.cache_frame = frame_idx;
-            return self.cache_data[vector_idx];
+            if cache_frame.checked_add(1) == Some(frame_idx) {
+                return self.cache_data[vector_idx + self.vector_len];
+            }
         }
 
-        // Sliding window optimization (motchan.cpp:1183-1193)
-        if frame_idx == self.cache_frame + 2 {
-            self.cache_data.copy_within(self.vector_len.., 0);
-            self.cache_frame += 1;
-
-            // SAFETY: split borrow: decompress_continuation reads only
-            // self.data through &self; the source cache_data[0..vector_len]
-            // and destination [vector_len..] halves of the vector_len*2
-            // allocation are disjoint, so no aliased references exist.
-            unsafe {
-                let self_ptr = self as *const Self;
-                let cache_ptr = self.cache_data.as_mut_ptr();
-                let vector_len = self.vector_len;
-                let cache_frame = self.cache_frame;
-
-                (*self_ptr).decompress_continuation(
-                    cache_frame,
-                    std::slice::from_raw_parts(cache_ptr, vector_len),
-                    frame_idx,
-                    std::slice::from_raw_parts_mut(cache_ptr.add(vector_len), vector_len),
+        let (current, next) = self.cache_data.split_at_mut(self.vector_len);
+        if self.cache_frame.map_or(true, |cache_frame| frame_idx < cache_frame) {
+            Self::decompress(&self.data, self.vector_len, self.scale, frame_idx, current);
+            if frame_idx != last_frame {
+                Self::decompress_continuation(
+                    &self.data, self.vector_len, self.scale, frame_idx, current, frame_idx + 1, next,
                 );
             }
-
-            return self.cache_data[self.vector_len + vector_idx];
+            self.cache_frame = Some(frame_idx);
+            return current[vector_idx];
         }
 
-        // Use last known frame to decompress forwards (motchan.cpp:1195-1208)
-        debug_assert!(self.vector_len <= 4);
-        let mut temp = [0.0f32; 4];
-        temp[..self.vector_len]
-            .copy_from_slice(&self.cache_data[self.vector_len..self.vector_len * 2]);
+        let cache_frame = self.cache_frame.expect("cache initialized above");
+        if cache_frame.checked_add(2) == Some(frame_idx) {
+            // Slide the cached next frame down, just as the C++ implementation does.
+            current.copy_from_slice(next);
+            let new_cache_frame = cache_frame + 1;
+            Self::decompress_continuation(
+                &self.data, self.vector_len, self.scale, new_cache_frame, current, frame_idx, next,
+            );
+            self.cache_frame = Some(new_cache_frame);
+            return next[vector_idx];
+        }
 
-        // SAFETY: destination cache_data[0..vector_len] is written via
-        // cache_ptr while the only other source reference is the stack-local
-        // `temp`, disjoint from cache_data; decompress_continuation reads
-        // immutable fields through &self.
-        unsafe {
-            let self_ptr = self as *const Self;
-            let cache_ptr = self.cache_data.as_mut_ptr();
-            let vector_len = self.vector_len;
-            let cache_frame_plus_one = self.cache_frame + 1;
-
-            (*self_ptr).decompress_continuation(
-                cache_frame_plus_one,
-                &temp[..vector_len],
-                frame_idx,
-                std::slice::from_raw_parts_mut(cache_ptr, vector_len),
+        // The second half is the latest known frame; decode directly into the
+        // disjoint first half, then refill the look-ahead frame.
+        Self::decompress_continuation(
+            &self.data, self.vector_len, self.scale, cache_frame + 1, next, frame_idx, current,
+        );
+        self.cache_frame = Some(frame_idx);
+        if frame_idx != last_frame {
+            Self::decompress_continuation(
+                &self.data, self.vector_len, self.scale, frame_idx, current, frame_idx + 1, next,
             );
         }
-        self.cache_frame = frame_idx;
-
-        if frame_idx != self.num_frames - 1 {
-            // SAFETY: source and destination are the two disjoint halves of
-            // cache_data's vector_len*2 allocation; self.data is only read
-            // through &self, so no aliasing mutable access occurs.
-            unsafe {
-                let self_ptr = self as *const Self;
-                let cache_ptr = self.cache_data.as_mut_ptr();
-                let vector_len = self.vector_len;
-                let cache_frame = self.cache_frame;
-
-                (*self_ptr).decompress_continuation(
-                    cache_frame,
-                    std::slice::from_raw_parts(cache_ptr, vector_len),
-                    frame_idx + 1,
-                    std::slice::from_raw_parts_mut(cache_ptr.add(vector_len), vector_len),
-                );
-            }
-        }
-
-        self.cache_data[vector_idx]
+        current[vector_idx]
     }
 
     /// Get a scalar vector value at the specified frame
     /// Reference: motchan.cpp:1226-1239
+    ///
+    /// Panics for truncated data, a channel with no frames, or an empty output.
     pub fn get_vector(&mut self, frame: f32, setvec: &mut [f32]) {
         let frame1 = frame as u32;
         let ratio = frame - frame1 as f32;
 
         let value1 = self.getframe(frame1, 0);
-        let value2 = self.getframe(frame1 + 1, 0);
+        let value2 = self.getframe(frame1.saturating_add(1), 0);
 
         setvec[0] = value1 + (value2 - value1) * ratio; // WWMath::Lerp
     }
 
     /// Get a quaternion vector at the specified frame with slerp
     /// Reference: motchan.cpp:1245-1272
+    ///
+    /// Panics for truncated data, a channel with no frames, or fewer than four components.
     pub fn get_quat_vector(&mut self, frame: f32) -> Quat {
+        assert!(self.vector_len >= 4, "quaternion channel has fewer than four components");
         let frame1 = frame as u32;
-        let frame2 = frame1 + 1;
+        let frame2 = frame1.saturating_add(1);
         let ratio = frame - frame1 as f32;
 
         let q1 = Quat::from_xyzw(
@@ -844,7 +697,7 @@ mod tests {
             1,                      // vector_len
             10,                     // num_frames
             1.0,                    // scale
-            vec![0.0f32.to_bits()], // minimal data
+            0.0f32.to_le_bytes().to_vec(), // minimal data
         );
 
         assert_eq!(channel.get_pivot(), 0);

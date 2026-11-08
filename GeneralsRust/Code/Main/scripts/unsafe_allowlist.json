@@ -300,10 +300,6 @@
       "constructs": 1,
       "undocumented": 0
     },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation/src/motion_channels.rs": {
-      "constructs": 16,
-      "undocumented": 0
-    },
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-assets/src/rendering.rs": {
       "constructs": 2,
       "undocumented": 0
@@ -530,10 +526,6 @@
     },
     "Code/Libraries/Source/WWVegas/WWLib/src/wwfont.rs": {
       "constructs": 5,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWLib/string_system/src/lib.rs": {
-      "constructs": 45,
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WWSaveLoad/src/pointerremap.rs": {

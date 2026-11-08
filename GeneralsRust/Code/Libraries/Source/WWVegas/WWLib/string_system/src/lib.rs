@@ -1,21 +1,12 @@
 //! String system for Command & Conquer Generals Zero Hour
 //!
-//! This crate provides efficient string handling with reference-counted,
-//! copy-on-write semantics similar to the original C++ implementation.
-//!
-//! The system includes:
-//! - AsciiString: Single-byte string with ref-counting and COW
-//! - UnicodeString: Wide character string with similar functionality
-//! - String operations (concat, trim, format, search, etc.)
-//! - Memory-efficient storage using the memory pool system
+//! Strings use owned standard-library storage and retain a terminating NUL
+//! for C-string interoperation.
 
 use base_types::*;
-use std::alloc::{Layout, alloc, dealloc};
 use std::cmp::Ordering;
 use std::ffi::CStr;
 use std::fmt;
-use std::ptr;
-use std::sync::atomic::{AtomicU16, Ordering as AtomicOrdering};
 
 /// Maximum length of any string in characters
 pub const MAX_STRING_LEN: usize = 32767;
@@ -23,227 +14,37 @@ pub const MAX_STRING_LEN: usize = 32767;
 /// Maximum length of format buffer
 pub const MAX_FORMAT_BUF_LEN: usize = 2048;
 
-/// Reference-counted string data for AsciiString
-#[derive(Debug)]
-struct AsciiStringData {
-    /// Reference count
-    ref_count: AtomicU16,
-
-    /// Number of characters allocated (including null terminator)
-    num_chars_allocated: u16,
-
-    /// Debug pointer for easier debugging
-    #[cfg(feature = "debug")]
-    debug_ptr: *const u8,
-    // The actual string data follows this structure
-    // We use a flexible array member pattern in Rust
-}
-
-impl AsciiStringData {
-    /// Create a new AsciiStringData with the given capacity
-    fn new(capacity: usize) -> Result<*mut Self, String> {
-        if capacity > MAX_STRING_LEN {
-            return Err(format!(
-                "String capacity {} exceeds maximum {}",
-                capacity, MAX_STRING_LEN
-            ));
-        }
-
-        let total_size = std::mem::size_of::<Self>() + capacity;
-        let layout = Layout::from_size_align(total_size, std::mem::align_of::<Self>())
-            .map_err(|e| format!("Failed to create layout: {}", e))?;
-
-        // SAFETY: [Category 13 — library contract] `layout` was validated by
-        // `Layout::from_size_align` above; allocates the header+payload block it
-        // describes (AsciiString.cpp newBuffer).
-        let ptr = unsafe { alloc(layout) as *mut Self };
-        if ptr.is_null() {
-            return Err("Failed to allocate memory for AsciiStringData".to_string());
-        }
-
-        // SAFETY: [Category 3 — dangling] `ptr` is non-null and sized for header + payload; both header fields are written before any other use.
-        unsafe {
-            (*ptr).ref_count = AtomicU16::new(1);
-            (*ptr).num_chars_allocated = capacity as u16;
-
-            #[cfg(feature = "debug")]
-            {
-                (*ptr).debug_ptr = Self::data_ptr(ptr);
-            }
-        }
-
-        Ok(ptr)
-    }
-
-    /// Get a pointer to the string data
-    fn data_ptr(data: *mut Self) -> *mut u8 {
-        // SAFETY: [Category 11 — provenance] The payload starts exactly `size_of::<Self>()` bytes into
-        // the same block built by `new` (flexible-array layout), so the offset stays within it.
-        unsafe { (data as *mut u8).add(std::mem::size_of::<Self>()) }
-    }
-
-    /// Get a const pointer to the string data
-    fn data_ptr_const(data: *const Self) -> *const u8 {
-        // SAFETY: [Category 11 — provenance] The payload starts exactly `size_of::<Self>()` bytes into
-        // the same block built by `new` (flexible-array layout), so the offset stays within it.
-        unsafe { (data as *const u8).add(std::mem::size_of::<Self>()) }
-    }
-
-    /// Get the string as a &str (unsafe, caller must ensure validity)
-    /// SAFETY: `data` must point to a live `AsciiStringData` whose payload is a NUL-terminated UTF-8 buffer written by `set_from_str`.
-    unsafe fn as_str<'a>(data: *const Self) -> &'a str {
-        let data_ptr = Self::data_ptr_const(data);
-        // SAFETY: [Category 8 — FFI / Category 3 — dangling]
-        // `data` is a live `AsciiStringData` from `new()`; the flexible buffer
-        // after the header is a NUL-terminated C string (AsciiString.cpp
-        // `m_data->peek()` / `strlen` contract).
-        let len = unsafe { libc::strlen(data_ptr as *const libc::c_char) };
-        // SAFETY: [Category 10 — OOB / Category 5 — invalid values]
-        // `strlen` counted bytes up to the terminator written by `set_from_str`
-        // or `new`; those bytes are UTF-8 because they were copied from `&str`.
-        let bytes = unsafe { std::slice::from_raw_parts(data_ptr, len) };
-        // SAFETY: [Category 5 — invalid values]
-        // Buffer contents are a `&str` copy plus a trailing NUL that `strlen`
-        // excluded, matching AsciiString.cpp peek/strlen usage.
-        unsafe { std::str::from_utf8_unchecked(bytes) }
-    }
-
-    /// Set the string data from a &str
-    /// SAFETY: `data` must be live from `new` with initialized `num_chars_allocated`; payload must fit `s` plus a NUL.
-    unsafe fn set_from_str(data: *mut Self, s: &str) {
-        let data_ptr = Self::data_ptr(data);
-        // SAFETY: [Category 3 — dangling]
-        // `data` is a live allocation from `AsciiStringData::new`; the header
-        // field is initialized before any `set_from_str` call (AsciiString.cpp
-        // ensureUniqueBufferOfSize / copy path).
-        let capacity = unsafe { (*data).num_chars_allocated as usize };
-
-        if s.len() >= capacity {
-            // String is too long, truncate
-            // SAFETY: [Category 10 — OOB]
-            // Destination has `capacity` bytes; we write `capacity - 1` source
-            // bytes then a NUL, matching C++ truncation into the allocated peek
-            // buffer (AsciiString.cpp).
-            unsafe {
-                ptr::copy_nonoverlapping(s.as_ptr(), data_ptr, capacity - 1);
-            }
-            // SAFETY: [Category 10 — OOB]
-            // `capacity - 1` is in-range because `new` rejects capacity 0 for
-            // a populated set and allocated at least `capacity` payload bytes.
-            let term = unsafe { data_ptr.add(capacity - 1) };
-            // SAFETY: [Category 3 — dangling]
-            // `term` is inside the same allocation as `data_ptr`.
-            unsafe {
-                *term = 0;
-            }
-        } else {
-            // SAFETY: [Category 10 — OOB]
-            // `s.len() < capacity`, so `s.len()` payload bytes plus a NUL fit
-            // in the flexible array (AsciiString.cpp copy + terminator).
-            unsafe {
-                ptr::copy_nonoverlapping(s.as_ptr(), data_ptr, s.len());
-            }
-            // SAFETY: [Category 10 — OOB]
-            // `s.len()` is strictly less than `capacity`, so this slot exists.
-            let term = unsafe { data_ptr.add(s.len()) };
-            // SAFETY: [Category 3 — dangling]
-            // `term` is inside the same allocation as `data_ptr`.
-            unsafe {
-                *term = 0;
-            }
-        }
-    }
-
-    /// Increment reference count
-    fn increment_ref_count(data: *mut Self) {
-        // SAFETY: [Category 3 — dangling] `data` points to live string data; the atomic increment needs no uniqueness.
-        unsafe {
-            (*data).ref_count.fetch_update(
-                AtomicOrdering::Relaxed,
-                AtomicOrdering::Relaxed,
-                |count| count.checked_add(1),
-            ).expect("AsciiString reference count overflow");
-        }
-    }
-
-    /// Decrement reference count and return true if it reaches zero
-    fn decrement_ref_count(data: *mut Self) -> bool {
-        // SAFETY: [Category 3 — dangling / Category 5 — invalid values] `data` is live; fetch_sub returns
-        // the previous count, so == 1 means this was the last reference (Release_Ref semantics).
-        unsafe { (*data).ref_count.fetch_sub(1, AtomicOrdering::Relaxed) == 1 }
-    }
-
-    /// Get current reference count
-    fn get_ref_count(data: *const Self) -> u16 {
-        // SAFETY: [Category 3 — dangling] `data` points to live string data with a valid initialized ref count.
-        unsafe { (*data).ref_count.load(AtomicOrdering::Relaxed) }
-    }
-
-    /// Free the string data
-    /// SAFETY: callers must pass the unique remaining owner (ref count just hit zero) of a block from `new`.
-    unsafe fn free(data: *mut Self) {
-        // SAFETY: [Category 3 — dangling]
-        // `data` is the unique remaining owner (ref_count just hit zero),
-        // allocated by `new` with `num_chars_allocated` payload bytes
-        // (AsciiString.cpp `freeBytes`).
-        let payload = unsafe { (*data).num_chars_allocated as usize };
-        let total_size = std::mem::size_of::<Self>() + payload;
-        // SAFETY: [Category 13 — library contract]
-        // Size/align match the `Layout` used in `new`; align is `align_of::<Self>()`.
-        let layout =
-            // SAFETY: [Category 13 — library contract] Size/align match the `Layout` built in `new` for this same block.
-            unsafe { Layout::from_size_align_unchecked(total_size, std::mem::align_of::<Self>()) };
-        // SAFETY: [Category 12 — invalid free]
-        // Same allocator/layout as `alloc` in `new`; pointer is not used after this.
-        unsafe {
-            dealloc(data as *mut u8, layout);
-        }
-    }
-}
-
-/// AsciiString - Reference-counted ASCII string with copy-on-write semantics
+/// An owned byte string with a trailing C terminator.
+#[derive(Clone)]
 pub struct AsciiString {
-    /// Pointer to the reference-counted string data
-    data: *mut AsciiStringData,
-}
-
-impl Clone for AsciiString {
-    fn clone(&self) -> Self {
-        if !self.data.is_null() {
-            AsciiStringData::increment_ref_count(self.data);
-        }
-        Self { data: self.data }
-    }
+    data: Vec<u8>,
 }
 
 impl AsciiString {
     /// The empty string constant
-    pub const THE_EMPTY_STRING: AsciiString = AsciiString {
-        data: ptr::null_mut(),
-    };
+    pub const THE_EMPTY_STRING: AsciiString = AsciiString { data: Vec::new() };
 
-    /// Create a new empty AsciiString
+    /// Create a new empty AsciiString.
     pub fn new() -> Self {
-        Self {
-            data: ptr::null_mut(),
-        }
+        Self::THE_EMPTY_STRING
     }
 
     /// Create an AsciiString from a &str
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Result<Self, String> {
-        if s.is_empty() {
-            return Ok(Self::THE_EMPTY_STRING);
+        Self::from_bytes(s.as_bytes())
+    }
+
+    /// Create a string from bytes, using the first NUL as the C terminator.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
+        let capacity = bytes.len() + 1;
+        if capacity > MAX_STRING_LEN {
+            return Err(format!("String capacity {} exceeds maximum {}", capacity, MAX_STRING_LEN));
         }
-
-        let capacity = s.len() + 1; // +1 for null terminator
-        let data = AsciiStringData::new(capacity)?;
-
-        // SAFETY: [Category 3 — dangling] `data` was just allocated with room for `s` plus its NUL terminator.
-        unsafe {
-            AsciiStringData::set_from_str(data, s);
-        }
-
+        let visible = bytes.split(|b| *b == 0).next().unwrap_or(&[]);
+        let mut data = Vec::with_capacity(visible.len() + 1);
+        data.extend_from_slice(visible);
+        data.push(0);
         Ok(Self { data })
     }
 
@@ -252,18 +53,12 @@ impl AsciiString {
         let Some(s) = s else {
             return Ok(Self::THE_EMPTY_STRING);
         };
-        let rust_str = s.to_str().map_err(|e| format!("Invalid UTF-8 sequence: {}", e))?;
-        Self::from_str(rust_str)
+        Self::from_bytes(s.to_bytes())
     }
 
     /// Get the length of the string in characters
     pub fn get_length(&self) -> usize {
-        if self.data.is_null() {
-            0
-        } else {
-            // SAFETY: [Category 3 — dangling] `self.data` is live and owned by this handle (ref count >= 1).
-            unsafe { AsciiStringData::as_str(self.data).len() }
-        }
+        self.as_bytes().len()
     }
 
     /// Check if the string is empty
@@ -273,144 +68,124 @@ impl AsciiString {
 
     /// Clear the string (make it empty)
     pub fn clear(&mut self) {
-        if !self.data.is_null() {
-            // SAFETY: [Category 3 — dangling / Category 12 — invalid free] `self.data` is a live AsciiStringData block we own a reference to;
-            // decrementing then freeing only when the count hits zero preserves unique ownership at free time.
-            unsafe {
-                if AsciiStringData::decrement_ref_count(self.data) {
-                    AsciiStringData::free(self.data);
-                }
-            }
-            self.data = ptr::null_mut();
-        }
+        self.data.clear();
     }
 
     /// Get a const pointer to the string data
     pub fn str(&self) -> *const libc::c_char {
-        if self.data.is_null() {
-            #[allow(clippy::manual_c_str_literals)]
-            {
-                b"\0".as_ptr() as *const libc::c_char
-            }
+        if self.data.is_empty() {
+            c"".as_ptr()
         } else {
-            AsciiStringData::data_ptr_const(self.data) as *const libc::c_char
+            self.data.as_ptr().cast()
         }
     }
 
-    /// Get the string as a &str
-    pub fn as_str(&self) -> &str {
-        if self.data.is_null() {
-            ""
+    /// Borrow the NUL-terminated bytes as a C string.
+    pub fn as_c_str(&self) -> &CStr {
+        if self.data.is_empty() {
+            c""
         } else {
-            // SAFETY: [Category 3 — dangling] `self.data` is live and owned by this handle (ref count >= 1).
-            unsafe { AsciiStringData::as_str(self.data) }
+            CStr::from_bytes_with_nul(&self.data).expect("string terminator invariant")
         }
     }
 
-    /// Get the character at the specified index
+    /// Return the exact bytes before the first NUL.
+    pub fn as_bytes(&self) -> &[u8] {
+        self.data.strip_suffix(&[0]).unwrap_or(&[])
+    }
+
+    /// Decode as UTF-8, replacing invalid byte sequences.
+    pub fn as_str(&self) -> std::borrow::Cow<'_, str> {
+        String::from_utf8_lossy(self.as_bytes())
+    }
+
+    /// Decode the exact bytes as UTF-8 without replacement.
+    pub fn try_as_str(&self) -> Result<&str, std::str::Utf8Error> {
+        std::str::from_utf8(self.as_bytes())
+    }
+
+    /// Get a byte at the specified index, represented as a character.
     pub fn get_char_at(&self, index: usize) -> Option<char> {
-        let s = self.as_str();
-        s.chars().nth(index)
+        self.as_bytes().get(index).copied().map(char::from)
     }
 
     /// Set the string from another AsciiString
     pub fn set(&mut self, other: &AsciiString) {
-        if self.data != other.data {
-            *self = other.clone();
-        }
+        self.data.clone_from(&other.data);
     }
 
     /// Set the string from a &str
     pub fn set_str(&mut self, s: &str) -> Result<(), String> {
-        if s.is_empty() {
-            self.clear();
-            return Ok(());
-        }
-
         let capacity = s.len() + 1;
-
-        // Check if we can reuse the existing buffer
-        if !self.data.is_null() {
-            // SAFETY: [Category 3 — dangling] header fields are initialized for this live block; ref_count==1 proves unique ownership so in-place rewrite is safe.
-            unsafe {
-                let ref_count = AsciiStringData::get_ref_count(self.data);
-                let allocated = (*self.data).num_chars_allocated as usize;
-
-                if ref_count == 1 && allocated >= capacity {
-                    // Reuse existing buffer
-                    AsciiStringData::set_from_str(self.data, s);
-                    return Ok(());
-                }
-            }
+        if capacity > MAX_STRING_LEN {
+            return Err(format!("String capacity {} exceeds maximum {}", capacity, MAX_STRING_LEN));
         }
-
-        // Need to allocate new buffer
-        if !self.data.is_null() {
-            // SAFETY: [Category 3 — dangling / Category 12 — invalid free] `self.data` is a live AsciiStringData block we own a reference to;
-            // decrementing then freeing only when the count hits zero preserves unique ownership at free time.
-            unsafe {
-                if AsciiStringData::decrement_ref_count(self.data) {
-                    AsciiStringData::free(self.data);
-                }
-            }
-        }
-
-        let data = AsciiStringData::new(capacity)?;
-        // SAFETY: [Category 3 — dangling] `data` was just allocated with room for `s` plus its NUL terminator.
-        unsafe {
-            AsciiStringData::set_from_str(data, s);
-        }
-        self.data = data;
-
+        let visible = s.split('\0').next().unwrap_or("");
+        self.data.clear();
+        self.data.extend_from_slice(visible.as_bytes());
+        self.data.push(0);
         Ok(())
     }
 
     /// Concatenate another AsciiString to this one
     pub fn concat(&mut self, other: &AsciiString) -> Result<(), String> {
-        if other.is_empty() {
-            return Ok(());
-        }
-
-        let other_str = other.as_str();
-        self.concat_str(other_str)
+        self.concat_bytes(other.as_bytes())
     }
 
     /// Concatenate a &str to this string
     pub fn concat_str(&mut self, s: &str) -> Result<(), String> {
+        let capacity = self.get_length() + s.len() + 1;
+        if capacity > MAX_STRING_LEN {
+            return Err(format!("String capacity {} exceeds maximum {}", capacity, MAX_STRING_LEN));
+        }
+        self.concat_bytes(s.split('\0').next().unwrap_or("").as_bytes())
+    }
+
+    fn concat_bytes(&mut self, s: &[u8]) -> Result<(), String> {
         if s.is_empty() {
             return Ok(());
         }
-
-        let current_str = self.as_str();
-        let new_str = format!("{}{}", current_str, s);
-        self.set_str(&new_str)
+        let capacity = self.get_length() + s.len() + 1;
+        if capacity > MAX_STRING_LEN {
+            return Err(format!("String capacity {} exceeds maximum {}", capacity, MAX_STRING_LEN));
+        }
+        if !self.data.is_empty() {
+            self.data.pop();
+        }
+        self.data.extend_from_slice(s);
+        self.data.push(0);
+        Ok(())
     }
 
     /// Concatenate a single character to this string
     pub fn concat_char(&mut self, c: char) -> Result<(), String> {
-        let new_str = format!("{}{}", self.as_str(), c);
-        self.set_str(&new_str)
+        let mut bytes = [0; 4];
+        self.concat_str(c.encode_utf8(&mut bytes))
     }
 
     /// Remove leading and trailing whitespace
     pub fn trim(&mut self) -> Result<(), String> {
-        let trimmed = self.as_str().trim().to_string();
-        self.set_str(&trimmed)
+        let bytes = self.as_bytes();
+        let start = bytes.iter().position(|b| !b.is_ascii_whitespace()).unwrap_or(bytes.len());
+        let end = bytes.iter().rposition(|b| !b.is_ascii_whitespace()).map_or(start, |i| i + 1);
+        self.data.copy_within(start..end, 0);
+        self.data.truncate(end - start);
+        self.data.push(0);
+        Ok(())
     }
 
     /// Convert the string to lowercase
     pub fn to_lower(&mut self) -> Result<(), String> {
-        let lower = self.as_str().to_lowercase();
-        self.set_str(&lower)
+        self.data.make_ascii_lowercase();
+        Ok(())
     }
 
     /// Remove the last character from the string
     pub fn remove_last_char(&mut self) {
-        let s = self.as_str().to_string();
-        if !s.is_empty() {
-            let new_len = s.len() - 1;
-            let truncated = &s[..new_len];
-            let _ = self.set_str(truncated); // Ignore error for now
+        if !self.data.is_empty() {
+            self.data.pop();
+            self.data.pop();
+            self.data.push(0);
         }
     }
 
@@ -463,50 +238,67 @@ impl AsciiString {
 
     /// Find the first occurrence of a substring
     pub fn find(&self, substring: &str) -> Option<usize> {
-        self.as_str().find(substring)
+        let needle = substring.as_bytes();
+        if needle.is_empty() { Some(0) } else { self.as_bytes().windows(needle.len()).position(|w| w == needle) }
     }
 
     /// Find the last occurrence of a substring
     pub fn reverse_find(&self, substring: &str) -> Option<usize> {
-        self.as_str().rfind(substring)
+        let needle = substring.as_bytes();
+        if needle.is_empty() { Some(self.get_length()) } else { self.as_bytes().windows(needle.len()).rposition(|w| w == needle) }
     }
 
     /// Extract a substring
     pub fn substr(&self, start: usize, length: usize) -> Result<Self, String> {
-        let s = self.as_str();
-        if start >= s.len() {
+        let bytes = self.as_bytes();
+        if start >= bytes.len() {
             return Ok(Self::THE_EMPTY_STRING);
         }
-
-        let end = (start + length).min(s.len());
-        let substr = &s[start..end];
-        Self::from_str(substr)
+        let end = start.saturating_add(length).min(bytes.len());
+        Self::from_bytes(&bytes[start..end])
     }
 
     /// Compare two strings
     pub fn compare(&self, other: &AsciiString) -> Ordering {
-        self.as_str().cmp(other.as_str())
+        self.as_bytes().cmp(other.as_bytes())
     }
 
     /// Compare with a &str
     pub fn compare_str(&self, other: &str) -> Ordering {
-        self.as_str().cmp(other)
+        self.as_bytes().cmp(other.as_bytes())
     }
 
     /// Check if the string starts with a prefix
     pub fn starts_with(&self, prefix: &str) -> bool {
-        self.as_str().starts_with(prefix)
+        self.as_bytes().starts_with(prefix.as_bytes())
     }
 
     /// Check if the string ends with a suffix
     pub fn ends_with(&self, suffix: &str) -> bool {
-        self.as_str().ends_with(suffix)
+        self.as_bytes().ends_with(suffix.as_bytes())
     }
 
     /// Replace all occurrences of a substring
     pub fn replace(&mut self, from: &str, to: &str) -> Result<(), String> {
-        let new_str = self.as_str().replace(from, to);
-        self.set_str(&new_str)
+        let from = from.as_bytes();
+        if from.is_empty() {
+            if let Ok(text) = std::str::from_utf8(self.as_bytes()) {
+                let result = text.replace("", to);
+                return self.set_str(&result);
+            }
+            return Err("Cannot replace an empty string in invalid UTF-8".to_string());
+        }
+        let to = to.split('\0').next().unwrap_or("").as_bytes();
+        let mut result = Vec::new();
+        let mut remaining = self.as_bytes();
+        while let Some(index) = remaining.windows(from.len()).position(|w| w == from) {
+            result.extend_from_slice(&remaining[..index]);
+            result.extend_from_slice(to);
+            remaining = &remaining[index + from.len()..];
+        }
+        result.extend_from_slice(remaining);
+        *self = Self::from_bytes(&result)?;
+        Ok(())
     }
 
     /// Convert to UnicodeString
@@ -522,19 +314,6 @@ impl Default for AsciiString {
     }
 }
 
-impl Drop for AsciiString {
-    fn drop(&mut self) {
-        if !self.data.is_null() {
-            // SAFETY: [Category 3 — dangling / Category 12 — invalid free] `self.data` is a live AsciiStringData block we own a reference to;
-            // decrementing then freeing only when the count hits zero preserves unique ownership at free time.
-            unsafe {
-                if AsciiStringData::decrement_ref_count(self.data) {
-                    AsciiStringData::free(self.data);
-                }
-            }
-        }
-    }
-}
 
 impl fmt::Display for AsciiString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -613,104 +392,43 @@ impl std::ops::AddAssign<&str> for AsciiString {
 }
 
 #[cfg(feature = "unicode")]
-/// UnicodeString - Reference-counted Unicode string with copy-on-write semantics
+/// An owned, NUL-terminated UTF-16 string.
+#[derive(Clone)]
 pub struct UnicodeString {
-    /// Pointer to the reference-counted string data
-    data: *mut UnicodeStringData,
-}
-
-#[cfg(feature = "unicode")]
-impl Clone for UnicodeString {
-    fn clone(&self) -> Self {
-        if !self.data.is_null() {
-            UnicodeStringData::increment_ref_count(self.data);
-        }
-        Self { data: self.data }
-    }
-}
-
-#[cfg(feature = "unicode")]
-/// Reference-counted string data for UnicodeString
-#[derive(Debug)]
-struct UnicodeStringData {
-    /// Reference count
-    ref_count: AtomicU16,
-
-    /// Number of characters allocated (including null terminator)
-    num_chars_allocated: u16,
-
-    /// Debug pointer for easier debugging
-    #[cfg(feature = "debug")]
-    debug_ptr: *const u16,
-    // The actual string data follows this structure
+    data: Vec<u16>,
 }
 
 #[cfg(feature = "unicode")]
 impl UnicodeString {
     /// The empty string constant
-    pub const THE_EMPTY_STRING: UnicodeString = UnicodeString {
-        data: ptr::null_mut(),
-    };
+    pub const THE_EMPTY_STRING: UnicodeString = UnicodeString { data: Vec::new() };
 
-    /// Create a new empty UnicodeString
+    /// Create a new empty UnicodeString.
     pub fn new() -> Self {
-        Self {
-            data: ptr::null_mut(),
-        }
+        Self::THE_EMPTY_STRING
     }
 
-    /// Create from an AsciiString
+    /// Translate each byte like the original C++ implementation.
+    ///
+    /// The original Windows target uses signed `char` and 16-bit `WideChar`;
+    /// consequently bytes 0x80..=0xff sign-extend to 0xff80..=0xffff.
     pub fn from_ascii(ascii: &AsciiString) -> Self {
-        let s = ascii.as_str();
-        Self::from_str(s).unwrap_or(Self::THE_EMPTY_STRING)
+        let mut data = Vec::with_capacity(ascii.get_length() + 1);
+        data.extend(ascii.as_bytes().iter().map(|&byte| (byte as i8 as i16) as u16));
+        data.push(0);
+        Self { data }
     }
 
     /// Create a UnicodeString from a &str
     pub fn from_str(s: &str) -> Result<Self, String> {
-        if s.is_empty() {
-            return Ok(Self::THE_EMPTY_STRING);
-        }
-
-        // Convert to UTF-16
-        let utf16: Vec<u16> = s.encode_utf16().collect();
-        let capacity = utf16.len() + 1; // +1 for null terminator
-
+        let capacity = s.encode_utf16().count() + 1;
         if capacity > MAX_STRING_LEN {
-            return Err(format!(
-                "String capacity {} exceeds maximum {}",
-                capacity, MAX_STRING_LEN
-            ));
+            return Err(format!("String capacity {} exceeds maximum {}", capacity, MAX_STRING_LEN));
         }
-
-        let total_size =
-            std::mem::size_of::<UnicodeStringData>() + capacity * std::mem::size_of::<u16>();
-        let layout = Layout::from_size_align(total_size, std::mem::align_of::<UnicodeStringData>())
-            .map_err(|e| format!("Failed to create layout: {}", e))?;
-
-        // SAFETY: [Category 13 — library contract] `layout` was validated by
-        // `Layout::from_size_align` above; allocates the UTF-16 header+payload block
-        let ptr = unsafe { alloc(layout) as *mut UnicodeStringData };
-        if ptr.is_null() {
-            return Err("Failed to allocate memory for UnicodeStringData".to_string());
-        }
-
-        // SAFETY: [Category 3 — dangling] `ptr` is non-null and sized for header + payload; both header fields are written before any other use.
-        unsafe {
-            (*ptr).ref_count = AtomicU16::new(1);
-            (*ptr).num_chars_allocated = capacity as u16;
-
-            #[cfg(feature = "debug")]
-            {
-                (*ptr).debug_ptr = UnicodeStringData::data_ptr(ptr);
-            }
-
-            // Copy UTF-16 data
-            let data_ptr = UnicodeStringData::data_ptr(ptr);
-            ptr::copy_nonoverlapping(utf16.as_ptr(), data_ptr, utf16.len());
-            *data_ptr.add(utf16.len()) = 0; // Null terminator
-        }
-
-        Ok(Self { data: ptr })
+        let mut data = Vec::with_capacity(capacity);
+        data.extend(s.encode_utf16().take_while(|unit| *unit != 0));
+        data.push(0);
+        Ok(Self { data })
     }
 
     /// Set the string contents from a &str.
@@ -727,19 +445,7 @@ impl UnicodeString {
 
     /// Get the length of the string in characters
     pub fn get_length(&self) -> usize {
-        if self.data.is_null() {
-            0
-        } else {
-            // SAFETY: [Category 10 — OOB] scans the NUL-terminated UTF-16 payload written by from_str, staying inside num_chars_allocated.
-            unsafe {
-                let data_ptr = UnicodeStringData::data_ptr_const(self.data);
-                let mut len = 0;
-                while *data_ptr.add(len) != 0 {
-                    len += 1;
-                }
-                len
-            }
-        }
+        self.data.len().saturating_sub(1)
     }
 
     /// Check if the string is empty
@@ -749,111 +455,25 @@ impl UnicodeString {
 
     /// Clear the string
     pub fn clear(&mut self) {
-        if !self.data.is_null() {
-            // SAFETY: [Category 3 — dangling / Category 12 — invalid free] `self.data` is a live UnicodeStringData block we own a reference to;
-            // decrementing then freeing only when the count hits zero preserves unique ownership at free time.
-            unsafe {
-                if UnicodeStringData::decrement_ref_count(self.data) {
-                    UnicodeStringData::free(self.data);
-                }
-            }
-            self.data = ptr::null_mut();
-        }
+        self.data.clear();
     }
 
     /// Convert to an owned UTF-8 string, replacing invalid UTF-16 sequences.
     pub fn as_str(&self) -> String {
-        if self.data.is_null() {
-            String::new()
-        } else {
-            // SAFETY: [Category 10 — OOB / Category 5 — invalid values] slice covers exactly get_length() code units of the NUL-terminated payload written by from_str.
-            unsafe {
-                let data_ptr = UnicodeStringData::data_ptr_const(self.data);
-                let len = self.get_length();
-                let utf16_slice = std::slice::from_raw_parts(data_ptr, len);
-                String::from_utf16_lossy(utf16_slice)
-            }
-        }
+        String::from_utf16_lossy(self.data.strip_suffix(&[0]).unwrap_or(&[]))
     }
 
-    /// Convert to AsciiString (lossy conversion)
+    /// Narrow each UTF-16 code unit to the low byte, matching C++ `char`.
+    /// A zero low byte is skipped, as concatenating a C NUL adds no character.
     pub fn to_ascii(&self) -> AsciiString {
-        let utf8 = self.as_str();
-        AsciiString::from_str(&utf8).unwrap_or(AsciiString::THE_EMPTY_STRING)
+        let units = self.data.strip_suffix(&[0]).unwrap_or(&[]);
+        let mut data = Vec::with_capacity(units.len() + 1);
+        data.extend(units.iter().map(|&unit| unit as u8).filter(|&byte| byte != 0));
+        data.push(0);
+        AsciiString { data }
     }
 }
 
-#[cfg(feature = "unicode")]
-impl UnicodeStringData {
-    /// Get a pointer to the string data
-    fn data_ptr(data: *mut Self) -> *mut u16 {
-        // SAFETY: [Category 11 — provenance] The payload starts exactly `size_of::<Self>()` bytes into
-        // the same block built by `new` (flexible-array layout), so the offset stays within it.
-        unsafe { (data as *mut u8).add(std::mem::size_of::<Self>()) as *mut u16 }
-    }
-
-    /// Get a const pointer to the string data
-    fn data_ptr_const(data: *const Self) -> *const u16 {
-        // SAFETY: [Category 11 — provenance] The payload starts exactly `size_of::<Self>()` bytes into
-        // the same block built by `new` (flexible-array layout), so the offset stays within it.
-        unsafe { (data as *const u8).add(std::mem::size_of::<Self>()) as *const u16 }
-    }
-
-    /// Increment reference count
-    fn increment_ref_count(data: *mut Self) {
-        // SAFETY: [Category 3 — dangling] `data` points to live string data; the atomic increment needs no uniqueness.
-        unsafe {
-            (*data).ref_count.fetch_update(
-                AtomicOrdering::Relaxed,
-                AtomicOrdering::Relaxed,
-                |count| count.checked_add(1),
-            ).expect("UnicodeString reference count overflow");
-        }
-    }
-
-    /// Decrement reference count and return true if it reaches zero
-    fn decrement_ref_count(data: *mut Self) -> bool {
-        // SAFETY: [Category 3 — dangling / Category 5 — invalid values] `data` is live; fetch_sub returns
-        // the previous count, so == 1 means this was the last reference (Release_Ref semantics).
-        unsafe { (*data).ref_count.fetch_sub(1, AtomicOrdering::Relaxed) == 1 }
-    }
-
-    /// Free the string data
-    /// SAFETY: callers must pass the unique remaining owner (ref count just hit zero) of a block from `new`.
-    unsafe fn free(data: *mut Self) {
-        // SAFETY: [Category 3 — dangling]
-        // `data` is the unique remaining owner (ref_count just hit zero),
-        // allocated with `num_chars_allocated` UTF-16 code units
-        // (UnicodeString.cpp `freeBytes`).
-        let chars = unsafe { (*data).num_chars_allocated as usize };
-        let total_size = std::mem::size_of::<Self>() + chars * std::mem::size_of::<u16>();
-        // SAFETY: [Category 13 — library contract]
-        // Size/align match the allocation layout used to create this block.
-        let layout =
-            // SAFETY: [Category 13 — library contract] Size/align match the `Layout` built in `new` for this same block.
-            unsafe { Layout::from_size_align_unchecked(total_size, std::mem::align_of::<Self>()) };
-        // SAFETY: [Category 12 — invalid free]
-        // Same allocator/layout as the matching `alloc`; pointer is not reused.
-        unsafe {
-            dealloc(data as *mut u8, layout);
-        }
-    }
-}
-
-#[cfg(feature = "unicode")]
-impl Drop for UnicodeString {
-    fn drop(&mut self) {
-        if !self.data.is_null() {
-            // SAFETY: [Category 3 — dangling / Category 12 — invalid free] `self.data` is a live UnicodeStringData block we own a reference to;
-            // decrementing then freeing only when the count hits zero preserves unique ownership at free time.
-            unsafe {
-                if UnicodeStringData::decrement_ref_count(self.data) {
-                    UnicodeStringData::free(self.data);
-                }
-            }
-        }
-    }
-}
 
 #[cfg(feature = "unicode")]
 impl fmt::Display for UnicodeString {
@@ -886,21 +506,53 @@ mod tests {
     }
 
     #[test]
-    fn test_ascii_string_copy_on_write() {
-        let s1 = AsciiString::from_str("Original").unwrap();
-        let s2 = s1.clone();
+    fn ascii_clone_is_independent() {
+        let original = AsciiString::from_str("Original").unwrap();
+        let mut changed = original.clone();
+        changed.set_str("Modified").unwrap();
+        assert_eq!(original.as_str(), "Original");
+        assert_eq!(changed.as_str(), "Modified");
+    }
 
-        // Both should point to the same data initially
-        assert_eq!(s1.data, s2.data);
+    #[test]
+    fn bytes_c_terminator_and_byte_truncation() {
+        let source = CStr::from_bytes_with_nul(b"\xff\xc3\xa9\0").unwrap();
+        let mut value = AsciiString::from_c_str(Some(source)).unwrap();
+        let original = value.clone();
+        assert_eq!(value.get_length(), 3);
+        assert_eq!(value.as_c_str().to_bytes_with_nul(), b"\xff\xc3\xa9\0");
+        assert_eq!(value.substr(1, 1).unwrap().as_bytes(), b"\xc3");
+        value.remove_last_char();
+        assert_eq!(value.as_bytes(), b"\xff\xc3");
+        assert_eq!(original.as_bytes(), b"\xff\xc3\xa9");
+        assert_eq!(AsciiString::from_str("a\0b").unwrap().as_c_str().to_bytes_with_nul(), b"a\0");
+        assert_eq!(AsciiString::new().as_c_str().to_bytes_with_nul(), b"\0");
+    }
 
-        // Modifying s2 should create a new buffer
-        let mut s3 = s2;
-        let _ = s3.set_str("Modified");
+    #[test]
+    fn byte_capacity_includes_terminator_and_failed_mutation_is_atomic() {
+        let accepted = "é".repeat((MAX_STRING_LEN - 1) / 2);
+        let mut value = AsciiString::from_str(&accepted).unwrap();
+        assert_eq!(value.get_length(), MAX_STRING_LEN - 1);
+        assert!(value.concat_str("x").is_err());
+        assert_eq!(value.as_str(), accepted);
+        assert!(value.set_str(&"x".repeat(MAX_STRING_LEN)).is_err());
+        assert_eq!(value.get_length(), MAX_STRING_LEN - 1);
+    }
 
-        // s1 and s3 should have different data pointers
-        assert_ne!(s1.data, s3.data);
-        assert_eq!(s1.as_str(), "Original");
-        assert_eq!(s3.as_str(), "Modified");
+    #[cfg(feature = "unicode")]
+    #[test]
+    fn utf16_limits_nuls_and_clones_use_code_units() {
+        let accepted = "😀".repeat((MAX_STRING_LEN - 1) / 2);
+        let mut value = UnicodeString::from_str(&accepted).unwrap();
+        let original = value.clone();
+        assert_eq!(value.get_length(), MAX_STRING_LEN - 1);
+        assert!(value.set_str(&(accepted.clone() + "x")).is_err());
+        assert_eq!(value.as_str(), accepted);
+        value.set_str("😀\0hidden").unwrap();
+        assert_eq!(value.get_length(), 2);
+        assert_eq!(value.as_str(), "😀");
+        assert_eq!(original.get_length(), MAX_STRING_LEN - 1);
     }
 
     #[test]
@@ -1001,25 +653,10 @@ mod tests {
     }
 
     #[test]
-    fn ascii_clone_overflow_panics_without_invalidating_owners() {
+    fn ascii_many_clones_remain_valid() {
         let original = AsciiString::from_str("retained").unwrap();
-        let copies: Vec<_> = (1..u16::MAX).map(|_| original.clone()).collect();
-        let mut destination = AsciiString::from_str("destination").unwrap();
-        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            destination.set(&original);
-        })).is_err());
-        assert_eq!(destination.as_str(), "destination");
-        assert!(std::panic::catch_unwind(|| original.clone()).is_err());
-        drop(copies);
-        assert_eq!(original.as_str(), "retained");
-    }
-
-    #[cfg(feature = "unicode")]
-    #[test]
-    fn unicode_clone_overflow_panics_without_invalidating_owners() {
-        let original = UnicodeString::from_str("retained").unwrap();
-        let copies: Vec<_> = (1..u16::MAX).map(|_| original.clone()).collect();
-        assert!(std::panic::catch_unwind(|| original.clone()).is_err());
+        let copies: Vec<_> = (0..u16::MAX).map(|_| original.clone()).collect();
+        assert_eq!(copies.last().unwrap().as_str(), "retained");
         drop(copies);
         assert_eq!(original.as_str(), "retained");
     }
@@ -1032,6 +669,24 @@ mod tests {
         let back_to_ascii = unicode.to_ascii();
 
         assert_eq!(ascii.as_str(), back_to_ascii.as_str());
+    }
+
+    #[cfg(feature = "unicode")]
+    #[test]
+    fn cpp_signed_byte_widening_and_code_unit_narrowing() {
+        let bytes = AsciiString::from_bytes(b"A\x7f\x80\xff").unwrap();
+        assert!(bytes.try_as_str().is_err());
+        let wide = bytes.to_unicode();
+        assert_eq!(wide.get_length(), 4);
+        assert_eq!(wide.as_str(), "A\u{7f}\u{ff80}\u{ffff}");
+        assert_eq!(wide.to_ascii().as_bytes(), b"A\x7f\x80\xff");
+
+        // U+0100 and the low surrogate of 😀 narrow to NUL; C++ concat
+        // leaves the destination unchanged for each of those code units.
+        let wide = UnicodeString::from_str("A\u{100}😀€Z").unwrap();
+        assert_eq!(wide.to_ascii().as_c_str().to_bytes_with_nul(), b"A=\xacZ\0");
+        let wide = UnicodeString::from_str("A\0B").unwrap();
+        assert_eq!(wide.to_ascii().as_bytes(), b"A");
     }
 
     #[cfg(feature = "unicode")]

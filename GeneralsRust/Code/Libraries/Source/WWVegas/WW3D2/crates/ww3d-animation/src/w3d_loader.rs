@@ -494,12 +494,10 @@ fn parse_adaptive_delta_motion_channel<R: Read + Seek>(
     let vector_len = usize::from(vector_len_raw.max(1));
     let remaining_bytes = (chunk_size - HEADER_SIZE) as usize;
 
-    let data_u32_count = remaining_bytes / 4;
-    let mut data = Vec::with_capacity(data_u32_count);
-    for _ in 0..data_u32_count {
-        let value: u32 = reader.read_le()?;
-        data.push(value);
-    }
+    // Packets are nine bytes each and need not end on a u32 boundary.
+    // Keep the exact byte length so truncated packets cannot acquire padding.
+    let mut data = vec![0; remaining_bytes];
+    reader.read_exact(&mut data)?;
 
     Ok(AdaptiveDeltaMotionChannelClass::new(
         pivot as u32,
@@ -1151,6 +1149,53 @@ mod tests {
         let mut file = Vec::new();
         push_chunk(&mut file, W3DChunkType::CompressedAnimation, &anim_payload);
         file
+    }
+
+    fn compressed_animation_with_adaptive_packet_fixture(packet: &[u8]) -> Vec<u8> {
+        let mut header = Vec::new();
+        push_u32(&mut header, 0x0001);
+        header.extend_from_slice(&fixed_name("Move"));
+        header.extend_from_slice(&fixed_name("Unit"));
+        push_u32(&mut header, 17);
+        push_u16(&mut header, 30);
+        push_u16(&mut header, ANIM_FLAVOR_ADAPTIVE_DELTA as u16);
+
+        let mut channel = Vec::new();
+        push_u32(&mut channel, 17);
+        push_u16(&mut channel, 0);
+        channel.push(1);
+        channel.push(0);
+        push_f32(&mut channel, 1.0);
+        push_f32(&mut channel, 2.0);
+        channel.extend_from_slice(packet);
+
+        let mut payload = Vec::new();
+        push_chunk(&mut payload, W3DChunkType::CompressedAnimationHeader, &header);
+        push_chunk(&mut payload, W3DChunkType::CompressedAnimationChannel, &channel);
+        let mut file = Vec::new();
+        push_chunk(&mut file, W3DChunkType::CompressedAnimation, &payload);
+        file
+    }
+
+    #[test]
+    fn adaptive_w3d_loader_preserves_unaligned_final_packet_byte() {
+        let bytes = compressed_animation_with_adaptive_packet_fixture(&[8, 0, 0, 0, 0, 0, 0, 0, 0x21]);
+        let mut animation = load_w3d_animation(&mut Cursor::new(bytes), &|_| Some(1))
+            .unwrap().compressed_anim.unwrap();
+        assert_eq!(animation.get_translation(0, 0.0).x, 2.0);
+        assert_eq!(animation.get_translation(0, 15.0).x, 3.0);
+        assert_eq!(animation.get_translation(0, 16.0).x, 5.0);
+    }
+
+    #[test]
+    fn adaptive_w3d_loader_does_not_pad_truncated_packet() {
+        let bytes = compressed_animation_with_adaptive_packet_fixture(&[8, 0, 0, 0, 0, 0, 0, 0]);
+        let mut animation = load_w3d_animation(&mut Cursor::new(bytes), &|_| Some(1))
+            .unwrap().compressed_anim.unwrap();
+        assert_eq!(animation.get_translation(0, 0.0).x, 2.0);
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            animation.get_translation(0, 15.0);
+        })).is_err());
     }
 
     #[test]

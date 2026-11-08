@@ -700,7 +700,7 @@ impl RegistryClass {
         self.get_value_list(&mut list);
         for index in 0..list.count() {
             let value = list[index].as_str();
-            self.delete_value(value);
+            self.delete_value(&value);
         }
     }
 

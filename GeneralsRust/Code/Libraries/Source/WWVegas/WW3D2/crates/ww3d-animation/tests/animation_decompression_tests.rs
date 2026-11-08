@@ -196,10 +196,7 @@ fn test_adaptive_delta_simple_decompression() {
     // Filter index: 8 (which gives 1.0 from the filter table)
     // Delta nibbles: all 0 (no change)
 
-    let mut data = Vec::new();
-
-    // Header float (base value)
-    data.push(0.0f32.to_bits());
+    let mut data = 0.0f32.to_le_bytes().to_vec();
 
     // Now we need to add compressed packets
     // Packet format: 1 byte filter index + 8 bytes of nibble data
@@ -214,14 +211,7 @@ fn test_adaptive_delta_simple_decompression() {
         packet.push(0); // All nibbles are 0
     }
 
-    // Convert packet to u32 array
-    for chunk in packet.chunks(4) {
-        let mut u32_val = 0u32;
-        for (i, &byte) in chunk.iter().enumerate() {
-            u32_val |= (byte as u32) << (i * 8);
-        }
-        data.push(u32_val);
-    }
+    data.extend_from_slice(&packet);
 
     let mut channel = AdaptiveDeltaMotionChannelClass::new(
         0,   // pivot
@@ -255,8 +245,7 @@ fn test_adaptive_delta_nibble_extraction() {
     // Sign extension: if bit 3 is set, OR with 0xFFFFFFF0
 
     // Create a packet with known nibble values
-    let mut data = Vec::new();
-    data.push(0.0f32.to_bits()); // base value
+    let mut data = 0.0f32.to_le_bytes().to_vec();
 
     // Filter index 8 (scale = 1.0)
     // Nibbles: +1, -1, +2, -2, +3, -3, +4, -4
@@ -268,14 +257,7 @@ fn test_adaptive_delta_nibble_extraction() {
     packet.push(0xC4); // nibbles: 4, -4 (0xC)
     packet.extend_from_slice(&[0, 0, 0, 0]); // Pad to 8 bytes
 
-    // Convert to u32
-    for chunk in packet.chunks(4) {
-        let mut u32_val = 0u32;
-        for (i, &byte) in chunk.iter().enumerate() {
-            u32_val |= (byte as u32) << (i * 8);
-        }
-        data.push(u32_val);
-    }
+    data.extend_from_slice(&packet);
 
     let mut channel = AdaptiveDeltaMotionChannelClass::new(0, 0, 1, 16, 1.0, data);
 
@@ -419,20 +401,13 @@ fn test_hcompressed_anim_adaptive_delta() {
     );
 
     // Create a simple adaptive delta channel
-    let mut data = Vec::new();
-    data.push(0.0f32.to_bits()); // base value
+    let mut data = 0.0f32.to_le_bytes().to_vec();
 
     // Add a simple packet (filter index 8, all zero deltas)
     let mut packet = vec![8u8];
     packet.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0]);
 
-    for chunk in packet.chunks(4) {
-        let mut u32_val = 0u32;
-        for (i, &byte) in chunk.iter().enumerate() {
-            u32_val |= (byte as u32) << (i * 8);
-        }
-        data.push(u32_val);
-    }
+    data.extend_from_slice(&packet);
 
     let channel = AdaptiveDeltaMotionChannelClass::new(
         0,   // pivot
@@ -450,6 +425,80 @@ fn test_hcompressed_anim_adaptive_delta() {
     assert!((trans.x - 0.0).abs() < 0.001, "Translation should be 0.0");
 }
 
+/// Exercise the decoder through the animation consumer across both packet and cache boundaries.
+#[test]
+fn adaptive_delta_consumer_seeks_across_packets() {
+    let mut data = 10.0f32.to_le_bytes().to_vec();
+    // First packet: +1, -1, then fourteen +1 deltas. Second packet:
+    // -2, +3, followed by zeroes. Filters 8 and 9 are 1 and 10.
+    let bytes = [
+        8, 0xf1, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+        9, 0x3e, 0, 0, 0, 0, 0, 0, 0,
+    ];
+    data.extend_from_slice(&bytes);
+
+    let channel = AdaptiveDeltaMotionChannelClass::new(0, 0, 1, 19, 0.5, data);
+    let mut anim = HCompressedAnimClass::new(
+        "packets".into(), "hierarchy".into(), 19, 1, ANIM_FLAVOR_ADAPTIVE_DELTA, 30.0,
+    );
+    anim.add_adaptive_delta_channel(channel);
+
+    // First frame, sequential continuation, interpolation, and a forward jump.
+    for (frame, expected) in [
+        (0.0, 10.0), (1.0, 10.5), (1.5, 10.25), (2.0, 10.0),
+        (15.0, 16.5), (16.0, 17.0), (16.5, 12.0),
+        (17.0, 7.0), (18.0, 22.0), (19.0, 22.0),
+        // Backward seek and another jump across the packet boundary.
+        (1.0, 10.5), (17.0, 7.0), (0.0, 10.0),
+    ] {
+        assert_eq!(anim.get_translation(0, frame).x, expected, "frame {frame}");
+    }
+}
+
+#[test]
+fn adaptive_delta_quaternion_interleaves_component_packets() {
+    let mut data = Vec::new();
+    for value in [0.0f32, 0.0, 0.0, 1.0] {
+        data.extend_from_slice(&value.to_le_bytes());
+    }
+    // Each block contains four adjacent nine-byte packets, not four
+    // separately word-aligned packets.
+    for (filter, factors) in [(8, [0x11, 0xff, 0x22, 0x00]), (9, [0xff, 0x11, 0x00, 0x00])] {
+        for factor in factors {
+            data.push(filter);
+            data.extend_from_slice(&[factor; 8]);
+        }
+    }
+
+    let channel = AdaptiveDeltaMotionChannelClass::new(0, 6, 4, 18, 0.01, data);
+    let mut anim = HCompressedAnimClass::new(
+        "quaternion".into(), "hierarchy".into(), 18, 1, ANIM_FLAVOR_ADAPTIVE_DELTA, 30.0,
+    );
+    anim.add_adaptive_delta_channel(channel);
+    for (frame, expected) in [
+        (0.0, Quat::IDENTITY),
+        (1.0, Quat::from_xyzw(0.01, -0.01, 0.02, 1.0).normalize()),
+        (16.0, Quat::from_xyzw(0.16, -0.16, 0.32, 1.0).normalize()),
+        (17.0, Quat::from_xyzw(0.06, -0.06, 0.32, 1.0).normalize()),
+        (1.0, Quat::from_xyzw(0.01, -0.01, 0.02, 1.0).normalize()),
+    ] {
+        let actual = anim.get_orientation(0, frame);
+        assert!((actual - expected).length() < 1e-5, "frame {frame}: {actual:?}");
+    }
+}
+
+#[test]
+fn adaptive_delta_rejects_truncated_data_without_undefined_behavior() {
+    let mut missing_header = AdaptiveDeltaMotionChannelClass::new(0, 0, 1, 1, 1.0, vec![]);
+    let mut missing_packet =
+        AdaptiveDeltaMotionChannelClass::new(0, 0, 1, 2, 1.0, 0.0f32.to_le_bytes().to_vec());
+    for channel in [&mut missing_header, &mut missing_packet] {
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            channel.get_vector(0.0, &mut [0.0]);
+        })).is_err());
+    }
+}
+
 /// Test filter table generation
 #[test]
 fn test_filter_table_values() {
@@ -462,7 +511,7 @@ fn test_filter_table_values() {
 
     // Test with a filter index that's likely to produce non-zero results
     let mut data = Vec::new();
-    data.push(base.to_bits());
+    data.extend_from_slice(&base.to_le_bytes());
 
     // Use filter index 8 which should have a reasonable scale value
     let filter_idx = 8u8;
@@ -470,13 +519,7 @@ fn test_filter_table_values() {
     // Delta of +1 for all nibbles
     packet.extend_from_slice(&[0x11, 0x11, 0x11, 0x11, 0, 0, 0, 0]);
 
-    for chunk in packet.chunks(4) {
-        let mut u32_val = 0u32;
-        for (i, &byte) in chunk.iter().enumerate() {
-            u32_val |= (byte as u32) << (i * 8);
-        }
-        data.push(u32_val);
-    }
+    data.extend_from_slice(&packet);
 
     let mut channel = AdaptiveDeltaMotionChannelClass::new(0, 0, 1, 8, 1.0, data);
 
@@ -536,26 +579,13 @@ fn test_adaptive_delta_quaternion() {
 
     let mut data = Vec::new();
     // Header quaternion (base value)
-    data.push(q0.x.to_bits());
-    data.push(q0.y.to_bits());
-    data.push(q0.z.to_bits());
-    data.push(q0.w.to_bits());
+    for value in [q0.x, q0.y, q0.z, q0.w] {
+        data.extend_from_slice(&value.to_le_bytes());
+    }
 
-    // Add compressed packets for 4 components
-    // This would need 4 packets (one per component) with proper formatting
-    // For now, create minimal packet structure
-
+    // Four contiguous packets with no per-packet padding.
     for _ in 0..4 {
-        let mut packet = vec![8u8]; // filter index
-        packet.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0]);
-
-        for chunk in packet.chunks(4) {
-            let mut u32_val = 0u32;
-            for (i, &byte) in chunk.iter().enumerate() {
-                u32_val |= (byte as u32) << (i * 8);
-            }
-            data.push(u32_val);
-        }
+        data.extend_from_slice(&[8, 0, 0, 0, 0, 0, 0, 0, 0]);
     }
 
     let mut channel = AdaptiveDeltaMotionChannelClass::new(
