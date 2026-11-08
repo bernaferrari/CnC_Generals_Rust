@@ -180,7 +180,8 @@ impl Animatable3DObjClass {
         self.is_tree_valid = false;
     }
 
-    /// Set a single animation with frame and mode
+    /// Set a single animation with frame and mode.
+    /// Embedded sound bones are resolved against this object's hierarchy during updates.
     /// Reference: animobj.cpp:412-445 (Animatable3DObjClass::Set_Animation single)
     pub fn set_animation(
         &mut self,
@@ -189,11 +190,11 @@ impl Animatable3DObjClass {
         mode: AnimationMode,
         sync_time: f64,
     ) {
-        if let Some(ref anim) = motion {
+        if let Some(anim) = motion {
             self.release();
 
             self.cur_motion_mode = MotionMode::SingleAnim;
-            self.mode_anim.motion = Some(anim.clone());
+            self.mode_anim.motion = Some(anim);
             self.mode_anim.prev_frame = self.mode_anim.frame;
             self.mode_anim.frame = frame;
             self.mode_anim.last_sync_time = sync_time;
@@ -206,18 +207,6 @@ impl Animatable3DObjClass {
                 AnimationMode::LoopBackwards | AnimationMode::OnceBackwards => -1.0,
                 _ => 1.0,
             };
-
-            // Set up embedded sound bone index if present
-            // Reference: animobj.cpp:434-438
-            if has_embedded_sounds(&self.sound_mgr, anim) {
-                if let Some(bone_name) = embedded_sound_bone(&self.sound_mgr, anim) {
-                    if let Some(bone_index) = self.get_bone_index(&bone_name) {
-                        // Store bone index in animation (would need to extend HAnimClass)
-                        // For now, we'll handle this in update
-                        let _ = bone_index; // Suppress unused warning
-                    }
-                }
-            }
         } else {
             self.cur_motion_mode = MotionMode::BasePose;
             self.release();
@@ -239,8 +228,8 @@ impl Animatable3DObjClass {
         self.release();
 
         self.cur_motion_mode = MotionMode::DoubleAnim;
-        self.mode_interp.motion0 = motion0.clone();
-        self.mode_interp.motion1 = motion1.clone();
+        self.mode_interp.motion0 = motion0;
+        self.mode_interp.motion1 = motion1;
         self.mode_interp.prev_frame0 = self.mode_interp.frame0;
         self.mode_interp.prev_frame1 = self.mode_interp.frame1;
         self.mode_interp.frame0 = frame0;
@@ -248,28 +237,6 @@ impl Animatable3DObjClass {
         self.mode_interp.percentage = percentage;
 
         self.is_tree_valid = false;
-
-        // Set up embedded sounds for both animations if present
-        // Reference: animobj.cpp:480-496
-        if let Some(ref anim) = motion0 {
-            if has_embedded_sounds(&self.sound_mgr, anim) {
-                if let Some(bone_name) = embedded_sound_bone(&self.sound_mgr, anim) {
-                    if let Some(bone_index) = self.get_bone_index(&bone_name) {
-                        let _ = bone_index; // Will be used in update
-                    }
-                }
-            }
-        }
-
-        if let Some(ref anim) = motion1 {
-            if has_embedded_sounds(&self.sound_mgr, anim) {
-                if let Some(bone_name) = embedded_sound_bone(&self.sound_mgr, anim) {
-                    if let Some(bone_index) = self.get_bone_index(&bone_name) {
-                        let _ = bone_index; // Will be used in update
-                    }
-                }
-            }
-        }
     }
 
     /// Set animation combo (multiple animations)
@@ -278,25 +245,8 @@ impl Animatable3DObjClass {
         self.release();
 
         self.cur_motion_mode = MotionMode::MultipleAnim;
-        self.mode_combo.anim_combo = anim_combo.clone();
+        self.mode_combo.anim_combo = anim_combo;
         self.is_tree_valid = false;
-
-        // Set up embedded sounds for all animations in combo
-        // Reference: animobj.cpp:523-534
-        if let Some(ref combo) = anim_combo {
-            let count = combo.num_anims();
-            for index in 0..count {
-                if let Some(motion) = combo.peek_motion(index) {
-                    if has_embedded_sounds(&self.sound_mgr, motion) {
-                        if let Some(bone_name) = embedded_sound_bone(&self.sound_mgr, motion) {
-                            if let Some(bone_index) = self.get_bone_index(&bone_name) {
-                                let _ = bone_index; // Will be used in update
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 
     /// Peek at current animation (for SINGLE_ANIM mode only)

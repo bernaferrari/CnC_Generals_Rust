@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -24,15 +24,24 @@ struct AnimSoundInfo {
     is_stop: bool,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 struct AnimSoundList {
     bone_name: Option<String>,
     entries: Vec<AnimSoundInfo>,
 }
 
+impl Default for AnimSoundList {
+    fn default() -> Self {
+        Self {
+            bone_name: Some("root".to_owned()),
+            entries: Vec::new(),
+        }
+    }
+}
+
 #[derive(Default)]
 struct AnimatedSoundMgrState {
-    animation_map: HashMap<String, AnimSoundList>,
+    animation_map: HashMap<String, Arc<AnimSoundList>>,
     sound_library: Option<Arc<dyn SoundLibraryBridge>>,
 }
 
@@ -58,63 +67,74 @@ impl std::fmt::Debug for AnimatedSoundMgr {
 
 fn parse_animation_map(
     state: &mut AnimatedSoundMgrState,
-    map: HashMap<String, HashMap<String, Option<String>>>,
+    text: &str,
 ) {
-    for (section, properties) in map {
-        if section.trim().is_empty() {
+    let mut lists: HashMap<String, (AnimSoundList, HashSet<String>)> = HashMap::new();
+    let mut section: Option<String> = None;
+    // INIClass keeps the first entry for a duplicate key and enumerates in
+    // source order. configparser's map instead discards both properties.
+    for raw_line in text.lines() {
+        let line = raw_line.trim();
+        if line.starts_with('[') {
+            if let Some(end) = line.find(']') {
+                section = Some(line[1..end].trim().to_owned());
+            }
+            continue;
+        }
+        let Some(section) = &section else { continue };
+        let line = line.split(';').next().unwrap_or("").trim();
+        let Some((key, value)) = line.split_once('=') else { continue };
+        let key = key.trim();
+        let value = value.trim();
+        if key.is_empty() || value.is_empty() {
+            continue;
+        }
+        let (list, keys) = lists.entry(section.clone()).or_default();
+        if !keys.insert(key.to_owned()) {
+            continue;
+        }
+        if key == "BoneName" {
+            list.bone_name = Some(value.to_owned());
             continue;
         }
 
-        let mut list = AnimSoundList::default();
+        let params: Vec<&str> = value
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .collect();
 
-        for (key, value) in properties {
-            if key.eq_ignore_ascii_case("BoneName") {
-                if let Some(bone) = value {
-                    list.bone_name = Some(bone.trim().to_string());
-                }
-                continue;
-            }
-
-            let Some(raw_value) = value else { continue };
-            let params: Vec<String> = raw_value
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-
-            if params.len() < 2 {
-                continue;
-            }
-
-            let frame = params[0].parse::<f32>().unwrap_or(0.0);
-            let sound_name = params[1].clone();
-            let mut is_2d = false;
-            let mut is_stop = false;
-
-            for token in params.iter().skip(2) {
-                match token.to_ascii_uppercase().as_str() {
-                    "2D" => is_2d = true,
-                    "STOP" => is_stop = true,
-                    _ => {}
-                }
-            }
-
-            list.entries.push(AnimSoundInfo {
-                frame,
-                sound_name,
-                is_2d,
-                is_stop,
-            });
+        if params.len() < 2 {
+            continue;
         }
 
-        if !list.entries.is_empty() || list.bone_name.is_some() {
-            let upper_name = section.to_ascii_uppercase();
-            list.entries.sort_by(|a, b| {
-                a.frame
-                    .partial_cmp(&b.frame)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-            state.animation_map.insert(upper_name, list);
+        // atoi consumes an optional sign and decimal digit prefix; clamp
+        // overflow rather than depending on the C runtime's undefined result.
+        let token = params[0].trim_start();
+        let (negative, digits) = match token.as_bytes().first() {
+            Some(b'-') => (true, &token[1..]),
+            Some(b'+') => (false, &token[1..]),
+            _ => (false, token),
+        };
+        let magnitude = digits.bytes().take_while(u8::is_ascii_digit).fold(0_i64, |n, digit| {
+            n.saturating_mul(10).saturating_add(i64::from(digit - b'0'))
+        });
+        let frame = (if negative { -magnitude } else { magnitude })
+            .clamp(i32::MIN as i64, i32::MAX as i64) as f32;
+        let sound_name = params[1].trim().to_owned();
+        let is_2d = params.iter().skip(2).any(|token| token.contains("2D"));
+        let is_stop = params.iter().skip(2).any(|token| token.contains("STOP"));
+
+        list.entries.push(AnimSoundInfo {
+            frame,
+            sound_name,
+            is_2d,
+            is_stop,
+        });
+    }
+
+    for (section, (list, _)) in lists {
+        if !list.entries.is_empty() {
+            state.animation_map.insert(section.to_ascii_uppercase(), Arc::new(list));
         }
     }
 }
@@ -158,8 +178,9 @@ pub fn initialize<P: AsRef<Path>>(mgr: &AnimatedSoundMgr, ini_path: Option<P>) -
         }
     };
 
-    let map = load_animation_map_from_text(String::from_utf8_lossy(&ini_bytes).into_owned())?;
-    parse_animation_map(&mut state, map);
+    let text = String::from_utf8_lossy(&ini_bytes);
+    load_animation_map_from_text(text.to_string())?;
+    parse_animation_map(&mut state, &text);
     Ok(())
 }
 
@@ -171,7 +192,8 @@ pub fn initialize_from_bytes(mgr: &AnimatedSoundMgr, bytes: &[u8], source_name: 
         return Ok(());
     }
 
-    let map = load_animation_map_from_text(String::from_utf8_lossy(bytes).into_owned()).map_err(
+    let text = String::from_utf8_lossy(bytes);
+    load_animation_map_from_text(text.to_string()).map_err(
         |err| {
             W3DError::InvalidParameter(format!(
                 "failed to parse animated sound metadata from {}: {}",
@@ -180,7 +202,7 @@ pub fn initialize_from_bytes(mgr: &AnimatedSoundMgr, bytes: &[u8], source_name: 
         },
     )?;
 
-    parse_animation_map(&mut state, map);
+    parse_animation_map(&mut state, &text);
     Ok(())
 }
 
@@ -210,7 +232,7 @@ pub fn embedded_sound_bone(mgr: &AnimatedSoundMgr, anim: &HAnimClass) -> Option<
     })
 }
 
-fn find_list<'a>(state: &'a AnimatedSoundMgrState, anim: &HAnimClass) -> Option<&'a AnimSoundList> {
+fn find_list<'a>(state: &'a AnimatedSoundMgrState, anim: &HAnimClass) -> Option<&'a Arc<AnimSoundList>> {
     let key = anim.get_name().to_ascii_uppercase();
     state.animation_map.get(&key)
 }
@@ -223,18 +245,21 @@ pub fn trigger_sound(
     current_frame: f32,
     transform: &Mat4,
 ) -> f32 {
-    let state_guard = match mgr.state.lock() {
-        Ok(guard) => guard,
-        Err(_) => return previous_frame,
+    let (sound_list, library) = {
+        let state = match mgr.state.lock() {
+            Ok(guard) => guard,
+            Err(_) => return previous_frame,
+        };
+        let Some(sound_list) = find_list(&state, anim) else {
+            return previous_frame;
+        };
+        let Some(library) = &state.sound_library else {
+            return previous_frame;
+        };
+        (Arc::clone(sound_list), Arc::clone(library))
     };
-
-    let Some(sound_list) = find_list(&state_guard, anim) else {
-        return previous_frame;
-    };
-
-    let Some(library) = state_guard.sound_library.clone() else {
-        return previous_frame;
-    };
+    // A callback may shut down or reconfigure the manager. Keep this invocation's
+    // list and library alive without holding the mutex across external calls.
 
     let mut last_frame = previous_frame;
 
@@ -265,6 +290,87 @@ pub fn has_embedded_sounds(mgr: &AnimatedSoundMgr, anim: &HAnimClass) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Default)]
+    struct RecordingLibrary {
+        calls: Mutex<Vec<String>>,
+    }
+
+    impl SoundLibraryBridge for RecordingLibrary {
+        fn play_3d_audio(&self, name: &str, _: &Mat4) -> W3DResult<()> {
+            self.calls.lock().unwrap().push(format!("3d:{name}"));
+            Ok(())
+        }
+
+        fn play_2d_audio(&self, name: &str) -> W3DResult<()> {
+            self.calls.lock().unwrap().push(format!("2d:{name}"));
+            Ok(())
+        }
+
+        fn stop_audio(&self, name: &str) -> W3DResult<()> {
+            self.calls.lock().unwrap().push(format!("stop:{name}"));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn trigger_uses_authored_order_and_returns_last_triggered_frame() {
+        let mgr = AnimatedSoundMgr::new();
+        initialize_from_bytes(&mgr, b"[TestAnim]\nEntry1=20, Loop, 2D\nEntry2=10, Loop, STOP\n", "inline").unwrap();
+        let library = Arc::new(RecordingLibrary::default());
+        set_sound_library(&mgr, library.clone());
+        let anim = HAnimClass::new("TestAnim", "", 30, 30.0);
+
+        assert_eq!(trigger_sound(&mgr, &anim, 0.0, 20.0, &Mat4::IDENTITY), 10.0);
+        assert_eq!(*library.calls.lock().unwrap(), ["2d:Loop", "stop:Loop"]);
+    }
+
+    #[test]
+    fn authored_values_use_integer_frames_case_sensitive_flags_and_first_duplicate() {
+        let mgr = AnimatedSoundMgr::new();
+        let ini = b"[TestAnim]\n\
+            first=+12.9, One, extra2Dflag\n\
+            first=3, Replaced, STOP\n\
+            second= 15frames, Two, stop\n\
+            third=16, Three, preSTOPpost, 2D\n";
+        initialize_from_bytes(&mgr, ini, "inline").unwrap();
+        let library = Arc::new(RecordingLibrary::default());
+        set_sound_library(&mgr, library.clone());
+        let anim = HAnimClass::new("TestAnim", "", 30, 30.0);
+
+        assert_eq!(embedded_sound_bone(&mgr, &anim).as_deref(), Some("root"));
+        assert_eq!(trigger_sound(&mgr, &anim, 0.0, 16.0, &Mat4::IDENTITY), 16.0);
+        assert_eq!(*library.calls.lock().unwrap(), ["2d:One", "3d:Two", "stop:Three"]);
+    }
+
+    #[test]
+    fn bone_only_section_does_not_create_sound_list() {
+        let mgr = AnimatedSoundMgr::new();
+        initialize_from_bytes(&mgr, b"[TestAnim]\nBoneName=Turret\n", "inline").unwrap();
+        let anim = HAnimClass::new("TestAnim", "", 30, 30.0);
+        assert!(!has_embedded_sounds(&mgr, &anim));
+        assert_eq!(embedded_sound_bone(&mgr, &anim), None);
+    }
+
+    #[test]
+    fn callback_can_reenter_manager_without_deadlocking() {
+        struct ReentrantLibrary(Arc<AnimatedSoundMgr>);
+        impl SoundLibraryBridge for ReentrantLibrary {
+            fn play_3d_audio(&self, _: &str, _: &Mat4) -> W3DResult<()> {
+                shutdown(&self.0);
+                Ok(())
+            }
+            fn play_2d_audio(&self, _: &str) -> W3DResult<()> { unreachable!() }
+            fn stop_audio(&self, _: &str) -> W3DResult<()> { unreachable!() }
+        }
+
+        let mgr = Arc::new(AnimatedSoundMgr::new());
+        initialize_from_bytes(&mgr, b"[TestAnim]\nEntry=1, Fire\n", "inline").unwrap();
+        set_sound_library(&mgr, Arc::new(ReentrantLibrary(mgr.clone())));
+        let anim = HAnimClass::new("TestAnim", "", 30, 30.0);
+        assert_eq!(trigger_sound(&mgr, &anim, 0.0, 2.0, &Mat4::IDENTITY), 1.0);
+        assert!(!has_embedded_sounds(&mgr, &anim));
+    }
 
     #[test]
     fn initialize_from_bytes_loads_embedded_sound_definitions() {
