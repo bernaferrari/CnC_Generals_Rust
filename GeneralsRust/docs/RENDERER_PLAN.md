@@ -38,8 +38,10 @@ Shoreline rendering precedes the extra-blend pass. Authored cliff records and
 indices now reach terrain UV/flip generation, gated by the receiving world's
 `AdjustCliffTextures` setting. Focused parsing, UV and cache tests pass; the
 inspected Lone Eagle capture was unchanged, so it does not verify visible cliff
-coverage. Missing-texture and legacy cliff adjustments, extra-blend fidelity,
-the 16-class binding limit, a C++ image comparison and wasm remain unverified.
+coverage. Ordered terrain binding batches now cover more than 16 authored
+classes (`b520a7871`), including extra-blend GPU readback. Missing-texture and
+legacy cliff adjustments, full extra-blend fidelity, a C++ image comparison
+and wasm remain unverified.
 
 The WW3D animation library resolves raw and compressed clip pivot counts from
 the named hierarchy rather than the highest animated channel. Missing
@@ -119,7 +121,8 @@ so the resident shroud texture is not re-uploaded every frame.
 
 Open render items: R7 unified texture cache, R10 sorting parity gaps, R11 glyph atlas,
 R12 full pass-count coverage, R13 sealing and remaining instance isolation,
-R6 dynamic-light chunk rebakes, and skinned shadow-volume casters.
+and R6 dynamic-light chunk rebakes. Skinned volumetric shadow casters are not a
+parity gap: C++ `W3DVolumetricShadow.cpp:631-633,699-701` explicitly excludes them.
 
 ---
 
