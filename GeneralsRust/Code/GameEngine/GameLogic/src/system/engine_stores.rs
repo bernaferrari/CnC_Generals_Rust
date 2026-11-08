@@ -174,6 +174,9 @@ pub struct WorldServices {
         Mutex<Vec<crate::team::TeamFactoryDeferredEffects>>,
     /// Serializes host staging that still touches process-wide wrappers.
     runtime_transaction_lock: Arc<parking_lot::Mutex<()>>,
+    /// C++ `TheScriptEngine` and its named-object/area/event side tables for
+    /// this world (formerly process statics in `scripting::engine::types`).
+    scripts: crate::scripting::engine::WorldScriptState,
 }
 #[cfg(any(test, feature = "test-ambient-services"))]
 thread_local! {
@@ -193,83 +196,6 @@ fn fresh_common_for_world() -> Arc<CommonServices> {
     Arc::new(CommonServices::new())
 }
 impl WorldServices {
-    fn engine_defaults() -> Self {
-        Self {
-            shroud: Arc::new(Mutex::new(ShroudManager::new())),
-            client_visuals: ClientVisualState::default(),
-            terrain: Arc::clone(&crate::terrain::THE_TERRAIN_LOGIC),
-            radar_updates: Mutex::new(VecDeque::new()),
-            host_script_requests: crate::scripting::executor::HostScriptRequestQueues::default(),
-            session_flags: SessionLogicFlags::default(),
-            common: Arc::new(CommonServices::new()),
-            logic_managers: WorldLogicManagers::default(),
-            players: Arc::new(RwLock::new(crate::player::PlayerList::new())),
-            objects: Arc::new(RwLock::new(crate::object_manager::ObjectManager::new())),
-            in_game_ui: RwLock::new(InGameUIState::default()),
-            eva: Arc::new(Mutex::new(EvaState::new_enabled())),
-            control_bar_ui_hooks: Mutex::new(None),
-            game_pause_hooks: Mutex::new(None),
-            observer_audio_locality_hooks: Mutex::new(None),
-            observer_audio_view_hooks: Mutex::new(None),
-            scene_submission: Mutex::new(None),
-            fx_list_manager: Mutex::new(None),
-            particle_system_manager: Mutex::new(None),
-            scorch_hook: Mutex::new(None),
-            terrain_unit_moved_hook: Mutex::new(None),
-            terrain_tree_hook: Mutex::new(None),
-            animation_metadata_hook: Mutex::new(None),
-            terrain_decal_client: Mutex::new(None),
-            terrain_track_client: Mutex::new(None),
-            object_registry: std::sync::Arc::new(crate::object::registry::ObjectRegistry::default()),
-            unit_registry: crate::object::unit::new_unit_registry(),
-            legacy_object_registry: crate::ai::object_registry::new_legacy_object_registry(),
-            locomotor_store: crate::locomotor::new_locomotor_store(),
-            main_game_logic: OnceLock::new(),
-            client_image_collection: Mutex::new(None),
-            control_bar_bridge: RwLock::new(None),
-            damage_over_time_fields: Mutex::new(Vec::new()),
-            damage_over_time_next_id: AtomicU32::new(50000),
-            host_script_query: Mutex::new(Default::default()),
-            cur_update_module: Mutex::new(None),
-            selection: Arc::new(RwLock::new(crate::commands::selection::SelectionManager::new())),
-            physics: Arc::new(RwLock::new(crate::physics::PhysicsEngine::new())),
-            sides: Arc::new(RwLock::new(crate::sides_list::SidesList::new())),
-            rts_actions: {
-                let mut manager = game_engine::common::rts::ActionManager::new();
-                crate::action_manager::GameLogicActionExecutor::install(&mut manager);
-                Arc::new(RwLock::new(manager))
-            },
-            ghost_objects: Arc::new(RwLock::new(crate::object::ghost_object::GhostObjectManager::new())),
-            w3d_ghost_objects: Arc::new(RwLock::new(crate::object::w3d_ghost_object::W3DGhostObjectManager::new())),
-            taxi_to_takeoff: Mutex::new(Vec::new()),
-            transport_statuses: Mutex::new(Vec::new()),
-            pending_team_script_events: Mutex::new(Vec::new()),
-            named_evac_disposition: Mutex::new(std::collections::HashMap::new()),
-            player_money: Arc::new(RwLock::new(crate::special_power_module::player_money::PlayerMoneyManager::new())),
-            player_science: Arc::new(RwLock::new(crate::special_power_module::player_science::PlayerScienceManager::new())),
-            special_power_integration: Arc::new(RwLock::new(crate::special_power_module::integration::SpecialPowerIntegrationContext::new())),
-            special_power_registry: Arc::new(RwLock::new(crate::special_power_module::registry::SpecialPowerRegistry::new())),
-            map_string_overlay: RwLock::new(std::collections::HashMap::new()),
-            armor_store: Arc::new(RwLock::new(crate::object::armor::ArmorStore::new())),
-            armor_defaults_initialized: OnceLock::new(),
-            special_power_store: Arc::new(RwLock::new(crate::object::special_power_template::SpecialPowerStore::new())),
-            tech_tree: Arc::new(RwLock::new(crate::upgrade::prerequisites::TechTree::new())),
-            rank_info_store: Arc::new(RwLock::new(crate::system::rank_info::RankInfoStore::default())),
-            weapon_store: Arc::new(RwLock::new(None)),
-            ocl_store: Arc::new(RwLock::new(None)),
-            ocl_defaults_initialized: OnceLock::new(),
-            hlod_live_child_capture_hook: RwLock::new(None),
-            committed_live_states: Mutex::new(std::collections::HashMap::new()),
-            model_obj_bounds_hook: RwLock::new(None),
-            pristine_bone_lookup_hook: RwLock::new(None),
-            sub_object_name_hook: RwLock::new(None),
-            w3d_ghost_snapshot_capture_hook: RwLock::new(None),
-            w3d_ghost_snapshot_capture_source_hook: RwLock::new(None),
-            staging_depth: AtomicU32::new(0),
-            staging_deferred_team_effects: Mutex::new(Vec::new()),
-            runtime_transaction_lock: Arc::new(parking_lot::Mutex::new(())),
-        }
-    }
     /// Snapshot engine content; fresh mutable per-world services. Inert.
     pub fn new_for_world() -> Self {
         Self {
@@ -348,6 +274,7 @@ impl WorldServices {
             staging_depth: AtomicU32::new(0),
             staging_deferred_team_effects: Mutex::new(Vec::new()),
             runtime_transaction_lock: Arc::new(parking_lot::Mutex::new(())),
+            scripts: crate::scripting::engine::WorldScriptState::default(),
         }
     }
     pub fn terrain(&self) -> &Arc<RwLock<crate::terrain::TerrainLogic>> {
@@ -508,6 +435,10 @@ impl WorldServices {
     ) -> &Mutex<Vec<crate::team::TeamFactoryDeferredEffects>> {
         &self.staging_deferred_team_effects
     }
+    /// This world's script engine slot and script side tables.
+    pub fn scripts(&self) -> &crate::scripting::engine::WorldScriptState {
+        &self.scripts
+    }
     pub(crate) fn runtime_transaction_lock(&self) -> &Arc<parking_lot::Mutex<()>> {
         &self.runtime_transaction_lock
     }
@@ -654,15 +585,6 @@ pub struct EngineStores {
     core_game_logic: OnceLock<&'static Mutex<crate::system::game_logic::GameLogic>>,
 }
 impl EngineStores {
-    fn engine_defaults() -> Self {
-        Self {
-            upgrade_center: common_upgrade::process_lifetime_upgrade_center(),
-            services: Arc::new(WorldServices::engine_defaults()),
-            ai: Arc::new(RwLock::new(AI::new())),
-            ai_data: ini_ai_data::process_lifetime_ai_data_store(),
-            core_game_logic: OnceLock::new(),
-        }
-    }
     pub fn new_for_world() -> Self {
         let snapshot = ini_ai_data::process_lifetime_ai_data_store()
             .read()

@@ -280,7 +280,7 @@ impl GameLogic {
                 // view freeze here either.
                 if let Some(engine) = script_engine {
                     engine.do_unfreeze_time();
-                } else if let Ok(mut engine_guard) = get_script_engine().write() {
+                } else if let Ok(mut engine_guard) = self.script_engine_slot().write() {
                     if let Some(engine) = engine_guard.as_mut() {
                         engine.do_unfreeze_time();
                     }
@@ -1427,7 +1427,7 @@ impl GameLogic {
         trace!("GameLogic::evaluate_scripts()");
 
         // Also update the global script engine
-        if let Ok(mut engine_guard) = get_script_engine().write() {
+        if let Ok(mut engine_guard) = self.script_engine_slot().write() {
             if let Some(engine) = engine_guard.as_mut() {
                 if let Err(e) = engine.update() {
                     warn!("ScriptEngine::update failed: {}", e);
@@ -1463,7 +1463,7 @@ impl GameLogic {
         if let Some(engine) = script_engine {
             return engine.is_time_frozen();
         }
-        get_script_engine()
+        self.script_engine_slot()
             .read()
             .ok()
             .and_then(|guard| guard.as_ref().map(|engine| engine.is_time_frozen()))

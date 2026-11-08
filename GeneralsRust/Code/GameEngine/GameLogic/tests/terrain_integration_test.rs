@@ -4,7 +4,7 @@
 use gamelogic::common::Coord3D;
 use gamelogic::physics::{PhysicsState, PhysicsType, TerrainQuery, get_physics_engine};
 use gamelogic::terrain::{
-    THE_TERRAIN_LOGIC, TerrainLogic, TerrainQueryWrapper, init_terrain_physics_integration,
+    TerrainLogic, TerrainQueryWrapper, init_terrain_physics_integration,
 };
 
 #[test]
@@ -26,8 +26,9 @@ fn test_terrain_query_trait_implementation() {
 
 #[test]
 fn test_terrain_query_wrapper() {
-    // Create wrapper for global terrain instance
-    let wrapper = TerrainQueryWrapper::new(THE_TERRAIN_LOGIC.clone());
+    let wrapper = TerrainQueryWrapper::new(std::sync::Arc::new(std::sync::RwLock::new(
+        TerrainLogic::new(),
+    )));
 
     // Test via trait interface
     let query: &dyn TerrainQuery = &wrapper;

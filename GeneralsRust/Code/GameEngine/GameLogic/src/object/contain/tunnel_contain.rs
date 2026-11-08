@@ -23,7 +23,6 @@ use crate::modules::{
 use crate::object::contain::OpenContain;
 use crate::object::contain::open_contain::ObjectRelationship;
 use crate::object::{INVALID_ID, Object, ObjectID};
-use crate::terrain::THE_TERRAIN_LOGIC;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 
@@ -889,7 +888,7 @@ impl TunnelContain {
         );
 
         // Get ground height at new position
-        if let Ok(terrain) = THE_TERRAIN_LOGIC.read() {
+        if let Ok(terrain) = crate::terrain::get_terrain_logic().read() {
             pos.z = terrain.get_ground_height(pos.x, pos.y, None);
         }
 

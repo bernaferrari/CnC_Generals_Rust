@@ -2822,14 +2822,74 @@ impl ScriptEngineHandle {
     }
 }
 
-// Static instances (in real implementation these would be proper singletons)
-lazy_static::lazy_static! {
-    static ref SCRIPT_ENGINE: ScriptEngineHandle = ScriptEngineHandle {
-        inner: Arc::new(Mutex::new(None)),
-    };
-    static ref EVENT_MANAGER: Arc<EventManager> = Arc::new(EventManager::new());
-    static ref NAMED_OBJECT_TRACKER: Arc<NamedObjectTracker> = Arc::new(NamedObjectTracker::new());
-    static ref AREA_TRACKER: Arc<AreaTracker> = Arc::new(AreaTracker::new());
+impl ScriptEngineHandle {
+    /// An empty slot: C++ `TheScriptEngine` before `init()`.
+    pub fn empty() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(None)),
+        }
+    }
+}
+
+/// Per-world C++ `TheScriptEngine` slot plus the script side tables that C++
+/// keeps on the engine (named objects, trigger areas, event fan-out).
+///
+/// Owned by [`crate::system::engine_stores::WorldServices`]; each world has
+/// its own, so two worlds never observe each other's scripts or names.
+pub struct WorldScriptState {
+    engine: ScriptEngineHandle,
+    events: Arc<EventManager>,
+    named_objects: Arc<NamedObjectTracker>,
+    areas: Arc<AreaTracker>,
+}
+
+impl Default for WorldScriptState {
+    fn default() -> Self {
+        Self {
+            engine: ScriptEngineHandle::empty(),
+            events: Arc::new(EventManager::new()),
+            named_objects: Arc::new(NamedObjectTracker::new()),
+            areas: Arc::new(AreaTracker::new()),
+        }
+    }
+}
+
+impl WorldScriptState {
+    pub fn engine(&self) -> &ScriptEngineHandle {
+        &self.engine
+    }
+    pub fn events(&self) -> &Arc<EventManager> {
+        &self.events
+    }
+    pub fn named_objects(&self) -> &Arc<NamedObjectTracker> {
+        &self.named_objects
+    }
+    pub fn areas(&self) -> &Arc<AreaTracker> {
+        &self.areas
+    }
+
+    /// C++ `TheScriptEngine->init()` for this world. Idempotent: a live
+    /// engine is never replaced (repeat init must not drop script state).
+    pub fn initialize_engine(&self) -> GameLogicResult<()> {
+        let mut slot = self.engine.write().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to acquire script engine lock: {}", e))
+        })?;
+        if slot.is_none() {
+            *slot = Some(ScriptEngine::new()?);
+        }
+        Ok(())
+    }
+}
+
+/// Script state of the published world, if any.
+fn published_world_scripts() -> Option<Arc<crate::system::engine_stores::WorldServices>> {
+    crate::system::engine_stores::try_active_services()
+}
+
+fn required_world_scripts(what: &str) -> Arc<crate::system::engine_stores::WorldServices> {
+    published_world_scripts().unwrap_or_else(|| {
+        panic!("{what} requires with_world_services / install_services (no process bag)")
+    })
 }
 
 // Re-entrancy for nested CALL_SUBROUTINE / timer / flag mutations.
@@ -3165,32 +3225,39 @@ pub fn with_script_engine_ref<R>(f: impl FnOnce(&ScriptEngine) -> R) -> Option<R
     Some(f(engine))
 }
 
-/// Initialize the global script engine
+/// Initialize the published world's script engine (C++ `TheScriptEngine->init`).
 pub fn initialize_script_engine() -> GameLogicResult<()> {
-    let mut global = SCRIPT_ENGINE.write().map_err(|e| {
-        GameLogicError::Threading(format!("Failed to acquire script engine lock: {}", e))
-    })?;
-    // Make initialization idempotent to avoid test flakiness and accidental
-    // state loss from repeated initialization calls.
-    if global.is_none() {
-        *global = Some(ScriptEngine::new()?);
-    }
-    Ok(())
+    published_world_scripts()
+        .ok_or_else(|| {
+            GameLogicError::Threading("initialize_script_engine: no world published".to_string())
+        })?
+        .scripts()
+        .initialize_engine()
 }
 
-/// Get reference to global script engine
+/// The published world's script engine slot.
+///
+/// Transitional ambient path: prefer `WorldServices::scripts().engine()` from
+/// an explicit owner. With no world published this is an empty slot, which
+/// reads exactly like C++ `TheScriptEngine == NULL`.
 pub fn get_script_engine() -> ScriptEngineHandle {
-    SCRIPT_ENGINE.clone()
+    published_world_scripts()
+        .map(|services| services.scripts().engine().clone())
+        .unwrap_or_else(ScriptEngineHandle::empty)
 }
 
-/// Get reference to global event manager
+/// The published world's script event manager.
 pub fn get_event_manager() -> Arc<EventManager> {
-    EVENT_MANAGER.clone()
+    Arc::clone(required_world_scripts("EventManager").scripts().events())
 }
 
-/// Get reference to global named object tracker
+/// The published world's named object tracker.
 pub fn get_named_object_tracker() -> Arc<NamedObjectTracker> {
-    NAMED_OBJECT_TRACKER.clone()
+    Arc::clone(
+        required_world_scripts("NamedObjectTracker")
+            .scripts()
+            .named_objects(),
+    )
 }
 
 /// Transfer a script-visible object name to another object (C++ ScriptEngine::transferObjectName).
@@ -3228,7 +3295,7 @@ pub(crate) fn transfer_object_name_to_object(
     Ok(())
 }
 
-/// Get reference to global area tracker
+/// The published world's trigger-area tracker.
 pub fn get_area_tracker() -> Arc<AreaTracker> {
-    AREA_TRACKER.clone()
+    Arc::clone(required_world_scripts("AreaTracker").scripts().areas())
 }

@@ -33,7 +33,6 @@ use crate::object::{
     behavior::behavior_module::xfer_update_module_base_state, drawable::DrawableExt,
     registry::OBJECT_REGISTRY,
 };
-use crate::terrain::THE_TERRAIN_LOGIC;
 use game_engine::ascii_string::AsciiString as EngineAsciiString;
 use game_engine::common::ini::ini_terrain_bridge::IniTerrainBridge;
 use game_engine::common::ini::{FieldParse, INI, INIError};
@@ -1424,7 +1423,8 @@ impl BridgeBehavior {
         &self,
         position: &Coord3D,
     ) -> Result<Option<Bridge>, Box<dyn std::error::Error + Send + Sync>> {
-        let terrain = THE_TERRAIN_LOGIC
+        let terrain_logic = crate::terrain::get_terrain_logic();
+        let terrain = terrain_logic
             .read()
             .map_err(|_| "Failed to lock terrain logic".to_string())?;
         Ok(terrain.find_bridge_at(position).cloned())
@@ -1573,7 +1573,7 @@ impl BridgeBehavior {
         xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
         if xfer.get_xfer_mode() == XferMode::Load {
-            if let Ok(mut terrain) = THE_TERRAIN_LOGIC.write() {
+            if let Ok(mut terrain) = crate::terrain::get_terrain_logic().write() {
                 if let Ok((pos, id)) =
                     self.with_object(|me_read| (*me_read.get_position(), me_read.get_id()))
                 {
@@ -1589,7 +1589,7 @@ impl BridgeBehavior {
         }
 
         if xfer.get_xfer_mode() == XferMode::Load {
-            if let Ok(mut terrain) = THE_TERRAIN_LOGIC.write() {
+            if let Ok(mut terrain) = crate::terrain::get_terrain_logic().write() {
                 if let Ok(pos) = self.with_object(|me_read| *me_read.get_position()) {
                     if let Some(bridge) = terrain.find_bridge_at_mut(&pos) {
                         for (index, tower_id) in self.tower_id.iter().copied().enumerate() {
@@ -1866,7 +1866,7 @@ impl DamageModuleInterface for BridgeBehavior {
         }
 
         // Update bridge damage states in terrain logic
-        if let Ok(mut terrain) = THE_TERRAIN_LOGIC.write() {
+        if let Ok(mut terrain) = crate::terrain::get_terrain_logic().write() {
             terrain.update_bridge_damage_states();
         }
 
