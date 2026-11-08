@@ -150,11 +150,14 @@ pub struct WorldServices {
     special_power_registry: Arc<RwLock<crate::special_power_module::registry::SpecialPowerRegistry>>,
     map_string_overlay: RwLock<std::collections::HashMap<String, String>>,
     armor_store: Arc<RwLock<crate::object::armor::ArmorStore>>,
+    /// Lazy default-load attempts belong to this world, including failures.
+    armor_defaults_initialized: OnceLock<()>,
     special_power_store: Arc<RwLock<crate::object::special_power_template::SpecialPowerStore>>,
     tech_tree: Arc<RwLock<crate::upgrade::prerequisites::TechTree>>,
     rank_info_store: Arc<RwLock<crate::system::rank_info::RankInfoStore>>,
     weapon_store: Arc<RwLock<Option<crate::weapon::WeaponStore>>>,
     ocl_store: Arc<RwLock<Option<crate::object_creation_list::store::ObjectCreationListStore>>>,
+    ocl_defaults_initialized: OnceLock<()>,
     hlod_live_child_capture_hook: RwLock<Option<crate::object::draw::w3d_model_draw::HlodLiveChildCaptureHook>>,
     committed_live_states: Mutex<std::collections::HashMap<crate::common::ObjectID, Vec<crate::object::draw::w3d_model_draw::HlodLiveChildState>>>,
     model_obj_bounds_hook: RwLock<Option<crate::object::draw::w3d_model_draw::ModelBoundsHook>>,
@@ -248,11 +251,13 @@ impl WorldServices {
             special_power_registry: Arc::new(RwLock::new(crate::special_power_module::registry::SpecialPowerRegistry::new())),
             map_string_overlay: RwLock::new(std::collections::HashMap::new()),
             armor_store: Arc::new(RwLock::new(crate::object::armor::ArmorStore::new())),
+            armor_defaults_initialized: OnceLock::new(),
             special_power_store: Arc::new(RwLock::new(crate::object::special_power_template::SpecialPowerStore::new())),
             tech_tree: Arc::new(RwLock::new(crate::upgrade::prerequisites::TechTree::new())),
             rank_info_store: Arc::new(RwLock::new(crate::system::rank_info::RankInfoStore::default())),
             weapon_store: Arc::new(RwLock::new(None)),
             ocl_store: Arc::new(RwLock::new(None)),
+            ocl_defaults_initialized: OnceLock::new(),
             hlod_live_child_capture_hook: RwLock::new(None),
             committed_live_states: Mutex::new(std::collections::HashMap::new()),
             model_obj_bounds_hook: RwLock::new(None),
@@ -326,11 +331,13 @@ impl WorldServices {
             special_power_registry: Arc::new(RwLock::new(crate::special_power_module::registry::SpecialPowerRegistry::new())),
             map_string_overlay: RwLock::new(std::collections::HashMap::new()),
             armor_store: Arc::new(RwLock::new(crate::object::armor::ArmorStore::new())),
+            armor_defaults_initialized: OnceLock::new(),
             special_power_store: Arc::new(RwLock::new(crate::object::special_power_template::SpecialPowerStore::new())),
             tech_tree: Arc::new(RwLock::new(crate::upgrade::prerequisites::TechTree::new())),
             rank_info_store: Arc::new(RwLock::new(crate::system::rank_info::RankInfoStore::default())),
             weapon_store: Arc::new(RwLock::new(None)),
             ocl_store: Arc::new(RwLock::new(None)),
+            ocl_defaults_initialized: OnceLock::new(),
             hlod_live_child_capture_hook: RwLock::new(None),
             committed_live_states: Mutex::new(std::collections::HashMap::new()),
             model_obj_bounds_hook: RwLock::new(None),
@@ -565,6 +572,12 @@ impl WorldServices {
     }
     pub(crate) fn armor_store(&self) -> &Arc<RwLock<crate::object::armor::ArmorStore>> {
         &self.armor_store
+    }
+    pub(crate) fn armor_defaults_initialized(&self) -> &OnceLock<()> {
+        &self.armor_defaults_initialized
+    }
+    pub(crate) fn ocl_defaults_initialized(&self) -> &OnceLock<()> {
+        &self.ocl_defaults_initialized
     }
     pub(crate) fn special_power_store(
         &self,

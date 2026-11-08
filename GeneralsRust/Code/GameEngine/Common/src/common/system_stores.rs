@@ -153,6 +153,8 @@ pub struct SystemStores {
     /// WW3D animated-sound definition bag (per CommonServices).
     pub animated_sound_mgr: Arc<AnimatedSoundMgr>,
     pub sound_playback_hook: Mutex<Option<Arc<dyn SoundPlaybackHook>>>,
+    /// GameLogic's default audio resolvers are installed once per receiving service bag.
+    pub game_logic_audio_resolvers_installed: std::sync::OnceLock<()>,
     pub audio_locality_resolver: Mutex<Option<Arc<dyn AudioLocalityResolver>>>,
     pub audio_view_resolver: Mutex<Option<Arc<dyn AudioViewResolver>>>,
     pub play_failure_reports: Mutex<std::collections::HashMap<String, String>>,
@@ -244,6 +246,7 @@ impl SystemStores {
             the_audio: Mutex::new(None),
             animated_sound_mgr: Arc::new(AnimatedSoundMgr::new()),
             sound_playback_hook: Mutex::new(None),
+            game_logic_audio_resolvers_installed: std::sync::OnceLock::new(),
             audio_locality_resolver: Mutex::new(None),
             audio_view_resolver: Mutex::new(None),
             play_failure_reports: Mutex::new(std::collections::HashMap::new()),

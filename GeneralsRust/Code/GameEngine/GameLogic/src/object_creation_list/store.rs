@@ -19,7 +19,7 @@ use crate::object::Object;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, RwLock};
 
 /// Object Creation List ID type (index into store)
 pub type ObjectCreationListId = usize;
@@ -1444,20 +1444,35 @@ pub fn load_object_creation_lists_from_str(content: &str) -> Result<usize, Strin
     if parsed.is_empty() {
         return Ok(0);
     }
+    let services = crate::system::engine_stores::active_services();
+    Ok(admit_object_creation_lists(&services, parsed, false))
+}
+
+fn load_object_creation_lists_into(
+    services: &crate::system::engine_stores::WorldServices,
+    content: &str,
+    only_if_empty: bool,
+) -> Result<usize, String> {
+    let parsed = parse_object_creation_lists_from_str(content)?;
+    if parsed.is_empty() {
+        return Ok(0);
+    }
+    Ok(admit_object_creation_lists(services, parsed, only_if_empty))
+}
+
+fn admit_object_creation_lists(
+    services: &crate::system::engine_stores::WorldServices,
+    parsed: Vec<(String, ObjectCreationList)>,
+    only_if_empty: bool,
+) -> usize {
 
     let count_loaded = parsed.len();
 
-    {
-        let cell = get_object_creation_list_store();
-        if cell.read().expect("ocl store").as_ref().is_none() {
-            init_object_creation_list_store();
-        }
+    let mut store_guard = services.ocl_store().write().expect("ocl store write");
+    if only_if_empty && store_guard.as_ref().is_some_and(|store| store.get_ocl_count() > 0) {
+        return count_loaded;
     }
-    let store_cell = get_object_creation_list_store_mut();
-    let mut store_guard = store_cell.write().expect("ocl store write");
-    let store = store_guard
-        .as_mut()
-        .ok_or_else(|| "ObjectCreationListStore not initialized".to_string())?;
+    let store = store_guard.get_or_insert_with(ObjectCreationListStore::new);
 
     for (name, ocl) in parsed {
         let nugget_clones: Vec<Arc<dyn ObjectCreationNugget>> = ocl.nuggets.to_vec();
@@ -1473,7 +1488,7 @@ pub fn load_object_creation_lists_from_str(content: &str) -> Result<usize, Strin
         }
     }
 
-    Ok(count_loaded)
+    count_loaded
 }
 
 pub fn load_object_creation_lists_from_path<P: AsRef<Path>>(path: P) -> Result<usize, String> {
@@ -1498,11 +1513,12 @@ fn default_ocl_paths() -> Vec<PathBuf> {
     ]
 }
 
-pub fn ensure_default_object_creation_lists_loaded() {
-    static OCL_STORE_INITIALIZED: OnceLock<()> = OnceLock::new();
-    OCL_STORE_INITIALIZED.get_or_init(|| {
-        let cell = get_object_creation_list_store();
-        if cell
+fn ensure_default_object_creation_lists_loaded_in(
+    services: &crate::system::engine_stores::WorldServices,
+    paths: &[PathBuf],
+) {
+    services.ocl_defaults_initialized().get_or_init(|| {
+        if services.ocl_store()
             .read()
             .ok()
             .and_then(|g| g.as_ref().map(|store| store.get_ocl_count() > 0))
@@ -1511,12 +1527,15 @@ pub fn ensure_default_object_creation_lists_loaded() {
             return;
         }
 
-        for path in default_ocl_paths() {
+        for path in paths {
             if !path.exists() {
                 continue;
             }
 
-            match load_object_creation_lists_from_path(&path) {
+            let loaded = fs::read_to_string(path)
+                .map_err(|err| format!("Failed to read OCL file: {err}"))
+                .and_then(|content| load_object_creation_lists_into(services, &content, true));
+            match loaded {
                 Ok(count) if count > 0 => {
                     log::info!(
                         "Loaded {} ObjectCreationList definitions from {}",
@@ -1540,6 +1559,14 @@ pub fn ensure_default_object_creation_lists_loaded() {
     });
 }
 
+pub fn ensure_default_object_creation_lists_loaded() {
+    let services = crate::system::engine_stores::active_services();
+    if services.ocl_defaults_initialized().get().is_some() {
+        return;
+    }
+    ensure_default_object_creation_lists_loaded_in(&services, &default_ocl_paths());
+}
+
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "name_lookup_tests.rs"]
 mod name_lookup_tests;
@@ -1553,6 +1580,79 @@ mod tests {
     use super::*;
     use crate::object_creation_list::nuggets::GenericObjectCreationNugget;
     use std::path::PathBuf;
+
+    #[test]
+    fn default_ocls_load_once_per_world_and_preserve_existing_content() {
+        use crate::system::engine_stores::WorldServices;
+        let dir = std::env::temp_dir().join(format!(
+            "generals-ocl-defaults-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("ObjectCreationList.ini");
+        let authored = "ObjectCreationList OCL_AuthoredWorld\n CreateObject\n ObjectNames = RealTank\n End\n End\n";
+        fs::write(&path, authored).unwrap();
+        let paths = [path];
+        let first = WorldServices::new_for_world();
+        let second = WorldServices::new_for_world();
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                scope.spawn(|| ensure_default_object_creation_lists_loaded_in(&first, &paths));
+            }
+        });
+        let first_list = first.ocl_store().read().unwrap().as_ref().unwrap()
+            .find_object_creation_list("OCL_AuthoredWorld").unwrap();
+        assert_eq!(first_list.get_nugget_count(), 1);
+        let nugget = ObjectCreationNugget::as_any(first_list.nuggets()[0].as_ref())
+            .downcast_ref::<GenericObjectCreationNugget>().unwrap();
+        assert_eq!(nugget.names, ["RealTank"]);
+        assert_eq!(first.ocl_store().read().unwrap().as_ref().unwrap().get_nugget_count(), 1);
+        first.ocl_store().write().unwrap().as_mut().unwrap().clear();
+        ensure_default_object_creation_lists_loaded_in(&first, &paths);
+        assert_eq!(first.ocl_store().read().unwrap().as_ref().unwrap().get_ocl_count(), 0);
+        ensure_default_object_creation_lists_loaded_in(&second, &paths);
+        assert!(second.ocl_store().read().unwrap().as_ref().unwrap()
+            .find_object_creation_list("OCL_AuthoredWorld").is_some());
+        drop(first);
+        let third = WorldServices::new_for_world();
+        ensure_default_object_creation_lists_loaded_in(&third, &paths);
+        assert!(third.ocl_store().read().unwrap().as_ref().unwrap()
+            .find_object_creation_list("OCL_AuthoredWorld").is_some());
+        let existing = WorldServices::new_for_world();
+        let mut store = ObjectCreationListStore::new();
+        let parsed = parse_object_creation_lists_from_str(
+            "ObjectCreationList OCL_AuthoredWorld\n CreateObject\n ObjectNames = ExistingTank\n End\n CreateObject\n ObjectNames = ExistingInfantry\n End\n End\n"
+        ).unwrap();
+        for (name, list) in parsed { store.register_ocl(name, list); }
+        *existing.ocl_store().write().unwrap() = Some(store);
+        ensure_default_object_creation_lists_loaded_in(&existing, &paths);
+        assert_eq!(existing.ocl_store().read().unwrap().as_ref().unwrap()
+            .find_object_creation_list("OCL_AuthoredWorld").unwrap().get_nugget_count(), 2);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn failed_default_ocl_attempt_is_not_retried_in_same_world() {
+        use crate::system::engine_stores::WorldServices;
+        let dir = std::env::temp_dir().join(format!(
+            "generals-ocl-failure-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let paths = [dir.join("ObjectCreationList.ini")];
+        let first = WorldServices::new_for_world();
+        ensure_default_object_creation_lists_loaded_in(&first, &paths);
+        fs::write(&paths[0], "ObjectCreationList OCL_AfterFailure\n CreateObject\n ObjectNames = Tank\n End\n End\n").unwrap();
+        ensure_default_object_creation_lists_loaded_in(&first, &paths);
+        assert!(first.ocl_store().read().unwrap().is_none());
+        let second = WorldServices::new_for_world();
+        ensure_default_object_creation_lists_loaded_in(&second, &paths);
+        assert!(second.ocl_store().read().unwrap().as_ref().unwrap()
+            .find_object_creation_list("OCL_AfterFailure").is_some());
+        fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn test_ocl_creation() {

@@ -397,8 +397,8 @@ impl AudioViewResolver for GameLogicAudioViewResolver {
 }
 
 fn ensure_audio_event_resolvers_registered() {
-    static REGISTERED: OnceLock<()> = OnceLock::new();
-    REGISTERED.get_or_init(|| {
+    let services = game_engine::common::common_services::common_services();
+    services.system.game_logic_audio_resolvers_installed.get_or_init(|| {
         let _ = register_audio_event_owner_resolver(Arc::new(GameLogicAudioEventOwnerResolver));
         let _ = register_audio_shroud_resolver(Arc::new(GameLogicAudioShroudResolver));
         let _ = register_audio_locality_resolver(Arc::new(GameLogicAudioLocalityResolver));
@@ -722,6 +722,121 @@ impl TheAudio {
 #[cfg(test)]
 mod leftover_the_audio_tests {
     use super::*;
+
+    struct TestObserver(i32);
+
+    impl crate::helpers::ObserverAudioLocalityHooks for TestObserver {
+        fn get_observer_look_at_player_index(&self) -> Option<Int> {
+            Some(self.0)
+        }
+    }
+
+    impl crate::helpers::ObserverAudioViewHooks for TestObserver {
+        fn get_tactical_view_position(&self) -> Option<(Real, Real, Real)> {
+            Some((self.0 as Real, 2.0, 3.0))
+        }
+        fn get_tactical_view_angle(&self) -> Option<Real> {
+            Some(self.0 as Real)
+        }
+        fn get_3d_camera_position(&self) -> Option<(Real, Real, Real)> {
+            Some((4.0, self.0 as Real, 6.0))
+        }
+    }
+
+    fn setup_observed_audio_world(index: i32) {
+        crate::scripting::set_host_script_query_snapshot(
+            crate::scripting::HostScriptQuerySnapshot {
+                objects: vec![crate::scripting::HostScriptQueryObject {
+                    id: 77,
+                    x: index as f32,
+                    y: 42.0,
+                    z: 20.0,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        );
+        let players = crate::player::player_list();
+        {
+            let mut players = players.write().unwrap();
+            players.add_player(Arc::new(std::sync::RwLock::new(crate::player::Player::new(index))));
+            players.set_local_player_index(index);
+        }
+        let manager = crate::system::shroud_manager::get_shroud_manager();
+        let mut shroud = manager.lock().unwrap();
+        shroud.init_shroud_grid(100.0, 100.0);
+        if index == 3 {
+            shroud.reveal_map_for_player_permanently(index as u32).unwrap();
+        }
+        drop(shroud);
+        assert!(crate::helpers::register_observer_audio_locality_hooks(Arc::new(TestObserver(index))));
+        assert!(crate::helpers::register_observer_audio_view_hooks(Arc::new(TestObserver(index))));
+        TheAudio::get().unwrap();
+    }
+
+    fn assert_observed_audio_world(index: i32) {
+        let services = game_engine::common::common_services::common_services();
+        let owner = services.system.audio_event_owner_resolver.lock().unwrap().clone().unwrap();
+        let position = owner.resolve_object_position(77).unwrap();
+        assert_eq!((position.x, position.y, position.z), (index as f32, 20.0, 42.0));
+        let locality = services.system.audio_locality_resolver.lock().unwrap().clone().unwrap();
+        assert_eq!(locality.get_observer_look_at_player_index(), Some(index));
+        assert_eq!(locality.get_local_player_index(), Some(index));
+        let view = services.system.audio_view_resolver.lock().unwrap().clone().unwrap();
+        assert_eq!(view.get_tactical_view_position().x, index as f32);
+        assert_eq!(view.get_tactical_view_angle(), index as f32);
+        assert_eq!(view.get_3d_camera_position().y, index as f32);
+        let shroud = services.system.audio_shroud_resolver.lock().unwrap().clone().unwrap();
+        assert_eq!(shroud.is_position_visible_to_local_player(&position), index == 3);
+    }
+
+    #[test]
+    fn audio_resolvers_install_for_each_live_world_and_survive_peer_drop() {
+        let first = crate::system::engine_stores::new_for_world();
+        let second = crate::system::engine_stores::new_for_world();
+        crate::system::engine_stores::with_active_stores(&first, || {
+            setup_observed_audio_world(3);
+            crate::system::engine_stores::with_active_stores(&second, || {
+                setup_observed_audio_world(8);
+                assert_observed_audio_world(8);
+            });
+            assert_observed_audio_world(3);
+            drop(second);
+            assert_observed_audio_world(3);
+        });
+    }
+
+    #[test]
+    fn audio_resolvers_install_in_concurrent_worlds() {
+        let barrier = std::sync::Barrier::new(2);
+        std::thread::scope(|scope| {
+            for index in [3, 8] {
+                let barrier = &barrier;
+                scope.spawn(move || {
+                    let world = crate::system::engine_stores::new_for_world();
+                    crate::system::engine_stores::with_active_stores(&world, || {
+                        barrier.wait();
+                        setup_observed_audio_world(index);
+                        assert_observed_audio_world(index);
+                    });
+                });
+            }
+        });
+    }
+
+    #[test]
+    fn repeated_audio_get_preserves_later_resolver_registration() {
+        let world = crate::system::engine_stores::new_for_world();
+        crate::system::engine_stores::with_active_stores(&world, || {
+            TheAudio::get().unwrap();
+            let replacement: Arc<dyn AudioViewResolver> = Arc::new(GameLogicAudioViewResolver);
+            assert!(!register_audio_view_resolver(Arc::clone(&replacement)));
+            TheAudio::get().unwrap();
+            let services = game_engine::common::common_services::common_services();
+            let installed = services.system.audio_view_resolver.lock().unwrap().clone().unwrap();
+            assert!(Arc::ptr_eq(&replacement, &installed));
+        });
+    }
 
     #[test]
     fn leftover_misc_prefers_event_name_over_sound_file() {

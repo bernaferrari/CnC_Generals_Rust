@@ -1,12 +1,11 @@
 //! Armor templates and store (Rust port of C++ `Armor.h` / `Armor.cpp`).
 
-use once_cell::sync::{Lazy, OnceCell};
 use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, RwLock};
 use thiserror::Error;
 
 use crate::common::{AsciiString, Real};
@@ -258,10 +257,35 @@ pub fn load_armor_templates_from_str(
     if parsed.is_empty() {
         return Err(ArmorLoadError::Empty);
     }
+    let services = crate::system::engine_stores::active_services();
+    Ok(admit_armor_templates(&services, parsed, source, false))
+}
+
+fn load_armor_templates_into(
+    services: &crate::system::engine_stores::WorldServices,
+    content: &str,
+    source: Option<&Path>,
+    only_if_empty: bool,
+) -> Result<usize, ArmorLoadError> {
+    let parsed = parse_armor_content(content)?;
+    if parsed.is_empty() {
+        return Err(ArmorLoadError::Empty);
+    }
+    Ok(admit_armor_templates(services, parsed, source, only_if_empty))
+}
+
+fn admit_armor_templates(
+    services: &crate::system::engine_stores::WorldServices,
+    parsed: Vec<(AsciiString, ArmorTemplate)>,
+    source: Option<&Path>,
+    only_if_empty: bool,
+) -> usize {
 
     {
-        let __armor = TheArmorStore::store_arc();
-        let mut store = __armor.write().expect("armor write");
+        let mut store = services.armor_store().write().expect("armor write");
+        if only_if_empty && store.len() > 0 {
+            return 0;
+        }
         store.clear();
         for (name, template) in &parsed {
             store.register_template(name, template.clone());
@@ -276,7 +300,7 @@ pub fn load_armor_templates_from_str(
             .unwrap_or_default()
     );
 
-    Ok(parsed.len())
+    parsed.len()
 }
 
 fn parse_armor_content(content: &str) -> Result<Vec<(AsciiString, ArmorTemplate)>, ArmorLoadError> {
@@ -380,26 +404,37 @@ fn default_armor_paths() -> [PathBuf; 3] {
     ]
 }
 
-fn load_default_templates_internal() -> Result<(), ArmorLoadError> {
+fn load_default_templates_internal(
+    services: &crate::system::engine_stores::WorldServices,
+    paths: &[PathBuf],
+    use_archive: bool,
+) -> Result<(), ArmorLoadError> {
     {
-        let __armor = TheArmorStore::store_arc();
+        let __armor = services.armor_store();
         let store = __armor.read().expect("armor read");
         if store.len() > 0 {
             return Ok(());
         }
     }
 
-    for path in default_armor_paths() {
+    for path in paths {
         if path.exists() {
-            load_armor_templates_from_path(&path)?;
+            let content = fs::read_to_string(path)?;
+            load_armor_templates_into(services, &content, Some(path), true)?;
             return Ok(());
         }
     }
 
-    load_armor_from_retail_archive()
+    if use_archive {
+        load_armor_from_retail_archive(services)
+    } else {
+        Err(ArmorLoadError::FileNotFound)
+    }
 }
 
-fn load_armor_from_retail_archive() -> Result<(), ArmorLoadError> {
+fn load_armor_from_retail_archive(
+    services: &crate::system::engine_stores::WorldServices,
+) -> Result<(), ArmorLoadError> {
     for root in game_engine::common::system::install_layout::zh_install_roots() {
         for name in ["INIZH.big", "inizh.big"] {
             let Some(big_path) =
@@ -432,24 +467,31 @@ fn load_armor_from_retail_archive() -> Result<(), ArmorLoadError> {
             let Ok(text) = String::from_utf8(bytes) else {
                 continue;
             };
-            load_armor_templates_from_str(&text, Some(big_path.as_path()))?;
+            load_armor_templates_into(services, &text, Some(big_path.as_path()), true)?;
             return Ok(());
         }
     }
     Err(ArmorLoadError::FileNotFound)
 }
 
-fn ensure_default_templates_loaded_inner() {
-    if let Err(err) = load_default_templates_internal() {
-        log::warn!("Armor templates could not be loaded: {err}");
-    }
+fn ensure_default_templates_loaded_in(
+    services: &crate::system::engine_stores::WorldServices,
+    paths: &[PathBuf],
+    use_archive: bool,
+) {
+    services.armor_defaults_initialized().get_or_init(|| {
+        if let Err(err) = load_default_templates_internal(services, paths, use_archive) {
+            log::warn!("Armor templates could not be loaded: {err}");
+        }
+    });
 }
 
 pub fn ensure_default_templates_loaded() {
-    static ARMOR_STORE_INITIALIZED: OnceCell<()> = OnceCell::new();
-    ARMOR_STORE_INITIALIZED.get_or_init(|| {
-        ensure_default_templates_loaded_inner();
-    });
+    let services = crate::system::engine_stores::active_services();
+    if services.armor_defaults_initialized().get().is_some() {
+        return;
+    }
+    ensure_default_templates_loaded_in(&services, &default_armor_paths(), true);
 }
 
 fn canonical_key(name: &AsciiString) -> String {
@@ -516,6 +558,69 @@ impl TheArmorStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_armor_load_is_once_per_world_and_preserves_existing_content() {
+        use crate::system::engine_stores::WorldServices;
+        let dir = std::env::temp_dir().join(format!(
+            "generals-armor-defaults-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("Armor.ini");
+        fs::write(&path, "Armor AuthoredWorldArmor\n Armor = DEFAULT 35%\nEnd\n").unwrap();
+        let paths = [path.clone()];
+        let first = WorldServices::new_for_world();
+        let second = WorldServices::new_for_world();
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                scope.spawn(|| ensure_default_templates_loaded_in(&first, &paths, false));
+            }
+        });
+        let name = AsciiString::from("AuthoredWorldArmor");
+        assert_eq!(first.armor_store().read().unwrap().find_template(&name).unwrap()
+            .adjust_damage(DamageType::Explosion, 100.0), 35.0);
+        first.armor_store().write().unwrap().clear();
+        ensure_default_templates_loaded_in(&first, &paths, false);
+        assert!(first.armor_store().read().unwrap().find_template(&name).is_none());
+        ensure_default_templates_loaded_in(&second, &paths, false);
+        assert!(second.armor_store().read().unwrap().find_template(&name).is_some());
+        drop(first);
+        let third = WorldServices::new_for_world();
+        ensure_default_templates_loaded_in(&third, &paths, false);
+        assert!(third.armor_store().read().unwrap().find_template(&name).is_some());
+        let existing = WorldServices::new_for_world();
+        let mut template = ArmorTemplate::new();
+        template.set_default(0.8);
+        existing.armor_store().write().unwrap().register_template(&name, template);
+        ensure_default_templates_loaded_in(&existing, &paths, false);
+        assert_eq!(existing.armor_store().read().unwrap().find_template(&name).unwrap()
+            .adjust_damage(DamageType::Explosion, 100.0), 80.0);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn failed_default_armor_attempt_is_not_retried_in_same_world() {
+        use crate::system::engine_stores::WorldServices;
+        let dir = std::env::temp_dir().join(format!(
+            "generals-armor-failure-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let paths = [dir.join("Armor.ini")];
+        let first = WorldServices::new_for_world();
+        ensure_default_templates_loaded_in(&first, &paths, false);
+        fs::write(&paths[0], "Armor AfterFailure\n Armor = DEFAULT 40%\nEnd\n").unwrap();
+        ensure_default_templates_loaded_in(&first, &paths, false);
+        assert_eq!(first.armor_store().read().unwrap().len(), 0);
+        let second = WorldServices::new_for_world();
+        ensure_default_templates_loaded_in(&second, &paths, false);
+        assert!(second.armor_store().read().unwrap()
+            .find_template(&AsciiString::from("AfterFailure")).is_some());
+        fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn owned_armor_full_ini_preserves_order_replacement_and_session_isolation() {

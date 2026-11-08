@@ -1123,10 +1123,11 @@ impl SpawnBehavior {
                             let spawn_guard =
                                 current_spawn.read().map_err(|_| "Failed to read spawn")?;
                             if let Some(drawable) = spawn_guard.get_drawable() {
-                                let drawable_guard = drawable
+                                let selected = drawable
                                     .read()
-                                    .map_err(|_| "Failed to read spawn drawable")?;
-                                if !drawable_guard.is_selected() {
+                                    .map_err(|_| "Failed to read spawn drawable")?
+                                    .is_selected();
+                                if !selected {
                                     TheInGameUI::select_drawable(&drawable);
                                     TheInGameUI::set_displayed_max_warning(false);
                                     team_msg.append_boolean_argument(false);
@@ -2176,6 +2177,46 @@ mod tests {
     }
 
     // C++ SpawnBehavior::crc is BehaviorModule::crc only (SpawnBehavior.cpp:1043-1048).
+
+    #[test]
+    fn aggregate_selects_unselected_spawn_and_parent() {
+        use crate::object::drawable::{Drawable, DrawableType};
+        use crate::object::registry::OBJECT_REGISTRY;
+
+        let _serial = crate::test_sync::lock();
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, || {
+            let stores = crate::system::engine_stores::new_for_world();
+            crate::system::engine_stores::with_active_stores(&stores, || {
+                let ids = [0x5B4F_0000, 0x5B4F_0001, 0x5B4F_0002];
+                let mut drawables = Vec::new();
+                let mut objects = Vec::new();
+                for id in ids {
+                    let drawable = Arc::new(RwLock::new(Drawable::new(
+                        id + 10, id, format!("Drawable{id}"), DrawableType::Animated,
+                    )));
+                    let mut object = Object::new_test(id, 100.0);
+                    object.set_drawable(Some(drawable.clone()));
+                    let object = Arc::new(RwLock::new(object));
+                    OBJECT_REGISTRY.register_object(id, &object);
+                    drawables.push(drawable);
+                    objects.push(object);
+                }
+                drawables[1].write().unwrap().set_selected(true);
+                let mut data = SpawnBehaviorModuleData::new();
+                data.aggregate_health = true;
+                data.spawn_number_data = 2;
+                let mut behavior = SpawnBehavior::new_with_slaves_for_test(
+                    ids[0], Arc::new(data), vec![ids[1], ids[2]],
+                );
+                behavior.compute_aggregate_states().unwrap();
+                assert!(drawables.iter().all(|drawable| drawable.read().unwrap().is_selected()));
+                for id in ids {
+                    OBJECT_REGISTRY.unregister_object(id);
+                }
+            });
+        });
+    }
 
     // C++ SpawnBehavior::getClosestSlave (SpawnBehavior.cpp:282-301): iterate m_spawnIDs,
     // findObjectByID, keep min getDistanceSquared FROM_CENTER_2D.

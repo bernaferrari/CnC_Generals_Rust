@@ -4,6 +4,12 @@
 
 Preserve C++ **behavior**. Do not preserve C++ **pointer ownership**.
 
+Armor and object-creation-list fallback initialization is once per world;
+GameLogic audio resolver registration is once per CommonServices owner.
+Each VideoPlayer owns its provider registration. These changes prevent one
+instance's initialization from skipping a peer, but the ambient audio and
+live-client movie access paths still require explicit owner migration.
+
 ## Authored stealth and weapon continuation
 
 StealthUpdate reads the admitted authored module and owns its enabled state,
