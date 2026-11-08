@@ -8,6 +8,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Render pipeline abstraction
+///
+/// Thread-safety follows the underlying wgpu handles on each target.
 #[derive(Debug)]
 pub struct RenderPipeline {
     /// WGPU render pipeline
@@ -19,19 +21,6 @@ pub struct RenderPipeline {
     /// Pipeline label
     label: Option<String>,
 }
-
-#[cfg(target_arch = "wasm32")]
-// SAFETY: wasm32-only. `wgpu::RenderPipeline`, `wgpu::PipelineLayout` and the
-// wgpu handles inside `Arc<CompiledShader>` are `Rc`-backed and `!Send` on
-// the web backend, but wasm32 has no threads, so they can never move to or
-// be observed from another thread. The impl only satisfies the bounds of the
-// `Arc`s in `PipelineManager`/`RenderBatch`. Native keeps the auto traits.
-unsafe impl Send for RenderPipeline {}
-#[cfg(target_arch = "wasm32")]
-// SAFETY: same wasm32-only scope: the target is single-threaded, so
-// `&RenderPipeline` is never accessed from two threads and the handles'
-// `!Sync` default is unreachable.
-unsafe impl Sync for RenderPipeline {}
 
 impl RenderPipeline {
     /// Create a new render pipeline

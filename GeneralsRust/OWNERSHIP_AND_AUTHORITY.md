@@ -3109,3 +3109,7 @@ remains incomplete.
 Direct AudioSubsystem cues submit to the client's bound audio manager, and
 rebinding an initialized client updates that subsystem. Other cue producers and
 reset-generation behavior still require an ownership audit.
+
+GPU buffer, texture, pipeline and pipeline-cache wrappers no longer assert
+wasm Send or Sync unsafely. Native trait checks and a real backend operation
+pass; the asset crate and its tests compile for wasm.

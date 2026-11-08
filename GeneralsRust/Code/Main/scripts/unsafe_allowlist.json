@@ -192,22 +192,6 @@
       "constructs": 10,
       "undocumented": 0
     },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu/src/buffer.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu/src/pipeline.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu/src/pipeline_cache.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu/src/texture.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/benches/uv_mapper_bench.rs": {
       "constructs": 1,
       "undocumented": 0

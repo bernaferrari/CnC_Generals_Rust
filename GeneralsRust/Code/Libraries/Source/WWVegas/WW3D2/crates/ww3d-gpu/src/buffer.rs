@@ -18,6 +18,8 @@ pub enum MemoryType {
 }
 
 /// GPU buffer abstraction
+///
+/// Thread-safety follows the underlying wgpu handle on each target.
 #[derive(Debug, Clone)]
 pub struct GpuBuffer {
     /// Underlying WGPU buffer
@@ -33,20 +35,6 @@ pub struct GpuBuffer {
     /// Last update timestamp
     last_update: std::time::Instant,
 }
-
-// `wasm32-unknown-unknown` wgpu buffers are `Rc`. That target is single-threaded.
-#[cfg(target_arch = "wasm32")]
-// SAFETY: the `wgpu::Buffer` field is an `Rc`-backed handle on the web backend
-// and therefore `!Send` by default. wasm32 has no threads, so the handle can
-// never move to or be observed from another thread; the impl only satisfies
-// the `Send` bound of the containers (`Clone`, `Arc`, statics) that hold
-// `GpuBuffer`. Native keeps the auto traits.
-unsafe impl Send for GpuBuffer {}
-#[cfg(target_arch = "wasm32")]
-// SAFETY: same wasm32-only scope: no threads exist on the target, so
-// `&GpuBuffer` is never accessed concurrently and the handle's `!Sync`
-// default is unreachable.
-unsafe impl Sync for GpuBuffer {}
 
 impl GpuBuffer {
     /// Create a new GPU buffer

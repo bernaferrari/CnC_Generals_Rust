@@ -108,6 +108,8 @@ impl PipelineCacheStats {
 }
 
 /// Pipeline cache
+///
+/// Thread-safety follows the cached pipelines on each target.
 pub struct PipelineCache {
     /// Cached pipelines
     pipelines: HashMap<PipelineCacheKey, Arc<pipeline::RenderPipeline>>,
@@ -115,19 +117,6 @@ pub struct PipelineCache {
     /// Cache statistics
     stats: PipelineCacheStats,
 }
-
-#[cfg(target_arch = "wasm32")]
-// SAFETY: wasm32-only. `pipelines` holds `Arc<pipeline::RenderPipeline>` whose
-// wgpu handles are `Rc`-backed and `!Send` on the web backend, but wasm32 has
-// no threads, so they can never move to or be observed from another thread.
-// The impl only satisfies the bounds of the global/`Mutex` owners of the
-// cache. Native keeps the auto traits.
-unsafe impl Send for PipelineCache {}
-#[cfg(target_arch = "wasm32")]
-// SAFETY: same wasm32-only scope: the target is single-threaded, so
-// `&PipelineCache` is never accessed from two threads and the cached
-// pipelines' `!Sync` default is unreachable.
-unsafe impl Sync for PipelineCache {}
 
 
 impl PipelineCache {
@@ -228,6 +217,16 @@ impl Default for PipelineCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn native_resource_wrappers_are_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<crate::buffer::GpuBuffer>();
+        assert_send_sync::<crate::texture::GpuTexture>();
+        assert_send_sync::<pipeline::RenderPipeline>();
+        assert_send_sync::<PipelineCache>();
+    }
 
     fn create_test_key() -> PipelineCacheKey {
         PipelineCacheKey {

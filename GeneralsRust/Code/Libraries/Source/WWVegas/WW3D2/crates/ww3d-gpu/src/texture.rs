@@ -7,6 +7,8 @@ use crate::*;
 use std::sync::Arc;
 
 /// GPU texture abstraction
+///
+/// Thread-safety follows the underlying wgpu handles on each target.
 #[derive(Debug)]
 pub struct GpuTexture {
     /// Underlying WGPU texture
@@ -28,19 +30,6 @@ pub struct GpuTexture {
     /// Last update timestamp
     last_update: std::time::Instant,
 }
-
-#[cfg(target_arch = "wasm32")]
-// SAFETY: wasm32-only. The `wgpu::Texture`/`TextureView`/`Sampler` fields are
-// `Rc`-backed and `!Send` on the web backend, but wasm32 has no threads, so
-// they can never move to or be observed from another thread. The impl only
-// satisfies the `Send`/`Sync` bounds of the managers and `Arc`s holding
-// `GpuTexture`. Native keeps the auto traits.
-unsafe impl Send for GpuTexture {}
-#[cfg(target_arch = "wasm32")]
-// SAFETY: same wasm32-only scope: the target is single-threaded, so
-// `&GpuTexture` is never accessed from two threads and the handles' `!Sync`
-// default is unreachable.
-unsafe impl Sync for GpuTexture {}
 
 impl GpuTexture {
     /// Create a new GPU texture
