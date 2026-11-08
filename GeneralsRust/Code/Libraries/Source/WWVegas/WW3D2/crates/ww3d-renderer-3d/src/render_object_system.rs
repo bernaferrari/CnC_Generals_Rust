@@ -9,7 +9,6 @@ use bitflags::bitflags;
 use glam::{Mat3, Mat4, Quat, Vec3, Vec4};
 use std::any::Any;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::cell::RefCell;
 use std::sync::Arc;
 pub use ww3d_core::RenderObjClassId;
 use ww3d_geometry::LineSegment;
@@ -120,24 +119,21 @@ pub trait RenderObjClass: std::fmt::Debug + Send + Sync + Any {
     /// Set sort level for rendering order
     fn set_sort_level(&mut self, level: i32);
 
-    /// Create a decal on this object.
+    /// Create a decal on this object. A successfully registered mesh remains
+    /// borrowed by the generator until it is dropped and removes the decal.
     ///
-    /// # Safety
-    /// If this object can register a mesh with the generator, the caller must
-    /// keep that mesh alive and at the same address until the generator is
-    /// dropped. The caller must not access or reborrow the registered mesh in
-    /// the meantime, and must ensure that generator destruction has exclusive
-    /// access to it. In particular, moving or dropping the mesh first is invalid.
+    /// The borrow prevents moving or independently mutating a registered
+    /// object before cleanup. Use `DecalGeneratorClass::for_each_mesh` for
+    /// mutations while the generator is alive.
     ///
     /// ```compile_fail
     /// use ww3d_renderer_3d::render_object_system::{DecalGeneratorClass, RenderObjClass};
-    /// fn register(object: &mut dyn RenderObjClass, generator: &mut DecalGeneratorClass) {
+    /// fn invalid<'a>(object: &'a mut dyn RenderObjClass, generator: &mut DecalGeneratorClass<'a>) {
     ///     object.create_decal(generator);
+    ///     object.delete_decal(0); // the generator still holds the exclusive borrow
     /// }
     /// ```
-    // SAFETY: implementors may retain a mesh address; callers must uphold the
-    // lifetime, stability, and exclusivity requirements documented above.
-    unsafe fn create_decal(&mut self, generator: &mut DecalGeneratorClass);
+    fn create_decal<'a>(&'a mut self, generator: &mut DecalGeneratorClass<'a>);
 
     /// Delete a decal from this object
     fn delete_decal(&mut self, decal_id: u32);
@@ -719,7 +715,7 @@ pub type MaterialPassClass = crate::material_system::MaterialPassClass;
 /// required to bake decal geometry against meshes. It exposes safe Rust builders while keeping
 /// parity with the mutable configuration style of the legacy engine.
 #[derive(Debug)]
-pub struct DecalGeneratorClass {
+pub struct DecalGeneratorClass<'a> {
     material_pass: Arc<MaterialPassClass>,
     lifetime: f32,
     apply_to_translucent_meshes: bool,
@@ -731,10 +727,10 @@ pub struct DecalGeneratorClass {
     mesh_to_projector: Mat4,
     half_extents: Vec3,
     logical_id: u32,
-    mesh_handles: RefCell<Vec<usize>>,
+    meshes: Vec<&'a mut MeshClass>,
 }
 
-impl DecalGeneratorClass {
+impl<'a> DecalGeneratorClass<'a> {
     /// Create a generator with an orthographic projector whose extents are defined by `size`.
     /// `size` represents the full width/height/depth of the volume in world units.
     pub fn new(material_pass: MaterialPassClass, size: Vec3, lifetime: f32) -> Self {
@@ -768,7 +764,7 @@ impl DecalGeneratorClass {
             mesh_to_projector: world_to_projector,
             half_extents,
             logical_id,
-            mesh_handles: RefCell::new(Vec::new()),
+            meshes: Vec::new(),
         }
     }
 
@@ -831,28 +827,16 @@ impl DecalGeneratorClass {
         self.logical_id
     }
 
-    /// Register a mesh for cleanup when this generator is dropped.
-    ///
-    /// # Safety
-    /// A non-null pointer must originate from an exclusive borrow of a live
-    /// `MeshClass`. The mesh must remain alive at the same address until this
-    /// generator is dropped, and must not be accessed or reborrowed before
-    /// cleanup. Generator destruction must have exclusive access to the mesh.
-    // SAFETY: the caller must uphold the documented pointer validity and
-    // exclusivity requirements until the registered cleanup completes.
-    pub(crate) unsafe fn add_mesh_handle(&self, mesh_ptr: *const MeshClass) {
-        if mesh_ptr.is_null() {
-            return;
-        }
-        let mut handles = self.mesh_handles.borrow_mut();
-        let address = mesh_ptr as usize;
-        if !handles.contains(&address) {
-            handles.push(address);
-        }
+    /// Register a mesh for cleanup, keeping its exclusive borrow until drop.
+    pub(crate) fn add_mesh(&mut self, mesh: &'a mut MeshClass) {
+        self.meshes.push(mesh);
     }
 
-    pub fn registered_mesh_handles(&self) -> Vec<usize> {
-        self.mesh_handles.borrow().clone()
+    /// Access registered meshes without releasing the generator's ownership.
+    pub fn for_each_mesh(&mut self, mut f: impl FnMut(&mut MeshClass)) {
+        for mesh in &mut self.meshes {
+            f(mesh);
+        }
     }
 
     pub fn get_lifetime(&self) -> f32 {
@@ -904,33 +888,10 @@ impl DecalGeneratorClass {
     }
 }
 
-impl Drop for DecalGeneratorClass {
+impl Drop for DecalGeneratorClass<'_> {
     fn drop(&mut self) {
-        let handles = self.mesh_handles.borrow();
-        {
-            for &address in handles.iter() {
-                // Validate pointer before dereferencing
-                // Address 0 is reserved as null, small addresses are likely invalid
-                if address == 0 || address < std::mem::size_of::<MeshClass>() {
-                    continue;
-                }
-
-                let mesh_ptr = address as *mut MeshClass;
-
-                // Additional safety: only dereference if pointer is properly aligned
-                if !(mesh_ptr as usize).is_multiple_of(std::mem::align_of::<MeshClass>()) {
-                    continue;
-                }
-
-                // SAFETY: registration requires the caller to keep the mesh
-                // alive and stationary, without intervening accesses or
-                // reborrows, and to provide exclusive access during cleanup.
-                unsafe {
-                    if let Some(mesh) = mesh_ptr.as_mut() {
-                        mesh.delete_decal(self.logical_id);
-                    }
-                }
-            }
+        for mesh in &mut self.meshes {
+            mesh.delete_decal(self.logical_id);
         }
     }
 }

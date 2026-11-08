@@ -843,6 +843,10 @@ impl FpsCounter {
 /// Matches C++ WW3D class from ww3d.h and ww3d.cpp
 #[derive(Debug)]
 pub struct Engine {
+    // GPU objects must remain on their creating browser thread even if a
+    // dependency enables more permissive wgpu auto traits.
+    #[cfg(target_arch = "wasm32")]
+    _thread_local: std::marker::PhantomData<std::rc::Rc<()>>,
     _instance: Arc<wgpu::Instance>,
     _adapter: wgpu::Adapter,
     adapter_info: wgpu::AdapterInfo,
@@ -888,21 +892,36 @@ pub struct Engine {
     fixed_clock: Option<FixedClock>,
 }
 
-#[cfg(target_arch = "wasm32")]
-// SAFETY: wasm32-only. The `Arc<wgpu::Instance>`/`Adapter`/`Device`/`Queue`
-// handles and the surface are `Rc`-backed and `!Send` on the web backend, but
-// wasm32 has no threads, so they can never move to or be observed from
-// another thread. The impl only satisfies `Send` bounds of the engine's
-// global owners. Native keeps the auto traits.
-unsafe impl Send for Engine {}
-#[cfg(target_arch = "wasm32")]
-// SAFETY: same wasm32-only scope: the target is single-threaded, so `&Engine`
-// is never accessed from two threads and the handles' `!Sync` default is
-// unreachable.
-unsafe impl Sync for Engine {}
-
 /// Host-owned WW3D engine handle (no process singleton).
+///
+/// Browser GPU handles stay on the owning thread; native hosts can share the
+/// engine across threads through the mutex.
+#[cfg(not(target_arch = "wasm32"))]
 pub type SharedEngine = Arc<Mutex<Engine>>;
+#[cfg(target_arch = "wasm32")]
+pub type SharedEngine = std::rc::Rc<Mutex<Engine>>;
+
+#[cfg(not(target_arch = "wasm32"))]
+const _: fn() = || {
+    fn assert_send<T: Send>() {}
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send::<Engine>();
+    assert_send_sync::<SharedEngine>();
+};
+
+#[cfg(target_arch = "wasm32")]
+const _: fn() = || {
+    trait AmbiguousIfSend<A> { fn check() {} }
+    impl<T: ?Sized> AmbiguousIfSend<()> for T {}
+    impl<T: ?Sized + Send> AmbiguousIfSend<u8> for T {}
+    trait AmbiguousIfSync<A> { fn check() {} }
+    impl<T: ?Sized> AmbiguousIfSync<()> for T {}
+    impl<T: ?Sized + Sync> AmbiguousIfSync<u8> for T {}
+    let _ = <Engine as AmbiguousIfSend<_>>::check;
+    let _ = <Engine as AmbiguousIfSync<_>>::check;
+    let _ = <SharedEngine as AmbiguousIfSend<_>>::check;
+    let _ = <SharedEngine as AmbiguousIfSync<_>>::check;
+};
 
 impl Engine {
     /// Create a windowed engine instance using the supplied surface target.
@@ -935,7 +954,7 @@ impl Engine {
     }
 
     pub fn into_shared(self) -> SharedEngine {
-        Arc::new(Mutex::new(self))
+        SharedEngine::new(Mutex::new(self))
     }
 
     pub async fn new_windowed<W>(window: W, config: EngineConfig) -> EngineResult<Self>
@@ -974,6 +993,8 @@ impl Engine {
         let now = Instant::now();
 
         Ok(Self {
+            #[cfg(target_arch = "wasm32")]
+            _thread_local: std::marker::PhantomData,
             _instance: instance,
             _adapter: adapter,
             adapter_info,
@@ -1052,6 +1073,8 @@ impl Engine {
         let now = Instant::now();
 
         Ok(Self {
+            #[cfg(target_arch = "wasm32")]
+            _thread_local: std::marker::PhantomData,
             _instance: instance,
             _adapter: adapter,
             adapter_info,

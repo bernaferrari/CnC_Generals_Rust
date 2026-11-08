@@ -749,8 +749,7 @@ impl RenderObjClass for CameraClass {
         // Cameras don't use sort levels
     }
 
-    // SAFETY: this implementation registers no mesh and retains no pointer.
-    unsafe fn create_decal(&mut self, _generator: &mut DecalGeneratorClass) {
+    fn create_decal<'a>(&'a mut self, _generator: &mut DecalGeneratorClass<'a>) {
         // Cameras don't support decals
     }
 

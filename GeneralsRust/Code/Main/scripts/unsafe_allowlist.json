@@ -196,10 +196,6 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-engine/src/lib.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-geometry/src/simd_math.rs": {
       "constructs": 10,
       "undocumented": 0
@@ -232,27 +228,7 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/render_object_system.rs": {
-      "constructs": 3,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/camera_system/camera.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/line3d_render_obj.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/mesh_system_impl/mesh.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/mesh_system_impl/mod.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/mesh_system_impl/render_obj.rs": {
       "constructs": 2,
       "undocumented": 0
     },

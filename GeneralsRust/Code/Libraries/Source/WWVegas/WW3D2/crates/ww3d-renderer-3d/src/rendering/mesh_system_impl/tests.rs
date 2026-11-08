@@ -27,6 +27,52 @@ fn source_mesh_prototype(name: &str) -> MeshPrototype {
     prototype
 }
 
+#[test]
+fn mesh_decal_generator_borrows_geometry_through_cleanup() {
+    let mut model = MeshModelClass::new("decal triangle");
+    model.vertices = vec![
+        W3dVectorStruct { x: -0.5, y: -0.5, z: 0.0 },
+        W3dVectorStruct { x: 0.0, y: 0.5, z: 0.0 },
+        W3dVectorStruct { x: 0.5, y: -0.5, z: 0.0 },
+    ];
+    model.triangles = vec![W3dTriangleStruct {
+        vindex: [0, 1, 2],
+        attributes: 0,
+        normal: W3dVectorStruct { x: 0.0, y: 0.0, z: -1.0 },
+        distance: 0.0,
+    }];
+    let mut mesh = MeshClass::new();
+    mesh.model = Some(Arc::new(model));
+
+    {
+        let mut generator = DecalGeneratorClass::new(MaterialPassClass::new(), Vec3::splat(2.0), 1.0);
+        let id = generator.get_decal_id();
+        let object: &mut dyn RenderObjClass = &mut mesh;
+        object.create_decal(&mut generator);
+        generator.for_each_mesh(|mesh| {
+            assert_eq!(mesh.decal_records.len(), 1);
+            assert_eq!(mesh.decal_records[0].indices, [0, 1, 2]);
+            assert_eq!(mesh.decal_records[0].vertices.len(), 3);
+            assert_eq!(mesh.decal_meshes.len(), 1);
+            mesh.delete_decal(id);
+            assert!(mesh.decal_records.is_empty());
+            assert!(mesh.decal_meshes.is_empty());
+        });
+    }
+
+    {
+        let mut generator = DecalGeneratorClass::new(MaterialPassClass::new(), Vec3::splat(2.0), 1.0);
+        mesh.create_decal(&mut generator);
+        generator.for_each_mesh(|mesh| assert_eq!(mesh.decal_records.len(), 1));
+        let moved_generator = generator;
+        drop(moved_generator);
+    }
+    assert!(mesh.decal_records.is_empty());
+    assert!(mesh.decal_meshes.is_empty());
+    // The mesh can be moved and dropped safely after cleanup.
+    drop(mesh);
+}
+
 fn hierarchy_that_must_not_supply_skin_links() -> HierarchyPrototype {
     let mut hierarchy = HierarchyPrototype::new("unrelated_hierarchy".to_string());
     hierarchy.bind_transforms = vec![Mat4::IDENTITY];

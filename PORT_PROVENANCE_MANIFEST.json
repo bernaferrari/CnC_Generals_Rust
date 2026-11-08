@@ -160453,7 +160453,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "f38c77d343d04ebf6524d82f7a8755c486f9f6faccffb3d7754fd1db6dc84ffa",
+  "input_digest": "27bb85cbb8ff2671bb6c96fce765890857a8d50d03660fcfe48c6f63ee7bbe1d",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -215107,11 +215107,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 862,
+        "end_line": 861,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/camera_system/camera.rs",
-      "sha256": "49d0aa64da0fbef80e8c63d506c5ce7d78ceca1ed2e94078cb5c42d1fff09ccb",
+      "sha256": "1ca1ee178a4cba82ec778bc04d381944c579c0cbae44f8692bdc33c823d79916",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

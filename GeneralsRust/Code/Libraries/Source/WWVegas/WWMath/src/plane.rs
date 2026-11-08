@@ -1,4 +1,4 @@
-use super::{EPSILON, Vector3};
+use super::Vector3;
 use crate::sphere::Sphere;
 
 /// Side of a plane that a point or object lies on
@@ -65,22 +65,9 @@ impl Plane {
 
     /// Create a plane from three points
     pub fn from_three_points(p1: Vector3, p2: Vector3, p3: Vector3) -> Self {
-        let v1 = p2 - p1;
-        let v2 = p3 - p1;
-        let cross = v1.cross(v2);
-
-        if cross.length_squared() < EPSILON * EPSILON {
-            // Points are collinear - return default plane
-            Self::default()
-        } else {
-            let normal = cross.normalize();
-            let distance = normal.dot(p1);
-            Self {
-                normal,
-                distance,
-                dist: distance,
-            }
-        }
+        let mut plane = Self::default();
+        plane.set_three_points(p1, p2, p3);
+        plane
     }
 
     /// Set plane from coefficients
@@ -89,18 +76,21 @@ impl Plane {
         self.normal.y = ny;
         self.normal.z = nz;
         self.distance = d;
+        self.dist = d;
     }
 
     /// Set plane from normal and distance
     pub fn set_normal_distance(&mut self, normal: Vector3, distance: f32) {
         self.normal = normal;
         self.distance = distance;
+        self.dist = distance;
     }
 
     /// Set plane from normal and point
     pub fn set_normal_point(&mut self, normal: Vector3, point: Vector3) {
         self.normal = normal;
         self.distance = normal.dot(point);
+        self.dist = self.distance;
     }
 
     /// Set plane from three points
@@ -109,14 +99,15 @@ impl Plane {
         let v2 = p3 - p1;
         let cross = v1.cross(v2);
 
-        if cross.length_squared() < EPSILON * EPSILON {
-            // Points are collinear - set to default
+        if cross == Vector3::ZERO {
             self.normal = Vector3::new(0.0, 0.0, 1.0);
             self.distance = 0.0;
         } else {
-            self.normal = cross.normalize();
+            let len2 = cross.length_squared();
+            self.normal = if len2 != 0.0 { cross * (1.0 / len2.sqrt()) } else { cross };
             self.distance = self.normal.dot(p1);
         }
+        self.dist = self.distance;
     }
 
     /// Compute intersection of a line segment with the plane
@@ -127,7 +118,7 @@ impl Plane {
         let denominator = self.normal.dot(direction);
 
         // Check if ray is parallel to plane
-        if denominator.abs() < EPSILON {
+        if denominator == 0.0 {
             return (false, 0.0);
         }
 
@@ -135,7 +126,7 @@ impl Plane {
         let t = numerator / denominator;
 
         // Check if intersection is within the line segment
-        if !(0.0..=1.0).contains(&t) {
+        if t < 0.0 || t > 1.0 {
             (false, t)
         } else {
             (true, t)
@@ -219,7 +210,12 @@ impl Plane {
         };
 
         // Normalize direction vector
-        let normalized_dir = line_dir.normalize();
+        let len2 = line_dir.length_squared();
+        let normalized_dir = if len2 != 0.0 {
+            line_dir * (1.0 / len2.sqrt())
+        } else {
+            line_dir
+        };
 
         (normalized_dir, line_point)
     }
@@ -228,6 +224,7 @@ impl Plane {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::EPSILON;
 
     #[test]
     fn test_plane_new() {
@@ -267,6 +264,7 @@ mod tests {
         assert!((plane.normal - Vector3::new(0.0, 0.0, 1.0)).length() < EPSILON);
         assert!(plane.distance.abs() < EPSILON);
     }
+
 
     #[test]
     fn test_plane_is_point_in_front() {

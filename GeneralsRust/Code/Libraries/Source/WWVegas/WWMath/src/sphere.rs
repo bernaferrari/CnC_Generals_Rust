@@ -31,15 +31,11 @@ impl Sphere {
         }
     }
 
-    /// Create a bounding sphere from a set of points using the algorithm from Graphics Gems I
-    /// This generates a sphere within 5% of optimal but is much faster than exact algorithms
+    /// Create a bounding sphere using the original Graphics Gems I algorithm.
+    /// An empty slice returns the default sphere.
     pub fn from_points(points: &[Vector3]) -> Self {
         if points.is_empty() {
             return Self::default();
-        }
-
-        if points.len() == 1 {
-            return Self::new(points[0], 0.0);
         }
 
         // Find the 6 minima and maxima points
@@ -71,28 +67,36 @@ impl Sphere {
             }
         }
 
-        // Calculate squared distances between extreme points
-        let x_span = (x_max - x_min).length_squared();
-        let y_span = (y_max - y_min).length_squared();
-        let z_span = (z_max - z_min).length_squared();
-
-        // Set points to maximally separated pair
-        let (dia1, dia2, _max_span) = if x_span >= y_span && x_span >= z_span {
-            (x_min, x_max, x_span)
-        } else if y_span >= z_span {
-            (y_min, y_max, y_span)
-        } else {
-            (z_min, z_max, z_span)
+        // C++ subtracts float coordinates first, then squares in double precision.
+        let distance_squared = |a: Vector3, b: Vector3| {
+            let dx = (a.x - b.x) as f64;
+            let dy = (a.y - b.y) as f64;
+            let dz = (a.z - b.z) as f64;
+            dx * dx + dy * dy + dz * dz
         };
+        let x_span = distance_squared(x_max, x_min);
+        let y_span = distance_squared(y_max, y_min);
+        let z_span = distance_squared(z_max, z_min);
+
+        let (mut dia1, mut dia2, mut max_span) = (x_min, x_max, x_span);
+        if y_span > max_span {
+            max_span = y_span;
+            dia1 = y_min;
+            dia2 = y_max;
+        }
+        if z_span > max_span {
+            dia1 = z_min;
+            dia2 = z_max;
+        }
 
         // Compute initial center and radius
         let mut center = (dia1 + dia2) * 0.5;
-        let mut radius_squared = (dia2 - center).length_squared();
+        let mut radius_squared = distance_squared(dia2, center);
         let mut radius = radius_squared.sqrt();
 
         // Second pass: expand sphere to include any points outside
         for &point in points {
-            let dist_squared = (point - center).length_squared();
+            let dist_squared = distance_squared(point, center);
 
             if dist_squared > radius_squared {
                 let dist = dist_squared.sqrt();
@@ -102,11 +106,15 @@ impl Sphere {
                 radius_squared = radius * radius;
 
                 let old_to_new = dist - radius;
-                center = (center * radius + point * old_to_new) / dist;
+                center = Vector3::new(
+                    ((radius * center.x as f64 + old_to_new * point.x as f64) / dist) as f32,
+                    ((radius * center.y as f64 + old_to_new * point.y as f64) / dist) as f32,
+                    ((radius * center.z as f64 + old_to_new * point.z as f64) / dist) as f32,
+                );
             }
         }
 
-        Self::new(center, radius)
+        Self::new(center, radius as f32)
     }
 
     /// Create a sphere that encloses another sphere when moved to a new center
@@ -142,7 +150,11 @@ impl Sphere {
 
         let dist = (other.center - self.center).length();
         if dist == 0.0 {
-            self.radius = self.radius.max(other.radius);
+            self.radius = if self.radius > other.radius {
+                self.radius
+            } else {
+                other.radius
+            };
             return;
         }
 
@@ -168,7 +180,8 @@ impl Sphere {
 
     /// Get the volume of the sphere
     pub fn volume(&self) -> f32 {
-        (4.0 / 3.0) * std::f32::consts::PI * self.radius.powi(3)
+        ((4.0_f64 / 3.0) * std::f32::consts::PI as f64
+            * (self.radius * self.radius * self.radius) as f64) as f32
     }
 
     /// Test if two spheres intersect
