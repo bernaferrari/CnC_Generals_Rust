@@ -179,17 +179,16 @@ fn three_way_blend_setting_changes_actual_terrain_pixels() {
 /// draw path used by terrain rendering. The class list is deliberately an
 /// input so larger material sets can reuse this fixture.
 #[cfg(not(target_arch = "wasm32"))]
-fn render_live_terrain_classes(
+fn live_terrain_visual(
     device: &Arc<wgpu::Device>,
     queue: &Arc<wgpu::Queue>,
     classes: &[(TerrainSourceTileClass, [u8; 3])],
     map: HeightMap,
-) -> Vec<u8> {
-    use wgpu::util::DeviceExt;
-
+    ambient: f32,
+) -> TerrainVisualImpl {
     let mut visual = TerrainVisualImpl::new();
     visual.admit_static_lighting(crate::terrain::chunk::TerrainStaticLighting {
-        lights: Vec::new(), ambient: [1.0; 3], scorch_diffuse: [1.0; 3],
+        lights: Vec::new(), ambient: [ambient; 3], scorch_diffuse: [1.0; 3],
     });
     // Supply real encoded source images through the normal mounted-content
     // admission API, rather than manufacturing texture views or slot maps.
@@ -211,10 +210,19 @@ fn render_live_terrain_classes(
     visual.create_extra_blend_pipeline(device).unwrap();
     visual.device = Some(Arc::clone(device));
     visual.queue = Some(Arc::clone(queue));
-    // The runtime update generates dirty chunk geometry before GPU upload.
+    visual
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn render_live_terrain_visual(
+    device: &Arc<wgpu::Device>,
+    queue: &Arc<wgpu::Queue>,
+    visual: &mut TerrainVisualImpl,
+) -> Vec<u8> {
+    use wgpu::util::DeviceExt;
+    // Match the runtime's geometry update followed by its GPU upload.
     visual.chunk_manager.update_with_dynamic_lights(&visual.dynamic_lights).unwrap();
     visual.update_chunk_meshes().unwrap();
-
     // View x=[30,34], z=[1,2]; x=32 is the real 32-cell chunk seam.
     let transform = Mat4::from_cols_array_2d(&[
         [0.5, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0],
@@ -314,7 +322,10 @@ fn live_terrain_classes_blend_across_chunk_seam() {
         map.blend_tile_ndxes[35 + x] = 1;
     }
     map.tile_ndxes[35 + 33] = 4;
-    let pixels = render_live_terrain_classes(&Arc::new(device), &Arc::new(queue), &classes, map);
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
+    let mut visual = live_terrain_visual(&device, &queue, &classes, map, 1.0);
+    let pixels = render_live_terrain_visual(&device, &queue, &mut visual);
     let pixel = |x: usize, y: usize| &pixels[y * 256 + x * 4..y * 256 + x * 4 + 4];
     let blue = pixel(4, 4);
     let left = pixel(12, 4);
@@ -328,4 +339,69 @@ fn live_terrain_classes_blend_across_chunk_seam() {
     for channel in 0..3 {
         assert!(left[channel].abs_diff(right[channel]) <= 8, "chunk seam: {left:?} vs {right:?}");
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+#[ignore = "requires a native GPU adapter"]
+fn receiving_terrain_owners_render_their_own_live_lights_and_restore_static_color() {
+    use crate::fx_list::{DisplayLightPulse, FxClientState};
+    crate::test_support::ensure_ambient_host();
+    let instance = wgpu::Instance::default();
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::LowPower, compatible_surface: None,
+        force_fallback_adapter: false, apply_limit_buckets: false,
+    })).expect("terrain light pixel test requires a GPU adapter");
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("terrain light pixel test"), required_features: wgpu::Features::empty(),
+        required_limits: wgpu::Limits::default(), ..Default::default()
+    })).expect("terrain light pixel test requires a GPU device");
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
+    let classes = [(TerrainSourceTileClass {
+        first_tile: 0, num_tiles: 1, width: 1, name: "LightWhite".to_string(),
+    }, [255, 255, 255])];
+    let make_visual = || live_terrain_visual(
+        &device, &queue, &classes, HeightMap::new(35, 4, 0.0, 1.0), 0.1,
+    );
+    let mut a = make_visual();
+    let mut b = make_visual();
+    let sample = |pixels: Vec<u8>| -> [u8; 4] {
+        pixels[4 * 256 + 16 * 4..4 * 256 + 16 * 4 + 4].try_into().unwrap()
+    };
+    let baseline = sample(render_live_terrain_visual(&device, &queue, &mut a));
+    assert_eq!(baseline, sample(render_live_terrain_visual(&device, &queue, &mut b)));
+    let pulse = |color| DisplayLightPulse {
+        pos: [32.0, 1.5, 10.0], color, inner_radius: 50.0, outer_radius: 30.0,
+        increase_frames: 2, decay_frames: 2,
+    };
+    let mut first = FxClientState::default();
+    let mut second = FxClientState::default();
+    // Both clients use their first light slot; pulse lights have no explicit ID.
+    assert!(first.create_display_light_pulse(pulse([0.3, 0.0, 0.0])));
+    assert!(second.create_display_light_pulse(pulse([0.0, 0.0, 0.3])));
+    a.admit_dynamic_lights(first.scene.lights());
+    b.admit_dynamic_lights(second.scene.lights());
+    let red = sample(render_live_terrain_visual(&device, &queue, &mut a));
+    let blue = sample(render_live_terrain_visual(&device, &queue, &mut b));
+    assert!(red[2] > baseline[2] + 20 && red[0] == baseline[0], "{red:?} vs {baseline:?}");
+    assert!(blue[0] > baseline[0] + 20 && blue[2] == baseline[2], "{blue:?} vs {baseline:?}");
+
+    first.tick_scene_dynamic_lights(); // First increase frame changes the color to half.
+    a.admit_dynamic_lights(first.scene.lights());
+    let faded = sample(render_live_terrain_visual(&device, &queue, &mut a));
+    assert!(faded[2] > baseline[2] && faded[2] < red[2], "{faded:?} vs {red:?}");
+    assert_eq!(blue, sample(render_live_terrain_visual(&device, &queue, &mut b)));
+    second.clear_scene_dynamic_lights();
+    b.admit_dynamic_lights(second.scene.lights());
+    assert_eq!(baseline, sample(render_live_terrain_visual(&device, &queue, &mut b)));
+    assert_eq!(faded, sample(render_live_terrain_visual(&device, &queue, &mut a)));
+
+    first.tick_scene_dynamic_lights();
+    first.tick_scene_dynamic_lights();
+    first.tick_scene_dynamic_lights(); // Decay expires the first client's light.
+    assert!(first.scene.lights().is_empty());
+    a.admit_dynamic_lights(first.scene.lights());
+    assert_eq!(baseline, sample(render_live_terrain_visual(&device, &queue, &mut a)));
+    assert_eq!(baseline, sample(render_live_terrain_visual(&device, &queue, &mut b)));
 }
