@@ -299,8 +299,8 @@ pub(crate) fn xfer_game_client_state(
 
                 let data_size = adapter.begin_block().map_err(common_status_to_runtime)?;
 
-                // The Arc outlives this guard. Drawable binding below can
-                // resolve ambient sound through ThingFactory again.
+                // Release the factory guard before constructing the Drawable:
+                // its modules can resolve ambient sound through ThingFactory.
                 let template = {
                     let guard = get_thing_factory().map_err(|_| RuntimeXferStatus::InvalidData)?;
                     let factory = guard.as_ref().ok_or(RuntimeXferStatus::InvalidData)?;
@@ -315,8 +315,6 @@ pub(crate) fn xfer_game_client_state(
                 adapter
                     .xfer_unsigned_int(&mut object_id)
                     .map_err(|_| RuntimeXferStatus::InvalidData)?;
-                // Host/presentation path: OBJECT_REGISTRY may be empty. Do not
-                // fail xfer; bind_drawable_to_object runs only when present.
 
                 let mut reuse_id = None;
                 if object_id != INVALID_ID {
@@ -374,9 +372,11 @@ pub(crate) fn xfer_game_client_state(
                 drawable.xfer_snapshot(&mut adapter)
                     .map_err(|_| RuntimeXferStatus::InvalidData)?;
                 let id = drawable.get_id();
-                if let Some(object_id) = drawable.get_object_id() {
-                    client.drawables.drawable_object_map.insert(object_id, id);
-                }
+                let binding_object_id = if object_id != INVALID_ID {
+                    Some(object_id)
+                } else {
+                    drawable.get_object_id()
+                };
                 let native_lasers = GameClient::owned_laser_count(drawable.as_mut());
                 if native_lasers > 1 {
                     return Err(RuntimeXferStatus::InvalidData);
@@ -397,11 +397,12 @@ pub(crate) fn xfer_game_client_state(
 
                 adapter.end_block().map_err(common_status_to_runtime)?;
 
-                if object_id != INVALID_ID {
-                    // Dual-world residual bind only; host maps via drawable_object_map above.
-                    if OBJECT_REGISTRY.get_object(object_id).is_some() {
-                        let _ = client.bind_drawable_to_object(id, object_id);
-                    }
+                if let Some(object_id) = binding_object_id {
+                    // Bind through the receiver so the inverse map and displaced
+                    // Drawable are updated without consulting another world.
+                    client
+                        .bind_drawable_to_object(id, object_id)
+                        .map_err(|_| RuntimeXferStatus::InvalidData)?;
                 }
             }
         }
