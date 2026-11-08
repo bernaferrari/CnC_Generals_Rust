@@ -41,41 +41,41 @@ impl FrustumClass {
     pub fn update_from_matrix(&mut self, view_proj_matrix: &Mat4) {
         let m = view_proj_matrix.to_cols_array_2d();
 
-        // Extract frustum planes from the matrix
+        // Clip inequalities give N.dot(point) + d >= 0. Plane stores D = -d.
         // Right plane
         self.planes[0] = Plane::new(
             Vec3::new(m[0][3] - m[0][0], m[1][3] - m[1][0], m[2][3] - m[2][0]),
-            m[3][3] - m[3][0],
+            -(m[3][3] - m[3][0]),
         );
 
         // Left plane
         self.planes[1] = Plane::new(
             Vec3::new(m[0][3] + m[0][0], m[1][3] + m[1][0], m[2][3] + m[2][0]),
-            m[3][3] + m[3][0],
+            -(m[3][3] + m[3][0]),
         );
 
         // Bottom plane
         self.planes[2] = Plane::new(
             Vec3::new(m[0][3] + m[0][1], m[1][3] + m[1][1], m[2][3] + m[2][1]),
-            m[3][3] + m[3][1],
+            -(m[3][3] + m[3][1]),
         );
 
         // Top plane
         self.planes[3] = Plane::new(
             Vec3::new(m[0][3] - m[0][1], m[1][3] - m[1][1], m[2][3] - m[2][1]),
-            m[3][3] - m[3][1],
+            -(m[3][3] - m[3][1]),
         );
 
         // Far plane
         self.planes[4] = Plane::new(
             Vec3::new(m[0][3] - m[0][2], m[1][3] - m[1][2], m[2][3] - m[2][2]),
-            m[3][3] - m[3][2],
+            -(m[3][3] - m[3][2]),
         );
 
         // Near plane
         self.planes[5] = Plane::new(
             Vec3::new(m[0][3] + m[0][2], m[1][3] + m[1][2], m[2][3] + m[2][2]),
-            m[3][3] + m[3][2],
+            -(m[3][3] + m[3][2]),
         );
 
         // Normalize all planes
@@ -127,7 +127,7 @@ impl FrustumClass {
             );
 
             // If the positive vertex is behind the plane, the entire box is outside
-            let distance = plane.normal.dot(positive_vertex) + plane.distance;
+            let distance = plane.distance_to_point(positive_vertex);
             if distance < 0.0 {
                 return false;
             }
@@ -144,12 +144,44 @@ impl FrustumClass {
 
         // Test sphere against all frustum planes
         for plane in &self.planes {
-            let distance = plane.normal.dot(center) + plane.distance;
+            let distance = plane.distance_to_point(center);
             if distance < -radius {
                 return false; // Sphere is completely outside this plane
             }
         }
 
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raw_plane_sign_cutover_preserves_translated_frustum_culling() {
+        let mut frustum = FrustumClass::new();
+        let view = Mat4::from_translation(Vec3::new(-5.0, 0.0, 0.0));
+        frustum.update_from_matrix(&view);
+        assert_eq!(frustum.planes[0], Plane::new(-Vec3::X, -6.0));
+        assert_eq!(frustum.planes[1], Plane::new(Vec3::X, 4.0));
+        assert!(frustum.intersects_sphere(Vec3::X * 5.0, 0.25));
+        assert!(!frustum.intersects_sphere(Vec3::ZERO, 0.25));
+        assert!(frustum.intersects_sphere(Vec3::X * 6.25, 0.25));
+        assert!(!frustum.intersects_sphere(Vec3::X * 6.5, 0.25));
+        let inside = AABox::from_center_and_extent(Vec3::X * 5.0, Vec3::splat(0.25));
+        let outside = AABox::from_center_and_extent(Vec3::ZERO, Vec3::splat(0.25));
+        assert!(frustum.intersects_aabox(&inside));
+        assert!(!frustum.intersects_aabox(&outside));
+    }
+
+    #[test]
+    fn coefficient_scaling_is_normalized_once_for_sphere_culling() {
+        let mut frustum = FrustumClass::new();
+        let view = Mat4::from_scale(Vec3::new(2.0, 4.0, 8.0));
+        frustum.update_from_matrix(&view);
+        assert_eq!(frustum.planes[0], Plane::new(-Vec3::X, -0.5));
+        assert!(frustum.intersects_sphere(Vec3::new(0.75, 0.0, 0.0), 0.25));
+        assert!(!frustum.intersects_sphere(Vec3::new(0.76, 0.0, 0.0), 0.25));
     }
 }

@@ -162,17 +162,10 @@ impl RayCollisionQuery {
         })
     }
 
-    /// Test ray intersection with Plane
+    /// Rust ray query over raw N.dot(point) = D coefficients.
     pub fn test_plane(&self, plane: &PlaneClass) -> Option<CollisionResult> {
-        let denom = plane.normal.dot(self.direction);
-
-        if denom.abs() < 0.0001 {
-            return None; // Ray is parallel to plane
-        }
-
-        let t = -(plane.normal.dot(self.origin) + plane.distance) / denom;
-
-        if t < 0.0 || t > self.max_distance {
+        let t = plane.intersect_ray(self.origin, self.direction)?;
+        if t > self.max_distance {
             return None;
         }
 
@@ -182,7 +175,7 @@ impl RayCollisionQuery {
             has_collision: true,
             penetration_depth: 0.0,
             contact_point,
-            contact_normal: plane.normal,
+            contact_normal: plane.normal.normalize(),
         })
     }
 
@@ -232,44 +225,10 @@ pub fn test_aabox_sphere(aabox: &AABoxClass, sphere: &SphereClass) -> bool {
 
 /// C++ CollisionMath::Intersection_Test(AABox, OBBox) — colmathobbobb.cpp 15-axis SAT
 pub fn test_aabox_obbox(aabox: &AABoxClass, obbox: &OBBoxClass) -> bool {
-    let a_axes = [Vec3::X, Vec3::Y, Vec3::Z];
-    let b_axes = obbox.basis;
-    let t = obbox.center - aabox.center;
-    let ra = |axis: Vec3| {
-        aabox.extent.x * axis.x.abs()
-            + aabox.extent.y * axis.y.abs()
-            + aabox.extent.z * axis.z.abs()
-    };
-    let rb = |axis: Vec3| {
-        obbox.extent.x * b_axes[0].dot(axis).abs()
-            + obbox.extent.y * b_axes[1].dot(axis).abs()
-            + obbox.extent.z * b_axes[2].dot(axis).abs()
-    };
-    let separated = |axis: Vec3| {
-        let len2 = axis.length_squared();
-        if len2 <= 1e-12 {
-            return false;
-        }
-        t.dot(axis).abs() > ra(axis) + rb(axis)
-    };
-    for &axis in &a_axes {
-        if separated(axis) {
-            return false;
-        }
-    }
-    for &axis in &b_axes {
-        if separated(axis) {
-            return false;
-        }
-    }
-    for &a_axis in &a_axes {
-        for &b_axis in &b_axes {
-            if separated(a_axis.cross(b_axis)) {
-                return false;
-            }
-        }
-    }
-    true
+    crate::collision_math::CollisionMath::obbox_obbox_intersect(
+        &OBBoxClass::from_aabox(aabox),
+        obbox,
+    )
 }
 
 pub fn test_sphere_sphere(a: &SphereClass, b: &SphereClass) -> bool {
@@ -287,9 +246,10 @@ pub fn test_plane_point(plane: &PlaneClass, point: Vec3) -> PlaneClassification 
     plane.classify_point(point)
 }
 
+/// Rust extension: geometric sphere intersection, allowing non-unit normals.
 pub fn test_plane_sphere(plane: &PlaneClass, sphere: &SphereClass) -> bool {
     let distance = plane.distance_to_point(sphere.center).abs();
-    distance <= sphere.radius
+    distance <= sphere.radius * plane.normal.length()
 }
 
 /// Frustum culling test
@@ -317,6 +277,65 @@ pub fn test_frustum_culling(frustum_planes: &[PlaneClass], bounds: &AABoxClass) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn raw_plane_consumers_preserve_geometric_queries() {
+        let plane = PlaneClass::new(Vec3::Y * 2.0, 10.0);
+        let ray = RayCollisionQuery::new(Vec3::Y * 9.0, -Vec3::Y, 4.0);
+        let hit = ray.test_plane(&plane).unwrap();
+        assert_eq!(hit.contact_point, Vec3::Y * 5.0);
+        assert_eq!(hit.contact_normal, Vec3::Y);
+        assert!(RayCollisionQuery::new(ray.origin, ray.direction, 3.0).test_plane(&plane).is_none());
+        assert_eq!(test_plane_point(&plane, Vec3::Y * 6.0), PlaneClassification::Front);
+        assert!(test_plane_sphere(&plane, &SphereClass::new(Vec3::Y * 6.0, 1.0)));
+        assert!(!test_plane_sphere(&plane, &SphereClass::new(Vec3::Y * 6.0, 0.9)));
+        let visible = AABoxClass::from_center_and_extent(Vec3::Y * 6.0, Vec3::splat(0.25));
+        let hidden = AABoxClass::from_center_and_extent(Vec3::Y * 4.0, Vec3::splat(0.25));
+        assert!(test_frustum_culling(&[plane], &visible));
+        assert!(!test_frustum_culling(&[plane], &hidden));
+    }
+
+    #[test]
+    fn transformed_box_consumers_share_bounds_projection_and_collision() {
+        let transform = glam::Mat4::from_cols(
+            glam::Vec4::new(0.0, 1.0, 0.0, 0.0),
+            glam::Vec4::new(-1.0, 0.0, 0.0, 0.0),
+            glam::Vec4::Z,
+            glam::Vec4::new(5.0, 6.0, 7.0, 1.0),
+        );
+        let obbox = OBBoxClass::from_center_extent(Vec3::ZERO, Vec3::new(3.0, 1.0, 2.0))
+            .transformed(transform);
+        let bounds = obbox.to_aabox();
+        assert_eq!(bounds.center, Vec3::new(5.0, 6.0, 7.0));
+        assert_eq!(bounds.extent, Vec3::new(1.0, 3.0, 2.0));
+        let ray = RayCollisionQuery::new(Vec3::new(5.0, 6.0, 11.0), -Vec3::Z, 3.0);
+        let hit = ray.test_obbox(&obbox).unwrap();
+        assert_eq!(hit.contact_point, Vec3::new(5.0, 6.0, 9.0));
+        assert!(obbox.contains_point(hit.contact_point));
+        assert!(test_sphere_obbox(&SphereClass::new(hit.contact_point + Vec3::Z, 1.0), &obbox));
+        assert!(test_aabox_obbox(&bounds, &obbox));
+        assert_eq!(obbox.project_to_axis(Vec3::Y), 3.0);
+        let clip = PlaneClass::new(Vec3::Z, 9.0);
+        assert!(test_frustum_culling(&[clip], &bounds));
+    }
+
+    #[test]
+    fn near_parallel_edge_separator_is_not_discarded_by_a_synthetic_epsilon() {
+        let rotation = glam::Mat3::from_rotation_z(0.01) * glam::Mat3::from_rotation_y(0.01);
+        let aabox = AABoxClass::from_center_and_extent(Vec3::ZERO, Vec3::new(10.0, 0.0001, 0.0001));
+        let obbox = OBBoxClass::new(
+            Vec3::new(0.0, 0.001, 0.001),
+            aabox.extent,
+            [rotation.x_axis, rotation.y_axis, rotation.z_axis],
+        );
+        let aligned = OBBoxClass::from_aabox(&aabox);
+        let cross_length_squared = Vec3::X.cross(obbox.basis[0]).length_squared();
+        assert!(cross_length_squared > 0.0001 * 0.0001 && cross_length_squared < 0.001);
+        assert!(!aligned.intersects_obbox(&obbox));
+        assert!(!obbox.intersects_obbox(&aligned));
+        assert!(!obbox.intersects_aabox(&aabox));
+        assert!(!test_aabox_obbox(&aabox, &obbox));
+    }
 
     #[test]
     fn test_ray_aabox_intersection() {

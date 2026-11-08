@@ -57,12 +57,31 @@ tests, a geometry runtime smoke and strict package all-targets Clippy pass.
 This does not seal the whole collision crate or renderer. The unused prototype
 collision dispatcher with no-op casts was deleted rather than sealed.
 
+The plane and oriented-box implementations now retain WWMath's raw plane
+coefficients, segment boundaries and 15-axis overlap arithmetic. Frustum
+consumers use the corresponding coefficient convention. The collision crate's
+127 tests, a transformed-plane/rotated-box runtime smoke and strict package
+Clippy pass; renderer integration and the complete source interface are still
+being verified, so neither leaf is sealed.
+
 Unreachable duplicate 2D, texture, compressed/morph animation, skinning and
 polygon-sorting source files were removed after checking module declarations
 and repository consumers. Their stale seals were removed, not transferred:
 the live `render2d`, `texture_system`, animation loaders and sorting paths
 retain their own acceptance requirements. Deleted unsafe in these orphan files
 is inventory cleanup, not a live rendering or safety improvement.
+
+Renderer registration retains weak model identity; the next frame retires
+dead registrations and prepared CPU/GPU resources while preserving live
+preparations. Static and triangle sort queues belong to the acquired frame
+and are discarded after failed or skipped scene work, including teardown.
+Native GPU regressions cover retirement/readback and peer-frame isolation.
+
+Renderer, mesh and texture-cache thread contracts now follow their actual
+target: native `Send`/`Sync` requirements remain, while browser-only handles
+are not made thread-safe by an unsafe impl. Static-sort dispatch retains the
+original allocation identity and order. Native GPU checks and the WASM library
+compile pass; browser runtime behavior remains an explicit verification gap.
 
 | Step | State | Evidence |
 |---|---|---|

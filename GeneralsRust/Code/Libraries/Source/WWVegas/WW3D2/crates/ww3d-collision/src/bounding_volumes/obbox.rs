@@ -1,15 +1,20 @@
-//! OBBox - Oriented bounding box utilities.
+//! WWMath `obbox.h` representation: center + basis * local coordinates.
 //!
-//! This module provides an oriented bounding box type that mirrors the behaviour of the
-//! original `OBBoxClass` present in the C++ renderer while embracing glam math utilities.
+//! Construction, affine transformation, parametric points, axis projection, and
+//! enclosing AABox extents retain the C++ coefficients without normalization.
+//! Collision SAT requires orthonormal bases and nonnegative extents, as in
+//! `colmathobbobb.cpp`. Point containment/closest-point are Rust extensions for
+//! nonzero orthogonal (optionally scaled) axes; they do not support shear.
+//! Affine transforms may introduce shear: corners/projections/bounds and the
+//! Rust world-volume extension remain valid, not orthogonal collision queries.
 
 use glam::{Mat3, Mat4, Vec3};
 
-/// Oriented bounding box (matches C++ OBBoxClass semantics)
+/// Oriented bounding box; see the module's affine versus collision contracts.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct OBBoxClass {
-    /// Center of the box in object space
+    /// Center in the coordinate space of the box.
     pub center: Vec3,
     /// Half-extents along each local axis
     pub extent: Vec3,
@@ -37,7 +42,7 @@ impl OBBoxClass {
     pub fn new(center: Vec3, extent: Vec3, basis: [Vec3; 3]) -> Self {
         Self {
             center,
-            extent: extent.abs(),
+            extent,
             basis,
         }
     }
@@ -64,10 +69,10 @@ impl OBBoxClass {
 
     /// Sets the half-extents.
     pub fn set_extent(&mut self, extent: Vec3) {
-        self.extent = extent.abs();
+        self.extent = extent;
     }
 
-    /// Returns the eight world-space corners of the OBB.
+    /// Returns the eight corners (also valid for affine, sheared bases).
     pub fn get_corners(&self) -> [Vec3; 8] {
         let offsets = [
             Vec3::new(-1.0, -1.0, -1.0),
@@ -80,80 +85,28 @@ impl OBBoxClass {
             Vec3::new(-1.0, 1.0, 1.0),
         ];
 
-        offsets.map(|offset| {
-            let scaled = Vec3::new(
-                offset.x * self.extent.x,
-                offset.y * self.extent.y,
-                offset.z * self.extent.z,
-            );
-            self.center
-                + self.basis[0] * scaled.x
-                + self.basis[1] * scaled.y
-                + self.basis[2] * scaled.z
+        offsets.map(|offset| self.compute_point(offset))
+    }
+
+    /// Inclusive containment for nonzero orthogonal axes and nonnegative extents.
+    /// On unit axes this is C++ `Overlap_Test(OBBox, point)`; division by squared
+    /// axis length extends the operation to orthogonal scaled bases.
+    pub fn contains_point(&self, point: Vec3) -> bool {
+        let local = point - self.center;
+        self.basis.iter().zip(self.extent.to_array()).all(|(axis, extent)| {
+            (local.dot(*axis) / axis.length_squared()).abs() <= extent
         })
     }
 
-    /// Checks whether a point lies inside the OBB (inclusive).
-    pub fn contains_point(&self, point: Vec3) -> bool {
-        let local = point - self.center;
-        for (idx, (axis, extent)) in self.basis.iter().zip(self.extent.to_array()).enumerate() {
-            if extent <= f32::EPSILON {
-                continue;
-            }
-
-            let len = axis.length();
-            let (axis_dir, axis_len) = if len > 1e-6 {
-                (*axis / len, len)
-            } else {
-                (
-                    match idx {
-                        0 => Vec3::X,
-                        1 => Vec3::Y,
-                        _ => Vec3::Z,
-                    },
-                    1.0,
-                )
-            };
-
-            let world_extent = extent * axis_len;
-            let projection = local.dot(axis_dir);
-            if projection.abs() > world_extent + f32::EPSILON {
-                return false;
-            }
-        }
-        true
-    }
-
-    /// Returns the closest point on the OBB to the supplied point.
+    /// Rust extension: closest point for nonzero orthogonal axes.
+    /// Extents must be nonnegative. A zero extent is a plane, not an omitted axis.
     pub fn closest_point(&self, point: Vec3) -> Vec3 {
         let mut result = self.center;
         let local = point - self.center;
-
-        for (idx, (axis, extent)) in self.basis.iter().zip(self.extent.to_array()).enumerate() {
-            if extent <= f32::EPSILON {
-                continue;
-            }
-
-            let len = axis.length();
-            let (axis_dir, axis_len) = if len > 1e-6 {
-                (*axis / len, len)
-            } else {
-                (
-                    match idx {
-                        0 => Vec3::X,
-                        1 => Vec3::Y,
-                        _ => Vec3::Z,
-                    },
-                    1.0,
-                )
-            };
-
-            let world_extent = extent * axis_len;
-            let projection = local.dot(axis_dir);
-            let clamped = projection.clamp(-world_extent, world_extent);
-            result += axis_dir * clamped;
+        for (axis, extent) in self.basis.iter().zip(self.extent.to_array()) {
+            let projection = local.dot(*axis) / axis.length_squared();
+            result += *axis * projection.clamp(-extent, extent);
         }
-
         result
     }
 
@@ -167,15 +120,30 @@ impl OBBoxClass {
         (point - self.closest_point(point)).length_squared()
     }
 
-    /// Computes an axis-aligned bounding box that encloses this OBB.
+    /// C++ `Compute_Point`: params in [-1, 1] select a point in the box.
+    pub fn compute_point(&self, params: Vec3) -> Vec3 {
+        let point = self.extent * params;
+        let rotated = self.basis[0] * point.x + self.basis[1] * point.y + self.basis[2] * point.z;
+        self.center + rotated
+    }
+
+    /// C++ `Project_To_Axis`; the projection axis need not have unit length.
+    pub fn project_to_axis(&self, axis: Vec3) -> f32 {
+        (self.extent.x * axis.dot(self.basis[0])).abs()
+            + (self.extent.y * axis.dot(self.basis[1])).abs()
+            + (self.extent.z * axis.dot(self.basis[2])).abs()
+    }
+
+    /// C++ `Compute_Axis_Aligned_Extent`, valid even for an affine basis.
+    pub fn compute_axis_aligned_extent(&self) -> Vec3 {
+        (self.basis[0] * self.extent.x).abs()
+            + (self.basis[1] * self.extent.y).abs()
+            + (self.basis[2] * self.extent.z).abs()
+    }
+
+    /// Enclosing AABox without subtracting large, nearly equal corner positions.
     pub fn to_aabox(&self) -> super::AABoxClass {
-        let mut min = Vec3::splat(f32::INFINITY);
-        let mut max = Vec3::splat(f32::NEG_INFINITY);
-        for corner in &self.get_corners() {
-            min = min.min(*corner);
-            max = max.max(*corner);
-        }
-        super::AABoxClass::from_min_max(min, max)
+        super::AABoxClass::from_center_and_extent(self.center, self.compute_axis_aligned_extent())
     }
 
     /// Backwards-compatible helper for call sites that previously requested the bounding AABox.
@@ -183,32 +151,12 @@ impl OBBoxClass {
         self.to_aabox()
     }
 
-    /// Conservative intersection test against an AABox.
+    /// C++ `Intersection_Test(OBBox, AABox)`: the same 15-axis SAT as OBBox/OBBox.
     pub fn intersects_aabox(&self, aabox: &super::AABoxClass) -> bool {
-        let obb_aabb = self.to_aabox();
-        if !obb_aabb.intersects_aabox(aabox) {
-            return false;
-        }
-
-        // Check corners of each volume against the other for a quick overlap test.
-        if self
-            .get_corners()
-            .iter()
-            .any(|corner| aabox.contains_point(corner))
-        {
-            return true;
-        }
-
-        for corner in aabox_corners(aabox) {
-            if self.contains_point(corner) {
-                return true;
-            }
-        }
-
-        false
+        self.intersects_obbox(&Self::from_aabox(aabox))
     }
 
-    /// C++ CollisionMath::Intersection_Test(OBBox, OBBox) — 15-axis SAT.
+    /// C++ 15-axis SAT; both bases must be orthonormal and extents nonnegative.
     pub fn intersects_obbox(&self, other: &OBBoxClass) -> bool {
         crate::collision_math::CollisionMath::obbox_obbox_intersect(self, other)
     }
@@ -218,16 +166,14 @@ impl OBBoxClass {
         self.distance_squared_to_point(sphere.center) <= sphere.radius * sphere.radius
     }
 
-    /// Returns the world-space volume of the box.
+    /// Rust extension: world volume, including scale/shear/reflection.
+    /// On a rotation basis this equals C++ `Volume()` (8 * extent product).
     pub fn volume(&self) -> f32 {
-        let mut volume = 8.0;
-        for (axis, extent) in self.basis.iter().zip(self.extent.to_array()) {
-            volume *= (extent * axis.length()).max(0.0);
-        }
-        volume
+        let determinant = self.basis[0].dot(self.basis[1].cross(self.basis[2]));
+        (8.0 * self.extent.x * self.extent.y * self.extent.z * determinant).abs()
     }
 
-    /// Transform this OBB by an affine matrix.
+    /// C++ affine transform: multiply basis and center, leaving extents unchanged.
     pub fn transformed(&self, transform: Mat4) -> Self {
         let center = transform.transform_point3(self.center);
 
@@ -250,25 +196,80 @@ impl OBBoxClass {
     }
 }
 
-fn aabox_corners(box_obj: &super::AABoxClass) -> [Vec3; 8] {
-    let min = box_obj.min();
-    let max = box_obj.max();
-
-    [
-        Vec3::new(min.x, min.y, min.z),
-        Vec3::new(max.x, min.y, min.z),
-        Vec3::new(max.x, max.y, min.z),
-        Vec3::new(min.x, max.y, min.z),
-        Vec3::new(min.x, min.y, max.z),
-        Vec3::new(max.x, min.y, max.z),
-        Vec3::new(max.x, max.y, max.z),
-        Vec3::new(min.x, max.y, max.z),
-    ]
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn enclosing_bounds_do_not_lose_extents_at_large_centers() {
+        let obbox = OBBoxClass::from_center_extent(Vec3::splat(1e8), Vec3::ONE);
+        let bounds = obbox.to_aabox();
+        assert_eq!(bounds.center, obbox.center);
+        assert_eq!(bounds.extent, Vec3::ONE);
+    }
+
+    #[test]
+    fn zero_extents_and_tiny_extents_are_not_unbounded() {
+        let flat = OBBoxClass::from_center_extent(Vec3::ZERO, Vec3::new(0.0, 1.0, 1.0));
+        assert!(flat.contains_point(Vec3::Y));
+        assert!(!flat.contains_point(Vec3::X * f32::EPSILON));
+        assert_eq!(flat.closest_point(Vec3::new(3.0, 2.0, 0.0)), Vec3::Y);
+        let tiny = OBBoxClass::from_center_extent(Vec3::ZERO, Vec3::splat(1e-8));
+        assert!(tiny.contains_point(Vec3::X * 1e-8));
+        assert!(!tiny.contains_point(Vec3::X * 2e-8));
+        assert_eq!(tiny.closest_point(Vec3::X), Vec3::X * 1e-8);
+        let point = OBBoxClass::empty();
+        assert!(point.contains_point(Vec3::ZERO));
+        assert!(!point.contains_point(Vec3::Z));
+    }
+
+    #[test]
+    fn aabox_crossing_without_contained_corners_intersects() {
+        let horizontal = OBBoxClass::from_center_extent(Vec3::ZERO, Vec3::new(3.0, 0.5, 0.5));
+        let vertical = super::super::AABoxClass::from_center_and_extent(
+            Vec3::ZERO, Vec3::new(0.5, 3.0, 0.5),
+        );
+        assert!(horizontal.intersects_aabox(&vertical));
+        let touching = super::super::AABoxClass::from_center_and_extent(
+            Vec3::new(3.5, 0.0, 0.0), Vec3::splat(0.5),
+        );
+        assert!(horizontal.intersects_aabox(&touching));
+        let separated = super::super::AABoxClass::from_center_and_extent(
+            Vec3::new(3.50001, 0.0, 0.0), Vec3::splat(0.5),
+        );
+        assert!(!horizontal.intersects_aabox(&separated));
+    }
+
+    #[test]
+    fn affine_points_projection_and_bounds_preserve_basis_and_extents() {
+        let obb = OBBoxClass::from_center_extent(Vec3::new(1.0, 2.0, 3.0), Vec3::new(2.0, 3.0, 4.0));
+        let affine = Mat4::from_cols(
+            glam::Vec4::new(-2.0, 0.0, 0.0, 0.0),
+            glam::Vec4::new(1.0, 3.0, 0.0, 0.0),
+            glam::Vec4::new(0.0, 0.0, 4.0, 0.0),
+            glam::Vec4::new(7.0, 8.0, 9.0, 1.0),
+        );
+        let transformed = obb.transformed(affine);
+        assert_eq!(transformed.extent, obb.extent);
+        for (before, after) in obb.get_corners().into_iter().zip(transformed.get_corners()) {
+            assert_eq!(affine.transform_point3(before), after);
+        }
+        assert_eq!(transformed.project_to_axis(Vec3::X), 7.0);
+        assert_eq!(transformed.project_to_axis(Vec3::Y * 2.0), 18.0);
+        let bounds = transformed.to_aabox();
+        assert_eq!(bounds.center, transformed.center);
+        assert_eq!(bounds.extent, Vec3::new(7.0, 9.0, 16.0));
+        assert_eq!(transformed.volume(), 8.0 * 2.0 * 3.0 * 4.0 * 24.0);
+    }
+
+    #[test]
+    fn raw_extents_are_not_silently_rewritten() {
+        let mut obb = OBBoxClass::from_center_extent(Vec3::ZERO, -Vec3::ONE);
+        assert_eq!(obb.extent, -Vec3::ONE);
+        obb.set_extent(Vec3::new(-2.0, 3.0, 4.0));
+        assert_eq!(obb.extent, Vec3::new(-2.0, 3.0, 4.0));
+    }
 
     #[test]
     fn obbox_preserves_basis() {
