@@ -3097,3 +3097,7 @@ use the ambient tactical-view bridge.
 Prelit mesh material chunks propagate parsed texture, UV, shader and material
 data into owned mesh prototypes. Device-capability mode selection, alternate
 material descriptors and the rendered lightmap result remain unverified.
+
+Native cue-limit and interruption queries use the receiving audio manager's
+playing list, including its normal completion sweep, rather than another
+manager's playback state.

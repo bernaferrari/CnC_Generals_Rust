@@ -62,27 +62,25 @@ impl AudioManager {
             return false;
         };
 
-        if event_info.limit <= 0 {
+        if event_info.limit == 0 {
             return false;
         }
         let limit = event_info.limit;
         let interrupting = (event_info.control & AC_INTERRUPT) != 0;
-        let event_name = event.get_event_name().to_string();
+        let event_name = event.get_event_name();
         let positional = event.is_positional_audio();
-
-        let matching_handles: Vec<AudioHandle> = self
-            .active_audio_events
-            .values()
-            .filter(|playing| {
-                playing.get_event_name() == event_name
-                    && playing.is_positional_audio() == positional
-                    && self.event_counts_as_playing(playing)
-            })
-            .map(|playing| playing.get_playing_handle())
-            .collect();
-        let mut total_playing_count = matching_handles.len() as Int;
-        if let Some(&oldest) = matching_handles.first() {
-            event.set_handle_to_kill(oldest);
+        // Miles counts list membership until processPlayingList removes a
+        // completed sample, rather than querying the device during admission.
+        let mut oldest = None;
+        let mut total_playing_count = 0;
+        for playing in self.active_audio_events.values() {
+            if Self::is_playing_sample(playing)
+                && playing.get_event_name() == event_name
+                && playing.is_positional_audio() == positional
+            {
+                oldest.get_or_insert(playing.get_playing_handle());
+                total_playing_count += 1;
+            }
         }
 
         let mut total_request_count = 0;
@@ -97,6 +95,9 @@ impl AudioManager {
                 total_request_count += 1;
                 total_playing_count += 1;
             }
+        }
+        if let Some(oldest) = oldest {
+            event.set_handle_to_kill(oldest);
         }
 
         if interrupting {
@@ -118,11 +119,6 @@ impl AudioManager {
         true
     }
 
-    pub(super) fn event_counts_as_playing(&self, event: &AudioEventRts) -> bool {
-        self.playback_recipient
-            .with_hook(|hook| hook.is_playing(event.get_playing_handle()))
-            .unwrap_or(true)
-    }
 
     /// C++ `MilesAudioManager::isPlayingLowerPriority` (1993-2024).
     /// Uses INI `AudioEventInfo.m_priority`, not the per-event field (always Normal).
@@ -221,22 +217,11 @@ impl AudioManager {
         let event_name = event.get_event_name();
         let positional = event.is_positional_audio();
 
-        let same_name_same_partition = |playing: &AudioEventRts| {
-            playing.get_event_name() == event_name && playing.is_positional_audio() == positional
-        };
-
-        self.playback_recipient
-            .with_hook(|hook| {
-                self.active_audio_events.values().any(|playing| {
-                    same_name_same_partition(playing)
-                        && hook.is_playing(playing.get_playing_handle())
-                })
-            })
-            .unwrap_or_else(|| {
-                self.active_audio_events
-                    .values()
-                    .any(same_name_same_partition)
-            })
+        self.active_audio_events.values().any(|playing| {
+            Self::is_playing_sample(playing)
+                && playing.get_event_name() == event_name
+                && playing.is_positional_audio() == positional
+        })
     }
 
     /// Check if a specific object is currently playing a voice sound.

@@ -73,6 +73,7 @@ fn empty_hook() -> RodioPlaybackHook {
             y: 1.0,
             z: 0.0,
         }),
+        offline_mixer: None,
     }
 }
 
@@ -86,6 +87,95 @@ fn offline_mixer() -> (rodio::mixer::Mixer, rodio::mixer::MixerSource) {
 fn finite_pcm(sample: f32, frames: usize) -> rodio_compat::SamplesBuffer {
     rodio_compat::samples_buffer(1, 44_100, vec![sample; frames])
 }
+#[test]
+fn cue_limits_and_interruptions_follow_each_managers_playing_list() {
+    if std::env::var_os(CHILD_MODE).is_none() {
+        run_exact_child("cue_limits_and_interruptions_follow_each_managers_playing_list");
+        return;
+    }
+    let _services = crate::common::common_services::CommonServicesScope::new();
+    let path = std::env::temp_dir().join(format!("generals-cue-owner-{}.wav", std::process::id()));
+    let spec = hound::WavSpec {
+        channels: 1, sample_rate: 8_000, bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut writer = hound::WavWriter::create(&path, spec).unwrap();
+    for _ in 0..8_000 {
+        writer.write_sample(5_000_i16).unwrap();
+    }
+    writer.finalize().unwrap();
+
+    fn manager() -> (AudioManager, rodio::mixer::MixerSource) {
+        let (mixer, output) = offline_mixer();
+        let mut hook = empty_hook();
+        hook.offline_mixer = Some(mixer);
+        let mut manager = AudioManager::with_playback_hook(Box::new(hook));
+        manager.init();
+        (manager, output)
+    }
+    fn event(path: &std::path::Path, interrupt: bool) -> AudioEventRts {
+        let mut event = AudioEventRts::with_event_name("OwnedCue");
+        event.set_audio_event_info(AudioEventInfo {
+            audio_name: "OwnedCue".into(),
+            sound_type: AudioType::SoundEffect,
+            limit: 1,
+            control: if interrupt { AC_INTERRUPT } else { 0 },
+            volume: 1.0,
+            ..Default::default()
+        }.into());
+        event.filename_to_load = path.to_string_lossy().into_owned();
+        event.set_volume(1.0);
+        event
+    }
+    fn add(manager: &mut AudioManager, event: &AudioEventRts) -> AudioHandle {
+        manager.add_audio_event_with_submission_and_selection(
+            event, AudioSubmission::Ambient(None),
+            &mut crate::common::audio::audio_event_rts::AmbientAudioSelection,
+            true, None,
+        )
+    }
+    let (mut a, mut out_a) = manager();
+    let (mut b, mut out_b) = manager();
+    let normal = event(&path, false);
+    let interrupt = event(&path, true);
+    let a_first = add(&mut a, &normal);
+    let b_first = add(&mut b, &normal);
+    assert!(a_first >= AHSV_FIRST_HANDLE);
+    assert_eq!(a_first, b_first);
+    a.process_request_list();
+    b.process_request_list();
+    assert!(a.is_currently_playing(a_first));
+    assert!(b.is_currently_playing(b_first));
+    assert_eq!(add(&mut a, &normal), AHSV_NO_SOUND);
+    assert_eq!(add(&mut b, &normal), AHSV_NO_SOUND);
+
+    // The sink completes before the frame's playing-list sweep. Miles still
+    // counts that list entry, and may select it as the interruption victim.
+    for _ in out_a.by_ref().take(100_000) {}
+    assert!(!a.is_currently_playing(a_first));
+    assert!(a.is_playing_already(&normal));
+    assert_eq!(add(&mut a, &normal), AHSV_NO_SOUND);
+    let mut probe = interrupt.clone();
+    assert!(!a.does_violate_limit(&mut probe));
+    assert_eq!(probe.get_handle_to_kill(), a_first);
+    let replacement = add(&mut a, &interrupt);
+    assert!(replacement >= AHSV_FIRST_HANDLE);
+    assert_eq!(add(&mut a, &interrupt), AHSV_NO_SOUND);
+    a.process_request_list();
+    assert!(a.is_currently_playing(replacement));
+    assert!(b.is_currently_playing(b_first));
+    assert_eq!(add(&mut b, &normal), AHSV_NO_SOUND);
+
+    a.remove_audio_event(replacement);
+    a.process_request_list();
+    assert!(!a.is_currently_playing(replacement));
+    assert!(b.is_currently_playing(b_first));
+    assert!(add(&mut a, &normal) >= AHSV_FIRST_HANDLE);
+    // Keep both offline mixers alive until all observations are complete.
+    let _ = out_b.next();
+    std::fs::remove_file(path).unwrap();
+}
+
 
 #[test]
 fn offline_managers_keep_live_stream_sliders_and_pause_on_the_receiving_sinks() {

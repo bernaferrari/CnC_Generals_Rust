@@ -117,6 +117,8 @@ pub(super) struct RodioPlaybackHook {
     sinks: Mutex<HashMap<AudioHandle, RodioSinkState>>,
     listener_position: Mutex<Coord3D>,
     listener_orientation: Mutex<Coord3D>,
+    #[cfg(test)]
+    offline_mixer: Option<rodio::mixer::Mixer>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -168,6 +170,8 @@ impl RodioPlaybackHook {
                 y: 1.0,
                 z: 0.0,
             }),
+            #[cfg(test)]
+            offline_mixer: None,
         }
     }
 
@@ -340,8 +344,16 @@ impl RodioPlaybackHook {
         #[cfg(not(feature = "audio"))]
         let source = Decoder::new(Cursor::new(CachedAudioBytes(audio_data)))
             .map_err(|e| format!("Failed to decode audio file '{}': {}", file_path, e))?;
-        let stream_handle = get_rodio_stream_handle()
-            .ok_or_else(|| "Audio output stream not available".to_string())?;
+        #[cfg(test)]
+        let stream_handle = if self.offline_mixer.is_some() {
+            None
+        } else {
+            Some(get_rodio_stream_handle()
+                .ok_or_else(|| "Audio output stream not available".to_string())?)
+        };
+        #[cfg(not(test))]
+        let stream_handle = Some(get_rodio_stream_handle()
+            .ok_or_else(|| "Audio output stream not available".to_string())?);
         let (listener, orientation) = self.listener_pose();
         // C++ Miles getEffectiveVolume reads sliders already held by
         // AudioManager::update. Never re-lock THE_AUDIO from this hook.
@@ -369,17 +381,32 @@ impl RodioPlaybackHook {
         }
         let voice = if let Some(pos) = position.as_ref() {
             let pan = stereo_pan(&listener, orientation.x, orientation.y, pos);
-            let spatial = SpatialSink::try_new(
-                &stream_handle,
-                [pan, 0.0, -1.0],
-                [-0.1, 0.0, 0.0],
-                [0.1, 0.0, 0.0],
-            )
-            .map_err(|e| format!("Failed to create spatial audio sink: {}", e))?;
+            #[cfg(test)]
+            let offline = self.offline_mixer.as_ref();
+            #[cfg(not(test))]
+            let offline: Option<&rodio::mixer::Mixer> = None;
+            let spatial = if let Some(mixer) = offline {
+                SpatialSink::connect_new(mixer, [pan, 0.0, -1.0], [-0.1, 0.0, 0.0], [0.1, 0.0, 0.0])
+            } else {
+                SpatialSink::try_new(
+                    stream_handle.as_ref().unwrap(),
+                    [pan, 0.0, -1.0],
+                    [-0.1, 0.0, 0.0],
+                    [0.1, 0.0, 0.0],
+                ).map_err(|e| format!("Failed to create spatial audio sink: {}", e))?
+            };
             RodioVoice::Spatial(spatial)
         } else {
-            let sink = Sink::try_new(&stream_handle)
-                .map_err(|e| format!("Failed to create audio sink: {}", e))?;
+            #[cfg(test)]
+            let offline = self.offline_mixer.as_ref();
+            #[cfg(not(test))]
+            let offline: Option<&rodio::mixer::Mixer> = None;
+            let sink = if let Some(mixer) = offline {
+                Sink::connect_new(mixer)
+            } else {
+                Sink::try_new(stream_handle.as_ref().unwrap())
+                    .map_err(|e| format!("Failed to create audio sink: {}", e))?
+            };
             RodioVoice::Flat(sink)
         };
         let pitch = event.get_effective_pitch();
