@@ -3093,3 +3093,7 @@ projectile object and original update-scheduler ownership.
 Standalone camera tracking borrows the receiving GameClient's View during its
 update rather than resolving the live-client slot. Other view consumers still
 use the ambient tactical-view bridge.
+
+Prelit mesh material chunks propagate parsed texture, UV, shader and material
+data into owned mesh prototypes. Device-capability mode selection, alternate
+material descriptors and the rendered lightmap result remain unverified.

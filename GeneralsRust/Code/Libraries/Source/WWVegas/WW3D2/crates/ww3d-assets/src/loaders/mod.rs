@@ -199,6 +199,13 @@ fn mesh_to_prototype(mesh: &W3DMesh, name_override: Option<&str>) -> MeshPrototy
                 shader_count: material_info.shader_count,
                 texture_count: material_info.texture_count,
             });
+    prototype.shaders = mesh.shaders.clone();
+    prototype.vertex_materials = mesh.vertex_materials.iter()
+        .filter_map(|entry| entry.material.clone()).collect();
+    prototype.vertex_material_names = mesh.vertex_materials.iter()
+        .map(|entry| ww3d_core::W3dVertexMaterialNameStruct {
+            material_name: fixed_bytes::<256>(&entry.name),
+        }).collect();
     prototype.textures = mesh
         .textures
         .iter()
@@ -226,7 +233,7 @@ fn mesh_to_prototype(mesh: &W3DMesh, name_override: Option<&str>) -> MeshPrototy
         );
     }
 
-    if !mesh.tex_coords.is_empty() {
+    if mesh.material_passes.is_empty() && !mesh.tex_coords.is_empty() {
         prototype.stage_texcoords.push(
             mesh.tex_coords
                 .iter()
@@ -260,30 +267,12 @@ fn mesh_to_prototype(mesh: &W3DMesh, name_override: Option<&str>) -> MeshPrototy
         prototype
             .per_pass_dig_colors
             .push(pass.dig.iter().copied().map(vec4_to_rgba).collect());
-        for (stage_index, stage) in pass.texture_stages.iter().enumerate() {
-            if prototype.stage_texcoords.len() <= stage_index {
-                prototype
-                    .stage_texcoords
-                    .resize_with(stage_index + 1, Vec::new);
-            }
-            if prototype.per_face_texcoord_ids.len() <= stage_index {
-                prototype
-                    .per_face_texcoord_ids
-                    .resize_with(stage_index + 1, Vec::new);
-            }
-            if !stage.tex_coords.is_empty() {
-                prototype.stage_texcoords[stage_index] = stage
-                    .tex_coords
-                    .iter()
-                    .map(|tex_coord| W3dTexCoordStruct {
-                        u: tex_coord.x,
-                        v: tex_coord.y,
-                    })
-                    .collect();
-            }
-            if !stage.per_face_texcoord_ids.is_empty() {
-                prototype.per_face_texcoord_ids[stage_index] = stage.per_face_texcoord_ids.clone();
-            }
+        for stage in &pass.texture_stages {
+            prototype.stage_texcoords.push(stage.tex_coords.iter().map(|tex_coord| W3dTexCoordStruct {
+                u: tex_coord.x,
+                v: tex_coord.y,
+            }).collect());
+            prototype.per_face_texcoord_ids.push(stage.per_face_texcoord_ids.clone());
         }
     }
 
@@ -356,6 +345,59 @@ mod tests {
         assert_eq!(mesh.normals.len(), 3);
         assert_eq!(mesh.triangles.len(), 1);
         assert_eq!(mesh.triangles[0].vindex, [0, 1, 2]);
+    }
+
+    #[test]
+    fn prelit_lightmap_binary_reaches_owned_mesh_material() {
+        let mut vertex_material = u32s(&[0]);
+        vertex_material.extend_from_slice(&[20, 30, 40, 0, 100, 110, 120, 0, 0, 0, 0, 0, 1, 2, 3, 0]);
+        for value in [4.0, 0.75, 0.0] { push_f32(&mut vertex_material, value); }
+        let vmat = chunk(W3DChunkType::VertexMaterial, true, [
+            chunk(W3DChunkType::VertexMaterialName, false, b"Baked\0".to_vec()),
+            chunk(W3DChunkType::VertexMaterialInfo, false, vertex_material),
+        ].concat());
+        let texture = chunk(W3DChunkType::Texture, true,
+            chunk(W3DChunkType::TextureName, false, b"lightmap.tga\0".to_vec()));
+        let mut uv = Vec::new();
+        for value in [0.0f32, 0.0, 1.0, 0.0, 0.0, 1.0] { push_f32(&mut uv, value); }
+        let stage = chunk(W3DChunkType::TextureStage, true, [
+            chunk(W3DChunkType::TextureIds, false, u32s(&[0])),
+            chunk(W3DChunkType::StageTexcoords, false, uv),
+        ].concat());
+        let pass = chunk(W3DChunkType::MaterialPass, true, [
+            chunk(W3DChunkType::VertexMaterialIds, false, u32s(&[0])),
+            chunk(W3DChunkType::ShaderIds, false, u32s(&[0])),
+            stage,
+        ].concat());
+        let wrapper = chunk(W3DChunkType::PrelitLightmapMultiPass, true, [
+            chunk(W3DChunkType::MaterialInfo, false, u32s(&[1, 1, 1, 1])),
+            chunk(W3DChunkType::Shaders, false, vec![3, 1, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0]),
+            chunk(W3DChunkType::VertexMaterials, true, vmat),
+            chunk(W3DChunkType::Textures, true, texture),
+            pass,
+        ].concat());
+        let mut bytes = minimal_mesh_w3d("LitMesh");
+        bytes[20..24].copy_from_slice(&ww3d_core::w3d_format::W3D_MESH_FLAG_PRELIT_LIGHTMAP_MULTI_PASS.to_le_bytes());
+        bytes.extend_from_slice(&wrapper);
+        let size = ((bytes.len() - 8) as u32) | 0x8000_0000;
+        bytes[4..8].copy_from_slice(&size.to_le_bytes());
+        let mut world = AssetManager::new();
+        let other_world = AssetManager::new();
+        world.load_w3d_from_bytes(&bytes).unwrap();
+        assert!(other_world.get_prototype_as::<MeshPrototype>("LitMesh").is_none());
+        let mesh = world.get_prototype_as::<MeshPrototype>("LitMesh").unwrap();
+        assert_eq!(mesh.triangles[0].vindex, [0, 1, 2]);
+        assert_eq!(mesh.passes.len(), 1);
+        assert_eq!(mesh.per_pass_stage_texture_ids[0][0], [0]);
+        assert_eq!(mesh.stage_texcoords[0].len(), 3);
+        assert_eq!(mesh.vertex_materials[0].diffuse.r, 100);
+        assert_eq!(mesh.shaders[0].texturing, 1);
+        assert_eq!(&mesh.textures[0].name[..12], b"lightmap.tga");
+
+        let mut ordinary_world = AssetManager::new();
+        ordinary_world.load_w3d_from_bytes(&minimal_mesh_w3d("Plain")).unwrap();
+        let plain = ordinary_world.get_prototype_as::<MeshPrototype>("Plain").unwrap();
+        assert!(plain.passes.is_empty());
     }
 
     #[test]

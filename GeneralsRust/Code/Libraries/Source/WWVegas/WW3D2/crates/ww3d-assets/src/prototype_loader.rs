@@ -189,49 +189,15 @@ impl PrototypeLoader for MeshLoader {
                     .collect();
             }
             if mesh.vertex_materials.is_empty() && !detail_mesh.vertex_materials.is_empty() {
-                mesh.vertex_materials = detail_mesh
-                    .vertex_materials
-                    .iter()
-                    .map(|_| W3dVertexMaterialStruct {
-                        attributes: 0,
-                        ambient: W3dRGBAStruct {
-                            r: 0,
-                            g: 0,
-                            b: 0,
-                            a: 0,
-                        },
-                        diffuse: W3dRGBAStruct {
-                            r: 255,
-                            g: 255,
-                            b: 255,
-                            a: 255,
-                        },
-                        specular: W3dRGBAStruct {
-                            r: 0,
-                            g: 0,
-                            b: 0,
-                            a: 0,
-                        },
-                        emissive: W3dRGBAStruct {
-                            r: 0,
-                            g: 0,
-                            b: 0,
-                            a: 0,
-                        },
-                        shininess: 1.0,
-                        opacity: 1.0,
-                        translucency: 0.0,
-                    })
-                    .collect();
+                mesh.vertex_materials = detail_mesh.vertex_materials.iter()
+                    .filter_map(|entry| entry.material.clone()).collect();
             }
             if mesh.vertex_material_names.is_empty() && !detail_mesh.vertex_materials.is_empty() {
-                mesh.vertex_material_names = detail_mesh
-                    .vertex_materials
-                    .iter()
-                    .map(|_| W3dVertexMaterialNameStruct {
-                        material_name: [0; 256],
-                    })
-                    .collect();
+                mesh.vertex_material_names = detail_mesh.vertex_materials.iter().map(|entry| {
+                    let mut name = W3dVertexMaterialNameStruct { material_name: [0; 256] };
+                    copy_fixed_name(&entry.name, &mut name.material_name);
+                    name
+                }).collect();
             }
             if mesh.material_info.is_none() {
                 mesh.material_info = Some(W3dMaterialInfoStruct {
@@ -242,27 +208,7 @@ impl PrototypeLoader for MeshLoader {
                 });
             }
             if mesh.shaders.is_empty() && !detail_mesh.shaders.is_empty() {
-                mesh.shaders = detail_mesh
-                    .shaders
-                    .iter()
-                    .map(|_| W3dShaderStruct {
-                        depth_compare: 0,
-                        depth_mask: 0,
-                        color_mask: 0,
-                        dest_blend: 0,
-                        fog_func: 0,
-                        pri_gradient: 0,
-                        sec_gradient: 0,
-                        src_blend: 0,
-                        texturing: 0,
-                        detail_color_func: 0,
-                        detail_alpha_func: 0,
-                        shader_preset: 0,
-                        alpha_test: 0,
-                        post_detail_color_func: 0,
-                        post_detail_alpha_func: 0,
-                    })
-                    .collect();
+                mesh.shaders = detail_mesh.shaders.clone();
             }
             Self::populate_material_pass_data(&mut mesh, detail_mesh);
         } else if mesh.per_face_texcoord_ids.is_empty() && !mesh.stage_texcoords.is_empty() {
@@ -387,27 +333,7 @@ impl MeshLoader {
             shader_count: detail_mesh.shaders.len() as u32,
             texture_count: detail_mesh.textures.len() as u32,
         });
-        mesh.shaders = detail_mesh
-            .shaders
-            .iter()
-            .map(|_| W3dShaderStruct {
-                depth_compare: 0,
-                depth_mask: 0,
-                color_mask: 0,
-                dest_blend: 0,
-                fog_func: 0,
-                pri_gradient: 0,
-                sec_gradient: 0,
-                src_blend: 0,
-                texturing: 0,
-                detail_color_func: 0,
-                detail_alpha_func: 0,
-                shader_preset: 0,
-                alpha_test: 0,
-                post_detail_color_func: 0,
-                post_detail_alpha_func: 0,
-            })
-            .collect();
+        mesh.shaders = detail_mesh.shaders.clone();
         mesh.textures = detail_mesh
             .textures
             .iter()

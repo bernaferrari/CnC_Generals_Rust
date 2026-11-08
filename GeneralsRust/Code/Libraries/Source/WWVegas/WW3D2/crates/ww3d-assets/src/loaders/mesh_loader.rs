@@ -169,7 +169,7 @@ pub struct W3DMesh {
     pub vertex_influences: Vec<Vec<VertexInfluence>>,
     pub shade_indices: Vec<u32>,
     pub material_info: Option<W3DMaterialInfo>,
-    pub shaders: Vec<u32>,
+    pub shaders: Vec<ww3d_core::W3dShaderStruct>,
     pub vertex_materials: Vec<VertexMapperArgs>,
     pub textures: Vec<W3DTexture>,
     pub material_passes: Vec<W3DMaterialPass>,
@@ -223,6 +223,8 @@ impl W3DMesh {
 
 #[derive(Debug, Clone, Default)]
 pub struct VertexMapperArgs {
+    pub name: String,
+    pub material: Option<ww3d_core::W3dVertexMaterialStruct>,
     pub stage0: Option<String>,
     pub stage1: Option<String>,
 }
@@ -646,17 +648,19 @@ impl MeshLoader {
         reader: &mut ChunkReader<R>,
         mesh: &mut W3DMesh,
     ) -> ChunkResult<()> {
-        // Read shaders in sub-chunks
-        while reader.open_chunk()? {
-            let chunk_id = reader.current_chunk_id()?;
-
-            // Each shader is a chunk containing shader data
-            // For now, we just store the shader ID
-            mesh.shaders.push(chunk_id);
-
-            reader.close_chunk()?;
+        let count = mesh.material_info.as_ref().map_or(0, |info| info.shader_count);
+        for _ in 0..count {
+            let mut bytes = [0u8; 16];
+            reader.read(&mut bytes)?;
+            mesh.shaders.push(ww3d_core::W3dShaderStruct {
+                depth_compare: bytes[0], depth_mask: bytes[1], color_mask: bytes[2],
+                dest_blend: bytes[3], fog_func: bytes[4], pri_gradient: bytes[5],
+                sec_gradient: bytes[6], src_blend: bytes[7], texturing: bytes[8],
+                detail_color_func: bytes[9], detail_alpha_func: bytes[10],
+                shader_preset: bytes[11], alpha_test: bytes[12],
+                post_detail_color_func: bytes[13], post_detail_alpha_func: bytes[14],
+            });
         }
-
         Ok(())
     }
 
@@ -678,10 +682,25 @@ impl MeshLoader {
                     let sub_chunk_id = reader.current_chunk_id()?;
                     match W3DChunkType::from_u32(sub_chunk_id) {
                         Some(W3DChunkType::VertexMaterialName) => {
-                            // Consume name string to advance reader
                             let len = reader.current_chunk_length()? as usize;
-                            let mut buf = vec![0u8; len];
-                            reader.read(&mut buf)?;
+                            entry.name = reader.read_fixed_string(len)?;
+                        }
+                        Some(W3DChunkType::VertexMaterialInfo) => {
+                            fn color<R: Read + Seek>(reader: &mut ChunkReader<R>) -> ChunkResult<ww3d_core::W3dRGBAStruct> {
+                                let mut bytes = [0; 4];
+                                reader.read(&mut bytes)?;
+                                Ok(ww3d_core::W3dRGBAStruct { r: bytes[0], g: bytes[1], b: bytes[2], a: 255 })
+                            }
+                            entry.material = Some(ww3d_core::W3dVertexMaterialStruct {
+                                attributes: reader.read_u32()?,
+                                ambient: color(reader)?,
+                                diffuse: color(reader)?,
+                                specular: color(reader)?,
+                                emissive: color(reader)?,
+                                shininess: reader.read_f32()?,
+                                opacity: reader.read_f32()?,
+                                translucency: reader.read_f32()?,
+                            });
                         }
                         Some(W3DChunkType::VertexMapperArgs0) => {
                             entry.stage0 = Some(Self::read_mapper_args(reader)?);
@@ -698,6 +717,9 @@ impl MeshLoader {
                     reader.close_chunk()?;
                 }
 
+                if entry.material.is_none() {
+                    return Err(crate::chunk_reader::ChunkError::InvalidHeader);
+                }
                 mesh.vertex_materials.push(entry);
             }
 
@@ -746,7 +768,8 @@ impl MeshLoader {
                     match W3DChunkType::from_u32(sub_chunk_id) {
                         Some(W3DChunkType::TextureName) => {
                             // C++ Line 1935: Read texture name
-                            texture.name = reader.read_fixed_string(16)?;
+                            let len = reader.current_chunk_length()? as usize;
+                            texture.name = reader.read_fixed_string(len)?;
                         }
                         Some(W3DChunkType::TextureInfo) => {
                             // C++ Line 1945: Read texture info
@@ -827,8 +850,7 @@ impl MeshLoader {
         reader: &mut ChunkReader<R>,
         pass: &mut W3DMaterialPass,
     ) -> ChunkResult<()> {
-        // C++ Line 2173: Read count
-        let count = reader.read_u32()? as usize;
+        let count = reader.current_chunk_length()? as usize / 4;
         pass.vertex_material_ids.reserve(count);
 
         // C++ Line 2176: Read IDs
@@ -849,8 +871,7 @@ impl MeshLoader {
         reader: &mut ChunkReader<R>,
         pass: &mut W3DMaterialPass,
     ) -> ChunkResult<()> {
-        // C++ Line 2218: Read count
-        let count = reader.read_u32()? as usize;
+        let count = reader.current_chunk_length()? as usize / 4;
         pass.shader_ids.reserve(count);
 
         // C++ Line 2221: Read IDs
@@ -871,13 +892,12 @@ impl MeshLoader {
         reader: &mut ChunkReader<R>,
         pass: &mut W3DMaterialPass,
     ) -> ChunkResult<()> {
-        // C++ Line 2263: Read count
-        let count = reader.read_u32()? as usize;
+        let count = reader.current_chunk_length()? as usize / 4;
         pass.dcg.reserve(count);
-
-        // C++ Line 2266: Read RGBA colors
         for _ in 0..count {
-            let color = reader.read_vec4()?;
+            let mut rgba = [0u8; 4];
+            reader.read(&mut rgba)?;
+            let color = Vec4::new(rgba[0] as f32, rgba[1] as f32, rgba[2] as f32, rgba[3] as f32) / 255.0;
             pass.dcg.push(color);
         }
 
@@ -893,13 +913,12 @@ impl MeshLoader {
         reader: &mut ChunkReader<R>,
         pass: &mut W3DMaterialPass,
     ) -> ChunkResult<()> {
-        // C++ Line 2313: Read count
-        let count = reader.read_u32()? as usize;
+        let count = reader.current_chunk_length()? as usize / 4;
         pass.dig.reserve(count);
-
-        // C++ Line 2316: Read RGBA colors
         for _ in 0..count {
-            let color = reader.read_vec4()?;
+            let mut rgba = [0u8; 4];
+            reader.read(&mut rgba)?;
+            let color = Vec4::new(rgba[0] as f32, rgba[1] as f32, rgba[2] as f32, rgba[3] as f32) / 255.0;
             pass.dig.push(color);
         }
 
@@ -915,13 +934,12 @@ impl MeshLoader {
         reader: &mut ChunkReader<R>,
         pass: &mut W3DMaterialPass,
     ) -> ChunkResult<()> {
-        // C++ Line 2363: Read count
-        let count = reader.read_u32()? as usize;
+        let count = reader.current_chunk_length()? as usize / 4;
         pass.scg.reserve(count);
-
-        // C++ Line 2366: Read RGBA colors
         for _ in 0..count {
-            let color = reader.read_vec4()?;
+            let mut rgba = [0u8; 4];
+            reader.read(&mut rgba)?;
+            let color = Vec4::new(rgba[0] as f32, rgba[1] as f32, rgba[2] as f32, rgba[3] as f32) / 255.0;
             pass.scg.push(color);
         }
 
@@ -945,7 +963,7 @@ impl MeshLoader {
             match W3DChunkType::from_u32(chunk_id) {
                 Some(W3DChunkType::TextureIds) => {
                     // C++ Line 2425: Read texture IDs
-                    let count = reader.read_u32()? as usize;
+                    let count = reader.current_chunk_length()? as usize / 4;
                     stage.texture_ids.reserve(count);
                     for _ in 0..count {
                         stage.texture_ids.push(reader.read_u32()?);
@@ -953,15 +971,16 @@ impl MeshLoader {
                 }
                 Some(W3DChunkType::StageTexcoords) => {
                     // C++ Line 2440: Read texture coordinates
-                    let count = reader.read_u32()? as usize;
+                    let count = reader.current_chunk_length()? as usize / 8;
                     stage.tex_coords.reserve(count);
                     for _ in 0..count {
-                        stage.tex_coords.push(reader.read_vec2()?);
+                        let uv = reader.read_vec2()?;
+                        stage.tex_coords.push(Vec2::new(uv.x, 1.0 - uv.y));
                     }
                 }
                 Some(W3DChunkType::PerFaceTexcoordIds) => {
                     // C++ Line 2460: Read per-face texcoord indices
-                    let count = reader.read_u32()? as usize;
+                    let count = reader.current_chunk_length()? as usize / 12;
                     stage.per_face_texcoord_ids.reserve(count);
                     for _ in 0..count {
                         let i0 = reader.read_u32()?;
