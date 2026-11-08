@@ -219,15 +219,25 @@ fn render_live_terrain_visual(
     queue: &Arc<wgpu::Queue>,
     visual: &mut TerrainVisualImpl,
 ) -> Vec<u8> {
-    use wgpu::util::DeviceExt;
-    // Match the runtime's geometry update followed by its GPU upload.
-    visual.chunk_manager.update_with_dynamic_lights(&visual.dynamic_lights).unwrap();
-    visual.update_chunk_meshes().unwrap();
     // View x=[30,34], z=[1,2]; x=32 is the real 32-cell chunk seam.
     let transform = Mat4::from_cols_array_2d(&[
         [0.5, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0],
         [0.0, 2.0, 0.0, 0.0], [-16.0, -3.0, 0.5, 1.0],
     ]);
+    render_live_terrain_visual_with_transform(device, queue, visual, transform)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn render_live_terrain_visual_with_transform(
+    device: &Arc<wgpu::Device>,
+    queue: &Arc<wgpu::Queue>,
+    visual: &mut TerrainVisualImpl,
+    transform: Mat4,
+) -> Vec<u8> {
+    use wgpu::util::DeviceExt;
+    // Match the runtime's geometry update followed by its GPU upload.
+    visual.chunk_manager.update_with_dynamic_lights(&visual.dynamic_lights).unwrap();
+    visual.update_chunk_meshes().unwrap();
     let uniforms = TerrainUniforms {
         view_proj: transform.to_cols_array_2d(), view_matrix: Mat4::IDENTITY.to_cols_array_2d(),
         projection_matrix: Mat4::IDENTITY.to_cols_array_2d(), camera_position: [0.0; 4],
@@ -339,6 +349,77 @@ fn live_terrain_classes_blend_across_chunk_seam() {
     for channel in 0..3 {
         assert!(left[channel].abs_diff(right[channel]) <= 8, "chunk seam: {left:?} vs {right:?}");
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn live_terrain_more_than_sixteen_classes_preserve_both_blend_layers() {
+    use crate::terrain::textures::BlendTileInfo;
+    crate::test_support::ensure_ambient_host();
+    let instance = wgpu::Instance::default();
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::LowPower, compatible_surface: None,
+        force_fallback_adapter: false, apply_limit_buckets: false,
+    })).expect("terrain material pixel test requires a GPU adapter");
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("terrain material pixel test"), required_features: wgpu::Features::empty(),
+        required_limits: wgpu::Limits::default(), ..Default::default()
+    })).expect("terrain material pixel test requires a GPU device");
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
+    let classes: Vec<_> = (0..18).map(|i| {
+        let color = match i {
+            0 => [255, 0, 0],
+            1 => [0, 255, 0],
+            17 => [0, 0, 255],
+            _ => [20 + (i as u8 - 2) * 14, 60, 90],
+        };
+        (TerrainSourceTileClass {
+            first_tile: i, num_tiles: 1, width: 1, name: format!("BatchClass{i:02}"),
+        }, color)
+    }).collect();
+    let mut map = HeightMap::new(22, 4, 0.0, 1.0);
+    for i in 0..18 {
+        map.tile_ndxes[22 + i] = (i * 4) as i16;
+    }
+    let mut first = BlendTileInfo::new();
+    first.blend_ndx = 17 * 4;
+    first.horiz = 1;
+    let mut third = BlendTileInfo::new();
+    third.blend_ndx = 4;
+    third.horiz = 1;
+    map.blended_tiles = vec![BlendTileInfo::new(), first, third];
+    map.blend_tile_ndxes[22 + 18] = 1;
+    map.blend_tile_ndxes[22 + 19] = 1;
+    map.extra_blend_tile_ndxes[22 + 19] = 2;
+    let mut visual = live_terrain_visual(&device, &queue, &classes, map, 1.0);
+    let transform = Mat4::from_cols_array_2d(&[
+        [0.1, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0],
+        [0.0, 2.0, 0.0, 0.0], [-1.0, -3.0, 0.5, 1.0],
+    ]);
+    visual.set_use_3way_terrain_blends(0);
+    let off = render_live_terrain_visual_with_transform(&device, &queue, &mut visual, transform);
+    visual.set_use_3way_terrain_blends(1);
+    let on = render_live_terrain_visual_with_transform(&device, &queue, &mut visual, transform);
+    let pixel = |pixels: &[u8], cell: usize| {
+        let x = ((cell as f32 + 0.5) * 32.0 / 20.0) as usize;
+        let start = 4 * 256 + x * 4;
+        [pixels[start + 2], pixels[start + 1], pixels[start]]
+    };
+    for (i, (_, expected)) in classes.iter().enumerate() {
+        let actual = pixel(&on, i);
+        for channel in 0..3 {
+            assert!(actual[channel].abs_diff(expected[channel]) <= 8,
+                "class {i}: expected {expected:?}, got {actual:?}");
+        }
+    }
+    let mixed = pixel(&off, 18);
+    assert!(mixed[0] > 30 && mixed[2] > 30 && mixed[1] < 20,
+        "first blend must mix red and the seventeenth class: {mixed:?}");
+    let before = pixel(&off, 19);
+    let after = pixel(&on, 19);
+    assert!(after[1] > before[1] + 30,
+        "third blend must add green: disabled {before:?}, enabled {after:?}");
 }
 
 #[cfg(not(target_arch = "wasm32"))]

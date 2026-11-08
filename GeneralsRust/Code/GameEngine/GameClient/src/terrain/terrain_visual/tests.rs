@@ -222,6 +222,7 @@ mod tests {
                 vertex_buffer: buffer(),
                 index_buffer: buffer(),
                 index_count: 6,
+                batches: Vec::new(),
                 revision: 7,
                 uploaded_with_dynamic_lights: false,
             },

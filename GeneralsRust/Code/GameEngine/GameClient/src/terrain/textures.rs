@@ -1405,6 +1405,10 @@ impl TextureManager {
         self.textures.get(&texture_id)
     }
 
+    pub(crate) fn registered_textures(&self) -> impl Iterator<Item = &TerrainTexture> {
+        self.textures.values()
+    }
+
     /// Sample representative color for the terrain at a world position.
     pub fn sample_color_at(&self, _x: f32, _y: f32) -> TerrainResult<[f32; 3]> {
         Ok([0.5, 0.5, 0.5])

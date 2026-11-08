@@ -270,6 +270,7 @@ pub struct TerrainVisualImpl {
 
     /// Per-chunk texture bind groups and slot maps
     chunk_texture_bindings: HashMap<ChunkId, ChunkTextureBinding>,
+    terrain_material_bind_groups: HashMap<[TextureId; MAX_TEXTURES_PER_CHUNK], BindGroup>,
 
     /// Shared visible-terrain texture set used to keep adjacent chunks on the same slot map.
     active_chunk_texture_ids: Option<[TextureId; MAX_TEXTURES_PER_CHUNK]>,
@@ -305,6 +306,7 @@ pub struct TerrainVisualImpl {
     /// GPU extra-blend overlay index buffer.
     extra_blend_index_buffer: Option<Buffer>,
     extra_blend_index_count: u32,
+    extra_blend_batches: Vec<GpuTerrainBatch>,
     extra_blend_vertex_count: u32,
     /// Alpha-blend overlay pipeline (depth write off). Falls back to terrain.
     extra_blend_pipeline: Option<wgpu::RenderPipeline>,
@@ -343,9 +345,15 @@ struct GpuChunkMesh {
     vertex_buffer: Buffer,
     index_buffer: Buffer,
     index_count: u32,
+    batches: Vec<GpuTerrainBatch>,
     revision: u64,
     /// Preserve the final static restore if this mesh leaves the draw window.
     uploaded_with_dynamic_lights: bool,
+}
+
+struct GpuTerrainBatch {
+    indices: std::ops::Range<u32>,
+    bind_group: BindGroup,
 }
 
 struct ChunkTextureBinding {

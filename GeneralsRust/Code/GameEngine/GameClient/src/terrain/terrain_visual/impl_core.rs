@@ -231,6 +231,7 @@ impl TerrainVisualImpl {
             terrain_sampler: None,
             terrain_sampler_mode: None,
             chunk_texture_bindings: HashMap::new(),
+            terrain_material_bind_groups: HashMap::new(),
             active_chunk_texture_ids: None,
             terrain_metrics_enabled: std::env::var_os("GENERALS_TERRAIN_METRICS").is_some(),
             terrain_metrics_frame: 0,
@@ -261,6 +262,7 @@ impl TerrainVisualImpl {
             extra_blend_vertex_buffer: None,
             extra_blend_index_buffer: None,
             extra_blend_index_count: 0,
+            extra_blend_batches: Vec::new(),
             extra_blend_vertex_count: 0,
             extra_blend_pipeline: None,
             extra_blend_draw_count: AtomicU32::new(0),
@@ -308,6 +310,8 @@ impl TerrainVisualImpl {
         self.terrain_sampler = None;
         self.terrain_sampler_mode = None;
         self.chunk_texture_bindings.clear();
+        self.terrain_material_bind_groups.clear();
+        self.chunk_meshes.clear();
     }
 
     fn map_sample_dimensions(&self) -> Option<(i32, i32)> {

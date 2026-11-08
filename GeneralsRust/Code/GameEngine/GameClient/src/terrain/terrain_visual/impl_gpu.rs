@@ -9,6 +9,10 @@ impl TerrainVisualImpl {
     ) -> TerrainResult<()> {
         self.device = Some(Arc::clone(&device));
         self.queue = Some(Arc::clone(&queue));
+        self.terrain_material_bind_groups.clear();
+        self.chunk_texture_bindings.clear();
+        self.chunk_meshes.clear();
+        self.extra_blend_batches.clear();
         // Skybox face textures (incl. the synthetic horizon gradient) and
         // their bind group belong to the previous device after a re-init;
         // drop them so the next refresh rebuilds against this device instead
@@ -191,13 +195,14 @@ impl TerrainVisualImpl {
                 .unwrap_or(false);
             if !binding_up_to_date {
                 let binding_started = std::time::Instant::now();
-                self.prepare_chunk_texture_binding(
+                let binding = self.prepare_chunk_texture_binding(
                     chunk_id,
                     &stable_texture_ids,
                     &shared_slot_map,
                     device.as_ref(),
                     queue.as_ref(),
                 )?;
+                self.chunk_texture_bindings.insert(chunk_id, binding);
                 binding_prep_elapsed += binding_started.elapsed();
                 binding_updates += 1;
             }
@@ -238,9 +243,70 @@ impl TerrainVisualImpl {
                         chunk_indices,
                         chunk_base_colors,
                     );
+                // Keep whole cells in draw order while admitting all base and
+                // first-blend classes needed by each material batch.
+                let class_ids: Vec<_> = self.source_tile_classes.iter()
+                    .map(|class| self.texture_id_for_class_name(&class.name))
+                    .collect();
+                let seed: Vec<TextureId> = self.texture_rules.iter()
+                    .map(|rule| rule.texture_id)
+                    .filter(|id| *id != 0 && self.texture_system.get_texture(*id).is_some())
+                    .collect();
+                let cells_expanded = gpu_vertices.len() % 4 == 0
+                    && chunk_indices.len() == gpu_vertices.len() / 4 * 6;
+                let mut materials: Vec<(usize, usize, [TextureId; MAX_TEXTURES_PER_CHUNK], HashMap<TextureId, usize>)> = Vec::new();
+                if cells_expanded {
+                    let mut start = 0;
+                    let mut ids = seed.clone();
+                    if ids.is_empty() { ids.push(stable_texture_ids[0]); }
+                    let finish = |start: usize, end: usize, ids: &[TextureId]| {
+                        let mut slots = HashMap::new();
+                        let mut packed = [ids[0]; MAX_TEXTURES_PER_CHUNK];
+                        for (slot, &id) in ids.iter().enumerate() {
+                            packed[slot] = id;
+                            slots.entry(id).or_insert(slot);
+                        }
+                        (start, end, packed, slots)
+                    };
+                    for (cell, center) in cell_centers.chunks_exact(4).map(|v| v[0]).enumerate() {
+                        let mut needed = Vec::with_capacity(2);
+                        if let Some(hm) = self.height_map.as_ref() {
+                            let (x, y) = height_map_cell_at_world(hm, center[0], center[1]);
+                            let base = hm.get_packed_terrain_tile_at_world(center[0], center[1]);
+                            let blend = hm.get_blend_tile_index(x, y);
+                            let other = (blend > 0).then(|| hm.blended_tiles.get(blend as usize)).flatten()
+                                .map(|info| (info.blend_ndx >> 2).max(0) as u32);
+                            for tile in std::iter::once(base).chain(other) {
+                                if let Some(id) = texture_class_index_from_ndx(tile, &self.source_tile_classes)
+                                    .and_then(|index| class_ids[index]) {
+                                    if !needed.contains(&id) { needed.push(id); }
+                                }
+                            }
+                        }
+                        let additional = needed.iter().filter(|id| !ids.contains(id)).count();
+                        if ids.len() + additional > MAX_TEXTURES_PER_CHUNK {
+                            materials.push(finish(start, cell, &ids));
+                            start = cell;
+                            ids = seed.clone();
+                            if ids.is_empty() { ids.push(stable_texture_ids[0]); }
+                        }
+                        for id in needed {
+                            if !ids.contains(&id) { ids.push(id); }
+                        }
+                    }
+                    materials.push(finish(start, gpu_vertices.len() / 4, &ids));
+                } else {
+                    materials.push((0, gpu_vertices.len(), stable_texture_ids, shared_slot_map.clone()));
+                }
+                let batch_for_vertex: Vec<usize> = materials.iter().enumerate()
+                    .flat_map(|(batch, (start, end, _, _))| {
+                        let count = if cells_expanded { (end - start) * 4 } else { end - start };
+                        std::iter::repeat(batch).take(count)
+                    }).collect();
                 let mut vertex_weights = Vec::with_capacity(gpu_vertices.len());
                 let mut cell_flips: Vec<bool> = Vec::with_capacity(gpu_vertices.len());
-                for (vertex, center) in gpu_vertices.iter().zip(&cell_centers) {
+                for ((vertex, center), batch) in gpu_vertices.iter().zip(&cell_centers).zip(&batch_for_vertex) {
+                    let (_, _, stable_texture_ids, shared_slot_map) = &materials[*batch];
                     let position =
                         Vec3::new(vertex.position[0], vertex.position[1], vertex.position[2]);
                     let normal_vec =
@@ -393,13 +459,12 @@ impl TerrainVisualImpl {
                 // flat, so every corner of a cell gets the same slot set (the
                 // union over the cell, strongest four, sorted by slot) and its
                 // own weight for each slot.
-                let fallback_slot = shared_slot_map
-                    .get(stable_texture_ids.first().unwrap())
-                    .copied()
-                    .unwrap_or(0) as u16;
+                let fallback_slot = 0u16;
                 let slot_weights: Vec<Vec<(u16, f32)>> = vertex_weights
                     .iter()
-                    .map(|blended| {
+                    .enumerate()
+                    .map(|(vertex_index, blended)| {
+                        let shared_slot_map = &materials[batch_for_vertex[vertex_index]].3;
                         let mut pairs: Vec<(u16, f32)> = Vec::new();
                         for (texture_id, weight) in blended.iter_pairs() {
                             let slot = shared_slot_map
@@ -422,6 +487,7 @@ impl TerrainVisualImpl {
                     let mut group_end = group_start + 1;
                     while group_end < gpu_vertices.len()
                         && cell_centers[group_end] == cell_centers[group_start]
+                        && batch_for_vertex[group_end] == batch_for_vertex[group_start]
                     {
                         group_end += 1;
                     }
@@ -463,6 +529,7 @@ impl TerrainVisualImpl {
                 }
 
                 for (vert_index, vertex) in gpu_vertices.iter_mut().enumerate() {
+                    let (_, _, stable_texture_ids, shared_slot_map) = &materials[batch_for_vertex[vert_index]];
                     let (packed_indices, packed_weights) = packed_per_vertex[vert_index];
                     vertex.blend_indices = packed_indices;
                     vertex.blend_weights = packed_weights;
@@ -516,6 +583,18 @@ impl TerrainVisualImpl {
                     contents: cast_slice(&chunk_indices),
                     usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
                 });
+                let mut batches = Vec::with_capacity(materials.len());
+                for (start, end, ids, slots) in &materials {
+                    let binding = self.prepare_chunk_texture_binding(
+                        chunk_id, ids, slots, device.as_ref(), queue.as_ref(),
+                    )?;
+                    let indices = if cells_expanded {
+                        (*start as u32 * 6)..(*end as u32 * 6)
+                    } else {
+                        0..chunk_indices.len() as u32
+                    };
+                    batches.push(GpuTerrainBatch { indices, bind_group: binding.bind_group });
+                }
 
                 self.chunk_meshes.insert(
                     chunk_id,
@@ -523,6 +602,7 @@ impl TerrainVisualImpl {
                         vertex_buffer,
                         index_buffer,
                         index_count: chunk_indices.len() as u32,
+                        batches,
                         revision: chunk_revision,
                         uploaded_with_dynamic_lights: lights_active,
                     },
@@ -773,6 +853,13 @@ impl TerrainVisualImpl {
     }
 
     fn texture_id_for_class_name(&self, class_name: &str) -> Option<TextureId> {
+        if let Some(id) = self.texture_system.registered_textures()
+            .filter(|texture| texture.name.eq_ignore_ascii_case(class_name.trim()))
+            .map(|texture| texture.id)
+            .min()
+        {
+            return Some(id);
+        }
         for rule in &self.texture_rules {
             if let Some(texture) = self.texture_system.get_texture(rule.texture_id) {
                 if texture_matches_class_name(texture, class_name) {
@@ -780,17 +867,11 @@ impl TerrainVisualImpl {
                 }
             }
         }
-        let Some(first) = self.texture_system.first_texture_id() else {
-            return None;
-        };
-        for id in first..=first.saturating_add(255) {
-            if let Some(texture) = self.texture_system.get_texture(id) {
-                if texture_matches_class_name(texture, class_name) {
-                    return Some(id);
-                }
-            }
-        }
-        None
+        self.texture_system
+            .registered_textures()
+            .filter(|texture| texture_matches_class_name(texture, class_name))
+            .map(|texture| texture.id)
+            .min()
     }
 
     fn update_road_meshes(&mut self) -> TerrainResult<()> {
@@ -1119,17 +1200,16 @@ impl TerrainVisualImpl {
 
             let draw_ids = self.chunk_ids_for_gpu_draw();
             for chunk_id in draw_ids {
-                let Some(binding) = self.chunk_texture_bindings.get(&chunk_id) else {
-                    continue;
-                };
                 let Some(mesh) = self.chunk_meshes.get(&chunk_id) else {
                     continue;
                 };
 
-                pass.set_bind_group(1, &binding.bind_group, &[]);
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                for batch in &mesh.batches {
+                    pass.set_bind_group(1, &batch.bind_group, &[]);
+                    pass.draw_indexed(batch.indices.clone(), 0, 0..1);
+                }
             }
         }
         // HeightMap.cpp draws feathered shorelines before the 3-way overlay.
@@ -2401,6 +2481,7 @@ impl TerrainVisualImpl {
     fn extra_blend_mesh_to_terrain_vertices(
         &self,
         mesh: &ExtraBlendDrawMesh,
+        tile_slots: Option<&[u16]>,
     ) -> Vec<TerrainVertex> {
         // C++ extra-blend tiles bake through getStaticDiffuse (doTheLight):
         // every global light contributes clamped N·L diffuse.
@@ -2461,6 +2542,9 @@ impl TerrainVisualImpl {
                         }
                     }
                 }
+                if let Some(slots) = tile_slots {
+                    slot = slots[vertex_index / 6];
+                }
                 TerrainVertex {
                     position: vertex.position,
                     normal: [normal.x, normal.y, normal.z],
@@ -2490,8 +2574,9 @@ impl TerrainVisualImpl {
         self.extra_blend_draw_mesh = mesh;
         self.extra_blend_vertex_count = self.extra_blend_draw_mesh.vertex_count() as u32;
         self.extra_blend_index_count = self.extra_blend_draw_mesh.index_count() as u32;
+        self.extra_blend_batches.clear();
 
-        let Some(device) = self.device.as_ref() else {
+        let Some(device) = self.device.clone() else {
             self.extra_blend_position_buffer = None;
             self.extra_blend_vertex_buffer = None;
             self.extra_blend_index_buffer = None;
@@ -2518,7 +2603,68 @@ impl TerrainVisualImpl {
             self.extra_blend_index_buffer = None;
             return;
         }
-        let gpu_vertices = self.extra_blend_mesh_to_terrain_vertices(&self.extra_blend_draw_mesh);
+        let mut tile_slots = Vec::new();
+        if let Some(queue) = self.queue.clone() {
+            let class_ids: Vec<_> = self.source_tile_classes.iter()
+                .map(|class| self.texture_id_for_class_name(&class.name))
+                .collect();
+            let fallback = self.active_chunk_texture_ids.map_or(0, |ids| ids[0]);
+            let mut ids = Vec::new();
+            let mut groups: Vec<(usize, usize, Vec<TextureId>)> = Vec::new();
+            let mut start = 0;
+            for (tile, vertices) in self.extra_blend_draw_mesh.vertices.chunks_exact(6).enumerate() {
+                let id = self.height_map.as_ref().and_then(|hm| {
+                    let origin = vertices.iter().fold([f32::INFINITY; 2], |p, vertex| {
+                        [p[0].min(vertex.position[0]), p[1].min(vertex.position[2])]
+                    });
+                    let (x, y) = height_map_cell_at_world(
+                        hm, origin[0] + hm.scale * 0.5, origin[1] + hm.scale * 0.5,
+                    );
+                    let index = hm.get_extra_blend_tile_index(x, y);
+                    let blend = hm.blended_tiles.get(index as usize)?;
+                    let packed = (blend.blend_ndx >> 2).max(0) as u32;
+                    let class = texture_class_index_from_ndx(packed, &self.source_tile_classes)?;
+                    class_ids[class]
+                }).unwrap_or(fallback);
+                if !ids.contains(&id) && ids.len() == MAX_TEXTURES_PER_CHUNK {
+                    groups.push((start, tile, std::mem::take(&mut ids)));
+                    start = tile;
+                }
+                let slot = match ids.iter().position(|candidate| *candidate == id) {
+                    Some(slot) => slot,
+                    None => { ids.push(id); ids.len() - 1 }
+                };
+                tile_slots.push(slot as u16);
+            }
+            if !ids.is_empty() {
+                groups.push((start, tile_slots.len(), ids));
+            }
+            for (start, end, ids) in groups {
+                let mut packed = [ids[0]; MAX_TEXTURES_PER_CHUNK];
+                let mut slots = HashMap::new();
+                for (slot, id) in ids.into_iter().enumerate() {
+                    packed[slot] = id;
+                    slots.insert(id, slot);
+                }
+                match self.prepare_chunk_texture_binding(0, &packed, &slots, device.as_ref(), queue.as_ref()) {
+                    Ok(binding) => self.extra_blend_batches.push(GpuTerrainBatch {
+                        indices: (start as u32 * 6)..(end as u32 * 6),
+                        bind_group: binding.bind_group,
+                    }),
+                    Err(error) => {
+                        warn!("Failed to prepare extra terrain blend materials: {}", error);
+                        self.extra_blend_batches.clear();
+                        self.extra_blend_vertex_buffer = None;
+                        self.extra_blend_index_buffer = None;
+                        return;
+                    }
+                }
+            }
+        }
+        let gpu_vertices = self.extra_blend_mesh_to_terrain_vertices(
+            &self.extra_blend_draw_mesh,
+            (!tile_slots.is_empty()).then_some(tile_slots.as_slice()),
+        );
         self.extra_blend_vertex_buffer = Some(device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Terrain Extra Blend Vertices"),
@@ -2572,18 +2718,25 @@ impl TerrainVisualImpl {
         else {
             return;
         };
-        let Some(texture_binding) = self.chunk_texture_bindings.values().next() else {
-            return;
-        };
 
         pass.set_pipeline(pipeline);
         if let Some(camera_bg) = &self.terrain_camera_bind_group {
             pass.set_bind_group(0, camera_bg, &[]);
         }
-        pass.set_bind_group(1, &texture_binding.bind_group, &[]);
         pass.set_vertex_buffer(0, vertex_buffer.slice(..));
         pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-        pass.draw_indexed(0..self.extra_blend_index_count, 0, 0..1);
+        if self.extra_blend_batches.is_empty() {
+            // The device-only test seam can supply an already-bound material.
+            if let Some(binding) = self.chunk_texture_bindings.values().next() {
+                pass.set_bind_group(1, &binding.bind_group, &[]);
+                pass.draw_indexed(0..self.extra_blend_index_count, 0, 0..1);
+            }
+        } else {
+            for batch in &self.extra_blend_batches {
+                pass.set_bind_group(1, &batch.bind_group, &[]);
+                pass.draw_indexed(batch.indices.clone(), 0, 0..1);
+            }
+        }
     }
 
     pub fn extra_blend_tile_positions(&self) -> &[u32] {
@@ -3087,6 +3240,13 @@ fn bound_texture_id_for_source_tile(
 
     if let Some(class) = classes.get(class_idx) {
         for &id in &unique[..len] {
+            if textures.get_texture(id).is_some_and(|texture| {
+                texture.name.eq_ignore_ascii_case(class.name.trim())
+            }) {
+                return Some(id);
+            }
+        }
+        for &id in &unique[..len] {
             if let Some(texture) = textures.get_texture(id) {
                 if texture_matches_class_name(texture, &class.name) {
                     return Some(id);
@@ -3095,7 +3255,7 @@ fn bound_texture_id_for_source_tile(
         }
     }
 
-    // Map the texture class onto the 4 bound slots via TextureId keys.
+    // Preserve the existing missing-art fallback when no class art resolved.
     Some(unique[class_idx % len])
 }
 
@@ -3288,7 +3448,7 @@ mod splat_texture_class_tests {
         visual.texture_system = textures;
         visual.source_tile_classes = classes;
         visual.active_chunk_texture_ids = Some(stable);
-        let gpu = visual.extra_blend_mesh_to_terrain_vertices(&mesh);
+        let gpu = visual.extra_blend_mesh_to_terrain_vertices(&mesh, None);
         assert_eq!(gpu.len(), 6);
         for vertex in &gpu {
             assert_eq!(vertex.blend_indices[0], 1);

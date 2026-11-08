@@ -77,6 +77,7 @@ impl TerrainVisualImpl {
         // Full rebuild behavior.
         self.chunk_meshes.clear();
         self.chunk_texture_bindings.clear();
+        self.terrain_material_bind_groups.clear();
         self.road_meshes.clear();
         self.scorch_meshes.clear();
         self.overlay_gpu_meshes_dirty = true;
@@ -267,6 +268,7 @@ impl TerrainVisualImpl {
         if using_fallback_defaults {
             self.texture_rules.clear();
             self.chunk_texture_bindings.clear();
+            self.terrain_material_bind_groups.clear();
             self.chunk_meshes.clear();
             self.road_meshes.clear();
             self.scorch_meshes.clear();
@@ -536,6 +538,7 @@ impl TerrainVisualImpl {
 
         self.texture_rules = rules;
         self.chunk_texture_bindings.clear();
+        self.terrain_material_bind_groups.clear();
         self.chunk_meshes.clear();
         self.road_meshes.clear();
         self.scorch_meshes.clear();
@@ -793,12 +796,11 @@ impl TerrainVisualImpl {
         slot_map: &HashMap<TextureId, usize>,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-    ) -> TerrainResult<()> {
+    ) -> TerrainResult<ChunkTextureBinding> {
         let started = std::time::Instant::now();
-        let layout = match &self.terrain_texture_bind_group_layout {
-            Some(layout) => Arc::clone(layout),
-            None => return Ok(()),
-        };
+        let layout = self.terrain_texture_bind_group_layout.clone().ok_or_else(|| {
+            TerrainError::GPUError("terrain texture layout is not initialized".into())
+        })?;
 
         let sampler_mode = TerrainSamplerMode::current();
         let sampler_changed = self.terrain_sampler_mode != Some(sampler_mode);
@@ -807,6 +809,7 @@ impl TerrainVisualImpl {
             self.terrain_sampler_mode = Some(sampler_mode);
             if sampler_changed {
                 self.chunk_texture_bindings.clear();
+                self.terrain_material_bind_groups.clear();
             }
         }
 
@@ -826,28 +829,13 @@ impl TerrainVisualImpl {
             final_ids[idx] = texture_id;
         }
 
-        if let Some(existing) = self
-            .chunk_texture_bindings
-            .values()
-            .find(|binding| binding.texture_ids == final_ids && binding.slot_map == *slot_map)
-        {
-            self.chunk_texture_bindings.insert(
-                chunk_id,
-                ChunkTextureBinding {
-                    bind_group: existing.bind_group.clone(),
-                    slot_map: existing.slot_map.clone(),
-                    texture_ids: existing.texture_ids,
-                    diffuse_views: existing.diffuse_views.clone(),
-                },
-            );
-            let elapsed = started.elapsed();
-            if elapsed >= std::time::Duration::from_millis(50) {
-                warn!(
-                    "Terrain chunk texture binding reuse slow: chunk={} elapsed={:?}",
-                    chunk_id, elapsed
-                );
-            }
-            return Ok(());
+        if let Some(bind_group) = self.terrain_material_bind_groups.get(&final_ids) {
+            return Ok(ChunkTextureBinding {
+                bind_group: bind_group.clone(),
+                slot_map: slot_map.clone(),
+                texture_ids: final_ids,
+                diffuse_views: Vec::new(),
+            });
         }
 
         for texture_id in final_ids.iter() {
@@ -901,16 +889,14 @@ impl TerrainVisualImpl {
             layout: layout.as_ref(),
             entries: &entries,
         });
+        self.terrain_material_bind_groups.insert(final_ids, bind_group.clone());
 
-        self.chunk_texture_bindings.insert(
-            chunk_id,
-            ChunkTextureBinding {
-                bind_group,
-                slot_map: slot_map.clone(),
-                texture_ids: final_ids,
-                diffuse_views,
-            },
-        );
+        let binding = ChunkTextureBinding {
+            bind_group,
+            slot_map: slot_map.clone(),
+            texture_ids: final_ids,
+            diffuse_views,
+        };
 
         let elapsed = started.elapsed();
         if elapsed >= std::time::Duration::from_millis(50) {
@@ -929,7 +915,7 @@ impl TerrainVisualImpl {
             );
         }
 
-        Ok(())
+        Ok(binding)
     }
 }
 

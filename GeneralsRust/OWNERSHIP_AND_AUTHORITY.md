@@ -3061,3 +3061,8 @@ object's owned off-map status rather than recomputing a default-map boundary.
 Path destination and snap checks derive the seeking actor's ignore and
 relationship policy per call. Dynamic occupancy remains event-maintained;
 its refresh and ownership are separate from this query migration.
+
+Terrain draws use ordered material batches for base and extra-blend passes,
+allowing more than sixteen registered classes in a view without sharing
+bind-group state across terrain owners. Procedural rules and packed vertex
+weights still have four-layer limits.

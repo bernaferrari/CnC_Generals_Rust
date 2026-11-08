@@ -47,6 +47,7 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.chunk_meshes.clear();
         self.texture_rules.clear();
         self.chunk_texture_bindings.clear();
+        self.terrain_material_bind_groups.clear();
         self.active_chunk_texture_ids = None;
         self.terrain_sampler = None;
         self.terrain_sampler_mode = None;
