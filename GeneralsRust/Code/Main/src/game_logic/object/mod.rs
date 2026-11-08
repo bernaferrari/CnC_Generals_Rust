@@ -2552,6 +2552,9 @@ pub struct Object {
     /// StealthUpdate pulse phase residual (radians) while cloaked.
     #[serde(default)]
     pub camo_opacity_pulse_phase: f32,
+    /// StealthUpdate pulse rate, initialized to 0.2 and retained by Xfer.
+    #[serde(default = "stealth::default_pulse_phase_rate")]
+    pub camo_opacity_pulse_phase_rate: f32,
     /// CamoNetting StealthLook residual (host of Drawable::setStealthLook).
     /// C++ `StealthLookType` / `HostCamoStealthLook` ordinals:
     /// 0=None, 1=VisibleFriendly, 2=DisguisedEnemy, 3=VisibleDetected,

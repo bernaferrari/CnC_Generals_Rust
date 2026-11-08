@@ -2,6 +2,39 @@
 use super::*;
 
 #[test]
+fn dozer_acquires_admitted_mine_not_retail_named_non_mine() {
+    let source = "Object TestDozer\n  KindOf = VEHICLE SELECTABLE DOZER SCORE\n  Body = ActiveBody BodyTag\n    MaxHealth = 300\n    InitialHealth = 300\n  End\nEnd\nObject RenamedBuriedCharge\n  KindOf = MINE\n  Body = ActiveBody BodyTag\n    MaxHealth = 100\n    InitialHealth = 100\n  End\n  Behavior = MinefieldBehavior MineTag\n    NumVirtualMines = 3\n  End\nEnd\nObject ChinaStandardMine\n  Body = ActiveBody BodyTag\n    MaxHealth = 100\n    InitialHealth = 100\n  End\nEnd\n";
+    let mut parser = crate::assets::IniParser::new();
+    parser.parse_ini_content(source, "mine-acquire.ini").unwrap();
+    let mut world = GameLogic::new();
+    ensure_test_player_for_team(&mut world, Team::USA);
+    ensure_test_player_for_team(&mut world, Team::GLA);
+    world.get_player_mut(0).unwrap().set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+    world.get_player_mut(2).unwrap().set_map_relationship(0, gamelogic::common::Relationship::Enemies);
+    for name in ["TestDozer", "RenamedBuriedCharge", "ChinaStandardMine"] {
+        let definition = parser.get_definition(name).unwrap();
+        let template = GameLogic::build_template_from_object_definition(name, definition, None);
+        world.templates.insert(name.into(), template);
+    }
+    world.admit_receiving_module_content(
+        crate::assets::ReceivingObjectContent::from_sources([
+            ("mine-acquire.ini".into(), source.to_owned()),
+        ]).unwrap(),
+    ).unwrap();
+    let dozer = world.create_object("TestDozer", Team::USA, Vec3::ZERO).unwrap();
+    assert!(world.host_object(dozer).unwrap().is_alive());
+    let impostor = world.create_object("ChinaStandardMine", Team::GLA, Vec3::new(5.0, 0.0, 0.0)).unwrap();
+    assert!(world.host_object(impostor).unwrap().mine_data.is_none());
+    assert_eq!(world.find_dozer_bored_mine_target(dozer), None);
+    let allied = world.create_object("RenamedBuriedCharge", Team::USA, Vec3::new(6.0, 0.0, 0.0)).unwrap();
+    assert_eq!(world.host_object(allied).unwrap().mine_data.as_ref().unwrap().num_virtual_mines, 3);
+    assert_eq!(world.find_dozer_bored_mine_target(dozer), None);
+    let enemy = world.create_object("RenamedBuriedCharge", Team::GLA, Vec3::new(10.0, 0.0, 0.0)).unwrap();
+    assert!(world.host_object(enemy).unwrap().is_alive());
+    assert_eq!(world.find_dozer_bored_mine_target(dozer), Some(enemy));
+}
+
+#[test]
 fn listening_outpost_residual_transport_load_unload() {
     use crate::command_system::{CommandType, GameCommand};
     use crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_TRANSPORT_SLOTS;

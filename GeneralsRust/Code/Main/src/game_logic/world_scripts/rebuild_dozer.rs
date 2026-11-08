@@ -1074,9 +1074,7 @@ impl GameLogic {
                 if !o.is_alive() {
                     return None;
                 }
-                let is_mine = o.mine_data.is_some()
-                    || crate::game_logic::host_mines::infer_mine_kind(&o.template_name).is_some();
-                if !is_mine {
+                if o.mine_data.is_none() {
                     return None;
                 }
                 let producer = o
@@ -1548,16 +1546,10 @@ impl GameLogic {
                     return None;
                 }
                 // C++ ALLOW_ENEMIES | ALLOW_NEUTRAL only (not allies / own mines).
-                let inferred = crate::game_logic::host_mines::infer_mine_kind(&obj.template_name);
-                let is_mine = obj.mine_data.is_some() || inferred.is_some();
-                if !is_mine {
+                let Some(data) = obj.mine_data.as_ref() else {
                     return None;
-                }
-                if let Some(md) = obj.mine_data.as_ref() {
-                    if !can_clear_mine_kind(md.kind) {
-                        return None;
-                    }
-                } else if inferred.is_some_and(|kind| !can_clear_mine_kind(kind)) {
+                };
+                if !can_clear_mine_kind(data.kind) {
                     return None;
                 }
                 Some(

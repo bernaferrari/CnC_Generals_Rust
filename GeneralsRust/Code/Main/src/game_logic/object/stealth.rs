@@ -369,8 +369,8 @@ impl Object {
         } else {
             1.0
         };
-        let (op, next) = stealth_update_pulse_opacity(self.camo_opacity_pulse_phase, floor);
-        self.camo_opacity_pulse_phase = next;
+        let (op, _) = stealth_update_pulse_opacity(self.camo_opacity_pulse_phase, floor);
+        self.camo_opacity_pulse_phase += self.camo_opacity_pulse_phase_rate;
         self.camo_friendly_opacity = op;
     }
 
@@ -725,6 +725,10 @@ pub fn drawable_explicit_fade_opacity(mode: u8, start_frame: u32, frames: u32, n
 
 /// C++ `StealthUpdate` pulse rate (`m_pulsePhaseRate = 0.2`).
 pub const STEALTH_UPDATE_PULSE_PHASE_RATE: f32 = 0.2;
+
+pub(super) fn default_pulse_phase_rate() -> f32 {
+    STEALTH_UPDATE_PULSE_PHASE_RATE
+}
 
 /// C++ `StealthUpdate.cpp:668-670` + `Drawable::setEffectiveOpacity`.
 ///

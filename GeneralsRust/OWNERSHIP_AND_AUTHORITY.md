@@ -3017,3 +3017,7 @@ shot deadlines still need integer-frame ownership instead of float timestamps.
 Logical saves record whether their owning world admitted an authored map.
 Restore rejects an unavailable authored map instead of treating it as mapless;
 explicitly mapless archives retain their owned terrain data.
+
+Stealth opacity pulse rate and phase belong to the receiving object and survive
+snapshot transfer. Interleaved worlds retain separate client RNG streams;
+mixed-module constructor ordering remains to be compared against C++.

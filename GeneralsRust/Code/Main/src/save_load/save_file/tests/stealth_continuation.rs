@@ -21,17 +21,33 @@ fn stealth_opacity_continues_from_real_archive_in_interleaved_worlds() {
     let mut saves = SaveFileManager::with_save_directory(directory.path());
     let mut source = receiving(0x1234);
     let mut peer = receiving(0x9876);
+    let mut source_random = source.session_view.client_random.clone();
+    let mut peer_random = peer.session_view.client_random.clone();
+    let source_first_phase = source_random.next_real(0.0, std::f32::consts::PI);
+    let peer_first_phase = peer_random.next_real(0.0, std::f32::consts::PI);
+    let peer_before_source_creation = peer.session_view.client_random.seed_words();
     let id = source.create_object("ArchiveSneaker", Team::GLA, Vec3::ZERO).unwrap();
+    assert_eq!(peer.session_view.client_random.seed_words(), peer_before_source_creation);
     let peer_id = peer.create_object("ArchiveSneaker", Team::GLA, Vec3::ZERO).unwrap();
     source.host_object_mut(id).unwrap().owner_player_id = Some(0);
     peer.host_object_mut(peer_id).unwrap().owner_player_id = Some(0);
     assert_eq!(id, peer_id);
-    let initial_phase = source.host_object(id).unwrap().camo_opacity_pulse_phase;
+    assert_eq!(source.host_object(id).unwrap().camo_opacity_pulse_phase, source_first_phase);
+    assert_eq!(peer.host_object(peer_id).unwrap().camo_opacity_pulse_phase, peer_first_phase);
+    assert_eq!(source.session_view.client_random.seed_words(), source_random.seed_words());
+    assert_eq!(peer.session_view.client_random.seed_words(), peer_random.seed_words());
+    let initial_phase = source_first_phase;
     for frame in 1..=5 {
         source.frame = frame;
         source.update_stealth_and_detection();
+        peer.frame = frame;
+        peer.update_stealth_and_detection();
     }
     assert_ne!(source.host_object(id).unwrap().camo_opacity_pulse_phase, initial_phase);
+    assert_eq!(source.session_view.client_random.seed_words(), source_random.seed_words());
+    assert_eq!(peer.session_view.client_random.seed_words(), peer_random.seed_words());
+    // Xfer retains the rate as well as the phase, including non-default rates.
+    source.host_object_mut(id).unwrap().camo_opacity_pulse_phase_rate = 0.37;
     saves.save_game("stealth", &source, &fixture_save_info()).unwrap();
     let saved = saves.load_game_snapshot("stealth").unwrap().snapshot;
     let mut restored = receiving(0x4567);
@@ -39,17 +55,26 @@ fn stealth_opacity_continues_from_real_archive_in_interleaved_worlds() {
     expected_random.next_real(0.0, std::f32::consts::PI);
     saves.restore_game_snapshot(&saved, &mut restored).unwrap();
     assert_eq!(restored.session_view.client_random.seed_words(), expected_random.seed_words());
+    assert_eq!(source.session_view.client_random.seed_words(), source_random.seed_words());
+    assert_eq!(peer.session_view.client_random.seed_words(), peer_random.seed_words());
+    assert_eq!(restored.host_object(id).unwrap().camo_opacity_pulse_phase_rate, 0.37);
+    assert_eq!(peer.host_object(peer_id).unwrap().camo_opacity_pulse_phase_rate, 0.2);
     assert_eq!(
         restored.host_object(id).unwrap().camo_opacity_pulse_phase,
         source.host_object(id).unwrap().camo_opacity_pulse_phase
     );
     for frame in 6..=10 {
+        let phase_before = source.host_object(id).unwrap().camo_opacity_pulse_phase;
         peer.frame = frame;
         peer.update_stealth_and_detection();
         source.frame = frame;
         source.update_stealth_and_detection();
         restored.frame = frame;
         restored.update_stealth_and_detection();
+        assert_eq!(
+            source.host_object(id).unwrap().camo_opacity_pulse_phase,
+            phase_before + 0.37
+        );
         let original = source.host_object(id).unwrap();
         let loaded = restored.host_object(id).unwrap();
         assert_eq!(loaded.camo_opacity_pulse_phase, original.camo_opacity_pulse_phase);
@@ -61,6 +86,28 @@ fn stealth_opacity_continues_from_real_archive_in_interleaved_worlds() {
             .expect("restored friendly stealth is renderable");
         assert!((rendered.presentation_opacity - original.camo_friendly_opacity).abs() < 1e-5);
     }
+    assert_eq!(source.session_view.client_random.seed_words(), source_random.seed_words());
+    assert_eq!(peer.session_view.client_random.seed_words(), peer_random.seed_words());
+    assert_eq!(restored.session_view.client_random.seed_words(), expected_random.seed_words());
+
+    // Loading overlays the saved phase, but the next constructor must continue
+    // the receiving client's stream, not the saved world's cosmetic stream.
+    let source_before_restored_creation = source.session_view.client_random.seed_words();
+    let peer_before_restored_creation = peer.session_view.client_random.seed_words();
+    let restored_next = expected_random.next_real(0.0, std::f32::consts::PI);
+    let source_next = source_random.next_real(0.0, std::f32::consts::PI);
+    let peer_next = peer_random.next_real(0.0, std::f32::consts::PI);
+    let restored_id = restored.create_object("ArchiveSneaker", Team::GLA, Vec3::ZERO).unwrap();
+    assert_eq!(source.session_view.client_random.seed_words(), source_before_restored_creation);
+    assert_eq!(peer.session_view.client_random.seed_words(), peer_before_restored_creation);
+    let peer_second = peer.create_object("ArchiveSneaker", Team::GLA, Vec3::ZERO).unwrap();
+    let source_second = source.create_object("ArchiveSneaker", Team::GLA, Vec3::ZERO).unwrap();
+    assert_eq!(restored.host_object(restored_id).unwrap().camo_opacity_pulse_phase, restored_next);
+    assert_eq!(peer.host_object(peer_second).unwrap().camo_opacity_pulse_phase, peer_next);
+    assert_eq!(source.host_object(source_second).unwrap().camo_opacity_pulse_phase, source_next);
+    assert_eq!(restored.session_view.client_random.seed_words(), expected_random.seed_words());
+    assert_eq!(peer.session_view.client_random.seed_words(), peer_random.seed_words());
+    assert_eq!(source.session_view.client_random.seed_words(), source_random.seed_words());
     assert_ne!(
         peer.host_object(peer_id).unwrap().camo_opacity_pulse_phase,
         restored.host_object(id).unwrap().camo_opacity_pulse_phase

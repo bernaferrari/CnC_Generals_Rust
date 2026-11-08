@@ -4,14 +4,14 @@
 //! StealthUpdate::xfer saves m_enabled and, in version 2, m_framesGranted.
 //! The scheduler's awake state is also retained. Restore after construction
 //! and upgrades, without replaying grants.
-//! Pulse rate is invariant at the native constructor's 0.2 in host-created state.
+//! Pulse phase and rate are restored together, as in StealthUpdate::xfer.
 
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const STLG_MAGIC: &[u8; 4] = b"STLG";
-const STLG_VERSION: u32 = 2;
+const STLG_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct StealthGrantPersistPayload {
@@ -25,6 +25,7 @@ struct StealthGrantPersist {
     enabled: bool,
     awake: bool,
     frames_granted: u32,
+    pulse_phase_rate: f32,
     pulse_phase: f32,
 }
 
@@ -85,6 +86,7 @@ fn capture(game_logic: &GameLogic) -> StealthGrantPersistPayload {
             enabled: object.stealth_update_enabled,
             awake: object.stealth_update_awake,
             frames_granted: object.stealth_frames_granted,
+            pulse_phase_rate: object.camo_opacity_pulse_phase_rate,
             pulse_phase: object.camo_opacity_pulse_phase,
         });
     }
@@ -113,6 +115,7 @@ fn apply_payload(game_logic: &mut GameLogic, payload: StealthGrantPersistPayload
         object.stealth_update_enabled = entry.enabled;
         object.stealth_update_awake = entry.awake;
         object.stealth_frames_granted = entry.frames_granted;
+        object.camo_opacity_pulse_phase_rate = entry.pulse_phase_rate;
         object.camo_opacity_pulse_phase = entry.pulse_phase;
     }
 }

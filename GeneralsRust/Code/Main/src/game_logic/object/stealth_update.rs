@@ -320,6 +320,7 @@ impl Object {
             return;
         };
         self.stealth_allowed_frame = now.wrapping_add(data.stealth_delay_frames);
+        self.camo_opacity_pulse_phase_rate = super::STEALTH_UPDATE_PULSE_PHASE_RATE;
         self.camo_opacity_pulse_phase = client_random.next_real(0.0, std::f32::consts::PI);
         self.stealth_update_enabled = !data.disguises_as_team;
         self.stealth_update_awake = !data.granted_by_special_power;
