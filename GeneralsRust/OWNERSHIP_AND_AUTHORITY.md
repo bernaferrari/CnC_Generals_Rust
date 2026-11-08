@@ -3032,3 +3032,6 @@ Those live effect paths still require receiving-owner migration.
 
 Particle Cannon strikes capture each firing source's authored swath distance and
 amplitude. Queued and active strikes retain those settings across save/load.
+
+Science archive admission builds a receiving store from ordered sources without
+resetting or repopulating the ambient compatibility store.

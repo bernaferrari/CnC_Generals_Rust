@@ -705,6 +705,7 @@ impl ScienceStore {
                 Path::new(path),
                 std::io::Cursor::new(bytes),
                 is_override,
+                true,
                 &mut definitions,
                 &mut order,
             )?;
@@ -927,12 +928,18 @@ impl ScienceStore {
             value_tokens.retain(|token| *token != "=");
 
             let value = value_tokens.join(" ");
-            if value.is_empty() {
-                continue;
+            if value.is_empty() && !key.eq_ignore_ascii_case("PrerequisiteSciences") {
+                return Err(INIError::InvalidData);
             }
 
             match key.to_ascii_lowercase().as_str() {
                 "prerequisitesciences" => {
+                    if value.split_whitespace()
+                        .take_while(|name| !name.eq_ignore_ascii_case("None"))
+                        .any(|name| self.get_science_from_internal_name(name) == SCIENCE_INVALID)
+                    {
+                        return Err(INIError::InvalidData);
+                    }
                     definition.prereq_names = Some(parse_science_names(&value));
                 }
                 "sciencepurchasepointcost" => {
@@ -940,7 +947,7 @@ impl ScienceStore {
                         Some(value.parse::<i32>().map_err(|_| INIError::InvalidData)?);
                 }
                 "isgrantable" => {
-                    definition.grantable = Some(parse_bool_token(&value));
+                    definition.grantable = Some(INI::parse_bool(&value)?);
                 }
                 "displayname" => {
                     definition.display_name = Some(INI::translate_label(&value)?);
@@ -948,9 +955,7 @@ impl ScienceStore {
                 "description" => {
                     definition.description = Some(INI::translate_label(&value)?);
                 }
-                _ => {
-                    debug!("ScienceStore: unhandled science token '{}' in INI", key);
-                }
+                _ => return Err(INIError::UnknownToken),
             }
         }
 
@@ -998,6 +1003,7 @@ fn ingest_science_file(
         path,
         BufReader::new(file),
         is_override,
+        false,
         definitions,
         definition_order,
     )
@@ -1007,6 +1013,7 @@ fn ingest_science_reader(
     path: &Path,
     mut reader: impl BufRead,
     is_override: bool,
+    reject_duplicates: bool,
     definitions: &mut HashMap<String, ScienceDefinition>,
     definition_order: &mut Vec<String>,
 ) -> Result<(), ScienceLoadError> {
@@ -1039,14 +1046,19 @@ fn ingest_science_reader(
                         });
                     }
 
-                    if let Some(def) = current.take() {
-                        merge_science_definition(
-                            path,
-                            def,
-                            definitions,
-                            definition_order,
-                            is_override,
-                        );
+                    if current.is_some() {
+                        return Err(ScienceLoadError::Parse {
+                            path: path.to_path_buf(),
+                            line: line_no,
+                            message: "Science block missing End".to_string(),
+                        });
+                    }
+                    if reject_duplicates && definitions.contains_key(&name) {
+                        return Err(ScienceLoadError::Parse {
+                            path: path.to_path_buf(),
+                            line: line_no,
+                            message: format!("Duplicate science '{}'", name),
+                        });
                     }
 
                     current = Some(ScienceDefinition {
@@ -1066,27 +1078,40 @@ fn ingest_science_reader(
                             is_override,
                         );
                     } else {
-                        warn!(
-                            "ScienceStore: stray 'End' found in {:?} at line {}",
-                            path, line_no
-                        );
+                        return Err(ScienceLoadError::Parse {
+                            path: path.to_path_buf(),
+                            line: line_no,
+                            message: "Unexpected End".to_string(),
+                        });
                     }
                     continue;
                 }
 
                 let (key, value) = if let Some((key, value)) = trimmed.split_once('=') {
                     (key.trim(), value.trim())
+                } else if let Some((key, value)) = trimmed.split_once(char::is_whitespace) {
+                    (key.trim(), value.trim())
                 } else {
-                    warn!(
-                        "ScienceStore: ignoring malformed line in {:?} at {}: {}",
-                        path, line_no, trimmed
-                    );
-                    continue;
+                    return Err(ScienceLoadError::Parse {
+                        path: path.to_path_buf(),
+                        line: line_no,
+                        message: format!("Malformed Science line '{}'", trimmed),
+                    });
                 };
 
                 if let Some(def) = current.as_mut() {
                     match key.to_lowercase().as_str() {
                         "prerequisitesciences" => {
+                            if let Some(name) = value.split_whitespace()
+                                .take_while(|name| !name.eq_ignore_ascii_case("None"))
+                                .find(|name| !definitions.contains_key(*name))
+                            {
+                                return Err(ScienceLoadError::Parse {
+                                    path: path.to_path_buf(),
+                                    line: line_no,
+                                    message: format!("Unknown prerequisite science '{}'", name),
+                                });
+                            }
                             def.prereq_names = Some(parse_science_names(value));
                         }
                         "sciencepurchasepointcost" => match value.parse::<i32>() {
@@ -1103,30 +1128,36 @@ fn ingest_science_reader(
                             }
                         },
                         "isgrantable" => {
-                            def.grantable = Some(parse_bool_token(value));
+                            def.grantable = Some(INI::parse_bool(value).map_err(|error| ScienceLoadError::Parse {
+                                path: path.to_path_buf(),
+                                line: line_no,
+                                message: format!("Invalid IsGrantable value '{}': {}", value, error),
+                            })?);
                         }
-                        "displayname" => {
-                            def.display_name = Some(
-                                INI::translate_label(value).unwrap_or_else(|_| value.to_string()),
-                            );
+                        "displayname" | "description" => {
+                            let label = INI::translate_label(value).map_err(|error| ScienceLoadError::Parse {
+                                path: path.to_path_buf(),
+                                line: line_no,
+                                message: format!("Invalid {} value '{}': {}", key, value, error),
+                            })?;
+                            if key.eq_ignore_ascii_case("displayname") {
+                                def.display_name = Some(label);
+                            } else {
+                                def.description = Some(label);
+                            }
                         }
-                        "description" => {
-                            def.description = Some(
-                                INI::translate_label(value).unwrap_or_else(|_| value.to_string()),
-                            );
-                        }
-                        _ => {
-                            debug!(
-                                "ScienceStore: unhandled science token '{}' in {:?} at line {}",
-                                key, path, line_no
-                            );
-                        }
+                        _ => return Err(ScienceLoadError::Parse {
+                            path: path.to_path_buf(),
+                            line: line_no,
+                            message: format!("Unknown Science field '{}'", key),
+                        }),
                     }
                 } else {
-                    warn!(
-                        "ScienceStore: encountered '{}' outside of a Science block in {:?} at line {}",
-                        key, path, line_no
-                    );
+                    return Err(ScienceLoadError::Parse {
+                        path: path.to_path_buf(),
+                        line: line_no,
+                        message: format!("Unexpected token '{}' outside Science", key),
+                    });
                 }
             }
             Err(err) => {
@@ -1138,8 +1169,12 @@ fn ingest_science_reader(
         }
     }
 
-    if let Some(def) = current.take() {
-        merge_science_definition(path, def, definitions, definition_order, is_override);
+    if current.is_some() {
+        return Err(ScienceLoadError::Parse {
+            path: path.to_path_buf(),
+            line: line_no,
+            message: "Science block missing End".to_string(),
+        });
     }
 
     Ok(())
@@ -1225,13 +1260,6 @@ fn strip_comments(line: &str) -> &str {
     line[..end].trim()
 }
 
-fn parse_bool_token(token: &str) -> bool {
-    match token.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" | "yes" | "y" => true,
-        "0" | "false" | "no" | "n" => false,
-        _ => false,
-    }
-}
 
 impl Default for ScienceStore {
     fn default() -> Self {

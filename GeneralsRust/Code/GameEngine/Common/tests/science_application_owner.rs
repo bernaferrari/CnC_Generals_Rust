@@ -6,6 +6,7 @@ use game_engine::common::thing::receiving_module_content::ReceivingActionDefinit
 
 #[test]
 fn science_names_and_map_overrides_follow_their_application_across_threads() {
+    let _services = game_engine::common::common_services::CommonServicesScope::new();
     let mut first = ScienceStore::new_owned();
     let mut peer = ScienceStore::new_owned();
     let first_source = b"Science Root\n SciencePurchasePointCost = 0\nEnd\nScience Shared\n PrerequisiteSciences = Root\n SciencePurchasePointCost = 1\nEnd\n";
@@ -28,6 +29,7 @@ fn science_names_and_map_overrides_follow_their_application_across_threads() {
     assert_eq!(peer.get_science_purchase_cost(peer_id), 3);
 
     let first = std::thread::spawn(move || {
+        let _services = game_engine::common::common_services::CommonServicesScope::new();
         // The driving thread has an unrelated namespace with conflicting IDs.
         NameKeyGenerator::init();
         for name in ["foreign", "Shared", "Root", "MapOnly"] {
@@ -99,4 +101,75 @@ fn startup_command_definitions_are_base_versions_with_receiving_science_ids() {
         set.get_button_at_position(0).map(String::as_str),
         Some("OwnedButton")
     );
+}
+
+#[test]
+fn ordered_application_sources_and_map_overrides_stay_with_receiving_consumers() {
+    use game_engine::common::rts::science::{ScienceAccess, ScienceType};
+
+    struct Owned(Vec<ScienceType>);
+    impl ScienceAccess for Owned {
+        fn has_science(&self, science: ScienceType) -> bool {
+            self.0.contains(&science)
+        }
+    }
+
+    let mut first = ScienceStore::new_owned();
+    let mut peer = ScienceStore::new_owned();
+    first.load_from_sources(&[
+        ("Data/INI/Default/Science.ini", b"Science RootA\nEnd\n", false),
+        ("Data/INI/Science.ini", b"Science Shared\n PrerequisiteSciences = RootA\n SciencePurchasePointCost = 2\nEnd\n", true),
+    ]).unwrap();
+    peer.load_from_sources(&[
+        ("Data/INI/Default/Science.ini", b"Science Extra\nEnd\nScience RootB\nEnd\n", false),
+        ("Data/INI/Science.ini", b"Science Shared\n PrerequisiteSciences = RootB\n SciencePurchasePointCost = 4\nEnd\n", true),
+    ]).unwrap();
+
+    let first_shared = first.get_science_from_internal_name("Shared");
+    let peer_shared = peer.get_science_from_internal_name("Shared");
+    let first_root = first.get_science_from_internal_name("RootA");
+    let peer_root = peer.get_science_from_internal_name("RootB");
+    assert_ne!(first_shared, peer_shared);
+    assert!(first.player_has_prereqs_for_science(&Owned(vec![first_root]), first_shared));
+    assert!(!peer.player_has_prereqs_for_science(&Owned(vec![first_root]), peer_shared));
+    assert!(peer.player_has_prereqs_for_science(&Owned(vec![peer_root]), peer_shared));
+
+    let mut first_actions = ReceivingActionDefinitions::default();
+    let mut peer_actions = ReceivingActionDefinitions::default();
+    let source = "CommandButton Buy\n Command = PURCHASE_SCIENCE\n Science = Shared\nEnd\n";
+    first_actions.apply_source(source, &ScienceNameFacts::from_store(&first)).unwrap();
+    peer_actions.apply_source(source, &ScienceNameFacts::from_store(&peer)).unwrap();
+    assert_eq!(first_actions.buttons.find_command_button_resolved("Buy").unwrap().parsed_science_required, vec![first_shared]);
+    assert_eq!(peer_actions.buttons.find_command_button_resolved("Buy").unwrap().parsed_science_required, vec![peer_shared]);
+
+    first.apply_override_text("Science Shared\n SciencePurchasePointCost = 7\n PrerequisiteSciences = None\nEnd\nScience MapOnly\n PrerequisiteSciences = Shared\nEnd\n").unwrap();
+    assert_eq!(first.get_science_purchase_cost(first_shared), 7);
+    assert!(first.player_has_prereqs_for_science(&Owned(vec![]), first_shared));
+    assert_eq!(peer.get_science_purchase_cost(peer_shared), 4);
+    assert!(first.apply_override_text("Science Bad\n PrerequisiteSciences = Missing\nEnd\n").is_err());
+    assert!(first.apply_override_text("Science Bad\n IsGrantable = perhaps\nEnd\n").is_err());
+    first.reset();
+    assert_eq!(first.get_science_purchase_cost(first_shared), 2);
+    assert_eq!(first.get_science_from_internal_name("MapOnly"), SCIENCE_INVALID);
+    assert!(!first.player_has_prereqs_for_science(&Owned(vec![]), first_shared));
+    assert_eq!(peer.get_science_purchase_cost(peer_shared), 4);
+}
+
+#[test]
+fn archive_science_rejects_missing_prerequisites_and_malformed_blocks() {
+    for source in [
+        &b"Science Child\n PrerequisiteSciences = Missing\nEnd\n"[..],
+        &b"Science Root\n IsGrantable = perhaps\nEnd\n"[..],
+        &b"Science Root\n SciencePurchasePointCost = 1\n"[..],
+        &b"Science Root\n Unexpected = 1\nEnd\n"[..],
+    ] {
+        assert!(ScienceStore::new_owned()
+            .load_from_sources(&[("Science.ini", source, false)])
+            .is_err());
+    }
+    let mut store = ScienceStore::new_owned();
+    assert!(store.load_from_sources(&[
+        ("Default/Science.ini", b"Science Root\nEnd\n", false),
+        ("Science.ini", b"Science Root\nEnd\n", true),
+    ]).is_err());
 }

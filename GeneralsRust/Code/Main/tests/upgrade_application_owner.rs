@@ -188,28 +188,76 @@ fn each_archive_admits_its_own_science_definitions_and_prerequisites() {
         vec![peer.get_science_from_internal_name("SCIENCE_Root")]
     );
 
-    // The compatibility RTS store receives each parsed declaration in source
-    // order too. Reinitializing for every registration used to retain only the
-    // final block and silently drop the shared science and its prerequisite.
-    let live = game_engine::common::rts::science::get_science_store().unwrap();
-    let live_shared = live.get_science_from_internal_name("SCIENCE_Shared");
-    let live_root = live.get_science_from_internal_name("SCIENCE_Root");
-    let live_extra = live.get_science_from_internal_name("SCIENCE_Extra");
-    assert_ne!(
-        live_shared,
-        game_engine::common::rts::science::SCIENCE_INVALID
-    );
-    assert_ne!(
-        live_root,
-        game_engine::common::rts::science::SCIENCE_INVALID
-    );
-    assert_ne!(
-        live_extra,
-        game_engine::common::rts::science::SCIENCE_INVALID
-    );
-    assert_eq!(live.get_science_purchase_cost(live_shared), 3);
-    assert_eq!(
-        live.find_science_info(live_shared).unwrap().prereq_sciences,
-        vec![live_root]
-    );
+    use game_engine::common::rts::science::ScienceNameFacts;
+    use game_engine::common::system::DataChunkOutput;
+    use game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions;
+    use generals_main::assets::ReceivingStartupContent;
+    use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
+    use generals_main::game_logic::{GameLogic, GameMode, Player, Team};
+    use std::sync::Arc;
+
+    let mut map = DataChunkOutput::new();
+    map.open_data_chunk("HeightMapData", 3);
+    for value in [21, 21, 1, 441] {
+        map.write_int(value);
+    }
+    for _ in 0..441 {
+        map.write_byte(8);
+    }
+    map.close_data_chunk();
+    map.open_data_chunk("ObjectsList", 3);
+    map.close_data_chunk();
+    let map_bytes = map.into_ckmp_bytes();
+    let make_map = |name: &str, override_text: &str| {
+        let folder = dir.path().join(name);
+        std::fs::create_dir(&folder).unwrap();
+        let path = folder.join("Owner.map");
+        std::fs::write(&path, &map_bytes).unwrap();
+        std::fs::write(folder.join("Map.ini"), override_text).unwrap();
+        path
+    };
+    let first_map = make_map("first-map", "Science SCIENCE_Shared\n SciencePurchasePointCost = 2\nEnd\n");
+    let peer_map = make_map("peer-map", "");
+    let make_world = |store: &game_engine::common::rts::science::ScienceStore, path: &std::path::Path| {
+        let content = ReceivingStartupContent::from_sources(
+            [("Data/INI/Default/Object.ini".into(), String::new())],
+            Arc::new(ScienceNameFacts::from_store(store)),
+            Arc::new(ReceivingActionDefinitions::default()),
+            Vec::new(),
+        ).unwrap();
+        let mut world = GameLogic::new();
+        world.admit_startup_content(content).unwrap();
+        world.start_new_game(GameMode::SinglePlayer).unwrap();
+        assert!(world.load_map(path.to_str().unwrap()));
+        let mut player = Player::new(42, Team::USA, "Owner", true);
+        player.science_purchase_points = 2;
+        world.add_player(player);
+        world
+    };
+    let mut first_world = make_world(&first, &first_map);
+    let mut peer_world = make_world(&peer, &peer_map);
+    assert!(!first_world.player_can_purchase_science(42, "SCIENCE_Shared"));
+    first_world.get_player_mut(42).unwrap().unlocked_sciences.insert("SCIENCE_Root".into());
+    peer_world.get_player_mut(42).unwrap().unlocked_sciences.insert("SCIENCE_Root".into());
+    assert!(first_world.player_can_purchase_science(42, "SCIENCE_Shared"));
+    assert!(!peer_world.player_can_purchase_science(42, "SCIENCE_Shared"));
+    first_world.queue_command(GameCommand {
+        command_type: CommandType::PurchaseScience { science_name: "SCIENCE_Shared".into() },
+        player_id: 42,
+        command_id: 1,
+        timestamp: std::time::UNIX_EPOCH,
+        selected_units: Vec::new(),
+        modifier_keys: ModifierKeys::default(),
+    });
+    first_world.process_commands();
+    assert!(first_world.get_player(42).unwrap().has_unlocked_science("SCIENCE_Shared"));
+    assert_eq!(first_world.get_player(42).unwrap().science_purchase_points, 0);
+    assert_eq!(peer_world.get_player(42).unwrap().science_purchase_points, 2);
+    peer_world.reset();
+    let snapshot_builder = generals_main::save_load::SnapshotBuilder::new();
+    let snapshot = snapshot_builder.create_world_snapshot(&first_world).unwrap();
+    let mut restored = make_world(&first, &first_map);
+    snapshot_builder.restore_from_snapshot(&snapshot, &mut restored).unwrap();
+    assert!(restored.get_player(42).unwrap().has_unlocked_science("SCIENCE_Shared"));
+    assert_eq!(restored.get_player(42).unwrap().science_purchase_points, 0);
 }

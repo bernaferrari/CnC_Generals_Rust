@@ -388,8 +388,9 @@ where
 
     sort_and_dedup_archive_paths(&mut defaults);
     sort_and_dedup_archive_paths(&mut overrides);
-    defaults.extend(overrides);
-    defaults
+    defaults.into_iter().next().into_iter()
+        .chain(overrides.into_iter().next())
+        .collect()
 }
 
 /// Load weapon templates from BIG archives and register them in the GameLogic WeaponStore.
@@ -546,17 +547,12 @@ pub async fn load_science_templates(
         return Ok((0, definitions));
     }
 
-    // The process-wide compatibility store mirrors C++'s one ScienceStore
-    // initialized before the ordered Default/Science and override files load.
-    // Initializing in `register_science_template` resets every prior entry.
-    game_engine::common::rts::science::init_science_store();
 
     info!(
         "Loading science templates from {} INI files",
         science_files.len()
     );
 
-    let mut total_sciences = 0usize;
     let mut source_bytes = Vec::new();
 
     for (idx, ini_file) in science_files.iter().enumerate() {
@@ -588,22 +584,7 @@ pub async fn load_science_templates(
             .ends_with("data/ini/science.ini");
         source_bytes.push((ini_file.clone(), content.as_bytes().to_vec(), override_file));
 
-        let sections = parse_ini_sections(&content);
-        let mut file_science_count = 0usize;
-
-        for (block_type, block_name, properties) in &sections {
-            if block_type.eq_ignore_ascii_case("Science")
-                && register_science_template(block_name, properties)
-            {
-                file_science_count += 1;
-            }
-        }
-
-        total_sciences += file_science_count;
-        debug!(
-            "Loaded {} science templates from {}",
-            file_science_count, ini_file
-        );
+        debug!("Read science definitions from {}", ini_file);
     }
 
     let sources = source_bytes
@@ -613,6 +594,7 @@ pub async fn load_science_templates(
     definitions
         .load_from_sources(&sources)
         .map_err(|error| error.to_string())?;
+    let total_sciences = definitions.iter().count();
     info!("Loaded {} science templates total", total_sciences);
     Ok((total_sciences, definitions))
 }
@@ -1652,58 +1634,6 @@ fn apply_weapon_effect_references(
     }
 }
 
-/// Register a science template parsed from INI into leftover leftover + live ScienceStore.
-pub(crate) fn register_science_template(name: &str, properties: &HashMap<String, String>) -> bool {
-    use game_engine::common::ascii_string::AsciiString;
-    use game_engine::common::ini::ini_science::{get_science_store_mut, parse_science_definition};
-    use game_engine::common::rts::science::{
-        ScienceDefinition, get_science_store_mut as get_live_science_store_mut,
-    };
-
-    match parse_science_definition(name, properties) {
-        Ok(info) => {
-            {
-                let mut store = get_science_store_mut();
-                let _ = store.add_science(AsciiString::from(name), info);
-            }
-            // C++ TheScienceStore is one store. Host leftover leftover parse also
-            // feeds the live rts store used by GrantScience / scripts.
-            if let Some(mut live) = get_live_science_store_mut() {
-                let prereq_names = properties.get("PrerequisiteSciences").map(|value| {
-                    value
-                        .split_whitespace()
-                        .filter(|token| !token.is_empty() && !token.eq_ignore_ascii_case("None"))
-                        .map(|token| token.to_string())
-                        .collect::<Vec<_>>()
-                });
-                let cost = properties
-                    .get("SciencePurchasePointCost")
-                    .and_then(|value| value.parse().ok());
-                let grantable = properties.get("IsGrantable").map(|value| {
-                    matches!(
-                        value.trim().to_ascii_lowercase().as_str(),
-                        "yes" | "true" | "1"
-                    )
-                });
-                live.ingest_definition(ScienceDefinition {
-                    name: name.to_string(),
-                    display_name: properties.get("DisplayName").cloned(),
-                    description: properties.get("Description").cloned(),
-                    prereq_names,
-                    cost,
-                    grantable,
-                });
-                live.rebuild_root_sciences();
-            }
-            debug!("Registered science template: {}", name);
-            true
-        }
-        Err(e) => {
-            warn!("Failed to parse science '{}': {:?}", name, e);
-            false
-        }
-    }
-}
 
 /// Parse a damage type string into the GameLogic DamageType.
 fn parse_damage_type(s: &str) -> gamelogic::DamageType {
@@ -2404,7 +2334,6 @@ End
             discovered,
             vec![
                 "Data/INI/Default/Science.ini".to_string(),
-                "INIZH/Data/INI/Default/Science.ini".to_string(),
                 "Data/INI/Science.ini".to_string(),
             ]
         );
