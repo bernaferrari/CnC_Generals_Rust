@@ -222,13 +222,9 @@ pub(super) fn build_material_passes_from_prototype(
         vertex_material_cache.push(Arc::new(vm));
     }
 
-    // C++ meshmdlio.cpp:1800-1808 — vertex-lit (PRELIT_VERTEX) meshes need the
-    // dynamic lighting turned off; every other mesh stays lit.
-    let lighting_enabled = !prototype
-        .header
-        .as_ref()
-        .map(|header| (header.attrs & W3D_MESH_FLAG_PRELIT_VERTEX) != 0)
-        .unwrap_or(false);
+    // Only the selected vertex-lit wrapper disables lighting; header flags
+    // advertise alternatives which may not have been loaded.
+    let lighting_enabled = prototype.selected_prelit_mode != Some(ww3d_core::PrelitMode::Vertex);
 
     let (_, stage_channels) = compute_stage_uv_info(&prototype.stage_texcoords);
     let mut stage_cursor = 0usize;
@@ -304,7 +300,7 @@ pub(super) fn build_material_passes_from_prototype(
             // (meshmatdesc.cpp:903-917): each pass gets its own configured
             // material — diffuse source COLOR1 exactly when the pass carries a
             // DCG array, emissive source COLOR1 when it carries a DIG array,
-            // and UseLighting per the mesh's prelit flag.
+            // and UseLighting per the selected prelit mode.
             configure_pass_vertex_material(&mut pass, lighting_enabled);
 
             apply_mapper_from_prototype(&mut pass, prototype, pass_index);
@@ -373,6 +369,65 @@ mod compute_stage_masks_tests {
     const VERTEX_DIFFUSE_BIT: u32 = 1 << 8;
     const VERTEX_ILLUMINATION_BIT: u32 = 1 << 9;
     const USE_LIGHTING_BIT: u32 = 1 << 10;
+
+    #[test]
+    fn binary_alternatives_select_multipass_lighting_and_animated_mapper() {
+        use ww3d_core::{PrelitMode, W3DChunkType as Chunk};
+
+        fn chunk(kind: Chunk, nested: bool, body: Vec<u8>) -> Vec<u8> {
+            let mut bytes = kind.as_u32().to_le_bytes().to_vec();
+            bytes.extend_from_slice(&((body.len() as u32) | if nested { 0x8000_0000 } else { 0 }).to_le_bytes());
+            bytes.extend(body);
+            bytes
+        }
+        fn words(values: &[u32]) -> Vec<u8> {
+            values.iter().flat_map(|v| v.to_le_bytes()).collect()
+        }
+        fn mesh(flags: u32, wrapped: bool) -> Vec<u8> {
+            let mut header = words(&[0x30000, flags]);
+            let mut name = [0u8; 16];
+            name[..4].copy_from_slice(b"Mesh");
+            header.extend_from_slice(&name);
+            header.extend_from_slice(&[0; 16]);
+            header.extend(words(&[0, 0, 0, 0, 0, 0, 0, 0, 0]));
+            header.extend_from_slice(&[0; 40]);
+            let mut material = words(&[4 << 16]);
+            material.extend_from_slice(&[20, 30, 40, 0, 100, 110, 120, 0, 0, 0, 0, 0, 1, 2, 3, 0]);
+            material.extend(words(&[4.0f32.to_bits(), 1.0f32.to_bits(), 0]));
+            let vmat = chunk(Chunk::VertexMaterial, true, [
+                chunk(Chunk::VertexMaterialName, false, b"Material\0".to_vec()),
+                chunk(Chunk::VertexMaterialInfo, false, material),
+                chunk(Chunk::VertexMapperArgs0, false, b"UPerSec=0.25;VPerSec=-0.5\0".to_vec()),
+            ].concat());
+            let contents = [
+                chunk(Chunk::MaterialInfo, false, words(&[1, 1, 0, 0])),
+                chunk(Chunk::VertexMaterials, true, vmat),
+                chunk(Chunk::MaterialPass, true, chunk(Chunk::VertexMaterialIds, false, words(&[0]))),
+            ].concat();
+            let mut body = chunk(Chunk::MeshHeader3, false, header);
+            if wrapped {
+                body.extend(chunk(Chunk::PrelitVertex, true, contents.clone()));
+                body.extend(chunk(Chunk::PrelitLightmapMultiPass, true, contents));
+            } else {
+                body.extend(contents);
+            }
+            chunk(Chunk::Mesh, true, body)
+        }
+        let flags = ww3d_core::w3d_format::W3D_MESH_FLAG_PRELIT_VERTEX
+            | ww3d_core::w3d_format::W3D_MESH_FLAG_PRELIT_LIGHTMAP_MULTI_PASS;
+        for (flags, wrapped, expected) in [(flags, true, Some(PrelitMode::LightmapMultiPass)), (0, false, None),
+            (ww3d_core::w3d_format::W3D_MESH_FLAG_PRELIT_VERTEX, true, Some(PrelitMode::Vertex))] {
+            let mut assets = ww3d_assets::AssetManager::new();
+            assets.load_w3d_from_bytes(&mesh(flags, wrapped)).unwrap();
+            let prototype = assets.get_prototype_as::<MeshPrototype>("Mesh").unwrap();
+            assert_eq!(prototype.selected_prelit_mode, expected);
+            let passes = build_material_passes_from_prototype(prototype);
+            let pass = &passes[0];
+            assert_eq!(pass.mapper_id, 4);
+            assert_eq!(pass.mapper_args, [250, -500, 0, 0]);
+            assert_eq!(compute_stage_masks(pass).cube_mask & USE_LIGHTING_BIT != 0, expected != Some(PrelitMode::Vertex));
+        }
+    }
 
     #[test]
     fn pass_without_material_or_colors_keeps_lighting_and_disables_vertex_colors() {

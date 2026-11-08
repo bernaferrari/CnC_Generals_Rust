@@ -161,6 +161,8 @@ impl W3DTextureStage {
 #[derive(Debug, Clone)]
 pub struct W3DMesh {
     pub header: W3DMeshHeader,
+    /// Wrapper actually consumed, not the set of alternatives advertised by the header.
+    pub selected_prelit_mode: Option<PrelitMode>,
     pub vertices: Vec<Vec3>,
     pub normals: Vec<Vec3>,
     pub tex_coords: Vec<Vec2>,
@@ -204,6 +206,7 @@ impl W3DMesh {
                 sph_center: Vec3::ZERO,
                 sph_radius: 0.0,
             },
+            selected_prelit_mode: None,
             vertices: Vec::new(),
             normals: Vec::new(),
             tex_coords: Vec::new(),
@@ -382,6 +385,13 @@ impl MeshLoader {
                     // C++ read_prelit_material: only the selected wrapper is loaded.
                     if prelit_chunk_id == Some(chunk_id) {
                         Self::read_prelit_material(reader, mesh)?;
+                        mesh.selected_prelit_mode = match chunk_id {
+                            W3D_CHUNK_PRELIT_UNLIT => Some(PrelitMode::Unlit),
+                            W3D_CHUNK_PRELIT_VERTEX => Some(PrelitMode::Vertex),
+                            W3D_CHUNK_PRELIT_LIGHTMAP_MULTI_PASS => Some(PrelitMode::LightmapMultiPass),
+                            W3D_CHUNK_PRELIT_LIGHTMAP_MULTI_TEXTURE => Some(PrelitMode::LightmapMultiTexture),
+                            _ => None,
+                        };
                     }
                 }
                 _ => {}

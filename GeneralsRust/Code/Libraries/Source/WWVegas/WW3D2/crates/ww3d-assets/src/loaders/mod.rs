@@ -176,6 +176,7 @@ fn mesh_to_prototype(mesh: &W3DMesh, name_override: Option<&str>) -> MeshPrototy
         sph_center: vec3_to_w3d(mesh.header.sph_center),
         sph_radius: mesh.header.sph_radius,
     });
+    prototype.selected_prelit_mode = mesh.selected_prelit_mode;
 
     prototype.vertices = mesh.vertices.iter().copied().map(vec3_to_w3d).collect();
     prototype.normals = mesh.normals.iter().copied().map(vec3_to_w3d).collect();
@@ -206,6 +207,10 @@ fn mesh_to_prototype(mesh: &W3DMesh, name_override: Option<&str>) -> MeshPrototy
         .map(|entry| ww3d_core::W3dVertexMaterialNameStruct {
             material_name: fixed_bytes::<256>(&entry.name),
         }).collect();
+    prototype.vertex_mapper_configs = crate::prototype_loader::MeshLoader::build_vertex_mapper_configs(
+        &prototype.vertex_materials,
+        &mesh.vertex_materials,
+    );
     prototype.textures = mesh
         .textures
         .iter()
@@ -349,12 +354,13 @@ mod tests {
 
     #[test]
     fn prelit_lightmap_binary_reaches_owned_mesh_material() {
-        let mut vertex_material = u32s(&[0]);
+        let mut vertex_material = u32s(&[4 << 16]);
         vertex_material.extend_from_slice(&[20, 30, 40, 0, 100, 110, 120, 0, 0, 0, 0, 0, 1, 2, 3, 0]);
         for value in [4.0, 0.75, 0.0] { push_f32(&mut vertex_material, value); }
         let vmat = chunk(W3DChunkType::VertexMaterial, true, [
             chunk(W3DChunkType::VertexMaterialName, false, b"Baked\0".to_vec()),
             chunk(W3DChunkType::VertexMaterialInfo, false, vertex_material),
+            chunk(W3DChunkType::VertexMapperArgs0, false, b"UPerSec=0.25\nVPerSec=-0.5\0".to_vec()),
         ].concat());
         let texture = chunk(W3DChunkType::Texture, true,
             chunk(W3DChunkType::TextureName, false, b"lightmap.tga\0".to_vec()));
@@ -377,7 +383,8 @@ mod tests {
             pass,
         ].concat());
         let mut bytes = minimal_mesh_w3d("LitMesh");
-        bytes[20..24].copy_from_slice(&ww3d_core::w3d_format::W3D_MESH_FLAG_PRELIT_LIGHTMAP_MULTI_PASS.to_le_bytes());
+        bytes[20..24].copy_from_slice(&(ww3d_core::w3d_format::W3D_MESH_FLAG_PRELIT_LIGHTMAP_MULTI_PASS | ww3d_core::w3d_format::W3D_MESH_FLAG_PRELIT_VERTEX).to_le_bytes());
+        bytes.extend_from_slice(&chunk(W3DChunkType::PrelitVertex, true, wrapper[8..].to_vec()));
         bytes.extend_from_slice(&wrapper);
         let size = ((bytes.len() - 8) as u32) | 0x8000_0000;
         bytes[4..8].copy_from_slice(&size.to_le_bytes());
@@ -386,6 +393,10 @@ mod tests {
         world.load_w3d_from_bytes(&bytes).unwrap();
         assert!(other_world.get_prototype_as::<MeshPrototype>("LitMesh").is_none());
         let mesh = world.get_prototype_as::<MeshPrototype>("LitMesh").unwrap();
+        assert_eq!(mesh.selected_prelit_mode, Some(ww3d_core::PrelitMode::LightmapMultiPass));
+        let mapper = mesh.vertex_mapper_configs[0].stage0.unwrap();
+        assert_eq!(mapper.mapper_type, 4);
+        assert_eq!(mapper.args, [250, -500, 0, 0]);
         assert_eq!(mesh.triangles[0].vindex, [0, 1, 2]);
         assert_eq!(mesh.passes.len(), 1);
         assert_eq!(mesh.per_pass_stage_texture_ids[0][0], [0]);
@@ -398,6 +409,7 @@ mod tests {
         ordinary_world.load_w3d_from_bytes(&minimal_mesh_w3d("Plain")).unwrap();
         let plain = ordinary_world.get_prototype_as::<MeshPrototype>("Plain").unwrap();
         assert!(plain.passes.is_empty());
+        assert_eq!(plain.selected_prelit_mode, None);
     }
 
     #[test]

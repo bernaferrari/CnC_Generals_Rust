@@ -1122,6 +1122,8 @@ impl Prototype for HlodPrototype {
 pub struct MeshPrototype {
     pub name: String,
     pub header: Option<W3dMeshHeader3Struct>,
+    /// The prelit material wrapper consumed by the loader, if any.
+    pub selected_prelit_mode: Option<ww3d_core::PrelitMode>,
     pub vertices: Vec<W3dVectorStruct>,
     pub normals: Vec<W3dVectorStruct>,
     pub triangles: Vec<W3dTriangleStruct>,
@@ -1158,6 +1160,7 @@ impl MeshPrototype {
         Self {
             name,
             header: None,
+            selected_prelit_mode: None,
             vertices: Vec::new(),
             normals: Vec::new(),
             triangles: Vec::new(),

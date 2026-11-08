@@ -281,7 +281,7 @@ impl RenderPassResources {
 pub struct MeshRenderManager {
     gpu_device: Arc<GpuDevice>,
     pub renderer_3d: Option<Arc<crate::process_state::Renderer3dRuntime>>,
-    preparedmodels: HashMap<usize, Arc<PreparedMeshModel>>,
+    preparedmodels: HashMap<usize, (std::sync::Weak<MeshModelClass>, Arc<PreparedMeshModel>)>,
     /// Lazily uploaded GPU views for pass textures that carry CPU-only
     /// pixels. C++ parity: WW3DAssetManager::Get_Texture creates the D3D
     /// texture on first use (W3DAssetManager.cpp:127-225); the port's pass
@@ -413,19 +413,7 @@ impl MeshRenderManager {
     }
 
     fn prepare_model(&mut self, model: &Arc<MeshModelClass>) -> W3dResult<Arc<PreparedMeshModel>> {
-        let key = Arc::as_ptr(model) as usize;
-        if !self.preparedmodels.contains_key(&key) {
-            let prepared = Arc::new(PreparedMeshModel::frommodel(
-                self.gpu_device.wgpu_device(),
-                model.as_ref(),
-            )?);
-            self.preparedmodels.insert(key, prepared);
-        }
-        Ok(self
-            .preparedmodels
-            .get(&key)
-            .expect("prepared model must exist")
-            .clone())
+        self.preparemodel(model)
     }
 
     /// Install the host's archive-backed pass-texture resolver (C++
@@ -547,7 +535,10 @@ impl MeshRenderManager {
         let needs_rebuild = self
             .preparedmodels
             .get(&key)
-            .map(|prepared| prepared.source_revision != current_revision)
+            .map(|(owner, prepared)| {
+                !std::sync::Weak::ptr_eq(owner, &Arc::downgrade(model))
+                    || prepared.source_revision != current_revision
+            })
             .unwrap_or(true);
 
         if needs_rebuild {
@@ -555,19 +546,20 @@ impl MeshRenderManager {
                 self.gpu_device.wgpu_device(),
                 model.as_ref(),
             )?);
-            self.preparedmodels.insert(key, prepared);
+            self.preparedmodels.insert(key, (Arc::downgrade(model), prepared));
         }
         let prepared = self
             .preparedmodels
             .get(&key)
             .expect("prepared model must exist")
-            .clone();
+            .1.clone();
         Ok(prepared)
     }
 
     /// Start a frame: the frame uniform arena was just reset, so arena-backed
     /// cached groups are dropped and idle persistent groups age out.
     pub fn begin_frame_caches(&mut self) {
+        self.model_groups.retain(|_, group| group.pages_alive());
         self.bind_cache.begin_frame();
         self.bind_cache.begin_pass();
         self.sorting.begin_frame();
@@ -1921,7 +1913,17 @@ mod per_mesh_lighting_tests {
         ));
         camera.set_projection_matrix(Mat4::perspective_rh(1.0, 1.0, 0.1, 100.0));
         let info = RenderInfoClass::new(Arc::new(camera));
-        let draw = |manager: &mut MeshRenderManager, mesh: &MeshClass| -> [u8; 4] {
+        let mut arena = Some(
+            crate::rendering::frame_uniform_arena::FrameUniformArena::new(&gpu, 1 << 20),
+        );
+        let mut draw = |manager: &mut MeshRenderManager, mesh: &MeshClass, replace_arena: bool| -> [u8; 4] {
+            if replace_arena {
+                drop(arena.take());
+                arena = Some(crate::rendering::frame_uniform_arena::FrameUniformArena::new(&gpu, 1 << 20));
+            }
+            let arena = arena.as_mut().unwrap();
+            arena.reset();
+            manager.begin_frame_caches();
             let size = wgpu::Extent3d {
                 width: 64,
                 height: 64,
@@ -1949,8 +1951,7 @@ mod per_mesh_lighting_tests {
             );
             let color_view = color.create_view(&wgpu::TextureViewDescriptor::default());
             let depth_view = depth.create_view(&wgpu::TextureViewDescriptor::default());
-            let mut arena =
-                crate::rendering::frame_uniform_arena::FrameUniformArena::new(&gpu, 1 << 20);
+            // The same frame arena remains alive across draws, as in the renderer.
             let mut encoder = gpu
                 .wgpu_device()
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
@@ -1984,7 +1985,7 @@ mod per_mesh_lighting_tests {
                         &[Arc::new(mesh.clone())],
                         &[],
                         &info,
-                        &mut arena,
+                        arena,
                     )
                     .unwrap();
             }
@@ -2023,9 +2024,9 @@ mod per_mesh_lighting_tests {
             readback.unmap();
             result
         };
-        let red = draw(&mut manager, &mesh);
+        let red = draw(&mut manager, &mesh, false);
         mesh.replace_texture(&old, &new);
-        let blue = draw(&mut manager, &mesh);
+        let blue = draw(&mut manager, &mesh, false);
         assert!(
             red[0] > red[2] + 8,
             "original texture must draw red: {red:?}"
@@ -2034,6 +2035,92 @@ mod per_mesh_lighting_tests {
             blue[2] > blue[0] + 8,
             "replacement texture must draw blue: {blue:?}"
         );
+
+        // Draw materials obtained from real W3D chunks through the same GPU path.
+        fn chunk(kind: ww3d_core::W3DChunkType, nested: bool, body: Vec<u8>) -> Vec<u8> {
+            let mut out = kind.as_u32().to_le_bytes().to_vec();
+            out.extend_from_slice(&(body.len() as u32 | if nested { 0x8000_0000 } else { 0 }).to_le_bytes());
+            out.extend(body);
+            out
+        }
+        fn words(values: &[u32]) -> Vec<u8> {
+            values.iter().flat_map(|v| v.to_le_bytes()).collect()
+        }
+        fn fixture(flags: u32, wrapped: bool) -> Vec<u8> {
+            use ww3d_core::W3DChunkType as C;
+            let mut header = words(&[0x30000, flags]);
+            header.extend_from_slice(b"Mesh\0\0\0\0\0\0\0\0\0\0\0\0");
+            header.extend_from_slice(&[0; 16]);
+            header.extend(words(&[1, 3, 0, 0, 0, 0, 0, 7, 1]));
+            header.extend_from_slice(&[0; 40]);
+            let mut vmat = words(&[4 << 16]);
+            vmat.extend_from_slice(&[255, 255, 255, 0, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+            vmat.extend(words(&[0, 1.0f32.to_bits(), 0]));
+            let material = chunk(C::VertexMaterial, true, [
+                chunk(C::VertexMaterialName, false, b"Animated\0".to_vec()),
+                chunk(C::VertexMaterialInfo, false, vmat),
+                chunk(C::VertexMapperArgs0, false, b"UPerSec=0.25;VPerSec=-0.5\0".to_vec()),
+            ].concat());
+            let pass = chunk(C::MaterialPass, true, [
+                chunk(C::VertexMaterialIds, false, words(&[0])),
+                chunk(C::ShaderIds, false, words(&[0])),
+                chunk(C::Dcg, false, vec![255; 12]),
+            ].concat());
+            let materials = [
+                chunk(C::MaterialInfo, false, words(&[1, 1, 1, 0])),
+                chunk(C::Shaders, false, vec![3, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]),
+                chunk(C::VertexMaterials, true, material),
+                pass,
+            ].concat();
+            let mut body = chunk(C::MeshHeader3, false, header);
+            let vertex_bits: Vec<u32> = [-2.0f32, -2.0, 0.0, 2.0, -2.0, 0.0, 0.0, 2.0, 0.0].iter().map(|v| v.to_bits()).collect();
+            body.extend(chunk(C::Vertices, false, words(&vertex_bits)));
+            let normal_bits: Vec<u32> = [0.0f32, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0].iter().map(|v| v.to_bits()).collect();
+            body.extend(chunk(C::VertexNormals, false, words(&normal_bits)));
+            body.extend(chunk(C::Triangles, false, words(&[0, 1, 2, 0, 0, 0, 1.0f32.to_bits(), 0])));
+            if wrapped {
+                body.extend(chunk(C::PrelitVertex, true, materials.clone()));
+                body.extend(chunk(C::PrelitLightmapMultiPass, true, materials));
+            } else {
+                body.extend(materials);
+            }
+            chunk(C::Mesh, true, body)
+        }
+        let vertex = ww3d_core::w3d_format::W3D_MESH_FLAG_PRELIT_VERTEX;
+        let multipass = ww3d_core::w3d_format::W3D_MESH_FLAG_PRELIT_LIGHTMAP_MULTI_PASS;
+        let mut draw_fixture = |manager: &mut MeshRenderManager, flags, wrapped, replace_arena| {
+            let mut assets = ww3d_assets::AssetManager::new();
+            assets.load_w3d_from_bytes(&fixture(flags, wrapped)).unwrap();
+            let prototype = assets.get_prototype_as::<ww3d_assets::prototypes::MeshPrototype>("Mesh").unwrap();
+            let expected = if flags & multipass != 0 {
+                Some(ww3d_core::PrelitMode::LightmapMultiPass)
+            } else if flags & vertex != 0 {
+                Some(ww3d_core::PrelitMode::Vertex)
+            } else {
+                None
+            };
+            assert_eq!(prototype.selected_prelit_mode, expected);
+            let mut model = MeshModelClass::from_mesh_prototype(prototype, None).unwrap();
+            let material = model.material_passes[0].clone();
+            assert_eq!(material.vertex_material.as_ref().unwrap().use_lighting, expected != Some(ww3d_core::PrelitMode::Vertex));
+            assert_eq!(material.mapper_id, 4);
+            assert_eq!(material.mapper_args, [250, -500, 0, 0]);
+            model.material_batches.push(MeshMaterialBatch {
+                source_pass_index: 0,
+                material_pass: material,
+                face_indices: vec![0],
+            });
+            let mut mesh = MeshClass::new();
+            mesh.model = Some(Arc::new(model));
+            draw(manager, &mesh, replace_arena)
+        };
+        let selected = draw_fixture(&mut manager, vertex | multipass, true, false);
+        let ordinary = draw_fixture(&mut manager, 0, false, false);
+        let vertex_only = draw_fixture(&mut manager, vertex, true, false);
+        let replaced_arena_selected = draw_fixture(&mut manager, vertex | multipass, true, true);
+        assert_eq!(selected, ordinary, "selected multipass must light like ordinary geometry");
+        assert!(vertex_only[0] > selected[0] + 8, "vertex-lit output {vertex_only:?} must differ from dynamically lit {selected:?}");
+        assert_eq!(replaced_arena_selected, selected, "replacing the uniform arena must not bind an old page");
     }
 
     #[test]

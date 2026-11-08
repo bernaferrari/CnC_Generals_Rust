@@ -181,6 +181,7 @@ impl PrototypeLoader for MeshLoader {
         };
 
         if let Some(detail_mesh) = detail_mesh.as_ref() {
+            mesh.selected_prelit_mode = detail_mesh.selected_prelit_mode;
             if Self::should_replace_texture_table(&mesh, detail_mesh) {
                 mesh.textures = detail_mesh
                     .textures
@@ -749,7 +750,7 @@ fn stage_mapping_to_mapper_type(value: u32) -> Option<u32> {
 }
 
 impl MeshLoader {
-    fn build_vertex_mapper_configs(
+    pub(crate) fn build_vertex_mapper_configs(
         vertex_materials: &[ww3d_core::w3d_format::W3dVertexMaterialStruct],
         mapper_args: &[detailed_loader::VertexMapperArgs],
     ) -> Vec<VertexMapperConfig> {

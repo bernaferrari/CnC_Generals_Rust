@@ -3094,9 +3094,10 @@ Standalone camera tracking borrows the receiving GameClient's View during its
 update rather than resolving the live-client slot. Other view consumers still
 use the ambient tactical-view bridge.
 
-Prelit mesh material chunks propagate parsed texture, UV, shader and material
-data into owned mesh prototypes. Device-capability mode selection, alternate
-material descriptors and the rendered lightmap result remain unverified.
+Prelit mesh prototypes retain the selected material mode and authored mapper
+arguments. WGPU readback covers vertex-lit and multipass alternatives and
+replaced frame arenas. Device-capability selection and alternate material
+descriptors remain open.
 
 Native cue-limit and interruption queries use the receiving audio manager's
 playing list, including its normal completion sweep, rather than another

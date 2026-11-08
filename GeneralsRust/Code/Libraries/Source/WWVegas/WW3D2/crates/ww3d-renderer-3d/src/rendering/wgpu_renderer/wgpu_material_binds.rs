@@ -29,7 +29,21 @@ pub struct ModelBinds {
 /// Model bind groups shared across draws (renderer plan R5): one per
 /// (pipeline, model arena page, lighting arena page); each draw only
 /// changes the dynamic offsets.
-pub type ModelGroupCache = std::collections::HashMap<(usize, usize, usize), Arc<wgpu::BindGroup>>;
+pub type ModelGroupCache = std::collections::HashMap<(usize, usize, usize), CachedModelGroup>;
+
+/// Weak page owners prevent their allocation addresses being reused while a
+/// cached bind group still names them, without extending arena lifetimes.
+pub struct CachedModelGroup {
+    model_page: std::sync::Weak<wgpu::Buffer>,
+    lighting_page: std::sync::Weak<wgpu::Buffer>,
+    bind_group: Arc<wgpu::BindGroup>,
+}
+
+impl CachedModelGroup {
+    pub(crate) fn pages_alive(&self) -> bool {
+        self.model_page.strong_count() != 0 && self.lighting_page.strong_count() != 0
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct BonesBinds {
@@ -281,7 +295,7 @@ impl WgpuMaterialBinds {
         let lighting_size =
             std::num::NonZeroU64::new(std::mem::size_of_val(&lighting_uniform) as u64);
         let bind_group = match group_cache.get(&key) {
-            Some(group) => Arc::clone(group),
+            Some(group) => Arc::clone(&group.bind_group),
             None => {
                 let dummy_csm;
                 let csm = match live_csm {
@@ -327,7 +341,11 @@ impl WgpuMaterialBinds {
                         ],
                     },
                 ));
-                group_cache.insert(key, Arc::clone(&group));
+                group_cache.insert(key, CachedModelGroup {
+                    model_page: Arc::downgrade(&model_slice.buffer),
+                    lighting_page: Arc::downgrade(&lighting_slice.buffer),
+                    bind_group: Arc::clone(&group),
+                });
                 group
             }
         };
