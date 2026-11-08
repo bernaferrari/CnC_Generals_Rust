@@ -29,6 +29,10 @@ obstacle regression across independent worlds and snapshot restore. Core path
 search still has ambient registry fallbacks for other obstacle observations.
 Direct deletion of an authored required spawner destroys each still-live child
 in roster order without invoking its death behavior; optional children survive.
+An initial-burst budding spawn invokes its structure producer's exit callback
+even when reservation finds no door, then restores the parent producer and
+consumes the burst. Weapon continuation queries the receiving partition and
+excludes targets exactly at the authored range boundary.
 WWAudio device channel creation exclusively borrows its AudioSystem instead of
 retaining a raw parent pointer; the streamer retains the resulting channel,
 not the system borrow. Native-endian decoded PCM bytes remain unchanged.

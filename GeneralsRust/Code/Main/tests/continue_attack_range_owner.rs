@@ -431,6 +431,34 @@ fn killed_target_continuation_uses_receiving_weapon_range() {
 }
 
 #[test]
+fn lethal_shot_continuation_excludes_exact_range_boundary() {
+    for (range, candidate_x, expected) in [
+        (10.0, 50.0, false),
+        (10.0, 49.0, true),
+        (0.0, 49.0, false),
+    ] {
+        let (mut game, attacker, first, next) = world(range, "BoundaryChainWeapon");
+        assert!(game.set_registered_object_position(next, Vec3::new(candidate_x, 0.0, 20.0)));
+        assert!(game.unit_command_attack(attacker, first).unwrap());
+        for _ in 0..100 {
+            game.tick_logic_frame(1.0 / 30.0, None, Some(1));
+            if game.host_object(first).is_none_or(|victim| !victim.is_alive()) {
+                break;
+            }
+        }
+        assert!(
+            game.host_object(first).is_none_or(|victim| !victim.is_alive()),
+            "the first shot must be lethal"
+        );
+        assert_eq!(
+            game.host_object(attacker).unwrap().target == Some(next),
+            expected,
+            "range {range}, candidate x {candidate_x}"
+        );
+    }
+}
+
+#[test]
 fn authored_zero_overrides_seeded_continue_range() {
     let (mut game, attacker, first, next) = world(0.0, "WorkerDisarm");
     let snapshot = generals_main::save_load::SnapshotBuilder::new()

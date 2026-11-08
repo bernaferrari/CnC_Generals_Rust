@@ -33,7 +33,7 @@ impl GameLogic {
         &mut self,
         owner_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<SpawnExit> {
+    ) -> Option<(SpawnExit, bool)> {
         let owner = self.host_object(owner_id)?;
         use crate::game_logic::thing::RallyPointExitOwner;
         match owner.get_template().rally_point_exit_owner() {
@@ -43,30 +43,31 @@ impl GameLogic {
                         || module.name.as_str().eq_ignore_ascii_case("FlightDeckBehavior"))?;
                 if module.name.as_str().eq_ignore_ascii_case("FlightDeckBehavior") {
                     // FlightDeckBehavior::reserveDoorForExit always reserves DOOR_1.
-                    return Some(SpawnExit::FlightDeck);
+                    return Some((SpawnExit::FlightDeck, true));
                 }
-                self.ensure_spawn_point_poses(owner_id, effects.pristine_bones)?;
-                self.revalidate_spawn_point_occupiers(owner_id);
-                let bones = self.host_object(owner_id)?.spawn_point_world_poses.as_deref()?;
-                self.reserve_spawn_point_exit(owner_id, bones)?;
-                Some(SpawnExit::SpawnPoint)
+                let available = if self.ensure_spawn_point_poses(owner_id, effects.pristine_bones).is_some() {
+                    self.revalidate_spawn_point_occupiers(owner_id);
+                    self.host_object(owner_id).and_then(|owner| owner.spawn_point_world_poses.as_deref())
+                        .and_then(|bones| self.reserve_spawn_point_exit(owner_id, bones)).is_some()
+                } else {
+                    false
+                };
+                Some((SpawnExit::SpawnPoint, available))
             }
             RallyPointExitOwner::Production => {
                 let exit = owner.get_template().production_exit_metadata?;
-                if exit.is_queue() && !self.host_object_mut(owner_id)?.queue_exit_available(&exit) {
-                    return None;
-                }
-                Some(SpawnExit::Production(exit))
+                let available = !exit.is_queue() || self.host_object_mut(owner_id)?.queue_exit_available(&exit);
+                Some((SpawnExit::Production(exit), available))
             }
             RallyPointExitOwner::OpenContain => {
                 let kind = owner.get_template().contain_module.kind;
                 if kind == crate::game_logic::ContainModuleKind::Garrison {
-                    return self.reserve_garrison_spawn_exit(owner_id, effects).then_some(SpawnExit::Garrison);
+                    return Some((SpawnExit::Garrison, self.reserve_garrison_spawn_exit(owner_id, effects)));
                 }
                 if kind == crate::game_logic::ContainModuleKind::RailedTransport {
-                    return self.railed_dock_reserve_exit(owner_id).then_some(SpawnExit::Railed);
+                    return Some((SpawnExit::Railed, self.railed_dock_reserve_exit(owner_id)));
                 }
-                self.canonical_open_contain_exit_available(owner_id, effects).then_some(SpawnExit::OpenContain)
+                Some((SpawnExit::OpenContain, self.canonical_open_contain_exit_available(owner_id, effects)))
             }
             RallyPointExitOwner::Parking | RallyPointExitOwner::None => None,
         }
@@ -200,10 +201,13 @@ impl GameLogic {
                 if !self.exit_garrison_spawn(exit_owner, child_id, effects)? { return Ok(false); }
             }
             SpawnExit::Railed => {
-                if let Some(config) = self.railed_dock_config(exit_owner) {
-                    self.railed_dock_unload(exit_owner, config, false, effects)
-                        .map_err(gamelogic::GameLogicError::Configuration)?;
-                }
+                let config = self.railed_dock_config(exit_owner).ok_or_else(|| {
+                    gamelogic::GameLogicError::Configuration(
+                        "railed spawn exit requires receiving RailedTransportDockUpdate module data".into()
+                    )
+                })?;
+                self.railed_dock_unload(exit_owner, config, false, effects)
+                    .map_err(gamelogic::GameLogicError::Configuration)?;
             }
         }
         Ok(self.spawn_identity_matches(exit_owner, owner_birth, epoch) && self.spawn_identity_matches(child_id, child_birth, epoch))
@@ -222,7 +226,7 @@ impl GameLogic {
                 "Object '{}': SpawnBehavior exit unsupported: {reason}", parent.template_name
             )));
         }
-        let Some(exit) = self.reserve_spawn_behavior_exit(parent_id, effects) else { return Ok(false) };
+        let Some((exit, true)) = self.reserve_spawn_behavior_exit(parent_id, effects) else { return Ok(false) };
         let Some(parent) = self.host_object(parent_id) else { return Ok(false) };
         let parent_birth = parent.visual_object_generation;
         let epoch = self.visual_world_epoch;
@@ -251,15 +255,20 @@ impl GameLogic {
                         "Object '{}': SpawnBehavior budding exit unsupported: {reason}", owner.template_name
                     )));
                 }
-                self.reserve_spawn_behavior_exit(producer, effects).map(|exit| (producer, exit))
+                self.reserve_spawn_behavior_exit(producer, effects).map(|(exit, _)| (producer, exit))
             } else { None };
             if let Some((producer, producer_exit)) = alternate {
-                if self.exit_spawn_via_door(producer, child_id, producer_exit, effects)? {
-                    if !self.spawn_identity_matches(parent_id, parent_birth, epoch)
-                        || !self.spawn_identity_matches(child_id, child_birth, epoch) { return Ok(false); }
-                    if let Some(parent) = self.host_object_mut(parent_id) {
-                        parent.spawn_behavior_initial_burst_remaining = parent.spawn_behavior_initial_burst_remaining.saturating_sub(1);
-                    }
+                // The producer callback is invoked even for DOOR_NONE_AVAILABLE.
+                // Like the ordinary exit callback, its lack of a result does not
+                // prevent a live birth from consuming the burst.
+                let _ = self.exit_spawn_via_door(producer, child_id, producer_exit, effects)?;
+                if !self.spawn_identity_matches(parent_id, parent_birth, epoch)
+                    || !self.spawn_identity_matches(child_id, child_birth, epoch) { return Ok(false); }
+                if let Some(child) = self.host_object_mut(child_id) {
+                    child.producer_id = Some(parent_id);
+                }
+                if let Some(parent) = self.host_object_mut(parent_id) {
+                    parent.spawn_behavior_initial_burst_remaining = parent.spawn_behavior_initial_burst_remaining.saturating_sub(1);
                 }
             } else if let SpawnExit::Production(exit) = exit {
                 if exit.is_queue() {
@@ -387,6 +396,105 @@ impl GameLogic {
 mod identity_tests {
     use super::*;
 
+    struct RailBones;
+    impl crate::assets::pristine_bones::PristineBoneAssets for RailBones {
+        fn pristine_bones_for_draws(
+            &self, _: &crate::assets::pristine_bones::PristineBoneSource<'_>,
+            name: &str, _: i32, _: usize,
+        ) -> Result<Vec<glam::Mat4>, String> {
+            let x = match name { "DockStart" => 1.0, "DockEnd" => 20.0, _ => 0.0 };
+            Ok(vec![glam::Mat4::from_translation(glam::Vec3::new(x, 0.0, 0.0))])
+        }
+    }
+
+    fn budding_rail_world(open: bool) -> (GameLogic, ObjectId, ObjectId, ObjectId, ObjectId) {
+        let mut world = GameLogic::new();
+        world.admit_object_ini_sources([("budding-rail.ini".into(), r#"
+Object BuddingRail
+ KindOf = STRUCTURE PORTABLE_STRUCTURE VEHICLE TRANSPORT
+ Draw = W3DModelDraw Draw
+  DefaultConditionState
+   Model = RailModel
+  End
+ End
+ Behavior = RailedTransportContain Contain
+  Slots = 2
+ End
+ Behavior = RailedTransportDockUpdate Dock
+ End
+End
+Object BuddingNest
+ KindOf = STRUCTURE
+ Behavior = DefaultProductionExitUpdate Exit
+ End
+ Behavior = SpawnBehavior Spawn
+  SpawnNumber = 1
+  SpawnTemplateName = BuddingChild
+  ExitByBudding = Yes
+  InitialBurst = 1
+ End
+End
+Object BuddingChild
+ KindOf = INFANTRY
+End
+Object RailRider
+ KindOf = VEHICLE SELECTABLE
+End
+"#.into())]).unwrap();
+        let rail = world.create_object("BuddingRail", Team::GLA, Vec3::ZERO).unwrap();
+        let parent = world.create_object("BuddingNest", Team::GLA, Vec3::new(40.0, 0.0, 0.0)).unwrap();
+        let first = world.create_object("RailRider", Team::GLA, Vec3::ZERO).unwrap();
+        let second = world.create_object("RailRider", Team::GLA, Vec3::ZERO).unwrap();
+        world.host_object_mut(parent).unwrap().producer_id = Some(rail);
+        world.host_object_mut(rail).unwrap().has_drawable = true;
+        world.host_object_mut(rail).unwrap().railed_dock.dock_open = open;
+        for rider in [first, second] {
+            assert!(world.objects.get_mut(&rail).unwrap().add_occupant(rider));
+            GameLogic::set_owned_containment_in_parts(&mut world.objects, &mut world.partition_manager,
+                &mut world.ai_groups, &mut world.pathfinding_system, rider, Some(rail), true);
+        }
+        world.set_current_frame(2);
+        (world, rail, parent, first, second)
+    }
+
+    #[test]
+    fn budding_rail_callback_unloads_first_rider_even_with_closed_door() {
+        for open in [false, true] {
+            let (mut world, rail, parent, first, second) = budding_rail_world(open);
+            let (peer, peer_rail, peer_parent, peer_first, peer_second) = budding_rail_world(open);
+            assert_eq!((rail, parent, first, second), (peer_rail, peer_parent, peer_first, peer_second));
+            let mut effects = crate::game_logic::ScriptPresentationEffects {
+                pristine_bones: Some(&RailBones), ..Default::default()
+            };
+            world.update_spawn_behavior_with_effects(&mut effects).unwrap();
+            let parent_object = world.host_object(parent).unwrap();
+            let children = parent_object.spawn_behavior_children();
+            assert_eq!(children.len(), 1);
+            assert_eq!(parent_object.spawn_behavior_initial_burst_remaining, 0);
+            assert!(parent_object.spawn_behavior_replacement_times().is_empty());
+            let child = world.host_object(children[0].0).unwrap();
+            assert_eq!(child.visual_object_generation, children[0].1);
+            assert_eq!(child.producer_id, Some(parent));
+            assert_eq!(world.host_object(rail).unwrap().contained_unit_ids(), &[second]);
+            assert_eq!(world.host_object(rail).unwrap().railed_dock.unloading.unwrap().id, first);
+            assert_eq!(world.host_object(first).unwrap().contained_by, None);
+            assert_eq!(world.host_object(second).unwrap().contained_by, Some(rail));
+            assert_eq!(peer.host_object(peer_rail).unwrap().contained_unit_ids(), &[peer_first, peer_second]);
+            assert!(peer.host_object(peer_parent).unwrap().spawn_behavior_children().is_empty());
+            assert!(!peer.host_object(peer_parent).unwrap().spawn_behavior_initial_times_inited);
+        }
+    }
+
+    #[test]
+    fn closed_budding_rail_propagates_callback_errors() {
+        let (mut world, rail, parent, first, _) = budding_rail_world(false);
+        let error = world.update_spawn_behavior_with_effects(&mut Default::default()).unwrap_err().to_string();
+        assert!(error.contains("rail dock requires receiving pristine model assets"), "{error}");
+        assert_eq!(world.host_object(first).unwrap().contained_by, None);
+        assert_eq!(world.host_object(rail).unwrap().contained_unit_ids().len(), 1);
+        assert_eq!(world.host_object(parent).unwrap().spawn_behavior_initial_burst_remaining, 1);
+    }
+
     #[test]
     fn scheduler_identity_rejects_reused_id_without_touching_peer() {
         fn world() -> (GameLogic, ObjectId) {
@@ -424,48 +532,4 @@ mod identity_tests {
         assert_eq!(world.host_object(id).unwrap().template_name, "AfterReset");
     }
 
-    #[test]
-    fn unsupported_budding_producer_fails_before_spawn_state_changes() {
-        fn world() -> (GameLogic, ObjectId) {
-            let mut world = GameLogic::new();
-            world.admit_object_ini_sources([("budding-unsupported.ini".into(), r#"
-Object UnsupportedDeck
- KindOf = STRUCTURE
- Behavior = FlightDeckBehavior Deck
-  NumRunways = 1
-  NumSpacesPerRunway = 1
- End
-End
-Object BuddingNest
- KindOf = STRUCTURE
- Behavior = DefaultProductionExitUpdate Exit
- End
- Behavior = SpawnBehavior Spawn
-  SpawnNumber = 1
-  SpawnTemplateName = BuddingChild
-  ExitByBudding = Yes
-  InitialBurst = 1
- End
-End
-Object BuddingChild
- KindOf = INFANTRY
-End
-"#.into())]).unwrap();
-            let producer = world.create_object("UnsupportedDeck", Team::GLA, Vec3::ZERO).unwrap();
-            let parent = world.create_object("BuddingNest", Team::GLA, Vec3::ZERO).unwrap();
-            world.host_object_mut(parent).unwrap().producer_id = Some(producer);
-            (world, parent)
-        }
-        let (mut owner, parent) = world();
-        let (peer, peer_parent) = world();
-        assert_eq!(parent, peer_parent);
-        let next = owner.next_object_id_for_snapshot();
-        let error = owner.update_spawn_behavior_with_effects(&mut Default::default()).unwrap_err().to_string();
-        assert!(error.contains("budding") && error.contains("FlightDeckBehavior"), "{error}");
-        assert_eq!(owner.next_object_id_for_snapshot(), next);
-        assert_eq!(owner.host_object(parent).unwrap().spawn_behavior_frames_to_wait, 0);
-        assert!(!owner.host_object(parent).unwrap().spawn_behavior_initial_times_inited);
-        assert!(owner.host_object(parent).unwrap().spawn_behavior_children().is_empty());
-        assert!(!peer.host_object(peer_parent).unwrap().spawn_behavior_initial_times_inited);
-    }
 }

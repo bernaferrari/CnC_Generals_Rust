@@ -1342,48 +1342,38 @@ impl GameLogic {
             .objects
             .lookup(&dead_victim_id)
             .and_then(|victim| victim.owner_player_id);
-        // C++ searches near the original position for the victim's player.
-        let candidates = self.objects.registered().filter_map(|(&id, obj)| {
-            if id == attacker_id || id == dead_victim_id || !obj.is_alive() {
-                return None;
-            }
-            if obj.owner_player_id != victim_owner
-                || obj.status.off_map != attacker_off_map
-                || !matches!(
-                    self.get_able_to_attack_specific_object(
-                        attacker_id,
-                        id,
-                        AbleToAttackType::NewTarget,
-                        from_player,
-                    ),
-                    CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
-                )
-            {
-                return None;
-            }
-            Some(
-                crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
-                    id,
-                    team: obj.team,
-                    position: obj.get_position(),
-                    is_alive: true,
-                    is_neutral: obj.team == Team::Neutral,
-                    under_construction: obj.status.under_construction,
-                    combat_kind: true,
-                    effectively_stealthed: obj.is_effectively_stealthed(),
-                    is_air: obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
-                    eject_invulnerable: obj.is_eject_invulnerable(),
-                },
-            )
-        });
-        let (next_id, _, _) =
-            crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
-                Some(attacker_id),
-                (original_victim_pos.x, original_victim_pos.z),
-                candidates,
-                continue_range,
-                |_| true,
-            )?;
+        // C++ searches the partition around the original victim position,
+        // retaining the first strictly closest candidate in its traversal.
+        let next_id = ObjectId(self.partition_manager.closest_in_radius(
+            original_victim_pos.x,
+            original_victim_pos.z,
+            continue_range,
+            |raw| {
+                let id = ObjectId(raw);
+                let obj = self.objects.lookup(&id)?;
+                if id == attacker_id || id == dead_victim_id || !obj.is_alive() {
+                    return None;
+                }
+                if obj.owner_player_id != victim_owner
+                    || obj.status.off_map != attacker_off_map
+                    || !matches!(
+                        self.get_able_to_attack_specific_object(
+                            attacker_id,
+                            id,
+                            AbleToAttackType::NewTarget,
+                            from_player,
+                        ),
+                        CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                    )
+                {
+                    return None;
+                }
+                let position = obj.get_position();
+                let dx = original_victim_pos.x - position.x;
+                let dz = original_victim_pos.z - position.z;
+                Some(dx * dx + dz * dz)
+            },
+        )?);
         Some((next_id, self.objects.lookup(&next_id)?.get_position()))
     }
 
