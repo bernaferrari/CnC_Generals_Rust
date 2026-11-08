@@ -79,24 +79,19 @@ fn world_with_upgrade_damage(
     weapon.attack_range = 200.0;
     weapon.continue_attack_range = range;
     weapon.scatter_radius = scatter;
-    if let Some(radius) = extra_radius {
+    if extra_radius.is_some() || extra_damage.is_some() {
         use gamelogic::weapon::{
             WeaponBonus, WeaponBonusConditionType, WeaponBonusField, WeaponBonusSet,
         };
-        weapon.primary_damage_radius = 5.0;
         let mut bonus = WeaponBonus::new();
-        bonus.set_field(WeaponBonusField::Radius, radius);
-        let mut set = WeaponBonusSet::new();
-        set.set_bonus(WeaponBonusConditionType::SoloHumanEasy, bonus);
-        weapon.extra_bonus = Some(set);
-    }
-    if let Some(damage) = extra_damage {
-        use gamelogic::weapon::{
-            WeaponBonus, WeaponBonusConditionType, WeaponBonusField, WeaponBonusSet,
-        };
-        weapon.primary_damage = 10.0;
-        let mut bonus = WeaponBonus::new();
-        bonus.set_field(WeaponBonusField::Damage, damage);
+        if let Some(radius) = extra_radius {
+            weapon.primary_damage_radius = 5.0;
+            bonus.set_field(WeaponBonusField::Radius, radius);
+        }
+        if let Some(damage) = extra_damage {
+            weapon.primary_damage = 10.0;
+            bonus.set_field(WeaponBonusField::Damage, damage);
+        }
         let mut set = WeaponBonusSet::new();
         set.set_bonus(WeaponBonusConditionType::SoloHumanEasy, bonus);
         weapon.extra_bonus = Some(set);
@@ -330,10 +325,13 @@ fn scattered_secondary_splash_uses_the_firing_sessions_bonus() {
 
 #[test]
 fn ground_attack_uses_the_firing_sessions_damage_bonus() {
+    // Weapon.cpp::dealDamageInternal uses only the explicit victim when both
+    // radii are zero. A position shot has no explicit victim, even at its center.
+    // Give this ground shot a radius so it can actually damage the target.
     let (mut weak, attacker, target, _) =
-        world_with_weapon_bonus(0.0, "SharedGroundDamage", 0.0, None, Some(0.5), false);
+        world_with_weapon_bonus(0.0, "SharedGroundDamage", 0.0, Some(1.0), Some(0.5), false);
     let (mut full, peer_attacker, peer_target, _) =
-        world_with_weapon_bonus(0.0, "SharedGroundDamage", 0.0, None, Some(1.0), false);
+        world_with_weapon_bonus(0.0, "SharedGroundDamage", 0.0, Some(1.0), Some(1.0), false);
     assert_eq!((attacker, target), (peer_attacker, peer_target));
     for session in [&mut weak, &mut full] {
         CommandExecutor::new(session, 1)
@@ -371,6 +369,33 @@ fn ground_attack_uses_the_firing_sessions_damage_bonus() {
             .is_none_or(|object| !object.is_alive())
     );
     assert_eq!(weak.host_object(target).unwrap().health.current, 5.0);
+}
+
+#[test]
+fn zero_radius_ground_shot_consumes_its_shot_without_a_direct_victim() {
+    let (mut game, attacker, target, _) =
+        world_with_weapon_bonus(0.0, "ZeroRadiusGroundDamage", 0.0, None, Some(1.0), false);
+    CommandExecutor::new(&mut game, 1)
+        .execute_command(GameCommand {
+            command_type: CommandType::AttackPosition {
+                location: Some(Vec3::new(40.0, 0.0, 20.0)),
+                max_shots: 1,
+            },
+            player_id: 1,
+            command_id: 1,
+            timestamp: UNIX_EPOCH,
+            selected_units: vec![attacker],
+            modifier_keys: ModifierKeys::default(),
+        })
+        .unwrap();
+    for _ in 0..100 {
+        game.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        if game.host_object(attacker).unwrap().max_shots_to_fire == 0 {
+            break;
+        }
+    }
+    assert_eq!(game.host_object(attacker).unwrap().max_shots_to_fire, 0);
+    assert_eq!(game.host_object(target).unwrap().health.current, 10.0);
 }
 
 #[test]
