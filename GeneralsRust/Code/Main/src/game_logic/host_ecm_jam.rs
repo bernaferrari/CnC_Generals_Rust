@@ -1,9 +1,9 @@
-//! Host China ECM Tank / jammer residual (weapon jam aura).
+//! Host China ECM missile-jammer residual and retail weapon constants.
 //!
 //! C++ live path:
-//! - `ECMTankVehicleDisabler` is SUBDUAL_VEHICLE (ActiveBody.cpp:471-487) — no HP.
-//!   Vehicles jam only after `isSubdued()` (`maxHealth <= subdual`, :1292-1294).
-//!   Infantry / aircraft are not vehicle-disabler targets.
+//! - `ECMTankVehicleDisabler` is a targeted, zero-radius SUBDUAL_VEHICLE
+//!   weapon (ActiveBody.cpp:471-487), not a proximity aura. Vehicles are
+//!   subdued when their accumulated damage reaches maximum health.
 //! - `ECMTankMissileJammer` SUBDUAL_MISSILE never subtracts HP; `onSubdualChange`
 //!   (:1280-1286) calls `MissileAIUpdate::projectileNowJammed` (scatter, lose lock).
 //!   `DumbProjectileBehavior::projectileNowJammed` is empty (tank shells keep flying).
@@ -21,8 +21,8 @@
 //! - VisionRange **150**; vehicle name residual list (China/Tank_/Nuke_/Infa_)
 //!
 //! Fail-closed honesty:
-//! - ExclusiveWeaponDelay vs last_fire_frame is live (not full multi-weapon matrix)
-//! - Not full ally relationship / underpower / DISABLED_SUBDUED FX tint matrix
+//! - Authored FireWeaponUpdate uses its own weapon and the latest slot shot.
+//!   The legacy missile residual is only used without an authored update module.
 //! - Not network jam replication (network deferred)
 
 /// Logic frames per second (host fixed step).
@@ -83,12 +83,9 @@ pub const ECM_EXCLUSIVE_WEAPON_DELAY_FRAMES: u32 = 30;
 /// C++ `FireWeaponUpdate::isOkayToFire` ExclusiveWeaponDelay gate.
 ///
 /// `current < lastShot + ExclusiveWeaponDelay` suppresses the jammer pulse.
-/// `last_shot_fired_frame == 0` means never fired (live `last_fire_frame` default)
-/// so the jammer may pulse until a real weapon (vehicle disabler) stamps a shot.
+/// An unfired slot reports frame zero, which still participates in this test.
 pub fn ecm_exclusive_weapon_delay_blocks(current_frame: u32, last_shot_fired_frame: u32) -> bool {
-    last_shot_fired_frame > 0
-        && ECM_EXCLUSIVE_WEAPON_DELAY_FRAMES > 0
-        && current_frame < last_shot_fired_frame.saturating_add(ECM_EXCLUSIVE_WEAPON_DELAY_FRAMES)
+    current_frame < last_shot_fired_frame.wrapping_add(ECM_EXCLUSIVE_WEAPON_DELAY_FRAMES)
 }
 
 /// Retail ChinaTankECM ActiveBody SubdualDamageCap residual.
@@ -510,10 +507,10 @@ mod tests {
     }
 
     /// C++ FireWeaponUpdate::isOkayToFire ExclusiveWeaponDelay 1000ms → 30f.
-    /// last_shot 0 = never fired → jammer may pulse.
+    /// An unfired weapon reports frame zero and delays the initial pulse.
     #[test]
     fn exclusive_weapon_delay_blocks_after_disabler_shot() {
-        assert!(!ecm_exclusive_weapon_delay_blocks(0, 0));
+        assert!(ecm_exclusive_weapon_delay_blocks(0, 0));
         assert!(!ecm_exclusive_weapon_delay_blocks(30, 0));
         assert!(ecm_exclusive_weapon_delay_blocks(3, 3));
         assert!(ecm_exclusive_weapon_delay_blocks(32, 3));

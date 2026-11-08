@@ -231,9 +231,7 @@ impl GameLogic {
         // membership gated on UpdateRate; infantry UPDATE_SLEEP(UpdateRate).
         self.update_horde_modules();
 
-        // Host China ECM Tank / jammer residual: jam enemy weapons in radius.
-        // Fail-closed vs full subdual damage accumulate / laser stream / missile scatter.
-        self.update_ecm_jam_field_with_effects(&mut ui);
+        // Authored primary shots use normal combat; the missile jammer is independent.
         self.update_ecm_missile_jam();
 
         // Host America Microwave Tank residual: DISABLE_SUBDUED on cooked structures.

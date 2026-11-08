@@ -2978,3 +2978,7 @@ the separate Common save path retains its own handling.
 The receiving audio manager checks an existing same-object voice before cue
 limits, including delayed requests. An interrupting voice can replace it without
 the limit check selecting an unrelated sound to kill.
+
+An ECM vehicle disabler fires through its authored targeted weapon, not an
+ambient proximity aura. Its separately authored missile jammer observes the
+weapon-slot shot deadline and remains owned by the firing world.
