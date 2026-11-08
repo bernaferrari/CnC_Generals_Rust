@@ -598,7 +598,6 @@ impl GameLogic {
                 // transport faction. Exact player/Team identity still requires
                 // pre-created payloads and their native containment lifecycle.
                 let team = p.faction;
-                // Drop from above target residual.
                 let drop_pos = Vec3::new(p.target.x, 80.0, p.target.z);
                 if let Some(bid) = self.create_object_with_script_effects(
                     CARPET_BOMB_PAYLOAD_OBJECT,
@@ -608,7 +607,7 @@ impl GameLogic {
                     presentation_effects,
                 ) {
                     if let Some(o) = self.objects.get_mut(&bid) {
-                        o.producer_id = Some(ObjectId(p.source_id));
+                        o.producer_id = Some(ObjectId(p.transport_id));
                         o.carpet_bomb_payload = true;
                         o.movement.velocity = Vec3::new(0.0, -15.0, 0.0);
                         let _ = o.set_smart_bomb_target(p.target);
@@ -650,7 +649,7 @@ impl GameLogic {
             .collect();
         let mut destroy = Vec::new();
         for id in bombs {
-            let (pos, producer, team) = {
+            let pos = {
                 let Some(o) = self.objects.get_mut(&id) else {
                     continue;
                 };
@@ -664,16 +663,17 @@ impl GameLogic {
                     self.frame,
                     &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
                 );
-                (p, o.producer_id, o.team)
+                p
             };
             if pos.y <= 5.0 {
                 if let Some(object) = self.objects.get_mut(&id) {
                     object.carpet_bomb_payload = false;
                 }
-                let (dmg, hits, destroyed) = self.apply_fuel_air_radius_damage_with_effects(
+                // FireWeaponWhenDeadBehavior fires the temporary weapon from
+                // the dying payload itself, not its transport or launcher.
+                let (dmg, hits, destroyed) = self.apply_radius_damage_from_source_with_effects(
                     id,
-                    producer,
-                    team,
+                    Some(id),
                     Vec3::new(pos.x, 0.0, pos.z),
                     CARPET_BOMB_DAMAGE,
                     CARPET_BOMB_RADIUS,

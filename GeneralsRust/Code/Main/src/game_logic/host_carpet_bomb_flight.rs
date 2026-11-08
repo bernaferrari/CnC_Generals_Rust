@@ -12,6 +12,10 @@
 //! Pending drops retain their launch faction if the launcher dies or the bomber
 //! changes faction. Exact player and Team ownership still needs pre-created
 //! contained payloads.
+//! Release timing and positions are still synthesized, and the residual
+//! impact path is not a replacement for the authored HeightDie/death-weapon
+//! lifecycle. In particular, authored death callbacks must be integrated
+//! before removing the manual radius-damage path or claiming single firing.
 //!
 //! Fail-closed: not full AmericaJetB52 pathfinder / preferred-height locomotor.
 

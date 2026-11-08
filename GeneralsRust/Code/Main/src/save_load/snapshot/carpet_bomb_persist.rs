@@ -129,6 +129,94 @@ mod tests {
     use glam::Vec3;
 
     #[test]
+    fn concurrent_carpet_payloads_keep_transport_producers_and_damage_source_after_restore() {
+        use crate::game_logic::special_power_strikes::CarpetBombFactionTier;
+        use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+
+        fn players(world: &mut GameLogic) {
+            world.add_player(Player::new(1, Team::USA, "First", true));
+            world.add_player(Player::new(2, Team::USA, "Second", false));
+        }
+
+        let mut source = GameLogic::new();
+        players(&mut source);
+        let mut template = ThingTemplate::new("CarpetOwnerCaster");
+        template.add_kind_of(KindOf::Structure).set_health(5000.0);
+        source.templates.insert("CarpetOwnerCaster".into(), template);
+        let first = source.create_object_for_player("CarpetOwnerCaster", 1, Vec3::ZERO).unwrap();
+        let second = source.create_object_for_player("CarpetOwnerCaster", 2, Vec3::new(200.0, 0.0, 0.0)).unwrap();
+        let first_transport = source.spawn_carpet_bomb_flight(first, Vec3::new(100.0, 0.0, 0.0), CarpetBombFactionTier::America).unwrap();
+        let second_transport = source.spawn_carpet_bomb_flight(second, Vec3::new(800.0, 0.0, 0.0), CarpetBombFactionTier::America).unwrap();
+        let drop_frame = source.carpet_bomb_flight_reg.pending_drops[0].drop_frame;
+        let impact = source.carpet_bomb_flight_reg.pending_drops[0].target;
+        let mut victim_template = ThingTemplate::new("CarpetDamageVictim");
+        victim_template.add_kind_of(KindOf::Vehicle).set_health(5000.0);
+        victim_template.armor = 0.0;
+        source.templates.insert("CarpetDamageVictim".into(), victim_template);
+        let victim = source.create_object("CarpetDamageVictim", Team::China, impact).unwrap();
+        source.host_object_mut(first_transport).unwrap().team = Team::China;
+        source.destroy_object(first).unwrap();
+        source.destroy_object(second).unwrap();
+        source.process_destroy_list();
+
+        let builder = super::super::SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&source).unwrap();
+        let mut restored = GameLogic::new();
+        players(&mut restored);
+        restored.templates = source.templates.clone();
+        builder.restore_from_snapshot(&snapshot, &mut restored).unwrap();
+        for world in [&mut source, &mut restored] {
+            world.set_current_frame(u64::from(drop_frame));
+            world.update_carpet_bomb_flights();
+            let payloads: Vec<_> = world.host_objects().registered_values()
+                .filter(|object| object.carpet_bomb_payload)
+                .collect();
+            assert_eq!(payloads.len(), 2);
+            let first_bomb = payloads.iter()
+                .find(|payload| payload.producer_id == Some(first_transport))
+                .unwrap().id;
+            for transport in [first_transport, second_transport] {
+                let payload = payloads.iter().find(|payload| payload.producer_id == Some(transport)).unwrap();
+                assert_eq!(payload.team, Team::USA);
+            }
+            for frame in (drop_frame + 1)..=(drop_frame + 5) {
+                world.set_current_frame(u64::from(frame));
+                world.update_carpet_bomb_flights();
+            }
+            let victim = world.host_object(victim).unwrap();
+            assert_eq!(victim.health.current, 4700.0, "one payload applies one 300 damage impact");
+            assert_eq!(victim.last_damage_source, Some(first_bomb));
+        }
+    }
+
+    #[test]
+    fn carpet_transport_destroyed_before_release_cannot_spawn_or_damage() {
+        use crate::game_logic::special_power_strikes::CarpetBombFactionTier;
+        use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(1, Team::USA, "Owner", true));
+        let mut caster_template = ThingTemplate::new("CarpetDeathCaster");
+        caster_template.add_kind_of(KindOf::Structure).set_health(5000.0);
+        world.templates.insert("CarpetDeathCaster".into(), caster_template);
+        let caster = world.create_object_for_player("CarpetDeathCaster", 1, Vec3::ZERO).unwrap();
+        let transport = world.spawn_carpet_bomb_flight(
+            caster, Vec3::new(100.0, 0.0, 0.0), CarpetBombFactionTier::America,
+        ).unwrap();
+        let impact = world.carpet_bomb_flight_reg.pending_drops[0].target;
+        let mut victim_template = ThingTemplate::new("CarpetDeathVictim");
+        victim_template.add_kind_of(KindOf::Vehicle).set_health(5000.0);
+        world.templates.insert("CarpetDeathVictim".into(), victim_template);
+        let victim = world.create_object("CarpetDeathVictim", Team::China, impact).unwrap();
+        world.destroy_object(transport).unwrap();
+        world.process_destroy_list();
+        world.set_current_frame(1000);
+        world.update_carpet_bomb_flights();
+        assert!(world.host_objects().registered_values().all(|object| !object.carpet_bomb_payload));
+        assert_eq!(world.host_object(victim).unwrap().health.current, 5000.0);
+    }
+
+    #[test]
     fn snapshot_round_trips_carpet_pending_drops() {
         let mut source = GameLogic::new();
         source.carpet_bomb_flight_reg.transports_spawned = 1;
