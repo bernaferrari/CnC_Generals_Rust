@@ -3031,6 +3031,28 @@ mod tests {
         );
     }
 
+    /// hq-8ppa0c: MilesAudioManager removePlayingAudio(name) by-name stop may
+    /// only touch this session's receipts, never a same-name peer on the shared device.
+    #[test]
+    fn untracked_stop_by_name_leaves_same_name_peer_playing() {
+        use game_engine::common::audio::{AudioEventRts, AudioManager};
+        let mut device = AudioManager::new();
+        for handle in [1001u32, 1002] {
+            let mut event = AudioEventRts::with_event_name("SharedLoop");
+            event.set_playing_handle(handle);
+            device.test_insert_active_audio_event(event);
+        }
+        let device = std::sync::Arc::new(std::sync::Mutex::new(device));
+        let mut audio = AudioManagerSubsystem::new();
+        audio.bind_common_audio_device(device.clone());
+        audio.common_audio_handles.push(1001);
+        audio.stop_leftover_looping_audio(Some(9), "SharedLoop");
+        let device = device.lock().unwrap();
+        assert_eq!(device.active_event_count(), 1, "only the peer loop survives");
+        assert!(device.active_event_loop_count(1001).is_none(), "own loop stops");
+        assert!(device.active_event_loop_count(1002).is_some(), "peer loop survives");
+    }
+
     #[test]
     fn leftover_live_muted_drain_does_not_need_sound_table() {
         // C++ Miles is the only backend. When leftover TheAudio is constructed,
