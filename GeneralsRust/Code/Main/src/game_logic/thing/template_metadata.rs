@@ -170,12 +170,8 @@ impl ContainDeathRules {
 /// parsed retail containers usable without a template-name heuristic.
 /// One authored `RiderN` record from `RiderChangeContain`.
 ///
-/// C++ stores these as independent template/model-condition/weapon-set/status/
-/// command-set/locomotor values and asks `ThingTemplate::isEquivalentTo` at
-/// admission time.  The active host has no source-side reskin/build-variation
-/// equivalence graph, so `template_matches` deliberately retains only the
-/// exact, case-insensitive Object INI identity.  A variant without that exact
-/// identity stays rejected instead of being accepted by a name heuristic.
+/// C++ compares the authored template with the actual rider using
+/// ThingTemplate::isEquivalentTo; the world resolves that comparison.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RiderChangeRiderMetadata {
     /// C++ Rider1..Rider8 ordinal.
@@ -250,6 +246,9 @@ pub struct ContainModuleMetadata {
     /// Ordered HelixContain/OverlordContain onObjectCreated payload templates.
     #[serde(skip)]
     pub payload_template_names: Vec<String>,
+    /// TransportContain's first-update payload (template and authored count).
+    #[serde(skip)]
+    pub initial_transport_payload: Option<(String, i32)>,
     /// OverlordContain defaults to transferring rider experience to its host.
     #[serde(skip)]
     pub experience_sink_for_rider: bool,
@@ -441,6 +440,7 @@ impl Default for ContainModuleMetadata {
             is_helix_contain: false,
             is_overlord_contain: false,
             payload_template_names: Vec::new(),
+            initial_transport_payload: None,
             experience_sink_for_rider: true,
             slots: None,
             passengers_in_turret: false,
@@ -508,17 +508,6 @@ impl ContainModuleMetadata {
             })
     }
 
-    #[inline]
-    pub fn supported_rider_change_rider_for_template(
-        &self,
-        template_name: &str,
-    ) -> Option<&RiderChangeRiderMetadata> {
-        self.rider_change_riders.iter().find(|rider| {
-            rider.physical_enter_supported
-                && rider.active_locomotor_name.is_some()
-                && rider.template_matches(template_name)
-        })
-    }
 
     /// Leftover `OpenContain::is_valid_container_for` KindOf mask algebra.
     /// C++ `isAnyKindOf(allow) == FALSE || isAnyKindOf(forbid) == TRUE`.

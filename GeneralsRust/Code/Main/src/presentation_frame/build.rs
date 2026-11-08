@@ -1017,15 +1017,7 @@ impl PresentationFrame {
                     != crate::game_logic::ContainModuleKind::None,
                 contain_module_kind: containment.thing().template.contain_module.kind,
                 contain_admission: containment.normal_enter_admission(),
-                rider_change_allowed_templates: obj
-                    .thing()
-                    .template
-                    .contain_module
-                    .rider_change_riders
-                    .iter()
-                    .filter(|rider| rider.physical_enter_supported)
-                    .map(|rider| rider.template_name.clone())
-                    .collect(),
+                rider_change_allowed_templates: logic.rider_change_presentation_templates(containment),
                 contain_allow_allies_inside: containment.thing().template.contain_module.allow_allies_inside,
                 contain_allow_enemies_inside: containment.thing().template.contain_module.allow_enemies_inside,
                 contain_allow_neutral_inside: containment.thing().template.contain_module.allow_neutral_inside,

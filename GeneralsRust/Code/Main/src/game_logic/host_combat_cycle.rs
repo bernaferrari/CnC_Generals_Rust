@@ -3,8 +3,8 @@
 //! Residual slice (playability):
 //! - `RiderChangeContain` capacity: Slots = **1**, infantry only residual.
 //! - Retail WeaponSet Conditions=None has PRIMARY **NONE** until a rider is present.
-//! - InitialPayload residual: default `GLAInfantryRebel` → WEAPON_RIDER2
-//!   (`GLARebelBikerMachineGun`).
+//! - InitialPayload and rider weapon selection come from authored containment
+//!   and WeaponSet data, not a template-name default.
 //! - Rider weapon switch residual (visible bike fires rider weapon):
 //!   - Rider2 Rebel: `GLARebelBikerMachineGun` (8 dmg / 150 range / 100ms / clip 6)
 //!   - Rider3 TunnelDefender / RPG: `TunnelDefenderBikerRocketWeapon`
@@ -130,35 +130,6 @@ impl CombatCycleRider {
     }
 }
 
-/// Whether template is a residual Combat Cycle / Combat Bike vehicle.
-///
-/// Fail-closed: name residual (not full RiderChange / W3D rider anim matrix).
-/// Excludes weapons / projectiles / command tokens.
-pub fn is_combat_cycle_template(template_name: &str) -> bool {
-    let n = template_name.to_ascii_lowercase();
-    if n.is_empty() {
-        return false;
-    }
-    if n.contains("weapon")
-        || n.contains("missile")
-        || n.contains("projectile")
-        || n.contains("shell")
-        || n.starts_with("upgrade")
-        || n.contains("command")
-        || n.contains("voice")
-        || n.contains("fx_")
-        || n.contains("ocl_")
-    {
-        return false;
-    }
-    n.contains("combatbike")
-        || n.contains("combat_bike")
-        || n.contains("combatcycle")
-        || n.contains("combat_cycle")
-        || n == "gla_combatbike"
-        || n == "testcombatbike"
-        || n == "testcombatcycle"
-}
 
 /// Infer rider residual class from infantry template name.
 ///
@@ -199,22 +170,6 @@ pub fn rider_from_template_name(template_name: &str) -> CombatCycleRider {
     CombatCycleRider::None
 }
 
-/// Default initial rider residual (retail InitialPayload = GLAInfantryRebel 1).
-pub fn default_spawn_rider() -> CombatCycleRider {
-    CombatCycleRider::Rebel
-}
-
-/// Default spawn for CombatBikeRocket residual (tunnel defender payload).
-pub fn default_spawn_rider_for_template(template_name: &str) -> CombatCycleRider {
-    let n = template_name.to_ascii_lowercase();
-    if n.contains("terrorist") {
-        CombatCycleRider::Terrorist
-    } else if n.contains("rocket") {
-        CombatCycleRider::TunnelDefender
-    } else {
-        CombatCycleRider::Rebel
-    }
-}
 
 /// Weapon template name for rider residual (None when no combat weapon).
 pub fn combat_cycle_weapon_name_for_rider(rider: CombatCycleRider) -> Option<&'static str> {
@@ -445,8 +400,6 @@ pub const COMBAT_CYCLE_VISION_RANGE: f32 = 180.0;
 pub const COMBAT_CYCLE_SHROUD_CLEARING_RANGE: f32 = 300.0;
 pub const COMBAT_CYCLE_LOCOMOTOR_SPEED: f32 = 120.0;
 pub const COMBAT_CYCLE_LOCOMOTOR_SPEED_DAMAGED: f32 = 90.0;
-/// Retail InitialPayload residual name.
-pub const COMBAT_CYCLE_INITIAL_PAYLOAD: &str = "GLAInfantryRebel";
 
 /// Wave 69 residual honesty: rider weapon residual peel.
 pub fn honesty_combat_cycle_weapon_residual_ok() -> bool {
@@ -501,10 +454,6 @@ pub fn honesty_combat_cycle_body_residual_ok() -> bool {
         && COMBAT_CYCLE_TRANSPORT_SLOTS == 1
         && (COMBAT_CYCLE_LOCOMOTOR_SPEED - 120.0).abs() < 0.01
         && (COMBAT_CYCLE_LOCOMOTOR_SPEED_DAMAGED - 90.0).abs() < 0.01
-        && COMBAT_CYCLE_INITIAL_PAYLOAD == "GLAInfantryRebel"
-        && default_spawn_rider() == CombatCycleRider::Rebel
-        && is_combat_cycle_template("GLAVehicleCombatBike")
-        && !is_combat_cycle_template("GLARebelBikerMachineGun")
 }
 
 /// Combined Wave 69 Combat Cycle residual honesty pack.
@@ -518,24 +467,6 @@ pub fn honesty_combat_cycle_residual_pack_ok() -> bool {
 mod tests {
     use super::*;
 
-    #[test]
-    fn combat_cycle_name_matrix() {
-        assert!(is_combat_cycle_template("GLAVehicleCombatBike"));
-        assert!(is_combat_cycle_template("GLAVehicleCombatBikeRocket"));
-        assert!(is_combat_cycle_template("GLAVehicleCombatBikeTerrorist"));
-        assert!(is_combat_cycle_template("Chem_GLAVehicleCombatBike"));
-        assert!(is_combat_cycle_template("Demo_GLAVehicleCombatBike"));
-        assert!(is_combat_cycle_template("Slth_GLAVehicleCombatBike"));
-        assert!(is_combat_cycle_template("TestCombatBike"));
-        assert!(is_combat_cycle_template("TestCombatCycle"));
-        assert!(!is_combat_cycle_template("GLARebelBikerMachineGun"));
-        assert!(!is_combat_cycle_template("TunnelDefenderBikerRocketWeapon"));
-        assert!(!is_combat_cycle_template("GLAVehicleRocketBuggy"));
-        assert!(!is_combat_cycle_template("USA_Ranger"));
-        assert!(!is_combat_cycle_template(
-            "Command_ConstructGLAVehicleCombatBike"
-        ));
-    }
 
     #[test]
     fn rider_template_mapping() {
@@ -570,15 +501,6 @@ mod tests {
         assert_eq!(
             rider_from_template_name("UnknownUnit"),
             CombatCycleRider::None
-        );
-        assert_eq!(default_spawn_rider(), CombatCycleRider::Rebel);
-        assert_eq!(
-            default_spawn_rider_for_template("GLAVehicleCombatBikeRocket"),
-            CombatCycleRider::TunnelDefender
-        );
-        assert_eq!(
-            default_spawn_rider_for_template("GLAVehicleCombatBikeTerrorist"),
-            CombatCycleRider::Terrorist
         );
     }
 

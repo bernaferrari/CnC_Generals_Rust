@@ -1381,6 +1381,7 @@ End
         bike.set_position(bike_position);
         bike.experience.level = VeterancyLevel::Veteran;
         bike.occupants.push(old_rider_id);
+        bike.initial_transport_payload_created = true;
 
         let mut old_rider =
             Object::new(rider_template("GLAInfantryWorker"), old_rider_id, Team::GLA);
@@ -1393,8 +1394,11 @@ End
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
 
+        let mut variant = rider_template("FactionRebelVariant");
+        variant.reskinned_from = Some("GLAInfantryRebel".into());
+        game_logic.templates.insert("GLAInfantryRebel".into(), rider_template("GLAInfantryRebel"));
         let mut incoming_rider = Object::new(
-            rider_template("GLAInfantryRebel"),
+            variant,
             incoming_rider_id,
             Team::GLA,
         );
@@ -1439,6 +1443,9 @@ End
                 .iter()
                 .any(|template| template.eq_ignore_ascii_case("GLAInfantryRebel"))
         );
+        assert!(target.rider_change_allowed_templates.iter()
+            .any(|template| template == "FactionRebelVariant"),
+            "the frozen RMB snapshot includes equivalent live rider templates");
         assert!(
             target
                 .rider_change_allowed_templates
@@ -1529,8 +1536,8 @@ End
         );
         assert_eq!(bike_after.combat_cycle_rider, 2);
         assert!(
-            bike_after.weapon.is_some(),
-            "parsed Rider2 slot sets bike weapon"
+            bike_after.weapon.is_none(),
+            "a RiderN without an authored WeaponSet does not invent a weapon"
         );
         assert_eq!(bike_after.experience.level, VeterancyLevel::Elite);
         assert!(
@@ -1569,9 +1576,7 @@ End
         );
 
         // C++ RiderChangeContain::onContaining chooseLocomotorSet(SET_SLUGGISH).
-        if let Some(terrorist) = game_logic.host_object_mut(slow_rider_id) {
-            terrorist.set_position(bike_position);
-        }
+        assert!(game_logic.set_registered_object_position(slow_rider_id, bike_position));
         let frame = PresentationFrame::build_from_logic(&mut game_logic, 0);
         let target = processor
             .presentation_target_hint(&frame, bike_id)

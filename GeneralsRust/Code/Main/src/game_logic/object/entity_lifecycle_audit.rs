@@ -11,9 +11,10 @@ use gamelogic::world::entities::{
     TemplateRef, Transform,
 };
 
-const EXPECTED_INVENTORY_LEN: usize = 69;
+const EXPECTED_INVENTORY_LEN: usize = 70;
 
 pub(super) const EXPECTED_INVENTORY_TAGS: &[&str] = &[
+    "StatusBits",
     "WeaponSlots",
     "TurretRuntime",
     "AltTurretRuntime",
@@ -109,7 +110,6 @@ const MAIN_ONLY_TODO_GROUPS: &[&str] = &[
     "SupplyTruckRuntime",
     "Locomotor",
     "Turret",
-    "StatusBits",
     "ModelCondition",
     "ContinuousFire",
     "SubdualDamage",
@@ -143,8 +143,8 @@ fn envelope_with_every_inventory_tag() -> EntityLifecycleEnvelope {
 fn inventory_len_and_declaration_order_are_locked() {
     assert_eq!(INVENTORY_TAGS.len(), EXPECTED_INVENTORY_LEN);
     assert_eq!(INVENTORY_TAGS, EXPECTED_INVENTORY_TAGS);
-    assert_eq!(INVENTORY_TAGS[0], "WeaponSlots");
-    assert_eq!(INVENTORY_TAGS[1], "TurretRuntime");
+    assert_eq!(INVENTORY_TAGS[0], "StatusBits");
+    assert_eq!(INVENTORY_TAGS[1], "WeaponSlots");
     assert_eq!(*INVENTORY_TAGS.last().expect("tags"), "OverlordAddon");
 }
 
@@ -197,7 +197,7 @@ fn read_inventory_audit_buckets() {
     assert_eq!(covered, EXPECTED_INVENTORY_LEN);
     assert_eq!(envelope_only, 0);
     assert_eq!(entity_only, 14);
-    assert_eq!(main_only, 10);
+    assert_eq!(main_only, 9);
 
     for todo in MAIN_ONLY_TODO_GROUPS {
         assert!(

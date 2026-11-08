@@ -1,6 +1,42 @@
 use super::*;
 
 impl GameLogic {
+    /// RiderChangeContain compares the authored roster template with the
+    /// rider's actual template, including reskins and build variations.
+    pub(in crate::game_logic) fn equivalent_rider_change_row<'a>(
+        &self,
+        container: &'a Object,
+        rider: &Object,
+    ) -> Option<&'a crate::game_logic::RiderChangeRiderMetadata> {
+        container.thing().template.contain_module.rider_change_riders.iter()
+            .find(|row| {
+                row.template_matches(&rider.template_name)
+                    || self.templates.iter()
+                        .find(|(name, _)| name.eq_ignore_ascii_case(&row.template_name))
+                        .is_some_and(|(_, wanted)| wanted.is_equivalent_to(rider.get_template()))
+            })
+            .filter(|row| row.physical_enter_supported && row.active_locomotor_name.is_some())
+    }
+
+    /// Freeze the live rider identities the same authority would admit.
+    pub(crate) fn rider_change_presentation_templates(&self, container: &Object) -> Vec<String> {
+        if !container.supports_authored_rider_change_normal_enter() {
+            return Vec::new();
+        }
+        let mut names: Vec<String> = container.thing().template.contain_module
+            .rider_change_riders.iter()
+            .filter(|row| row.physical_enter_supported && row.active_locomotor_name.is_some())
+            .map(|row| row.template_name.clone()).collect();
+        for rider in self.host_objects().registered_values() {
+            if self.equivalent_rider_change_row(container, rider).is_some()
+                && !names.iter().any(|name| name.eq_ignore_ascii_case(&rider.template_name))
+            {
+                names.push(rider.template_name.clone());
+            }
+        }
+        names
+    }
+
     /// C++ `Player::getRelationship` / `PlayerList` relationship pass.
     /// Distinct players default Neutral (not Enemies). Map playerAllies /
     /// playerEnemies win. Skirmish lobby `alliance_team` still allies a slot
@@ -669,10 +705,11 @@ impl GameLogic {
         // authored RiderN equivalence with CHECK_CAPACITY=false, ejects the
         // old rider, then boards the new one in one transaction.
         if target.supports_authored_rider_change_normal_enter() {
-            return target
-                .authored_rider_change_rider_for_template(&unit.template_name)
-                .map(|_| usize::MAX)
-                .or(Some(0));
+            return Some(if self.equivalent_rider_change_row(target, unit).is_some() {
+                usize::MAX
+            } else {
+                0
+            });
         }
 
         if target.normal_enter_uses_transport_slots() {
@@ -968,13 +1005,9 @@ impl GameLogic {
                 }
             }
 
-            // Repeat the exact parsed roster lookup in authority even when
-            // presentation already filtered it.  Do not turn a Combat Cycle
-            // template-name residual into a rider admission heuristic.
+            // C++ resolves each RiderN template and compares equivalence.
             if target.supports_authored_rider_change_normal_enter()
-                && target
-                    .authored_rider_change_rider_for_template(&unit.template_name)
-                    .is_none()
+                && self.equivalent_rider_change_row(target, unit).is_none()
             {
                 return false;
             }

@@ -322,8 +322,8 @@ mod tests {
             INVENTORY_TAGS,
             super::super::entity_lifecycle_audit::EXPECTED_INVENTORY_TAGS
         );
-        assert_eq!(INVENTORY_TAGS[0], "WeaponSlots");
-        assert_eq!(INVENTORY_TAGS[1], "TurretRuntime");
+        assert_eq!(INVENTORY_TAGS[0], "StatusBits");
+        assert_eq!(INVENTORY_TAGS[1], "WeaponSlots");
         assert_eq!(*INVENTORY_TAGS.last().expect("tags"), "OverlordAddon");
     }
 

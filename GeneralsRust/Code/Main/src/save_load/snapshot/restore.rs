@@ -87,6 +87,7 @@ impl SnapshotBuilder {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            &HashMap::new(),
             game_logic,
         )
     }
@@ -104,6 +105,7 @@ impl SnapshotBuilder {
         geometry: &HashMap<ObjectId, crate::game_logic::HostGeometryInfo>,
         script_status_flags: &HashMap<ObjectId, bool>,
         current_layers: &HashMap<ObjectId, u8>,
+        status_bits: &HashMap<ObjectId, u64>,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         self.validate_object_restore_admission(objects, game_logic)?;
@@ -174,6 +176,7 @@ impl SnapshotBuilder {
                 native_lifecycle.get(&snapshot.id),
                 script_status_flags.get(&snapshot.id).copied(),
                 current_layers.get(&snapshot.id).copied(),
+                status_bits.get(&snapshot.id).copied(),
                 game_logic,
             )?;
             max_id = max_id.max(id.0);
@@ -217,7 +220,7 @@ impl SnapshotBuilder {
         snapshot: &ObjectSnapshot,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
-        self.restore_object_with_body_kind(snapshot, None, None, None, None, game_logic)
+        self.restore_object_with_body_kind(snapshot, None, None, None, None, None, game_logic)
     }
 
     pub(super) fn validate_object_restore_admission(
@@ -391,6 +394,7 @@ impl SnapshotBuilder {
         native_lifecycle: Option<&crate::game_logic::native_lifecycle::NativeLifecycleRuntime>,
         script_status_disabled: Option<bool>,
         current_layer: Option<u8>,
+        status_bits: Option<u64>,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         game_logic
@@ -549,6 +553,12 @@ impl SnapshotBuilder {
 
         // Core gameplay state
         self.restore_object_status(&snapshot.status, &mut object);
+        if let Some(bits) = status_bits {
+            let projected = crate::game_logic::host_status_bits_upgrade::object_status_mask_from_names(
+                &["STEALTHED", "DETECTED", "BOOBY_TRAPPED"],
+            );
+            object.object_status_bits = bits & !projected;
+        }
         if let Some(flag) = script_status_disabled {
             object.status.script_status_disabled = flag;
         }

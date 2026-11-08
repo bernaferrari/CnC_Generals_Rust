@@ -282,26 +282,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "GC_Chem_GLAInfantryTunnelDefender" => Some(TUNNEL_DEFENDER_ROCKET_WEAPON),
         // Generals leftover GLALightTank residual (retail PRIMARY CrusaderTankGun).
         "GLALightTank" | "GLA_LightTank" | "TestLightTank" => Some(CRUSADER_TANK_GUN),
-        // GLA Combat Cycle residual: default InitialPayload Rebel MG.
-        // Empty bike is PRIMARY NONE; spawn residual binds rebel weapon.
-        "GLAVehicleCombatBike"
-        | "GLA_CombatBike"
-        | "TestCombatBike"
-        | "TestCombatCycle"
-        | "Chem_GLAVehicleCombatBike"
-        | "Demo_GLAVehicleCombatBike"
-        | "Slth_GLAVehicleCombatBike"
-        | "GC_Slth_GLAVehicleCombatBike" => Some(REBEL_BIKER_MG),
-        "GLAVehicleCombatBikeRocket"
-        | "Chem_GLAVehicleCombatBikeRocket"
-        | "Demo_GLAVehicleCombatBikeRocket"
-        | "Slth_GLAVehicleCombatBikeRocket"
-        | "GC_Slth_GLAVehicleCombatBikeRocket" => Some(TUNNEL_DEFENDER_BIKER_ROCKET),
-        "GLAVehicleCombatBikeTerrorist"
-        | "Chem_GLAVehicleCombatBikeTerrorist"
-        | "Demo_GLAVehicleCombatBikeTerrorist"
-        | "Slth_GLAVehicleCombatBikeTerrorist"
-        | "Boss_VehicleCombatBikeTerrorist" => Some(TERRORIST_SUICIDE_WEAPON),
         _ => {
             // Name residual for Laser/Superweapon general variants + Nuke Cannon.
             if crate::game_logic::host_bunker_buster::is_bunker_buster_carrier(template_name) {
@@ -367,21 +347,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
                 crate::game_logic::host_usa_tanks::primary_weapon_name_for_usa_tank(template_name)
             {
                 return Some(w);
-            }
-            if crate::game_logic::host_combat_cycle::is_combat_cycle_template(template_name) {
-                return Some(
-                    match crate::game_logic::host_combat_cycle::default_spawn_rider_for_template(
-                        template_name,
-                    ) {
-                        crate::game_logic::host_combat_cycle::CombatCycleRider::TunnelDefender => {
-                            TUNNEL_DEFENDER_BIKER_ROCKET
-                        }
-                        crate::game_logic::host_combat_cycle::CombatCycleRider::Terrorist => {
-                            TERRORIST_SUICIDE_WEAPON
-                        }
-                        _ => REBEL_BIKER_MG,
-                    },
-                );
             }
             crate::game_logic::host_base_defense::primary_weapon_name_for_defense(template_name)
         }

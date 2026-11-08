@@ -18,7 +18,8 @@ fn present_groups(
     railroad: Option<&crate::game_logic::host_railroad::HostRailroadCar>,
 ) -> Vec<&'static str> {
     let mut out = Vec::new();
-    let pairs: [(&'static str, bool); 68] = [
+    let pairs: [(&'static str, bool); 69] = [
+        (TAG_STATUS_BITS, true),
         (
             TAG_WEAPON_SLOTS,
             super::entity_lifecycle_weapon_slots::WeaponSlotsResidual::present(object),

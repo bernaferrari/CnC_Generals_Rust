@@ -769,6 +769,19 @@ impl GameLogic {
                     } else {
                         Vec::new()
                     },
+                    initial_transport_payload: if kind == ContainModuleKind::RiderChange {
+                        module.attribute("InitialPayload").and_then(|raw| {
+                            let mut tokens = raw.split_whitespace();
+                            let name = tokens.next()?;
+                            let count = match tokens.next() {
+                                Some(value) => value.parse::<i32>().ok()?,
+                                None => 1,
+                            };
+                            Some((name.to_owned(), count))
+                        })
+                    } else {
+                        None
+                    },
                     experience_sink_for_rider: module.attribute("ExperienceSinkForRider")
                         .and_then(parse_bool).unwrap_or(true),
                     slots,

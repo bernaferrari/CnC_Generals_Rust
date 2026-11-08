@@ -538,6 +538,23 @@ impl Object {
             self.rider_change_weapon_set = Some(condition.to_owned());
         }
     }
+
+    /// RiderChangeContain sets and clears the individual RiderN flag; during
+    /// initial payload creation several flags can coexist.
+    pub(crate) fn mutate_rider_weapon_condition_at_frame(
+        &mut self, condition: &str, enabled: bool, frame: u32,
+    ) {
+        if let Some(mask) = weapon_condition_mask(condition) {
+            self.set_weapon_condition_at_frame(mask.trailing_zeros() as u8, enabled, frame);
+        }
+        if enabled {
+            self.rider_change_weapon_set = Some(condition.to_owned());
+        } else if self.rider_change_weapon_set.as_deref()
+            .is_some_and(|current| current.eq_ignore_ascii_case(condition))
+        {
+            self.rider_change_weapon_set = None;
+        }
+    }
 }
 
 #[cfg(test)]

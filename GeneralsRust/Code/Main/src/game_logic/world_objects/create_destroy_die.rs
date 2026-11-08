@@ -2120,18 +2120,6 @@ impl GameLogic {
             // GLA Marauder PRIMARY binds from the authored WeaponSet above (C++
             // WeaponSet::updateWeaponSet), not a template-name peel (hq-2qedt.145).
 
-            // Host residual: GLA Combat Cycle RiderChangeContain Slots=1 + rider weapon.
-            // Fail-closed: not full STATUS_RIDER death OCL / scuttle / stealth matrix.
-            if crate::game_logic::host_combat_cycle::is_combat_cycle_template(template_name) {
-                object.install_combat_cycle_transport();
-                // Retail InitialPayload residual: spawn with default rider weapon bound.
-                let rider = crate::game_logic::host_combat_cycle::default_spawn_rider_for_template(
-                    template_name,
-                );
-                object.combat_cycle_rider = rider.as_u8();
-                // PRIMARY binds from the authored WeaponSet above (C++
-                // WeaponSet::updateWeaponSet), not a rider name peel (hq-2qedt.148).
-            }
 
             // C++ StealthDetectorUpdate is an authored module: every template
             // declaring it detects with its own data (StealthDetectorUpdate.cpp).

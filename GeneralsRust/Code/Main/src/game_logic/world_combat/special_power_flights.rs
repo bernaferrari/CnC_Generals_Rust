@@ -140,12 +140,15 @@ impl GameLogic {
             .filter_map(|(id, object)| {
                 (!object.has_disabled_type()
                     && !object.initial_transport_payload_created
-                    && (object.is_listening_outpost_transport || object.is_troop_crawler_transport))
+                    && (object.is_listening_outpost_transport
+                        || object.is_troop_crawler_transport
+                        || object.thing().template.contain_module.kind
+                            == crate::game_logic::ContainModuleKind::RiderChange))
                     .then_some((*id, object.visual_object_generation))
             })
             .collect();
         for (id, generation) in carriers {
-            let Some((team, position, listening, crawler)) = self
+            let Some((team, position, listening, crawler, rider_payload, owner)) = self
                 .objects
                 .get(&id)
                 .filter(|object| {
@@ -159,11 +162,23 @@ impl GameLogic {
                         object.get_position(),
                         object.is_listening_outpost_transport,
                         object.is_troop_crawler_transport,
+                        object.thing().template.contain_module.initial_transport_payload.clone(),
+                        object.owner_player_id,
                     )
                 })
             else {
                 continue;
             };
+            if self.objects[&id].thing().template.contain_module.kind
+                == crate::game_logic::ContainModuleKind::RiderChange
+            {
+                // C++ resolves RiderN through the session's ThingFactory.
+                let roster: Vec<_> = self.objects[&id].thing().template.contain_module
+                    .rider_change_riders.iter().map(|row| row.template_name.clone()).collect();
+                for template in roster {
+                    self.ensure_host_spawn_template(&template);
+                }
+            }
             if listening {
                 self.apply_listening_outpost_initial_payload_with_effects_checked(
                     id, team, position, None, ui,
@@ -172,6 +187,36 @@ impl GameLogic {
                 self.apply_troop_crawler_initial_payload_with_effects_checked(
                     id, team, position, None, ui,
                 )?;
+            } else {
+                // Keep the latch false throughout callbacks: RiderChange's
+                // onContaining suppresses evacuation until createPayload ends.
+                let result = (|| -> gamelogic::GameLogicResult<()> {
+                    if let Some((name, count)) = rider_payload {
+                        for _ in 0..count.max(0) {
+                            let Some(rider_id) = self.create_object_for_owner_or_team_with_effects_checked(
+                                &name, team, owner, glam::Vec3::ZERO, None, ui,
+                            )? else {
+                                continue;
+                            };
+                            if !self.objects.get(&id).is_some_and(|object| {
+                                object.visual_object_generation == generation
+                            }) {
+                                break;
+                            }
+                            // Invalid riders remain real, uncontained objects,
+                            // just as the source's failed admission does.
+                            let _ = self.rider_change_initial_payload_with_effects(rider_id, id, ui)?;
+                        }
+                    }
+                    Ok(())
+                })();
+                if let Some(object) = self.objects.get_mut(&id)
+                    .filter(|object| object.visual_object_generation == generation)
+                {
+                    object.initial_transport_payload_created = true;
+                }
+                result?;
+                continue;
             }
             // Original createPayload sets the latch after admission. A failed
             // semantic child birth propagates instead of pretending success.

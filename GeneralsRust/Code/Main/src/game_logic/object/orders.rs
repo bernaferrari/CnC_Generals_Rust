@@ -1662,20 +1662,6 @@ impl Object {
                 .has_supported_rider_change_roster()
     }
 
-    /// Exact, case-insensitive authored RiderN identity lookup.  C++ also
-    /// accepts reskin/build-variation equivalence; that source relationship is
-    /// not retained in the active ThingTemplate graph, so those variants stay
-    /// fail-closed rather than being approximated from their name.
-    #[inline]
-    pub fn authored_rider_change_rider_for_template(
-        &self,
-        template_name: &str,
-    ) -> Option<&crate::game_logic::RiderChangeRiderMetadata> {
-        self.thing
-            .template
-            .contain_module
-            .supported_rider_change_rider_for_template(template_name)
-    }
 
     /// Install residual America Humvee transport:
     /// C++ TransportContain Slots=5, PassengersAllowedToFire=Yes,

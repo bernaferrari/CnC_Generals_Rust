@@ -107,8 +107,7 @@ pub use super::host_combat_chinook::{
 };
 pub use super::host_combat_cycle::{
     COMBAT_CYCLE_TRANSPORT_SLOTS, CombatCycleRider, REBEL_BIKER_MG, REBEL_MG_DAMAGE,
-    TUNNEL_DEFENDER_BIKER_ROCKET, combat_cycle_weapon_for_rider, default_spawn_rider,
-    default_spawn_rider_for_template, is_combat_cycle_template, rider_from_template_name,
+    TUNNEL_DEFENDER_BIKER_ROCKET, combat_cycle_weapon_for_rider, rider_from_template_name,
     should_apply_combat_cycle_residual,
 };
 

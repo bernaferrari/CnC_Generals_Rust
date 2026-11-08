@@ -564,9 +564,9 @@ impl GameLogic {
         }
 
         obj.combat_cycle_rider = rider.as_u8();
-        if obj.thing().template.has_receiving_weapon_sets() {
-            // Authored RiderChange rows own the live weapons. This residual
-            // refresh must not replace them with the synthetic cycle table.
+        if parsed_rider_change || obj.thing().template.has_receiving_weapon_sets() {
+            // Parsed RiderChange owns its selected weapon set, even when
+            // there is no receiving weapon row to bind.
             self.combat_cycle_residual_rider_switches =
                 self.combat_cycle_residual_rider_switches.saturating_add(1);
             return true;
@@ -628,22 +628,8 @@ impl GameLogic {
                 .contain_module
                 .has_supported_rider_change_roster();
         if parsed_rider_change {
-            // An authored RiderChange transaction owns this state.  Never
-            // infer the occupant class from a template basename after it has
-            // selected a RiderN slot.  The only retained legacy exception is
-            // an initial payload with no live occupant yet.
-            let active_rider = container
-                .rider_change_active_slot
-                .map(CombatCycleRider::from_u8)
-                .or_else(|| {
-                    container
-                        .contained_units()
-                        .is_empty()
-                        .then(|| CombatCycleRider::from_u8(container.combat_cycle_rider))
-                });
-            if let Some(rider) = active_rider {
-                let _ = self.apply_combat_cycle_rider(container_id, rider);
-            }
+            // RiderChange's containment transaction owns its condition and
+            // selected weapons; never replace them with the residual table.
             return;
         }
         if !container.is_combat_cycle_style_container() {

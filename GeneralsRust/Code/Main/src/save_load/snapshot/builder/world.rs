@@ -697,6 +697,9 @@ impl SnapshotBuilder {
             super::super::body_rules_persist::prepare(lifecycle_tail, snapshot.version)?;
         let lifecycle_for_a10 =
             super::super::lifecycle_tail::decode_lifecycle_tail(lifecycle_tail)?;
+        let object_status_bits = super::super::lifecycle_tail::preflight_object_status_bits(
+            &lifecycle_for_a10, &snapshot.objects,
+        )?;
         let mut physics_owner_count = 0;
         for envelope in &lifecycle_for_a10.envelopes {
             let owner = ObjectId(envelope.entity_id);
@@ -914,6 +917,7 @@ impl SnapshotBuilder {
                 original_disabled.records.as_deref(),
             ),
             &current_layers,
+            &object_status_bits,
             game_logic,
         )?;
         super::super::garrison_team_identity_persist::apply_rows(

@@ -2156,15 +2156,7 @@ impl PresentationFrame {
                 ro.contain_admission = contain_admission;
                 dirty = true;
             }
-            let rider_change_allowed_templates: Vec<String> = containment
-                .thing()
-                .template
-                .contain_module
-                .rider_change_riders
-                .iter()
-                .filter(|rider| rider.physical_enter_supported)
-                .map(|rider| rider.template_name.clone())
-                .collect();
+            let rider_change_allowed_templates = logic.rider_change_presentation_templates(containment);
             if ro.rider_change_allowed_templates != rider_change_allowed_templates {
                 ro.rider_change_allowed_templates = rider_change_allowed_templates;
                 dirty = true;

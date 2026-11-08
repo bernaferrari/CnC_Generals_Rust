@@ -143,6 +143,13 @@ fn apply_one(
 ) -> Result<(), EntityLifecycleCodecError> {
     let payload = module.payload.as_slice();
     match module.tag.as_str() {
+        TAG_STATUS_BITS => {
+            let bits: u64 = decode_payload(payload)?;
+            let projected = crate::game_logic::host_status_bits_upgrade::object_status_mask_from_names(
+                &["STEALTHED", "DETECTED", "BOOBY_TRAPPED"],
+            );
+            object.object_status_bits = bits & !projected;
+        }
         TAG_WEAPON_SLOTS => super::entity_lifecycle_weapon_slots::decode(payload)?.apply(object),
         TAG_TURRET_RUNTIME => super::turret_runtime_persist::decode(payload)?.apply(object)?,
         TAG_ALT_TURRET => super::alt_turret_persist::decode(payload)?.apply(object)?,

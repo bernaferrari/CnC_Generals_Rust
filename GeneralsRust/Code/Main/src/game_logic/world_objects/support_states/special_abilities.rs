@@ -13,7 +13,7 @@ struct RiderChangeEnterPlan {
     /// chooseLocomotorSet also changes braking, damage movement, surface
     /// capability, and physics options.
     active_locomotor: crate::game_logic::locomotor_bootstrap::HostLocomotorBinding,
-    previous_rider: Option<ObjectId>,
+    previous_riders: Vec<ObjectId>,
     /// C++ `wasSelected` is an in-game/local selection fact.  Keep the
     /// owning local player so the object bit and the player's selection list
     /// move together after a successful board.
@@ -45,20 +45,24 @@ fn clear_rider_change_runtime_state(
         .map(|bit| 1u128 << bit)
         .unwrap_or(0);
 
-    container.model_condition_bits &=
-        !(container.rider_change_model_condition_mask | authored_model_mask | door_closing_mask);
+    let model_mask = authored_rider.map_or(container.rider_change_model_condition_mask, |_| authored_model_mask);
+    let rider_status_mask = authored_rider.map_or(container.rider_change_object_status_mask, |_| authored_status_mask);
+    container.model_condition_bits &= !(model_mask | door_closing_mask);
+    container.rider_change_model_condition_mask &= !model_mask;
+    container.rider_change_object_status_mask &= !rider_status_mask;
     let receiving = container.thing().template.has_receiving_weapon_sets();
-    container.set_rider_weapon_condition_at_frame(None, frame);
-    let rider_status_mask = container.rider_change_object_status_mask | authored_status_mask;
+    if let Some(rider) = authored_rider {
+        container.mutate_rider_weapon_condition_at_frame(&rider.weapon_set, false, frame);
+    } else {
+        container.set_rider_weapon_condition_at_frame(None, frame);
+    }
     container.clear_object_status_mask_bits(rider_status_mask);
-    container.rider_change_active_slot = None;
-    container.rider_change_model_condition_mask = 0;
-    container.rider_change_object_status_mask = 0;
-    container.rider_change_locomotor_set = None;
-    container.rider_change_locomotor_name = None;
-    // C++ clears the active WeaponSet before the replacement's set is chosen.
-    // The bounded Combat Cycle bridge is the live representation of that set.
-    container.combat_cycle_rider = 0;
+    if authored_rider.is_none_or(|rider| container.rider_change_active_slot == Some(rider.slot)) {
+        container.rider_change_active_slot = None;
+        container.rider_change_locomotor_set = None;
+        container.rider_change_locomotor_name = None;
+        container.combat_cycle_rider = 0;
+    }
     if !receiving {
         let _ = container.replace_weapon_set_slot(0, None);
         let _ = container.replace_weapon_set_slot(1, None);
@@ -2096,12 +2100,22 @@ impl GameLogic {
         &self,
         rider_id: ObjectId,
         container_id: ObjectId,
+        initial_payload: bool,
     ) -> Option<RiderChangeEnterPlan> {
-        if !self.can_unit_enter_normal_target(rider_id, container_id) {
+        if !initial_payload && !self.can_unit_enter_normal_target(rider_id, container_id) {
             return None;
         }
         let rider = self.objects.get(&rider_id)?;
         let container = self.objects.get(&container_id)?;
+        if initial_payload
+            && (!container.thing().template.contain_module
+                    .leftover_kind_masks_admit(rider.kind_of_cpp_mask())
+                || !container.allows_normal_enter_for_relationship(
+                    self.normal_enter_relationship(rider, container),
+                ))
+        {
+            return None;
+        }
         if !container.supports_authored_rider_change_normal_enter() {
             // A parsed roster is the sole admission/effect capability.  Do
             // not use a Combat Bike basename or legacy transport flag here:
@@ -2116,9 +2130,7 @@ impl GameLogic {
         if container.building_data.is_some() {
             return None;
         }
-        let rider_metadata = container
-            .authored_rider_change_rider_for_template(&rider.template_name)?
-            .clone();
+        let rider_metadata = self.equivalent_rider_change_row(container, rider)?.clone();
         // Parse-time metadata can outlive a LocomotorStore reload or an old
         // snapshot.  Re-resolve the complete exact authored SET_NORMAL /
         // SET_SLUGGISH row before any eject mutation; no generic
@@ -2178,16 +2190,10 @@ impl GameLogic {
                 self.locomotor_definitions.as_ref(),
             )?;
         let occupants = container.contained_units();
-        if occupants.len() > 1 {
-            // The source C++ module has one active rider.  A malformed/stale
-            // host roster cannot be safely reduced by guessing which unit to
-            // evict, so reject before touching either side.
-            return None;
-        }
         let incoming_selection_player = rider
             .owner_player_id
             .filter(|player_id| rider.selected && self.is_local_player(*player_id));
-        if occupants.first().copied() == Some(rider_id) {
+        if !initial_payload && occupants.contains(&rider_id) {
             // A stale duplicate Enter is harmless only when the relationship
             // is already internally consistent; the caller repairs the rider
             // state below without adding it a second time.
@@ -2195,7 +2201,7 @@ impl GameLogic {
                 rider: rider_metadata,
                 active_locomotor_name,
                 active_locomotor,
-                previous_rider: Some(rider_id),
+                previous_riders: vec![rider_id],
                 incoming_selection_player,
                 incoming_was_selected: incoming_selection_player.is_some(),
                 incoming_veterancy: rider.experience.level,
@@ -2207,15 +2213,17 @@ impl GameLogic {
             // a unit belong to two containers.
             return None;
         }
-        let previous_rider = occupants.first().copied();
-        if let Some(previous_rider_id) = previous_rider {
+        let previous_riders = if initial_payload || !container.initial_transport_payload_created {
+            Vec::new()
+        } else {
+            occupants
+        };
+        for &previous_rider_id in &previous_riders {
             let previous = self.objects.get(&previous_rider_id)?;
             if previous_rider_id == rider_id
                 || !previous.is_alive()
                 || previous.contained_by != Some(container_id)
-                || container
-                    .authored_rider_change_rider_for_template(&previous.template_name)
-                    .is_none()
+                || self.equivalent_rider_change_row(container, previous).is_none()
             {
                 return None;
             }
@@ -2231,7 +2239,7 @@ impl GameLogic {
             rider: rider_metadata,
             active_locomotor_name,
             active_locomotor,
-            previous_rider,
+            previous_riders,
             incoming_selection_player,
             incoming_was_selected: incoming_selection_player.is_some(),
             incoming_veterancy: rider.experience.level,
@@ -2254,15 +2262,34 @@ impl GameLogic {
         )
     }
 
-    pub(in super::super::super) fn rider_change_enter_at_arrival_with_effects(
+    pub(in crate::game_logic) fn rider_change_enter_at_arrival_with_effects(
         &mut self,
         rider_id: ObjectId,
         container_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
+        self.rider_change_enter_with_effects(rider_id, container_id, false, effects)
+    }
+
+    pub(in crate::game_logic) fn rider_change_initial_payload_with_effects(
+        &mut self,
+        rider_id: ObjectId,
+        container_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        self.rider_change_enter_with_effects(rider_id, container_id, true, effects)
+    }
+
+    fn rider_change_enter_with_effects(
+        &mut self,
+        rider_id: ObjectId,
+        container_id: ObjectId,
+        initial_payload: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
         let tree_move_frame = self.frame;
         let veterancy_health_bonus = self.veterancy_health_bonus;
-        let Some(plan) = self.rider_change_enter_plan(rider_id, container_id) else {
+        let Some(plan) = self.rider_change_enter_plan(rider_id, container_id, initial_payload) else {
             return Ok(false);
         };
 
@@ -2280,10 +2307,10 @@ impl GameLogic {
                 .expect("preflight container")
                 .visual_draw_identity_token,
         );
-        let previous_birth = plan
-            .previous_rider
-            .and_then(|id| self.objects.get(&id))
-            .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token));
+        let previous_births: Vec<_> = plan.previous_riders.iter().filter_map(|id| {
+            self.objects.get(id).map(|object| (*id,
+                std::sync::Arc::downgrade(&object.visual_draw_identity_token)))
+        }).collect();
         let same_rider = |world: &Self| {
             world.objects.get(&rider_id).is_some_and(|object| {
                 rider_birth.ptr_eq(&std::sync::Arc::downgrade(
@@ -2299,7 +2326,7 @@ impl GameLogic {
             })
         };
         let same_previous = |world: &Self, id| {
-            previous_birth.as_ref().is_some_and(|birth| {
+            previous_births.iter().find(|(previous_id, _)| *previous_id == id).is_some_and(|(_, birth)| {
                 world.objects.get(&id).is_some_and(|object| {
                     birth.ptr_eq(&std::sync::Arc::downgrade(
                         &object.visual_draw_identity_token,
@@ -2310,7 +2337,7 @@ impl GameLogic {
 
         // Idempotent duplicate: retain the valid existing relation but repair
         // the arrival state without disturbing veterancy or rider effects.
-        if plan.previous_rider == Some(rider_id) {
+        if plan.previous_riders.as_slice() == [rider_id] {
             if let Some(rider) = self.objects.get_mut(&rider_id) {
                 rider.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
@@ -2369,16 +2396,14 @@ impl GameLogic {
 
         if !same_rider(self)
             || !same_container(self)
-            || plan
-                .previous_rider
-                .is_some_and(|id| !same_previous(self, id))
+            || plan.previous_riders.iter().any(|id| !same_previous(self, *id))
         {
             return Ok(false);
         }
 
         // Phase 1: eject the old rider.  All IDs/list membership were checked
         // above, so the remove cannot fail after any state has changed.
-        if let Some(previous_rider_id) = plan.previous_rider {
+        for &previous_rider_id in &plan.previous_riders {
             let (previous_metadata, bike_veterancy, previous_has_controller) = {
                 let container = self
                     .objects
@@ -2389,8 +2414,7 @@ impl GameLogic {
                     .get(&previous_rider_id)
                     .expect("RiderChange preflight rider disappeared");
                 (
-                    container
-                        .authored_rider_change_rider_for_template(&previous.template_name)
+                    self.equivalent_rider_change_row(container, previous)
                         .expect("RiderChange preflight roster disappeared")
                         .clone(),
                     container.experience.level,
@@ -2449,6 +2473,7 @@ impl GameLogic {
                     .objects
                     .get_mut(&containment_actor_id)
                     .expect("containment operation preserves this birth");
+                previous.set_status_disabled_held(false);
                 previous.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
@@ -2486,11 +2511,6 @@ impl GameLogic {
                     );
                 }
             }
-        } else if let Some(container) = self.objects.get_mut(&container_id) {
-            // An initial-payload Combat Cycle can have a visible legacy rider
-            // without a tracked Object.  Clear only its existing host bridge
-            // before applying the explicitly parsed replacement.
-            clear_rider_change_runtime_state(container, None, self.frame);
         }
 
         // OpenContain adds the rider to its list before redeployment and
@@ -2544,11 +2564,11 @@ impl GameLogic {
                 .get_mut(&container_id)
                 .expect("validated original container");
             container.model_condition_bits |= plan.rider.model_condition_mask;
-            container.set_rider_weapon_condition_at_frame(Some(&plan.rider.weapon_set), self.frame);
+            container.mutate_rider_weapon_condition_at_frame(&plan.rider.weapon_set, true, self.frame);
             container.apply_object_status_mask_bits(plan.rider.object_status_mask);
             container.rider_change_active_slot = Some(plan.rider.slot);
-            container.rider_change_model_condition_mask = plan.rider.model_condition_mask;
-            container.rider_change_object_status_mask = plan.rider.object_status_mask;
+            container.rider_change_model_condition_mask |= plan.rider.model_condition_mask;
+            container.rider_change_object_status_mask |= plan.rider.object_status_mask;
             container.rider_change_locomotor_set = Some(plan.rider.locomotor_set.clone());
             container.rider_change_locomotor_name = Some(plan.active_locomotor_name.clone());
             container.set_command_set_override(Some(plan.rider.command_set.clone()));
@@ -2565,6 +2585,7 @@ impl GameLogic {
                 self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
+            rider.set_status_disabled_held(true);
             rider.set_status_moving(false);
             rider.set_rider_change_veterancy_level_with_health_bonus_table(
                 VeterancyLevel::Rookie,
@@ -2576,25 +2597,9 @@ impl GameLogic {
         }
 
         self.admit_object_drawable_deselection(rider_id);
-        // This is a visual/weapon mirror only.  It receives the parsed RiderN
-        // ordinal, never the incoming rider's template spelling; the generic
-        // `refresh_combat_cycle_rider_weapon` is intentionally not called.
-        let receiving = self.objects.get(&container_id).is_some_and(|container| {
-            container.thing().template.has_receiving_weapon_sets()
-        });
-        let switched = if receiving {
-            self.objects.get_mut(&container_id).unwrap().combat_cycle_rider = plan.rider.slot;
-            true
-        } else {
-            self.apply_combat_cycle_rider(
-                container_id,
-                crate::game_logic::host_combat_cycle::CombatCycleRider::from_u8(plan.rider.slot),
-            )
-        };
-        debug_assert!(
-            switched,
-            "RiderChange preflight must make weapon bridge infallible"
-        );
+        // The authored weapon-set condition was applied above.  The slot
+        // ordinal is only a presentation mirror, never a synthetic weapon.
+        self.objects.get_mut(&container_id).unwrap().combat_cycle_rider = plan.rider.slot;
         if let Some(container) = self.objects.get_mut(&container_id) {
             container.set_rider_change_veterancy_level_with_health_bonus_table(
                 plan.incoming_veterancy,
@@ -2657,7 +2662,7 @@ impl GameLogic {
             transfer_selection,
         )) = self.objects.get(&container_id).and_then(|container| {
             if !container.supports_authored_rider_change_normal_enter()
-                || container.contained_units() != vec![rider_id]
+                || !container.contained_units().contains(&rider_id)
             {
                 return None;
             }
@@ -2665,9 +2670,7 @@ impl GameLogic {
             if rider.contained_by != Some(container_id) || !rider.is_alive() {
                 return None;
             }
-            let rider_metadata = container
-                .authored_rider_change_rider_for_template(&rider.template_name)?
-                .clone();
+            let rider_metadata = self.equivalent_rider_change_row(container, rider)?.clone();
             let transfer_selection = container.selected
                 && container
                     .owner_player_id
@@ -2753,6 +2756,7 @@ impl GameLogic {
                 .objects
                 .get_mut(&containment_actor_id)
                 .expect("containment operation preserves this birth");
+            rider.set_status_disabled_held(false);
             // CPP RiderChangeContain::onRemoving does not issue an AI order.
             // AIExitState and the exit interface own the rider's continuation.
             if rider_has_controller {

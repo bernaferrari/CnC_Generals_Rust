@@ -20,6 +20,28 @@ pub struct LifecycleTail {
     pub spawn_behavior_rosters: Option<Vec<SpawnBehaviorRoster>>,
 }
 
+/// Object::xfer status belongs to each Object before its team/admission
+/// callbacks. Decode the lifecycle records before retiring the receiving world.
+pub(super) fn preflight_object_status_bits(
+    tail: &LifecycleTail,
+    objects: &std::collections::HashMap<ObjectId, super::object::ObjectSnapshot>,
+) -> SaveLoadResult<std::collections::HashMap<ObjectId, u64>> {
+    let mut result = std::collections::HashMap::new();
+    for envelope in &tail.envelopes {
+        let id = ObjectId(envelope.entity_id);
+        for module in envelope.module_states.iter().filter(|module| module.tag == "StatusBits") {
+            if !objects.contains_key(&id) || result.contains_key(&id) {
+                return Err(SaveLoadError::Corrupted(format!("invalid Object status owner {}", id.0)));
+            }
+            let bits: u64 = bincode_legacy::deserialize(&module.payload).map_err(|error| {
+                SaveLoadError::Corrupted(format!("Object {} status decode: {error}", id.0))
+            })?;
+            result.insert(id, bits);
+        }
+    }
+    Ok(result)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ContainLink {
     pub container_id: u32,

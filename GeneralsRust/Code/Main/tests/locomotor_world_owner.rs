@@ -555,8 +555,8 @@ fn locomotors_follow_the_receiving_world_through_map_reset_and_restore() {
     for (world, id) in [(&first, first_bike), (&peer, peer_bike)] {
         let bike = world.host_object(id).unwrap();
         assert!(bike.supports_authored_rider_change_normal_enter());
-        let rider = bike
-            .authored_rider_change_rider_for_template("OwnerRider")
+        let rider = bike.get_template().contain_module.rider_change_riders.iter()
+            .find(|row| row.template_name == "OwnerRider")
             .unwrap();
         assert_eq!(
             rider.active_locomotor_names,

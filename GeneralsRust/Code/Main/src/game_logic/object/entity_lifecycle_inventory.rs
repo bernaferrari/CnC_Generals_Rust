@@ -132,6 +132,12 @@ pub(crate) fn collect_module_states(
     railroad: Option<&crate::game_logic::host_railroad::HostRailroadCar>,
 ) -> Result<Vec<EntityModuleState>, EntityLifecycleCodecError> {
     let mut out = Vec::new();
+    // Object.cpp:4070-4073 writes the complete m_status on the Object,
+    // independently of any behavior module.
+    out.push(EntityModuleState {
+        tag: TAG_STATUS_BITS.to_owned(),
+        payload: encode_payload(&object.object_status_bits)?,
+    });
     super::entity_lifecycle_weapon_slots::collect(object, &mut out)?;
     if object.turret_ai.turret_enabled || object.turret_runtime.seeded {
         out.push(EntityModuleState {

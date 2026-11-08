@@ -2,6 +2,8 @@
 //!
 //! Order matches `Object` field-group declaration order (not C++ helper-first
 //! xfer order). That declaration order is the inventory contract for this slice.
+/// C++ Object::m_status raw bits, transferred before the receiving object is admitted.
+pub const TAG_STATUS_BITS: &str = "StatusBits";
 
 /// Source ParachuteContain attachment cache and bone invalidation flags.
 pub const TAG_PARACHUTE_ATTACHMENTS: &str = "ParachuteContainAttachments";
@@ -148,6 +150,7 @@ pub const TAG_RAILED_DOCK: &str = "RailedTransportDockUpdate";
 
 /// Declaration-order inventory. Producer emits tags in this sequence.
 pub const INVENTORY_TAGS: &[&str] = &[
+    TAG_STATUS_BITS,
     TAG_WEAPON_SLOTS,
     TAG_TURRET_RUNTIME,
     TAG_ALT_TURRET,
