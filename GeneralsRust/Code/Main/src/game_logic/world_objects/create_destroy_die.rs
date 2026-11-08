@@ -2478,15 +2478,15 @@ impl GameLogic {
             )?;
             verify_factory_birth!();
 
-            // C++ VeterancyGainCreate.cpp:63-65 controlling player only, then
-            // PlayerTemplate fallback. Ally training science must not veteran
-            // another same-team player's units.
+            // C++ VeterancyGainCreate.cpp:63-71 uses the controlling player's
+            // science and the receiving object's authored create modules.
             {
                 use crate::game_logic::host_unit_training::{
                     normalize_identity, unit_training_level_for_object, veterancy_rank,
                 };
-                let sciences: Vec<String> = owner_player_id
-                    .and_then(|player_id| self.players.get(&player_id))
+                let player = owner_player_id.and_then(|player_id| self.players.get(&player_id));
+                let has_controlling_player = player.is_some();
+                let sciences: Vec<String> = player
                     .map(|player| player.unlocked_sciences.iter().cloned().collect())
                     .unwrap_or_default();
                 let health_bonus = self.veterancy_health_bonus;
@@ -2496,7 +2496,7 @@ impl GameLogic {
                         |obj, audio, feedback, locomotors| {
                             let mut ini_level = None;
                             for module in &obj.thing().template.veterancy_gain_creates {
-                                let science_ok = match &module.science_required {
+                                let science_ok = has_controlling_player && match &module.science_required {
                                     None => true,
                                     Some(sci) => sciences
                                         .iter()
@@ -2520,8 +2520,9 @@ impl GameLogic {
                                     feedback,
                                     locomotors,
                                 );
-                            } else if let Some((kind, level)) =
-                                unit_training_level_for_object(
+                            } else if obj.thing().template.veterancy_gain_creates.is_empty()
+                                && obj.is_trainable()
+                                && let Some((kind, level)) = unit_training_level_for_object(
                                     template_name,
                                     obj.authored_weapon_name_for_slot(0),
                                     &sciences,

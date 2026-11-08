@@ -25,7 +25,7 @@
 //! Fail-closed honesty:
 //! - Not full FiringTracker model-condition CONTINUOUS_FIRE_* animation matrix
 //! - Not full bayonet tertiary / CaptureBuilding special residual
-//! - Infa_SCIENCE_RedGuardTraining ELITE spawn residual closed in host_unit_training
+//! - Authored VeterancyGainCreate controls training rank on spawn
 //! - Not network continuous-fire / chain-gun / horde replication (network deferred)
 
 use super::Weapon;

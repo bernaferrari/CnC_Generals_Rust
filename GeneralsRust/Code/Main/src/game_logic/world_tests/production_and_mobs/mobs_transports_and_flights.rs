@@ -299,6 +299,73 @@ fn special_power_create_starts_unit_recharge() {
 }
 
 #[test]
+fn authored_veterancy_create_controls_minigunner_training_per_world_and_player() {
+    use crate::game_logic::{Player, Team, VeterancyLevel};
+
+    fn world(module: &str, name: &str, trainable: &str, owner_science: bool) -> GameLogic {
+        let mut logic = GameLogic::new();
+        let mut owner = Player::new(1, Team::China, "Owner", false);
+        if owner_science {
+            owner.unlocked_sciences.insert("Infa_SCIENCE_RedGuardTraining".into());
+        }
+        let mut ally = Player::new(2, Team::China, "Ally", false);
+        ally.unlocked_sciences.insert("Infa_SCIENCE_RedGuardTraining".into());
+        logic.add_player(owner);
+        logic.add_player(ally);
+        let source = format!(
+            "Object {name}\n IsTrainable = {trainable}\n KindOf = INFANTRY SELECTABLE\n {module}\nEnd\n"
+        );
+        let mut sciences = game_engine::common::rts::science::ScienceStore::new();
+        sciences.add_science(game_engine::common::rts::science::ScienceInfo::new(
+            1,
+            "Infa_SCIENCE_RedGuardTraining",
+        ));
+        sciences.add_science(game_engine::common::rts::science::ScienceInfo::new(
+            2,
+            "SCIENCE_RedGuardTraining",
+        ));
+        let content = crate::assets::ReceivingObjectContent::from_sources_with_sciences(
+            [("training.ini".to_string(), source)],
+            game_engine::common::rts::science::ScienceNameFacts::from_store(&sciences).into(),
+        ).unwrap();
+        logic.admit_receiving_module_content(content).unwrap();
+        logic
+    }
+
+    let correct = "Behavior = VeterancyGainCreate Training\n StartingLevel = ELITE\n ScienceRequired = Infa_SCIENCE_RedGuardTraining\nEnd";
+    let wrong = "Behavior = VeterancyGainCreate Training\n StartingLevel = ELITE\n ScienceRequired = SCIENCE_RedGuardTraining\nEnd";
+    let unconditional = "Behavior = VeterancyGainCreate Training\n StartingLevel = VETERAN\nEnd";
+    let minimum = "Behavior = VeterancyGainCreate First\n StartingLevel = HEROIC\nEnd\nBehavior = VeterancyGainCreate Second\n StartingLevel = VETERAN\nEnd";
+    let name = "Infa_ChinaInfantryMiniGunner";
+    let mut authored = world(correct, name, "Yes", true);
+    let mut absent = world("", name, "Yes", true);
+    let mut mismatch = world(wrong, name, "Yes", true);
+    let mut ally_only = world(correct, name, "Yes", false);
+    let mut untrainable = world(correct, name, "No", true);
+    let mut renamed = world(correct, "DifferentInfantry", "Yes", true);
+    let mut no_science_required = world(unconditional, "UnconditionalInfantry", "Yes", false);
+    let mut minimum_level = world(minimum, "ExperiencedInfantry", "Yes", false);
+    let mut ids = Vec::new();
+    for (logic, template, expected) in [
+        (&mut authored, name, VeterancyLevel::Elite),
+        (&mut absent, name, VeterancyLevel::Rookie),
+        (&mut mismatch, name, VeterancyLevel::Rookie),
+        (&mut ally_only, name, VeterancyLevel::Rookie),
+        (&mut untrainable, name, VeterancyLevel::Rookie),
+        (&mut renamed, "DifferentInfantry", VeterancyLevel::Elite),
+        (&mut no_science_required, "UnconditionalInfantry", VeterancyLevel::Veteran),
+        (&mut minimum_level, "ExperiencedInfantry", VeterancyLevel::Heroic),
+    ] {
+        let id = logic.create_object_for_player(template, 1, Vec3::ZERO).unwrap();
+        assert_eq!(logic.host_object(id).unwrap().experience.level, expected);
+        ids.push(id);
+    }
+    assert!(ids.iter().all(|id| *id == ids[0]));
+    let ally_id = ally_only.create_object_for_player(name, 2, Vec3::ZERO).unwrap();
+    assert_eq!(ally_only.host_object(ally_id).unwrap().experience.level, VeterancyLevel::Elite);
+}
+
+#[test]
 fn veterancy_gain_create_uses_controlling_player_sciences_only() {
     // C++ VeterancyGainCreate.cpp:61-73 controlling player only.
     use crate::game_logic::{

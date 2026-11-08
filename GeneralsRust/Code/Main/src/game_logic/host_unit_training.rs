@@ -5,7 +5,7 @@
 //!   required science unlocked, grant residual StartingLevel via
 //!   `VeterancyGainCreate` semantics (`ExperienceTracker::setMinVeterancyLevel`):
 //!   - `SCIENCE_RedGuardTraining` → Red Guard **VETERAN**
-//!   - `Infa_SCIENCE_RedGuardTraining` → MiniGunner **ELITE**
+//!   - Authored `VeterancyGainCreate` may grant MiniGunner **ELITE**
 //!   - `SCIENCE_BattlemasterTraining` → Battlemaster **ELITE**
 //!   - `SCIENCE_ArtilleryTraining` → Inferno Cannon / Nuke Cannon **VETERAN**
 //!   - `SCIENCE_TechnicalTraining` → Technical **VETERAN**
@@ -233,19 +233,9 @@ pub fn unit_training_level_for_template(
 ) -> Option<(UnitTrainingScience, VeterancyLevel)> {
     use crate::game_logic::host_battlemaster::is_battlemaster_template;
     use crate::game_logic::host_inferno_cannon::is_inferno_cannon_template;
-    use crate::game_logic::host_minigunner::is_minigunner_template;
     use crate::game_logic::host_neutron_shell::is_nuke_cannon_template;
     use crate::game_logic::host_red_guard::is_red_guard_template;
 
-    // Infantry General MiniGunner uses Infa_SCIENCE_RedGuardTraining → ELITE.
-    // Fail-closed: stock SCIENCE_RedGuardTraining does not train MiniGunner.
-    if is_minigunner_template(template_name) {
-        let kind = UnitTrainingScience::InfaRedGuard;
-        if player_has_unit_training_science(unlocked_sciences, kind) {
-            return Some((kind, kind.starting_level()));
-        }
-        return None;
-    }
 
     if is_red_guard_template(template_name) {
         let kind = UnitTrainingScience::RedGuard;
@@ -789,11 +779,7 @@ mod tests {
         );
 
         let sciences = vec![SCIENCE_INFA_RED_GUARD_TRAINING.to_string()];
-        assert_eq!(
-            unit_training_level_for_template("Infa_ChinaInfantryMiniGunner", &sciences)
-                .map(|(_, l)| l),
-            Some(VeterancyLevel::Elite)
-        );
+        assert!(unit_training_level_for_template("Infa_ChinaInfantryMiniGunner", &sciences).is_none());
 
         // Fail-closed: no science → no grant.
         assert!(unit_training_level_for_template("ChinaInfantryRedguard", &[]).is_none());

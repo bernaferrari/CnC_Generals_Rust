@@ -2961,3 +2961,7 @@ are resolved from the receiving world.
 Live-client registration no longer re-enters the raw client bridge merely to
 rewrite the local player ID already held by that client. The bridge itself still
 needs an explicit-owner migration; its retained address is not safe across moves.
+
+MiniGunner starting veterancy comes from the receiving template's authored
+VeterancyGainCreate module and its controlling player's science, not the
+object's name. Other legacy training fallbacks remain separate work.
