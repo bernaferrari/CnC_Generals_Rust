@@ -8,6 +8,15 @@ impl Default for CombatSystem {
         Self::new()
     }
 }
+fn dumb_projectile_target_center(target: &Object) -> Vec3 {
+    let mut center = target.get_position();
+    let geometry = target.geometry_info();
+    if geometry.geom_type != crate::game_logic::HostGeometryType::Sphere {
+        center.y += geometry.height * 0.5;
+    }
+    center
+}
+
 fn projectile_goal_on_object(target: &Object) -> Vec3 {
     let pos = target.get_position();
     let mut goal = pos;

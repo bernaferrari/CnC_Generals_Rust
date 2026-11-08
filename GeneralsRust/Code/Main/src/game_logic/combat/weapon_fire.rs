@@ -852,7 +852,18 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
             proj.flight = Some(profile.flight.clone());
         }
         if profile.is_some() {
-            proj.bind_authored_flight(p.shooter_pos, target_pos, flight_speed_per_second, terrain);
+            let flight_target = if matches!(
+                proj.flight,
+                Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Dumb(_))
+            ) {
+                fire_target_id
+                    .and_then(|id| objects.lookup(&id))
+                    .map(dumb_projectile_target_center)
+                    .unwrap_or(target_pos)
+            } else {
+                target_pos
+            };
+            proj.bind_authored_flight(p.shooter_pos, flight_target, flight_speed_per_second, terrain);
         }
         proj.is_small_missile = profile.is_some_and(|profile| profile.is_small_missile);
     }

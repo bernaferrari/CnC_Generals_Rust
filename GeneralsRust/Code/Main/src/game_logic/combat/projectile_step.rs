@@ -150,7 +150,7 @@ impl CombatSystem {
                             crate::game_logic::weapon_bootstrap::adjust_flight_path_end(
                                 &mut projectile.flight_runtime,
                                 dumb,
-                                tgt.get_position(),
+                                dumb_projectile_target_center(tgt),
                                 terrain,
                             );
                             projectile.target_position = projectile.flight_runtime.path_end;

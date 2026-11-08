@@ -63,6 +63,33 @@ fn move_target(world: &mut GameLogic) {
         .unwrap()
         .set_position(Vec3::new(150., 20., 30.));
 }
+
+#[test]
+fn dumb_projectile_aims_and_retargets_to_box_geometry_center() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "dumb_projectile_aims_and_retargets_to_box_geometry_center",
+        || {
+            let mut world = world(16);
+            let mut template = ThingTemplate::new("TallTarget");
+            template.add_kind_of(KindOf::Vehicle).set_health(100.);
+            template.geometry_info.geom_type = crate::game_logic::HostGeometryType::Box;
+            template.geometry_info.height = 40.;
+            template.geometry_info.authored = true;
+            let mut target = Object::new(template, ObjectId(42), Team::GLA);
+            target.set_position(Vec3::new(120., 20., 30.));
+            world.objects.insert(target.id, target);
+            let id = initialize(&mut world);
+            assert_eq!(world.combat_system.projectiles[&id].flight_runtime.path_end,
+                Vec3::new(120., 40., 30.));
+            world.objects.get_mut(&ObjectId(42)).unwrap()
+                .set_position(Vec3::new(150., 20., 30.));
+            world.update_owned_projectile_impacts(1. / 30.);
+            assert_eq!(world.combat_system.projectiles[&id].flight_runtime.path_end,
+                Vec3::new(122., 40., 30.));
+        },
+    );
+}
 #[test]
 fn actual_receiving_projectile_initialization_and_retarget_ignore_locked_foreign_terrain() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(

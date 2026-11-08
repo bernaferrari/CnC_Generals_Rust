@@ -2965,3 +2965,7 @@ needs an explicit-owner migration; its retained address is not safe across moves
 MiniGunner starting veterancy comes from the receiving template's authored
 VeterancyGainCreate module and its controlling player's science, not the
 object's name. Other legacy training fallbacks remain separate work.
+
+Dumb projectile launches and retargets use the receiving target's geometry
+center. Terrain-height selection still samples the chord instead of C++'s
+partition-cell extrema and remains unverified.
