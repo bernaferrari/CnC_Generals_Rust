@@ -272,7 +272,10 @@ impl WgpuMainRenderer {
         self.shadow_caster_count_hint = 0;
 
         let engine = self.engine.clone();
-        let result = match engine.lock().begin_render() {
+        // Release the engine lock before preparation: the error path must
+        // reacquire it to finish the already-acquired frame.
+        let acquired = engine.lock().begin_render();
+        let result = match acquired {
             Ok(frame) => match Self::prepare_renderer_frame(&self.renderer) {
                 Ok(()) => {
                     self.pending_frame = Some(frame);
@@ -605,6 +608,14 @@ impl WgpuMainRenderer {
 
 impl Drop for WgpuMainRenderer {
     fn drop(&mut self) {
+        // An acquired encoder is owned by this renderer, not by another
+        // renderer sharing the engine. Finish and submit it before dropping
+        // the token so that the engine can acquire another frame.
+        if let Some(frame) = self.pending_frame.take() {
+            if let Err(err) = self.engine.lock().end_render(frame) {
+                log::error!("Failed to end render frame during renderer teardown: {err:?}");
+            }
+        }
         if self.registered_with_ww3d {
             self.ww3d.unregister_renderer();
         }

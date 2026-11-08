@@ -284,11 +284,16 @@ rebuilt with new VB/IB per frame. The buffers are created `COPY_DST` but never w
 **Sync points**: screenshot and capture readbacks only (`ww3d-engine/src/lib.rs:1545, 1716, 1933`).
 None run per frame on the game path. Good.
 
-**Command-buffer lifetime**: `Engine::begin_render` creates the frame encoder **before** surface
-acquire (lib.rs:1145-1147) and drops it on acquire errors. `FrameSubmitState::on_begin_frame`
-drops pending, unsubmitted command buffers (`frame_submit.rs:97-102`). Both are candidates for
-the intermittent Metal "4097 created-not-submitted command buffers" failure (hq-t8rkx, folded,
-root cause unresolved).
+**Command-buffer lifetime**: `Engine::begin_render` creates the frame encoder only
+after acquiring a surface or selecting a headless/occlusion target. Renderer
+preparation errors finish and submit that acquired frame, and dropping a
+renderer with an active frame does the same. Ordered post-frame work continues
+after individual callback errors; scene completion errors are returned only
+after the frame is submitted. `FrameSubmitState::on_begin_frame` still clears
+pending unsubmitted buffers, so unexpected paths that bypass frame completion
+remain relevant to the intermittent Metal exhaustion investigation (hq-t8rkx).
+The ignored native regression requires an adapter capable of two headless
+devices; it exercises repeated callback failures, not a windowed Metal surface.
 
 ### 1.7 Process-wide or thread-bound state on the render path (blocks multiple instances)
 

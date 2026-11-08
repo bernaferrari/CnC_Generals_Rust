@@ -1,5 +1,114 @@
 use super::*;
 
+// This exercises native wgpu submission, not a simulated callback queue. It
+// needs an adapter that can create two headless devices; on Metal it also
+// crosses the historical command-buffer exhaustion threshold. Periodic waits
+// bound legitimate in-flight GPU work, rather than relying on driver speed.
+#[test]
+#[ignore = "requires a native GPU supporting two headless devices; run explicitly with --include-ignored"]
+fn repeated_completion_errors_submit_and_do_not_disturb_a_peer_world() {
+    let config = ww3d_engine::EngineConfig {
+        width: 16,
+        height: 16,
+        ..Default::default()
+    };
+    let engine = ww3d_engine::init_headless_blocking(config).expect("first GPU device");
+    let peer_engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 16,
+        height: 16,
+        ..Default::default()
+    }).expect("second GPU device");
+    let mut renderer = WgpuMainRenderer::from_engine(engine.clone(), Default::default()).unwrap();
+    let mut peer = WgpuMainRenderer::from_engine(peer_engine.clone(), Default::default()).unwrap();
+    let state = engine.lock().frame_submit_state();
+    let peer_state = peer_engine.lock().frame_submit_state();
+    let initial = ww3d_engine::total_owned_submits(&state.lock());
+    let peer_initial = ww3d_engine::total_owned_submits(&peer_state.lock());
+    let (send, recv) = std::sync::mpsc::channel();
+    let mut completions = 0;
+    for index in 0..4100 {
+        let before = send.clone();
+        renderer.enqueue_frame_work(FramePhase::Overlay2D, move |_| {
+            before.send(0).unwrap();
+            Err(RendererError::InvalidOperation("expected post work failure".into()))
+        });
+        let after = send.clone();
+        renderer.enqueue_frame_work(FramePhase::Overlay2D, move |_| {
+            after.send(1).unwrap();
+            Ok(())
+        });
+        let peer_active = index % 32 == 0;
+        if peer_active {
+            peer.begin_frame().unwrap();
+        }
+        renderer.begin_frame().unwrap();
+        let mut complete = |_: &mut ww3d_engine::RenderFrame| {
+            completions += 1;
+            Err(RendererError::InvalidOperation("expected completion failure".into()))
+        };
+        let err = renderer.end_frame_with_post_render(Some(&mut complete)).unwrap_err();
+        assert!(format!("{err:?}").contains("expected completion failure"));
+        assert_eq!(recv.try_iter().collect::<Vec<_>>(), [0, 1]);
+        assert!(!ww3d_engine::frame_is_active(&state.lock()));
+        assert_eq!(ww3d_engine::frame_is_active(&peer_state.lock()), peer_active);
+        assert_eq!(ww3d_engine::total_owned_submits(&state.lock()) - initial, index + 1);
+        if peer_active {
+            peer.end_frame().unwrap();
+            engine.lock().device().poll(wgpu::PollType::wait_indefinitely()).unwrap();
+            peer_engine.lock().device().poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        }
+    }
+    assert_eq!(completions, 4100);
+    assert_eq!(ww3d_engine::total_owned_submits(&peer_state.lock()) - peer_initial, 129);
+    engine.lock().device().poll(wgpu::PollType::wait_indefinitely()).unwrap();
+}
+
+#[test]
+#[ignore = "requires a native GPU; run explicitly with --include-ignored"]
+fn dropping_an_acquired_renderer_finishes_only_its_own_frame() {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 16,
+        height: 16,
+        ..Default::default()
+    }).unwrap();
+    let mut owner = WgpuMainRenderer::from_engine(engine.clone(), Default::default()).unwrap();
+    let mut peer = WgpuMainRenderer::from_engine(engine.clone(), Default::default()).unwrap();
+    let state = engine.lock().frame_submit_state();
+    let initial = ww3d_engine::total_owned_submits(&state.lock());
+    owner.begin_frame().unwrap();
+    assert!(peer.begin_frame().is_err());
+    drop(owner);
+    assert!(!ww3d_engine::frame_is_active(&state.lock()));
+    assert_eq!(ww3d_engine::total_owned_submits(&state.lock()) - initial, 1);
+    peer.begin_frame().unwrap();
+    peer.end_frame().unwrap();
+    assert_eq!(ww3d_engine::total_owned_submits(&state.lock()) - initial, 2);
+}
+
+#[test]
+#[ignore = "requires a native GPU; run explicitly with --include-ignored"]
+fn renderer_prepare_failure_releases_its_acquired_frame() {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 16,
+        height: 16,
+        ..Default::default()
+    }).unwrap();
+    let mut renderer = WgpuMainRenderer::from_engine(engine.clone(), Default::default()).unwrap();
+    let handle = renderer.renderer.clone();
+    let _ = std::thread::spawn(move || {
+        let _guard = handle.lock().unwrap();
+        panic!("poison renderer mutex");
+    }).join();
+    let state = engine.lock().frame_submit_state();
+    let initial = ww3d_engine::total_owned_submits(&state.lock());
+    assert!(renderer.begin_frame().is_err());
+    assert!(!ww3d_engine::frame_is_active(&state.lock()));
+    assert_eq!(ww3d_engine::total_owned_submits(&state.lock()) - initial, 1);
+    let mut peer = WgpuMainRenderer::from_engine(engine.clone(), Default::default()).unwrap();
+    peer.begin_frame().unwrap();
+    peer.end_frame().unwrap();
+}
+
 #[test]
 #[ignore = "requires a native GPU; run explicitly with --include-ignored"]
 fn repeated_native_post_frame_failures_finish_and_submit_each_frame() {
