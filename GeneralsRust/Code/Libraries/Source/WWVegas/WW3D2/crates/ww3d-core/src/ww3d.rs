@@ -4,7 +4,7 @@
 //! the concrete rendering backend. Global state such as sorting flags is managed here and pushed
 //! to the active renderer when one is registered.
 
-use crate::errors::{W3DError, W3DResult};
+use crate::errors::W3DResult;
 use std::any::Any;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
@@ -25,12 +25,46 @@ pub struct FrameStats {
     pub vertex_color_passes: u32,
 }
 
+/// Native renderers may cross threads; browser GPU owners retain their actual
+/// auto traits rather than pretending browser handles are transferable.
+#[cfg(not(target_arch = "wasm32"))]
+pub trait RenderSend: Send {}
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: ?Sized + Send> RenderSend for T {}
+#[cfg(target_arch = "wasm32")]
+pub trait RenderSend {}
+#[cfg(target_arch = "wasm32")]
+impl<T: ?Sized> RenderSend for T {}
+
+/// Native shared render objects must be thread-safe. On wasm this imposes no
+/// auto trait, so an owner containing browser GPU handles stays thread-local.
+#[cfg(not(target_arch = "wasm32"))]
+pub trait RenderSync: Sync {}
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: ?Sized + Sync> RenderSync for T {}
+#[cfg(target_arch = "wasm32")]
+pub trait RenderSync {}
+#[cfg(target_arch = "wasm32")]
+impl<T: ?Sized> RenderSync for T {}
+
+// Keep the original allocation and concrete Arc type through deferred dispatch.
+// Arc<dyn Any> cannot be downcast safely on wasm without Send + Sync.
+trait StaticSortSubmission: RenderSend + RenderSync {
+    fn submit(self: Arc<Self>, backend: &mut dyn RendererBackend, level: u32) -> W3DResult<()>;
+}
+
+impl<T: Any + RenderSend + RenderSync> StaticSortSubmission for T {
+    fn submit(self: Arc<Self>, backend: &mut dyn RendererBackend, level: u32) -> W3DResult<()> {
+        backend.add_to_static_sort_list(&self, level)
+    }
+}
+
 /// Trait implemented by renderer backends. The core library does not impose any particular
 /// rendering technology; instead it calls into the backend through this trait.
 ///
-/// Backends are process-registered behind a Mutex (C++ plain static on the
-/// game thread; Mutex keeps the slot Sync for multi-instance hosts).
-pub trait RendererBackend: Any + Send {
+/// Each session owns its backend behind a Mutex. Native backends retain Send;
+/// wasm backends may own browser GPU handles without unsafe auto-trait claims.
+pub trait RendererBackend: Any + RenderSend {
     fn begin_frame(&mut self) -> W3DResult<()>;
     fn end_frame(&mut self) -> W3DResult<()>;
     fn is_ready(&self) -> bool;
@@ -69,10 +103,11 @@ pub trait RendererBackend: Any + Send {
         true
     }
 
-    /// Queue an object into the backend static sort list.
+    /// Queue an object into the backend static sort list. `object` borrows the
+    /// submitted `Arc<T>`; a backend downcasts that Arc and clones only its handle.
     fn add_to_static_sort_list(
         &mut self,
-        _object: Arc<dyn Any + Send + Sync>,
+        _object: &dyn Any,
         _sort_level: u32,
     ) -> W3DResult<()> {
         Ok(())
@@ -146,7 +181,7 @@ struct WW3DState {
     static_sort_lists_enabled: bool,
     decals_enabled: bool,
     decal_rejection_distance: f32,
-    pending_static_sort: Vec<(Arc<dyn Any + Send + Sync>, u32)>,
+    pending_static_sort: Vec<(Arc<dyn StaticSortSubmission>, u32)>,
     prelit_mode: PrelitMode,
 }
 
@@ -217,13 +252,13 @@ impl Ww3dContext {
             )
         };
 
-        let mut restore_pending: Option<Vec<(Arc<dyn Any + Send + Sync>, u32)>> = None;
+        let mut restore_pending: Option<Vec<(Arc<dyn StaticSortSubmission>, u32)>> = None;
         if let Some(result) = self.with_renderer(|backend| {
             backend.set_sorting_enabled(sorting_enabled)?;
             backend.set_static_sort_lists_enabled(static_sort_enabled)?;
             backend.set_decals_enabled(decals_enabled)?;
             for (object, level) in pending_items.iter().cloned() {
-                backend.add_to_static_sort_list(object, level)?;
+                object.submit(backend, level)?;
             }
             Ok(())
         }) {
@@ -302,9 +337,7 @@ impl Ww3dContext {
         f(&mgr)
     }
 
-    /// Install this context's asset manager for free-function bridges.
-
-
+    /// Enable sorting on this context and its registered renderer.
     pub fn enable_sorting(&self, enable: bool) -> W3DResult<()> {
         {
             let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
@@ -368,11 +401,11 @@ impl Ww3dContext {
 
     pub fn add_to_static_sort_list<T>(&self, object: Arc<T>, sort_level: u32) -> W3DResult<()>
     where
-        T: Any + Send + Sync + 'static,
+        T: Any + RenderSend + RenderSync + 'static,
     {
-        let object: Arc<dyn Any + Send + Sync> = object;
+        let object: Arc<dyn StaticSortSubmission> = object;
         if let Some(result) = self.with_renderer(|backend| {
-            backend.add_to_static_sort_list(Arc::clone(&object), sort_level)
+            Arc::clone(&object).submit(backend, sort_level)
         }) {
             return result;
         }
@@ -421,13 +454,49 @@ pub use self::WW3D as WW3DClass;
 #[cfg(test)]
 mod independence_tests {
     use super::*;
-    use std::sync::{Arc, Barrier};
-    use std::thread;
 
     #[test]
     fn two_ww3d_contexts_on_two_threads_do_not_share_asset_manager() {
         let a = Ww3dContext::new();
         let b = Ww3dContext::new();
         assert!(!std::sync::Arc::ptr_eq(&a.asset_manager(), &b.asset_manager()));
+    }
+
+    #[derive(Default)]
+    struct SortBackend {
+        entries: Vec<(Arc<u32>, u32)>,
+    }
+
+    impl RendererBackend for SortBackend {
+        fn begin_frame(&mut self) -> W3DResult<()> { Ok(()) }
+        fn end_frame(&mut self) -> W3DResult<()> { Ok(()) }
+        fn is_ready(&self) -> bool { true }
+        fn as_any(&self) -> &dyn Any { self }
+        fn as_any_mut(&mut self) -> &mut dyn Any { self }
+
+        fn add_to_static_sort_list(&mut self, object: &dyn Any, level: u32) -> W3DResult<()> {
+            let object = object.downcast_ref::<Arc<u32>>().expect("original concrete Arc");
+            self.entries.push((Arc::clone(object), level));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn static_sort_preserves_identity_order_and_levels_across_registration() {
+        let context = Ww3dContext::new();
+        let first = Arc::new(11_u32);
+        let second = Arc::new(22_u32);
+        context.add_to_static_sort_list(Arc::clone(&first), 7).unwrap();
+        assert!(context.register_renderer(SortBackend::default()));
+        context.add_to_static_sort_list(Arc::clone(&second), 2).unwrap();
+        context.with_renderer(|backend| {
+            let backend = backend.as_any().downcast_ref::<SortBackend>().unwrap();
+            assert_eq!(backend.entries.len(), 2);
+            assert!(Arc::ptr_eq(&backend.entries[0].0, &first));
+            assert!(Arc::ptr_eq(&backend.entries[1].0, &second));
+            assert_eq!(backend.entries[0].1, 7);
+            assert_eq!(backend.entries[1].1, 2);
+            Ok(())
+        }).unwrap().unwrap();
     }
 }

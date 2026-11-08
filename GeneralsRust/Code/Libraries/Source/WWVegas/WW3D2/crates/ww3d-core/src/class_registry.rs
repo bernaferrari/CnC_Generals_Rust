@@ -173,8 +173,7 @@ pub fn register_class<T: 'static>(&self, id: u32, name: &'static str) -> Result<
     self.register_class_name(id, name)?;
 
     let type_id = TypeId::of::<T>();
-    let duplicated = { let mut by_type = self.registry_by_type.lock().unwrap_or_else(|p| p.into_inner()); 
-        let mut by_type = by_type;
+    let duplicated = { let mut by_type = self.registry_by_type.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(existing_id) = by_type.get(&type_id) {
             let existing = { let by_id = self.registry_by_id.lock().unwrap_or_else(|p| p.into_inner()); 
                 let record = by_id

@@ -121,27 +121,27 @@ impl CollisionSystem {
         }
 
         // AABox vs Sphere
-        if let Some(aabox) = self.get_aabox(id1) {
-            if let Some(sphere) = self.get_sphere(id2) {
-                return test_aabox_sphere(aabox, sphere);
-            }
+        if let Some(aabox) = self.get_aabox(id1)
+            && let Some(sphere) = self.get_sphere(id2)
+        {
+            return test_aabox_sphere(aabox, sphere);
         }
-        if let Some(aabox) = self.get_aabox(id2) {
-            if let Some(sphere) = self.get_sphere(id1) {
-                return test_aabox_sphere(aabox, sphere);
-            }
+        if let Some(aabox) = self.get_aabox(id2)
+            && let Some(sphere) = self.get_sphere(id1)
+        {
+            return test_aabox_sphere(aabox, sphere);
         }
 
         // AABox vs OBBox
-        if let Some(aabox) = self.get_aabox(id1) {
-            if let Some(obbox) = self.get_obbox(id2) {
-                return test_aabox_obbox(aabox, obbox);
-            }
+        if let Some(aabox) = self.get_aabox(id1)
+            && let Some(obbox) = self.get_obbox(id2)
+        {
+            return test_aabox_obbox(aabox, obbox);
         }
-        if let Some(aabox) = self.get_aabox(id2) {
-            if let Some(obbox) = self.get_obbox(id1) {
-                return test_aabox_obbox(aabox, obbox);
-            }
+        if let Some(aabox) = self.get_aabox(id2)
+            && let Some(obbox) = self.get_obbox(id1)
+        {
+            return test_aabox_obbox(aabox, obbox);
         }
 
         // Sphere vs Sphere
@@ -150,15 +150,15 @@ impl CollisionSystem {
         }
 
         // Sphere vs OBBox
-        if let Some(sphere) = self.get_sphere(id1) {
-            if let Some(obbox) = self.get_obbox(id2) {
-                return test_sphere_obbox(sphere, obbox);
-            }
+        if let Some(sphere) = self.get_sphere(id1)
+            && let Some(obbox) = self.get_obbox(id2)
+        {
+            return test_sphere_obbox(sphere, obbox);
         }
-        if let Some(sphere) = self.get_sphere(id2) {
-            if let Some(obbox) = self.get_obbox(id1) {
-                return test_sphere_obbox(sphere, obbox);
-            }
+        if let Some(sphere) = self.get_sphere(id2)
+            && let Some(obbox) = self.get_obbox(id1)
+        {
+            return test_sphere_obbox(sphere, obbox);
         }
 
         // OBBox vs OBBox (simplified as AABox intersection)

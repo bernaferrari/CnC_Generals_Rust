@@ -202,10 +202,8 @@ impl BroadPhase {
             if let (Some(&aabb1), Some(&aabb2)) = (
                 self.spatial_hash.object_bounds.get(&id1),
                 self.spatial_hash.object_bounds.get(&id2),
-            ) {
-                if NarrowPhase::aabb_intersect(&aabb1, &aabb2) {
-                    self.collision_pairs.push((id1, id2));
-                }
+            ) && NarrowPhase::aabb_intersect(&aabb1, &aabb2) {
+                self.collision_pairs.push((id1, id2));
             }
         }
     }
@@ -233,10 +231,10 @@ impl NarrowPhase {
         let mut actual_collisions = Vec::new();
 
         for &(id1, id2) in pairs {
-            if let (Some(aabb1), Some(aabb2)) = (get_aabb(id1), get_aabb(id2)) {
-                if Self::aabb_intersect(&aabb1, &aabb2) {
-                    actual_collisions.push((id1, id2));
-                }
+            if let (Some(aabb1), Some(aabb2)) = (get_aabb(id1), get_aabb(id2))
+                && Self::aabb_intersect(&aabb1, &aabb2)
+            {
+                actual_collisions.push((id1, id2));
             }
         }
 

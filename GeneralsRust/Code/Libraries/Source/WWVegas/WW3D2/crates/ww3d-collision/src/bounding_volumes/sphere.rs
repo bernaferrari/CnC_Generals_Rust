@@ -1,7 +1,11 @@
 //! Sphere - Spherical bounding volume
 //!
-//! This module implements spherical bounding volumes for collision detection
-//! and spatial partitioning, converted from the original SphereClass.
+//! Legacy operations follow `WWMath/sphere.h`: the two-pass point-cloud
+//! constructor, sphere union, strict sphere intersection, and center-only
+//! orthogonal transform. Inputs are finite and radii nonnegative.
+//! Empty point slices produce a zero sphere (C++ requires a nonempty array).
+//! Point growth, distance, box queries, scaling, validity and line-root helpers
+//! extend that API; they own no state outside the sphere.
 
 use glam::{Mat4, Vec3};
 
@@ -69,27 +73,55 @@ impl SphereClass {
         self.radius = 0.0;
     }
 
-    /// Initialize sphere to bound multiple points
+    /// Bound points using C++'s extremal-pair seed and ordered expansion pass.
     pub fn init_from_points(&mut self, points: &[Vec3]) {
         if points.is_empty() {
             *self = Self::empty();
             return;
         }
 
-        // Find the center as the average of all points
-        let mut center_sum = Vec3::ZERO;
-        for &point in points {
-            center_sum += point;
+        let mut minima = [points[0]; 3];
+        let mut maxima = minima;
+        for &point in &points[1..] {
+            for axis in 0..3 {
+                if point[axis] < minima[axis][axis] {
+                    minima[axis] = point;
+                }
+                if point[axis] > maxima[axis][axis] {
+                    maxima[axis] = point;
+                }
+            }
         }
-        self.center = center_sum / points.len() as f32;
 
-        // Find the maximum distance from center to any point
-        let mut max_distance_squared: f32 = 0.0;
-        for &point in points {
-            let distance_squared = (point - self.center).length_squared();
-            max_distance_squared = max_distance_squared.max(distance_squared);
+        // C++ subtracts float coordinates before promoting each difference to
+        // double. Equal spans retain the earlier axis (X, then Y, then Z).
+        let mut diameter_axis = 0;
+        let mut max_span = (maxima[0] - minima[0]).as_dvec3().length_squared();
+        for axis in 1..3 {
+            let span = (maxima[axis] - minima[axis]).as_dvec3().length_squared();
+            if span > max_span {
+                diameter_axis = axis;
+                max_span = span;
+            }
         }
-        self.radius = max_distance_squared.sqrt();
+        let diameter_end = maxima[diameter_axis];
+        let mut center = (minima[diameter_axis] + diameter_end) * 0.5;
+        let mut radius_squared = (diameter_end - center).as_dvec3().length_squared();
+        let mut radius = radius_squared.sqrt();
+        for &point in points {
+            let distance_squared = (point - center).as_dvec3().length_squared();
+            if distance_squared > radius_squared {
+                let distance = distance_squared.sqrt();
+                radius = (radius + distance) / 2.0;
+                radius_squared = radius * radius;
+                let old_to_new = distance - radius;
+                center = ((center.as_dvec3() * radius + point.as_dvec3() * old_to_new)
+                    / distance)
+                    .as_vec3();
+            }
+        }
+        self.center = center;
+        self.radius = radius as f32;
     }
 
     /// Check if the sphere contains a point
@@ -103,11 +135,11 @@ impl SphereClass {
         distance + other.radius <= self.radius
     }
 
-    /// Check if two spheres intersect
+    /// Check strict overlap, excluding external tangency (`Spheres_Intersect`).
     pub fn intersects_sphere(&self, other: &SphereClass) -> bool {
         let distance_squared = (self.center - other.center).length_squared();
         let radius_sum = self.radius + other.radius;
-        distance_squared <= radius_sum * radius_sum
+        distance_squared < radius_sum * radius_sum
     }
 
     /// Calculate the distance from the sphere to a point
@@ -162,24 +194,25 @@ impl SphereClass {
         }
     }
 
-    /// Add another sphere to this sphere
+    /// Enclose another sphere, ignoring zero-radius inputs as C++ does.
     pub fn add_sphere(&mut self, other: &SphereClass) {
-        if self.contains_sphere(other) {
+        if other.radius == 0.0 {
+            return;
+        }
+        let delta = other.center - self.center;
+        let distance = delta.length();
+        if distance == 0.0 {
+            self.radius = self.radius.max(other.radius);
             return;
         }
 
-        let direction = other.center - self.center;
-        let distance = direction.length();
-
-        if distance + other.radius > self.radius {
-            if distance + self.radius <= other.radius {
-                // Other sphere completely contains this sphere
+        let new_radius = (distance + self.radius + other.radius) / 2.0;
+        if new_radius >= self.radius {
+            if new_radius < other.radius {
                 *self = *other;
             } else {
-                // Calculate new sphere that contains both
-                let new_radius = (distance + self.radius + other.radius) * 0.5;
-                let center_shift = direction.normalize() * (new_radius - self.radius);
-                self.center += center_shift;
+                let lerp = (new_radius - self.radius) / distance;
+                self.center += delta * lerp;
                 self.radius = new_radius;
             }
         }
@@ -196,30 +229,19 @@ impl SphereClass {
         self.radius *= scale;
     }
 
-    /// Transform the sphere by a matrix (approximation for affine transforms)
+    /// Transform the center, retaining the radius exactly.
+    ///
+    /// Matches `SphereClass::Transform`: the caller supplies an orthogonal
+    /// affine matrix. Scale the radius explicitly with [`Self::scale`] if needed.
     pub fn transform(&mut self, transform: &Mat4) {
-        // Transform the center
         self.center = transform.transform_point3(self.center);
-
-        // For radius, we need to consider the maximum scaling factor
-        // This is an approximation that works for most cases
-        let scale_x =
-            (transform.x_axis.length() + transform.y_axis.length() + transform.z_axis.length())
-                / 3.0;
-        let scale_y =
-            (transform.x_axis.length() + transform.y_axis.length() + transform.z_axis.length())
-                / 3.0;
-        let scale_z =
-            (transform.x_axis.length() + transform.y_axis.length() + transform.z_axis.length())
-                / 3.0;
-
-        let max_scale = scale_x.max(scale_y).max(scale_z);
-        self.radius *= max_scale;
     }
 
     /// Get the volume of the sphere
     pub fn volume(&self) -> f32 {
-        (4.0 / 3.0) * std::f32::consts::PI * self.radius.powi(3)
+        // sphere.h computes the cube in float, then multiplies in double.
+        let radius_cubed = self.radius * self.radius * self.radius;
+        ((4.0 / 3.0) * f64::from(std::f32::consts::PI) * f64::from(radius_cubed)) as f32
     }
 
     /// Get the surface area of the sphere
@@ -261,7 +283,10 @@ impl SphereClass {
         true
     }
 
-    /// Calculate intersection with a ray
+    /// Return ordered parameters where the infinite line meets the sphere.
+    ///
+    /// The direction must be nonzero and need not be normalized. Negative
+    /// parameters are retained; this Rust extension does not clip to a ray.
     pub fn ray_intersection(&self, ray_origin: Vec3, ray_direction: Vec3) -> Option<(f32, f32)> {
         let oc = ray_origin - self.center;
         let a = ray_direction.dot(ray_direction);
@@ -280,7 +305,7 @@ impl SphereClass {
         Some((t1.min(t2), t1.max(t2)))
     }
 
-    /// Check if ray intersects sphere
+    /// Whether the infinite line has roots; negative parameters also count.
     pub fn ray_intersects(&self, ray_origin: Vec3, ray_direction: Vec3) -> bool {
         self.ray_intersection(ray_origin, ray_direction).is_some()
     }
@@ -295,6 +320,103 @@ impl SphereClass {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sphere_extensions_preserve_line_roots_and_box_distance_contracts() {
+        let sphere = SphereClass::new(Vec3::ZERO, 2.0);
+        assert_eq!(
+            sphere.ray_intersection(Vec3::new(6.0, 0.0, 0.0), Vec3::new(2.0, 0.0, 0.0)),
+            Some((-4.0, -2.0))
+        );
+        assert_eq!(sphere.distance_to_point(Vec3::new(5.0, 0.0, 0.0)), 3.0);
+        assert_eq!(sphere.distance_squared_to_point(Vec3::new(5.0, 0.0, 0.0)), 9.0);
+        assert_eq!(sphere.closest_point(Vec3::new(5.0, 0.0, 0.0)), Vec3::new(2.0, 0.0, 0.0));
+        assert_eq!(sphere.closest_point(Vec3::X), Vec3::X);
+        assert!(sphere.contains_aabox(&super::super::AABoxClass::from_center_extent(
+            Vec3::ZERO, Vec3::ONE,
+        )));
+        let tangent_box = super::super::AABoxClass::from_center_extent(
+            Vec3::new(3.0, 0.0, 0.0), Vec3::ONE,
+        );
+        assert!(sphere.intersects_aabox(&tangent_box));
+        assert!(!sphere.contains_aabox(&tangent_box));
+        let mut scaled = sphere;
+        scaled.translate(Vec3::X);
+        scaled.scale(2.0);
+        assert_eq!(scaled, SphereClass::new(Vec3::new(2.0, 0.0, 0.0), 4.0));
+        scaled.set_radius(-1.0);
+        assert!(!scaled.is_valid());
+        scaled.make_valid();
+        assert!(scaled.is_valid());
+        assert!(scaled.is_degenerate());
+    }
+
+    #[test]
+    fn cpp_point_cloud_uses_extremal_diameter_not_centroid() {
+        let mut sphere = SphereClass::empty();
+        sphere.init_from_points(&[
+            Vec3::ZERO,
+            Vec3::new(10.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
+        ]);
+        assert_eq!(sphere.center, Vec3::new(5.0, 0.0, 0.0));
+        assert_eq!(sphere.radius, 5.0);
+        sphere.init_from_points(&[]);
+        assert_eq!(sphere, SphereClass::empty());
+        sphere.init_from_points(&[Vec3::new(3.0, 4.0, 5.0)]);
+        assert_eq!(sphere, SphereClass::point(Vec3::new(3.0, 4.0, 5.0)));
+    }
+
+    #[test]
+    fn cpp_point_cloud_expands_seed_in_input_order() {
+        let mut sphere = SphereClass::empty();
+        sphere.init_from_points(&[
+            Vec3::new(-2.0, 0.0, 0.0),
+            Vec3::new(2.0, 0.0, 0.0),
+            Vec3::new(0.0, 3.0, 0.0),
+        ]);
+        assert_eq!(sphere.center, Vec3::new(0.0, 0.5, 0.0));
+        assert_eq!(sphere.radius, 2.5);
+    }
+
+    #[test]
+    fn cpp_sphere_union_handles_zero_concentric_contained_and_disjoint_inputs() {
+        let original = SphereClass::new(Vec3::ZERO, 2.0);
+        let mut sphere = original;
+        sphere.add_sphere(&SphereClass::point(Vec3::splat(100.0)));
+        assert_eq!(sphere, original);
+        sphere.add_sphere(&SphereClass::new(Vec3::ZERO, 3.0));
+        assert_eq!(sphere, SphereClass::new(Vec3::ZERO, 3.0));
+        sphere.add_sphere(&SphereClass::new(Vec3::X, 1.0));
+        assert_eq!(sphere, SphereClass::new(Vec3::ZERO, 3.0));
+        sphere.add_sphere(&SphereClass::new(Vec3::X, 8.0));
+        assert_eq!(sphere, SphereClass::new(Vec3::X, 8.0));
+        sphere = original;
+        sphere.add_sphere(&SphereClass::new(Vec3::new(6.0, 0.0, 0.0), 2.0));
+        assert_eq!(sphere, SphereClass::new(Vec3::new(3.0, 0.0, 0.0), 5.0));
+    }
+
+    #[test]
+    fn cpp_sphere_tangency_is_not_overlap() {
+        let sphere = SphereClass::new(Vec3::ZERO, 2.0);
+        assert!(!sphere.intersects_sphere(&SphereClass::new(Vec3::new(3.0, 0.0, 0.0), 1.0)));
+        assert!(sphere.intersects_sphere(&SphereClass::new(Vec3::new(2.5, 0.0, 0.0), 1.0)));
+        assert!(!SphereClass::empty().intersects_sphere(&SphereClass::empty()));
+    }
+
+    #[test]
+    fn cpp_sphere_transform_preserves_radius_and_moves_center_once() {
+        let mut sphere = SphereClass::new(Vec3::new(1.0, 2.0, 3.0), 7.0);
+        let transform = Mat4::from_cols(
+            Vec3::Y.extend(0.0),
+            (-Vec3::X).extend(0.0),
+            Vec3::Z.extend(0.0),
+            Vec3::new(10.0, 20.0, 30.0).extend(1.0),
+        );
+        sphere.transform(&transform);
+        assert_eq!(sphere, SphereClass::new(Vec3::new(8.0, 21.0, 33.0), 7.0));
+        assert_eq!(sphere.bounding_aabox().extent, Vec3::splat(7.0));
+    }
 
     #[test]
     fn test_sphere_creation() {

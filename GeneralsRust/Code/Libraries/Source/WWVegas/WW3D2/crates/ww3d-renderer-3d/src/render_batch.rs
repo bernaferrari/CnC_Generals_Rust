@@ -167,10 +167,13 @@ mod tests {
         .expect("headless renderer");
         let device = engine.lock().device();
         let mut renderer = Renderer::new(engine.lock().gpu_device());
-        renderer.mesh_render_manager.set_render_formats(
-            engine.lock().color_format(),
-            engine.lock().depth_format(),
-        );
+        let (color_format, depth_format) = {
+            let engine = engine.lock();
+            (engine.color_format(), engine.depth_format())
+        };
+        renderer
+            .mesh_render_manager
+            .set_render_formats(color_format, depth_format);
         let mut model = MeshModelClass::new("post-filter-load-witness");
         model.vertices = [(-0.8, -0.8), (0.8, -0.8), (0.0, 0.8)]
             .into_iter()

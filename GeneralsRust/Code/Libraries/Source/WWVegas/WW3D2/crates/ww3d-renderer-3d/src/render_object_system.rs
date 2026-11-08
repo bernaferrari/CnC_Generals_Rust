@@ -37,7 +37,9 @@ pub trait SceneBinding {
 }
 
 /// Base render object interface
-pub trait RenderObjClass: std::fmt::Debug + Send + Sync + Any {
+pub trait RenderObjClass:
+    std::fmt::Debug + ww3d_core::ww3d::RenderSend + ww3d_core::ww3d::RenderSync + Any
+{
     /// Clone the render object
     fn clone_obj(&self) -> Box<dyn RenderObjClass>;
 

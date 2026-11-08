@@ -3,6 +3,10 @@
 //!
 //! This crate provides collision detection and spatial partitioning for the WW3D engine.
 //! It includes ray casting, bounding volume hierarchies, and collision queries.
+//!
+//! Mesh collision dispatch belongs to renderer mesh/model owners, mirroring
+//! C++ `MeshClass` and `MeshGeometryClass`; this crate does not expose a separate
+//! world collision dispatcher.
 
 use glam::Vec3;
 
@@ -11,7 +15,6 @@ pub mod aabtree_builder;
 pub mod aabtree_extended;
 pub mod bounding_volumes;
 pub mod collision_math;
-pub mod collision_system;
 pub mod collision_tests;
 pub mod intersection;
 pub mod physics_integration;
@@ -25,10 +28,6 @@ pub mod tree {
 
 pub mod volumes {
     pub use crate::bounding_volumes::*;
-}
-
-pub mod system {
-    pub use crate::collision_system::*;
 }
 
 pub mod test_support {
@@ -51,56 +50,20 @@ pub use crate::bounding_volumes::{
     sphere::SphereClass,
 };
 
-/// Ray-AABB intersection test
-/// Returns true if the ray intersects the AABB
+/// Test an infinite forward ray against a closed AABB.
+///
+/// Uses the `IntersectionClass::Intersect_Box` algorithm from C++ `intersec.cpp`.
+/// Boundary origins and tangencies count as hits. The direction need not be
+/// normalized; a zero direction hits only when the origin is inside the box.
 pub fn ray_aabb_intersect(ray_origin: Vec3, ray_dir: Vec3, aabb: &AABox) -> bool {
-    let mut tmin: f32 = 0.0;
-    let mut tmax: f32 = f32::MAX;
-
-    // For AABox with center/extent representation, compute min/max
-    let min = aabb.center - aabb.extent;
-    let max = aabb.center + aabb.extent;
-
-    // X axis
-    if ray_dir.x != 0.0 {
-        let inv_dx = 1.0 / ray_dir.x;
-        let tx1 = (min.x - ray_origin.x) * inv_dx;
-        let tx2 = (max.x - ray_origin.x) * inv_dx;
-        let (txnear, txfar) = if tx1 < tx2 { (tx1, tx2) } else { (tx2, tx1) };
-        tmin = tmin.max(txnear);
-        tmax = tmax.min(txfar);
-        if tmax <= tmin {
-            return false;
-        }
-    }
-
-    // Y axis
-    if ray_dir.y != 0.0 {
-        let inv_dy = 1.0 / ray_dir.y;
-        let ty1 = (min.y - ray_origin.y) * inv_dy;
-        let ty2 = (max.y - ray_origin.y) * inv_dy;
-        let (tynear, tyfar) = if ty1 < ty2 { (ty1, ty2) } else { (ty2, ty1) };
-        tmin = tmin.max(tynear);
-        tmax = tmax.min(tyfar);
-        if tmax <= tmin {
-            return false;
-        }
-    }
-
-    // Z axis
-    if ray_dir.z != 0.0 {
-        let inv_dz = 1.0 / ray_dir.z;
-        let tz1 = (min.z - ray_origin.z) * inv_dz;
-        let tz2 = (max.z - ray_origin.z) * inv_dz;
-        let (tznear, tzfar) = if tz1 < tz2 { (tz1, tz2) } else { (tz2, tz1) };
-        tmin = tmin.max(tznear);
-        tmax = tmax.min(tzfar);
-        if tmax <= tmin {
-            return false;
-        }
-    }
-
-    tmin < tmax && tmax > 0.0
+    let intersection = intersection::IntersectionClass {
+        ray_location: ray_origin,
+        ray_direction: ray_dir,
+        ..Default::default()
+    };
+    intersection
+        .intersect_box(aabb.center - aabb.extent, aabb.center + aabb.extent)
+        .intersects
 }
 
 /// AABB-AABB intersection test
@@ -152,6 +115,58 @@ mod tests {
             Vec3::new(0.0, 2.0, 0.0),
             Vec3::new(0.0, 1.0, 0.0),
             &aabb
+        ));
+    }
+
+    #[test]
+    fn test_ray_aabb_intersect_parallel_outside_slabs() {
+        let aabb = AABox {
+            center: Vec3::ZERO,
+            extent: Vec3::ONE,
+        };
+        for axis in 0..3 {
+            for side in [-1.0, 1.0] {
+                for parallel in [0.0, -0.0] {
+                    let mut origin = Vec3::ZERO;
+                    let mut direction = Vec3::ZERO;
+                    origin[axis] = side * 10.0;
+                    origin[(axis + 1) % 3] = -5.0;
+                    direction[axis] = parallel;
+                    direction[(axis + 1) % 3] = 1.0;
+                    assert!(!ray_aabb_intersect(origin, direction, &aabb));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_ray_aabb_intersect_closed_boundaries() {
+        let aabb = AABox {
+            center: Vec3::ZERO,
+            extent: Vec3::ONE,
+        };
+        // C++ intersec.cpp:175 accepts origins inside or on the boundary,
+        // including stationary rays and rays pointing away from that boundary.
+        assert!(ray_aabb_intersect(Vec3::ZERO, Vec3::ZERO, &aabb));
+        assert!(ray_aabb_intersect(Vec3::X, Vec3::X, &aabb));
+        assert!(ray_aabb_intersect(Vec3::ONE, Vec3::ZERO, &aabb));
+        assert!(!ray_aabb_intersect(Vec3::splat(2.0), Vec3::ZERO, &aabb));
+        // C++ intersec.cpp:202 rejects only strictly outside coordinates:
+        // this ray touches (-1, 1, 0) without entering the box interior.
+        assert!(ray_aabb_intersect(
+            Vec3::new(-2.0, 0.0, 0.0),
+            Vec3::new(1.0, 1.0, 0.0),
+            &aabb,
+        ));
+        assert!(ray_aabb_intersect(
+            Vec3::new(-2.0, 1.0, 0.0),
+            Vec3::X,
+            &aabb,
+        ));
+        assert!(!ray_aabb_intersect(
+            Vec3::new(-2.0, 0.0, 0.0),
+            -Vec3::X,
+            &aabb,
         ));
     }
 

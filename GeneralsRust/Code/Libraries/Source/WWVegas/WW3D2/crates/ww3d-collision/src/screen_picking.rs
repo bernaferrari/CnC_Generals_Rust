@@ -156,13 +156,13 @@ mod tests {
     #[test]
     fn test_screen_ray_generation() {
         // Create a simple camera looking down -Z
-        let view = Mat4::look_at_rh(
+        let view = glam::camera::rh::view::look_at_mat4(
             Vec3::new(0.0, 0.0, 10.0), // eye
             Vec3::ZERO,                // target
             Vec3::Y,                   // up
         );
 
-        let projection = Mat4::perspective_rh(PI / 4.0, 16.0 / 9.0, 0.1, 100.0);
+        let projection = glam::camera::rh::proj::directx::perspective(PI / 4.0, 16.0 / 9.0, 0.1, 100.0);
 
         let camera = Camera::new(view, projection, 1920.0, 1080.0);
 

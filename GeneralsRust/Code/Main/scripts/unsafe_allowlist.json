@@ -196,22 +196,6 @@
       "constructs": 1,
       "undocumented": 0
     },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/lib.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/mesh_system_impl/mod.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/rendering_2d.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/texture_system/texfcach.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
     "Code/Libraries/Source/WWVegas/WWAudio/src/aud_time.rs": {
       "constructs": 1,
       "undocumented": 0

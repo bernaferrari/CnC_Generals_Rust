@@ -6,7 +6,6 @@
 /// - Cost-based tree optimization
 use crate::aabtree::{AABTree, CullNode};
 use glam::Vec3;
-use std::f32;
 
 const MIN_POLYS_PER_NODE: usize = 4;
 const SMALL_VERTEX: f32 = -100000.0;

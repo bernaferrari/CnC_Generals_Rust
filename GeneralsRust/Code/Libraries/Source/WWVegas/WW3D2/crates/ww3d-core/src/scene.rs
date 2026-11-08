@@ -136,12 +136,12 @@ impl Camera {
         // Build projection matrix
         self.projection_matrix = match self.projection_type {
             ProjectionType::Perspective => {
-                Mat4::perspective_rh(self.fov, self.aspect_ratio, self.near_plane, self.far_plane)
+                glam::camera::rh::proj::directx::perspective(self.fov, self.aspect_ratio, self.near_plane, self.far_plane)
             }
             ProjectionType::Orthographic => {
                 let half_width = self.ortho_width * 0.5;
                 let half_height = self.ortho_height * 0.5;
-                Mat4::orthographic_rh(
+                glam::camera::rh::proj::directx::orthographic(
                     -half_width,
                     half_width,
                     -half_height,

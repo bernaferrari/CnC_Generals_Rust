@@ -1,10 +1,14 @@
 //! AABox - Axis-aligned bounding box
 //!
-//! This module implements axis-aligned bounding boxes for collision detection
-//! and spatial partitioning, converted from the original AABoxClass.
+//! The legacy operations follow `WWMath/aabox.h`, `colmathaabox.h`, and
+//! `Matrix3D::Transform_Center_Extent_AABox` in `WWMath/matrix3d.cpp`.
+//! Inputs are finite, with nonnegative extents; transforms are affine.
+//! Unlike C++'s uninitialized default and nonempty point-array precondition,
+//! Rust defaults and empty point slices produce a zero box at the origin.
+//! Closest-point, distance, surface-area, validity and component-wise scaling
+//! helpers extend the C++ API. Scaling changes extents, not the center.
 
 use glam::{Mat4, Vec3};
-use std::f32;
 
 /// Center-extent axis-aligned bounding box
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -105,26 +109,20 @@ impl AABoxClass {
         *self = Self::from_min_max(min_corner, max_corner);
     }
 
-    /// Get the min corner (mutable access)
+    /// Get the min corner by value.
     pub fn min_corner(&self) -> Vec3 {
         self.min()
     }
 
-    /// Get the max corner (mutable access)
+    /// Get the max corner by value.
     pub fn max_corner(&self) -> Vec3 {
         self.max()
     }
 
-    /// Check if point is inside the box
+    /// Check if point is inside the box, including its boundary.
     pub fn contains_point(&self, point: &Vec3) -> bool {
-        let min = self.min();
-        let max = self.max();
-        point.x >= min.x
-            && point.x <= max.x
-            && point.y >= min.y
-            && point.y <= max.y
-            && point.z >= min.z
-            && point.z <= max.z
+        let delta = (*point - self.center).abs();
+        delta.x <= self.extent.x && delta.y <= self.extent.y && delta.z <= self.extent.z
     }
 
     /// Find the closest point on the box to the given point
@@ -152,13 +150,9 @@ impl AABoxClass {
 
     /// Add a point to the box, expanding it if necessary
     pub fn add_point(&mut self, point: &Vec3) {
-        if !self.contains_point(point) {
-            let min = self.min();
-            let max = self.max();
-            let new_min = Vec3::new(min.x.min(point.x), min.y.min(point.y), min.z.min(point.z));
-            let new_max = Vec3::new(max.x.max(point.x), max.y.max(point.y), max.z.max(point.z));
-            self.init_min_max(new_min, new_max);
-        }
+        let min = self.min().min(*point);
+        let max = self.max().max(*point);
+        self.init_min_max(min, max);
     }
 
     /// Add multiple points to the box
@@ -178,36 +172,27 @@ impl AABoxClass {
         self.extent *= *scale;
     }
 
-    /// Transform the box by a matrix
+    /// Enclose the affine-transformed box using the legacy center/extent formula.
     pub fn transform(&mut self, transform: &Mat4) {
-        // Transform the center
-        self.center = transform.transform_point3(self.center);
-
-        // For extents, we need to transform each corner and find new bounds
-        let corners = self.get_corners();
-        let mut transformed_corners = [Vec3::ZERO; 8];
-
-        for (i, corner) in corners.iter().enumerate() {
-            transformed_corners[i] = transform.transform_point3(*corner);
+        let old_center = self.center;
+        let old_extent = self.extent;
+        for i in 0..3 {
+            let row = transform.row(i);
+            self.center[i] = row[3];
+            self.extent[i] = 0.0;
+            for j in 0..3 {
+                self.center[i] += row[j] * old_center[j];
+                self.extent[i] += (row[j] * old_extent[j]).abs();
+            }
         }
-
-        // Recalculate extents from transformed corners
-        self.init_from_points(&transformed_corners);
     }
 
-    /// Project the box onto an axis
+    /// Return the projected half-width, independent of center or axis length.
+    ///
+    /// Matches `AABoxClass::Project_To_Axis`, not the full interval width.
     pub fn project_to_axis(&self, axis: &Vec3) -> f32 {
-        let corners = self.get_corners();
-        let mut min_proj = f32::INFINITY;
-        let mut max_proj = f32::NEG_INFINITY;
-
-        for corner in &corners {
-            let proj = corner.dot(*axis);
-            min_proj = min_proj.min(proj);
-            max_proj = max_proj.max(proj);
-        }
-
-        max_proj - min_proj
+        let projection = (self.extent * *axis).abs();
+        projection.x + projection.y + projection.z
     }
 
     /// Get all 8 corners of the box
@@ -229,38 +214,32 @@ impl AABoxClass {
 
     /// Check intersection with another AABox
     pub fn intersects_aabox(&self, other: &AABoxClass) -> bool {
-        let self_min = self.min();
-        let self_max = self.max();
-        let other_min = other.min();
-        let other_max = other.max();
-
-        self_min.x <= other_max.x
-            && self_max.x >= other_min.x
-            && self_min.y <= other_max.y
-            && self_max.y >= other_min.y
-            && self_min.z <= other_max.z
-            && self_max.z >= other_min.z
+        let delta = (other.center - self.center).abs();
+        let extent_sum = self.extent + other.extent;
+        delta.x <= extent_sum.x && delta.y <= extent_sum.y && delta.z <= extent_sum.z
     }
 
     /// Check if this box completely contains another box
     pub fn contains_aabox(&self, other: &AABoxClass) -> bool {
-        let self_min = self.min();
-        let self_max = self.max();
-        let other_min = other.min();
-        let other_max = other.max();
-
-        self_min.x <= other_min.x
-            && self_max.x >= other_max.x
-            && self_min.y <= other_min.y
-            && self_max.y >= other_max.y
-            && self_min.z <= other_min.z
-            && self_max.z >= other_max.z
+        let delta = other.center - self.center;
+        let upper = delta + other.extent;
+        let lower = delta - other.extent;
+        upper.x <= self.extent.x
+            && upper.y <= self.extent.y
+            && upper.z <= self.extent.z
+            && lower.x >= -self.extent.x
+            && lower.y >= -self.extent.y
+            && lower.z >= -self.extent.z
     }
 
     /// Get the volume of the box
     pub fn volume(&self) -> f32 {
-        let size = self.extent * 2.0;
-        size.x * size.y * size.z
+        // The unsuffixed 2.0 literals in aabox.h promote this chain to double.
+        (2.0 * f64::from(self.extent.x)
+            * 2.0
+            * f64::from(self.extent.y)
+            * 2.0
+            * f64::from(self.extent.z)) as f32
     }
 
     /// Get the surface area of the box
@@ -288,6 +267,73 @@ impl AABoxClass {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn box_extensions_keep_center_and_query_geometry() {
+        let mut bounds = AABoxClass::from_center_extent(Vec3::splat(10.0), Vec3::ONE);
+        bounds.scale(&Vec3::new(2.0, 3.0, 4.0));
+        assert_eq!(bounds.center(), Vec3::splat(10.0));
+        assert_eq!(bounds.volume(), 192.0);
+        assert_eq!(bounds.surface_area(), 208.0);
+        assert!(bounds.is_valid());
+        assert!(!bounds.is_degenerate());
+        for corner in bounds.get_corners() {
+            assert!(bounds.contains_point(&corner));
+            assert_eq!(bounds.distance_to_point(&corner), 0.0);
+        }
+        bounds.extent.x = -1.0;
+        assert!(!bounds.is_valid());
+        bounds.make_valid();
+        assert!(bounds.is_valid());
+        assert!(bounds.is_degenerate());
+        assert_eq!(AABoxClass::from_points(&[]), AABoxClass::new());
+    }
+
+    #[test]
+    fn cpp_transform_applies_translation_once_and_preserves_axis_extent_order() {
+        let mut bounds =
+            AABoxClass::from_center_extent(Vec3::new(1.0, 2.0, 3.0), Vec3::new(2.0, 3.0, 4.0));
+        let transform = Mat4::from_cols(
+            Vec3::new(0.0, 2.0, 0.0).extend(0.0),
+            Vec3::new(-3.0, 0.0, 0.0).extend(0.0),
+            Vec3::new(1.0, 0.0, -4.0).extend(0.0),
+            Vec3::new(10.0, 20.0, 30.0).extend(1.0),
+        );
+        bounds.transform(&transform);
+        assert_eq!(bounds.center, Vec3::new(7.0, 22.0, 18.0));
+        assert_eq!(bounds.extent, Vec3::new(13.0, 4.0, 16.0));
+        assert!(bounds.contains_point(&Vec3::new(20.0, 26.0, 34.0)));
+        assert!(!bounds.contains_point(&Vec3::new(20.25, 26.0, 34.0)));
+    }
+
+    #[test]
+    fn cpp_axis_projection_is_half_width_and_ignores_translation() {
+        let mut bounds =
+            AABoxClass::from_center_extent(Vec3::new(100.0, -50.0, 3.0), Vec3::new(2.0, 3.0, 4.0));
+        assert_eq!(bounds.project_to_axis(&Vec3::new(-2.0, 3.0, -4.0)), 29.0);
+        bounds.translate(&Vec3::splat(100.0));
+        assert_eq!(bounds.project_to_axis(&Vec3::new(-2.0, 3.0, -4.0)), 29.0);
+        assert_eq!(bounds.project_to_axis(&Vec3::ZERO), 0.0);
+    }
+
+    #[test]
+    fn cpp_bounds_growth_and_boundary_overlap() {
+        let mut bounds = AABoxClass::from_points(&[
+            Vec3::new(-2.0, 1.0, -3.0),
+            Vec3::new(4.0, 5.0, 1.0),
+        ]);
+        bounds.add_point(&Vec3::new(-4.0, 3.0, 5.0));
+        assert_eq!(bounds.center, Vec3::new(0.0, 3.0, 1.0));
+        assert_eq!(bounds.extent, Vec3::splat(4.0) * Vec3::new(1.0, 0.5, 1.0));
+        let boundary = AABoxClass::from_center_extent(Vec3::new(5.0, 3.0, 1.0), Vec3::ONE);
+        assert!(bounds.intersects_aabox(&boundary));
+        assert!(!bounds.contains_aabox(&boundary));
+        assert!(bounds.contains_aabox(&bounds));
+        let corner = Vec3::new(4.0, 5.0, 5.0);
+        assert!(bounds.contains_point(&corner));
+        assert_eq!(bounds.closest_point(&Vec3::new(7.0, 9.0, 5.0)), corner);
+        assert_eq!(bounds.distance_squared_to_point(&Vec3::new(7.0, 9.0, 5.0)), 25.0);
+    }
 
     #[test]
     fn test_aabox_creation() {

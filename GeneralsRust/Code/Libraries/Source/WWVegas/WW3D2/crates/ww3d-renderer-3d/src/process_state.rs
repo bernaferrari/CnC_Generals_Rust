@@ -104,7 +104,7 @@ impl Renderer3dRuntime {
 /// There is no process-wide or thread-local active stack.
 
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod independence_tests {
     use super::*;
     use std::sync::atomic::Ordering;
@@ -146,7 +146,34 @@ impl std::fmt::Debug for Renderer3dRuntime {
 
 
 
+#[cfg(not(target_arch = "wasm32"))]
 const _: () = {
     const fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<Renderer3dRuntime>();
+    assert_send_sync::<crate::Renderer>();
+    assert_send_sync::<crate::rendering::mesh_system::MeshClass>();
+    assert_send_sync::<TextureFileCache>();
+    assert_send_sync::<ww3d_core::ww3d::Ww3dContext>();
+};
+
+// Compile on the browser target too: none of these owners may claim that its
+// browser GPU handles can cross threads or be shared between threads.
+#[cfg(target_arch = "wasm32")]
+const _: fn() = || {
+    trait AmbiguousIfSend<A> { fn check() {} }
+    impl<T: ?Sized> AmbiguousIfSend<()> for T {}
+    impl<T: ?Sized + Send> AmbiguousIfSend<u8> for T {}
+    trait AmbiguousIfSync<A> { fn check() {} }
+    impl<T: ?Sized> AmbiguousIfSync<()> for T {}
+    impl<T: ?Sized + Sync> AmbiguousIfSync<u8> for T {}
+    let _ = <crate::Renderer as AmbiguousIfSend<_>>::check;
+    let _ = <crate::Renderer as AmbiguousIfSync<_>>::check;
+    let _ = <crate::rendering::mesh_system::MeshClass as AmbiguousIfSend<_>>::check;
+    let _ = <crate::rendering::mesh_system::MeshClass as AmbiguousIfSync<_>>::check;
+    let _ = <TextureFileCache as AmbiguousIfSend<_>>::check;
+    let _ = <TextureFileCache as AmbiguousIfSync<_>>::check;
+    let _ = <Renderer3dRuntime as AmbiguousIfSend<_>>::check;
+    let _ = <Renderer3dRuntime as AmbiguousIfSync<_>>::check;
+    let _ = <ww3d_core::ww3d::Ww3dContext as AmbiguousIfSend<_>>::check;
+    let _ = <ww3d_core::ww3d::Ww3dContext as AmbiguousIfSync<_>>::check;
 };

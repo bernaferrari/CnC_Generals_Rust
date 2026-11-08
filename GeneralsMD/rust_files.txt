@@ -1475,15 +1475,12 @@
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation/src/animation_blending.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation/src/animation_state_machine.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation/src/combo.rs
-../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation/src/compressed_animation.rs
-../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation/src/gpu_skinning.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation/src/hanim.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation/src/hcompressed_anim.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation/src/htree.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation/src/ik_system.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation/src/lib.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation/src/manager.rs
-../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation/src/morph_animation.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation/src/motion_channels.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation/src/skeletal_animation.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation/src/w3d_loader.rs
@@ -1710,7 +1707,6 @@
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/modern_texture_manager.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/performance_stats.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/polygon_batching.rs
-../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/polygon_sorting.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/post_process.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/reflection_system.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/render_state.rs
@@ -1722,7 +1718,6 @@
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/render2d/mod.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/render2d/render2dsentence.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/render2d/textdraw.rs
-../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/rendering_2d.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/ring_render_obj.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/segment_line_renderer.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/shader_core.rs
@@ -1738,9 +1733,7 @@
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/sort_system.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/sphere_render_obj.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/swapchain_state.rs
-../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/texture_core.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/texture_decode.rs
-../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/texture_loader.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/texture_metrics.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/texture_quality.rs
 ../GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/texture_system/asset_texture_loader.rs

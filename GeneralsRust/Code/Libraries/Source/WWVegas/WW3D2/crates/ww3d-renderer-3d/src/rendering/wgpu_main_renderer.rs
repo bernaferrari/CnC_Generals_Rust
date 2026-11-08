@@ -143,6 +143,28 @@ impl WgpuMainRenderer {
         renderer_guard.begin_frame()
     }
 
+    /// Release only this renderer's completed frame queues, after its encoder
+    /// has been submitted (or torn down). The ordinary C++ WW3D::Flush drains
+    /// static lists before SortingRendererClass::Flush; failed/skipped scenes
+    /// must release the same ownership even when neither phase was reached.
+    /// Do not call this for an end without an acquired frame: queued work then
+    /// belongs to a future frame. The next-frame callback schedule is separate.
+    fn discard_frame_sorting(&self) -> RendererResult<()> {
+        mesh_system::StaticSortManager::flush_static_sort_list(&self.renderer_3d);
+        match self.renderer.lock() {
+            Ok(mut renderer) => {
+                renderer.mesh_render_manager.discard_sorted();
+                Ok(())
+            }
+            Err(poisoned) => {
+                // Teardown must release retained GPU batches even on poison,
+                // but callers must still observe the original poisoned state.
+                poisoned.into_inner().mesh_render_manager.discard_sorted();
+                Err(RendererError::InvalidOperation("renderer mutex poisoned".into()))
+            }
+        }
+    }
+
     /// Construct the renderer from an explicit host-owned engine handle.
     pub fn from_engine(engine: SharedEngine, config: WgpuMainRendererConfig) -> RendererResult<Self> {
         let (gpu_device, color_format, depth_format) = {
@@ -288,6 +310,9 @@ impl WgpuMainRenderer {
                             "Failed to unwind render frame after renderer init error: {end_err:?}"
                         );
                     }
+                    if let Err(cleanup_err) = self.discard_frame_sorting() {
+                        log::error!("Failed to clean abandoned render frame: {cleanup_err:?}");
+                    }
                     Err(err)
                 }
             },
@@ -427,6 +452,13 @@ impl WgpuMainRenderer {
             let has_window_surface = frame.has_gpu_color_target();
             let end_result = self.engine.lock().end_render(frame)
                 .map_err(|err| RendererError::RenderError(err.to_string()));
+            let end_result = match (end_result, self.discard_frame_sorting()) {
+                (Ok(()), cleanup) => cleanup,
+                (Err(end_err), Ok(())) => Err(end_err),
+                (Err(end_err), Err(cleanup_err)) => Err(RendererError::RenderError(format!(
+                    "failed to end engine frame: {end_err:?}; additionally failed to clean frame sorting: {cleanup_err:?}"
+                ))),
+            };
             let frame_work_result = match (frame_work_result, callback_result) {
                 (Ok(stats), Ok(())) => Ok(stats),
                 (Err(err), _) | (_, Err(err)) => Err(err),
@@ -615,6 +647,9 @@ impl Drop for WgpuMainRenderer {
             if let Err(err) = self.engine.lock().end_render(frame) {
                 log::error!("Failed to end render frame during renderer teardown: {err:?}");
             }
+            if let Err(err) = self.discard_frame_sorting() {
+                log::error!("Failed to clean frame sorting during renderer teardown: {err:?}");
+            }
         }
         if self.registered_with_ww3d {
             self.ww3d.unregister_renderer();
@@ -733,29 +768,29 @@ impl RendererBackend for WgpuCoreBridge {
 
     fn add_to_static_sort_list(
         &mut self,
-        object: Arc<dyn Any + Send + Sync>,
+        object: &dyn Any,
         sort_level: u32,
     ) -> W3DResult<()> {
-        match object.downcast::<StaticSortRenderObject>() {
-            Ok(handle) => {
-                mesh_system::StaticSortManager::add_to_static_sort_list(&self.renderer_3d, handle, sort_level);
-                Ok(())
-            }
-            Err(object) => match object.downcast::<MeshClass>() {
-                Ok(mesh) => {
-                    let handle = StaticSortRenderObject::from_arc(Arc::clone(&mesh));
-                    mesh_system::StaticSortManager::add_to_static_sort_list_with_mesh(
-                        &self.renderer_3d,
-                        handle,
-                        sort_level,
-                        Some(mesh),
-                    );
-                    Ok(())
-                }
-                Err(_) => Err(W3DError::UnsupportedType(
-                    "static sort object type not handled by WGPU renderer".to_string(),
-                )),
-            },
+        if let Some(handle) = object.downcast_ref::<Arc<StaticSortRenderObject>>() {
+            mesh_system::StaticSortManager::add_to_static_sort_list(
+                &self.renderer_3d,
+                Arc::clone(handle),
+                sort_level,
+            );
+            Ok(())
+        } else if let Some(mesh) = object.downcast_ref::<Arc<MeshClass>>() {
+            let handle = StaticSortRenderObject::from_arc(Arc::clone(mesh));
+            mesh_system::StaticSortManager::add_to_static_sort_list_with_mesh(
+                &self.renderer_3d,
+                handle,
+                sort_level,
+                Some(Arc::clone(mesh)),
+            );
+            Ok(())
+        } else {
+            Err(W3DError::UnsupportedType(
+                "static sort object type not handled by WGPU renderer".to_string(),
+            ))
         }
     }
 
@@ -834,6 +869,6 @@ mod tests {
 #[path = "wgpu_main_renderer_callback_tests.rs"]
 mod callback_tests;
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "wgpu_scoped_native_pass_tests.rs"]
 mod scoped_native_pass_tests;

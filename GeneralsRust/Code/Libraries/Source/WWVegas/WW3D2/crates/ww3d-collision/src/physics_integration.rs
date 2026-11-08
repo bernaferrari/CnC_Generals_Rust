@@ -532,16 +532,16 @@ impl PhysicsWorld {
         let mut closest_distance = max_distance;
 
         for (id, body) in &self.bodies {
-            if let Some(hit) = body.ray_cast(origin, direction, closest_distance) {
-                if hit.distance < closest_distance {
-                    closest_hit = Some(RayCastHit {
-                        body: *id,
-                        point: hit.point,
-                        normal: hit.normal,
-                        distance: hit.distance,
-                    });
-                    closest_distance = hit.distance;
-                }
+            if let Some(hit) = body.ray_cast(origin, direction, closest_distance)
+                && hit.distance < closest_distance
+            {
+                closest_hit = Some(RayCastHit {
+                    body: *id,
+                    point: hit.point,
+                    normal: hit.normal,
+                    distance: hit.distance,
+                });
+                closest_distance = hit.distance;
             }
         }
 
@@ -1315,15 +1315,14 @@ impl RigidBody {
 
             if let Some(hit) =
                 triangle_aabb_intersection(local_v0, local_v1, local_v2, half_extents)
+                && hit.penetration < best_penetration
             {
-                if hit.penetration < best_penetration {
-                    best_penetration = hit.penetration;
-                    best = Some(CollisionInfo {
-                        contact_point: self.position + box_rot * hit.contact_point,
-                        normal: (box_rot * hit.normal).normalize_or_zero(),
-                        penetration: hit.penetration,
-                    });
-                }
+                best_penetration = hit.penetration;
+                best = Some(CollisionInfo {
+                    contact_point: self.position + box_rot * hit.contact_point,
+                    normal: (box_rot * hit.normal).normalize_or_zero(),
+                    penetration: hit.penetration,
+                });
             }
         }
 
@@ -1543,7 +1542,7 @@ impl RigidBody {
         let mut closest: Option<RayCastInfo> = None;
         let mut closest_distance = max_distance;
 
-        for tri in indices.chunks_exact(3) {
+        for tri in indices.as_chunks::<3>().0 {
             let Some(v0) = vertices.get(tri[0] as usize).copied() else {
                 continue;
             };
@@ -1556,17 +1555,16 @@ impl RigidBody {
 
             if let Some((distance, local_normal)) =
                 ray_triangle_intersection(local_origin, local_direction, v0, v1, v2)
+                && distance < closest_distance
             {
-                if distance < closest_distance {
-                    closest_distance = distance;
-                    let point = origin + direction * distance;
-                    let normal = (rot_mat * local_normal).normalize();
-                    closest = Some(RayCastInfo {
-                        point,
-                        normal,
-                        distance,
-                    });
-                }
+                closest_distance = distance;
+                let point = origin + direction * distance;
+                let normal = (rot_mat * local_normal).normalize();
+                closest = Some(RayCastInfo {
+                    point,
+                    normal,
+                    distance,
+                });
             }
         }
 
@@ -1647,7 +1645,7 @@ fn mesh_world_triangles(
 ) -> Vec<(Vec3, Vec3, Vec3)> {
     let rot = Mat3::from_quat(body.rotation);
     indices
-        .chunks_exact(3)
+        .as_chunks::<3>().0.iter()
         .filter_map(|tri| {
             let v0 = vertices.get(tri[0] as usize).copied()?;
             let v1 = vertices.get(tri[1] as usize).copied()?;

@@ -86,21 +86,6 @@ cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBarStr
 note = "Garrison inventory latch owned on ControlBarContext; 6 process atomics removed; peel helpers take &mut StructureInventoryLatch."
 
 [[module]]
-path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/texture_loader.rs"
-cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/textureloader.cpp"
-note = "Owned TextureLoaderClass; removed TLS/SLOT/LOADER_ID_COUNTER; with_id for multi-instance; 4->0 globals."
-
-[[module]]
-path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/texture_core.rs"
-cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/texture.cpp"
-note = "Owned TextureBaseClass ids + TextureLoader helpers; removed TLS TEXTURE_LOADER/ID counter; 3->0 globals."
-
-[[module]]
-path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-effects/src/effects/streak_system.rs"
-cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/streak.cpp"
-note = "StreakRenderer-owned line/renderer ids; removed TLS STREAK_RENDERER_SLOT; free APIs take &mut; 4->0 globals."
-
-[[module]]
 path = "Code/Main/src/assets/mesh_asset_resolve.rs"
 cpp = "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient"
 note = "MeshResolveState owned by AssetManager/LiveAssetResolver; honesty+missing-W3D off process atomics; 4->0 globals."
@@ -134,11 +119,6 @@ note = "OCL timer residual latch owned per client; 3 process atomics removed; pe
 path = "Code/Libraries/Source/WWVegas/WWLib/src/random.rs"
 cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWLib/random.cpp"
 note = "Owned Random4Class helpers; removed TLS GLOBAL_RNG and SHARED Mutex RNG; 3->0 globals."
-
-[[module]]
-path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/rendering_2d.rs"
-cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/render2d.cpp"
-note = "Render2DClass::with_id; removed TLS RENDERER_2D and ID counter; free APIs take &mut; 3->0 globals."
 
 [[module]]
 path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/light_system.rs"
@@ -632,3 +612,13 @@ note = "Network progress map owned by NetworkBridgeHandle; process NETWORK_PROGR
 path = "Code/GameEngine/GameClient/src/gui/font.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GameClient.cpp"
 note = "FontLibrary on GameClient; get_font_library returns Arc via live client then cfg(test) TLS; alternate unicode font OnceLock lives on DefaultFontData (no process FONT LazyLock)."
+
+[[module]]
+path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-collision/src/bounding_volumes/aabox.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/aabox.h"
+note = "Owned affine center/extent bounds; original transform, half-width projection and overlap arithmetic. Empty/default and extension contracts documented; collision tests, runtime geometry smoke and package clippy pass."
+
+[[module]]
+path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-collision/src/bounding_volumes/sphere.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/sphere.h"
+note = "Owned original ordered two-pass bounds, union, strict intersection and orthogonal center transform; empty-input/extensions documented. Collision tests, runtime geometry smoke and package clippy pass."

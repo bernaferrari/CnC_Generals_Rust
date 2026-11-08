@@ -48,7 +48,9 @@ impl LodLevel {
 }
 
 /// Trait for LOD geometry that can be rendered by the 3D renderer
-pub trait LodGeometry: std::fmt::Debug + Send + Sync {
+pub trait LodGeometry:
+    std::fmt::Debug + ww3d_core::ww3d::RenderSend + ww3d_core::ww3d::RenderSync
+{
     fn as_any(&self) -> &dyn Any;
     /// Render object name used to instantiate geometry
     fn render_object_name(&self) -> &str;

@@ -1,5 +1,154 @@
 use super::*;
 
+fn frame_sort_mesh(name: &str, triangle_sort: bool) -> Arc<MeshClass> {
+    use crate::material_system::{MaterialPassClass, VertexMaterialClass};
+    use crate::rendering::mesh_system::{MeshGeometryClass, MeshModelClass};
+    use ww3d_core::w3d_format::{W3dTriangleStruct, W3dVectorStruct};
+
+    let mut model = MeshModelClass::new(name);
+    model.vertices = [(-1.0, -1.0, -3.0), (1.0, -1.0, -3.0), (0.0, 1.0, -3.0)]
+        .into_iter()
+        .map(|(x, y, z)| W3dVectorStruct { x, y, z })
+        .collect();
+    model.triangles = vec![W3dTriangleStruct {
+        vindex: [0, 1, 2],
+        attributes: 0,
+        normal: W3dVectorStruct { x: 0.0, y: 0.0, z: 1.0 },
+        distance: 0.0,
+    }];
+    model.vertex_count = 3;
+    model.index_count = 3;
+    model.set_flag(MeshGeometryClass::SORT, triangle_sort);
+    let mut material = VertexMaterialClass::new("frame-sort");
+    material.diffuse = glam::Vec3::ONE;
+    material.specular = glam::Vec3::ZERO;
+    let mut pass = MaterialPassClass::new();
+    pass.vertex_material = Some(Arc::new(material));
+    pass.shader = crate::rendering::shader_system::shader::ShaderClass::get_alpha_shader();
+    model.material_passes.push(pass);
+    let mut mesh = MeshClass::new();
+    mesh.model = Some(Arc::new(model));
+    Arc::new(mesh)
+}
+
+// Both exit policies bypass the ordinary static-sort flush. Keep a second
+// renderer's pending mesh alive while abandoning the first one's submission,
+// then drive real GPU draws to prove only the receiving frame was discarded.
+#[test]
+#[ignore = "requires a native GPU; run explicitly with --include-ignored"]
+fn failed_or_skipped_scene_discards_only_its_frame_sorting() {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 16,
+        height: 16,
+        ..Default::default()
+    }).expect("native GPU");
+    let mut renderer = WgpuMainRenderer::from_engine(engine.clone(), Default::default()).unwrap();
+    let mut peer = WgpuMainRenderer::from_engine(engine.clone(), Default::default()).unwrap();
+    let mesh = frame_sort_mesh("abandoned", false);
+    let peer_mesh = frame_sort_mesh("peer", false);
+    let state = engine.lock().frame_submit_state();
+
+    for skip_scene in [false, true] {
+        renderer.begin_frame().unwrap();
+        renderer.ww3d.add_to_static_sort_list(Arc::clone(&mesh), 1).unwrap();
+        peer.ww3d.add_to_static_sort_list(Arc::clone(&peer_mesh), 1).unwrap();
+        renderer.enqueue_frame_work(FramePhase::Terrain, |_| {
+            Err(RendererError::InvalidOperation("expected terrain failure".into()))
+        });
+        let before = ww3d_engine::total_owned_submits(&state.lock());
+        let result = renderer.end_frame_with_scene_policy(skip_scene, None);
+        if skip_scene {
+            result.unwrap();
+        } else {
+            assert!(format!("{:?}", result.unwrap_err()).contains("expected terrain failure"));
+        }
+        assert_eq!(ww3d_engine::total_owned_submits(&state.lock()), before + 1);
+        assert!(!ww3d_engine::frame_is_active(&state.lock()));
+        assert!(mesh_system::StaticSortManager::snapshot_static_sort_list(&renderer.renderer_3d).is_none());
+        assert!(mesh_system::StaticSortManager::snapshot_static_sort_list(&peer.renderer_3d).is_some());
+
+        renderer.begin_frame().unwrap();
+        renderer.end_frame().unwrap();
+        assert_eq!(renderer.stats().meshes_rendered, 0, "frame N+1 must not draw frame N's mesh");
+        assert_eq!(renderer.stats().draw_calls, 0);
+        peer.begin_frame().unwrap();
+        peer.end_frame().unwrap();
+        assert_eq!(peer.stats().meshes_rendered, 1, "the peer still draws its own mesh");
+        assert!(peer.stats().draw_calls > 0);
+
+        // New commands are for the next receiving frame. A stray end without
+        // begin must not discard them.
+        renderer.ww3d.add_to_static_sort_list(Arc::clone(&mesh), 1).unwrap();
+        assert!(renderer.end_frame().is_err());
+        renderer.begin_frame().unwrap();
+        renderer.end_frame().unwrap();
+        assert_eq!(renderer.stats().meshes_rendered, 1);
+    }
+    engine.lock().device().poll(wgpu::PollType::wait_indefinitely()).unwrap();
+}
+
+#[test]
+#[ignore = "requires a native GPU supporting two headless devices; run explicitly with --include-ignored"]
+fn abandoned_scene_discards_already_recorded_triangle_batches() {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 16,
+        height: 16,
+        ..Default::default()
+    }).expect("native GPU");
+    let mut renderer = WgpuMainRenderer::from_engine(engine.clone(), Default::default()).unwrap();
+    let peer_engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 16,
+        height: 16,
+        ..Default::default()
+    }).expect("peer native GPU");
+    let mut peer = WgpuMainRenderer::from_engine(peer_engine.clone(), Default::default()).unwrap();
+    let peer_mesh = frame_sort_mesh("peer-triangle-batches", true);
+    let mesh = frame_sort_mesh("recorded-before-failure", true);
+    for skip_scene in [false, true] {
+        peer.begin_frame().unwrap();
+        peer.renderer.lock().unwrap().queue_mesh(Arc::clone(&peer_mesh)).unwrap();
+        let mut peer_frame = peer.pending_frame.take().unwrap();
+        peer.record_mesh_flush(&mut peer_frame, Some(wgpu::Color::BLACK)).unwrap();
+        peer.pending_frame = Some(peer_frame);
+        let peer_batches = peer.renderer.lock().unwrap().mesh_render_manager.sorted_batch_count();
+        assert!(peer_batches > 0);
+        renderer.begin_frame().unwrap();
+        renderer.renderer.lock().unwrap().queue_mesh(Arc::clone(&mesh)).unwrap();
+        if skip_scene {
+            let mut frame = renderer.pending_frame.take().unwrap();
+            renderer.record_mesh_flush(&mut frame, Some(wgpu::Color::BLACK)).unwrap();
+            renderer.pending_frame = Some(frame);
+            assert!(renderer.renderer.lock().unwrap().mesh_render_manager.sorted_batch_count() > 0);
+        } else {
+            let handle = renderer.renderer_handle();
+            renderer.enqueue_frame_work(FramePhase::Terrain, move |frame| {
+                // Fail after real mesh recording has produced triangle batches,
+                // before the main renderer can reach its Sorted phase.
+                let mut scene = handle.lock().unwrap();
+                scene.render_frame(frame, Some(wgpu::Color::BLACK), None)?;
+                assert!(scene.mesh_render_manager.sorted_batch_count() > 0);
+                Err(RendererError::InvalidOperation("expected scene failure".into()))
+            });
+        }
+        let result = renderer.end_frame_with_scene_policy(skip_scene, None);
+        if skip_scene {
+            result.unwrap();
+        } else {
+            assert!(format!("{:?}", result.unwrap_err()).contains("expected scene failure"));
+        }
+        assert_eq!(renderer.renderer.lock().unwrap().mesh_render_manager.sorted_batch_count(), 0);
+        assert_eq!(peer.renderer.lock().unwrap().mesh_render_manager.sorted_batch_count(), peer_batches);
+        assert!(peer.has_active_frame());
+        peer.end_frame().unwrap();
+        assert_eq!(peer.renderer.lock().unwrap().mesh_render_manager.sorted_batch_count(), 0);
+        renderer.begin_frame().unwrap();
+        renderer.end_frame().unwrap();
+        assert_eq!(renderer.stats().draw_calls, 0);
+    }
+    engine.lock().device().poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    peer_engine.lock().device().poll(wgpu::PollType::wait_indefinitely()).unwrap();
+}
+
 // This exercises native wgpu submission, not a simulated callback queue. It
 // needs an adapter that can create two headless devices; on Metal it also
 // crosses the historical command-buffer exhaustion threshold. Periodic waits
@@ -76,8 +225,12 @@ fn dropping_an_acquired_renderer_finishes_only_its_own_frame() {
     let state = engine.lock().frame_submit_state();
     let initial = ww3d_engine::total_owned_submits(&state.lock());
     owner.begin_frame().unwrap();
+    let runtime = Arc::clone(&owner.renderer_3d);
+    let mesh = frame_sort_mesh("drop-owned-frame", false);
+    owner.ww3d.add_to_static_sort_list(mesh, 1).unwrap();
     assert!(peer.begin_frame().is_err());
     drop(owner);
+    assert!(mesh_system::StaticSortManager::snapshot_static_sort_list(&runtime).is_none());
     assert!(!ww3d_engine::frame_is_active(&state.lock()));
     assert_eq!(ww3d_engine::total_owned_submits(&state.lock()) - initial, 1);
     peer.begin_frame().unwrap();
@@ -94,6 +247,8 @@ fn renderer_prepare_failure_releases_its_acquired_frame() {
         ..Default::default()
     }).unwrap();
     let mut renderer = WgpuMainRenderer::from_engine(engine.clone(), Default::default()).unwrap();
+    let mesh = frame_sort_mesh("prepare-failure", false);
+    renderer.ww3d.add_to_static_sort_list(mesh, 1).unwrap();
     let handle = renderer.renderer.clone();
     let _ = std::thread::spawn(move || {
         let _guard = handle.lock().unwrap();
@@ -102,6 +257,7 @@ fn renderer_prepare_failure_releases_its_acquired_frame() {
     let state = engine.lock().frame_submit_state();
     let initial = ww3d_engine::total_owned_submits(&state.lock());
     assert!(renderer.begin_frame().is_err());
+    assert!(mesh_system::StaticSortManager::snapshot_static_sort_list(&renderer.renderer_3d).is_none());
     assert!(!ww3d_engine::frame_is_active(&state.lock()));
     assert_eq!(ww3d_engine::total_owned_submits(&state.lock()) - initial, 1);
     let mut peer = WgpuMainRenderer::from_engine(engine.clone(), Default::default()).unwrap();

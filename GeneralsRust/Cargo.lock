@@ -15472,6 +15472,7 @@ dependencies = [
  "bytemuck",
  "crc32fast",
  "criterion",
+ "getrandom 0.4.2",
  "glam 0.33.7",
  "image",
  "lazy_static",

@@ -342,10 +342,10 @@ impl AABTree {
                     };
 
                     // Backface culling if view direction provided
-                    if let Some(view) = view_dir {
-                        if triangle.normal.dot(view) >= 0.0 {
-                            continue; // Backface
-                        }
+                    if let Some(view) = view_dir
+                        && triangle.normal.dot(view) >= 0.0
+                    {
+                        continue; // Backface
                     }
 
                     // Test if triangle intersects OBBox

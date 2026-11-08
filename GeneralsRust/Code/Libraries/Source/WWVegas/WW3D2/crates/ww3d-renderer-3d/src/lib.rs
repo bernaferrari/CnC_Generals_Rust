@@ -234,7 +234,8 @@ pub struct Renderer {
     swapchain_state: Option<RendererSwapchainState>,
 
     mesh_render_manager: rendering::mesh_system::MeshRenderManager,
-    registered_mesh_models: HashMap<usize, std::sync::Arc<rendering::mesh_system::MeshModelClass>>,
+    // Registration observes model identity; submitted meshes own its lifetime.
+    registered_mesh_models: HashMap<usize, std::sync::Weak<rendering::mesh_system::MeshModelClass>>,
     frame_graph: FrameGraph,
     camera: Option<rendering::camera_system::CameraClass>,
     enable_lighting: bool,
@@ -250,18 +251,6 @@ pub struct Renderer {
     renderer_3d: Option<std::sync::Arc<crate::process_state::Renderer3dRuntime>>,
 }
 
-#[cfg(target_arch = "wasm32")]
-// SAFETY: wasm32-only. `Renderer` transitively owns wgpu handles through
-// `Arc<GpuDevice>`, `PipelineManager`, `TextureManager`, `BufferManager` and
-// the frame uniform arenas; they are `Rc`-backed and `!Send` on the web
-// backend, but wasm32 has no threads. The impl only satisfies the
-// `Send`/`Sync` bounds of the `Arc<Mutex<Renderer>>` owners.
-unsafe impl Send for Renderer {}
-#[cfg(target_arch = "wasm32")]
-// SAFETY: same wasm32-only scope: the target is single-threaded, so
-// `&Renderer` is never accessed from two threads and the handles' `!Sync`
-// default is unreachable.
-unsafe impl Sync for Renderer {}
 
 impl Renderer {
     pub fn set_ww3d(&mut self, ww3d: std::sync::Arc<Ww3dContext>) {
@@ -361,6 +350,8 @@ impl Renderer {
         self.mesh_render_manager.reset_stats();
         self.frame_graph.begin_frame();
         self.pending_shadow_caster_submissions.clear();
+        self.registered_mesh_models
+            .retain(|_, model| model.strong_count() != 0);
         if !self.frame_uniform_arenas.is_empty() {
             self.frame_uniform_index =
                 (self.frame_uniform_index + 1) % self.frame_uniform_arenas.len();
@@ -708,14 +699,20 @@ impl Renderer {
         Ok(())
     }
 
-    /// Handle post-render cleanup tasks
-    /// Register a mesh model so its GPU resources are prepared
+    /// Prepare a mesh without extending its lifetime. C++ MeshModelClass's
+    /// destructor unregisters its renderer resources (meshmdl.cpp:68-74);
+    /// dead registrations and preparations retire at the next frame boundary.
     pub fn register_mesh(
         &mut self,
         mesh_model: std::sync::Arc<rendering::mesh_system::MeshModelClass>,
     ) -> RendererResult<()> {
         let key = std::sync::Arc::as_ptr(&mesh_model) as usize;
-        if self.registered_mesh_models.contains_key(&key) {
+        let owner = std::sync::Arc::downgrade(&mesh_model);
+        if self
+            .registered_mesh_models
+            .get(&key)
+            .is_some_and(|registered| std::sync::Weak::ptr_eq(registered, &owner))
+        {
             return Ok(());
         }
 
@@ -729,7 +726,7 @@ impl Renderer {
             None => false,
         };
         self.mesh_render_manager.ensure_sorting_container(sorting);
-        self.registered_mesh_models.insert(key, mesh_model);
+        self.registered_mesh_models.insert(key, owner);
 
         Ok(())
     }

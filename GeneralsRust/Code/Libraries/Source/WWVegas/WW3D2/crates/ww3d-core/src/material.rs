@@ -465,10 +465,10 @@ impl MaterialPass {
     }
 
     pub fn is_transparent(&self) -> bool {
-        if let Some(ref vmat) = self.vertex_material {
-            if vmat.is_transparent() {
-                return true;
-            }
+        if let Some(ref vmat) = self.vertex_material
+            && vmat.is_transparent()
+        {
+            return true;
         }
         matches!(
             self.shader.blend_mode,

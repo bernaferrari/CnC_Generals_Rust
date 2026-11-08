@@ -49,6 +49,21 @@ hierarchies fail admission; single and blended hierarchy updates retain C++
 visibility behavior for unanimated and out-of-range pivots. This library path
 is distinct from Main's live W3D animation path and does not seal either one.
 
+The WW3D2 collision AABox and Sphere leaves are sealed against `WWMath/aabox.h`
+and `WWMath/sphere.h`: original affine bounds, projected half-width, ordered
+point-cloud bounds, union and intersection boundaries. Documented Rust-only
+empty-input and convenience operations remain explicit. All 113 collision
+tests, a geometry runtime smoke and strict package all-targets Clippy pass.
+This does not seal the whole collision crate or renderer. The unused prototype
+collision dispatcher with no-op casts was deleted rather than sealed.
+
+Unreachable duplicate 2D, texture, compressed/morph animation, skinning and
+polygon-sorting source files were removed after checking module declarations
+and repository consumers. Their stale seals were removed, not transferred:
+the live `render2d`, `texture_system`, animation loaders and sorting paths
+retain their own acceptance requirements. Deleted unsafe in these orphan files
+is inventory cleanup, not a live rendering or safety improvement.
+
 | Step | State | Evidence |
 |---|---|---|
 | prerequisite | done | `drive_frame` self-deadlocked on the WW3D mutex on the first Menu frame (lock temporary in a `match` scrutinee); the shell then failed on object-less drawables (`missing native material observation`). Both fixed, so headless/windowed runs get past the menu again. |

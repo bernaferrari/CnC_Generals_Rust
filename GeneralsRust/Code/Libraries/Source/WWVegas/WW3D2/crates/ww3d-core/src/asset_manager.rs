@@ -6,7 +6,6 @@ use crate::errors::{W3DError, W3DResult};
 use crate::mesh::Mesh;
 use crate::texture::Texture;
 use crate::w3d_io::*;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -458,17 +457,6 @@ impl CacheStats {
         self.mesh_count + self.texture_count + self.hierarchy_count + self.animation_count
     }
 }
-
-
-
-
-/// Install a context-owned asset manager for free-function bridges on this thread.
-
-/// Pop the installed owner when it is still on top of this thread's stack.
-
-/// Run `f` with mutable access to the active (context-owned or standalone) asset manager.
-
-/// Run `f` with shared access to the active asset manager.
 
 #[cfg(test)]
 mod tests {

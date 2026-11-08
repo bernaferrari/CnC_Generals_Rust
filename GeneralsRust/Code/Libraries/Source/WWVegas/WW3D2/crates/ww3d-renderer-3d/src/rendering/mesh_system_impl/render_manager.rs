@@ -15,8 +15,12 @@ use super::*;
 /// manager defers to it when a pass texture carries only its W3D name, then
 /// uploads the returned pixels through the same first-bind path as CPU-only
 /// pass textures.
-
+/// Native resolvers remain shareable; browser resolvers may capture the owning
+/// device and queue without asserting that browser handles are thread-safe.
+#[cfg(not(target_arch = "wasm32"))]
 pub type MeshPassTextureProvider = Box<dyn Fn(&str) -> Option<TextureClass> + Send + Sync>;
+#[cfg(target_arch = "wasm32")]
+pub type MeshPassTextureProvider = Box<dyn Fn(&str) -> Option<TextureClass>>;
 
 #[derive(Clone)]
 pub struct PreparedMeshModel {
@@ -281,6 +285,8 @@ impl RenderPassResources {
 pub struct MeshRenderManager {
     gpu_device: Arc<GpuDevice>,
     pub renderer_3d: Option<Arc<crate::process_state::Renderer3dRuntime>>,
+    // Weak owners pin allocation identity, not model lifetime. Preparations
+    // retire at the next frame boundary after the last mesh releases its model.
     preparedmodels: HashMap<usize, (std::sync::Weak<MeshModelClass>, Arc<PreparedMeshModel>)>,
     /// Lazily uploaded GPU views for pass textures that carry CPU-only
     /// pixels. C++ parity: WW3DAssetManager::Get_Texture creates the D3D
@@ -556,9 +562,15 @@ impl MeshRenderManager {
         Ok(prepared)
     }
 
-    /// Start a frame: the frame uniform arena was just reset, so arena-backed
-    /// cached groups are dropped and idle persistent groups age out.
+    /// Start a frame after previous submissions have released their meshes.
+    /// Retire dead models' CPU geometry, materials and GPU buffers, matching
+    /// MeshModelClass::~MeshModelClass → Unregister_Mesh_Type in C++
+    /// (meshmdl.cpp:68-74, dx8renderer.cpp:1997-2008). Keep live preparations,
+    /// including models not submitted this frame. Arena-backed groups die with
+    /// their pages and idle persistent groups age out independently.
     pub fn begin_frame_caches(&mut self) {
+        self.preparedmodels
+            .retain(|_, (owner, _)| owner.strong_count() != 0);
         self.model_groups.retain(|_, group| group.pages_alive());
         self.bind_cache.begin_frame();
         self.bind_cache.begin_pass();
@@ -2973,4 +2985,186 @@ fn sun_direction(render_info: &RenderInfoClass) -> glam::Vec3 {
         })
         .map(|light| light.direction)
         .unwrap_or(glam::Vec3::new(0.35, -0.85, 0.35))
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod model_retirement_tests {
+    use super::*;
+    use crate::rendering::camera_system::CameraClass;
+    use std::sync::Weak;
+
+    struct ModelResources {
+        model: Weak<MeshModelClass>,
+        prepared: Weak<PreparedMeshModel>,
+        vertices: Weak<wgpu::Buffer>,
+        indices: Weak<wgpu::Buffer>,
+        positions: Weak<[Vec3]>,
+        cpu_indices: Weak<[u32]>,
+        material: Weak<VertexMaterialClass>,
+    }
+
+    impl ModelResources {
+        fn observe(renderer: &crate::Renderer, mesh: &MeshClass) -> Self {
+            let model = mesh.model.as_ref().unwrap();
+            let key = Arc::as_ptr(model) as usize;
+            let (owner, prepared) = &renderer.mesh_render_manager.preparedmodels[&key];
+            assert!(Weak::ptr_eq(owner, &Arc::downgrade(model)));
+            assert!(Weak::ptr_eq(
+                &renderer.registered_mesh_models[&key],
+                owner,
+            ));
+            Self {
+                model: Arc::downgrade(model),
+                prepared: Arc::downgrade(prepared),
+                vertices: Arc::downgrade(&prepared.vertex_buffer),
+                indices: Arc::downgrade(prepared.index_buffer.as_ref().unwrap()),
+                positions: Arc::downgrade(&prepared.positions),
+                cpu_indices: Arc::downgrade(&prepared.indices),
+                material: Arc::downgrade(
+                    prepared.material_passes[0].vertex_material.as_ref().unwrap(),
+                ),
+            }
+        }
+
+        fn assert_retired(&self) {
+            assert!(self.model.upgrade().is_none(), "registry retained the source model");
+            assert!(self.prepared.upgrade().is_none(), "prepared GPU cache retained the model");
+            assert!(self.vertices.upgrade().is_none(), "vertex buffer still owned");
+            assert!(self.indices.upgrade().is_none(), "index buffer still owned");
+            assert!(self.positions.upgrade().is_none(), "prepared positions still owned");
+            assert!(self.cpu_indices.upgrade().is_none(), "prepared indices still owned");
+            assert!(self.material.upgrade().is_none(), "prepared material still owned");
+        }
+    }
+
+    fn triangle(color: glam::Vec4) -> Arc<MeshClass> {
+        // Rebuilt point groups retain a name but allocate independent models:
+        // pointgr.rs set_arrays → ensure_mesh → build_render_mesh → queue_mesh.
+        let mut model = MeshModelClass::new("rebuilt-point-group");
+        model.vertices = [(-2.0, -2.0), (2.0, -2.0), (0.0, 2.0)]
+            .into_iter()
+            .map(|(x, y)| W3dVectorStruct { x, y, z: 0.0 })
+            .collect();
+        model.triangles.push(W3dTriangleStruct {
+            vindex: [0, 1, 2],
+            attributes: 0,
+            normal: W3dVectorStruct { x: 0.0, y: 0.0, z: 1.0 },
+            distance: 0.0,
+        });
+        model.vertex_count = 3;
+        model.index_count = 3;
+        let mut material = VertexMaterialClass::new("retired-material");
+        material.use_lighting = false;
+        let mut pass = MaterialPassClass::new();
+        pass.vertex_material = Some(Arc::new(material));
+        pass.diffuse_vertex_colors = Some(vec![color; 3]);
+        model.material_passes.push(pass);
+        let mut mesh = MeshClass::new();
+        mesh.model = Some(Arc::new(model));
+        Arc::new(mesh)
+    }
+
+    #[test]
+    fn renderer_retires_rebuilt_models_and_preserves_live_gpu_resources() {
+        let mut engine = ww3d_engine::Engine::new_headless_blocking(ww3d_engine::EngineConfig {
+            width: 8,
+            height: 8,
+            color_format: Some(wgpu::TextureFormat::Rgba8Unorm),
+            ..Default::default()
+        })
+        .expect("model retirement regression requires a GPU adapter");
+        let gpu = engine.gpu_device();
+        let mut renderer = crate::Renderer::new(Arc::clone(&gpu));
+        renderer.mesh_render_manager.set_render_formats(engine.color_format(), engine.depth_format());
+        let mut camera = CameraClass::new();
+        camera.set_view_matrix(Mat4::look_at_rh(
+            Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y,
+        ));
+        camera.set_projection_matrix(Mat4::perspective_rh(1.0, 1.0, 0.1, 100.0));
+        let mut info = RenderInfoClass::new(Arc::new(camera));
+        info.override_flags = RenderInfoOverrideFlags::FORCE_TWO_SIDED;
+        let readback = gpu.wgpu_device().create_buffer(&wgpu::BufferDescriptor {
+            label: Some("model-retirement-readback"),
+            size: 256 * 8,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut draw = |renderer: &mut crate::Renderer| -> [u8; 4] {
+            let mut frame = engine.begin_render().unwrap();
+            renderer.render_frame(&mut frame, Some(wgpu::Color::BLACK), Some(&info)).unwrap();
+            assert_eq!(renderer.mesh_stats().draw_calls, 1);
+            let (target, encoder) = frame.color_texture_and_encoder();
+            encoder.copy_texture_to_buffer(
+                target.as_image_copy(),
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &readback,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(256),
+                        rows_per_image: Some(8),
+                    },
+                },
+                wgpu::Extent3d { width: 8, height: 8, depth_or_array_layers: 1 },
+            );
+            engine.end_render(frame).unwrap();
+            let slice = readback.slice(..);
+            let (tx, rx) = std::sync::mpsc::channel();
+            slice.map_async(wgpu::MapMode::Read, move |result| {
+                tx.send(result).unwrap();
+            });
+            gpu.wgpu_device().poll(wgpu::PollType::wait_indefinitely()).unwrap();
+            rx.recv().unwrap().unwrap();
+            let data = slice.get_mapped_range().unwrap();
+            let pixel = data[4 * 256 + 4 * 4..4 * 256 + 4 * 4 + 4].try_into().unwrap();
+            drop(data);
+            readback.unmap();
+            pixel
+        };
+
+        let live = triangle(glam::Vec4::new(1.0, 0.0, 0.0, 1.0));
+        renderer.begin_frame().unwrap();
+        renderer.queue_mesh(Arc::clone(&live)).unwrap();
+        let live_resources = ModelResources::observe(&renderer, &live);
+        let red = draw(&mut renderer);
+        assert!(red[0] > 128 && red[2] < 8, "live mesh must render red: {red:?}");
+
+        let mut previous: Option<ModelResources> = None;
+        for _ in 0..64 {
+            renderer.begin_frame().unwrap();
+            if let Some(retired) = previous.take() {
+                retired.assert_retired();
+            }
+            // The idle, caller-owned model must remain registered and prepared.
+            assert_eq!(renderer.registered_mesh_models.len(), 1);
+            assert_eq!(renderer.mesh_render_manager.preparedmodels.len(), 1);
+            let retained = ModelResources::observe(&renderer, &live);
+            assert!(Weak::ptr_eq(&retained.prepared, &live_resources.prepared));
+            assert!(Weak::ptr_eq(&retained.vertices, &live_resources.vertices));
+
+            let rebuilt = triangle(glam::Vec4::new(0.0, 0.0, 1.0, 1.0));
+            renderer.queue_mesh(Arc::clone(&rebuilt)).unwrap();
+            previous = Some(ModelResources::observe(&renderer, &rebuilt));
+            assert_eq!(renderer.registered_mesh_models.len(), 2);
+            assert_eq!(renderer.mesh_render_manager.preparedmodels.len(), 2);
+            let blue = draw(&mut renderer);
+            assert!(blue[2] > 128 && blue[0] < 8, "new identity must render blue: {blue:?}");
+            drop(rebuilt);
+            assert!(previous.as_ref().unwrap().model.upgrade().is_some(),
+                "the submitted frame still owns its queued mesh");
+        }
+
+        renderer.begin_frame().unwrap();
+        previous.take().unwrap().assert_retired();
+        renderer.queue_mesh(Arc::clone(&live)).unwrap();
+        let retained = ModelResources::observe(&renderer, &live);
+        assert!(Weak::ptr_eq(&retained.prepared, &live_resources.prepared));
+        assert_eq!(renderer.registered_mesh_models.len(), 1);
+        assert_eq!(renderer.mesh_render_manager.preparedmodels.len(), 1);
+        assert_eq!(draw(&mut renderer), red, "live mesh must still render after retirement");
+        drop(live);
+        renderer.begin_frame().unwrap();
+        live_resources.assert_retired();
+        assert!(renderer.registered_mesh_models.is_empty());
+        assert!(renderer.mesh_render_manager.preparedmodels.is_empty());
+    }
 }
