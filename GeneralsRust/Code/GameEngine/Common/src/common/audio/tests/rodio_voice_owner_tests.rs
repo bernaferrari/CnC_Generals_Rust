@@ -136,6 +136,52 @@ fn cue_limits_and_interruptions_follow_each_managers_playing_list() {
     }
     let (mut a, mut out_a) = manager();
     let (mut b, mut out_b) = manager();
+    // Exercise authored defaults through the same manager admission path as
+    // playback. A negative authored limit is not the unlimited sentinel:
+    // Miles only exempts zero and rejects -1 even with an empty playing list.
+    for manager in [&mut a, &mut b] {
+        crate::common::ini::INI::new()
+            .with_inline_source(
+                "AudioEvent DefaultSoundEffect\nEnd\n\
+                 AudioEvent DefaultCue\nEnd\n\
+                 AudioEvent ZeroCue\n Limit = 0\nEnd\n\
+                 AudioEvent NegativeCue\n Limit = -1\nEnd\n",
+                |ini| ini.parse_current_file_into_audio(manager),
+            )
+            .unwrap();
+    }
+    fn authored(manager: &AudioManager, name: &str, path: &std::path::Path) -> AudioEventRts {
+        let mut event = AudioEventRts::with_event_name(name);
+        event.set_audio_event_info(manager.find_audio_event_info(name).unwrap());
+        event.filename_to_load = path.to_string_lossy().into_owned();
+        event.set_volume(1.0);
+        event
+    }
+    for manager in [&mut a, &mut b] {
+        let default = authored(manager, "DefaultCue", &path);
+        let zero = authored(manager, "ZeroCue", &path);
+        let negative = authored(manager, "NegativeCue", &path);
+        let mut direct = AudioEventRts::with_event_name("DirectDefaultCue");
+        direct.set_audio_event_info(AudioEventInfo {
+            audio_name: "DirectDefaultCue".into(),
+            ..Default::default()
+        }.into());
+        direct.filename_to_load = path.to_string_lossy().into_owned();
+        direct.set_volume(1.0);
+        assert_eq!(add(manager, &negative), AHSV_NO_SOUND);
+        let handles = [
+            add(manager, &default), add(manager, &default),
+            add(manager, &zero), add(manager, &zero),
+            add(manager, &direct), add(manager, &direct),
+        ];
+        assert!(handles.iter().all(|&handle| handle >= AHSV_FIRST_HANDLE));
+        manager.process_request_list();
+        assert!(handles.iter().all(|&handle| manager.is_currently_playing(handle)));
+        for handle in handles {
+            manager.remove_audio_event(handle);
+        }
+        manager.process_request_list();
+    }
     let normal = event(&path, false);
     let interrupt = event(&path, true);
     let a_first = add(&mut a, &normal);

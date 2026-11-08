@@ -1625,7 +1625,7 @@ impl AudioManager {
             pitch_shift_max: 1.0,
             volume_shift: 0.0,
             min_volume: 0.0,
-            limit: -1,
+            limit: 0,
             loop_count: 1,
             delay_min: 0.0,
             delay_max: 0.0,

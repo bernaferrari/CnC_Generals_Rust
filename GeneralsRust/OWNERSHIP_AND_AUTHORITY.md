@@ -3143,3 +3143,7 @@ still needs the original integer-frame ownership cutover.
 Native click and drag selection use the receiving camera and object pick facts;
 drag selection emits to the receiving command stream. Logical-coordinate WND
 dispatch is covered; physical scaling and visual confirmation remain unverified.
+
+Audio-event and default-sound definitions initialize the Miles unlimited cue
+limit to zero, so omitted limits remain playable without changing explicit
+negative or positive limits.

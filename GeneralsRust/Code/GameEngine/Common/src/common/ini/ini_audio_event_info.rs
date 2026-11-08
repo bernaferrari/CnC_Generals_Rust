@@ -297,7 +297,7 @@ impl Default for AudioEventInfo {
             pitch_shift_max: 1.0,
             delay_min: 0,
             delay_max: 0,
-            limit: -1, // No limit
+            limit: 0, // Miles treats zero as unlimited.
             loop_count: 1,
             priority: AudioPriority::default(),
             audio_type: 0,
