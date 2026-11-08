@@ -8,8 +8,7 @@
 //!   5. Register polygon triggers for scripts and water areas
 //!   6. Set up player starting positions and teams
 //!
-//! This module connects the INI parser to the runtime map state so that a
-//! single `load_and_apply()` call takes a file path to a fully playable map.
+//! Map parsing and application to an explicitly borrowed map system.
 
 use super::object_placer::ObjectPlacer;
 use super::terrain_loader::TerrainLoader;
@@ -280,7 +279,7 @@ impl Default for FullMapData {
 ///
 /// Usage:
 /// ```ignore
-/// let map = MapLoader::load_and_apply("maps/my_map.map")?;
+/// let map = MapLoader::load_and_apply("maps/my_map.map", &mut map_system)?;
 /// ```
 pub struct MapLoader;
 
@@ -345,21 +344,23 @@ impl MapLoader {
         Ok(full)
     }
 
-    /// Load a map and immediately apply it to all engine singletons.
-    ///
-    /// This is the one-call entry point used by the game-start sequence.
-    pub fn load_and_apply(path: &str) -> Result<FullMapData, MapLoadError> {
+    /// Load a map and apply it to the receiving map system and terrain owner.
+    pub fn load_and_apply(
+        path: &str,
+        map_system: &mut super::MapSystem,
+    ) -> Result<FullMapData, MapLoadError> {
         let full = Self::load(path)?;
-        Self::apply_map(&full)?;
+        Self::apply_map(&full, map_system)?;
         Ok(full)
     }
 
-    /// Push `FullMapData` into the running engine singletons:
-    ///   - TerrainLogic (heightmap, bridges, polygon triggers, waypoints)
-    ///   - MapSystem (object list)
-    ///   - SidesList (player / team definitions)
-    ///   - ScriptEngine (trigger scripts)
-    pub fn apply_map(data: &FullMapData) -> Result<(), MapLoadError> {
+    /// Apply parsed map data using the receiving map system.
+    ///
+    /// Terrain still uses the existing terrain service boundary.
+    pub fn apply_map(
+        data: &FullMapData,
+        map_system: &mut super::MapSystem,
+    ) -> Result<(), MapLoadError> {
         // --- terrain -------------------------------------------------------
         // Build a system::MapData from our high-level representation and feed
         // it to TerrainLogic::load_map_data.
@@ -390,7 +391,7 @@ impl MapLoader {
         // chunk handler.  That runs inside BinaryMapLoader::load() already,
         // so by the time we get here the sides list should be populated.
         // We still register player-start positions if the map provides them.
-        register_player_starts(data);
+        register_player_starts(data, map_system);
 
         // --- scripts -------------------------------------------------------
         // Script registration is handled separately by the scripting subsystem.
@@ -500,16 +501,14 @@ fn load_embedded_scripts(path: &str) -> Option<Box<crate::scripting::core::Scrip
     }
 }
 
-fn register_player_starts(data: &FullMapData) {
+fn register_player_starts(data: &FullMapData, system: &mut super::MapSystem) {
     for player in &data.players {
         if let Some(pos) = player.start_position {
             // Store the starting position in the map system's world dict
             let key = format!("Player_{}_Start", player.slot + 1);
-            if let Ok(mut system) = crate::map::get_map_system().write() {
-                system
-                    .get_world_dict_mut()
-                    .insert(key, format!("{},{},{}", pos.x, pos.y, pos.z));
-            }
+            system
+                .get_world_dict_mut()
+                .insert(key, format!("{},{},{}", pos.x, pos.y, pos.z));
         }
     }
 }

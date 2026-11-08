@@ -510,23 +510,6 @@ pub fn normalize_angle(angle: f32) -> f32 {
     normalized
 }
 
-use lazy_static::lazy_static;
-/// Global map system instance
-use std::sync::RwLock;
-
-lazy_static! {
-    pub static ref THE_MAP_SYSTEM: Arc<RwLock<MapSystem>> = Arc::new(RwLock::new(MapSystem::new()));
-}
-
-/// Get global map system instance
-pub fn get_map_system() -> &'static Arc<RwLock<MapSystem>> {
-    &THE_MAP_SYSTEM
-}
-
-
-// Aliases to match C++ naming
-pub use THE_MAP_SYSTEM as TheMapSystem;
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -7,11 +7,10 @@
 //!   - Waypoint markers
 //!   - Scenery and decoration objects
 //!
-//! The placer works with the `FullMapData` produced by `map_loader` and
-//! interacts with the `MapSystem` singleton and `ThingFactory`.
+//! The placer writes to the explicitly borrowed receiving `MapSystem`.
 
 use crate::common::*;
-use crate::map::{MapObject, MapObjectFlags, MapObjectRuntimeFlags, TheMapSystem};
+use crate::map::{MapObject, MapObjectFlags, MapObjectRuntimeFlags, MapSystem};
 use crate::system::map_loader::{Coord3D as SysCoord3D, MapWaypoint};
 
 // ---------------------------------------------------------------------------
@@ -69,15 +68,9 @@ pub struct ObjectPlacer;
 impl ObjectPlacer {
     /// Place all objects from the map into `MapSystem`.
     ///
-    /// This creates `MapObject` entries for each waypoint and registers them
-    /// with the global map system.  Full thing-template resolution and game
-    /// object creation happens later during the `GameLogic::newGame()` phase.
-    pub fn place_waypoints(waypoints: &[MapWaypoint]) {
-        let Ok(mut system) = TheMapSystem.write() else {
-            log::warn!("ObjectPlacer: unable to acquire MapSystem lock");
-            return;
-        };
-
+    /// This creates `MapObject` entries for each waypoint. Full thing-template
+    /// resolution and game object creation happen later.
+    pub fn place_waypoints(system: &mut MapSystem, waypoints: &[MapWaypoint]) {
         for wp in waypoints {
             // Convert from system::map_loader::Coord3D to common::Coord3D (glam::Vec3)
             let loc = Coord3D::new(wp.location.x, wp.location.y, wp.location.z);
@@ -128,12 +121,7 @@ impl ObjectPlacer {
     /// `"Player_N_Start"` (1-based N).  This method stores them in the
     /// `MapSystem`'s world dictionary for later use by the player
     /// initialization system.
-    pub fn register_starting_positions(waypoints: &[MapWaypoint]) {
-        let Ok(mut system) = TheMapSystem.write() else {
-            log::warn!("ObjectPlacer: unable to acquire MapSystem lock for starting positions");
-            return;
-        };
-
+    pub fn register_starting_positions(system: &mut MapSystem, waypoints: &[MapWaypoint]) {
         let mut start_count = 0usize;
         for wp in waypoints {
             let name = wp.name.to_lowercase();
@@ -157,7 +145,7 @@ impl ObjectPlacer {
     /// Place a single custom object on the map.
     ///
     /// This is useful for scripted object creation during missions.
-    pub fn place_object(obj: &PlacedObject) -> Result<(), String> {
+    pub fn place_object(system: &mut MapSystem, obj: &PlacedObject) {
         let mut props = obj.properties.clone();
         props.insert("owner".to_string(), obj.owner.clone());
         props.insert("originalOwner".to_string(), obj.original_owner.clone());
@@ -176,21 +164,14 @@ impl ObjectPlacer {
             None, // thing template resolved later
         );
 
-        let Ok(mut system) = TheMapSystem.write() else {
-            return Err("unable to acquire MapSystem lock".to_string());
-        };
-
         system.add_map_object(Box::new(map_obj));
-        Ok(())
     }
 
     /// Clear all objects from the map system.
     ///
     /// Should be called before loading a new map.
-    pub fn clear_all() {
-        if let Ok(mut system) = TheMapSystem.write() {
-            system.clear();
-        }
+    pub fn clear_all(system: &mut MapSystem) {
+        system.clear();
     }
 }
 
@@ -254,41 +235,24 @@ mod tests {
     }
 
     #[test]
-    fn test_place_waypoints() {
-        // Test placement by adding waypoints and verifying at least one exists.
-        // We use unique names to avoid collisions with parallel tests.
-        let waypoints = vec![MapWaypoint {
-            id: 9001,
-            name: "TestPW_Player_1_Start".to_string(),
-            location: SysCoord3D::new(100.0, 200.0, 0.0),
-            path_label1: "AttackPath".to_string(),
-            path_label2: String::new(),
-            path_label3: String::new(),
-            bi_directional: true,
-        }];
-
-        ObjectPlacer::place_waypoints(&waypoints);
-
-        let system = TheMapSystem.read().unwrap();
-        // At minimum the waypoint we just placed should be findable.
-        // Note: concurrent clear_all from other tests may remove it, but
-        // we verify the placement logic itself by checking the system accepted
-        // our insert without error.  The important assertion is that
-        // place_waypoints did not panic or fail to acquire the lock.
-        let _found = system.find_map_object("TestPW_Player_1_Start");
-        // We don't assert found.is_some() because a concurrent clear_all from
-        // test_clear_all may have removed it.  The placement logic is verified
-        // by test_place_custom_object which uses unique names.
+    fn waypoint_placement_and_clear_are_isolated_per_map() {
+        let mut first = MapSystem::new();
+        let mut second = MapSystem::new();
+        let waypoints = sample_waypoints();
+        ObjectPlacer::place_waypoints(&mut first, &waypoints);
+        assert!(first.find_map_object("Player_1_Start").is_some());
+        assert!(second.find_map_object("Player_1_Start").is_none());
+        ObjectPlacer::place_waypoints(&mut second, &waypoints);
+        ObjectPlacer::clear_all(&mut first);
+        assert!(first.find_map_object("Player_1_Start").is_none());
+        assert!(second.find_map_object("Player_1_Start").is_some());
     }
 
     #[test]
     fn test_register_starting_positions() {
-        ObjectPlacer::clear_all();
-
+        let mut system = MapSystem::new();
         let waypoints = sample_waypoints();
-        ObjectPlacer::register_starting_positions(&waypoints);
-
-        let system = TheMapSystem.read().unwrap();
+        ObjectPlacer::register_starting_positions(&mut system, &waypoints);
         let dict = system.get_world_dict();
 
         // Two starting positions should be registered
@@ -314,44 +278,13 @@ mod tests {
             unique_id: 100,
         };
 
-        let result = ObjectPlacer::place_object(&obj);
-        assert!(result.is_ok());
-
-        let system = TheMapSystem.read().unwrap();
+        let mut system = MapSystem::new();
+        ObjectPlacer::place_object(&mut system, &obj);
         let found = system.find_map_object("Humvee_01_test_place_custom");
         assert!(found.is_some());
 
         let found_obj = found.unwrap();
         assert_eq!(found_obj.get_properties().get("owner").unwrap(), "Plyr1");
         assert_eq!(found_obj.get_properties().get("uniqueID").unwrap(), "100");
-    }
-
-    #[test]
-    fn test_clear_all() {
-        // Place a unique waypoint, verify the system accepted it, then clear.
-        // We can't assert the object is found after placing because another
-        // parallel test may call clear_all().  Instead we verify that
-        // clear_all() empties the system.
-        let waypoints = vec![MapWaypoint {
-            id: 9200,
-            name: "TestClear_TempWP_unique_9200".to_string(),
-            location: SysCoord3D::new(0.0, 0.0, 0.0),
-            path_label1: String::new(),
-            path_label2: String::new(),
-            path_label3: String::new(),
-            bi_directional: false,
-        }];
-        ObjectPlacer::place_waypoints(&waypoints);
-
-        // Verify placement succeeded (no panic, no error return)
-        // Now clear and verify the system is empty
-        ObjectPlacer::clear_all();
-
-        let system = TheMapSystem.read().unwrap();
-        assert!(
-            system
-                .find_map_object("TestClear_TempWP_unique_9200")
-                .is_none()
-        );
     }
 }
