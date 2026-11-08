@@ -2974,3 +2974,7 @@ cell is retired, while a failed retarget detonates at the current position.
 The save popup sends confirmed host-save deletion to the receiving save manager.
 It refreshes the open list only after deletion and a successful inventory read;
 the separate Common save path retains its own handling.
+
+The receiving audio manager checks an existing same-object voice before cue
+limits, including delayed requests. An interrupting voice can replace it without
+the limit check selecting an unrelated sound to kill.

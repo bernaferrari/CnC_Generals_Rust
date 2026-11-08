@@ -251,6 +251,16 @@ impl SoundManagerImpl {
         event: &mut AudioEventRts,
         queries: &PlayNowAudioQueries,
     ) -> Bool {
+        self.can_play_now_checked_lazy(event, queries, &mut |_| queries.violates_limit)
+    }
+
+    /// Evaluate the limit only after positional and same-object voice checks.
+    pub fn can_play_now_checked_lazy(
+        &self,
+        event: &mut AudioEventRts,
+        queries: &PlayNowAudioQueries,
+        violates_limit: &mut dyn FnMut(&mut AudioEventRts) -> bool,
+    ) -> Bool {
         let event_info = match event.get_audio_event_info() {
             Some(info) => info,
             None => return false,
@@ -285,7 +295,7 @@ impl SoundManagerImpl {
         if self.violates_voice(event, queries.object_playing_voice) {
             return self.is_interrupting(event);
         }
-        if queries.violates_limit {
+        if violates_limit(event) {
             return false;
         }
         if self.is_interrupting(event) {
@@ -561,6 +571,15 @@ impl super::game_audio::SoundManager for SoundManagerImpl {
         queries: &PlayNowAudioQueries,
     ) -> bool {
         SoundManagerImpl::can_play_now_checked(self, event, queries)
+    }
+
+    fn can_play_now_checked_lazy(
+        &self,
+        event: &mut AudioEventRts,
+        queries: &PlayNowAudioQueries,
+        violates_limit: &mut dyn FnMut(&mut AudioEventRts) -> bool,
+    ) -> bool {
+        SoundManagerImpl::can_play_now_checked_lazy(self, event, queries, violates_limit)
     }
 
     fn post_process_load(&mut self) {

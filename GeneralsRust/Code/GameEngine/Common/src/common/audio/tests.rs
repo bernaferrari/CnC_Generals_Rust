@@ -149,6 +149,121 @@ fn event_with(info: AudioEventInfo, volume: Real) -> AudioEventRts {
     event
 }
 
+#[derive(Default)]
+struct VoiceOrderPlayback {
+    playing: std::sync::Mutex<std::collections::HashSet<AudioHandle>>,
+}
+
+impl SoundPlaybackHook for VoiceOrderPlayback {
+    fn play(&self, event: &AudioEventRts) -> Result<(), String> {
+        self.playing.lock().unwrap().insert(event.get_playing_handle());
+        Ok(())
+    }
+
+    fn stop(&self, handle: AudioHandle) {
+        self.playing.lock().unwrap().remove(&handle);
+    }
+
+    fn pause(&self, _: AudioHandle) {}
+    fn resume(&self, _: AudioHandle) {}
+
+    fn is_playing(&self, handle: AudioHandle) -> bool {
+        self.playing.lock().unwrap().contains(&handle)
+    }
+}
+
+fn voice_order_event(name: &str, object: u32, voice: bool, interrupt: bool, delay: Real) -> AudioEventRts {
+    let mut info = test_info(name, AudioType::SoundEffect, if interrupt { AC_INTERRUPT } else { 0 }, 1);
+    info.type_field = if voice { 0x10 } else { 0 };
+    info.delay_min = delay;
+    info.delay_max = delay;
+    let mut event = event_with(info, 1.0);
+    event.set_object_id(object);
+    event
+}
+
+#[test]
+fn voice_shortcut_precedes_pending_limit_and_is_local_to_audio_owner() {
+    let _services = crate::common::common_services::CommonServicesScope::new();
+    let mut first = AudioManager::with_playback_hook(Box::new(VoiceOrderPlayback::default()));
+    let mut second = AudioManager::with_playback_hook(Box::new(VoiceOrderPlayback::default()));
+    first.init();
+    second.init();
+
+    let playing = first.add_audio_event(&voice_order_event("Voice", 7, true, false, 0.0));
+    first.process_request_list();
+    assert!(first.is_currently_playing(playing));
+
+    let delayed = voice_order_event("Voice", 7, true, true, 40.0);
+    let pending = first.add_audio_event(&delayed);
+    assert!(pending >= AHSV_FIRST_HANDLE);
+    assert_eq!(first.pending_play_request_count(), 1);
+
+    let interrupted = first.add_audio_event(&voice_order_event("Voice", 7, true, true, 0.0));
+    assert!(interrupted >= AHSV_FIRST_HANDLE);
+    assert_eq!(first.add_audio_event(&voice_order_event("Voice", 7, true, false, 0.0)), AHSV_NO_SOUND);
+    assert_eq!(first.add_audio_event(&voice_order_event("Voice", 8, true, true, 0.0)), AHSV_NO_SOUND);
+    assert_eq!(first.add_audio_event(&voice_order_event("Voice", 7, false, true, 0.0)), AHSV_NO_SOUND);
+    assert_eq!(first.pending_play_request_count(), 2);
+
+    let second_pending = second.add_audio_event(&delayed);
+    assert!(second_pending >= AHSV_FIRST_HANDLE);
+    assert_eq!(second.add_audio_event(&voice_order_event("Voice", 7, true, true, 0.0)), AHSV_NO_SOUND);
+    assert_eq!(second.pending_play_request_count(), 1);
+    assert!(!second.is_currently_playing(playing));
+
+    first.process_request_list();
+    assert!(first.is_currently_playing(playing));
+    assert!(first.is_currently_playing(interrupted));
+    assert_eq!(first.pending_play_request_count(), 1);
+    first.process_request_list();
+    assert_eq!(first.pending_play_request_count(), 0);
+    assert!(first.is_currently_playing(playing));
+    assert!(first.is_currently_playing(interrupted));
+    assert!(first.is_currently_playing(pending));
+}
+
+#[test]
+fn delayed_voice_recheck_keeps_original_limit_victim() {
+    let _services = crate::common::common_services::CommonServicesScope::new();
+    let mut audio = AudioManager::with_playback_hook(Box::new(VoiceOrderPlayback::default()));
+    audio.init();
+
+    let victim = audio.add_audio_event(&voice_order_event("Shared", 8, true, false, 0.0));
+    audio.process_request_list();
+    assert!(audio.is_currently_playing(victim));
+
+    let delayed = audio.add_audio_event(&voice_order_event("Shared", 7, true, true, 40.0));
+    assert!(delayed >= AHSV_FIRST_HANDLE);
+    let same_object = audio.add_audio_event(&voice_order_event("Other", 7, true, false, 0.0));
+    audio.process_request_list();
+    assert!(audio.is_currently_playing(same_object));
+    assert_eq!(audio.pending_play_request_count(), 1);
+
+    audio.process_request_list();
+    assert_eq!(audio.pending_play_request_count(), 0);
+    assert!(!audio.is_currently_playing(victim));
+    assert!(audio.is_currently_playing(same_object));
+    assert!(audio.is_currently_playing(delayed));
+}
+
+#[test]
+fn delayed_noninterrupting_voice_is_discarded_when_object_starts_speaking() {
+    let _services = crate::common::common_services::CommonServicesScope::new();
+    let mut audio = AudioManager::with_playback_hook(Box::new(VoiceOrderPlayback::default()));
+    audio.init();
+    let delayed = audio.add_audio_event(&voice_order_event("Delayed", 7, true, false, 40.0));
+    let speaking = audio.add_audio_event(&voice_order_event("Speaking", 7, true, false, 0.0));
+    audio.process_request_list();
+    assert_eq!(audio.pending_play_request_count(), 1);
+    assert!(audio.is_currently_playing(speaking));
+
+    audio.process_request_list();
+    assert_eq!(audio.pending_play_request_count(), 0);
+    assert!(!audio.is_currently_playing(delayed));
+    assert!(audio.is_currently_playing(speaking));
+}
+
 #[test]
 fn uninterruptable_streaming_stops_speech_and_sets_disallow() {
     // C++ MilesAudioManager::playAudioEvent (MilesAudioManager.cpp:663-709)

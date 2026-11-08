@@ -637,6 +637,16 @@ pub trait SoundManager: Send + Sync {
         let _ = (event, queries);
         false
     }
+    fn can_play_now_checked_lazy(
+        &self,
+        event: &mut AudioEventRts,
+        queries: &PlayNowAudioQueries,
+        violates_limit: &mut dyn FnMut(&mut AudioEventRts) -> bool,
+    ) -> bool {
+        let mut queries = *queries;
+        queries.violates_limit = violates_limit(event);
+        self.can_play_now_checked(event, &queries)
+    }
     fn post_process_load(&mut self) {}
     fn update(&mut self) {}
     fn reset(&mut self) {}
@@ -1122,14 +1132,16 @@ impl AudioManager {
         // (GameMusic.cpp:70-75, GameSounds.cpp:114-121). Miles processRequestList
         // honors delay and checkForSample before playAudioEvent.
         if sound_type != AudioType::Music {
-            if self.does_violate_limit(&mut audio_event) {
-                return AHSV_NO_SOUND;
-            }
             let queries = self.play_now_queries(&audio_event, false);
-            if let Some(sound_mgr) = &self.sound_manager {
-                if !sound_mgr.can_play_now_checked(&mut audio_event, &queries) {
-                    return AHSV_NO_SOUND;
-                }
+            let allowed = if let Some(sound_mgr) = &self.sound_manager {
+                sound_mgr.can_play_now_checked_lazy(&mut audio_event, &queries, &mut |event| {
+                    self.does_violate_limit(event)
+                })
+            } else {
+                !self.does_violate_limit(&mut audio_event)
+            };
+            if !allowed {
+                return AHSV_NO_SOUND;
             }
         }
 
@@ -1538,11 +1550,15 @@ impl AudioManager {
         if info.sound_type != AudioType::SoundEffect {
             return true;
         }
-        let violates_limit = self.does_violate_limit(event);
-        let queries = self.play_now_queries(event, violates_limit);
-        self.sound_manager
-            .as_ref()
-            .is_none_or(|sound_mgr| sound_mgr.can_play_now_checked(event, &queries))
+        let queries = self.play_now_queries(event, false);
+        if let Some(sound_mgr) = &self.sound_manager {
+            sound_mgr.can_play_now_checked_lazy(event, &queries, &mut |event| {
+                self.does_violate_limit(event)
+            })
+        } else {
+            self.does_violate_limit(event);
+            true
+        }
     }
 
     fn play_now_queries(&self, event: &AudioEventRts, violates_limit: bool) -> PlayNowAudioQueries {
