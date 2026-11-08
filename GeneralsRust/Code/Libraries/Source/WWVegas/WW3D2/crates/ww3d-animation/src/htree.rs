@@ -125,26 +125,22 @@ impl HTreeClass {
         self.pivots.get(index)
     }
 
-    /// Get pivot by name
+    /// Find a pivot by name, ignoring ASCII case; returns `None` when absent.
     pub fn get_pivot_by_name(&self, name: &str) -> Option<&Pivot> {
-        self.pivot_name_to_index
-            .get(name)
-            .and_then(|&index| self.pivots.get(index))
+        self.find_pivot_index(name)
+            .and_then(|index| self.pivots.get(index))
     }
 
-    /// Get pivot index by name
+    /// Find the first pivot with this name, ignoring ASCII case.
     pub fn get_pivot_index(&self, name: &str) -> Option<usize> {
-        self.pivot_name_to_index.get(name).copied()
+        self.find_pivot_index(name)
     }
 
-    /// Locate a pivot index ignoring ASCII case differences.
+    /// Find the first pivot with this name, ignoring ASCII case.
     pub fn find_pivot_index(&self, name: &str) -> Option<usize> {
-        self.get_pivot_index(name).or_else(|| {
-            let upper = name.to_ascii_uppercase();
-            self.pivots
-                .iter()
-                .position(|pivot| pivot.name.to_ascii_uppercase() == upper)
-        })
+        self.pivots
+            .iter()
+            .position(|pivot| pivot.name.eq_ignore_ascii_case(name))
     }
 
     /// Get parent index of a pivot
@@ -281,9 +277,10 @@ impl HTreeClass {
         self.pivots.get(bone_idx).map(|p| p.name.as_str())
     }
 
-    /// Get bone index by name (matches C++ Get_Bone_Index)
-    pub fn get_bone_index(&self, name: &str) -> Option<usize> {
-        self.pivot_name_to_index.get(name).copied()
+    /// Match C++ `Get_Bone_Index`: find the first case-insensitive match,
+    /// or return index zero when no pivot matches.
+    pub fn get_bone_index(&self, name: &str) -> usize {
+        self.find_pivot_index(name).unwrap_or(0)
     }
 
     /// Set scale factor for animations

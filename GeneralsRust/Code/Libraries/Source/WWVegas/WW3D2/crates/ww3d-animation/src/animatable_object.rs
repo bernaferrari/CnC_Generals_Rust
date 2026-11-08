@@ -12,15 +12,6 @@ use crate::{AnimatedSoundMgr, embedded_sound_bone, has_embedded_sounds, trigger_
 use glam::Mat4;
 use std::sync::Arc;
 
-/// HTreeClass::Get_Bone_Index uses case-insensitive matching and returns root
-/// when the requested sound bone is absent.
-fn sound_bone_index(tree: &HTreeClass, name: &str) -> Option<usize> {
-    tree.pivots
-        .iter()
-        .position(|pivot| pivot.name.eq_ignore_ascii_case(name))
-        .or_else(|| (!tree.pivots.is_empty()).then_some(0))
-}
-
 /// Current animation mode for the object
 /// Reference: animobj.h:38-43
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,7 +168,7 @@ impl Animatable3DObjClass {
 
     /// Get bone index by name
     /// Reference: animobj.cpp:369-376 (Animatable3DObjClass::Get_Bone_Index)
-    pub fn get_bone_index(&self, bone_name: &str) -> Option<usize> {
+    pub fn get_bone_index(&self, bone_name: &str) -> usize {
         self.htree.get_bone_index(bone_name)
     }
 
@@ -281,11 +272,7 @@ impl Animatable3DObjClass {
 
     /// Get bone transform by name
     pub fn get_bone_transform_by_name(&mut self, bone_name: &str) -> Option<Mat4> {
-        if let Some(index) = self.htree.get_bone_index(bone_name) {
-            self.get_bone_transform(index)
-        } else {
-            None
-        }
+        self.get_bone_transform(self.htree.get_bone_index(bone_name))
     }
 
     /// Capture a bone (prevent animation from affecting it)
@@ -344,15 +331,15 @@ impl Animatable3DObjClass {
                     // Reference: animobj.cpp:747-749
                     if has_embedded_sounds(&self.sound_mgr, motion) {
                         if let Some(bone_name) = embedded_sound_bone(&self.sound_mgr, motion) {
-                            if let Some(bone_index) = sound_bone_index(&self.htree, &bone_name) {
-                                if let Some(bone_transform) = self.htree.get_transform(bone_index) {
-                                    self.mode_anim.prev_frame = trigger_sound(&self.sound_mgr, 
-                                        motion,
-                                        prev_frame,
-                                        current_frame,
-                                        &bone_transform,
-                                    );
-                                }
+                            let bone_index = self.htree.get_bone_index(&bone_name);
+                            if let Some(bone_transform) = self.htree.get_transform(bone_index) {
+                                self.mode_anim.prev_frame = trigger_sound(
+                                    &self.sound_mgr,
+                                    motion,
+                                    prev_frame,
+                                    current_frame,
+                                    &bone_transform,
+                                );
                             }
                         }
                     }
@@ -377,30 +364,30 @@ impl Animatable3DObjClass {
                     // Reference: animobj.cpp:758-766
                     if has_embedded_sounds(&self.sound_mgr, motion0) {
                         if let Some(bone_name) = embedded_sound_bone(&self.sound_mgr, motion0) {
-                            if let Some(bone_index) = sound_bone_index(&self.htree, &bone_name) {
-                                if let Some(bone_transform) = self.htree.get_transform(bone_index) {
-                                    self.mode_interp.prev_frame0 = trigger_sound(&self.sound_mgr, 
-                                        motion0,
-                                        prev_frame0,
-                                        frame0,
-                                        &bone_transform,
-                                    );
-                                }
+                            let bone_index = self.htree.get_bone_index(&bone_name);
+                            if let Some(bone_transform) = self.htree.get_transform(bone_index) {
+                                self.mode_interp.prev_frame0 = trigger_sound(
+                                    &self.sound_mgr,
+                                    motion0,
+                                    prev_frame0,
+                                    frame0,
+                                    &bone_transform,
+                                );
                             }
                         }
                     }
 
                     if has_embedded_sounds(&self.sound_mgr, motion1) {
                         if let Some(bone_name) = embedded_sound_bone(&self.sound_mgr, motion1) {
-                            if let Some(bone_index) = sound_bone_index(&self.htree, &bone_name) {
-                                if let Some(bone_transform) = self.htree.get_transform(bone_index) {
-                                    self.mode_interp.prev_frame1 = trigger_sound(&self.sound_mgr, 
-                                        motion1,
-                                        prev_frame1,
-                                        frame1,
-                                        &bone_transform,
-                                    );
-                                }
+                            let bone_index = self.htree.get_bone_index(&bone_name);
+                            if let Some(bone_transform) = self.htree.get_transform(bone_index) {
+                                self.mode_interp.prev_frame1 = trigger_sound(
+                                    &self.sound_mgr,
+                                    motion1,
+                                    prev_frame1,
+                                    frame1,
+                                    &bone_transform,
+                                );
                             }
                         }
                     }
@@ -420,22 +407,20 @@ impl Animatable3DObjClass {
                         if let Some(motion) = combo.peek_motion(index) {
                             if has_embedded_sounds(&self.sound_mgr, motion) {
                                 if let Some(bone_name) = embedded_sound_bone(&self.sound_mgr, motion) {
-                                    if let Some(bone_index) = sound_bone_index(&self.htree, &bone_name) {
-                                        if let Some(bone_transform) =
-                                            self.htree.get_transform(bone_index)
-                                        {
-                                            if let (Some(prev_frame), Some(current_frame)) = (
-                                                combo.get_prev_frame(index),
-                                                combo.get_frame(index),
-                                            ) {
-                                                let new_prev_frame = trigger_sound(&self.sound_mgr, 
-                                                    motion,
-                                                    prev_frame,
-                                                    current_frame,
-                                                    &bone_transform,
-                                                );
-                                                combo.set_prev_frame(index, new_prev_frame);
-                                            }
+                                    let bone_index = self.htree.get_bone_index(&bone_name);
+                                    if let Some(bone_transform) = self.htree.get_transform(bone_index) {
+                                        if let (Some(prev_frame), Some(current_frame)) = (
+                                            combo.get_prev_frame(index),
+                                            combo.get_frame(index),
+                                        ) {
+                                            let new_prev_frame = trigger_sound(
+                                                &self.sound_mgr,
+                                                motion,
+                                                prev_frame,
+                                                current_frame,
+                                                &bone_transform,
+                                            );
+                                            combo.set_prev_frame(index, new_prev_frame);
                                         }
                                     }
                                 }
