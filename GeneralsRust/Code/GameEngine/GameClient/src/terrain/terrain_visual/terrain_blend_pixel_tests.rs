@@ -174,3 +174,158 @@ fn three_way_blend_setting_changes_actual_terrain_pixels() {
     assert!(on[2] > 80, "enabled world must render the red third material: {on:?}");
     assert_eq!(on, debug, "nonzero debug mode must keep the extra pass");
 }
+
+/// Read pixels from the same admitted heightmap, class art, chunk upload and
+/// draw path used by terrain rendering. The class list is deliberately an
+/// input so larger material sets can reuse this fixture.
+#[cfg(not(target_arch = "wasm32"))]
+fn render_live_terrain_classes(
+    device: &Arc<wgpu::Device>,
+    queue: &Arc<wgpu::Queue>,
+    classes: &[(TerrainSourceTileClass, [u8; 3])],
+    map: HeightMap,
+) -> Vec<u8> {
+    use wgpu::util::DeviceExt;
+
+    let mut visual = TerrainVisualImpl::new();
+    visual.admit_static_lighting(crate::terrain::chunk::TerrainStaticLighting {
+        lights: Vec::new(), ambient: [1.0; 3], scorch_diffuse: [1.0; 3],
+    });
+    // Supply real encoded source images through the normal mounted-content
+    // admission API, rather than manufacturing texture views or slot maps.
+    let metadata: Vec<_> = classes.iter().map(|(class, _)| class.clone()).collect();
+    visual.load_source_tiles_from_texture_classes_with_reader(&metadata, |path| {
+        let (_, rgb) = classes.iter().find(|(class, _)| {
+            path.to_ascii_lowercase().contains(&class.name.to_ascii_lowercase())
+        })?;
+        // Uncompressed 64x64, 24-bit TGA. Solid art isolates class selection
+        // and blend weights from texture-coordinate filtering.
+        let mut tga = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 64, 0, 64, 0, 24, 0x20];
+        for _ in 0..64 * 64 {
+            tga.extend_from_slice(&[rgb[2], rgb[1], rgb[0]]);
+        }
+        Some(tga)
+    }).unwrap();
+    visual.load_heightmap_from_data(map, None, None).unwrap();
+    visual.create_terrain_pipeline(device).unwrap();
+    visual.create_extra_blend_pipeline(device).unwrap();
+    visual.device = Some(Arc::clone(device));
+    visual.queue = Some(Arc::clone(queue));
+    // The runtime update generates dirty chunk geometry before GPU upload.
+    visual.chunk_manager.update_with_dynamic_lights(&visual.dynamic_lights).unwrap();
+    visual.update_chunk_meshes().unwrap();
+
+    // View x=[30,34], z=[1,2]; x=32 is the real 32-cell chunk seam.
+    let transform = Mat4::from_cols_array_2d(&[
+        [0.5, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0],
+        [0.0, 2.0, 0.0, 0.0], [-16.0, -3.0, 0.5, 1.0],
+    ]);
+    let uniforms = TerrainUniforms {
+        view_proj: transform.to_cols_array_2d(), view_matrix: Mat4::IDENTITY.to_cols_array_2d(),
+        projection_matrix: Mat4::IDENTITY.to_cols_array_2d(), camera_position: [0.0; 4],
+        time: 0.0, _time_padding: [0.0; 3], fog_color: [0.0; 4], fog_range: [0.0; 4],
+    };
+    let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("live terrain test camera"), contents: bytemuck::bytes_of(&uniforms),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+    visual.terrain_camera_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("live terrain test camera binding"),
+        layout: visual.terrain_camera_bind_group_layout.as_ref().unwrap(),
+        entries: &[wgpu::BindGroupEntry { binding: 0, resource: uniform.as_entire_binding() }],
+    }));
+    let extent = wgpu::Extent3d { width: 32, height: 8, depth_or_array_layers: 1 };
+    let target = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("live terrain test target"), size: extent, mip_level_count: 1,
+        sample_count: 1, dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Bgra8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let depth = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("live terrain test depth"), size: extent, mip_level_count: 1,
+        sample_count: 1, dimension: wgpu::TextureDimension::D2,
+        format: TERRAIN_PIPELINES_DEPTH_FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT, view_formats: &[],
+    });
+    let readback = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("live terrain test pixels"), size: 256 * 8,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let target_view = target.create_view(&Default::default());
+    let depth_view = depth.create_view(&Default::default());
+    let mut encoder = device.create_command_encoder(&Default::default());
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("live terrain test pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &target_view, resolve_target: None, depth_slice: None,
+                ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &depth_view, depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Discard }),
+                stencil_ops: None,
+            }), timestamp_writes: None, occlusion_query_set: None, multiview_mask: None,
+        });
+        visual.record_chunk_draws(&mut pass);
+    }
+    encoder.copy_texture_to_buffer(target.as_image_copy(), wgpu::TexelCopyBufferInfo {
+        buffer: &readback, layout: wgpu::TexelCopyBufferLayout {
+            offset: 0, bytes_per_row: Some(256), rows_per_image: Some(8),
+        },
+    }, extent);
+    queue.submit([encoder.finish()]);
+    let (done, completed) = std::sync::mpsc::channel();
+    readback.slice(..).map_async(wgpu::MapMode::Read, move |result| { done.send(result).unwrap(); });
+    device.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(std::time::Duration::from_secs(20)) }).unwrap();
+    completed.recv_timeout(std::time::Duration::from_secs(1)).unwrap().unwrap();
+    let pixels = readback.slice(..).get_mapped_range().unwrap().to_vec();
+    readback.unmap();
+    pixels
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn live_terrain_classes_blend_across_chunk_seam() {
+    use crate::terrain::textures::BlendTileInfo;
+    crate::test_support::ensure_ambient_host();
+    let instance = wgpu::Instance::default();
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::LowPower, compatible_surface: None,
+        force_fallback_adapter: false, apply_limit_buckets: false,
+    })).expect("live terrain pixel test requires a GPU adapter");
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("live terrain pixel test"), required_features: wgpu::Features::empty(),
+        required_limits: wgpu::Limits::default(), ..Default::default()
+    })).expect("live terrain pixel test requires a GPU device");
+    let classes: Vec<_> = [("LiveBlue", [0, 0, 255]), ("LiveGreen", [0, 255, 0]), ("LiveRed", [255, 0, 0])]
+        .into_iter().enumerate().map(|(i, (name, color))| (TerrainSourceTileClass {
+            first_tile: i as i32, num_tiles: 1, width: 1, name: name.to_string(),
+        }, color)).collect();
+    let mut map = HeightMap::new(35, 4, 0.0, 1.0);
+    // The two seam-adjacent cells have the same authored blue/red blend;
+    // the next cell selects green without blending.
+    let mut blend = BlendTileInfo::new();
+    blend.blend_ndx = 8;
+    blend.horiz = 1;
+    map.blended_tiles = vec![BlendTileInfo::new(), blend];
+    for x in [31, 32] {
+        map.blend_tile_ndxes[35 + x] = 1;
+    }
+    map.tile_ndxes[35 + 33] = 4;
+    let pixels = render_live_terrain_classes(&Arc::new(device), &Arc::new(queue), &classes, map);
+    let pixel = |x: usize, y: usize| &pixels[y * 256 + x * 4..y * 256 + x * 4 + 4];
+    let blue = pixel(4, 4);
+    let left = pixel(12, 4);
+    let right = pixel(20, 4);
+    let green = pixel(28, 4);
+    assert!(blue[0] > 100 && blue[1] < 20 && blue[2] < 20, "blue class: {blue:?}");
+    assert!(green[1] > 100 && green[0] < 20 && green[2] < 20, "green class: {green:?}");
+    for mixed in [left, right] {
+        assert!(mixed[0] > 35 && mixed[2] > 35 && mixed[1] < 20, "blue/red blend: {mixed:?}");
+    }
+    for channel in 0..3 {
+        assert!(left[channel].abs_diff(right[channel]) <= 8, "chunk seam: {left:?} vs {right:?}");
+    }
+}
