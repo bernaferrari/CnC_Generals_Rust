@@ -228,24 +228,6 @@ mod tests {
     }
 
     #[test]
-    fn test_path_request_integration() {
-        use crate::ai::pathfinding_system::{PathfindingSystem, create_pathfinding_system};
-
-        let template = Arc::new(LocomotorTemplate::new_infantry("TestInfantry".to_string()));
-        let loco = Locomotor::new(template);
-
-        let pathfinding = create_pathfinding_system(100, 100);
-
-        let start = Coord3D::new(0.0, 0.0, 0.0);
-        let end = Coord3D::new(50.0, 50.0, 0.0);
-
-        let mut pathfinding_sys = pathfinding.write().unwrap();
-        let result = loco.request_path(1, start, end, &mut *pathfinding_sys);
-
-        assert!(result.is_ok());
-    }
-
-    #[test]
     fn test_path_following_update() {
         let template = Arc::new(LocomotorTemplate::new_infantry("TestInfantry".to_string()));
         let mut loco = Locomotor::new(template);

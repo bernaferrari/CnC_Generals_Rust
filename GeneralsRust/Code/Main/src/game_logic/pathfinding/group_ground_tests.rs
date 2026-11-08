@@ -169,6 +169,13 @@ fn fixed_occupants_are_resolved_from_each_receiving_object_map() {
     counterpart.crushable_level = 0;
     let first_objects = registered_path_fixture([(occupant.id, occupant)]);
     let peer_objects = registered_path_fixture([(counterpart.id, counterpart)]);
+    // Each world's idle occupant registered its own position and goal.
+    for (system, objects) in [(&mut first, &first_objects), (&mut peer, &peer_objects)] {
+        system.grid.update_dynamic_obstacles_after_creation_events(
+            objects.read(),
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+        );
+    }
     first.set_ignore_obstacle(Some(ObjectId(91)));
     let shifted = first
         .find_group_ground_path(

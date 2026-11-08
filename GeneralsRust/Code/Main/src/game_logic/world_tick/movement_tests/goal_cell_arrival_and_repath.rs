@@ -342,7 +342,6 @@ fn waited_path_removes_the_goal_when_not_adjusting() {
     let obj = logic.objects.get(&ObjectId(9608)).expect("ranger");
     assert_eq!(obj.pathfind_goal_cell, (-1, -1));
     assert_eq!(logic.pathfinding_system.grid.ground_goal_unit(cell), 0);
-    assert_eq!(logic.pathfinding_system.grid.ground_goal_mask(cell), 0);
 }
 
 #[test]

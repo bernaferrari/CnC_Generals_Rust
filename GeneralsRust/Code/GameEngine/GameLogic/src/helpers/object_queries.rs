@@ -222,13 +222,10 @@ impl ThePartitionManager {
                 }
 
                 if (options.flags & FPF_CLEAR_CELLS_ONLY) != 0 {
-                    let ai_store = crate::ai::the_ai();
-                    if let Ok(ai) = ai_store.read() {
-                        if let Some(ps) = ai.pathfinding_system() {
-                            if let Ok(ps_guard) = ps.read() {
-                                if !ps_guard.is_cell_clear_at(&pos, layer) {
-                                    return false;
-                                }
+                    if let Some(pathfinder) = crate::ai::active_pathfinder_handle() {
+                        if let Ok(pf) = pathfinder.read() {
+                            if !pf.is_cell_clear_at(&pos, layer) {
+                                return false;
                             }
                         }
                     }

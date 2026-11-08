@@ -610,10 +610,19 @@ impl PathfindingGrid {
             == self.get_effective_zone(surfaces, is_crusher, z2)
     }
 
-    /// C++ Pathfinder::classifyMapCell (AIPathfind.cpp:4491-4521).
-    /// Cliff at the cell top-left; water if any of 4 corners — water wins.
+    /// C++ Pathfinder::classifyMapCell (AIPathfind.cpp:4485-4519).
+    /// Cliff at the cell top-left; water if any of 4 corners — water wins;
+    /// a cell that already held a structure obstacle stays CELL_OBSTACLE
+    /// (`hasObstacle`, AIPathfind.cpp:4490/4514-4516).
     /// No terrain-slope Impassable gate.
-    pub fn classify_map_cell(cliff_top_left: bool, water_any_corner: bool) -> PathfindCellType {
+    pub fn classify_map_cell(
+        cliff_top_left: bool,
+        water_any_corner: bool,
+        has_obstacle: bool,
+    ) -> PathfindCellType {
+        if has_obstacle {
+            return PathfindCellType::Obstacle;
+        }
         let mut ty = PathfindCellType::Clear;
         if cliff_top_left {
             ty = PathfindCellType::Cliff;
@@ -878,8 +887,8 @@ impl PathfindingGrid {
         let mut min_cell = self.world_to_grid(Vec3::new(lo_x - pad, 0.0, lo_z - pad));
         // Native allocation uses ceil(hi + pad) + 1 as an exclusive end.
         let mut max_cell = GridPos::new(
-            ((hi_x + pad - self.origin.x) / self.grid_size).ceil() as i32,
-            ((hi_z + pad - self.origin.z) / self.grid_size).ceil() as i32,
+            game_engine::base_type::real_to_int_ceil((hi_x + pad - self.origin.x) / self.grid_size),
+            game_engine::base_type::real_to_int_ceil((hi_z + pad - self.origin.z) / self.grid_size),
         );
         min_cell.x -= 1;
         min_cell.y -= 1;
@@ -1327,17 +1336,24 @@ impl PathfindingGrid {
 
     /// Cell observations without the current search's ignore filter.
     pub(super) fn raw_occupancy_bits(&self, pos: GridPos, layer: PathfindLayerEnum) -> OccBits {
+        self.raw_occupancy_bits_with(pos, layer, |id| self.query_occupants.get(&id).copied())
+    }
+
+    /// Cell observations with occupant facts from an explicit source.
+    pub(super) fn raw_occupancy_bits_with(
+        &self,
+        pos: GridPos,
+        layer: PathfindLayerEnum,
+        facts: impl Fn(u32) -> Option<OccupantFacts>,
+    ) -> OccBits {
         let (actual_layer, _) = self.path_cell_on_layer(pos, layer);
         if actual_layer != PathfindLayerEnum::Ground {
             if let Some(occ) = self.layer_occ.get(&(actual_layer as u8)) {
                 let key = (pos.x, pos.y);
                 return OccBits::from_cell(
-                    occ.occ_goal_mask.get(&key).copied().unwrap_or(0),
                     occ.occ_goal_unit.get(&key).copied().unwrap_or(0),
                     occ.occ_pos_unit.get(&key).copied().unwrap_or(0),
-                    occ.occ_pos_player.get(&key).copied().unwrap_or(0),
-                    occ.occ_pos_flags.get(&key).copied().unwrap_or(0),
-                    occ.occ_pos_crushable.get(&key).copied().unwrap_or(0),
+                    facts,
                 );
             }
             return OccBits::default();
@@ -1345,136 +1361,142 @@ impl PathfindingGrid {
         let Some(idx) = self.bit_index(pos) else {
             return OccBits::default();
         };
-        OccBits::from_cell(
-            self.occ_goal_mask[idx],
-            self.occ_goal_unit[idx],
-            self.occ_pos_unit[idx],
-            self.occ_pos_player[idx],
-            self.occ_pos_flags[idx],
-            self.occ_pos_crushable[idx],
-        )
+        OccBits::from_cell(self.occ_goal_unit[idx], self.occ_pos_unit[idx], facts)
+    }
+
+    /// Resolve one stored occupant as `mover` observes it in the receiving
+    /// world (C++ `findObjectByID`, `obj->getRelationship(unit)` and
+    /// `canCrushOrSquish`, AIPathfind.cpp:4943-4953, 5009-5063). `None` when the
+    /// occupant no longer exists, which C++ skips (`if (unit)`).
+    pub(super) fn resolve_occupant(
+        &self,
+        objects: HostObjectRead<'_>,
+        mover: Option<&Object>,
+        id: u32,
+    ) -> Option<OccupantFacts> {
+        let unit = objects.lookup(&ObjectId(id))?;
+        // Order matters: whether the seeker considers the unit an ally.
+        let allied = mover.is_some_and(|mover| match objects.relationship(mover, unit) {
+            Some(relationship) => relationship == gamelogic::common::Relationship::Allies,
+            None => self.player_mask_allied(mover, unit),
+        });
+        Some(OccupantFacts {
+            allied,
+            infantry: unit.is_kind_of(KindOf::Infantry),
+            can_crush: mover.is_some_and(|mover| mover.can_crush_or_squish(unit, false)),
+            crushable_level: unit.crushable_level,
+        })
+    }
+
+    /// Resolve every stored occupant as the query seeker observes it, from the
+    /// receiving world's live objects, for this search's occupancy checks.
+    pub fn bind_query_occupants(
+        &mut self,
+        objects: HostObjectRead<'_>,
+        seeker: Option<ObjectId>,
+    ) {
+        // Without a live seeker, C++ checks run with `obj == NULL`.
+        let mover = seeker.filter(|id| id.0 != 0).and_then(|id| objects.lookup(&id));
+        self.query_occupants_seeker = mover.map_or(0, |mover| mover.id.0);
+        self.query_seeker_infantry = mover.is_some_and(|mover| mover.is_kind_of(KindOf::Infantry));
+        let ids: HashSet<u32> = self
+            .occ_pos_unit
+            .iter()
+            .chain(self.occ_goal_unit.iter())
+            .copied()
+            .chain(self.layer_occ.values().flat_map(|occ| {
+                occ.occ_pos_unit
+                    .values()
+                    .chain(occ.occ_goal_unit.values())
+                    .copied()
+            }))
+            .filter(|&id| id != 0)
+            .collect();
+        let facts: HashMap<u32, OccupantFacts> = ids
+            .into_iter()
+            .filter_map(|id| Some((id, self.resolve_occupant(objects, mover, id)?)))
+            .collect();
+        self.query_occupants = facts;
+    }
+
+    /// Relationship for an object view without its world's player/team tables
+    /// (standalone grid fixtures): owner-player ALLIES via the admitted masks.
+    fn player_mask_allied(&self, mover: &Object, unit: &Object) -> bool {
+        let owner = |object: &Object| object.owner_player_id.unwrap_or(object.team as u32);
+        let (seeker, other) = (owner(mover), owner(unit));
+        seeker == other || self.ally_mask_for(seeker) & (1u16 << other.min(15)) != 0
     }
 
     pub(super) fn occupancy_cost(
         &self,
         pos: GridPos,
-        seeker_player: Option<u32>,
         seeker_is_infantry: bool,
-        crusher_level: u8,
-        ally_mask: u16,
         start: Option<GridPos>,
     ) -> Option<f32> {
-        self.occupancy_cost_on_layer(
-            pos,
-            seeker_player,
-            seeker_is_infantry,
-            crusher_level,
-            ally_mask,
-            start,
-            self.query_layer_enum(),
-        )
+        self.occupancy_cost_on_layer(pos, seeker_is_infantry, start, self.query_layer_enum())
     }
 
+    /// One cell of C++ `checkForMovement` with `considerTransient == false`
+    /// (AIPathfind.cpp:4971-5075) as consumed by `examineNeighboringCells`
+    /// (AIPathfind.cpp:6241-6291): `None` is `enemyFixed`; otherwise the extra
+    /// cost of `allyMoving` near the start plus `allyFixedCount > 0`.
     pub(super) fn occupancy_cost_on_layer(
         &self,
         pos: GridPos,
-        seeker_player: Option<u32>,
         seeker_is_infantry: bool,
-        crusher_level: u8,
-        ally_mask: u16,
         start: Option<GridPos>,
         layer: PathfindLayerEnum,
     ) -> Option<f32> {
+        const ALLY_COST: f32 = 3.0 * std::f32::consts::SQRT_2;
         let bits = self.occupancy_bits(pos, layer);
-        if bits.fixed == 0 && bits.moving == 0 && bits.goal == 0 {
-            return Some(0.0);
-        }
-        // C++ INFANTRY_MOVES_THROUGH_INFANTRY continue is unconditional
-        // (AIPathfind.cpp:5031-5035) — goals do not block infantry stream-through.
-        if seeker_is_infantry && bits.infantry != 0 && (bits.fixed | bits.moving) == bits.infantry {
-            return Some(0.0);
-        }
-        // C++ checkForMovement keys on the cell's single m_posUnitID, not a
-        // per-player bitset: posUnit==seeker / ignoreId skip, then one
-        // ALLIES→allyFixedCount (or canCrushOrSquish→enemyFixed) verdict.
-        let Some(player) = seeker_player else {
-            return Some(3.0 * std::f32::consts::SQRT_2);
-        };
-        let bit = 1u16 << player.min(15);
-        let friend = bit | ally_mask;
-        if seeker_is_infantry
-            && (bits.infantry & !bit) != 0
-            && (bits.fixed & !bit) == (bits.infantry & !bit)
+        // `if (!obj) return true;` and NO_UNITS / own position: nothing to check.
+        if self.query_occupants_seeker == 0
+            || bits.pos_unit == 0
+            || bits.pos_unit == self.query_occupants_seeker
+            || bits.pos_player == 0
         {
-            let leftover_fixed = bits.fixed & !bits.infantry;
-            let leftover_moving = bits.moving & !bits.infantry;
-            if leftover_fixed == 0 && leftover_moving == 0 {
-                return Some(0.0);
-            }
+            return Some(0.0);
         }
-        // Single-occupant identity check (C++ PathfindCell::getPosUnit).
-        if bits.pos_unit != 0 {
-            let owner_friend = (bits.pos_player & friend) != 0;
-            if !owner_friend {
-                let enemy_crushable = crusher_level > 0 && crusher_level > bits.pos_crushable;
-                if !enemy_crushable {
-                    return None;
-                }
-            } else if !bits.pos_moving {
-                // C++ ALLIES + UNIT_PRESENT_FIXED → allyFixedCount cost.
-                return Some(3.0 * std::f32::consts::SQRT_2);
-            }
-        } else {
-            // No single identity recorded — fall back to the bitset view so
-            // legacy stamps still block.
-            let enemy_fixed = (bits.fixed & !friend) != 0;
-            if enemy_fixed && (crusher_level == 0 || crusher_level <= bits.crushable) {
-                return None;
-            }
+        if bits.pos_moving {
+            // Moving units are only checked when considering transients; an
+            // allied one still marks allyMoving.
+            let near = start.is_some_and(|s| (pos.x - s.x).abs() < 10 && (pos.y - s.y).abs() < 10);
+            return Some(if bits.pos_player == OCC_ALLY && near {
+                ALLY_COST
+            } else {
+                0.0
+            });
         }
-        let mut extra = 0.0;
-        // C++ allyMoving +3*COST_DIAGONAL only within dx<10 && dy<10 of start
-        // (AIPathfind.cpp:6260-6262). Moving enemies add no cost.
-        if (bits.moving & friend) != 0 {
-            if let Some(s) = start {
-                if (pos.x - s.x).abs() < 10 && (pos.y - s.y).abs() < 10 {
-                    extra += 3.0 * std::f32::consts::SQRT_2;
-                }
-            }
+        // UNIT_PRESENT_FIXED.
+        if seeker_is_infantry && bits.pos_infantry {
+            return Some(0.0); // INFANTRY_MOVES_THROUGH_INFANTRY
         }
-        if (bits.fixed & friend) != 0 {
-            extra += 3.0 * std::f32::consts::SQRT_2;
+        if bits.pos_player == OCC_ALLY {
+            return Some(ALLY_COST);
         }
-        Some(extra)
+        (bits.pos_crushable == 0).then_some(0.0)
     }
 
-    /// C++ `checkForMovement` occupancy used by `patchPath` (AIPathfind.cpp:10419-10442).
+    /// C++ `checkForMovement` occupancy used by `patchPath`
+    /// (AIPathfind.cpp:10419-10442): any `allyFixedCount` or `enemyFixed` stops
+    /// the patch.
     pub(super) fn patch_cell_occupied(
         &self,
         cell: GridPos,
         layer: PathfindLayerEnum,
         consider_transient: bool,
-        seeker_player: Option<u32>,
         seeker_is_infantry: bool,
-        crusher_level: u8,
         radius: i32,
         center_in_cell: bool,
     ) -> bool {
         let above = if center_in_cell { radius + 1 } else { radius };
-        for y in (cell.y - radius)..(cell.y + above) {
-            for x in (cell.x - radius)..(cell.x + above) {
+        for x in (cell.x - radius)..(cell.x + above) {
+            for y in (cell.y - radius)..(cell.y + above) {
                 let p = GridPos::new(x, y);
                 if !self.is_valid_pos(p) {
                     return true;
                 }
-                if self.patch_occupant_blocks(
-                    p,
-                    layer,
-                    consider_transient,
-                    seeker_player,
-                    seeker_is_infantry,
-                    crusher_level,
-                ) {
+                if self.patch_occupant_blocks(p, layer, consider_transient, seeker_is_infantry) {
                     return true;
                 }
             }
@@ -1482,42 +1504,29 @@ impl PathfindingGrid {
         false
     }
 
+    /// One cell of C++ `checkForMovement` for `patchPath`: a checked occupant
+    /// (fixed, or moving when transients count) that the seeker considers an
+    /// ally, or cannot crush, blocks (AIPathfind.cpp:5007-5066).
     pub(super) fn patch_occupant_blocks(
         &self,
         pos: GridPos,
         layer: PathfindLayerEnum,
         consider_transient: bool,
-        seeker_player: Option<u32>,
         seeker_is_infantry: bool,
-        crusher_level: u8,
     ) -> bool {
         let bits = self.occupancy_bits(pos, layer);
-        if bits.fixed == 0 && (!consider_transient || bits.moving == 0) {
+        if self.query_occupants_seeker == 0
+            || bits.pos_unit == 0
+            || bits.pos_unit == self.query_occupants_seeker
+            || bits.pos_player == 0
+            || (bits.pos_moving && !consider_transient)
+        {
             return false;
         }
-        if seeker_is_infantry && bits.infantry != 0 && (bits.fixed | bits.moving) == bits.infantry {
+        if seeker_is_infantry && bits.pos_infantry {
             return false;
         }
-        // C++ checkForMovement (AIPathfind.cpp:10419-10442): the cell's single
-        // m_posUnitID decides — ally fixed blocks, enemy blocks unless crushable.
-        if let Some(player) = seeker_player {
-            if bits.pos_unit != 0 {
-                let friend = (1u16 << player.min(15)) | self.ally_mask_for(player);
-                if (bits.pos_player & friend) == 0 {
-                    return crusher_level == 0 || crusher_level <= bits.pos_crushable;
-                }
-                // Allied fixed occupant blocks the patch footprint.
-                return true;
-            }
-            let present = bits.fixed | if consider_transient { bits.moving } else { 0 };
-            let friend = (1u16 << player.min(15)) | self.ally_mask_for(player);
-            if (present & friend) != 0 {
-                return true;
-            }
-            let enemy = (present & !friend) != 0;
-            return enemy && (crusher_level == 0 || crusher_level <= bits.crushable);
-        }
-        true
+        bits.pos_player == OCC_ALLY || bits.pos_crushable != 0
     }
 
     /// C++ `PathfindCell::getConnectLayer` hop target (same XY, other layer).
@@ -1580,97 +1589,40 @@ impl PathfindingGrid {
         true
     }
 
-    /// C++ `examineNeighboringCells` attackDistance occupancy (AIPathfind.cpp:6228-6300).
+    /// C++ `examineNeighboringCells` attackDistance occupancy (AIPathfind.cpp:6228-6310).
     /// `None` = enemyFixed skip. Extra is added to the ortho/diag step.
     pub(super) fn attack_step_occupancy(
         &self,
         pos: GridPos,
         start: GridPos,
-        seeker_player: Option<u32>,
-        ally_mask: u16,
         seeker_is_infantry: bool,
         is_vehicle: bool,
-        crusher_level: u8,
         layer: PathfindLayerEnum,
     ) -> Option<i32> {
         const COST_ORTHO: i32 = 10;
-        const COST_DIAG: i32 = 14;
-        let bits = self.occupancy_bits(pos, layer);
-        if seeker_is_infantry && bits.infantry != 0 && (bits.fixed | bits.moving) == bits.infantry {
-            return Some(0);
-        }
-        let friend = match seeker_player {
-            Some(player) => (1u16 << player.min(15)) | ally_mask,
-            None => 0,
-        };
-        // C++ checkForMovement verdict on the cell's single m_posUnitID
-        // (AIPathfind.cpp:5020-5066): ally fixed → allyFixedCount cost, enemy
-        // uncrushable → skip. The bitset fallback keeps legacy stamps working.
-        if seeker_player.is_some() {
-            if bits.pos_unit != 0 {
-                if (bits.pos_player & friend) == 0 {
-                    let crushable = crusher_level > 0 && crusher_level > bits.pos_crushable;
-                    if !crushable {
-                        return None;
-                    }
-                } else if !bits.pos_moving {
-                    // allyFixedCount>0 → +3*COST_DIAGONAL (AIPathfind.cpp:6278-6290).
-                    return Some(3 * COST_DIAG);
-                }
-            } else {
-                if (bits.fixed & !friend) != 0
-                    && (crusher_level == 0 || crusher_level <= bits.crushable)
-                {
-                    return None;
-                }
-                if (bits.fixed & friend) != 0 {
-                    return Some(3 * COST_DIAG);
-                }
-            }
-        } else if bits.pos_unit != 0 || (bits.fixed & !friend) != 0 {
-            if crusher_level == 0
-                || crusher_level <= {
-                    if bits.pos_unit != 0 {
-                        bits.pos_crushable
-                    } else {
-                        bits.crushable
-                    }
-                }
-            {
-                return None;
-            }
-        }
-        let mut extra = 0i32;
-        if (bits.moving & friend) != 0
-            && (pos.x - start.x).abs() < 10
-            && (pos.y - start.y).abs() < 10
-        {
-            extra += 3 * COST_DIAG;
-        }
-        if (bits.goal & friend) != 0 {
-            extra += if is_vehicle {
-                3 * COST_ORTHO
-            } else {
-                COST_ORTHO
-            };
+        let movement = self.occupancy_cost_on_layer(pos, seeker_is_infantry, Some(start), layer)?;
+        let mut extra = (movement * 10.0).round() as i32;
+        // checkForMovement sets allyGoal from the cell flags alone, before the
+        // own/ignored-unit checks (AIPathfind.cpp:4996-4998): UNIT_GOAL or
+        // UNIT_GOAL_OTHER_MOVING, whatever the goal owner's relationship.
+        let raw = self.raw_occupancy_bits(pos, layer);
+        if raw.goal_unit != 0 && raw.goal_unit != raw.pos_unit {
+            extra += if is_vehicle { 3 * COST_ORTHO } else { COST_ORTHO };
         }
         Some(extra)
     }
 
-    /// C++ `Pathfinder::updatePos` / `updateGoal` cell stamp.
+    /// C++ `Pathfinder::updatePos` / `updateGoal` cell stamp
+    /// (`PathfindCell::setPosUnit` / `setGoalUnit`, AIPathfind.cpp:1302-1410).
     /// LAYER cells go on the layer map; ground occupancy uses the cell records.
     /// Missing layer cells fall back to ground (`getCell` residual).
     pub(super) fn mark_occupancy(
         &mut self,
         pos: GridPos,
-        player: u32,
-        infantry: bool,
         goal: bool,
-        crushable_level: u8,
         unit_id: u32,
         layer: PathfindLayerEnum,
     ) {
-        let bit = 1u16 << player.min(15);
         if (layer as u8) > PathfindLayerEnum::Ground as u8
             && self.layer_cell_type(layer as u8, pos).is_some()
         {
@@ -1678,7 +1630,6 @@ impl PathfindingGrid {
             let key = (pos.x, pos.y);
             if goal {
                 // C++ stores one goal unit per cell: a newer owner replaces it.
-                occ.occ_goal_mask.insert(key, bit);
                 occ.occ_goal_unit.insert(key, unit_id);
                 return;
             }
@@ -1688,18 +1639,12 @@ impl PathfindingGrid {
                 return;
             }
             occ.occ_pos_unit.insert(key, unit_id);
-            occ.occ_pos_player.insert(key, bit);
-            occ.occ_pos_flags.insert(key, (infantry as u8) << 1);
-            occ.occ_pos_crushable.insert(key, crushable_level);
             return;
         }
         let Some(idx) = self.bit_index(pos) else {
             return;
         };
         if goal {
-            if let Some(slot) = self.occ_goal_mask.get_mut(idx) {
-                *slot = bit;
-            }
             if let Some(slot) = self.occ_goal_unit.get_mut(idx) {
                 *slot = unit_id;
             }
@@ -1710,9 +1655,6 @@ impl PathfindingGrid {
             return;
         }
         self.occ_pos_unit[idx] = unit_id;
-        self.occ_pos_player[idx] = bit;
-        self.occ_pos_flags[idx] = (infantry as u8) << 1;
-        self.occ_pos_crushable[idx] = crushable_level;
     }
 
     /// C++ `TerrainLogic::objectInteractsWithBridgeEnd` (TerrainLogic.cpp:1799).

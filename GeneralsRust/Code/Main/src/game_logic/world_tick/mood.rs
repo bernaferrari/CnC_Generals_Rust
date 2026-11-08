@@ -2239,11 +2239,6 @@ mod common_target_parity {
         };
         assert_eq!(stored, (cell.x, cell.y));
         assert_eq!(logic.pathfinding_system.grid.ground_goal_unit(cell), id.0);
-        let mask = logic.pathfinding_system.grid.ground_goal_mask(cell);
-        assert_ne!(
-            mask, 0,
-            "setGoalUnit must set the player bit path cost reads"
-        );
         ({
             let ground_owner = logic.world_services.terrain();
             let ground_loan = ground_owner
@@ -2266,7 +2261,6 @@ mod common_target_parity {
             id.0,
             "the occupancy rebuild must keep the stored idle cell"
         );
-        assert_eq!(logic.pathfinding_system.grid.ground_goal_mask(cell), mask);
         assert!(
             (snapped_pos.x - expected.x).abs() < 0.01 && (snapped_pos.z - expected.z).abs() < 0.01,
             "frame <= 1 must setPosition to the stored goal cell"
@@ -2309,11 +2303,6 @@ mod common_target_parity {
         logic.frame = 5;
         logic.apply_pending_idle_mood_reset(id);
         assert_eq!(logic.pathfinding_system.grid.ground_goal_unit(cell), 0);
-        assert_eq!(
-            logic.pathfinding_system.grid.ground_goal_mask(cell),
-            0,
-            "leaving the cell must clear this unit's goal bit"
-        );
         let o = logic.host_object(id).expect("ranger");
         assert_ne!(o.pathfind_goal_cell, (cell.x, cell.y));
         let moved = crate::game_logic::pathfinding::GridPos::new(

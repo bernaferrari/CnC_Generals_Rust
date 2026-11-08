@@ -70,6 +70,7 @@ impl CompletionFixture {
         let mut template = DefaultThingTemplate::new("CompletionStructure".into());
         template.add_kind_of(KindOf::Structure);
         template.add_kind_of(KindOf::Score);
+        template.add_kind_of(KindOf::Immobile);
         if power < 0 {
             template.add_kind_of(KindOf::Powered);
         }
@@ -514,7 +515,13 @@ fn restored_ai_construction_notifies_even_without_a_builder() {
             crate::common::ObjectStatusTypes::UnderConstruction,
         ),
     );
-    Player::on_structure_construction_complete(&fixture.player, None, &fixture.structure, true);
+    Player::on_structure_construction_complete(
+        &fixture.player,
+        None,
+        &fixture.structure,
+        true,
+        None,
+    );
     assert!(
         !fixture
             .player
@@ -578,4 +585,84 @@ fn completed_powered_structure_brownout_releases_player_before_disabled_callback
             .unwrap()
             .is_disabled_by_type(crate::common::DisabledType::DisabledUnderpowered)
     );
+}
+
+/// C++ Player.cpp:1644-1645: completion removes then re-inserts the full
+/// structure footprint on the receiving pathfinder only.
+#[test]
+fn construction_complete_reclassifies_footprint_on_receiving_pathfinder_only() {
+    use crate::ai::Pathfinder;
+    use crate::ai::pathfind_complete::PathfindCellType;
+    let _isolation = crate::object::registry::test_isolation_lock()
+        .lock()
+        .unwrap();
+    let fixture = CompletionFixture::new(0);
+    let center = crate::common::Coord3D::new(105.0, 105.0, 0.0);
+    {
+        let mut structure = fixture.structure.write().unwrap();
+        structure.set_position(&center).unwrap();
+        let mut geometry = crate::common::GeometryInfo::default();
+        geometry.set_bounds(crate::common::AABox {
+            min: crate::common::Coord3D::new(-25.0, -25.0, 0.0),
+            max: crate::common::Coord3D::new(25.0, 25.0, 10.0),
+        });
+        structure.set_geometry_info(geometry);
+    }
+    let structure_id = fixture.structure.read().unwrap().get_id();
+    let foreign_cell = crate::common::Coord3D::new(125.0, 105.0, 0.0);
+    let rubble_cell = crate::common::Coord3D::new(95.0, 105.0, 0.0);
+    let center_cell = center;
+    let outside = crate::common::Coord3D::new(255.0, 255.0, 0.0);
+
+    let new_pathfinder = || {
+        let mut pf = Pathfinder::new();
+        pf.reset_with_size(40, 40);
+        pf
+    };
+    let (mut receiving, mut other) = (new_pathfinder(), new_pathfinder());
+    // The foreign obstacle (a different object id) overlaps the footprint.
+    let foreign = {
+        let template = fixture.structure.read().unwrap().get_template().clone();
+        let mut object = Object::new_test_from_template(structure_id + 100, 100.0, template);
+        object.set_position(&foreign_cell).unwrap();
+        let mut geometry = crate::common::GeometryInfo::default();
+        geometry.set_bounds(crate::common::AABox {
+            min: crate::common::Coord3D::new(-4.0, -4.0, 0.0),
+            max: crate::common::Coord3D::new(4.0, 4.0, 10.0),
+        });
+        object.set_geometry_info(geometry);
+        object
+    };
+    receiving.add_object_to_pathfind_map(&foreign).unwrap();
+    // Rubble left over from clearing the site before building.
+    receiving.set_cell_type_for_test(&rubble_cell, PathfindCellType::Rubble);
+    // Unrelated world: same object id, nothing classified yet.
+    let cell = |pf: &Pathfinder, pos: &crate::common::Coord3D| {
+        pf.get_cell_type_at(pos)
+    };
+    assert_eq!(cell(&receiving, &foreign_cell), Some(PathfindCellType::Obstacle));
+    assert_eq!(cell(&other, &center_cell), Some(PathfindCellType::Clear));
+
+    let receiving = std::sync::Arc::new(RwLock::new(receiving));
+    let other = std::sync::Arc::new(RwLock::new(other));
+    Player::on_structure_construction_complete(
+        &fixture.player,
+        None,
+        &fixture.structure,
+        true,
+        Some(&receiving),
+    );
+
+    let receiving = receiving.read().unwrap();
+    let other = other.read().unwrap();
+    // Footprint inserted on the receiver.
+    assert_eq!(cell(&receiving, &center_cell), Some(PathfindCellType::Obstacle));
+    // Rubble cleared by the remove phase, then re-stamped as the structure.
+    assert_eq!(cell(&receiving, &rubble_cell), Some(PathfindCellType::Obstacle));
+    // Overlapping foreign obstacle preserved (not owned by this structure id).
+    assert_eq!(cell(&receiving, &foreign_cell), Some(PathfindCellType::Obstacle));
+    assert_eq!(cell(&receiving, &outside), Some(PathfindCellType::Clear));
+    // The other world's pathfinder, with the same object id, is untouched.
+    assert_eq!(cell(&other, &center_cell), Some(PathfindCellType::Clear));
+    assert_eq!(cell(&other, &rubble_cell), Some(PathfindCellType::Clear));
 }

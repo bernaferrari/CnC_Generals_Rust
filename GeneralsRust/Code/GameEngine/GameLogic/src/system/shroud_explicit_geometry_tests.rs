@@ -7,8 +7,9 @@ fn supplied_geometry_survives_clone_and_receiving_restore_without_peer_selection
         .unwrap();
     b.init_shroud_grid_at_origin_with_cell_size([-400., 230.], 120., 80., 20.)
         .unwrap();
-    assert_eq!(a.grid_dimensions(), Some((6, 3, 17.)));
-    assert_eq!(b.grid_dimensions(), Some((6, 4, 20.)));
+    // REAL_TO_INT_CEIL(51 * (1/17) == 3.0) is 4 (PartitionManager.cpp:2587).
+    assert_eq!(a.grid_dimensions(), Some((6, 4, 17.)));
+    assert_eq!(b.grid_dimensions(), Some((7, 5, 20.)));
     let peer_before = b.snapshot_state();
     let center = Coord3D::new(131.5, -78.5, 0.);
     a.do_shroud_reveal(&center, 17., 1 << 1);
@@ -22,7 +23,7 @@ fn supplied_geometry_survives_clone_and_receiving_restore_without_peer_selection
         .init_shroud_grid_at_origin_with_cell_size([123., -87.], 101., 51., 17.)
         .unwrap();
     receiving.replace_state_owned(&saved, 0).unwrap();
-    assert_eq!(receiving.grid_dimensions(), Some((6, 3, 17.)));
+    assert_eq!(receiving.grid_dimensions(), Some((6, 4, 17.)));
     assert_eq!(receiving.grid_world_origin(), Some([123., -87.]));
     for frame in [10, 11] {
         for owner in [&mut a, &mut cloned, &mut receiving] {
@@ -39,7 +40,8 @@ fn finite_cpp_clamps_and_invalid_initializers_preserve_owner_and_queues() {
     owner
         .init_shroud_grid_at_origin_with_cell_size([2., 3.], -5., 0., -20.)
         .unwrap();
-    assert_eq!(owner.grid_dimensions(), Some((1, 1, 1.)));
+    // Clamped 1x1 extent: REAL_TO_INT_CEIL(1.0) is 2.
+    assert_eq!(owner.grid_dimensions(), Some((2, 2, 1.)));
     owner.pending_full_reveal_players.insert(2);
     let before = owner.snapshot_state();
     for (origin, width, height, cell) in [
@@ -98,7 +100,7 @@ fn prepared_grid_does_not_change_owner_or_consume_pending_reveals_until_installe
     assert!(ShroudManager::prepare_shroud_grid([0., 0.], 100_000., 100_000., 1.).is_err());
     assert_eq!(owner.snapshot_state(), before);
     owner.install_prepared_shroud_grid(staged);
-    assert_eq!(owner.grid_dimensions(), Some((4, 4, 10.)));
+    assert_eq!(owner.grid_dimensions(), Some((5, 5, 10.)));
     assert_eq!(owner.grid_world_origin(), Some([10., 20.]));
     assert!(!owner.pending_full_reveal_players.contains(&2));
     assert_eq!(peer.snapshot_state(), before);

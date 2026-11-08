@@ -10,7 +10,7 @@ fn stamp_fixed(grid: &mut PathfindingGrid, object: &crate::game_logic::Object, o
     let radius = footprint.radius;
     let position = object.get_position();
     let cell = grid.update_path_position_cell(&footprint, old, position);
-    grid.update_ground_goal_cell(object.id.0, footprint.player, radius, false, old, position);
+    grid.update_ground_goal_cell(object.id.0, radius, false, old, position);
     cell
 }
 
@@ -283,68 +283,37 @@ fn attack_step_occupancy_matches_leftover() {
         GridPos::new(8, 8),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     ));
-    g.update_ground_goal_cell(goaled.id.0, 0, goaled.geometry_info().bounding_circle_radius(), false, (-1, -1), goaled.movement.target_position.unwrap());
+    g.update_ground_goal_cell(goaled.id.0, goaled.geometry_info().bounding_circle_radius(), false, (-1, -1), goaled.movement.target_position.unwrap());
     objects.admit(goaled.id, goaled);
 
+    // The searching attacker belongs to player 0 (allied with player 1).
+    let mut seeker = Object::new(ThingTemplate::new("Attacker"), ObjectId(50), Team::USA);
+    seeker.owner_player_id = Some(0);
+    objects.admit(seeker.id, seeker);
     g.update_dynamic_obstacles(
         objects.read(),
         &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
     );
+    g.bind_query_occupants(objects.read(), Some(ObjectId(50)));
     let start = GridPos::new(4, 4);
     let layer = PathfindLayerEnum::Ground;
     assert!(
-        g.attack_step_occupancy(
-            GridPos::new(5, 5),
-            start,
-            Some(0),
-            masks[0],
-            false,
-            true,
-            0,
-            layer
-        )
+        g.attack_step_occupancy(GridPos::new(5, 5), start, false, true, layer)
         .is_none(),
         "uncrushable enemy-fixed must skip"
     );
     assert_eq!(
-        g.attack_step_occupancy(
-            GridPos::new(6, 6),
-            start,
-            Some(0),
-            masks[0],
-            false,
-            true,
-            0,
-            layer
-        ),
+        g.attack_step_occupancy(GridPos::new(6, 6), start, false, true, layer),
         Some(3 * 14),
         "ally-fixed +3*DIAG"
     );
     assert_eq!(
-        g.attack_step_occupancy(
-            GridPos::new(8, 8),
-            start,
-            Some(0),
-            masks[0],
-            false,
-            true,
-            0,
-            layer
-        ),
+        g.attack_step_occupancy(GridPos::new(8, 8), start, false, true, layer),
         Some(3 * 10),
         "ally-goal vehicle +3*ORTHO"
     );
     assert_eq!(
-        g.attack_step_occupancy(
-            GridPos::new(8, 8),
-            start,
-            Some(0),
-            masks[0],
-            false,
-            false,
-            0,
-            layer
-        ),
+        g.attack_step_occupancy(GridPos::new(8, 8), start, false, false, layer),
         Some(10),
         "ally-goal infantry +ORTHO"
     );
@@ -1754,4 +1723,63 @@ fn assign_unit_path_off_map_start_is_two_node() {
     );
     assert!((unit.movement.path[0].x - start.x).abs() < 0.01);
     assert!((unit.movement.path[1].x - dest.x).abs() < 0.01);
+}
+
+/// C++ `Object::getRelationship` -> `Team::getRelationship` consults the
+/// player's per-team override before the player relation (Player.cpp
+/// getRelationship(const Team*)), and checkForMovement asks it for every
+/// occupant (AIPathfind.cpp:5037). A script team override reaches the very
+/// next occupancy check in the overriding world only.
+#[test]
+fn team_relationship_override_reaches_occupancy_checks_per_world() {
+    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+    let build = || {
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(0, Team::USA, "Seeker", true));
+        world.add_player(Player::new(1, Team::GLA, "Occupant", false));
+        let mut template = ThingTemplate::new("OverrideActor");
+        template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        world.templates.insert("OverrideActor".into(), template);
+        let seeker = world
+            .create_object_for_player("OverrideActor", 0, Vec3::new(95.0, 0.0, 95.0))
+            .unwrap();
+        let occupant = world
+            .create_object_for_player("OverrideActor", 1, Vec3::new(55.0, 0.0, 55.0))
+            .unwrap();
+        for id in [seeker, occupant] {
+            let actor = world.host_object_mut(id).unwrap();
+            actor.crushable_level = 255;
+            actor.crusher_level = 0;
+        }
+        world.host_object_mut(seeker).unwrap().team_instance_id = None;
+        world.host_object_mut(occupant).unwrap().team_instance_id = Some(77);
+        let mut grid = PathfindingGrid::new(100.0, 100.0, 10.0);
+        let position = Vec3::new(55.0, 0.0, 55.0);
+        grid.update_ground_goal_cell(occupant.0, 1.0, false, (-1, -1), position);
+        let footprint = grid.path_position_footprint(world.host_object(occupant).unwrap());
+        grid.update_path_position_cell(&footprint, (-1, -1), position);
+        (world, grid, seeker)
+    };
+    let (mut overriding, mut overriding_grid, seeker) = build();
+    let (peer, mut peer_grid, peer_seeker) = build();
+    let cell = GridPos::new(5, 5);
+    let cost = |grid: &mut PathfindingGrid, world: &GameLogic, seeker| {
+        grid.bind_query_occupants(world.host_objects(), Some(seeker));
+        grid.occupancy_extra_cost(cell, false)
+    };
+    assert_eq!(cost(&mut overriding_grid, &overriding, seeker), u32::MAX / 8);
+    overriding
+        .get_player_mut(0)
+        .unwrap()
+        .set_team_relationship_override(77, gamelogic::common::Relationship::Allies);
+    assert_eq!(
+        cost(&mut overriding_grid, &overriding, seeker),
+        3 * 14,
+        "the overridden team is an allied fixed occupant"
+    );
+    assert_eq!(
+        cost(&mut peer_grid, &peer, peer_seeker),
+        u32::MAX / 8,
+        "the same-ID peer world keeps its relationship"
+    );
 }

@@ -2,6 +2,7 @@
 //!
 //! Real maps supply their admitted origin, dimensions and cell size.
 //! Forty-unit wrappers serve the existing standalone component fixtures.
+use game_engine::base_type::{real_to_int_ceil, real_to_int_floor};
 
 use super::partition_manager::PARTITION_CELL_SIZE_RESIDUAL;
 
@@ -36,14 +37,16 @@ pub fn world_to_cell(x: f32, z: f32) -> (i32, i32) {
 #[inline]
 fn world_to_cell_at_size(origin: [f32; 2], s: f32, x: f32, z: f32) -> (i32, i32) {
     (
-        ((x - origin[0]) * (1.0_f64 / f64::from(s)) as f32).floor() as i32,
-        ((z - origin[1]) * (1.0_f64 / f64::from(s)) as f32).floor() as i32,
+        // C++ PartitionManager.h:1508-1509 REAL_TO_INT_FLOOR.
+        real_to_int_floor((x - origin[0]) * (1.0_f64 / f64::from(s)) as f32),
+        real_to_int_floor((z - origin[1]) * (1.0_f64 / f64::from(s)) as f32),
     )
 }
 
 #[inline]
 pub fn world_to_cell_dist(world: f32) -> i32 {
-    (world / PARTITION_CELL_SIZE_RESIDUAL).ceil() as i32
+    // C++ PartitionManager.h:1515 REAL_TO_INT_CEIL(w * m_cellSizeInv).
+    real_to_int_ceil(world * (1.0_f64 / f64::from(PARTITION_CELL_SIZE_RESIDUAL)) as f32)
 }
 
 /// C++ `PartitionData::updateCellsTouched` for a host object.
@@ -220,8 +223,9 @@ fn stamp_footprint(
         let xdx = c * step_size;
         let xdy = s * step_size;
         let inv_times_2 = 2.0 / step_size;
-        let nx = (fp.major_radius * inv_times_2).ceil() as i32;
-        let nz = (fp.minor_radius * inv_times_2).ceil() as i32;
+        // C++ PartitionManager.cpp:1769-1770 REAL_TO_INT_CEIL.
+        let nx = real_to_int_ceil(fp.major_radius * inv_times_2);
+        let nz = real_to_int_ceil(fp.minor_radius * inv_times_2);
         if nx <= 0 || nz <= 0 {
             return;
         }
@@ -244,7 +248,7 @@ fn stamp_footprint(
         let (cx, cz) = world_to_cell_at_size(origin, cell_size, x, z);
         let (cx, cz) = (cx as i64, cz as i64);
         let radius = i64::from(
-            ((fp.major_radius * ((1.0_f64 / f64::from(cell_size)) as f32)).ceil() as i32).max(1),
+            real_to_int_ceil(fp.major_radius * ((1.0_f64 / f64::from(cell_size)) as f32)).max(1),
         );
         let mut y = radius - 1;
         let mut dec = 3 - 2 * radius;

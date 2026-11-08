@@ -1009,6 +1009,7 @@ impl DozerAIUpdate {
                 Some(self.object_id),
                 target,
                 is_rebuild,
+                crate::ai::active_pathfinder_handle().as_ref(),
             );
             if let Ok(mut target_guard) = target.write() {
                 target_guard.on_build_complete();

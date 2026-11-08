@@ -29,7 +29,7 @@ pub(super) use crate::helpers::{
 };
 pub(super) use crate::locomotor::{
     BodyDamageType, Locomotor, LocomotorAppearance, LocomotorSet, LocomotorSurfaceTypeMask,
-    PathFollowingState, SURFACE_AIR, update_movement_with_pathfinding,
+    PathFollowingState, SURFACE_AIR,
 };
 pub(super) use crate::modules::{
     AIAttitudeType, AIUpdateInterface, AIUpdateInterfaceExt, ContainModuleInterfaceExt,

@@ -200,50 +200,6 @@ impl PathfindingSystem {
             .unwrap_or(false)
     }
 
-    /// Apply the identity-sensitive cell operation used by the Core facade.
-    /// C++ `setTypeAsObstacle` does not replace an existing obstacle, while
-    /// `removeObstacle` clears rubble or an obstacle owned by the receiver.
-    pub(crate) fn update_facade_obstacles(
-        &mut self,
-        object_id: ObjectID,
-        positions: &[Coord3D],
-        layer: PathfindLayerEnum,
-        insert: bool,
-    ) {
-        let mut changed = false;
-        for position in positions {
-            let coord = Self::world_to_cell_trunc(position);
-            let Some(resolved) = self.pathfinder.resolved_layer_at(coord, layer) else {
-                continue;
-            };
-            let Some((cell_type, _, _)) = self.pathfinder.obstacle_observation_at(coord, resolved)
-            else {
-                continue;
-            };
-            if insert {
-                if matches!(
-                    cell_type,
-                    PathfindCellType::Clear | PathfindCellType::Impassable
-                ) {
-                    self.set_cell_type_at_layer(position, resolved, PathfindCellType::Obstacle);
-                    self.pathfinder
-                        .set_cell_obstacle_id_on_layer(coord, resolved, object_id, false, false);
-                    changed = true;
-                }
-            } else if cell_type == PathfindCellType::Rubble
-                || self
-                    .pathfinder
-                    .clear_cell_obstacle_id_on_layer(coord, resolved, object_id)
-            {
-                self.set_cell_type_at_layer(position, resolved, PathfindCellType::Clear);
-                changed = true;
-            }
-        }
-        if changed {
-            self.refresh_pinched_for_positions(positions);
-        }
-    }
-
     pub fn refresh_pinched_for_positions(&mut self, positions: &[Coord3D]) {
         if positions.is_empty() {
             return;

@@ -5,12 +5,9 @@ use glam::Vec3;
 fn footprint(unit_id: u32, radius: f32) -> PathPositionFootprint {
     PathPositionFootprint {
         unit_id,
-        player: 0,
         radius,
         layer: 1,
         on_ground: true,
-        infantry: false,
-        crushable_level: 255,
     }
 }
 
@@ -110,7 +107,6 @@ fn bridge_position_updates_remove_the_old_ground_and_layer_claims() {
     assert_eq!(grid.ground_position_unit(GridPos::new(8, 5)), 0);
     grid.update_path_goal_cell(PathGoalUpdate {
         unit_id: 7,
-        player: 0,
         radius: 1.0,
         old_cell: (-1, -1),
         old_layer: 1,
@@ -118,21 +114,9 @@ fn bridge_position_updates_remove_the_old_ground_and_layer_claims() {
         new_on_ground: false,
         goal: end,
     });
-    grid.set_query_seeker_id(7);
     let cell = GridPos::new(8, 5);
-    let destination = |grid: &PathfindingGrid| {
-        grid.adjust_destination_on_layer(
-            cell,
-            SURFACE_GROUND,
-            false,
-            400,
-            Some(0),
-            0,
-            layer,
-            &ground,
-        )
-    };
-    assert_ne!(destination(&grid), Some(cell));
+    assert_eq!(grid.position_unit_on_layer(cell, layer), 7);
     grid.clear_path_position_square(7, 1.0, new, layer as u8);
-    assert_eq!(destination(&grid), Some(cell));
+    assert_eq!(grid.position_unit_on_layer(cell, layer), 0);
+    assert_eq!(grid.ground_position_unit(cell), 0);
 }

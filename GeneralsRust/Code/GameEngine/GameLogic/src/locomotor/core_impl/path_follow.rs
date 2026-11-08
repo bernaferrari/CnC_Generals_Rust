@@ -95,79 +95,11 @@ impl Locomotor {
         Some((new_pos, new_angle, new_speed))
     }
 
-    /// Check for obstacles and request path replan if needed
-    /// Matches C++ obstacle detection and dynamic replanning
-    pub fn check_obstacles(
-        &mut self,
-        current_pos: Coord3D,
-        pathfinding: &crate::ai::pathfinding_system::PathfindingSystem,
-        current_frame: u32,
-        requester: ObjectID,
-    ) -> bool {
-        // Only check every N frames to avoid performance issues
-        const OBSTACLE_CHECK_INTERVAL: u32 = 15; // ~0.5 seconds at 30fps
-
-        if current_frame - self.last_obstacle_check < OBSTACLE_CHECK_INTERVAL {
-            return false;
-        }
-
-        self.last_obstacle_check = current_frame;
-
-        // Get next waypoint to check line of sight
-        let path = match self.active_path.as_ref() {
-            Some(p) => p,
-            None => return false,
-        };
-        let next_waypoint = match path.next_waypoint() {
-            Some(wp) => wp,
-            None => return false,
-        };
-
-        // Check if path to next waypoint is blocked
-        let capabilities = self.to_movement_capabilities();
-        let start_coord =
-            crate::ai::pathfinding_system::GridCoord::from_world(&current_pos, capabilities.layer);
-        let next_coord = crate::ai::pathfinding_system::GridCoord::from_world(
-            &next_waypoint,
-            capabilities.layer,
-        );
-
-        // Detect newly blocked movement between current position and the next waypoint.
-        let line_clear = pathfinding.is_line_clear_between(&current_pos, &next_waypoint);
-
-        let terrain_layer: crate::common::PathfindLayerEnum = capabilities.layer.into();
-
-        let terrain_blocked = pathfinding
-            .terrain_at(&next_waypoint, terrain_layer)
-            .map(|terrain| {
-                matches!(
-                    terrain,
-                    crate::ai::pathfinding_system::TerrainType::Obstacle
-                        | crate::ai::pathfinding_system::TerrainType::Impassable
-                )
-            })
-            .unwrap_or(true);
-
-        let obstacle_detected = !line_clear || terrain_blocked;
-
-        if obstacle_detected {
-            log::trace!(
-                "Locomotor obstacle detected for object {} from {:?} to {:?}",
-                requester,
-                start_coord,
-                next_coord
-            );
-        }
-
-        obstacle_detected
-    }
-
-    /// Get terrain height at position from pathfinding grid
+    /// Get terrain height at position
     /// Matches C++ terrain height queries
     pub fn get_terrain_height(
         &self,
         pos: &Coord3D,
-        _pathfinding: &crate::ai::pathfinding_system::PathfindingSystem,
     ) -> Real {
         let capabilities = self.to_movement_capabilities();
         let terrain_layer: crate::common::PathfindLayerEnum = capabilities.layer.into();

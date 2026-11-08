@@ -1122,7 +1122,6 @@ impl From<String> for AiError {
 #[derive(Debug)]
 pub struct AI {
     pathfinder: Option<Arc<RwLock<Pathfinder>>>,
-    pathfinding_system: Option<pathfinding_system::SharedPathfindingSystem>,
     group_list: Vec<Arc<RwLock<AiGroup>>>,
     /// C++ `AI::aiData` — plain owned member state, exactly like the C++
     /// original: written only by `init()` (AIData.ini parse) and by explicit
@@ -1137,10 +1136,7 @@ impl AI {
     pub fn new() -> Self {
         let pathfinder = Arc::new(RwLock::new(Pathfinder::new()));
         Self {
-            pathfinder: Some(pathfinder.clone()),
-            pathfinding_system: Some(
-                pathfinding_system::create_pathfinding_system_for_pathfinder(pathfinder),
-            ),
+            pathfinder: Some(pathfinder),
             group_list: Vec::new(),
             ai_data: AiData::default(),
             next_group_id: 0,
@@ -1174,11 +1170,6 @@ impl AI {
         if let Some(pathfinder) = &self.pathfinder {
             if let Ok(mut pf) = pathfinder.write() {
                 pf.reset();
-            }
-        }
-        if let Some(pathfinding) = &self.pathfinding_system {
-            if let Ok(mut system) = pathfinding.write() {
-                system.reset_for_new_map();
             }
         }
 
@@ -1223,10 +1214,6 @@ impl AI {
                 pf.change_bridge_state(layer, repaired);
             }
         }
-    }
-
-    pub fn pathfinding_system(&self) -> Option<pathfinding_system::SharedPathfindingSystem> {
-        self.pathfinding_system.clone()
     }
 
     pub fn get_ai_data(&self) -> &AiData {
@@ -2899,6 +2886,15 @@ impl Pathfinder {
         self.inner.get_cell_type_at_layer(pos, layer)
     }
 
+    /// `getCell(layer, REAL_TO_INT(x/SIZE), REAL_TO_INT(y/SIZE))->getType() == CELL_CLEAR`
+    /// (the check used by FPF_CLEAR_CELLS_ONLY and BuildAssistant clear-path).
+    pub fn is_cell_clear_at(&self, pos: &Coord3D, layer: crate::common::PathfindLayerEnum) -> bool {
+        self.inner.get_cell_type_at_layer(
+            pos,
+            self::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32),
+        ) == Some(PathfindCellType::Clear)
+    }
+
     /// C++ `Pathfinder::getCell(layer, cellX, cellY)->getType()`.
     pub fn get_cell_type_at_cell(
         &self,
@@ -2907,6 +2903,19 @@ impl Pathfinder {
         cell_y: i32,
     ) -> Option<PathfindCellType> {
         self.inner.get_cell_type_at_cell(layer, cell_x, cell_y)
+    }
+
+    /// C++ `Pathfinder::removeObjectFromPathfindMap(obj)` (AIPathfind.cpp
+    /// classifyObjectFootprint(obj, false)): clears this object's own
+    /// footprint obstacle ids, and rubble cells, leaving foreign obstacles.
+    pub fn remove_object_from_pathfind_map(&mut self, obj: &Object) -> Result<(), String> {
+        self.inner.classify_object_footprint_ex(obj, false)
+    }
+
+    /// C++ `Pathfinder::addObjectToPathfindMap(obj)` (AIPathfind.cpp
+    /// classifyObjectFootprint(obj, true)).
+    pub fn add_object_to_pathfind_map(&mut self, obj: &Object) -> Result<(), String> {
+        self.inner.classify_object_footprint_ex(obj, true)
     }
 
     pub fn add_object_to_map(
@@ -3090,6 +3099,13 @@ pub trait PartitionFilter {
 /// fallback bundle (C++ has one process-lifetime engine).
 pub fn the_ai() -> Arc<RwLock<AI>> {
     crate::system::engine_stores::the_ai()
+}
+
+/// Boundary lookup of the active world's classic pathfinder handle, for module
+/// callbacks that receive no pathfinder from their driver. Callees take the
+/// handle explicitly; they must not resolve `the_ai()` themselves.
+pub(crate) fn active_pathfinder_handle() -> Option<Arc<RwLock<Pathfinder>>> {
+    the_ai().read().ok().and_then(|ai| ai.pathfinder())
 }
 
 // AI behavior modules
