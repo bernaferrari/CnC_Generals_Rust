@@ -1,8 +1,5 @@
 use super::*;
 
-#[path = "tests/rodio_voice_owner_tests.rs"]
-mod rodio_voice_owner_tests;
-
 #[path = "tests/audio_path_settings_owner_tests.rs"]
 mod audio_path_settings_owner_tests;
 

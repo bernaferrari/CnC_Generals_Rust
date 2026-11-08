@@ -1,5 +1,9 @@
 use super::*;
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "../tests/rodio_voice_owner_tests.rs"]
+mod rodio_voice_owner_tests;
+
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) fn get_rodio_stream_handle() -> Option<OutputStreamHandle> {
     type Payload = Option<(OutputStream, OutputStreamHandle)>;

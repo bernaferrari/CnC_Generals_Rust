@@ -430,12 +430,12 @@ mod independence_tests {
         let a = Arc::new(CommonServices::new());
         let b = Arc::new(CommonServices::new());
         // Mutate weapon catalogs independently.
-        a.ini.weapon.write().unwrap().clear();
-        b.ini.weapon.write().unwrap().clear();
+        a.ini.weapon.write().clear();
+        b.ini.weapon.write().clear();
         // Use name_key-free marker: clear leaves empty; insert via raw field count.
         // Science store length proxy: is_empty.
-        assert!(a.ini.science.read().unwrap().is_empty());
-        assert!(b.ini.science.read().unwrap().is_empty());
+        assert!(a.ini.science.read().is_empty());
+        assert!(b.ini.science.read().is_empty());
 
         let barrier = StdArc::new(Barrier::new(2));
         let a2 = Arc::clone(&a);
@@ -449,13 +449,12 @@ mod independence_tests {
                 common_services()
                     .async_playback_handle_pool
                     .store(42, Ordering::SeqCst);
-                *common_services().ini.damage_fx.write().unwrap() =
+                *common_services().ini.damage_fx.write() =
                     crate::common::ini::ini_damage_fx::DamageFXStore::new();
                 common_services()
                     .ini
                     .damage_fx
                     .write()
-                    .unwrap()
                     .init();
                 bar1.wait();
                 assert_eq!(

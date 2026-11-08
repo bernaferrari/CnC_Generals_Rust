@@ -542,6 +542,7 @@ pub fn initialize_ini_systems() {
 #[cfg(test)]
 mod player_template_loading_tests {
     use super::*;
+    use parking_lot::RwLock;
 
     fn parse_candidate(source: &str) -> PlayerTemplateStore {
         let mut candidate = PlayerTemplateStore::new();
@@ -646,7 +647,7 @@ mod player_template_loading_tests {
         );
         let second = parse_candidate("PlayerTemplate FactionChina\nSide = China\nEnd\n");
         assert!(
-            catalog.read().unwrap().is_empty(),
+            catalog.read().is_empty(),
             "parsing is not admission"
         );
         assert!(admit_player_templates(
@@ -659,7 +660,7 @@ mod player_template_loading_tests {
             second,
             PlayerTemplateAdmission::IfEmpty
         ));
-        let retained = catalog.read().unwrap();
+        let retained = catalog.read();
         assert_eq!(retained.len(), 2);
         assert_eq!(retained.find_template_index("FactionAmerica"), Some(0));
         assert_eq!(retained.find_template_index("FactionGLA"), Some(1));
@@ -678,7 +679,6 @@ mod player_template_loading_tests {
         assert!(
             catalog
                 .read()
-                .unwrap()
                 .find_template("FactionOld")
                 .is_some()
         );
@@ -687,7 +687,7 @@ mod player_template_loading_tests {
             replacement,
             PlayerTemplateAdmission::Replace
         ));
-        let published = catalog.read().unwrap();
+        let published = catalog.read();
         assert_eq!(published.len(), 2);
         assert!(published.find_template("FactionOld").is_none());
         assert_eq!(published.find_template_index("FactionAmerica"), Some(0));
@@ -701,7 +701,7 @@ mod player_template_loading_tests {
             PlayerTemplateStore::new(),
             PlayerTemplateAdmission::Replace,
         ));
-        assert!(catalog.read().unwrap().is_empty());
+        assert!(catalog.read().is_empty());
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -736,7 +736,7 @@ mod player_template_loading_tests {
                 })
                 .collect();
             parsed.wait();
-            assert!(catalog.read().unwrap().is_empty());
+            assert!(catalog.read().is_empty());
             admit.wait();
             let results: Vec<_> = workers
                 .into_iter()
@@ -745,7 +745,7 @@ mod player_template_loading_tests {
             assert_eq!(results.iter().filter(|(_, admitted)| *admitted).count(), 1);
             let winner = results.iter().find(|(_, admitted)| *admitted).unwrap().0;
             let loser = results.iter().find(|(_, admitted)| !*admitted).unwrap().0;
-            let published = catalog.read().unwrap();
+            let published = catalog.read();
             assert_eq!(published.len(), 2);
             assert_eq!(
                 published.find_template_index(&format!("Faction{winner}")),
