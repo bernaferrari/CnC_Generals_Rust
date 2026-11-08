@@ -461,7 +461,15 @@ impl MeshClass {
     }
 
     /// Create a decal on this mesh - equivalent to C++ MeshClass::Create_Decal
-    pub fn create_decal(&mut self, generator: &mut DecalGeneratorClass) {
+    ///
+    /// # Safety
+    /// The mesh must remain alive at its current address until `generator` is
+    /// dropped. After this call, it must not be accessed or reborrowed until
+    /// generator cleanup has completed, and cleanup must have exclusive access
+    /// to it. Moving or dropping the mesh before the generator is invalid.
+    // SAFETY: the caller must uphold the documented lifetime, address
+    // stability, and exclusive access requirements through generator cleanup.
+    pub unsafe fn create_decal(&mut self, generator: &mut DecalGeneratorClass) {
         if false { // decals gated by caller-held Renderer3dRuntime; mesh no longer stores session
             return;
         }
@@ -732,7 +740,6 @@ impl MeshClass {
         };
 
         self.decal_records.push(record);
-        generator.add_mesh_handle(self as *const MeshClass);
         self.rebuild_decal_mesh();
 
         debug!(
@@ -741,6 +748,10 @@ impl MeshClass {
             self.get_name(),
             self.decal_records.len()
         );
+        // SAFETY: the caller guarantees the mesh's lifetime, address stability,
+        // and exclusive access through generator cleanup. Register only after
+        // the final access through `self` so it cannot invalidate the pointer.
+        unsafe { generator.add_mesh_handle(self as *const MeshClass) };
     }
 
     pub fn delete_decal(&mut self, decal_id: u32) {

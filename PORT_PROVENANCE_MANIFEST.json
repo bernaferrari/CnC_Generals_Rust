@@ -160453,7 +160453,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "95568cdaa52794872da7f4f70c86aa8ceb03ff49d236de27828c2efa8300f7eb",
+  "input_digest": "1d3f4e5f913b185513e94b26e098b8eabfbcaea66fc454e619197bae7fe2b2c4",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -215030,11 +215030,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 854,
+        "end_line": 892,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-particles/src/streak.rs",
-      "sha256": "283d133c8ea44436ab866dc45220947d5ef2c6836ec9c6fbd6b3246ea58c7fe8",
+      "sha256": "edee6ac84a151c2aef7df996dc3761c7d9ea37ae997a6dedc2e890fc729a7428",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -215102,11 +215102,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 861,
+        "end_line": 862,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/camera_system/camera.rs",
-      "sha256": "32bb58703d57ba52b0fc5c487bef4867acf92e1beae09776f2ce18ce927b956c",
+      "sha256": "49d0aa64da0fbef80e8c63d506c5ce7d78ceca1ed2e94078cb5c42d1fff09ccb",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -216374,11 +216374,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 435,
+        "end_line": 428,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WWLib/src/blit.rs",
-      "sha256": "f58c05724777e39eb2fc9cd1b0ee1f55e0238c954c7efcd510a370c793a160cb",
+      "sha256": "9f95396f3f42493cdc4c5276fc42ccac12240f77a5c7d85fdf75b0549443eead",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -218670,7 +218670,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WWSaveLoad/src/definition.rs",
-      "sha256": "fc2dd27ce522b988db50c3d2bc68e7b620bf9f4463d4006e66fd42c6a817e17e",
+      "sha256": "6b23b87b678353d07d72067c9a4b95ffeb53fd9558fd417b9af0f0c0e055f955",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -218798,11 +218798,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 801,
+        "end_line": 932,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WWSaveLoad/src/pointerremap.rs",
-      "sha256": "7a3c5c4c1791457abb09fee56070374bed5ccce5f16bda80dfab10fcc13ba908",
+      "sha256": "a67ed9681aa88657d0e29721d045375cf3e855941ba1e7e3281582b22f8571f8",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

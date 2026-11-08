@@ -529,7 +529,8 @@ impl RenderObjClass for Line3DRenderObj {
         self.sort_level = level;
     }
 
-    fn create_decal(&mut self, _generator: &mut DecalGeneratorClass) {
+    // SAFETY: this implementation registers no mesh and retains no pointer.
+    unsafe fn create_decal(&mut self, _generator: &mut DecalGeneratorClass) {
         // Lines don't support decals
     }
 

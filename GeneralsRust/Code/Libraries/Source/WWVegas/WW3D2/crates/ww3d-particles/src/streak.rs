@@ -423,26 +423,26 @@ impl StreakLine {
         };
 
         [
-            StreakVertex {
-                position: start - perpendicular * half_start_width,
-                color: start_color,
-                uv: Vec2::new(u_start, 0.0),
-            },
-            StreakVertex {
-                position: start + perpendicular * half_start_width,
-                color: start_color,
-                uv: Vec2::new(u_start, 1.0),
-            },
-            StreakVertex {
-                position: end - perpendicular * half_end_width,
-                color: end_color,
-                uv: Vec2::new(u_end, 0.0),
-            },
-            StreakVertex {
-                position: end + perpendicular * half_end_width,
-                color: end_color,
-                uv: Vec2::new(u_end, 1.0),
-            },
+            StreakVertex::new(
+                start - perpendicular * half_start_width,
+                start_color,
+                Vec2::new(u_start, 0.0),
+            ),
+            StreakVertex::new(
+                start + perpendicular * half_start_width,
+                start_color,
+                Vec2::new(u_start, 1.0),
+            ),
+            StreakVertex::new(
+                end - perpendicular * half_end_width,
+                end_color,
+                Vec2::new(u_end, 0.0),
+            ),
+            StreakVertex::new(
+                end + perpendicular * half_end_width,
+                end_color,
+                Vec2::new(u_end, 1.0),
+            ),
         ]
     }
 
@@ -466,11 +466,7 @@ impl StreakLine {
             let base_idx = vertices.len() as u16;
 
             // Center vertex
-            vertices.push(StreakVertex {
-                position: start,
-                color: start_color,
-                uv: Vec2::new(0.0, 0.5),
-            });
+            vertices.push(StreakVertex::new(start, start_color, Vec2::new(0.0, 0.5)));
 
             // Create a fan of vertices around the perimeter
             let segments = 8;
@@ -482,11 +478,11 @@ impl StreakLine {
                 let offset = perpendicular * cos_angle * half_width
                     + direction.cross(perpendicular).normalize() * sin_angle * half_width;
 
-                vertices.push(StreakVertex {
-                    position: start + offset,
-                    color: start_color,
-                    uv: Vec2::new(0.0, (i as f32) / (segments as f32)),
-                });
+                vertices.push(StreakVertex::new(
+                    start + offset,
+                    start_color,
+                    Vec2::new(0.0, (i as f32) / (segments as f32)),
+                ));
 
                 if i > 0 {
                     indices.extend_from_slice(&[
@@ -513,11 +509,7 @@ impl StreakLine {
             let base_idx = vertices.len() as u16;
 
             // Center vertex
-            vertices.push(StreakVertex {
-                position: end,
-                color: end_color,
-                uv: Vec2::new(1.0, 0.5),
-            });
+            vertices.push(StreakVertex::new(end, end_color, Vec2::new(1.0, 0.5)));
 
             // Create a fan of vertices around the perimeter
             let segments = 8;
@@ -529,11 +521,11 @@ impl StreakLine {
                 let offset = perpendicular * cos_angle * half_width
                     + direction.cross(perpendicular).normalize() * sin_angle * half_width;
 
-                vertices.push(StreakVertex {
-                    position: end + offset,
-                    color: end_color,
-                    uv: Vec2::new(1.0, (i as f32) / (segments as f32)),
-                });
+                vertices.push(StreakVertex::new(
+                    end + offset,
+                    end_color,
+                    Vec2::new(1.0, (i as f32) / (segments as f32)),
+                ));
 
                 if i > 0 {
                     indices.extend_from_slice(&[
@@ -658,27 +650,7 @@ impl StreakLine {
                 vertex: wgpu::VertexState {
                     module: &self.shader,
                     entry_point: Some("vs_main"),
-                    buffers: &[Some(wgpu::VertexBufferLayout {
-                        array_stride: std::mem::size_of::<StreakVertex>() as wgpu::BufferAddress,
-                        step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &[
-                            wgpu::VertexAttribute {
-                                offset: 0,
-                                shader_location: 0,
-                                format: wgpu::VertexFormat::Float32x3,
-                            },
-                            wgpu::VertexAttribute {
-                                offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
-                                shader_location: 1,
-                                format: wgpu::VertexFormat::Float32x4,
-                            },
-                            wgpu::VertexAttribute {
-                                offset: std::mem::size_of::<[f32; 7]>() as wgpu::BufferAddress,
-                                shader_location: 2,
-                                format: wgpu::VertexFormat::Float32x2,
-                            },
-                        ],
-                    })],
+                    buffers: &[Some(StreakVertex::layout())],
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
@@ -738,21 +710,32 @@ impl StreakLine {
 
 /// Vertex data for streak rendering
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct StreakVertex {
-    pub position: Vec3,
-    pub color: Vec4,
-    pub uv: Vec2,
+    pub position: [f32; 3],
+    pub color: [f32; 4],
+    pub uv: [f32; 2],
 }
 
-// Manual implementation of Pod and Zeroable
-// SAFETY: StreakVertex is #[repr(C)] with only Copy POD f32-vector fields
-// (Vec3, Vec4, Vec2); every bit pattern is a valid value with no interior
-// mutability, meeting bytemuck::Pod requirements for GPU upload buffers.
-unsafe impl bytemuck::Pod for StreakVertex {}
-// SAFETY: all-zero bytes are a valid (degenerate) StreakVertex value,
-// satisfying the Zeroable contract for this repr(C) all-f32 struct.
-unsafe impl bytemuck::Zeroable for StreakVertex {}
+impl StreakVertex {
+    fn new(position: Vec3, color: Vec4, uv: Vec2) -> Self {
+        Self {
+            position: position.to_array(),
+            color: color.to_array(),
+            uv: uv.to_array(),
+        }
+    }
+
+    fn layout() -> wgpu::VertexBufferLayout<'static> {
+        const ATTRIBUTES: [wgpu::VertexAttribute; 3] =
+            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4, 2 => Float32x2];
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &ATTRIBUTES,
+        }
+    }
+}
 
 /// Segmented line renderer for managing multiple streak lines
 #[derive(Debug)]
@@ -849,5 +832,60 @@ impl LineGroupRenderer {
         for line in &self.lines {
             line.render(render_pass);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn streak_vertex_upload_matches_shader_layout() {
+        let layout = StreakVertex::layout();
+        assert_eq!(std::mem::size_of::<StreakVertex>(), 36);
+        assert_eq!(std::mem::offset_of!(StreakVertex, position), 0);
+        assert_eq!(std::mem::offset_of!(StreakVertex, color), 12);
+        assert_eq!(std::mem::offset_of!(StreakVertex, uv), 28);
+        assert_eq!(layout.array_stride, 36);
+        assert_eq!(layout.step_mode, wgpu::VertexStepMode::Vertex);
+        assert_eq!(
+            layout.attributes,
+            &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: 12,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: 28,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+            ]
+        );
+
+        let vertices = [
+            StreakVertex::new(
+                Vec3::new(1.0, 2.0, 3.0),
+                Vec4::new(0.1, 0.2, 0.3, 0.4),
+                Vec2::new(0.5, 0.75),
+            ),
+            StreakVertex::new(
+                Vec3::new(-1.0, -2.0, -3.0),
+                Vec4::new(0.9, 0.8, 0.7, 0.6),
+                Vec2::new(1.0, 0.0),
+            ),
+        ];
+        let uploaded: &[f32] = bytemuck::cast_slice(&vertices);
+        assert_eq!(
+            uploaded,
+            &[1.0, 2.0, 3.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75,
+              -1.0, -2.0, -3.0, 0.9, 0.8, 0.7, 0.6, 1.0, 0.0]
+        );
     }
 }

@@ -7,6 +7,7 @@
 //! The system supports both regular pointer remapping and reference-counted pointer
 //! remapping with automatic reference management.
 
+use std::any::Any;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -91,7 +92,7 @@ struct PtrRemapStruct {
     /// The current pointer value that needs remapping
     pointer_value: usize,
     /// Callback to update the pointer once remapping is found
-    update_callback: Box<dyn FnOnce(usize) + Send>,
+    update_callback: Box<dyn FnOnce(usize, &BTreeMap<usize, Arc<dyn Any + Send + Sync>>) -> Result<(), PointerRemapError> + Send>,
     /// Debug information
     #[cfg(debug_assertions)]
     debug_info: DebugInfo,
@@ -130,6 +131,8 @@ pub struct PointerRemapClass {
     refcount_request_queue: Vec<PtrRemapStruct>,
     /// Fast lookup map for pointer pairs (for O(1) lookups after sorting)
     pointer_lookup_map: BTreeMap<usize, usize>,
+    /// Owners of destinations registered for typed remapping.
+    owned_destinations: BTreeMap<usize, Arc<dyn Any + Send + Sync>>,
     /// Flag to track if tables need resorting
     needs_sorting: bool,
 }
@@ -148,6 +151,7 @@ impl PointerRemapClass {
             pointer_request_queue: Vec::with_capacity(POINTER_TABLES_GROWTH_STEP),
             refcount_request_queue: Vec::with_capacity(POINTER_TABLES_GROWTH_STEP),
             pointer_lookup_map: BTreeMap::new(),
+            owned_destinations: BTreeMap::new(),
             needs_sorting: false,
         }
     }
@@ -157,12 +161,17 @@ impl PointerRemapClass {
         self.pointer_pair_table.clear();
         self.pointer_request_queue.clear();
         self.refcount_request_queue.clear();
+        self.owned_destinations.clear();
         self.pointer_lookup_map.clear();
         self.needs_sorting = false;
     }
 
     /// Process all pending pointer remap requests
     /// This sorts the tables and performs all requested remappings
+    ///
+    /// Typed requests require the mapped destination to have been registered
+    /// with `register_owned_pointer` using the requested type. An unowned or
+    /// differently typed destination produces `RefCountError`.
     pub fn process(&mut self) -> Result<(), PointerRemapError> {
         // Sort pointer pairs if we have any
         if !self.pointer_pair_table.is_empty() && self.needs_sorting {
@@ -208,6 +217,20 @@ impl PointerRemapClass {
         self.needs_sorting = true;
     }
 
+    /// Register a mapping whose destination is kept alive for typed remapping.
+    ///
+    /// The remapper retains the destination until reset or drop. Raw pointers
+    /// returned by callbacks do not themselves keep the destination alive.
+    pub fn register_owned_pointer<T: Send + Sync + 'static>(
+        &mut self,
+        old_pointer: usize,
+        destination: Arc<T>,
+    ) {
+        let address = Arc::as_ptr(&destination) as usize;
+        self.owned_destinations.insert(address, destination);
+        self.register_pointer(old_pointer, address);
+    }
+
     /// Register a pointer mapping using raw pointers (for C++ compatibility)
     pub fn register_raw_pointer<T>(&mut self, old_pointer: *const T, new_pointer: *const T) {
         self.register_pointer(old_pointer as usize, new_pointer as usize);
@@ -226,8 +249,9 @@ impl PointerRemapClass {
     {
         let remap = PtrRemapStruct {
             pointer_value: current_value as usize,
-            update_callback: Box::new(move |new_addr| {
+            update_callback: Box::new(move |new_addr, _| {
                 update_fn(new_addr as *const T);
+                Ok(())
             }),
             debug_info: DebugInfo {
                 file: file.to_string(),
@@ -245,14 +269,19 @@ impl PointerRemapClass {
     {
         let remap = PtrRemapStruct {
             pointer_value: current_value as usize,
-            update_callback: Box::new(move |new_addr| {
+            update_callback: Box::new(move |new_addr, _| {
                 update_fn(new_addr as *const T);
+                Ok(())
             }),
         };
         self.pointer_request_queue.push(remap);
     }
 
     /// Request remapping of a reference-counted pointer
+    ///
+    /// Non-null destinations must be registered with `register_owned_pointer`.
+    /// The callback receives a non-owning pointer; it must arrange ownership
+    /// before dereferencing it after the remapper is reset or dropped.
     #[cfg(debug_assertions)]
     pub fn request_ref_counted_pointer_remap<T, F>(
         &mut self,
@@ -261,24 +290,24 @@ impl PointerRemapClass {
         file: &str,
         line: u32,
     ) where
-        T: RefCountable,
+        T: RefCountable + 'static,
         F: FnOnce(*const T) + Send + 'static,
     {
         let remap = PtrRemapStruct {
             pointer_value: current_value as usize,
-            update_callback: Box::new(move |new_addr| {
-                let new_ptr = new_addr as *const T;
-                if !new_ptr.is_null() {
-                    // SAFETY: new_addr is the remapped address from the load-time
-                    // pointer fixup table (old save-path address -> live object),
-                    // mirroring C++ PointerRemapClass::Process_Request_Table with
-                    // refcount=true: on a successful lookup new_ptr is a valid,
-                    // initialized T; add_ref only bumps its refcount; null is skipped.
-                    unsafe {
-                        (*new_ptr).add_ref();
-                    }
+            update_callback: Box::new(move |new_addr, owners| {
+                if new_addr == 0 {
+                    update_fn(std::ptr::null());
+                } else {
+                    let owner = owners.get(&new_addr)
+                        .and_then(|owner| owner.downcast_ref::<T>())
+                        .ok_or_else(|| PointerRemapError::RefCountError(
+                            "Remapped destination is not registered with the requested type".to_string()
+                        ))?;
+                    owner.add_ref();
+                    update_fn(owner as *const T);
                 }
-                update_fn(new_ptr);
+                Ok(())
             }),
             debug_info: DebugInfo {
                 file: file.to_string(),
@@ -289,33 +318,40 @@ impl PointerRemapClass {
     }
 
     /// Request remapping of a reference-counted pointer (release mode)
+    ///
+    /// Non-null destinations must be registered with `register_owned_pointer`.
+    /// The callback receives a non-owning pointer; it must arrange ownership
+    /// before dereferencing it after the remapper is reset or dropped.
     #[cfg(not(debug_assertions))]
     pub fn request_ref_counted_pointer_remap<T, F>(&mut self, current_value: *const T, update_fn: F)
     where
-        T: RefCountable,
+        T: RefCountable + 'static,
         F: FnOnce(*const T) + Send + 'static,
     {
         let remap = PtrRemapStruct {
             pointer_value: current_value as usize,
-            update_callback: Box::new(move |new_addr| {
-                let new_ptr = new_addr as *const T;
-                if !new_ptr.is_null() {
-                    // SAFETY: Same contract as the debug variant above: new_addr is
-                    // the remapped address from the load-time fixup table (old
-                    // save-path address -> live object, C++ Process_Request_Table
-                    // refcount=true); on lookup success new_ptr is a valid,
-                    // initialized T; add_ref only bumps its refcount; null skipped.
-                    unsafe {
-                        (*new_ptr).add_ref();
-                    }
+            update_callback: Box::new(move |new_addr, owners| {
+                if new_addr == 0 {
+                    update_fn(std::ptr::null());
+                } else {
+                    let owner = owners.get(&new_addr)
+                        .and_then(|owner| owner.downcast_ref::<T>())
+                        .ok_or_else(|| PointerRemapError::RefCountError(
+                            "Remapped destination is not registered with the requested type".to_string()
+                        ))?;
+                    owner.add_ref();
+                    update_fn(owner as *const T);
                 }
-                update_fn(new_ptr);
+                Ok(())
             }),
         };
         self.refcount_request_queue.push(remap);
     }
 
     /// Safe Arc-based reference counted pointer remapping
+    ///
+    /// Non-null destinations must be registered with `register_owned_pointer`
+    /// using the same concrete type.
     pub fn request_arc_remap<T>(
         &mut self,
         old_arc: &Arc<T>,
@@ -326,15 +362,18 @@ impl PointerRemapClass {
         let old_addr = Arc::as_ptr(old_arc) as usize;
         let remap = PtrRemapStruct {
             pointer_value: old_addr,
-            update_callback: Box::new(move |new_addr| {
+            update_callback: Box::new(move |new_addr, owners| {
                 if new_addr == 0 {
                     update_fn(None);
                 } else {
-                    // In a real implementation, this would need a registry
-                    // of Arc instances to safely reconstruct them
-                    log::warn!("Arc reconstruction not implemented - setting to None");
-                    update_fn(None);
+                    let owner = owners.get(&new_addr)
+                        .and_then(|owner| Arc::clone(owner).downcast::<T>().ok())
+                        .ok_or_else(|| PointerRemapError::RefCountError(
+                            "Remapped destination is not registered with the requested type".to_string()
+                        ))?;
+                    update_fn(Some(owner));
                 }
+                Ok(())
             }),
             #[cfg(debug_assertions)]
             debug_info: DebugInfo {
@@ -359,6 +398,7 @@ impl PointerRemapClass {
         // Process each request
         let mut requests_to_process = Vec::new();
         std::mem::swap(&mut requests_to_process, request_queue);
+        let mut first_error = None;
 
         for request in requests_to_process {
             let pointer_to_remap = request.pointer_value;
@@ -367,11 +407,13 @@ impl PointerRemapClass {
             match self.pointer_lookup_map.get(&pointer_to_remap) {
                 Some(&new_pointer) => {
                     // Found mapping - update the pointer
-                    (request.update_callback)(new_pointer);
+                    if let Err(error) = (request.update_callback)(new_pointer, &self.owned_destinations) {
+                        first_error.get_or_insert(error);
+                    }
                 }
                 None => {
                     // Failed to remap - set to null and log error
-                    (request.update_callback)(0);
+                    (request.update_callback)(0, &self.owned_destinations)?;
 
                     #[cfg(debug_assertions)]
                     {
@@ -393,7 +435,10 @@ impl PointerRemapClass {
             }
         }
 
-        Ok(())
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 
     /// Get statistics about the pointer remapping state
@@ -480,6 +525,92 @@ mod tests {
         fn ref_count(&self) -> u32 {
             self.ref_count.load(Ordering::SeqCst)
         }
+    }
+
+    #[test]
+    fn refcount_remap_uses_live_owned_destination() {
+        let mut remap = PointerRemapClass::new();
+        let destination = Arc::new(MockRefCountable::new(84));
+        let expected = Arc::as_ptr(&destination) as usize;
+        remap.register_owned_pointer(0x1000, Arc::clone(&destination));
+        let weak = Arc::downgrade(&destination);
+        drop(destination);
+        let result = Arc::new(Mutex::new(None));
+        let result_clone = Arc::clone(&result);
+        let callback = move |ptr: *const MockRefCountable| {
+            *result_clone.lock().unwrap() = Some(ptr as usize);
+        };
+        #[cfg(debug_assertions)]
+        remap.request_ref_counted_pointer_remap(0x1000 as *const MockRefCountable, callback, file!(), line!());
+        #[cfg(not(debug_assertions))]
+        remap.request_ref_counted_pointer_remap(0x1000 as *const MockRefCountable, callback);
+        remap.process().unwrap();
+        assert_eq!(*result.lock().unwrap(), Some(expected));
+        let destination = weak.upgrade().unwrap();
+        assert_eq!(destination.ref_count(), 2);
+        assert_eq!(destination.value, 84);
+    }
+
+    #[test]
+    fn refcount_remap_rejects_unowned_integer_destination() {
+        let mut remap = PointerRemapClass::new();
+        remap.register_pointer(0x1000, 0x2000);
+        #[cfg(debug_assertions)]
+        remap.request_ref_counted_pointer_remap(0x1000 as *const MockRefCountable, |_| {}, file!(), line!());
+        #[cfg(not(debug_assertions))]
+        remap.request_ref_counted_pointer_remap(0x1000 as *const MockRefCountable, |_| {});
+        assert!(matches!(remap.process(), Err(PointerRemapError::RefCountError(_))));
+    }
+
+    #[test]
+    fn refcount_remap_rejects_wrong_owned_type() {
+        let mut remap = PointerRemapClass::new();
+        remap.register_owned_pointer(0x1000, Arc::new(84i32));
+        #[cfg(debug_assertions)]
+        remap.request_ref_counted_pointer_remap(0x1000 as *const MockRefCountable, |_| {}, file!(), line!());
+        #[cfg(not(debug_assertions))]
+        remap.request_ref_counted_pointer_remap(0x1000 as *const MockRefCountable, |_| {});
+        assert!(matches!(remap.process(), Err(PointerRemapError::RefCountError(_))));
+    }
+
+    #[test]
+    fn regular_requests_precede_sorted_refcount_requests() {
+        let mut remap = PointerRemapClass::new();
+        let destination = Arc::new(MockRefCountable::new(1));
+        remap.register_owned_pointer(0x1000, Arc::clone(&destination));
+        remap.register_owned_pointer(0x2000, Arc::clone(&destination));
+        let order = Arc::new(Mutex::new(Vec::new()));
+        for id in [0x2000usize, 0x1000] {
+            let order = Arc::clone(&order);
+            let callback = move |_: *const MockRefCountable| order.lock().unwrap().push(id);
+            #[cfg(debug_assertions)]
+            remap.request_ref_counted_pointer_remap(id as *const MockRefCountable, callback, file!(), line!());
+            #[cfg(not(debug_assertions))]
+            remap.request_ref_counted_pointer_remap(id as *const MockRefCountable, callback);
+        }
+        let regular_order = Arc::clone(&order);
+        #[cfg(debug_assertions)]
+        remap.request_pointer_remap(0x2000 as *const MockRefCountable, move |_| regular_order.lock().unwrap().push(0), file!(), line!());
+        #[cfg(not(debug_assertions))]
+        remap.request_pointer_remap(0x2000 as *const MockRefCountable, move |_| regular_order.lock().unwrap().push(0));
+        remap.process().unwrap();
+        assert_eq!(*order.lock().unwrap(), vec![0, 0x1000, 0x2000]);
+        assert_eq!(destination.ref_count(), 3);
+    }
+
+    #[test]
+    fn arc_remap_returns_registered_owner() {
+        let mut remap = PointerRemapClass::new();
+        let old = Arc::new(42);
+        let destination = Arc::new(84);
+        remap.register_owned_pointer(Arc::as_ptr(&old) as usize, Arc::clone(&destination));
+        let result = Arc::new(Mutex::new(None));
+        let result_clone = Arc::clone(&result);
+        remap.request_arc_remap(&old, move |mapped| *result_clone.lock().unwrap() = mapped);
+        remap.process().unwrap();
+        let mapped = result.lock().unwrap();
+        assert!(Arc::ptr_eq(mapped.as_ref().unwrap(), &destination));
+        assert_eq!(**mapped.as_ref().unwrap(), 84);
     }
 
     #[test]

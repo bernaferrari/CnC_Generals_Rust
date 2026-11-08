@@ -45,7 +45,7 @@
 //! ```
 
 use crate::saveload::{
-    ChunkLoad, ChunkLoadExt, ChunkSave, ChunkSaveExt, Persist, SaveLoadError, SaveLoadResult,
+    ChunkLoad, ChunkLoadExt, ChunkSave, ChunkSaveExt, ChunkScalar, Persist, SaveLoadError, SaveLoadResult,
 };
 use std::any::Any;
 use std::fmt;
@@ -361,7 +361,7 @@ impl Definition {
     }
 
     /// Write a micro-chunk with typed data
-    fn write_micro_chunk<T: Sized>(
+    fn write_micro_chunk<T: ChunkScalar>(
         &self,
         chunk_save: &mut dyn ChunkSave,
         id: u32,
@@ -419,7 +419,7 @@ impl Definition {
     }
 
     /// Read micro-chunk typed value
-    fn read_micro_chunk_value<T: Sized + Default>(
+    fn read_micro_chunk_value<T: ChunkScalar>(
         &self,
         chunk_load: &mut dyn ChunkLoad,
     ) -> SaveLoadResult<T> {

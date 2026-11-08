@@ -120,8 +120,24 @@ pub trait RenderObjClass: std::fmt::Debug + Send + Sync + Any {
     /// Set sort level for rendering order
     fn set_sort_level(&mut self, level: i32);
 
-    /// Create a decal on this object
-    fn create_decal(&mut self, generator: &mut DecalGeneratorClass);
+    /// Create a decal on this object.
+    ///
+    /// # Safety
+    /// If this object can register a mesh with the generator, the caller must
+    /// keep that mesh alive and at the same address until the generator is
+    /// dropped. The caller must not access or reborrow the registered mesh in
+    /// the meantime, and must ensure that generator destruction has exclusive
+    /// access to it. In particular, moving or dropping the mesh first is invalid.
+    ///
+    /// ```compile_fail
+    /// use ww3d_renderer_3d::render_object_system::{DecalGeneratorClass, RenderObjClass};
+    /// fn register(object: &mut dyn RenderObjClass, generator: &mut DecalGeneratorClass) {
+    ///     object.create_decal(generator);
+    /// }
+    /// ```
+    // SAFETY: implementors may retain a mesh address; callers must uphold the
+    // lifetime, stability, and exclusivity requirements documented above.
+    unsafe fn create_decal(&mut self, generator: &mut DecalGeneratorClass);
 
     /// Delete a decal from this object
     fn delete_decal(&mut self, decal_id: u32);
@@ -815,7 +831,16 @@ impl DecalGeneratorClass {
         self.logical_id
     }
 
-    pub fn add_mesh_handle(&self, mesh_ptr: *const MeshClass) {
+    /// Register a mesh for cleanup when this generator is dropped.
+    ///
+    /// # Safety
+    /// A non-null pointer must originate from an exclusive borrow of a live
+    /// `MeshClass`. The mesh must remain alive at the same address until this
+    /// generator is dropped, and must not be accessed or reborrowed before
+    /// cleanup. Generator destruction must have exclusive access to the mesh.
+    // SAFETY: the caller must uphold the documented pointer validity and
+    // exclusivity requirements until the registered cleanup completes.
+    pub(crate) unsafe fn add_mesh_handle(&self, mesh_ptr: *const MeshClass) {
         if mesh_ptr.is_null() {
             return;
         }
@@ -897,13 +922,10 @@ impl Drop for DecalGeneratorClass {
                     continue;
                 }
 
-                // SAFETY: each address came from `add_mesh_handle(self as
-                // *const MeshClass)` called inside `MeshClass::create_decal`,
-                // so it denoted a live, aligned, initialized MeshClass; meshes
-                // registered here outlive this generator and Drop's `as_mut`
-                // borrow is exclusive; null/small/misaligned cases skipped.
+                // SAFETY: registration requires the caller to keep the mesh
+                // alive and stationary, without intervening accesses or
+                // reborrows, and to provide exclusive access during cleanup.
                 unsafe {
-                    // This is unavoidable for C++ interop, but validated above
                     if let Some(mesh) = mesh_ptr.as_mut() {
                         mesh.delete_decal(self.logical_id);
                     }

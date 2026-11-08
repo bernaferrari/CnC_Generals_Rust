@@ -52,7 +52,9 @@ use std::time::Instant;
 ///     fn save(&self, chunk_save: &mut dyn ChunkSave) -> SaveLoadResult<()> {
 ///         use ChunkSaveExt;
 ///         chunk_save.write_value(&self.id)?;
-///         chunk_save.write_value(&self.position)?;
+///         chunk_save.write_value(&self.position.0)?;
+///         chunk_save.write_value(&self.position.1)?;
+///         chunk_save.write_value(&self.position.2)?;
 ///         chunk_save.write_value(&self.health)?;
 ///         Ok(())
 ///     }
@@ -60,7 +62,9 @@ use std::time::Instant;
 ///     fn load(&mut self, chunk_load: &mut dyn ChunkLoad) -> SaveLoadResult<()> {
 ///         use ChunkLoadExt;
 ///         self.id = chunk_load.read_value()?;
-///         self.position = chunk_load.read_value()?;
+///         self.position.0 = chunk_load.read_value()?;
+///         self.position.1 = chunk_load.read_value()?;
+///         self.position.2 = chunk_load.read_value()?;
 ///         self.health = chunk_load.read_value()?;
 ///         Ok(())
 ///     }
@@ -250,19 +254,73 @@ pub trait ChunkSave {
     fn write(&mut self, data: &[u8]) -> SaveLoadResult<()>;
 }
 
+mod scalar_sealed {
+    pub trait Sealed {}
+}
+
+/// A primitive numeric value encoded using its native-endian byte representation.
+///
+/// Only built-in integer and floating-point types implement this sealed trait.
+/// Composite data must be serialized field by field.
+///
+/// ```compile_fail
+/// use ww_save_load::saveload::{ChunkLoad, ChunkLoadExt};
+/// fn read(load: &mut dyn ChunkLoad) { let _: bool = load.read_value().unwrap(); }
+/// ```
+/// ```compile_fail
+/// use ww_save_load::saveload::{ChunkSave, ChunkSaveExt};
+/// fn write(save: &mut dyn ChunkSave) { save.write_value(&true).unwrap(); }
+/// ```
+/// ```compile_fail
+/// use ww_save_load::saveload::{ChunkLoad, ChunkLoadExt};
+/// fn read(load: &mut dyn ChunkLoad) { let _: String = load.read_value().unwrap(); }
+/// ```
+/// ```compile_fail
+/// use ww_save_load::saveload::{ChunkSave, ChunkSaveExt};
+/// fn write(save: &mut dyn ChunkSave) { save.write_value(&String::new()).unwrap(); }
+/// ```
+/// ```compile_fail
+/// use ww_save_load::saveload::{ChunkLoad, ChunkLoadExt};
+/// #[derive(Default)]
+/// struct Padded { a: u8, b: u32 }
+/// fn read(load: &mut dyn ChunkLoad) { let _: Padded = load.read_value().unwrap(); }
+/// ```
+/// ```compile_fail
+/// use ww_save_load::saveload::{ChunkSave, ChunkSaveExt};
+/// struct Padded { a: u8, b: u32 }
+/// fn write(save: &mut dyn ChunkSave, value: &Padded) { save.write_value(value).unwrap(); }
+/// ```
+pub trait ChunkScalar: scalar_sealed::Sealed + Sized {
+    #[doc(hidden)]
+    fn write_to<W: ChunkSave + ?Sized>(&self, writer: &mut W) -> SaveLoadResult<()>;
+    #[doc(hidden)]
+    fn read_from<R: ChunkLoad + ?Sized>(reader: &mut R) -> SaveLoadResult<Self>;
+}
+
+macro_rules! chunk_scalars {
+    ($($ty:ty),* $(,)?) => {$(
+        impl scalar_sealed::Sealed for $ty {}
+        impl ChunkScalar for $ty {
+            fn write_to<W: ChunkSave + ?Sized>(&self, writer: &mut W) -> SaveLoadResult<()> {
+                writer.write(&self.to_ne_bytes())
+            }
+            fn read_from<R: ChunkLoad + ?Sized>(reader: &mut R) -> SaveLoadResult<Self> {
+                let mut bytes = [0u8; std::mem::size_of::<Self>()];
+                reader.read(&mut bytes)?;
+                Ok(Self::from_ne_bytes(bytes))
+            }
+        }
+    )*};
+}
+
+chunk_scalars!(u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize, f32, f64);
+
 /// Extension trait for writing typed values
 /// This is separate to allow ChunkSave to be used as a trait object
 pub trait ChunkSaveExt: ChunkSave {
-    /// Write a typed value to the current chunk
-    fn write_value<T: Sized>(&mut self, value: &T) -> SaveLoadResult<()> {
-        // SAFETY: Reinterprets `value` as its on-disk byte image for the chunk
-        // writer, matching C++ ChunkSaveClass::Write(value, sizeof(T)). The
-        // slice aliases an initialized `T` for this call only, is never written
-        // through, and spans exactly size_of::<T>() bytes, so it stays in bounds.
-        let data = unsafe {
-            std::slice::from_raw_parts(value as *const T as *const u8, std::mem::size_of::<T>())
-        };
-        self.write(data)
+    /// Write a numeric value in native-endian byte order.
+    fn write_value<T: ChunkScalar>(&mut self, value: &T) -> SaveLoadResult<()> {
+        value.write_to(self)
     }
 }
 
@@ -288,21 +346,12 @@ pub trait ChunkLoad {
 /// Extension trait for reading typed values
 /// This is separate to allow ChunkLoad to be used as a trait object
 pub trait ChunkLoadExt: ChunkLoad {
-    /// Read a typed value from the current chunk
-    fn read_value<T: Sized + Default>(&mut self) -> SaveLoadResult<T> {
-        let mut value = T::default();
-        // SAFETY: Overlays a mutable byte slice on `value` (an initialized
-        // local T from T::default()) so the chunk reader can fill exactly
-        // size_of::<T>() bytes — the inverse of C++ ChunkLoadClass::Read.
-        // In-bounds by construction; the file's bits land in a valid T.
-        let data = unsafe {
-            std::slice::from_raw_parts_mut(
-                &mut value as *mut T as *mut u8,
-                std::mem::size_of::<T>(),
-            )
-        };
-        self.read(data)?;
-        Ok(value)
+    /// Read a numeric value in native-endian byte order.
+    ///
+    /// Errors from the reader are propagated. As with the original API, a
+    /// successful short read leaves the remaining bytes zero.
+    fn read_value<T: ChunkScalar>(&mut self) -> SaveLoadResult<T> {
+        T::read_from(self)
     }
 }
 
@@ -989,6 +1038,53 @@ mod tests {
                 Err(SaveLoadError::General("No chunk open".to_string()))
             }
         }
+    }
+
+    #[test]
+    fn scalar_values_use_native_bytes_and_propagate_read_errors() {
+        let mut save = MockChunkSave::new();
+        save.begin_chunk(1).unwrap();
+        save.write_value(&0x1234u16).unwrap();
+        save.write_value(&-2i32).unwrap();
+        save.write_value(&1.5f32).unwrap();
+        save.end_chunk().unwrap();
+        let expected = if cfg!(target_endian = "little") {
+            vec![0x34, 0x12, 0xfe, 0xff, 0xff, 0xff, 0, 0, 0xc0, 0x3f]
+        } else {
+            vec![0x12, 0x34, 0xff, 0xff, 0xff, 0xfe, 0x3f, 0xc0, 0, 0]
+        };
+        assert_eq!(save.chunks[0].1, expected);
+        let mut load = MockChunkLoad::new(save.chunks);
+        assert!(load.open_chunk().unwrap());
+        assert_eq!(load.read_value::<u16>().unwrap(), 0x1234);
+        assert_eq!(load.read_value::<i32>().unwrap(), -2);
+        assert_eq!(load.read_value::<f32>().unwrap(), 1.5);
+        load.close_chunk().unwrap();
+        assert!(matches!(load.read_value::<u32>(), Err(SaveLoadError::General(_))));
+    }
+
+    #[test]
+    fn scalar_short_successful_read_keeps_unread_bytes_zero() {
+        let mut load = MockChunkLoad::new(vec![(1, vec![0x12])]);
+        load.open_chunk().unwrap();
+        assert_eq!(load.read_value::<u32>().unwrap(), u32::from_ne_bytes([0x12, 0, 0, 0]));
+    }
+
+    #[test]
+    fn scalar_read_propagates_short_read_error() {
+        struct StrictLoad;
+        impl ChunkLoad for StrictLoad {
+            fn open_chunk(&mut self) -> SaveLoadResult<bool> { Ok(true) }
+            fn close_chunk(&mut self) -> SaveLoadResult<()> { Ok(()) }
+            fn current_chunk_id(&self) -> ChunkId { 1 }
+            fn read(&mut self, _: &mut [u8]) -> SaveLoadResult<usize> {
+                Err(SaveLoadError::IoError("short read".into()))
+            }
+        }
+        assert!(matches!(
+            StrictLoad.read_value::<u32>(),
+            Err(SaveLoadError::IoError(message)) if message == "short read"
+        ));
     }
 
     #[test]

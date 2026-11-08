@@ -24,13 +24,17 @@ impl BenchmarkObject {
 
 impl Persist for BenchmarkObject {
     fn save(&self, chunk_save: &mut dyn ChunkSave) -> SaveLoadResult<()> {
-        chunk_save.write_value(&self.data)?;
+        for value in &self.data {
+            chunk_save.write_value(value)?;
+        }
         chunk_save.write_value(&self.counter)?;
         Ok(())
     }
 
     fn load(&mut self, chunk_load: &mut dyn ChunkLoad) -> SaveLoadResult<()> {
-        self.data = chunk_load.read_value()?;
+        for value in &mut self.data {
+            *value = chunk_load.read_value()?;
+        }
         self.counter = chunk_load.read_value()?;
         Ok(())
     }

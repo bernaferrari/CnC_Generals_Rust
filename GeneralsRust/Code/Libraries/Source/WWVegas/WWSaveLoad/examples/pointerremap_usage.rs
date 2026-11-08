@@ -107,7 +107,7 @@ fn main() {
     // Simulate loading new objects with different addresses
     let new_obj1 = Box::new(GameObject::new(1, "Player", 10.0, 20.0, 30.0));
     let new_obj2 = Box::new(GameObject::new(2, "Enemy", 100.0, 200.0, 300.0));
-    let new_obj3 = Box::new(RefCountedResource::new("Texture.png"));
+    let new_obj3 = Arc::new(RefCountedResource::new("Texture.png"));
 
     println!("   New Object 1: {:p} - {:?}", new_obj1.as_ref(), new_obj1);
     println!("   New Object 2: {:p} - {:?}", new_obj2.as_ref(), new_obj2);
@@ -126,7 +126,7 @@ fn main() {
     // Register the mappings between old and new addresses
     pointer_remap.register_pointer(old_addr1, new_addr1);
     pointer_remap.register_pointer(old_addr2, new_addr2);
-    pointer_remap.register_pointer(old_addr3, new_addr3);
+    pointer_remap.register_owned_pointer(old_addr3, Arc::clone(&new_obj3));
 
     println!(
         "   Registered mapping: 0x{:x} -> 0x{:x}",

@@ -272,8 +272,12 @@ impl crate::render_object_system::RenderObjClass for MeshClass {
         self.sort_level = level as u32;
     }
 
-    fn create_decal(&mut self, generator: &mut crate::render_object_system::DecalGeneratorClass) {
-        MeshClass::create_decal(self, generator);
+    // SAFETY: callers of the trait method must satisfy the mesh lifetime,
+    // address stability, and exclusive cleanup requirements.
+    unsafe fn create_decal(&mut self, generator: &mut crate::render_object_system::DecalGeneratorClass) {
+        // SAFETY: the trait method requires the same mesh lifetime and
+        // exclusivity guarantees as the inherent method.
+        unsafe { MeshClass::create_decal(self, generator) };
     }
 
     fn delete_decal(&mut self, decal_id: u32) {
