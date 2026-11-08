@@ -73,6 +73,8 @@ impl SmokeOptions {
 }
 
 /// Run the executable smoke with a timeout budget.
+/// The budget is shared by both boot attempts and their retry delay. Polling
+/// and synchronous child termination or filesystem operations may add latency.
 ///
 /// `use_new_game_path`: when true, drive Start via `queue_new_game` (Menu drain).
 /// When false, use direct `start_game` runtime host command.
@@ -216,18 +218,22 @@ fn run_executable_smoke_with_launch_and_driver(
     driver: SmokeDriver,
     options: &SmokeOptions,
 ) -> ExecutableSmokeResult {
-    // Retry one early boot failure after this invocation's child is cleaned up.
-    let first = run_executable_smoke_once(timeout, use_new_game_path, launch, driver, options);
+    // Both attempts and their backoff share the invocation's wall budget.
+    let started = Instant::now();
+    let first = run_executable_smoke_once(timeout, started, use_new_game_path, launch, driver, options);
     let retryable = matches!(
         first.status.as_str(),
         "process_exited" | "timeout" | "no_menu"
     ) && !first.reached_menu
         && !first.reached_ingame;
-    if !retryable {
+    if !retryable || started.elapsed() >= timeout {
         return first;
     }
-    std::thread::sleep(Duration::from_millis(1500));
-    let second = run_executable_smoke_once(timeout, use_new_game_path, launch, driver, options);
+    std::thread::sleep(Duration::from_millis(1500).min(timeout.saturating_sub(started.elapsed())));
+    if started.elapsed() >= timeout {
+        return first;
+    }
+    let second = run_executable_smoke_once(timeout, started, use_new_game_path, launch, driver, options);
     if second.executable_host_ok || second.reached_menu || second.reached_ingame {
         let mut out = second;
         out.detail = format!(

@@ -87,6 +87,35 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn smoke_timeout_does_not_restart_or_leave_a_stuck_child() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("stuck-generals");
+        fs::write(&executable, "#!/bin/sh\necho $$ >> \"$(dirname \"$0\")/pids\"\nexec /bin/sleep 30\n").unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+        isolated_environment_case(
+            "smoke_timeout_does_not_restart_or_leave_a_stuck_child",
+            "stuck",
+            "GENERALS_RUNTIME_EXE",
+            executable.as_os_str(),
+            || {
+                let executable = PathBuf::from(std::env::var_os("GENERALS_RUNTIME_EXE").unwrap());
+                let start = Instant::now();
+                let result = run_load_retail_skirmish_map(Duration::from_millis(300), &SmokeOptions::default());
+                assert_eq!(result.status, "timeout", "{}", result.detail);
+                assert!(start.elapsed() < Duration::from_millis(1400), "timeout was retried: {:?}", start.elapsed());
+                let pids = fs::read_to_string(executable.parent().unwrap().join("pids")).unwrap();
+                let pids: Vec<_> = pids.lines().collect();
+                assert_eq!(pids.len(), 1, "unexpected child launches: {pids:?}");
+                let alive = Command::new("/bin/kill").args(["-0", pids[0]]).stdout(Stdio::null()).stderr(Stdio::null()).status().unwrap().success();
+                assert!(!alive, "timed out child {} remains alive", pids[0]);
+            },
+        );
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn parallel_smoke_children_resolve_their_own_retail_map() {

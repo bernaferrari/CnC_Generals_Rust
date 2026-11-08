@@ -197,6 +197,7 @@ struct SmokeRunState {
 
 fn run_executable_smoke_once(
     timeout: Duration,
+    started: Instant,
     use_new_game_path: bool,
     launch: ExecutableSmokeLaunch,
     driver: SmokeDriver,
@@ -221,7 +222,6 @@ fn run_executable_smoke_once(
         map,
     } = boot;
 
-    let started = Instant::now();
     let mut st = SmokeRunState {
         screenshot_path: options.screenshot_path.clone(),
         boot_shell_menu_goal: matches!(driver, SmokeDriver::MenuOnly),
