@@ -4,13 +4,12 @@
 //! Comprehensive mouse input handling with position tracking, button states,
 //! scroll wheel support, mouse sensitivity configuration, cursor tooltip
 //! rendering state, and cursor management.
-//!
-//! Provides `the_mouse()` singleton accessor matching the C++ `TheMouse` global.
+//! Live input and WND callbacks borrow the receiving GameClient's mouse; no
+//! process-wide cursor selects an owner.
 //!
 //! C++ Reference: GeneralsMD/Code/GameEngine/Include/GameClient/Mouse.h
 //! C++ Impl:      GeneralsMD/Code/GameEngine/Source/GameClient/Input/Mouse.cpp
 
-use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use winit::event::{ElementState, MouseButton as WinitMouseButton, MouseScrollDelta};
 
@@ -1198,45 +1197,6 @@ impl Default for Mouse {
     }
 }
 
-// ============================================================================
-// TheMouse Singleton (matches C++ extern Mouse *TheMouse)
-// ============================================================================
-
-#[cfg(test)]
-thread_local! {
-    static TEST_MOUSE: std::cell::RefCell<Option<Arc<Mutex<Mouse>>>> =
-        const { std::cell::RefCell::new(None) };
-}
-
-fn mouse_handle() -> Arc<Mutex<Mouse>> {
-    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.ensure_mouse()
-    }) {
-        return handle;
-    }
-    #[cfg(test)]
-    {
-        return TEST_MOUSE.with(|slot| {
-            slot.borrow_mut()
-                .get_or_insert_with(|| Arc::new(Mutex::new(Mouse::new())))
-                .clone()
-        });
-    }
-    #[cfg(not(test))]
-    {
-        Arc::new(Mutex::new(Mouse::new()))
-    }
-}
-
-pub fn the_mouse() -> Arc<Mutex<Mouse>> {
-    mouse_handle()
-}
-
-pub fn with_mouse<R>(f: impl FnOnce(&mut Mouse) -> R) -> R {
-    let mouse = the_mouse();
-    let mut guard = mouse.lock().unwrap_or_else(|e| e.into_inner());
-    f(&mut guard)
-}
 
 impl SubsystemInterface for Mouse {
     fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {

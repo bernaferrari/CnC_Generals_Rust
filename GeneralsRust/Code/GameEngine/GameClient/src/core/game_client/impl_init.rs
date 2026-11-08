@@ -137,7 +137,6 @@ impl GameClient {
             smudge_manager: None,
             header_template_manager: None,
             translator_presentation_residual: None,
-            mouse: None,
             host_command_authority: None,
             font_library: None,
             tactical_view: {
@@ -717,9 +716,16 @@ impl GameClient {
 
     fn init_localized_ui_resources(&mut self) -> GameClientResult<()> {
         log::info!("init_localized_ui_resources: loading GameText strings");
-        let loaded_strings = GameText::init_runtime_strings().map_err(|err| {
-            GameClientError::SubsystemError(format!("GameText init failed: {err}"))
-        })?;
+        let loaded_strings = {
+            let mut text = self.game_text_store().write().unwrap_or_else(|e| e.into_inner());
+            let count = text.load_runtime_strings().map_err(|err| {
+                GameClientError::SubsystemError(format!("GameText init failed: {err}"))
+            })?;
+            if count != 0 {
+                text.publish_legacy_language_strings();
+            }
+            count
+        };
         log::info!("Loaded {loaded_strings} localized GameText strings");
 
         log::info!("init_localized_ui_resources: loading mapped images");

@@ -108,7 +108,6 @@ use crate::gui::callbacks::{
 use crate::gui::{MAX_DRAW_DATA, MAX_WINDOWS};
 
 use crate::gui::header_template::get_header_template_manager;
-use crate::input::with_mouse;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{file::FileAccess, file_system::get_file_system};
 use log::warn;

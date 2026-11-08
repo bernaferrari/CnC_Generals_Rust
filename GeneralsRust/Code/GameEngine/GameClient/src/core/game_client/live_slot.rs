@@ -884,6 +884,7 @@ impl GameClient {
         &'a mut crate::gui::command_hints::CommandHintState,
         crate::gui::game_window::WindowEventEffects<'a>,
         &'a mut crate::message_stream::message_stream::MessageStream,
+        &'a std::sync::RwLock<crate::game_text::GameText>,
     ) {
         let client_frame = self.frame;
         refresh_live_game_client_address(self);
@@ -892,6 +893,9 @@ impl GameClient {
         drawable_owner.audio_device = self.native_audio_device.as_ref();
         self.script_display
             .bind(self.subsystem_manager.display.as_ref());
+        let text = self.game_text_store.get_or_insert_with(|| {
+            std::sync::Arc::new(std::sync::RwLock::new(crate::game_text::GameText::default()))
+        });
         (
             ClientFrameWriter {
                 frame: &mut self.frame,
@@ -930,6 +934,7 @@ impl GameClient {
                 pending_main_menu_actions: Vec::new(),
             },
             &mut self.message_stream,
+            text,
         )
     }
 

@@ -26,6 +26,58 @@ pub struct GameText {
 }
 
 impl GameText {
+    /// Look up text in this client's catalog, without consulting the ambient
+    /// Language table used by legacy callers.
+    pub fn fetch_owned(&mut self, key: &str) -> String {
+        self.fetch_with_exists_owned(key).0
+    }
+
+    pub fn fetch_with_exists_owned(&mut self, key: &str) -> (String, bool) {
+        let key = key.trim();
+        if key.is_empty() {
+            return (String::new(), false);
+        }
+        if let Some(text) = self.lookup_owned(key) {
+            return (text.to_owned(), true);
+        }
+        let missing = format!("MISSING: '{key}'");
+        self.no_string_list
+            .entry(key.to_owned())
+            .or_insert_with(|| missing.clone());
+        (missing, false)
+    }
+
+    fn lookup_owned(&self, key: &str) -> Option<&str> {
+        let lookup = key.strip_prefix("LOC:").unwrap_or(key);
+        self.csf_strings.get(key)
+            .or_else(|| self.csf_strings.get(lookup))
+            .or_else(|| self.map_strings.get(key))
+            .or_else(|| self.map_strings.get(lookup))
+            .or_else(|| {
+                let lower = lookup.to_ascii_lowercase();
+                self.csf_strings_lower.get(&lower)
+                    .or_else(|| self.map_strings_lower.get(&lower))
+            })
+            .map(String::as_str)
+    }
+
+    pub fn load_map_strings(&mut self, path: impl AsRef<Path>) -> Result<(), Box<dyn std::error::Error>> {
+        self.map_strings.clear();
+        self.map_strings_lower.clear();
+        let content = fs::read_to_string(path)?;
+        parse_string_file(&content, &mut self.map_strings);
+        self.map_strings_lower = self.map_strings.iter()
+            .map(|(label, value)| (label.to_ascii_lowercase(), value.clone()))
+            .collect();
+        Ok(())
+    }
+
+    pub fn reset_owned(&mut self) {
+        self.map_strings.clear();
+        self.map_strings_lower.clear();
+        self.no_string_list.clear();
+    }
+
     pub fn fetch(key: &str) -> String {
         Self::fetch_with_exists(key).0
     }
@@ -72,18 +124,10 @@ impl GameText {
     pub fn init_map_string_file(path: &str) -> Result<(), Box<dyn std::error::Error>> {
         let __gt = get_game_text();
         let mut guard = __gt.write().unwrap_or_else(|e| e.into_inner());
-        guard.map_strings.clear();
-        let content = fs::read_to_string(path)?;
-        parse_string_file(&content, &mut guard.map_strings);
-        guard.map_strings_lower = guard
-            .map_strings
-            .iter()
-            .map(|(label, value)| (label.to_ascii_lowercase(), value.clone()))
-            .collect();
-        Ok(())
+        guard.load_map_strings(path)
     }
 
-    pub fn init_runtime_strings() -> Result<usize, Box<dyn std::error::Error>> {
+    pub fn load_runtime_strings(&mut self) -> Result<usize, Box<dyn std::error::Error>> {
         // C++ `Language::init` reads `Data\<lang>\generals.csf` through the
         // archive filesystem. Resolve the loose extraction first, then the
         // virtual/BIG filesystem, then a raw ` FSC` header scan over the
@@ -119,30 +163,27 @@ impl GameText {
         let Some(entries) = entries else {
             return Ok(0);
         };
-        Language::clear_localized_strings();
-        let lower: HashMap<String, String> = entries
-            .iter()
+        self.csf_strings_lower = entries.iter()
             .map(|(label, value)| (label.to_ascii_lowercase(), value.clone()))
             .collect();
-        {
-            let __gt = get_game_text();
-        let mut guard = __gt.write().unwrap_or_else(|e| e.into_inner());
-            guard.csf_strings = entries.clone();
-            guard.csf_strings_lower = lower;
-            guard.no_string_list.clear();
-        }
-        for (label, value) in &entries {
+        let count = entries.len();
+        self.csf_strings = entries;
+        self.no_string_list.clear();
+        Ok(count)
+    }
+
+    /// Keep the still-unmigrated Common/Language clients working at startup.
+    pub fn publish_legacy_language_strings(&self) {
+        Language::clear_localized_strings();
+        for (label, value) in &self.csf_strings {
             Language::register_localized_string(label.clone(), value.clone());
         }
-        Ok(entries.len())
     }
 
     pub fn reset() {
         let __gt = get_game_text();
         let mut guard = __gt.write().unwrap_or_else(|e| e.into_inner());
-        guard.map_strings.clear();
-        guard.map_strings_lower.clear();
-        guard.no_string_list.clear();
+        guard.reset_owned();
     }
 
     fn lookup_string(key: &str) -> Option<String> {
@@ -181,13 +222,6 @@ impl GameText {
         } else {
             None
         }
-    }
-
-    fn lookup_map_string(key: &str) -> Option<String> {
-        get_game_text()
-            .read()
-            .ok()
-            .and_then(|guard| guard.map_strings.get(key).cloned())
     }
 }
 

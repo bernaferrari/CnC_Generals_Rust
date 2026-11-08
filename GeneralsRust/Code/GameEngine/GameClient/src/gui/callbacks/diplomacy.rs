@@ -209,6 +209,17 @@ impl DiplomacyCallbacks {
         clear: bool,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) {
+        let translated = GameText::fetch(new_text);
+        self.update_briefing_text_translated(new_text, &translated, clear, receiving_manager);
+    }
+
+    pub fn update_briefing_text_translated(
+        &mut self,
+        new_text: &str,
+        translated: &str,
+        clear: bool,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         if clear {
             self.briefing_list.clear();
             Self::reset_listbox_solo(receiving_manager);
@@ -219,7 +230,9 @@ impl DiplomacyCallbacks {
         }
 
         self.briefing_list.push(new_text.to_string());
-        Self::append_briefing_to_listbox(new_text, self.briefing_list.len() - 1, receiving_manager);
+        Self::append_translated_briefing_to_listbox(
+            translated, self.briefing_list.len() - 1, receiving_manager,
+        );
     }
 
     fn briefing_message_color(index: usize) -> Color {
@@ -256,6 +269,14 @@ impl DiplomacyCallbacks {
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) {
         let translated = GameText::fetch(label);
+        Self::append_translated_briefing_to_listbox(&translated, index, receiving_manager);
+    }
+
+    fn append_translated_briefing_to_listbox(
+        translated: &str,
+        index: usize,
+        receiving_manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
         let color = Self::briefing_message_color(index);
         let _ = Self::with_listbox_solo(
             |listbox| {
@@ -263,7 +284,7 @@ impl DiplomacyCallbacks {
                     row: -1,
                     column: 0,
                     overwrite: true,
-                    data: ListBoxItemData::Text(translated),
+                    data: ListBoxItemData::Text(translated.to_owned()),
                     color: Some(color),
                 })
             },

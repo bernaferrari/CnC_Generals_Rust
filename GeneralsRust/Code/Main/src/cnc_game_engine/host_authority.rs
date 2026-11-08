@@ -3260,6 +3260,15 @@ impl CnCGameEngine {
         if let Err(err) = self.host_replace_staged_restore_world(staged) {
             return Err(HostLoadFailure::Committed(err));
         }
+        #[cfg(feature = "game_client")]
+        {
+            let map_name = self.game_logic.get_current_map_name();
+            let map_path = self.game_logic.map_definition_source.as_deref()
+                .map(std::path::PathBuf::from)
+                .or_else(|| crate::game_logic::script_loader::find_map_file(map_name))
+                .unwrap_or_else(|| std::path::PathBuf::from(map_name));
+            self.game_client.admit_map_text(&map_path);
+        }
         info!(
             "Game loaded successfully from slot '{}' on map '{}'",
             slot,

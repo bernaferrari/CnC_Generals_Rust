@@ -66,10 +66,7 @@ pub use events::{InputEvent, InputEventFilter, InputEventType};
 pub use gamepad::{GamepadAxis, GamepadButton, GamepadId, GamepadManager, GamepadState};
 pub use keyboard::{KeyCode, KeyState, Keyboard, KeyboardState};
 pub use manager::InputManager;
-pub use mouse::{
-    CursorTooltipState, Mouse, MouseButton, MouseCursor, MouseDelta, MouseState, the_mouse,
-    with_mouse,
-};
+pub use mouse::{CursorTooltipState, Mouse, MouseButton, MouseCursor, MouseDelta, MouseState};
 
 /// Input system errors
 #[derive(Error, Debug)]

@@ -24,6 +24,7 @@ struct ReceivingClientScriptDriver<'a, 'effects> {
     world: &'a mut gamelogic::system::game_logic::GameLogic,
     bar: &'a mut crate::gui::control_bar::ControlBar,
     stream: &'a mut crate::message_stream::message_stream::MessageStream,
+    text: &'a std::sync::RwLock<crate::game_text::GameText>,
 }
 impl ScriptExecutionDriver for ReceivingClientScriptDriver<'_, '_> {
     fn display(
@@ -99,7 +100,9 @@ impl ScriptExecutionDriver for ReceivingClientScriptDriver<'_, '_> {
         if pause {
             self.world.set_game_paused(true, pause_music);
         }
-        crate::gui::callbacks::in_game_popup_message::show_receiving_popup_message(
+        let mut text = self.text.write().unwrap_or_else(|e| e.into_inner());
+        crate::gui::callbacks::in_game_popup_message::show_receiving_popup_message_owned(
+            &mut text,
             message,
             x,
             y,
@@ -110,6 +113,7 @@ impl ScriptExecutionDriver for ReceivingClientScriptDriver<'_, '_> {
             None,
             &mut self.effects,
         );
+        drop(text);
         Some(self.after_action())
     }
 
@@ -219,6 +223,9 @@ impl GameClient {
             .bind(self.subsystem_manager.display.as_ref());
         let mut messages = Vec::new();
         let logic_frame = world.get_frame();
+        let text = self.game_text_store.get_or_insert_with(|| {
+            std::sync::Arc::new(std::sync::RwLock::new(crate::game_text::GameText::default()))
+        });
         let mut driver = ReceivingClientScriptDriver {
             world,
             effects: WindowEventEffects {
@@ -252,6 +259,7 @@ impl GameClient {
             },
             bar,
             stream: &mut self.message_stream,
+            text,
         };
         let result = operation(&mut driver);
         let completed = driver.after_action();

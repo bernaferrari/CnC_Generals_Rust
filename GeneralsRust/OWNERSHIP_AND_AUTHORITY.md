@@ -3049,3 +3049,8 @@ pointer was removed; the admitted turret implementation uses owned state.
 Script music-completion queries use receipts tied to the receiving audio device;
 same-named music in another session does not decide the result. Static LOD hook
 locks are released before callbacks, allowing synchronous re-entry.
+
+Native popup text uses the receiving client's loaded GameText, including map
+text admission and reset. Other text consumers still use compatibility access.
+Mouse hover and tooltip dispatch use the receiving client's input mouse rather
+than the ambient mouse; placement and guard hints still use the tactical view.

@@ -639,7 +639,7 @@ impl InGameUI {
         input: &InGameUiInputContext<'_>,
         ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) {
-        let pos = Self::mouse_screen_to_terrain_for_guard_hint();
+        let pos = Self::mouse_screen_to_terrain_for_guard_hint(input.mouse_position);
         Self::arm_double_click_attack_move_guard_hint(
             &mut self.double_click_attack_move_guard_timer,
             &mut self.guard_hint_stashed_position,
@@ -652,9 +652,8 @@ impl InGameUI {
         self.set_radius_cursor(RadiusCursorType::GuardArea, pos, 1.0, input, ui);
     }
 
-    fn mouse_screen_to_terrain_for_guard_hint() -> Coord3D {
-        let (mx, my) = with_mouse(|mouse| mouse.state().position());
-        let screen = IPoint2::new(mx as i32, my as i32);
+    fn mouse_screen_to_terrain_for_guard_hint(mouse_position: (i32, i32)) -> Coord3D {
+        let screen = IPoint2::new(mouse_position.0, mouse_position.1);
         with_tactical_view_ref(|view| {
             view.screen_to_terrain(&screen)
                 .ok()
@@ -1335,6 +1334,7 @@ impl InGameUI {
         drawable_id: Option<u32>,
         is_location_hint: bool,
         input: &InGameUiInputContext<'_>,
+        mouse: &mut crate::input::Mouse,
         ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) {
         if self.is_scrolling || self.is_selecting {
@@ -1345,16 +1345,14 @@ impl InGameUI {
             return;
         }
 
-        self.moused_over_drawable_id = with_mouse(|mouse| {
-            Self::apply_catalog_mouseover_tooltip(
-                &self.presentation_unit_catalog,
-                drawable_id,
-                is_location_hint,
-                ui,
-                mouse,
-                None,
-            )
-        });
+        self.moused_over_drawable_id = Self::apply_catalog_mouseover_tooltip(
+            &self.presentation_unit_catalog,
+            drawable_id,
+            is_location_hint,
+            ui,
+            mouse,
+            None,
+        );
 
         if self.mouse_mode == MouseMode::Default
             && !self.is_scrolling
@@ -1555,11 +1553,18 @@ impl InGameUI {
         drawable_id: Option<u32>,
         is_location_hint: bool,
         input: &InGameUiInputContext<'_>,
+        mouse: &mut crate::input::Mouse,
         ui: &mut crate::message_stream::ReceivingUi<'_>,
     ) {
         // Wave 968: host empty dual-world → presentation catalog residual path.
         if dual_world_registry_unavailable() {
-            self.create_mouseover_hint_from_presentation(drawable_id, is_location_hint, input, ui);
+            self.create_mouseover_hint_from_presentation(
+                drawable_id,
+                is_location_hint,
+                input,
+                mouse,
+                ui,
+            );
             return;
         }
 
@@ -1581,7 +1586,7 @@ impl InGameUI {
             // C++: else branch (MSG_MOUSEOVER_LOCATION_HINT) — line 2451-2454
             self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
         } else if let Some(draw_id) = drawable_id {
-            with_mouse(|m| m.set_cursor_tooltip(String::new(), None, None, None));
+            mouse.set_cursor_tooltip(String::new(), None, None, None);
             if draw_id == Self::INVALID_DRAWABLE_ID {
                 self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
             } else {
@@ -1627,14 +1632,12 @@ impl InGameUI {
                                         );
                                         let indicator =
                                             Self::mouseover_tooltip_color_for_object(&guard);
-                                        with_mouse(|m| {
-                                            m.set_cursor_tooltip(
-                                                display_name,
-                                                Some(-1),
-                                                Some(indicator),
-                                                None,
-                                            );
-                                        });
+                                        mouse.set_cursor_tooltip(
+                                            display_name,
+                                            Some(-1),
+                                            Some(indicator),
+                                            None,
+                                        );
                                     }
                                 }
                             }
@@ -1648,7 +1651,7 @@ impl InGameUI {
 
         // C++: TheMouse->resetTooltipDelay() when ID changes
         if old_id != self.moused_over_drawable_id {
-            with_mouse(|m| m.reset_tooltip_delay());
+            mouse.reset_tooltip_delay();
         }
 
         // Phase 3: Cursor assignment

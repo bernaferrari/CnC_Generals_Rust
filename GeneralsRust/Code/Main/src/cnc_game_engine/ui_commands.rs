@@ -1578,6 +1578,14 @@ impl CnCGameEngine {
             error!("Cannot complete direct native map audio admission: {error}");
             return None;
         }
+        #[cfg(feature = "game_client")]
+        {
+            let map_path = self.game_logic.map_definition_source.as_deref()
+                .map(std::path::PathBuf::from)
+                .or_else(|| crate::game_logic::script_loader::find_map_file(&loaded))
+                .unwrap_or_else(|| std::path::PathBuf::from(&loaded));
+            self.game_client.admit_map_text(&map_path);
+        }
         self.invalidate_presentation_terrain_cache();
         if loaded != map_name {
             warn!(
@@ -1712,7 +1720,7 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         let mut script_window_messages = Vec::new();
         #[cfg(feature = "game_client")]
-        let (frame, snow, presence, command_hints, script_window_effects, script_window_stream) =
+        let (frame, snow, presence, command_hints, script_window_effects, script_window_stream, script_game_text) =
             self.game_client
                 .split_frame_snow_drawable_script_ui_and_hints(&mut script_window_messages);
         #[cfg(feature = "game_client")]
@@ -1749,6 +1757,7 @@ impl CnCGameEngine {
             window_manager_owner,
         )
         .with_cinematic_input(cinematic_input)
+        .with_game_text(script_game_text)
         .with_window_effects(
             {
                 let mut effects = script_window_effects;

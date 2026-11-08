@@ -4,8 +4,6 @@ pub use super::loading_screen::*;
 
 use crate::display::image::get_mapped_image_collection;
 use crate::game_text::GameText;
-#[cfg(test)]
-use crate::input::with_mouse;
 use crate::map_util::{find_draw_positions, get_map_cache_manager, get_map_preview_image};
 
 use super::campaign_manager::{MAX_DISPLAYED_UNITS, MAX_OBJECTIVE_LINES, Mission};

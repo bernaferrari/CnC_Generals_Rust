@@ -825,11 +825,16 @@ impl InGameUI {
         self.update_named_timers();
         self.update_superweapon_timers(self.current_frame, &mut ui.state.eva);
         self.last_ui_logic_frame = self.current_frame;
-        self.handle_build_placements(ui);
+        self.handle_build_placements(input.mouse_position, ui);
         self.handle_radius_cursor(input, ui);
     }
 
-    pub fn pre_draw(&mut self, frame: u32, ui: &mut crate::message_stream::ReceivingUi<'_>) {
+    pub fn pre_draw(
+        &mut self,
+        frame: u32,
+        mouse_position: (i32, i32),
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) {
         self.current_frame = frame;
         self.expire_hints();
         self.expire_messages();
@@ -837,7 +842,7 @@ impl InGameUI {
         self.update_superweapon_timers(frame, &mut ui.state.eva);
         self.update_named_timers();
         self.update_military_subtitle();
-        self.handle_build_placements(ui);
+        self.handle_build_placements(mouse_position, ui);
         let renderer = self.renderer.clone();
         if let Ok(mut renderer) = renderer.write() {
             self.update_and_draw_world_animations(&mut renderer);

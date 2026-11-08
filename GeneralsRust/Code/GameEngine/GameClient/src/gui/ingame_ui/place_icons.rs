@@ -209,7 +209,11 @@ impl InGameUI {
     }
 
     /// C++ `InGameUI::handleBuildPlacements` — follow mouse, drag-aim, tile LINEBUILD.
-    pub fn handle_build_placements(&mut self, ui: &mut crate::message_stream::ReceivingUi<'_>) {
+    pub fn handle_build_placements(
+        &mut self,
+        mouse_position: (i32, i32),
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) {
         let Some(template_name) = self.pending_place_icon_template.clone().or_else(|| {
             self.placement_preview
                 .as_ref()
@@ -218,13 +222,12 @@ impl InGameUI {
             return;
         };
 
-        let mouse = with_mouse(|mouse| mouse.state().position());
         let loc = if ui.is_placement_anchored() {
             ui.get_placement_points()
                 .map(|(start, _)| IPoint2::new(start.x, start.y))
-                .unwrap_or(IPoint2::new(mouse.0 as i32, mouse.1 as i32))
+                .unwrap_or(IPoint2::new(mouse_position.0, mouse_position.1))
         } else {
-            IPoint2::new(mouse.0 as i32, mouse.1 as i32)
+            IPoint2::new(mouse_position.0, mouse_position.1)
         };
 
         let Some(world) = with_tactical_view_ref(|view| {

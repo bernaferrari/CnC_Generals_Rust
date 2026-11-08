@@ -417,6 +417,32 @@ impl GameClient {
             .clone()
     }
 
+    /// Borrow this client's existing text catalog for a synchronous UI phase.
+    pub fn game_text_store(&mut self) -> &std::sync::RwLock<crate::game_text::GameText> {
+        let store = self.game_text_store
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::RwLock::new(crate::game_text::GameText::default()))
+            });
+        &**store
+    }
+
+    /// Replace map-specific labels when a new native world is committed.
+    pub fn admit_map_text(&mut self, map_path: &std::path::Path) {
+        let mut text = self.game_text_store().write().unwrap_or_else(|e| e.into_inner());
+        text.reset_owned();
+        if let Some(directory) = map_path.parent() {
+            for name in ["map.str", "Map.str"] {
+                let path = directory.join(name);
+                if path.is_file() {
+                    if let Err(error) = text.load_map_strings(&path) {
+                        log::warn!("Failed to load map text '{}': {error}", path.display());
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
     pub fn ensure_global_language_data(
         &mut self,
     ) -> std::sync::Arc<std::sync::RwLock<crate::global_language::GlobalLanguageData>> {
@@ -468,15 +494,6 @@ impl GameClient {
             .clone()
     }
 
-    pub fn ensure_mouse(
-        &mut self,
-    ) -> std::sync::Arc<std::sync::Mutex<crate::input::mouse::Mouse>> {
-        self.mouse
-            .get_or_insert_with(|| {
-                std::sync::Arc::new(std::sync::Mutex::new(crate::input::mouse::Mouse::new()))
-            })
-            .clone()
-    }
 
     /// This client's LAN lobby (`TheLANGameInfo`, owned by its UI tree).
     pub fn lan_setup(

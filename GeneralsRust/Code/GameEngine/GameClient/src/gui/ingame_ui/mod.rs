@@ -30,7 +30,7 @@ use crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text;
 use crate::gui::game_window::{GameWindow, WindowStatus};
 use crate::helpers::PendingCommand;
 use crate::input::keyboard::KeyboardState;
-use crate::input::mouse::{ButtonState, MouseButton, MouseState, with_mouse};
+use crate::input::mouse::{ButtonState, MouseButton, MouseState};
 use crate::message_stream::game_message::{
     Coord3D as MsgCoord3D, GameMessageType, ICoord2D as MsgICoord2D,
 };

@@ -138,6 +138,7 @@ impl CnCGameEngine {
             command_hints,
             script_window_effects,
             script_window_stream,
+            script_game_text,
         ) = self
             .game_client
             .split_frame_snow_drawable_script_ui_and_hints(&mut script_window_messages);
@@ -175,6 +176,7 @@ impl CnCGameEngine {
             window_manager_owner,
         )
         .with_cinematic_input(cinematic_input)
+        .with_game_text(script_game_text)
         .with_window_effects(
             {
                 let mut effects = script_window_effects;

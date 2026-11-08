@@ -361,6 +361,7 @@ pub(super) struct NativeScriptUi<'a> {
     command_hint_frame: Option<u32>,
     window_effects: Option<game_client::gui::game_window::WindowEventEffects<'a>>,
     message_stream: Option<&'a mut game_client::message_stream::message_stream::MessageStream>,
+    game_text: Option<&'a std::sync::RwLock<game_client::game_text::GameText>>,
 }
 
 #[cfg(feature = "game_client")]
@@ -389,6 +390,7 @@ impl<'a> NativeScriptUi<'a> {
             command_hint_frame: None,
             window_effects: None,
             message_stream: None,
+            game_text: None,
         }
     }
 
@@ -399,6 +401,14 @@ impl<'a> NativeScriptUi<'a> {
     ) -> Self {
         self.window_effects = Some(effects);
         self.message_stream = Some(stream);
+        self
+    }
+
+    pub(super) fn with_game_text(
+        mut self,
+        text: &'a std::sync::RwLock<game_client::game_text::GameText>,
+    ) -> Self {
+        self.game_text = Some(text);
         self
     }
 
@@ -647,7 +657,14 @@ impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
                 "native popup requires receiving client services".into(),
             )
         })?;
-        game_client::gui::callbacks::in_game_popup_message::show_receiving_popup_message(
+        let text = self.game_text.ok_or_else(|| {
+            gamelogic::GameLogicError::Configuration(
+                "native popup requires receiving client text".into(),
+            )
+        })?;
+        let mut text = text.write().unwrap_or_else(|e| e.into_inner());
+        game_client::gui::callbacks::in_game_popup_message::show_receiving_popup_message_owned(
+            &mut text,
             &popup.message,
             popup.x_percent,
             popup.y_percent,
@@ -658,6 +675,7 @@ impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
             Some(popup.popup_generation),
             effects,
         );
+        drop(text);
         self.flush_window_callbacks()
     }
     fn flush_window_callbacks(&mut self) -> gamelogic::GameLogicResult<()> {

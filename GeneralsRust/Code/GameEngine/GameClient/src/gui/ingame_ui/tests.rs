@@ -256,9 +256,6 @@ mod tests {
         }
     }
 
-    fn cursor_tooltip_text() -> String {
-        with_mouse(|m| m.cursor_tooltip_state().tooltip_text.clone())
-    }
 
     #[test]
     fn create_mouseover_hint_sets_cursor_tooltip_for_named_object_under_cursor() {

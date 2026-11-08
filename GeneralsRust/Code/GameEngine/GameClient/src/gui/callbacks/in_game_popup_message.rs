@@ -84,6 +84,45 @@ pub fn show_receiving_popup_message(
     host_popup_generation: Option<usize>,
     effects: &mut WindowEventEffects<'_>,
 ) {
+    let translated = crate::game_text::GameText::fetch(identifier);
+    show_translated_popup_message(
+        identifier, translated, x, y, width, text_color, pause, pause_music,
+        host_popup_generation, effects,
+    );
+}
+
+/// Show a script popup using the catalog borrowed from the receiving client.
+pub fn show_receiving_popup_message_owned(
+    text: &mut crate::game_text::GameText,
+    identifier: &str,
+    x: i32,
+    y: i32,
+    width: i32,
+    text_color: u32,
+    pause: bool,
+    pause_music: bool,
+    host_popup_generation: Option<usize>,
+    effects: &mut WindowEventEffects<'_>,
+) {
+    let translated = text.fetch_owned(identifier);
+    show_translated_popup_message(
+        identifier, translated, x, y, width, text_color, pause, pause_music,
+        host_popup_generation, effects,
+    );
+}
+
+fn show_translated_popup_message(
+    identifier: &str,
+    translated: String,
+    x: i32,
+    y: i32,
+    width: i32,
+    text_color: u32,
+    pause: bool,
+    pause_music: bool,
+    host_popup_generation: Option<usize>,
+    effects: &mut WindowEventEffects<'_>,
+) {
     let identifier = identifier.to_owned();
     effects.queue_window_operation(move |manager, effects| {
         let previous = effects.with_popup_message(|state, _| state.data.take());
@@ -93,16 +132,11 @@ pub fn show_receiving_popup_message(
             }
         }
         effects.with_diplomacy(|owner| {
-            crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text(
-                &identifier,
-                false,
-                manager,
-                owner,
-            )
+            owner.update_briefing_text_translated(&identifier, &translated, false, manager)
         });
         let (screen_w, screen_h) = manager.screen_size();
         let data = PopupMessageData {
-            message: crate::game_text::GameText::fetch(&identifier),
+            message: translated,
             x: (screen_w as f32 * (x.clamp(0, 100) as f32 / 100.0)) as i32,
             y: (screen_h as f32 * (y.clamp(0, 100) as f32 / 100.0)) as i32,
             width: width.max(50),

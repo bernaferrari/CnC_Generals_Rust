@@ -184,11 +184,12 @@ fn actual_authored_input_resets_receiving_native_fields_before_next_action_witho
             let mut cursor_effect = |visible| cursor.push(visible);
             let window_owner = client.window_manager_owner();
             let mut messages = Vec::new();
-            let (_, snow, _, _, window_effects, stream) =
+            let (_, snow, _, _, window_effects, stream, text) =
                 client.split_frame_snow_drawable_script_ui_and_hints(&mut messages);
             let mut bar = ControlBar::new();
             let native = NativeScriptUi::new(snow, &mut bar, window_owner)
                 .with_window_effects(window_effects, stream)
+                .with_game_text(text)
                 .with_cinematic_input(fields.loan(&mut cursor_effect));
             let mut observer = ObserveNext {
                 native,
