@@ -26,21 +26,13 @@
 //! ```rust,ignore
 //! use memory::{ObjectPool, PoolConfig, PoolHandle};
 //!
-//! // Create a pool for a specific type
-//! let pool = ObjectPool::<GameObject>::new(PoolConfig {
-//!     name: "GameObjects",
-//!     initial_capacity: 1024,
-//!     grow_by: 256,
-//!     cache_line_aligned: true,
-//! });
+//! // Create a pool and allocate an object (returns a generational handle).
+//! let pool = ObjectPool::<GameObject>::new(PoolConfig::for_game_objects("GameObjects")).unwrap();
+//! let handle: PoolHandle<GameObject> = pool.alloc(GameObject::new()).unwrap();
 //!
-//! // Allocate an object (returns generational handle)
-//! let handle: PoolHandle<GameObject> = pool.alloc(GameObject::new());
-//!
-//! // Access the object
-//! handle.with(|obj| {
-//!     obj.update();
-//! });
+//! // Access is checked and scoped to the closure holding the pool lock.
+//! handle.with_mut(|obj| obj.update()).unwrap();
+//! // Do not access this pool or drop one of its handles inside the closure.
 //!
 //! // Object is automatically freed when handle drops
 //! ```

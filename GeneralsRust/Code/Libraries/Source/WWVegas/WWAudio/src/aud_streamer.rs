@@ -18,7 +18,7 @@ use log::warn;
 use std::collections::HashMap;
 use std::io::SeekFrom;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex};
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::sync::RwLock;
@@ -221,8 +221,6 @@ pub struct AudioStreamer {
     state: Arc<RwLock<StreamState>>,
     // THREAD: game task sets flags, stream servicing task reads/clears them
     flags: Arc<Mutex<StreamFlags>>,
-    /// Associated audio device
-    _device: Weak<AudioDevice>,
     // THREAD: stream task and handle owners share one playback channel
     channel: Option<Arc<Mutex<AudioChannel>>>,
     // THREAD: game task writes on open, stream servicing task reads
@@ -433,7 +431,12 @@ impl Default for StreamManager {
 
 impl AudioStreamer {
     /// Create a new audio streamer
-    pub fn new(device: Arc<AudioDevice>, config: StreamConfig) -> Result<Arc<Self>> {
+    ///
+    /// The device is borrowed only while reserving a channel. The caller must
+    /// keep the audio system alive and its output open for playback; dropping
+    /// the system or closing its output stops the output independently of the
+    /// streamer's lifetime.
+    pub fn new(device: &mut AudioDevice<'_>, config: StreamConfig) -> Result<Arc<Self>> {
         let channel = device
             .reserve_channel(crate::channel::ChannelType::User)
             .map_err(|_| Error::Channel(ChannelError::AllocationFailed))?;
@@ -444,7 +447,6 @@ impl AudioStreamer {
             config: config.clone(),
             state: Arc::new(RwLock::new(StreamState::Stopped)),
             flags: Arc::new(Mutex::new(StreamFlags::new())),
-            _device: Arc::downgrade(&device),
             channel: Some(Arc::new(Mutex::new(channel))),
             format: Arc::new(RwLock::new(EnhancedAudioFormat::from_basic(&config.format))),
             sample: Arc::new(Mutex::new(AudioSample::new())),

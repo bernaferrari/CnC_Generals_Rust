@@ -223,16 +223,20 @@ impl FontClass for WWFontClass {
             None => return drawpoint,
         };
 
-        let lock = match surface.lock(Point2D::new(0, 0)) {
-            Ok(lock) => lock,
-            Err(_) => return drawpoint,
+        let width = surface.get_width();
+        let height = surface.get_height();
+        let stride = surface.stride();
+        let bbp = surface.bytes_per_pixel();
+        let bytes = match surface.rle_buffer_mut() {
+            Some(bytes) => bytes,
+            None => return drawpoint,
         };
+        let mut pixels = PixelBuffer { bytes, width, height, stride, bbp };
 
         let startx = xpos;
         let fontwidth_base = header.width_block_offset as usize;
         let fontheight_base = header.height_offset as usize;
         let fontoffset_base = header.offset_block_offset as usize;
-        let bbp = surface.bytes_per_pixel() as i32;
 
         for ch in string.bytes() {
             if ch == b'\r' {
@@ -279,15 +283,7 @@ impl FontClass for WWFontClass {
                 let color = converter.convert_pixel(remap[0]);
                 for y in crect.y..crect.y + crect.height {
                     for x in crect.x..crect.x + crect.width {
-                        // SAFETY: [Category 3 — dangling / Category 10 — OOB]
-                        // The pointer is taken from `lock.get_pixel_ptr` (bounds-checked against the
-                        // surface and valid while the lock is held); `write_pixel` stores exactly
-                        // `bbp` bytes at that address, matching WWFont.cpp glyph blit stores.
-                        unsafe {
-                            if let Some(ptr) = lock.get_pixel_ptr(Point2D::new(x, y)) {
-                                write_pixel(ptr, bbp, color);
-                            }
-                        }
+                        pixels.write(Point2D::new(x, y), color);
                     }
                 }
             }
@@ -325,15 +321,7 @@ impl FontClass for WWFontClass {
                         let c2 = remap[((packed & 0xF0) >> 4) as usize];
 
                         if dx >= cliprect.x && dx < cliprect.x + cliprect.width && c1 != 0 {
-                            // SAFETY: [Category 3 — dangling / Category 10 — OOB]
-                            // The pointer is taken from `lock.get_pixel_ptr` (bounds-checked against the
-                            // surface and valid while the lock is held); `write_pixel` stores exactly
-                            // `bbp` bytes at that address, matching WWFont.cpp glyph blit stores.
-                            unsafe {
-                                if let Some(ptr) = lock.get_pixel_ptr(Point2D::new(dx, draw_y)) {
-                                    write_pixel(ptr, bbp, converter.convert_pixel(c1));
-                                }
-                            }
+                            pixels.write(Point2D::new(dx, draw_y), converter.convert_pixel(c1));
                         }
                         dx += 1;
                         workwidth -= 1;
@@ -342,15 +330,7 @@ impl FontClass for WWFontClass {
                         }
 
                         if dx >= cliprect.x && dx < cliprect.x + cliprect.width && c2 != 0 {
-                            // SAFETY: [Category 3 — dangling / Category 10 — OOB]
-                            // The pointer is taken from `lock.get_pixel_ptr` (bounds-checked against the
-                            // surface and valid while the lock is held); `write_pixel` stores exactly
-                            // `bbp` bytes at that address, matching WWFont.cpp glyph blit stores.
-                            unsafe {
-                                if let Some(ptr) = lock.get_pixel_ptr(Point2D::new(dx, draw_y)) {
-                                    write_pixel(ptr, bbp, converter.convert_pixel(c2));
-                                }
-                            }
+                            pixels.write(Point2D::new(dx, draw_y), converter.convert_pixel(c2));
                         }
                         dx += 1;
                         workwidth -= 1;
@@ -380,15 +360,7 @@ impl FontClass for WWFontClass {
                         let c1 = remap[*self.font_data.get(row_ptr).unwrap_or(&0) as usize];
                         row_ptr += 1;
                         if dx >= cliprect.x && dx < cliprect.x + cliprect.width && c1 != 0 {
-                            // SAFETY: [Category 3 — dangling / Category 10 — OOB]
-                            // The pointer is taken from `lock.get_pixel_ptr` (bounds-checked against the
-                            // surface and valid while the lock is held); `write_pixel` stores exactly
-                            // `bbp` bytes at that address, matching WWFont.cpp glyph blit stores.
-                            unsafe {
-                                if let Some(ptr) = lock.get_pixel_ptr(Point2D::new(dx, draw_y)) {
-                                    write_pixel(ptr, bbp, converter.convert_pixel(c1));
-                                }
-                            }
+                            pixels.write(Point2D::new(dx, draw_y), converter.convert_pixel(c1));
                         }
                         dx += 1;
                         workwidth -= 1;
@@ -436,40 +408,103 @@ impl FontClass for WWFontClass {
     }
 }
 
-fn write_pixel(ptr: *mut u8, bbp: i32, color: u32) {
-    // SAFETY: [Category 3 — dangling / Category 10 — OOB]
-    // Callers pass only `SurfaceLock::get_pixel_ptr` results (bounds-checked);
-    // the store touches exactly `bbp` writable in-bounds bytes, matching the
-    // byte-wise pixel stores in WWFont.cpp blit.
-    unsafe {
-        match bbp {
-            1 => {
-                *ptr = color as u8;
+struct PixelBuffer<'a> {
+    bytes: &'a mut [u8],
+    width: u32,
+    height: u32,
+    stride: usize,
+    bbp: usize,
+}
+
+impl PixelBuffer<'_> {
+    fn write(&mut self, point: Point2D, color: u32) {
+        if point.x < 0 || point.y < 0
+            || point.x as u32 >= self.width || point.y as u32 >= self.height
+            || !(1..=4).contains(&self.bbp)
+        {
+            return;
+        }
+        let Some(offset) = (point.y as usize)
+            .checked_mul(self.stride)
+            .and_then(|row| (point.x as usize).checked_mul(self.bbp).and_then(|x| row.checked_add(x)))
+        else {
+            return;
+        };
+        let Some(end) = offset.checked_add(self.bbp) else {
+            return;
+        };
+        if let Some(pixel) = self.bytes.get_mut(offset..end) {
+            pixel.copy_from_slice(&color.to_le_bytes()[..self.bbp]);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::palette::PaletteClass;
+    use crate::rgb::RGBClass;
+    use crate::surface::PixelFormat;
+
+    #[test]
+    fn print_clips_packed_and_unpacked_glyphs_on_all_surface_formats() {
+        let mut palette = PaletteClass::new();
+        *palette.get_color_mut(1) = RGBClass::new(255, 0, 0);
+        *palette.get_color_mut(2) = RGBClass::new(0, 255, 0);
+        *palette.get_color_mut(3) = RGBClass::new(0, 0, 255);
+        let mut remap = [0u8; 16];
+        for (index, entry) in remap.iter_mut().enumerate() {
+            *entry = index as u8;
+        }
+        remap[0] = 3;
+
+        for compressed in [false, true] {
+            // A 3x2 "A": [1, 2, 0] and [2, 1, 1].
+            let mut data = vec![0u8; 546];
+            data[2] = if compressed { 2 } else { 0 };
+            data[4..6].copy_from_slice(&14u16.to_le_bytes());
+            data[6..8].copy_from_slice(&276u16.to_le_bytes());
+            data[8..10].copy_from_slice(&20u16.to_le_bytes());
+            data[10..12].copy_from_slice(&540u16.to_le_bytes());
+            data[12..14].copy_from_slice(&400u16.to_le_bytes());
+            data[18] = 2;
+            data[19] = 3;
+            data[20 + b'A' as usize] = 3;
+            let offset = if compressed { 0u16 } else { 540u16 };
+            data[406..408].copy_from_slice(&offset.to_le_bytes());
+            data[530..532].copy_from_slice(&0x0200u16.to_le_bytes());
+            if compressed {
+                data[540..546].copy_from_slice(&[1, 2, 0, 2, 1, 1]);
+            } else {
+                data[540..544].copy_from_slice(&[0x21, 0x00, 0x12, 0x01]);
             }
-            2 => {
-                let bytes = (color as u16).to_le_bytes();
-                *ptr = bytes[0];
-                *ptr.add(1) = bytes[1];
+            let font = WWFontClass::new(&data, false, 0, None, None);
+
+            for (format, red, green, blue) in [
+                (PixelFormat::Palette8, 1, 2, 3),
+                (PixelFormat::RGB16, 0xff0000, 0x00ff00, 0x0000ff),
+                (PixelFormat::RGB24, 0xff0000, 0x00ff00, 0x0000ff),
+                (PixelFormat::RGBA32, 0xffff0000, 0xff00ff00, 0xff0000ff),
+            ] {
+                let mut surface = Surface::new(4, 3, format).unwrap();
+                let converter = ConvertClass::new(&palette, &palette, &surface);
+                let end = font.print(
+                    "A", &mut surface, Rect::new(1, 0, 2, 2),
+                    Point2D::new(-1, 0), &converter, Some(&remap),
+                );
+                assert_eq!(end, Point2D::new(2, 0));
+                for (y, row) in [[0, green, blue, 0], [0, red, red, 0], [0; 4]]
+                    .iter().enumerate()
+                {
+                    for (x, expected) in row.iter().enumerate() {
+                        assert_eq!(
+                            surface.get_pixel(Point2D::new(x as i32, y as i32)).unwrap(),
+                            *expected,
+                            "compressed={compressed} format={format:?} x={x} y={y}",
+                        );
+                    }
+                }
             }
-            3 => {
-                let b = (color & 0xFF) as u8;
-                let g = ((color >> 8) & 0xFF) as u8;
-                let r = ((color >> 16) & 0xFF) as u8;
-                *ptr = b;
-                *ptr.add(1) = g;
-                *ptr.add(2) = r;
-            }
-            4 => {
-                let b = (color & 0xFF) as u8;
-                let g = ((color >> 8) & 0xFF) as u8;
-                let r = ((color >> 16) & 0xFF) as u8;
-                let a = ((color >> 24) & 0xFF) as u8;
-                *ptr = b;
-                *ptr.add(1) = g;
-                *ptr.add(2) = r;
-                *ptr.add(3) = a;
-            }
-            _ => {}
         }
     }
 }

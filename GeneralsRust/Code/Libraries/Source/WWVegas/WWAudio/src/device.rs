@@ -237,24 +237,34 @@ pub struct AudioSystem {
 }
 
 /// Audio device representation
-pub struct AudioDevice {
+///
+/// A device exclusively borrows its system while it is in use. It cannot
+/// outlive the system or be used while the system is independently mutated.
+///
+/// ```compile_fail
+/// use wp_audio::AudioSystem;
+/// async fn dangling_device() {
+///     let device = {
+///         let mut system = AudioSystem::new().await.unwrap();
+///         system.open_device(None).await.unwrap()
+///     };
+///     let _ = device.info();
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use wp_audio::AudioSystem;
+/// async fn simultaneous_mutation(mut system: AudioSystem) {
+///     let mut device = system.open_device(None).await.unwrap();
+///     system.shutdown().await;
+///     let _ = device.create_channel(wp_audio::Priority::Normal);
+/// }
+/// ```
+pub struct AudioDevice<'a> {
     info: DeviceInfo,
     config: DeviceConfig,
-    system: *mut AudioSystem, // Reference to parent system
+    system: &'a mut AudioSystem,
 }
-
-// SAFETY: AudioDevice holds a non-owning reference to AudioSystem.
-// Access is synchronized through the audio system's internal locking.
-// SAFETY: AudioDevice owns only `DeviceInfo` and `DeviceConfig` values plus
-// the non-owning `system` back-pointer; the pointed-to AudioSystem outlives
-// every device it hands out (devices are created from `&self` in
-// open_device and dropped with the system), so moving the device across
-// threads cannot dangle.
-unsafe impl Send for AudioDevice {}
-// SAFETY: `&AudioDevice` exposes only immutable accessors; mutation funnels
-// through the parent AudioSystem's own synchronization, so shared references
-// from multiple threads cannot race.
-unsafe impl Sync for AudioDevice {}
 
 /// Device information and capabilities
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -667,7 +677,7 @@ impl AudioSystem {
     }
 
     /// Open an audio device - matches C++ openDevice()
-    pub async fn open_device(&self, device_id: Option<&str>) -> Result<AudioDevice> {
+    pub async fn open_device(&mut self, device_id: Option<&str>) -> Result<AudioDevice<'_>> {
         let device_info = if let Some(id) = device_id {
             self.devices
                 .iter()
@@ -688,7 +698,7 @@ impl AudioSystem {
         Ok(AudioDevice {
             info: device_info.clone(),
             config: DeviceConfig::default(),
-            system: self as *const _ as *mut _,
+            system: self,
         })
     }
 
@@ -1473,7 +1483,7 @@ impl AudioSystem {
             }
         };
 
-        let device = match self.open_device(None).await {
+        let mut device = match self.open_device(None).await {
             Ok(device) => device,
             Err(err) => {
                 warn!("Mixer restore: no audio device available: {err}");
@@ -1853,7 +1863,7 @@ impl AudioSystem {
         priority: crate::Priority,
     ) -> Result<()> {
         warn!("simple_play_2d_sound_effect is a placeholder and will allocate a temporary channel");
-        let device = self.open_device(None).await?;
+        let mut device = self.open_device(None).await?;
         let mut channel = device.create_channel(priority)?;
         let source = self.load_source(path).await?;
         channel.play_source(source, false)
@@ -1867,7 +1877,7 @@ impl AudioSystem {
         format: AudioFormat,
         priority: crate::Priority,
     ) -> Result<()> {
-        let device = self.open_device(None).await?;
+        let mut device = self.open_device(None).await?;
         let mut channel = device.create_channel(priority)?;
         let source = crate::AudioSource::from_memory(data, format)?;
         self.source_cache
@@ -1905,7 +1915,7 @@ impl AudioSystem {
         let mut audible = crate::AudibleSound::new(id, crate::SoundClassId::TwoD);
         let arc_source = std::sync::Arc::new(source.clone());
         audible.set_source(std::sync::Arc::clone(&arc_source));
-        let device = self.open_device(None).await?;
+        let mut device = self.open_device(None).await?;
         let channel = device.create_channel(crate::Priority::Normal)?;
         let handle = make_2d_handle(id, channel, arc_source);
         if let WWHandle::Sound2D {
@@ -1929,7 +1939,7 @@ impl AudioSystem {
         let arc_source = std::sync::Arc::new(source.clone());
         sound3d.base.set_source(std::sync::Arc::clone(&arc_source));
 
-        let device = self.open_device(None).await?;
+        let mut device = self.open_device(None).await?;
         let channel = device.create_channel(crate::Priority::Normal)?;
         let mut sample_handle = crate::handles::Sound2DHandle::new(channel);
         sample_handle.initialize(std::sync::Arc::clone(&arc_source));
@@ -1957,7 +1967,7 @@ impl AudioSystem {
             .base
             .base
             .set_source(std::sync::Arc::clone(&arc_source));
-        let device = self.open_device(None).await?;
+        let mut device = self.open_device(None).await?;
         let channel = device.create_channel(crate::Priority::Normal)?;
         let handle = make_stream_handle(id, channel, arc_source);
         if let WWHandle::SoundStream {
@@ -2287,6 +2297,45 @@ mod tests {
         sound_types::SoundClassId,
     };
 
+    #[tokio::test]
+    #[ignore = "requires a working default audio output"]
+    async fn devices_allocate_channels_from_the_same_system_and_restart_output() {
+        let mut system = AudioSystem::new().await.expect("audio output");
+        assert!(system.is_audio_initialized());
+        {
+            let mut device = system.open_device(None).await.expect("default device");
+            let first = device.create_channel(Priority::Normal).expect("first channel");
+            let second = device
+                .reserve_channel(crate::channel::ChannelType::Music)
+                .expect("reserved channel");
+            assert_eq!(first.id, 1);
+            assert_eq!(second.id, 2);
+            assert_eq!(second.priority, Priority::High);
+        }
+        {
+            let mut device = system.open_device(None).await.expect("default device");
+            assert_eq!(device.create_channel(Priority::Normal).unwrap().id, 3);
+        }
+
+        system.close_2d_device();
+        assert!(!system.is_audio_initialized());
+        {
+            let mut device = system.open_device(None).await.expect("default device");
+            assert_eq!(device.create_channel(Priority::Normal).unwrap().id, 1);
+        }
+        assert!(system.is_audio_initialized());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a working default audio output"]
+    async fn opening_unknown_device_reports_not_found() {
+        let mut system = AudioSystem::new().await.expect("audio output");
+        assert!(matches!(
+            system.open_device(Some("__missing_audio_device__")).await,
+            Err(crate::error::Error::Device(DeviceError::NotFound))
+        ));
+    }
+
     fn test_source() -> Arc<AudioSource> {
         let format = AudioFormat::default();
         let frame_size = format.bytes_per_frame();
@@ -2346,36 +2395,26 @@ mod tests {
         assert_eq!(sound.base.state(), SoundState::Stopped);
     }
 }
-impl AudioDevice {
+impl AudioDevice<'_> {
     /// Get device information
     pub fn info(&self) -> &DeviceInfo {
         &self.info
     }
 
-    /// Retrieve a raw pointer to the owning audio system (for legacy interop)
-    pub fn parent_system(&self) -> *mut AudioSystem {
-        self.system
-    }
 
     /// Create a new audio channel
-    pub fn create_channel(&self, priority: Priority) -> Result<crate::AudioChannel> {
+    pub fn create_channel(&mut self, priority: Priority) -> Result<crate::AudioChannel> {
         debug!("Creating audio channel with priority: {:?}", priority);
 
-        // SAFETY: `self.system` is the back-pointer set by open_device to
-        // the AudioSystem that created this device, which outlives it; the
-        // pointer is valid, `as_mut` is used only because the field type is
-        // *mut, and mutation goes through the system's own synchronization.
-        let system = unsafe { self.system.as_mut().ok_or(DeviceError::NotInitialized)? };
-
-        system.ensure_output_stream()?;
-        let id = system.allocate_channel_id();
-        let mixer = Arc::clone(&system.mixer);
+        self.system.ensure_output_stream()?;
+        let id = self.system.allocate_channel_id();
+        let mixer = Arc::clone(&self.system.mixer);
         Ok(crate::AudioChannel::new(id, priority, mixer))
     }
 
     /// Reserve a channel for playback, matching the Miles API.
     pub fn reserve_channel(
-        &self,
+        &mut self,
         channel_type: crate::channel::ChannelType,
     ) -> Result<crate::AudioChannel> {
         let priority = match channel_type {

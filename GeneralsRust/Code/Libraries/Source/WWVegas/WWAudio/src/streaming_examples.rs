@@ -21,9 +21,8 @@ pub async fn example_basic_streaming<P: AsRef<Path>>(audio_file: P) -> Result<()
     println!("=== Basic Streaming Example ===");
 
     // Initialize audio system
-    let audio_system = AudioSystem::new().await?;
-    let device = audio_system.open_device(None).await?;
-    let device = Arc::new(device);
+    let mut audio_system = AudioSystem::new().await?;
+    let mut device = audio_system.open_device(None).await?;
 
     // Create stream configuration
     let config = AdvancedStreamConfig {
@@ -42,7 +41,7 @@ pub async fn example_basic_streaming<P: AsRef<Path>>(audio_file: P) -> Result<()
     };
 
     // Create and configure streamer
-    let streamer = AdvancedAudioStreamer::new(Arc::clone(&device), config)?;
+    let streamer = AdvancedAudioStreamer::new(&mut device, config)?;
 
     // Open audio file
     streamer.open_file(audio_file).await?;
@@ -82,15 +81,14 @@ pub async fn example_basic_streaming<P: AsRef<Path>>(audio_file: P) -> Result<()
 pub async fn example_looping_stream<P: AsRef<Path>>(audio_file: P) -> Result<()> {
     println!("=== Looping Stream with Volume Control Example ===");
 
-    let audio_system = AudioSystem::new().await?;
-    let device = audio_system.open_device(None).await?;
-    let device = Arc::new(device);
+    let mut audio_system = AudioSystem::new().await?;
+    let mut device = audio_system.open_device(None).await?;
 
     let mut config = AdvancedStreamConfig::default();
     config.loop_enabled = true;
     config.name = "Looping Stream Example".to_string();
 
-    let streamer = AdvancedAudioStreamer::new(Arc::clone(&device), config)?;
+    let streamer = AdvancedAudioStreamer::new(&mut device, config)?;
 
     // Open and start looping playback
     streamer.open_file(audio_file).await?;
@@ -128,9 +126,8 @@ pub async fn example_multiple_streams<P: AsRef<Path>>(audio_files: Vec<P>) -> Re
         return Ok(());
     }
 
-    let audio_system = AudioSystem::new().await?;
-    let device = audio_system.open_device(None).await?;
-    let device = Arc::new(device);
+    let mut audio_system = AudioSystem::new().await?;
+    let mut device = audio_system.open_device(None).await?;
     let manager = new_stream_manager();
 
     let mut streamers = Vec::new();
@@ -141,7 +138,7 @@ pub async fn example_multiple_streams<P: AsRef<Path>>(audio_files: Vec<P>) -> Re
         config.name = format!("Stream {}", i + 1);
         config.max_volume = 80 - (i as u8 * 10); // Stagger volumes
 
-        let streamer = AdvancedAudioStreamer::new(Arc::clone(&device), config)?;
+        let streamer = AdvancedAudioStreamer::new(&mut device, config)?;
 
         // Register with manager
         let stream_id = manager.register_stream(streamer.clone()).await;
@@ -271,16 +268,15 @@ pub async fn example_stream_buffering() -> Result<()> {
 pub async fn example_stream_seeking<P: AsRef<Path>>(audio_file: P) -> Result<()> {
     println!("=== Stream Seeking Example ===");
 
-    let audio_system = AudioSystem::new().await?;
-    let device = audio_system.open_device(None).await?;
-    let device = Arc::new(device);
+    let mut audio_system = AudioSystem::new().await?;
+    let mut device = audio_system.open_device(None).await?;
 
     let config = AdvancedStreamConfig {
         name: "Seeking Example".to_string(),
         ..Default::default()
     };
 
-    let streamer = AdvancedAudioStreamer::new(Arc::clone(&device), config)?;
+    let streamer = AdvancedAudioStreamer::new(&mut device, config)?;
     streamer.open_file(audio_file).await?;
 
     // Get file information
@@ -327,11 +323,10 @@ pub async fn example_stream_seeking<P: AsRef<Path>>(audio_file: P) -> Result<()>
 pub async fn example_error_handling() -> Result<()> {
     println!("=== Error Handling Example ===");
 
-    let audio_system = AudioSystem::new().await?;
-    let device = audio_system.open_device(None).await?;
-    let device = Arc::new(device);
+    let mut audio_system = AudioSystem::new().await?;
+    let mut device = audio_system.open_device(None).await?;
     let config = AdvancedStreamConfig::default();
-    let streamer = AdvancedAudioStreamer::new(Arc::clone(&device), config)?;
+    let streamer = AdvancedAudioStreamer::new(&mut device, config)?;
 
     // Test 1: Try to open non-existent file
     println!("Test 1: Opening non-existent file...");

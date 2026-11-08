@@ -160453,7 +160453,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "72a74d5d029909b82da38e901515da317af819d304a056b2ce7b72fdfdf01329",
+  "input_digest": "95568cdaa52794872da7f4f70c86aa8ceb03ff49d236de27828c2efa8300f7eb",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -214538,11 +214538,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 286,
+        "end_line": 296,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Libraries/Source/Compression/EAC/src/gimex.rs",
-      "sha256": "829fc80a84e7189b3350fbeb519679fb582585a1a08114a79a8fcb89627bcfcd",
+      "sha256": "2b7b7ebda2d3d822345f74bea4b138dd05199a448a4310d5d18005a9fb19afda",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -215006,11 +215006,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 406,
+        "end_line": 384,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu/src/sorting_renderer.rs",
-      "sha256": "e69cb8f238c7df0e3ad97ac375c6fee6035098f3a569ecee1fd30e8cf524b88e",
+      "sha256": "b54c78c0721efb5ce004f871c4c3e750d4e462bce5425ead8aca923f56e3545d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -215342,11 +215342,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1198,
+        "end_line": 1167,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WWAudio/src/aud_source.rs",
-      "sha256": "b91ea23f61cd7b15e20eb64070655dab53914f684329a6394c1a4c2487e5655e",
+      "sha256": "b576284adfeb6e1d572df5d51a68001cc7d2a1be5528b04e730a4145da4a8d18",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -215354,11 +215354,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1237,
+        "end_line": 1239,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WWAudio/src/aud_streamer.rs",
-      "sha256": "e22ee9be16d0c5b096f60655464ab325a953d6fa238efb9151c918d3debe69d6",
+      "sha256": "42b2a9ce226e24e96cf7c23da38d2c90d11a0cacfe93c284a4de59bd49a1a9d9",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -215678,11 +215678,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1238,
+        "end_line": 1228,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WWAudio/src/wwaudio.rs",
-      "sha256": "89d181468a511d6993afacacc7cc0d71f29d4c71d11fbf1ab79f4ebd4ca8e3a9",
+      "sha256": "b6fe18f49585da58a2fad286990be5610f6ce5539df7fa39c5a55968cd6879a0",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -218102,11 +218102,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 476,
+        "end_line": 511,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WWLib/src/wwfont.rs",
-      "sha256": "e2c2d41c346636b9f20b23f34d6e1c58d6be95d679230bb3911b26471b1a1902",
+      "sha256": "92089d8a77ec27fbde79a7da9bda4dfba3b11a106b99a8139478d679823119a8",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

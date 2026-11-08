@@ -67,13 +67,11 @@
 //!     // Initialize the audio system
 //!     let mut audio_system = AudioSystem::new().await?;
 //!     
-//!     // Open the default audio device
-//!     let device = audio_system.open_device(None).await?;
-//!     
-//!     // Load a sound effect from file
+//!     // Load a sound effect before borrowing the system for a device
 //!     let explosion_sound = audio_system.load_source("sounds/explosion.wav").await?;
-//!     
-//!     // Create a channel and play the sound
+//!
+//!     // Open the default audio device and create a channel
+//!     let mut device = audio_system.open_device(None).await?;
 //!     let mut channel = device.create_channel(Priority::High)?;
 //!     channel.play_source(explosion_sound, false)?;
 //!     

@@ -188,10 +188,6 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/Libraries/Source/Compression/EAC/src/gimex.rs": {
-      "constructs": 4,
-      "undocumented": 0
-    },
     "Code/Libraries/Source/Compression/EAC/src/streaming.rs": {
       "constructs": 2,
       "undocumented": 0
@@ -280,10 +276,6 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/Libraries/Source/WWVegas/WWAudio/src/aud_source.rs": {
-      "constructs": 5,
-      "undocumented": 0
-    },
     "Code/Libraries/Source/WWVegas/WWAudio/src/aud_time.rs": {
       "constructs": 1,
       "undocumented": 0
@@ -292,16 +284,8 @@
       "constructs": 4,
       "undocumented": 0
     },
-    "Code/Libraries/Source/WWVegas/WWAudio/src/device.rs": {
-      "constructs": 3,
-      "undocumented": 0
-    },
     "Code/Libraries/Source/WWVegas/WWAudio/src/memory.rs": {
       "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWAudio/src/wwaudio.rs": {
-      "constructs": 1,
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WWDebug/src/debug_io_net.rs": {
@@ -382,10 +366,6 @@
     },
     "Code/Libraries/Source/WWVegas/WWLib/src/win.rs": {
       "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/Libraries/Source/WWVegas/WWLib/src/wwfont.rs": {
-      "constructs": 5,
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WWSaveLoad/src/pointerremap.rs": {

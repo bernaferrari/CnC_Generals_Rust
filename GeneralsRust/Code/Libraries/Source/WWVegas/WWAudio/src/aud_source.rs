@@ -206,10 +206,8 @@ pub enum CompressionData {
 pub struct AudioFrame {
     /// Size of the frame data in bytes
     pub bytes: u32,
-    /// Pointer to the frame data
+    /// Owned frame data
     pub data: Vec<u8>,
-    /// Reference to parent sample
-    pub sample: Option<*mut AudioSample>,
     /// List node for linking frames
     pub node: ListNode,
 }
@@ -231,27 +229,6 @@ pub struct AudioSample {
     #[cfg(debug_assertions)]
     pub name: String,
 }
-
-// SAFETY: AudioFrame contains only owned data (`Vec<u8>`, `u32`) plus an
-// `Option<*mut AudioSample>` back-pointer and a ListNode; the raw pointer is a
-// non-owning back-reference to the parent sample that stays alive while the
-// frame is queued in that sample's `frames` list, so moving/sharing the frame
-// across threads cannot race: mutation goes through the owning thread's queue.
-unsafe impl Send for AudioFrame {}
-// SAFETY: See Send impl above — all shared access to AudioFrame contents is
-// serialized through the parent sample's frame list; no interior mutability
-// beyond the raw back-pointer, which is only read, never written.
-unsafe impl Sync for AudioFrame {}
-
-// SAFETY: AudioSample owns its buffers outright (`Vec<u8>` data, boxed
-// format, LinkedList<AudioFrame>); the only cross-thread sharing is via
-// Arc-style ownership transfers, so it is safe to move between threads.
-unsafe impl Send for AudioSample {}
-// SAFETY: All fields of AudioSample are owned or behind internal list-node
-// links; concurrent access is mediated by the audio service thread that owns
-// the sample during mixing, so shared references expose no racy interior
-// mutability.
-unsafe impl Sync for AudioSample {}
 
 /// MS-ADPCM standard coefficients table
 pub const MSADPCM_STD_COEF: [[i16; 2]; 7] = [
@@ -423,7 +400,6 @@ impl AudioFrame {
         Self {
             bytes,
             data,
-            sample: None,
             node: ListNode::new(),
         }
     }
@@ -1010,18 +986,11 @@ impl AudioSourceLoader {
 
                     let mut samples: Vec<i16> = Vec::new();
                     decoded.copy_to_vec_interleaved::<i16>(&mut samples);
+                    audio_data.reserve(samples.len() * std::mem::size_of::<i16>());
 
-                    // SAFETY: Reinterprets the live Vec<i16> contents as bytes:
-                    // pointer and exact len*size_of::<i16>() byte length are in
-                    // bounds and fully initialized, the data is only read, and
-                    // [u8] has no alignment/bit-pattern requirements.
-                    let slice = unsafe {
-                        std::slice::from_raw_parts(
-                            samples.as_ptr() as *const u8,
-                            samples.len() * std::mem::size_of::<i16>(),
-                        )
-                    };
-                    audio_data.extend_from_slice(slice);
+                    for sample in samples {
+                        audio_data.extend_from_slice(&sample.to_ne_bytes());
+                    }
                 }
                 Err(symphonia::core::errors::Error::DecodeError(_)) => continue,
                 Err(e) => {

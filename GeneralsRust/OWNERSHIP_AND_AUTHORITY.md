@@ -11,6 +11,9 @@ instance's initialization from skipping a peer, but the ambient audio and
 live-client movie access paths still require explicit owner migration.
 Client reset and destruction borrow the receiving client's light state directly;
 ray and tracer cleanup still uses live-slot-gated global streams.
+WWAudio device channel creation exclusively borrows its AudioSystem instead of
+retaining a raw parent pointer; the streamer retains the resulting channel,
+not the system borrow. Native-endian decoded PCM bytes remain unchanged.
 
 The legacy byte pool checks allocation-size arithmetic and tracks live slots
 before freeing them. Its address-only interface still cannot distinguish a

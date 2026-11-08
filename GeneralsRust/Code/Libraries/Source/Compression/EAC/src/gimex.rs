@@ -189,97 +189,107 @@ pub struct GFUNCTIONS {
 pub const GIMEX_FRAMECOUNT: bool = true;
 pub const GIMEX_NOFRAMECOUNT: bool = false;
 
+/// Reads 1–4 big-endian bytes. Returns `None` for an invalid width or a short slice.
 #[inline]
-pub fn ggetm(src: *const u8, bytes: usize) -> u32 {
-    // SAFETY: callers pass `src` into an in-memory buffer with at least `bytes` (<= 4) valid
-    // bytes, matching the GIMEX ggetm contract; reads are byte-wise through add() so no
-    // alignment is required and u8 dereferences are always unaligned-safe.
-    unsafe {
-        match bytes {
-            1 => *src as u32,
-            2 => ((*src as u32) << 8) | (*src.add(1) as u32),
-            3 => ((*src as u32) << 16) | ((*src.add(1) as u32) << 8) | (*src.add(2) as u32),
-            4 => {
-                ((*src as u32) << 24)
-                    | ((*src.add(1) as u32) << 16)
-                    | ((*src.add(2) as u32) << 8)
-                    | (*src.add(3) as u32)
-            }
-            _ => 0,
-        }
+pub fn ggetm(src: &[u8], bytes: usize) -> Option<u32> {
+    if !(1..=4).contains(&bytes) {
+        return None;
     }
+    let src = src.get(..bytes)?;
+    let mut value = [0; 4];
+    value[4 - bytes..].copy_from_slice(src);
+    Some(u32::from_be_bytes(value))
 }
 
+/// Reads 1–4 little-endian bytes. Returns `None` for an invalid width or a short slice.
 #[inline]
-pub fn ggeti(src: *const u8, bytes: usize) -> u32 {
-    // SAFETY: same contract as ggetm: `src` points at a buffer holding at least `bytes`
-    // (<= 4) readable bytes; only u8-sized reads occur so alignment is not required.
-    unsafe {
-        match bytes {
-            1 => *src as u32,
-            2 => (*src as u32) | ((*src.add(1) as u32) << 8),
-            3 => (*src as u32) | ((*src.add(1) as u32) << 8) | ((*src.add(2) as u32) << 16),
-            4 => {
-                (*src as u32)
-                    | ((*src.add(1) as u32) << 8)
-                    | ((*src.add(2) as u32) << 16)
-                    | ((*src.add(3) as u32) << 24)
-            }
-            _ => 0,
-        }
+pub fn ggeti(src: &[u8], bytes: usize) -> Option<u32> {
+    if !(1..=4).contains(&bytes) {
+        return None;
     }
+    let src = src.get(..bytes)?;
+    let mut value = [0; 4];
+    value[..bytes].copy_from_slice(src);
+    Some(u32::from_le_bytes(value))
 }
 
+/// Writes the low 1–4 bytes in big-endian order.
+/// Returns `false` without modifying the slice for an invalid width or a short slice.
 #[inline]
-pub fn gputm(dst: *mut u8, data: u32, bytes: usize) {
-    // SAFETY: per the GIMEX gputm contract, `dst` must be writable for at least `bytes`
-    // (<= 4) bytes; writes go one u8 at a time via add(), so alignment is irrelevant.
-    unsafe {
-        match bytes {
-            1 => *dst = data as u8,
-            2 => {
-                *dst = (data >> 8) as u8;
-                *dst.add(1) = data as u8;
-            }
-            3 => {
-                *dst = (data >> 16) as u8;
-                *dst.add(1) = (data >> 8) as u8;
-                *dst.add(2) = data as u8;
-            }
-            4 => {
-                *dst = (data >> 24) as u8;
-                *dst.add(1) = (data >> 16) as u8;
-                *dst.add(2) = (data >> 8) as u8;
-                *dst.add(3) = data as u8;
-            }
-            _ => {}
-        }
+pub fn gputm(dst: &mut [u8], data: u32, bytes: usize) -> bool {
+    if !(1..=4).contains(&bytes) {
+        return false;
     }
+    let Some(dst) = dst.get_mut(..bytes) else {
+        return false;
+    };
+    dst.copy_from_slice(&data.to_be_bytes()[4 - bytes..]);
+    true
 }
 
+/// Writes the low 1–4 bytes in little-endian order.
+/// Returns `false` without modifying the slice for an invalid width or a short slice.
 #[inline]
-pub fn gputi(dst: *mut u8, data: u32, bytes: usize) {
-    // SAFETY: per the GIMEX gputi contract, `dst` must be writable for at least `bytes`
-    // (<= 4) bytes; writes go one u8 at a time via add(), so alignment is irrelevant.
-    unsafe {
-        match bytes {
-            1 => *dst = data as u8,
-            2 => {
-                *dst = data as u8;
-                *dst.add(1) = (data >> 8) as u8;
+pub fn gputi(dst: &mut [u8], data: u32, bytes: usize) -> bool {
+    if !(1..=4).contains(&bytes) {
+        return false;
+    }
+    let Some(dst) = dst.get_mut(..bytes) else {
+        return false;
+    };
+    dst.copy_from_slice(&data.to_le_bytes()[..bytes]);
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ggeti, ggetm, gputi, gputm};
+
+    #[test]
+    fn endian_operations_cover_all_widths() {
+        let big = [0x12, 0x34, 0x56, 0x78, 0xaa];
+        let little = [0x78, 0x56, 0x34, 0x12, 0xaa];
+        let big_values = [0x12, 0x1234, 0x123456, 0x12345678];
+        let little_values = [0x78, 0x5678, 0x345678, 0x12345678];
+        for bytes in 1..=4 {
+            assert_eq!(ggetm(&big, bytes), Some(big_values[bytes - 1]));
+            assert_eq!(ggeti(&little, bytes), Some(little_values[bytes - 1]));
+            let mut out = [0xaa; 5];
+            assert!(gputm(&mut out, big_values[bytes - 1], bytes));
+            assert_eq!(&out[..bytes], &big[..bytes]);
+            assert!(out[bytes..].iter().all(|&b| b == 0xaa));
+            let mut out = [0xaa; 5];
+            assert!(gputi(&mut out, little_values[bytes - 1], bytes));
+            assert_eq!(&out[..bytes], &little[..bytes]);
+            assert!(out[bytes..].iter().all(|&b| b == 0xaa));
+        }
+    }
+
+    #[test]
+    fn writes_truncate_high_bytes() {
+        let mut out = [0; 3];
+        assert!(gputm(&mut out, 0x12345678, 3));
+        assert_eq!(out, [0x34, 0x56, 0x78]);
+        assert!(gputi(&mut out, 0x12345678, 3));
+        assert_eq!(out, [0x78, 0x56, 0x34]);
+    }
+
+    #[test]
+    fn invalid_widths_and_short_buffers_are_rejected_without_writes() {
+        for bytes in [0, 1, 2, 3, 4, 5, usize::MAX] {
+            for len in 0..=4 {
+                if (1..=4).contains(&bytes) && len >= bytes {
+                    continue;
+                }
+                let src = [0x12; 4];
+                assert_eq!(ggetm(&src[..len], bytes), None);
+                assert_eq!(ggeti(&src[..len], bytes), None);
+                let mut dst = [0xaa; 4];
+                assert!(!gputm(&mut dst[..len], u32::MAX, bytes));
+                assert_eq!(dst, [0xaa; 4]);
+                assert!(!gputi(&mut dst[..len], u32::MAX, bytes));
+                assert_eq!(dst, [0xaa; 4]);
             }
-            3 => {
-                *dst = data as u8;
-                *dst.add(1) = (data >> 8) as u8;
-                *dst.add(2) = (data >> 16) as u8;
-            }
-            4 => {
-                *dst = data as u8;
-                *dst.add(1) = (data >> 8) as u8;
-                *dst.add(2) = (data >> 16) as u8;
-                *dst.add(3) = (data >> 24) as u8;
-            }
-            _ => {}
         }
     }
 }
